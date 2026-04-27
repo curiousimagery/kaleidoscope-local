@@ -12,7 +12,7 @@ He prefers **no em dashes** in his own writing; respect that in any prose Claude
 
 ## current version
 
-`v0.2.0 · Build 24`. The footer in the running app shows this string from `src/version.js`. When delivering a new build, increment BUILD by 1 and bump VERSION when meaningful change ships. **BUILD never resets** on version bumps — it's a global monotonic counter (see `version.js` comment).
+`v0.2.0 · Build 29`. The footer in the running app shows this string from `src/version.js`. When delivering a new build, increment BUILD by 1 and bump VERSION when meaningful change ships. **BUILD never resets** on version bumps — it's a global monotonic counter (see `version.js` comment).
 
 ## what's working
 
@@ -30,8 +30,9 @@ Read `ARCHITECTURE.md` if you need details on the registry, shader composition, 
 
 Build 24 adds session undo/redo: 100-step two-stack history, Cmd+Z / Cmd+Shift+Z shortcuts, and a touch-reachable undo/redo button pair at the bottom of the preview area. Capture points: overlay drags (all modes + pinch), slider mousedown, scrub field drag start, form switch, OOB mode change, preview canvas pinch start.
 
-Queued for the next session:
-- Minimal persistent touch affordances (outer-edge scale arrow, rotation arc, rectangle corner marks) -- next feature in the current session
+Builds 24-29 add: session undo/redo (Build 24), iOS safe area fixes for iPad layout (Builds 25-28), and persistent touch affordances (Build 29).
+
+Next: consider fine-tuning affordance sizes/positions after iPad QA, then move to next backlog item (new forms or motion shell).
 
 ## decisions locked in
 

@@ -217,8 +217,117 @@ export function drawSourceOverlay(env) {
   ctx.arc(cxPx, cyPx, 3, 0, Math.PI * 2);
   ctx.fill();
 
+  // Touch-only persistent affordances — drawn at ~60% opacity, fading to ~25%
+  // during active drag so they don't compete with the active-state stroke highlights.
+  if (IS_TOUCH) {
+    drawTouchAffordances(ctx, screenPts, cxPx, cyPx, outerEdges, spokeEdges, form, !!env.overlayDragging);
+  }
+
   // store geometry for hit testing
   canvas._geom = { imgX, imgY, imgW, imgH, screenPts, cx: cxPx, cy: cyPx };
+}
+
+// Draw three persistent touch affordances. Called only on touch surfaces.
+// opacity: 0.55 at rest, 0.25 during active drag.
+function drawTouchAffordances(ctx, screenPts, cx, cy, outerEdges, spokeEdges, form, isDragging) {
+  const op = isDragging ? 0.25 : 0.55;
+  const SPOKE_EPS = 2;
+  ctx.save();
+  ctx.lineCap = 'round';
+
+  // 1. Scale arrow — bidirectional, perpendicular to the outermost edge midpoint.
+  //    Signals that the outer boundary is draggable for scale.
+  let bestMid = null;
+  for (const edge of outerEdges) {
+    const mx = (edge.a.x + edge.b.x) / 2;
+    const my = (edge.a.y + edge.b.y) / 2;
+    const d = Math.hypot(mx - cx, my - cy);
+    if (!bestMid || d > bestMid.d) {
+      const ex = edge.b.x - edge.a.x, ey = edge.b.y - edge.a.y;
+      let nx = -ey, ny = ex;
+      const nl = Math.hypot(nx, ny) || 1;
+      nx /= nl; ny /= nl;
+      if ((mx - cx) * nx + (my - cy) * ny < 0) { nx = -nx; ny = -ny; }
+      bestMid = { mx, my, nx, ny, d };
+    }
+  }
+  if (bestMid) {
+    const { mx, my, nx, ny } = bestMid;
+    const HALF = 7, HEAD = 4;
+    ctx.strokeStyle = `rgba(255,255,255,${op})`;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(mx - nx * HALF, my - ny * HALF);
+    ctx.lineTo(mx + nx * HALF, my + ny * HALF);
+    ctx.stroke();
+    for (const [tx, ty, dx, dy] of [
+      [mx + nx * HALF, my + ny * HALF,  nx,  ny],
+      [mx - nx * HALF, my - ny * HALF, -nx, -ny],
+    ]) {
+      const a = Math.atan2(dy, dx);
+      ctx.beginPath();
+      ctx.moveTo(tx, ty);
+      ctx.lineTo(tx + Math.cos(a + 2.6) * HEAD, ty + Math.sin(a + 2.6) * HEAD);
+      ctx.moveTo(tx, ty);
+      ctx.lineTo(tx + Math.cos(a - 2.6) * HEAD, ty + Math.sin(a - 2.6) * HEAD);
+      ctx.stroke();
+    }
+  }
+
+  // 2. Rotation arc — short curved arc with arrowhead just outside the outermost corner.
+  //    Signals that the area outside the polygon boundary is the rotate zone.
+  let outerCorner = null;
+  for (const p of screenPts) {
+    const d = Math.hypot(p.x - cx, p.y - cy);
+    if (d < SPOKE_EPS) continue;
+    if (!outerCorner || d > outerCorner.d) outerCorner = { x: p.x, y: p.y, d };
+  }
+  if (outerCorner) {
+    const cAngle = Math.atan2(outerCorner.y - cy, outerCorner.x - cx);
+    const arcR   = outerCorner.d + 10;
+    const HSPAN  = 11 * Math.PI / 180;   // half of 22° total arc
+    const HEAD   = 4;
+    ctx.strokeStyle = `rgba(255,255,255,${op})`;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.arc(cx, cy, arcR, cAngle - HSPAN, cAngle + HSPAN, false);
+    ctx.stroke();
+    // arrowhead tangent to the arc's leading edge
+    const endAngle = cAngle + HSPAN;
+    const endX = cx + arcR * Math.cos(endAngle);
+    const endY = cy + arcR * Math.sin(endAngle);
+    const tangent = endAngle + Math.PI / 2;
+    ctx.beginPath();
+    ctx.moveTo(endX, endY);
+    ctx.lineTo(endX + Math.cos(tangent + 2.6) * HEAD, endY + Math.sin(tangent + 2.6) * HEAD);
+    ctx.moveTo(endX, endY);
+    ctx.lineTo(endX + Math.cos(tangent - 2.6) * HEAD, endY + Math.sin(tangent - 2.6) * HEAD);
+    ctx.stroke();
+  }
+
+  // 3. Spoke double-line — radial form only. Two thin parallel lines along one spoke
+  //    hint that dragging near the spoke edge adjusts segment count.
+  if (form.spokeRule === 'radial' && spokeEdges.length > 0) {
+    const spk = spokeEdges[0];
+    const aIsCenter = Math.hypot(spk.a.x - cx, spk.a.y - cy) < SPOKE_EPS;
+    const origin = aIsCenter ? spk.a : spk.b;
+    const tip    = aIsCenter ? spk.b : spk.a;
+    const sx = tip.x - origin.x, sy = tip.y - origin.y;
+    const slen = Math.hypot(sx, sy) || 1;
+    const ux = sx / slen, uy = sy / slen;
+    const px = -uy, py = ux;
+    const GAP = 2.5, t0 = slen * 0.2, t1 = slen * 0.68;
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = `rgba(255,255,255,${op * 0.7})`;
+    for (const sign of [-1, 1]) {
+      ctx.beginPath();
+      ctx.moveTo(origin.x + ux * t0 + px * GAP * sign, origin.y + uy * t0 + py * GAP * sign);
+      ctx.lineTo(origin.x + ux * t1 + px * GAP * sign, origin.y + uy * t1 + py * GAP * sign);
+      ctx.stroke();
+    }
+  }
+
+  ctx.restore();
 }
 
 // ===========================================================================
@@ -605,6 +714,7 @@ export function setupSourceInteraction(env, wrap) {
     if (e.touches?.length === 2) {
       const t0 = e.touches[0], t1 = e.touches[1];
       const rect = wrap.getBoundingClientRect();
+      env.overlayDragging = true;
       drag = {
         mode: 'pinch',
         startDist:     Math.hypot(t1.clientX - t0.clientX, t1.clientY - t0.clientY),
@@ -624,6 +734,7 @@ export function setupSourceInteraction(env, wrap) {
     const cls = classifyPointer(env, x, y, isTouch);
     if (!cls.mode) return;
 
+    env.overlayDragging = true;
     const g = env.sourceOverlayCanvas._geom;
     const { state } = env;
     const form = getActiveForm(state);
@@ -692,6 +803,7 @@ export function setupSourceInteraction(env, wrap) {
   function onUp() {
     if (!drag) return;
     drag = null;
+    env.overlayDragging = false;
     setCursor('default');
     env.updateUndoUI?.();
   }
