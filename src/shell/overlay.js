@@ -472,14 +472,26 @@ export function setupSourceInteraction(env, wrap) {
       state.sliceScale    = Math.max(0.05, Math.min(10, drag.startScale * (dist / drag.startDist)));
       let da = (angle - drag.startAngle) * 180 / Math.PI;
       state.sliceRotation = ((drag.startRotation + da) % 360 + 360) % 360;
-      // Midpoint movement repositions the slice center.
+      // Rotate the apex around the finger midpoint — the standard two-finger
+      // rigid-body transform. This keeps the midpoint as the true pivot so the
+      // wedge tracks naturally under the fingers. Without this, rotation orbits
+      // the apex (the wedge tip), which feels disconnected from where you're
+      // actually touching.
       const g = env.sourceOverlayCanvas?._geom;
-      if (g) {
+      if (g && drag.startPivotUV) {
         const rect = wrap.getBoundingClientRect();
         const midX = (t0.clientX + t1.clientX) / 2 - rect.left;
         const midY = (t0.clientY + t1.clientY) / 2 - rect.top;
-        state.sliceCx = Math.max(0, Math.min(1, drag.startCx + (midX - drag.startMidX) / g.imgW));
-        state.sliceCy = Math.max(0, Math.min(1, drag.startCy + (midY - drag.startMidY) / g.imgH));
+        const curMid = uvFromXY(midX, midY);
+        if (curMid) {
+          const da_rad = da * Math.PI / 180;
+          const cosA = Math.cos(da_rad);
+          const sinA = Math.sin(da_rad);
+          const dx = drag.startCx - drag.startPivotUV.u;
+          const dy = drag.startCy - drag.startPivotUV.v;
+          state.sliceCx = Math.max(0, Math.min(1, curMid.u + dx * cosA - dy * sinA));
+          state.sliceCy = Math.max(0, Math.min(1, curMid.v + dx * sinA + dy * cosA));
+        }
       }
       env.syncControls();
       env.scheduleRender();
@@ -598,10 +610,10 @@ export function setupSourceInteraction(env, wrap) {
         startAngle:    Math.atan2(t1.clientY - t0.clientY, t1.clientX - t0.clientX),
         startScale:    env.state.sliceScale,
         startRotation: env.state.sliceRotation,
-        startMidX:     (t0.clientX + t1.clientX) / 2 - rect.left,
-        startMidY:     (t0.clientY + t1.clientY) / 2 - rect.top,
         startCx:       env.state.sliceCx,
         startCy:       env.state.sliceCy,
+        startPivotUV:  uvFromXY((t0.clientX + t1.clientX) / 2 - rect.left,
+                                (t0.clientY + t1.clientY) / 2 - rect.top),
       };
       e.preventDefault();
       return;
