@@ -72,7 +72,7 @@ body { display: flex; height: 100vh; overflow: hidden; }
 /* undo / redo bar — absolutely positioned at bottom-center of the main slot */
 .undo-bar {
   position: absolute;
-  bottom: 12px;
+  bottom: 24px;
   left: 50%;
   transform: translateX(-50%);
   display: flex;
