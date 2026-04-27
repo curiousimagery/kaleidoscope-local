@@ -598,6 +598,7 @@ export function setupSourceInteraction(env, wrap) {
 
   function onDown(e) {
     if (!env.engine.getSourceImage()) return;
+    env.pushHistory?.();
     const isTouch = !!e.touches;
 
     // two-finger touch: enter pinch mode regardless of hit zone.
@@ -692,6 +693,7 @@ export function setupSourceInteraction(env, wrap) {
     if (!drag) return;
     drag = null;
     setCursor('default');
+    env.updateUndoUI?.();
   }
 
   wrap.addEventListener('mousedown', onDown);

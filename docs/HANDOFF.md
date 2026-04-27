@@ -12,13 +12,13 @@ He prefers **no em dashes** in his own writing; respect that in any prose Claude
 
 ## current version
 
-`v0.1.2 · Build 23`. The footer in the running app shows this string from `src/version.js`. When delivering a new build, increment BUILD by 1 and bump VERSION when meaningful change ships. **BUILD never resets** on version bumps — it's a global monotonic counter (see `version.js` comment).
+`v0.2.0 · Build 24`. The footer in the running app shows this string from `src/version.js`. When delivering a new build, increment BUILD by 1 and bump VERSION when meaningful change ships. **BUILD never resets** on version bumps — it's a global monotonic counter (see `version.js` comment).
 
 ## what's working
 
 The full kaleidoscope app is functional and tested. Three forms (radial, square, hex), full slice + canvas controls, direct manipulation on the source overlay, export at 1K through GPU-max, all OOB modes, drag/swap/divider, scrub fields with pointer lock, slider sync.
 
-Daniel has tested Build 19 and reports core functionality "all working great." Build 20 added docs and license. Builds 21-23 are an iPad touch pass: divider touch + wider hit target, coarse-pointer slider thumb sizing, overlay grip-line affordance removed, overlay two-finger pinch for slice scale + rotation + repositioning (midpoint of fingers drives position), preview canvas two-finger pinch for canvas zoom + rotation, canvas zoom min lowered to 0.15, GPU FBO size probe with 2D canvas encoding check (fixes export failures on iPad).
+Daniel has tested Build 19 and reports core functionality "all working great." Build 20 added docs and license. Builds 21-23 are an iPad touch pass. Build 24 adds session undo/redo: divider touch + wider hit target, coarse-pointer slider thumb sizing, overlay grip-line affordance removed, overlay two-finger pinch for slice scale + rotation + repositioning (midpoint of fingers drives position), preview canvas two-finger pinch for canvas zoom + rotation, canvas zoom min lowered to 0.15, GPU FBO size probe with 2D canvas encoding check (fixes export failures on iPad).
 
 ## current state of the architecture
 
@@ -28,12 +28,10 @@ Read `ARCHITECTURE.md` if you need details on the registry, shader composition, 
 
 ## what we're doing right now
 
-Build 23 fixes the pinch gesture pivot. The rotation-around-pivot transform now correctly orbits the slice apex around the finger midpoint (rigid-body two-finger transform) rather than independently translating and rotating. This makes the wedge track naturally under the fingers during combined scale + rotate + move gestures.
+Build 24 adds session undo/redo: 100-step two-stack history, Cmd+Z / Cmd+Shift+Z shortcuts, and a touch-reachable undo/redo button pair at the bottom of the preview area. Capture points: overlay drags (all modes + pinch), slider mousedown, scrub field drag start, form switch, OOB mode change, preview canvas pinch start.
 
 Queued for the next session:
-- Undo/redo (session history stack, Cmd+Z, touch buttons near the preview)
-- Minimal persistent touch affordances (outer-edge scale arrow, rotation arc, rectangle corner marks)
-- Verify export behavior on more devices if available
+- Minimal persistent touch affordances (outer-edge scale arrow, rotation arc, rectangle corner marks) -- next feature in the current session
 
 ## decisions locked in
 

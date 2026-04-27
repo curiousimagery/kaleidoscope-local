@@ -28,6 +28,7 @@ import {
   makeControlsSync,
 } from './shell/controls.js';
 import { formatVersion } from './version.js';
+import { push as historyPush, undo as historyUndo, redo as historyRedo, canUndo, canRedo } from './shell/history.js';
 
 // ============================================================================
 // version footer
@@ -99,6 +100,8 @@ const env = {
   applyFormControls: () => applyFormControls(env),
   resizePreviewCanvas: null,
   arrangeSlots: null,
+  pushHistory: () => historyPush({ ...state }),
+  updateUndoUI: null,  // assigned after setupUndoBar
 };
 
 // ============================================================================
@@ -457,9 +460,11 @@ function wireControls() {
   // OOB modes
   document.querySelectorAll('#oobModes button').forEach(btn => {
     btn.addEventListener('click', () => {
+      env.pushHistory();
       state.oobMode = parseInt(btn.dataset.oob);
       document.querySelectorAll('#oobModes button').forEach(b => b.classList.toggle('active', b === btn));
       scheduleRender();
+      updateUndoUI();
     });
   });
 
@@ -520,6 +525,7 @@ function setupPreviewGestures(env) {
 
   canvas.addEventListener('touchstart', e => {
     if (e.touches.length === 2) {
+      env.pushHistory();
       const t0 = e.touches[0], t1 = e.touches[1];
       pinch = {
         startDist:     Math.hypot(t1.clientX - t0.clientX, t1.clientY - t0.clientY),
@@ -545,9 +551,69 @@ function setupPreviewGestures(env) {
   }, { passive: false });
 
   canvas.addEventListener('touchend', e => {
-    if (e.touches.length < 2) pinch = null;
+    if (e.touches.length < 2) { pinch = null; updateUndoUI(); }
   });
 }
+
+// ============================================================================
+// undo / redo UI
+// ============================================================================
+
+function updateUndoUI() {
+  const undoBtn = document.getElementById('undoBtn');
+  const redoBtn = document.getElementById('redoBtn');
+  if (!undoBtn || !redoBtn) return;
+  undoBtn.disabled = !canUndo();
+  redoBtn.disabled = !canRedo();
+}
+
+function setupUndoBar() {
+  env.updateUndoUI = updateUndoUI;
+  const bar = document.createElement('div');
+  bar.id = 'undoBar';
+  bar.className = 'undo-bar';
+  bar.innerHTML =
+    '<button id="undoBtn" class="undo-btn" disabled title="Undo (Cmd+Z)">&#8592;</button>' +
+    '<button id="redoBtn" class="undo-btn" disabled title="Redo (Cmd+Shift+Z)">&#8594;</button>';
+  mainSlot.appendChild(bar);
+
+  document.getElementById('undoBtn').addEventListener('click', () => {
+    if (historyUndo(state)) {
+      env.syncControls();
+      env.scheduleRender();
+      env.scheduleOverlayDraw();
+      updateUndoUI();
+    }
+  });
+  document.getElementById('redoBtn').addEventListener('click', () => {
+    if (historyRedo(state)) {
+      env.syncControls();
+      env.scheduleRender();
+      env.scheduleOverlayDraw();
+      updateUndoUI();
+    }
+  });
+}
+
+window.addEventListener('keydown', e => {
+  if (e.metaKey && e.key === 'z' && !e.shiftKey) {
+    e.preventDefault();
+    if (historyUndo(state)) {
+      env.syncControls();
+      env.scheduleRender();
+      env.scheduleOverlayDraw();
+      updateUndoUI();
+    }
+  } else if (e.metaKey && e.key === 'z' && e.shiftKey) {
+    e.preventDefault();
+    if (historyRedo(state)) {
+      env.syncControls();
+      env.scheduleRender();
+      env.scheduleOverlayDraw();
+      updateUndoUI();
+    }
+  }
+});
 
 // ============================================================================
 // init
@@ -559,6 +625,7 @@ if (engine) {
   wireControls();
   setupDivider(env);
   setupPreviewGestures(env);
+  setupUndoBar();
 
   window.addEventListener('resize', () => {
     resizePreviewCanvas();

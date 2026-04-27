@@ -36,6 +36,8 @@ export function makeScrubField(el, opts) {
     format = (n) => String(n),
     parse = (s) => { const n = parseFloat(s); return isNaN(n) ? null : n; },
     onChange = () => {},
+    onStart = null,   // optional: called once at the start of each drag/edit
+    onEnd   = null,   // optional: called when the drag/edit completes
   } = opts;
 
   const sync = () => {
@@ -80,6 +82,7 @@ export function makeScrubField(el, opts) {
 
   function onPointerDown(e) {
     if (el._editing) return;
+    onStart?.();
     const isTouch = !!e.touches;
     if (isTouch) {
       dragState = { isTouch: true, startVal: get(), startX: e.touches[0].clientX, moved: false };
@@ -124,6 +127,7 @@ export function makeScrubField(el, opts) {
 
   function onPointerUp() {
     endDrag(true);
+    onEnd?.();
   }
 
   function onPointerLockChange() {
@@ -238,11 +242,18 @@ export function wireSliderWithScrub(env, sliderId, valId, key, opts) {
     slider.value = sliderVal;
   }
 
+  // Push history at the start of a native-slider drag (fires before any input events).
+  let sliderPushed = false;
+  slider.addEventListener('mousedown', () => { sliderPushed = false; });
   slider.addEventListener('input', () => {
+    if (!sliderPushed) { env.pushHistory?.(); sliderPushed = true; }
     set(parseFloat(slider.value));
     valEl.textContent = fmt(get());
     scheduleRender();
   });
+  slider.addEventListener('touchstart', () => { env.pushHistory?.(); }, { passive: true });
+  slider.addEventListener('mouseup',  () => env.updateUndoUI?.());
+  slider.addEventListener('touchend', () => env.updateUndoUI?.());
 
   makeScrubField(valEl, {
     get, set,
@@ -252,6 +263,8 @@ export function wireSliderWithScrub(env, sliderId, valId, key, opts) {
     wrap,
     format: fmt,
     parse,
+    onStart: () => env.pushHistory?.(),
+    onEnd:   () => env.updateUndoUI?.(),
     onChange: () => {
       const sliderVal = wrap != null ? ((get() % wrap) + wrap) % wrap : get();
       slider.value = sliderVal;
@@ -280,12 +293,14 @@ export function buildFormGrid(env) {
     div.title = form.label;
     div.dataset.formId = form.id;
     div.onclick = () => {
+      env.pushHistory?.();
       env.state.form = form.id;
       grid.querySelectorAll('.form-thumb').forEach(el => {
         el.classList.toggle('active', el.dataset.formId === form.id);
       });
       env.applyFormControls();
       env.scheduleRender();
+      env.updateUndoUI?.();
     };
     grid.appendChild(div);
   });
