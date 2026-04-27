@@ -6,6 +6,10 @@ Living list of things we want to do, in rough priority order within each section
 
 - **"Image too large" error placement.** Currently the GPU-too-large error surfaces in the export-area status pane, far from the upload action. Should appear as a toast near the upload button, or inline directly under it. The engine already throws a descriptive message; this is purely a presentation move.
 
+- **Persistent touch affordances on control points.** Build 21 removed the moving grip-line/dot affordance. Next step: add always-visible indicators to each form's overlay so touch users know what they can grab. Proposed: rotation arrows outside the outer corners, diagonal double-arrows at corners (scale), four-way arrow in center (move), grip texture on outer wedge edge (scale/rotation). This is per-form drawing work in `src/shell/overlay.js` and probably 1-2 sessions to get right across all three forms.
+
+- **WebGL context loss/restore.** Build 21's GPU FBO probe prevents the "framebuffer incomplete" export from triggering a context loss. If a gray screen recurs in any other scenario, add a `webglcontextlost` + `webglcontextrestored` handler pair on the preview canvas to re-init the GL state cleanly.
+
 ## next up — new forms
 
 These all benefit equally from the registry architecture — each is one new file in `src/engine/forms/` plus one line in the registry. Order is rough; pick whichever sounds most fun.
