@@ -411,7 +411,7 @@ function wireControls() {
 
   // composition zoom
   wireSliderWithScrub(env, 'compZoom', 'compZoomVal', 'canvasZoom', {
-    min: 0.25, max: 4, step: 0.01, scrubStep: 0.05,
+    min: 0.15, max: 4, step: 0.01, scrubStep: 0.05,
     fmt: v => v.toFixed(2) + '×',
     parse: s => {
       const cleaned = s.replace(/[×x*]/g, '').trim();
@@ -536,7 +536,7 @@ function setupPreviewGestures(env) {
     const t0 = e.touches[0], t1 = e.touches[1];
     const dist  = Math.hypot(t1.clientX - t0.clientX, t1.clientY - t0.clientY);
     const angle = Math.atan2(t1.clientY - t0.clientY, t1.clientX - t0.clientX);
-    env.state.canvasZoom     = Math.max(0.25, Math.min(4, pinch.startZoom * (dist / pinch.startDist)));
+    env.state.canvasZoom     = Math.max(0.15, Math.min(4, pinch.startZoom * (dist / pinch.startDist)));
     const da                 = (angle - pinch.startAngle) * 180 / Math.PI;
     env.state.canvasRotation = ((pinch.startRotation + da) % 360 + 360) % 360;
     env.syncControls();

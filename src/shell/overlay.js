@@ -463,7 +463,7 @@ export function setupSourceInteraction(env, wrap) {
   function onMove(e) {
     const isTouch = !!e.touches;
 
-    // two-finger pinch: scale + rotate the slice.
+    // two-finger pinch: scale + rotate + reposition the slice.
     if (drag?.mode === 'pinch' && e.touches?.length === 2) {
       const t0 = e.touches[0], t1 = e.touches[1];
       const dist  = Math.hypot(t1.clientX - t0.clientX, t1.clientY - t0.clientY);
@@ -472,6 +472,15 @@ export function setupSourceInteraction(env, wrap) {
       state.sliceScale    = Math.max(0.05, Math.min(10, drag.startScale * (dist / drag.startDist)));
       let da = (angle - drag.startAngle) * 180 / Math.PI;
       state.sliceRotation = ((drag.startRotation + da) % 360 + 360) % 360;
+      // Midpoint movement repositions the slice center.
+      const g = env.sourceOverlayCanvas?._geom;
+      if (g) {
+        const rect = wrap.getBoundingClientRect();
+        const midX = (t0.clientX + t1.clientX) / 2 - rect.left;
+        const midY = (t0.clientY + t1.clientY) / 2 - rect.top;
+        state.sliceCx = Math.max(0, Math.min(1, drag.startCx + (midX - drag.startMidX) / g.imgW));
+        state.sliceCy = Math.max(0, Math.min(1, drag.startCy + (midY - drag.startMidY) / g.imgH));
+      }
       env.syncControls();
       env.scheduleRender();
       env.scheduleOverlayDraw();
@@ -582,12 +591,17 @@ export function setupSourceInteraction(env, wrap) {
     // two-finger touch: enter pinch mode regardless of hit zone.
     if (e.touches?.length === 2) {
       const t0 = e.touches[0], t1 = e.touches[1];
+      const rect = wrap.getBoundingClientRect();
       drag = {
         mode: 'pinch',
         startDist:     Math.hypot(t1.clientX - t0.clientX, t1.clientY - t0.clientY),
         startAngle:    Math.atan2(t1.clientY - t0.clientY, t1.clientX - t0.clientX),
         startScale:    env.state.sliceScale,
         startRotation: env.state.sliceRotation,
+        startMidX:     (t0.clientX + t1.clientX) / 2 - rect.left,
+        startMidY:     (t0.clientY + t1.clientY) / 2 - rect.top,
+        startCx:       env.state.sliceCx,
+        startCy:       env.state.sliceCy,
       };
       e.preventDefault();
       return;

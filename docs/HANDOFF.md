@@ -12,13 +12,13 @@ He prefers **no em dashes** in his own writing; respect that in any prose Claude
 
 ## current version
 
-`v0.1.2 · Build 21`. The footer in the running app shows this string from `src/version.js`. When delivering a new build, increment BUILD by 1 and bump VERSION when meaningful change ships. **BUILD never resets** on version bumps — it's a global monotonic counter (see `version.js` comment).
+`v0.1.2 · Build 22`. The footer in the running app shows this string from `src/version.js`. When delivering a new build, increment BUILD by 1 and bump VERSION when meaningful change ships. **BUILD never resets** on version bumps — it's a global monotonic counter (see `version.js` comment).
 
 ## what's working
 
 The full kaleidoscope app is functional and tested. Three forms (radial, square, hex), full slice + canvas controls, direct manipulation on the source overlay, export at 1K through GPU-max, all OOB modes, drag/swap/divider, scrub fields with pointer lock, slider sync.
 
-Daniel has tested Build 19 and reports core functionality "all working great." Build 20 added docs and license. Build 21 is an iPad touch pass: divider touch + wider hit target, coarse-pointer slider thumb sizing, overlay grip-line affordance removed, overlay two-finger pinch for slice scale + rotation, preview canvas two-finger pinch for canvas zoom + rotation, GPU FBO size probe (fixes "framebuffer incomplete" on iPad export).
+Daniel has tested Build 19 and reports core functionality "all working great." Build 20 added docs and license. Builds 21-22 are an iPad touch pass: divider touch + wider hit target, coarse-pointer slider thumb sizing, overlay grip-line affordance removed, overlay two-finger pinch for slice scale + rotation + repositioning (midpoint of fingers drives position), preview canvas two-finger pinch for canvas zoom + rotation, canvas zoom min lowered to 0.15, GPU FBO size probe with 2D canvas encoding check (fixes export failures on iPad).
 
 ## current state of the architecture
 
@@ -28,14 +28,14 @@ Read `ARCHITECTURE.md` if you need details on the registry, shader composition, 
 
 ## what we're doing right now
 
-Build 21 (iPad touch pass) is complete and ready to push to GitHub + redeploy on Vercel. All of the deploy infrastructure from Build 20 is already in place: the repo is at `https://github.com/curiousimagery/kaleidoscope-local` with `main` tracking `origin/main`.
+Build 22 is the second round of the iPad touch pass. It is committed and pushed to `https://github.com/curiousimagery/kaleidoscope-local`. Vercel should auto-deploy on push.
 
-Next step: commit Build 21, push, let Vercel auto-deploy, then retest on iPad to confirm:
-- Divider drags with a finger
-- Sliders have a comfortable thumb size
-- Overlay two-finger pinch scales and rotates the slice
-- Preview two-finger pinch zooms and rotates the canvas
-- Max export succeeds without framebuffer error or gray screen
+Pending verification on iPad:
+- Max export resolves to a supported size (8192 or lower) without "export failed" error
+- Overlay two-finger pinch repositions the slice center in addition to scaling and rotating
+- Canvas zoom slider goes down to 0.15 (wider zoom-out range)
+
+If the export still fails after Build 22, the next step is to add a retry-at-half-size fallback in `doExport` (main.js) as a safety net for the case where the 2D canvas `toBlob` fails despite the probe passing.
 
 ## decisions locked in
 

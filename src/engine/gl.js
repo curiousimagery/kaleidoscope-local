@@ -71,25 +71,68 @@ export function createGLContext(canvas) {
   };
 }
 
-// Probe the actual largest square FBO that the driver can complete. This is
-// needed because some GPUs (e.g. M1 iPad Pro) report MAX_TEXTURE_SIZE = 16384
-// but cannot actually allocate a 16384x16384 FBO, causing "framebuffer
-// incomplete" errors and sometimes a context loss on export.
+// Probe the actual largest square export size the full pipeline can handle.
+// Two separate limits can bite us independently:
+//
+//   GPU side: driver may report MAX_TEXTURE_SIZE = 16384 but refuse to commit
+//   GPU memory when we actually render to and read from the FBO (lazy alloc).
+//   Caught by: clear + single-pixel readPixels + gl.getError().
+//
+//   CPU side: Safari/WebKit limits the canvas size that toBlob() can encode.
+//   A canvas may be created and drawn into at full size, but toBlob returns
+//   null if the browser's internal encoder can't handle that many pixels.
+//   Caught by: create a canvas at this size, write one pixel, read it back.
+//   If the browser silently clips or returns a null context, the pixel won't
+//   round-trip correctly, revealing the limit.
 function probeMaxFBOSize(gl, maxTextureSize) {
   for (const size of [16384, 8192, 4096, 2048]) {
     if (size > maxTextureSize) continue;
+
+    // — GPU path —
     const tex = gl.createTexture();
     gl.bindTexture(gl.TEXTURE_2D, tex);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, size, size, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+    const texErr = gl.getError();
+
     const fb = gl.createFramebuffer();
     gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
     gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
-    const ok = gl.checkFramebufferStatus(gl.FRAMEBUFFER) === gl.FRAMEBUFFER_COMPLETE;
+    let gpuOk = (texErr === gl.NO_ERROR) &&
+                (gl.checkFramebufferStatus(gl.FRAMEBUFFER) === gl.FRAMEBUFFER_COMPLETE);
+    if (gpuOk) {
+      // Force the driver to commit memory and verify the read-back pipeline.
+      gl.viewport(0, 0, size, size);
+      gl.clearColor(0, 0, 0, 0);
+      gl.clear(gl.COLOR_BUFFER_BIT);
+      const px = new Uint8Array(4);
+      gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
+      gpuOk = gl.getError() === gl.NO_ERROR;
+    }
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     gl.deleteFramebuffer(fb);
     gl.bindTexture(gl.TEXTURE_2D, null);
     gl.deleteTexture(tex);
-    if (ok) return size;
+    if (!gpuOk) continue;
+
+    // — CPU / canvas path —
+    // Verify that a 2D canvas at this size can actually round-trip pixel data,
+    // which is required for the putImageData + toBlob encoding step.
+    let canvasOk = false;
+    try {
+      const c = document.createElement('canvas');
+      c.width = size;
+      c.height = size;
+      const ctx2d = c.getContext('2d');
+      if (ctx2d) {
+        ctx2d.fillStyle = 'rgba(127, 0, 0, 255)';
+        ctx2d.fillRect(0, 0, 1, 1);
+        const sample = ctx2d.getImageData(0, 0, 1, 1);
+        // If the canvas is too large for this platform the fill silently fails
+        // and the pixel comes back as zero.
+        canvasOk = sample?.data[0] > 0;
+      }
+    } catch { /* canvas too large for this platform */ }
+    if (canvasOk) return size;
   }
   return 2048;
 }
