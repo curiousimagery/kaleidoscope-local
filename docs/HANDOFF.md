@@ -12,13 +12,13 @@ He prefers **no em dashes** in his own writing; respect that in any prose Claude
 
 ## current version
 
-`v0.1.1 · Build 20`. The footer in the running app shows this string from `src/version.js`. When delivering a new build, increment BUILD by 1 and bump VERSION when meaningful change ships. **BUILD never resets** on version bumps — it's a global monotonic counter (see `version.js` comment).
+`v0.1.2 · Build 21`. The footer in the running app shows this string from `src/version.js`. When delivering a new build, increment BUILD by 1 and bump VERSION when meaningful change ships. **BUILD never resets** on version bumps — it's a global monotonic counter (see `version.js` comment).
 
 ## what's working
 
 The full kaleidoscope app is functional and tested. Three forms (radial, square, hex), full slice + canvas controls, direct manipulation on the source overlay, export at 1K through GPU-max, all OOB modes, drag/swap/divider, scrub fields with pointer lock, slider sync.
 
-Daniel has tested Build 19 and reports core functionality "all working great." Build 20 added docs and license but no behavior change.
+Daniel has tested Build 19 and reports core functionality "all working great." Build 20 added docs and license. Build 21 is an iPad touch pass: divider touch + wider hit target, coarse-pointer slider thumb sizing, overlay grip-line affordance removed, overlay two-finger pinch for slice scale + rotation, preview canvas two-finger pinch for canvas zoom + rotation, GPU FBO size probe (fixes "framebuffer incomplete" on iPad export).
 
 ## current state of the architecture
 
@@ -28,15 +28,14 @@ Read `ARCHITECTURE.md` if you need details on the registry, shader composition, 
 
 ## what we're doing right now
 
-**Pivoting to GitHub + Vercel.** Daniel is rusty on git/GitHub but has a Vercel account and one previous deploy. Build 20 prepares the repo (license, docs, README, SPDX headers); the next session walks him through:
+Build 21 (iPad touch pass) is complete and ready to push to GitHub + redeploy on Vercel. All of the deploy infrastructure from Build 20 is already in place: the repo is at `https://github.com/curiousimagery/kaleidoscope-local` with `main` tracking `origin/main`.
 
-1. Running `npm install && npm run dev` locally to verify Build 20
-2. **CRITICAL:** running the curl command in `LICENSE` to fetch the full AGPL-3.0 text — the LICENSE file currently has only the copyright header + an instructions block. The full ~660-line license text wasn't fetchable from Claude's environment.
-3. Initializing git, creating a GitHub repo (public), and pushing
-4. Connecting Vercel to the GitHub repo and deploying
-5. Verifying the live URL works on iPad
-
-The next session should ideally happen in **Claude Code** (terminal in VS Code, or Anthropic's CLI) so Claude can run the actual commands rather than just describing them. Daniel said he can switch to that environment for the deploy session.
+Next step: commit Build 21, push, let Vercel auto-deploy, then retest on iPad to confirm:
+- Divider drags with a finger
+- Sliders have a comfortable thumb size
+- Overlay two-finger pinch scales and rotates the slice
+- Preview two-finger pinch zooms and rotates the canvas
+- Max export succeeds without framebuffer error or gray screen
 
 ## decisions locked in
 

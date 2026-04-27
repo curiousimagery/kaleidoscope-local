@@ -324,20 +324,8 @@ export function setupDivider(env) {
   let dragging = false;
   let startX, startW;
 
-  divider.addEventListener('mousedown', e => {
-    dragging = true;
-    startX = e.clientX;
-    startW = panel.clientWidth;
-    divider.classList.add('dragging');
-    document.body.classList.add('resizing-divider');
-    env.previewCanvas.style.visibility = 'hidden';
-    if (env.miniCanvas) env.miniCanvas.style.visibility = 'hidden';
-    document.body.style.cursor = 'col-resize';
-    e.preventDefault();
-  });
-
   // rAF-coalesced width updates — at most one panel.style.width write per frame
-  // regardless of mouse event rate.
+  // regardless of event rate.
   let pendingW = null;
   let widthRafQueued = false;
   function applyPendingWidth() {
@@ -348,18 +336,29 @@ export function setupDivider(env) {
     }
   }
 
-  window.addEventListener('mousemove', e => {
+  function startDrag(clientX) {
+    dragging = true;
+    startX = clientX;
+    startW = panel.clientWidth;
+    divider.classList.add('dragging');
+    document.body.classList.add('resizing-divider');
+    env.previewCanvas.style.visibility = 'hidden';
+    if (env.miniCanvas) env.miniCanvas.style.visibility = 'hidden';
+    document.body.style.cursor = 'col-resize';
+  }
+
+  function moveDrag(clientX) {
     if (!dragging) return;
-    const dx = startX - e.clientX;
+    const dx = startX - clientX;
     const upper = Math.min(window.innerWidth * 0.5, 1600);
     pendingW = Math.max(280, Math.min(upper, startW + dx));
     if (!widthRafQueued) {
       widthRafQueued = true;
       requestAnimationFrame(applyPendingWidth);
     }
-  });
+  }
 
-  window.addEventListener('mouseup', () => {
+  function endDrag() {
     if (!dragging) return;
     dragging = false;
     divider.classList.remove('dragging');
@@ -375,5 +374,13 @@ export function setupDivider(env) {
         env.scheduleOverlayDraw();
       }
     });
-  });
+  }
+
+  divider.addEventListener('mousedown', e => { startDrag(e.clientX); e.preventDefault(); });
+  window.addEventListener('mousemove', e => moveDrag(e.clientX));
+  window.addEventListener('mouseup', endDrag);
+
+  divider.addEventListener('touchstart', e => { startDrag(e.touches[0].clientX); e.preventDefault(); }, { passive: false });
+  window.addEventListener('touchmove', e => { if (dragging) { moveDrag(e.touches[0].clientX); e.preventDefault(); } }, { passive: false });
+  window.addEventListener('touchend', endDrag);
 }

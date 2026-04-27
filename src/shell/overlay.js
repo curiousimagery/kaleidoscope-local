@@ -217,47 +217,6 @@ export function drawSourceOverlay(env) {
   ctx.arc(cxPx, cyPx, 3, 0, Math.PI * 2);
   ctx.fill();
 
-  // touch-only visible handles at the outermost polygon edge midpoint.
-  if (IS_TOUCH && screenPts.length >= 2) {
-    let best = { dist: -1, mx: 0, my: 0, tx: 0, ty: 0 };
-    for (let i = 0; i < screenPts.length; i++) {
-      const a = screenPts[i];
-      const b = screenPts[(i + 1) % screenPts.length];
-      const mx = (a.x + b.x) / 2;
-      const my = (a.y + b.y) / 2;
-      const d = Math.hypot(mx - cxPx, my - cyPx);
-      if (d > best.dist) {
-        const ex = b.x - a.x, ey = b.y - a.y;
-        const elen = Math.hypot(ex, ey) || 1;
-        best = { dist: d, mx, my, tx: ex / elen, ty: ey / elen };
-      }
-    }
-    const GRIP_LEN = 12;
-    let px = -best.ty, py = best.tx;
-    const outX = best.mx - cxPx, outY = best.my - cyPx;
-    if (px * outX + py * outY < 0) { px = -px; py = -py; }
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.55)';
-    ctx.lineWidth = 2;
-    ctx.lineCap = 'round';
-    ctx.beginPath();
-    ctx.moveTo(best.mx - px * GRIP_LEN / 2, best.my - py * GRIP_LEN / 2);
-    ctx.lineTo(best.mx + px * GRIP_LEN / 2, best.my + py * GRIP_LEN / 2);
-    ctx.stroke();
-    const ROT_OFFSET_TANGENT = 18;
-    const ROT_OFFSET_OUT = 6;
-    const rotDots = [-1, 1].map(side => ({
-      x: best.mx + best.tx * side * ROT_OFFSET_TANGENT + px * ROT_OFFSET_OUT,
-      y: best.my + best.ty * side * ROT_OFFSET_TANGENT + py * ROT_OFFSET_OUT,
-    }));
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.55)';
-    for (const d of rotDots) {
-      ctx.beginPath();
-      ctx.arc(d.x, d.y, 3, 0, Math.PI * 2);
-      ctx.fill();
-    }
-    ctx.lineCap = 'butt';
-  }
-
   // store geometry for hit testing
   canvas._geom = { imgX, imgY, imgW, imgH, screenPts, cx: cxPx, cy: cyPx };
 }
@@ -503,6 +462,23 @@ export function setupSourceInteraction(env, wrap) {
 
   function onMove(e) {
     const isTouch = !!e.touches;
+
+    // two-finger pinch: scale + rotate the slice.
+    if (drag?.mode === 'pinch' && e.touches?.length === 2) {
+      const t0 = e.touches[0], t1 = e.touches[1];
+      const dist  = Math.hypot(t1.clientX - t0.clientX, t1.clientY - t0.clientY);
+      const angle = Math.atan2(t1.clientY - t0.clientY, t1.clientX - t0.clientX);
+      const { state } = env;
+      state.sliceScale    = Math.max(0.05, Math.min(10, drag.startScale * (dist / drag.startDist)));
+      let da = (angle - drag.startAngle) * 180 / Math.PI;
+      state.sliceRotation = ((drag.startRotation + da) % 360 + 360) % 360;
+      env.syncControls();
+      env.scheduleRender();
+      env.scheduleOverlayDraw();
+      e.preventDefault();
+      return;
+    }
+
     const { x, y } = localCoords(e);
 
     if (drag) {
@@ -602,6 +578,21 @@ export function setupSourceInteraction(env, wrap) {
   function onDown(e) {
     if (!env.engine.getSourceImage()) return;
     const isTouch = !!e.touches;
+
+    // two-finger touch: enter pinch mode regardless of hit zone.
+    if (e.touches?.length === 2) {
+      const t0 = e.touches[0], t1 = e.touches[1];
+      drag = {
+        mode: 'pinch',
+        startDist:     Math.hypot(t1.clientX - t0.clientX, t1.clientY - t0.clientY),
+        startAngle:    Math.atan2(t1.clientY - t0.clientY, t1.clientX - t0.clientX),
+        startScale:    env.state.sliceScale,
+        startRotation: env.state.sliceRotation,
+      };
+      e.preventDefault();
+      return;
+    }
+
     const { x, y } = localCoords(e);
     const cls = classifyPointer(env, x, y, isTouch);
     if (!cls.mode) return;

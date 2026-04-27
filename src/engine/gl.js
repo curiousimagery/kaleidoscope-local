@@ -59,6 +59,7 @@ export function createGLContext(canvas) {
 
   const renderer = gl.getParameter(gl.RENDERER);
   const maxTextureSize = gl.getParameter(gl.MAX_TEXTURE_SIZE);
+  const maxFBOSize = probeMaxFBOSize(gl, maxTextureSize);
 
   return {
     gl,
@@ -66,8 +67,31 @@ export function createGLContext(canvas) {
     uniformLocs,
     uniformSpecs,
     positionBuffer,
-    diagnostics: { renderer, maxTextureSize },
+    diagnostics: { renderer, maxTextureSize, maxFBOSize },
   };
+}
+
+// Probe the actual largest square FBO that the driver can complete. This is
+// needed because some GPUs (e.g. M1 iPad Pro) report MAX_TEXTURE_SIZE = 16384
+// but cannot actually allocate a 16384x16384 FBO, causing "framebuffer
+// incomplete" errors and sometimes a context loss on export.
+function probeMaxFBOSize(gl, maxTextureSize) {
+  for (const size of [16384, 8192, 4096, 2048]) {
+    if (size > maxTextureSize) continue;
+    const tex = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, tex);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, size, size, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+    const fb = gl.createFramebuffer();
+    gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
+    const ok = gl.checkFramebufferStatus(gl.FRAMEBUFFER) === gl.FRAMEBUFFER_COMPLETE;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.deleteFramebuffer(fb);
+    gl.bindTexture(gl.TEXTURE_2D, null);
+    gl.deleteTexture(tex);
+    if (ok) return size;
+  }
+  return 2048;
 }
 
 function compileShader(gl, type, src) {

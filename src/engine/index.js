@@ -80,13 +80,14 @@ export function createEngine({ canvas }) {
     },
 
     // FBO export. returns a Promise<Blob> for the requested format.
-    // sizeArg can be a number or the string 'max' (uses gl.MAX_TEXTURE_SIZE
-    // capped at 16384). format is 'png' | 'jpg'. quality applies to JPG only.
+    // sizeArg can be a number or the string 'max' (uses the probed max FBO
+    // size — the largest square FBO the driver can actually complete).
+    // format is 'png' | 'jpg'. quality applies to JPG only.
     //
     // throws on framebuffer-incomplete (e.g. requested size exceeds GPU limits).
     async exportAt(state, sizeArg, format = 'png', quality = 0.95) {
       if (!sourceTexture) throw new Error('no source loaded');
-      const cap = Math.min(glCtx.diagnostics.maxTextureSize, 16384);
+      const cap = glCtx.diagnostics.maxFBOSize;
       let size;
       if (sizeArg === 'max') size = cap;
       else { size = parseInt(sizeArg, 10); if (size > cap) size = cap; }

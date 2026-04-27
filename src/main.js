@@ -61,7 +61,7 @@ const diagEl = document.getElementById('diag');
 let engine;
 try {
   engine = createEngine({ canvas: previewCanvas });
-  diagEl.innerHTML = `WebGL2 ok<br>renderer: ${engine.diagnostics.renderer}<br>max texture: ${engine.diagnostics.maxTextureSize}px`;
+  diagEl.innerHTML = `WebGL2 ok<br>renderer: ${engine.diagnostics.renderer}<br>max texture: ${engine.diagnostics.maxTextureSize}px<br>max export: ${engine.diagnostics.maxFBOSize}px`;
 } catch (e) {
   statusEl.textContent = e.message;
   statusEl.classList.add('error');
@@ -326,7 +326,7 @@ async function doExport(sizeArg) {
   }
 
   // resolve size for status messaging
-  const cap = Math.min(engine.diagnostics.maxTextureSize, 16384);
+  const cap = engine.diagnostics.maxFBOSize;
   let size = sizeArg === 'max' ? cap : Math.min(parseInt(sizeArg, 10), cap);
 
   statusEl.textContent = `rendering ${size}×${size}...`;
@@ -511,6 +511,45 @@ function wireControls() {
 }
 
 // ============================================================================
+// preview canvas gesture setup
+// ============================================================================
+
+function setupPreviewGestures(env) {
+  const canvas = env.previewCanvas;
+  let pinch = null;
+
+  canvas.addEventListener('touchstart', e => {
+    if (e.touches.length === 2) {
+      const t0 = e.touches[0], t1 = e.touches[1];
+      pinch = {
+        startDist:     Math.hypot(t1.clientX - t0.clientX, t1.clientY - t0.clientY),
+        startAngle:    Math.atan2(t1.clientY - t0.clientY, t1.clientX - t0.clientX),
+        startZoom:     env.state.canvasZoom,
+        startRotation: env.state.canvasRotation,
+      };
+      e.preventDefault();
+    }
+  }, { passive: false });
+
+  canvas.addEventListener('touchmove', e => {
+    if (!pinch || e.touches.length !== 2) return;
+    const t0 = e.touches[0], t1 = e.touches[1];
+    const dist  = Math.hypot(t1.clientX - t0.clientX, t1.clientY - t0.clientY);
+    const angle = Math.atan2(t1.clientY - t0.clientY, t1.clientX - t0.clientX);
+    env.state.canvasZoom     = Math.max(0.25, Math.min(4, pinch.startZoom * (dist / pinch.startDist)));
+    const da                 = (angle - pinch.startAngle) * 180 / Math.PI;
+    env.state.canvasRotation = ((pinch.startRotation + da) % 360 + 360) % 360;
+    env.syncControls();
+    env.scheduleRender();
+    e.preventDefault();
+  }, { passive: false });
+
+  canvas.addEventListener('touchend', e => {
+    if (e.touches.length < 2) pinch = null;
+  });
+}
+
+// ============================================================================
 // init
 // ============================================================================
 
@@ -519,6 +558,7 @@ if (engine) {
   applyFormControls(env);
   wireControls();
   setupDivider(env);
+  setupPreviewGestures(env);
 
   window.addEventListener('resize', () => {
     resizePreviewCanvas();
