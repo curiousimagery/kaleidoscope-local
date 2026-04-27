@@ -1,0 +1,21 @@
+{
+  "name": "kaleidoscope",
+  "private": false,
+  "version": "0.1.1",
+  "description": "Browser-based kaleidoscope tool for high-resolution still-image output. WebGL2 fragment shader engine with a forms registry for symmetry patterns.",
+  "type": "module",
+  "license": "AGPL-3.0-or-later",
+  "author": "Daniel Nelson",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "check": "for f in src/version.js src/main.js src/shell/*.js src/engine/*.js src/engine/forms/*.js; do node --check \"$f\" || exit 1; done && echo all syntax checks pass"
+  },
+  "devDependencies": {
+    "vite": "^5.4.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>kaleidoscope</title>
+<link rel="stylesheet" href="./src/shell/styles.css">
+</head>
+<body>
+
+<!-- main display slot — content swappable between kaleidoscope and source -->
+<div class="main-slot" id="mainSlot">
+  <div class="placeholder" id="placeholder">
+    <strong id="placeholderTitle">kaleidoscope</strong>
+    upload an image to begin
+  </div>
+  <button class="swap-btn" id="swapBtn" disabled>swap ⇄</button>
+</div>
+
+<!-- divider -->
+<div class="divider" id="divider"></div>
+
+<!-- right panel -->
+<div class="right-panel" id="rightPanel">
+
+  <!-- side slot — flow: upload → form picker → thumbnail with overlay → meta → slice controls -->
+  <div class="side-slot">
+
+    <!-- upload — first because nothing else is meaningful without an image -->
+    <div>
+      <input type="file" accept="image/jpeg,image/png,image/webp" class="file-input" id="fileInput">
+      <button style="width: 100%;" id="uploadBtn">upload image</button>
+    </div>
+
+    <!-- form picker: compact icon strip with inline label -->
+    <div class="form-row">
+      <span class="form-row-label">form</span>
+      <div class="form-grid" id="formGrid"></div>
+    </div>
+
+    <!-- the thumbnail itself, with the wedge overlay drawn on top of the source image -->
+    <div class="side-display-wrap" id="sideSlot">
+      <div class="empty-msg" id="sideEmptyMsg">no image loaded</div>
+    </div>
+
+    <div class="source-meta" id="sourceMeta">
+      <span>—</span>
+      <span class="name">—</span>
+    </div>
+
+    <!-- slice attributes -->
+    <div style="margin-top: 4px;">
+      <h2 style="font-size: 11px; font-weight: 500; color: #888; text-transform: lowercase; letter-spacing: 0.08em; margin-bottom: 8px;">slice</h2>
+      <label class="slider" id="segmentsLabel" style="margin-bottom: 10px;">
+        <div class="row"><span>segments</span><span class="val scrub" id="segVal" data-key="segments">12</span></div>
+        <input type="range" id="segments" min="2" max="48" step="2" value="12">
+      </label>
+      <label class="slider" style="margin-bottom: 10px;">
+        <div class="row"><span>scale</span><span class="val scrub" id="scaleVal" data-key="sliceScale">1.00×</span></div>
+        <input type="range" id="scale" min="0.05" max="3" step="0.005" value="1">
+      </label>
+      <label class="slider" style="margin-bottom: 10px;">
+        <div class="row"><span>rotation</span><span class="val scrub" id="sliceRotVal" data-key="sliceRotation">0°</span></div>
+        <input type="range" id="sliceRot" min="0" max="360" step="0.5" value="0">
+      </label>
+      <label class="slider" id="aspectLabel" style="margin-bottom: 10px; display: none;">
+        <div class="row"><span>aspect</span><span class="val scrub" id="aspectVal" data-key="squareAspect">1.00</span></div>
+        <input type="range" id="aspect" min="0.25" max="4" step="0.01" value="1">
+      </label>
+    </div>
+  </div>
+
+  <div class="controls">
+
+    <!-- canvas attributes -->
+    <div class="group">
+      <h2>canvas</h2>
+      <label class="slider">
+        <div class="row"><span>composition zoom</span><span class="val scrub" id="compZoomVal" data-key="canvasZoom">1.00×</span></div>
+        <input type="range" id="compZoom" min="0.25" max="4" step="0.01" value="1">
+      </label>
+      <label class="slider">
+        <div class="row"><span>rotation</span><span class="val scrub" id="canvasRotVal" data-key="canvasRotation">0°</span></div>
+        <input type="range" id="canvasRot" min="0" max="360" step="0.5" value="0">
+      </label>
+      <h2 style="margin-top: 4px;">out-of-bounds</h2>
+      <div class="button-grid-3" id="oobModes">
+        <button class="toggle active" data-oob="0">clamp</button>
+        <button class="toggle" data-oob="1">mirror</button>
+        <button class="toggle" data-oob="2">transparent</button>
+      </div>
+    </div>
+
+    <!-- export -->
+    <div class="group">
+      <h2>export</h2>
+      <label class="setting-label">format</label>
+      <div class="row-buttons" id="exportFormats">
+        <button data-format="png" class="toggle">PNG</button>
+        <button data-format="jpg" class="toggle active">JPG</button>
+      </div>
+      <label class="setting-label">resolution</label>
+      <div class="button-grid-5" id="exportSizes">
+        <button class="toggle" data-size="1024">1K</button>
+        <button class="toggle" data-size="2048">2K</button>
+        <button class="toggle active" data-size="4096">4K</button>
+        <button class="toggle" data-size="8192">8K</button>
+        <button class="toggle" data-size="max">max</button>
+      </div>
+      <div class="res-hint" id="resHint"></div>
+      <button class="primary" id="exportBtn" style="width: 100%; margin-top: 4px;">export</button>
+      <div class="status" id="status">load an image to start</div>
+    </div>
+
+    <!-- diagnostics -->
+    <div class="group">
+      <h2>diagnostics</h2>
+      <div class="status" id="diag"></div>
+      <div class="version-badge" id="versionBadge"></div>
+    </div>
+  </div>
+</div>
+
+<!-- busy overlay for long operations -->
+<div class="busy-overlay" id="busyOverlay">
+  <div class="busy-card">
+    <div class="spinner"></div>
+    <div class="busy-msg" id="busyMsg">working…</div>
+  </div>
+</div>
+
+<script type="module" src="./src/main.js"></script>
+
+</body>
+</html>
