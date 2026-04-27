@@ -119,9 +119,10 @@ body.resizing-divider .preview-canvas { visibility: hidden; }
 }
 /* Safari's compact tab bar in landscape adds ~44px that env(safe-area-inset-top)
    doesn't cover — it only accounts for the system status bar and rounded corners,
-   not the browser's own chrome. 44px matches the standard iOS nav bar height. */
+   not the browser's own chrome. 34px gives ~8-10px breathing room below the bar. */
 @media (pointer: coarse) and (orientation: landscape) {
-  .right-panel { padding-top: 44px; }
+  .right-panel { padding-top: 34px; }
+  .swap-btn { top: 50px; }
 }
 
 /* side slot at top of right panel */
