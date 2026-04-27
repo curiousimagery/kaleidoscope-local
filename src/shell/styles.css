@@ -72,7 +72,7 @@ body { display: flex; height: 100vh; overflow: hidden; }
 /* undo / redo bar — absolutely positioned at bottom-center of the main slot */
 .undo-bar {
   position: absolute;
-  bottom: 24px;
+  bottom: max(24px, calc(env(safe-area-inset-bottom, 0px) + 16px));
   left: 50%;
   transform: translateX(-50%);
   display: flex;
@@ -115,6 +115,7 @@ body.resizing-divider .preview-canvas { visibility: hidden; }
   min-width: 280px;
   max-width: min(50vw, 1600px);
   overflow-y: auto;
+  padding-top: env(safe-area-inset-top, 0px);
 }
 
 /* side slot at top of right panel */
