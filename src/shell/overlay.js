@@ -208,8 +208,13 @@ export function drawSourceOverlay(env) {
   const isRotateHover = env.hoverMode === 'rotate';
   const isScaleArcHover = env.hoverMode === 'scale' && !env.hoverOnSpoke;
   const isScaleSpokeHover = env.hoverMode === 'scale' && env.hoverOnSpoke;
-  strokeEdges(outerEdges, isRotateHover || isScaleArcHover);
-  strokeEdges(spokeEdges, isRotateHover || isScaleSpokeHover);
+  // On touch, hoverMode is always null (no hover events). Mirror the highlight
+  // using the active drag mode so the outline lights up during touch gestures.
+  const dm = env.overlayDragMode;
+  const dragHL      = dm === 'rotate' || dm === 'scale' || dm === 'square-edge' || dm === 'square-corner' || dm === 'pinch';
+  const dragHLSpoke = dm === 'segments' || dm === 'pinch';
+  strokeEdges(outerEdges, isRotateHover || isScaleArcHover || dragHL);
+  strokeEdges(spokeEdges, isRotateHover || isScaleSpokeHover || dragHLSpoke);
 
   // center dot
   ctx.fillStyle = '#ffffff';
@@ -236,9 +241,12 @@ export function drawSourceOverlay(env) {
 // Only called when IS_TOUCH is true (hover-none devices).
 //
 // Opacity rules:
-//   rest (not dragging)  → 0.55
-//   dragging, not active → 0.25  (dim inactive affordances during gesture)
-//   dragging, active     → 1.00 + thicker stroke (lights up the relevant handle)
+//   rest (not dragging)       → 0.55 at 1.5px stroke
+//   dragging, affordance active  → 1.00 at 2.5px stroke
+//   dragging, affordance inactive → 0.25 at 1.5px stroke
+//
+// Pinch gestures dim all affordances — the form outline highlight (via dragHL
+// in strokeEdges) provides the gesture feedback instead.
 function drawTouchAffordances(ctx, screenPts, cx, cy, outerEdges, spokeEdges, form, isDragging, dragMode) {
   const SPOKE_EPS = 2;
 
@@ -247,31 +255,35 @@ function drawTouchAffordances(ctx, screenPts, cx, cy, outerEdges, spokeEdges, fo
     return isActive ? { op: 1.00, lw: 2.5 } : { op: 0.25, lw: 1.5 };
   }
 
-  const rotateActive  = isDragging && (dragMode === 'rotate'       || dragMode === 'pinch');
-  const scaleActive   = isDragging && (dragMode === 'scale'        || dragMode === 'square-edge' || dragMode === 'pinch');
-  const spokesActive  = isDragging && (dragMode === 'segments'     || dragMode === 'pinch');
-  const cornerActive  = isDragging && (dragMode === 'square-corner'|| dragMode === 'pinch');
+  // Pinch excluded: affordances all dim during pinch; outline handles the feedback.
+  const rotateActive = isDragging && dragMode === 'rotate';
+  const scaleActive  = isDragging && (dragMode === 'scale' || dragMode === 'square-edge');
+  const spokesActive = isDragging && dragMode === 'segments';
+  const cornerActive = isDragging && dragMode === 'square-corner';
 
   ctx.save();
   ctx.lineCap = 'round';
 
   if (form.id === 'square') {
     // Square buildPolygon always returns [(-W,-H),(W,-H),(W,H),(-W,H)].
-    // screenPts[1] = top-right corner in the shape's own frame — stable across rotation.
+    // screenPts[0]=top-left, [1]=top-right, [2]=bottom-right, [3]=bottom-left in shape frame.
     if (screenPts.length < 4) { ctx.restore(); return; }
     const p0 = screenPts[0], p1 = screenPts[1], p2 = screenPts[2];
 
-    // Rotation arc — always at the top-right corner (fixes flickering + jitter).
-    const rotD   = Math.hypot(p1.x - cx, p1.y - cy);
-    const rotAnchor = { x: p1.x, y: p1.y, d: rotD };
-    const { op: rop, lw: rlw } = afStyle(rotateActive);
-    afRotationArc(ctx, cx, cy, rotAnchor, rop, rlw);
-
-    // Edge handle 1 — top edge (p0 → p1), perpendicular arrow indicating height.
+    // Top edge midpoint + outward normal (used for rotation arc placement).
     const topMx = (p0.x + p1.x) / 2, topMy = (p0.y + p1.y) / 2;
     const topEl = Math.hypot(p1.x - p0.x, p1.y - p0.y) || 1;
     let topNx = -(p1.y - p0.y) / topEl, topNy = (p1.x - p0.x) / topEl;
     if ((topMx - cx) * topNx + (topMy - cy) * topNy < 0) { topNx = -topNx; topNy = -topNy; }
+
+    // Rotation arc — above the top edge center. 24px beyond the edge midpoint
+    // avoids collision with the 14px-reach scale arrow on the same edge.
+    const topMidR   = Math.hypot(topMx - cx, topMy - cy);
+    const topMidAng = Math.atan2(topMy - cy, topMx - cx);
+    const { op: rop, lw: rlw } = afStyle(rotateActive);
+    afRotationArc(ctx, cx, cy, topMidAng, topMidR + 24, rop, rlw);
+
+    // Edge handle 1 — top edge (p0 → p1), perpendicular arrow indicating height.
     const { op: sop, lw: slw } = afStyle(scaleActive);
     afScaleArrow(ctx, topMx, topMy, topNx, topNy, sop, slw);
 
@@ -282,18 +294,16 @@ function drawTouchAffordances(ctx, screenPts, cx, cy, outerEdges, spokeEdges, fo
     if ((rgtMx - cx) * rgtNx + (rgtMy - cy) * rgtNy < 0) { rgtNx = -rgtNx; rgtNy = -rgtNy; }
     afScaleArrow(ctx, rgtMx, rgtMy, rgtNx, rgtNy, sop, slw);
 
-    // Corner diagonal scale arrow — 8px outside the top-right corner.
+    // Corner diagonal scale arrow — centered on the top-right corner vertex.
+    // Arrow extends HALF inward and HALF outward, bisecting the polygon boundary.
     const cdx = p1.x - cx, cdy = p1.y - cy;
     const cLen = Math.hypot(cdx, cdy) || 1;
-    const cnx = cdx / cLen, cny = cdy / cLen;
     const { op: cop, lw: clw } = afStyle(cornerActive);
-    afScaleArrow(ctx, p1.x + cnx * 8, p1.y + cny * 8, cnx, cny, cop, clw);
+    afScaleArrow(ctx, p1.x, p1.y, cdx / cLen, cdy / cLen, cop, clw);
 
   } else {
-    // Wedge forms (radial, hex): use centroid of outer edge midpoints as anchor.
-    // This gives a stable bisector point for radial (average of all arc segment
-    // midpoints ≈ bisector direction) and the outer edge midpoint for hex
-    // (only one outer edge, so centroid = midpoint). Neither jumps between frames.
+    // Wedge forms (radial, hex): centroid of outer edge midpoints gives a stable
+    // direction (bisector for radial, outer edge midpoint for hex) without jumps.
     if (outerEdges.length === 0) { ctx.restore(); return; }
     let ocx = 0, ocy = 0;
     for (const edge of outerEdges) {
@@ -302,18 +312,29 @@ function drawTouchAffordances(ctx, screenPts, cx, cy, outerEdges, spokeEdges, fo
     }
     ocx /= outerEdges.length;
     ocy /= outerEdges.length;
-    const outerDist = Math.hypot(ocx - cx, ocy - cy) || 1;
-    const outNx = (ocx - cx) / outerDist;
-    const outNy = (ocy - cy) / outerDist;
+    const outerDist  = Math.hypot(ocx - cx, ocy - cy) || 1;
+    const outerAngle = Math.atan2(ocy - cy, ocx - cx);
+    const outNx = Math.cos(outerAngle);
+    const outNy = Math.sin(outerAngle);
 
-    // Scale arrow — at the midpoint between center and outer centroid, pointing outward.
-    // "Between apex and outer edge along the axis of symmetry" (Issue 5).
+    // Exact polygon boundary at the centroid direction (so the arrow lands on the edge).
+    const R = polygonRadiusAt(outerAngle, cx, cy, screenPts) ?? outerDist;
+
+    // Scale arrow — centered on the outer boundary, intersecting the path.
     const { op: sop, lw: slw } = afStyle(scaleActive);
-    afScaleArrow(ctx, (cx + ocx) / 2, (cy + ocy) / 2, outNx, outNy, sop, slw);
+    afScaleArrow(ctx, cx + R * outNx, cy + R * outNy, outNx, outNy, sop, slw);
 
-    // Rotation arc — 20px beyond the outer centroid (was 10px, fixes Issue 1).
+    // Rotation arc — adaptive gap so it clears the shape at all sizes.
+    //   At least 20px beyond the boundary at the centroid direction.
+    //   At least 16px beyond the outermost vertex (prevents clipping through corners
+    //   on hex, where the vertex is farther from center than the edge midpoint).
+    let maxVD = 0;
+    for (const p of screenPts) {
+      const d = Math.hypot(p.x - cx, p.y - cy);
+      if (d > maxVD) maxVD = d;
+    }
     const { op: rop, lw: rlw } = afStyle(rotateActive);
-    afRotationArc(ctx, cx, cy, { x: ocx, y: ocy, d: outerDist }, rop, rlw);
+    afRotationArc(ctx, cx, cy, outerAngle, Math.max(R + 20, maxVD + 16), rop, rlw);
 
     // Spoke double-line — radial only, hints at segment-count adjustment.
     if (form.spokeRule === 'radial' && spokeEdges.length > 0) {
@@ -365,28 +386,32 @@ function afScaleArrow(ctx, mx, my, nx, ny, op, lw) {
   }
 }
 
-// Rotation arc: short curved arc + arrowhead, centered at (cx,cy), pointing toward
-// anchorPt, at anchorPt.d + 20px (Issue 1: was +10px, too close to shape edge).
-function afRotationArc(ctx, cx, cy, anchorPt, op, lw) {
-  const arcR   = anchorPt.d + 20;
-  const cAngle = Math.atan2(anchorPt.y - cy, anchorPt.x - cx);
-  const HSPAN  = 11 * Math.PI / 180;
-  const HEAD   = 5;
+// Rotation arc: bidirectional curved arc, centered at (cx,cy), pointing toward
+// cAngle direction, at explicit radius arcR. Arrowheads at both ends.
+function afRotationArc(ctx, cx, cy, cAngle, arcR, op, lw) {
+  const HSPAN = 11 * Math.PI / 180;
+  const HEAD  = 5;
   ctx.strokeStyle = `rgba(255,255,255,${op})`;
   ctx.lineWidth = lw;
   ctx.beginPath();
   ctx.arc(cx, cy, arcR, cAngle - HSPAN, cAngle + HSPAN, false);
   ctx.stroke();
-  const endAngle = cAngle + HSPAN;
-  const endX = cx + arcR * Math.cos(endAngle);
-  const endY = cy + arcR * Math.sin(endAngle);
-  const tangent = endAngle + Math.PI / 2;
-  ctx.beginPath();
-  ctx.moveTo(endX, endY);
-  ctx.lineTo(endX + Math.cos(tangent + 2.6) * HEAD, endY + Math.sin(tangent + 2.6) * HEAD);
-  ctx.moveTo(endX, endY);
-  ctx.lineTo(endX + Math.cos(tangent - 2.6) * HEAD, endY + Math.sin(tangent - 2.6) * HEAD);
-  ctx.stroke();
+  // Arrowheads at both ends: clockwise end (+HSPAN) and counterclockwise end (-HSPAN).
+  // Tangent direction at angle a on a clockwise arc (y-down) = a + π/2.
+  // Reverse tangent (counterclockwise) = a - π/2.
+  for (const [a, tang] of [
+    [cAngle + HSPAN, cAngle + HSPAN + Math.PI / 2],
+    [cAngle - HSPAN, cAngle - HSPAN - Math.PI / 2],
+  ]) {
+    const tipX = cx + arcR * Math.cos(a);
+    const tipY = cy + arcR * Math.sin(a);
+    ctx.beginPath();
+    ctx.moveTo(tipX, tipY);
+    ctx.lineTo(tipX + Math.cos(tang + 2.6) * HEAD, tipY + Math.sin(tang + 2.6) * HEAD);
+    ctx.moveTo(tipX, tipY);
+    ctx.lineTo(tipX + Math.cos(tang - 2.6) * HEAD, tipY + Math.sin(tang - 2.6) * HEAD);
+    ctx.stroke();
+  }
 }
 
 // ===========================================================================
@@ -868,6 +893,7 @@ export function setupSourceInteraction(env, wrap) {
     env.overlayDragMode = null;
     setCursor('default');
     env.updateUndoUI?.();
+    env.scheduleOverlayDraw?.();
   }
 
   wrap.addEventListener('mousedown', onDown);
