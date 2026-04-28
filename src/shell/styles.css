@@ -121,7 +121,7 @@ body.resizing-divider .preview-canvas { visibility: hidden; }
    doesn't cover — it only accounts for the system status bar and rounded corners,
    not the browser's own chrome. 34px gives ~8-10px breathing room below the bar. */
 @media (pointer: coarse) and (orientation: landscape) {
-  .right-panel { padding-top: 34px; }
+  .right-panel { padding-top: 16px; }
   .swap-btn { top: 50px; }
 }
 

@@ -220,114 +220,173 @@ export function drawSourceOverlay(env) {
   // Touch-only persistent affordances — drawn at ~60% opacity, fading to ~25%
   // during active drag so they don't compete with the active-state stroke highlights.
   if (IS_TOUCH) {
-    drawTouchAffordances(ctx, screenPts, cxPx, cyPx, outerEdges, spokeEdges, form, !!env.overlayDragging);
+    drawTouchAffordances(ctx, screenPts, cxPx, cyPx, outerEdges, spokeEdges, form,
+      !!env.overlayDragging, env.overlayDragMode ?? null);
   }
 
   // store geometry for hit testing
   canvas._geom = { imgX, imgY, imgW, imgH, screenPts, cx: cxPx, cy: cyPx };
 }
 
-// Draw three persistent touch affordances. Called only on touch surfaces.
-// opacity: 0.55 at rest, 0.25 during active drag.
-function drawTouchAffordances(ctx, screenPts, cx, cy, outerEdges, spokeEdges, form, isDragging) {
-  const op = isDragging ? 0.25 : 0.55;
+// ===========================================================================
+// touch affordance drawing
+// ===========================================================================
+
+// Persistent touch affordances drawn on top of the polygon outline.
+// Only called when IS_TOUCH is true (hover-none devices).
+//
+// Opacity rules:
+//   rest (not dragging)  → 0.55
+//   dragging, not active → 0.25  (dim inactive affordances during gesture)
+//   dragging, active     → 1.00 + thicker stroke (lights up the relevant handle)
+function drawTouchAffordances(ctx, screenPts, cx, cy, outerEdges, spokeEdges, form, isDragging, dragMode) {
   const SPOKE_EPS = 2;
+
+  function afStyle(isActive) {
+    if (!isDragging) return { op: 0.55, lw: 1.5 };
+    return isActive ? { op: 1.00, lw: 2.5 } : { op: 0.25, lw: 1.5 };
+  }
+
+  const rotateActive  = isDragging && (dragMode === 'rotate'       || dragMode === 'pinch');
+  const scaleActive   = isDragging && (dragMode === 'scale'        || dragMode === 'square-edge' || dragMode === 'pinch');
+  const spokesActive  = isDragging && (dragMode === 'segments'     || dragMode === 'pinch');
+  const cornerActive  = isDragging && (dragMode === 'square-corner'|| dragMode === 'pinch');
+
   ctx.save();
   ctx.lineCap = 'round';
 
-  // 1. Scale arrow — bidirectional, perpendicular to the outermost edge midpoint.
-  //    Signals that the outer boundary is draggable for scale.
-  let bestMid = null;
-  for (const edge of outerEdges) {
-    const mx = (edge.a.x + edge.b.x) / 2;
-    const my = (edge.a.y + edge.b.y) / 2;
-    const d = Math.hypot(mx - cx, my - cy);
-    if (!bestMid || d > bestMid.d) {
-      const ex = edge.b.x - edge.a.x, ey = edge.b.y - edge.a.y;
-      let nx = -ey, ny = ex;
-      const nl = Math.hypot(nx, ny) || 1;
-      nx /= nl; ny /= nl;
-      if ((mx - cx) * nx + (my - cy) * ny < 0) { nx = -nx; ny = -ny; }
-      bestMid = { mx, my, nx, ny, d };
-    }
-  }
-  if (bestMid) {
-    const { mx, my, nx, ny } = bestMid;
-    const HALF = 7, HEAD = 4;
-    ctx.strokeStyle = `rgba(255,255,255,${op})`;
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    ctx.moveTo(mx - nx * HALF, my - ny * HALF);
-    ctx.lineTo(mx + nx * HALF, my + ny * HALF);
-    ctx.stroke();
-    for (const [tx, ty, dx, dy] of [
-      [mx + nx * HALF, my + ny * HALF,  nx,  ny],
-      [mx - nx * HALF, my - ny * HALF, -nx, -ny],
-    ]) {
-      const a = Math.atan2(dy, dx);
-      ctx.beginPath();
-      ctx.moveTo(tx, ty);
-      ctx.lineTo(tx + Math.cos(a + 2.6) * HEAD, ty + Math.sin(a + 2.6) * HEAD);
-      ctx.moveTo(tx, ty);
-      ctx.lineTo(tx + Math.cos(a - 2.6) * HEAD, ty + Math.sin(a - 2.6) * HEAD);
-      ctx.stroke();
-    }
-  }
+  if (form.id === 'square') {
+    // Square buildPolygon always returns [(-W,-H),(W,-H),(W,H),(-W,H)].
+    // screenPts[1] = top-right corner in the shape's own frame — stable across rotation.
+    if (screenPts.length < 4) { ctx.restore(); return; }
+    const p0 = screenPts[0], p1 = screenPts[1], p2 = screenPts[2];
 
-  // 2. Rotation arc — short curved arc with arrowhead just outside the outermost corner.
-  //    Signals that the area outside the polygon boundary is the rotate zone.
-  let outerCorner = null;
-  for (const p of screenPts) {
-    const d = Math.hypot(p.x - cx, p.y - cy);
-    if (d < SPOKE_EPS) continue;
-    if (!outerCorner || d > outerCorner.d) outerCorner = { x: p.x, y: p.y, d };
-  }
-  if (outerCorner) {
-    const cAngle = Math.atan2(outerCorner.y - cy, outerCorner.x - cx);
-    const arcR   = outerCorner.d + 10;
-    const HSPAN  = 11 * Math.PI / 180;   // half of 22° total arc
-    const HEAD   = 4;
-    ctx.strokeStyle = `rgba(255,255,255,${op})`;
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    ctx.arc(cx, cy, arcR, cAngle - HSPAN, cAngle + HSPAN, false);
-    ctx.stroke();
-    // arrowhead tangent to the arc's leading edge
-    const endAngle = cAngle + HSPAN;
-    const endX = cx + arcR * Math.cos(endAngle);
-    const endY = cy + arcR * Math.sin(endAngle);
-    const tangent = endAngle + Math.PI / 2;
-    ctx.beginPath();
-    ctx.moveTo(endX, endY);
-    ctx.lineTo(endX + Math.cos(tangent + 2.6) * HEAD, endY + Math.sin(tangent + 2.6) * HEAD);
-    ctx.moveTo(endX, endY);
-    ctx.lineTo(endX + Math.cos(tangent - 2.6) * HEAD, endY + Math.sin(tangent - 2.6) * HEAD);
-    ctx.stroke();
-  }
+    // Rotation arc — always at the top-right corner (fixes flickering + jitter).
+    const rotD   = Math.hypot(p1.x - cx, p1.y - cy);
+    const rotAnchor = { x: p1.x, y: p1.y, d: rotD };
+    const { op: rop, lw: rlw } = afStyle(rotateActive);
+    afRotationArc(ctx, cx, cy, rotAnchor, rop, rlw);
 
-  // 3. Spoke double-line — radial form only. Two thin parallel lines along one spoke
-  //    hint that dragging near the spoke edge adjusts segment count.
-  if (form.spokeRule === 'radial' && spokeEdges.length > 0) {
-    const spk = spokeEdges[0];
-    const aIsCenter = Math.hypot(spk.a.x - cx, spk.a.y - cy) < SPOKE_EPS;
-    const origin = aIsCenter ? spk.a : spk.b;
-    const tip    = aIsCenter ? spk.b : spk.a;
-    const sx = tip.x - origin.x, sy = tip.y - origin.y;
-    const slen = Math.hypot(sx, sy) || 1;
-    const ux = sx / slen, uy = sy / slen;
-    const px = -uy, py = ux;
-    const GAP = 2.5, t0 = slen * 0.2, t1 = slen * 0.68;
-    ctx.lineWidth = 1;
-    ctx.strokeStyle = `rgba(255,255,255,${op * 0.7})`;
-    for (const sign of [-1, 1]) {
-      ctx.beginPath();
-      ctx.moveTo(origin.x + ux * t0 + px * GAP * sign, origin.y + uy * t0 + py * GAP * sign);
-      ctx.lineTo(origin.x + ux * t1 + px * GAP * sign, origin.y + uy * t1 + py * GAP * sign);
-      ctx.stroke();
+    // Edge handle 1 — top edge (p0 → p1), perpendicular arrow indicating height.
+    const topMx = (p0.x + p1.x) / 2, topMy = (p0.y + p1.y) / 2;
+    const topEl = Math.hypot(p1.x - p0.x, p1.y - p0.y) || 1;
+    let topNx = -(p1.y - p0.y) / topEl, topNy = (p1.x - p0.x) / topEl;
+    if ((topMx - cx) * topNx + (topMy - cy) * topNy < 0) { topNx = -topNx; topNy = -topNy; }
+    const { op: sop, lw: slw } = afStyle(scaleActive);
+    afScaleArrow(ctx, topMx, topMy, topNx, topNy, sop, slw);
+
+    // Edge handle 2 — right edge (p1 → p2), perpendicular arrow indicating width.
+    const rgtMx = (p1.x + p2.x) / 2, rgtMy = (p1.y + p2.y) / 2;
+    const rgtEl = Math.hypot(p2.x - p1.x, p2.y - p1.y) || 1;
+    let rgtNx = -(p2.y - p1.y) / rgtEl, rgtNy = (p2.x - p1.x) / rgtEl;
+    if ((rgtMx - cx) * rgtNx + (rgtMy - cy) * rgtNy < 0) { rgtNx = -rgtNx; rgtNy = -rgtNy; }
+    afScaleArrow(ctx, rgtMx, rgtMy, rgtNx, rgtNy, sop, slw);
+
+    // Corner diagonal scale arrow — 8px outside the top-right corner.
+    const cdx = p1.x - cx, cdy = p1.y - cy;
+    const cLen = Math.hypot(cdx, cdy) || 1;
+    const cnx = cdx / cLen, cny = cdy / cLen;
+    const { op: cop, lw: clw } = afStyle(cornerActive);
+    afScaleArrow(ctx, p1.x + cnx * 8, p1.y + cny * 8, cnx, cny, cop, clw);
+
+  } else {
+    // Wedge forms (radial, hex): use centroid of outer edge midpoints as anchor.
+    // This gives a stable bisector point for radial (average of all arc segment
+    // midpoints ≈ bisector direction) and the outer edge midpoint for hex
+    // (only one outer edge, so centroid = midpoint). Neither jumps between frames.
+    if (outerEdges.length === 0) { ctx.restore(); return; }
+    let ocx = 0, ocy = 0;
+    for (const edge of outerEdges) {
+      ocx += (edge.a.x + edge.b.x) / 2;
+      ocy += (edge.a.y + edge.b.y) / 2;
+    }
+    ocx /= outerEdges.length;
+    ocy /= outerEdges.length;
+    const outerDist = Math.hypot(ocx - cx, ocy - cy) || 1;
+    const outNx = (ocx - cx) / outerDist;
+    const outNy = (ocy - cy) / outerDist;
+
+    // Scale arrow — at the midpoint between center and outer centroid, pointing outward.
+    // "Between apex and outer edge along the axis of symmetry" (Issue 5).
+    const { op: sop, lw: slw } = afStyle(scaleActive);
+    afScaleArrow(ctx, (cx + ocx) / 2, (cy + ocy) / 2, outNx, outNy, sop, slw);
+
+    // Rotation arc — 20px beyond the outer centroid (was 10px, fixes Issue 1).
+    const { op: rop, lw: rlw } = afStyle(rotateActive);
+    afRotationArc(ctx, cx, cy, { x: ocx, y: ocy, d: outerDist }, rop, rlw);
+
+    // Spoke double-line — radial only, hints at segment-count adjustment.
+    if (form.spokeRule === 'radial' && spokeEdges.length > 0) {
+      const spk = spokeEdges[0];
+      const aIsCenter = Math.hypot(spk.a.x - cx, spk.a.y - cy) < SPOKE_EPS;
+      const origin = aIsCenter ? spk.a : spk.b;
+      const tip    = aIsCenter ? spk.b : spk.a;
+      const sx = tip.x - origin.x, sy = tip.y - origin.y;
+      const slen = Math.hypot(sx, sy) || 1;
+      const ux = sx / slen, uy = sy / slen;
+      const perpX = -uy, perpY = ux;
+      const GAP = 2.5, t0 = slen * 0.2, t1 = slen * 0.68;
+      const { op: spop, lw: splw } = afStyle(spokesActive);
+      ctx.lineWidth = spokesActive ? splw : 1;
+      ctx.strokeStyle = `rgba(255,255,255,${spop * 0.7})`;
+      for (const sign of [-1, 1]) {
+        ctx.beginPath();
+        ctx.moveTo(origin.x + ux * t0 + perpX * GAP * sign, origin.y + uy * t0 + perpY * GAP * sign);
+        ctx.lineTo(origin.x + ux * t1 + perpX * GAP * sign, origin.y + uy * t1 + perpY * GAP * sign);
+        ctx.stroke();
+      }
     }
   }
 
   ctx.restore();
+}
+
+// Bidirectional scale arrow at (mx, my) oriented along (nx, ny).
+// HALF=14 gives 28px total line (Issue 2: was 14px, too short).
+function afScaleArrow(ctx, mx, my, nx, ny, op, lw) {
+  const HALF = 14, HEAD = 5;
+  ctx.strokeStyle = `rgba(255,255,255,${op})`;
+  ctx.lineWidth = lw;
+  ctx.beginPath();
+  ctx.moveTo(mx - nx * HALF, my - ny * HALF);
+  ctx.lineTo(mx + nx * HALF, my + ny * HALF);
+  ctx.stroke();
+  for (const [tx, ty, dx, dy] of [
+    [mx + nx * HALF, my + ny * HALF,  nx,  ny],
+    [mx - nx * HALF, my - ny * HALF, -nx, -ny],
+  ]) {
+    const a = Math.atan2(dy, dx);
+    ctx.beginPath();
+    ctx.moveTo(tx, ty);
+    ctx.lineTo(tx + Math.cos(a + 2.6) * HEAD, ty + Math.sin(a + 2.6) * HEAD);
+    ctx.moveTo(tx, ty);
+    ctx.lineTo(tx + Math.cos(a - 2.6) * HEAD, ty + Math.sin(a - 2.6) * HEAD);
+    ctx.stroke();
+  }
+}
+
+// Rotation arc: short curved arc + arrowhead, centered at (cx,cy), pointing toward
+// anchorPt, at anchorPt.d + 20px (Issue 1: was +10px, too close to shape edge).
+function afRotationArc(ctx, cx, cy, anchorPt, op, lw) {
+  const arcR   = anchorPt.d + 20;
+  const cAngle = Math.atan2(anchorPt.y - cy, anchorPt.x - cx);
+  const HSPAN  = 11 * Math.PI / 180;
+  const HEAD   = 5;
+  ctx.strokeStyle = `rgba(255,255,255,${op})`;
+  ctx.lineWidth = lw;
+  ctx.beginPath();
+  ctx.arc(cx, cy, arcR, cAngle - HSPAN, cAngle + HSPAN, false);
+  ctx.stroke();
+  const endAngle = cAngle + HSPAN;
+  const endX = cx + arcR * Math.cos(endAngle);
+  const endY = cy + arcR * Math.sin(endAngle);
+  const tangent = endAngle + Math.PI / 2;
+  ctx.beginPath();
+  ctx.moveTo(endX, endY);
+  ctx.lineTo(endX + Math.cos(tangent + 2.6) * HEAD, endY + Math.sin(tangent + 2.6) * HEAD);
+  ctx.moveTo(endX, endY);
+  ctx.lineTo(endX + Math.cos(tangent - 2.6) * HEAD, endY + Math.sin(tangent - 2.6) * HEAD);
+  ctx.stroke();
 }
 
 // ===========================================================================
@@ -715,6 +774,7 @@ export function setupSourceInteraction(env, wrap) {
       const t0 = e.touches[0], t1 = e.touches[1];
       const rect = wrap.getBoundingClientRect();
       env.overlayDragging = true;
+      env.overlayDragMode = 'pinch';
       drag = {
         mode: 'pinch',
         startDist:     Math.hypot(t1.clientX - t0.clientX, t1.clientY - t0.clientY),
@@ -797,6 +857,7 @@ export function setupSourceInteraction(env, wrap) {
       };
       setCursor(rotateCursorForAngle(cls.theta));
     }
+    env.overlayDragMode = drag?.mode ?? null;
     e.preventDefault();
   }
 
@@ -804,6 +865,7 @@ export function setupSourceInteraction(env, wrap) {
     if (!drag) return;
     drag = null;
     env.overlayDragging = false;
+    env.overlayDragMode = null;
     setCursor('default');
     env.updateUndoUI?.();
   }
