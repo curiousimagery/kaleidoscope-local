@@ -19,13 +19,58 @@ These all benefit equally from the registry architecture — each is one new fil
 - **Hyperbolic Escher (circle limit).** Tessellation of the Poincaré disk. Also needs custom overlay.
 - **Wallpaper groups beyond p4m / p6m.** Triangle (p3m1), more complex symmetries.
 
+Pairs well with the live-camera shell. Having more forms available makes the camera shell more demoable and surfaces form-switching UX issues earlier. New forms can drop in at any time as opportunistic parallel work; they cannot destabilize other phases because each form is a self-contained file plus a registry entry.
+
 For each new form, also fill in `tilesPerDim(state)` so the resolution hint is accurate.
 
 ## next up — capability tier
 
-- **Motion shell.** A separate entry point that shares the engine but adds parameter-animation timeline + MP4 / GIF / video-loop export. Forms-registry already supports this; engine is shell-agnostic.
-- **Live shell.** Kiosk mode for installations. MIDI input (Akai APC40 MK2), touch-as-primary, full-screen, no chrome. Same engine.
-- **PWA manifest + offline cache.** Add proper `manifest.json` and a service worker so the app works offline once loaded. iPad install-to-homescreen story.
+Reordered to reflect mobile-camera-first priority. The live camera shell is the primary mobile experience and the wonder-delivery moment that motivates much of the product narrative (see `FOLD.md` for the full framing). Live + mobile come before motion.
+
+- **Live still-image capture shell (camera-first).** New entry point that takes the camera feed as the kaleidoscope source. `getUserMedia` → upload video frame as texture each rAF tick → render through existing shader pipeline. Shutter UI captures both the kaleidoscope output at full FBO resolution and the raw camera frame at native resolution. Wedge overlay drawn on the live camera view, draggable on touch. Form selection, segment count, basic controls accessible without leaving the camera view. Architecture gate: verify the engine accepts any `TexImageSource` (HTMLVideoElement specifically) before starting; if not, that's a small refactor first.
+
+- **Mobile responsive shell with thoughtful IxD pass.** A mobile-optimized shell, separate from the desktop shell, sharing the engine. Camera-first as the default mode; photo-import as a secondary path. Progressive disclosure of controls. **This phase needs hands-on direction from Daniel before code starts** — see the "mobile UX exploration notes" section below for dual-perspective input captured from prior conversations.
+
+- **Motion shell.** Parameter-animation timeline + video loop export. First version: A/B two-state with crossfade controls (simpler, ships faster, matches VJ mental model). Multi-keyframe horizontal timeline is a v2 of this feature. Export via WebCodecs (preferred) or MediaRecorder (fallback). Loop integrity: first-frame state == last-frame state, enforced via UI toggle.
+
+- **Video file input → kaleidoscope loop output.** Reuses live-camera shell plumbing but with `<video>.src` = file rather than MediaStream. Combines with motion shell's keyframe timeline so kaleidoscope parameters can animate over the video's duration. Same WebCodecs export pipeline.
+
+- **Live performance shell (MIDI / kiosk).** Akai APC40 MK2 input, touch-as-primary, full-screen, no chrome. Same engine. Separate from the live camera shell above — this is the VJ performance surface, not the camera-input feature.
+
+- **PWA manifest + offline cache.** Proper `manifest.json` and service worker so the app works offline once loaded. iPad install-to-homescreen story. Plumbing for the iPad-app-via-Capacitor path (see `FOLD.md` monetization Phase 3).
+
+## mobile UX exploration notes
+
+Captured here as inputs for the design session that should precede the mobile responsive shell build. Two perspectives are intentionally preserved because the right approach isn't settled — divergent design exploration with Daniel driving should produce 2–3 distinct layout/flow approaches, then pick one.
+
+### Daniel's initial sketch
+
+A 4-step conceptual flow for the photo-import path:
+1. Add an image
+2. Modify shape and properties (change image if needed)
+3. Tune canvas settings
+4. Export settings and save
+
+Initial state: load image prompt. Once loaded, possible vertical split between source/wedge view and kaleidoscope preview. Realistically, can't show preview + wedge selector + settings simultaneously. Most controls likely hidden in a hamburger menu (or possibly tab bar — leaning hamburger because detailed text labels like "change image" and "export kaleidoscope" need room).
+
+### Counter-perspective (from prior conversation, captured for discussion)
+
+- The 4-step flow describes the *photo-import* path. The *camera-first* path probably wants a different entry: camera is already live, kaleidoscope is already on screen, the interaction is "frame the world, capture." Camera live as the default mode on mobile.
+- On split-screen wedge-and-preview: consider wedge overlay drawn *on top of the live camera feed* rather than in a split. Phone is small; every pixel counts. Toggle between "wedge view" (camera + overlay, no kaleidoscope) and "kaleidoscope view" (full-screen output) with a single tap.
+- On hamburger vs. tab bar: argued for tab bar because discoverability matters when showing this to friends who've never seen it; hamburger hides everything behind one tap. Counter-argument: text labels matter and tab bar may not have room.
+- On controls: phone shell probably exposes form, segments, composition zoom, canvas rotation, aspect ratio (for square form). Hide advanced controls (OOB clamp/mirror/transparent modes) behind an "advanced" sheet.
+
+### Tilt-to-rotate consideration (caveat)
+
+Briefly considered using gyroscope for canvas rotation. Conflict: capturing a shot requires angling the device, so device-tilt-as-input would fight the primary interaction. Likely not viable. Captured as a noted-and-declined idea unless someone has a clever variant.
+
+### Animation features on mobile
+
+Motion shell / keyframe timeline features should be explicitly gated to larger viewports for now. Keyframe editing on a phone screen is a worse experience than on a laptop, and the camera-first phone story is complete without it.
+
+### Before code starts
+
+Do a divergent IxD exploration session — sketches, possibly an interactive prototype in Figma — with Daniel driving. The dual-perspective notes above are the inputs, not the answer. Produce 2–3 distinct layout/flow approaches, compare, pick one, then build.
 
 ## research / speculative
 
@@ -35,6 +80,28 @@ For each new form, also fill in `tilesPerDim(state)` so the resolution hint is a
 
 - **Source video instead of source image.** The motion shell's logical extension. Kaleidoscope each frame independently and either render in real time or export an MP4 loop.
 
+- **Tileable cell export mode.** Distinct from "scale to tile" zoom snap. This is a UX/export concern: for forms that produce a repeatable unit cell (square p4m, hex p6m, future triangle p3m1, rhombic fundamental domains), add an export mode that crops to the unit cell only, labels the filename with the tiling group, and offers a preview overlay so the user sees the repeat before exporting. Acceptance: exported cell tiles seamlessly when placed in a repeating grid in Photoshop / Affinity.
+
+## monetization / sharing
+
+Full narrative and rationale lives in `FOLD.md` under "monetization paths." Work items only here, in priority order:
+
+- **Phase 1 (next): PWA + Ko-fi tip jar.** Zero new code beyond a Ko-fi link on the landing page. Audience-building. No paywall.
+- **Phase 2: Walled-garden subscription brand.** Page-routing-level auth gating via a third-party platform (Patreon, Ghost with paid memberships, or similar). Parent brand candidate: `curioustools.art`. Not blocking on launch; builds on Phase 1 audience.
+- **Phase 3: Native iPad app via Capacitor.** Web code as core, native shells for Pencil pressure / Files app / Photos library / share sheet / Shortcuts. Paid in App Store at $5–15. Apple Developer account ($99/yr) + 15–30% cut.
+- **Phase 4 (sidebar): Native Mac wrapper for Syphon out.** Electron or Swift wrapper for direct routing into Resolume. Standalone POC spike, not main codebase. Lower priority than OS-level workarounds (OBS Virtual Camera, NDI) which work today with zero code changes.
+- **Phase 5 (deferred): Photoshop PSD export.** Not a plugin. Export kaleidoscope output + original image + wedge as separate PSD layers for clean handoff.
+
+The license choice (AGPL-3.0) preserves all of these options without locking any of them in.
+
+## gallery installation work
+
+Curatorial frame and full concept in `FOLD.md` under "gallery show concept." Work items only here:
+
+- **Cloud folder I/O handshake.** Fold reads source images from a configured cloud folder, writes outputs to another configured cloud folder. Fixed paths. Clean handshake. Upload UI, moderation queue, and gallery display rotation are *not* Fold's job — they belong to a separate sibling app. This is the architecturally clean way for Fold to participate in a gallery installation without absorbing scope it shouldn't carry.
+- **Guided Access kiosk compatibility verification.** Test Fold's PWA install on iPad Pro 12.9" in Guided Access fullscreen mode. Confirm gesture/touch behavior, that no UI element opens external links, that the app survives extended use without crashing. Shared concern with the Drift project's kiosk-mode backlog item; investigate in tandem.
+- **Document-camera source mode.** A variation of the live-camera shell where the camera is positioned overhead pointing at a table of objects. Visitors arrange objects; the kaleidoscope responds in real time. Architecturally identical to the live-camera shell; possibly just a different default form / framing.
+
 ## developer tooling backlog
 
 - **GitHub Actions CI:** `npm run build` on push to main, deploy preview to Vercel on PR. (Vercel handles this automatically via its GitHub integration; CI workflow is for adding `npm run lint` / `npm run typecheck` etc. when those exist.)
@@ -42,12 +109,12 @@ For each new form, also fill in `tilesPerDim(state)` so the resolution hint is a
 - **Visual regression harness.** A small node script that loads each form at default settings, exports at 1K, and diffs against a saved baseline. Catches accidental shader regressions.
 - **Source-mapped production builds.** Vite does this by default, but worth verifying when we deploy.
 
-## monetization / sharing — exploratory
+## open architecture questions
 
-(These are speculative and don't need code work yet, but parking the threads here so we can come back to them.)
+- **Engine input contract: does the engine accept any `TexImageSource`?** The engine should accept HTMLImageElement, HTMLVideoElement, HTMLCanvasElement, ImageBitmap, and VideoFrame as a texture source, since `gl.texImage2D` natively accepts all of these. Verify this is the case before starting the live-camera shell. If not, the refactor should be small.
 
-- **Patreon-style membership gating.** User has expressed interest in a "garden of creative projects" where a paid membership tier gets sign-in access to a collection of small apps. Patreon, Buy Me a Coffee with member posts, or Ghost with paid memberships all handle the auth + payment without us writing a backend. Would happen at the page-routing level, not inside individual apps.
-- **Mac App Store wrapper.** WKWebView or Tauri/Electron shell around the static build, sold for a one-time price. Apple handles paywall + receipt validation. Probably 1-2 sessions of work to set up.
-- **Web paywall.** Stripe + auth + a backend gating "pro" features (4K+ export, more forms, etc.). Significantly more infra work than the other two options. Not recommended as a first step.
+- **Shell separation discipline for mobile.** The mobile shell should be a *distinct shell* pointed at the same engine, not a responsive retrofit of the desktop shell. Same as the planned motion and live shells. This is the architectural commitment that makes the pro-and-playful product story possible (see `FOLD.md`).
 
-The license choice (AGPL-3.0) preserves all of these options without locking any of them in.
+- **Shared infrastructure for video sources.** Live camera (MediaStream), video file (`<video>.src = file`), and animated still image (parameter timeline) should share infrastructure rather than being three separate code paths. After the live-camera shell ships, refactor as needed so this stays true when video file input and motion shell join.
+
+- **WebCodecs availability for video export.** When the motion shell ships, prefer WebCodecs `VideoEncoder` for frame-perfect output; fall back to `MediaRecorder` if not supported. Codec preference: mp4/h264 if available, webm/vp9 otherwise. May need to expose codec choice in advanced export settings.

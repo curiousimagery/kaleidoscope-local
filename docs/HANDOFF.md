@@ -12,7 +12,7 @@ He prefers **no em dashes** in his own writing; respect that in any prose Claude
 
 ## current version
 
-`v0.2.0 · Build 30`. The footer in the running app shows this string from `src/version.js`. When delivering a new build, increment BUILD by 1 and bump VERSION when meaningful change ships. **BUILD never resets** on version bumps — it's a global monotonic counter (see `version.js` comment).
+`v0.2.0 · Build 31`. The footer in the running app shows this string from `src/version.js`. When delivering a new build, increment BUILD by 1 and bump VERSION when meaningful change ships. **BUILD never resets** on version bumps — it's a global monotonic counter (see `version.js` comment).
 
 ## what's working
 
@@ -28,11 +28,11 @@ Read `ARCHITECTURE.md` if you need details on the registry, shader composition, 
 
 ## what we're doing right now
 
-Build 24 adds session undo/redo: 100-step two-stack history, Cmd+Z / Cmd+Shift+Z shortcuts, and a touch-reachable undo/redo button pair at the bottom of the preview area. Capture points: overlay drags (all modes + pinch), slider mousedown, scrub field drag start, form switch, OOB mode change, preview canvas pinch start.
+Builds 24-31 added: session undo/redo (24), iOS safe area fixes (25-28), persistent touch affordances (29), affordance geometry/stability fixes (30), affordance geometry precision + pinch highlight fix (31). Build 31 is the current deployed build. Touch affordances are considered working.
 
-Builds 24-30 add: session undo/redo (Build 24), iOS safe area fixes for iPad layout (Builds 25-28), persistent touch affordances (Build 29), and affordance geometry/stability fixes (Build 30). Touch affordances are considered working as of Build 30.
+Next: one of the following (Daniel to direct which): live-camera shell, opportunistic new forms, or mobile UX design session. See `BACKLOG.md` for the reordered capability tier.
 
-Next: consider fine-tuning affordance sizes/positions after iPad QA, then move to next backlog item (new forms or motion shell).
+`docs/FOLD.md` now exists and owns vision, brand, marketing narrative, monetization paths, and gallery show concept. `docs/BACKLOG.md` has been restructured: capability tier reordered (live camera first, then mobile, then motion), mobile UX exploration notes added, gallery installation work captured, open architecture questions added.
 
 ## decisions locked in
 
@@ -46,7 +46,7 @@ Next: consider fine-tuning affordance sizes/positions after iPad QA, then move t
 ## decisions deferred
 
 - **"Scale to tile" canvas zoom snap.** Build 19 conceptual analysis concluded it's feasible only for square output, but Daniel reports visually-repeating patterns appearing at certain zoom-out levels and wants to revisit. Deferred until someone has time to investigate with screenshots. See `BACKLOG.md`.
-- **Monetization approach.** Daniel is curious about a Patreon-style "garden of creative projects" membership gating model. Not committed. The AGPL license preserves all monetization options.
+- **Monetization approach.** Full narrative and phased plan now in `docs/FOLD.md` under "monetization paths." The AGPL license preserves all options.
 
 ## what to avoid
 

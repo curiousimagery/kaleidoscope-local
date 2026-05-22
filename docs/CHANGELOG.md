@@ -4,6 +4,20 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.2.0 (Build 31) — 2026-04-27
+
+**Affordance geometry precision + pinch highlight fix.**
+
+- **Scale arrows (radial + hex):** placed at the outer boundary using `polygonRadiusAt`, which intersects the polygon path. Previously the arrow floated at an interior point.
+- **Arc gap (all forms):** formula changed to `max(R+20, maxVertexDist+16)`, making clearance size-adaptive.
+- **Square arc:** moved to above the top edge center (24px gap from edge midpoint), avoiding collision with the scale arrow.
+- **Corner arrow (square):** centered on vertex with no additional offset.
+- **Rotation arc (all forms):** now bidirectional, with arrowheads at both ends.
+- **Pinch highlight:** pinch no longer activates all affordances simultaneously. Outline highlights are drag-mode-aware (`strokeEdges`) and clear on gesture release via `scheduleOverlayDraw` in `onUp`.
+- Code: `src/shell/overlay.js` (126 lines changed).
+
+---
+
 ## v0.2.0 (Build 30) — 2026-04-27
 
 **Touch affordance geometry fixes + active-state feedback.** Ten issues from post-Build-29 iPad QA.
