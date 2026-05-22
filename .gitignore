@@ -10,6 +10,7 @@ dist/
 # editor / OS
 .DS_Store
 .vscode/
+.claude/
 *.swp
 *.swo
 
