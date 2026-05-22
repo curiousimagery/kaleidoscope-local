@@ -12,10 +12,17 @@ Living list of things we want to do, in rough priority order within each section
 
 These all benefit equally from the registry architecture — each is one new file in `src/engine/forms/` plus one line in the registry. Order is rough; pick whichever sounds most fun.
 
-- **Polygonal radial (n-fold polygons).** Generalization of radial wedge where the outer boundary is a polygon (triangle, pentagon, hexagon-as-radial, etc.) instead of an arc. Some math overlap with existing radial.
-- **Droste spiral.** Logarithmic-conformal map; the recursive picture-within-a-picture effect made famous by Escher's Print Gallery. Outside the polygon-overlay model — needs custom overlay (concentric guide circles).
-- **Hyperbolic Escher (circle limit).** Tessellation of the Poincaré disk. Also needs custom overlay.
-- **Wallpaper groups beyond p4m / p6m.** Triangle (p3m1), more complex symmetries.
+- **Triangle wallpaper (p3m1).** The third regular wallpaper tiling, joining the existing square (p4m) and hex (p6m). Equilateral triangles tile the plane with mirror axes along each edge; 6 triangles meet at each vertex. Despite the triangular fundamental domain, the symmetry closes cleanly because 6 (even) triangles meet at each rotational point — no odd-segment seam problem. Structurally analogous to `hex.js` for implementation. Own form file, not a sub-type of hex.
+
+- **Droste spiral.** Logarithmic-conformal map producing recursive picture-within-a-picture (Escher's *Print Gallery*). Heavy lift: needs custom overlay (concentric circles + radial line, not a polygon), custom controls (spiral tightness, direction), and possibly engine schema extension for non-polygon overlays. Pairs naturally with motion shell — animating spiral start angle gives infinite-zoom loop.
+
+- **Hyperbolic Escher (circle limit).** Tessellation of the Poincaré disk model of hyperbolic geometry. Output is a circular image with shapes crowding toward the edge, like Escher's *Circle Limit* prints. Heavy lift: needs custom overlay (circular disk boundary + warped fundamental triangle), custom controls (Schläfli tiling selector), and engine schema extension. Distinctive Escher-feel; significant aesthetic differentiation.
+
+- **p31m wallpaper (future).** Alternate triangular tiling — same equilateral triangles as p3m1, but with mirror axes running through vertices rather than along edges. Fully seamless (passes the no-visible-seams design constraint). Visually distinct from p3m1, especially at triangle centers vs. corners. Lower priority than the above; vocabulary expansion rather than a foundational form.
+
+- **Radial polygon-frame variation (low priority).** Cosmetic enhancement to the existing radial form: optionally render with an n-sided polygon outer boundary instead of a circular arc. Same fold math, same n-fold rotational symmetry, just a different visible frame shape. Constrained to even sides matching segment count (4-segment radial → square frame, 6 → hex frame, 8 → octagon frame, etc.) for seam compliance. May emerge organically as a side effect of tile-aware features since polygon framing relates to tileable output shapes. Not a separate form; a parameter on radial.
+
+**Design constraint for all new forms:** No visible seams on any output. Forms without sufficient mirror symmetry (pinwheel-only patterns like p3, p6, p4, etc.) are explicitly excluded — they show seams between fold cells which breaks the kaleidoscope illusion. Glide-reflection groups (pmg, pgg) are also excluded because glide axes can produce visible discontinuities depending on source image content. Rectangular mirror groups (pmm, cmm) are excluded for a different reason — they're visually redundant with the existing square form's aspect-ratio control. After p3m1 ships, p31m is the only remaining wallpaper group that adds distinct visual vocabulary while reliably satisfying the seam constraint.
 
 Pairs well with the live-camera shell. Having more forms available makes the camera shell more demoable and surfaces form-switching UX issues earlier. New forms can drop in at any time as opportunistic parallel work; they cannot destabilize other phases because each form is a self-contained file plus a registry entry.
 
@@ -70,15 +77,19 @@ Motion shell / keyframe timeline features should be explicitly gated to larger v
 
 Do a divergent IxD exploration session — sketches, possibly an interactive prototype in Figma — with Daniel driving. The dual-perspective notes above are the inputs, not the answer. Produce 2–3 distinct layout/flow approaches, compare, pick one, then build.
 
+## tile-aware features
+
+Cluster of related capabilities for treating Fold output as tile / wallpaper content rather than standalone images. Likely to evolve from a research item to a real feature as the gallery installation concept matures (see `FOLD.md`).
+
+- **Snap-to-tile canvas zoom.** For each form, the canvas-zoom slider has natural snap points where the output is exactly one unit cell of the form's wallpaper tiling (or an integer multiple). Identify these snap points mathematically per form, then surface them in the UI — either as hard snap behavior or as visual indicators on the slider. Daniel reports visually-repeating patterns appearing at certain canvas-zoom-out levels; initial geometric analysis suggested this was feasible for square only, but the visual evidence suggests the analysis was incomplete. Revisit with a screenshot of the working repeat pattern to make the geometry concrete.
+
+- **Tileable cell export.** Export only one unit cell of the tiling, not the full mosaic. Filename labels the tiling group. Crops to the unit cell shape: square cells from p4m, hexagonal cells from p6m, triangular cells from p3m1. Acceptance: exported cell tiles seamlessly when placed in a repeating grid.
+
+- **Non-square tile output for snapping.** For forms with non-square fundamental domains (hex, triangle), export the actual polygon shape (transparent background outside the polygon, or vector-cropped). Enables downstream tools to snap multiple cells together — e.g., a collaborative gallery installation where visitor outputs snap into a larger hexagonal composition. Architecturally similar to tileable cell export but with alpha mask or vector boundary.
+
 ## research / speculative
 
-- **"Scale to tile" snap on canvas zoom.** Initial conceptual analysis: feasible for square only, math doesn't work for hex (square-output × hexagonal periods = no integer solutions) or radial (rotational not translational symmetry, so no wallpaper tile). User reports that *visually* repeating patterns appear at certain canvas-zoom-out levels though, and wants to revisit this — may be missing something in the analysis. Not deferred to "never," just deferred to "not until we have more eyes on the geometry." When revisiting, start with a screenshot of the working repeat pattern to make the geometry concrete.
-
-- **"Pro" output options.** Tile-aware export that produces seamlessly tileable wallpaper images regardless of the natural geometry (might involve more complex re-rendering, not just zoom-snap). Adjacent to the above.
-
-- **Source video instead of source image.** The motion shell's logical extension. Kaleidoscope each frame independently and either render in real time or export an MP4 loop.
-
-- **Tileable cell export mode.** Distinct from "scale to tile" zoom snap. This is a UX/export concern: for forms that produce a repeatable unit cell (square p4m, hex p6m, future triangle p3m1, rhombic fundamental domains), add an export mode that crops to the unit cell only, labels the filename with the tiling group, and offers a preview overlay so the user sees the repeat before exporting. Acceptance: exported cell tiles seamlessly when placed in a repeating grid in Photoshop / Affinity.
+- **Source video instead of source image.** Superseded by the planned video-file-input feature in the capability tier; remove this entry when that ships.
 
 ## monetization / sharing
 
