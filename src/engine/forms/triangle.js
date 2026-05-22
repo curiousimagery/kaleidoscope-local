@@ -94,19 +94,27 @@ export default {
     }
   `,
 
-  // the two apex-incident edges of the wedge are visual-only artifacts of how
-  // we draw the fundamental wedge of a triangle. scale should only fire on the
-  // FAR (cell-boundary) edge. matches hex's spokeRule semantics.
-  spokeRule: 'hex',
+  // triangle is locked equilateral with the slice center at the centroid (not
+  // at a vertex). all three edges are cell boundaries; the user can scale by
+  // dragging any edge and rotate by dragging outside the polygon. matches
+  // square's spokeRule semantics.
+  spokeRule: 'none',
 
   buildPolygon(state) {
-    // fundamental wedge of the D3 fold: an equilateral triangle with apex at
-    // the slice center, opening 60°, with the far edge at radius 1. matches the
-    // shader's output convention exactly.
+    // equilateral triangle, centroid at slice center, apex up on screen
+    // (folded-space y is positive-down). circumradius √3/3 matches the fold
+    // output's natural scale (max output magnitude is √3/3 at canvas-space
+    // triangle vertices).
+    //
+    // vertex positions:
+    //   top:           (0, -√3/3)
+    //   bottom-right:  (1/2,  √3/6)
+    //   bottom-left:   (-1/2, √3/6)
+    const R = Math.sqrt(3) / 3;
     return [
-      { vx: 0, vy: 0 },
-      { vx: 1, vy: 0 },
-      { vx: Math.cos(Math.PI / 3), vy: Math.sin(Math.PI / 3) },
+      { vx: 0,    vy: -R },
+      { vx: 0.5,  vy:  R * 0.5 },
+      { vx: -0.5, vy:  R * 0.5 },
     ];
   },
 

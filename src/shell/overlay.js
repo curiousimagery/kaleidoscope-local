@@ -301,6 +301,41 @@ function drawTouchAffordances(ctx, screenPts, cx, cy, outerEdges, spokeEdges, fo
     const { op: cop, lw: clw } = afStyle(cornerActive);
     afScaleArrow(ctx, p1.x, p1.y, cdx / cLen, cdy / cLen, cop, clw);
 
+  } else if (form.id === 'triangle') {
+    // Triangle is locked equilateral with the centroid at slice center. All
+    // three edges are cell boundaries. Show a scale arrow perpendicular to
+    // each edge midpoint, plus one rotation arc positioned above the topmost
+    // vertex (the apex on screen).
+    if (screenPts.length < 3) { ctx.restore(); return; }
+
+    const { op: sop, lw: slw } = afStyle(scaleActive);
+    for (let i = 0; i < screenPts.length; i++) {
+      const a = screenPts[i];
+      const b = screenPts[(i + 1) % screenPts.length];
+      const mx = (a.x + b.x) / 2;
+      const my = (a.y + b.y) / 2;
+      const ex = b.x - a.x;
+      const ey = b.y - a.y;
+      const el = Math.hypot(ex, ey) || 1;
+      let nx = -ey / el, ny = ex / el;
+      if ((mx - cx) * nx + (my - cy) * ny < 0) { nx = -nx; ny = -ny; }
+      afScaleArrow(ctx, mx, my, nx, ny, sop, slw);
+    }
+
+    let topVtx = screenPts[0];
+    for (const p of screenPts) {
+      if (p.y < topVtx.y) topVtx = p;
+    }
+    const topAng = Math.atan2(topVtx.y - cy, topVtx.x - cx);
+    const topR   = Math.hypot(topVtx.x - cx, topVtx.y - cy);
+    let maxVD = 0;
+    for (const p of screenPts) {
+      const d = Math.hypot(p.x - cx, p.y - cy);
+      if (d > maxVD) maxVD = d;
+    }
+    const { op: rop, lw: rlw } = afStyle(rotateActive);
+    afRotationArc(ctx, cx, cy, topAng, Math.max(topR + 20, maxVD + 16), rop, rlw);
+
   } else {
     // Wedge forms (radial, hex): centroid of outer edge midpoints gives a stable
     // direction (bisector for radial, outer edge midpoint for hex) without jumps.
