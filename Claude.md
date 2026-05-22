@@ -10,32 +10,24 @@ Daniel is a product designer, not an engineer. He thinks fluently in interaction
 
 He works across three related apps that will share an engine: this one (kaleidoscope, the still tool), a planned motion shell, and a planned live shell. Decisions here cascade. When something is worth doing once-and-shared rather than twice-and-divergent, flag it.
 
-## how to handle his messages
+## standing maintenance after any code change
 
-His messages often contain **multiple threads at different temperatures**: a fix to make, a question to answer, a design direction to think through, a process question. The failure mode to avoid is latching onto the most actionable thread and treating the rest as flavor. If a message has more than one thread, address all of them. If you can't address all of them well in one response, say so up front and ask which to handle first rather than picking silently.
+Every code change that ships requires four updates. Before committing any code change, confirm each one is done:
 
-When a message is exploratory ("what do you think about...", "how would we...", "I'm wondering if..."), default to discussion, not edits. He'll tell you when he wants code. If a message mixes "fix this" with "think about that," do the fix and respond in prose to the think-about-that, in the same turn. Don't write code for the exploratory parts unless he says so.
+- [ ] `src/version.js` BUILD counter incremented. BUILD is monotonic and never resets on version bump. See the comment in `version.js` if unsure.
+- [ ] `docs/CHANGELOG.md` entry added under the current version block. Bump the version block when the change is release-worthy on its own.
+- [ ] `docs/HANDOFF.md` updated if the change affects current state, known issues, or what the next session should pick up. The "what's working" and "what we're doing right now" sections go stale fastest.
+- [ ] `docs/BACKLOG.md` updated if a backlog item was shipped (move it to CHANGELOG and remove from BACKLOG) or a new item was discovered.
 
-When he asks for your input on a design or scope decision, give him a recommendation, not a menu. He's better served by "here's what I'd do and why, with the alternative noted" than by "here are five options, you decide."
+If any of the four cannot be confirmed, do not commit. Address what's missing first.
+
+If the change is docs-only (no code touched), none of the above applies.
 
 ## execution conventions
-
-**Sequencing within a single prompt.** When he asks for two related features in one turn, do them sequentially with a commit and verification gate between, not in parallel. Tell him what you verified before moving on. If the second feature reveals a problem with the first, stop and report rather than working around it.
 
 **Plan mode is a tool constraint, not a behavioral one.** Even when not in plan mode, if a request involves new patterns, architectural choices, or anything spanning more than two files, propose the approach in prose first and wait for a yes before editing. Single-file targeted fixes that follow existing patterns can proceed directly.
 
 **Surface non-obvious choices before committing to them.** Which file something belongs in, whether to extract a helper, naming, what counts as "done." Daniel is quick to course-correct and prefers a 30-second checkpoint over a refactor.
-
-## standing maintenance after any code change
-
-Every code change that ships includes:
-
-- A one-line entry appended to `docs/CHANGELOG.md` under the current version block. Bump the version block when the change is release-worthy on its own.
-- An update to `docs/HANDOFF.md` if the change affects current state, known issues, or what the next session should pick up. The "what's working" and "what we're doing right now" sections are the ones that go stale fastest.
-- An update to `docs/BACKLOG.md` if you've shipped something that was on it (move it to changelog and remove from backlog) or learned something worth parking as a future thread.
-- An increment of the BUILD counter in `src/version.js`. BUILD is monotonic and never resets on version bump. See the comment in that file if you're unsure.
-
-If you're not changing code (e.g., a docs-only edit, a discussion turn), none of the above applies.
 
 ## codebase conventions you must internalize
 
@@ -46,32 +38,25 @@ Two specific rules worth flagging because violating them costs hours:
 - **Don't put backticks inside a form's `glsl` string.** It's a JS template literal and a backtick inside breaks parsing silently. If a future form's GLSL needs a backtick, escape it carefully or restructure the surrounding string.
 - **Single state object means undo/redo is cheap.** If you're touching state mutations, consider whether the change should integrate with the history stack rather than bypass it.
 
-## design and UX principles
-
-These are working principles, not code facts. They're how Daniel decides; matching them keeps proposals on his wavelength.
-
-- **iPad and touch are first-class surfaces, not retrofits.** When adding any interactive UI, think through both the mouse cursor story and the touch story before writing the first line. Touch targets are 44pt minimum.
-- **Direct manipulation over chrome.** When a value can be edited by dragging the thing it controls, prefer that over adding another slider. Existing examples: drag the slice overlay to position, drag the boundary to scale, drag outside to rotate.
-- **Affordances are minimal and earned.** Don't add an indicator for every possible gesture. One affordance per category (one for scale, one for rotate, one for segments-on-radial), at low opacity, only on touch surfaces.
-- **Stroke language carries information.** Polygon stroke highlights signal hover state on desktop; dashed amber signals OOB. Reuse this vocabulary rather than introducing parallel signals.
-- **The body of the wedge is for the image.** The center is the busiest visual area. Don't put UI chrome there.
-
 ## prose style
 
-- No em dashes. Replace with periods, commas, or parentheses depending on what's actually right.
-- No superlatives ("amazing," "perfect," "incredible") in commit messages or code comments. They age badly.
 - Code comments explain *why*, not *what*. The code shows what.
 - When writing explanations to Daniel, lead with the conclusion and follow with the reasoning. He's a senior reader; he'll ask for more if he wants it.
 
-## things you'll be tempted to do that you shouldn't
+## things you'll be tempted to do that you shouldn't (without asking first)
 
-- **Don't infer urgency.** If something looks broken in a way he didn't mention, flag it. Don't fix it silently as part of an unrelated change.
-- **Don't refactor opportunistically.** If a function looks ugly but isn't part of the requested change, leave it. He'll ask when he wants cleanup.
-- **Don't add libraries.** This project is plain Vite + vanilla JS + GLSL on purpose. If you genuinely need a new dependency, surface it as a question first.
-- **Don't introduce build steps.** No TypeScript, no linters, no preprocessors unless he asks.
-- **Don't write tests for code that doesn't have tests yet.** Test infrastructure is a deliberate future decision; don't set the precedent in a feature commit.
+These aren't blanket prohibitions. They're things Claude Code is tempted to do silently or opportunistically that Daniel needs to weigh in on before they happen.
+
+- **Don't refactor opportunistically inside an unrelated change.** If you spot something worth restructuring or cleaning up while doing other work, *do not* fold it into the current change silently. Surface it as a separate proposal with the tradeoff: what would improve, what the scope of the change would be, what the risk is. Daniel may not know to ask for cleanups he can't articulate in code terms, so proactive flagging is welcome — just don't bundle it into unrelated work.
+
+- **Don't infer urgency.** If something looks broken in a way Daniel didn't mention, flag it. Don't fix it silently as part of an unrelated change.
+
+- **Don't add libraries without asking.** This project is plain Vite + vanilla JS + GLSL on purpose. If you genuinely need a new dependency, surface it as a question first with the reasoning.
+
+- **Don't introduce build steps without asking.** No TypeScript, no linters, no preprocessors unless requested. If you think one would help, propose it; don't add it.
+
+- **Don't write tests for code that doesn't have tests yet.** Test infrastructure is a deliberate future decision; don't set the precedent in a feature commit. Propose it as its own piece of work.
+
 - **Don't assume Daniel sees what you describe.** He's caught Claude hallucinating UI elements before, in this project and others. When describing the running app, browser dev tools, or any external UI, be tentative and defer to what he actually sees on screen.
 
-## when in doubt
-
-Ask. A 30-second clarification beats a 30-minute revert.
+The pattern: proactive proposals are welcome, silent expansions of scope are not. When in doubt, pause and ask.

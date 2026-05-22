@@ -75,6 +75,16 @@ Each form's `glsl` field is a JS template literal. **Watch for backticks inside 
 
 `gl.js` looks up uniform locations once at init via `collectAllUniformNames()`, then on every render iterates `collectUniformSpecs()` to push values. Per-form uniforms that the GLSL compiler optimizes out have null locations; those are silently skipped.
 
+## design and UX principles
+
+These are working principles, not code facts. They're how Daniel decides; matching them keeps proposals on his wavelength.
+
+- **iPad and touch are first-class surfaces, not retrofits.** When adding any interactive UI, think through both the mouse cursor story and the touch story before writing the first line. Touch targets are 44pt minimum.
+- **Direct manipulation over chrome.** When a value can be edited by dragging the thing it controls, prefer that over adding another slider. Existing examples: drag the slice overlay to position, drag the boundary to scale, drag outside to rotate.
+- **Affordances are minimal and earned.** Don't add an indicator for every possible gesture. One affordance per category (one for scale, one for rotate, one for segments-on-radial), at low opacity, only on touch surfaces.
+- **Stroke language carries information.** Polygon stroke highlights signal hover state on desktop; dashed amber signals OOB. Reuse this vocabulary rather than introducing parallel signals.
+- **The body of the wedge is for the image.** The center is the busiest visual area. Don't put UI chrome there.
+
 ## the swap, the divider, the slot management
 
 The "main slot" is the large viewport area. The "side slot" is the panel-top thumbnail box. By default the kaleidoscope preview is in main and the source-image overlay is in side. The swap button toggles them. The mini-canvas that shows the kaleidoscope when swapped is a 2D-canvas copy of the WebGL preview canvas (drawn via `ctx.drawImage`).
