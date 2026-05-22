@@ -12,7 +12,7 @@ He prefers **no em dashes** in his own writing; respect that in any prose Claude
 
 ## current version
 
-`v0.2.0 · Build 32`. The footer in the running app shows this string from `src/version.js`. When delivering a new build, increment BUILD by 1 and bump VERSION when meaningful change ships. **BUILD never resets** on version bumps — it's a global monotonic counter (see `version.js` comment).
+`v0.2.0 · Build 33`. The footer in the running app shows this string from `src/version.js`. When delivering a new build, increment BUILD by 1 and bump VERSION when meaningful change ships. **BUILD never resets** on version bumps — it's a global monotonic counter (see `version.js` comment).
 
 ## what's working
 
@@ -28,7 +28,7 @@ Read `ARCHITECTURE.md` if you need details on the registry, shader composition, 
 
 ## what we're doing right now
 
-Build 32 adds the triangle wallpaper form (p3m1), the fourth form in the registry. New `src/engine/forms/triangle.js` plus one registry line; no engine or overlay changes needed. Uses D3 fold around triangle centroids — produces visually rich kaleidoscope tilings with affordances matching hex. Awaiting production review for tuning of `TRI_SIZE` and `tilesPerDim`.
+Build 32 added the triangle wallpaper form (p3m1) but shipped non-functional due to a GLSL reserved-word collision (`centroid` is reserved in GLSL ES 3.00). Build 33 is the hotfix: variable renamed to `triCenter` in `src/engine/forms/triangle.js`. Shader now compiles and the form should render. Awaiting production review for tuning of `TRI_SIZE` and `tilesPerDim`, and for the seam / affordance checks that were blocked by the broken build.
 
 Next: one of the following (Daniel to direct which): live-camera shell, additional new forms (Droste, hyperbolic Escher, p31m), or mobile UX design session. See `BACKLOG.md` for the reordered capability tier.
 

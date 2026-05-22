@@ -73,12 +73,12 @@ export default {
       vec2 e1 = TRI_SIZE * vec2(1.0, 0.0);
       vec2 e2 = TRI_SIZE * vec2(0.5, SQRT3 / 2.0);
       vec2 base = fi * e1 + fj * e2;
-      vec2 centroid = isUp
+      vec2 triCenter = isUp
         ? base + (e1 + e2) / 3.0
         : base + 2.0 * (e1 + e2) / 3.0;
 
       // local position relative to centroid.
-      vec2 local = p - centroid;
+      vec2 local = p - triCenter;
 
       // D3 fold: 3-fold rotation collapses 360° → 120° wedge, then mirror
       // across the wedge axis collapses 120° → 60° wedge.
