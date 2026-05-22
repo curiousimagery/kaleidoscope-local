@@ -59,4 +59,6 @@ These aren't blanket prohibitions. They're things Claude Code is tempted to do s
 
 - **Don't assume Daniel sees what you describe.** He's caught Claude hallucinating UI elements before, in this project and others. When describing the running app, browser dev tools, or any external UI, be tentative and defer to what he actually sees on screen.
 
+- **Don't add "Co-Authored-By" lines to commit messages.** No acknowledgment of Claude in commit history. If Daniel wants to acknowledge collaboration, that goes in README.md, not in git log.
+
 The pattern: proactive proposals are welcome, silent expansions of scope are not. When in doubt, pause and ask.
