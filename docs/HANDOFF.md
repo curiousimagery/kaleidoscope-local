@@ -12,7 +12,7 @@ He prefers **no em dashes** in his own writing; respect that in any prose Claude
 
 ## current version
 
-`v0.2.0 · Build 31`. The footer in the running app shows this string from `src/version.js`. When delivering a new build, increment BUILD by 1 and bump VERSION when meaningful change ships. **BUILD never resets** on version bumps — it's a global monotonic counter (see `version.js` comment).
+`v0.2.0 · Build 32`. The footer in the running app shows this string from `src/version.js`. When delivering a new build, increment BUILD by 1 and bump VERSION when meaningful change ships. **BUILD never resets** on version bumps — it's a global monotonic counter (see `version.js` comment).
 
 ## what's working
 
@@ -28,11 +28,11 @@ Read `ARCHITECTURE.md` if you need details on the registry, shader composition, 
 
 ## what we're doing right now
 
-Builds 24-31 added: session undo/redo (24), iOS safe area fixes (25-28), persistent touch affordances (29), affordance geometry/stability fixes (30), affordance geometry precision + pinch highlight fix (31). Build 31 is the current deployed build. Touch affordances are considered working.
+Build 32 adds the triangle wallpaper form (p3m1), the fourth form in the registry. New `src/engine/forms/triangle.js` plus one registry line; no engine or overlay changes needed. Uses D3 fold around triangle centroids — produces visually rich kaleidoscope tilings with affordances matching hex. Awaiting production review for tuning of `TRI_SIZE` and `tilesPerDim`.
 
-Next: one of the following (Daniel to direct which): live-camera shell, opportunistic new forms, or mobile UX design session. See `BACKLOG.md` for the reordered capability tier.
+Next: one of the following (Daniel to direct which): live-camera shell, additional new forms (Droste, hyperbolic Escher, p31m), or mobile UX design session. See `BACKLOG.md` for the reordered capability tier.
 
-`docs/FOLD.md` now exists and owns vision, brand, marketing narrative, monetization paths, and gallery show concept. `docs/BACKLOG.md` has been restructured: capability tier reordered (live camera first, then mobile, then motion), mobile UX exploration notes added, gallery installation work captured, open architecture questions added.
+`docs/FOLD.md` owns vision, brand, marketing narrative, monetization paths, and gallery show concept. `docs/BACKLOG.md` capability tier is reordered (live camera first, then mobile, then motion); mobile UX exploration notes, gallery installation work, and open architecture questions sections are present.
 
 ## decisions locked in
 
