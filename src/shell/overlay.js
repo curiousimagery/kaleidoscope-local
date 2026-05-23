@@ -117,6 +117,19 @@ export function drawSourceOverlay(env) {
   const uvToScreen = (u, v) => ({ x: imgX + u * imgW, y: imgY + v * imgH });
   const screenPts = uvPts.map(({ u, v }) => uvToScreen(u, v));
 
+  // Optional secondary polygon: the actual fold sample region, drawn alongside
+  // the main polygon when the two don't match (currently only triangle). Its
+  // hole is unioned with the main polygon's; outline is drawn after the main
+  // outline so it sits on top.
+  let sampleScreenPts = null;
+  if (form.buildSampleRegion) {
+    const samplePts = form.buildSampleRegion(state);
+    sampleScreenPts = samplePts.map(p => {
+      const { dx, dy } = sliceVecToSourceUV(p.vx, p.vy, state, sourceAspect);
+      return uvToScreen(state.sliceCx + dx, state.sliceCy + dy);
+    });
+  }
+
   // dim background
   ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
   ctx.fillRect(0, 0, w, h);
@@ -130,6 +143,18 @@ export function drawSourceOverlay(env) {
   ctx.closePath();
   ctx.globalCompositeOperation = 'destination-out';
   ctx.fill();
+
+  // also cut the sample-region hole so the wedge's poke-out (beyond the main
+  // polygon) reveals source image too.
+  if (sampleScreenPts) {
+    ctx.beginPath();
+    sampleScreenPts.forEach((p, i) => {
+      if (i === 0) ctx.moveTo(p.x, p.y);
+      else ctx.lineTo(p.x, p.y);
+    });
+    ctx.closePath();
+    ctx.fill();
+  }
   ctx.globalCompositeOperation = 'source-over';
 
   // mirror reflection visualization — when OOB mode is mirror AND the wedge
@@ -215,6 +240,22 @@ export function drawSourceOverlay(env) {
   const dragHLSpoke = dm === 'segments' || dm === 'pinch';
   strokeEdges(outerEdges, isRotateHover || isScaleArcHover || dragHL);
   strokeEdges(spokeEdges, isRotateHover || isScaleSpokeHover || dragHLSpoke);
+
+  // sample-region outline: indicator showing the actual fold sample region.
+  // Subtler than the main outline (1px @ 0.7 opacity vs 1.5px @ 0.9) so it
+  // reads as informational rather than competing with the interactive frame.
+  if (sampleScreenPts && sampleScreenPts.length >= 2) {
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.7)';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([]);
+    ctx.beginPath();
+    sampleScreenPts.forEach((p, i) => {
+      if (i === 0) ctx.moveTo(p.x, p.y);
+      else ctx.lineTo(p.x, p.y);
+    });
+    ctx.closePath();
+    ctx.stroke();
+  }
 
   // center dot
   ctx.fillStyle = '#ffffff';

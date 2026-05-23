@@ -118,6 +118,29 @@ export default {
     ];
   },
 
+  // optional: separate "actual sample region" polygon, drawn alongside the main
+  // polygon as an indicator. used by the overlay when the main polygon doesn't
+  // match the fold's true output range (which is the case for triangle: the
+  // fold output is a 60° wedge but we display the full equilateral triangle as
+  // the interaction zone). other forms don't need this because their main
+  // polygon already equals the sample region.
+  //
+  // returns vertices in folded space:
+  //   - apex at origin
+  //   - 17 arc points sweeping from 0° to 60° at radius √3/3 (the fold's max
+  //     output magnitude)
+  // resolution of 16 arc segments matches radial.js's STEPS.
+  buildSampleRegion(state) {
+    const R = Math.sqrt(3) / 3;
+    const STEPS = 16;
+    const pts = [{ vx: 0, vy: 0 }];
+    for (let i = 0; i <= STEPS; i++) {
+      const a = (i / STEPS) * (Math.PI / 3);
+      pts.push({ vx: Math.cos(a) * R, vy: Math.sin(a) * R });
+    }
+    return pts;
+  },
+
   filenameSuffix(state) {
     return '';
   },
