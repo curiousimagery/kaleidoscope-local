@@ -41,10 +41,10 @@ export default {
   uniforms: {},
 
   // input convention: p in canvas space, [-1, 1]² (no normalization).
-  // output convention: unit-bounded vector in the fundamental wedge [0°, 60°].
-  //   the D3 fold around each triangle's centroid sweeps a 60° wedge whose far
-  //   edge sits at radius ~r/TRI_SIZE. matches overlay polygon exactly when the
-  //   polygon is the 60° apex-at-center wedge.
+  // output convention: vector in the fundamental wedge [0°, 60°]. the output set
+  //   is a 60-120 rhombus (NOT a constant-radius arc) because the max magnitude
+  //   varies with fold angle: 1/3 at t=0° and 60°, √3/3 at t=30°. buildPolygon
+  //   returns this rhombus exactly.
   glsl: `
     vec2 foldTriangle(vec2 p) {
       // triangle side length (in canvas units). controls how many tiles fit on
@@ -94,51 +94,34 @@ export default {
     }
   `,
 
-  // triangle is locked equilateral with the slice center at the centroid (not
-  // at a vertex). all three edges are cell boundaries; the user can scale by
-  // dragging any edge and rotate by dragging outside the polygon. matches
-  // square's spokeRule semantics.
-  spokeRule: 'none',
+  // the apex-incident edges of the rhombus are visual artifacts of the wedge
+  // shape (legs of the fundamental wedge emanating from the slice center, which
+  // sits at the rhombus's apex corner). they are NOT cell boundaries; scale
+  // should only fire on the two OUTER edges (the ones not touching the apex).
+  // matches hex's spokeRule semantics.
+  spokeRule: 'hex',
 
   buildPolygon(state) {
-    // equilateral triangle, centroid at slice center, apex up on screen
-    // (folded-space y is positive-down). circumradius √3/3 matches the fold
-    // output's natural scale (max output magnitude is √3/3 at canvas-space
-    // triangle vertices).
+    // The fold output's actual range is a 60-120 rhombus (not a 60° pie slice
+    // with constant outer radius). The fold's mirror axes sit 30° offset from
+    // the canvas triangle's altitudes, so the max output magnitude varies with
+    // fold angle: 1/3 at t=0° and t=60°, but √3/3 at t=30° (the canvas-vertex
+    // image direction). The four corners trace a rhombus with all sides = 1/3.
     //
-    // vertex positions:
-    //   top:           (0, -√3/3)
-    //   bottom-right:  (1/2,  √3/6)
-    //   bottom-left:   (-1/2, √3/6)
-    const R = Math.sqrt(3) / 3;
+    // vertex positions in fold space:
+    //   apex (slice center):         (0, 0)         — 60° corner
+    //   at fold angle 0°:            (1/3, 0)        — 120° corner
+    //   at fold angle 30° (vertex):  (1/2, √3/6)    — 60° corner
+    //   at fold angle 60°:           (1/6, √3/6)    — 120° corner
+    //
+    // long diagonal runs apex → (1/2, √3/6) at fold angle 30°.
+    const SQRT3 = Math.sqrt(3);
     return [
-      { vx: 0,    vy: -R },
-      { vx: 0.5,  vy:  R * 0.5 },
-      { vx: -0.5, vy:  R * 0.5 },
+      { vx: 0,       vy: 0 },
+      { vx: 1 / 3,   vy: 0 },
+      { vx: 1 / 2,   vy: SQRT3 / 6 },
+      { vx: 1 / 6,   vy: SQRT3 / 6 },
     ];
-  },
-
-  // optional: separate "actual sample region" polygon, drawn alongside the main
-  // polygon as an indicator. used by the overlay when the main polygon doesn't
-  // match the fold's true output range (which is the case for triangle: the
-  // fold output is a 60° wedge but we display the full equilateral triangle as
-  // the interaction zone). other forms don't need this because their main
-  // polygon already equals the sample region.
-  //
-  // returns vertices in folded space:
-  //   - apex at origin
-  //   - 17 arc points sweeping from 0° to 60° at radius √3/3 (the fold's max
-  //     output magnitude)
-  // resolution of 16 arc segments matches radial.js's STEPS.
-  buildSampleRegion(state) {
-    const R = Math.sqrt(3) / 3;
-    const STEPS = 16;
-    const pts = [{ vx: 0, vy: 0 }];
-    for (let i = 0; i <= STEPS; i++) {
-      const a = (i / STEPS) * (Math.PI / 3);
-      pts.push({ vx: Math.cos(a) * R, vy: Math.sin(a) * R });
-    }
-    return pts;
   },
 
   filenameSuffix(state) {

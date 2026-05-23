@@ -12,7 +12,7 @@ He prefers **no em dashes** in his own writing; respect that in any prose Claude
 
 ## current version
 
-`v0.2.0 · Build 35`. The footer in the running app shows this string from `src/version.js`. When delivering a new build, increment BUILD by 1 and bump VERSION when meaningful change ships. **BUILD never resets** on version bumps — it's a global monotonic counter (see `version.js` comment).
+`v0.2.0 · Build 36`. The footer in the running app shows this string from `src/version.js`. When delivering a new build, increment BUILD by 1 and bump VERSION when meaningful change ships. **BUILD never resets** on version bumps — it's a global monotonic counter (see `version.js` comment).
 
 ## what's working
 
@@ -28,7 +28,7 @@ Read `ARCHITECTURE.md` if you need details on the registry, shader composition, 
 
 ## what we're doing right now
 
-Triangle form is functional as of Build 33; Build 34 refined the interaction model to square-style (centered origin, all-edges-scalable). Build 35 adds a sample-region indicator: a 60° wedge outlined inside the triangle showing what the kaleidoscope actually samples. The wedge poking out of the triangle on one side is intentional — it's the truthful representation. Open via the new `buildSampleRegion(state)` optional field on the form schema. Still pending: production review of `TRI_SIZE`, `tilesPerDim`, and the visual style of the new wedge indicator.
+Triangle form: Build 36 replaces the equilateral-triangle overlay (Build 34) and its internal wedge indicator (Build 35) with the actual fold-output shape — a 60-120 rhombus. The Build 35 analysis was wrong about the sample region being a pie slice; it's actually a rhombus because the fold's mirror axes sit 30° offset from the canvas triangle's altitudes, so the max fold magnitude varies with angle. Slice center sits at the rhombus's apex corner (same anchor as Build 34/35 — no kaleidoscope output change). Two outer edges scale, two apex-incident edges are visual-only (spokeRule: 'hex'), drag outside rotates around the apex. `buildSampleRegion` removed; the schema field is kept dormant in `overlay.js` as an extension point. Still pending: production review of `TRI_SIZE`, `tilesPerDim`. Rotation pivots at the apex (not the rhombus center) — decoupling rotational center from slice center is a possible follow-up if needed.
 
 Next: one of the following (Daniel to direct which): live-camera shell, additional new forms (Droste, hyperbolic Escher, p31m), or mobile UX design session. See `BACKLOG.md` for the reordered capability tier.
 

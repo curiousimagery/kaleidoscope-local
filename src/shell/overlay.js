@@ -343,16 +343,17 @@ function drawTouchAffordances(ctx, screenPts, cx, cy, outerEdges, spokeEdges, fo
     afScaleArrow(ctx, p1.x, p1.y, cdx / cLen, cdy / cLen, cop, clw);
 
   } else if (form.id === 'triangle') {
-    // Triangle is locked equilateral with the centroid at slice center. All
-    // three edges are cell boundaries. Show a scale arrow perpendicular to
-    // each edge midpoint, plus one rotation arc positioned above the topmost
-    // vertex (the apex on screen).
-    if (screenPts.length < 3) { ctx.restore(); return; }
+    // Triangle's polygon is a 60-120 rhombus with the slice center sitting at
+    // its apex corner. Two of its edges are apex-incident (spoke edges, visual
+    // artifacts) and two are outer (cell boundaries). Show one scale arrow per
+    // OUTER edge midpoint, perpendicular outward — 2 arrows total (matches
+    // square's convention of showing 2 of 4 edges; users infer symmetry).
+    // Rotation arc placed above the topmost vertex.
+    if (screenPts.length < 3 || outerEdges.length === 0) { ctx.restore(); return; }
 
     const { op: sop, lw: slw } = afStyle(scaleActive);
-    for (let i = 0; i < screenPts.length; i++) {
-      const a = screenPts[i];
-      const b = screenPts[(i + 1) % screenPts.length];
+    for (const edge of outerEdges) {
+      const a = edge.a, b = edge.b;
       const mx = (a.x + b.x) / 2;
       const my = (a.y + b.y) / 2;
       const ex = b.x - a.x;
