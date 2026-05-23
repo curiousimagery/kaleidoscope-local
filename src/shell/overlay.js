@@ -202,13 +202,21 @@ export function drawSourceOverlay(env) {
   const SPOKE_EPS_DRAW = 1.0;
   const spokeEdges = [];
   const outerEdges = [];
+  // Only split edges into spokes vs outer when the form has a functional spoke
+  // distinction (radial: spokes = segments handle; hex: spokes = visual artifact
+  // suppressed for scale). For spokeRule:'none' forms, treat all edges as outer
+  // so they all highlight on scale-drag (e.g. triangle's rhombus, where the apex
+  // sits at slice center but all edges are still cell boundaries).
+  const splitSpokes = form.spokeRule !== 'none';
   for (let i = 0; i < screenPts.length; i++) {
     const a = screenPts[i];
     const b = screenPts[(i + 1) % screenPts.length];
-    const aIsCenter = Math.hypot(a.x - cxPx, a.y - cyPx) < SPOKE_EPS_DRAW;
-    const bIsCenter = Math.hypot(b.x - cxPx, b.y - cyPx) < SPOKE_EPS_DRAW;
-    if (aIsCenter || bIsCenter) spokeEdges.push({ a, b });
-    else outerEdges.push({ a, b });
+    if (splitSpokes) {
+      const aIsCenter = Math.hypot(a.x - cxPx, a.y - cyPx) < SPOKE_EPS_DRAW;
+      const bIsCenter = Math.hypot(b.x - cxPx, b.y - cyPx) < SPOKE_EPS_DRAW;
+      if (aIsCenter || bIsCenter) { spokeEdges.push({ a, b }); continue; }
+    }
+    outerEdges.push({ a, b });
   }
 
   function strokeEdges(edges, highlighted) {
@@ -343,25 +351,31 @@ function drawTouchAffordances(ctx, screenPts, cx, cy, outerEdges, spokeEdges, fo
     afScaleArrow(ctx, p1.x, p1.y, cdx / cLen, cdy / cLen, cop, clw);
 
   } else if (form.id === 'triangle') {
-    // Triangle's polygon is a 60-120 rhombus with the slice center sitting at
-    // its apex corner. Two of its edges are apex-incident (spoke edges, visual
-    // artifacts) and two are outer (cell boundaries). Show one scale arrow per
-    // OUTER edge midpoint, perpendicular outward — 2 arrows total (matches
-    // square's convention of showing 2 of 4 edges; users infer symmetry).
-    // Rotation arc placed above the topmost vertex.
-    if (screenPts.length < 3 || outerEdges.length === 0) { ctx.restore(); return; }
+    // Triangle's polygon is a horizontal 60-120 rhombus with the slice center
+    // at the apex (left). All 4 edges are scale targets via spokeRule:'none'.
+    // Show 2 scale arrows on the 2 TOPMOST edges (smallest midpoint y) — these
+    // are the top-left and top-right edges of the rhombus. Spacing the arrows
+    // on adjacent top edges (rather than the right-side pair) keeps them from
+    // overlapping at small sizes. Matches square's "2 of 4 edges shown".
+    if (screenPts.length < 4) { ctx.restore(); return; }
+
+    const edges = [];
+    for (let i = 0; i < screenPts.length; i++) {
+      const a = screenPts[i];
+      const b = screenPts[(i + 1) % screenPts.length];
+      edges.push({ a, b, mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2 });
+    }
+    edges.sort((e1, e2) => e1.my - e2.my);
 
     const { op: sop, lw: slw } = afStyle(scaleActive);
-    for (const edge of outerEdges) {
-      const a = edge.a, b = edge.b;
-      const mx = (a.x + b.x) / 2;
-      const my = (a.y + b.y) / 2;
-      const ex = b.x - a.x;
-      const ey = b.y - a.y;
+    for (let i = 0; i < 2; i++) {
+      const e = edges[i];
+      const ex = e.b.x - e.a.x;
+      const ey = e.b.y - e.a.y;
       const el = Math.hypot(ex, ey) || 1;
       let nx = -ey / el, ny = ex / el;
-      if ((mx - cx) * nx + (my - cy) * ny < 0) { nx = -nx; ny = -ny; }
-      afScaleArrow(ctx, mx, my, nx, ny, sop, slw);
+      if ((e.mx - cx) * nx + (e.my - cy) * ny < 0) { nx = -nx; ny = -ny; }
+      afScaleArrow(ctx, e.mx, e.my, nx, ny, sop, slw);
     }
 
     let topVtx = screenPts[0];

@@ -41,10 +41,12 @@ export default {
   uniforms: {},
 
   // input convention: p in canvas space, [-1, 1]² (no normalization).
-  // output convention: vector in the fundamental wedge [0°, 60°]. the output set
-  //   is a 60-120 rhombus (NOT a constant-radius arc) because the max magnitude
-  //   varies with fold angle: 1/3 at t=0° and 60°, √3/3 at t=30°. buildPolygon
-  //   returns this rhombus exactly.
+  // output convention: vector in a horizontal 60-120 rhombus with apex at the
+  //   slice center, long diagonal along +X (length 1), short diagonal along Y
+  //   (length √3/3). The fold output is internally a wedge at angles [0°, 60°],
+  //   then rotated by -30° (so the wedge is centered on +X) and scaled by √3
+  //   (so the far 60° corner sits at magnitude 1, matching radial/hex). The
+  //   buildPolygon vertices below match this transformed output exactly.
   glsl: `
     vec2 foldTriangle(vec2 p) {
       // triangle side length (in canvas units). controls how many tiles fit on
@@ -88,39 +90,39 @@ export default {
       float t = mod(theta + wedge / 2.0, wedge) - wedge / 2.0;  // -60°..60°
       t = abs(t);                                                 // 0°..60°
 
-      // normalize: scale local distance back to ~unit output. matches the
-      // 60° wedge overlay polygon whose outer edge is at radius 1.
-      return vec2(cos(t), sin(t)) * (r / TRI_SIZE);
+      // rotate the wedge by -30° (so it's centered on +X axis, symmetric across
+      // the X-axis) and scale by √3 (so the far 60° corner of the rhombus sits
+      // at magnitude 1, matching radial's polygon extent). matches buildPolygon.
+      return vec2(cos(t - PI / 6.0), sin(t - PI / 6.0)) * (r * SQRT3 / TRI_SIZE);
     }
   `,
 
-  // the apex-incident edges of the rhombus are visual artifacts of the wedge
-  // shape (legs of the fundamental wedge emanating from the slice center, which
-  // sits at the rhombus's apex corner). they are NOT cell boundaries; scale
-  // should only fire on the two OUTER edges (the ones not touching the apex).
-  // matches hex's spokeRule semantics.
-  spokeRule: 'hex',
+  // all four edges of the rhombus are valid scale targets. the slice center
+  // sits at the apex (a polygon vertex), and the two apex-incident edges can
+  // still fire scale because dragging perpendicular to them moves the cursor
+  // away from slice center, which is the scale-mode signal. matches square's
+  // spokeRule semantics.
+  spokeRule: 'none',
 
   buildPolygon(state) {
-    // The fold output's actual range is a 60-120 rhombus (not a 60° pie slice
-    // with constant outer radius). The fold's mirror axes sit 30° offset from
-    // the canvas triangle's altitudes, so the max output magnitude varies with
-    // fold angle: 1/3 at t=0° and t=60°, but √3/3 at t=30° (the canvas-vertex
-    // image direction). The four corners trace a rhombus with all sides = 1/3.
+    // Horizontal 60-120 rhombus, apex on the left at slice center, long
+    // diagonal along +X. The four corners match the fold output range exactly
+    // after the -30° rotation and √3 scaling applied in the GLSL fold function.
     //
     // vertex positions in fold space:
-    //   apex (slice center):         (0, 0)         — 60° corner
-    //   at fold angle 0°:            (1/3, 0)        — 120° corner
-    //   at fold angle 30° (vertex):  (1/2, √3/6)    — 60° corner
-    //   at fold angle 60°:           (1/6, √3/6)    — 120° corner
+    //   apex (slice center):  (0, 0)          — 60° corner
+    //   upper 120° corner:    (1/2, -√3/6)    — above slice center on screen
+    //   far 60° corner:       (1, 0)          — canvas-vertex image
+    //   lower 120° corner:    (1/2,  √3/6)    — below slice center on screen
     //
-    // long diagonal runs apex → (1/2, √3/6) at fold angle 30°.
+    // long diagonal = 1 (matches radial's polygon extent); short diagonal = √3/3.
+    // all 4 sides equal 1/√3 ≈ 0.577.
     const SQRT3 = Math.sqrt(3);
     return [
-      { vx: 0,       vy: 0 },
-      { vx: 1 / 3,   vy: 0 },
-      { vx: 1 / 2,   vy: SQRT3 / 6 },
-      { vx: 1 / 6,   vy: SQRT3 / 6 },
+      { vx: 0,    vy: 0 },
+      { vx: 0.5,  vy: -SQRT3 / 6 },
+      { vx: 1,    vy: 0 },
+      { vx: 0.5,  vy:  SQRT3 / 6 },
     ];
   },
 
