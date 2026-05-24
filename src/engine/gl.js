@@ -137,6 +137,95 @@ function probeMaxFBOSize(gl, maxTextureSize) {
   return 2048;
 }
 
+// Verbose variant of probeMaxFBOSize: returns per-step pass/fail records for
+// every candidate size, not just the winning size. Used by the diagnostic
+// surface to identify which step is failing on a given device.
+//
+// Returns { chosen, candidates: [{ size, gpuTexImage, gpuFBStatus, gpuReadPixels, canvasCreate, canvasRoundTrip, glError }] }.
+// Each step value is either 'OK', 'SKIP' (when an earlier step in the same
+// size failed and we short-circuited), or an explanatory failure string.
+export function probeMaxFBOSizeVerbose(gl, maxTextureSize) {
+  const candidates = [];
+  let chosen = 2048;
+  let foundWinner = false;
+  for (const size of [16384, 8192, 4096, 2048]) {
+    const rec = { size, gpuTexImage: 'SKIP', gpuFBStatus: 'SKIP', gpuReadPixels: 'SKIP', canvasCreate: 'SKIP', canvasRoundTrip: 'SKIP', glError: 0 };
+    if (size > maxTextureSize) {
+      rec.gpuTexImage = `SKIP (exceeds MAX_TEXTURE_SIZE=${maxTextureSize})`;
+      candidates.push(rec);
+      continue;
+    }
+
+    // — GPU path —
+    const tex = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, tex);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, size, size, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+    const texErr = gl.getError();
+    rec.gpuTexImage = texErr === gl.NO_ERROR ? 'OK' : `FAIL (gl error 0x${texErr.toString(16)})`;
+
+    const fb = gl.createFramebuffer();
+    gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
+    const fbStatus = gl.checkFramebufferStatus(gl.FRAMEBUFFER);
+    rec.gpuFBStatus = fbStatus === gl.FRAMEBUFFER_COMPLETE ? 'FRAMEBUFFER_COMPLETE' : `FAIL (status 0x${fbStatus.toString(16)})`;
+
+    let gpuOk = (texErr === gl.NO_ERROR) && (fbStatus === gl.FRAMEBUFFER_COMPLETE);
+    if (gpuOk) {
+      gl.viewport(0, 0, size, size);
+      gl.clearColor(0, 0, 0, 0);
+      gl.clear(gl.COLOR_BUFFER_BIT);
+      const px = new Uint8Array(4);
+      gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
+      const readErr = gl.getError();
+      rec.gpuReadPixels = readErr === gl.NO_ERROR ? 'OK' : `FAIL (gl error 0x${readErr.toString(16)})`;
+      rec.glError = readErr;
+      gpuOk = readErr === gl.NO_ERROR;
+    } else {
+      rec.gpuReadPixels = 'SKIP (earlier GPU step failed)';
+    }
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.deleteFramebuffer(fb);
+    gl.bindTexture(gl.TEXTURE_2D, null);
+    gl.deleteTexture(tex);
+
+    // — CPU / canvas path —
+    if (gpuOk) {
+      let canvasOk = false;
+      let canvasCreateOk = false;
+      try {
+        const c = document.createElement('canvas');
+        c.width = size;
+        c.height = size;
+        const ctx2d = c.getContext('2d');
+        if (ctx2d) {
+          canvasCreateOk = true;
+          ctx2d.fillStyle = 'rgba(127, 0, 0, 255)';
+          ctx2d.fillRect(0, 0, 1, 1);
+          const sample = ctx2d.getImageData(0, 0, 1, 1);
+          canvasOk = sample?.data[0] > 0;
+        }
+      } catch (e) {
+        rec.canvasCreate = `FAIL (threw: ${e.message})`;
+      }
+      if (rec.canvasCreate === 'SKIP') {
+        rec.canvasCreate = canvasCreateOk ? 'OK' : 'FAIL (no 2d ctx)';
+      }
+      rec.canvasRoundTrip = canvasOk ? 'OK' : (canvasCreateOk ? `FAIL (pixel read back as 0 — Safari toBlob encoder limit?)` : 'SKIP (canvas create failed)');
+
+      if (canvasOk && !foundWinner) {
+        chosen = size;
+        foundWinner = true;
+      }
+    } else {
+      rec.canvasCreate = 'SKIP (GPU path failed)';
+      rec.canvasRoundTrip = 'SKIP (GPU path failed)';
+    }
+
+    candidates.push(rec);
+  }
+  return { chosen, candidates };
+}
+
 function compileShader(gl, type, src) {
   const sh = gl.createShader(type);
   gl.shaderSource(sh, src);

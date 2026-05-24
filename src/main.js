@@ -29,6 +29,7 @@ import {
 } from './shell/controls.js';
 import { formatVersion } from './version.js';
 import { push as historyPush, undo as historyUndo, redo as historyRedo, canUndo, canRedo } from './shell/history.js';
+import { wireDiagnosticButton } from './shell/diagnostics.js';
 
 // ============================================================================
 // version footer
@@ -62,7 +63,16 @@ const diagEl = document.getElementById('diag');
 let engine;
 try {
   engine = createEngine({ canvas: previewCanvas });
-  diagEl.innerHTML = `WebGL2 ok<br>renderer: ${engine.diagnostics.renderer}<br>max texture: ${engine.diagnostics.maxTextureSize}px<br>max export: ${engine.diagnostics.maxFBOSize}px`;
+  // basic always-on diagnostics. expanded with unmasked renderer and device
+  // pixel ratio so cross-device comparisons are easier without invoking the
+  // full diagnostic panel.
+  const dbg = engine.glContext.getExtension('WEBGL_debug_renderer_info');
+  const unmasked = dbg ? engine.glContext.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : null;
+  diagEl.innerHTML = `WebGL2 ok<br>` +
+    `renderer: ${unmasked || engine.diagnostics.renderer}<br>` +
+    `max texture: ${engine.diagnostics.maxTextureSize}px<br>` +
+    `max export: ${engine.diagnostics.maxFBOSize}px<br>` +
+    `DPR: ${window.devicePixelRatio || 1}`;
 } catch (e) {
   statusEl.textContent = e.message;
   statusEl.classList.add('error');
@@ -626,6 +636,7 @@ if (engine) {
   setupDivider(env);
   setupPreviewGestures(env);
   setupUndoBar();
+  wireDiagnosticButton(engine, () => state);
 
   window.addEventListener('resize', () => {
     resizePreviewCanvas();

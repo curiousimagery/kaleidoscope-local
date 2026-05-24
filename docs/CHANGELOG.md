@@ -4,6 +4,23 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.2.0 (Build 39) — 2026-05-24
+
+**GPU capability diagnostics surface.** Tooling to gather per-device data about WebGL capability detection. Daniel observed inconsistent results across devices (M5 reports ~8K max export vs M1's ~16K despite similar specs; vintage Intel Air's probe passes but actual export goes black). Build 39 adds a diagnostic panel that exposes everything needed to identify which probe step is mis-firing on each platform.
+
+- **Always-on basic info expansion** in the existing `#diag` element: now also shows the unmasked GPU renderer (via `WEBGL_debug_renderer_info` when available) and `devicePixelRatio` alongside the existing texture/FBO sizes.
+- **Run diagnostics button** appended to the diagnostics group. Click to open a full-screen modal panel showing:
+  - WebGL version, vendor, renderer (masked + unmasked), max parameters
+  - User agent, screen/viewport dims, DPR
+  - Per-step FBO probe results for every candidate size (16K, 8K, 4K, 2K) — granular pass/fail for each step (`texImage2D`, `framebufferStatus`, `readPixels`, 2D canvas create, 2D canvas pixel round-trip) so we can see WHICH check is failing at WHICH size
+  - End-to-end render+sample test that actually renders through the shader and samples 4 pixel positions plus computes average RGB — catches the "probe passes but export renders black" case
+  - Full JSON report (copy-to-clipboard button + selectable textarea fallback for Safari iOS)
+- **URL param `?diag`** auto-opens the panel on load — useful when remote-debugging on iPad or other devices without easy devtools access.
+- **New module:** `src/shell/diagnostics.js`. **New verbose probe:** `probeMaxFBOSizeVerbose(gl, maxTextureSize)` in `src/engine/gl.js`. **Engine API expansion:** `engine.glContext` (raw GL handle) and `engine.renderToFBOForDiagnostics(state, size)` exposed for diagnostic use.
+- **No behavior change** to the existing probe or the chosen `maxFBOSize` — the verbose probe is a parallel implementation, not a replacement. Build 39 is data-gathering tooling; fixes will be planned separately once the cross-device data is in.
+
+---
+
 ## v0.2.0 (Build 38) — 2026-05-24
 
 **Hit-test fix for triangle's apex-incident edges.** In Build 37, the rhombus's two apex-incident edges (top-left and bottom-left) appeared as scale arrows but didn't actually fire scale on drag. They fell through to `'move'` mode instead. Root cause: `classifyPointer` measures "distance from the polygon's outer angular boundary," which for a polygon with the slice center at a vertex misses any edge interior to the polygon's angular range. The two apex-incident rhombus edges are *inside* the 60° apex cone, not at its boundary, so they were never within the scale band as measured by the standard logic.

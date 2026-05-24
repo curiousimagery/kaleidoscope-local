@@ -12,7 +12,7 @@ He prefers **no em dashes** in his own writing; respect that in any prose Claude
 
 ## current version
 
-`v0.2.0 · Build 38`. The footer in the running app shows this string from `src/version.js`. When delivering a new build, increment BUILD by 1 and bump VERSION when meaningful change ships. **BUILD never resets** on version bumps — it's a global monotonic counter (see `version.js` comment).
+`v0.2.0 · Build 39`. The footer in the running app shows this string from `src/version.js`. When delivering a new build, increment BUILD by 1 and bump VERSION when meaningful change ships. **BUILD never resets** on version bumps — it's a global monotonic counter (see `version.js` comment).
 
 ## what's working
 
@@ -28,7 +28,9 @@ Read `ARCHITECTURE.md` if you need details on the registry, shader composition, 
 
 ## what we're doing right now
 
-Triangle form: Build 38 fixes a hit-test bug in Build 37 — the two apex-incident rhombus edges (top-left, bottom-left) had visible scale arrows but didn't actually fire scale because the standard hit-test only sees edges at the polygon's outer angular boundary. Added a per-edge perpendicular-distance check in `classifyPointer` guarded on `spokeRule: 'none'` + slice center at a polygon vertex. All 4 rhombus edges now scale as expected. Slice center still anchored at the apex (decoupling rotational center from slice center remains a possible follow-up). Still pending: production review of `TRI_SIZE`, `tilesPerDim`, and the rotation/zoom side effects from the Build 37 fold transform.
+Build 39 adds a GPU capability diagnostics surface — tooling to gather per-device data about hardware detection. Daniel reports inconsistent probe results: M5 Max MBP reports ~8K max export vs M1 Max's ~16K despite similar specs; vintage Intel Air's probe passes but actual export goes black. The new "run diagnostics" button (in the sidebar diagnostics group) or `?diag` URL param opens a modal panel showing per-step FBO probe results, WebGL capability parameters, an end-to-end render+sample test, and a copy-to-clipboard JSON report. Daniel will run this on M5/M1/iPad/Intel Air; once we have the cross-device data, fixes will be planned separately.
+
+Triangle form: Build 38 fixed a hit-test bug in Build 37 — apex-incident rhombus edges now scale correctly via a new per-edge proximity check in `classifyPointer`. Still pending: production review of `TRI_SIZE`, `tilesPerDim`, and the rotation/zoom side effects from the Build 37 fold transform.
 
 Next: one of the following (Daniel to direct which): live-camera shell, additional new forms (Droste, hyperbolic Escher, p31m), or mobile UX design session. See `BACKLOG.md` for the reordered capability tier.
 

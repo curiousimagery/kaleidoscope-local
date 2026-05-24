@@ -47,6 +47,23 @@ export function createEngine({ canvas }) {
     // populate the diagnostics group.
     diagnostics: glCtx.diagnostics,
 
+    // raw WebGL2 context handle. exposed for the diagnostic surface, which
+    // queries additional capability parameters and re-runs the FBO probe
+    // with per-step reporting. NOT for general consumption by shell code —
+    // forms and overlay should go through render()/exportAt() instead.
+    glContext: glCtx.gl,
+
+    // run the same end-to-end render path as exportAt, but stop after readPixels
+    // and return the raw pixel buffer + size + render timings. Used by the
+    // diagnostic surface to verify that the chosen FBO size produces non-black
+    // output from the actual shader (catches the "probe passes but export
+    // returns black" case seen on some hardware).
+    renderToFBOForDiagnostics(state, size) {
+      if (!sourceTexture) throw new Error('no source loaded');
+      const ctx = buildCtx(state);
+      return renderToFBO(glCtx, state, ctx, size);
+    },
+
     // upload an image element as the source texture. the image must be fully
     // loaded (img.naturalWidth > 0) — caller is responsible for waiting on
     // img.onload before calling this.
