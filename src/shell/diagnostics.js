@@ -20,7 +20,7 @@ import { VERSION, BUILD } from '../version.js';
 // Data collection
 // ---------------------------------------------------------------------------
 
-export function gatherDiagnostics(engine, state) {
+export async function gatherDiagnostics(engine, state) {
   const gl = engine.glContext;
   const dbgExt = gl.getExtension('WEBGL_debug_renderer_info');
 
@@ -60,19 +60,19 @@ export function gatherDiagnostics(engine, state) {
 
   // End-to-end render+sample test at the chosen size. Only runs if a source
   // image is loaded (otherwise we can't validate the actual shader path).
-  report.endToEndTest = runEndToEndTest(engine, state, verbose.chosen);
+  report.endToEndTest = await runEndToEndTest(engine, state, verbose.chosen);
 
   return report;
 }
 
-function runEndToEndTest(engine, state, size) {
+async function runEndToEndTest(engine, state, size) {
   if (!engine.getSourceImage()) {
     return { skipped: true, reason: 'no source image loaded; load an image and re-run to test the render path' };
   }
   try {
     // Use a smaller test size for speed if size is large.
     const testSize = Math.min(size, 4096);
-    const result = engine.renderToFBOForDiagnostics(state, testSize);
+    const result = await engine.renderToFBOForDiagnostics(state, testSize);
     const { pixels } = result;
 
     // Sample several positions and report values. If the export pipeline is
@@ -130,9 +130,9 @@ function runEndToEndTest(engine, state, size) {
 
 let panelEl = null;
 
-export function showDiagnosticPanel(engine, state) {
+export async function showDiagnosticPanel(engine, state) {
   if (panelEl) { panelEl.remove(); panelEl = null; }
-  const report = gatherDiagnostics(engine, state);
+  const report = await gatherDiagnostics(engine, state);
   const json = JSON.stringify(report, null, 2);
 
   panelEl = document.createElement('div');
@@ -265,12 +265,22 @@ export function wireDiagnosticButton(engine, getState) {
     background: #2a2a2a; color: #ddd; border: 1px solid #444;
     border-radius: 3px; cursor: pointer; font-family: inherit;
   `;
-  btn.addEventListener('click', () => showDiagnosticPanel(engine, getState()));
+  btn.addEventListener('click', async () => {
+    const originalText = btn.textContent;
+    btn.textContent = 'running...';
+    btn.disabled = true;
+    try {
+      await showDiagnosticPanel(engine, getState());
+    } finally {
+      btn.textContent = originalText;
+      btn.disabled = false;
+    }
+  });
   diagEl.appendChild(document.createElement('br'));
   diagEl.appendChild(btn);
 
   // Auto-open if ?diag is in the URL.
   if (new URLSearchParams(window.location.search).has('diag')) {
-    setTimeout(() => showDiagnosticPanel(engine, getState()), 50);
+    setTimeout(() => { showDiagnosticPanel(engine, getState()); }, 50);
   }
 }

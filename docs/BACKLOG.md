@@ -2,9 +2,11 @@
 
 Living list of things we want to do, in rough priority order within each section. When something ships, move it to `CHANGELOG.md` and remove from here.
 
-## next up — small UI / quality refinements
+## next up — small UI / quality refinements / known bugs
 
-- **"Image too large" error placement.** Currently the GPU-too-large error surfaces in the export-area status pane, far from the upload action. Should appear as a toast near the upload button, or inline directly under it. The engine already throws a descriptive message; this is purely a presentation move.
+- **Intel Air black-square export — needs hardware access.** Build 39 diagnostics surfaced this; Daniel doesn't have access to test. The probe currently passes (FBO complete, `clear`+`readPixels` returns the cleared color) but the actual shader render comes back all-black. Likely an Intel iGPU driver bug with large FBOs OR VRAM exhaustion on integrated GPUs. The Build 40 e2e diagnostic test now correctly catches this case (was throwing in Build 39); next time the hardware is accessible, run diagnostics + check `endToEndTest.summary.allZero` for confirmation, then design a render-validation step into the probe itself.
+
+- **M5 Firefox 8K cap — resolved via UX (Build 40).** The M5 Max "limited to 8K" finding was Firefox's Resist Fingerprinting capping `MAX_TEXTURE_SIZE` at 8192. Not a hardware issue. Build 40 surfaces a contextual notice in the export area + augments the upload-error text. Tile-rendering workaround to exceed Firefox's cap is deferred (complex; would need either WebGPU port or multi-pass FBO composition). Leaving as deferred unless cross-browser parity becomes strategic.
 
 - **WebGL context loss/restore.** Build 21's GPU FBO probe prevents the "framebuffer incomplete" export from triggering a context loss. If a gray screen recurs in any other scenario, add a `webglcontextlost` + `webglcontextrestored` handler pair on the preview canvas to re-init the GL state cleanly.
 

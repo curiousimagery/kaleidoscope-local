@@ -4,6 +4,20 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.3.0 (Build 40) — 2026-05-24
+
+**Version bump + Firefox-aware UX + upload error positioning.** Triangle wallpaper form (p3m1, shipped across Builds 32-38) is a meaningful new visual capability — comparable in scope to v0.2.0's session undo/redo. Marking the milestone with a minor version bump. Also: a cluster of UX improvements informed by Build 39's diagnostic data.
+
+- **VERSION bumped to v0.3.0.** Triangle wallpaper form is the v0.3.0 headline.
+- **Firefox detection + WebGL-cap notice.** Build 39 diagnostics confirmed the M5 Max's "8K limit" mystery: Firefox's Resist Fingerprinting (RFP) is active by default and caps `MAX_TEXTURE_SIZE` at 8192 — a browser-level limit, not a hardware constraint. (Safari on the same M5 correctly reports 16384.) When Firefox is detected AND the max texture is 8K, the export controls now show a small notice: "Firefox limits WebGL textures to 8K. For higher-resolution export on Apple Silicon, try Safari." Safari/Chrome/Edge see nothing.
+- **"Image too large" error augmented for Firefox.** When upload fails with the engine's `image too large for GPU` message AND Firefox-RFP is detected, the message now also reads "Firefox limits WebGL to 8K — try Safari for full-size images on Apple Silicon." On Safari with the same overflow, the message stays as-is (since the cap is then a real API ceiling, not a browser limitation).
+- **Upload errors moved to a discoverable location** (BACKLOG item closed). The "image too large", "failed to load image", and "unsupported format" errors used to appear in the `#status` element down by the export button — far from where the user clicked. New `#uploadError` element is inserted right below the upload button. Auto-clears on the next upload attempt. The `#status` element continues to handle export-related status.
+- **End-to-end diagnostic test bug fixed.** The Build 39 e2e test was synchronously destructuring a Promise (forgot to `await renderToFBOForDiagnostics`), so it always threw `"undefined is not an object"` instead of running. Now correctly awaits. Diagnostic JSON's `endToEndTest.summary.allZero` is the canary we'll use when the Intel Air becomes accessible to test the "probe passes but render goes black" case.
+- **Diagnostic button shows "running..." state** during the async report generation. Disables the button while in-flight to avoid double-clicks.
+- **Code:** `src/main.js` (Firefox detection, notice, error rerouting), `index.html` (uploadError div), `src/shell/styles.css` (uploadError + browser-notice classes), `src/shell/diagnostics.js` (async fix + button busy state), `src/version.js` (v0.3.0, Build 40).
+
+---
+
 ## v0.2.0 (Build 39) — 2026-05-24
 
 **GPU capability diagnostics surface.** Tooling to gather per-device data about WebGL capability detection. Daniel observed inconsistent results across devices (M5 reports ~8K max export vs M1's ~16K despite similar specs; vintage Intel Air's probe passes but actual export goes black). Build 39 adds a diagnostic panel that exposes everything needed to identify which probe step is mis-firing on each platform.

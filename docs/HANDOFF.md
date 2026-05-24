@@ -12,7 +12,7 @@ He prefers **no em dashes** in his own writing; respect that in any prose Claude
 
 ## current version
 
-`v0.2.0 · Build 39`. The footer in the running app shows this string from `src/version.js`. When delivering a new build, increment BUILD by 1 and bump VERSION when meaningful change ships. **BUILD never resets** on version bumps — it's a global monotonic counter (see `version.js` comment).
+`v0.3.0 · Build 40`. The footer in the running app shows this string from `src/version.js`. When delivering a new build, increment BUILD by 1 and bump VERSION when meaningful change ships. **BUILD never resets** on version bumps — it's a global monotonic counter (see `version.js` comment).
 
 ## what's working
 
@@ -28,9 +28,14 @@ Read `ARCHITECTURE.md` if you need details on the registry, shader composition, 
 
 ## what we're doing right now
 
-Build 39 adds a GPU capability diagnostics surface — tooling to gather per-device data about hardware detection. Daniel reports inconsistent probe results: M5 Max MBP reports ~8K max export vs M1 Max's ~16K despite similar specs; vintage Intel Air's probe passes but actual export goes black. The new "run diagnostics" button (in the sidebar diagnostics group) or `?diag` URL param opens a modal panel showing per-step FBO probe results, WebGL capability parameters, an end-to-end render+sample test, and a copy-to-clipboard JSON report. Daniel will run this on M5/M1/iPad/Intel Air; once we have the cross-device data, fixes will be planned separately.
+Build 40 marks v0.3.0 with the triangle wallpaper form (p3m1, shipped Builds 32-38) as the headline feature. Also includes a cluster of UX work informed by Build 39's diagnostic data:
 
-Triangle form: Build 38 fixed a hit-test bug in Build 37 — apex-incident rhombus edges now scale correctly via a new per-edge proximity check in `classifyPointer`. Still pending: production review of `TRI_SIZE`, `tilesPerDim`, and the rotation/zoom side effects from the Build 37 fold transform.
+- Firefox detection + WebGL-cap notice in the export area (the M5 "only 8K" report turned out to be Firefox's Resist Fingerprinting capping `MAX_TEXTURE_SIZE` at 8192; Safari on the same M5 reports 16K correctly).
+- "Image too large" error now appears inline below the upload button (closes the BACKLOG positioning item) and includes a Firefox-specific "try Safari" hint when the cap is browser-imposed rather than hardware.
+- End-to-end diagnostic test was throwing in Build 39 (forgot to `await` a Promise) — fixed.
+- Diagnostic button now shows "running..." during the async report.
+
+Still pending: Intel Air investigation (blocked on hardware access; the e2e fix is the prep we can do). Triangle form still pending production review of `TRI_SIZE`, `tilesPerDim`, and Build 37 fold-transform side effects.
 
 Next: one of the following (Daniel to direct which): live-camera shell, additional new forms (Droste, hyperbolic Escher, p31m), or mobile UX design session. See `BACKLOG.md` for the reordered capability tier.
 

@@ -383,6 +383,26 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 .status.busy { color: #e8c870; }
 .status.success { color: #70e890; }
 
+/* upload error — inline below the upload button. empty unless populated. */
+.upload-error {
+  font-size: 11px;
+  color: #e87070;
+  line-height: 1.4;
+  padding-top: 4px;
+  min-height: 0;
+}
+.upload-error:empty { display: none; }
+
+/* browser notice — small contextual note (e.g., Firefox WebGL cap warning) */
+.browser-notice {
+  font-size: 11px;
+  color: #888;
+  line-height: 1.4;
+  padding: 4px 0;
+  border-top: 1px solid #2a2a2a;
+  margin-top: 4px;
+}
+
 /* swap button */
 .swap-btn {
   position: absolute;

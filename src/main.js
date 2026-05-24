@@ -59,6 +59,17 @@ miniCanvas.style.cssText = `position: absolute; top: 0; left: 0; width: 100%; he
 
 const statusEl = document.getElementById('status');
 const diagEl = document.getElementById('diag');
+const uploadErrorEl = document.getElementById('uploadError');
+
+// Browser detection for the WebGL-cap notice + augmented upload-error text.
+// Firefox with Resist Fingerprinting (RFP) caps MAX_TEXTURE_SIZE at 8192
+// regardless of underlying hardware. We can't know with certainty whether
+// RFP is on, but the combination of "browser is Firefox" + "max texture
+// happens to be exactly 8192 on a non-mobile device" is a strong signal.
+const isFirefox = /Firefox\//i.test(navigator.userAgent);
+function isFirefoxCappedAt8K(engine) {
+  return isFirefox && engine.diagnostics.maxTextureSize <= 8192;
+}
 
 let engine;
 try {
@@ -73,6 +84,17 @@ try {
     `max texture: ${engine.diagnostics.maxTextureSize}px<br>` +
     `max export: ${engine.diagnostics.maxFBOSize}px<br>` +
     `DPR: ${window.devicePixelRatio || 1}`;
+
+  // Firefox WebGL-cap notice in the export group. Only rendered when the cap
+  // is detected; no-op on Safari/Chrome/Edge and on a Firefox build that
+  // somehow doesn't have the 8K cap (unlikely on macOS but possible).
+  if (isFirefoxCappedAt8K(engine)) {
+    const notice = document.createElement('div');
+    notice.className = 'browser-notice';
+    notice.textContent = 'Firefox limits WebGL textures to 8K. For higher-resolution export on Apple Silicon, try Safari.';
+    const exportGroup = document.getElementById('exportBtn').parentElement;
+    exportGroup.insertBefore(notice, document.getElementById('exportBtn'));
+  }
 } catch (e) {
   statusEl.textContent = e.message;
   statusEl.classList.add('error');
@@ -299,14 +321,25 @@ function loadImage(file) {
   const url = URL.createObjectURL(file);
   sourceFilename = (file.name || 'image').replace(/\.[^.]+$/, '');
   const img = new Image();
+  // Clear any prior upload error before attempting this load.
+  if (uploadErrorEl) uploadErrorEl.textContent = '';
+
   img.onload = () => {
     try {
       engine.setSource(img);
     } catch (e) {
-      // engine throws with a descriptive message (e.g. "image too large for
-      // GPU: 18000×18000 (max 16384×16384 on this device)"). surface verbatim.
-      statusEl.textContent = e.message;
-      statusEl.classList.add('error');
+      // Engine throws with a descriptive message (e.g. "image too large for
+      // GPU: 18000×18000 (max 16384×16384 on this device)"). Surface near
+      // the upload control (not the export status pane) so it's actually
+      // discoverable. When the cap is a Firefox RFP limit and not a real
+      // hardware constraint, append a hint to try Safari.
+      let msg = e.message;
+      if (isFirefoxCappedAt8K(engine) && /too large/i.test(msg)) {
+        msg += ' Firefox limits WebGL to 8K — try Safari for full-size images on Apple Silicon.';
+      }
+      if (uploadErrorEl) uploadErrorEl.textContent = msg;
+      statusEl.textContent = '';
+      statusEl.classList.remove('error', 'busy', 'success');
       console.error(e);
       return;
     }
@@ -317,12 +350,14 @@ function loadImage(file) {
 
     statusEl.textContent = `loaded ${img.naturalWidth}×${img.naturalHeight}`;
     statusEl.classList.remove('error', 'busy');
+    if (uploadErrorEl) uploadErrorEl.textContent = '';
 
     arrangeSlots();
   };
   img.onerror = () => {
-    statusEl.textContent = 'failed to load image';
-    statusEl.classList.add('error');
+    if (uploadErrorEl) uploadErrorEl.textContent = 'failed to load image';
+    statusEl.textContent = '';
+    statusEl.classList.remove('error', 'busy', 'success');
   };
   img.src = url;
 }
@@ -515,9 +550,8 @@ function wireControls() {
     if (!file) return;
     const ok = /^image\/(jpeg|png|webp)$/i.test(file.type);
     if (ok) loadImage(file);
-    else {
-      statusEl.textContent = `unsupported format: ${file.type || 'unknown'} — use jpg, png, or webp`;
-      statusEl.classList.add('error');
+    else if (uploadErrorEl) {
+      uploadErrorEl.textContent = `unsupported format: ${file.type || 'unknown'} — use jpg, png, or webp`;
     }
   });
 
