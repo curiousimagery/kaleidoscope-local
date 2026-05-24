@@ -4,6 +4,16 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.2.0 (Build 38) — 2026-05-24
+
+**Hit-test fix for triangle's apex-incident edges.** In Build 37, the rhombus's two apex-incident edges (top-left and bottom-left) appeared as scale arrows but didn't actually fire scale on drag. They fell through to `'move'` mode instead. Root cause: `classifyPointer` measures "distance from the polygon's outer angular boundary," which for a polygon with the slice center at a vertex misses any edge interior to the polygon's angular range. The two apex-incident rhombus edges are *inside* the 60° apex cone, not at its boundary, so they were never within the scale band as measured by the standard logic.
+
+- Added a per-edge perpendicular-distance check in `classifyPointer` (after `polygonRadiusAt`, before CASE A): for any form with `spokeRule: 'none'` AND the slice center coinciding with a polygon vertex, any edge within `SCALE_OUT` perpendicular distance fires `'scale'`. Guarded by `!outsideAngular` so dragging outside the polygon still triggers rotate via CASE B.
+- Square is unaffected — its slice center is at the polygon's geometric center (not a vertex), so the `sliceCenterAtVertex` guard fails. Radial and hex are unaffected — they don't use `spokeRule: 'none'`.
+- Code: `src/shell/overlay.js` (added ~17 lines in `classifyPointer`).
+
+---
+
 ## v0.2.0 (Build 37) — 2026-05-23
 
 **Triangle default-size and orientation tuning for cross-form consistency.** The Build 36 rhombus was correct but visually inconsistent with the other forms — significantly smaller and tilted at 30° while radial and hex sit horizontally. Build 37 makes the triangle's overlay match radial/hex defaults.

@@ -538,6 +538,30 @@ function classifyPointer(env, x, y, isTouch = false) {
     outsideAngular = true;
   }
 
+  // Per-edge proximity check — for forms whose slice center sits at a polygon
+  // vertex (e.g., triangle's rhombus apex). The standard CASE A check measures
+  // "distance from outer angular boundary," which misses apex-incident edges
+  // that lie INTERIOR to the polygon's angular range. For these forms, treat
+  // any polygon edge within SCALE_OUT as a scale target. Guarded by
+  // !outsideAngular so dragging outside the polygon still fires rotate.
+  const sliceCenterAtVertex = pts.some(p => Math.hypot(p.x - cx, p.y - cy) < 1);
+  if (form.spokeRule === 'none' && sliceCenterAtVertex && !outsideAngular) {
+    for (let i = 0; i < pts.length; i++) {
+      const a = pts[i];
+      const b = pts[(i + 1) % pts.length];
+      const ex = b.x - a.x;
+      const ey = b.y - a.y;
+      const elen = Math.hypot(ex, ey) || 1;
+      const ux = ex / elen, uy = ey / elen;
+      const projT = (x - a.x) * ux + (y - a.y) * uy;
+      if (projT < 0 || projT > elen) continue;
+      const perpDist = Math.abs((x - a.x) * (-uy) + (y - a.y) * ux);
+      if (perpDist <= SCALE_OUT) {
+        return { mode: 'scale', r, theta, R, onSpoke: false, cursorTheta: theta };
+      }
+    }
+  }
+
   // square form helper: classify cursor as near a CORNER or EDGE of the rect.
   const CORNER_ZONE = isTouch ? 44 : 28;
   function squareHandle() {
