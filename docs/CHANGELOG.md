@@ -4,6 +4,21 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.3.1 (Build 46) — 2026-05-25
+
+**Droste touch/click polish.** Build 45 iPad testing surfaced seven things to tighten before adding the next feature. All of these are calibration tweaks to existing structures — no new capabilities. Vanishing-point offset is deferred to Build 47 (Daniel's call: don't risk regressions on the polish work).
+
+- **Ring-band hit zones reduced and asymmetrized.** Daniel's "~16 px total, only a few px inside the wedge" rule applies to both ring bands and wedge boundary lines. New values: `BAND_OUT` = 14 px touch / 12 mouse (outside the annulus, where users naturally grab the ring); `BAND_IN` = 4 px touch / 2 mouse (inside the annulus body — reserves the wedge interior for `'move'`). Same asymmetric treatment for `SIDE_BAND` on the wedge boundary lines: 14 px outside the wedge angular range, 4 px inside.
+- **Inside the inner ring is now exclusively `'move'`.** Added a priority-4 catch-all: `if (r <= rIn) return 'move'` runs after the ring-band scale and wedge-boundary checks but before the wedge-angular gate. So clicking anywhere inside the inner ring repositions the slice center, regardless of whether the cursor is inside the wedge angular range. (Reserves this region for the future vanishing-point handle.)
+- **Touch affordances moved onto the wedge arcs.** The thickness arrow now lives on the **inner arc** at `sliceRotation` (radial direction), the scale arrow lives on the **outer arc** at `sliceRotation` (same direction), and the rotation arc lives **opposite the wedge** at `sliceRotation + π`, just past the outer ring. Build 45 had them in arbitrary "top-of-screen" or "opposite-the-seam" positions; the new placement makes the affordance live where the gesture actually applies.
+- **Translucent twisted-wedge opacity reduced.** From 0.5 → 0.3. The twisted-sample preview reads as informational without competing with the solid white untwisted reference.
+- **Per-wedge OOB detection.** Build 45 used `cx ± rOut < imgX | imgX + imgW` (the full outer ring's bounding box) which flagged the wedge as OOB whenever the geometric outer circle exited the image — even when the wedge itself sat entirely inside. New check samples 12 points along the outer arc, inner arc (shifted by −twist), and both log-spiral sides of the **actual** twisted wedge; OOB fires only if any sample lands outside the image rect. Full-circle case (arms=1) keeps the simple bounds check.
+- **Scrub-field touch hit area enlarged.** `@media (pointer: coarse)` rules expanded for `.scrub`: min-height 28 px (was 18), padding 6/8 (was 2/4), min-width 44 px (was 36). The numeric values next to the sliders now match the slider thumb's tap-target size — Daniel reported the new sliders' touch targets feeling narrower than the existing ones; this was the scrub-field side, not the slider track.
+- **Slider thumb on touch enlarged.** `width: 28px; height: 28px` (was 24×24). Adds 4 px to the tap target without crowding the slider track.
+- **Code:** [src/engine/forms/droste.js](src/engine/forms/droste.js) (classifyPointer reorganized, asymmetric bands, per-wedge OOB, touch-affordance placement, twisted-wedge opacity), [src/shell/styles.css](src/shell/styles.css) (coarse-pointer scrub + slider thumb), [src/version.js](src/version.js) (Build 46).
+
+---
+
 ## v0.3.1 (Build 45) — 2026-05-25
 
 **Droste click/touch refresh + accurate twisted-wedge preview + wedge-mirror toggle + "thickness" rename.** Version bump for the accumulated Droste polish across Builds 41–45. Build 44 testing surfaced four things to refine: the overlay outline didn't match the actual sampled pixels at non-zero twist; the wedge-mirror behavior should be user-toggleable; the click/touch zones hadn't been updated to respect the new wedge visualization; and "zoom" was a misleading label for the inner/outer ratio control.

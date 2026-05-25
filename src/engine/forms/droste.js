@@ -207,14 +207,45 @@ export default {
     const halfWedge = Math.PI / armsCount;        // half the angular span
     const isFullCircle = armsCount === 1;
 
-    // OOB if the outer ring exits the image rect.
-    const oobOut = (cx - rOut < imgX) || (cx + rOut > imgX + imgW) ||
-                   (cy - rOut < imgY) || (cy + rOut > imgY + imgH);
-
     const seamPhaseRad = state.sliceRotation * Math.PI / 180;
     const twistRad = state.drosteTwist * Math.PI / 180;
     const wedgeStart = seamPhaseRad - halfWedge;
     const wedgeEnd   = seamPhaseRad + halfWedge;
+
+    // OOB check — only the actual sampled region matters. for arms=1 that's
+    // the full annulus, so the simple full-circle bounds check still applies.
+    // for arms ≥ 2 we sample the TWISTED wedge boundary (outer arc, inner arc
+    // shifted by −twist, both log-spiral sides) at discrete points; any point
+    // outside the displayed image rect triggers OOB. fixes the Build 45 case
+    // where the full outer ring exited the image but the wedge itself was
+    // entirely inside bounds and shouldn't have read as OOB.
+    let oobOut;
+    if (isFullCircle) {
+      oobOut = (cx - rOut < imgX) || (cx + rOut > imgX + imgW) ||
+               (cy - rOut < imgY) || (cy + rOut > imgY + imgH);
+    } else {
+      oobOut = false;
+      const OOB_STEPS = 12;
+      const xR = imgX + imgW, yB = imgY + imgH;
+      function probe(rr, aa) {
+        const x = cx + rr * Math.cos(aa);
+        const y = cy + rr * Math.sin(aa);
+        if (x < imgX || x > xR || y < imgY || y > yB) oobOut = true;
+      }
+      for (let i = 0; i <= OOB_STEPS; i++) {
+        const t = i / OOB_STEPS;
+        const aArc = wedgeStart + t * (wedgeEnd - wedgeStart);
+        probe(rOut, aArc);                              // outer arc
+        probe(rIn,  aArc - twistRad);                   // inner arc (shifted by −twist)
+        if (i > 0 && i < OOB_STEPS) {
+          // log-spiral sides — only sample interior points (corners covered above)
+          const rs = rIn * Math.pow(zoom, t);
+          probe(rs, wedgeStart - twistRad * (1 - t));   // − side
+          probe(rs, wedgeEnd   - twistRad * (1 - t));   // + side
+        }
+        if (oobOut) break;
+      }
+    }
 
     // dim background.
     ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
@@ -308,7 +339,7 @@ export default {
     // annulus is the sample region regardless of twist).
     const SEAM_STEPS = 24;
     if (Math.abs(twistRad) > 1e-4 && !isFullCircle) {
-      ctx.strokeStyle = oobOut ? 'rgba(255, 196, 80, 0.55)' : 'rgba(255, 255, 255, 0.5)';
+      ctx.strokeStyle = oobOut ? 'rgba(255, 196, 80, 0.32)' : 'rgba(255, 255, 255, 0.3)';
       ctx.lineWidth = 1.5;
       ctx.setLineDash([]);
       ctx.beginPath();
@@ -394,18 +425,23 @@ export default {
         return active ? { op: 1.0, lw: 2.5 } : { op: 0.25, lw: 1.5 };
       }
 
-      // rotation arc above the top of the outer ring.
+      // rotation arc — placed opposite the wedge (at sliceRotation + π), just
+      // outside the outer ring. moved here from "always top of screen" so the
+      // rotation affordance lives where the user actually rotates (away from
+      // the wedge interior).
       const { op: rop, lw: rlw } = afStyle(env.overlayDragMode === 'rotate');
-      drawRotationArc(ctx, cx, cy, -Math.PI / 2, rOut + 22, rop, rlw);
+      drawRotationArc(ctx, cx, cy, seamPhaseRad + Math.PI, rOut + 22, rop, rlw);
 
-      // inner-ring "depth" arrow — bidirectional radial across the inner ring,
-      // placed on the side opposite the seam so it doesn't collide with the
-      // twist handle.
-      const innerAngle = seamPhaseRad + Math.PI;
-      const innerX = cx + rIn * Math.cos(innerAngle);
-      const innerY = cy + rIn * Math.sin(innerAngle);
-      const { op: sop, lw: slw } = afStyle(env.overlayDragMode === 'droste-ratio');
-      drawRadialArrow(ctx, innerX, innerY, Math.cos(innerAngle), Math.sin(innerAngle), sop, slw);
+      // thickness arrow on the INNER arc (drosteZoom). radial direction so
+      // the bidirectional arrow points across the inner ring boundary.
+      const innerCos = Math.cos(seamPhaseRad);
+      const innerSin = Math.sin(seamPhaseRad);
+      const { op: tip, lw: tlw } = afStyle(env.overlayDragMode === 'droste-ratio');
+      drawRadialArrow(ctx, cx + rIn * innerCos, cy + rIn * innerSin, innerCos, innerSin, tip, tlw);
+
+      // scale arrow on the OUTER arc (sliceScale). same radial direction.
+      const { op: sop, lw: slw } = afStyle(env.overlayDragMode === 'scale');
+      drawRadialArrow(ctx, cx + rOut * innerCos, cy + rOut * innerSin, innerCos, innerSin, sop, slw);
     }
 
     // expose geometry for hit testing. classifyPointer uses halfWedge +
@@ -430,16 +466,18 @@ export default {
   // mode priorities (highest wins):
   //   1. twist handle hit (small)              → 'twist'
   //   2. ring bands WITHIN the wedge angular range:
-  //        a. inner-ring band                  → 'scale' handle='inner' (drives drosteZoom)
-  //        b. outer-ring band                  → 'scale' handle='outer' (drives sliceScale)
-  //   3. wedge boundary line (arms ≥ 2)        → 'droste-arms' (drag the edge to
-  //                                              change the arms count)
-  //   4. inside wedge angular range AND inside outer ring → 'move' (reposition)
-  //   5. anywhere else (outside wedge angular OR beyond outer ring) → 'rotate'
+  //        a. inner-ring band                  → 'scale' handle='inner' (drosteZoom)
+  //        b. outer-ring band                  → 'scale' handle='outer' (sliceScale)
+  //   3. wedge boundary line (arms ≥ 2)        → 'droste-arms'
+  //   4. inside the inner ring (r ≤ rIn)       → 'move' (regardless of wedge angular)
+  //   5. inside wedge AND inside outer ring    → 'move'
+  //   6. fall-through                          → 'rotate'
   //
-  // the "wedge angular range" is sliceRotation ± halfWedge. for arms=1 the
-  // halfWedge is π so insideWedge is always true; everything inside outer ring
-  // is 'move', everything outside is 'rotate', and ring bands fire 360°.
+  // band widths follow daniel's "~16 px total, only a few inside the wedge"
+  // rule: BAND_IN (in the annulus body, between the rings) is intentionally
+  // small so most of the wedge interior is 'move'; BAND_OUT (outside the
+  // annulus, into the inner-disc or beyond the outer ring) is larger because
+  // those areas are where users naturally grab the ring boundaries.
   classifyPointer(env, x, y, isTouch, geom) {
     const g = env.sourceOverlayCanvas?._geom;
     if (!g) return { mode: null };
@@ -449,10 +487,11 @@ export default {
     const r = Math.hypot(dx, dy);
     const theta = Math.atan2(dy, dx);
 
-    const HANDLE_HIT = isTouch ? 22 : 12;
-    const BAND_OUT   = isTouch ? 28 : 20;
-    const BAND_IN    = isTouch ? 22 : 16;
-    const SIDE_BAND  = isTouch ? 22 : 14;  // perpendicular hit zone for wedge boundary lines
+    const HANDLE_HIT     = isTouch ? 22 : 12;
+    const BAND_OUT       = isTouch ? 14 : 12;   // outside the annulus (toward inner-disc or beyond outer)
+    const BAND_IN        = isTouch ?  4 :  2;   // inside the annulus body — small, reserves room for 'move'
+    const SIDE_BAND_OUT  = isTouch ? 14 : 12;   // outside the wedge angularly
+    const SIDE_BAND_IN   = isTouch ?  4 :  2;   // inside the wedge angularly — small, reserves room for 'move'
 
     // 1. twist handle
     if (seamEndX != null) {
@@ -468,9 +507,10 @@ export default {
     while (relAngle < -Math.PI) relAngle += 2 * Math.PI;
     const insideWedge = isFullCircle || Math.abs(relAngle) <= halfWedge;
 
-    // 2. ring band hits — only fire when cursor is within the wedge angular
-    // range. outside the wedge, the ring bands are visually faint (we don't
-    // even draw arcs there) so dragging that area should rotate.
+    // 2. ring band hits — only within the wedge angular range. ring bands are
+    // intentionally asymmetric: thin on the annulus-body side (leaves the
+    // interior for 'move'), thicker on the outside (where users grab to
+    // adjust ring size).
     if (insideWedge) {
       const dOut = Math.abs(r - rOut);
       const dIn  = Math.abs(r - rIn);
@@ -484,31 +524,41 @@ export default {
       if (inOuterBand) return { mode: 'scale', r, theta, R: rOut, handle: 'outer', cursorTheta: theta };
     }
 
-    // 3. wedge boundary lines (arms ≥ 2). hit when cursor is near a radial
-    // line at sliceRotation ± halfWedge, within the rIn..rOut radial extent.
+    // 3. wedge boundary lines (arms ≥ 2). asymmetric perpendicular band:
+    // larger on the outside-the-wedge side (where users naturally grab to
+    // change arms), small inside the wedge to reserve interior for 'move'.
     if (!isFullCircle) {
       for (const sign of [-1, 1]) {
         const ba = sliceRotationRad + sign * halfWedge;
         const ux = Math.cos(ba), uy = Math.sin(ba);
-        const along = dx * ux + dy * uy;            // projection onto the boundary direction
-        const perp  = Math.abs(dx * (-uy) + dy * ux);  // perpendicular distance
-        if (along >= rIn - SIDE_BAND && along <= rOut + SIDE_BAND && perp <= SIDE_BAND) {
+        const along = dx * ux + dy * uy;
+        const perpSigned = dx * (-uy) + dy * ux;        // signed perpendicular
+        const isOutside = sign * perpSigned > 0;        // + boundary: outside = perpSigned > 0
+        const allowance = isOutside ? SIDE_BAND_OUT : SIDE_BAND_IN;
+        if (along >= rIn - SIDE_BAND_OUT && along <= rOut + SIDE_BAND_OUT && Math.abs(perpSigned) <= allowance) {
           return {
             mode: 'droste-arms',
             r, theta, R: along,
-            cursorTheta: ba + sign * Math.PI / 2,  // cursor "wants" to move perpendicular to the line
+            cursorTheta: ba + sign * Math.PI / 2,
             boundarySign: sign,
           };
         }
       }
     }
 
-    // 4. inside the wedge and inside the outer ring → move (reposition)
+    // 4. inside the inner ring (any angle) → always move. catches the small
+    // center region cleanly even when cursor crosses outside the wedge
+    // angular range (which would otherwise fire rotate at #6).
+    if (r <= rIn) {
+      return { mode: 'move', r, theta, R: rIn };
+    }
+
+    // 5. inside the wedge and inside the outer ring → move
     if (insideWedge && r <= rOut) {
       return { mode: 'move', r, theta, R: rIn };
     }
 
-    // 5. fall-through → rotate
+    // 6. fall-through → rotate
     return { mode: 'rotate', r, theta, R: rOut };
   },
 
