@@ -1,18 +1,26 @@
 // forms/droste.js
 //
-// FORM 4 — Droste / logarithmic-conformal map (Lenstra & de Smit).
+// FORM 4 — Droste / log-shear spiral (kaleidoscope-friendly variant).
 //
 // the source sample region is an ANNULUS (two concentric circles) rather than
-// a polygon. each canvas pixel is mapped through `w_src = c · w_canvas` in
-// log-space, where c is a complex multiplier interpolating between identity
-// (c=1, no spiral) and the classic Print Gallery exponent
-// (c = 2πi/(logS + 2πi), one full extra turn per tier).
+// a polygon. each canvas pixel is mapped through a SHEAR in log-space:
 //
-// the twist slider drives this interpolation linearly: φ = twist/360°, then
-// c = (1−φ)·1 + φ·cPG. at twist=0 the warp is identity-plus-mod (= concentric
-// Droste); at twist=360° it's full Print Gallery; anywhere in between is a
-// continuously interpolated spiral. complex multiplication is conformal at
-// every φ, so the warp preserves angles throughout the parameter range.
+//   theta_src = theta + (twist_rad / logS) · log r
+//   logr_src  = log r
+//
+// then logr_src is mod-reduced (wrap or mirror) and exp'd back. twist_rad is
+// exactly the rotation accumulated over one tier of zoom: at twist=0 the warp
+// is identity-plus-mod (= concentric Droste); at twist=360° each tier rotates
+// one full turn (the classic Print Gallery spiral feel); intermediate values
+// give partial spirals.
+//
+// trade-off vs the strict Lenstra/de Smit conformal map: the shear isn't
+// conformal — shapes get slightly sheared along the spiral. in exchange:
+// twist's effect is independent of zoom (always exactly twist_deg of rotation
+// per tier), and N-arm snap values are simple multiples of 360°/N. for the
+// kaleidoscope context (arbitrary photos + mirror folds), the shear is
+// imperceptible and the slider's intuitive behavior matters more than strict
+// conformality.
 //
 // fold-space convention matches the polygon forms: |output| ≤ 1, with output
 // magnitude 1 corresponding to the source annulus's outer ring. the engine's
@@ -59,32 +67,27 @@ export default {
       type: '1f',
       get: (state) => Math.log(Math.max(1.0001, state.drosteZoom)),
     },
-    // complex multiplier c = (1−φ)·1 + φ·cPG with φ = twist/360°.
-    // cPG = 2πi / (logS + 2πi). precomputed JS-side so the shader is branchless.
-    u_drosteC: {
-      type: '2f',
-      get: (state) => {
-        const logS = Math.log(Math.max(1.0001, state.drosteZoom));
-        const TAU = Math.PI * 2;
-        const D = logS * logS + TAU * TAU;
-        const cPG_re = (TAU * TAU) / D;
-        const cPG_im = (TAU * logS) / D;
-        const phi = (state.drosteTwist || 0) / 360;
-        return [
-          1 + phi * (cPG_re - 1),
-          phi * cPG_im,
-        ];
-      },
+    // twist in radians. exactly the rotation accumulated over one tier; the
+    // slider's UI is in degrees, converted here.
+    u_drosteTwist: {
+      type: '1f',
+      get: (state) => (state.drosteTwist || 0) * Math.PI / 180,
     },
     // tier mirror: 1 = reflect across tier boundary; 0 = mod-wrap (classic Droste).
     u_drosteMirror: {
       type: '1i',
       get: (state) => (state.drosteMirror ? 1 : 0),
     },
-    // spiral arms: integer 1..N. arms=1 means no angular folding.
+    // spiral arms: even integer 2..12. used inside the shader to fold theta
+    // into a 1/N angular wedge with mirror at the wedge boundaries.
     u_drosteArms: {
       type: '1i',
-      get: (state) => Math.max(1, Math.min(12, Math.round(state.drosteArms || 1))),
+      get: (state) => {
+        const n = Math.round(state.drosteArms || 2);
+        // clamp to even integer in [2, 12]
+        const even = Math.max(2, Math.min(12, n - (n % 2)));
+        return even;
+      },
     },
   },
 
@@ -102,6 +105,8 @@ export default {
 
       // angular fold for N-arm mode. mirror at wedge boundaries — same recipe
       // as radial.js so seams between arms become mirror axes, not jumps.
+      // arms is restricted to even integers JS-side, so chirality parity is
+      // consistent around the full circle.
       if (u_drosteArms > 1) {
         float wedge = TAU / float(u_drosteArms);
         float t = mod(theta + wedge * 0.5, wedge * 2.0) - wedge * 0.5;
@@ -109,13 +114,12 @@ export default {
         theta = t;
       }
 
-      // conformal warp: w_src = c · w_canvas in log-space, with c interpolating
-      // from 1 (identity, no spiral) at twist=0 to cPG (Print Gallery) at twist=360°.
+      // log-shear spiral: rotate theta by (twist_rad / logS) per unit log r.
+      // log r is unchanged, so tier scaling stays exactly logS regardless of twist.
       float logS = u_drosteLogS;
-      float cR = u_drosteC.x;
-      float cI = u_drosteC.y;
-      float logr_new  = cR * logr - cI * theta;
-      float theta_new = cI * logr + cR * theta;
+      float twistRad = u_drosteTwist;
+      float theta_new = theta + (twistRad / logS) * logr;
+      float logr_new  = logr;
 
       // reduce log-radius into the fundamental annulus [-logS, 0).
       // mirror mode reflects at tier boundaries (triangle wave with period 2·logS);
@@ -226,13 +230,12 @@ export default {
     strokeRing(rOut, outerHL || ringHL);
     strokeRing(rIn,  innerHL || ringHL);
 
-    // seams — logarithmic spirals from inner ring to outer ring at each arm's
-    // phase. one seam per arm; for arms=1 it's the single Droste seam, for
-    // arms>1 the seams sit at sliceRotation + k·(2π/N) for k = 0..N−1.
-    // when twist = 0 each seam is a straight radial segment; for twist > 0
-    // the spiral bends to preview the warp's per-tier rotation.
-    const armsCount = Math.max(1, Math.min(12, Math.round(state.drosteArms || 1)));
-    const armStep = TAU / armsCount;
+    // single seam — logarithmic spiral from inner ring to outer ring at the
+    // primary phase (sliceRotation). when twist = 0 it's a straight radial;
+    // for twist > 0 the seam bends to preview exactly one tier of rotation.
+    // the N-arm symmetry is implied by the wedge fold, not drawn explicitly —
+    // one seam is enough as a hit-target for twist and reads much cleaner at
+    // high arms counts.
     const twistHL = env.hoverMode === 'twist' || env.overlayDragMode === 'droste-twist';
     const seamColor = oobOut
       ? (twistHL ? 'rgba(255, 230, 140, 1.0)' : 'rgba(255, 196, 80, 0.85)')
@@ -241,42 +244,31 @@ export default {
     ctx.lineWidth = twistHL ? 2.5 : 1.5;
     ctx.setLineDash(oobOut ? [6, 4] : []);
     const SEAM_STEPS = 32;
-    const seamEnds = [];
-    for (let k = 0; k < armsCount; k++) {
-      const armPhase = seamPhaseRad + k * armStep;
-      ctx.beginPath();
-      for (let i = 0; i <= SEAM_STEPS; i++) {
-        const t = i / SEAM_STEPS;
-        const r = rIn * Math.pow(zoom, t);
-        const a = armPhase + twistRad * t;
-        const x = cx + r * Math.cos(a);
-        const y = cy + r * Math.sin(a);
-        if (i === 0) ctx.moveTo(x, y);
-        else ctx.lineTo(x, y);
-      }
-      ctx.stroke();
-      const endAngle = armPhase + twistRad;
-      seamEnds.push({
-        x: cx + rOut * Math.cos(endAngle),
-        y: cy + rOut * Math.sin(endAngle),
-        angle: endAngle,
-      });
+    ctx.beginPath();
+    for (let i = 0; i <= SEAM_STEPS; i++) {
+      const t = i / SEAM_STEPS;
+      const r = rIn * Math.pow(zoom, t);
+      const a = seamPhaseRad + twistRad * t;
+      const x = cx + r * Math.cos(a);
+      const y = cy + r * Math.sin(a);
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
     }
+    ctx.stroke();
     ctx.setLineDash([]);
 
-    // seam outer endpoints — the twist handles. one per arm. drawn after the
-    // strokes so they sit on top, and small enough not to crowd the outer-ring
-    // affordance when arms is high.
+    // seam outer endpoint — the twist handle, drawn on top of the seam stroke.
+    const seamEndAngle = seamPhaseRad + twistRad;
+    const seamEndX = cx + rOut * Math.cos(seamEndAngle);
+    const seamEndY = cy + rOut * Math.sin(seamEndAngle);
     const HANDLE_R = twistHL ? 6 : 4.5;
     ctx.fillStyle = oobOut ? 'rgba(255, 196, 80, 1)' : 'rgba(255, 255, 255, 1)';
+    ctx.beginPath();
+    ctx.arc(seamEndX, seamEndY, HANDLE_R, 0, TAU);
+    ctx.fill();
     ctx.strokeStyle = 'rgba(0, 0, 0, 0.5)';
     ctx.lineWidth = 1;
-    for (const end of seamEnds) {
-      ctx.beginPath();
-      ctx.arc(end.x, end.y, HANDLE_R, 0, TAU);
-      ctx.fill();
-      ctx.stroke();
-    }
+    ctx.stroke();
 
     // center dot.
     ctx.fillStyle = '#ffffff';
@@ -311,14 +303,14 @@ export default {
       drawRadialArrow(ctx, innerX, innerY, Math.cos(innerAngle), Math.sin(innerAngle), sop, slw);
     }
 
-    // expose geometry for hit testing. seamEnds[0] is kept as the primary seam
-    // (the one tied to sliceRotation directly); the rest are arm-copies that
-    // also accept twist-drag input.
+    // expose geometry for hit testing. only one seam endpoint — dragging it
+    // adjusts drosteTwist, and the N-arm symmetry follows automatically via
+    // the wedge fold in the shader.
     env.sourceOverlayCanvas._geom = {
       imgX, imgY, imgW, imgH,
       cx, cy,
       rOut, rIn,
-      seamEnds,
+      seamEndX, seamEndY,
     };
   },
 
@@ -338,7 +330,7 @@ export default {
   classifyPointer(env, x, y, isTouch, geom) {
     const g = env.sourceOverlayCanvas?._geom;
     if (!g) return { mode: null };
-    const { cx, cy, rOut, rIn, seamEnds } = g;
+    const { cx, cy, rOut, rIn, seamEndX, seamEndY } = g;
 
     const dx = x - cx, dy = y - cy;
     const r = Math.hypot(dx, dy);
@@ -350,13 +342,10 @@ export default {
     const CENTER_HIT = isTouch ? 28 : 14;
 
     // 1. twist handle takes priority over ring-band hits in its immediate vicinity.
-    // any arm's seam endpoint can drive the twist drag.
-    if (seamEnds) {
-      for (const end of seamEnds) {
-        const d = Math.hypot(x - end.x, y - end.y);
-        if (d <= HANDLE_HIT) {
-          return { mode: 'twist', r, theta, R: rOut, cursorTheta: theta };
-        }
+    if (seamEndX != null) {
+      const d = Math.hypot(x - seamEndX, y - seamEndY);
+      if (d <= HANDLE_HIT) {
+        return { mode: 'twist', r, theta, R: rOut, cursorTheta: theta };
       }
     }
 

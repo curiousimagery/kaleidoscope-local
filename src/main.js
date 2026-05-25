@@ -502,18 +502,46 @@ function wireControls() {
     },
   });
 
-  // droste arms (integer count of identical spiral arms)
+  // droste twist snap: twist auto-rounds to multiples of 360°/arms so the
+  // N-arm spiral closes cleanly at any twist value. shared snap function used
+  // by both the twist slider/scrub and the overlay seam-drag handler.
+  const armsSnapStep = () => 360 / Math.max(2, Math.min(12, Math.round(state.drosteArms || 2)));
+  const snapTwistDeg = (v) => {
+    const step = armsSnapStep();
+    const snapped = Math.round(v / step) * step;
+    return Math.max(-360, Math.min(360, snapped));
+  };
+  env.snapDrosteTwist = snapTwistDeg;  // exposed for overlay.js drag handler
+
+  // droste arms (even integer 2..12). changing arms recomputes the twist snap
+  // step, re-snaps the current twist to a valid value for the new arms count,
+  // and updates the twist slider's native step so the thumb moves in
+  // alignment-clean increments.
+  function applyArmsSnap() {
+    const step = armsSnapStep();
+    const twistSlider = document.getElementById('twist');
+    if (twistSlider) twistSlider.step = String(step);
+    state.drosteTwist = snapTwistDeg(state.drosteTwist || 0);
+  }
   wireSliderWithScrub(env, 'arms', 'armsVal', 'drosteArms', {
-    min: 1, max: 12, step: 1, scrubStep: 1,
+    min: 2, max: 12, step: 2, scrubStep: 2,
     fmt: v => String(Math.round(v)),
     parse: s => {
       const n = parseInt(s, 10);
       if (isNaN(n)) return null;
-      return Math.max(1, Math.min(12, n));
+      // round to even, clamp to [2, 12]
+      return Math.max(2, Math.min(12, Math.round(n / 2) * 2));
+    },
+    onSet: () => {
+      applyArmsSnap();
+      // refresh twist UI (slider position + scrub text) after the cascade.
+      env.controlsSync.syncAll();
     },
   });
 
-  // droste twist — interpolation strength toward Print Gallery (0° = no spiral, 360° = full)
+  // droste twist — rotation per tier in degrees. snaps to 360°/arms so the
+  // N-arm spiral closes cleanly. range is the full slider; snap_step varies
+  // with arms (180° at arms=2, 30° at arms=12).
   wireSliderWithScrub(env, 'twist', 'twistVal', 'drosteTwist', {
     min: -360, max: 360, step: 1, scrubStep: 1,
     fmt: v => (v >= 0 ? '+' : '') + v.toFixed(0) + '°',
@@ -522,7 +550,11 @@ function wireControls() {
       const n = parseFloat(cleaned);
       return isNaN(n) ? null : n;
     },
+    snap: snapTwistDeg,
   });
+
+  // initialize the twist slider's step + snap the seeded state value.
+  applyArmsSnap();
 
   // droste tier mirror toggle (on/off buttons). registered with controlsSync
   // so undo/redo updates the button highlight along with state.

@@ -24,8 +24,9 @@ export const state = {
                         // 0 = pure concentric Droste; ±360 = full Print Gallery strength.
   drosteMirror: true,   // droste form only: when true, tier transitions reflect
                         // instead of teleporting — eliminates the source-side wrap seam.
-  drosteArms: 1,        // droste form only: integer 1..12, count of identical spiral
-                        // arms. fold θ into a 1/N wedge with mirror at wedge edges.
+  drosteArms: 2,        // droste form only: even integer 2..12, count of identical
+                        // spiral arms. fold θ into a 1/N wedge with mirror at wedge
+                        // edges. even-only matches segments' parity convention.
   canvasZoom: 1.0,
   canvasRotation: 0,
   oobMode: 0,           // 0=clamp, 1=mirror, 2=transparent. clamp is default.

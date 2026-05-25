@@ -224,6 +224,12 @@ export function wireSliderWithScrub(env, sliderId, valId, key, opts) {
     min, max, step, scrubStep = step, fmt,
     parse = (s) => { const n = parseFloat(s); return isNaN(n) ? null : n; },
     wrap = null,
+    // optional: snap(v) → snapped v. wraps set() so any path (slider drag,
+    // scrub drag, scrub text edit) lands on a snapped value. snap can read
+    // state to compute the snap step dynamically.
+    snap = null,
+    // optional: called after any set. side-effects can mutate other state.
+    onSet = null,
   } = opts;
 
   const slider = document.getElementById(sliderId);
@@ -234,7 +240,10 @@ export function wireSliderWithScrub(env, sliderId, valId, key, opts) {
   slider.step = step;
 
   const get = () => state[key];
-  const set = (v) => { state[key] = v; };
+  const set = (v) => {
+    state[key] = snap ? snap(v) : v;
+    if (onSet) onSet();
+  };
 
   function syncAll() {
     valEl.textContent = fmt(get());
@@ -249,6 +258,8 @@ export function wireSliderWithScrub(env, sliderId, valId, key, opts) {
     if (!sliderPushed) { env.pushHistory?.(); sliderPushed = true; }
     set(parseFloat(slider.value));
     valEl.textContent = fmt(get());
+    // when snap is active, bounce the thumb to the snapped position.
+    if (snap) slider.value = get();
     scheduleRender();
   });
   slider.addEventListener('touchstart', () => { env.pushHistory?.(); }, { passive: true });

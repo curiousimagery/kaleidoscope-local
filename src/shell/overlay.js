@@ -925,8 +925,9 @@ export function setupSourceInteraction(env, wrap) {
         state.drosteZoom = newZoom;
       } else if (drag.mode === 'droste-twist') {
         // angular drag from the seam outer endpoint. cursor's angular delta
-        // (around the slice center) directly maps to a twist delta in radians;
-        // the seam endpoint tracks the cursor so the visual is immediate.
+        // (around the slice center) maps to a twist delta in degrees, then
+        // snaps to the current arms count's alignment step (360°/N) so the
+        // spiral closes cleanly.
         if (!g) return;
         const a = Math.atan2(y - g.cy, x - g.cx);
         let delta = a - drag.prevAngle;
@@ -936,7 +937,7 @@ export function setupSourceInteraction(env, wrap) {
         let next = state.drosteTwist + delta * 180 / Math.PI;
         if (next > 360)  next = 360;
         if (next < -360) next = -360;
-        state.drosteTwist = next;
+        state.drosteTwist = env.snapDrosteTwist ? env.snapDrosteTwist(next) : next;
       }
       env.syncControls();
       env.scheduleRender();

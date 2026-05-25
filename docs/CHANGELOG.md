@@ -4,6 +4,19 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.3.0 (Build 43) — 2026-05-25
+
+**Droste refinements: snap-to-arms, even-only arms, log-shear math, single-seam overlay.** Build 42 closed the seam-reduction gap but Daniel's testing on iPad surfaced three follow-ups: twist still allowed arm misalignment between snap-clean values; odd arms produced a chirality-parity seam; the multi-arm seam visual was overwhelming at high arms counts. This build addresses all three.
+
+- **Twist math switched from Lenstra c-multiplier to log-shear.** Build 42's conformal `c = (1−φ)·1 + φ·cPG` had a side effect: the actual rotation accumulated per tier depended on zoom (at zoom=2 with twist=±360° you only got ~±4.5° per tier, almost imperceptible), and the natural N-arm closure values fell outside the slider range. Replaced with a non-conformal log-shear: `theta_new = theta + (twist_rad / logS) · log r`, `logr_new = log r` unchanged. Now `twist_rad` is exactly the rotation accumulated over one tier — independent of zoom. Trade-off: shapes get slightly sheared along the spiral (not conformal), but in the kaleidoscope context with mirror folds it reads as "the picture is twisted by twist°/tier," which is what the slider label promises. `u_drosteC` dropped; `u_drosteTwist` restored as a `1f`.
+- **Twist snaps to 360°/arms.** Both the slider's native step and the scrub field's parse path now round to multiples of `360°/drosteArms`. Arms=8 snaps at 0, ±45, ±90, …, ±360. Arms=2 snaps at 0, ±180, ±360. New `snap` and `onSet` options on `wireSliderWithScrub` carry this through. The same snap function is exposed via `env.snapDrosteTwist` so the overlay's seam-drag handler in `overlay.js` snaps too.
+- **Arms restricted to even integers (default 2, range 2–12 step 2).** Matches the radial form's segments convention. The wedge-fold's mirror parity is consistent around the full circle only when N is even; odd N produced a visible "connection" seam where the parity flipped. Default changed from 1 to 2 — the "single-arm Print Gallery" look is gone for now, but at twist=0 with arms=2 the visual is still essentially concentric Droste with a horizontal mirror axis. When `drosteArms` changes, `state.drosteTwist` re-snaps to a valid step for the new arms count and the twist slider's native step updates.
+- **Single-seam overlay.** Drawing N seam spirals at arms=8 read as visual noise; reduced to a single seam at `sliceRotation` plus one endpoint dot. The N-arm symmetry is implied by the wedge fold rather than literally drawn. Hit-testing checks only the primary endpoint — dragging it adjusts `drosteTwist`, which the wedge fold then propagates to all arms uniformly.
+- **Filename suffix unchanged structurally** (`z…t…a…m…`), but values now reflect the snapped twist and even arms.
+- **Code:** [src/engine/forms/droste.js](src/engine/forms/droste.js) (GLSL log-shear, single seam, single endpoint hit-test, uniform rename), [src/shell/state.js](src/shell/state.js) (drosteArms default 2), [src/shell/controls.js](src/shell/controls.js) (`snap` + `onSet` options on `wireSliderWithScrub`, slider thumb bounces to snapped position on input), [src/main.js](src/main.js) (`snapTwistDeg`, `applyArmsSnap`, exposed via `env.snapDrosteTwist`), [src/shell/overlay.js](src/shell/overlay.js) (snap in droste-twist drag), [index.html](index.html) (arms slider min/step/default), [src/version.js](src/version.js) (Build 43).
+
+---
+
 ## v0.3.0 (Build 42) — 2026-05-25
 
 **Droste seam-reduction + twist=0 bug fix.** Build 41 testing surfaced a hysteresis-flavored bug (slider at 0 didn't visually equal "no spiral") plus three families of seams in the rendered output. This build addresses both via a math reparameterization and two new per-form controls.

@@ -12,7 +12,7 @@ He prefers **no em dashes** in his own writing; respect that in any prose Claude
 
 ## current version
 
-`v0.3.0 · Build 42`. The footer in the running app shows this string from `src/version.js`. When delivering a new build, increment BUILD by 1 and bump VERSION when meaningful change ships. **BUILD never resets** on version bumps — it's a global monotonic counter (see `version.js` comment).
+`v0.3.0 · Build 43`. The footer in the running app shows this string from `src/version.js`. When delivering a new build, increment BUILD by 1 and bump VERSION when meaningful change ships. **BUILD never resets** on version bumps — it's a global monotonic counter (see `version.js` comment).
 
 ## what's working
 
@@ -28,17 +28,19 @@ Read `ARCHITECTURE.md` if you need details on the registry, shader composition, 
 
 ## what we're doing right now
 
-Build 42 closes the Droste-form gaps surfaced in Build 41 iPad testing. The twist=0 hysteresis is fixed via a fundamental reparameterization (linear interpolation in the complex multiplier `c`, no branch, no near-singular neighborhood). Two new controls reduce visible seams: a tier-mirror toggle (default on) eliminates the source-side wrap step at tier boundaries; an arms slider (1–12, default 1) creates N identical spiral arms with mirror at wedge boundaries.
+Build 43 refines Droste based on Build 42 iPad testing. Three follow-ups: twist now **snaps** to `360°/arms` so the N-arm spiral closes cleanly at any setting; arms are **restricted to even integers** (default 2, range 2–12) to avoid the chirality-parity seam at odd N; the multi-arm seam **visual collapsed to a single primary seam** since N copies read as visual noise at high arms counts.
 
-Builds 43 and 44 are designed in the approved plan at `~/.claude/plans/first-a-quick-process-radiant-axolotl.md`:
-- **Build 43:** vanishing-point offset (PhotoSpiralysis-style Möbius pre-composition; gesture map reorganizes around a small offset handle at slice center).
-- **Build 44:** pole rotation (second Möbius parameter for the "rotate the Riemann sphere" feel; especially valuable for the upcoming motion shell).
+The twist math also flipped from Build 42's conformal Lenstra c-multiplier to a non-conformal **log-shear**: `theta_src = theta + (twist_rad/logS)·log r`. The trade-off is strict conformality (Lenstra preserves angles, shear slightly distorts) in exchange for zoom-independent slider behavior — twist=360° now means exactly one full turn per tier at every zoom value, and N-arm snap values fall at clean degree increments. The shear distortion is invisible against arbitrary photo content + the wedge mirror.
 
-**What Daniel needs to verify in-browser for Build 42** (Claude can't see the UI): twist=0 now visually equals no-spiral concentric Droste; tier-mirror toggle eliminates the wrap step; arms count produces clean N-fold symmetry; multi-arm seam overlay readable when arms > 1; no Build 41 regressions on the polygon forms (radial / square / hex / triangle).
+Builds 44 and 45 (from the approved plan at `~/.claude/plans/first-a-quick-process-radiant-axolotl.md`, renumbered for the inserted Build 43 refinements):
+- **Build 44:** vanishing-point offset (PhotoSpiralysis-style Möbius pre-composition; gesture map reorganizes around a small offset handle at slice center).
+- **Build 45:** pole rotation (second Möbius parameter; "rotate the Riemann sphere"; pairs with motion shell).
+
+**What Daniel needs to verify in-browser for Build 43** (Claude can't see the UI): twist now feels much stronger at low zoom (one full turn per tier at ±360° instead of ~4° in Build 42); arms slider only stops at even values; single seam overlay reads cleaner at arms=8; spirals close cleanly at any twist value; no regressions on the polygon forms.
 
 Still pending from prior builds: Intel Air investigation (blocked on hardware access). Triangle form still pending production review of `TRI_SIZE`, `tilesPerDim`, and Build 37 fold-transform side effects.
 
-Next: Build 43 (Droste vanishing-point offset) once Daniel confirms Build 42 lands cleanly. See `BACKLOG.md` for the rest.
+Next: Build 44 (Droste vanishing-point offset) once Daniel confirms Build 43 lands cleanly.
 
 `docs/FOLD.md` owns vision, brand, marketing narrative, monetization paths, and gallery show concept. `docs/BACKLOG.md` capability tier is reordered (live camera first, then mobile, then motion); mobile UX exploration notes, gallery installation work, and open architecture questions sections are present.
 
