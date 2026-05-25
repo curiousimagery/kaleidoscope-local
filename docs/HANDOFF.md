@@ -12,7 +12,7 @@ He prefers **no em dashes** in his own writing; respect that in any prose Claude
 
 ## current version
 
-`v0.3.0 · Build 41`. The footer in the running app shows this string from `src/version.js`. When delivering a new build, increment BUILD by 1 and bump VERSION when meaningful change ships. **BUILD never resets** on version bumps — it's a global monotonic counter (see `version.js` comment).
+`v0.3.0 · Build 42`. The footer in the running app shows this string from `src/version.js`. When delivering a new build, increment BUILD by 1 and bump VERSION when meaningful change ships. **BUILD never resets** on version bumps — it's a global monotonic counter (see `version.js` comment).
 
 ## what's working
 
@@ -28,13 +28,17 @@ Read `ARCHITECTURE.md` if you need details on the registry, shader composition, 
 
 ## what we're doing right now
 
-Build 41 ships the Droste form (initial cut) — the fifth form, the first non-polygon sample region (annulus), and the first form to use the new `drawOverlay` / `classifyPointer` schema hooks the architecture doc has anticipated since v0.0.5. Math is the Lenstra & de Smit log-conformal warp; controls are `zoom` (scale per tier) and `twist` (degrees per tier, signed). Direct manipulation on the overlay covers all four parameters that affect the spiral (outer ring → sliceScale, inner ring → drosteZoom, seam endpoint dot → drosteTwist, drag outside → sliceRotation).
+Build 42 closes the Droste-form gaps surfaced in Build 41 iPad testing. The twist=0 hysteresis is fixed via a fundamental reparameterization (linear interpolation in the complex multiplier `c`, no branch, no near-singular neighborhood). Two new controls reduce visible seams: a tier-mirror toggle (default on) eliminates the source-side wrap step at tier boundaries; an arms slider (1–12, default 1) creates N identical spiral arms with mirror at wedge boundaries.
 
-**What Daniel needs to verify in-browser** (Claude can't see the UI): the visual feel of the seam log-spiral as twist changes, the click-targets on the inner ring and seam dot (especially on touch), and whether the default `tilesPerDim` heuristic produces sane resolution-hint values. Pin any feel issues for Build 42.
+Builds 43 and 44 are designed in the approved plan at `~/.claude/plans/first-a-quick-process-radiant-axolotl.md`:
+- **Build 43:** vanishing-point offset (PhotoSpiralysis-style Möbius pre-composition; gesture map reorganizes around a small offset handle at slice center).
+- **Build 44:** pole rotation (second Möbius parameter for the "rotate the Riemann sphere" feel; especially valuable for the upcoming motion shell).
+
+**What Daniel needs to verify in-browser for Build 42** (Claude can't see the UI): twist=0 now visually equals no-spiral concentric Droste; tier-mirror toggle eliminates the wrap step; arms count produces clean N-fold symmetry; multi-arm seam overlay readable when arms > 1; no Build 41 regressions on the polygon forms (radial / square / hex / triangle).
 
 Still pending from prior builds: Intel Air investigation (blocked on hardware access). Triangle form still pending production review of `TRI_SIZE`, `tilesPerDim`, and Build 37 fold-transform side effects.
 
-Next: one of the following (Daniel to direct which): live-camera shell, additional new forms (hyperbolic Escher, p31m), or mobile UX design session. See `BACKLOG.md` for the reordered capability tier.
+Next: Build 43 (Droste vanishing-point offset) once Daniel confirms Build 42 lands cleanly. See `BACKLOG.md` for the rest.
 
 `docs/FOLD.md` owns vision, brand, marketing narrative, monetization paths, and gallery show concept. `docs/BACKLOG.md` capability tier is reordered (live camera first, then mobile, then motion); mobile UX exploration notes, gallery installation work, and open architecture questions sections are present.
 

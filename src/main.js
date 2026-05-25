@@ -502,7 +502,18 @@ function wireControls() {
     },
   });
 
-  // droste twist (degrees per tier, signed; wraps mod 360 with negative side)
+  // droste arms (integer count of identical spiral arms)
+  wireSliderWithScrub(env, 'arms', 'armsVal', 'drosteArms', {
+    min: 1, max: 12, step: 1, scrubStep: 1,
+    fmt: v => String(Math.round(v)),
+    parse: s => {
+      const n = parseInt(s, 10);
+      if (isNaN(n)) return null;
+      return Math.max(1, Math.min(12, n));
+    },
+  });
+
+  // droste twist — interpolation strength toward Print Gallery (0° = no spiral, 360° = full)
   wireSliderWithScrub(env, 'twist', 'twistVal', 'drosteTwist', {
     min: -360, max: 360, step: 1, scrubStep: 1,
     fmt: v => (v >= 0 ? '+' : '') + v.toFixed(0) + '°',
@@ -512,6 +523,26 @@ function wireControls() {
       return isNaN(n) ? null : n;
     },
   });
+
+  // droste tier mirror toggle (on/off buttons). registered with controlsSync
+  // so undo/redo updates the button highlight along with state.
+  function syncMirrorToggle() {
+    document.querySelectorAll('#mirrorToggle button').forEach(b => {
+      const wantsOn = b.dataset.mirror === '1';
+      b.classList.toggle('active', wantsOn === !!state.drosteMirror);
+    });
+  }
+  document.querySelectorAll('#mirrorToggle button').forEach(btn => {
+    btn.addEventListener('click', () => {
+      env.pushHistory();
+      state.drosteMirror = btn.dataset.mirror === '1';
+      syncMirrorToggle();
+      scheduleRender();
+      updateUndoUI();
+    });
+  });
+  syncMirrorToggle();
+  env.controlsSync.register(syncMirrorToggle);
 
   // canvas rotation
   wireSliderWithScrub(env, 'canvasRot', 'canvasRotVal', 'canvasRotation', {

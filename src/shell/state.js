@@ -21,7 +21,11 @@ export const state = {
   drosteZoom: 2.0,      // droste form only: outer/inner radius ratio = scale per tier.
                         // 2.0 means each spiral turn halves; range ~1.1 to 16.
   drosteTwist: 0,       // droste form only: twist angle per tier (degrees, signed).
-                        // 0 = pure concentric Droste; ±360 = one full turn per tier.
+                        // 0 = pure concentric Droste; ±360 = full Print Gallery strength.
+  drosteMirror: true,   // droste form only: when true, tier transitions reflect
+                        // instead of teleporting — eliminates the source-side wrap seam.
+  drosteArms: 1,        // droste form only: integer 1..12, count of identical spiral
+                        // arms. fold θ into a 1/N wedge with mirror at wedge edges.
   canvasZoom: 1.0,
   canvasRotation: 0,
   oobMode: 0,           // 0=clamp, 1=mirror, 2=transparent. clamp is default.

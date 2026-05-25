@@ -72,9 +72,20 @@
         <div class="row"><span>zoom</span><span class="val scrub" id="zoomVal" data-key="drosteZoom">2.00×</span></div>
         <input type="range" id="zoom" min="1.1" max="16" step="0.05" value="2">
       </label>
+      <label class="slider" id="armsLabel" style="margin-bottom: 10px; display: none;">
+        <div class="row"><span>arms</span><span class="val scrub" id="armsVal" data-key="drosteArms">1</span></div>
+        <input type="range" id="arms" min="1" max="12" step="1" value="1">
+      </label>
       <label class="slider" id="twistLabel" style="margin-bottom: 10px; display: none;">
         <div class="row"><span>twist</span><span class="val scrub" id="twistVal" data-key="drosteTwist">0°</span></div>
         <input type="range" id="twist" min="-360" max="360" step="1" value="0">
+      </label>
+      <label class="slider" id="mirrorLabel" style="margin-bottom: 10px; display: none;">
+        <div class="row"><span>tier mirror</span></div>
+        <div class="row-buttons" id="mirrorToggle">
+          <button class="toggle" data-mirror="0">off</button>
+          <button class="toggle active" data-mirror="1">on</button>
+        </div>
       </label>
     </div>
   </div>
