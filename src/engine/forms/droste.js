@@ -59,7 +59,7 @@ export default {
     <path d="M 21 16 A 5 5 0 0 1 22.5 19.5 L 26.6 23.6"/>
   </g></svg>`,
 
-  controls: ['zoom', 'arms', 'twist', 'mirror'],
+  controls: ['segments', 'zoom', 'twist', 'mirror'],
 
   uniforms: {
     // log(drosteZoom) — precomputed to spare the shader a log() per pixel.
@@ -78,15 +78,16 @@ export default {
       type: '1i',
       get: (state) => (state.drosteMirror ? 1 : 0),
     },
-    // spiral arms: even integer 2..12. used inside the shader to fold theta
-    // into a 1/N angular wedge with mirror at the wedge boundaries.
+    // spiral arms: integer from {1, 2, 4, 6, 8, 10, 12}. arms=1 disables the
+    // wedge fold (single chiral spiral, Print Gallery feel). arms ≥ 2 are
+    // restricted to even integers so the wedge-mirror parity is consistent
+    // around the full circle.
     u_drosteArms: {
       type: '1i',
       get: (state) => {
         const n = Math.round(state.drosteArms || 2);
-        // clamp to even integer in [2, 12]
-        const even = Math.max(2, Math.min(12, n - (n % 2)));
-        return even;
+        if (n <= 1) return 1;
+        return Math.max(2, Math.min(12, n - (n % 2)));
       },
     },
   },
@@ -183,37 +184,67 @@ export default {
     const zoom = Math.max(1.0001, state.drosteZoom);
     const rIn  = rOut / zoom;
 
+    // angular span of the fundamental sample wedge. arms=1 → full circle;
+    // arms=N → 2π/N centered on sliceRotation (the wedge mirror reflects the
+    // rest of the annulus from this fundamental region).
+    const armsCount = (() => {
+      const n = Math.round(state.drosteArms || 1);
+      if (n <= 1) return 1;
+      return Math.max(2, Math.min(12, n - (n % 2)));
+    })();
+    const halfWedge = Math.PI / armsCount;        // half the angular span
+    const isFullCircle = armsCount === 1;
+
     // OOB if the outer ring exits the image rect.
     const oobOut = (cx - rOut < imgX) || (cx + rOut > imgX + imgW) ||
                    (cy - rOut < imgY) || (cy + rOut > imgY + imgH);
 
     const seamPhaseRad = state.sliceRotation * Math.PI / 180;
     const twistRad = state.drosteTwist * Math.PI / 180;
+    const wedgeStart = seamPhaseRad - halfWedge;
+    const wedgeEnd   = seamPhaseRad + halfWedge;
 
     // dim background.
     ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
     ctx.fillRect(0, 0, w, h);
 
-    // cut the annulus hole: punch the outer disc, then re-fill the inner disc.
+    // cut the sample-wedge hole. for arms=1 this is the full annulus (punch
+    // outer disc, refill inner). for arms>1 it's just the annular wedge
+    // spanning the fundamental angular region — the rest of the annulus stays
+    // dim, signalling that those pixels are mirror-images of the wedge rather
+    // than independently sampled.
     ctx.globalCompositeOperation = 'destination-out';
-    ctx.beginPath();
-    ctx.arc(cx, cy, rOut, 0, TAU);
-    ctx.fill();
+    if (isFullCircle) {
+      ctx.beginPath();
+      ctx.arc(cx, cy, rOut, 0, TAU);
+      ctx.fill();
+    } else {
+      // annular wedge: outer arc + inner arc (reverse) + close.
+      ctx.beginPath();
+      ctx.arc(cx, cy, rOut, wedgeStart, wedgeEnd, false);
+      ctx.arc(cx, cy, rIn,  wedgeEnd,   wedgeStart, true);
+      ctx.closePath();
+      ctx.fill();
+    }
     ctx.globalCompositeOperation = 'source-over';
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
-    ctx.beginPath();
-    ctx.arc(cx, cy, rIn, 0, TAU);
-    ctx.fill();
+    if (isFullCircle) {
+      // re-fill the inner disc so the annulus appears as a ring.
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
+      ctx.beginPath();
+      ctx.arc(cx, cy, rIn, 0, TAU);
+      ctx.fill();
+    }
 
-    // outline both rings — solid white inside image bounds, dashed amber when
-    // the outer ring exits the image.
+    // outline the sample wedge — arcs at the inner and outer ring spanning
+    // wedgeStart→wedgeEnd, plus radial sides at the wedge boundaries when
+    // arms > 1.
     const ringHL = env.hoverMode === 'rotate' || env.overlayDragMode === 'rotate' || env.overlayDragMode === 'pinch';
     const outerHL = env.hoverMode === 'scale' && env.hoverHandle === 'outer'
                  || env.overlayDragMode === 'scale';
     const innerHL = env.hoverMode === 'scale' && env.hoverHandle === 'inner'
                  || env.overlayDragMode === 'droste-ratio';
 
-    function strokeRing(r, highlighted) {
+    function strokeRingArc(r, highlighted) {
       if (oobOut) {
         ctx.strokeStyle = highlighted ? 'rgba(255, 230, 140, 1.0)' : 'rgba(255, 196, 80, 0.95)';
         ctx.setLineDash([6, 4]);
@@ -223,12 +254,35 @@ export default {
       }
       ctx.lineWidth = highlighted ? 2.5 : 1.5;
       ctx.beginPath();
-      ctx.arc(cx, cy, r, 0, TAU);
+      if (isFullCircle) {
+        ctx.arc(cx, cy, r, 0, TAU);
+      } else {
+        ctx.arc(cx, cy, r, wedgeStart, wedgeEnd, false);
+      }
       ctx.stroke();
       ctx.setLineDash([]);
     }
-    strokeRing(rOut, outerHL || ringHL);
-    strokeRing(rIn,  innerHL || ringHL);
+    strokeRingArc(rOut, outerHL || ringHL);
+    strokeRingArc(rIn,  innerHL || ringHL);
+
+    // wedge sides — radial line segments at the wedge boundaries connecting
+    // the inner and outer arcs. only drawn for arms > 1 (full circle has no
+    // angular boundary). dashed amber when OOB, white otherwise.
+    if (!isFullCircle) {
+      const sideHL = ringHL;  // sides highlight with the rest of the ring outline
+      ctx.strokeStyle = oobOut
+        ? (sideHL ? 'rgba(255, 230, 140, 1.0)' : 'rgba(255, 196, 80, 0.95)')
+        : (sideHL ? 'rgba(255, 255, 255, 1.0)' : 'rgba(255, 255, 255, 0.9)');
+      ctx.lineWidth = sideHL ? 2.5 : 1.5;
+      ctx.setLineDash(oobOut ? [6, 4] : []);
+      for (const a of [wedgeStart, wedgeEnd]) {
+        ctx.beginPath();
+        ctx.moveTo(cx + rIn  * Math.cos(a), cy + rIn  * Math.sin(a));
+        ctx.lineTo(cx + rOut * Math.cos(a), cy + rOut * Math.sin(a));
+        ctx.stroke();
+      }
+      ctx.setLineDash([]);
+    }
 
     // single seam — logarithmic spiral from inner ring to outer ring at the
     // primary phase (sliceRotation). when twist = 0 it's a straight radial;

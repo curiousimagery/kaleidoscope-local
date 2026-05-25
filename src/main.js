@@ -22,6 +22,7 @@ import {
 } from './shell/overlay.js';
 import {
   wireSliderWithScrub,
+  makeScrubField,
   buildFormGrid,
   applyFormControls,
   setupDivider,
@@ -432,20 +433,126 @@ function buildFilename(size) {
 }
 
 // ============================================================================
+// droste twist snap + segments slider routing (shared with the segments
+// slider's form-aware wiring and with overlay.js's seam-drag handler)
+// ============================================================================
+
+// snap step depends on drosteArms: 360°/N for arms ≥ 2; arms=1 has no snap.
+function armsSnapStep() {
+  const n = Math.round(state.drosteArms || 1);
+  if (n <= 1) return null;
+  return 360 / Math.max(2, Math.min(12, n - (n % 2)));
+}
+function snapTwistDeg(v) {
+  const step = armsSnapStep();
+  if (step == null) return Math.max(-360, Math.min(360, v));
+  return Math.max(-360, Math.min(360, Math.round(v / step) * step));
+}
+function applyArmsSnap() {
+  const step = armsSnapStep();
+  const twistSlider = document.getElementById('twist');
+  if (twistSlider) twistSlider.step = step != null ? String(step) : '1';
+  state.drosteTwist = snapTwistDeg(state.drosteTwist || 0);
+}
+
+// segments slider — shared DOM, form-aware routing. radial drives state.segments
+// (2..48 step 2); droste drives state.drosteArms (valid set {1, 2, 4, 6, 8, 10,
+// 12}). triangle/hex/square don't use this slider — controls.js disables it.
+function setupSegmentsSlider() {
+  const seg = document.getElementById('segments');
+  const segVal = document.getElementById('segVal');
+
+  function segmentsKey() {
+    return state.form === 'droste' ? 'drosteArms' : 'segments';
+  }
+  function segmentsRange() {
+    return state.form === 'droste'
+      ? { min: 1, max: 12, step: 1 }
+      : { min: 2, max: 48, step: 2 };
+  }
+  function segmentsSnap(v) {
+    if (state.form === 'droste') {
+      if (v < 1.5) return 1;
+      return Math.max(2, Math.min(12, Math.round(v / 2) * 2));
+    }
+    return Math.max(2, Math.min(48, Math.round(v / 2) * 2));
+  }
+  function getSeg() { return state[segmentsKey()]; }
+  function setSeg(v) {
+    state[segmentsKey()] = segmentsSnap(v);
+    // changing drosteArms cascades into the twist snap step.
+    if (state.form === 'droste') applyArmsSnap();
+  }
+  function applyRange() {
+    const r = segmentsRange();
+    seg.min = r.min;
+    seg.max = r.max;
+    seg.step = r.step;
+  }
+  function sync() {
+    segVal.textContent = String(Math.round(getSeg()));
+    seg.value = getSeg();
+  }
+
+  applyRange();
+  sync();
+
+  let pushed = false;
+  seg.addEventListener('mousedown', () => { pushed = false; });
+  seg.addEventListener('touchstart', () => { env.pushHistory(); }, { passive: true });
+  seg.addEventListener('mouseup', () => env.updateUndoUI?.());
+  seg.addEventListener('touchend', () => env.updateUndoUI?.());
+  seg.addEventListener('input', () => {
+    if (!pushed) { env.pushHistory(); pushed = true; }
+    setSeg(parseFloat(seg.value));
+    sync();
+    // when in droste, arms change cascades — refresh twist slider state.
+    if (state.form === 'droste') env.controlsSync.syncAll();
+    env.scheduleRender();
+  });
+
+  makeScrubField(segVal, {
+    get: getSeg,
+    set: setSeg,
+    step: 1,
+    format: v => String(Math.round(v)),
+    parse: s => {
+      const n = parseInt(s, 10);
+      return isNaN(n) ? null : n;
+    },
+    onChange: () => {
+      sync();
+      if (state.form === 'droste') env.controlsSync.syncAll();
+      env.scheduleRender();
+    },
+    onStart: () => env.pushHistory(),
+    onEnd: () => env.updateUndoUI?.(),
+  });
+
+  // Re-sync on every controlsSync.syncAll() so form switches + undo/redo
+  // refresh range + slider position.
+  env.controlsSync.register(() => {
+    applyRange();
+    sync();
+  });
+}
+
+// Exposed for overlay.js's seam-drag handler.
+env.snapDrosteTwist = snapTwistDeg;
+
+// ============================================================================
 // wire all controls
 // ============================================================================
 
 function wireControls() {
-  // segments — even integers
-  wireSliderWithScrub(env, 'segments', 'segVal', 'segments', {
-    min: 2, max: 48, step: 2, scrubStep: 2,
-    fmt: v => String(Math.round(v)),
-    parse: s => {
-      const n = parseInt(s);
-      if (isNaN(n)) return null;
-      return Math.max(2, Math.min(48, Math.round(n / 2) * 2));
-    },
-  });
+  // Segments slider — shared DOM element across forms. Routes by active form:
+  //   radial → state.segments  (range 2..48, step 2, even integers)
+  //   droste → state.drosteArms (valid set {1, 2, 4, 6, 8, 10, 12})
+  //   others → disabled (controls.js applyFormControls handles the disable class)
+  // This is custom wiring (not wireSliderWithScrub) because the key, range,
+  // step, and snap function all shift with state.form. Other sliders below
+  // continue to use the standard wireSliderWithScrub path.
+  setupSegmentsSlider();
 
   // scale
   wireSliderWithScrub(env, 'scale', 'scaleVal', 'sliceScale', {
@@ -502,46 +609,9 @@ function wireControls() {
     },
   });
 
-  // droste twist snap: twist auto-rounds to multiples of 360°/arms so the
-  // N-arm spiral closes cleanly at any twist value. shared snap function used
-  // by both the twist slider/scrub and the overlay seam-drag handler.
-  const armsSnapStep = () => 360 / Math.max(2, Math.min(12, Math.round(state.drosteArms || 2)));
-  const snapTwistDeg = (v) => {
-    const step = armsSnapStep();
-    const snapped = Math.round(v / step) * step;
-    return Math.max(-360, Math.min(360, snapped));
-  };
-  env.snapDrosteTwist = snapTwistDeg;  // exposed for overlay.js drag handler
-
-  // droste arms (even integer 2..12). changing arms recomputes the twist snap
-  // step, re-snaps the current twist to a valid value for the new arms count,
-  // and updates the twist slider's native step so the thumb moves in
-  // alignment-clean increments.
-  function applyArmsSnap() {
-    const step = armsSnapStep();
-    const twistSlider = document.getElementById('twist');
-    if (twistSlider) twistSlider.step = String(step);
-    state.drosteTwist = snapTwistDeg(state.drosteTwist || 0);
-  }
-  wireSliderWithScrub(env, 'arms', 'armsVal', 'drosteArms', {
-    min: 2, max: 12, step: 2, scrubStep: 2,
-    fmt: v => String(Math.round(v)),
-    parse: s => {
-      const n = parseInt(s, 10);
-      if (isNaN(n)) return null;
-      // round to even, clamp to [2, 12]
-      return Math.max(2, Math.min(12, Math.round(n / 2) * 2));
-    },
-    onSet: () => {
-      applyArmsSnap();
-      // refresh twist UI (slider position + scrub text) after the cascade.
-      env.controlsSync.syncAll();
-    },
-  });
-
   // droste twist — rotation per tier in degrees. snaps to 360°/arms so the
   // N-arm spiral closes cleanly. range is the full slider; snap_step varies
-  // with arms (180° at arms=2, 30° at arms=12).
+  // with arms (180° at arms=2, 30° at arms=12, no snap at arms=1).
   wireSliderWithScrub(env, 'twist', 'twistVal', 'drosteTwist', {
     min: -360, max: 360, step: 1, scrubStep: 1,
     fmt: v => (v >= 0 ? '+' : '') + v.toFixed(0) + '°',

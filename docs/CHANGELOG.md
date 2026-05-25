@@ -4,6 +4,20 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.3.0 (Build 44) — 2026-05-25
+
+**Droste UX refinements: segment slider reuse, arms=1 back, accurate wedge-arc overlay.** Build 43 testing on iPad surfaced four follow-ups: the overlay's full-circle affordance overstated the sample region (we only sample one wedge, mirrored); the previously-retired arms=1 (single chiral spiral) was missed; the dedicated arms slider felt redundant alongside segments; and the bilateral pairing inherent to wedge-mirror+twist makes "arms=N" read as N/2 visible petals.
+
+- **Segments slider shared with radial.** The `#segments` slider DOM is now one element used by both forms, with form-aware routing: radial drives `state.segments` (range 2–48, step 2); droste drives `state.drosteArms` (valid set {1, 2, 4, 6, 8, 10, 12}, default 2). Range, step, snap function, and bound state field all shift with `state.form`. Custom wiring in [src/main.js](src/main.js) (`setupSegmentsSlider`) replaces the prior `wireSliderWithScrub` call; the standalone arms slider DOM is removed from [index.html](index.html). One fewer slider in the Droste panel; the kaleidoscope vocabulary stays consistent ("segments" works for any folding form).
+- **arms=1 restored.** Single chiral spiral / Print Gallery feel. At arms=1 the wedge fold is bypassed and the warp produces the full-circle single-arm spiral that Build 41 originally shipped. The horizontal seam comes back at this setting — Daniel knows. arms ≥ 2 stay restricted to even integers (chirality-parity invariant); the slider snaps through {1, 2, 4, 6, 8, 10, 12} as the user drags. Twist snap step is `360°/N` for N≥2; at N=1 the twist slider becomes continuous (no snap).
+- **Annular-wedge overlay.** The dim layer now cuts only the fundamental sample wedge (annular arc spanning `2π/arms` centered on `sliceRotation`), not the full annulus. Two radial lines connect the inner and outer arcs at the wedge boundaries. The rest of the annulus stays dim, signalling "those pixels are mirror-images of the wedge, not independently sampled." arms=1 collapses to the full-circle annulus (no boundary lines). The seam-spiral and twist-endpoint dot are unchanged.
+- **State changes:** `state.drosteArms` default stays 2 (separate from `state.segments` which keeps its 12 default). The form-aware accessor handles routing; history's shallow spread captures both fields independently so undo across form switches works as before.
+- **Code:** [src/engine/forms/droste.js](src/engine/forms/droste.js) (controls `'arms'` → `'segments'`, uniform extractor allows arms=1, `drawOverlay` cuts annular wedge + draws boundary lines), [index.html](index.html) (removed arms slider DOM), [src/shell/controls.js](src/shell/controls.js) (removed `'arms'` from conditional labels), [src/main.js](src/main.js) (`setupSegmentsSlider`, `armsSnapStep` / `snapTwistDeg` / `applyArmsSnap` hoisted to file scope, removed standalone arms wiring), [src/version.js](src/version.js) (Build 44).
+
+**Known visual property** (not a bug): with arms ≥ 2 + non-zero twist, adjacent wedges are mirror-paired (the wedge fold inverts chirality at each boundary), so N wedges read visually as N/2 bilateral "petals." This is consistent with how the kaleidoscope mirror works across all the forms — radial doesn't show it because radial has no chirality to flip; Droste's twist introduces chirality which the mirror then pairs. To get N truly-chiral arms we'd have to drop the wedge mirror, which reintroduces hard seams at wedge boundaries — the very problem the even-arms restriction was designed to solve. Sweet spot Daniel found: 6+ arms with 3× zoom.
+
+---
+
 ## v0.3.0 (Build 43) — 2026-05-25
 
 **Droste refinements: snap-to-arms, even-only arms, log-shear math, single-seam overlay.** Build 42 closed the seam-reduction gap but Daniel's testing on iPad surfaced three follow-ups: twist still allowed arm misalignment between snap-clean values; odd arms produced a chirality-parity seam; the multi-arm seam visual was overwhelming at high arms counts. This build addresses all three.
