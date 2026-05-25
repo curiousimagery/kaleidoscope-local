@@ -4,6 +4,20 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.3.0 (Build 41) — 2026-05-24
+
+**Droste spiral form (initial cut).** Fifth form: a logarithmic-conformal Droste warp (Lenstra & de Smit), producing recursive picture-within-a-picture spirals. The source overlay is bespoke — concentric inner/outer rings define the sample annulus, with a log-spiral seam line previewing the angular wrap. Two new parameters: `zoom` (outer/inner ratio = scale per spiral tier) and `twist` (degrees per tier; 0 = pure concentric Droste, ±360 = one full extra turn per tier). All four overlay manipulations are direct: drag outer ring = scale (existing `sliceScale`), drag inner ring = zoom, drag the seam endpoint dot = twist, drag outside the outer ring = rotate. Two-finger pinch works as on the other forms.
+
+- **New form file:** `src/engine/forms/droste.js`. Per-pixel cost (1 log + 1 exp + a couple multiplies + a mod) is cheaper than hex's axial-coord rounding; 4K preview runs comfortably. The fold function returns `z_src` in the same isotropic fold-space convention the polygon forms use, so the engine's `toSourceUV` aspect correction lands the annulus visually-circular on non-square sources without any per-form path needed.
+- **Schema extension (additive):** two new optional fields on the form module — `drawOverlay(env, ctx, geom)` and `classifyPointer(env, x, y, isTouch, geom)`. Forms whose sample region isn't a polygon (Droste's annulus, future hyperbolic disc) own their overlay drawing and hit-testing entirely. Polygon forms (radial, square, hex, triangle) are unchanged — the existing path runs when these hooks are absent. The architecture doc anticipated this escape hatch since v0.0.5; this is the first form that needs it.
+- **State additions:** `state.drosteZoom` (default 2.0; range 1.1–16) and `state.drosteTwist` (default 0°; range ±360°). Hidden behind the form's `controls: ['zoom', 'twist']` declaration, so the sliders only appear when Droste is the active form.
+- **New env field:** `env.hoverHandle` — a form-specific hover-handle discriminator that lets Droste distinguish inner-ring hover from outer-ring hover for stroke highlighting. Other forms ignore it.
+- **New drag modes:** `'droste-ratio'` (inner-ring radial drag adjusts `drosteZoom` with the same relative `r/startR` feel as outer-ring scale) and `'droste-twist'` (angular drag from the seam endpoint adjusts `drosteTwist`, with the seam endpoint tracking the cursor for immediate visual feedback).
+- **Filename suffix:** `z{zoom×100}t{±degrees, 3-digit padded, m prefix for negative}` (e.g. `z200t045`, `z350tm120`).
+- **Code:** `src/engine/forms/droste.js` (new, ~280 lines), `src/engine/forms/index.js` (1 line), `src/shell/state.js` (2 fields), `src/shell/overlay.js` (drawOverlay + classifyPointer dispatch in `drawSourceOverlay`/`classifyPointer`, new drag-mode branches in `onMove`/`onDown`, hoverHandle tracking), `src/shell/controls.js` (`applyFormControls` extended to handle new control keys), `index.html` (zoom + twist slider DOM), `src/main.js` (slider wiring + `env.hoverHandle` init), `src/version.js` (Build 41).
+
+---
+
 ## v0.3.0 (Build 40) — 2026-05-24
 
 **Version bump + Firefox-aware UX + upload error positioning.** Triangle wallpaper form (p3m1, shipped across Builds 32-38) is a meaningful new visual capability — comparable in scope to v0.2.0's session undo/redo. Marking the milestone with a minor version bump. Also: a cluster of UX improvements informed by Build 39's diagnostic data.

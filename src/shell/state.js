@@ -18,6 +18,10 @@ export const state = {
   sliceRotation: 0,     // degrees, can be any value (loops modulo 360)
   squareAspect: 1.0,    // square form only: cell width/height ratio.
                         // area-preserving normalization (W=√aspect, H=1/√aspect).
+  drosteZoom: 2.0,      // droste form only: outer/inner radius ratio = scale per tier.
+                        // 2.0 means each spiral turn halves; range ~1.1 to 16.
+  drosteTwist: 0,       // droste form only: twist angle per tier (degrees, signed).
+                        // 0 = pure concentric Droste; ±360 = one full turn per tier.
   canvasZoom: 1.0,
   canvasRotation: 0,
   oobMode: 0,           // 0=clamp, 1=mirror, 2=transparent. clamp is default.

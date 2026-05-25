@@ -98,8 +98,26 @@ export function drawSourceOverlay(env) {
     imgY = 0;
   }
 
-  // build polygon in source-UV space, then transform to screen pixels.
   const form = getActiveForm(state);
+
+  // form-overridable overlay path — used by forms whose sample region isn't a
+  // polygon (droste's annulus, future hyperbolic disc, etc.). the form takes
+  // over from here: drawing its own dim background / holes / outlines /
+  // affordances and populating canvas._geom with whatever its classifyPointer
+  // needs.
+  if (form.drawOverlay) {
+    const cxPx = imgX + state.sliceCx * imgW;
+    const cyPx = imgY + state.sliceCy * imgH;
+    form.drawOverlay(env, ctx, {
+      w, h, imgX, imgY, imgW, imgH,
+      cx: cxPx, cy: cyPx,
+      sourceAspect,
+      IS_TOUCH,
+    });
+    return;
+  }
+
+  // build polygon in source-UV space, then transform to screen pixels.
   const pts = form.buildPolygon(state);
   let oobAnyAxis = false;
   let oobLeft = false, oobRight = false, oobTop = false, oobBottom = false;
@@ -509,14 +527,22 @@ function afRotationArc(ctx, cx, cy, cAngle, arcR, op, lw) {
 // hit testing
 // ===========================================================================
 
-// classify pointer position into 'move' | 'scale' | 'rotate' | null. consults
-// the active form's spokeRule for behavior switching.
+// classify pointer position into 'move' | 'scale' | 'rotate' | 'twist' | null.
+// consults the active form's spokeRule for behavior switching, OR defers to a
+// form-supplied classifyPointer override when the form's sample region doesn't
+// fit the standard polygon model (droste's annulus, etc.).
 function classifyPointer(env, x, y, isTouch = false) {
   const { state, sourceOverlayCanvas } = env;
   const g = sourceOverlayCanvas?._geom;
   if (!g) return { mode: null };
 
   const form = getActiveForm(state);
+
+  // form-overridable hit testing. forms with bespoke overlays (droste) own
+  // their hit-test math too — the built-in polygon-radius logic doesn't apply.
+  if (form.classifyPointer) {
+    return form.classifyPointer(env, x, y, isTouch, g);
+  }
   const { cx, cy, screenPts: pts } = g;
   const px = x - cx;
   const py = y - cy;
@@ -765,6 +791,7 @@ export function setupSourceInteraction(env, wrap) {
     if (mode === 'move')   return 'grab';
     if (mode === 'scale')  return scaleCursorForAngle(theta);
     if (mode === 'rotate') return rotateCursorForAngle(theta);
+    if (mode === 'twist')  return rotateCursorForAngle(theta);
     return 'default';
   }
 
@@ -886,6 +913,30 @@ export function setupSourceInteraction(env, wrap) {
         if (delta < -Math.PI) delta += 2 * Math.PI;
         drag.prevAngle = a;
         state.sliceRotation = state.sliceRotation + delta * 180 / Math.PI;
+      } else if (drag.mode === 'droste-ratio') {
+        // inner-ring radial drag — feel matches outer-ring scale-drag (relative,
+        // r_now / r_start), but moves the inner ring instead of the outer.
+        // dragging inward shrinks the inner ring, raising drosteZoom.
+        if (!g) return;
+        const r = Math.hypot(x - g.cx, y - g.cy);
+        if (drag.startR < 1 || r < 1) return;
+        const ratio = drag.startR / r;
+        const newZoom = Math.max(1.1, Math.min(16, drag.startZoom * ratio));
+        state.drosteZoom = newZoom;
+      } else if (drag.mode === 'droste-twist') {
+        // angular drag from the seam outer endpoint. cursor's angular delta
+        // (around the slice center) directly maps to a twist delta in radians;
+        // the seam endpoint tracks the cursor so the visual is immediate.
+        if (!g) return;
+        const a = Math.atan2(y - g.cy, x - g.cx);
+        let delta = a - drag.prevAngle;
+        if (delta > Math.PI)  delta -= 2 * Math.PI;
+        if (delta < -Math.PI) delta += 2 * Math.PI;
+        drag.prevAngle = a;
+        let next = state.drosteTwist + delta * 180 / Math.PI;
+        if (next > 360)  next = 360;
+        if (next < -360) next = -360;
+        state.drosteTwist = next;
       }
       env.syncControls();
       env.scheduleRender();
@@ -896,9 +947,13 @@ export function setupSourceInteraction(env, wrap) {
       const cursorAngle = cls.cursorTheta != null ? cls.cursorTheta : cls.theta;
       setCursor(cursorForMode(cls.mode, cursorAngle));
       // discoverability: redraw if hover mode changed for stroke highlighting.
-      if (cls.mode !== env.hoverMode || (cls.onSpoke || false) !== env.hoverOnSpoke) {
+      const newHandle = cls.handle || null;
+      if (cls.mode !== env.hoverMode
+          || (cls.onSpoke || false) !== env.hoverOnSpoke
+          || newHandle !== env.hoverHandle) {
         env.hoverMode = cls.mode;
         env.hoverOnSpoke = cls.onSpoke || false;
+        env.hoverHandle = newHandle;
         env.scheduleOverlayDraw();
       }
     }
@@ -983,6 +1038,13 @@ export function setupSourceInteraction(env, wrap) {
         startVy:         cls.square.vy,
       };
       setCursor(scaleCursorForAngle(cls.cursorTheta != null ? cls.cursorTheta : cls.theta));
+    } else if (cls.mode === 'scale' && form.id === 'droste' && cls.handle === 'inner') {
+      drag = {
+        mode: 'droste-ratio',
+        startR: cls.r,
+        startZoom: state.drosteZoom,
+      };
+      setCursor(scaleCursorForAngle(cls.cursorTheta != null ? cls.cursorTheta : cls.theta));
     } else if (cls.mode === 'scale') {
       drag = {
         mode: 'scale',
@@ -990,6 +1052,12 @@ export function setupSourceInteraction(env, wrap) {
         startScale: state.sliceScale,
       };
       setCursor(scaleCursorForAngle(cls.cursorTheta != null ? cls.cursorTheta : cls.theta));
+    } else if (cls.mode === 'twist') {
+      drag = {
+        mode: 'droste-twist',
+        prevAngle: cls.theta,
+      };
+      setCursor(rotateCursorForAngle(cls.theta));
     } else if (cls.mode === 'rotate') {
       drag = {
         mode: 'rotate',

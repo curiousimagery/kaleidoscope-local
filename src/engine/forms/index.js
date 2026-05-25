@@ -18,8 +18,9 @@ import radial from './radial.js';
 import square from './square.js';
 import hex from './hex.js';
 import triangle from './triangle.js';
+import droste from './droste.js';
 
-export const FORMS = [radial, square, hex, triangle];
+export const FORMS = [radial, square, hex, triangle, droste];
 
 // build a lookup table: id → form module. used by the engine and shell when
 // they need to resolve state.form (a string) to the active form object.

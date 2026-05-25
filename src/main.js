@@ -123,6 +123,7 @@ const env = {
   // hover state for the overlay (shared between overlay drawing and event handlers)
   hoverMode: null,
   hoverOnSpoke: false,
+  hoverHandle: null,         // form-specific handle discriminator (droste: 'inner'|'outer')
 
   // syncers / methods — defined below
   controlsSync,
@@ -486,6 +487,28 @@ function wireControls() {
     fmt: v => v.toFixed(2),
     parse: s => {
       const n = parseFloat(s);
+      return isNaN(n) ? null : n;
+    },
+  });
+
+  // droste zoom (outer/inner ratio = scale per tier)
+  wireSliderWithScrub(env, 'zoom', 'zoomVal', 'drosteZoom', {
+    min: 1.1, max: 16, step: 0.05, scrubStep: 0.05,
+    fmt: v => v.toFixed(2) + '×',
+    parse: s => {
+      const cleaned = s.replace(/[×x*]/g, '').trim();
+      const n = parseFloat(cleaned);
+      return isNaN(n) ? null : n;
+    },
+  });
+
+  // droste twist (degrees per tier, signed; wraps mod 360 with negative side)
+  wireSliderWithScrub(env, 'twist', 'twistVal', 'drosteTwist', {
+    min: -360, max: 360, step: 1, scrubStep: 1,
+    fmt: v => (v >= 0 ? '+' : '') + v.toFixed(0) + '°',
+    parse: s => {
+      const cleaned = s.replace(/[°+]/g, '').trim();
+      const n = parseFloat(cleaned);
       return isNaN(n) ? null : n;
     },
   });

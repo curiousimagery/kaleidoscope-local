@@ -307,8 +307,8 @@ export function buildFormGrid(env) {
 }
 
 // show/hide slice controls based on the active form's `controls` declaration.
-// 'segments' control is always present in the DOM but disabled when not
-// applicable; 'aspect' control is shown/hidden.
+// 'segments' is always in the DOM (disabled when inactive); per-form controls
+// (aspect, zoom, twist) are shown/hidden via display.
 export function applyFormControls(env) {
   const { state } = env;
   const form = FORMS.find(f => f.id === state.form);
@@ -316,8 +316,6 @@ export function applyFormControls(env) {
 
   const segLabel = document.getElementById('segmentsLabel');
   const segInput = document.getElementById('segments');
-  const aspectLabel = document.getElementById('aspectLabel');
-
   const usesSegments = form.controls.includes('segments');
   if (usesSegments) {
     segLabel.classList.remove('disabled');
@@ -326,7 +324,17 @@ export function applyFormControls(env) {
     segLabel.classList.add('disabled');
     segInput.disabled = true;
   }
-  aspectLabel.style.display = form.controls.includes('aspect') ? '' : 'none';
+
+  // per-form conditional sliders: [controlKey, labelElementId]
+  const conditionalLabels = [
+    ['aspect', 'aspectLabel'],
+    ['zoom',   'zoomLabel'],
+    ['twist',  'twistLabel'],
+  ];
+  for (const [key, labelId] of conditionalLabels) {
+    const el = document.getElementById(labelId);
+    if (el) el.style.display = form.controls.includes(key) ? '' : 'none';
+  }
 }
 
 // ===========================================================================
