@@ -12,7 +12,7 @@ He prefers **no em dashes** in his own writing; respect that in any prose Claude
 
 ## current version
 
-`v0.3.1 · Build 46`. The footer in the running app shows this string from `src/version.js`. When delivering a new build, increment BUILD by 1 and bump VERSION when meaningful change ships. **BUILD never resets** on version bumps — it's a global monotonic counter (see `version.js` comment).
+`v0.3.1 · Build 47`. The footer in the running app shows this string from `src/version.js`. When delivering a new build, increment BUILD by 1 and bump VERSION when meaningful change ships. **BUILD never resets** on version bumps — it's a global monotonic counter (see `version.js` comment).
 
 ## what's working
 
@@ -28,15 +28,13 @@ Read `ARCHITECTURE.md` if you need details on the registry, shader composition, 
 
 ## what we're doing right now
 
-Build 46 is a follow-up polish pass on Build 45 — calibration only, no new capabilities. Seven things landed: ring-band hit zones shrunk and asymmetrized (small inside the annulus, larger outside) so the wedge interior is mostly `'move'`; inside-the-inner-ring routes to `'move'` regardless of wedge angular range; touch affordance arrows moved onto the wedge arcs (thickness on inner, scale on outer, rotation arc opposite); translucent twisted-wedge opacity reduced to 0.3; per-wedge OOB detection (no more false-positive amber on partial wedges); scrub-field touch hit area enlarged via `@media (pointer: coarse)`; slider thumb 24→28 px on touch.
+Build 47 is a small tuning pass on Build 46's affordance polish — calibration only, no math changes. Four things landed: BAND_IN bumped 4→8 (touch) / 2→6 (mouse) for more comfortable thickness/scale hits inside the wedge; double-line affordance on the upper wedge boundary (radial-spoke idiom) to hint that the edge is draggable for arms; thickness + scale arrows tilted 30° CW from radial so they read distinct from any other horizontal affordances; rotation arc relocated to the top-right corner of the visible source image (fatter arc, always visible regardless of scale).
 
-Vanishing-point offset was considered for this build but deferred to Build 47 to avoid bundling new capability with the polish pass.
+Planned phase-2 builds (renumbered after Builds 46–47):
+- **Build 48:** vanishing-point offset (PhotoSpiralysis-style Möbius pre-composition).
+- **Build 49:** pole rotation (second Möbius parameter; pairs with motion shell).
 
-Planned phase-2 builds (renumbered):
-- **Build 47:** vanishing-point offset (PhotoSpiralysis-style Möbius pre-composition). Plan at `~/.claude/plans/first-a-quick-process-radiant-axolotl.md` with adjustments captured at the bottom of CHANGELOG Build 45's entry: math composes with log-shear, source overlay needs no wedge-aware rework (offset shifts output, not source sample region), handle hit zone follows the visible handle position.
-- **Build 48:** pole rotation (second Möbius parameter; pairs with motion shell).
-
-**What Daniel needs to verify in-browser for Build 46** (Claude can't see the UI): the wedge interior is now mostly `'move'` (only ~4 px touch / 2 mouse of inner-band scale eating into it); dragging inside the inner ring always repositions, never rotates; touch affordance arrows are on the wedge arcs (thickness on inner, scale on outer); rotation arc is opposite the wedge; translucent twisted-wedge is subtler (0.3 opacity); OOB amber only fires when the actual wedge exits the image (not when the would-be full ring exits); scrub-field numbers next to sliders feel tappable on iPad.
+**What Daniel needs to verify in-browser for Build 47** (Claude can't see the UI): the inside-band hit zones are comfortable now (~8 px touch / 6 px mouse) without eating into the move interior; the upper wedge boundary shows two faint parallel lines as a drag affordance; thickness + scale arrows tilt 30° from radial so they don't compete with horizontal affordances; the rotation icon sits at top-right corner of the source image and stays visible at every slice scale.
 
 Still pending from prior builds: Intel Air investigation (blocked on hardware access). Triangle form still pending production review of `TRI_SIZE`, `tilesPerDim`, and Build 37 fold-transform side effects.
 

@@ -425,23 +425,55 @@ export default {
         return active ? { op: 1.0, lw: 2.5 } : { op: 0.25, lw: 1.5 };
       }
 
-      // rotation arc — placed opposite the wedge (at sliceRotation + π), just
-      // outside the outer ring. moved here from "always top of screen" so the
-      // rotation affordance lives where the user actually rotates (away from
-      // the wedge interior).
+      // rotation arc — pinned to the top-right corner of the visible source
+      // image so it stays discoverable regardless of slice scale (when the
+      // outer ring extends past the image, the prior "opposite the wedge"
+      // placement could go fully off-screen).
       const { op: rop, lw: rlw } = afStyle(env.overlayDragMode === 'rotate');
-      drawRotationArc(ctx, cx, cy, seamPhaseRad + Math.PI, rOut + 22, rop, rlw);
+      const cornerX = imgX + imgW - 30;
+      const cornerY = imgY + 30;
+      drawRotationArc(ctx, cornerX, cornerY, Math.PI, 16, rop, rlw, 50 * Math.PI / 180);
 
-      // thickness arrow on the INNER arc (drosteZoom). radial direction so
-      // the bidirectional arrow points across the inner ring boundary.
-      const innerCos = Math.cos(seamPhaseRad);
-      const innerSin = Math.sin(seamPhaseRad);
+      // thickness and scale arrows on the inner and outer arcs. tilted 30° CW
+      // from the radial direction so they read distinct from any horizontal
+      // affordances (e.g. when sliceRotation=0 the pure radial would draw a
+      // perfectly horizontal arrow that competes visually with other arrows
+      // on the canvas).
+      const TILT = 30 * Math.PI / 180;
+      const tiltedAngle = seamPhaseRad + TILT;
+      const tDx = Math.cos(tiltedAngle), tDy = Math.sin(tiltedAngle);
+      const innerCos = Math.cos(seamPhaseRad), innerSin = Math.sin(seamPhaseRad);
+
       const { op: tip, lw: tlw } = afStyle(env.overlayDragMode === 'droste-ratio');
-      drawRadialArrow(ctx, cx + rIn * innerCos, cy + rIn * innerSin, innerCos, innerSin, tip, tlw);
+      drawRadialArrow(ctx, cx + rIn * innerCos, cy + rIn * innerSin, tDx, tDy, tip, tlw);
 
-      // scale arrow on the OUTER arc (sliceScale). same radial direction.
       const { op: sop, lw: slw } = afStyle(env.overlayDragMode === 'scale');
-      drawRadialArrow(ctx, cx + rOut * innerCos, cy + rOut * innerSin, innerCos, innerSin, sop, slw);
+      drawRadialArrow(ctx, cx + rOut * innerCos, cy + rOut * innerSin, tDx, tDy, sop, slw);
+
+      // segment-drag affordance — two faint parallel lines along the UPPER
+      // wedge boundary (the one with the smaller midpoint y on screen), same
+      // visual idiom as radial's spoke double-line. only drawn when arms ≥ 2
+      // (no boundary exists at arms=1).
+      if (!isFullCircle) {
+        const midR = (rIn + rOut) / 2;
+        const startMidY = cy + midR * Math.sin(wedgeStart);
+        const endMidY   = cy + midR * Math.sin(wedgeEnd);
+        const upperAngle = startMidY < endMidY ? wedgeStart : wedgeEnd;
+        const ux = Math.cos(upperAngle), uy = Math.sin(upperAngle);
+        const perpX = -uy, perpY = ux;
+        const GAP = 2.5;
+        const t0 = rIn + (rOut - rIn) * 0.2;
+        const t1 = rIn + (rOut - rIn) * 0.8;
+        const { op: aop, lw: alw } = afStyle(env.overlayDragMode === 'droste-arms');
+        ctx.lineWidth = (env.overlayDragMode === 'droste-arms') ? alw : 1;
+        ctx.strokeStyle = `rgba(255,255,255,${aop * 0.7})`;
+        for (const sign of [-1, 1]) {
+          ctx.beginPath();
+          ctx.moveTo(cx + ux * t0 + perpX * GAP * sign, cy + uy * t0 + perpY * GAP * sign);
+          ctx.lineTo(cx + ux * t1 + perpX * GAP * sign, cy + uy * t1 + perpY * GAP * sign);
+          ctx.stroke();
+        }
+      }
     }
 
     // expose geometry for hit testing. classifyPointer uses halfWedge +
@@ -489,9 +521,9 @@ export default {
 
     const HANDLE_HIT     = isTouch ? 22 : 12;
     const BAND_OUT       = isTouch ? 14 : 12;   // outside the annulus (toward inner-disc or beyond outer)
-    const BAND_IN        = isTouch ?  4 :  2;   // inside the annulus body — small, reserves room for 'move'
+    const BAND_IN        = isTouch ?  8 :  6;   // inside the annulus body — leaves room for 'move' interior
     const SIDE_BAND_OUT  = isTouch ? 14 : 12;   // outside the wedge angularly
-    const SIDE_BAND_IN   = isTouch ?  4 :  2;   // inside the wedge angularly — small, reserves room for 'move'
+    const SIDE_BAND_IN   = isTouch ?  8 :  6;   // inside the wedge angularly
 
     // 1. twist handle
     if (seamEndX != null) {
@@ -591,8 +623,8 @@ export default {
 
 // ---- local helpers (kept local to keep the form module self-contained) ----
 
-function drawRotationArc(ctx, cx, cy, angle, radius, op, lw) {
-  const HSPAN = 11 * Math.PI / 180;
+function drawRotationArc(ctx, cx, cy, angle, radius, op, lw, hspan) {
+  const HSPAN = hspan != null ? hspan : 11 * Math.PI / 180;
   const HEAD = 5;
   ctx.strokeStyle = 'rgba(255,255,255,' + op + ')';
   ctx.lineWidth = lw;

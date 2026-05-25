@@ -4,6 +4,19 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.3.1 (Build 47) — 2026-05-25
+
+**Droste touch affordance fine-tuning.** Four small calibrations on top of Build 46's polish pass — all visual / hit-zone, no math changes.
+
+- **Inside-band hit zones bumped from 4/2 → 8/6 px** (touch/mouse). Build 46 went too aggressive on Daniel's "only a few pixels inside the wedge" guidance — actually using it on iPad showed the user needed slightly more room to reliably hit the thickness and scale targets without scoring move-instead. 8 px touch / 6 px mouse leaves the wedge interior generously sized for `'move'` while making the ring boundaries comfortable to grab. Same bump applied to `SIDE_BAND_IN` for consistency on the wedge boundary lines.
+- **Segment-drag affordance on the upper wedge boundary.** Two faint parallel lines along whichever wedge boundary has the smaller midpoint y on screen (the "upper" one), same visual idiom as radial.js's spoke double-line. Tells the user "this edge is actionable" — discoverability for the droste-arms drag. Only drawn for arms ≥ 2.
+- **Thickness + scale arrows tilted 30° CW from radial.** At sliceRotation=0 (the default), pure radial arrows draw horizontally, which competes with any other horizontal affordance on the canvas. A 30° tilt reads visually distinct without losing the "drag toward/away from center" gesture meaning.
+- **Rotation arc relocated to the top-right corner of the visible source image.** Build 46 placed it at `sliceRotation + π` just past the outer ring — fine at default zoom, but when the user scales up enough that the outer ring extends past the image, the rotation arc would fly off-screen and become invisible. The corner placement (30 px inset from top-right) stays discoverable at every scale. The rotation arc itself is also bigger (50° span vs 11°) so it reads as a rotation icon rather than a thin curved tick. The rotation **gesture** is unchanged — drag outside the outer ring, same as before; the corner icon is purely a visual hint.
+- **Helper update:** [src/engine/forms/droste.js](src/engine/forms/droste.js)'s `drawRotationArc` now takes an optional `hspan` parameter so the corner icon can use a fatter arc than the previous wedge-adjacent version.
+- **Code:** [src/engine/forms/droste.js](src/engine/forms/droste.js) (band sizes, touch affordance placement + tilt + segment-drag double-line, drawRotationArc hspan), [src/version.js](src/version.js) (Build 47).
+
+---
+
 ## v0.3.1 (Build 46) — 2026-05-25
 
 **Droste touch/click polish.** Build 45 iPad testing surfaced seven things to tighten before adding the next feature. All of these are calibration tweaks to existing structures — no new capabilities. Vanishing-point offset is deferred to Build 47 (Daniel's call: don't risk regressions on the polish work).
