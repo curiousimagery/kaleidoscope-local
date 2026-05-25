@@ -59,7 +59,7 @@ export default {
     <path d="M 21 16 A 5 5 0 0 1 22.5 19.5 L 26.6 23.6"/>
   </g></svg>`,
 
-  controls: ['segments', 'zoom', 'twist', 'mirror'],
+  controls: ['segments', 'zoom', 'twist', 'mirror', 'wedgeMirror'],
 
   uniforms: {
     // log(drosteZoom) — precomputed to spare the shader a log() per pixel.
@@ -90,6 +90,13 @@ export default {
         return Math.max(2, Math.min(12, n - (n % 2)));
       },
     },
+    // wedge-mirror: 1 = reflect at wedge boundaries (kaleidoscope-style, all
+    // arms restricted to even); 0 = plain angular mod (N chiral arms with hard
+    // boundary seams). only consulted when u_drosteArms > 1.
+    u_drosteWedgeMirror: {
+      type: '1i',
+      get: (state) => (state.drosteWedgeMirror === false ? 0 : 1),
+    },
   },
 
   // input convention: p in canvas space [-1, 1]² (post canvas rot/zoom).
@@ -104,15 +111,20 @@ export default {
       float logr = log(r);
       float theta = atan(p.y, p.x);
 
-      // angular fold for N-arm mode. mirror at wedge boundaries — same recipe
-      // as radial.js so seams between arms become mirror axes, not jumps.
-      // arms is restricted to even integers JS-side, so chirality parity is
-      // consistent around the full circle.
+      // angular fold for N-arm mode. with wedge-mirror on (default): mirror at
+      // wedge boundaries (kaleidoscope feel, N/2 visible bilateral petals at
+      // non-zero twist). with wedge-mirror off: plain angular mod (N chiral
+      // arms with hard boundary seams — experimental "real spiral" look).
+      // arms=1 bypasses both paths and uses the raw theta.
       if (u_drosteArms > 1) {
         float wedge = TAU / float(u_drosteArms);
-        float t = mod(theta + wedge * 0.5, wedge * 2.0) - wedge * 0.5;
-        if (t > wedge * 0.5) t = wedge - t;
-        theta = t;
+        if (u_drosteWedgeMirror == 1) {
+          float t = mod(theta + wedge * 0.5, wedge * 2.0) - wedge * 0.5;
+          if (t > wedge * 0.5) t = wedge - t;
+          theta = t;
+        } else {
+          theta = mod(theta, wedge);
+        }
       }
 
       // log-shear spiral: rotate theta by (twist_rad / logS) per unit log r.
@@ -284,12 +296,49 @@ export default {
       ctx.setLineDash([]);
     }
 
-    // single seam — logarithmic spiral from inner ring to outer ring at the
-    // primary phase (sliceRotation). when twist = 0 it's a straight radial;
-    // for twist > 0 the seam bends to preview exactly one tier of rotation.
-    // the N-arm symmetry is implied by the wedge fold, not drawn explicitly —
-    // one seam is enough as a hit-target for twist and reads much cleaner at
-    // high arms counts.
+    // translucent twisted-wedge overlay — shows the ACTUAL sample region in
+    // source space when twist is non-zero. the warp maps canvas (theta=θ, r=R)
+    // to source (theta=θ + (twist/logS)·log R, r=R), so the inner ring of the
+    // sample wedge is rotated by −twist relative to the outer ring, with
+    // log-spiral sides connecting them. drawn after the solid untwisted wedge
+    // outline so the user sees both:
+    //   - solid untwisted wedge = click/touch reference + straight-line affordance
+    //   - translucent twisted wedge = visual preview of the actual pixels sampled
+    // skipped at twist=0 (identical to untwisted) and at arms=1 (the full-circle
+    // annulus is the sample region regardless of twist).
+    const SEAM_STEPS = 24;
+    if (Math.abs(twistRad) > 1e-4 && !isFullCircle) {
+      ctx.strokeStyle = oobOut ? 'rgba(255, 196, 80, 0.55)' : 'rgba(255, 255, 255, 0.5)';
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([]);
+      ctx.beginPath();
+      // 1. outer arc — same as untwisted (twist doesn't shift the outer ring).
+      ctx.arc(cx, cy, rOut, wedgeStart, wedgeEnd, false);
+      // 2. +halfWedge side: log-spiral from (rOut, wedgeEnd) to (rIn, wedgeEnd − twist).
+      for (let i = 1; i <= SEAM_STEPS; i++) {
+        const t = 1 - i / SEAM_STEPS;             // t goes 1 → 0 (outer → inner)
+        const r = rIn * Math.pow(zoom, t);
+        const a = wedgeEnd - twistRad * (1 - t);   // outer: a=wedgeEnd; inner: a=wedgeEnd−twist
+        ctx.lineTo(cx + r * Math.cos(a), cy + r * Math.sin(a));
+      }
+      // 3. inner arc — shifted by −twist.
+      ctx.arc(cx, cy, rIn, wedgeEnd - twistRad, wedgeStart - twistRad, true);
+      // 4. −halfWedge side: log-spiral back up to (rOut, wedgeStart).
+      for (let i = 1; i <= SEAM_STEPS; i++) {
+        const t = i / SEAM_STEPS;
+        const r = rIn * Math.pow(zoom, t);
+        const a = wedgeStart - twistRad * (1 - t);
+        ctx.lineTo(cx + r * Math.cos(a), cy + r * Math.sin(a));
+      }
+      ctx.closePath();
+      ctx.stroke();
+    }
+
+    // seam line — logarithmic spiral at the wedge center from outer ring
+    // (sliceRotation) to inner ring (sliceRotation − twist), matching the
+    // actual warp direction. when twist = 0 it's a straight radial. serves as
+    // both a twist preview at arms=1 (where there are no wedge sides) and as
+    // the visual context for the twist drag handle at all arms.
     const twistHL = env.hoverMode === 'twist' || env.overlayDragMode === 'droste-twist';
     const seamColor = oobOut
       ? (twistHL ? 'rgba(255, 230, 140, 1.0)' : 'rgba(255, 196, 80, 0.85)')
@@ -297,12 +346,11 @@ export default {
     ctx.strokeStyle = seamColor;
     ctx.lineWidth = twistHL ? 2.5 : 1.5;
     ctx.setLineDash(oobOut ? [6, 4] : []);
-    const SEAM_STEPS = 32;
     ctx.beginPath();
     for (let i = 0; i <= SEAM_STEPS; i++) {
-      const t = i / SEAM_STEPS;
+      const t = i / SEAM_STEPS;                    // 0 at inner, 1 at outer
       const r = rIn * Math.pow(zoom, t);
-      const a = seamPhaseRad + twistRad * t;
+      const a = seamPhaseRad - twistRad * (1 - t); // inner: a=phase−twist; outer: a=phase
       const x = cx + r * Math.cos(a);
       const y = cy + r * Math.sin(a);
       if (i === 0) ctx.moveTo(x, y);
@@ -311,10 +359,13 @@ export default {
     ctx.stroke();
     ctx.setLineDash([]);
 
-    // seam outer endpoint — the twist handle, drawn on top of the seam stroke.
-    const seamEndAngle = seamPhaseRad + twistRad;
-    const seamEndX = cx + rOut * Math.cos(seamEndAngle);
-    const seamEndY = cy + rOut * Math.sin(seamEndAngle);
+    // twist handle — the seam's INNER endpoint at (rIn, sliceRotation − twist).
+    // moves with twist so the user has a visible drag target that tracks the
+    // parameter. positioned on the inner ring; the inner-ring scale band still
+    // works on the rest of the ring (handle hit is checked first in classify).
+    const seamEndAngle = seamPhaseRad - twistRad;
+    const seamEndX = cx + rIn * Math.cos(seamEndAngle);
+    const seamEndY = cy + rIn * Math.sin(seamEndAngle);
     const HANDLE_R = twistHL ? 6 : 4.5;
     ctx.fillStyle = oobOut ? 'rgba(255, 196, 80, 1)' : 'rgba(255, 255, 255, 1)';
     ctx.beginPath();
@@ -357,14 +408,18 @@ export default {
       drawRadialArrow(ctx, innerX, innerY, Math.cos(innerAngle), Math.sin(innerAngle), sop, slw);
     }
 
-    // expose geometry for hit testing. only one seam endpoint — dragging it
-    // adjusts drosteTwist, and the N-arm symmetry follows automatically via
-    // the wedge fold in the shader.
+    // expose geometry for hit testing. classifyPointer uses halfWedge +
+    // sliceRotationRad to restrict ring-band scale hits to the wedge angular
+    // range (so dragging outside the wedge always rotates), and to hit-test
+    // the radial boundary lines for the droste-arms drag.
     env.sourceOverlayCanvas._geom = {
       imgX, imgY, imgW, imgH,
       cx, cy,
       rOut, rIn,
       seamEndX, seamEndY,
+      halfWedge,
+      sliceRotationRad: seamPhaseRad,
+      isFullCircle,
     };
   },
 
@@ -373,29 +428,33 @@ export default {
   // ---------------------------------------------------------------------------
   //
   // mode priorities (highest wins):
-  //   1. twist handle hit (small)         → 'droste-twist'
-  //   2. inner-ring band                  → 'scale' (handle='inner') → drives droste-ratio
-  //   3. outer-ring band                  → 'scale' (handle='outer') → drives sliceScale
-  //   4. inside inner disc / near center  → 'move'
-  //   5. outside outer ring               → 'rotate'
+  //   1. twist handle hit (small)              → 'twist'
+  //   2. ring bands WITHIN the wedge angular range:
+  //        a. inner-ring band                  → 'scale' handle='inner' (drives drosteZoom)
+  //        b. outer-ring band                  → 'scale' handle='outer' (drives sliceScale)
+  //   3. wedge boundary line (arms ≥ 2)        → 'droste-arms' (drag the edge to
+  //                                              change the arms count)
+  //   4. inside wedge angular range AND inside outer ring → 'move' (reposition)
+  //   5. anywhere else (outside wedge angular OR beyond outer ring) → 'rotate'
   //
-  // the 'scale' classification is returned with a `handle` discriminator that
-  // overlay.js maps to the right drag mode (droste-ratio vs scale).
+  // the "wedge angular range" is sliceRotation ± halfWedge. for arms=1 the
+  // halfWedge is π so insideWedge is always true; everything inside outer ring
+  // is 'move', everything outside is 'rotate', and ring bands fire 360°.
   classifyPointer(env, x, y, isTouch, geom) {
     const g = env.sourceOverlayCanvas?._geom;
     if (!g) return { mode: null };
-    const { cx, cy, rOut, rIn, seamEndX, seamEndY } = g;
+    const { cx, cy, rOut, rIn, seamEndX, seamEndY, halfWedge, sliceRotationRad, isFullCircle } = g;
 
     const dx = x - cx, dy = y - cy;
     const r = Math.hypot(dx, dy);
     const theta = Math.atan2(dy, dx);
 
-    const HANDLE_HIT = isTouch ? 22 : 12;   // twist handle radius
-    const BAND_OUT   = isTouch ? 28 : 20;   // ring band — outside the ring
-    const BAND_IN    = isTouch ? 22 : 16;   // ring band — inside the ring
-    const CENTER_HIT = isTouch ? 28 : 14;
+    const HANDLE_HIT = isTouch ? 22 : 12;
+    const BAND_OUT   = isTouch ? 28 : 20;
+    const BAND_IN    = isTouch ? 22 : 16;
+    const SIDE_BAND  = isTouch ? 22 : 14;  // perpendicular hit zone for wedge boundary lines
 
-    // 1. twist handle takes priority over ring-band hits in its immediate vicinity.
+    // 1. twist handle
     if (seamEndX != null) {
       const d = Math.hypot(x - seamEndX, y - seamEndY);
       if (d <= HANDLE_HIT) {
@@ -403,28 +462,53 @@ export default {
       }
     }
 
-    // 2-3. ring band hits. compare absolute distance to each ring; the closer
-    // ring wins. tie-break: outer (more common gesture).
-    const dOut = Math.abs(r - rOut);
-    const dIn  = Math.abs(r - rIn);
-    const inOuterBand = (r > rOut ? dOut <= BAND_OUT : dOut <= BAND_IN);
-    const inInnerBand = (r < rIn  ? dIn  <= BAND_OUT : dIn  <= BAND_IN);
+    // compute angle relative to sliceRotation (the wedge center axis)
+    let relAngle = theta - sliceRotationRad;
+    while (relAngle > Math.PI)  relAngle -= 2 * Math.PI;
+    while (relAngle < -Math.PI) relAngle += 2 * Math.PI;
+    const insideWedge = isFullCircle || Math.abs(relAngle) <= halfWedge;
 
-    if (inInnerBand && inOuterBand) {
-      // both rings in range (happens when zoom is small and the rings sit close).
-      // pick the closer one; if equidistant, outer.
-      if (dIn < dOut) return { mode: 'scale', r, theta, R: rIn, handle: 'inner', cursorTheta: theta };
-      return { mode: 'scale', r, theta, R: rOut, handle: 'outer', cursorTheta: theta };
+    // 2. ring band hits — only fire when cursor is within the wedge angular
+    // range. outside the wedge, the ring bands are visually faint (we don't
+    // even draw arcs there) so dragging that area should rotate.
+    if (insideWedge) {
+      const dOut = Math.abs(r - rOut);
+      const dIn  = Math.abs(r - rIn);
+      const inOuterBand = (r > rOut ? dOut <= BAND_OUT : dOut <= BAND_IN);
+      const inInnerBand = (r < rIn  ? dIn  <= BAND_OUT : dIn  <= BAND_IN);
+      if (inInnerBand && inOuterBand) {
+        if (dIn < dOut) return { mode: 'scale', r, theta, R: rIn, handle: 'inner', cursorTheta: theta };
+        return { mode: 'scale', r, theta, R: rOut, handle: 'outer', cursorTheta: theta };
+      }
+      if (inInnerBand) return { mode: 'scale', r, theta, R: rIn, handle: 'inner', cursorTheta: theta };
+      if (inOuterBand) return { mode: 'scale', r, theta, R: rOut, handle: 'outer', cursorTheta: theta };
     }
-    if (inInnerBand) return { mode: 'scale', r, theta, R: rIn, handle: 'inner', cursorTheta: theta };
-    if (inOuterBand) return { mode: 'scale', r, theta, R: rOut, handle: 'outer', cursorTheta: theta };
 
-    // 4. center: any cursor inside the inner disc OR within a small center radius.
-    if (r <= rIn || r <= CENTER_HIT) {
+    // 3. wedge boundary lines (arms ≥ 2). hit when cursor is near a radial
+    // line at sliceRotation ± halfWedge, within the rIn..rOut radial extent.
+    if (!isFullCircle) {
+      for (const sign of [-1, 1]) {
+        const ba = sliceRotationRad + sign * halfWedge;
+        const ux = Math.cos(ba), uy = Math.sin(ba);
+        const along = dx * ux + dy * uy;            // projection onto the boundary direction
+        const perp  = Math.abs(dx * (-uy) + dy * ux);  // perpendicular distance
+        if (along >= rIn - SIDE_BAND && along <= rOut + SIDE_BAND && perp <= SIDE_BAND) {
+          return {
+            mode: 'droste-arms',
+            r, theta, R: along,
+            cursorTheta: ba + sign * Math.PI / 2,  // cursor "wants" to move perpendicular to the line
+            boundarySign: sign,
+          };
+        }
+      }
+    }
+
+    // 4. inside the wedge and inside the outer ring → move (reposition)
+    if (insideWedge && r <= rOut) {
       return { mode: 'move', r, theta, R: rIn };
     }
 
-    // 5. outside the outer ring: rotate.
+    // 5. fall-through → rotate
     return { mode: 'rotate', r, theta, R: rOut };
   },
 

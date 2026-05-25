@@ -12,7 +12,7 @@ He prefers **no em dashes** in his own writing; respect that in any prose Claude
 
 ## current version
 
-`v0.3.0 · Build 44`. The footer in the running app shows this string from `src/version.js`. When delivering a new build, increment BUILD by 1 and bump VERSION when meaningful change ships. **BUILD never resets** on version bumps — it's a global monotonic counter (see `version.js` comment).
+`v0.3.1 · Build 45`. The footer in the running app shows this string from `src/version.js`. When delivering a new build, increment BUILD by 1 and bump VERSION when meaningful change ships. **BUILD never resets** on version bumps — it's a global monotonic counter (see `version.js` comment).
 
 ## what's working
 
@@ -28,17 +28,19 @@ Read `ARCHITECTURE.md` if you need details on the registry, shader composition, 
 
 ## what we're doing right now
 
-Build 44 refines Droste's controls and overlay based on Build 43 iPad testing. Four changes: the standalone arms slider is gone — the existing `#segments` slider now drives Droste's arms via form-aware routing (radial → `state.segments`, droste → `state.drosteArms`); arms=1 is restored as a valid value (single chiral spiral / Print Gallery feel, with the horizontal seam); the source overlay now shows only the fundamental sample wedge as arcs (`2π/arms` centered on `sliceRotation`) plus radial boundary lines, not a full circle; and there's a documented "N wedges read as N/2 visible petals" property baked into the wedge-mirror+twist interaction (consistent with how the kaleidoscope mirror works across all forms).
+Build 45 (v0.3.1) closes the Droste "first phase" with a UX-polish sweep informed by Build 44 iPad testing. Five things landed: a translucent twisted-wedge overlay shows the actual sampled pixels alongside the solid untwisted reference; the seam direction was corrected to match the warp (and the twist handle moved to the seam's inner endpoint); click/touch zones now respect the wedge angular range (scale/zoom only within the wedge, annulus body inside the wedge moves the slice, dragging outside the wedge always rotates); the wedge boundary lines are draggable to change arms count; the wedge mirror is now a user-toggleable parameter (default on); and "zoom" was renamed to "thickness" in the slice panel.
 
-Builds 45 and 46 (from the approved plan, renumbered for Build 44 insertion):
-- **Build 45:** vanishing-point offset (PhotoSpiralysis-style Möbius pre-composition; gesture map reorganizes around a small offset handle at slice center).
-- **Build 46:** pole rotation (second Möbius parameter; "rotate the Riemann sphere"; pairs with motion shell).
+Daniel calls this the end of phase 1. Phase 2 (= Build 46+) needs a fresh planning review before code — the approved plan at `~/.claude/plans/first-a-quick-process-radiant-axolotl.md` may need adjustments now that the gesture map has been reorganized and the seam math has changed.
 
-**What Daniel needs to verify in-browser for Build 44** (Claude can't see the UI): the segments slider now controls Droste arms (no separate arms slider); arms=1 produces the single chiral spiral with horizontal seam; arms ≥ 2 still snap through evens; the wedge arc on the source overlay correctly spans the sampled angular region (half-circle at arms=2, quarter at arms=4, etc.); switching between radial and Droste cleanly transitions the segments slider range; undo across form switches preserves both `segments` and `drosteArms` fields; no regressions on the polygon forms.
+Planned phase-2 builds (subject to re-review):
+- **Build 46:** vanishing-point offset (PhotoSpiralysis-style Möbius pre-composition).
+- **Build 47:** pole rotation (second Möbius parameter; pairs with motion shell).
+
+**What Daniel needs to verify in-browser for Build 45** (Claude can't see the UI): translucent twisted-wedge appears on top of solid untwisted at non-zero twist + arms ≥ 2; seam and wedge bend the same direction; twist handle is on the inner ring at the seam endpoint and moves with twist; dragging in the annulus body inside the wedge repositions the slice; dragging on the wedge boundary lines changes arms count and snaps to {1, 2, 4, 6, 8, 10, 12}; ring scale only fires within wedge angular range; "thickness" label shows in place of "zoom"; wedge mirror toggle works as expected (off = N chiral arms with hard boundary seams, on = bilateral kaleidoscope).
 
 Still pending from prior builds: Intel Air investigation (blocked on hardware access). Triangle form still pending production review of `TRI_SIZE`, `tilesPerDim`, and Build 37 fold-transform side effects.
 
-Next: Build 45 (Droste vanishing-point offset) once Daniel confirms Build 44 lands cleanly.
+Next: review the plan file with Daniel and adjust phase-2 scope.
 
 `docs/FOLD.md` owns vision, brand, marketing narrative, monetization paths, and gallery show concept. `docs/BACKLOG.md` capability tier is reordered (live camera first, then mobile, then motion); mobile UX exploration notes, gallery installation work, and open architecture questions sections are present.
 

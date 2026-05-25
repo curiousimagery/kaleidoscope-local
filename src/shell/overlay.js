@@ -788,10 +788,11 @@ export function setupSourceInteraction(env, wrap) {
   }
 
   function cursorForMode(mode, theta) {
-    if (mode === 'move')   return 'grab';
-    if (mode === 'scale')  return scaleCursorForAngle(theta);
-    if (mode === 'rotate') return rotateCursorForAngle(theta);
-    if (mode === 'twist')  return rotateCursorForAngle(theta);
+    if (mode === 'move')        return 'grab';
+    if (mode === 'scale')       return scaleCursorForAngle(theta);
+    if (mode === 'rotate')      return rotateCursorForAngle(theta);
+    if (mode === 'twist')       return rotateCursorForAngle(theta);
+    if (mode === 'droste-arms') return scaleCursorForAngle(theta);
     return 'default';
   }
 
@@ -924,20 +925,40 @@ export function setupSourceInteraction(env, wrap) {
         const newZoom = Math.max(1.1, Math.min(16, drag.startZoom * ratio));
         state.drosteZoom = newZoom;
       } else if (drag.mode === 'droste-twist') {
-        // angular drag from the seam outer endpoint. cursor's angular delta
-        // (around the slice center) maps to a twist delta in degrees, then
-        // snaps to the current arms count's alignment step (360°/N) so the
-        // spiral closes cleanly.
+        // angular drag from the seam INNER endpoint (Build 45). the handle
+        // sits at (rIn, sliceRotation − twist), so the cursor's angular delta
+        // around the slice center maps to −delta on twist (cursor CCW = handle
+        // CCW = twist increases). snap to current arms count's alignment step.
         if (!g) return;
         const a = Math.atan2(y - g.cy, x - g.cx);
         let delta = a - drag.prevAngle;
         if (delta > Math.PI)  delta -= 2 * Math.PI;
         if (delta < -Math.PI) delta += 2 * Math.PI;
         drag.prevAngle = a;
-        let next = state.drosteTwist + delta * 180 / Math.PI;
+        let next = state.drosteTwist - delta * 180 / Math.PI;
         if (next > 360)  next = 360;
         if (next < -360) next = -360;
         state.drosteTwist = env.snapDrosteTwist ? env.snapDrosteTwist(next) : next;
+      } else if (drag.mode === 'droste-arms') {
+        // drag a wedge boundary line angularly to change the arms count. the
+        // cursor's |relative angle from sliceRotation| becomes the new
+        // halfWedge; arms = π / halfWedge, snapped to the valid set {1, 2, 4,
+        // 6, 8, 10, 12}. arms change cascades into the twist snap step via
+        // env.applyArmsSnap.
+        if (!g) return;
+        const cursorAngle = Math.atan2(y - g.cy, x - g.cx);
+        let rel = cursorAngle - drag.sliceRotationRad;
+        while (rel > Math.PI)  rel -= 2 * Math.PI;
+        while (rel < -Math.PI) rel += 2 * Math.PI;
+        const newHalfWedge = Math.max(Math.PI / 12, Math.min(Math.PI, Math.abs(rel)));
+        const armsFloat = Math.PI / newHalfWedge;
+        let newArms;
+        if (armsFloat < 1.5) newArms = 1;
+        else newArms = Math.max(2, Math.min(12, Math.round(armsFloat / 2) * 2));
+        if (newArms !== state.drosteArms) {
+          state.drosteArms = newArms;
+          env.applyArmsSnap?.();
+        }
       }
       env.syncControls();
       env.scheduleRender();
@@ -1059,6 +1080,13 @@ export function setupSourceInteraction(env, wrap) {
         prevAngle: cls.theta,
       };
       setCursor(rotateCursorForAngle(cls.theta));
+    } else if (cls.mode === 'droste-arms') {
+      drag = {
+        mode: 'droste-arms',
+        sliceRotationRad: env.sourceOverlayCanvas._geom.sliceRotationRad,
+        boundarySign: cls.boundarySign,
+      };
+      setCursor(scaleCursorForAngle(cls.cursorTheta != null ? cls.cursorTheta : cls.theta));
     } else if (cls.mode === 'rotate') {
       drag = {
         mode: 'rotate',

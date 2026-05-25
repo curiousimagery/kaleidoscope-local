@@ -537,8 +537,9 @@ function setupSegmentsSlider() {
   });
 }
 
-// Exposed for overlay.js's seam-drag handler.
+// Exposed for overlay.js's seam-drag + boundary-drag handlers.
 env.snapDrosteTwist = snapTwistDeg;
+env.applyArmsSnap = applyArmsSnap;
 
 // ============================================================================
 // wire all controls
@@ -645,6 +646,27 @@ function wireControls() {
   });
   syncMirrorToggle();
   env.controlsSync.register(syncMirrorToggle);
+
+  // droste wedge mirror toggle (on/off buttons). when off, the angular wedge
+  // fold uses plain mod instead of mirror — N chiral arms with hard boundary
+  // seams. experimental; default on.
+  function syncWedgeMirrorToggle() {
+    document.querySelectorAll('#wedgeMirrorToggle button').forEach(b => {
+      const wantsOn = b.dataset.wedgemirror === '1';
+      b.classList.toggle('active', wantsOn === (state.drosteWedgeMirror !== false));
+    });
+  }
+  document.querySelectorAll('#wedgeMirrorToggle button').forEach(btn => {
+    btn.addEventListener('click', () => {
+      env.pushHistory();
+      state.drosteWedgeMirror = btn.dataset.wedgemirror === '1';
+      syncWedgeMirrorToggle();
+      scheduleRender();
+      updateUndoUI();
+    });
+  });
+  syncWedgeMirrorToggle();
+  env.controlsSync.register(syncWedgeMirrorToggle);
 
   // canvas rotation
   wireSliderWithScrub(env, 'canvasRot', 'canvasRotVal', 'canvasRotation', {

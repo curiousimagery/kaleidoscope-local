@@ -24,9 +24,13 @@ export const state = {
                         // 0 = pure concentric Droste; ±360 = full Print Gallery strength.
   drosteMirror: true,   // droste form only: when true, tier transitions reflect
                         // instead of teleporting — eliminates the source-side wrap seam.
-  drosteArms: 2,        // droste form only: even integer 2..12, count of identical
-                        // spiral arms. fold θ into a 1/N wedge with mirror at wedge
-                        // edges. even-only matches segments' parity convention.
+  drosteArms: 2,        // droste form only: integer from {1, 2, 4, 6, 8, 10, 12}. arms=1
+                        // bypasses the wedge fold (single chiral spiral). arms ≥ 2
+                        // fold θ into a 1/N wedge with mirror at wedge edges (when
+                        // drosteWedgeMirror is on). even-only matches segments parity.
+  drosteWedgeMirror: true,  // droste form only: when true, the angular wedge fold
+                            // reflects at boundaries (kaleidoscope feel). when false,
+                            // plain mod (N chiral arms with hard boundary seams).
   canvasZoom: 1.0,
   canvasRotation: 0,
   oobMode: 0,           // 0=clamp, 1=mirror, 2=transparent. clamp is default.

@@ -338,10 +338,11 @@ export function applyFormControls(env) {
 
   // per-form conditional sliders: [controlKey, labelElementId]
   const conditionalLabels = [
-    ['aspect', 'aspectLabel'],
-    ['zoom',   'zoomLabel'],
-    ['twist',  'twistLabel'],
-    ['mirror', 'mirrorLabel'],
+    ['aspect',      'aspectLabel'],
+    ['zoom',        'zoomLabel'],
+    ['twist',       'twistLabel'],
+    ['mirror',      'mirrorLabel'],
+    ['wedgeMirror', 'wedgeMirrorLabel'],
   ];
   for (const [key, labelId] of conditionalLabels) {
     const el = document.getElementById(labelId);
