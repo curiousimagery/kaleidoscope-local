@@ -425,30 +425,33 @@ export default {
         return active ? { op: 1.0, lw: 2.5 } : { op: 0.25, lw: 1.5 };
       }
 
-      // rotation arc — pinned to the top-right corner of the visible source
-      // image so it stays discoverable regardless of slice scale (when the
-      // outer ring extends past the image, the prior "opposite the wedge"
-      // placement could go fully off-screen).
+      // rotation arc — centered at slice center so the curvature reads as
+      // rotating around the center, not around the corner itself. the visible
+      // portion of the arc appears near the top-right corner of the source
+      // image (stays discoverable regardless of slice scale).
       const { op: rop, lw: rlw } = afStyle(env.overlayDragMode === 'rotate');
       const cornerX = imgX + imgW - 30;
       const cornerY = imgY + 30;
-      drawRotationArc(ctx, cornerX, cornerY, Math.PI, 16, rop, rlw, 50 * Math.PI / 180);
+      const toCornerAngle = Math.atan2(cornerY - cy, cornerX - cx);
+      const toCornerRadius = Math.max(20, Math.hypot(cornerX - cx, cornerY - cy));
+      drawRotationArc(ctx, cx, cy, toCornerAngle, toCornerRadius, rop, rlw, 15 * Math.PI / 180);
 
-      // thickness and scale arrows on the inner and outer arcs. tilted 30° CW
-      // from the radial direction so they read distinct from any horizontal
-      // affordances (e.g. when sliceRotation=0 the pure radial would draw a
-      // perfectly horizontal arrow that competes visually with other arrows
-      // on the canvas).
+      // thickness and scale arrows — placed on the lower portion of the wedge
+      // arc (below the angular midpoint, closer to the wedge's lower boundary)
+      // so they hug the arc edge where the gesture naturally lands.
+      const arrowAngle = isFullCircle
+        ? seamPhaseRad + Math.PI / 4
+        : seamPhaseRad + halfWedge * 0.65;
       const TILT = 30 * Math.PI / 180;
-      const tiltedAngle = seamPhaseRad + TILT;
+      const tiltedAngle = arrowAngle + TILT;
       const tDx = Math.cos(tiltedAngle), tDy = Math.sin(tiltedAngle);
-      const innerCos = Math.cos(seamPhaseRad), innerSin = Math.sin(seamPhaseRad);
+      const arrowCos = Math.cos(arrowAngle), arrowSin = Math.sin(arrowAngle);
 
       const { op: tip, lw: tlw } = afStyle(env.overlayDragMode === 'droste-ratio');
-      drawRadialArrow(ctx, cx + rIn * innerCos, cy + rIn * innerSin, tDx, tDy, tip, tlw);
+      drawRadialArrow(ctx, cx + rIn * arrowCos, cy + rIn * arrowSin, tDx, tDy, tip, tlw);
 
       const { op: sop, lw: slw } = afStyle(env.overlayDragMode === 'scale');
-      drawRadialArrow(ctx, cx + rOut * innerCos, cy + rOut * innerSin, tDx, tDy, sop, slw);
+      drawRadialArrow(ctx, cx + rOut * arrowCos, cy + rOut * arrowSin, tDx, tDy, sop, slw);
 
       // segment-drag affordance — two faint parallel lines along the UPPER
       // wedge boundary (the one with the smaller midpoint y on screen), same

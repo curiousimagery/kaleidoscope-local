@@ -4,6 +4,16 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.3.1 (Build 48) — 2026-05-25
+
+**Droste affordance geometry fixes.** Two small corrections to Build 47's touch affordances — no hit-zone or math changes.
+
+- **Thickness + scale arrows repositioned to the lower portion of the wedge arc.** Build 47 placed both arrows at the wedge center axis (`seamPhaseRad`). They now sit at `seamPhaseRad + halfWedge × 0.65` — roughly 65% of the way from the wedge center toward the lower boundary — so they hug the arc edge below the midpoint where the gesture naturally lands. Arrow direction (30° tilt from radial) is updated to match the new angular position. At arms=1 (full-circle, no wedge boundary), the arrows shift to `seamPhaseRad + 45°` as a reasonable fixed offset.
+- **Rotation arc centered at slice center.** Build 47 drew the arc centered at the corner point itself (a small circle spinning around the corner). The arc is now centered at `(cx, cy)` with radius = distance from slice center to the corner. The visible portion of the arc still appears at the top-right corner but its curvature reads as rotating around the slice center — which is the actual rotation gesture. Arc span reduced to ±15° (was ±50°) to match the narrower visible chord at the larger radius.
+- **Code:** [src/engine/forms/droste.js](src/engine/forms/droste.js) (arrow angle, rotation arc center + radius), [src/version.js](src/version.js) (Build 48).
+
+---
+
 ## v0.3.1 (Build 47) — 2026-05-25
 
 **Droste touch affordance fine-tuning.** Four small calibrations on top of Build 46's polish pass — all visual / hit-zone, no math changes.
