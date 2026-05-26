@@ -12,7 +12,7 @@ He prefers **no em dashes** in his own writing; respect that in any prose Claude
 
 ## current version
 
-`v0.3.1 · Build 49`. The footer in the running app shows this string from `src/version.js`. When delivering a new build, increment BUILD by 1 and bump VERSION when meaningful change ships. **BUILD never resets** on version bumps — it's a global monotonic counter (see `version.js` comment).
+`v0.3.1 · Build 50`. The footer in the running app shows this string from `src/version.js`. When delivering a new build, increment BUILD by 1 and bump VERSION when meaningful change ships. **BUILD never resets** on version bumps — it's a global monotonic counter (see `version.js` comment).
 
 ## what's working
 
@@ -28,13 +28,13 @@ Read `ARCHITECTURE.md` if you need details on the registry, shader composition, 
 
 ## what we're doing right now
 
-Build 49 is a second pass on the Droste touch affordance geometry: rotation arc moved from the image corner to just past the outer ring on the opposite side of the wedge (`sliceRotation + π`, same idiom as radial.js), and thickness/scale arrows now point purely radially (directly away from the slice center, no tilt).
+Build 50 fixes the rotation arc direction: it now sits at `seamPhaseRad` (same direction as the wedge outer arc), matching the radial/hex convention of hugging just outside the outer boundary on the wedge's own side. Build 49 had it at `seamPhaseRad + π` (opposite), which showed it behind/away from the wedge.
 
 Planned phase-2 builds:
-- **Build 50:** vanishing-point offset (PhotoSpiralysis-style Möbius pre-composition).
-- **Build 51:** pole rotation (second Möbius parameter; pairs with motion shell).
+- **Build 51:** vanishing-point offset (PhotoSpiralysis-style Möbius pre-composition).
+- **Build 52:** pole rotation (second Möbius parameter; pairs with motion shell).
 
-**What Daniel needs to verify in-browser for Build 49** (Claude can't see the UI): rotation arc appears just outside the outer ring on the side opposite the wedge, curving around the slice center; thickness and scale arrows point directly away from origin (no diagonal tilt).
+**What Daniel needs to verify in-browser for Build 50** (Claude can't see the UI): rotation arc sits just outside the outer ring on the same side as the wedge, curving around the slice center.
 
 Still pending from prior builds: Intel Air investigation (blocked on hardware access). Triangle form still pending production review of `TRI_SIZE`, `tilesPerDim`, and Build 37 fold-transform side effects.
 

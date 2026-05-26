@@ -4,6 +4,14 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.3.1 (Build 50) — 2026-05-26
+
+**Droste rotation arc direction fix.** Build 49 placed the arc at `sliceRotation + π` (opposite the wedge), but the correct idiom — matching radial and hex — is to place it on the same side as the outer arc at `sliceRotation`. Arc now sits just past the outer ring in the wedge's own direction, hugging the outside of the outer boundary.
+
+- **Code:** [src/engine/forms/droste.js](src/engine/forms/droste.js) (rotation arc angle: `seamPhaseRad + π` → `seamPhaseRad`), [src/version.js](src/version.js) (Build 50).
+
+---
+
 ## v0.3.1 (Build 49) — 2026-05-26
 
 **Droste affordance geometry refinements (round 2).** Two more corrections from Build 48 testing.

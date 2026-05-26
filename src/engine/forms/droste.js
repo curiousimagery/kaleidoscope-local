@@ -425,12 +425,12 @@ export default {
         return active ? { op: 1.0, lw: 2.5 } : { op: 0.25, lw: 1.5 };
       }
 
-      // rotation arc — centered at slice center, positioned just past the outer
-      // ring on the opposite side of the wedge (sliceRotation + π). same idiom
-      // as radial.js: hugs the outside of the sample region.
+      // rotation arc — centered at slice center, just past the outer ring in
+      // the wedge's own direction (seamPhaseRad). same idiom as radial/hex:
+      // the arc hugs the outside of the outer boundary, centered on the wedge.
       const { op: rop, lw: rlw } = afStyle(env.overlayDragMode === 'rotate');
       const rotArcRadius = rOut + (IS_TOUCH ? 24 : 18);
-      drawRotationArc(ctx, cx, cy, seamPhaseRad + Math.PI, rotArcRadius, rop, rlw, 22 * Math.PI / 180);
+      drawRotationArc(ctx, cx, cy, seamPhaseRad, rotArcRadius, rop, rlw, 22 * Math.PI / 180);
 
       // thickness and scale arrows — placed on the lower portion of the wedge
       // arc (below the angular midpoint) and oriented purely radially (pointing
