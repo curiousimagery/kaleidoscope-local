@@ -425,26 +425,20 @@ export default {
         return active ? { op: 1.0, lw: 2.5 } : { op: 0.25, lw: 1.5 };
       }
 
-      // rotation arc — centered at slice center so the curvature reads as
-      // rotating around the center, not around the corner itself. the visible
-      // portion of the arc appears near the top-right corner of the source
-      // image (stays discoverable regardless of slice scale).
+      // rotation arc — centered at slice center, positioned just past the outer
+      // ring on the opposite side of the wedge (sliceRotation + π). same idiom
+      // as radial.js: hugs the outside of the sample region.
       const { op: rop, lw: rlw } = afStyle(env.overlayDragMode === 'rotate');
-      const cornerX = imgX + imgW - 30;
-      const cornerY = imgY + 30;
-      const toCornerAngle = Math.atan2(cornerY - cy, cornerX - cx);
-      const toCornerRadius = Math.max(20, Math.hypot(cornerX - cx, cornerY - cy));
-      drawRotationArc(ctx, cx, cy, toCornerAngle, toCornerRadius, rop, rlw, 15 * Math.PI / 180);
+      const rotArcRadius = rOut + (IS_TOUCH ? 24 : 18);
+      drawRotationArc(ctx, cx, cy, seamPhaseRad + Math.PI, rotArcRadius, rop, rlw, 22 * Math.PI / 180);
 
       // thickness and scale arrows — placed on the lower portion of the wedge
-      // arc (below the angular midpoint, closer to the wedge's lower boundary)
-      // so they hug the arc edge where the gesture naturally lands.
+      // arc (below the angular midpoint) and oriented purely radially (pointing
+      // directly away from the slice center).
       const arrowAngle = isFullCircle
         ? seamPhaseRad + Math.PI / 4
         : seamPhaseRad + halfWedge * 0.65;
-      const TILT = 30 * Math.PI / 180;
-      const tiltedAngle = arrowAngle + TILT;
-      const tDx = Math.cos(tiltedAngle), tDy = Math.sin(tiltedAngle);
+      const tDx = Math.cos(arrowAngle), tDy = Math.sin(arrowAngle);
       const arrowCos = Math.cos(arrowAngle), arrowSin = Math.sin(arrowAngle);
 
       const { op: tip, lw: tlw } = afStyle(env.overlayDragMode === 'droste-ratio');

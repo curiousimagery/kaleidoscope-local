@@ -4,6 +4,16 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.3.1 (Build 49) — 2026-05-26
+
+**Droste affordance geometry refinements (round 2).** Two more corrections from Build 48 testing.
+
+- **Rotation arc moved back to outside the wedge.** Build 48 placed the arc at the top-right corner of the source image, where it was getting clipped by the preview area edge. Arc is now centered at `(cx, cy)` (established in Build 48) with radius just past the outer ring, positioned at `sliceRotation + π` — opposite the wedge, same idiom as radial.js. Stays within the image as long as the opposite side of the outer ring is within bounds, which matches normal usage.
+- **Thickness + scale arrows now purely radial.** The 30° tilt introduced in Build 47 was meant to distinguish the arrows from horizontal affordances at sliceRotation=0, but on screen they should angle directly away from the origin. Tilt removed; direction vector is now `(cos(arrowAngle), sin(arrowAngle))` — pointing straight away from the slice center.
+- **Code:** [src/engine/forms/droste.js](src/engine/forms/droste.js) (rotation arc position, arrow direction), [src/version.js](src/version.js) (Build 49).
+
+---
+
 ## v0.3.1 (Build 48) — 2026-05-25
 
 **Droste affordance geometry fixes.** Two small corrections to Build 47's touch affordances — no hit-zone or math changes.
