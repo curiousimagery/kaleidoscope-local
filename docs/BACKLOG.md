@@ -4,7 +4,7 @@ Living list of things we want to do, in rough priority order within each section
 
 ## next up — small UI / quality refinements / known bugs
 
-- **Droste: pole rotation (Build 52).** Second Möbius parameter (post-composition) controlling where infinity maps to — the "rotate the Riemann sphere" feel. UX likely a second handle outside the outer ring at a representative position for the anti-pole. Detailed design deferred to start of Build 52, once iPad time with the Build 51 vanishing-point handle has informed the affordance pattern. Strong pairing with the motion shell — animating the pole over time gives a flowing-water effect.
+- **Droste: pole rotation (Build 53).** Third DOF on the Möbius family — rotation around the pole axis — compounding with Build 52's swirl (Build 51 Möbius, renamed and unclamped). UX likely a second handle (or a rotation gesture on the swirl ring). Detailed design deferred to start of Build 53, once iPad time with the Build 52 shift + swirl handles has informed the affordance pattern. Strong pairing with the motion shell — animating swirl + pole over time gives a flowing-water effect.
 
 - **Add spinner on export.** For larger exports there is a meaningful delay after clicking export before the browser is ready to download the file. This can lead a user to question whether the export command was recieved or not and potentially click the export button several times triggering multiple duplicate downloads. A simple fix would be to immediately add a circular spinner within the button to replace the word export (which would also disable the button until done)
 

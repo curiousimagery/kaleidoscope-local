@@ -4,6 +4,20 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.3.1 (Build 52) — 2026-05-26
+
+**Droste: split offset into two distinct controls — per-tier shift + full-range Möbius swirl.** Build 51's "vanishing-point offset" used a Möbius pre-composition that correctly moves the spiral pole but non-uniformly distorts the disc interior — the visual feel was rotational, not translational. Comparing against PhotoSpiralysis's center-offset (Daniel's reference) showed that what users actually expect for "shift the center" is **per-tier linear translation**: each recursive tier drifts by a constant amount toward the offset direction, with rings retaining their shape and stacking off-center. Build 52 exposes both as separate controls.
+
+- **Shift (new):** `state.drosteShiftX/Y`, GLSL post-warp `z_src += u_drosteShift * (1.0 − r/r_src)`. The factor is **exactly 0** on the surface tier (the visible annulus is unaffected) and approaches 1 as the recursion deepens. In `drosteMirror` mode this is **seamless at every tier boundary** — at the reflection point r = r_src on both sides, so factor = 0 on both sides; no step seam introduced by the shift. (Linear factor has a small C1 slope kink at the surface/first-mirror-tier boundary; if visually objectionable in testing, swap for the C1-continuous squared variant at the cost of a less dramatic effect.)
+- **Swirl (renamed from offset):** `state.drosteSwirlX/Y` (formerly `drosteOffsetX/Y`). Math unchanged — same Möbius pre-composition from Build 51 — but **the `|a| ≤ 0.95` clamp is removed**. Dragging past the disc boundary takes the user around the back of the Riemann sphere; when `|a| > 1` a single pixel inside the disc (at `p = 1/conj(a)`) sources from infinity and is absorbed by the existing OOB mode (clamp/mirror/transparent). Builds toward the planned pole-rotation feature, which adds the third DOF on the Möbius family.
+- **Two handles on the source overlay.** Shift = filled white circle (6 px normal / 8 px active); swirl = open white ring (10 px / 12 px). At zero they form a target/bullseye (filled dot inside the open ring) over the slice center dot; as either is dragged they separate. Hit zones: shift = 16 touch / 10 mouse (snug), swirl = 22 touch / 14 mouse (looser, annulus around the shift hit zone). When both are at zero the user grabs shift by touching dead-center, swirl by touching the surrounding ring band.
+- **`classifyPointer` priority order** updated: shift (1) → swirl (2) → twist (3) → ring bands (4) → wedge boundary (5) → inner ring move (6) → wedge move (7) → rotate (8).
+- **Drag-mode plumbing** in [src/shell/overlay.js](src/shell/overlay.js): renamed `'droste-offset'` → `'droste-swirl'` (clamp removed); new `'droste-shift'` handler; `cursorForMode` updated.
+- **Filename suffix** restructured: the Build 51 `ox<XX>y<YY>` clause is replaced by `sx<XX>y<YY>` for swirl and `tx<XX>y<YY>` for shift. Both omitted when zero. Order: `…m<mirror>` + `sx…`? + `tx…`?
+- **Code:** [src/engine/forms/droste.js](src/engine/forms/droste.js) (uniform rename + new uniform, GLSL post-warp shift, two overlay handles, classifyPointer priorities, geom export, filename suffix), [src/shell/state.js](src/shell/state.js) (rename `drosteOffsetX/Y` → `drosteSwirlX/Y`, add `drosteShiftX/Y`), [src/shell/overlay.js](src/shell/overlay.js) (drag mode rename + add, cursorForMode), [src/version.js](src/version.js) (Build 52).
+
+---
+
 ## v0.3.1 (Build 51) — 2026-05-26
 
 **Droste vanishing-point offset (Möbius pre-composition).** The PhotoSpiralysis-style move-the-pole feature. A complex offset `a = (drosteOffsetX, drosteOffsetY)` is applied to fold-space input as `M(p) = (p − a) / (1 − conj(a)·p)` *before* the log-shear warp, shifting the spiral's vanishing point off the geometric center. At `a = (0, 0)` the warp is identity (Build 50 behavior unchanged). `|a|` is clamped to 0.95 to stay safely inside the unit-disc, avoiding the boundary singularity.

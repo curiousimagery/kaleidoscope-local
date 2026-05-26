@@ -97,19 +97,24 @@ export default {
       type: '1i',
       get: (state) => (state.drosteWedgeMirror === false ? 0 : 1),
     },
-    // Möbius pre-composition offset (drosteOffsetX, drosteOffsetY). vector in
-    // fold-space; applied BEFORE the log-shear to shift the spiral's vanishing
-    // point off the geometric center. clamped to |a| ≤ 0.95 to stay safely
-    // inside the unit disc (the singularity sits at |a| = 1).
-    u_drosteOffset: {
+    // SWIRL — Möbius pre-composition parameter (drosteSwirlX, drosteSwirlY).
+    // applied BEFORE the log-shear. moves the spiral pole AND non-uniformly
+    // distorts the disc interior (the "swirl/rotation" feel). UNCLAMPED so the
+    // user can drag past |a|=1 into the back half of the Riemann sphere; when
+    // |a|>1 a single pixel inside the disc (at p = 1/conj(a)) sources from
+    // infinity — caught by the engine's existing OOB modes.
+    u_drosteSwirl: {
       type: '2f',
-      get: (state) => {
-        let ax = state.drosteOffsetX || 0;
-        let ay = state.drosteOffsetY || 0;
-        const m = Math.hypot(ax, ay);
-        if (m > 0.95) { ax = ax * 0.95 / m; ay = ay * 0.95 / m; }
-        return [ax, ay];
-      },
+      get: (state) => [state.drosteSwirlX || 0, state.drosteSwirlY || 0],
+    },
+    // SHIFT — per-tier linear translation, applied POST-warp. each recursive
+    // tier drifts by a fraction toward this vector; factor (1 − r/r_src) is
+    // exactly 0 on the surface tier (no shift) and approaches 1 as recursion
+    // deepens. C0-continuous at every tier boundary in mirror mode (at the
+    // reflection point r = r_src on both sides → factor = 0 on both sides).
+    u_drosteShift: {
+      type: '2f',
+      get: (state) => [state.drosteShiftX || 0, state.drosteShiftY || 0],
     },
   },
 
@@ -119,10 +124,11 @@ export default {
   //   the source image isotropically (annulus stays visually circular).
   glsl: `
     vec2 foldDroste(vec2 p) {
-      // Möbius pre-composition: M(p) = (p - a) / (1 - conj(a) * p). shifts
-      // the spiral's vanishing point. identity at a = 0. with conj(a) =
-      // (a.x, -a.y), conj(a)*p expands to (a.x*p.x + a.y*p.y, a.x*p.y - a.y*p.x).
-      vec2 a = u_drosteOffset;
+      // SWIRL — Möbius pre-composition: M(p) = (p - a) / (1 - conj(a) * p).
+      // moves the spiral pole AND non-uniformly distorts the disc interior.
+      // identity at a = 0. with conj(a) = (a.x, -a.y), conj(a)*p expands to
+      // (a.x*p.x + a.y*p.y, a.x*p.y - a.y*p.x).
+      vec2 a = u_drosteSwirl;
       vec2 num = p - a;
       vec2 cap = vec2(a.x * p.x + a.y * p.y, a.x * p.y - a.y * p.x);
       vec2 den = vec2(1.0 - cap.x, -cap.y);
@@ -170,8 +176,15 @@ export default {
         logr_new = mod(logr_new, logS) - logS;
       }
 
+      // SHIFT — per-tier linear translation in fold-space. surface tier has
+      // r = r_src so factor = 0 (no shift on the visible annulus). deeper tiers
+      // accumulate drift toward u_drosteShift. in mirror mode the factor
+      // crosses 0 at every tier reflection, so the shift effect remains
+      // seamless across the mirror boundaries.
       float r_src = exp(logr_new);
-      return vec2(cos(theta_new), sin(theta_new)) * r_src;
+      vec2 z_src = vec2(cos(theta_new), sin(theta_new)) * r_src;
+      z_src += u_drosteShift * (1.0 - r / r_src);
+      return z_src;
     }
   `,
 
@@ -438,28 +451,47 @@ export default {
     ctx.arc(cx, cy, 3, 0, TAU);
     ctx.fill();
 
-    // offset handle — an open ring at the Möbius pre-composition pole. fold-space
-    // position (drosteOffsetX, drosteOffsetY) maps through the slice rotation and
-    // scale into screen pixels (fold-radius 1 → rOut). when offset = (0, 0) the
-    // ring sits exactly over the center dot; non-zero offsets float it inward.
-    const ax = state.drosteOffsetX || 0;
-    const ay = state.drosteOffsetY || 0;
+    // swirl + shift handles — two direct-manipulation targets. both are mapped
+    // from fold-space to screen via slice rotation + rOut (fold-radius 1 → rOut
+    // screen-px). when both are at (0,0) the filled shift dot sits inside the
+    // open swirl ring, forming a target/bullseye over the center dot.
     const cosRot = Math.cos(seamPhaseRad), sinRot = Math.sin(seamPhaseRad);
-    const offsetHandleX = cx + rOut * (ax * cosRot - ay * sinRot);
-    const offsetHandleY = cy + rOut * (ax * sinRot + ay * cosRot);
 
-    const offsetHL = env.hoverMode === 'droste-offset' || env.overlayDragMode === 'droste-offset';
-    const offsetRingR = offsetHL ? 11 : 9;
+    // swirl ring — Möbius parameter; UNCLAMPED visual position (when |swirl|>1
+    // the ring draws outside the source rect, which is fine — canvas overflow
+    // is invisible to the user but the position is still hit-testable by
+    // dragging in that direction).
+    const sx = state.drosteSwirlX || 0;
+    const sy = state.drosteSwirlY || 0;
+    const swirlHandleX = cx + rOut * (sx * cosRot - sy * sinRot);
+    const swirlHandleY = cy + rOut * (sx * sinRot + sy * cosRot);
+    const swirlHL = env.hoverMode === 'droste-swirl' || env.overlayDragMode === 'droste-swirl';
+    const swirlRingR = swirlHL ? 12 : 10;
     ctx.strokeStyle = oobOut ? 'rgba(255, 196, 80, 1)' : 'rgba(255, 255, 255, 1)';
-    ctx.lineWidth = offsetHL ? 2.5 : 2;
+    ctx.lineWidth = swirlHL ? 2.5 : 2;
     ctx.beginPath();
-    ctx.arc(offsetHandleX, offsetHandleY, offsetRingR, 0, TAU);
+    ctx.arc(swirlHandleX, swirlHandleY, swirlRingR, 0, TAU);
     ctx.stroke();
-    // dark contour outside the white ring for contrast against light areas.
     ctx.strokeStyle = 'rgba(0, 0, 0, 0.45)';
     ctx.lineWidth = 1;
     ctx.beginPath();
-    ctx.arc(offsetHandleX, offsetHandleY, offsetRingR + 1.5, 0, TAU);
+    ctx.arc(swirlHandleX, swirlHandleY, swirlRingR + 1.5, 0, TAU);
+    ctx.stroke();
+
+    // shift dot — per-tier translation; small filled circle that sits inside
+    // the swirl ring at (0, 0). also unclamped.
+    const tx = state.drosteShiftX || 0;
+    const ty = state.drosteShiftY || 0;
+    const shiftHandleX = cx + rOut * (tx * cosRot - ty * sinRot);
+    const shiftHandleY = cy + rOut * (tx * sinRot + ty * cosRot);
+    const shiftHL = env.hoverMode === 'droste-shift' || env.overlayDragMode === 'droste-shift';
+    const shiftDotR = shiftHL ? 8 : 6;
+    ctx.fillStyle = oobOut ? 'rgba(255, 196, 80, 1)' : 'rgba(255, 255, 255, 1)';
+    ctx.beginPath();
+    ctx.arc(shiftHandleX, shiftHandleY, shiftDotR, 0, TAU);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(0, 0, 0, 0.5)';
+    ctx.lineWidth = 1;
     ctx.stroke();
 
     // touch affordances — rotation arc beyond the outer ring, "depth" arrow
@@ -532,7 +564,8 @@ export default {
       cx, cy,
       rOut, rIn,
       seamEndX, seamEndY,
-      offsetHandleX, offsetHandleY,
+      swirlHandleX, swirlHandleY,
+      shiftHandleX, shiftHandleY,
       halfWedge,
       sliceRotationRad: seamPhaseRad,
       isFullCircle,
@@ -544,15 +577,16 @@ export default {
   // ---------------------------------------------------------------------------
   //
   // mode priorities (highest wins):
-  //   1. offset handle hit (small)             → 'droste-offset'
-  //   2. twist handle hit (small)              → 'twist'
-  //   3. ring bands WITHIN the wedge angular range:
+  //   1. shift handle hit (snug)               → 'droste-shift'
+  //   2. swirl handle hit (looser)             → 'droste-swirl'
+  //   3. twist handle hit                      → 'twist'
+  //   4. ring bands WITHIN the wedge angular range:
   //        a. inner-ring band                  → 'scale' handle='inner' (drosteZoom)
   //        b. outer-ring band                  → 'scale' handle='outer' (sliceScale)
-  //   4. wedge boundary line (arms ≥ 2)        → 'droste-arms'
-  //   5. inside the inner ring (r ≤ rIn)       → 'move' (regardless of wedge angular)
-  //   6. inside wedge AND inside outer ring    → 'move'
-  //   7. fall-through                          → 'rotate'
+  //   5. wedge boundary line (arms ≥ 2)        → 'droste-arms'
+  //   6. inside the inner ring (r ≤ rIn)       → 'move' (regardless of wedge angular)
+  //   7. inside wedge AND inside outer ring    → 'move'
+  //   8. fall-through                          → 'rotate'
   //
   // band widths follow daniel's "~16 px total, only a few inside the wedge"
   // rule: BAND_IN (in the annulus body, between the rings) is intentionally
@@ -562,30 +596,42 @@ export default {
   classifyPointer(env, x, y, isTouch, geom) {
     const g = env.sourceOverlayCanvas?._geom;
     if (!g) return { mode: null };
-    const { cx, cy, rOut, rIn, seamEndX, seamEndY, offsetHandleX, offsetHandleY, halfWedge, sliceRotationRad, isFullCircle } = g;
+    const { cx, cy, rOut, rIn, seamEndX, seamEndY,
+            swirlHandleX, swirlHandleY, shiftHandleX, shiftHandleY,
+            halfWedge, sliceRotationRad, isFullCircle } = g;
 
     const dx = x - cx, dy = y - cy;
     const r = Math.hypot(dx, dy);
     const theta = Math.atan2(dy, dx);
 
     const HANDLE_HIT     = isTouch ? 22 : 12;
-    const OFFSET_HIT     = isTouch ? 18 : 12;   // direct-manipulation handle for Möbius offset
+    const SHIFT_HIT      = isTouch ? 16 : 10;   // snug — the filled center dot
+    const SWIRL_HIT      = isTouch ? 22 : 14;   // looser — annulus around shift
     const BAND_OUT       = isTouch ? 14 : 12;   // outside the annulus (toward inner-disc or beyond outer)
     const BAND_IN        = isTouch ?  8 :  6;   // inside the annulus body — leaves room for 'move' interior
     const SIDE_BAND_OUT  = isTouch ? 14 : 12;   // outside the wedge angularly
     const SIDE_BAND_IN   = isTouch ?  8 :  6;   // inside the wedge angularly
 
-    // 1. offset handle — highest priority so the user can always grab the ring
-    // to adjust the Möbius pole, even when it overlaps the center dot at a = 0
-    // or the inner-disc move region at non-zero offset.
-    if (offsetHandleX != null) {
-      const d = Math.hypot(x - offsetHandleX, y - offsetHandleY);
-      if (d <= OFFSET_HIT) {
-        return { mode: 'droste-offset', r, theta, R: 0 };
+    // 1. shift handle — highest priority. when at zero the dot sits inside the
+    // swirl ring; SHIFT_HIT is tight enough that hitting just outside the dot
+    // (annulus 10–14 px from center) still falls through to the swirl handle.
+    if (shiftHandleX != null) {
+      const d = Math.hypot(x - shiftHandleX, y - shiftHandleY);
+      if (d <= SHIFT_HIT) {
+        return { mode: 'droste-shift', r, theta, R: 0 };
       }
     }
 
-    // 2. twist handle
+    // 2. swirl handle — second priority. when at zero (overlapping shift), this
+    // catches the annular region just outside the shift dot.
+    if (swirlHandleX != null) {
+      const d = Math.hypot(x - swirlHandleX, y - swirlHandleY);
+      if (d <= SWIRL_HIT) {
+        return { mode: 'droste-swirl', r, theta, R: 0 };
+      }
+    }
+
+    // 3. twist handle
     if (seamEndX != null) {
       const d = Math.hypot(x - seamEndX, y - seamEndY);
       if (d <= HANDLE_HIT) {
@@ -654,10 +700,11 @@ export default {
     return { mode: 'rotate', r, theta, R: rOut };
   },
 
-  // filename suffix: zoom + signed twist + arms + mirror + offset (when nonzero).
-  // e.g. z200t045a03m1            = zoom 2.00, twist +45°, arms 3, mirror on
-  //      z200tm120a01m0           = zoom 2.00, twist −120°, arms 1, mirror off
-  //      z200t000a02m1ox030ym020  = + offset (0.30, −0.20). omitted when (0, 0).
+  // filename suffix: zoom + signed twist + arms + mirror + swirl + shift.
+  // e.g. z200t045a03m1                   = zoom 2.00, twist +45°, arms 3, mirror on
+  //      z200tm120a01m0                  = zoom 2.00, twist −120°, arms 1, mirror off
+  //      z200t000a02m1sx030ym020         = + swirl (0.30, −0.20). omitted when (0, 0).
+  //      z200t000a02m1tx015y025          = + shift (0.15, 0.25). omitted when (0, 0).
   filenameSuffix(state) {
     const z = Math.round(state.drosteZoom * 100);
     const tDeg = Math.round(state.drosteTwist);
@@ -668,11 +715,14 @@ export default {
       + 't' + tSign + String(Math.abs(tDeg)).padStart(3, '0')
       + 'a' + String(arms).padStart(2, '0')
       + 'm' + mirror;
-    const ax = state.drosteOffsetX || 0;
-    const ay = state.drosteOffsetY || 0;
-    if (Math.abs(ax) > 0.005 || Math.abs(ay) > 0.005) {
-      const enc = (v) => (v < 0 ? 'm' : '') + String(Math.abs(Math.round(v * 100))).padStart(3, '0');
-      suffix += 'ox' + enc(ax) + 'y' + enc(ay);
+    const enc = (v) => (v < 0 ? 'm' : '') + String(Math.abs(Math.round(v * 100))).padStart(3, '0');
+    const sx = state.drosteSwirlX || 0, sy = state.drosteSwirlY || 0;
+    if (Math.abs(sx) > 0.005 || Math.abs(sy) > 0.005) {
+      suffix += 'sx' + enc(sx) + 'y' + enc(sy);
+    }
+    const tx = state.drosteShiftX || 0, ty = state.drosteShiftY || 0;
+    if (Math.abs(tx) > 0.005 || Math.abs(ty) > 0.005) {
+      suffix += 'tx' + enc(tx) + 'y' + enc(ty);
     }
     return suffix;
   },

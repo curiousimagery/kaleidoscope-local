@@ -12,7 +12,7 @@ He prefers **no em dashes** in his own writing; respect that in any prose Claude
 
 ## current version
 
-`v0.3.1 · Build 51`. The footer in the running app shows this string from `src/version.js`. When delivering a new build, increment BUILD by 1 and bump VERSION when meaningful change ships. **BUILD never resets** on version bumps — it's a global monotonic counter (see `version.js` comment).
+`v0.3.1 · Build 52`. The footer in the running app shows this string from `src/version.js`. When delivering a new build, increment BUILD by 1 and bump VERSION when meaningful change ships. **BUILD never resets** on version bumps — it's a global monotonic counter (see `version.js` comment).
 
 ## what's working
 
@@ -28,12 +28,14 @@ Read `ARCHITECTURE.md` if you need details on the registry, shader composition, 
 
 ## what we're doing right now
 
-Build 51 ships the Droste **vanishing-point offset** (Möbius pre-composition). A complex offset `a = (drosteOffsetX, drosteOffsetY)` is applied as `M(p) = (p − a) / (1 − conj(a)·p)` before the log-shear, shifting the spiral's pole off-center. Direct manipulation only — drag the open-ring handle (sits over the center dot when `a = 0`, floats outward otherwise). `|a|` clamped to 0.95.
+Build 52 splits the Droste "offset" into two distinct controls. Build 51's Möbius math is preserved as the **swirl** control (`drosteSwirlX/Y`, renamed from `drosteOffsetX/Y`, clamp removed → full Riemann-sphere range). A new **shift** control (`drosteShiftX/Y`) adds PhotoSpiralysis-style per-tier linear translation: GLSL post-warp `z_src += u_drosteShift * (1 − r/r_src)`, where the factor is 0 on the surface tier and approaches 1 as recursion deepens. Mirror mode is seamless because the factor crosses 0 at every tier reflection.
 
-Planned phase-2 build:
-- **Build 52:** pole rotation (second Möbius parameter; pairs with motion shell).
+Two handles on the source overlay: shift = filled dot (6/8 px), swirl = open ring (10/12 px). At zero they form a target/bullseye. Hit zones: shift snug (16/10), swirl looser annulus (22/14) — the user grabs shift by touching center, swirl by touching the surrounding ring band.
 
-**What Daniel needs to verify in-browser for Build 51** (Claude can't see the UI): the open-ring handle appears at the slice center when first loaded; grabbing and dragging shifts the spiral's vanishing point off the geometric center; the handle floats with the offset and can be re-grabbed to readjust. Combine with twist/arms — should compose smoothly. Hit/visible sizes may need tuning (current: 9 px visible, 18 px touch / 12 px mouse hit). Filename suffix gains `ox<XX>y<YY>` segment when offset is non-zero.
+Planned next build:
+- **Build 53:** pole rotation (third DOF on the Möbius family; compounds naturally with swirl).
+
+**What Daniel needs to verify in-browser for Build 52** (Claude can't see the UI): at default state the bullseye is at slice center; dragging the inner dot drifts inner tiers linearly toward the cursor (rings retain shape, stack off-center — PhotoSpiralysis feel) and works seamlessly with `drosteMirror = true`; dragging the outer ring produces the rotational/swirling effect from Build 51 and now allows traversing past the unit-disc boundary (`|swirl| > 1` should keep cycling the effect rather than hitting a wall). If a faint crease appears at the first tier boundary in mirror mode under shift, flag it — there's a C1-continuous squared variant in reserve. Filename suffix now uses `sx…ym…` for swirl and `tx…ym…` for shift, omitted when zero.
 
 Still pending from prior builds: Intel Air investigation (blocked on hardware access). Triangle form still pending production review of `TRI_SIZE`, `tilesPerDim`, and Build 37 fold-transform side effects.
 

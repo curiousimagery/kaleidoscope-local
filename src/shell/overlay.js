@@ -793,7 +793,8 @@ export function setupSourceInteraction(env, wrap) {
     if (mode === 'rotate')        return rotateCursorForAngle(theta);
     if (mode === 'twist')         return rotateCursorForAngle(theta);
     if (mode === 'droste-arms')   return scaleCursorForAngle(theta);
-    if (mode === 'droste-offset') return 'grab';
+    if (mode === 'droste-swirl')  return 'grab';
+    if (mode === 'droste-shift')  return 'grab';
     return 'default';
   }
 
@@ -960,21 +961,29 @@ export function setupSourceInteraction(env, wrap) {
           state.drosteArms = newArms;
           env.applyArmsSnap?.();
         }
-      } else if (drag.mode === 'droste-offset') {
+      } else if (drag.mode === 'droste-swirl') {
         // direct manipulation: cursor position relative to slice center, divided
         // by rOut, then rotated back by −sliceRotation, gives the fold-space
-        // offset a. clamped to |a| ≤ 0.95 to avoid the unit-disc singularity.
+        // swirl (Möbius) parameter. UNCLAMPED — dragging past |a| = 1 takes the
+        // user around the back of the Riemann sphere.
         if (!g || g.rOut < 1) return;
         const dxs = (x - g.cx) / g.rOut;
         const dys = (y - g.cy) / g.rOut;
         const cosRot = Math.cos(g.sliceRotationRad);
         const sinRot = Math.sin(g.sliceRotationRad);
-        let ax = dxs * cosRot + dys * sinRot;
-        let ay = -dxs * sinRot + dys * cosRot;
-        const m = Math.hypot(ax, ay);
-        if (m > 0.95) { ax = ax * 0.95 / m; ay = ay * 0.95 / m; }
-        state.drosteOffsetX = ax;
-        state.drosteOffsetY = ay;
+        state.drosteSwirlX = dxs * cosRot + dys * sinRot;
+        state.drosteSwirlY = -dxs * sinRot + dys * cosRot;
+      } else if (drag.mode === 'droste-shift') {
+        // direct manipulation: cursor → fold-space per-tier shift. same mapping
+        // shape as swirl, also unclamped (large values are absorbed by OOB modes
+        // since z_src can exit the source annulus at deep tiers).
+        if (!g || g.rOut < 1) return;
+        const dxs = (x - g.cx) / g.rOut;
+        const dys = (y - g.cy) / g.rOut;
+        const cosRot = Math.cos(g.sliceRotationRad);
+        const sinRot = Math.sin(g.sliceRotationRad);
+        state.drosteShiftX = dxs * cosRot + dys * sinRot;
+        state.drosteShiftY = -dxs * sinRot + dys * cosRot;
       }
       env.syncControls();
       env.scheduleRender();
@@ -1103,8 +1112,11 @@ export function setupSourceInteraction(env, wrap) {
         boundarySign: cls.boundarySign,
       };
       setCursor(scaleCursorForAngle(cls.cursorTheta != null ? cls.cursorTheta : cls.theta));
-    } else if (cls.mode === 'droste-offset') {
-      drag = { mode: 'droste-offset' };
+    } else if (cls.mode === 'droste-shift') {
+      drag = { mode: 'droste-shift' };
+      setCursor('grabbing');
+    } else if (cls.mode === 'droste-swirl') {
+      drag = { mode: 'droste-swirl' };
       setCursor('grabbing');
     } else if (cls.mode === 'rotate') {
       drag = {
