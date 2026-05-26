@@ -31,6 +31,10 @@ export const state = {
   drosteWedgeMirror: true,  // droste form only: when true, the angular wedge fold
                             // reflects at boundaries (kaleidoscope feel). when false,
                             // plain mod (N chiral arms with hard boundary seams).
+  drosteOffsetX: 0,     // droste form only: Möbius pre-composition offset in fold
+  drosteOffsetY: 0,     // space. shifts the spiral's vanishing point off-center.
+                        // |a| clamped to 0.95 to avoid the unit-disc boundary
+                        // singularity. (0, 0) = classic centered Droste.
   canvasZoom: 1.0,
   canvasRotation: 0,
   oobMode: 0,           // 0=clamp, 1=mirror, 2=transparent. clamp is default.

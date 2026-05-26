@@ -12,7 +12,7 @@ He prefers **no em dashes** in his own writing; respect that in any prose Claude
 
 ## current version
 
-`v0.3.1 · Build 50`. The footer in the running app shows this string from `src/version.js`. When delivering a new build, increment BUILD by 1 and bump VERSION when meaningful change ships. **BUILD never resets** on version bumps — it's a global monotonic counter (see `version.js` comment).
+`v0.3.1 · Build 51`. The footer in the running app shows this string from `src/version.js`. When delivering a new build, increment BUILD by 1 and bump VERSION when meaningful change ships. **BUILD never resets** on version bumps — it's a global monotonic counter (see `version.js` comment).
 
 ## what's working
 
@@ -28,13 +28,12 @@ Read `ARCHITECTURE.md` if you need details on the registry, shader composition, 
 
 ## what we're doing right now
 
-Build 50 fixes the rotation arc direction: it now sits at `seamPhaseRad` (same direction as the wedge outer arc), matching the radial/hex convention of hugging just outside the outer boundary on the wedge's own side. Build 49 had it at `seamPhaseRad + π` (opposite), which showed it behind/away from the wedge.
+Build 51 ships the Droste **vanishing-point offset** (Möbius pre-composition). A complex offset `a = (drosteOffsetX, drosteOffsetY)` is applied as `M(p) = (p − a) / (1 − conj(a)·p)` before the log-shear, shifting the spiral's pole off-center. Direct manipulation only — drag the open-ring handle (sits over the center dot when `a = 0`, floats outward otherwise). `|a|` clamped to 0.95.
 
-Planned phase-2 builds:
-- **Build 51:** vanishing-point offset (PhotoSpiralysis-style Möbius pre-composition).
+Planned phase-2 build:
 - **Build 52:** pole rotation (second Möbius parameter; pairs with motion shell).
 
-**What Daniel needs to verify in-browser for Build 50** (Claude can't see the UI): rotation arc sits just outside the outer ring on the same side as the wedge, curving around the slice center.
+**What Daniel needs to verify in-browser for Build 51** (Claude can't see the UI): the open-ring handle appears at the slice center when first loaded; grabbing and dragging shifts the spiral's vanishing point off the geometric center; the handle floats with the offset and can be re-grabbed to readjust. Combine with twist/arms — should compose smoothly. Hit/visible sizes may need tuning (current: 9 px visible, 18 px touch / 12 px mouse hit). Filename suffix gains `ox<XX>y<YY>` segment when offset is non-zero.
 
 Still pending from prior builds: Intel Air investigation (blocked on hardware access). Triangle form still pending production review of `TRI_SIZE`, `tilesPerDim`, and Build 37 fold-transform side effects.
 

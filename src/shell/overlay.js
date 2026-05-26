@@ -788,11 +788,12 @@ export function setupSourceInteraction(env, wrap) {
   }
 
   function cursorForMode(mode, theta) {
-    if (mode === 'move')        return 'grab';
-    if (mode === 'scale')       return scaleCursorForAngle(theta);
-    if (mode === 'rotate')      return rotateCursorForAngle(theta);
-    if (mode === 'twist')       return rotateCursorForAngle(theta);
-    if (mode === 'droste-arms') return scaleCursorForAngle(theta);
+    if (mode === 'move')          return 'grab';
+    if (mode === 'scale')         return scaleCursorForAngle(theta);
+    if (mode === 'rotate')        return rotateCursorForAngle(theta);
+    if (mode === 'twist')         return rotateCursorForAngle(theta);
+    if (mode === 'droste-arms')   return scaleCursorForAngle(theta);
+    if (mode === 'droste-offset') return 'grab';
     return 'default';
   }
 
@@ -959,6 +960,21 @@ export function setupSourceInteraction(env, wrap) {
           state.drosteArms = newArms;
           env.applyArmsSnap?.();
         }
+      } else if (drag.mode === 'droste-offset') {
+        // direct manipulation: cursor position relative to slice center, divided
+        // by rOut, then rotated back by −sliceRotation, gives the fold-space
+        // offset a. clamped to |a| ≤ 0.95 to avoid the unit-disc singularity.
+        if (!g || g.rOut < 1) return;
+        const dxs = (x - g.cx) / g.rOut;
+        const dys = (y - g.cy) / g.rOut;
+        const cosRot = Math.cos(g.sliceRotationRad);
+        const sinRot = Math.sin(g.sliceRotationRad);
+        let ax = dxs * cosRot + dys * sinRot;
+        let ay = -dxs * sinRot + dys * cosRot;
+        const m = Math.hypot(ax, ay);
+        if (m > 0.95) { ax = ax * 0.95 / m; ay = ay * 0.95 / m; }
+        state.drosteOffsetX = ax;
+        state.drosteOffsetY = ay;
       }
       env.syncControls();
       env.scheduleRender();
@@ -1087,6 +1103,9 @@ export function setupSourceInteraction(env, wrap) {
         boundarySign: cls.boundarySign,
       };
       setCursor(scaleCursorForAngle(cls.cursorTheta != null ? cls.cursorTheta : cls.theta));
+    } else if (cls.mode === 'droste-offset') {
+      drag = { mode: 'droste-offset' };
+      setCursor('grabbing');
     } else if (cls.mode === 'rotate') {
       drag = {
         mode: 'rotate',

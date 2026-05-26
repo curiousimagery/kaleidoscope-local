@@ -97,6 +97,20 @@ export default {
       type: '1i',
       get: (state) => (state.drosteWedgeMirror === false ? 0 : 1),
     },
+    // Möbius pre-composition offset (drosteOffsetX, drosteOffsetY). vector in
+    // fold-space; applied BEFORE the log-shear to shift the spiral's vanishing
+    // point off the geometric center. clamped to |a| ≤ 0.95 to stay safely
+    // inside the unit disc (the singularity sits at |a| = 1).
+    u_drosteOffset: {
+      type: '2f',
+      get: (state) => {
+        let ax = state.drosteOffsetX || 0;
+        let ay = state.drosteOffsetY || 0;
+        const m = Math.hypot(ax, ay);
+        if (m > 0.95) { ax = ax * 0.95 / m; ay = ay * 0.95 / m; }
+        return [ax, ay];
+      },
+    },
   },
 
   // input convention: p in canvas space [-1, 1]² (post canvas rot/zoom).
@@ -105,6 +119,18 @@ export default {
   //   the source image isotropically (annulus stays visually circular).
   glsl: `
     vec2 foldDroste(vec2 p) {
+      // Möbius pre-composition: M(p) = (p - a) / (1 - conj(a) * p). shifts
+      // the spiral's vanishing point. identity at a = 0. with conj(a) =
+      // (a.x, -a.y), conj(a)*p expands to (a.x*p.x + a.y*p.y, a.x*p.y - a.y*p.x).
+      vec2 a = u_drosteOffset;
+      vec2 num = p - a;
+      vec2 cap = vec2(a.x * p.x + a.y * p.y, a.x * p.y - a.y * p.x);
+      vec2 den = vec2(1.0 - cap.x, -cap.y);
+      // complex division: num / den = num * conj(den) / |den|^2
+      float denMag2 = max(1e-8, dot(den, den));
+      p = vec2(num.x * den.x + num.y * den.y,
+               num.y * den.x - num.x * den.y) / denMag2;
+
       float r = length(p);
       if (r < 1e-8) return vec2(0.0);
 
@@ -412,6 +438,30 @@ export default {
     ctx.arc(cx, cy, 3, 0, TAU);
     ctx.fill();
 
+    // offset handle — an open ring at the Möbius pre-composition pole. fold-space
+    // position (drosteOffsetX, drosteOffsetY) maps through the slice rotation and
+    // scale into screen pixels (fold-radius 1 → rOut). when offset = (0, 0) the
+    // ring sits exactly over the center dot; non-zero offsets float it inward.
+    const ax = state.drosteOffsetX || 0;
+    const ay = state.drosteOffsetY || 0;
+    const cosRot = Math.cos(seamPhaseRad), sinRot = Math.sin(seamPhaseRad);
+    const offsetHandleX = cx + rOut * (ax * cosRot - ay * sinRot);
+    const offsetHandleY = cy + rOut * (ax * sinRot + ay * cosRot);
+
+    const offsetHL = env.hoverMode === 'droste-offset' || env.overlayDragMode === 'droste-offset';
+    const offsetRingR = offsetHL ? 11 : 9;
+    ctx.strokeStyle = oobOut ? 'rgba(255, 196, 80, 1)' : 'rgba(255, 255, 255, 1)';
+    ctx.lineWidth = offsetHL ? 2.5 : 2;
+    ctx.beginPath();
+    ctx.arc(offsetHandleX, offsetHandleY, offsetRingR, 0, TAU);
+    ctx.stroke();
+    // dark contour outside the white ring for contrast against light areas.
+    ctx.strokeStyle = 'rgba(0, 0, 0, 0.45)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.arc(offsetHandleX, offsetHandleY, offsetRingR + 1.5, 0, TAU);
+    ctx.stroke();
+
     // touch affordances — rotation arc beyond the outer ring, "depth" arrow
     // straddling the inner ring. opacity dims during pinch to defer to the
     // outline highlight.
@@ -482,6 +532,7 @@ export default {
       cx, cy,
       rOut, rIn,
       seamEndX, seamEndY,
+      offsetHandleX, offsetHandleY,
       halfWedge,
       sliceRotationRad: seamPhaseRad,
       isFullCircle,
@@ -493,14 +544,15 @@ export default {
   // ---------------------------------------------------------------------------
   //
   // mode priorities (highest wins):
-  //   1. twist handle hit (small)              → 'twist'
-  //   2. ring bands WITHIN the wedge angular range:
+  //   1. offset handle hit (small)             → 'droste-offset'
+  //   2. twist handle hit (small)              → 'twist'
+  //   3. ring bands WITHIN the wedge angular range:
   //        a. inner-ring band                  → 'scale' handle='inner' (drosteZoom)
   //        b. outer-ring band                  → 'scale' handle='outer' (sliceScale)
-  //   3. wedge boundary line (arms ≥ 2)        → 'droste-arms'
-  //   4. inside the inner ring (r ≤ rIn)       → 'move' (regardless of wedge angular)
-  //   5. inside wedge AND inside outer ring    → 'move'
-  //   6. fall-through                          → 'rotate'
+  //   4. wedge boundary line (arms ≥ 2)        → 'droste-arms'
+  //   5. inside the inner ring (r ≤ rIn)       → 'move' (regardless of wedge angular)
+  //   6. inside wedge AND inside outer ring    → 'move'
+  //   7. fall-through                          → 'rotate'
   //
   // band widths follow daniel's "~16 px total, only a few inside the wedge"
   // rule: BAND_IN (in the annulus body, between the rings) is intentionally
@@ -510,19 +562,30 @@ export default {
   classifyPointer(env, x, y, isTouch, geom) {
     const g = env.sourceOverlayCanvas?._geom;
     if (!g) return { mode: null };
-    const { cx, cy, rOut, rIn, seamEndX, seamEndY, halfWedge, sliceRotationRad, isFullCircle } = g;
+    const { cx, cy, rOut, rIn, seamEndX, seamEndY, offsetHandleX, offsetHandleY, halfWedge, sliceRotationRad, isFullCircle } = g;
 
     const dx = x - cx, dy = y - cy;
     const r = Math.hypot(dx, dy);
     const theta = Math.atan2(dy, dx);
 
     const HANDLE_HIT     = isTouch ? 22 : 12;
+    const OFFSET_HIT     = isTouch ? 18 : 12;   // direct-manipulation handle for Möbius offset
     const BAND_OUT       = isTouch ? 14 : 12;   // outside the annulus (toward inner-disc or beyond outer)
     const BAND_IN        = isTouch ?  8 :  6;   // inside the annulus body — leaves room for 'move' interior
     const SIDE_BAND_OUT  = isTouch ? 14 : 12;   // outside the wedge angularly
     const SIDE_BAND_IN   = isTouch ?  8 :  6;   // inside the wedge angularly
 
-    // 1. twist handle
+    // 1. offset handle — highest priority so the user can always grab the ring
+    // to adjust the Möbius pole, even when it overlaps the center dot at a = 0
+    // or the inner-disc move region at non-zero offset.
+    if (offsetHandleX != null) {
+      const d = Math.hypot(x - offsetHandleX, y - offsetHandleY);
+      if (d <= OFFSET_HIT) {
+        return { mode: 'droste-offset', r, theta, R: 0 };
+      }
+    }
+
+    // 2. twist handle
     if (seamEndX != null) {
       const d = Math.hypot(x - seamEndX, y - seamEndY);
       if (d <= HANDLE_HIT) {
@@ -591,19 +654,27 @@ export default {
     return { mode: 'rotate', r, theta, R: rOut };
   },
 
-  // filename suffix: zoom + signed twist + arms + mirror.
-  // e.g. z200t045a03m1 = zoom 2.00, twist +45°, arms 3, mirror on
-  //      z200tm120a01m0 = zoom 2.00, twist −120°, arms 1, mirror off
+  // filename suffix: zoom + signed twist + arms + mirror + offset (when nonzero).
+  // e.g. z200t045a03m1            = zoom 2.00, twist +45°, arms 3, mirror on
+  //      z200tm120a01m0           = zoom 2.00, twist −120°, arms 1, mirror off
+  //      z200t000a02m1ox030ym020  = + offset (0.30, −0.20). omitted when (0, 0).
   filenameSuffix(state) {
     const z = Math.round(state.drosteZoom * 100);
     const tDeg = Math.round(state.drosteTwist);
     const tSign = tDeg < 0 ? 'm' : '';
     const arms = Math.max(1, Math.min(12, Math.round(state.drosteArms || 1)));
     const mirror = state.drosteMirror ? 1 : 0;
-    return 'z' + z
+    let suffix = 'z' + z
       + 't' + tSign + String(Math.abs(tDeg)).padStart(3, '0')
       + 'a' + String(arms).padStart(2, '0')
       + 'm' + mirror;
+    const ax = state.drosteOffsetX || 0;
+    const ay = state.drosteOffsetY || 0;
+    if (Math.abs(ax) > 0.005 || Math.abs(ay) > 0.005) {
+      const enc = (v) => (v < 0 ? 'm' : '') + String(Math.abs(Math.round(v * 100))).padStart(3, '0');
+      suffix += 'ox' + enc(ax) + 'y' + enc(ay);
+    }
+    return suffix;
   },
 
   // tile density for the resolution hint. arms multiplies the angular tile

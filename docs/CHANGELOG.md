@@ -4,6 +4,20 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.3.1 (Build 51) — 2026-05-26
+
+**Droste vanishing-point offset (Möbius pre-composition).** The PhotoSpiralysis-style move-the-pole feature. A complex offset `a = (drosteOffsetX, drosteOffsetY)` is applied to fold-space input as `M(p) = (p − a) / (1 − conj(a)·p)` *before* the log-shear warp, shifting the spiral's vanishing point off the geometric center. At `a = (0, 0)` the warp is identity (Build 50 behavior unchanged). `|a|` is clamped to 0.95 to stay safely inside the unit-disc, avoiding the boundary singularity.
+
+- **Direct manipulation only — no slider.** A small open ring (9 px outer radius, 11 px when active) sits at the offset's screen position. At `a = 0` it overlays the slice center dot; drag it anywhere within the unit disc to shift the pole. Hit zone is 18 px touch / 12 px mouse — slightly larger than the visible ring, looser than the twist handle's 22 px so the offset target reads as a smaller, more precise affordance. Departure from the original plan: hit zone follows the visible handle (rather than staying anchored at slice center) so the user can grab the ring to readjust after offsetting.
+- **GLSL Möbius pre-comp** in `foldDroste`. Two complex products: `conj(a)·p` for the denominator and `num·conj(den)/|den|²` for the division. Composes cleanly with the arms fold and log-shear that follow.
+- **State + uniform.** New `state.drosteOffsetX`, `state.drosteOffsetY` (default 0). New `u_drosteOffset` uniform (`2f`), clamped at extraction time. Undo/redo captures both fields via the existing shallow-copy history.
+- **Hit-test priority** in [src/engine/forms/droste.js](src/engine/forms/droste.js)'s `classifyPointer` reorganized: offset handle is priority 1 (above twist), so the user can always grab the ring even when it overlaps the center dot at `a = 0` or the inner-disc 'move' region at non-zero offset. Trade-off: dragging from exactly the slice center now sets the offset rather than moving the slice — to move the slice when `a = 0`, grab anywhere inside the inner ring outside the offset hit zone.
+- **Drag-mode plumbing** in [src/shell/overlay.js](src/shell/overlay.js): new `'droste-offset'` case in `onMove`, `onDown` dispatch, and `cursorForMode`. Cursor is `grab`/`grabbing` to match the slice 'move' idiom.
+- **Filename suffix** extended: append `ox<XX>y<YY>` (signed, `m` prefix for negative) when offset is non-zero. Omitted at `(0, 0)` so existing reproducibility is unchanged.
+- **Code:** [src/engine/forms/droste.js](src/engine/forms/droste.js) (uniform, GLSL Möbius, offset handle drawing, hit-test priority, geom export, filename suffix), [src/shell/state.js](src/shell/state.js) (`drosteOffsetX/Y`), [src/shell/overlay.js](src/shell/overlay.js) (drag mode wiring), [src/version.js](src/version.js) (Build 51).
+
+---
+
 ## v0.3.1 (Build 50) — 2026-05-26
 
 **Droste rotation arc direction fix.** Build 49 placed the arc at `sliceRotation + π` (opposite the wedge), but the correct idiom — matching radial and hex — is to place it on the same side as the outer arc at `sliceRotation`. Arc now sits just past the outer ring in the wedge's own direction, hugging the outside of the outer boundary.
