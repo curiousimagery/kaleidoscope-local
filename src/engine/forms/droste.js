@@ -67,11 +67,19 @@ export default {
       type: '1f',
       get: (state) => Math.log(Math.max(1.0001, state.drosteZoom)),
     },
-    // twist in radians. exactly the rotation accumulated over one tier; the
-    // slider's UI is in degrees, converted here.
-    u_drosteTwist: {
-      type: '1f',
-      get: (state) => (state.drosteTwist || 0) * Math.PI / 180,
+    // LENSTRA conformal-map parameter c = logS / (logS + i·twist_rad).
+    // applying z_src = exp(c · log(p)) gives a true Print-Gallery spiral
+    // whose tier seam is a log-spiral curve in canvas (not a circle). at
+    // twist=0, c = (1, 0) — identity in log-space, no spiral, no singularity.
+    // at twist=2π, c is the classical Print Gallery multiplier.
+    u_drosteC: {
+      type: '2f',
+      get: (state) => {
+        const logS = Math.log(Math.max(1.0001, state.drosteZoom));
+        const twistRad = (state.drosteTwist || 0) * Math.PI / 180;
+        const denom = logS * logS + twistRad * twistRad;
+        return [logS * logS / denom, -logS * twistRad / denom];
+      },
     },
     // tier mirror: 1 = reflect across tier boundary; 0 = mod-wrap (classic Droste).
     u_drosteMirror: {
@@ -116,6 +124,15 @@ export default {
       type: '2f',
       get: (state) => [state.drosteShiftX || 0, state.drosteShiftY || 0],
     },
+    // OFFSET — canvas-side per-tier shift, applied BEFORE the Lenstra warp.
+    // factor (1 − |p|) is 0 at the outer ring (preserves the surface tier)
+    // and ramps to 1 at the canvas center. cumulative shift across tiers
+    // converges geometrically so the visible ring centers walk off-axis
+    // toward `offset/(1 + |offset|)`. PhotoSpiralysis aesthetic.
+    u_drosteOffset: {
+      type: '2f',
+      get: (state) => [state.drosteOffsetX || 0, state.drosteOffsetY || 0],
+    },
   },
 
   // input convention: p in canvas space [-1, 1]² (post canvas rot/zoom).
@@ -124,30 +141,29 @@ export default {
   //   the source image isotropically (annulus stays visually circular).
   glsl: `
     vec2 foldDroste(vec2 p) {
-      // SWIRL — Möbius pre-composition: M(p) = (p - a) / (1 - conj(a) * p).
-      // moves the spiral pole AND non-uniformly distorts the disc interior.
-      // identity at a = 0. with conj(a) = (a.x, -a.y), conj(a)*p expands to
-      // (a.x*p.x + a.y*p.y, a.x*p.y - a.y*p.x).
+      // 1. CANVAS-SIDE OFFSET — per-tier shift in canvas space. (1 − |p|)
+      // ramps from 0 at the outer ring to 1 at the center; cumulative shift
+      // across tiers converges toward u_drosteOffset so the visible ring
+      // centers move off-axis (PhotoSpiralysis aesthetic).
+      p = p - (1.0 - length(p)) * u_drosteOffset;
+
+      // 2. SWIRL — Möbius pre-composition: M(p) = (p - a) / (1 - conj(a)*p).
+      // composes cleanly with the conformal Lenstra map below, so this now
+      // reads as spherical rotation (no shear distortion from log-shear).
       vec2 a = u_drosteSwirl;
       vec2 num = p - a;
       vec2 cap = vec2(a.x * p.x + a.y * p.y, a.x * p.y - a.y * p.x);
       vec2 den = vec2(1.0 - cap.x, -cap.y);
-      // complex division: num / den = num * conj(den) / |den|^2
       float denMag2 = max(1e-8, dot(den, den));
       p = vec2(num.x * den.x + num.y * den.y,
                num.y * den.x - num.x * den.y) / denMag2;
 
       float r = length(p);
       if (r < 1e-8) return vec2(0.0);
-
       float logr = log(r);
       float theta = atan(p.y, p.x);
 
-      // angular fold for N-arm mode. with wedge-mirror on (default): mirror at
-      // wedge boundaries (kaleidoscope feel, N/2 visible bilateral petals at
-      // non-zero twist). with wedge-mirror off: plain angular mod (N chiral
-      // arms with hard boundary seams — experimental "real spiral" look).
-      // arms=1 bypasses both paths and uses the raw theta.
+      // 3. ARMS — angular fold into 1/N wedge (unchanged).
       if (u_drosteArms > 1) {
         float wedge = TAU / float(u_drosteArms);
         if (u_drosteWedgeMirror == 1) {
@@ -159,30 +175,32 @@ export default {
         }
       }
 
-      // log-shear spiral: rotate theta by (twist_rad / logS) per unit log r.
-      // log r is unchanged, so tier scaling stays exactly logS regardless of twist.
-      float logS = u_drosteLogS;
-      float twistRad = u_drosteTwist;
-      float theta_new = theta + (twistRad / logS) * logr;
-      float logr_new  = logr;
+      // 4. LENSTRA CONFORMAL MAP — z_src = exp(c · log(p)).
+      // c = logS / (logS + i·twist_rad) pre-computed JS-side.
+      // c·(logr + i·theta) = (c.x·logr − c.y·theta) + i·(c.x·theta + c.y·logr)
+      // At twist=0, c = (1, 0) → identity (no spiral, concentric Droste).
+      // At twist=2π, c is the classical Print Gallery multiplier (one full
+      // canvas rotation per zoom step → tier seam is a log spiral curve).
+      vec2 c = u_drosteC;
+      float logr_src  = c.x * logr  - c.y * theta;
+      float theta_src = c.x * theta + c.y * logr;
 
-      // reduce log-radius into the fundamental annulus [-logS, 0).
-      // mirror mode reflects at tier boundaries (triangle wave with period 2·logS);
-      // wrap mode jumps (sawtooth with period logS).
+      // 5. TIER MIRROR / WRAP — reduce logr_src into the fundamental annulus
+      // [-logS, 0). mirror reflects at tier boundaries (triangle wave),
+      // wrap jumps (sawtooth — the visible "tier seam" in classical Droste).
+      float logS = u_drosteLogS;
       if (u_drosteMirror == 1) {
-        float u = mod(logr_new, 2.0 * logS);
-        logr_new = abs(u - logS) - logS;
+        float u = mod(logr_src, 2.0 * logS);
+        logr_src = abs(u - logS) - logS;
       } else {
-        logr_new = mod(logr_new, logS) - logS;
+        logr_src = mod(logr_src, logS) - logS;
       }
 
-      // SHIFT — per-tier linear translation in fold-space. surface tier has
-      // r = r_src so factor = 0 (no shift on the visible annulus). deeper tiers
-      // accumulate drift toward u_drosteShift. in mirror mode the factor
-      // crosses 0 at every tier reflection, so the shift effect remains
-      // seamless across the mirror boundaries.
-      float r_src = exp(logr_new);
-      vec2 z_src = vec2(cos(theta_new), sin(theta_new)) * r_src;
+      // 6. SOURCE-SIDE SHIFT — per-tier drift in source space (unchanged).
+      // factor (1 − r/r_src) is 0 on the surface tier and at every mirror
+      // reflection point, so the shift effect is seamless with drosteMirror.
+      float r_src = exp(logr_src);
+      vec2 z_src = vec2(cos(theta_src), sin(theta_src)) * r_src;
       z_src += u_drosteShift * (1.0 - r / r_src);
       return z_src;
     }
@@ -478,7 +496,7 @@ export default {
     ctx.arc(swirlHandleX, swirlHandleY, swirlRingR + 1.5, 0, TAU);
     ctx.stroke();
 
-    // shift dot — per-tier translation; small filled circle that sits inside
+    // shift dot — per-tier source-side drift; small filled white circle inside
     // the swirl ring at (0, 0). also unclamped.
     const tx = state.drosteShiftX || 0;
     const ty = state.drosteShiftY || 0;
@@ -491,6 +509,27 @@ export default {
     ctx.arc(shiftHandleX, shiftHandleY, shiftDotR, 0, TAU);
     ctx.fill();
     ctx.strokeStyle = 'rgba(0, 0, 0, 0.5)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    // offset diamond — canvas-side per-tier offset (PhotoSpiralysis). filled
+    // diamond, distinct from shift's circle. drawn innermost so it sits on top
+    // of the shift dot at zero — the three handles form a target/bullseye.
+    const ox = state.drosteOffsetX || 0;
+    const oy = state.drosteOffsetY || 0;
+    const offsetHandleX = cx + rOut * (ox * cosRot - oy * sinRot);
+    const offsetHandleY = cy + rOut * (ox * sinRot + oy * cosRot);
+    const offsetHL = env.hoverMode === 'droste-offset' || env.overlayDragMode === 'droste-offset';
+    const offsetDiamondR = offsetHL ? 7 : 5;
+    ctx.fillStyle = oobOut ? 'rgba(255, 196, 80, 1)' : 'rgba(170, 220, 255, 1)';
+    ctx.beginPath();
+    ctx.moveTo(offsetHandleX, offsetHandleY - offsetDiamondR);
+    ctx.lineTo(offsetHandleX + offsetDiamondR, offsetHandleY);
+    ctx.lineTo(offsetHandleX, offsetHandleY + offsetDiamondR);
+    ctx.lineTo(offsetHandleX - offsetDiamondR, offsetHandleY);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(0, 0, 0, 0.55)';
     ctx.lineWidth = 1;
     ctx.stroke();
 
@@ -566,6 +605,7 @@ export default {
       seamEndX, seamEndY,
       swirlHandleX, swirlHandleY,
       shiftHandleX, shiftHandleY,
+      offsetHandleX, offsetHandleY,
       halfWedge,
       sliceRotationRad: seamPhaseRad,
       isFullCircle,
@@ -577,16 +617,17 @@ export default {
   // ---------------------------------------------------------------------------
   //
   // mode priorities (highest wins):
-  //   1. shift handle hit (snug)               → 'droste-shift'
-  //   2. swirl handle hit (looser)             → 'droste-swirl'
-  //   3. twist handle hit                      → 'twist'
-  //   4. ring bands WITHIN the wedge angular range:
+  //   1. offset handle (innermost, smallest)   → 'droste-offset' (canvas-side)
+  //   2. shift handle (snug)                   → 'droste-shift'  (source-side)
+  //   3. swirl handle (looser annulus)         → 'droste-swirl'  (Möbius)
+  //   4. twist handle hit                      → 'twist'
+  //   5. ring bands WITHIN the wedge angular range:
   //        a. inner-ring band                  → 'scale' handle='inner' (drosteZoom)
   //        b. outer-ring band                  → 'scale' handle='outer' (sliceScale)
-  //   5. wedge boundary line (arms ≥ 2)        → 'droste-arms'
-  //   6. inside the inner ring (r ≤ rIn)       → 'move' (regardless of wedge angular)
-  //   7. inside wedge AND inside outer ring    → 'move'
-  //   8. fall-through                          → 'rotate'
+  //   6. wedge boundary line (arms ≥ 2)        → 'droste-arms'
+  //   7. inside the inner ring (r ≤ rIn)       → 'move' (regardless of wedge angular)
+  //   8. inside wedge AND inside outer ring    → 'move'
+  //   9. fall-through                          → 'rotate'
   //
   // band widths follow daniel's "~16 px total, only a few inside the wedge"
   // rule: BAND_IN (in the annulus body, between the rings) is intentionally
@@ -598,6 +639,7 @@ export default {
     if (!g) return { mode: null };
     const { cx, cy, rOut, rIn, seamEndX, seamEndY,
             swirlHandleX, swirlHandleY, shiftHandleX, shiftHandleY,
+            offsetHandleX, offsetHandleY,
             halfWedge, sliceRotationRad, isFullCircle } = g;
 
     const dx = x - cx, dy = y - cy;
@@ -605,16 +647,25 @@ export default {
     const theta = Math.atan2(dy, dx);
 
     const HANDLE_HIT     = isTouch ? 22 : 12;
-    const SHIFT_HIT      = isTouch ? 16 : 10;   // snug — the filled center dot
-    const SWIRL_HIT      = isTouch ? 22 : 14;   // looser — annulus around shift
+    const OFFSET_HIT     = isTouch ? 14 :  9;   // innermost — the diamond
+    const SHIFT_HIT      = isTouch ? 18 : 11;   // middle — the filled dot
+    const SWIRL_HIT      = isTouch ? 22 : 14;   // outermost — open ring
     const BAND_OUT       = isTouch ? 14 : 12;   // outside the annulus (toward inner-disc or beyond outer)
     const BAND_IN        = isTouch ?  8 :  6;   // inside the annulus body — leaves room for 'move' interior
     const SIDE_BAND_OUT  = isTouch ? 14 : 12;   // outside the wedge angularly
     const SIDE_BAND_IN   = isTouch ?  8 :  6;   // inside the wedge angularly
 
-    // 1. shift handle — highest priority. when at zero the dot sits inside the
-    // swirl ring; SHIFT_HIT is tight enough that hitting just outside the dot
-    // (annulus 10–14 px from center) still falls through to the swirl handle.
+    // 1. offset handle — innermost diamond. when all three are at zero, the
+    // tightest hit zone catches offset; outside it falls through to shift,
+    // outside that falls through to swirl.
+    if (offsetHandleX != null) {
+      const d = Math.hypot(x - offsetHandleX, y - offsetHandleY);
+      if (d <= OFFSET_HIT) {
+        return { mode: 'droste-offset', r, theta, R: 0 };
+      }
+    }
+
+    // 2. shift handle — middle ring of the bullseye.
     if (shiftHandleX != null) {
       const d = Math.hypot(x - shiftHandleX, y - shiftHandleY);
       if (d <= SHIFT_HIT) {
@@ -622,8 +673,7 @@ export default {
       }
     }
 
-    // 2. swirl handle — second priority. when at zero (overlapping shift), this
-    // catches the annular region just outside the shift dot.
+    // 3. swirl handle — outermost ring of the bullseye.
     if (swirlHandleX != null) {
       const d = Math.hypot(x - swirlHandleX, y - swirlHandleY);
       if (d <= SWIRL_HIT) {
@@ -631,7 +681,7 @@ export default {
       }
     }
 
-    // 3. twist handle
+    // 4. twist handle
     if (seamEndX != null) {
       const d = Math.hypot(x - seamEndX, y - seamEndY);
       if (d <= HANDLE_HIT) {
@@ -700,11 +750,12 @@ export default {
     return { mode: 'rotate', r, theta, R: rOut };
   },
 
-  // filename suffix: zoom + signed twist + arms + mirror + swirl + shift.
+  // filename suffix: zoom + signed twist + arms + mirror + offset + swirl + shift.
   // e.g. z200t045a03m1                   = zoom 2.00, twist +45°, arms 3, mirror on
   //      z200tm120a01m0                  = zoom 2.00, twist −120°, arms 1, mirror off
-  //      z200t000a02m1sx030ym020         = + swirl (0.30, −0.20). omitted when (0, 0).
-  //      z200t000a02m1tx015y025          = + shift (0.15, 0.25). omitted when (0, 0).
+  //      z200t000a02m1ox030y000          = + canvas-side offset (0.30, 0)
+  //      z200t000a02m1sx030ym020         = + swirl (0.30, −0.20)
+  //      z200t000a02m1tx015y025          = + source-side shift (0.15, 0.25)
   filenameSuffix(state) {
     const z = Math.round(state.drosteZoom * 100);
     const tDeg = Math.round(state.drosteTwist);
@@ -716,6 +767,10 @@ export default {
       + 'a' + String(arms).padStart(2, '0')
       + 'm' + mirror;
     const enc = (v) => (v < 0 ? 'm' : '') + String(Math.abs(Math.round(v * 100))).padStart(3, '0');
+    const ox = state.drosteOffsetX || 0, oy = state.drosteOffsetY || 0;
+    if (Math.abs(ox) > 0.005 || Math.abs(oy) > 0.005) {
+      suffix += 'ox' + enc(ox) + 'y' + enc(oy);
+    }
     const sx = state.drosteSwirlX || 0, sy = state.drosteSwirlY || 0;
     if (Math.abs(sx) > 0.005 || Math.abs(sy) > 0.005) {
       suffix += 'sx' + enc(sx) + 'y' + enc(sy);

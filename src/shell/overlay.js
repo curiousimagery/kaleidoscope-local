@@ -795,6 +795,7 @@ export function setupSourceInteraction(env, wrap) {
     if (mode === 'droste-arms')   return scaleCursorForAngle(theta);
     if (mode === 'droste-swirl')  return 'grab';
     if (mode === 'droste-shift')  return 'grab';
+    if (mode === 'droste-offset') return 'grab';
     return 'default';
   }
 
@@ -974,9 +975,9 @@ export function setupSourceInteraction(env, wrap) {
         state.drosteSwirlX = dxs * cosRot + dys * sinRot;
         state.drosteSwirlY = -dxs * sinRot + dys * cosRot;
       } else if (drag.mode === 'droste-shift') {
-        // direct manipulation: cursor → fold-space per-tier shift. same mapping
-        // shape as swirl, also unclamped (large values are absorbed by OOB modes
-        // since z_src can exit the source annulus at deep tiers).
+        // direct manipulation: cursor → fold-space per-tier source-side shift.
+        // unclamped — large values absorbed by OOB modes since z_src can exit
+        // the source annulus at deep tiers.
         if (!g || g.rOut < 1) return;
         const dxs = (x - g.cx) / g.rOut;
         const dys = (y - g.cy) / g.rOut;
@@ -984,6 +985,16 @@ export function setupSourceInteraction(env, wrap) {
         const sinRot = Math.sin(g.sliceRotationRad);
         state.drosteShiftX = dxs * cosRot + dys * sinRot;
         state.drosteShiftY = -dxs * sinRot + dys * cosRot;
+      } else if (drag.mode === 'droste-offset') {
+        // direct manipulation: cursor → fold-space canvas-side per-tier offset.
+        // same mapping shape as shift/swirl, also unclamped.
+        if (!g || g.rOut < 1) return;
+        const dxs = (x - g.cx) / g.rOut;
+        const dys = (y - g.cy) / g.rOut;
+        const cosRot = Math.cos(g.sliceRotationRad);
+        const sinRot = Math.sin(g.sliceRotationRad);
+        state.drosteOffsetX = dxs * cosRot + dys * sinRot;
+        state.drosteOffsetY = -dxs * sinRot + dys * cosRot;
       }
       env.syncControls();
       env.scheduleRender();
@@ -1112,6 +1123,9 @@ export function setupSourceInteraction(env, wrap) {
         boundarySign: cls.boundarySign,
       };
       setCursor(scaleCursorForAngle(cls.cursorTheta != null ? cls.cursorTheta : cls.theta));
+    } else if (cls.mode === 'droste-offset') {
+      drag = { mode: 'droste-offset' };
+      setCursor('grabbing');
     } else if (cls.mode === 'droste-shift') {
       drag = { mode: 'droste-shift' };
       setCursor('grabbing');

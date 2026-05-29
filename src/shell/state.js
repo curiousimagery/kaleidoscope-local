@@ -36,10 +36,14 @@ export const state = {
                         // distorts the disc interior (the "swirl/rotation" feel).
                         // unclamped — dragging past |a|=1 enters the back half of
                         // the Riemann sphere (one OOB pixel inside disc).
-  drosteShiftX: 0,      // droste form only: per-tier linear translation in
-  drosteShiftY: 0,      // fold-space. each recursive tier drifts by a constant
-                        // amount toward the shift direction (PhotoSpiralysis
-                        // "shift the center" feel). surface tier is unaffected.
+  drosteShiftX: 0,      // droste form only: per-tier SOURCE-side drift. each
+  drosteShiftY: 0,      // recursive tier's source sample drifts by a constant
+                        // amount toward the shift direction. canvas rings stay
+                        // concentric; the content within them drifts.
+  drosteOffsetX: 0,     // droste form only: canvas-side per-tier OFFSET. each
+  drosteOffsetY: 0,     // tier's ring boundary itself moves off-axis (the
+                        // PhotoSpiralysis "shift the visible center" feel).
+                        // pole lands at offset/(1+|offset|).
   canvasZoom: 1.0,
   canvasRotation: 0,
   oobMode: 0,           // 0=clamp, 1=mirror, 2=transparent. clamp is default.

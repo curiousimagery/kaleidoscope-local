@@ -4,7 +4,9 @@ Living list of things we want to do, in rough priority order within each section
 
 ## next up — small UI / quality refinements / known bugs
 
-- **Droste: pole rotation (Build 53).** Third DOF on the Möbius family — rotation around the pole axis — compounding with Build 52's swirl (Build 51 Möbius, renamed and unclamped). UX likely a second handle (or a rotation gesture on the swirl ring). Detailed design deferred to start of Build 53, once iPad time with the Build 52 shift + swirl handles has informed the affordance pattern. Strong pairing with the motion shell — animating swirl + pole over time gives a flowing-water effect.
+- **Droste: UI polish (Build 54).** Panel sliders for `drosteOffsetX/Y`, `drosteSwirlX/Y`, `drosteShiftX/Y` (currently none — direct manipulation only, but with three handles stacked at zero the ergonomics need a panel fallback). Generalized **reset-to-defaults** across the app (not just Droste). Handle disambiguation pattern (dominant-handle highlight on hover, panel sliders as primary input, or modifier-key cycle). Re-evaluate Lenstra at `|swirl| > 1` — singularity at `p = 1/conj(swirl)` still exists; with Lenstra it may produce a cleaner visual, decide whether to re-clamp.
+
+- **Droste: pole rotation (Build 55+).** Third DOF on the Möbius family — rotation around the pole axis — compounding with Build 53's now-conformal swirl. UX likely a second handle (or a rotation gesture on the swirl ring). Strong pairing with the motion shell — animating swirl + pole over time gives a flowing-water effect.
 
 - **Add spinner on export.** For larger exports there is a meaningful delay after clicking export before the browser is ready to download the file. This can lead a user to question whether the export command was recieved or not and potentially click the export button several times triggering multiple duplicate downloads. A simple fix would be to immediately add a circular spinner within the button to replace the word export (which would also disable the button until done)
 

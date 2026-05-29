@@ -12,7 +12,7 @@ He prefers **no em dashes** in his own writing; respect that in any prose Claude
 
 ## current version
 
-`v0.3.1 · Build 52`. The footer in the running app shows this string from `src/version.js`. When delivering a new build, increment BUILD by 1 and bump VERSION when meaningful change ships. **BUILD never resets** on version bumps — it's a global monotonic counter (see `version.js` comment).
+`v0.3.1 · Build 53`. The footer in the running app shows this string from `src/version.js`. When delivering a new build, increment BUILD by 1 and bump VERSION when meaningful change ships. **BUILD never resets** on version bumps — it's a global monotonic counter (see `version.js` comment).
 
 ## what's working
 
@@ -28,14 +28,26 @@ Read `ARCHITECTURE.md` if you need details on the registry, shader composition, 
 
 ## what we're doing right now
 
-Build 52 splits the Droste "offset" into two distinct controls. Build 51's Möbius math is preserved as the **swirl** control (`drosteSwirlX/Y`, renamed from `drosteOffsetX/Y`, clamp removed → full Riemann-sphere range). A new **shift** control (`drosteShiftX/Y`) adds PhotoSpiralysis-style per-tier linear translation: GLSL post-warp `z_src += u_drosteShift * (1 − r/r_src)`, where the factor is 0 on the surface tier and approaches 1 as recursion deepens. Mirror mode is seamless because the factor crosses 0 at every tier reflection.
+Build 53 makes a fundamental math change: **the log-shear is gone, replaced by the Lenstra conformal map.** Daniel's fresh-eyes review of Build 52 surfaced that even at the canonical "spiral" settings (arms=1, mirror=off, twist=360°), we were producing nested concentric circles instead of one unbroken spiral. Root cause: log-shear has circular tier boundaries. Lenstra's tier boundary is a log-spiral curve in canvas — that's what makes the spiral *spiral*.
 
-Two handles on the source overlay: shift = filled dot (6/8 px), swirl = open ring (10/12 px). At zero they form a target/bullseye. Hit zones: shift snug (16/10), swirl looser annulus (22/14) — the user grabs shift by touching center, swirl by touching the surrounding ring band.
+Side benefits of going conformal:
+- Möbius swirl now composes into a true sphere rotation (no shear distortion).
+- The β=0 stability problem stays fixed: Lenstra at `c = (1, 0)` (twist=0) is exact identity — no singularity.
 
-Planned next build:
-- **Build 53:** pole rotation (third DOF on the Möbius family; compounds naturally with swirl).
+Also new: **canvas-side offset** (`drosteOffsetX/Y`) — the PhotoSpiralysis "shift the visible center" effect. Applied before the warp as `p ← p − (1 − |p|)·offset`, this moves each tier's ring boundary off-axis. Distinct from `drosteShift` (source-side drift, Build 52), which stays in the codebase.
 
-**What Daniel needs to verify in-browser for Build 52** (Claude can't see the UI): at default state the bullseye is at slice center; dragging the inner dot drifts inner tiers linearly toward the cursor (rings retain shape, stack off-center — PhotoSpiralysis feel) and works seamlessly with `drosteMirror = true`; dragging the outer ring produces the rotational/swirling effect from Build 51 and now allows traversing past the unit-disc boundary (`|swirl| > 1` should keep cycling the effect rather than hitting a wall). If a faint crease appears at the first tier boundary in mirror mode under shift, flag it — there's a C1-continuous squared variant in reserve. Filename suffix now uses `sx…ym…` for swirl and `tx…ym…` for shift, omitted when zero.
+Three direct-manipulation handles on the source overlay form a bullseye at zero: filled light-blue diamond (offset, innermost) inside a filled white dot (shift, middle) inside an open white ring (swirl, outermost). Hit zones priority by size: 9/14 (offset, mouse/touch) → 11/18 (shift) → 14/22 (swirl). Tight at zero; **Build 54 will add panel sliders + reset-defaults** for ergonomics.
+
+Planned next builds:
+- **Build 54:** UI — panel sliders for offset/swirl/shift, reset-to-defaults across the app, handle disambiguation.
+- **Build 55+:** pole rotation (third DOF on the Möbius family).
+
+**What Daniel needs to verify in-browser for Build 53** (Claude can't see the UI):
+1. **Spiral test (canonical):** `arms=1, mirror=off, twist=360°`. Expect ONE unbroken spiral from outer ring to center — not concentric rings. If still concentric, the Lenstra math is wrong.
+2. **Canvas-side offset:** drag the diamond → visible ring centers walk off-axis (PhotoSpiralysis aesthetic). Outer ring stays put.
+3. **Conformal swirl:** drag the open ring → spiral pole moves with shape-preserving rotation. No more shear distortion.
+4. **Mirror + offset:** check for any tier-boundary seam introduced by canvas-side offset under `drosteMirror = true` — the `(1 − |p|)` factor doesn't go to 0 at tier boundaries, so a faint seam is possible. Flag if visible.
+5. Filename suffix gains `ox<XX>y<YY>` for canvas-side offset.
 
 Still pending from prior builds: Intel Air investigation (blocked on hardware access). Triangle form still pending production review of `TRI_SIZE`, `tilesPerDim`, and Build 37 fold-transform side effects.
 
