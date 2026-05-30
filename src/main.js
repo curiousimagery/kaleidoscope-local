@@ -437,22 +437,20 @@ function buildFilename(size) {
 // slider's form-aware wiring and with overlay.js's seam-drag handler)
 // ============================================================================
 
-// snap step depends on drosteArms: 360°/N for arms ≥ 2; arms=1 has no snap.
+// snap step depends on drosteArms: 1/arms in tiers-per-turn (matches the
+// armed wedge closure). arms=1 snaps to integer values (clean spiral closures).
 function armsSnapStep() {
   const n = Math.round(state.drosteArms || 1);
-  if (n <= 1) return null;
-  return 360 / Math.max(2, Math.min(12, n - (n % 2)));
+  if (n <= 1) return 1;
+  return 1 / Math.max(2, Math.min(12, n - (n % 2)));
 }
-function snapTwistDeg(v) {
+function snapSpiralValue(v) {
   const step = armsSnapStep();
-  if (step == null) return Math.max(-360, Math.min(360, v));
-  return Math.max(-360, Math.min(360, Math.round(v / step) * step));
+  return Math.max(-3, Math.min(3, Math.round(v / step) * step));
 }
 function applyArmsSnap() {
-  const step = armsSnapStep();
-  const twistSlider = document.getElementById('twist');
-  if (twistSlider) twistSlider.step = step != null ? String(step) : '1';
-  state.drosteTwist = snapTwistDeg(state.drosteTwist || 0);
+  // Slider step kept fine-grained (0.001) so snap is purely value-side.
+  state.drosteSpiral = snapSpiralValue(state.drosteSpiral || 0);
 }
 
 // segments slider — shared DOM, form-aware routing. radial drives state.segments
@@ -538,7 +536,7 @@ function setupSegmentsSlider() {
 }
 
 // Exposed for overlay.js's seam-drag + boundary-drag handlers.
-env.snapDrosteTwist = snapTwistDeg;
+env.snapDrosteSpiral = snapSpiralValue;
 env.applyArmsSnap = applyArmsSnap;
 
 // ============================================================================
@@ -610,21 +608,47 @@ function wireControls() {
     },
   });
 
-  // droste twist — rotation per tier in degrees. snaps to 360°/arms so the
-  // N-arm spiral closes cleanly. range is the full slider; snap_step varies
-  // with arms (180° at arms=2, 30° at arms=12, no snap at arms=1).
-  wireSliderWithScrub(env, 'twist', 'twistVal', 'drosteTwist', {
-    min: -360, max: 360, step: 1, scrubStep: 1,
-    fmt: v => (v >= 0 ? '+' : '') + v.toFixed(0) + '°',
+  // droste spiral — tiers per canvas turn. snaps to multiples of 1/arms so
+  // the spiral closes cleanly with the arms-fold lattice (1/12 at arms=12,
+  // 1/2 at arms=2, integers at arms=1). signed value gives chirality.
+  wireSliderWithScrub(env, 'spiral', 'spiralVal', 'drosteSpiral', {
+    min: -3, max: 3, step: 0.001, scrubStep: 0.05,
+    fmt: v => {
+      // Prefer fraction format when on a snap point. arms-aware: when
+      // v·arms rounds to a small integer, show p/q form.
+      if (Math.abs(v) < 1e-6) return '0';
+      const arms = Math.max(1, Math.round(state.drosteArms || 1));
+      const armsEven = arms <= 1 ? 1 : Math.max(2, Math.min(12, arms - (arms % 2)));
+      const num = Math.round(v * armsEven);
+      const denom = armsEven;
+      if (Math.abs(v * armsEven - num) < 0.01) {
+        const sign = v < 0 ? '−' : '';
+        const a = Math.abs(num);
+        if (denom === 1 || a === 0) return sign + a;
+        // reduce fraction
+        function gcd(x, y) { return y === 0 ? x : gcd(y, x % y); }
+        const g = gcd(a, denom);
+        const n = a / g, d = denom / g;
+        if (d === 1) return sign + n;
+        return sign + n + '/' + d;
+      }
+      return (v >= 0 ? '+' : '') + v.toFixed(2);
+    },
     parse: s => {
-      const cleaned = s.replace(/[°+]/g, '').trim();
+      const cleaned = s.replace(/[+−]/g, c => c === '−' ? '-' : '').trim();
+      // Accept "p/q" fraction syntax.
+      const m = cleaned.match(/^(-?\d+)\s*\/\s*(\d+)$/);
+      if (m) {
+        const n = parseFloat(m[1]), d = parseFloat(m[2]);
+        return d !== 0 ? n / d : null;
+      }
       const n = parseFloat(cleaned);
       return isNaN(n) ? null : n;
     },
-    snap: snapTwistDeg,
+    snap: snapSpiralValue,
   });
 
-  // initialize the twist slider's step + snap the seeded state value.
+  // initialize the slider snap to the current arms.
   applyArmsSnap();
 
   // droste tier mirror toggle (on/off buttons). registered with controlsSync
@@ -667,6 +691,25 @@ function wireControls() {
   });
   syncWedgeMirrorToggle();
   env.controlsSync.register(syncWedgeMirrorToggle);
+
+  // droste lenstra mode toggle (classical / generalized). A/B test toggle —
+  // committed direction lands in Build 55+.
+  function syncLenstraModeToggle() {
+    document.querySelectorAll('#lenstraModeToggle button').forEach(b => {
+      b.classList.toggle('active', b.dataset.lenstramode === state.drosteLenstraMode);
+    });
+  }
+  document.querySelectorAll('#lenstraModeToggle button').forEach(btn => {
+    btn.addEventListener('click', () => {
+      env.pushHistory();
+      state.drosteLenstraMode = btn.dataset.lenstramode;
+      syncLenstraModeToggle();
+      scheduleRender();
+      updateUndoUI();
+    });
+  });
+  syncLenstraModeToggle();
+  env.controlsSync.register(syncLenstraModeToggle);
 
   // canvas rotation
   wireSliderWithScrub(env, 'canvasRot', 'canvasRotVal', 'canvasRotation', {

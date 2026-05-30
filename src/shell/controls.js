@@ -340,9 +340,10 @@ export function applyFormControls(env) {
   const conditionalLabels = [
     ['aspect',      'aspectLabel'],
     ['zoom',        'zoomLabel'],
-    ['twist',       'twistLabel'],
+    ['spiral',      'spiralLabel'],
     ['mirror',      'mirrorLabel'],
     ['wedgeMirror', 'wedgeMirrorLabel'],
+    ['lenstraMode', 'lenstraModeLabel'],
   ];
   for (const [key, labelId] of conditionalLabels) {
     const el = document.getElementById(labelId);

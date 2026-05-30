@@ -20,8 +20,16 @@ export const state = {
                         // area-preserving normalization (W=√aspect, H=1/√aspect).
   drosteZoom: 2.0,      // droste form only: outer/inner radius ratio = scale per tier.
                         // 2.0 means each spiral turn halves; range ~1.1 to 16.
-  drosteTwist: 0,       // droste form only: twist angle per tier (degrees, signed).
-                        // 0 = pure concentric Droste; ±360 = full Print Gallery strength.
+  drosteSpiral: 0,      // droste form only: spiral tightness in TIERS PER CANVAS TURN.
+                        // 0 = no spiral (concentric Droste). ±1 = one tier per turn
+                        // (classical Print Gallery feel). signed for chirality.
+                        // snaps to multiples of 1/drosteArms during slider drag.
+  drosteLenstraMode: 'generalized',  // droste form only: which Lenstra formulation.
+                        // 'classical' = c = logS/(logS + i·twist_rad), conformal,
+                        //   <360° of source per canvas turn (tight spiral).
+                        // 'generalized' = c = 1 + i·b, c.real=1, full 360° per
+                        //   canvas turn (PhotoSpiralysis aesthetic, mild shear).
+                        // A/B compared in Build 54; commit decision in Build 55.
   drosteMirror: true,   // droste form only: when true, tier transitions reflect
                         // instead of teleporting — eliminates the source-side wrap seam.
   drosteArms: 2,        // droste form only: integer from {1, 2, 4, 6, 8, 10, 12}. arms=1

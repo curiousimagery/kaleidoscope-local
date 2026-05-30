@@ -4,6 +4,27 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.3.1 (Build 54) — 2026-05-30
+
+**Droste: A/B Lenstra mode + spiral slider (tiers per turn) + wedge mirror at arms=1.** Daniel's testing of Build 53 surfaced three observations that all trace to a single fundamental property of classical Lenstra: at any non-zero twist, `c.real < 1`, so one canvas turn shows less than 360° of source theta. With arms=1, this means the spiral "repeats" before showing the full source — Daniel's "7→9 / 8→10 jump." The fix is a **generalized Lenstra** parameterization, `c = 1 + i·b`, which keeps the log-spiral seam aesthetic but sets `c.real = 1` so each canvas turn always sweeps the full source. The trade-off is mild non-conformality (~4° angular shear per tier at zoom=2). To pick visually, Build 54 ships both modes behind a toggle; Build 55 will commit.
+
+- **State changes** in [src/shell/state.js](src/shell/state.js):
+  - **Renamed** `drosteTwist` (degrees of rotation per tier) → `drosteSpiral` (tiers per canvas turn). Range −3 to +3, default 0 (no spiral, concentric Droste).
+  - **Added** `drosteLenstraMode`: `'classical'` (Build 53 math) or `'generalized'` (new, default). Both modes accept the same `drosteSpiral` parameter — the only difference is the JS-side computation of `c`.
+- **Mode-aware `u_drosteC` extractor** in [src/engine/forms/droste.js](src/engine/forms/droste.js):
+  - Classical: back-derives `twist_rad = (π − √(π² − spiral²·logS²)) / spiral` (small branch), then `c = logS / (logS + i·twist_rad)`. Real solutions limited to `|spiral·logS| ≤ π` (≈ `|spiral| ≤ 4.5` at zoom=2); past that, clamps gracefully.
+  - Generalized: `c = 1 + i·b` where `b = -spiral · logS / (2π)`. Always `c.real = 1`. The GLSL pipeline (canvas-side offset → swirl → arms → Lenstra → tier mirror → source-side shift) is unchanged.
+- **Wedge mirror at arms=1** — new GLSL block applied after the Lenstra step and before the radial reduction. When `arms=1 && wedgeMirror=on`, theta is mirrored on odd tiers (`floor((logr_src + 1000·logS) / logS) % 2 == 1`). Adjacent tiers along the spiral arm appear with alternating chirality. Consistent semantic with the arms≥2 wedge mirror (reflect at boundary between repeating units); the "unit" is a tier when there's only one arm.
+- **Slider** in [index.html](index.html) renamed `twist` → `spiral`, range `-3..3 step 0.001`. Value display prefers fraction format (`1`, `1/2`, `2/3`, `5/4`) on snap points, decimal otherwise. Snap to multiples of `1/arms` (1/12 at arms=12, 1/2 at arms=2, integers at arms=1) — clean spiral closures across the arms-fold lattice.
+- **Lenstra mode toggle** — new two-button row in the slice panel (`classical` / `generalized`), idiomatically matching the tier-mirror and wedge-mirror toggles. Tooltip explains the trade-off.
+- **Snap plumbing** in [src/main.js](src/main.js): `snapTwistDeg` → `snapSpiralValue` (rounds to nearest `1/arms`). `env.snapDrosteTwist` → `env.snapDrosteSpiral`. `armsSnapStep` returns `1/arms`. The slider keeps fine-grained step (0.001) and lets the snap function do the discretization, so smooth drags + crisp landings.
+- **Overlay drag** in [src/shell/overlay.js](src/shell/overlay.js): `droste-twist` handler now writes `state.drosteSpiral` with units `tiers per turn`. One full canvas-turn cursor drag (2π rad) maps to +1.0 spiral (matches "one tier per turn" intuition).
+- **Filename suffix:** `t<deg>` removed; replaced by `q<NNN>` (spiral × 100, signed) and `lm<C|G>` (Lenstra mode). Example: `q100lmGa01m1` = spiral 1.00, generalized mode, arms 1, tier mirror on.
+- **Overlay seam-spiral approximation deferred.** The source-overlay's twisted-wedge preview still uses log-shear-style math (`twistRad = spiral · 2π` as a rough hint). It was already approximate after Build 53's switch to Lenstra; accurate redraw waits until Build 55+ commits to one mode.
+- **Code:** [src/shell/state.js](src/shell/state.js), [src/engine/forms/droste.js](src/engine/forms/droste.js), [index.html](index.html), [src/shell/controls.js](src/shell/controls.js), [src/main.js](src/main.js), [src/shell/overlay.js](src/shell/overlay.js), [src/version.js](src/version.js) (Build 54).
+
+---
+
 ## v0.3.1 (Build 53) — 2026-05-29
 
 **Droste: Lenstra conformal map replaces log-shear + new canvas-side offset.** Daniel's fresh-eyes review after Build 52 surfaced three things that all traced to one decision: our log-shear spiral has *circular* tier boundaries, so even at the "canonical spiral" settings (arms=1, mirror=off, twist=360°) the output reads as nested concentric circles, not one unbroken spiral. The Möbius swirl built on top of log-shear inherits that non-conformality, so it reads as planar distortion rather than spherical rotation. And the source-side `drosteShift` we shipped in Build 52 was solving the wrong half of the offset problem — it shifted the *content* within each ring instead of moving the *visible ring centers*. Build 53 addresses all three with one math change plus one new control.

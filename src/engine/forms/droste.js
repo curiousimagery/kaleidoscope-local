@@ -59,7 +59,7 @@ export default {
     <path d="M 21 16 A 5 5 0 0 1 22.5 19.5 L 26.6 23.6"/>
   </g></svg>`,
 
-  controls: ['segments', 'zoom', 'twist', 'mirror', 'wedgeMirror'],
+  controls: ['segments', 'zoom', 'spiral', 'mirror', 'wedgeMirror', 'lenstraMode'],
 
   uniforms: {
     // log(drosteZoom) — precomputed to spare the shader a log() per pixel.
@@ -67,18 +67,32 @@ export default {
       type: '1f',
       get: (state) => Math.log(Math.max(1.0001, state.drosteZoom)),
     },
-    // LENSTRA conformal-map parameter c = logS / (logS + i·twist_rad).
-    // applying z_src = exp(c · log(p)) gives a true Print-Gallery spiral
-    // whose tier seam is a log-spiral curve in canvas (not a circle). at
-    // twist=0, c = (1, 0) — identity in log-space, no spiral, no singularity.
-    // at twist=2π, c is the classical Print Gallery multiplier.
+    // LENSTRA conformal-map parameter. mode-aware:
+    //   'classical': c = logS / (logS + i·twist_rad). conformal, tight spiral
+    //     (one canvas turn covers ≪ 360° of source). twist_rad back-derived
+    //     from spiral (tiers per turn) via the small-branch quadratic root.
+    //   'generalized' (default): c = 1 + i·b where b = -spiral·logS/(2π).
+    //     c.real = 1 → full 360° of source theta per canvas turn. mildly
+    //     non-conformal (~4° angular shear per tier at zoom=2).
+    // both modes accept the SAME drosteSpiral parameter, so the slider behavior
+    // is consistent under the A/B toggle. at spiral=0 both reduce to (1, 0).
     u_drosteC: {
       type: '2f',
       get: (state) => {
         const logS = Math.log(Math.max(1.0001, state.drosteZoom));
-        const twistRad = (state.drosteTwist || 0) * Math.PI / 180;
-        const denom = logS * logS + twistRad * twistRad;
-        return [logS * logS / denom, -logS * twistRad / denom];
+        const spiral = state.drosteSpiral || 0;
+        if (Math.abs(spiral) < 1e-6) return [1, 0];
+        if (state.drosteLenstraMode === 'classical') {
+          // back-derive twist_rad from spiral: twist = (π − √(π² − spiral²·logS²)) / spiral
+          // real solutions need |spiral·logS| ≤ π (≈ |spiral| ≤ 4.5 at zoom=2).
+          const sl = spiral * logS;
+          const disc = Math.max(0, Math.PI * Math.PI - sl * sl);
+          const twistRad = Math.sign(spiral) * (Math.PI - Math.sqrt(disc)) / Math.abs(spiral);
+          const denom = logS * logS + twistRad * twistRad;
+          return [logS * logS / denom, -logS * twistRad / denom];
+        }
+        // generalized
+        return [1, -spiral * logS / (2 * Math.PI)];
       },
     },
     // tier mirror: 1 = reflect across tier boundary; 0 = mod-wrap (classic Droste).
@@ -176,14 +190,23 @@ export default {
       }
 
       // 4. LENSTRA CONFORMAL MAP — z_src = exp(c · log(p)).
-      // c = logS / (logS + i·twist_rad) pre-computed JS-side.
+      // c pre-computed JS-side (classical or generalized Lenstra). spiral=0
+      // gives c = (1, 0) → identity (no spiral, concentric Droste).
       // c·(logr + i·theta) = (c.x·logr − c.y·theta) + i·(c.x·theta + c.y·logr)
-      // At twist=0, c = (1, 0) → identity (no spiral, concentric Droste).
-      // At twist=2π, c is the classical Print Gallery multiplier (one full
-      // canvas rotation per zoom step → tier seam is a log spiral curve).
       vec2 c = u_drosteC;
       float logr_src  = c.x * logr  - c.y * theta;
       float theta_src = c.x * theta + c.y * logr;
+
+      // 4b. ARMS=1 WEDGE MIRROR — at arms=1, wedge mirror reflects theta on
+      // odd tiers along the spiral arm, creating alternating chirality between
+      // tiers. parallels arms≥2 wedge mirror (reflect at boundary between
+      // repeating units), where the "unit" is a tier when there's only one arm.
+      if (u_drosteArms == 1 && u_drosteWedgeMirror == 1) {
+        float tierIdx = floor((logr_src + 1000.0 * u_drosteLogS) / u_drosteLogS);
+        if (mod(tierIdx, 2.0) > 0.5) {
+          theta_src = -theta_src;
+        }
+      }
 
       // 5. TIER MIRROR / WRAP — reduce logr_src into the fundamental annulus
       // [-logS, 0). mirror reflects at tier boundaries (triangle wave),
@@ -265,7 +288,13 @@ export default {
     const isFullCircle = armsCount === 1;
 
     const seamPhaseRad = state.sliceRotation * Math.PI / 180;
-    const twistRad = state.drosteTwist * Math.PI / 180;
+    // Approximate seam-spiral visualization. Under Build 54's Lenstra math
+    // the actual tier seam is a log spiral curve, but the overlay still draws
+    // the legacy log-shear-style twisted-wedge as a rough indicator. Treat
+    // spiral (tiers per turn) as if it were rotation per tier in radians:
+    // twistRad ≈ spiral · 2π gives a visually-plausible hint at small spiral.
+    // Accurate redraw deferred to whichever build commits to one Lenstra mode.
+    const twistRad = (state.drosteSpiral || 0) * 2 * Math.PI;
     const wedgeStart = seamPhaseRad - halfWedge;
     const wedgeEnd   = seamPhaseRad + halfWedge;
 
@@ -750,20 +779,22 @@ export default {
     return { mode: 'rotate', r, theta, R: rOut };
   },
 
-  // filename suffix: zoom + signed twist + arms + mirror + offset + swirl + shift.
-  // e.g. z200t045a03m1                   = zoom 2.00, twist +45°, arms 3, mirror on
-  //      z200tm120a01m0                  = zoom 2.00, twist −120°, arms 1, mirror off
-  //      z200t000a02m1ox030y000          = + canvas-side offset (0.30, 0)
-  //      z200t000a02m1sx030ym020         = + swirl (0.30, −0.20)
-  //      z200t000a02m1tx015y025          = + source-side shift (0.15, 0.25)
+  // filename suffix: zoom + spiral + lenstra-mode + arms + mirror + (offset, swirl, shift).
+  // e.g. z200q100lmGa01m1                = zoom 2.00, spiral 1.00 tiers/turn, gen mode, arms 1, mirror on
+  //      z200qm050lmCa02m0               = zoom 2.00, spiral −0.50, classical mode, arms 2, mirror off
+  //      z200q000lmGa02m1ox030y000       = + canvas-side offset (0.30, 0)
+  //      z200q000lmGa02m1sx030ym020      = + swirl (0.30, −0.20)
+  //      z200q000lmGa02m1tx015y025       = + source-side shift (0.15, 0.25)
   filenameSuffix(state) {
     const z = Math.round(state.drosteZoom * 100);
-    const tDeg = Math.round(state.drosteTwist);
-    const tSign = tDeg < 0 ? 'm' : '';
+    const spiral100 = Math.round((state.drosteSpiral || 0) * 100);
+    const qSign = spiral100 < 0 ? 'm' : '';
+    const lmCode = state.drosteLenstraMode === 'classical' ? 'C' : 'G';
     const arms = Math.max(1, Math.min(12, Math.round(state.drosteArms || 1)));
     const mirror = state.drosteMirror ? 1 : 0;
     let suffix = 'z' + z
-      + 't' + tSign + String(Math.abs(tDeg)).padStart(3, '0')
+      + 'q' + qSign + String(Math.abs(spiral100)).padStart(3, '0')
+      + 'lm' + lmCode
       + 'a' + String(arms).padStart(2, '0')
       + 'm' + mirror;
     const enc = (v) => (v < 0 ? 'm' : '') + String(Math.abs(Math.round(v * 100))).padStart(3, '0');

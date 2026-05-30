@@ -928,20 +928,21 @@ export function setupSourceInteraction(env, wrap) {
         const newZoom = Math.max(1.1, Math.min(16, drag.startZoom * ratio));
         state.drosteZoom = newZoom;
       } else if (drag.mode === 'droste-twist') {
-        // angular drag from the seam INNER endpoint (Build 45). the handle
-        // sits at (rIn, sliceRotation − twist), so the cursor's angular delta
-        // around the slice center maps to −delta on twist (cursor CCW = handle
-        // CCW = twist increases). snap to current arms count's alignment step.
+        // angular drag from the seam INNER endpoint. the cursor's angular
+        // delta around the slice center maps to −delta on spiral (cursor CCW
+        // = handle CCW = spiral increases). new units: tiers per canvas turn,
+        // so one full canvas-turn drag (2π rad) adds 1.0 to spiral. snap to
+        // current arms count's 1/arms alignment step.
         if (!g) return;
         const a = Math.atan2(y - g.cy, x - g.cx);
         let delta = a - drag.prevAngle;
         if (delta > Math.PI)  delta -= 2 * Math.PI;
         if (delta < -Math.PI) delta += 2 * Math.PI;
         drag.prevAngle = a;
-        let next = state.drosteTwist - delta * 180 / Math.PI;
-        if (next > 360)  next = 360;
-        if (next < -360) next = -360;
-        state.drosteTwist = env.snapDrosteTwist ? env.snapDrosteTwist(next) : next;
+        let next = (state.drosteSpiral || 0) - delta / (2 * Math.PI);
+        if (next > 3)  next = 3;
+        if (next < -3) next = -3;
+        state.drosteSpiral = env.snapDrosteSpiral ? env.snapDrosteSpiral(next) : next;
       } else if (drag.mode === 'droste-arms') {
         // drag a wedge boundary line angularly to change the arms count. the
         // cursor's |relative angle from sliceRotation| becomes the new
