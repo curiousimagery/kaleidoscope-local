@@ -4,9 +4,9 @@ Living list of things we want to do, in rough priority order within each section
 
 ## next up — small UI / quality refinements / known bugs
 
-- **Droste: commit Lenstra mode + UI polish (Build 55).** After Daniel A/B tests Build 54's classical vs generalized Lenstra, commit to one math (remove the toggle and `drosteLenstraMode` state). Then ship the deferred UI polish: panel sliders for `drosteOffsetX/Y`, `drosteSwirlX/Y`, `drosteShiftX/Y` + generalized **reset-to-defaults** across the app + handle disambiguation pattern (three stacked handles at zero need a way to pick which). Also redraw the source-overlay seam-spiral to match the chosen Lenstra math (currently approximate). Re-evaluate `|swirl| > 1` behavior with chosen math; decide whether to re-clamp.
+- **Droste: panel sliders + reset defaults + handle disambiguation (Build 56).** Panel sliders for `drosteOffsetX/Y`, `drosteSwirlX/Y`, `drosteShiftX/Y` (currently direct-manipulation only). Generalized **reset-to-defaults** across the app. Handle disambiguation pattern — three handles (offset diamond, shift dot, swirl ring) stack at slice center when zero. Also re-evaluate `|swirl| > 1` behavior; decide whether to re-clamp.
 
-- **Droste: pole rotation (Build 56+).** Third DOF on the Möbius family — rotation around the pole axis — compounding with the (now-committed) swirl. UX likely a second handle (or a rotation gesture on the swirl ring). Strong pairing with the motion shell — animating swirl + pole over time gives a flowing-water effect.
+- **Droste: pole rotation (Build 57+).** Third DOF on the Möbius family — rotation around the pole axis — compounding with the now-committed swirl. UX likely a second handle (or a rotation gesture on the swirl ring). Strong pairing with the motion shell — animating swirl + pole over time gives a flowing-water effect.
 
 - **Add spinner on export.** For larger exports there is a meaningful delay after clicking export before the browser is ready to download the file. This can lead a user to question whether the export command was recieved or not and potentially click the export button several times triggering multiple duplicate downloads. A simple fix would be to immediately add a circular spinner within the button to replace the word export (which would also disable the button until done)
 

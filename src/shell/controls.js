@@ -343,7 +343,6 @@ export function applyFormControls(env) {
     ['spiral',      'spiralLabel'],
     ['mirror',      'mirrorLabel'],
     ['wedgeMirror', 'wedgeMirrorLabel'],
-    ['lenstraMode', 'lenstraModeLabel'],
   ];
   for (const [key, labelId] of conditionalLabels) {
     const el = document.getElementById(labelId);

@@ -21,18 +21,13 @@ export const state = {
   drosteZoom: 2.0,      // droste form only: outer/inner radius ratio = scale per tier.
                         // 2.0 means each spiral turn halves; range ~1.1 to 16.
   drosteSpiral: 0,      // droste form only: spiral tightness in TIERS PER CANVAS TURN.
-                        // 0 = no spiral (concentric Droste). ±1 = one tier per turn
-                        // (classical Print Gallery feel). signed for chirality.
-                        // snaps to multiples of 1/drosteArms during slider drag.
-  drosteLenstraMode: 'generalized',  // droste form only: which Lenstra formulation.
-                        // 'classical' = c = logS/(logS + i·twist_rad), conformal,
-                        //   <360° of source per canvas turn (tight spiral).
-                        // 'generalized' = c = 1 + i·b, c.real=1, full 360° per
-                        //   canvas turn (PhotoSpiralysis aesthetic, mild shear).
-                        // A/B compared in Build 54; commit decision in Build 55.
+                        // 0 = no spiral (concentric Droste). 1 = one tier per turn
+                        // (Print-Gallery feel). range 0..6. snaps to multiples of
+                        // 1/drosteArms (or 2/drosteArms when drosteMirror is on,
+                        // since odd values misalign at the canvas seam with mirror).
   drosteMirror: true,   // droste form only: when true, tier transitions reflect
                         // instead of teleporting — eliminates the source-side wrap seam.
-  drosteArms: 2,        // droste form only: integer from {1, 2, 4, 6, 8, 10, 12}. arms=1
+  drosteArms: 1,        // droste form only: integer from {1, 2, 4, 6, 8, 10, 12}. arms=1
                         // bypasses the wedge fold (single chiral spiral). arms ≥ 2
                         // fold θ into a 1/N wedge with mirror at wedge edges (when
                         // drosteWedgeMirror is on). even-only matches segments parity.

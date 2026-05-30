@@ -4,6 +4,21 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.3.1 (Build 55) — 2026-05-30
+
+**Droste: commit generalized Lenstra + spiral UX polish.** After Build 54's A/B test, Daniel chose generalized Lenstra. Build 55 commits the math, simplifies the slider, removes broken direct-manipulation affordances, and fixes the "mirrored by default" first-paint feel.
+
+- **Generalized Lenstra committed.** Classical Lenstra and the mode toggle are removed. The `u_drosteC` extractor is now a one-liner: `c = (1, -spiral · logS / (2π))`. The shader pipeline is unchanged. `state.drosteLenstraMode` is removed; the `lenstraMode` slider DOM and `'lenstraMode'` entry in the form's `controls` array are removed.
+- **Default `drosteArms` changes from 2 → 1.** Out of the box, the Droste form is now a single-arm spiral (no angular fold). This produces a centered, non-bilaterally-mirrored result by default — the form's namesake aesthetic. Users opt into arms ≥ 2 (kaleidoscope-style) via the segments slider.
+- **Spiral slider range tightens to 0..6** (was −3..3). Negative chirality wasn't adding visible value.
+- **Tier-mirror-aware snap.** The snap step is `1/arms` when tier mirror is OFF and `2/arms` when tier mirror is ON. Reason: with tier mirror, one canvas turn that lands in an *odd* tier ends up in a reflected tier, producing visible misalignment at the canvas seam. Only even multiples of `1/arms` close cleanly. Toggling the tier mirror re-snaps the spiral value automatically and refreshes the slider display.
+- **Direct-manipulation handle for spiral removed.** The seam-endpoint dot, the log-spiral seam line, the translucent twisted-wedge preview, and the corresponding `'twist'` hit-test + `'droste-twist'` drag mode are all gone. They were rooted in log-shear-era math, inaccurate under Lenstra, and the dot had no working drag. Spiral is now adjusted via the slider only. `seamEndX/Y` is dropped from the geom export.
+- **Smoother spiral overlay.** With the polyline seam-spiral drawing removed, the source-overlay is now drawn entirely with `ctx.arc` for circles and straight `lineTo` for wedge sides — no more octagonal-looking curves.
+- **Filename suffix simplified.** Drops the `lm<C|G>` clause. Format is now `z<zoom>q<spiral>a<arms>m<mirror>` + optional `ox…`, `sx…`, `tx…` clauses.
+- **Code:** [src/shell/state.js](src/shell/state.js) (removed `drosteLenstraMode`, default `drosteArms: 1`), [src/engine/forms/droste.js](src/engine/forms/droste.js) (simplified `u_drosteC`, removed seam-related drawing + hit-test, dropped `'lenstraMode'` from `controls`, simplified filename suffix), [index.html](index.html) (`#spiral` slider min=0; removed `#lenstraModeLabel`), [src/shell/controls.js](src/shell/controls.js) (dropped `lenstraMode` from conditional labels), [src/main.js](src/main.js) (tier-mirror-aware `armsSnapStep`; spiral slider min=0; tier mirror toggle re-snaps via `applyArmsSnap` + `syncAll`; removed Lenstra mode toggle wiring), [src/shell/overlay.js](src/shell/overlay.js) (removed `'droste-twist'` drag mode + `'twist'` cursor and dispatch), [src/version.js](src/version.js) (Build 55).
+
+---
+
 ## v0.3.1 (Build 54) — 2026-05-30
 
 **Droste: A/B Lenstra mode + spiral slider (tiers per turn) + wedge mirror at arms=1.** Daniel's testing of Build 53 surfaced three observations that all trace to a single fundamental property of classical Lenstra: at any non-zero twist, `c.real < 1`, so one canvas turn shows less than 360° of source theta. With arms=1, this means the spiral "repeats" before showing the full source — Daniel's "7→9 / 8→10 jump." The fix is a **generalized Lenstra** parameterization, `c = 1 + i·b`, which keeps the log-spiral seam aesthetic but sets `c.real = 1` so each canvas turn always sweeps the full source. The trade-off is mild non-conformality (~4° angular shear per tier at zoom=2). To pick visually, Build 54 ships both modes behind a toggle; Build 55 will commit.

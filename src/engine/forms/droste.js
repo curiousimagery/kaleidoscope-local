@@ -59,7 +59,7 @@ export default {
     <path d="M 21 16 A 5 5 0 0 1 22.5 19.5 L 26.6 23.6"/>
   </g></svg>`,
 
-  controls: ['segments', 'zoom', 'spiral', 'mirror', 'wedgeMirror', 'lenstraMode'],
+  controls: ['segments', 'zoom', 'spiral', 'mirror', 'wedgeMirror'],
 
   uniforms: {
     // log(drosteZoom) — precomputed to spare the shader a log() per pixel.
@@ -67,31 +67,16 @@ export default {
       type: '1f',
       get: (state) => Math.log(Math.max(1.0001, state.drosteZoom)),
     },
-    // LENSTRA conformal-map parameter. mode-aware:
-    //   'classical': c = logS / (logS + i·twist_rad). conformal, tight spiral
-    //     (one canvas turn covers ≪ 360° of source). twist_rad back-derived
-    //     from spiral (tiers per turn) via the small-branch quadratic root.
-    //   'generalized' (default): c = 1 + i·b where b = -spiral·logS/(2π).
-    //     c.real = 1 → full 360° of source theta per canvas turn. mildly
-    //     non-conformal (~4° angular shear per tier at zoom=2).
-    // both modes accept the SAME drosteSpiral parameter, so the slider behavior
-    // is consistent under the A/B toggle. at spiral=0 both reduce to (1, 0).
+    // LENSTRA conformal-map parameter (generalized formulation, committed in
+    // Build 55 after A/B test): c = 1 + i·b where b = -spiral·logS/(2π).
+    // c.real = 1 always → full 360° of source theta per canvas turn. mildly
+    // non-conformal (~4° angular shear per tier at zoom=2). at spiral=0,
+    // c = (1, 0) (identity) → standard concentric Droste, no spiral.
     u_drosteC: {
       type: '2f',
       get: (state) => {
         const logS = Math.log(Math.max(1.0001, state.drosteZoom));
         const spiral = state.drosteSpiral || 0;
-        if (Math.abs(spiral) < 1e-6) return [1, 0];
-        if (state.drosteLenstraMode === 'classical') {
-          // back-derive twist_rad from spiral: twist = (π − √(π² − spiral²·logS²)) / spiral
-          // real solutions need |spiral·logS| ≤ π (≈ |spiral| ≤ 4.5 at zoom=2).
-          const sl = spiral * logS;
-          const disc = Math.max(0, Math.PI * Math.PI - sl * sl);
-          const twistRad = Math.sign(spiral) * (Math.PI - Math.sqrt(disc)) / Math.abs(spiral);
-          const denom = logS * logS + twistRad * twistRad;
-          return [logS * logS / denom, -logS * twistRad / denom];
-        }
-        // generalized
         return [1, -spiral * logS / (2 * Math.PI)];
       },
     },
@@ -261,8 +246,8 @@ export default {
   //   imgX, imgY, imgW, imgH  (image rect in screen px)
   //   cx, cy                  (slice center in screen px)
   //   rOut, rIn               (outer/inner annulus radii in screen px)
-  //   seamEndX, seamEndY      (seam outer endpoint in screen px)
-  //   seamAngle               (seam phase angle in radians)
+  //   swirl/shift/offset handle positions (screen px)
+  //   halfWedge, sliceRotationRad, isFullCircle
   drawOverlay(env, ctx, geom) {
     const { state } = env;
     const { w, h, imgX, imgY, imgW, imgH, cx, cy, sourceAspect, IS_TOUCH } = geom;
@@ -413,84 +398,10 @@ export default {
       ctx.setLineDash([]);
     }
 
-    // translucent twisted-wedge overlay — shows the ACTUAL sample region in
-    // source space when twist is non-zero. the warp maps canvas (theta=θ, r=R)
-    // to source (theta=θ + (twist/logS)·log R, r=R), so the inner ring of the
-    // sample wedge is rotated by −twist relative to the outer ring, with
-    // log-spiral sides connecting them. drawn after the solid untwisted wedge
-    // outline so the user sees both:
-    //   - solid untwisted wedge = click/touch reference + straight-line affordance
-    //   - translucent twisted wedge = visual preview of the actual pixels sampled
-    // skipped at twist=0 (identical to untwisted) and at arms=1 (the full-circle
-    // annulus is the sample region regardless of twist).
-    const SEAM_STEPS = 24;
-    if (Math.abs(twistRad) > 1e-4 && !isFullCircle) {
-      ctx.strokeStyle = oobOut ? 'rgba(255, 196, 80, 0.32)' : 'rgba(255, 255, 255, 0.3)';
-      ctx.lineWidth = 1.5;
-      ctx.setLineDash([]);
-      ctx.beginPath();
-      // 1. outer arc — same as untwisted (twist doesn't shift the outer ring).
-      ctx.arc(cx, cy, rOut, wedgeStart, wedgeEnd, false);
-      // 2. +halfWedge side: log-spiral from (rOut, wedgeEnd) to (rIn, wedgeEnd − twist).
-      for (let i = 1; i <= SEAM_STEPS; i++) {
-        const t = 1 - i / SEAM_STEPS;             // t goes 1 → 0 (outer → inner)
-        const r = rIn * Math.pow(zoom, t);
-        const a = wedgeEnd - twistRad * (1 - t);   // outer: a=wedgeEnd; inner: a=wedgeEnd−twist
-        ctx.lineTo(cx + r * Math.cos(a), cy + r * Math.sin(a));
-      }
-      // 3. inner arc — shifted by −twist.
-      ctx.arc(cx, cy, rIn, wedgeEnd - twistRad, wedgeStart - twistRad, true);
-      // 4. −halfWedge side: log-spiral back up to (rOut, wedgeStart).
-      for (let i = 1; i <= SEAM_STEPS; i++) {
-        const t = i / SEAM_STEPS;
-        const r = rIn * Math.pow(zoom, t);
-        const a = wedgeStart - twistRad * (1 - t);
-        ctx.lineTo(cx + r * Math.cos(a), cy + r * Math.sin(a));
-      }
-      ctx.closePath();
-      ctx.stroke();
-    }
-
-    // seam line — logarithmic spiral at the wedge center from outer ring
-    // (sliceRotation) to inner ring (sliceRotation − twist), matching the
-    // actual warp direction. when twist = 0 it's a straight radial. serves as
-    // both a twist preview at arms=1 (where there are no wedge sides) and as
-    // the visual context for the twist drag handle at all arms.
-    const twistHL = env.hoverMode === 'twist' || env.overlayDragMode === 'droste-twist';
-    const seamColor = oobOut
-      ? (twistHL ? 'rgba(255, 230, 140, 1.0)' : 'rgba(255, 196, 80, 0.85)')
-      : (twistHL ? 'rgba(255, 255, 255, 1.0)' : 'rgba(255, 255, 255, 0.8)');
-    ctx.strokeStyle = seamColor;
-    ctx.lineWidth = twistHL ? 2.5 : 1.5;
-    ctx.setLineDash(oobOut ? [6, 4] : []);
-    ctx.beginPath();
-    for (let i = 0; i <= SEAM_STEPS; i++) {
-      const t = i / SEAM_STEPS;                    // 0 at inner, 1 at outer
-      const r = rIn * Math.pow(zoom, t);
-      const a = seamPhaseRad - twistRad * (1 - t); // inner: a=phase−twist; outer: a=phase
-      const x = cx + r * Math.cos(a);
-      const y = cy + r * Math.sin(a);
-      if (i === 0) ctx.moveTo(x, y);
-      else ctx.lineTo(x, y);
-    }
-    ctx.stroke();
-    ctx.setLineDash([]);
-
-    // twist handle — the seam's INNER endpoint at (rIn, sliceRotation − twist).
-    // moves with twist so the user has a visible drag target that tracks the
-    // parameter. positioned on the inner ring; the inner-ring scale band still
-    // works on the rest of the ring (handle hit is checked first in classify).
-    const seamEndAngle = seamPhaseRad - twistRad;
-    const seamEndX = cx + rIn * Math.cos(seamEndAngle);
-    const seamEndY = cy + rIn * Math.sin(seamEndAngle);
-    const HANDLE_R = twistHL ? 6 : 4.5;
-    ctx.fillStyle = oobOut ? 'rgba(255, 196, 80, 1)' : 'rgba(255, 255, 255, 1)';
-    ctx.beginPath();
-    ctx.arc(seamEndX, seamEndY, HANDLE_R, 0, TAU);
-    ctx.fill();
-    ctx.strokeStyle = 'rgba(0, 0, 0, 0.5)';
-    ctx.lineWidth = 1;
-    ctx.stroke();
+    // (Build 55: removed the seam-endpoint drag handle, the log-spiral seam
+    // line, and the translucent twisted-wedge preview. They were driven by
+    // log-shear-era math and inaccurate under generalized Lenstra. The spiral
+    // is now adjusted via the slider only.)
 
     // center dot.
     ctx.fillStyle = '#ffffff';
@@ -631,7 +542,6 @@ export default {
       imgX, imgY, imgW, imgH,
       cx, cy,
       rOut, rIn,
-      seamEndX, seamEndY,
       swirlHandleX, swirlHandleY,
       shiftHandleX, shiftHandleY,
       offsetHandleX, offsetHandleY,
@@ -649,14 +559,15 @@ export default {
   //   1. offset handle (innermost, smallest)   → 'droste-offset' (canvas-side)
   //   2. shift handle (snug)                   → 'droste-shift'  (source-side)
   //   3. swirl handle (looser annulus)         → 'droste-swirl'  (Möbius)
-  //   4. twist handle hit                      → 'twist'
-  //   5. ring bands WITHIN the wedge angular range:
+  //   4. ring bands WITHIN the wedge angular range:
   //        a. inner-ring band                  → 'scale' handle='inner' (drosteZoom)
   //        b. outer-ring band                  → 'scale' handle='outer' (sliceScale)
-  //   6. wedge boundary line (arms ≥ 2)        → 'droste-arms'
-  //   7. inside the inner ring (r ≤ rIn)       → 'move' (regardless of wedge angular)
-  //   8. inside wedge AND inside outer ring    → 'move'
-  //   9. fall-through                          → 'rotate'
+  //   5. wedge boundary line (arms ≥ 2)        → 'droste-arms'
+  //   6. inside the inner ring (r ≤ rIn)       → 'move' (regardless of wedge angular)
+  //   7. inside wedge AND inside outer ring    → 'move'
+  //   8. fall-through                          → 'rotate'
+  // (Build 55: the 'twist' / seam-endpoint hit-test was removed; the spiral
+  // is now adjusted only via the slider in the slice panel.)
   //
   // band widths follow daniel's "~16 px total, only a few inside the wedge"
   // rule: BAND_IN (in the annulus body, between the rings) is intentionally
@@ -666,7 +577,7 @@ export default {
   classifyPointer(env, x, y, isTouch, geom) {
     const g = env.sourceOverlayCanvas?._geom;
     if (!g) return { mode: null };
-    const { cx, cy, rOut, rIn, seamEndX, seamEndY,
+    const { cx, cy, rOut, rIn,
             swirlHandleX, swirlHandleY, shiftHandleX, shiftHandleY,
             offsetHandleX, offsetHandleY,
             halfWedge, sliceRotationRad, isFullCircle } = g;
@@ -675,7 +586,6 @@ export default {
     const r = Math.hypot(dx, dy);
     const theta = Math.atan2(dy, dx);
 
-    const HANDLE_HIT     = isTouch ? 22 : 12;
     const OFFSET_HIT     = isTouch ? 14 :  9;   // innermost — the diamond
     const SHIFT_HIT      = isTouch ? 18 : 11;   // middle — the filled dot
     const SWIRL_HIT      = isTouch ? 22 : 14;   // outermost — open ring
@@ -707,14 +617,6 @@ export default {
       const d = Math.hypot(x - swirlHandleX, y - swirlHandleY);
       if (d <= SWIRL_HIT) {
         return { mode: 'droste-swirl', r, theta, R: 0 };
-      }
-    }
-
-    // 4. twist handle
-    if (seamEndX != null) {
-      const d = Math.hypot(x - seamEndX, y - seamEndY);
-      if (d <= HANDLE_HIT) {
-        return { mode: 'twist', r, theta, R: rOut, cursorTheta: theta };
       }
     }
 
@@ -779,22 +681,19 @@ export default {
     return { mode: 'rotate', r, theta, R: rOut };
   },
 
-  // filename suffix: zoom + spiral + lenstra-mode + arms + mirror + (offset, swirl, shift).
-  // e.g. z200q100lmGa01m1                = zoom 2.00, spiral 1.00 tiers/turn, gen mode, arms 1, mirror on
-  //      z200qm050lmCa02m0               = zoom 2.00, spiral −0.50, classical mode, arms 2, mirror off
-  //      z200q000lmGa02m1ox030y000       = + canvas-side offset (0.30, 0)
-  //      z200q000lmGa02m1sx030ym020      = + swirl (0.30, −0.20)
-  //      z200q000lmGa02m1tx015y025       = + source-side shift (0.15, 0.25)
+  // filename suffix: zoom + spiral + arms + mirror + (offset, swirl, shift).
+  // e.g. z200q100a01m1                  = zoom 2.00, spiral 1.00 tiers/turn, arms 1, mirror on
+  //      z200q050a02m0                  = zoom 2.00, spiral 0.50, arms 2, mirror off
+  //      z200q000a02m1ox030y000         = + canvas-side offset (0.30, 0)
+  //      z200q000a02m1sx030ym020        = + swirl (0.30, −0.20)
+  //      z200q000a02m1tx015y025         = + source-side shift (0.15, 0.25)
   filenameSuffix(state) {
     const z = Math.round(state.drosteZoom * 100);
     const spiral100 = Math.round((state.drosteSpiral || 0) * 100);
-    const qSign = spiral100 < 0 ? 'm' : '';
-    const lmCode = state.drosteLenstraMode === 'classical' ? 'C' : 'G';
     const arms = Math.max(1, Math.min(12, Math.round(state.drosteArms || 1)));
     const mirror = state.drosteMirror ? 1 : 0;
     let suffix = 'z' + z
-      + 'q' + qSign + String(Math.abs(spiral100)).padStart(3, '0')
-      + 'lm' + lmCode
+      + 'q' + String(spiral100).padStart(3, '0')
       + 'a' + String(arms).padStart(2, '0')
       + 'm' + mirror;
     const enc = (v) => (v < 0 ? 'm' : '') + String(Math.abs(Math.round(v * 100))).padStart(3, '0');

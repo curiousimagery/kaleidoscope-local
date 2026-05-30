@@ -12,7 +12,7 @@ He prefers **no em dashes** in his own writing; respect that in any prose Claude
 
 ## current version
 
-`v0.3.1 · Build 54`. The footer in the running app shows this string from `src/version.js`. When delivering a new build, increment BUILD by 1 and bump VERSION when meaningful change ships. **BUILD never resets** on version bumps — it's a global monotonic counter (see `version.js` comment).
+`v0.3.1 · Build 55`. The footer in the running app shows this string from `src/version.js`. When delivering a new build, increment BUILD by 1 and bump VERSION when meaningful change ships. **BUILD never resets** on version bumps — it's a global monotonic counter (see `version.js` comment).
 
 ## what's working
 
@@ -28,23 +28,25 @@ Read `ARCHITECTURE.md` if you need details on the registry, shader composition, 
 
 ## what we're doing right now
 
-Build 54 is an **A/B test build** for the Droste spiral math. Build 53 introduced classical Lenstra (`c = logS/(logS+i·twist)`), which makes true log-spiral tier seams but shows ≪ 360° of source per canvas turn at non-zero twist. Daniel identified that as the root cause of "spiral arms meeting before showing full source." Build 54 adds a **generalized Lenstra** alternative (`c = 1 + i·b`) where `c.real = 1` always, so each canvas turn sweeps the full source. The cost is mild angular shear (~4°/tier). Both modes ship behind a toggle in the slice panel.
+Build 55 commits the generalized Lenstra spiral after Build 54's A/B test. The classical math and mode toggle are gone. The math reduces to a one-liner: `c = (1, -spiral · logS / (2π))`. The result is unbroken spirals with full 360° of source per canvas turn — Daniel confirmed this is the right aesthetic.
 
-Slider semantic also changed: `drosteTwist` (degrees rotation per tier) → `drosteSpiral` (tiers per canvas turn). Snap to multiples of `1/arms`. Fraction display on snap (`1/2`, `2/3`, `5/4`). Seam-endpoint drag handle still works — drag one canvas turn = +1 spiral.
-
-Also new: **wedge mirror at arms=1**. Previously a no-op when there's no angular wedge. Now reflects theta on odd tiers along the spiral arm, giving alternating chirality.
+Several UX polish items shipped together:
+- **Default `drosteArms` is now 1**, not 2. Out of the box the form is a single-arm spiral, no angular fold, no bilateral mirror. The form's namesake aesthetic without configuration. Users opt into kaleidoscope arms via the segments slider.
+- **Spiral slider range** is 0..6 now (no negatives — chirality reversal didn't add value).
+- **Tier-mirror snap step doubles.** When tier mirror is on, only even multiples of `1/arms` produce clean alignments (odd values land in reflected tiers and misalign at the canvas seam). The snap step adjusts automatically when the tier mirror toggles; current spiral value re-snaps too.
+- **No more spiral direct-manipulation handle.** The seam-endpoint dot, log-spiral seam line, and twisted-wedge preview are removed. Spiral is adjusted via the slider only. As a side effect the source-overlay is visibly smoother — no more octagonal-looking spirals.
 
 Planned next builds:
-- **Build 55:** commit to one Lenstra mode (remove toggle), accurate overlay seam-spiral redraw, panel sliders for offset/swirl/shift, reset-to-defaults.
-- **Build 56+:** pole rotation (third DOF on the Möbius family).
+- **Build 56:** panel sliders for offset/swirl/shift, reset-to-defaults across the app, handle disambiguation (three handles stack at zero).
+- **Build 57+:** pole rotation (third DOF on Möbius family).
 
-**What Daniel needs to verify in-browser for Build 54** (Claude can't see the UI):
-1. **Canonical spiral test (generalized mode):** `arms=1, mirror=off, spiral=1`. Expect ONE unbroken spiral arm where each canvas turn sweeps all 360° of source theta before advancing to the next tier. The "7→9 / 8→10 jump" should disappear.
-2. **Same settings, classical mode:** spiral much tighter — many canvas turns per visible source rotation. A/B comparison point.
-3. **Snap:** with arms=4, dragging spiral snaps to multiples of 1/4. With arms=12, multiples of 1/12. Fraction display on the value badge.
-4. **Wedge mirror at arms=1:** `spiral=1, arms=1, wedge mirror=on`. Adjacent tiers along the spiral arm should appear mirror-flipped (alternating chirality).
-5. **Filename:** exports include `q<spiral·100>lm<C|G>` instead of `t<twist deg>`.
-6. **Approximate overlay:** the source-overlay's seam-spiral preview is intentionally a rough hint at Build 54 — accurate redraw deferred. Don't worry if the preview line doesn't perfectly match the rendered output.
+**What Daniel needs to verify in-browser for Build 55**:
+1. **Default state**: open the app, switch to Droste. Expect a single concentric Droste (one arm, no spiral, mirror-tier rings). **Not** bilaterally mirrored.
+2. **Spiral=1 at arms=1**: one unbroken spiral arm sweeping full 360° per canvas turn (preserves Build 54 generalized-Lenstra behavior).
+3. **Tier mirror snap**: with tier mirror ON, the spiral slider should snap to even multiples of `1/arms`. Toggling tier mirror off and back on should re-snap automatically.
+4. **No seam-endpoint dot**: confirm the source overlay shows only the bullseye handles (offset diamond / shift dot / swirl ring) at slice center — no extra dot on the inner ring.
+5. **No Lenstra mode toggle**: the slice panel should show segments / scale / rotation / thickness / spiral / tier mirror / wedge mirror only.
+6. **Filename**: exports drop the `lm<C|G>` clause.
 
 Still pending from prior builds: Intel Air investigation (blocked on hardware access). Triangle form still pending production review of `TRI_SIZE`, `tilesPerDim`, and Build 37 fold-transform side effects.
 

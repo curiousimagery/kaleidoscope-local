@@ -527,7 +527,7 @@ function afRotationArc(ctx, cx, cy, cAngle, arcR, op, lw) {
 // hit testing
 // ===========================================================================
 
-// classify pointer position into 'move' | 'scale' | 'rotate' | 'twist' | null.
+// classify pointer position into 'move' | 'scale' | 'rotate' | form-specific | null.
 // consults the active form's spokeRule for behavior switching, OR defers to a
 // form-supplied classifyPointer override when the form's sample region doesn't
 // fit the standard polygon model (droste's annulus, etc.).
@@ -791,7 +791,6 @@ export function setupSourceInteraction(env, wrap) {
     if (mode === 'move')          return 'grab';
     if (mode === 'scale')         return scaleCursorForAngle(theta);
     if (mode === 'rotate')        return rotateCursorForAngle(theta);
-    if (mode === 'twist')         return rotateCursorForAngle(theta);
     if (mode === 'droste-arms')   return scaleCursorForAngle(theta);
     if (mode === 'droste-swirl')  return 'grab';
     if (mode === 'droste-shift')  return 'grab';
@@ -927,22 +926,6 @@ export function setupSourceInteraction(env, wrap) {
         const ratio = drag.startR / r;
         const newZoom = Math.max(1.1, Math.min(16, drag.startZoom * ratio));
         state.drosteZoom = newZoom;
-      } else if (drag.mode === 'droste-twist') {
-        // angular drag from the seam INNER endpoint. the cursor's angular
-        // delta around the slice center maps to −delta on spiral (cursor CCW
-        // = handle CCW = spiral increases). new units: tiers per canvas turn,
-        // so one full canvas-turn drag (2π rad) adds 1.0 to spiral. snap to
-        // current arms count's 1/arms alignment step.
-        if (!g) return;
-        const a = Math.atan2(y - g.cy, x - g.cx);
-        let delta = a - drag.prevAngle;
-        if (delta > Math.PI)  delta -= 2 * Math.PI;
-        if (delta < -Math.PI) delta += 2 * Math.PI;
-        drag.prevAngle = a;
-        let next = (state.drosteSpiral || 0) - delta / (2 * Math.PI);
-        if (next > 3)  next = 3;
-        if (next < -3) next = -3;
-        state.drosteSpiral = env.snapDrosteSpiral ? env.snapDrosteSpiral(next) : next;
       } else if (drag.mode === 'droste-arms') {
         // drag a wedge boundary line angularly to change the arms count. the
         // cursor's |relative angle from sliceRotation| becomes the new
@@ -1111,12 +1094,6 @@ export function setupSourceInteraction(env, wrap) {
         startScale: state.sliceScale,
       };
       setCursor(scaleCursorForAngle(cls.cursorTheta != null ? cls.cursorTheta : cls.theta));
-    } else if (cls.mode === 'twist') {
-      drag = {
-        mode: 'droste-twist',
-        prevAngle: cls.theta,
-      };
-      setCursor(rotateCursorForAngle(cls.theta));
     } else if (cls.mode === 'droste-arms') {
       drag = {
         mode: 'droste-arms',
