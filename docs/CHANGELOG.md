@@ -4,6 +4,14 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.3.1 (Build 62) — 2026-05-31
+
+**Square form: aspect drag was adjusting the wrong axis at non-zero rotations.** Another Build 57 Y-flip fallout — caught now that Build 61 brought the polygon overlay into agreement with GPU sampling. The square edge-drag classifies which axis the dragged edge controls (long vs short side of the rectangle) by computing `normalAngle − rotRad`, where `normalAngle = atan2(ny, nx)` of the edge's outward normal in screen y-down. With the polygon's Y-flip applied to screenPts, the normal's y-component is mirrored from the wedge's local frame, so the axis classification inverted — dragging the long edge inward shrank the short axis (and vice versa). Fix: negate `ny` in the `atan2` call when computing `normalAngle` for axis classification, which compensates for the overlay's Y-flip.
+
+- **Code:** [src/shell/overlay.js](src/shell/overlay.js) `square-edge` dispatch (axis IIFE), [src/version.js](src/version.js) (Build 62).
+
+---
+
 ## v0.3.1 (Build 61) — 2026-05-31
 
 **Fallout from the Build 57 Y-flip: overlay was diverging from GPU sampling on radial/hex/square/triangle.** Build 57 added `vec2(v.x, -v.y)` inside the shader's `toSourceUV` to fix Droste's arms=1 upside-down sampling, but missed the explicit JS mirror function `sliceVecToSourceUV` in [src/engine/geometry.js](src/engine/geometry.js) — which the polygon overlay path uses to place the wedge at the correct source-UV position. After Build 57 the GPU was sampling the Y-mirror of where the overlay drew the wedge; invisible on outputs with bilateral mirror symmetry across the horizontal axis (sliceRotation on multiples of π) but visible at any other rotation. Daniel: rotating the radial wedge to "11, 12, 1 area" actually sampled "5, 6, 7" content; hex same issue at vertical rotations.

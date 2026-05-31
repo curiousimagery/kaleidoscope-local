@@ -1043,7 +1043,14 @@ export function setupSourceInteraction(env, wrap) {
         ny: cls.square.ny,
         startPerp: (cls.square.mx - g.cx) * cls.square.nx + (cls.square.my - g.cy) * cls.square.ny,
         axis: (() => {
-          const normalAngle = Math.atan2(cls.square.ny, cls.square.nx);
+          // cls.square.ny is the edge normal in screen y-down (post-Y-flip
+          // overlay coords). sliceRotation is in raw shader convention.
+          // Negate ny to compensate for the overlay's Y-flip so the rel angle
+          // correctly classifies whether this edge's normal aligns with the
+          // rectangle's local x-axis (long dim) or y-axis (short dim).
+          // Without this, rotating the rectangle inverted which edge was
+          // labeled 'x' vs 'y', causing aspect drag to adjust the wrong axis.
+          const normalAngle = Math.atan2(-cls.square.ny, cls.square.nx);
           const rotRad = state.sliceRotation * Math.PI / 180;
           const rel = normalAngle - rotRad;
           let r = ((rel % (2 * Math.PI)) + 2 * Math.PI + Math.PI) % (2 * Math.PI) - Math.PI;
