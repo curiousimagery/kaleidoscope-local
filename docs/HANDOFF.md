@@ -50,9 +50,11 @@ Planned next builds:
 
 Still pending from prior builds: Intel Air investigation (blocked on hardware access). Triangle form still pending production review of `TRI_SIZE`, `tilesPerDim`, and Build 37 fold-transform side effects.
 
-Next: review the plan file with Daniel and adjust phase-2 scope.
+**Strategic sequencing session (2026-05-31):** worked through the multi-version architecture with Daniel and rewrote the `BACKLOG.md` capability tier. Key outcome — "shell" was conflating four layers (Engine / Kit / Host / chrome); only the front-end chrome is genuinely rebuilt per use case, everything below is shared and composed. There are **two front-ends** (desktop, extended; mobile, new) plus a deferred MIDI/kiosk third. Camera is a host module wired into both. The agreed build order is Phase 0 (parameter registry + texture-source spike) → 0.5 (camera host + desktop/iPad wiring) → 1 (mobile still-editor chrome) → 2 (camera in mobile) → 3 (tween kit + still-animation) → 3.5 (random/live-wallpaper) → 4 (video-file animation) → 5 (live motion + Syphon external output). See the `BACKLOG.md` capability tier for the full reasoning.
 
-`docs/FOLD.md` owns vision, brand, marketing narrative, monetization paths, and gallery show concept. `docs/BACKLOG.md` capability tier is reordered (live camera first, then mobile, then motion); mobile UX exploration notes, gallery installation work, and open architecture questions sections are present.
+**Next session picks up: Phase 0 — the parameter registry** (`src/shell/params.js`, sourcing `wireSliderWithScrub()` opts from data; desktop behavior must stay byte-identical). It's a refactor of working code, so verification is side-by-side against the current build. The full execution detail lived in the approved plan file `~/.claude/plans/i-d-like-to-think-parsed-sloth.md`.
+
+`docs/FOLD.md` owns vision, brand, marketing narrative, monetization paths, and gallery show concept. `docs/BACKLOG.md` capability tier now carries the layered vocabulary and the Phase 0–5 sequence; mobile UX exploration notes, gallery installation work, and open architecture questions sections are present.
 
 ## decisions locked in
 
