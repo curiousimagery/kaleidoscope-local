@@ -381,10 +381,12 @@ export default {
     // sliceRotation). The tier-0/tier-1 boundary is the canvas curve where
     // logr_src = -logS, i.e. logr = b·θ − logS. Sample r along [rIn, rOut],
     // compute θ = (logr + logS) / b, and draw with many segments for a
-    // smooth visual. Skipped at spiral=0 (no curve) and at arms ≥ 2 (the
-    // wedge sides already convey structure).
+    // smooth visual. At arms > 1, the curve will extend BEYOND the visible
+    // wedge angular range — that's the point: at high spiral the source
+    // sampling reaches outside the wedge along the seam (this preview shows
+    // where).
     const spiral = state.drosteSpiral || 0;
-    if (Math.abs(spiral) > 0.005 && isFullCircle) {
+    if (Math.abs(spiral) > 0.005) {
       const logS = Math.log(Math.max(1.0001, state.drosteZoom));
       const b = -spiral * logS / (2 * Math.PI);
       const SEAM_STEPS = 80;

@@ -310,6 +310,9 @@ export function buildFormGrid(env) {
         el.classList.toggle('active', el.dataset.formId === form.id);
       });
       env.applyFormControls();
+      // form-aware sliders (segments routes to drosteArms vs state.segments)
+      // need to refresh their displayed value + range after a form switch.
+      env.syncControls?.();
       env.scheduleRender();
       env.updateUndoUI?.();
     };

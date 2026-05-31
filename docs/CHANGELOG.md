@@ -4,6 +4,16 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.3.1 (Build 58) — 2026-05-30
+
+**Two Droste nit-fixes from Build 57 testing.**
+
+- **Segments slider syncs on form switch.** The `buildFormGrid` onclick handler in [src/shell/controls.js](src/shell/controls.js) now calls `env.syncControls()` after switching `state.form` — the form-aware segments slider (routes to `state.segments` for radial, `state.drosteArms` for droste) re-displays the correct value + range. Previously the slider stayed at the radial default (12) after switching to Droste even though Droste defaults to arms=1 — visible/state desync.
+- **Spiral preview extends beyond the wedge at arms ≥ 2.** Removed the `isFullCircle` gate. The log-spiral seam curve now draws everywhere the spiral is non-zero, regardless of arms count. At arms > 1 with non-trivial spiral, the curve visibly extends *outside* the wedge boundary — which is the useful information: that's where source sampling actually reaches (the canvas-space seam isn't constrained by the wedge fold, even though source content beyond the wedge is reached only via the per-tier `c.x·θ + c.y·logr` rotation pulling source-theta out past the wedge angular bounds).
+- **Code:** [src/shell/controls.js](src/shell/controls.js) (form-switch sync), [src/engine/forms/droste.js](src/engine/forms/droste.js) (drop isFullCircle gate on spiral preview), [src/version.js](src/version.js) (Build 58).
+
+---
+
 ## v0.3.1 (Build 57) — 2026-05-30
 
 **Five Droste polish fixes: Y-flip, visible spinner, combined offset, wedge-mirror cleanup, spiral preview.**
