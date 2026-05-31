@@ -4,26 +4,26 @@ Living list of things we want to do, in rough priority order within each section
 
 ## next up — small UI / quality refinements / known bugs
 
-- **Droste: panel sliders + reset defaults + handle disambiguation (Build 56).** Panel sliders for `drosteOffsetX/Y`, `drosteSwirlX/Y`, `drosteShiftX/Y` (currently direct-manipulation only). Generalized **reset-to-defaults** across the app. Handle disambiguation pattern — three handles (offset diamond, shift dot, swirl ring) stack at slice center when zero. Also re-evaluate `|swirl| > 1` behavior; decide whether to re-clamp.
-
-- **Droste: pole rotation (Build 57+).** Third DOF on the Möbius family — rotation around the pole axis — compounding with the now-committed swirl. UX likely a second handle (or a rotation gesture on the swirl ring). Strong pairing with the motion shell — animating swirl + pole over time gives a flowing-water effect.
-
-- **Add spinner on export.** For larger exports there is a meaningful delay after clicking export before the browser is ready to download the file. This can lead a user to question whether the export command was recieved or not and potentially click the export button several times triggering multiple duplicate downloads. A simple fix would be to immediately add a circular spinner within the button to replace the word export (which would also disable the button until done)
-
+- **Droste: "true rotation" / pole rotation (Build 57+).** Lower priority per Daniel. With swirl removed in Build 56, the design space is open. Possible directions: post-composition Möbius applied to source `z_src` (rotates the spiral within its frame, distinct from the offset's pole movement); a joystick affordance in the settings panel that maps to whatever math we pick; or a corner-triangle gesture pattern. Strong pairing with the motion shell — animating a rotation parameter over time gives a flowing-water effect.
+- **Global reset-to-defaults.** Per-form slice reset shipped in Build 56. If a "reset everything" workflow emerges in testing, add a global button (returns form selection, slice, canvas zoom/rotation, OOB mode, export settings all to defaults — keeping only the loaded source image).
 - **Intel Air black-square export — needs hardware access.** Build 39 diagnostics surfaced this; Daniel doesn't have access to test. The probe currently passes (FBO complete, `clear`+`readPixels` returns the cleared color) but the actual shader render comes back all-black. Likely an Intel iGPU driver bug with large FBOs OR VRAM exhaustion on integrated GPUs. The Build 40 e2e diagnostic test now correctly catches this case (was throwing in Build 39); next time the hardware is accessible, run diagnostics + check `endToEndTest.summary.allZero` for confirmation, then design a render-validation step into the probe itself.
-
 - **M5 Firefox 8K cap — resolved via UX (Build 40).** The M5 Max "limited to 8K" finding was Firefox's Resist Fingerprinting capping `MAX_TEXTURE_SIZE` at 8192. Not a hardware issue. Build 40 surfaces a contextual notice in the export area + augments the upload-error text. Tile-rendering workaround to exceed Firefox's cap is deferred (complex; would need either WebGPU port or multi-pass FBO composition). Leaving as deferred unless cross-browser parity becomes strategic.
-
 - **WebGL context loss/restore.** Build 21's GPU FBO probe prevents the "framebuffer incomplete" export from triggering a context loss. If a gray screen recurs in any other scenario, add a `webglcontextlost` + `webglcontextrestored` handler pair on the preview canvas to re-init the GL state cleanly.
+- **Refine segment defaults for each form.** Reconsider the canvas defaults an min/max values for each form as well as the setment defaults and ranges. This should help maintain continuity across forms.
+
+## next up — new form capabilities
+
+- **Snap forms to tilable parameters** (horizontally and vertically as a classic wallpaper)
+- **Snap Droste to repeated zoom states** (e.g. on canvas zoom to be able to animate a repeating loop of infinite zoom in or out)
+- **Export overlay capability** to export the actually mathematical primaries on top of each form type to reveal what's being sampled and mirrored and distorted more clearly
+- **Export batch of files**: not just the composition but the original image, the thumbnail with the geometric sample overlay, and the geometric overlay of the actual outlines.
 
 ## next up — new forms
 
 These all benefit equally from the registry architecture — each is one new file in `src/engine/forms/` plus one line in the registry. Order is rough; pick whichever sounds most fun.
 
 - **Hyperbolic Escher (circle limit).** Tessellation of the Poincaré disk model of hyperbolic geometry. Output is a circular image with shapes crowding toward the edge, like Escher's *Circle Limit* prints. Heavy lift: needs custom overlay (circular disk boundary + warped fundamental triangle) and custom controls (Schläfli tiling selector). The Droste form (Build 41) introduced the `drawOverlay` / `classifyPointer` schema hooks that this form can reuse — the engine-schema-extension lift is already done. Distinctive Escher-feel; significant aesthetic differentiation.
-
 - **p31m wallpaper (future).** Alternate triangular tiling — same equilateral triangles as p3m1, but with mirror axes running through vertices rather than along edges. Fully seamless (passes the no-visible-seams design constraint). Visually distinct from p3m1, especially at triangle centers vs. corners. Lower priority than the above; vocabulary expansion rather than a foundational form.
-
 - **Radial polygon-frame variation (low priority).** Cosmetic enhancement to the existing radial form: optionally render with an n-sided polygon outer boundary instead of a circular arc. Same fold math, same n-fold rotational symmetry, just a different visible frame shape. Constrained to even sides matching segment count (4-segment radial → square frame, 6 → hex frame, 8 → octagon frame, etc.) for seam compliance. May emerge organically as a side effect of tile-aware features since polygon framing relates to tileable output shapes. Not a separate form; a parameter on radial.
 
 **Design constraint for all new forms:** No visible seams on any output. Forms without sufficient mirror symmetry (pinwheel-only patterns like p3, p6, p4, etc.) are explicitly excluded — they show seams between fold cells which breaks the kaleidoscope illusion. Glide-reflection groups (pmg, pgg) are also excluded because glide axes can produce visible discontinuities depending on source image content. Rectangular mirror groups (pmm, cmm) are excluded for a different reason — they're visually redundant with the existing square form's aspect-ratio control. With p3m1 shipped (Build 32), p31m is the only remaining wallpaper group that adds distinct visual vocabulary while reliably satisfying the seam constraint.
@@ -37,15 +37,10 @@ For each new form, also fill in `tilesPerDim(state)` so the resolution hint is a
 Reordered to reflect mobile-camera-first priority. The live camera shell is the primary mobile experience and the wonder-delivery moment that motivates much of the product narrative (see `FOLD.md` for the full framing). Live + mobile come before motion.
 
 - **Live still-image capture shell (camera-first).** New entry point that takes the camera feed as the kaleidoscope source. `getUserMedia` → upload video frame as texture each rAF tick → render through existing shader pipeline. Shutter UI captures both the kaleidoscope output at full FBO resolution and the raw camera frame at native resolution. Wedge overlay drawn on the live camera view, draggable on touch. Form selection, segment count, basic controls accessible without leaving the camera view. Architecture gate: verify the engine accepts any `TexImageSource` (HTMLVideoElement specifically) before starting; if not, that's a small refactor first.
-
 - **Mobile responsive shell with thoughtful IxD pass.** A mobile-optimized shell, separate from the desktop shell, sharing the engine. Camera-first as the default mode; photo-import as a secondary path. Progressive disclosure of controls. **This phase needs hands-on direction from Daniel before code starts** — see the "mobile UX exploration notes" section below for dual-perspective input captured from prior conversations.
-
 - **Motion shell.** Parameter-animation timeline + video loop export. First version: A/B two-state with crossfade controls (simpler, ships faster, matches VJ mental model). Multi-keyframe horizontal timeline is a v2 of this feature. Export via WebCodecs (preferred) or MediaRecorder (fallback). Loop integrity: first-frame state == last-frame state, enforced via UI toggle.
-
 - **Video file input → kaleidoscope loop output.** Reuses live-camera shell plumbing but with `<video>.src` = file rather than MediaStream. Combines with motion shell's keyframe timeline so kaleidoscope parameters can animate over the video's duration. Same WebCodecs export pipeline.
-
 - **Live performance shell (MIDI / kiosk).** Akai APC40 MK2 input, touch-as-primary, full-screen, no chrome. Same engine. Separate from the live camera shell above — this is the VJ performance surface, not the camera-input feature.
-
 - **PWA manifest + offline cache.** Proper `manifest.json` and service worker so the app works offline once loaded. iPad install-to-homescreen story. Plumbing for the iPad-app-via-Capacitor path (see `FOLD.md` monetization Phase 3).
 
 ## mobile UX exploration notes
@@ -55,6 +50,7 @@ Captured here as inputs for the design session that should precede the mobile re
 ### Daniel's initial sketch
 
 A 4-step conceptual flow for the photo-import path:
+
 1. Add an image
 2. Modify shape and properties (change image if needed)
 3. Tune canvas settings
@@ -86,9 +82,7 @@ Do a divergent IxD exploration session — sketches, possibly an interactive pro
 Cluster of related capabilities for treating Fold output as tile / wallpaper content rather than standalone images. Likely to evolve from a research item to a real feature as the gallery installation concept matures (see `FOLD.md`).
 
 - **Snap-to-tile canvas zoom.** For each form, the canvas-zoom slider has natural snap points where the output is exactly one unit cell of the form's wallpaper tiling (or an integer multiple). Identify these snap points mathematically per form, then surface them in the UI — either as hard snap behavior or as visual indicators on the slider. Daniel reports visually-repeating patterns appearing at certain canvas-zoom-out levels; initial geometric analysis suggested this was feasible for square only, but the visual evidence suggests the analysis was incomplete. Revisit with a screenshot of the working repeat pattern to make the geometry concrete.
-
 - **Tileable cell export.** Export only one unit cell of the tiling, not the full mosaic. Filename labels the tiling group. Crops to the unit cell shape: square cells from p4m, hexagonal cells from p6m, triangular cells from p3m1. Acceptance: exported cell tiles seamlessly when placed in a repeating grid.
-
 - **Non-square tile output for snapping.** For forms with non-square fundamental domains (hex, triangle), export the actual polygon shape (transparent background outside the polygon, or vector-cropped). Enables downstream tools to snap multiple cells together — e.g., a collaborative gallery installation where visitor outputs snap into a larger hexagonal composition. Architecturally similar to tileable cell export but with alpha mask or vector boundary.
 
 ## research / speculative
@@ -125,9 +119,6 @@ Curatorial frame and full concept in `FOLD.md` under "gallery show concept." Wor
 ## open architecture questions
 
 - **Engine input contract: does the engine accept any `TexImageSource`?** The engine should accept HTMLImageElement, HTMLVideoElement, HTMLCanvasElement, ImageBitmap, and VideoFrame as a texture source, since `gl.texImage2D` natively accepts all of these. Verify this is the case before starting the live-camera shell. If not, the refactor should be small.
-
 - **Shell separation discipline for mobile.** The mobile shell should be a *distinct shell* pointed at the same engine, not a responsive retrofit of the desktop shell. Same as the planned motion and live shells. This is the architectural commitment that makes the pro-and-playful product story possible (see `FOLD.md`).
-
 - **Shared infrastructure for video sources.** Live camera (MediaStream), video file (`<video>.src = file`), and animated still image (parameter timeline) should share infrastructure rather than being three separate code paths. After the live-camera shell ships, refactor as needed so this stays true when video file input and motion shell join.
-
 - **WebCodecs availability for video export.** When the motion shell ships, prefer WebCodecs `VideoEncoder` for frame-perfect output; fall back to `MediaRecorder` if not supported. Codec preference: mp4/h264 if available, webm/vp9 otherwise. May need to expose codec choice in advanced export settings.

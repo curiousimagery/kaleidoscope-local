@@ -792,7 +792,6 @@ export function setupSourceInteraction(env, wrap) {
     if (mode === 'scale')         return scaleCursorForAngle(theta);
     if (mode === 'rotate')        return rotateCursorForAngle(theta);
     if (mode === 'droste-arms')   return scaleCursorForAngle(theta);
-    if (mode === 'droste-swirl')  return 'grab';
     if (mode === 'droste-shift')  return 'grab';
     if (mode === 'droste-offset') return 'grab';
     return 'default';
@@ -946,18 +945,6 @@ export function setupSourceInteraction(env, wrap) {
           state.drosteArms = newArms;
           env.applyArmsSnap?.();
         }
-      } else if (drag.mode === 'droste-swirl') {
-        // direct manipulation: cursor position relative to slice center, divided
-        // by rOut, then rotated back by −sliceRotation, gives the fold-space
-        // swirl (Möbius) parameter. UNCLAMPED — dragging past |a| = 1 takes the
-        // user around the back of the Riemann sphere.
-        if (!g || g.rOut < 1) return;
-        const dxs = (x - g.cx) / g.rOut;
-        const dys = (y - g.cy) / g.rOut;
-        const cosRot = Math.cos(g.sliceRotationRad);
-        const sinRot = Math.sin(g.sliceRotationRad);
-        state.drosteSwirlX = dxs * cosRot + dys * sinRot;
-        state.drosteSwirlY = -dxs * sinRot + dys * cosRot;
       } else if (drag.mode === 'droste-shift') {
         // direct manipulation: cursor → fold-space per-tier source-side shift.
         // unclamped — large values absorbed by OOB modes since z_src can exit
@@ -1106,9 +1093,6 @@ export function setupSourceInteraction(env, wrap) {
       setCursor('grabbing');
     } else if (cls.mode === 'droste-shift') {
       drag = { mode: 'droste-shift' };
-      setCursor('grabbing');
-    } else if (cls.mode === 'droste-swirl') {
-      drag = { mode: 'droste-swirl' };
       setCursor('grabbing');
     } else if (cls.mode === 'rotate') {
       drag = {

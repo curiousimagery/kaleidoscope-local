@@ -701,6 +701,32 @@ function wireControls() {
   syncWedgeMirrorToggle();
   env.controlsSync.register(syncWedgeMirrorToggle);
 
+  // slice reset — single button that resets all form-specific + slice-section
+  // params to their defaults. does NOT change which form is selected or any
+  // global state (canvas zoom/rotation, OOB mode, export size).
+  document.getElementById('sliceReset').addEventListener('click', () => {
+    env.pushHistory();
+    state.segments       = 12;
+    state.sliceScale     = 1.0;
+    state.sliceRotation  = 0;
+    state.sliceCx        = 0.5;
+    state.sliceCy        = 0.5;
+    state.squareAspect   = 1.0;
+    state.drosteZoom     = 2.0;
+    state.drosteSpiral   = 0;
+    state.drosteMirror   = true;
+    state.drosteArms     = 1;
+    state.drosteWedgeMirror = true;
+    state.drosteOffsetX  = 0;
+    state.drosteOffsetY  = 0;
+    state.drosteShiftX   = 0;
+    state.drosteShiftY   = 0;
+    applyArmsSnap();
+    env.controlsSync.syncAll();
+    scheduleRender();
+    updateUndoUI();
+  });
+
   // canvas rotation
   wireSliderWithScrub(env, 'canvasRot', 'canvasRotVal', 'canvasRotation', {
     min: 0, max: 360, step: 0.5, scrubStep: 1,
@@ -740,9 +766,21 @@ function wireControls() {
     });
   });
 
-  // explicit Export button — the action
-  document.getElementById('exportBtn').addEventListener('click', () => {
-    doExport(session.exportSize);
+  // explicit Export button — the action. while export is in-flight, swap the
+  // button text for a spinner and disable the button so a second click while
+  // the user is waiting can't fire another export.
+  document.getElementById('exportBtn').addEventListener('click', async () => {
+    const btn = document.getElementById('exportBtn');
+    if (btn.disabled) return;
+    const originalText = btn.textContent;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="btn-spinner"></span>';
+    try {
+      await doExport(session.exportSize);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = originalText;
+    }
   });
 
   // file input

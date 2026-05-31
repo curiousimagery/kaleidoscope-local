@@ -34,19 +34,16 @@ export const state = {
   drosteWedgeMirror: true,  // droste form only: when true, the angular wedge fold
                             // reflects at boundaries (kaleidoscope feel). when false,
                             // plain mod (N chiral arms with hard boundary seams).
-  drosteSwirlX: 0,      // droste form only: Möbius pre-composition parameter in
-  drosteSwirlY: 0,      // fold-space. moves the spiral pole AND non-uniformly
-                        // distorts the disc interior (the "swirl/rotation" feel).
-                        // unclamped — dragging past |a|=1 enters the back half of
-                        // the Riemann sphere (one OOB pixel inside disc).
   drosteShiftX: 0,      // droste form only: per-tier SOURCE-side drift. each
   drosteShiftY: 0,      // recursive tier's source sample drifts by a constant
                         // amount toward the shift direction. canvas rings stay
                         // concentric; the content within them drifts.
-  drosteOffsetX: 0,     // droste form only: canvas-side per-tier OFFSET. each
-  drosteOffsetY: 0,     // tier's ring boundary itself moves off-axis (the
-                        // PhotoSpiralysis "shift the visible center" feel).
-                        // pole lands at offset/(1+|offset|).
+  drosteOffsetX: 0,     // droste form only: Möbius pre-composition parameter in
+  drosteOffsetY: 0,     // canvas space (a disc automorphism). moves the spiral
+                        // pole to canvas position a = (offsetX, offsetY) while
+                        // keeping the unit circle fixed and mapping each tier
+                        // ring (a circle in canvas) to another circle.
+                        // PhotoSpiralysis off-center-rings aesthetic.
   canvasZoom: 1.0,
   canvasRotation: 0,
   oobMode: 0,           // 0=clamp, 1=mirror, 2=transparent. clamp is default.

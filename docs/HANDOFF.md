@@ -12,7 +12,7 @@ He prefers **no em dashes** in his own writing; respect that in any prose Claude
 
 ## current version
 
-`v0.3.1 · Build 55`. The footer in the running app shows this string from `src/version.js`. When delivering a new build, increment BUILD by 1 and bump VERSION when meaningful change ships. **BUILD never resets** on version bumps — it's a global monotonic counter (see `version.js` comment).
+`v0.3.1 · Build 56`. The footer in the running app shows this string from `src/version.js`. When delivering a new build, increment BUILD by 1 and bump VERSION when meaningful change ships. **BUILD never resets** on version bumps — it's a global monotonic counter (see `version.js` comment).
 
 ## what's working
 
@@ -28,25 +28,22 @@ Read `ARCHITECTURE.md` if you need details on the registry, shader composition, 
 
 ## what we're doing right now
 
-Build 55 commits the generalized Lenstra spiral after Build 54's A/B test. The classical math and mode toggle are gone. The math reduces to a one-liner: `c = (1, -spiral · logS / (2π))`. The result is unbroken spirals with full 360° of source per canvas turn — Daniel confirmed this is the right aesthetic.
+Build 56 addresses four follow-ups from Build 55 testing:
 
-Several UX polish items shipped together:
-- **Default `drosteArms` is now 1**, not 2. Out of the box the form is a single-arm spiral, no angular fold, no bilateral mirror. The form's namesake aesthetic without configuration. Users opt into kaleidoscope arms via the segments slider.
-- **Spiral slider range** is 0..6 now (no negatives — chirality reversal didn't add value).
-- **Tier-mirror snap step doubles.** When tier mirror is on, only even multiples of `1/arms` produce clean alignments (odd values land in reflected tiers and misalign at the canvas seam). The snap step adjusts automatically when the tier mirror toggles; current spiral value re-snaps too.
-- **No more spiral direct-manipulation handle.** The seam-endpoint dot, log-spiral seam line, and twisted-wedge preview are removed. Spiral is adjusted via the slider only. As a side effect the source-overlay is visibly smoother — no more octagonal-looking spirals.
+1. **Offset math is now Möbius pre-composition** (`drosteOffset`). The blue diamond handle now produces the PhotoSpiralysis off-center-rings aesthetic — each tier ring stays circular but with a different center, converging to the spiral pole at canvas position `a`. Previously the math was `p = p − (1−|p|)·offset`, which produced a "bulge / view pan" instead.
+2. **`drosteSwirl` removed entirely** — the hollow-ring handle, state fields, GLSL block, uniform, drag mode, and filename suffix clause are all gone. Two sequential Möbius transformations compose into a single one, so having both as separate parameters was a confusingly-split single control. Future "true rotation" work (Build 57+) starts from a clean slate with whatever math we pick then.
+3. **Export spinner** — the button text is replaced by a spinner element during export, and the button is disabled until export completes (rapid double-clicks during the multi-second delay don't fire a second export).
+4. **Per-form slice reset** — new `reset slice` button at the bottom of the slice section. Resets form-specific + slice-section state (segments, scale, rotation, thickness, spiral, mirror, arms, wedge mirror, offset, shift, square aspect) to defaults. Form selection and global state (canvas zoom/rotation, OOB mode) are untouched. Undo restores previous state.
 
 Planned next builds:
-- **Build 56:** panel sliders for offset/swirl/shift, reset-to-defaults across the app, handle disambiguation (three handles stack at zero).
-- **Build 57+:** pole rotation (third DOF on Möbius family).
+- **Build 57+:** "true rotation" / pole rotation feature — Daniel says lower priority, open-ended math direction (post-composition Möbius applied to source z_src? a separate joystick affordance in the settings panel? to be decided). Global reset-to-defaults (if needed after per-form testing).
 
-**What Daniel needs to verify in-browser for Build 55**:
-1. **Default state**: open the app, switch to Droste. Expect a single concentric Droste (one arm, no spiral, mirror-tier rings). **Not** bilaterally mirrored.
-2. **Spiral=1 at arms=1**: one unbroken spiral arm sweeping full 360° per canvas turn (preserves Build 54 generalized-Lenstra behavior).
-3. **Tier mirror snap**: with tier mirror ON, the spiral slider should snap to even multiples of `1/arms`. Toggling tier mirror off and back on should re-snap automatically.
-4. **No seam-endpoint dot**: confirm the source overlay shows only the bullseye handles (offset diamond / shift dot / swirl ring) at slice center — no extra dot on the inner ring.
-5. **No Lenstra mode toggle**: the slice panel should show segments / scale / rotation / thickness / spiral / tier mirror / wedge mirror only.
-6. **Filename**: exports drop the `lm<C|G>` clause.
+**What Daniel needs to verify in-browser for Build 56**:
+1. **PhotoSpiralysis offset test:** drag the diamond toward upper-right. Outer ring stays centered; inner tier rings are **circles** with progressively shifted centers; spiral pole appears at the handle position. NO bulge/stretching distortion.
+2. **No hollow ring** on the source overlay — only the offset diamond and shift dot remain.
+3. **Export spinner:** click export. Button shows spinner + disabled state until export finishes.
+4. **Reset slice:** click `reset slice` after fiddling. All form/slice params return to defaults. Undo restores.
+5. **Combine offset + shift + spiral:** these three controls compose into distinct visual effects (off-center rings + source drift + spiral tightness).
 
 Still pending from prior builds: Intel Air investigation (blocked on hardware access). Triangle form still pending production review of `TRI_SIZE`, `tilesPerDim`, and Build 37 fold-transform side effects.
 
