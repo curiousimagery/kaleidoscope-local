@@ -4,6 +4,16 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.3.1 (Build 60) — 2026-05-30
+
+**Droste OOB detection fix.** The wedge-OOB check used the wrong source-theta-shift value when probing the twisted-wedge boundary at the inner ring. Under the old log-shear math the variable was the rotation-per-tier in radians; in Build 56 I left a stale approximation `twistRad = spiral · 2π` which, for spiral=6, evaluates to ~37.7 rad (≈6 full revolutions). The inner-ring probes wrapped fully around the source many times over and triggered OOB even when the actual sampling region had room to spare. Daniel observed: "the wedge is highlighted yellow but actually has plenty of room before hitting an edge."
+
+The correct source-theta shift across one tier under generalized Lenstra (`c = 1 + ib`, `b = -spiral·logS/(2π)`) is `−b·logS = spiral·logS²/(2π)`. The OOB probe code does `aArc − twistRad`, so we negate: `twistRad = −spiral·logS²/(2π)`. For spiral=6, zoom=2 this is ≈ −0.46 rad ≈ −26°, matching the actual per-tier source-theta shift the warp produces.
+
+- **Code:** [src/engine/forms/droste.js](src/engine/forms/droste.js) (fix `twistRad` formula), [src/version.js](src/version.js) (Build 60).
+
+---
+
 ## v0.3.1 (Build 59) — 2026-05-30
 
 **Droste spiral preview redrawn in the correct space + direction.** Build 57 brought back a spiral seam curve, but it was effectively drawing the *canvas-side* tier-boundary curve overlaid in *source-overlay* coordinates — geometrically meaningless. The result curved in the opposite direction from where source is actually sampled.

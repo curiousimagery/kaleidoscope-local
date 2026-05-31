@@ -246,13 +246,15 @@ export default {
     const isFullCircle = armsCount === 1;
 
     const seamPhaseRad = state.sliceRotation * Math.PI / 180;
-    // Approximate seam-spiral visualization. Under Build 54's Lenstra math
-    // the actual tier seam is a log spiral curve, but the overlay still draws
-    // the legacy log-shear-style twisted-wedge as a rough indicator. Treat
-    // spiral (tiers per turn) as if it were rotation per tier in radians:
-    // twistRad ≈ spiral · 2π gives a visually-plausible hint at small spiral.
-    // Accurate redraw deferred to whichever build commits to one Lenstra mode.
-    const twistRad = (state.drosteSpiral || 0) * 2 * Math.PI;
+    // Source-theta shift across one tier under generalized Lenstra:
+    // theta_src = θ_canvas + b·logr, so at canvas inner (logr = −logS) the
+    // shift relative to canvas outer is −b·logS = spiral·logS²/(2π).
+    // twistRad is the OOB-probe shift parameter; the probe uses (a − twistRad)
+    // for inner-ring points, so twistRad = −shift (negated). For positive
+    // spiral, twistRad < 0 — the inner-ring probes sweep in the +θ direction
+    // (matching the actual sample region).
+    const _logSv = Math.log(Math.max(1.0001, state.drosteZoom));
+    const twistRad = -(state.drosteSpiral || 0) * _logSv * _logSv / (2 * Math.PI);
     const wedgeStart = seamPhaseRad - halfWedge;
     const wedgeEnd   = seamPhaseRad + halfWedge;
 
