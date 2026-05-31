@@ -568,13 +568,25 @@ function classifyPointer(env, x, y, isTouch = false) {
   // vertex (e.g., triangle's rhombus apex). The standard CASE A check measures
   // "distance from outer angular boundary," which misses apex-incident edges
   // that lie INTERIOR to the polygon's angular range. For these forms, treat
-  // any polygon edge within SCALE_OUT as a scale target. Guarded by
-  // !outsideAngular so dragging outside the polygon still fires rotate.
+  // any polygon edge within SCALE_OUT as a scale target. When the cursor is
+  // angularly outside the polygon (outsideAngular), only apex-incident edges
+  // count — those edges form the polygon's angular boundary, so cursor close
+  // to one perpendicular-wise is the natural scale-grace zone on the outside.
+  // Without that allowance, the apex-incident edge had only HALF the grace
+  // zone of a non-apex edge (inside-perpendicular only).
   const sliceCenterAtVertex = pts.some(p => Math.hypot(p.x - cx, p.y - cy) < 1);
-  if (form.spokeRule === 'none' && sliceCenterAtVertex && !outsideAngular) {
+  if (form.spokeRule === 'none' && sliceCenterAtVertex) {
+    const APEX_EPS = 1.0;
     for (let i = 0; i < pts.length; i++) {
       const a = pts[i];
       const b = pts[(i + 1) % pts.length];
+      const aIsCenter = Math.hypot(a.x - cx, a.y - cy) < APEX_EPS;
+      const bIsCenter = Math.hypot(b.x - cx, b.y - cy) < APEX_EPS;
+      const isApexEdge = aIsCenter || bIsCenter;
+      // Skip non-apex edges when angularly outside the polygon — those edges
+      // are interior to the polygon's angular range, so cursor outside the
+      // range can't be perpendicular-close to one in a useful way.
+      if (outsideAngular && !isApexEdge) continue;
       const ex = b.x - a.x;
       const ey = b.y - a.y;
       const elen = Math.hypot(ex, ey) || 1;

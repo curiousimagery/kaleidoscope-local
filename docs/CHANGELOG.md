@@ -4,6 +4,16 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.3.1 (Build 63) — 2026-05-31
+
+**Triangle (rhombus) apex-incident edges now have full scale-grace zone.** Pre-existing asymmetry (not a Build 57 regression) surfaced after Build 61 brought polygon-overlay into agreement with GPU sampling. The triangle form has slice-center at the apex (V0), so two of its four edges are *apex-incident* — they touch slice-center and define the polygon's angular boundary at ±30°. The per-edge scale-proximity check required `!outsideAngular`, so cursor perpendicular-outside an apex-incident edge would cross the angular boundary, set `outsideAngular=true`, and fall through to rotate. Effect: dragging the upper-left arrow (an apex-incident edge) would rotate unless the user dragged exactly along the edge direction (which kept the cursor angularly inside). The upper-right arrow (non-apex edge, always inside the angular range) worked normally.
+
+Fix: relax the `!outsideAngular` guard. When cursor is angularly outside the polygon, only check apex-incident edges for perpendicular proximity (non-apex edges can't be usefully close from outside the polygon's angular range). Apex-incident edges now have full perpendicular scale-grace on both sides, matching non-apex edges.
+
+- **Code:** [src/shell/overlay.js](src/shell/overlay.js) per-edge proximity block in `classifyPointer`, [src/version.js](src/version.js) (Build 63).
+
+---
+
 ## v0.3.1 (Build 62) — 2026-05-31
 
 **Square form: aspect drag was adjusting the wrong axis at non-zero rotations.** Another Build 57 Y-flip fallout — caught now that Build 61 brought the polygon overlay into agreement with GPU sampling. The square edge-drag classifies which axis the dragged edge controls (long vs short side of the rectangle) by computing `normalAngle − rotRad`, where `normalAngle = atan2(ny, nx)` of the edge's outward normal in screen y-down. With the polygon's Y-flip applied to screenPts, the normal's y-component is mirrored from the wedge's local frame, so the axis classification inverted — dragging the long edge inward shrank the short axis (and vice versa). Fix: negate `ny` in the `atan2` call when computing `normalAngle` for axis classification, which compensates for the overlay's Y-flip.
