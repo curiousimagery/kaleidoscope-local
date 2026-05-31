@@ -792,7 +792,6 @@ export function setupSourceInteraction(env, wrap) {
     if (mode === 'scale')         return scaleCursorForAngle(theta);
     if (mode === 'rotate')        return rotateCursorForAngle(theta);
     if (mode === 'droste-arms')   return scaleCursorForAngle(theta);
-    if (mode === 'droste-shift')  return 'grab';
     if (mode === 'droste-offset') return 'grab';
     return 'default';
   }
@@ -945,20 +944,9 @@ export function setupSourceInteraction(env, wrap) {
           state.drosteArms = newArms;
           env.applyArmsSnap?.();
         }
-      } else if (drag.mode === 'droste-shift') {
-        // direct manipulation: cursor → fold-space per-tier source-side shift.
-        // unclamped — large values absorbed by OOB modes since z_src can exit
-        // the source annulus at deep tiers.
-        if (!g || g.rOut < 1) return;
-        const dxs = (x - g.cx) / g.rOut;
-        const dys = (y - g.cy) / g.rOut;
-        const cosRot = Math.cos(g.sliceRotationRad);
-        const sinRot = Math.sin(g.sliceRotationRad);
-        state.drosteShiftX = dxs * cosRot + dys * sinRot;
-        state.drosteShiftY = -dxs * sinRot + dys * cosRot;
       } else if (drag.mode === 'droste-offset') {
-        // direct manipulation: cursor → fold-space canvas-side per-tier offset.
-        // same mapping shape as shift/swirl, also unclamped.
+        // direct manipulation: cursor → fold-space combined center offset
+        // (drives both Möbius pre-comp + source-side per-tier drift).
         if (!g || g.rOut < 1) return;
         const dxs = (x - g.cx) / g.rOut;
         const dys = (y - g.cy) / g.rOut;
@@ -1090,9 +1078,6 @@ export function setupSourceInteraction(env, wrap) {
       setCursor(scaleCursorForAngle(cls.cursorTheta != null ? cls.cursorTheta : cls.theta));
     } else if (cls.mode === 'droste-offset') {
       drag = { mode: 'droste-offset' };
-      setCursor('grabbing');
-    } else if (cls.mode === 'droste-shift') {
-      drag = { mode: 'droste-shift' };
       setCursor('grabbing');
     } else if (cls.mode === 'rotate') {
       drag = {

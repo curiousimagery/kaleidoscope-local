@@ -104,21 +104,12 @@ export default {
       type: '1i',
       get: (state) => (state.drosteWedgeMirror === false ? 0 : 1),
     },
-    // SHIFT — per-tier linear translation, applied POST-warp. each recursive
-    // tier drifts by a fraction toward this vector; factor (1 − r/r_src) is
-    // exactly 0 on the surface tier (no shift) and approaches 1 as recursion
-    // deepens. C0-continuous at every tier boundary in mirror mode (at the
-    // reflection point r = r_src on both sides → factor = 0 on both sides).
-    u_drosteShift: {
-      type: '2f',
-      get: (state) => [state.drosteShiftX || 0, state.drosteShiftY || 0],
-    },
-    // OFFSET — Möbius pre-composition parameter `a` (drosteOffsetX/Y) applied
-    // to canvas p BEFORE the Lenstra warp. M(p) = (p − a) / (1 − conj(a)·p)
-    // is a disc automorphism: maps the unit circle to itself (outer ring
-    // preserved) and maps the origin to −a, so the spiral pole appears at
-    // canvas position a. Möbius preserves circles, so each tier ring stays
-    // circular but with a different center — PhotoSpiralysis aesthetic.
+    // OFFSET — combined center-offset parameter. drives BOTH:
+    //   (a) canvas-side Möbius pre-composition (disc automorphism that maps
+    //       the spiral pole to canvas position a, preserving circles), and
+    //   (b) source-side per-tier drift (z_src += u_drosteOffset·(1−r/r_src),
+    //       which is 0 on surface and approaches 1 in deep tiers).
+    // single handle (Build 57 merger: was drosteOffset + drosteShift).
     u_drosteOffset: {
       type: '2f',
       get: (state) => [state.drosteOffsetX || 0, state.drosteOffsetY || 0],
@@ -169,16 +160,9 @@ export default {
       float logr_src  = c.x * logr  - c.y * theta;
       float theta_src = c.x * theta + c.y * logr;
 
-      // 4b. ARMS=1 WEDGE MIRROR — at arms=1, wedge mirror reflects theta on
-      // odd tiers along the spiral arm, creating alternating chirality between
-      // tiers. parallels arms≥2 wedge mirror (reflect at boundary between
-      // repeating units), where the "unit" is a tier when there's only one arm.
-      if (u_drosteArms == 1 && u_drosteWedgeMirror == 1) {
-        float tierIdx = floor((logr_src + 1000.0 * u_drosteLogS) / u_drosteLogS);
-        if (mod(tierIdx, 2.0) > 0.5) {
-          theta_src = -theta_src;
-        }
-      }
+      // (Build 57: removed the arms=1 wedge-mirror tier-parity theta flip.
+      // It produced a vertical-flip-by-tier appearance unrelated to the
+      // arms≥2 wedge-mirror idiom; wedge mirror UI is now hidden at arms=1.)
 
       // 5. TIER MIRROR / WRAP — reduce logr_src into the fundamental annulus
       // [-logS, 0). mirror reflects at tier boundaries (triangle wave),
@@ -191,12 +175,14 @@ export default {
         logr_src = mod(logr_src, logS) - logS;
       }
 
-      // 6. SOURCE-SIDE SHIFT — per-tier drift in source space (unchanged).
-      // factor (1 − r/r_src) is 0 on the surface tier and at every mirror
-      // reflection point, so the shift effect is seamless with drosteMirror.
+      // 6. SOURCE-SIDE PER-TIER DRIFT — driven by the SAME u_drosteOffset
+      // parameter as the Möbius pre-comp in step 1. factor (1 − r/r_src) is
+      // 0 on the surface tier and at every mirror reflection point, so the
+      // drift is seamless with drosteMirror. Composes with the Möbius to
+      // produce both off-center rings AND deeper-tier source drift.
       float r_src = exp(logr_src);
       vec2 z_src = vec2(cos(theta_src), sin(theta_src)) * r_src;
-      z_src += u_drosteShift * (1.0 - r / r_src);
+      z_src += u_drosteOffset * (1.0 - r / r_src);
       return z_src;
     }
   `,
@@ -385,10 +371,44 @@ export default {
       ctx.setLineDash([]);
     }
 
-    // (Build 55: removed the seam-endpoint drag handle, the log-spiral seam
-    // line, and the translucent twisted-wedge preview. They were driven by
-    // log-shear-era math and inaccurate under generalized Lenstra. The spiral
-    // is now adjusted via the slider only.)
+    // (Build 55: removed the log-shear-era seam-spiral and twisted-wedge
+    // preview. Build 57: bring back a SINGLE log-spiral curve that accurately
+    // tracks the generalized Lenstra tier seam — preview hint only, not a
+    // drag affordance.)
+    //
+    // Generalized Lenstra has c = (1, b) with b = -spiral·logS/(2π).
+    // logr_src = logr − b·θ (where θ is the canvas angle relative to
+    // sliceRotation). The tier-0/tier-1 boundary is the canvas curve where
+    // logr_src = -logS, i.e. logr = b·θ − logS. Sample r along [rIn, rOut],
+    // compute θ = (logr + logS) / b, and draw with many segments for a
+    // smooth visual. Skipped at spiral=0 (no curve) and at arms ≥ 2 (the
+    // wedge sides already convey structure).
+    const spiral = state.drosteSpiral || 0;
+    if (Math.abs(spiral) > 0.005 && isFullCircle) {
+      const logS = Math.log(Math.max(1.0001, state.drosteZoom));
+      const b = -spiral * logS / (2 * Math.PI);
+      const SEAM_STEPS = 80;
+      ctx.strokeStyle = oobOut
+        ? 'rgba(255, 196, 80, 0.7)'
+        : 'rgba(255, 255, 255, 0.7)';
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash(oobOut ? [6, 4] : []);
+      ctx.beginPath();
+      for (let i = 0; i <= SEAM_STEPS; i++) {
+        const t = i / SEAM_STEPS;
+        const r_canvas = rIn * Math.pow(state.drosteZoom, t);  // rIn → rOut
+        const logr_canvas = Math.log(r_canvas / rOut);          // -logS → 0
+        // θ relative to sliceRotation: θ = (logr + logS) / b
+        const theta_rel = (logr_canvas + logS) / b;
+        const a = seamPhaseRad + theta_rel;
+        const px = cx + r_canvas * Math.cos(a);
+        const py = cy + r_canvas * Math.sin(a);
+        if (i === 0) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
+      }
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
 
     // center dot.
     ctx.fillStyle = '#ffffff';
@@ -396,30 +416,12 @@ export default {
     ctx.arc(cx, cy, 3, 0, TAU);
     ctx.fill();
 
-    // direct-manipulation handles: shift (filled white dot, source-side drift)
-    // and offset (filled blue diamond, Möbius pre-comp / off-center rings).
-    // both are mapped from fold-space to screen via slice rotation + rOut
-    // (fold-radius 1 → rOut screen-px). at (0, 0) they overlap on the center.
+    // direct-manipulation handle: offset (filled blue diamond). Drives the
+    // combined center-offset effect — Möbius pre-comp + source-side per-tier
+    // drift. (Build 57 merged the shift dot into the offset diamond.)
     const cosRot = Math.cos(seamPhaseRad), sinRot = Math.sin(seamPhaseRad);
 
-    // shift dot — per-tier source-side drift; small filled white circle.
-    const tx = state.drosteShiftX || 0;
-    const ty = state.drosteShiftY || 0;
-    const shiftHandleX = cx + rOut * (tx * cosRot - ty * sinRot);
-    const shiftHandleY = cy + rOut * (tx * sinRot + ty * cosRot);
-    const shiftHL = env.hoverMode === 'droste-shift' || env.overlayDragMode === 'droste-shift';
-    const shiftDotR = shiftHL ? 8 : 6;
-    ctx.fillStyle = oobOut ? 'rgba(255, 196, 80, 1)' : 'rgba(255, 255, 255, 1)';
-    ctx.beginPath();
-    ctx.arc(shiftHandleX, shiftHandleY, shiftDotR, 0, TAU);
-    ctx.fill();
-    ctx.strokeStyle = 'rgba(0, 0, 0, 0.5)';
-    ctx.lineWidth = 1;
-    ctx.stroke();
-
-    // offset diamond — canvas-side per-tier offset (PhotoSpiralysis). filled
-    // diamond, distinct from shift's circle. drawn innermost so it sits on top
-    // of the shift dot at zero — the three handles form a target/bullseye.
+    // offset diamond.
     const ox = state.drosteOffsetX || 0;
     const oy = state.drosteOffsetY || 0;
     const offsetHandleX = cx + rOut * (ox * cosRot - oy * sinRot);
@@ -507,7 +509,6 @@ export default {
       imgX, imgY, imgW, imgH,
       cx, cy,
       rOut, rIn,
-      shiftHandleX, shiftHandleY,
       offsetHandleX, offsetHandleY,
       halfWedge,
       sliceRotationRad: seamPhaseRad,
@@ -520,17 +521,16 @@ export default {
   // ---------------------------------------------------------------------------
   //
   // mode priorities (highest wins):
-  //   1. offset handle (innermost diamond)     → 'droste-offset' (Möbius pre-comp)
-  //   2. shift handle (filled dot)             → 'droste-shift'  (source-side drift)
-  //   3. ring bands WITHIN the wedge angular range:
+  //   1. offset handle (diamond)               → 'droste-offset' (combined effect)
+  //   2. ring bands WITHIN the wedge angular range:
   //        a. inner-ring band                  → 'scale' handle='inner' (drosteZoom)
   //        b. outer-ring band                  → 'scale' handle='outer' (sliceScale)
-  //   4. wedge boundary line (arms ≥ 2)        → 'droste-arms'
-  //   5. inside the inner ring (r ≤ rIn)       → 'move' (regardless of wedge angular)
-  //   6. inside wedge AND inside outer ring    → 'move'
-  //   7. fall-through                          → 'rotate'
-  // (Build 55: seam-endpoint 'twist' removed. Build 56: swirl handle removed —
-  //  offset is the Möbius pre-comp; future 'true rotation' work is open-ended.)
+  //   3. wedge boundary line (arms ≥ 2)        → 'droste-arms'
+  //   4. inside the inner ring (r ≤ rIn)       → 'move' (regardless of wedge angular)
+  //   5. inside wedge AND inside outer ring    → 'move'
+  //   6. fall-through                          → 'rotate'
+  // (Build 55: seam-endpoint 'twist' removed. Build 56: swirl handle removed.
+  //  Build 57: shift dot merged into offset diamond.)
   //
   // band widths follow daniel's "~16 px total, only a few inside the wedge"
   // rule: BAND_IN (in the annulus body, between the rings) is intentionally
@@ -541,7 +541,6 @@ export default {
     const g = env.sourceOverlayCanvas?._geom;
     if (!g) return { mode: null };
     const { cx, cy, rOut, rIn,
-            shiftHandleX, shiftHandleY,
             offsetHandleX, offsetHandleY,
             halfWedge, sliceRotationRad, isFullCircle } = g;
 
@@ -549,27 +548,17 @@ export default {
     const r = Math.hypot(dx, dy);
     const theta = Math.atan2(dy, dx);
 
-    const OFFSET_HIT     = isTouch ? 14 :  9;   // diamond
-    const SHIFT_HIT      = isTouch ? 18 : 11;   // filled dot
+    const OFFSET_HIT     = isTouch ? 18 : 11;   // diamond (single combined handle)
     const BAND_OUT       = isTouch ? 14 : 12;   // outside the annulus (toward inner-disc or beyond outer)
     const BAND_IN        = isTouch ?  8 :  6;   // inside the annulus body — leaves room for 'move' interior
     const SIDE_BAND_OUT  = isTouch ? 14 : 12;   // outside the wedge angularly
     const SIDE_BAND_IN   = isTouch ?  8 :  6;   // inside the wedge angularly
 
-    // 1. offset handle — diamond (innermost when both are at zero). its tighter
-    // hit zone catches offset; just outside it falls through to shift.
+    // 1. offset handle — diamond (the single combined center-offset control).
     if (offsetHandleX != null) {
       const d = Math.hypot(x - offsetHandleX, y - offsetHandleY);
       if (d <= OFFSET_HIT) {
         return { mode: 'droste-offset', r, theta, R: 0 };
-      }
-    }
-
-    // 2. shift handle — filled dot.
-    if (shiftHandleX != null) {
-      const d = Math.hypot(x - shiftHandleX, y - shiftHandleY);
-      if (d <= SHIFT_HIT) {
-        return { mode: 'droste-shift', r, theta, R: 0 };
       }
     }
 
@@ -634,11 +623,10 @@ export default {
     return { mode: 'rotate', r, theta, R: rOut };
   },
 
-  // filename suffix: zoom + spiral + arms + mirror + (offset, shift).
+  // filename suffix: zoom + spiral + arms + mirror + offset.
   // e.g. z200q100a01m1                  = zoom 2.00, spiral 1.00 tiers/turn, arms 1, mirror on
   //      z200q050a02m0                  = zoom 2.00, spiral 0.50, arms 2, mirror off
-  //      z200q000a02m1ox030y000         = + offset Möbius parameter (0.30, 0)
-  //      z200q000a02m1tx015y025         = + source-side shift (0.15, 0.25)
+  //      z200q000a02m1ox030y000         = + combined center offset (0.30, 0)
   filenameSuffix(state) {
     const z = Math.round(state.drosteZoom * 100);
     const spiral100 = Math.round((state.drosteSpiral || 0) * 100);
@@ -652,10 +640,6 @@ export default {
     const ox = state.drosteOffsetX || 0, oy = state.drosteOffsetY || 0;
     if (Math.abs(ox) > 0.005 || Math.abs(oy) > 0.005) {
       suffix += 'ox' + enc(ox) + 'y' + enc(oy);
-    }
-    const tx = state.drosteShiftX || 0, ty = state.drosteShiftY || 0;
-    if (Math.abs(tx) > 0.005 || Math.abs(ty) > 0.005) {
-      suffix += 'tx' + enc(tx) + 'y' + enc(ty);
     }
     return suffix;
   },

@@ -4,6 +4,19 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.3.1 (Build 57) — 2026-05-30
+
+**Five Droste polish fixes: Y-flip, visible spinner, combined offset, wedge-mirror cleanup, spiral preview.**
+
+- **Source Y-flip fixed globally.** `toSourceUV` in [src/engine/shader-builder.js](src/engine/shader-builder.js) now negates `v.y` before adding `sliceCenter`. WebGL textures upload with `UNPACK_FLIP_Y_WEBGL = false` (image top-left at UV 0,0); without the negation, canvas-y-positive maps to UV-y-positive which is source-BOTTOM, so canvas-top sampled source-bottom (everything upside-down). Invisible on radial/square/hex/triangle (kaleidoscope mirror symmetry makes flipped ≡ unflipped), visibly correct on Droste at arms=1.
+- **Export spinner now visible.** Build 56 added a button-spinner wrapper, but `doExport` was still calling `setBusy()` which displays a fullscreen overlay (z-index 100) that covered the button. The spinner WAS rendering — just hidden. Removed `setBusy/clearBusy` calls from `doExport`. Status text + button-spinner are the export feedback path now.
+- **Combined offset diamond + shift dot into one handle.** Removed `drosteShiftX/Y` state and `u_drosteShift` uniform. The GLSL pipeline now drives BOTH the canvas-side Möbius pre-composition AND the source-side per-tier drift from `u_drosteOffset` — one parameter, two effects, single visual handle (the blue diamond). The drag handler in [src/shell/overlay.js](src/shell/overlay.js) writes only to `drosteOffsetX/Y`. The shift hit-test, drag mode, geom entries, and `tx<XX>y<YY>` filename clause all removed.
+- **Wedge mirror at arms=1: GLSL no-op + UI hidden.** The Build 54 tier-parity theta mirror at arms=1 produced a vertical flip on alternating tiers — unrelated to the arms≥2 wedge-mirror reflection idiom, and visually confusing. Removed that GLSL block. Also hide `#wedgeMirrorLabel` when `state.drosteArms === 1` via the existing `syncWedgeMirrorToggle` callback (registered with `controlsSync` so it re-runs on every state change).
+- **Smooth spiral preview brought back.** When `drosteSpiral > 0.005` and arms=1, draw a single log-spiral curve on the source overlay tracing the generalized-Lenstra tier-0/tier-1 seam (`logr_src = -logS`). 80 line segments for visual smoothness. Stroke is white at 70% opacity (amber dashed when OOB). Preview only — no drag affordance.
+- **Code:** [src/engine/shader-builder.js](src/engine/shader-builder.js) (toSourceUV Y-flip), [src/main.js](src/main.js) (drop setBusy/clearBusy from doExport, hide wedgeMirror UI at arms=1, drop drosteShift from sliceReset), [src/shell/state.js](src/shell/state.js) (remove drosteShiftX/Y), [src/engine/forms/droste.js](src/engine/forms/droste.js) (drop u_drosteShift uniform; source-side drift uses u_drosteOffset; remove arms=1 wedge-mirror GLSL block; remove shift handle drawing + hit-test + geom entry + filename clause; add smooth spiral seam preview when spiral>0 at arms=1), [src/shell/overlay.js](src/shell/overlay.js) (remove droste-shift drag mode + cursor + dispatch), [src/version.js](src/version.js) (Build 57).
+
+---
+
 ## v0.3.1 (Build 56) — 2026-05-30
 
 **Droste: fix offset math + remove swirl + export spinner + per-form reset.** Daniel tested Build 55 and identified four issues: (1) the blue diamond's `drosteOffset` math produced a "bulge / view pan" rather than the intended PhotoSpiralysis off-center-rings aesthetic — because `p = p − (1−|p|)·offset` is a *non-uniform* canvas warp; (2) the hollow-ring `drosteSwirl` doesn't feel right as "rotation" and was getting in the way of the offset UI; (3) the export button needs a spinner to prevent double-clicks during the multi-second export delay; (4) per-form reset-to-defaults would help iteration. All four fixed in Build 56.

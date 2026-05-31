@@ -382,7 +382,8 @@ async function doExport(sizeArg) {
   statusEl.textContent = `rendering ${size}×${size}...`;
   statusEl.classList.remove('error');
   statusEl.classList.add('busy');
-  setBusy(`rendering ${size}×${size}…`);
+  // (no setBusy here — the export button's own spinner + this status text are
+  // the feedback path; the fullscreen busy overlay would cover the button.)
   await new Promise(r => requestAnimationFrame(r));
 
   let result;
@@ -392,7 +393,6 @@ async function doExport(sizeArg) {
     statusEl.textContent = e.message;
     statusEl.classList.add('error');
     statusEl.classList.remove('busy');
-    clearBusy();
     // restore preview render
     engine.render(state);
     console.error(e);
@@ -413,7 +413,6 @@ async function doExport(sizeArg) {
   statusEl.textContent = `exported ${sz}×${sz} • ${session.exportFormat} • render ${renderMs.toFixed(0)}ms • read ${readMs.toFixed(0)}ms • encode ${encodeMs.toFixed(0)}ms • ${(blob.size / 1024 / 1024).toFixed(1)}MB`;
   statusEl.classList.remove('busy');
   statusEl.classList.add('success');
-  clearBusy();
   setTimeout(() => statusEl.classList.remove('success'), 2500);
 }
 
@@ -688,6 +687,14 @@ function wireControls() {
       const wantsOn = b.dataset.wedgemirror === '1';
       b.classList.toggle('active', wantsOn === (state.drosteWedgeMirror !== false));
     });
+    // Wedge mirror is conceptually meaningful only at arms ≥ 2 (it reflects
+    // adjacent angular wedges). Hide the row entirely at arms=1 so the
+    // toggle doesn't suggest an effect when there's no wedge to mirror.
+    const wmLabel = document.getElementById('wedgeMirrorLabel');
+    if (wmLabel && state.form === 'droste') {
+      const arms = Math.round(state.drosteArms || 1);
+      wmLabel.style.display = arms > 1 ? '' : 'none';
+    }
   }
   document.querySelectorAll('#wedgeMirrorToggle button').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -719,8 +726,6 @@ function wireControls() {
     state.drosteWedgeMirror = true;
     state.drosteOffsetX  = 0;
     state.drosteOffsetY  = 0;
-    state.drosteShiftX   = 0;
-    state.drosteShiftY   = 0;
     applyArmsSnap();
     env.controlsSync.syncAll();
     scheduleRender();

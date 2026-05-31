@@ -12,7 +12,7 @@ He prefers **no em dashes** in his own writing; respect that in any prose Claude
 
 ## current version
 
-`v0.3.1 · Build 56`. The footer in the running app shows this string from `src/version.js`. When delivering a new build, increment BUILD by 1 and bump VERSION when meaningful change ships. **BUILD never resets** on version bumps — it's a global monotonic counter (see `version.js` comment).
+`v0.3.1 · Build 57`. The footer in the running app shows this string from `src/version.js`. When delivering a new build, increment BUILD by 1 and bump VERSION when meaningful change ships. **BUILD never resets** on version bumps — it's a global monotonic counter (see `version.js` comment).
 
 ## what's working
 
@@ -28,22 +28,25 @@ Read `ARCHITECTURE.md` if you need details on the registry, shader composition, 
 
 ## what we're doing right now
 
-Build 56 addresses four follow-ups from Build 55 testing:
+Build 57 addresses five follow-ups from Build 56 testing:
 
-1. **Offset math is now Möbius pre-composition** (`drosteOffset`). The blue diamond handle now produces the PhotoSpiralysis off-center-rings aesthetic — each tier ring stays circular but with a different center, converging to the spiral pole at canvas position `a`. Previously the math was `p = p − (1−|p|)·offset`, which produced a "bulge / view pan" instead.
-2. **`drosteSwirl` removed entirely** — the hollow-ring handle, state fields, GLSL block, uniform, drag mode, and filename suffix clause are all gone. Two sequential Möbius transformations compose into a single one, so having both as separate parameters was a confusingly-split single control. Future "true rotation" work (Build 57+) starts from a clean slate with whatever math we pick then.
-3. **Export spinner** — the button text is replaced by a spinner element during export, and the button is disabled until export completes (rapid double-clicks during the multi-second delay don't fire a second export).
-4. **Per-form slice reset** — new `reset slice` button at the bottom of the slice section. Resets form-specific + slice-section state (segments, scale, rotation, thickness, spiral, mirror, arms, wedge mirror, offset, shift, square aspect) to defaults. Form selection and global state (canvas zoom/rotation, OOB mode) are untouched. Undo restores previous state.
+1. **Source Y-flip fixed globally** in `toSourceUV` — invisible on mirror-symmetric forms, visibly corrects Droste at arms=1 (no more upside-down output).
+2. **Export spinner now visible** — removed `setBusy()/clearBusy()` from `doExport` since the fullscreen busy overlay was covering the button's spinner.
+3. **Combined diamond + dot into one handle.** Removed `drosteShiftX/Y` state and `u_drosteShift` uniform. The diamond's parameter (`drosteOffsetX/Y`) now drives both the Möbius pre-composition AND the source-side per-tier drift simultaneously. One handle, two effects.
+4. **Wedge mirror at arms=1: GLSL no-op + UI hidden.** Removed the Build 54 tier-parity theta mirror block. The wedge-mirror row is hidden from the slice panel when `state.drosteArms === 1` (it's meaningful only at arms ≥ 2).
+5. **Smooth spiral seam preview** — when spiral > 0 at arms=1, a smooth log-spiral curve traces the tier-0/tier-1 seam in the source overlay (80 line segments, no jagged silhouette).
 
 Planned next builds:
-- **Build 57+:** "true rotation" / pole rotation feature — Daniel says lower priority, open-ended math direction (post-composition Möbius applied to source z_src? a separate joystick affordance in the settings panel? to be decided). Global reset-to-defaults (if needed after per-form testing).
+- **Build 58+:** true vanishing-point offset (per-tier rigid translation; no in-tier distortion). Backlog. "Dimensional rotation" (volumetric tilt where each tier projects at a different angle) backlog.
 
-**What Daniel needs to verify in-browser for Build 56**:
-1. **PhotoSpiralysis offset test:** drag the diamond toward upper-right. Outer ring stays centered; inner tier rings are **circles** with progressively shifted centers; spiral pole appears at the handle position. NO bulge/stretching distortion.
-2. **No hollow ring** on the source overlay — only the offset diamond and shift dot remain.
-3. **Export spinner:** click export. Button shows spinner + disabled state until export finishes.
-4. **Reset slice:** click `reset slice` after fiddling. All form/slice params return to defaults. Undo restores.
-5. **Combine offset + shift + spiral:** these three controls compose into distinct visual effects (off-center rings + source drift + spiral tightness).
+**What Daniel needs to verify in-browser for Build 57**:
+
+1. **Y-flip fix at default state** (Droste, arms=1, spiral=0, mirror on): upload a clock image. Numbers should appear right-side-up (12 at top), no longer mirrored.
+2. **Other forms unchanged**: switch to radial/square/hex/triangle. Outputs should look the same as Build 56 (the Y-flip is invisible under kaleidoscope mirror symmetry).
+3. **Export spinner**: click export. Button shows spinner + disabled state; status text below says `rendering …`. **No** fullscreen busy overlay.
+4. **Combined offset**: drag the diamond. Expect both the spiral pole shift (rings nest off-center) AND deeper-tier source content drift toward the offset direction. Single handle, no separate dot.
+5. **Wedge mirror toggle**: at arms=1, the wedge-mirror row should be HIDDEN. Increase segments to 2+, the row reappears.
+6. **Spiral preview**: at arms=1, spiral=1, a smooth log-spiral curve overlays the source thumbnail showing the tier seam. Adjust spiral slider, curve updates smoothly.
 
 Still pending from prior builds: Intel Air investigation (blocked on hardware access). Triangle form still pending production review of `TRI_SIZE`, `tilesPerDim`, and Build 37 fold-transform side effects.
 

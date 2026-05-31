@@ -96,7 +96,12 @@ vec2 toSourceUV(vec2 v) {
   } else {
     v.y *= u_sourceAspect;
   }
-  return v + u_sliceCenter;
+  // negate v.y: textures upload with UNPACK_FLIP_Y_WEBGL=false (image top-left
+  // at UV 0,0), so canvas-y-positive (math up) must map to UV-y-negative
+  // (texture-up) to keep canvas-top sampling source-top. Without this, source
+  // appears upside-down at default state on forms without mirror symmetry
+  // (e.g. Droste at arms=1). Invisible on mirror-symmetric forms.
+  return vec2(v.x, -v.y) + u_sliceCenter;
 }
 `;
 
