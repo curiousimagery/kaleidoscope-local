@@ -12,7 +12,7 @@ He prefers **no em dashes** in his own writing; respect that in any prose Claude
 
 ## current version
 
-`v0.3.1 · Build 60`. The footer in the running app shows this string from `src/version.js`. When delivering a new build, increment BUILD by 1 and bump VERSION when meaningful change ships. **BUILD never resets** on version bumps — it's a global monotonic counter (see `version.js` comment).
+`v0.3.1 · Build 61`. The footer in the running app shows this string from `src/version.js`. When delivering a new build, increment BUILD by 1 and bump VERSION when meaningful change ships. **BUILD never resets** on version bumps — it's a global monotonic counter (see `version.js` comment).
 
 ## what's working
 
@@ -52,7 +52,7 @@ Still pending from prior builds: Intel Air investigation (blocked on hardware ac
 
 **Strategic sequencing session (2026-05-31):** worked through the multi-version architecture with Daniel and rewrote the `BACKLOG.md` capability tier. Key outcome — "shell" was conflating four layers (Engine / Kit / Host / chrome); only the front-end chrome is genuinely rebuilt per use case, everything below is shared and composed. There are **two front-ends** (desktop, extended; mobile, new) plus a deferred MIDI/kiosk third. Camera is a host module wired into both. The agreed build order is Phase 0 (parameter registry + texture-source spike) → 0.5 (camera host + desktop/iPad wiring) → 1 (mobile still-editor chrome) → 2 (camera in mobile) → 3 (tween kit + still-animation) → 3.5 (random/live-wallpaper) → 4 (video-file animation) → 5 (live motion + Syphon external output). See the `BACKLOG.md` capability tier for the full reasoning.
 
-**Next session picks up: Phase 0 — the parameter registry** (`src/shell/params.js`, sourcing `wireSliderWithScrub()` opts from data; desktop behavior must stay byte-identical). It's a refactor of working code, so verification is side-by-side against the current build. The full execution detail lived in the approved plan file `~/.claude/plans/i-d-like-to-think-parsed-sloth.md`.
+**Next session picks up: Phase 0 — the parameter registry** (`src/shell/params.js`). Scoped tight after reading the real call sites in `main.js` `wireControls()`: only **6 cleanly-declarative sliders** (`scale`, `compZoom`, `sliceRot`, `aspect`, droste `zoom`, `canvasRot`) move to data-driven wiring (loop calling the unchanged `wireSliderWithScrub()` with opts from `PARAMS`). The **stateful/form-aware controls stay bespoke** — segments form-routing, the arms-aware spiral fmt+snap, and the mirror/wedge-mirror/OOB toggles — but each gets a schema-only `PARAMS` entry so the catalog is complete for the mobile chrome to enumerate. Acceptance: desktop/iPad byte-identical to current build; verify side-by-side. Full code-grounded spec is in the approved plan file `~/.claude/plans/i-d-like-to-think-parsed-sloth.md`.
 
 `docs/FOLD.md` owns vision, brand, marketing narrative, monetization paths, and gallery show concept. `docs/BACKLOG.md` capability tier now carries the layered vocabulary and the Phase 0–5 sequence; mobile UX exploration notes, gallery installation work, and open architecture questions sections are present.
 

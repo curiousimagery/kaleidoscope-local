@@ -807,7 +807,11 @@ export function setupSourceInteraction(env, wrap) {
       const { state } = env;
       state.sliceScale    = Math.max(0.05, Math.min(10, drag.startScale * (dist / drag.startDist)));
       let da = (angle - drag.startAngle) * 180 / Math.PI;
-      state.sliceRotation = ((drag.startRotation + da) % 360 + 360) % 360;
+      // Y-flip in overlay means sliceRotation must be negated to keep the
+      // wedge graphic rotating in the same screen direction as the fingers.
+      // The apex-orbit below uses da_rad as-is (it's a position rotation in
+      // screen y-down, unaffected by the wedge-direction flip).
+      state.sliceRotation = ((drag.startRotation - da) % 360 + 360) % 360;
       // Rotate the apex around the finger midpoint — the standard two-finger
       // rigid-body transform. This keeps the midpoint as the true pivot so the
       // wedge tracks naturally under the fingers. Without this, rotation orbits
@@ -908,12 +912,16 @@ export function setupSourceInteraction(env, wrap) {
         }
       } else if (drag.mode === 'rotate') {
         if (!g) return;
+        // Y-flip in sliceVecToSourceUV (matching the shader's toSourceUV) means
+        // the wedge graphic rotates the OPPOSITE direction from sliceRotation in
+        // screen y-down terms. negate the cursor delta so dragging CCW in screen
+        // rotates the wedge CCW in screen (intuitive).
         const a = Math.atan2(y - g.cy, x - g.cx);
         let delta = a - drag.prevAngle;
         if (delta > Math.PI)  delta -= 2 * Math.PI;
         if (delta < -Math.PI) delta += 2 * Math.PI;
         drag.prevAngle = a;
-        state.sliceRotation = state.sliceRotation + delta * 180 / Math.PI;
+        state.sliceRotation = state.sliceRotation - delta * 180 / Math.PI;
       } else if (drag.mode === 'droste-ratio') {
         // inner-ring radial drag — feel matches outer-ring scale-drag (relative,
         // r_now / r_start), but moves the inner ring instead of the outer.

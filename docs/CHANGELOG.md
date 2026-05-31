@@ -4,6 +4,16 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.3.1 (Build 61) — 2026-05-31
+
+**Fallout from the Build 57 Y-flip: overlay was diverging from GPU sampling on radial/hex/square/triangle.** Build 57 added `vec2(v.x, -v.y)` inside the shader's `toSourceUV` to fix Droste's arms=1 upside-down sampling, but missed the explicit JS mirror function `sliceVecToSourceUV` in [src/engine/geometry.js](src/engine/geometry.js) — which the polygon overlay path uses to place the wedge at the correct source-UV position. After Build 57 the GPU was sampling the Y-mirror of where the overlay drew the wedge; invisible on outputs with bilateral mirror symmetry across the horizontal axis (sliceRotation on multiples of π) but visible at any other rotation. Daniel: rotating the radial wedge to "11, 12, 1 area" actually sampled "5, 6, 7" content; hex same issue at vertical rotations.
+
+- **Patched `sliceVecToSourceUV`** to negate `y` after aspect correction. Matches the shader's transform exactly per the doc comment in that file ("MUST match the shader's transform exactly — when this math drifts from the shader's, the overlay stops matching the rendered output").
+- **Inverted the rotate-drag and pinch-rotate delta signs.** With the Y-flip applied to the overlay, sliceRotation maps to a Y-mirrored wedge direction relative to before. Without the sign inversion in the drag handlers, dragging the cursor CCW would now rotate the wedge graphic CW (counterintuitive). The pinch handler's apex-orbit math is *not* inverted — it positions slice-center, which is independent of the wedge direction flip.
+- **Code:** [src/engine/geometry.js](src/engine/geometry.js), [src/shell/overlay.js](src/shell/overlay.js) (rotate + pinch handlers), [src/version.js](src/version.js) (Build 61).
+
+---
+
 ## v0.3.1 (Build 60) — 2026-05-30
 
 **Droste OOB detection fix.** The wedge-OOB check used the wrong source-theta-shift value when probing the twisted-wedge boundary at the inner ring. Under the old log-shear math the variable was the rotation-per-tier in radians; in Build 56 I left a stale approximation `twistRad = spiral · 2π` which, for spiral=6, evaluates to ~37.7 rad (≈6 full revolutions). The inner-ring probes wrapped fully around the source many times over and triggered OOB even when the actual sampling region had room to spare. Daniel observed: "the wedge is highlighted yellow but actually has plenty of room before hitting an edge."

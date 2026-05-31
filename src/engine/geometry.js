@@ -28,7 +28,13 @@ export function sliceVecToSourceUV(vx, vy, state, sourceAspect) {
   // aspect correction (same direction as shader)
   if (sourceAspect >= 1.0) x /= sourceAspect;
   else y *= sourceAspect;
-  return { dx: x, dy: y };
+  // Y-flip — match the shader's toSourceUV (Build 57 added negate(v.y) before
+  // adding sliceCenter so canvas-top samples source-top). Without this mirror
+  // here, the polygon overlay shows the wedge at the Y-mirrored position
+  // from where the GPU actually samples — visible on forms without bilateral
+  // mirror symmetry across the horizontal (radial/hex/square/triangle when
+  // sliceRotation is not on a horizontal axis).
+  return { dx: x, dy: -y };
 }
 
 // ray-from-center boundary radius: shoot a ray from (cx, cy) at angle theta,
