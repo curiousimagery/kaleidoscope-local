@@ -371,20 +371,17 @@ export default {
       ctx.setLineDash([]);
     }
 
-    // (Build 55: removed the log-shear-era seam-spiral and twisted-wedge
-    // preview. Build 57: bring back a SINGLE log-spiral curve that accurately
-    // tracks the generalized Lenstra tier seam — preview hint only, not a
-    // drag affordance.)
+    // Spiral preview — show how a canvas-radial line twists in source space.
+    // For a canvas pixel at (r, θ_canvas), source theta_src = θ_canvas + b·logr
+    // where b = -spiral·logS/(2π). Trace a curve in source-overlay coords from
+    // the source outer ring (at θ_canvas at canvas outer = source outer) inward
+    // to the source inner ring (where source theta has shifted by b·(−logS)).
     //
-    // Generalized Lenstra has c = (1, b) with b = -spiral·logS/(2π).
-    // logr_src = logr − b·θ (where θ is the canvas angle relative to
-    // sliceRotation). The tier-0/tier-1 boundary is the canvas curve where
-    // logr_src = -logS, i.e. logr = b·θ − logS. Sample r along [rIn, rOut],
-    // compute θ = (logr + logS) / b, and draw with many segments for a
-    // smooth visual. At arms > 1, the curve will extend BEYOND the visible
-    // wedge angular range — that's the point: at high spiral the source
-    // sampling reaches outside the wedge along the seam (this preview shows
-    // where).
+    // At arms=1, draw a single curve at θ_canvas=0 (the wedge "center" direction)
+    // showing the spiral arm structure. At arms ≥ 2, draw two curves at the
+    // wedge boundaries (θ_canvas = ±halfWedge) showing how the wedge tilts
+    // toward the spiral's twist direction — content beyond these curves at the
+    // inner ring is what gets sampled past the canonical wedge.
     const spiral = state.drosteSpiral || 0;
     if (Math.abs(spiral) > 0.005) {
       const logS = Math.log(Math.max(1.0001, state.drosteZoom));
@@ -395,20 +392,30 @@ export default {
         : 'rgba(255, 255, 255, 0.7)';
       ctx.lineWidth = 1.5;
       ctx.setLineDash(oobOut ? [6, 4] : []);
-      ctx.beginPath();
-      for (let i = 0; i <= SEAM_STEPS; i++) {
-        const t = i / SEAM_STEPS;
-        const r_canvas = rIn * Math.pow(state.drosteZoom, t);  // rIn → rOut
-        const logr_canvas = Math.log(r_canvas / rOut);          // -logS → 0
-        // θ relative to sliceRotation: θ = (logr + logS) / b
-        const theta_rel = (logr_canvas + logS) / b;
-        const a = seamPhaseRad + theta_rel;
-        const px = cx + r_canvas * Math.cos(a);
-        const py = cy + r_canvas * Math.sin(a);
-        if (i === 0) ctx.moveTo(px, py);
-        else ctx.lineTo(px, py);
+
+      const drawCurve = (thetaCanvas) => {
+        ctx.beginPath();
+        for (let i = 0; i <= SEAM_STEPS; i++) {
+          const t = i / SEAM_STEPS;            // 0 at outer, 1 at inner
+          const screen_r = rOut * Math.pow(state.drosteZoom, -t);  // rOut → rIn
+          const logr_canvas = -t * logS;                            // 0 → -logS
+          const theta_rel = thetaCanvas + b * logr_canvas;
+          const a = seamPhaseRad + theta_rel;
+          const px = cx + screen_r * Math.cos(a);
+          const py = cy + screen_r * Math.sin(a);
+          if (i === 0) ctx.moveTo(px, py);
+          else ctx.lineTo(px, py);
+        }
+        ctx.stroke();
+      };
+
+      if (isFullCircle) {
+        drawCurve(0);
+      } else {
+        drawCurve(+halfWedge);
+        drawCurve(-halfWedge);
       }
-      ctx.stroke();
+
       ctx.setLineDash([]);
     }
 

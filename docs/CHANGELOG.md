@@ -4,6 +4,18 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.3.1 (Build 59) — 2026-05-30
+
+**Droste spiral preview redrawn in the correct space + direction.** Build 57 brought back a spiral seam curve, but it was effectively drawing the *canvas-side* tier-boundary curve overlaid in *source-overlay* coordinates — geometrically meaningless. The result curved in the opposite direction from where source is actually sampled.
+
+The correct visualization: each canvas-radial line maps to a curve in source space via `theta_src = θ_canvas + b·logr` (with `b = -spiral·logS/(2π)`). Going from canvas-outer (logr=0) to canvas-inner (logr=−logS), source theta shifts by `−b·logS`. For positive spiral, that shift is positive (CW in screen y-down) — toward the +θ direction past the wedge boundary.
+
+- **At `arms = 1`**: draw a single curve at `θ_canvas = 0` (the wedge-center / sliceRotation direction). Shows the spiral-arm structure: starts at the source-outer ring on the slice-rotation radial, curves to the inner ring at angle `−b·logS` past it.
+- **At `arms ≥ 2`**: draw two curves at `θ_canvas = ±halfWedge` (the wedge boundaries). Both start at the wedge boundary on the source-outer ring and curve toward the inner ring in the spiral direction. Content beyond these curves at the inner ring is where the next tier's sampling reaches — visibly indicating how the wedge "tilts" with spiral.
+- **Code:** [src/engine/forms/droste.js](src/engine/forms/droste.js) (spiral-preview math + draw helper), [src/version.js](src/version.js) (Build 59).
+
+---
+
 ## v0.3.1 (Build 58) — 2026-05-30
 
 **Two Droste nit-fixes from Build 57 testing.**
