@@ -38,6 +38,14 @@ const HIT = {
   SCALE_BAND_OUT_TOUCH: 28,
   SPOKE_BAND_IN_TOUCH:  10,
   SPOKE_BAND_OUT_TOUCH: 32,
+  // Rhombus (triangle) scale band — dedicated so the interior stays mostly a
+  // MOVE target. Thin interior band, slightly larger exterior. (The shared
+  // SCALE_BAND_* above ate ~16-28px of the interior, leaving small rhombi with
+  // no move zone.) See classifyPointer's rhombus branch.
+  RHOMBUS_SCALE_IN_MOUSE:  4,
+  RHOMBUS_SCALE_OUT_MOUSE: 16,
+  RHOMBUS_SCALE_IN_TOUCH:  4,
+  RHOMBUS_SCALE_OUT_TOUCH: 16,
 };
 
 // ===========================================================================
@@ -332,46 +340,43 @@ function drawTouchAffordances(ctx, screenPts, cx, cy, outerEdges, spokeEdges, fo
   ctx.lineCap = 'round';
 
   if (form.id === 'square') {
-    // Square buildPolygon always returns [(-W,-H),(W,-H),(W,H),(-W,H)].
-    // screenPts[0]=top-left, [1]=top-right, [2]=bottom-right, [3]=bottom-left in shape frame.
     if (screenPts.length < 4) { ctx.restore(); return; }
-    const p0 = screenPts[0], p1 = screenPts[1], p2 = screenPts[2];
 
-    // Top edge midpoint + outward normal (used for rotation arc placement).
-    const topMx = (p0.x + p1.x) / 2, topMy = (p0.y + p1.y) / 2;
-    const topEl = Math.hypot(p1.x - p0.x, p1.y - p0.y) || 1;
-    let topNx = -(p1.y - p0.y) / topEl, topNy = (p1.x - p0.x) / topEl;
-    if ((topMx - cx) * topNx + (topMy - cy) * topNy < 0) { topNx = -topNx; topNy = -topNy; }
-
-    // Rotation arc — above the top edge center. 24px beyond the edge midpoint
-    // avoids collision with the 14px-reach scale arrow on the same edge.
-    const topMidR   = Math.hypot(topMx - cx, topMy - cy);
-    const topMidAng = Math.atan2(topMy - cy, topMx - cx);
-    const { op: rop, lw: rlw } = afStyle(rotateActive);
-    afRotationArc(ctx, cx, cy, topMidAng, topMidR + 24, rop, rlw);
-
-    // Edge arrows on all 4 edges. Pre-Build 61 used only top + right; after
-    // the Y-flip changed which fold-frame vertex appears at screen-top, that
-    // pair drifted to the user's perceived "bottom + right" position. Drawing
-    // on all 4 edges keeps the affordance visible regardless of orientation.
-    const { op: sop, lw: slw } = afStyle(scaleActive);
+    // Screen-relative affordance placement (orientation-independent): one
+    // cluster only — a scale arrow on the TOP edge (height), one on the RIGHT
+    // edge (width), a diagonal on the TOP-RIGHT corner, and the rotation arc
+    // just beyond the right edge. Hit-testing still accepts all edges/corners;
+    // this is only which handles we draw (per Daniel: drop the 5 redundant
+    // mirror duplicates that crowded the chrome).
+    const edgeMids = [];
     for (let i = 0; i < 4; i++) {
-      const a = screenPts[i];
-      const b = screenPts[(i + 1) % 4];
+      const a = screenPts[i], b = screenPts[(i + 1) % 4];
       const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
       const el = Math.hypot(b.x - a.x, b.y - a.y) || 1;
       let nx = -(b.y - a.y) / el, ny = (b.x - a.x) / el;
       if ((mx - cx) * nx + (my - cy) * ny < 0) { nx = -nx; ny = -ny; }
-      afScaleArrow(ctx, mx, my, nx, ny, sop, slw);
+      edgeMids.push({ mx, my, nx, ny });
     }
+    const topEdge   = edgeMids.reduce((p, c) => (c.my < p.my ? c : p));
+    const rightEdge = edgeMids.reduce((p, c) => (c.mx > p.mx ? c : p));
+    const trVtx     = screenPts.reduce((p, c) => ((c.x - c.y) > (p.x - p.y) ? c : p));
 
-    // Corner diagonal scale arrows — one per vertex (all 4 corners).
+    // Rotation arc beyond the right edge (24px clears its scale arrow).
+    const reAng = Math.atan2(rightEdge.my - cy, rightEdge.mx - cx);
+    const reR   = Math.hypot(rightEdge.mx - cx, rightEdge.my - cy);
+    const { op: rop, lw: rlw } = afStyle(rotateActive);
+    afRotationArc(ctx, cx, cy, reAng, reR + 24, rop, rlw);
+
+    // Scale arrows: top edge + right edge.
+    const { op: sop, lw: slw } = afStyle(scaleActive);
+    afScaleArrow(ctx, topEdge.mx, topEdge.my, topEdge.nx, topEdge.ny, sop, slw);
+    afScaleArrow(ctx, rightEdge.mx, rightEdge.my, rightEdge.nx, rightEdge.ny, sop, slw);
+
+    // Diagonal scale arrow: top-right corner.
     const { op: cop, lw: clw } = afStyle(cornerActive);
-    for (const v of screenPts) {
-      const cdx = v.x - cx, cdy = v.y - cy;
-      const cLen = Math.hypot(cdx, cdy) || 1;
-      afScaleArrow(ctx, v.x, v.y, cdx / cLen, cdy / cLen, cop, clw);
-    }
+    const cdx = trVtx.x - cx, cdy = trVtx.y - cy;
+    const cLen = Math.hypot(cdx, cdy) || 1;
+    afScaleArrow(ctx, trVtx.x, trVtx.y, cdx / cLen, cdy / cLen, cop, clw);
 
   } else if (form.id === 'triangle') {
     // Triangle's polygon is a horizontal 60-120 rhombus with the slice center
@@ -594,7 +599,15 @@ function classifyPointer(env, x, y, isTouch = false) {
   // zone of a non-apex edge (inside-perpendicular only).
   const sliceCenterAtVertex = pts.some(p => Math.hypot(p.x - cx, p.y - cy) < 1);
   if (form.spokeRule === 'none' && sliceCenterAtVertex) {
+    // Rhombus (triangle): thin interior scale band so most of the interior is a
+    // MOVE target. Signed perpendicular per edge (positive = outside the
+    // polygon): scale only within a small interior band or a modest exterior
+    // band; everything else inside is move, outside is rotate. Self-contained —
+    // we don't fall through to CASE A, whose radial scale band would re-inflate
+    // the interior scale region this branch is meant to trim.
     const APEX_EPS = 1.0;
+    const SC_IN  = isTouch ? HIT.RHOMBUS_SCALE_IN_TOUCH  : HIT.RHOMBUS_SCALE_IN_MOUSE;
+    const SC_OUT = isTouch ? HIT.RHOMBUS_SCALE_OUT_TOUCH : HIT.RHOMBUS_SCALE_OUT_MOUSE;
     for (let i = 0; i < pts.length; i++) {
       const a = pts[i];
       const b = pts[(i + 1) % pts.length];
@@ -611,11 +624,17 @@ function classifyPointer(env, x, y, isTouch = false) {
       const ux = ex / elen, uy = ey / elen;
       const projT = (x - a.x) * ux + (y - a.y) * uy;
       if (projT < 0 || projT > elen) continue;
-      const perpDist = Math.abs((x - a.x) * (-uy) + (y - a.y) * ux);
-      if (perpDist <= SCALE_OUT) {
+      // outward normal (away from polygon center) → signed distance from edge.
+      let nx = -uy, ny = ux;
+      const mxE = (a.x + b.x) / 2, myE = (a.y + b.y) / 2;
+      if ((mxE - cx) * nx + (myE - cy) * ny < 0) { nx = -nx; ny = -ny; }
+      const signed = (x - a.x) * nx + (y - a.y) * ny;
+      if (signed >= -SC_IN && signed <= SC_OUT) {
         return { mode: 'scale', r, theta, R, onSpoke: false, cursorTheta: theta };
       }
     }
+    if (!outsideAngular && r <= R) return { mode: 'move', r, theta, R };
+    return { mode: 'rotate', r, theta, R };
   }
 
   // square form helper: classify cursor as near a CORNER or EDGE of the rect.

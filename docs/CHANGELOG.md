@@ -4,6 +4,16 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.4.1 (Build 68) — 2026-06-01
+
+**Export model rework + overlay affordance refinements (pre-mobile cleanup).**
+
+- **Two export buttons, no more multi-file downloads.** "Export composition" saves only the kaleidoscope (one file). "Export package (.zip)" bundles the composition + the unmodified original into a single `.zip`. This replaces the Build 67 "first export also saves the original" two-download behavior, which Safari (iPad + desktop) silently collapsed to one file. A zip is one download, so it works everywhere — and it's the seam for future package layers (overlay thumbnail, transparent geometry map; see BACKLOG). New dependency-free [src/shell/zip.js](src/shell/zip.js) (store-only ZIP, validated against `unzip -t`). The original is the uploaded file for uploads, the raw frame for camera captures; tracked in `originalSource`.
+- **Square form: one affordance cluster instead of eight.** Was drawing scale arrows on all 4 edges + all 4 corners (Build 64 orientation-independence). Now draws a scale arrow on the top edge (height), the right edge (width), the top-right corner (diagonal), and the rotation arc just beyond the right edge — chosen screen-relative so they stay put under rotation. Hit-testing still accepts all edges/corners; only the drawn handles changed. [src/shell/overlay.js](src/shell/overlay.js).
+- **Rhombus (triangle) scale targets trimmed.** The shared scale band ate ~16-28px of the interior, leaving small rhombi with no move zone. The rhombus now uses a dedicated thin interior band (4px) + modest exterior band (16px) via a signed per-edge perpendicular, and is self-contained (doesn't fall through to the radial scale band). Most of the interior is now a move target. New `RHOMBUS_SCALE_*` constants in [src/shell/overlay.js](src/shell/overlay.js).
+
+---
+
 ## v0.4.0 (Build 67) — 2026-06-01
 
 **Live-camera fixes from first iPad testing.**

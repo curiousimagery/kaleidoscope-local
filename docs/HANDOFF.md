@@ -12,7 +12,7 @@ He prefers **no em dashes** in his own writing; respect that in any prose Claude
 
 ## current version
 
-`v0.4.0 · Build 67`. The footer in the running app shows this string from `src/version.js`. When delivering a new build, increment BUILD by 1 and bump VERSION when meaningful change ships. **BUILD never resets** on version bumps — it's a global monotonic counter (see `version.js` comment).
+`v0.4.1 · Build 68`. The footer in the running app shows this string from `src/version.js`. When delivering a new build, increment BUILD by 1 and bump VERSION when meaningful change ships. **BUILD never resets** on version bumps — it's a global monotonic counter (see `version.js` comment).
 
 ## what's working
 
@@ -70,7 +70,11 @@ Still pending from prior builds: Intel Air investigation (blocked on hardware ac
 
 **Needs Daniel's re-verification on iPad + desktop:** front-camera sampling now matches the wedge position; captured thumbnail persists and stays editable; export shows the spinner and (first time after a capture) downloads two files; desktop opens the front camera mirrored. Watch the two-file export for browser "multiple downloads" prompts.
 
-**Next phase: 1 — mobile still-editor chrome.** Opens with a divergent IxD exploration session Daniel drives (2–3 layout approaches; see "mobile UX exploration notes"), then builds on the Phase 0 registry. Full Phase 0–5 spec is in the approved plan file `~/.claude/plans/i-d-like-to-think-parsed-sloth.md`.
+**Build 68 — export rework + overlay refinements (Daniel's pre-mobile cleanup).** Export is now two buttons: "export composition" (single file) and "export package (.zip)" (composition + unmodified original in one zip — replaces the Build 67 two-download approach that Safari collapsed to one file). New dependency-free `src/shell/zip.js` (store-only, validated with `unzip -t`). Square form draws one affordance cluster (top edge + right edge + top-right corner + rotate beyond the right edge) instead of all 8; hit-testing unchanged. Rhombus scale band trimmed to a thin interior (4px) + 16px exterior so the interior is mostly a move target.
+
+**Needs Daniel's re-verification:** square shows only the one cluster and rotates cleanly; rhombus has room to move vs scale at small sizes; "export package" produces a valid zip on Safari/iPad with both files; "export composition" is a clean single download.
+
+**Next phase: 1 — mobile still-editor chrome.** Opens with a divergent IxD exploration session Daniel drives (2–3 layout approaches; see "mobile UX exploration notes"), then builds on the Phase 0 registry. The export-package zip is the seam for the planned overlay/geometry export layers (tile-aware features in BACKLOG). Full Phase 0–5 spec is in the approved plan file `~/.claude/plans/i-d-like-to-think-parsed-sloth.md`.
 
 `docs/FOLD.md` owns vision, brand, marketing narrative, monetization paths, and gallery show concept. `docs/BACKLOG.md` capability tier now carries the layered vocabulary and the Phase 0–5 sequence; mobile UX exploration notes, gallery installation work, and open architecture questions sections are present.
 

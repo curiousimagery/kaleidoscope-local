@@ -30,6 +30,7 @@ import {
 } from './shell/controls.js';
 import { PARAMS, DECLARATIVE_PARAM_IDS } from './shell/params.js';
 import { createCamera } from './shell/camera.js';
+import { zipStore } from './shell/zip.js';
 import { formatVersion } from './version.js';
 import { push as historyPush, undo as historyUndo, redo as historyRedo, canUndo, canRedo } from './shell/history.js';
 import { wireDiagnosticButton } from './shell/diagnostics.js';
@@ -323,9 +324,9 @@ let sourceFilename = '';
 function loadImage(file) {
   if (!engine) return;
   if (isLive) stopCameraMode({ keepSource: true });  // uploading exits live mode
-  pendingOriginal = null;  // an uploaded file is already on the user's disk
   const url = URL.createObjectURL(file);
   sourceFilename = (file.name || 'image').replace(/\.[^.]+$/, '');
+  originalSource = { blob: file, name: file.name || 'original' };  // for export package
   const img = new Image();
   // Clear any prior upload error before attempting this load.
   if (uploadErrorEl) uploadErrorEl.textContent = '';
@@ -384,10 +385,10 @@ let isLive = false;
 let liveActive = false;
 let liveRaf = 0;
 
-// The unmodified source to save alongside the kaleidoscope on the FIRST export
-// of a captured frame (the raw camera frame only exists in-app). { blob, name }
-// or null. Cleared once saved, and on upload (the user already has that file).
-let pendingOriginal = null;
+// The unmodified original for the current source — bundled into "export
+// package" (.zip) alongside the composition. For an upload it's the uploaded
+// File; for a camera capture it's the raw frame. { blob, name } or null.
+let originalSource = null;
 // Object URL backing the frozen-capture still source. Kept alive while it's the
 // source (the source view paints it via background-image); revoked on replace.
 let captureObjectURL = null;
@@ -451,7 +452,7 @@ async function startCameraMode() {
     return;
   }
   if (uploadErrorEl) uploadErrorEl.textContent = '';
-  pendingOriginal = null;
+  originalSource = null;  // no captured original until the shutter fires
   statusEl.textContent = 'starting camera…';
   statusEl.classList.add('busy');
   try {
@@ -549,7 +550,7 @@ function captureFrame() {
 
   frame.toBlob(blob => {
     if (!blob) return;
-    pendingOriginal = { blob, name: `${sourceFilename}-original.png` };
+    originalSource = { blob, name: `${sourceFilename}-original.png` };
     // keep the URL alive — the source view paints it via background-image.
     if (captureObjectURL) URL.revokeObjectURL(captureObjectURL);
     captureObjectURL = URL.createObjectURL(blob);
@@ -615,19 +616,51 @@ async function doExport(sizeArg) {
   const { blob, size: sz, renderMs, readMs, encodeMs } = result;
   downloadBlob(blob, buildFilename(sz));
 
-  // First export of a captured frame also saves the unmodified original (the
-  // raw camera frame only exists in-app). Subsequent exports of the same source
-  // save only the kaleidoscope. Uploads have no pending original.
-  if (pendingOriginal) {
-    const orig = pendingOriginal;
-    pendingOriginal = null;
-    downloadBlob(orig.blob, orig.name);
-  }
-
   // restore preview render
   engine.render(state);
 
   statusEl.textContent = `exported ${sz}×${sz} • ${session.exportFormat} • render ${renderMs.toFixed(0)}ms • read ${readMs.toFixed(0)}ms • encode ${encodeMs.toFixed(0)}ms • ${(blob.size / 1024 / 1024).toFixed(1)}MB`;
+  statusEl.classList.remove('busy');
+  statusEl.classList.add('success');
+  setTimeout(() => statusEl.classList.remove('success'), 2500);
+}
+
+// "export package" — one .zip containing the composition + the unmodified
+// original. A single download (sidesteps the Safari multiple-downloads block),
+// and the seam for future layers (overlay thumbnail, geometry map). See
+// BACKLOG; for now: composition + original only.
+async function exportPackage() {
+  if (!engine || !engine.getSourceImage()) {
+    statusEl.textContent = 'load an image first';
+    statusEl.classList.add('error');
+    return;
+  }
+  const cap = engine.diagnostics.maxFBOSize;
+  const size = session.exportSize === 'max' ? cap : Math.min(parseInt(session.exportSize, 10), cap);
+  statusEl.textContent = `packaging ${size}×${size}...`;
+  statusEl.classList.remove('error');
+  statusEl.classList.add('busy');
+  await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+
+  let result;
+  try {
+    result = await engine.exportAt(state, session.exportSize, session.exportFormat);
+  } catch (e) {
+    statusEl.textContent = e.message;
+    statusEl.classList.add('error');
+    statusEl.classList.remove('busy');
+    engine.render(state);
+    console.error(e);
+    return;
+  }
+
+  const files = [{ name: buildFilename(result.size), blob: result.blob }];
+  if (originalSource) files.push({ name: originalSource.name, blob: originalSource.blob });
+  const zipBlob = await zipStore(files);
+  downloadBlob(zipBlob, `${sourceFilename}-package.zip`);
+
+  engine.render(state);
+  statusEl.textContent = `exported package • ${files.length} files • ${(zipBlob.size / 1024 / 1024).toFixed(1)}MB`;
   statusEl.classList.remove('busy');
   statusEl.classList.add('success');
   setTimeout(() => statusEl.classList.remove('success'), 2500);
@@ -932,22 +965,25 @@ function wireControls() {
     });
   });
 
-  // explicit Export button — the action. while export is in-flight, swap the
-  // button text for a spinner and disable the button so a second click while
-  // the user is waiting can't fire another export.
-  document.getElementById('exportBtn').addEventListener('click', async () => {
-    const btn = document.getElementById('exportBtn');
-    if (btn.disabled) return;
-    const originalText = btn.textContent;
-    btn.disabled = true;
-    btn.innerHTML = '<span class="btn-spinner"></span>';
-    try {
-      await doExport(session.exportSize);
-    } finally {
-      btn.disabled = false;
-      btn.textContent = originalText;
-    }
-  });
+  // Export buttons. While an export is in-flight, swap the button text for a
+  // spinner and disable it so a second click can't fire another export.
+  function wireExportButton(id, action) {
+    document.getElementById(id).addEventListener('click', async () => {
+      const btn = document.getElementById(id);
+      if (btn.disabled) return;
+      const originalText = btn.textContent;
+      btn.disabled = true;
+      btn.innerHTML = '<span class="btn-spinner"></span>';
+      try {
+        await action();
+      } finally {
+        btn.disabled = false;
+        btn.textContent = originalText;
+      }
+    });
+  }
+  wireExportButton('exportBtn', () => doExport(session.exportSize));
+  wireExportButton('exportPackageBtn', () => exportPackage());
 
   // file input
   document.getElementById('uploadBtn').addEventListener('click', () => {
