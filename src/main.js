@@ -15,11 +15,8 @@
 import { state, session } from './shell/state.js';
 import { createEngine, getActiveForm } from './engine/index.js';
 import { FORMS } from './engine/forms/index.js';
-import {
-  drawSourceOverlay,
-  makeOverlayDrawer,
-  mountSourceView,
-} from './shell/overlay.js';
+import { createSourceOverlay } from './components/source-overlay.js';
+import { createOutputGestures } from './components/output-gestures.js';
 import {
   wireSliderWithScrub,
   makeScrubField,
@@ -31,6 +28,7 @@ import {
 import { PARAMS, DECLARATIVE_PARAM_IDS } from './shell/params.js';
 import { createCamera } from './shell/camera.js';
 import { zipStore } from './shell/zip.js';
+import { snapSpiralValue as kitSnapSpiral, applyArmsSnap as kitApplyArmsSnap } from './kit/snaps.js';
 import { formatVersion } from './version.js';
 import { push as historyPush, undo as historyUndo, redo as historyRedo, canUndo, canRedo } from './shell/history.js';
 import { wireDiagnosticButton } from './shell/diagnostics.js';
@@ -122,12 +120,8 @@ const env = {
   // DOM refs the shell shares
   previewCanvas,
   miniCanvas,
-  sourceOverlayCanvas: null,  // assigned when source view is mounted
-
-  // hover state for the overlay (shared between overlay drawing and event handlers)
-  hoverMode: null,
-  hoverOnSpoke: false,
-  hoverHandle: null,         // form-specific handle discriminator (droste: 'inner'|'outer')
+  // (sourceOverlayCanvas + overlay hover state now live inside the
+  //  source-overlay component, not on the shared env.)
 
   // syncers / methods — defined below
   controlsSync,
@@ -155,14 +149,25 @@ function scheduleRender() {
       engine.render(state);
       if (session.isSwapped) drawMiniKaleidoscope();
     }
-    drawSourceOverlay(env);
+    sourceOverlay.render();
     updateResolutionHint();
   });
 }
 env.scheduleRender = scheduleRender;
 
-const overlayDrawer = makeOverlayDrawer(env);
-env.scheduleOverlayDraw = overlayDrawer.schedule;
+// the shared source-overlay component (mounted by both chromes). Desktop bridges
+// it to the existing env methods; it owns its own canvas, hover/drag state, and
+// overlay-draw scheduler internally.
+const sourceOverlay = createSourceOverlay({
+  state,
+  engine,
+  getLiveVideo: () => env.liveVideo,
+  syncControls: () => env.syncControls(),
+  scheduleRender,
+  onCommitStart: () => env.pushHistory(),
+  onCommitEnd: () => env.updateUndoUI?.(),
+});
+env.scheduleOverlayDraw = sourceOverlay.scheduleDraw;
 
 function updateResolutionHint() {
   const el = document.getElementById('resHint');
@@ -255,7 +260,7 @@ function arrangeSlots() {
     sideWrap.className = 'slot-content';
     sideWrap.style.cssText = `position: absolute; inset: 0;`;
     sideSlot.appendChild(sideWrap);
-    mountSourceView(env, sideWrap);
+    sourceOverlay.mount(sideWrap);
   } else {
     // main = S, side = K
     const mainWrap = document.createElement('div');
@@ -276,7 +281,7 @@ function arrangeSlots() {
     inner.style.cssText = `position: relative; width: ${dispW}px; height: ${dispH}px; background: #1a1a1a; border: 1px solid #222;`;
     mainWrap.appendChild(inner);
     mainSlot.appendChild(mainWrap);
-    mountSourceView(env, inner);
+    sourceOverlay.mount(inner);
 
     const sideWrap = document.createElement('div');
     sideWrap.className = 'slot-content';
@@ -288,7 +293,7 @@ function arrangeSlots() {
   requestAnimationFrame(() => {
     resizePreviewCanvas();
     if (session.isSwapped) sizeMiniCanvas();
-    drawSourceOverlay(env);
+    sourceOverlay.render();
     scheduleRender();
   });
 }
@@ -413,7 +418,7 @@ function startLiveLoop() {
       engine.render(state);
       if (session.isSwapped) drawMiniKaleidoscope();
     }
-    drawSourceOverlay(env);
+    sourceOverlay.render();
     liveRaf = requestAnimationFrame(tick);
   };
   liveRaf = requestAnimationFrame(tick);
@@ -686,25 +691,12 @@ function buildFilename(size) {
 // slider's form-aware wiring and with overlay.js's seam-drag handler)
 // ============================================================================
 
-// snap step depends on drosteArms AND drosteMirror:
-//   - arms ≥ 2: base step is 1/arms (matches wedge closure)
-//   - arms = 1: base step is 1 (integer tiers per turn)
-//   - tier mirror ON: step doubles (only even multiples of base) because odd
-//     tier-counts land in a reflected tier and misalign at the canvas seam
-function armsSnapStep() {
-  const n = Math.round(state.drosteArms || 1);
-  const armsEven = n <= 1 ? 1 : Math.max(2, Math.min(12, n - (n % 2)));
-  const base = 1 / armsEven;
-  return state.drosteMirror ? base * 2 : base;
-}
-function snapSpiralValue(v) {
-  const step = armsSnapStep();
-  return Math.max(0, Math.min(6, Math.round(v / step) * step));
-}
-function applyArmsSnap() {
-  // Slider step kept fine-grained (0.001) so snap is purely value-side.
-  state.drosteSpiral = snapSpiralValue(state.drosteSpiral || 0);
-}
+// Droste snap math lives in kit/snaps.js (shared with the source-overlay
+// component). These thin wrappers bind it to this chrome's `state` so all
+// existing call sites + the `env.snapDrosteSpiral`/`env.applyArmsSnap` exports
+// keep their signatures.
+function snapSpiralValue(v) { return kitSnapSpiral(state, v); }
+function applyArmsSnap()    { kitApplyArmsSnap(state); }
 
 // segments slider — shared DOM, form-aware routing. radial drives state.segments
 // (2..48 step 2); droste drives state.drosteArms (valid set {1, 2, 4, 6, 8, 10,
@@ -1014,41 +1006,8 @@ function wireControls() {
 // preview canvas gesture setup
 // ============================================================================
 
-function setupPreviewGestures(env) {
-  const canvas = env.previewCanvas;
-  let pinch = null;
-
-  canvas.addEventListener('touchstart', e => {
-    if (e.touches.length === 2) {
-      env.pushHistory();
-      const t0 = e.touches[0], t1 = e.touches[1];
-      pinch = {
-        startDist:     Math.hypot(t1.clientX - t0.clientX, t1.clientY - t0.clientY),
-        startAngle:    Math.atan2(t1.clientY - t0.clientY, t1.clientX - t0.clientX),
-        startZoom:     env.state.canvasZoom,
-        startRotation: env.state.canvasRotation,
-      };
-      e.preventDefault();
-    }
-  }, { passive: false });
-
-  canvas.addEventListener('touchmove', e => {
-    if (!pinch || e.touches.length !== 2) return;
-    const t0 = e.touches[0], t1 = e.touches[1];
-    const dist  = Math.hypot(t1.clientX - t0.clientX, t1.clientY - t0.clientY);
-    const angle = Math.atan2(t1.clientY - t0.clientY, t1.clientX - t0.clientX);
-    env.state.canvasZoom     = Math.max(0.15, Math.min(4, pinch.startZoom * (dist / pinch.startDist)));
-    const da                 = (angle - pinch.startAngle) * 180 / Math.PI;
-    env.state.canvasRotation = ((pinch.startRotation + da) % 360 + 360) % 360;
-    env.syncControls();
-    env.scheduleRender();
-    e.preventDefault();
-  }, { passive: false });
-
-  canvas.addEventListener('touchend', e => {
-    if (e.touches.length < 2) { pinch = null; updateUndoUI(); }
-  });
-}
+// Output-canvas pinch/twist is the shared createOutputGestures component (wired
+// in init below).
 
 // ============================================================================
 // undo / redo UI
@@ -1120,13 +1079,18 @@ if (engine) {
   wireControls();
   wireCamera();
   setupDivider(env);
-  setupPreviewGestures(env);
+  createOutputGestures(previewCanvas, {
+    state,
+    onChange: () => { env.syncControls(); env.scheduleRender(); },
+    onCommitStart: () => env.pushHistory(),
+    onCommitEnd: () => updateUndoUI(),
+  });
   setupUndoBar();
   wireDiagnosticButton(engine, () => state);
 
   window.addEventListener('resize', () => {
     resizePreviewCanvas();
     if (session.isSwapped) arrangeSlots();
-    drawSourceOverlay(env);
+    sourceOverlay.render();
   });
 }

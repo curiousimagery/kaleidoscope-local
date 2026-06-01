@@ -4,6 +4,19 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.4.1 (Build 69) — 2026-06-01
+
+**Components-layer extraction (no user-visible change — refactor toward the mobile chrome).**
+
+First, behavior-preserving pass of the Phase 1+2 plan: the source-overlay and output-gesture machinery become standalone components mounted via a clean lifecycle, so the mobile chrome can mount the *same* code instead of reimplementing the expensive proportionality/mirroring/hit-test math. Desktop now consumes the components; the implementation bodies are unchanged, so desktop + iPad should behave identically.
+
+- **`src/kit/snaps.js` (new).** Droste arms/spiral snap math (`armsSnapStep`/`snapSpiralValue`/`applyArmsSnap`) moved out of `main.js` into the Kit layer as pure functions of `state`. `main.js` keeps thin wrappers so call sites + `env` exports are unchanged.
+- **`src/components/source-overlay.js` (new).** `createSourceOverlay(ctx) → { mount, render, scheduleDraw, destroy }` wraps the unchanged `mountSourceView`/`drawSourceOverlay`/`setupSourceInteraction` from `overlay.js` behind a private `view`, owning the overlay canvas + hover/drag state (off the shared `env`). Desktop `main.js` consumes it (replaced all `mountSourceView`/`drawSourceOverlay(env)` call sites).
+- **`src/components/output-gestures.js` (new).** `createOutputGestures(canvas, ctx)` — the output pinch=`canvasZoom`/twist=`canvasRotation` handler, extracted verbatim from `setupPreviewGestures`. Desktop consumes it.
+- **`overlay.js` bodies are untouched** — only the desktop *wiring* changed. Acceptance: byte-identical to Build 68, including iPad live camera.
+
+---
+
 ## v0.4.1 (Build 68) — 2026-06-01
 
 **Export model rework + overlay affordance refinements (pre-mobile cleanup).**

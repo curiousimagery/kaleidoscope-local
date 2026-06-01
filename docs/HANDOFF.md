@@ -12,7 +12,7 @@ He prefers **no em dashes** in his own writing; respect that in any prose Claude
 
 ## current version
 
-`v0.4.1 · Build 68`. The footer in the running app shows this string from `src/version.js`. When delivering a new build, increment BUILD by 1 and bump VERSION when meaningful change ships. **BUILD never resets** on version bumps — it's a global monotonic counter (see `version.js` comment).
+`v0.4.1 · Build 69`. The footer in the running app shows this string from `src/version.js`. When delivering a new build, increment BUILD by 1 and bump VERSION when meaningful change ships. **BUILD never resets** on version bumps — it's a global monotonic counter (see `version.js` comment).
 
 ## what's working
 
@@ -74,7 +74,13 @@ Still pending from prior builds: Intel Air investigation (blocked on hardware ac
 
 **Needs Daniel's re-verification:** square shows only the one cluster and rotates cleanly; rhombus has room to move vs scale at small sizes; "export package" produces a valid zip on Safari/iPad with both files; "export composition" is a clean single download.
 
-**Next phase: 1 — mobile still-editor chrome.** Opens with a divergent IxD exploration session Daniel drives (2–3 layout approaches; see "mobile UX exploration notes"), then builds on the Phase 0 registry. The export-package zip is the seam for the planned overlay/geometry export layers (tile-aware features in BACKLOG). Full Phase 0–5 spec is in the approved plan file `~/.claude/plans/i-d-like-to-think-parsed-sloth.md`.
+**Next phase: 1+2 — Components extraction → mobile chrome + camera (IN PROGRESS, approved 2026-06-01).** Refined layer model is now **Engine / Kit / Components / Chrome**: the mobile chrome is NOT a duplicate UI — it mounts the SAME components desktop uses, parameterized not forked. The expensive source-overlay event/proportionality/mirroring math must never be reimplemented per chrome.
+
+Sequence: **(a) extraction pass first**, behavior-preserving, with the current build (incl. **iPad live camera**) as a byte-identical oracle — move snaps to `src/kit/snaps.js`; extract `src/components/source-overlay.js` (`createSourceOverlay(ctx) → {render, destroy}`) and have desktop `main.js` consume it; extract output gestures (`setupPreviewGestures`) to `src/components/output-gestures.js`; extract a registry-driven `mountRangeControl` to `src/components/param-control.js` (mobile-facing; desktop slider DOM stays static this pass). **(b) mobile chrome:** `src/boot.js` mode-detect (phone → mobile, else desktop incl. iPad; `?chrome=` override), `src/mobile/chrome.js` (OUTPUT top + CONTEXT panel bottom + fat sticky grippy divider; context flips SOURCE↔SETTINGS; bottom tab bar with SOURCE/FORM popovers, contextual capture toggle, EXPORT sheet). **Decisions:** mobile opens to **source-picker/empty** (not camera-first); divider has a **soft center detent only**; one-finger output drag is **no-op v1**. **(c) PWA** via vite-plugin-pwa (authorized); verify `getUserMedia` in iOS standalone on Tardigrade.
+
+Full plan in `~/.claude/plans/i-d-like-to-think-parsed-sloth.md`. The export-package zip remains the seam for overlay/geometry export layers (BACKLOG).
+
+**Extraction pass status (Build 69):** Steps A–C done and building clean — `src/kit/snaps.js` (droste snaps), `src/components/source-overlay.js` (`createSourceOverlay`, desktop consumes it), `src/components/output-gestures.js` (`createOutputGestures`, desktop consumes it). The `overlay.js` drawing/hit-test/gesture bodies are UNCHANGED — only desktop wiring moved — so the intent is byte-identical behavior. **Claude could only build-check; Daniel must verify byte-identical on desktop + iPad before the mobile chrome builds on these:** every overlay gesture (move/scale/rotate/segments/square edge+corner/droste ratio+arms+offset/two-finger pinch), output pinch/twist, form switch, swap, divider resize, undo/redo, export, AND the full iPad live-camera flow (start/flip/capture/package) — all should match Build 68 exactly. Step D (registry-driven `mountRangeControl`) is deferred into the mobile-chrome step (it's mobile-only, can't be verified byte-identical on desktop).
 
 `docs/FOLD.md` owns vision, brand, marketing narrative, monetization paths, and gallery show concept. `docs/BACKLOG.md` capability tier now carries the layered vocabulary and the Phase 0–5 sequence; mobile UX exploration notes, gallery installation work, and open architecture questions sections are present.
 
