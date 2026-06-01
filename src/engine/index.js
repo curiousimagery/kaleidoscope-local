@@ -33,12 +33,13 @@ export function createEngine({ canvas }) {
   let sourceAspect = 1;
   let sourceW = 0, sourceH = 0;  // resolved pixel size (natural* for img, video* for video)
 
-  // a source is an <img> (naturalWidth) or a <video> (videoWidth). resolve to
-  // pixel dimensions either way so the rest of the engine is source-agnostic.
+  // a source is an <img> (naturalWidth), a <video> (videoWidth), or a <canvas>
+  // (width — used for the mirrored front-camera frame). resolve to pixel
+  // dimensions either way so the rest of the engine is source-agnostic.
   function sourceDims(source) {
     return {
-      w: source.naturalWidth || source.videoWidth || 0,
-      h: source.naturalHeight || source.videoHeight || 0,
+      w: source.naturalWidth || source.videoWidth || source.width || 0,
+      h: source.naturalHeight || source.videoHeight || source.height || 0,
     };
   }
 

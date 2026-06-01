@@ -1160,12 +1160,15 @@ export function mountSourceView(env, slotEl) {
   slotEl.innerHTML = '';
 
   const sourceImage = env.engine.getSourceImage();
-  if (sourceImage instanceof HTMLVideoElement) {
+  if (env.liveVideo) {
     // Live camera: mount the actual <video> element (it can't be painted via
     // background-image like a still). object-fit: contain matches the still
     // path's letterboxing so the wedge overlay geometry still aligns. Set
     // layout props individually so the camera's mirror transform survives.
-    const v = sourceImage;
+    // (The engine may be sampling a mirrored canvas, not this element — but the
+    // mirrored preview + mirrored texture share an orientation, so the overlay
+    // still lines up. See camera.js frameSource/refreshFrame.)
+    const v = env.liveVideo;
     v.style.position = 'absolute';
     v.style.top = '0'; v.style.left = '0';
     v.style.width = '100%'; v.style.height = '100%';

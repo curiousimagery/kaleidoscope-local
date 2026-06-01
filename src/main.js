@@ -323,6 +323,7 @@ let sourceFilename = '';
 function loadImage(file) {
   if (!engine) return;
   if (isLive) stopCameraMode({ keepSource: true });  // uploading exits live mode
+  pendingOriginal = null;  // an uploaded file is already on the user's disk
   const url = URL.createObjectURL(file);
   sourceFilename = (file.name || 'image').replace(/\.[^.]+$/, '');
   const img = new Image();
@@ -375,21 +376,38 @@ function loadImage(file) {
 // live <video> that flows into the SAME engine + source-view + wedge-overlay
 // machinery as a still image. The only structural addition is a continuous
 // render loop (the still path is render-on-demand). Capture freezes the frame
-// as a normal editable still and saves both the kaleidoscope and the raw frame.
+// as a normal editable still; nothing is saved automatically — the original is
+// saved alongside the kaleidoscope on the first export (see doExport).
 
 const camera = createCamera();
 let isLive = false;
 let liveActive = false;
 let liveRaf = 0;
 
+// The unmodified source to save alongside the kaleidoscope on the FIRST export
+// of a captured frame (the raw camera frame only exists in-app). { blob, name }
+// or null. Cleared once saved, and on upload (the user already has that file).
+let pendingOriginal = null;
+// Object URL backing the frozen-capture still source. Kept alive while it's the
+// source (the source view paints it via background-image); revoked on replace.
+let captureObjectURL = null;
+
+// Default facing by device. Touch devices (iPad) default to the rear camera
+// ("frame the world"); desktops have no real rear camera and want the front
+// (mirrored, selfie-intuitive) by default.
+const DEFAULT_FACING =
+  matchMedia('(pointer: coarse)').matches ? 'environment' : 'user';
+
 // continuous render driver — runs only while the camera is live. each tick
-// re-uploads the latest video frame, renders, and redraws the overlay.
+// refreshes the (possibly mirrored) frame, re-uploads it, renders, and redraws
+// the overlay.
 function startLiveLoop() {
   if (liveActive) return;
   liveActive = true;
   const tick = () => {
     if (!liveActive) return;
     if (engine) {
+      camera.refreshFrame();      // front camera: redraw the mirrored frame
       engine.updateSourceFrame();
       engine.render(state);
       if (session.isSwapped) drawMiniKaleidoscope();
@@ -433,12 +451,15 @@ async function startCameraMode() {
     return;
   }
   if (uploadErrorEl) uploadErrorEl.textContent = '';
+  pendingOriginal = null;
   statusEl.textContent = 'starting camera…';
   statusEl.classList.add('busy');
   try {
-    const video = await camera.start('environment');
-    engine.setSource(video);
+    const video = await camera.start(DEFAULT_FACING);
+    env.liveVideo = video;
+    engine.setSource(camera.frameSource());
   } catch (e) {
+    env.liveVideo = null;
     statusEl.textContent = '';
     statusEl.classList.remove('busy');
     if (uploadErrorEl) uploadErrorEl.textContent = cameraErrorMessage(e);
@@ -462,6 +483,7 @@ function stopCameraMode({ keepSource = false } = {}) {
   stopLiveLoop();
   camera.stop();
   isLive = false;
+  env.liveVideo = null;
   updateCameraUI();
   if (keepSource) return;
   engine.clearSource();
@@ -478,7 +500,8 @@ async function flipCamera() {
   if (!isLive) return;
   try {
     const video = await camera.flip();
-    engine.setSource(video);   // dimensions can differ between front/rear
+    env.liveVideo = video;
+    engine.setSource(camera.frameSource());   // video (rear) or mirror canvas (front)
   } catch (e) {
     if (uploadErrorEl) uploadErrorEl.textContent = cameraErrorMessage(e);
     return;
@@ -509,14 +532,16 @@ function downloadBlob(blob, name) {
   URL.revokeObjectURL(url);
 }
 
-// shutter: freeze the frame as the new editable still, save the raw frame AND
-// the kaleidoscope, and stay in the editor for fine-tuning (camera stops).
+// shutter: freeze the current frame as the new editable still and stop the
+// camera. Nothing is saved automatically — the raw frame is stashed as the
+// pending original and written out, with the kaleidoscope, on the first export.
 function captureFrame() {
   const frame = captureLiveFrame();
   if (!frame) return;
   stopLiveLoop();
   camera.stop();
   isLive = false;
+  env.liveVideo = null;
   updateCameraUI();
 
   const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
@@ -524,19 +549,21 @@ function captureFrame() {
 
   frame.toBlob(blob => {
     if (!blob) return;
-    downloadBlob(blob, `${sourceFilename}-raw.png`);   // raw frame, native res
-    const url = URL.createObjectURL(blob);
+    pendingOriginal = { blob, name: `${sourceFilename}-original.png` };
+    // keep the URL alive — the source view paints it via background-image.
+    if (captureObjectURL) URL.revokeObjectURL(captureObjectURL);
+    captureObjectURL = URL.createObjectURL(blob);
     const img = new Image();
-    img.onload = async () => {
+    img.onload = () => {
       engine.setSource(img);                            // frozen still source
       document.getElementById('sourceMeta').children[0].textContent = `${img.naturalWidth} × ${img.naturalHeight}`;
       document.getElementById('sourceMeta').children[1].textContent = `${sourceFilename}.png`;
       document.getElementById('swapBtn').disabled = false;
+      statusEl.textContent = 'captured — export to save';
+      statusEl.classList.remove('busy', 'error', 'success');
       arrangeSlots();
-      await doExport(session.exportSize);               // kaleidoscope at chosen size
-      URL.revokeObjectURL(url);
     };
-    img.src = url;
+    img.src = captureObjectURL;
   }, 'image/png');
 }
 
@@ -567,7 +594,10 @@ async function doExport(sizeArg) {
   statusEl.classList.add('busy');
   // (no setBusy here — the export button's own spinner + this status text are
   // the feedback path; the fullscreen busy overlay would cover the button.)
-  await new Promise(r => requestAnimationFrame(r));
+  // Double rAF so the spinner + status actually PAINT before the synchronous
+  // FBO render/readPixels in exportAt blocks the main thread (a single rAF runs
+  // its callback before paint, so the spinner never showed — Build 66 regression).
+  await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
 
   let result;
   try {
@@ -583,12 +613,16 @@ async function doExport(sizeArg) {
   }
 
   const { blob, size: sz, renderMs, readMs, encodeMs } = result;
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = buildFilename(sz);
-  a.click();
-  URL.revokeObjectURL(url);
+  downloadBlob(blob, buildFilename(sz));
+
+  // First export of a captured frame also saves the unmodified original (the
+  // raw camera frame only exists in-app). Subsequent exports of the same source
+  // save only the kaleidoscope. Uploads have no pending original.
+  if (pendingOriginal) {
+    const orig = pendingOriginal;
+    pendingOriginal = null;
+    downloadBlob(orig.blob, orig.name);
+  }
 
   // restore preview render
   engine.render(state);

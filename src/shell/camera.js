@@ -15,6 +15,7 @@ export function createCamera() {
   let stream = null;
   let video = null;
   let facing = 'environment';  // 'environment' (rear) | 'user' (front)
+  let mirrorCanvas = null;     // front-camera frames flipped horizontally
 
   function ensureVideo() {
     if (video) return video;
@@ -46,17 +47,44 @@ export function createCamera() {
     v.srcObject = stream;
     applyMirror();
     await v.play();
-    if (!v.videoWidth) {
-      await new Promise(res => v.addEventListener('loadedmetadata', res, { once: true }));
+    // wait for a decoded frame (readyState HAVE_CURRENT_DATA) so videoWidth is
+    // known AND the mirror canvas can be drawn before the first setSource.
+    if (v.readyState < 2) {
+      await new Promise(res => v.addEventListener('loadeddata', res, { once: true }));
     }
+    refreshFrame();   // prime the mirror canvas before the first setSource
     return v;
   }
 
-  // Mirror the front-camera preview (selfie convention). Applied to the video
-  // element only; the texture and captured frame are mirrored separately at
-  // capture time so what you saved matches what you saw.
+  // Mirror the front-camera preview (selfie convention) on the displayed video
+  // element. The texture is mirrored to match (see frameSource/refreshFrame) so
+  // the wedge overlay samples what the user actually sees under it.
   function applyMirror() {
     if (video) video.style.transform = facing === 'user' ? 'scaleX(-1)' : '';
+  }
+
+  // The element the ENGINE should sample: the raw <video> for the rear camera,
+  // or a horizontally-flipped offscreen canvas for the front camera so the
+  // sampled content matches the mirrored preview.
+  function frameSource() {
+    return facing === 'user' ? mirrorCanvas : video;
+  }
+
+  // Front camera only: redraw the current video frame flipped into the mirror
+  // canvas. Called each render tick by the shell's live loop before the engine
+  // re-uploads the frame. No-op for the rear camera (the video is uploaded
+  // directly) and until the video has a decoded frame.
+  function refreshFrame() {
+    if (facing !== 'user') return;
+    if (!video || video.readyState < 2 || !video.videoWidth) return;
+    const w = video.videoWidth, h = video.videoHeight;
+    if (!mirrorCanvas) mirrorCanvas = document.createElement('canvas');
+    if (mirrorCanvas.width !== w || mirrorCanvas.height !== h) {
+      mirrorCanvas.width = w; mirrorCanvas.height = h;
+    }
+    const cx = mirrorCanvas.getContext('2d');
+    cx.setTransform(-1, 0, 0, 1, w, 0);   // flip X
+    cx.drawImage(video, 0, 0, w, h);
   }
 
   function stopStream() {
@@ -80,6 +108,8 @@ export function createCamera() {
     start,
     stop,
     flip,
+    refreshFrame,
+    frameSource,
     getVideo: () => video,
     getFacing: () => facing,
     isFront: () => facing === 'user',

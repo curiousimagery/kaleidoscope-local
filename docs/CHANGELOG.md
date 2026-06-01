@@ -4,6 +4,20 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.4.0 (Build 67) — 2026-06-01
+
+**Live-camera fixes from first iPad testing.**
+
+- **Version string fix.** Build 66 bumped BUILD but left `VERSION` at v0.3.1; the footer read "v0.3.1 · Build 66". Now correctly v0.4.0.
+- **Front-camera sampling fixed (was sampling the mirror-opposite side).** The preview was mirrored (CSS) but the texture wasn't, so the wedge sampled the opposite side from what the user saw. The front camera now feeds the engine a horizontally-flipped frame (offscreen canvas, `camera.frameSource()`/`refreshFrame()` in [src/shell/camera.js](src/shell/camera.js)); mirrored preview + mirrored texture share an orientation, so the overlay samples what's under it. [src/engine/index.js](src/engine/index.js) `sourceDims()` now also accepts a `<canvas>` source.
+- **Captured thumbnail no longer disappears.** Build 66 revoked the capture's blob URL while the source view still painted it via background-image (dark gap). The URL is now kept alive for the source's lifetime, and the source view picks the live `<video>` vs still via an explicit `env.liveVideo` handle ([src/shell/overlay.js](src/shell/overlay.js)).
+- **Capture no longer auto-saves.** Shutter now just freezes the frame as the editable still and stops the camera. The unmodified original (raw frame) is saved *with* the kaleidoscope on the FIRST export; later exports of the same source save only the kaleidoscope. Uploads have no pending original (the file is already on disk).
+- **Export spinner restored.** A single rAF ran its callback before paint, so the spinner never showed before the synchronous FBO export blocked the thread. Now a double rAF guarantees the spinner + status paint first.
+- **Desktop defaults to the front camera (mirrored).** Touch devices (iPad) still default to the rear camera; desktops have no real rear camera and want the mirrored front by default. Heuristic: `(pointer: coarse)`.
+- **Known/out of scope:** Firefox shows a camera picker for multi-camera setups while Safari forces the default — a custom device-enumeration picker would be needed to unify this; deferred.
+
+---
+
 ## v0.4.0 (Build 66) — 2026-05-31
 
 **Phase 0.5: live camera as a host capability (desktop/iPad).**

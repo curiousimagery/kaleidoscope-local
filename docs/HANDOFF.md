@@ -12,7 +12,7 @@ He prefers **no em dashes** in his own writing; respect that in any prose Claude
 
 ## current version
 
-`v0.4.0 · Build 66`. The footer in the running app shows this string from `src/version.js`. When delivering a new build, increment BUILD by 1 and bump VERSION when meaningful change ships. **BUILD never resets** on version bumps — it's a global monotonic counter (see `version.js` comment).
+`v0.4.0 · Build 67`. The footer in the running app shows this string from `src/version.js`. When delivering a new build, increment BUILD by 1 and bump VERSION when meaningful change ships. **BUILD never resets** on version bumps — it's a global monotonic counter (see `version.js` comment).
 
 ## what's working
 
@@ -65,6 +65,10 @@ Still pending from prior builds: Intel Air investigation (blocked on hardware ac
 4. **Capture:** "capture" downloads TWO files (the kaleidoscope at the chosen export size + `…-raw.png` at native res), freezes the frame as the editable still, and stops the camera — you can then fine-tune and re-export normally.
 5. **Stop:** "stop" returns to the empty placeholder.
 6. **iPad:** confirm the whole flow on iPad (the intended capture surface). Needs https (or localhost) — a LAN IP without https will show a secure-context error.
+
+**Build 67 — fixes from Daniel's first iPad camera test (the camera works great on iPad — big milestone).** Addressed: version string (now v0.4.0), front-camera sampling the mirror-opposite side (texture now mirrored to match preview), captured thumbnail disappearing (blob URL kept alive + `env.liveVideo` handle), export spinner regression (double rAF), and capture no longer auto-saves. New capture/export model: **capture freezes the frame as the editable still and saves nothing; the first export saves the unmodified original (raw frame) alongside the kaleidoscope; later exports of the same source save only the kaleidoscope.** Desktop now defaults to the front camera (mirrored); iPad keeps rear default.
+
+**Needs Daniel's re-verification on iPad + desktop:** front-camera sampling now matches the wedge position; captured thumbnail persists and stays editable; export shows the spinner and (first time after a capture) downloads two files; desktop opens the front camera mirrored. Watch the two-file export for browser "multiple downloads" prompts.
 
 **Next phase: 1 — mobile still-editor chrome.** Opens with a divergent IxD exploration session Daniel drives (2–3 layout approaches; see "mobile UX exploration notes"), then builds on the Phase 0 registry. Full Phase 0–5 spec is in the approved plan file `~/.claude/plans/i-d-like-to-think-parsed-sloth.md`.
 
