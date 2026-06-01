@@ -28,6 +28,7 @@ import {
   setupDivider,
   makeControlsSync,
 } from './shell/controls.js';
+import { PARAMS, DECLARATIVE_PARAM_IDS } from './shell/params.js';
 import { formatVersion } from './version.js';
 import { push as historyPush, undo as historyUndo, redo as historyRedo, canUndo, canRedo } from './shell/history.js';
 import { wireDiagnosticButton } from './shell/diagnostics.js';
@@ -556,60 +557,16 @@ function wireControls() {
   // continue to use the standard wireSliderWithScrub path.
   setupSegmentsSlider();
 
-  // scale
-  wireSliderWithScrub(env, 'scale', 'scaleVal', 'sliceScale', {
-    min: 0.05, max: 3, step: 0.005, scrubStep: 0.01,
-    fmt: v => v.toFixed(2) + '×',
-    parse: s => {
-      const cleaned = s.replace(/[×x*]/g, '').trim();
-      const n = parseFloat(cleaned);
-      return isNaN(n) ? null : n;
-    },
-  });
-
-  // composition zoom
-  wireSliderWithScrub(env, 'compZoom', 'compZoomVal', 'canvasZoom', {
-    min: 0.15, max: 4, step: 0.01, scrubStep: 0.05,
-    fmt: v => v.toFixed(2) + '×',
-    parse: s => {
-      const cleaned = s.replace(/[×x*]/g, '').trim();
-      const n = parseFloat(cleaned);
-      return isNaN(n) ? null : n;
-    },
-  });
-
-  // slice rotation
-  wireSliderWithScrub(env, 'sliceRot', 'sliceRotVal', 'sliceRotation', {
-    min: 0, max: 360, step: 0.5, scrubStep: 1,
-    fmt: v => v.toFixed(1) + '°',
-    parse: s => {
-      const cleaned = s.replace(/°/g, '').trim();
-      const n = parseFloat(cleaned);
-      return isNaN(n) ? null : n;
-    },
-    wrap: 360,
-  });
-
-  // square aspect
-  wireSliderWithScrub(env, 'aspect', 'aspectVal', 'squareAspect', {
-    min: 0.25, max: 4, step: 0.01, scrubStep: 0.02,
-    fmt: v => v.toFixed(2),
-    parse: s => {
-      const n = parseFloat(s);
-      return isNaN(n) ? null : n;
-    },
-  });
-
-  // droste zoom (outer/inner ratio = scale per tier)
-  wireSliderWithScrub(env, 'zoom', 'zoomVal', 'drosteZoom', {
-    min: 1.1, max: 16, step: 0.05, scrubStep: 0.05,
-    fmt: v => v.toFixed(2) + '×',
-    parse: s => {
-      const cleaned = s.replace(/[×x*]/g, '').trim();
-      const n = parseFloat(cleaned);
-      return isNaN(n) ? null : n;
-    },
-  });
+  // Declarative sliders — scale, composition zoom, slice rotation, square
+  // aspect, droste thickness (zoom), and canvas rotation. Their ranges, steps,
+  // and fmt/parse live in the parameter registry (src/shell/params.js) so a
+  // second chrome can render the same controls without re-hand-wiring them.
+  // The stateful controls below (segments, spiral, the toggles) stay bespoke
+  // because their behavior reads or cascades into other state.
+  for (const id of DECLARATIVE_PARAM_IDS) {
+    const p = PARAMS[id];
+    wireSliderWithScrub(env, p.sliderId, p.valId, p.key, p.opts);
+  }
 
   // droste spiral — tiers per canvas turn. snaps to multiples of 1/arms so
   // the spiral closes cleanly with the arms-fold lattice (1/12 at arms=12,
@@ -730,18 +687,6 @@ function wireControls() {
     env.controlsSync.syncAll();
     scheduleRender();
     updateUndoUI();
-  });
-
-  // canvas rotation
-  wireSliderWithScrub(env, 'canvasRot', 'canvasRotVal', 'canvasRotation', {
-    min: 0, max: 360, step: 0.5, scrubStep: 1,
-    fmt: v => v.toFixed(1) + '°',
-    parse: s => {
-      const cleaned = s.replace(/°/g, '').trim();
-      const n = parseFloat(cleaned);
-      return isNaN(n) ? null : n;
-    },
-    wrap: 360,
   });
 
   // OOB modes

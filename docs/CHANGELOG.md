@@ -4,6 +4,18 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.3.1 (Build 65) — 2026-05-31
+
+**Phase 0: parameter registry (Kit foundation, no user-visible change).**
+
+First step of the multi-version architecture work (see `BACKLOG.md` capability tier). Control definitions move from inline literals at the `wireSliderWithScrub()` call sites into a declarative catalog, so a future second chrome (mobile) can render the same controls without re-hand-wiring ranges, steps, and formats.
+
+- **New [src/shell/params.js](src/shell/params.js):** `PARAMS` registry describing every adjustable control — state key, scope (slice/canvas/output), form-control gating, and (for the clean sliders) the exact `wireSliderWithScrub` opts. Two classes: `declarative` sliders wired straight from `opts`, and stateful/form-aware controls (segments form-routing, the arms-aware spiral fmt+snap, the mirror/wedge-mirror/OOB toggles) that keep their bespoke wiring and carry catalog-only metadata.
+- **[src/main.js](src/main.js):** the six declarative sliders (`scale`, `compZoom`, `sliceRot`, `aspect`, droste `zoom`/thickness, `canvasRot`) are now wired by looping `DECLARATIVE_PARAM_IDS` through the unchanged `wireSliderWithScrub()`. The fmt/parse closures moved verbatim into the registry. Stateful controls untouched.
+- **No behavioral change.** Desktop/iPad should be byte-identical: same ranges, steps, scrub formats, spiral fractions, segments form-routing, toggle visibility, undo/redo, export.
+
+---
+
 ## v0.3.1 (Build 64) — 2026-05-31
 
 **Three more Build 57/61 Y-flip residuals fixed.**
