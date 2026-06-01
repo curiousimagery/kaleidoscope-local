@@ -350,44 +350,57 @@ function drawTouchAffordances(ctx, screenPts, cx, cy, outerEdges, spokeEdges, fo
     const { op: rop, lw: rlw } = afStyle(rotateActive);
     afRotationArc(ctx, cx, cy, topMidAng, topMidR + 24, rop, rlw);
 
-    // Edge handle 1 — top edge (p0 → p1), perpendicular arrow indicating height.
+    // Edge arrows on all 4 edges. Pre-Build 61 used only top + right; after
+    // the Y-flip changed which fold-frame vertex appears at screen-top, that
+    // pair drifted to the user's perceived "bottom + right" position. Drawing
+    // on all 4 edges keeps the affordance visible regardless of orientation.
     const { op: sop, lw: slw } = afStyle(scaleActive);
-    afScaleArrow(ctx, topMx, topMy, topNx, topNy, sop, slw);
+    for (let i = 0; i < 4; i++) {
+      const a = screenPts[i];
+      const b = screenPts[(i + 1) % 4];
+      const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+      const el = Math.hypot(b.x - a.x, b.y - a.y) || 1;
+      let nx = -(b.y - a.y) / el, ny = (b.x - a.x) / el;
+      if ((mx - cx) * nx + (my - cy) * ny < 0) { nx = -nx; ny = -ny; }
+      afScaleArrow(ctx, mx, my, nx, ny, sop, slw);
+    }
 
-    // Edge handle 2 — right edge (p1 → p2), perpendicular arrow indicating width.
-    const rgtMx = (p1.x + p2.x) / 2, rgtMy = (p1.y + p2.y) / 2;
-    const rgtEl = Math.hypot(p2.x - p1.x, p2.y - p1.y) || 1;
-    let rgtNx = -(p2.y - p1.y) / rgtEl, rgtNy = (p2.x - p1.x) / rgtEl;
-    if ((rgtMx - cx) * rgtNx + (rgtMy - cy) * rgtNy < 0) { rgtNx = -rgtNx; rgtNy = -rgtNy; }
-    afScaleArrow(ctx, rgtMx, rgtMy, rgtNx, rgtNy, sop, slw);
-
-    // Corner diagonal scale arrow — centered on the top-right corner vertex.
-    // Arrow extends HALF inward and HALF outward, bisecting the polygon boundary.
-    const cdx = p1.x - cx, cdy = p1.y - cy;
-    const cLen = Math.hypot(cdx, cdy) || 1;
+    // Corner diagonal scale arrows — one per vertex (all 4 corners).
     const { op: cop, lw: clw } = afStyle(cornerActive);
-    afScaleArrow(ctx, p1.x, p1.y, cdx / cLen, cdy / cLen, cop, clw);
+    for (const v of screenPts) {
+      const cdx = v.x - cx, cdy = v.y - cy;
+      const cLen = Math.hypot(cdx, cdy) || 1;
+      afScaleArrow(ctx, v.x, v.y, cdx / cLen, cdy / cLen, cop, clw);
+    }
 
   } else if (form.id === 'triangle') {
     // Triangle's polygon is a horizontal 60-120 rhombus with the slice center
-    // at the apex (left). All 4 edges are scale targets via spokeRule:'none'.
-    // Show 2 scale arrows on the 2 TOPMOST edges (smallest midpoint y) — these
-    // are the top-left and top-right edges of the rhombus. Spacing the arrows
-    // on adjacent top edges (rather than the right-side pair) keeps them from
-    // overlapping at small sizes. Matches square's "2 of 4 edges shown".
+    // at the apex. All 4 edges are scale targets via spokeRule:'none'. Show
+    // arrows on the 2 NON-APEX edges (the edges that don't touch slice
+    // center). Per Daniel's feedback: dragging away from the apex grows the
+    // rhombus, and the apex-incident edges have an asymmetric scale-grace
+    // zone (Build 63 mitigated this but the natural grab point is still the
+    // far side). Placing arrows on the non-apex edges makes the affordance
+    // align with the natural drag direction.
     if (screenPts.length < 4) { ctx.restore(); return; }
 
     const edges = [];
     for (let i = 0; i < screenPts.length; i++) {
       const a = screenPts[i];
       const b = screenPts[(i + 1) % screenPts.length];
-      edges.push({ a, b, mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2 });
+      const aIsApex = Math.hypot(a.x - cx, a.y - cy) < 1;
+      const bIsApex = Math.hypot(b.x - cx, b.y - cy) < 1;
+      const isApex = aIsApex || bIsApex;
+      edges.push({ a, b, mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2, isApex });
     }
-    edges.sort((e1, e2) => e1.my - e2.my);
+    const nonApexEdges = edges.filter(e => !e.isApex);
+    const targetEdges = nonApexEdges.length >= 2
+      ? nonApexEdges
+      : edges.slice().sort((e1, e2) => e1.my - e2.my).slice(0, 2);
 
     const { op: sop, lw: slw } = afStyle(scaleActive);
-    for (let i = 0; i < 2; i++) {
-      const e = edges[i];
+    for (let i = 0; i < Math.min(2, targetEdges.length); i++) {
+      const e = targetEdges[i];
       const ex = e.b.x - e.a.x;
       const ey = e.b.y - e.a.y;
       const el = Math.hypot(ex, ey) || 1;
@@ -446,24 +459,29 @@ function drawTouchAffordances(ctx, screenPts, cx, cy, outerEdges, spokeEdges, fo
     afRotationArc(ctx, cx, cy, outerAngle, Math.max(R + 20, maxVD + 16), rop, rlw);
 
     // Spoke double-line — radial only, hints at segment-count adjustment.
+    // Draw on ALL spoke edges (both sides of the wedge) so the affordance is
+    // visible regardless of which side the user looks at. Pre-Build 61 only
+    // the first spoke got the marker; after the Y-flip changed which spoke
+    // appears at the screen-top, the single marker felt inconsistent.
     if (form.spokeRule === 'radial' && spokeEdges.length > 0) {
-      const spk = spokeEdges[0];
-      const aIsCenter = Math.hypot(spk.a.x - cx, spk.a.y - cy) < SPOKE_EPS;
-      const origin = aIsCenter ? spk.a : spk.b;
-      const tip    = aIsCenter ? spk.b : spk.a;
-      const sx = tip.x - origin.x, sy = tip.y - origin.y;
-      const slen = Math.hypot(sx, sy) || 1;
-      const ux = sx / slen, uy = sy / slen;
-      const perpX = -uy, perpY = ux;
-      const GAP = 2.5, t0 = slen * 0.2, t1 = slen * 0.68;
       const { op: spop, lw: splw } = afStyle(spokesActive);
       ctx.lineWidth = spokesActive ? splw : 1;
       ctx.strokeStyle = `rgba(255,255,255,${spop * 0.7})`;
-      for (const sign of [-1, 1]) {
-        ctx.beginPath();
-        ctx.moveTo(origin.x + ux * t0 + perpX * GAP * sign, origin.y + uy * t0 + perpY * GAP * sign);
-        ctx.lineTo(origin.x + ux * t1 + perpX * GAP * sign, origin.y + uy * t1 + perpY * GAP * sign);
-        ctx.stroke();
+      for (const spk of spokeEdges) {
+        const aIsCenter = Math.hypot(spk.a.x - cx, spk.a.y - cy) < SPOKE_EPS;
+        const origin = aIsCenter ? spk.a : spk.b;
+        const tip    = aIsCenter ? spk.b : spk.a;
+        const sx = tip.x - origin.x, sy = tip.y - origin.y;
+        const slen = Math.hypot(sx, sy) || 1;
+        const ux = sx / slen, uy = sy / slen;
+        const perpX = -uy, perpY = ux;
+        const GAP = 2.5, t0 = slen * 0.2, t1 = slen * 0.68;
+        for (const sign of [-1, 1]) {
+          ctx.beginPath();
+          ctx.moveTo(origin.x + ux * t0 + perpX * GAP * sign, origin.y + uy * t0 + perpY * GAP * sign);
+          ctx.lineTo(origin.x + ux * t1 + perpX * GAP * sign, origin.y + uy * t1 + perpY * GAP * sign);
+          ctx.stroke();
+        }
       }
     }
   }
@@ -965,15 +983,14 @@ export function setupSourceInteraction(env, wrap) {
           env.applyArmsSnap?.();
         }
       } else if (drag.mode === 'droste-offset') {
-        // direct manipulation: cursor → fold-space combined center offset
-        // (drives both Möbius pre-comp + source-side per-tier drift).
+        // direct manipulation: cursor → canvas-NDC offset (drives Möbius
+        // pre-comp + source-side per-tier drift). drosteOffset is in
+        // canvas-NDC y-up; screen is y-down, so negate dys. No sliceRotation
+        // applied: diamond's overlay-screen position corresponds directly to
+        // the spiral pole's canvas-screen position regardless of wedge angle.
         if (!g || g.rOut < 1) return;
-        const dxs = (x - g.cx) / g.rOut;
-        const dys = (y - g.cy) / g.rOut;
-        const cosRot = Math.cos(g.sliceRotationRad);
-        const sinRot = Math.sin(g.sliceRotationRad);
-        state.drosteOffsetX = dxs * cosRot + dys * sinRot;
-        state.drosteOffsetY = -dxs * sinRot + dys * cosRot;
+        state.drosteOffsetX = (x - g.cx) / g.rOut;
+        state.drosteOffsetY = -((y - g.cy) / g.rOut);
       }
       env.syncControls();
       env.scheduleRender();

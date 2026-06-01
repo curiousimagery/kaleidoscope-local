@@ -245,7 +245,15 @@ export default {
     const halfWedge = Math.PI / armsCount;        // half the angular span
     const isFullCircle = armsCount === 1;
 
-    const seamPhaseRad = state.sliceRotation * Math.PI / 180;
+    // Negate sliceRotation here to bring Droste's overlay-drawing convention
+    // into alignment with the polygon overlay forms post-Build 61. Polygon
+    // forms have a Y-flip baked into sliceVecToSourceUV; Droste computes its
+    // own positions via cos/sin in screen y-down. Negating the input angle is
+    // mathematically equivalent to Y-flipping the wedge graphic (cos(-θ)=cos(θ),
+    // sin(-θ)=-sin(θ) — flips the y component). Without this, the rotate-drag
+    // delta inversion from Build 61 makes the Droste wedge rotate opposite to
+    // cursor direction.
+    const seamPhaseRad = -state.sliceRotation * Math.PI / 180;
     // Source-theta shift across one tier under generalized Lenstra:
     // theta_src = θ_canvas + b·logr, so at canvas inner (logr = −logS) the
     // shift relative to canvas outer is −b·logS = spiral·logS²/(2π).
@@ -431,12 +439,17 @@ export default {
     // combined center-offset effect — Möbius pre-comp + source-side per-tier
     // drift. (Build 57 merged the shift dot into the offset diamond.)
     const cosRot = Math.cos(seamPhaseRad), sinRot = Math.sin(seamPhaseRad);
+    // Offset diamond position: independent of sliceRotation. The diamond
+    // represents the spiral-pole canvas-NDC position. User drags diamond to
+    // overlay-screen position (cx+dx, cy+dy); pole appears at canvas-screen
+    // position with the same direction. Y-flip translates screen y-down to
+    // canvas-NDC y-up (drosteOffset is in canvas-NDC fold-space).
 
     // offset diamond.
     const ox = state.drosteOffsetX || 0;
     const oy = state.drosteOffsetY || 0;
-    const offsetHandleX = cx + rOut * (ox * cosRot - oy * sinRot);
-    const offsetHandleY = cy + rOut * (ox * sinRot + oy * cosRot);
+    const offsetHandleX = cx + rOut * ox;
+    const offsetHandleY = cy - rOut * oy;
     const offsetHL = env.hoverMode === 'droste-offset' || env.overlayDragMode === 'droste-offset';
     const offsetDiamondR = offsetHL ? 7 : 5;
     ctx.fillStyle = oobOut ? 'rgba(255, 196, 80, 1)' : 'rgba(170, 220, 255, 1)';

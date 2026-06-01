@@ -4,6 +4,30 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.3.1 (Build 64) — 2026-05-31
+
+**Three more Build 57/61 Y-flip residuals fixed.**
+
+1. **Droste rotation direction reversed.** Build 61 inverted the rotate-drag delta to compensate for the Y-flipped polygon overlay, but Droste computes its own positions via cos/sin in screen y-down (no Y-flip baked in like polygon forms have via sliceVecToSourceUV). Result: drag CCW rotated the wedge CW. Fix: negate `seamPhaseRad` in `droste.drawOverlay`. The negation makes Droste interpret sliceRotation the same way polygon forms now do (post-Build 61), so the inverted drag delta is correct for both.
+
+2. **Droste center-offset reversed.** Pre-existing bug surfaced after Build 61. The drag handler stored `drosteOffset` in the wedge's local frame (rotated by sliceRotation), but the GPU interprets `drosteOffset` directly in canvas-NDC fold-space (y-up). Mismatch caused the spiral pole to land at a sliceRotation-dependent mirror of the diamond's screen position. Fix: simplified both the diamond visual and the drag handler to use canvas-NDC y-up directly (no sliceRotation involved). The diamond no longer rotates *with* the wedge — it represents a fixed canvas-NDC position, which is what the user expects ("diamond at upper-right of overlay = spiral pole at upper-right of canvas, regardless of wedge angle").
+
+3. **Affordance placement after Y-flip.**
+   - **Rhombus (triangle):** scale arrows now sit on the two NON-apex edges of the wedge instead of the two topmost edges. Daniel's observation: dragging away from the apex grows the shape, so the natural grab point is the far side.
+   - **Radial wedge:** spoke double-line drawn on BOTH spoke edges (was: only `spokeEdges[0]`). Pre-Build 61 the marker happened to land on the screen-top spoke; the Y-flip moved it to the opposite side, so showing it on both spokes makes the affordance orientation-independent.
+   - **Square:** scale arrows drawn on all 4 edges and all 4 corners (was: top + right edge plus top-right corner). Pre-Build 61 the "top + right" labels matched what the user saw; post-flip those vertex labels shifted by 90°. Drawing on all 4 edges/corners is orientation-independent.
+
+**Systematic check for other reversed controls.** Audited the drag handlers in [src/shell/overlay.js](src/shell/overlay.js):
+- `rotate` and `pinch` rotate-component: inverted in Build 61 (correct for polygon, was breaking Droste — fixed in #1 above).
+- `square-edge` axis classification: fixed in Build 62.
+- `droste-offset`: fixed in #2 above.
+- `droste-arms`: uses *magnitude* of cursor-vs-sliceRotation angle, sign-independent. Unaffected.
+- `droste-ratio`, `scale`, `segments`, `move`, `square-corner`: use radial distance or screen-coord ratios directly with no sliceRotation in their math. Unaffected.
+
+- **Code:** [src/engine/forms/droste.js](src/engine/forms/droste.js) (`seamPhaseRad` negation + offset diamond simplification), [src/shell/overlay.js](src/shell/overlay.js) (droste-offset drag, triangle non-apex selection, radial both-spokes loop, square all-edges/all-corners), [src/version.js](src/version.js) (Build 64).
+
+---
+
 ## v0.3.1 (Build 63) — 2026-05-31
 
 **Triangle (rhombus) apex-incident edges now have full scale-grace zone.** Pre-existing asymmetry (not a Build 57 regression) surfaced after Build 61 brought polygon-overlay into agreement with GPU sampling. The triangle form has slice-center at the apex (V0), so two of its four edges are *apex-incident* — they touch slice-center and define the polygon's angular boundary at ±30°. The per-edge scale-proximity check required `!outsideAngular`, so cursor perpendicular-outside an apex-incident edge would cross the angular boundary, set `outsideAngular=true`, and fall through to rotate. Effect: dragging the upper-left arrow (an apex-incident edge) would rotate unless the user dragged exactly along the edge direction (which kept the cursor angularly inside). The upper-right arrow (non-apex edge, always inside the angular range) worked normally.
