@@ -12,7 +12,7 @@ He prefers **no em dashes** in his own writing; respect that in any prose Claude
 
 ## current version
 
-`v0.3.1 · Build 65`. The footer in the running app shows this string from `src/version.js`. When delivering a new build, increment BUILD by 1 and bump VERSION when meaningful change ships. **BUILD never resets** on version bumps — it's a global monotonic counter (see `version.js` comment).
+`v0.4.0 · Build 66`. The footer in the running app shows this string from `src/version.js`. When delivering a new build, increment BUILD by 1 and bump VERSION when meaningful change ships. **BUILD never resets** on version bumps — it's a global monotonic counter (see `version.js` comment).
 
 ## what's working
 
@@ -56,7 +56,17 @@ Still pending from prior builds: Intel Air investigation (blocked on hardware ac
 
 **What Daniel needs to verify in-browser for Build 65:** the registry refactor should be invisible. Exercise every slice + canvas slider (scale, rotation, composition zoom, aspect on square, thickness/spiral on droste, canvas rotation) — ranges, scrub fields, formats (`×`, `°`, p/q spiral fractions), and undo/redo should behave exactly as Build 64. Confirm form-switch show/hide and the droste toggles still work, and that export is unchanged.
 
-**Still pending in Phase 0:** the throwaway texture-source spike (feed a playing `<video>` to `engine.setSource()`, confirm a frame renders — de-risks camera + video-file). **Next phase: 0.5 — camera host module + desktop/iPad wiring.** Full Phase 0–5 spec is in the approved plan file `~/.claude/plans/i-d-like-to-think-parsed-sloth.md`.
+**Phase 0.5 — live camera (host capability): SHIPPED (Build 66).** Camera wired into the desktop/iPad chrome. The engine now accepts a `<video>` source (`setSource`/`updateSourceFrame`/`getSourceSize`/`clearSource` in `engine/index.js`; `updateTexture` in `gl.js`); `src/shell/camera.js` is the host module; `main.js` adds the continuous live loop + camera UI; `overlay.js` mounts the live `<video>` in the source view. Capture = freeze + save both (raw + kaleidoscope), stay editable. This also satisfied the Phase 0 texture-source spike (video works as a real source).
+
+**What Daniel needs to verify in-browser for Build 66** (camera path is build-clean but unverified by Claude — getUserMedia needs a real browser + permission):
+1. **Start camera:** click "use camera" (allow permission). Live kaleidoscope should animate from the rear camera; the wedge overlay sits on the live feed in the side slot and is draggable.
+2. **Controls live:** form switch, segments/scale/rotation, composition zoom etc. all affect the live output in real time.
+3. **Flip:** "flip" switches front/rear; front preview is mirrored.
+4. **Capture:** "capture" downloads TWO files (the kaleidoscope at the chosen export size + `…-raw.png` at native res), freezes the frame as the editable still, and stops the camera — you can then fine-tune and re-export normally.
+5. **Stop:** "stop" returns to the empty placeholder.
+6. **iPad:** confirm the whole flow on iPad (the intended capture surface). Needs https (or localhost) — a LAN IP without https will show a secure-context error.
+
+**Next phase: 1 — mobile still-editor chrome.** Opens with a divergent IxD exploration session Daniel drives (2–3 layout approaches; see "mobile UX exploration notes"), then builds on the Phase 0 registry. Full Phase 0–5 spec is in the approved plan file `~/.claude/plans/i-d-like-to-think-parsed-sloth.md`.
 
 `docs/FOLD.md` owns vision, brand, marketing narrative, monetization paths, and gallery show concept. `docs/BACKLOG.md` capability tier now carries the layered vocabulary and the Phase 0–5 sequence; mobile UX exploration notes, gallery installation work, and open architecture questions sections are present.
 

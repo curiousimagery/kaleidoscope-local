@@ -16,7 +16,7 @@
 // principle from the original code: state lives in one place, owned by the
 // shell, passed to the engine on demand.
 
-import { createGLContext, uploadTexture, renderToCanvas, renderToFBO } from './gl.js';
+import { createGLContext, uploadTexture, updateTexture, renderToCanvas, renderToFBO } from './gl.js';
 import { FORMS, FORMS_BY_ID, getActiveForm, getActiveFormIndex } from './forms/index.js';
 import { sliceVecToSourceUV } from './geometry.js';
 
@@ -29,8 +29,18 @@ export { sliceVecToSourceUV, polygonRadiusAt, pointInPolygon } from './geometry.
 export function createEngine({ canvas }) {
   const glCtx = createGLContext(canvas);
   let sourceTexture = null;
-  let sourceImage = null;     // HTMLImageElement, kept for naturalWidth/Height
+  let sourceImage = null;     // HTMLImageElement OR HTMLVideoElement (live camera)
   let sourceAspect = 1;
+  let sourceW = 0, sourceH = 0;  // resolved pixel size (natural* for img, video* for video)
+
+  // a source is an <img> (naturalWidth) or a <video> (videoWidth). resolve to
+  // pixel dimensions either way so the rest of the engine is source-agnostic.
+  function sourceDims(source) {
+    return {
+      w: source.naturalWidth || source.videoWidth || 0,
+      h: source.naturalHeight || source.videoHeight || 0,
+    };
+  }
 
   // build the ctx object for setUniforms — refreshed on every render call
   // because formIndex depends on state.form.
@@ -73,20 +83,40 @@ export function createEngine({ canvas }) {
     // throw at texImage2D — instead they get silently truncated by the GPU
     // and the kaleidoscope renders solid black. detected during build 2 with
     // 18K × 18K images that loaded as <img> but failed to render.)
-    setSource(image) {
+    setSource(source) {
       const maxTex = glCtx.diagnostics.maxTextureSize;
-      const w = image.naturalWidth, h = image.naturalHeight;
+      const { w, h } = sourceDims(source);
+      if (!w || !h) throw new Error('source has no dimensions yet');
       if (w > maxTex || h > maxTex) {
         throw new Error(`image too large for GPU: ${w}×${h} (max ${maxTex}×${maxTex} on this device)`);
       }
-      sourceTexture = uploadTexture(glCtx.gl, image, sourceTexture);
-      sourceImage = image;
+      sourceTexture = uploadTexture(glCtx.gl, source, sourceTexture);
+      sourceImage = source;
       sourceAspect = w / h;
+      sourceW = w; sourceH = h;
     },
 
-    // current source image (for shell use — showing dimensions, mounting source view).
+    // re-upload the current source's latest frame into the existing texture.
+    // for a live <video> source the shell calls this each render tick. no-op
+    // for a still image (the frame never changes) and while a video has no
+    // decoded frame yet (readyState < HAVE_CURRENT_DATA).
+    updateSourceFrame() {
+      if (!sourceTexture || !sourceImage) return;
+      if (sourceImage.readyState !== undefined && sourceImage.readyState < 2) return;
+      updateTexture(glCtx.gl, sourceImage, sourceTexture);
+    },
+
+    // current source element (for shell use — showing dimensions, mounting
+    // source view). may be an <img> or a live <video>.
     getSourceImage() { return sourceImage; },
     getSourceAspect() { return sourceAspect; },
+    getSourceSize() { return { w: sourceW, h: sourceH }; },
+
+    // drop the current source so the shell returns to its empty state. the GL
+    // texture is left allocated (cheap, reused on the next setSource); render()
+    // still guards on sourceTexture, but the shell guards on getSourceImage()
+    // and won't call render once this is null.
+    clearSource() { sourceImage = null; sourceW = 0; sourceH = 0; },
 
     // render to the canvas. caller is responsible for sizing the canvas
     // before calling. no-op if no source texture is loaded.
@@ -157,8 +187,8 @@ export function createEngine({ canvas }) {
     //     zoom 1 = ~2K perceived sharp; theoretical was ~3.4K → softening ~0.5).
     //     if the over-optimism turns out to vary by form we'd split this per-form.
     suggestResolution(state) {
-      if (!sourceImage) return null;
-      const sourceMin = Math.min(sourceImage.naturalWidth, sourceImage.naturalHeight);
+      if (!sourceImage || !sourceW || !sourceH) return null;
+      const sourceMin = Math.min(sourceW, sourceH);
       const form = getActiveForm(state);
       // each form provides its own tilesPerDim function. fallback to 1 if a
       // form module hasn't defined one yet (won't happen for shipped forms).

@@ -4,6 +4,21 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.4.0 (Build 66) — 2026-05-31
+
+**Phase 0.5: live camera as a host capability (desktop/iPad).**
+
+The camera is wired into the existing desktop chrome — not a new shell. A live `<video>` from `getUserMedia` flows through the same engine, source-view, and wedge-overlay machinery as a still image; the only structural addition is a continuous render loop (the still path stays render-on-demand). iPad-via-desktop-chrome is the intended capture surface. Version bumped to v0.4.0 — first new interaction surface beyond the still tool. This also folds in the Phase 0 texture-source spike: the engine now accepts a `<video>` source for real.
+
+- **Engine source generalized for video.** [src/engine/index.js](src/engine/index.js): `setSource()` resolves dimensions from `naturalWidth || videoWidth` so it accepts `<img>` or `<video>`; new `updateSourceFrame()` re-uploads the current video frame into the existing texture each tick; new `getSourceSize()` and `clearSource()`. `suggestResolution()` uses the resolved size. [src/engine/gl.js](src/engine/gl.js): new `updateTexture()` re-specs an existing texture (no per-frame delete/recreate).
+- **Camera host module.** New [src/shell/camera.js](src/shell/camera.js): `createCamera()` → `start({facingMode})` / `stop()` / `flip()` over a reused `<video>`. Rear (`environment`) default; front (`user`) preview mirrored via CSS.
+- **Continuous render driver + UI.** [src/main.js](src/main.js): `startLiveLoop()`/`stopLiveLoop()`; camera button beside upload, plus live controls (capture / flip / stop). [index.html](index.html) + [src/shell/styles.css](src/shell/styles.css) for the controls. [src/shell/overlay.js](src/shell/overlay.js) `mountSourceView()` mounts the live `<video>` (object-fit: contain) for the camera path, keeping the bg-image div for stills.
+- **Capture = freeze + save both, stay editable.** The shutter grabs the frame at native resolution, downloads the raw frame AND the kaleidoscope (at the chosen export size), and freezes the frame as a normal editable still so the existing controls/export take over. Camera stops on capture.
+- **Known nuance:** the front-camera *preview* is mirrored but the live texture is not, so for front-facing the kaleidoscope output's handedness is true-camera (invisible on mirror-symmetric forms; flips droste spiral chirality). The captured frame and frozen still ARE mirrored to match the preview. Revisit if it matters in the mobile chrome (Phase 2).
+- **Secure-context requirement:** `getUserMedia` needs https or localhost; on a LAN IP without https the camera button surfaces a clear error.
+
+---
+
 ## v0.3.1 (Build 65) — 2026-05-31
 
 **Phase 0: parameter registry (Kit foundation, no user-visible change).**

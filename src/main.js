@@ -29,6 +29,7 @@ import {
   makeControlsSync,
 } from './shell/controls.js';
 import { PARAMS, DECLARATIVE_PARAM_IDS } from './shell/params.js';
+import { createCamera } from './shell/camera.js';
 import { formatVersion } from './version.js';
 import { push as historyPush, undo as historyUndo, redo as historyRedo, canUndo, canRedo } from './shell/history.js';
 import { wireDiagnosticButton } from './shell/diagnostics.js';
@@ -321,6 +322,7 @@ let sourceFilename = '';
 
 function loadImage(file) {
   if (!engine) return;
+  if (isLive) stopCameraMode({ keepSource: true });  // uploading exits live mode
   const url = URL.createObjectURL(file);
   sourceFilename = (file.name || 'image').replace(/\.[^.]+$/, '');
   const img = new Image();
@@ -363,6 +365,186 @@ function loadImage(file) {
     statusEl.classList.remove('error', 'busy', 'success');
   };
   img.src = url;
+}
+
+// ============================================================================
+// live camera (Phase 0.5 — camera host module wired into the desktop/iPad chrome)
+// ============================================================================
+//
+// The camera is a HOST capability, not a separate chrome: getUserMedia gives a
+// live <video> that flows into the SAME engine + source-view + wedge-overlay
+// machinery as a still image. The only structural addition is a continuous
+// render loop (the still path is render-on-demand). Capture freezes the frame
+// as a normal editable still and saves both the kaleidoscope and the raw frame.
+
+const camera = createCamera();
+let isLive = false;
+let liveActive = false;
+let liveRaf = 0;
+
+// continuous render driver — runs only while the camera is live. each tick
+// re-uploads the latest video frame, renders, and redraws the overlay.
+function startLiveLoop() {
+  if (liveActive) return;
+  liveActive = true;
+  const tick = () => {
+    if (!liveActive) return;
+    if (engine) {
+      engine.updateSourceFrame();
+      engine.render(state);
+      if (session.isSwapped) drawMiniKaleidoscope();
+    }
+    drawSourceOverlay(env);
+    liveRaf = requestAnimationFrame(tick);
+  };
+  liveRaf = requestAnimationFrame(tick);
+}
+function stopLiveLoop() {
+  liveActive = false;
+  if (liveRaf) { cancelAnimationFrame(liveRaf); liveRaf = 0; }
+}
+
+function cameraErrorMessage(e) {
+  if (e && e.name === 'NotAllowedError') return 'camera permission denied — allow access and try again';
+  if (e && e.name === 'NotFoundError') return 'no camera found on this device';
+  return 'could not start camera: ' + (e && e.message ? e.message : 'unknown error');
+}
+
+function setCameraMeta(label) {
+  const v = camera.getVideo();
+  const meta = document.getElementById('sourceMeta');
+  if (v && v.videoWidth) meta.children[0].textContent = `${v.videoWidth} × ${v.videoHeight}`;
+  meta.children[1].textContent = label;
+}
+
+function updateCameraUI() {
+  document.getElementById('cameraBtn').style.display = isLive ? 'none' : '';
+  document.getElementById('uploadBtn').style.display = isLive ? 'none' : '';
+  document.getElementById('cameraLive').style.display = isLive ? 'flex' : 'none';
+  // flip button labels the camera it switches TO.
+  const flip = document.getElementById('flipBtn');
+  if (flip) flip.textContent = camera.isFront() ? 'rear' : 'front';
+}
+
+async function startCameraMode() {
+  if (!engine) return;
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    if (uploadErrorEl) uploadErrorEl.textContent = 'camera needs a secure context (https or localhost)';
+    return;
+  }
+  if (uploadErrorEl) uploadErrorEl.textContent = '';
+  statusEl.textContent = 'starting camera…';
+  statusEl.classList.add('busy');
+  try {
+    const video = await camera.start('environment');
+    engine.setSource(video);
+  } catch (e) {
+    statusEl.textContent = '';
+    statusEl.classList.remove('busy');
+    if (uploadErrorEl) uploadErrorEl.textContent = cameraErrorMessage(e);
+    console.error(e);
+    return;
+  }
+  statusEl.classList.remove('busy');
+  statusEl.textContent = 'live camera';
+  isLive = true;
+  sourceFilename = 'camera';
+  setCameraMeta('live camera');
+  document.getElementById('swapBtn').disabled = false;
+  updateCameraUI();
+  arrangeSlots();
+  startLiveLoop();
+}
+
+// stop the camera. by default returns to the empty placeholder (cancel path);
+// pass { keepSource: true } when another source is about to take over (upload).
+function stopCameraMode({ keepSource = false } = {}) {
+  stopLiveLoop();
+  camera.stop();
+  isLive = false;
+  updateCameraUI();
+  if (keepSource) return;
+  engine.clearSource();
+  const meta = document.getElementById('sourceMeta');
+  meta.children[0].textContent = '—';
+  meta.children[1].textContent = '—';
+  document.getElementById('swapBtn').disabled = true;
+  statusEl.textContent = '';
+  statusEl.classList.remove('busy', 'success', 'error');
+  arrangeSlots();
+}
+
+async function flipCamera() {
+  if (!isLive) return;
+  try {
+    const video = await camera.flip();
+    engine.setSource(video);   // dimensions can differ between front/rear
+  } catch (e) {
+    if (uploadErrorEl) uploadErrorEl.textContent = cameraErrorMessage(e);
+    return;
+  }
+  setCameraMeta('live camera');
+  updateCameraUI();
+  arrangeSlots();              // remount picks up the mirror transform + aspect
+}
+
+// grab the current camera frame into a canvas at native resolution. mirrored
+// to match the front-camera preview so the saved frame is what the user saw.
+function captureLiveFrame() {
+  const video = camera.getVideo();
+  if (!video || !video.videoWidth) return null;
+  const w = video.videoWidth, h = video.videoHeight;
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  const cx = c.getContext('2d');
+  if (camera.isFront()) { cx.translate(w, 0); cx.scale(-1, 1); }
+  cx.drawImage(video, 0, 0, w, h);
+  return c;
+}
+
+function downloadBlob(blob, name) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = name; a.click();
+  URL.revokeObjectURL(url);
+}
+
+// shutter: freeze the frame as the new editable still, save the raw frame AND
+// the kaleidoscope, and stay in the editor for fine-tuning (camera stops).
+function captureFrame() {
+  const frame = captureLiveFrame();
+  if (!frame) return;
+  stopLiveLoop();
+  camera.stop();
+  isLive = false;
+  updateCameraUI();
+
+  const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+  sourceFilename = `camera-${ts}`;
+
+  frame.toBlob(blob => {
+    if (!blob) return;
+    downloadBlob(blob, `${sourceFilename}-raw.png`);   // raw frame, native res
+    const url = URL.createObjectURL(blob);
+    const img = new Image();
+    img.onload = async () => {
+      engine.setSource(img);                            // frozen still source
+      document.getElementById('sourceMeta').children[0].textContent = `${img.naturalWidth} × ${img.naturalHeight}`;
+      document.getElementById('sourceMeta').children[1].textContent = `${sourceFilename}.png`;
+      document.getElementById('swapBtn').disabled = false;
+      arrangeSlots();
+      await doExport(session.exportSize);               // kaleidoscope at chosen size
+      URL.revokeObjectURL(url);
+    };
+    img.src = url;
+  }, 'image/png');
+}
+
+function wireCamera() {
+  document.getElementById('cameraBtn').addEventListener('click', startCameraMode);
+  document.getElementById('shutterBtn').addEventListener('click', captureFrame);
+  document.getElementById('flipBtn').addEventListener('click', flipCamera);
+  document.getElementById('stopCameraBtn').addEventListener('click', () => stopCameraMode());
 }
 
 // ============================================================================
@@ -866,6 +1048,7 @@ if (engine) {
   buildFormGrid(env);
   applyFormControls(env);
   wireControls();
+  wireCamera();
   setupDivider(env);
   setupPreviewGestures(env);
   setupUndoBar();

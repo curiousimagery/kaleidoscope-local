@@ -1159,23 +1159,37 @@ export function setupSourceInteraction(env, wrap) {
 export function mountSourceView(env, slotEl) {
   slotEl.innerHTML = '';
 
-  // div with background-image (vs <img>) avoids load-event race conditions on
-  // remount (cache state varies across browsers).
   const sourceImage = env.engine.getSourceImage();
-  const imgDiv = document.createElement('div');
-  imgDiv.className = 'src-img';
-  imgDiv.style.cssText = `
-    position: absolute;
-    top: 0; left: 0;
-    width: 100%;
-    height: 100%;
-    background-image: url("${sourceImage.src}");
-    background-size: contain;
-    background-repeat: no-repeat;
-    background-position: center;
-    pointer-events: none;
-  `;
-  slotEl.appendChild(imgDiv);
+  if (sourceImage instanceof HTMLVideoElement) {
+    // Live camera: mount the actual <video> element (it can't be painted via
+    // background-image like a still). object-fit: contain matches the still
+    // path's letterboxing so the wedge overlay geometry still aligns. Set
+    // layout props individually so the camera's mirror transform survives.
+    const v = sourceImage;
+    v.style.position = 'absolute';
+    v.style.top = '0'; v.style.left = '0';
+    v.style.width = '100%'; v.style.height = '100%';
+    v.style.objectFit = 'contain';
+    v.style.pointerEvents = 'none';
+    slotEl.appendChild(v);
+  } else {
+    // div with background-image (vs <img>) avoids load-event race conditions on
+    // remount (cache state varies across browsers).
+    const imgDiv = document.createElement('div');
+    imgDiv.className = 'src-img';
+    imgDiv.style.cssText = `
+      position: absolute;
+      top: 0; left: 0;
+      width: 100%;
+      height: 100%;
+      background-image: url("${sourceImage.src}");
+      background-size: contain;
+      background-repeat: no-repeat;
+      background-position: center;
+      pointer-events: none;
+    `;
+    slotEl.appendChild(imgDiv);
+  }
 
   // overlay canvas — drawn ON TOP of the image div. explicit transparent
   // background to defeat the .main-slot canvas { background: #1a1a1a } rule

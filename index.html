@@ -29,7 +29,16 @@
     <!-- upload — first because nothing else is meaningful without an image -->
     <div>
       <input type="file" accept="image/jpeg,image/png,image/webp" class="file-input" id="fileInput">
-      <button style="width: 100%;" id="uploadBtn">upload image</button>
+      <div class="source-input-row">
+        <button id="uploadBtn">upload image</button>
+        <button id="cameraBtn">use camera</button>
+      </div>
+      <!-- live-camera controls — shown only while the camera is running -->
+      <div class="camera-live-row" id="cameraLive" style="display: none;">
+        <button id="shutterBtn">capture</button>
+        <button id="flipBtn" title="switch front/rear camera">flip</button>
+        <button id="stopCameraBtn" title="stop the camera">stop</button>
+      </div>
       <div class="upload-error" id="uploadError"></div>
     </div>
 

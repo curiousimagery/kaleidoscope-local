@@ -253,6 +253,17 @@ export function uploadTexture(gl, image, prevTexture) {
   return tex;
 }
 
+// Re-upload a source (typically a <video> frame) into an EXISTING texture
+// without delete/recreate. Used by the live-camera render loop, which uploads
+// a fresh frame every rAF tick — recreating the texture each frame (as
+// uploadTexture does) would churn GPU allocations needlessly. The texture's
+// filter/wrap params, set at creation, persist across re-spec.
+export function updateTexture(gl, source, tex) {
+  gl.bindTexture(gl.TEXTURE_2D, tex);
+  gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, source);
+}
+
 // push uniforms + bind program + bind position buffer. used by both preview
 // and FBO export render paths. `state` is the kaleidoscope state object;
 // `ctx` carries non-state values (sourceAspect, formIndex).

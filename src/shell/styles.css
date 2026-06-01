@@ -403,6 +403,16 @@ button .btn-spinner {
 /* file input */
 .file-input { display: none; }
 
+/* source-input row — upload + camera side by side */
+.source-input-row { display: flex; gap: 8px; }
+.source-input-row button { flex: 1; }
+
+/* live-camera controls — shown only while the camera is running */
+.camera-live-row { display: flex; gap: 8px; margin-top: 8px; }
+.camera-live-row #shutterBtn { flex: 2; }
+.camera-live-row #flipBtn,
+.camera-live-row #stopCameraBtn { flex: 1; }
+
 /* status */
 .status {
   font-size: 11px;
