@@ -12,7 +12,7 @@ He prefers **no em dashes** in his own writing; respect that in any prose Claude
 
 ## current version
 
-`v0.5.0 · Build 75`. The footer in the running app shows this string from `src/version.js`. When delivering a new build, increment BUILD by 1 and bump VERSION when meaningful change ships. **BUILD never resets** on version bumps — it's a global monotonic counter (see `version.js` comment).
+`v0.5.0 · Build 76`. The footer in the running app shows this string from `src/version.js`. When delivering a new build, increment BUILD by 1 and bump VERSION when meaningful change ships. **BUILD never resets** on version bumps — it's a global monotonic counter (see `version.js` comment).
 
 ## what's working
 
@@ -80,7 +80,7 @@ Sequence: **(a) extraction pass first**, behavior-preserving, with the current b
 
 Full plan in `~/.claude/plans/i-d-like-to-think-parsed-sloth.md`. The export-package zip remains the seam for overlay/geometry export layers (BACKLOG).
 
-**Mobile chrome status (Build 73):** still-editor core + fixes (width, FBO-probe crash cap, portrait-overlay clip, OOB control, responsive switch, build readout) + **live camera** (SOURCE popover → live; capture/go-live toggle; flip; reuses `createCamera` + shared components). **Remaining for parity:** FORM popover (currently a cycle button), EXPORT sheet with size/format + package zip (currently a direct composition download), and stateful settings controls (segments/spiral/mirror toggles). Then PWA (vite-plugin-pwa). Mobile undo/redo stays out of scope. Test camera on a phone via the https deploy (getUserMedia needs https). Below is the earlier Build-70 detail:
+**Mobile chrome status (Build 73):** still-editor core + fixes (width, FBO-probe crash cap, portrait-overlay clip, OOB control, responsive switch, build readout) + **live camera** (SOURCE popover → live; capture/go-live toggle; flip; reuses `createCamera` + shared components). **Parity progress:** FORM popover ✓ (Build 75), stateful settings controls ✓ (Build 76 — segments/spiral/mirror toggles, matching desktop). **Remaining:** the full mobile **save sheet** (slide-up: collapsible diagnostics → format → size → save package → save composition, + a lazy higher-cap `probeMaxFBOSize` so phones can pick their true export max — mobile export is still a basic direct download), then **PWA** (vite-plugin-pwa, to test standalone + camera-in-PWA). Then PWA (vite-plugin-pwa). Mobile undo/redo stays out of scope. Test camera on a phone via the https deploy (getUserMedia needs https). Below is the earlier Build-70 detail:
 
 **Mobile chrome status (Build 70):** first increment shipped — the still-editor core. `src/boot.js` selects chrome (phone → `src/mobile/chrome.js`; iPad/desktop → `src/main.js`, unchanged). Mobile mounts the shared components (`createSourceOverlay`, `createOutputGestures`, `mountRangeControl`) in a two-region + sticky-divider layout with a SOURCE/SETTINGS context flip and a minimal tab bar (upload/form/export). **Test it:** load with `?chrome=mobile` in a narrow window, or on a phone — upload an image, drag the wedge (move/twist/pinch), flip to SETTINGS and adjust sliders, cycle the form, export. **Confirm desktop + iPad still load normally through boot (behavior unchanged).** Next increment: camera wiring + SOURCE/FORM popovers + EXPORT sheet + stateful settings controls, then PWA. This is IxD-sensitive — Daniel should react to the layout before it's built out further.
 

@@ -26,6 +26,7 @@ import { PARAMS, DECLARATIVE_PARAM_IDS } from '../shell/params.js';
 import { formatVersion } from '../version.js';
 import { createCamera } from '../shell/camera.js';
 import { ICONS } from './icons.js';
+import { applyArmsSnap, snapSpiralValue } from '../kit/snaps.js';
 
 // (The desktop stylesheet is dropped in boot.js before this module loads.)
 
@@ -33,7 +34,7 @@ import { ICONS } from './icons.js';
 document.body.innerHTML = `
   <div id="m-root">
     <div id="m-output">
-      <div id="m-empty">tap <b>+</b> to begin</div>
+      <div id="m-empty">tap&nbsp;<b>+</b>&nbsp;to&nbsp;begin</div>
       <button id="m-flip" class="m-icon-btn" title="flip camera" style="display:none">${ICONS.flip}</button>
     </div>
     <div id="m-divider"></div>
@@ -46,7 +47,7 @@ document.body.innerHTML = `
       <button id="m-tab-source" class="m-tab" title="source">${ICONS.plus}</button>
       <button id="m-tab-form" class="m-tab" title="form"></button>
       <button id="m-tab-export" class="m-tab" title="save">${ICONS.download}</button>
-      <button id="m-tab-capture" class="m-tab" title="capture" style="display:none">${ICONS.aperture}</button>
+      <button id="m-tab-capture" class="m-tab" title="capture" style="display:none">${ICONS.captureCam}</button>
     </div>
     <input type="file" class="m-file-input" id="m-file" accept="image/jpeg,image/png,image/webp">
     <input type="file" class="m-file-input" id="m-file-still" accept="image/*" capture="environment">
@@ -109,9 +110,13 @@ createOutputGestures(outputCanvas, {
 
 // ------------------------------------------------------------ settings (State B)
 settingsEl.innerHTML = '<h2>settings</h2>';
+mountSegmentsControl();
 for (const id of DECLARATIVE_PARAM_IDS) {
   mountRangeControl(settingsEl, PARAMS[id], env);
 }
+mountSpiralControl();
+mountToggleControl('mirror', 'drosteMirror', 'tier mirror');
+mountToggleControl('wedgeMirror', 'drosteWedgeMirror', 'wedge mirror');
 // Out-of-bounds mode (clamp / mirror / transparent) — a stateful 3-way toggle,
 // not a range, so it's rendered directly here rather than via mountRangeControl.
 (function mountOobControl() {
@@ -151,17 +156,77 @@ ver.id = 'm-version';
 ver.textContent = formatVersion();
 settingsEl.appendChild(ver);
 
-// Form-aware control visibility (aspect → square, zoom → droste, etc.). A control
-// shows when its registry `formControl` is null (universal) or in the active
-// form's `controls` list. Registered with controlsSync so a form switch refreshes it.
+// Stateful settings controls (not declarative ranges): segments (form-routed),
+// droste spiral, and the mirror toggles. Behavior/snap is shared with desktop
+// via kit/snaps.js; only the touch DOM is built here.
+function mountSegmentsControl() {
+  const wrap = document.createElement('label');
+  wrap.className = 'm-control'; wrap.id = 'segmentsLabel';
+  wrap.innerHTML = '<div class="m-control-row"><span>segments</span><span class="m-control-val" id="m-segv"></span></div><input type="range" id="m-seg">';
+  settingsEl.appendChild(wrap);
+  const seg = wrap.querySelector('#m-seg'), val = wrap.querySelector('#m-segv');
+  const key = () => (state.form === 'droste' ? 'drosteArms' : 'segments');
+  const snap = (v) => (state.form === 'droste'
+    ? (v < 1.5 ? 1 : Math.max(2, Math.min(12, Math.round(v / 2) * 2)))
+    : Math.max(2, Math.min(48, Math.round(v / 2) * 2)));
+  function sync() {
+    const d = state.form === 'droste';
+    seg.min = d ? 1 : 2; seg.max = d ? 12 : 48; seg.step = d ? 1 : 2;
+    seg.value = state[key()]; val.textContent = String(Math.round(state[key()]));
+  }
+  seg.addEventListener('input', () => {
+    state[key()] = snap(parseFloat(seg.value));
+    if (state.form === 'droste') applyArmsSnap(state);
+    sync(); if (state.form === 'droste') controlsSync.syncAll();
+    scheduleRender(); sourceOverlay.scheduleDraw();
+  });
+  controlsSync.register(sync); sync();
+}
+function mountSpiralControl() {
+  const wrap = document.createElement('label');
+  wrap.className = 'm-control'; wrap.id = 'spiralLabel';
+  wrap.innerHTML = '<div class="m-control-row"><span>spiral</span><span class="m-control-val" id="m-spiv"></span></div><input type="range" id="m-spi" min="0" max="6" step="0.001">';
+  settingsEl.appendChild(wrap);
+  const spi = wrap.querySelector('#m-spi'), val = wrap.querySelector('#m-spiv');
+  function sync() { spi.value = state.drosteSpiral; val.textContent = (state.drosteSpiral || 0).toFixed(2); }
+  spi.addEventListener('input', () => {
+    state.drosteSpiral = snapSpiralValue(state, parseFloat(spi.value));
+    sync(); scheduleRender(); sourceOverlay.scheduleDraw();
+  });
+  controlsSync.register(sync); sync();
+}
+function mountToggleControl(labelId, key, label) {
+  const wrap = document.createElement('label');
+  wrap.className = 'm-control'; wrap.id = labelId + 'Label';
+  wrap.innerHTML = `<div class="m-control-row"><span>${label}</span></div>`;
+  const seg = document.createElement('div'); seg.className = 'm-seg';
+  const btns = [['off', false], ['on', true]].map(([t, v]) => {
+    const b = document.createElement('button'); b.className = 'm-seg-btn'; b.textContent = t;
+    b.addEventListener('click', () => { state[key] = v; sync(); scheduleRender(); sourceOverlay.scheduleDraw(); });
+    seg.appendChild(b); return [b, v];
+  });
+  function sync() { btns.forEach(([b, v]) => b.classList.toggle('active', (state[key] !== false) === v)); }
+  wrap.appendChild(seg); settingsEl.appendChild(wrap);
+  controlsSync.register(sync); sync();
+}
+
+// Form-aware control visibility. A control shows when its `formControl` is null
+// (universal) or in the active form's `controls` list. Registered with
+// controlsSync so a form switch refreshes it.
+const STATEFUL_VIS = [['segmentsLabel', 'segments'], ['spiralLabel', 'spiral'], ['mirrorLabel', 'mirror'], ['wedgeMirrorLabel', 'wedgeMirror']];
 function applyFormVisibility() {
   const form = getActiveForm(state);
   for (const id of DECLARATIVE_PARAM_IDS) {
     const p = PARAMS[id];
     const labelEl = $(p.sliderId + 'Label');
-    if (!labelEl) continue;
-    const visible = !p.formControl || form.controls.includes(p.formControl);
-    labelEl.classList.toggle('m-hidden', !visible);
+    if (labelEl) labelEl.classList.toggle('m-hidden', !(!p.formControl || form.controls.includes(p.formControl)));
+  }
+  for (const [labelId, fc] of STATEFUL_VIS) {
+    const el = $(labelId);
+    if (!el) continue;
+    let vis = form.controls.includes(fc);
+    if (fc === 'wedgeMirror' && vis) vis = Math.round(state.drosteArms || 1) > 1;  // hide at arms=1
+    el.classList.toggle('m-hidden', !vis);
   }
 }
 controlsSync.register(applyFormVisibility);
@@ -262,13 +327,15 @@ function stopCameraStream() {
 function updateLiveUI() {
   const cap = $('m-tab-capture'), flip = $('m-flip');
   if (cameraMode === 'live') {
-    cap.style.display = ''; cap.innerHTML = ICONS.aperture; cap.title = 'capture';
+    cap.style.display = ''; cap.innerHTML = ICONS.captureCam; cap.title = 'capture'; cap.style.color = '';
     flip.style.display = ''; setSourceIcon('live');
   } else if (cameraMode === 'frozen') {
-    cap.style.display = ''; cap.innerHTML = ICONS.record; cap.title = 'go live';
-    flip.style.display = 'none'; setSourceIcon('still');
+    // still "in" live capture, just paused: go-live record is RED (actionable),
+    // and the SOURCE icon stays the live record (mental model: paused, not a new still).
+    cap.style.display = ''; cap.innerHTML = ICONS.record; cap.title = 'go live'; cap.style.color = '#e8504a';
+    flip.style.display = 'none'; setSourceIcon('live');
   } else {
-    cap.style.display = 'none'; flip.style.display = 'none';
+    cap.style.display = 'none'; flip.style.display = 'none'; cap.style.color = '';
   }
 }
 
@@ -287,6 +354,7 @@ async function startCamera() {
   try {
     const video = await camera.start('environment');   // rear default on phones
     liveVideo = video;
+    console.log(`[camera] granted resolution ${video.videoWidth}×${video.videoHeight}`);
     engine.setSource(camera.frameSource());
   } catch (e) {
     liveVideo = null;

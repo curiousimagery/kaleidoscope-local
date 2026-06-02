@@ -4,6 +4,16 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.5.0 (Build 76) — 2026-06-02
+
+**Mobile parity: stateful settings controls + capture-icon polish + nits.**
+
+- **Stateful SETTINGS controls added** (no longer desktop-only): segments (form-routed — radial `segments` / droste `drosteArms`, with the shared snap), droste **spiral**, and **tier mirror** / **wedge mirror** toggles. Form-aware visibility (segments for radial+droste; spiral/mirrors for droste; wedge mirror hidden at arms=1). Behavior/snap shared with desktop via `kit/snaps.js`; only the touch DOM is new. Mobile settings now matches desktop's control set.
+- **Capture iconography (per Daniel):** the aperture placeholder is replaced with the Material camera glyph for *capture*; *go live* uses a **red** record dot (actionable, not informational); and freezing a live frame **keeps the SOURCE icon as live** (record) — the mental model is "paused live capture," not a new still.
+- **Nits:** placeholder reads "tap + to begin" with proper spacing; `startCamera` logs the actual granted camera resolution to the console (to check 4K vs 1080p per device).
+
+---
+
 ## v0.5.0 (Build 75) — 2026-06-02
 
 **Mobile tab bar (icons + popovers), export rename, export-return fix.**
