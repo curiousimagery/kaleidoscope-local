@@ -4,6 +4,12 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.5.0 (Build 77) — 2026-06-02
+
+**Mobile save sheet.** The EXPORT tab now opens a slide-up sheet (replaces the basic direct download): collapsible **show/hide diagnostics** on top (renderer, max texture, max export, DPR), then **format** (JPG/PNG), **size** tiers (up to the device's probed FBO max), a status line, then **save package (.zip)** and the primary **save composition** at the bottom (thumb reach). Package bundles the composition + the unmodified original (uploaded file or captured frame), reusing `engine.exportAt` + `shell/zip.js`. *Deferred to todo: the lazy higher-cap max-res probe (to offer >4096 on capable phones without the init crash) — sizes are currently capped at the init FBO probe (4096 on mobile).*
+
+---
+
 ## v0.5.0 (Build 76) — 2026-06-02
 
 **Mobile parity: stateful settings controls + capture-icon polish + nits.**

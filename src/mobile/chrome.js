@@ -27,6 +27,7 @@ import { formatVersion } from '../version.js';
 import { createCamera } from '../shell/camera.js';
 import { ICONS } from './icons.js';
 import { applyArmsSnap, snapSpiralValue } from '../kit/snaps.js';
+import { zipStore } from '../shell/zip.js';
 
 // (The desktop stylesheet is dropped in boot.js before this module loads.)
 
@@ -264,26 +265,18 @@ outputEl.addEventListener('click', (e) => {
   if (!engine.getSourceImage() && !e.target.closest('#m-flip')) showSourceMenu();
 });
 
-$('m-tab-export').addEventListener('click', async () => {
-  if (!engine.getSourceImage()) return;
-  try {
-    const { blob, size } = await engine.exportAt(state, session.exportSize || '2048', session.exportFormat || 'jpg');
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url; a.download = `fold-${state.form}-${size}.${session.exportFormat || 'jpg'}`; a.click();
-    URL.revokeObjectURL(url);
-    engine.render(state);
-  } catch (e) { console.error(e); }
-});
+$('m-tab-export').addEventListener('click', () => { if (engine.getSourceImage()) openSaveSheet(); });
 
 // ----------------------------------------------------------------- source load
 let sourceFilename = '';
+let originalSource = null;   // { blob, name } — bundled into "save package"
 function loadImage(file, sourceType = 'file') {
   stopCameraStream();
   cameraMode = 'off';
   updateLiveUI();
   const url = URL.createObjectURL(file);
   sourceFilename = (file.name || 'image').replace(/\.[^.]+$/, '');
+  originalSource = { blob: file, name: file.name || 'original.png' };
   const img = new Image();
   img.onload = () => {
     engine.setSource(img);
@@ -388,6 +381,7 @@ function captureFrame() {
   updateLiveUI();
   c.toBlob((blob) => {
     if (!blob) return;
+    originalSource = { blob, name: `${sourceFilename}-original.jpg` };
     const img = new Image();
     img.onload = () => {
       engine.setSource(img);
@@ -516,6 +510,93 @@ function sizeOutput() {
 
 window.addEventListener('resize', layout);
 requestAnimationFrame(layout);
+
+// ------------------------------------------------------------------ save sheet
+function downloadBlob(blob, name) {
+  const u = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = u; a.download = name; a.click();
+  URL.revokeObjectURL(u);
+}
+function openSaveSheet() { $('m-sheet')?.classList.remove('m-hidden'); }
+function closeSaveSheet() { $('m-sheet')?.classList.add('m-hidden'); }
+
+function buildSaveSheet() {
+  const sheet = document.createElement('div');
+  sheet.id = 'm-sheet'; sheet.className = 'm-hidden';
+  sheet.innerHTML = `
+    <div class="m-sheet-backdrop"></div>
+    <div class="m-sheet-panel">
+      <div class="m-sheet-grip"></div>
+      <button class="m-sheet-link" id="m-diag-toggle">show diagnostics</button>
+      <div id="m-diag" class="m-hidden"></div>
+      <div class="m-sheet-cap">format</div><div class="m-seg" id="m-fmt"></div>
+      <div class="m-sheet-cap">size</div><div class="m-seg" id="m-size"></div>
+      <div class="m-sheet-status" id="m-save-status"></div>
+      <button id="m-save-package">save package (.zip)</button>
+      <button id="m-save-comp" class="m-save-primary">save composition</button>
+    </div>`;
+  rootEl.appendChild(sheet);
+  const cap = engine.diagnostics.maxFBOSize;
+  if (!session.exportSize || (session.exportSize !== 'max' && parseInt(session.exportSize, 10) > cap)) {
+    session.exportSize = String(Math.min(4096, cap));
+  }
+
+  const fmt = sheet.querySelector('#m-fmt');
+  [['JPG', 'jpg'], ['PNG', 'png']].forEach(([label, v]) => {
+    const b = document.createElement('button'); b.className = 'm-seg-btn'; b.textContent = label; b.dataset.v = v;
+    b.addEventListener('click', () => { session.exportFormat = v; syncFmt(); });
+    fmt.appendChild(b);
+  });
+  const syncFmt = () => fmt.querySelectorAll('button').forEach(b => b.classList.toggle('active', b.dataset.v === (session.exportFormat || 'jpg')));
+
+  const szEl = sheet.querySelector('#m-size');
+  ['1024', '2048', '4096'].filter(s => parseInt(s, 10) <= cap).concat('max').forEach(s => {
+    const b = document.createElement('button'); b.className = 'm-seg-btn'; b.dataset.v = s;
+    b.textContent = s === 'max' ? 'max' : (parseInt(s, 10) / 1024) + 'K';
+    b.addEventListener('click', () => { session.exportSize = s; syncSize(); });
+    szEl.appendChild(b);
+  });
+  const syncSize = () => szEl.querySelectorAll('button').forEach(b => b.classList.toggle('active', b.dataset.v === session.exportSize));
+
+  const diag = sheet.querySelector('#m-diag'), diagToggle = sheet.querySelector('#m-diag-toggle');
+  diag.innerHTML = `WebGL2 • ${engine.diagnostics.renderer}<br>max texture ${engine.diagnostics.maxTextureSize}px • max export ${cap}px • DPR ${window.devicePixelRatio || 1}`;
+  diagToggle.addEventListener('click', () => {
+    const hidden = diag.classList.toggle('m-hidden');
+    diagToggle.textContent = hidden ? 'show diagnostics' : 'hide diagnostics';
+  });
+
+  sheet.querySelector('#m-save-comp').addEventListener('click', () => doSave(false));
+  sheet.querySelector('#m-save-package').addEventListener('click', () => doSave(true));
+  sheet.querySelector('.m-sheet-backdrop').addEventListener('click', closeSaveSheet);
+  sheet.querySelector('.m-sheet-grip').addEventListener('click', closeSaveSheet);
+  syncFmt(); syncSize();
+}
+
+async function doSave(pkg) {
+  if (!engine.getSourceImage()) return;
+  const status = $('m-save-status');
+  status.textContent = 'rendering…';
+  await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+  let res;
+  try { res = await engine.exportAt(state, session.exportSize, session.exportFormat || 'jpg'); }
+  catch (e) { status.textContent = e.message; return; }
+  const ext = session.exportFormat === 'png' ? 'png' : 'jpg';
+  const base = sourceFilename || 'fold';
+  const compName = `${base}-${state.form}-${res.size}.${ext}`;
+  if (pkg) {
+    const files = [{ name: compName, blob: res.blob }];
+    if (originalSource) files.push(originalSource);
+    const zip = await zipStore(files);
+    downloadBlob(zip, `${base}-package.zip`);
+    status.textContent = `saved package • ${files.length} files • ${(zip.size / 1048576).toFixed(1)}MB`;
+  } else {
+    downloadBlob(res.blob, compName);
+    status.textContent = `saved ${res.size}×${res.size} • ${(res.blob.size / 1048576).toFixed(1)}MB`;
+  }
+  engine.render(state);
+}
+buildSaveSheet();
 
 // Release the WebGL context on navigation away so a refresh doesn't pile up GPU
 // contexts (a known iOS Safari crash vector — possible cause of the intermittent
