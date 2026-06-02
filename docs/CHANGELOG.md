@@ -4,6 +4,15 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.5.0 (Build 78) — 2026-06-02
+
+**Mobile: portrait source fill (+ fit toggle) and lazy higher-res export probe.**
+
+- **Source fill / fit toggle.** The shared overlay's display fit is now parameterized — `contain` (letterbox, default on desktop) vs `cover` (fill the panel + crop). Mobile defaults to **cover** so portrait sources no longer leave side gutters. A fill↔fit toggle sits top-right of the source panel (mirroring the settings toggle top-left). `drawSourceOverlay` geometry + `mountSourceView` CSS (object-fit / background-size) both honor `env.fit`, and `createSourceOverlay` gains a `fit` option + `setFit()`. Desktop unchanged (defaults to `contain`).
+- **Lazy export-max probe.** New `engine.probeExportMax(cap)` re-runs the FBO probe with a higher cap and updates `diagnostics.maxFBOSize`. The mobile save sheet calls it once on first open (cap 8192) so capable phones (e.g. iPhone 14/17 Pro) can pick a >4096 export tier; weaker devices fall back to 4096. Init still caps low to avoid the load-time memory crash. Size tiers + the diagnostics readout rebuild from the probed value.
+
+---
+
 ## v0.5.0 (Build 77) — 2026-06-02
 
 **Mobile save sheet.** The EXPORT tab now opens a slide-up sheet (replaces the basic direct download): collapsible **show/hide diagnostics** on top (renderer, max texture, max export, DPR), then **format** (JPG/PNG), **size** tiers (up to the device's probed FBO max), a status line, then **save package (.zip)** and the primary **save composition** at the bottom (thumb reach). Package bundles the composition + the unmodified original (uploaded file or captured frame), reusing `engine.exportAt` + `shell/zip.js`. *Deferred to todo: the lazy higher-cap max-res probe (to offer >4096 on capable phones without the init crash) — sizes are currently capped at the init FBO probe (4096 on mobile).*

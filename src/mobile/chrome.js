@@ -41,6 +41,7 @@ document.body.innerHTML = `
     <div id="m-divider"></div>
     <div id="m-context">
       <button id="m-context-toggle" title="source / settings">${ICONS.sliders}</button>
+      <button id="m-fit-toggle" title="fill / fit">${ICONS.contract}</button>
       <div id="m-source"></div>
       <div id="m-settings" class="m-hidden"></div>
     </div>
@@ -102,6 +103,7 @@ const sourceOverlay = createSourceOverlay({
   getLiveVideo: () => liveVideo,
   syncControls: () => controlsSync.syncAll(),
   scheduleRender,
+  fit: 'cover',                 // mobile fills the panel by default (no side gutters)
 });
 
 createOutputGestures(outputCanvas, {
@@ -254,6 +256,16 @@ function setContext(settings) {
   if (!settings) sourceOverlay.render();      // re-draw overlay (it was zero-sized while hidden)
 }
 $('m-context-toggle').addEventListener('click', () => setContext(!showingSettings));
+
+// fill ↔ fit toggle (top-right of the source panel): cover crops to fill, contain
+// shows the whole sensor. Icon shows the action you'll take.
+$('m-fit-toggle').addEventListener('click', () => {
+  if (!engine.getSourceImage()) return;
+  const next = sourceOverlay.getFit() === 'cover' ? 'contain' : 'cover';
+  sourceOverlay.setFit(next);
+  $('m-fit-toggle').innerHTML = next === 'cover' ? ICONS.contract : ICONS.expand;
+  sourceOverlay.render();
+});
 
 // ------------------------------------------------------------------- tab bar
 $('m-tab-source').addEventListener('click', () => showSourceMenu());
@@ -518,7 +530,18 @@ function downloadBlob(blob, name) {
   a.href = u; a.download = name; a.click();
   URL.revokeObjectURL(u);
 }
-function openSaveSheet() { $('m-sheet')?.classList.remove('m-hidden'); }
+let refreshSaveLimits = () => {};   // assigned in buildSaveSheet
+let probedExport = false;
+function openSaveSheet() {
+  if (!probedExport) {
+    // first open: lazily probe a higher FBO cap (8192) so capable phones can pick
+    // a >4096 export. Init keeps a low cap to avoid the load-time memory crash.
+    probedExport = true;
+    try { engine.probeExportMax(8192); } catch { /* stay at the init cap */ }
+    refreshSaveLimits();
+  }
+  $('m-sheet')?.classList.remove('m-hidden');
+}
 function closeSaveSheet() { $('m-sheet')?.classList.add('m-hidden'); }
 
 function buildSaveSheet() {
@@ -537,10 +560,6 @@ function buildSaveSheet() {
       <button id="m-save-comp" class="m-save-primary">save composition</button>
     </div>`;
   rootEl.appendChild(sheet);
-  const cap = engine.diagnostics.maxFBOSize;
-  if (!session.exportSize || (session.exportSize !== 'max' && parseInt(session.exportSize, 10) > cap)) {
-    session.exportSize = String(Math.min(4096, cap));
-  }
 
   const fmt = sheet.querySelector('#m-fmt');
   [['JPG', 'jpg'], ['PNG', 'png']].forEach(([label, v]) => {
@@ -551,16 +570,26 @@ function buildSaveSheet() {
   const syncFmt = () => fmt.querySelectorAll('button').forEach(b => b.classList.toggle('active', b.dataset.v === (session.exportFormat || 'jpg')));
 
   const szEl = sheet.querySelector('#m-size');
-  ['1024', '2048', '4096'].filter(s => parseInt(s, 10) <= cap).concat('max').forEach(s => {
-    const b = document.createElement('button'); b.className = 'm-seg-btn'; b.dataset.v = s;
-    b.textContent = s === 'max' ? 'max' : (parseInt(s, 10) / 1024) + 'K';
-    b.addEventListener('click', () => { session.exportSize = s; syncSize(); });
-    szEl.appendChild(b);
-  });
   const syncSize = () => szEl.querySelectorAll('button').forEach(b => b.classList.toggle('active', b.dataset.v === session.exportSize));
+  function renderSizeTiers() {
+    const cap = engine.diagnostics.maxFBOSize;
+    if (!session.exportSize || (session.exportSize !== 'max' && parseInt(session.exportSize, 10) > cap)) {
+      session.exportSize = String(Math.min(4096, cap));
+    }
+    szEl.innerHTML = '';
+    ['1024', '2048', '4096', '8192'].filter(s => parseInt(s, 10) <= cap).concat('max').forEach(s => {
+      const b = document.createElement('button'); b.className = 'm-seg-btn'; b.dataset.v = s;
+      b.textContent = s === 'max' ? 'max' : (parseInt(s, 10) / 1024) + 'K';
+      b.addEventListener('click', () => { session.exportSize = s; syncSize(); });
+      szEl.appendChild(b);
+    });
+    syncSize();
+  }
 
   const diag = sheet.querySelector('#m-diag'), diagToggle = sheet.querySelector('#m-diag-toggle');
-  diag.innerHTML = `WebGL2 • ${engine.diagnostics.renderer}<br>max texture ${engine.diagnostics.maxTextureSize}px • max export ${cap}px • DPR ${window.devicePixelRatio || 1}`;
+  const renderDiag = () => {
+    diag.innerHTML = `WebGL2 • ${engine.diagnostics.renderer}<br>max texture ${engine.diagnostics.maxTextureSize}px • max export ${engine.diagnostics.maxFBOSize}px • DPR ${window.devicePixelRatio || 1}`;
+  };
   diagToggle.addEventListener('click', () => {
     const hidden = diag.classList.toggle('m-hidden');
     diagToggle.textContent = hidden ? 'show diagnostics' : 'hide diagnostics';
@@ -570,7 +599,10 @@ function buildSaveSheet() {
   sheet.querySelector('#m-save-package').addEventListener('click', () => doSave(true));
   sheet.querySelector('.m-sheet-backdrop').addEventListener('click', closeSaveSheet);
   sheet.querySelector('.m-sheet-grip').addEventListener('click', closeSaveSheet);
-  syncFmt(); syncSize();
+
+  refreshSaveLimits = () => { renderSizeTiers(); renderDiag(); };
+  syncFmt();
+  refreshSaveLimits();
 }
 
 async function doSave(pkg) {

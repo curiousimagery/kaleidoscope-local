@@ -16,7 +16,7 @@
 // principle from the original code: state lives in one place, owned by the
 // shell, passed to the engine on demand.
 
-import { createGLContext, uploadTexture, updateTexture, renderToCanvas, renderToFBO } from './gl.js';
+import { createGLContext, uploadTexture, updateTexture, renderToCanvas, renderToFBO, probeMaxFBOSize } from './gl.js';
 import { FORMS, FORMS_BY_ID, getActiveForm, getActiveFormIndex } from './forms/index.js';
 import { sliceVecToSourceUV } from './geometry.js';
 
@@ -57,6 +57,17 @@ export function createEngine({ canvas, maxProbeSize }) {
     // diagnostic info — renderer name, max texture size. used by the shell to
     // populate the diagnostics group.
     diagnostics: glCtx.diagnostics,
+
+    // Re-probe the max exportable FBO size with a higher cap, LAZILY (e.g. when
+    // the mobile save sheet opens) — init keeps a low cap so phones don't attempt
+    // huge allocations on load. This allocates a large FBO, so call on user action.
+    // Updates diagnostics.maxFBOSize (so exportAt honors the higher limit) and
+    // returns it.
+    probeExportMax(cap) {
+      const s = probeMaxFBOSize(glCtx.gl, glCtx.diagnostics.maxTextureSize, cap);
+      glCtx.diagnostics.maxFBOSize = Math.max(glCtx.diagnostics.maxFBOSize, s);
+      return glCtx.diagnostics.maxFBOSize;
+    },
 
     // raw WebGL2 context handle. exposed for the diagnostic surface, which
     // queries additional capability parameters and re-runs the FBO probe

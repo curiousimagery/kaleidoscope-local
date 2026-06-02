@@ -30,9 +30,11 @@ html, body { margin: 0; padding: 0; height: 100%; background: var(--m-bg); color
 
 /* CONTEXT region */
 #m-context { position: relative; flex: 1 1 auto; min-height: 0; background: var(--m-bg); overflow: hidden; }
-#m-context-toggle { position: absolute; top: 8px; left: 8px; z-index: 5; width: 40px; height: 40px;
+#m-context-toggle, #m-fit-toggle { position: absolute; top: 8px; z-index: 5; width: 40px; height: 40px;
   border-radius: 8px; border: 1px solid var(--m-line); background: rgba(20,20,20,0.85);
   color: var(--m-fg); font-size: 16px; display: flex; align-items: center; justify-content: center; }
+#m-context-toggle { left: 8px; }
+#m-fit-toggle { right: 8px; }
 #m-source { position: absolute; inset: 0; }
 #m-settings { position: absolute; inset: 0; overflow-y: auto; -webkit-overflow-scrolling: touch;
   padding: 56px 16px 16px; }

@@ -86,7 +86,7 @@ export function createGLContext(canvas, { maxProbeSize = Infinity } = {}) {
 //   Caught by: create a canvas at this size, write one pixel, read it back.
 //   If the browser silently clips or returns a null context, the pixel won't
 //   round-trip correctly, revealing the limit.
-function probeMaxFBOSize(gl, maxTextureSize, cap = Infinity) {
+export function probeMaxFBOSize(gl, maxTextureSize, cap = Infinity) {
   const limit = Math.min(maxTextureSize, cap);
   for (const size of [16384, 8192, 4096, 2048]) {
     if (size > limit) continue;

@@ -91,10 +91,13 @@ export function drawSourceOverlay(env) {
 
   const sourceAspect = engine.getSourceAspect();
 
-  // figure out displayed image rect (object-fit: contain)
+  // figure out displayed image rect. `contain` (default) letterboxes; `cover`
+  // fills the panel and crops the overflow (the displayed source's CSS fit must
+  // match — see mountSourceView). Cover is the contain branch inverted.
+  const coverMode = env.fit === 'cover';
   const wrapAspect = w / h;
   let imgW, imgH, imgX, imgY;
-  if (sourceAspect > wrapAspect) {
+  if ((sourceAspect > wrapAspect) !== coverMode) {
     imgW = w;
     imgH = w / sourceAspect;
     imgX = 0;
@@ -1191,7 +1194,7 @@ export function mountSourceView(env, slotEl) {
     v.style.position = 'absolute';
     v.style.top = '0'; v.style.left = '0';
     v.style.width = '100%'; v.style.height = '100%';
-    v.style.objectFit = 'contain';
+    v.style.objectFit = env.fit === 'cover' ? 'cover' : 'contain';
     v.style.pointerEvents = 'none';
     slotEl.appendChild(v);
   } else {
@@ -1205,7 +1208,7 @@ export function mountSourceView(env, slotEl) {
       width: 100%;
       height: 100%;
       background-image: url("${sourceImage.src}");
-      background-size: contain;
+      background-size: ${env.fit === 'cover' ? 'cover' : 'contain'};
       background-repeat: no-repeat;
       background-position: center;
       pointer-events: none;

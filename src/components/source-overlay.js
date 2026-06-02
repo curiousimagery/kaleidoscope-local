@@ -38,6 +38,9 @@ export function createSourceOverlay(ctx) {
     engine: ctx.engine,
     get liveVideo() { return ctx.getLiveVideo ? ctx.getLiveVideo() : null; },
 
+    fit: ctx.fit || 'contain',   // 'contain' (letterbox) | 'cover' (fill + crop)
+    container: null,
+
     sourceOverlayCanvas: null,
     hoverMode: null,
     hoverOnSpoke: false,
@@ -65,10 +68,18 @@ export function createSourceOverlay(ctx) {
     // mount the source view (image/live-video + overlay canvas + interaction)
     // into a container. Safe to call repeatedly (e.g. desktop slot swap) —
     // mountSourceView clears the container and re-binds listeners.
-    mount(container) { mountSourceView(view, container); },
+    mount(container) { view.container = container; mountSourceView(view, container); },
 
     render() { drawSourceOverlay(view); },
     scheduleDraw: drawer.schedule,
+
+    // switch source display fit ('contain' | 'cover'). Re-mounts so the displayed
+    // source's CSS fit + the overlay geometry update together.
+    getFit() { return view.fit; },
+    setFit(mode) {
+      view.fit = mode;
+      if (view.container) mountSourceView(view, view.container);
+    },
 
     get canvas() { return view.sourceOverlayCanvas; },
     get view() { return view; },
