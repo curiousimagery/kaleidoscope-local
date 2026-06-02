@@ -4,6 +4,20 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.4.1 (Build 70) — 2026-06-01
+
+**Mobile chrome — first increment (still-editor core; alpha, behind a mode gate).**
+
+The second front-end lands, mounting the SAME shared components as desktop (the thesis: not a duplicate UI). Desktop is unchanged — it now loads through a tiny boot selector. Phone-class viewports (or `?chrome=mobile`) get the mobile chrome; iPad/desktop stay on the desktop chrome.
+
+- **`src/boot.js` (new).** Chrome selection: `Math.min(innerWidth, innerHeight) < 600 && (pointer: coarse)` → mobile, else desktop; `?chrome=mobile|desktop` override. `index.html` now loads `boot.js` (was `main.js`); on desktop boot imports `main.js` unchanged. Vite code-splits desktop vs mobile vs shared.
+- **`src/components/param-control.js` (new, Step D).** `mountRangeControl(container, paramEntry, env)` builds a control's DOM from a registry entry and wires it via the shared `wireSliderWithScrub` (same scrub/snap/sync behavior). Mobile-facing; desktop migrates to it later.
+- **`src/mobile/chrome.js` + `styles.css` (new).** Two stacked regions (OUTPUT top, CONTEXT bottom) split by a fat **sticky draggable divider** with a soft center detent (collapses either region, stays where left). CONTEXT flips between **SOURCE** (mounts `createSourceOverlay` — full wedge direct-manipulation) and **SETTINGS** (registry-rendered sliders + reset) via a corner button. OUTPUT mounts `createOutputGestures` (pinch=zoom, twist=rotation). Bottom tab bar (minimal this increment: upload / form-cycle / export). Form-aware control visibility from the registry.
+- **Deferred to the next increment:** camera wiring (source-picker/capture toggle), SOURCE/FORM popovers, the EXPORT sheet (+ package zip), stateful settings controls (segments/spiral/toggles), PWA. Mobile undo/redo remains out of scope.
+- Desktop loads via boot now — quick re-confirm desktop still comes up normally (behavior unchanged; one extra module hop).
+
+---
+
 ## v0.4.1 (Build 69) — 2026-06-01
 
 **Components-layer extraction (no user-visible change — refactor toward the mobile chrome).**

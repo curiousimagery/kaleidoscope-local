@@ -1,0 +1,54 @@
+/* SPDX-License-Identifier: AGPL-3.0-or-later
+   Copyright (C) 2026 Daniel Nelson
+   Mobile chrome styles. Phone-class layout: OUTPUT (top) + CONTEXT (bottom)
+   split by a fat sticky divider, with a bottom tab bar above the home indicator. */
+
+:root { --m-bg: #0a0a0a; --m-fg: #e8e8e8; --m-dim: #888; --m-line: #2a2a2a; --m-tabbar: 56px; --m-divider: 26px; }
+
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; height: 100%; background: var(--m-bg); color: var(--m-fg);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  -webkit-user-select: none; user-select: none; overscroll-behavior: none; }
+
+#m-root { display: flex; flex-direction: column; height: 100dvh; }
+
+/* OUTPUT region */
+#m-output { position: relative; flex: 0 0 auto; background: #000; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+#m-output canvas { display: block; background: #111; }
+#m-empty { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  color: var(--m-dim); font-size: 14px; text-align: center; padding: 24px; }
+
+/* DIVIDER (fat grippy) */
+#m-divider { height: var(--m-divider); flex: 0 0 var(--m-divider); background: #141414;
+  border-top: 1px solid var(--m-line); border-bottom: 1px solid var(--m-line);
+  display: flex; align-items: center; justify-content: center; touch-action: none; cursor: row-resize; }
+#m-divider::before { content: ''; width: 44px; height: 5px; border-radius: 3px; background: #444; }
+#m-divider.dragging::before { background: #777; }
+
+/* CONTEXT region */
+#m-context { position: relative; flex: 1 1 auto; min-height: 0; background: var(--m-bg); }
+#m-context-toggle { position: absolute; top: 8px; left: 8px; z-index: 5; width: 40px; height: 40px;
+  border-radius: 8px; border: 1px solid var(--m-line); background: rgba(20,20,20,0.85);
+  color: var(--m-fg); font-size: 16px; display: flex; align-items: center; justify-content: center; }
+#m-source { position: absolute; inset: 0; }
+#m-settings { position: absolute; inset: 0; overflow-y: auto; -webkit-overflow-scrolling: touch;
+  padding: 56px 16px 16px; }
+.m-hidden { display: none !important; }
+
+/* settings controls (rendered from the registry via mountRangeControl) */
+.m-control { display: block; margin-bottom: 16px; }
+.m-control-row { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px;
+  font-size: 13px; color: var(--m-dim); }
+.m-control-val { color: var(--m-fg); font-variant-numeric: tabular-nums; }
+.m-control input[type=range] { width: 100%; height: 28px; }
+#m-settings h2 { font-size: 11px; color: var(--m-dim); text-transform: lowercase; letter-spacing: 0.08em; margin: 4px 0 12px; }
+#m-reset { width: 100%; margin-top: 8px; padding: 12px; background: transparent; color: var(--m-dim);
+  border: 1px solid var(--m-line); border-radius: 8px; font-size: 13px; }
+
+/* TAB BAR */
+#m-tabbar { flex: 0 0 auto; display: flex; gap: 4px; padding: 6px 8px calc(6px + env(safe-area-inset-bottom));
+  background: #121212; border-top: 1px solid var(--m-line); }
+#m-tabbar button { flex: 1; min-height: 44px; background: #1a1a1a; color: var(--m-fg);
+  border: 1px solid var(--m-line); border-radius: 8px; font-size: 12px; }
+#m-tabbar button:active { background: #2a2a2a; }
+.m-file-input { display: none; }
