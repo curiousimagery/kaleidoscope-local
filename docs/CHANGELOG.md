@@ -4,6 +4,12 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.5.0 (Build 74) — 2026-06-02
+
+**Version milestone: second front-end + live camera.** Marks the mobile chrome reaching a real, usable state — phone-class viewports get a touch-first chrome mounting the same shared components as desktop, with live camera, capture/go-live, and direct manipulation. Still alpha (remaining parity items in BACKLOG), but a meaningful surface-area jump from the desktop-only still tool. No code change beyond the version + new backlog items.
+
+---
+
 ## v0.4.1 (Build 73) — 2026-06-01
 
 **Mobile live camera + responsive chrome switching.**
