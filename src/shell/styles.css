@@ -439,9 +439,8 @@ button .btn-spinner {
   font-size: 11px;
   color: #888;
   line-height: 1.4;
-  padding: 4px 0;
-  border-top: 1px solid #2a2a2a;
-  margin-top: 4px;
+  padding: 2px 0 4px;
+  margin-top: 2px;
 }
 
 /* swap button */

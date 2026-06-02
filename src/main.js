@@ -95,7 +95,8 @@ try {
     notice.className = 'browser-notice';
     notice.textContent = 'Firefox limits WebGL textures to 8K. For higher-resolution export on Apple Silicon, try Safari.';
     const exportGroup = document.getElementById('exportBtn').parentElement;
-    exportGroup.insertBefore(notice, document.getElementById('exportBtn'));
+    // sit it right under the resolution hint, above the save buttons
+    exportGroup.insertBefore(notice, document.getElementById('exportPackageBtn'));
   }
 } catch (e) {
   statusEl.textContent = e.message;
@@ -966,9 +967,13 @@ function wireControls() {
       const originalText = btn.textContent;
       btn.disabled = true;
       btn.innerHTML = '<span class="btn-spinner"></span>';
+      const start = performance.now();
       try {
         await action();
       } finally {
+        // hold the spinner a beat so it's perceptible even on fast exports
+        const elapsed = performance.now() - start;
+        if (elapsed < 300) await new Promise(r => setTimeout(r, 300 - elapsed));
         btn.disabled = false;
         btn.textContent = originalText;
       }

@@ -4,6 +4,16 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.5.0 (Build 79) — 2026-06-02
+
+**Export polish (desktop + mobile).**
+
+- **Save spinner restored.** The export-button spinner was flashing too briefly to see on fast exports; it now holds a minimum ~300ms so it's perceptible.
+- **Resolution hint on mobile.** The save sheet now shows "sharp output up to ~XK at current settings" (under the size tiers), matching desktop.
+- **Firefox notice repositioned (desktop).** Moved under the resolution hint (above the save buttons) instead of awkwardly between the two save buttons, and dropped its stray top border/rule.
+
+---
+
 ## v0.5.0 (Build 78) — 2026-06-02
 
 **Mobile: portrait source fill (+ fit toggle) and lazy higher-res export probe.**

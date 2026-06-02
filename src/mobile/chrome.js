@@ -540,6 +540,11 @@ function openSaveSheet() {
     try { engine.probeExportMax(8192); } catch { /* stay at the init cap */ }
     refreshSaveLimits();
   }
+  const hint = $('m-res-hint');
+  if (hint) {
+    const s = engine.suggestResolution(state);
+    hint.textContent = s ? `sharp output up to ~${(s / 1024).toFixed(1)}K at current settings` : '';
+  }
   $('m-sheet')?.classList.remove('m-hidden');
 }
 function closeSaveSheet() { $('m-sheet')?.classList.add('m-hidden'); }
@@ -555,6 +560,7 @@ function buildSaveSheet() {
       <div id="m-diag" class="m-hidden"></div>
       <div class="m-sheet-cap">format</div><div class="m-seg" id="m-fmt"></div>
       <div class="m-sheet-cap">size</div><div class="m-seg" id="m-size"></div>
+      <div class="m-sheet-res" id="m-res-hint"></div>
       <div class="m-sheet-status" id="m-save-status"></div>
       <button id="m-save-package">save package (.zip)</button>
       <button id="m-save-comp" class="m-save-primary">save composition</button>
