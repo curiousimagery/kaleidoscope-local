@@ -624,7 +624,7 @@ async function doExport(sizeArg) {
   // restore preview render
   engine.render(state);
 
-  statusEl.textContent = `exported ${sz}×${sz} • ${session.exportFormat} • render ${renderMs.toFixed(0)}ms • read ${readMs.toFixed(0)}ms • encode ${encodeMs.toFixed(0)}ms • ${(blob.size / 1024 / 1024).toFixed(1)}MB`;
+  statusEl.textContent = `saved ${sz}×${sz} • ${session.exportFormat} • render ${renderMs.toFixed(0)}ms • read ${readMs.toFixed(0)}ms • encode ${encodeMs.toFixed(0)}ms • ${(blob.size / 1024 / 1024).toFixed(1)}MB`;
   statusEl.classList.remove('busy');
   statusEl.classList.add('success');
   setTimeout(() => statusEl.classList.remove('success'), 2500);
@@ -665,7 +665,7 @@ async function exportPackage() {
   downloadBlob(zipBlob, `${sourceFilename}-package.zip`);
 
   engine.render(state);
-  statusEl.textContent = `exported package • ${files.length} files • ${(zipBlob.size / 1024 / 1024).toFixed(1)}MB`;
+  statusEl.textContent = `saved package • ${files.length} files • ${(zipBlob.size / 1024 / 1024).toFixed(1)}MB`;
   statusEl.classList.remove('busy');
   statusEl.classList.add('success');
   setTimeout(() => statusEl.classList.remove('success'), 2500);

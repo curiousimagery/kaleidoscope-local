@@ -4,6 +4,16 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.5.0 (Build 75) — 2026-06-02
+
+**Mobile tab bar (icons + popovers), export rename, export-return fix.**
+
+- **Icon tab bar + popovers** ([src/mobile/icons.js](src/mobile/icons.js) + chrome). Tabs are icon-only and reflect the current selection. **SOURCE** opens a single-select menu — *live camera* (red record dot), *take still* (native full-res via a `capture="environment"` file input), *choose photo / file* — and the tab icon updates to match the active source (plus / record / camera / folder). **FORM** opens a popover listing each form's thumbnail + name, current indicated; the tab shows the active form's icon. **CAPTURE** shows an aperture (capture) ↔ red record (go live). Null state: "tap + to begin" and tapping the empty output opens the source menu. Settings/direct-manip toggle now uses sliders/target icons. (Icons are functional placeholders — polish is backlogged.)
+- **Export → Save.** Renamed "export composition/package" to **"save composition" / "save package (.zip)"** on desktop, reordered so the primary "save composition" sits at the bottom (thumb reach), and the desktop status now says "saved". (Mobile export is still a basic direct download — the full slide-up save sheet with size/format/diagnostics + lazy max-res probe is the next pass.)
+- **Export-return dark output fixed.** Returning to the mobile app after viewing an exported image left the output dark (backgrounded rAF didn't resume). A `visibilitychange`/`pageshow` handler now resumes the live loop / re-renders.
+
+---
+
 ## v0.5.0 (Build 74) — 2026-06-02
 
 **Version milestone: second front-end + live camera.** Marks the mobile chrome reaching a real, usable state — phone-class viewports get a touch-first chrome mounting the same shared components as desktop, with live camera, capture/go-live, and direct manipulation. Still alpha (remaining parity items in BACKLOG), but a meaningful surface-area jump from the desktop-only still tool. No code change beyond the version + new backlog items.

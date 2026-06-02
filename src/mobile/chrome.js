@@ -25,6 +25,7 @@ import { mountRangeControl } from '../components/param-control.js';
 import { PARAMS, DECLARATIVE_PARAM_IDS } from '../shell/params.js';
 import { formatVersion } from '../version.js';
 import { createCamera } from '../shell/camera.js';
+import { ICONS } from './icons.js';
 
 // (The desktop stylesheet is dropped in boot.js before this module loads.)
 
@@ -32,22 +33,23 @@ import { createCamera } from '../shell/camera.js';
 document.body.innerHTML = `
   <div id="m-root">
     <div id="m-output">
-      <div id="m-empty">tap <b>source</b> to begin</div>
-      <button id="m-flip" title="flip camera" style="display:none">⟲</button>
+      <div id="m-empty">tap <b>+</b> to begin</div>
+      <button id="m-flip" class="m-icon-btn" title="flip camera" style="display:none">${ICONS.flip}</button>
     </div>
     <div id="m-divider"></div>
     <div id="m-context">
-      <button id="m-context-toggle" title="source / settings">⚙</button>
+      <button id="m-context-toggle" title="source / settings">${ICONS.sliders}</button>
       <div id="m-source"></div>
       <div id="m-settings" class="m-hidden"></div>
     </div>
     <div id="m-tabbar">
-      <button id="m-tab-source">source</button>
-      <button id="m-tab-form">form</button>
-      <button id="m-tab-export">export</button>
-      <button id="m-tab-capture" style="display:none">capture</button>
+      <button id="m-tab-source" class="m-tab" title="source">${ICONS.plus}</button>
+      <button id="m-tab-form" class="m-tab" title="form"></button>
+      <button id="m-tab-export" class="m-tab" title="save">${ICONS.download}</button>
+      <button id="m-tab-capture" class="m-tab" title="capture" style="display:none">${ICONS.aperture}</button>
     </div>
     <input type="file" class="m-file-input" id="m-file" accept="image/jpeg,image/png,image/webp">
+    <input type="file" class="m-file-input" id="m-file-still" accept="image/*" capture="environment">
   </div>`;
 
 const $ = (id) => document.getElementById(id);
@@ -165,27 +167,36 @@ function applyFormVisibility() {
 controlsSync.register(applyFormVisibility);
 applyFormVisibility();
 
+// --------------------------------------------------------------- tab-bar icons
+// Tab icons reflect the current selection (per Daniel's tab-bar spec).
+function setSourceIcon(type) {
+  const map = { none: ICONS.plus, file: ICONS.folder, still: ICONS.camera, live: ICONS.record };
+  $('m-tab-source').innerHTML = map[type] || ICONS.plus;
+}
+function setFormIcon() { $('m-tab-form').innerHTML = getActiveForm(state).thumbnail; }
+setSourceIcon('none');
+setFormIcon();
+
 // ------------------------------------------------------------- context A/B flip
 let showingSettings = false;
 function setContext(settings) {
   showingSettings = settings;
   sourceEl.classList.toggle('m-hidden', settings);
   settingsEl.classList.toggle('m-hidden', !settings);
-  $('m-context-toggle').textContent = settings ? '◈' : '⚙';
+  // show the icon of the mode you'll switch TO: sliders (→ settings) / target (→ direct manip)
+  $('m-context-toggle').innerHTML = settings ? ICONS.target : ICONS.sliders;
   if (!settings) sourceOverlay.render();      // re-draw overlay (it was zero-sized while hidden)
 }
 $('m-context-toggle').addEventListener('click', () => setContext(!showingSettings));
 
 // ------------------------------------------------------------------- tab bar
 $('m-tab-source').addEventListener('click', () => showSourceMenu());
-$('m-file').addEventListener('change', (e) => { if (e.target.files[0]) loadImage(e.target.files[0]); });
-
-$('m-tab-form').addEventListener('click', () => {
-  const i = FORMS.findIndex(f => f.id === state.form);
-  state.form = FORMS[(i + 1) % FORMS.length].id;
-  controlsSync.syncAll();
-  scheduleRender();
-  sourceOverlay.scheduleDraw();
+$('m-tab-form').addEventListener('click', () => showFormMenu());
+$('m-file').addEventListener('change', (e) => { if (e.target.files[0]) loadImage(e.target.files[0], 'file'); });
+$('m-file-still').addEventListener('change', (e) => { if (e.target.files[0]) loadImage(e.target.files[0], 'still'); });
+// null state: tapping the output opens the source menu
+outputEl.addEventListener('click', (e) => {
+  if (!engine.getSourceImage() && !e.target.closest('#m-flip')) showSourceMenu();
 });
 
 $('m-tab-export').addEventListener('click', async () => {
@@ -202,7 +213,7 @@ $('m-tab-export').addEventListener('click', async () => {
 
 // ----------------------------------------------------------------- source load
 let sourceFilename = '';
-function loadImage(file) {
+function loadImage(file, sourceType = 'file') {
   stopCameraStream();
   cameraMode = 'off';
   updateLiveUI();
@@ -211,6 +222,7 @@ function loadImage(file) {
   const img = new Image();
   img.onload = () => {
     engine.setSource(img);
+    setSourceIcon(sourceType);                 // folder (file) or camera (still)
     emptyEl.classList.add('m-hidden');
     setContext(false);                         // show SOURCE state
     sourceOverlay.mount(sourceEl);
@@ -249,9 +261,15 @@ function stopCameraStream() {
 
 function updateLiveUI() {
   const cap = $('m-tab-capture'), flip = $('m-flip');
-  if (cameraMode === 'live') { cap.style.display = ''; cap.textContent = 'capture'; flip.style.display = ''; }
-  else if (cameraMode === 'frozen') { cap.style.display = ''; cap.textContent = 'go live'; flip.style.display = 'none'; }
-  else { cap.style.display = 'none'; flip.style.display = 'none'; }
+  if (cameraMode === 'live') {
+    cap.style.display = ''; cap.innerHTML = ICONS.aperture; cap.title = 'capture';
+    flip.style.display = ''; setSourceIcon('live');
+  } else if (cameraMode === 'frozen') {
+    cap.style.display = ''; cap.innerHTML = ICONS.record; cap.title = 'go live';
+    flip.style.display = 'none'; setSourceIcon('still');
+  } else {
+    cap.style.display = 'none'; flip.style.display = 'none';
+  }
 }
 
 function cameraErrorMessage(e) {
@@ -329,28 +347,59 @@ $('m-tab-capture').addEventListener('click', () => {
 });
 $('m-flip').addEventListener('click', flipCamera);
 
-// source popover: live camera | upload photo
-function showSourceMenu() {
+// ----------------------------------------------------------------- tab popovers
+// items: { icon, iconClass?, label, action, current? }
+function showMenu(items, anchorId) {
   closeMenu();
   const menu = document.createElement('div');
   menu.className = 'm-menu';
   menu.id = 'm-menu';
-  [['live camera', startCamera], ['upload photo', () => $('m-file').click()]].forEach(([label, action]) => {
+  menu.dataset.anchor = anchorId;
+  items.forEach((it) => {
     const b = document.createElement('button');
-    b.className = 'm-menu-item';
-    b.textContent = label;
-    b.addEventListener('click', () => { closeMenu(); action(); });
+    b.className = 'm-menu-item' + (it.current ? ' current' : '');
+    b.innerHTML = `<span class="m-menu-icon ${it.iconClass || ''}">${it.icon || ''}</span>` +
+                  `<span class="m-menu-label">${it.label}</span>`;
+    b.addEventListener('click', () => { closeMenu(); it.action(); });
     menu.appendChild(b);
   });
   rootEl.appendChild(menu);
   setTimeout(() => document.addEventListener('pointerdown', onMenuOutside), 0);
 }
 function onMenuOutside(e) {
-  if (!e.target.closest('#m-menu') && e.target.id !== 'm-tab-source') closeMenu();
+  const m = document.getElementById('m-menu');
+  if (!m) return;
+  if (!e.target.closest('#m-menu') && !e.target.closest('#' + m.dataset.anchor)) closeMenu();
 }
 function closeMenu() {
   document.getElementById('m-menu')?.remove();
   document.removeEventListener('pointerdown', onMenuOutside);
+}
+
+// source menu — three capability-distinct entries (iOS collapses photo-library
+// vs choose-file into the same system sheet, so they're one item). "take still"
+// uses the native camera (full-res) via the capture-attribute file input.
+function showSourceMenu() {
+  showMenu([
+    { icon: ICONS.record, iconClass: 'm-icon-record', label: 'live camera', action: startCamera },
+    { icon: ICONS.camera, label: 'take still', action: () => $('m-file-still').click() },
+    { icon: ICONS.photo, label: 'choose photo / file', action: () => $('m-file').click() },
+  ], 'm-tab-source');
+}
+
+function showFormMenu() {
+  showMenu(FORMS.map((f) => ({
+    icon: f.thumbnail, label: f.label, current: f.id === state.form,
+    action: () => selectForm(f.id),
+  })), 'm-tab-form');
+}
+function selectForm(id) {
+  state.form = id;
+  controlsSync.syncAll();
+  applyFormVisibility();
+  scheduleRender();
+  sourceOverlay.scheduleDraw();
+  setFormIcon();
 }
 
 // ------------------------------------------------------------- layout + sizing
@@ -406,3 +455,14 @@ requestAnimationFrame(layout);
 window.addEventListener('pagehide', () => {
   try { engine.glContext?.getExtension('WEBGL_lose_context')?.loseContext(); } catch { /* noop */ }
 });
+
+// Returning to the app (e.g. after viewing an exported image) can leave the
+// output dark: a backgrounded rAF chain may not resume, and a still needs a
+// re-render. Force-resume on visibility.
+function onVisible() {
+  if (document.visibilityState !== 'visible') return;
+  if (cameraMode === 'live') { stopLiveLoop(); startLiveLoop(); }
+  else if (engine.getSourceImage()) { scheduleRender(); }
+}
+document.addEventListener('visibilitychange', onVisible);
+window.addEventListener('pageshow', onVisible);

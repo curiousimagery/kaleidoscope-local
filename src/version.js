@@ -18,7 +18,7 @@
 // BUILD when bumping VERSION.
 
 export const VERSION = 'v0.5.0';
-export const BUILD = 74;
+export const BUILD = 75;
 
 export function formatVersion() {
   return `${VERSION} · Build ${BUILD}`;

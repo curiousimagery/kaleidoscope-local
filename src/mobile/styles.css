@@ -59,9 +59,13 @@ html, body { margin: 0; padding: 0; height: 100%; background: var(--m-bg); color
 #m-tabbar { position: relative; z-index: 10; flex: 0 0 auto; display: flex; gap: 4px;
   padding: 6px 8px calc(6px + env(safe-area-inset-bottom));
   background: #121212; border-top: 1px solid var(--m-line); }
-#m-tabbar button { flex: 1; min-height: 44px; background: #1a1a1a; color: var(--m-fg);
-  border: 1px solid var(--m-line); border-radius: 8px; font-size: 12px; }
-#m-tabbar button:active { background: #2a2a2a; }
+#m-tabbar button { flex: 1; min-height: 48px; background: #1a1a1a; color: #cfcfcf;
+  border: 1px solid var(--m-line); border-radius: 8px; font-size: 12px;
+  display: flex; align-items: center; justify-content: center; }
+#m-tabbar button:active { background: #2a2a2a; color: #fff; }
+.m-tab svg, #m-context-toggle svg, .m-icon-btn svg { width: 24px; height: 24px; display: block; }
+/* form thumbnails use a `.stroke` group (32×32) designed for the desktop picker */
+.stroke { stroke: currentColor; stroke-width: 1.5; fill: none; }
 .m-file-input { display: none; }
 
 /* source popover (live camera / upload) — floats above the tab bar */
@@ -69,7 +73,11 @@ html, body { margin: 0; padding: 0; height: 100%; background: var(--m-bg); color
   bottom: calc(var(--m-tabbar) + env(safe-area-inset-bottom) + 8px);
   background: #1c1c1c; border: 1px solid var(--m-line); border-radius: 12px; overflow: hidden;
   box-shadow: 0 8px 24px rgba(0,0,0,0.5); }
-.m-menu-item { display: block; width: 100%; text-align: left; padding: 15px 16px; background: transparent;
-  color: var(--m-fg); border: none; border-bottom: 1px solid var(--m-line); font-size: 15px; }
+.m-menu-item { display: flex; align-items: center; gap: 14px; width: 100%; text-align: left;
+  padding: 14px 16px; background: transparent; color: var(--m-fg); border: none;
+  border-bottom: 1px solid var(--m-line); font-size: 15px; }
 .m-menu-item:last-child { border-bottom: none; }
-.m-menu-item:active { background: #2a2a2a; }
+.m-menu-item:active, .m-menu-item.current { background: #2a2a2a; }
+.m-menu-icon { display: inline-flex; align-items: center; justify-content: center; width: 24px; color: var(--m-fg); }
+.m-menu-icon svg { width: 22px; height: 22px; display: block; }
+.m-icon-record { color: #e8504a; }   /* live camera = red in the menu (mono in the tab bar) */
