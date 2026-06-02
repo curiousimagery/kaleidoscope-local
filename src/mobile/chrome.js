@@ -24,13 +24,17 @@ import { createOutputGestures } from '../components/output-gestures.js';
 import { mountRangeControl } from '../components/param-control.js';
 import { PARAMS, DECLARATIVE_PARAM_IDS } from '../shell/params.js';
 import { formatVersion } from '../version.js';
+import { createCamera } from '../shell/camera.js';
 
 // (The desktop stylesheet is dropped in boot.js before this module loads.)
 
 // ---------------------------------------------------------------- DOM scaffold
 document.body.innerHTML = `
   <div id="m-root">
-    <div id="m-output"><div id="m-empty">tap <b>upload</b> to begin</div></div>
+    <div id="m-output">
+      <div id="m-empty">tap <b>source</b> to begin</div>
+      <button id="m-flip" title="flip camera" style="display:none">⟲</button>
+    </div>
     <div id="m-divider"></div>
     <div id="m-context">
       <button id="m-context-toggle" title="source / settings">⚙</button>
@@ -38,9 +42,10 @@ document.body.innerHTML = `
       <div id="m-settings" class="m-hidden"></div>
     </div>
     <div id="m-tabbar">
-      <button id="m-tab-source">upload</button>
+      <button id="m-tab-source">source</button>
       <button id="m-tab-form">form</button>
       <button id="m-tab-export">export</button>
+      <button id="m-tab-capture" style="display:none">capture</button>
     </div>
     <input type="file" class="m-file-input" id="m-file" accept="image/jpeg,image/png,image/webp">
   </div>`;
@@ -85,9 +90,12 @@ function scheduleRender() {
 env.scheduleRender = scheduleRender;
 
 // ----------------------------------------------------------------- components
+const camera = createCamera();
+let liveVideo = null;          // the camera <video> while live; null otherwise
+
 const sourceOverlay = createSourceOverlay({
   state, engine,
-  getLiveVideo: () => null,                   // camera wired in the next increment
+  getLiveVideo: () => liveVideo,
   syncControls: () => controlsSync.syncAll(),
   scheduleRender,
 });
@@ -169,7 +177,7 @@ function setContext(settings) {
 $('m-context-toggle').addEventListener('click', () => setContext(!showingSettings));
 
 // ------------------------------------------------------------------- tab bar
-$('m-tab-source').addEventListener('click', () => $('m-file').click());
+$('m-tab-source').addEventListener('click', () => showSourceMenu());
 $('m-file').addEventListener('change', (e) => { if (e.target.files[0]) loadImage(e.target.files[0]); });
 
 $('m-tab-form').addEventListener('click', () => {
@@ -195,6 +203,9 @@ $('m-tab-export').addEventListener('click', async () => {
 // ----------------------------------------------------------------- source load
 let sourceFilename = '';
 function loadImage(file) {
+  stopCameraStream();
+  cameraMode = 'off';
+  updateLiveUI();
   const url = URL.createObjectURL(file);
   sourceFilename = (file.name || 'image').replace(/\.[^.]+$/, '');
   const img = new Image();
@@ -207,6 +218,139 @@ function loadImage(file) {
     scheduleRender();
   };
   img.src = url;
+}
+
+// ------------------------------------------------------------------- live camera
+let cameraMode = 'off';        // 'off' | 'live' | 'frozen'
+let liveActive = false, liveRaf = 0;
+
+function startLiveLoop() {
+  if (liveActive) return;
+  liveActive = true;
+  const tick = () => {
+    if (!liveActive) return;
+    camera.refreshFrame();                     // front camera: redraw mirrored frame
+    engine.updateSourceFrame();
+    engine.render(state);
+    sourceOverlay.render();
+    liveRaf = requestAnimationFrame(tick);
+  };
+  liveRaf = requestAnimationFrame(tick);
+}
+function stopLiveLoop() {
+  liveActive = false;
+  if (liveRaf) { cancelAnimationFrame(liveRaf); liveRaf = 0; }
+}
+function stopCameraStream() {
+  stopLiveLoop();
+  camera.stop();
+  liveVideo = null;
+}
+
+function updateLiveUI() {
+  const cap = $('m-tab-capture'), flip = $('m-flip');
+  if (cameraMode === 'live') { cap.style.display = ''; cap.textContent = 'capture'; flip.style.display = ''; }
+  else if (cameraMode === 'frozen') { cap.style.display = ''; cap.textContent = 'go live'; flip.style.display = 'none'; }
+  else { cap.style.display = 'none'; flip.style.display = 'none'; }
+}
+
+function cameraErrorMessage(e) {
+  if (e?.name === 'NotAllowedError') return 'camera permission denied — allow access and retry';
+  if (e?.name === 'NotFoundError') return 'no camera found';
+  return 'could not start camera';
+}
+
+async function startCamera() {
+  if (!navigator.mediaDevices?.getUserMedia) {
+    emptyEl.textContent = 'camera needs a secure context (https or localhost)';
+    emptyEl.classList.remove('m-hidden');
+    return;
+  }
+  try {
+    const video = await camera.start('environment');   // rear default on phones
+    liveVideo = video;
+    engine.setSource(camera.frameSource());
+  } catch (e) {
+    liveVideo = null;
+    emptyEl.textContent = cameraErrorMessage(e);
+    emptyEl.classList.remove('m-hidden');
+    return;
+  }
+  sourceFilename = 'camera';
+  cameraMode = 'live';
+  emptyEl.classList.add('m-hidden');
+  setContext(false);
+  sourceOverlay.mount(sourceEl);
+  sizeOutput();
+  updateLiveUI();
+  startLiveLoop();
+}
+
+// capture: freeze the current frame as the editable still (mirrored to match the
+// front-camera preview). Camera stops; the same control becomes "go live".
+function captureFrame() {
+  const video = camera.getVideo();
+  if (!video || !video.videoWidth) return;
+  const w = video.videoWidth, h = video.videoHeight;
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  const cx = c.getContext('2d');
+  if (camera.isFront()) { cx.translate(w, 0); cx.scale(-1, 1); }
+  cx.drawImage(video, 0, 0, w, h);
+  stopCameraStream();
+  cameraMode = 'frozen';
+  updateLiveUI();
+  c.toBlob((blob) => {
+    if (!blob) return;
+    const img = new Image();
+    img.onload = () => {
+      engine.setSource(img);
+      setContext(false);
+      sourceOverlay.mount(sourceEl);
+      scheduleRender();
+    };
+    img.src = URL.createObjectURL(blob);
+  }, 'image/jpeg', 0.95);
+}
+
+async function flipCamera() {
+  if (cameraMode !== 'live') return;
+  try {
+    const video = await camera.flip();
+    liveVideo = video;
+    engine.setSource(camera.frameSource());
+    sourceOverlay.mount(sourceEl);             // remount picks up the mirror transform
+  } catch (e) { console.error(e); }
+}
+
+$('m-tab-capture').addEventListener('click', () => {
+  if (cameraMode === 'live') captureFrame();
+  else if (cameraMode === 'frozen') startCamera();   // "go live"
+});
+$('m-flip').addEventListener('click', flipCamera);
+
+// source popover: live camera | upload photo
+function showSourceMenu() {
+  closeMenu();
+  const menu = document.createElement('div');
+  menu.className = 'm-menu';
+  menu.id = 'm-menu';
+  [['live camera', startCamera], ['upload photo', () => $('m-file').click()]].forEach(([label, action]) => {
+    const b = document.createElement('button');
+    b.className = 'm-menu-item';
+    b.textContent = label;
+    b.addEventListener('click', () => { closeMenu(); action(); });
+    menu.appendChild(b);
+  });
+  rootEl.appendChild(menu);
+  setTimeout(() => document.addEventListener('pointerdown', onMenuOutside), 0);
+}
+function onMenuOutside(e) {
+  if (!e.target.closest('#m-menu') && e.target.id !== 'm-tab-source') closeMenu();
+}
+function closeMenu() {
+  document.getElementById('m-menu')?.remove();
+  document.removeEventListener('pointerdown', onMenuOutside);
 }
 
 // ------------------------------------------------------------- layout + sizing

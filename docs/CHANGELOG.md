@@ -4,6 +4,15 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.4.1 (Build 73) — 2026-06-01
+
+**Mobile live camera + responsive chrome switching.**
+
+- **Live camera on mobile.** The SOURCE tab now opens a popover (live camera / upload photo). "Live camera" wires the shared `createCamera` host module into the mobile chrome: a continuous render loop feeds the kaleidoscope live, the wedge overlays the feed (direct-manipulable), a contextual **capture / go-live** toggle appears in the tab bar (capture freezes the frame as the editable still; "go live" resumes), and a **flip** button (front/rear) overlays the output. Front camera is mirrored to match the preview (reuses the Build 67 mirror path). Rear default on phones. Reuses `createSourceOverlay`/`createOutputGestures` unchanged. *Note: live-camera preview perf on a phone is subject to the same full-res texture-upload cost noted for iPad (BACKLOG) — the camera-resolution optimization will help here too.*
+- **Responsive chrome switching.** `boot.js` now reloads into the other chrome when the viewport crosses the breakpoint (so narrowing a desktop window switches to mobile, and vice versa). Slice/canvas params are carried across the switch via sessionStorage (one-shot — normal refresh still resets); the loaded image is not carried. A true in-place swap was avoided (the desktop chrome has no teardown path); a debounced reload is simple and robust.
+
+---
+
 ## v0.4.1 (Build 72) — 2026-06-01
 
 **More mobile fixes + responsive desktop breakpoint.**

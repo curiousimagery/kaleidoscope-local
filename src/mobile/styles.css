@@ -15,6 +15,9 @@ html, body { margin: 0; padding: 0; height: 100%; background: var(--m-bg); color
 /* OUTPUT region */
 #m-output { position: relative; flex: 0 0 auto; background: #000; display: flex; align-items: center; justify-content: center; overflow: hidden; }
 #m-output canvas { display: block; background: #111; }
+#m-flip { position: absolute; top: 8px; right: 8px; z-index: 6; width: 40px; height: 40px;
+  border-radius: 8px; border: 1px solid var(--m-line); background: rgba(20,20,20,0.85);
+  color: var(--m-fg); font-size: 18px; }
 #m-empty { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
   color: var(--m-dim); font-size: 14px; text-align: center; padding: 24px; }
 
@@ -60,3 +63,13 @@ html, body { margin: 0; padding: 0; height: 100%; background: var(--m-bg); color
   border: 1px solid var(--m-line); border-radius: 8px; font-size: 12px; }
 #m-tabbar button:active { background: #2a2a2a; }
 .m-file-input { display: none; }
+
+/* source popover (live camera / upload) — floats above the tab bar */
+.m-menu { position: absolute; left: 8px; right: 8px; z-index: 20;
+  bottom: calc(var(--m-tabbar) + env(safe-area-inset-bottom) + 8px);
+  background: #1c1c1c; border: 1px solid var(--m-line); border-radius: 12px; overflow: hidden;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.5); }
+.m-menu-item { display: block; width: 100%; text-align: left; padding: 15px 16px; background: transparent;
+  color: var(--m-fg); border: none; border-bottom: 1px solid var(--m-line); font-size: 15px; }
+.m-menu-item:last-child { border-bottom: none; }
+.m-menu-item:active { background: #2a2a2a; }
