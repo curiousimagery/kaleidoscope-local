@@ -20,6 +20,12 @@ const phoneClass =
 const useMobile = override === 'mobile' || (override !== 'desktop' && phoneClass);
 
 if (useMobile) {
+  // Drop the desktop stylesheet (a static <link> in the shared index.html) so its
+  // `body { display: flex }` split-layout doesn't squeeze the mobile chrome into a
+  // narrow column. At boot time it's the only stylesheet present — the mobile
+  // chrome's own CSS is injected later when chrome.js imports it. (Done here, by
+  // element, because Vite strips the id we'd otherwise target.)
+  document.querySelectorAll('link[rel="stylesheet"]').forEach((l) => l.remove());
   import('./mobile/chrome.js');
 } else {
   import('./main.js');

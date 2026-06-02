@@ -12,7 +12,7 @@ He prefers **no em dashes** in his own writing; respect that in any prose Claude
 
 ## current version
 
-`v0.4.1 · Build 70`. The footer in the running app shows this string from `src/version.js`. When delivering a new build, increment BUILD by 1 and bump VERSION when meaningful change ships. **BUILD never resets** on version bumps — it's a global monotonic counter (see `version.js` comment).
+`v0.4.1 · Build 71`. The footer in the running app shows this string from `src/version.js`. When delivering a new build, increment BUILD by 1 and bump VERSION when meaningful change ships. **BUILD never resets** on version bumps — it's a global monotonic counter (see `version.js` comment).
 
 ## what's working
 

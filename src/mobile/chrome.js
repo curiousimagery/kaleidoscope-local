@@ -24,10 +24,7 @@ import { createOutputGestures } from '../components/output-gestures.js';
 import { mountRangeControl } from '../components/param-control.js';
 import { PARAMS, DECLARATIVE_PARAM_IDS } from '../shell/params.js';
 
-// The desktop stylesheet is a static <link> in the shared index.html; drop it on
-// mobile so its split-pane body rules don't fight the mobile layout. (Targeted by
-// id so the mobile chrome's own injected CSS is untouched.)
-document.getElementById('desktop-styles')?.remove();
+// (The desktop stylesheet is dropped in boot.js before this module loads.)
 
 // ---------------------------------------------------------------- DOM scaffold
 document.body.innerHTML = `
@@ -103,6 +100,29 @@ settingsEl.innerHTML = '<h2>settings</h2>';
 for (const id of DECLARATIVE_PARAM_IDS) {
   mountRangeControl(settingsEl, PARAMS[id], env);
 }
+// Out-of-bounds mode (clamp / mirror / transparent) — a stateful 3-way toggle,
+// not a range, so it's rendered directly here rather than via mountRangeControl.
+(function mountOobControl() {
+  const wrap = document.createElement('div');
+  wrap.className = 'm-control';
+  wrap.innerHTML = '<div class="m-control-row"><span>out of bounds</span></div>';
+  const seg = document.createElement('div');
+  seg.className = 'm-seg';
+  const btns = [['clamp', 0], ['mirror', 1], ['transparent', 2]].map(([label, val]) => {
+    const b = document.createElement('button');
+    b.className = 'm-seg-btn';
+    b.textContent = label;
+    b.addEventListener('click', () => { state.oobMode = val; sync(); scheduleRender(); });
+    seg.appendChild(b);
+    return [b, val];
+  });
+  function sync() { btns.forEach(([b, v]) => b.classList.toggle('active', state.oobMode === v)); }
+  wrap.appendChild(seg);
+  settingsEl.appendChild(wrap);
+  controlsSync.register(sync);
+  sync();
+})();
+
 const resetBtn = document.createElement('button');
 resetBtn.id = 'm-reset';
 resetBtn.textContent = 'reset slice';
@@ -227,3 +247,10 @@ function sizeOutput() {
 
 window.addEventListener('resize', layout);
 requestAnimationFrame(layout);
+
+// Release the WebGL context on navigation away so a refresh doesn't pile up GPU
+// contexts (a known iOS Safari crash vector — possible cause of the intermittent
+// "a problem repeatedly occurred" on reload).
+window.addEventListener('pagehide', () => {
+  try { engine.glContext?.getExtension('WEBGL_lose_context')?.loseContext(); } catch { /* noop */ }
+});

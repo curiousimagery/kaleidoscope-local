@@ -26,7 +26,7 @@ html, body { margin: 0; padding: 0; height: 100%; background: var(--m-bg); color
 #m-divider.dragging::before { background: #777; }
 
 /* CONTEXT region */
-#m-context { position: relative; flex: 1 1 auto; min-height: 0; background: var(--m-bg); }
+#m-context { position: relative; flex: 1 1 auto; min-height: 0; background: var(--m-bg); overflow: hidden; }
 #m-context-toggle { position: absolute; top: 8px; left: 8px; z-index: 5; width: 40px; height: 40px;
   border-radius: 8px; border: 1px solid var(--m-line); background: rgba(20,20,20,0.85);
   color: var(--m-fg); font-size: 16px; display: flex; align-items: center; justify-content: center; }
@@ -45,8 +45,15 @@ html, body { margin: 0; padding: 0; height: 100%; background: var(--m-bg); color
 #m-reset { width: 100%; margin-top: 8px; padding: 12px; background: transparent; color: var(--m-dim);
   border: 1px solid var(--m-line); border-radius: 8px; font-size: 13px; }
 
-/* TAB BAR */
-#m-tabbar { flex: 0 0 auto; display: flex; gap: 4px; padding: 6px 8px calc(6px + env(safe-area-inset-bottom));
+/* segmented control (e.g. out-of-bounds mode) */
+.m-seg { display: flex; gap: 6px; }
+.m-seg-btn { flex: 1; min-height: 40px; background: #1a1a1a; color: var(--m-fg);
+  border: 1px solid var(--m-line); border-radius: 8px; font-size: 12px; }
+.m-seg-btn.active { border-color: #888; }
+
+/* TAB BAR — relative + z-index so the context overlay can't paint over it */
+#m-tabbar { position: relative; z-index: 10; flex: 0 0 auto; display: flex; gap: 4px;
+  padding: 6px 8px calc(6px + env(safe-area-inset-bottom));
   background: #121212; border-top: 1px solid var(--m-line); }
 #m-tabbar button { flex: 1; min-height: 44px; background: #1a1a1a; color: var(--m-fg);
   border: 1px solid var(--m-line); border-radius: 8px; font-size: 12px; }

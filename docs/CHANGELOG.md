@@ -4,6 +4,17 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.4.1 (Build 71) — 2026-06-01
+
+**Mobile chrome fixes from first phone testing.**
+
+- **Width bug fixed (the big one).** The mobile chrome rendered in a narrow ~half-width column because desktop's `styles.css` (`body { display: flex }`) was still applied — the `id`-based removal in `chrome.js` silently failed since Vite strips the `id` during build. Now removed reliably in `boot.js` (the desktop `<link>` is the only stylesheet present at boot, removed by element before the mobile CSS loads). Likely also resolves the oversized-canvas memory pressure.
+- **Source-panel ↔ tab-bar bleed fixed.** `#m-context` now clips (`overflow: hidden`) so overflowing wedge affordances / the gear can't paint onto the tab bar when the panel is shrunk to dock; `#m-tabbar` gets `position: relative; z-index: 10` to stay on top.
+- **Out-of-bounds control added to mobile SETTINGS** (clamp / mirror / transparent) — was an unwanted omission per Daniel.
+- **WebGL context released on `pagehide`** — defensive against the intermittent "a problem repeatedly occurred" Safari crash on reload (piled-up GPU contexts).
+
+---
+
 ## v0.4.1 (Build 70) — 2026-06-01
 
 **Mobile chrome — first increment (still-editor core; alpha, behind a mode gate).**
