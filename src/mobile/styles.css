@@ -44,6 +44,7 @@ html, body { margin: 0; padding: 0; height: 100%; background: var(--m-bg); color
 #m-settings h2 { font-size: 11px; color: var(--m-dim); text-transform: lowercase; letter-spacing: 0.08em; margin: 4px 0 12px; }
 #m-reset { width: 100%; margin-top: 8px; padding: 12px; background: transparent; color: var(--m-dim);
   border: 1px solid var(--m-line); border-radius: 8px; font-size: 13px; }
+#m-version { margin-top: 14px; text-align: center; color: #555; font-size: 11px; font-variant-numeric: tabular-nums; }
 
 /* segmented control (e.g. out-of-bounds mode) */
 .m-seg { display: flex; gap: 6px; }

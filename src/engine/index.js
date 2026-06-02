@@ -26,8 +26,8 @@ export { sliceVecToSourceUV, polygonRadiusAt, pointInPolygon } from './geometry.
 // create an engine bound to a single canvas. the canvas is used both for
 // preview rendering and as the GL context owner — exports go to a separate
 // FBO so the canvas isn't disturbed.
-export function createEngine({ canvas }) {
-  const glCtx = createGLContext(canvas);
+export function createEngine({ canvas, maxProbeSize }) {
+  const glCtx = createGLContext(canvas, { maxProbeSize });
   let sourceTexture = null;
   let sourceImage = null;     // HTMLImageElement OR HTMLVideoElement (live camera)
   let sourceAspect = 1;

@@ -4,6 +4,17 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.4.1 (Build 72) — 2026-06-01
+
+**More mobile fixes + responsive desktop breakpoint.**
+
+- **iPhone refresh crash — probable root cause fixed.** The FBO-size probe (`probeMaxFBOSize`, `gl.js`) allocated 16384²/8192² textures *and* 2D canvases on every init (~1GB/256MB) — fine on iPad, an OOM-crash vector on an iPhone (especially on reload before the prior context frees). `createEngine`/`createGLContext` now accept `maxProbeSize`; the mobile chrome passes `4096`, so the phone never attempts the huge allocations. Desktop is uncapped (unchanged). *Needs Daniel's re-test — this is the suspected fix for "a problem repeatedly occurred."*
+- **Portrait source affordances no longer clip at a square.** `drawSourceOverlay` only resized its canvas on *width* change; on mobile the width is fixed and only the height varies (divider drag / portrait sources), so the canvas height froze at its first value and the overlay covered only a square. Now resizes on width *or* height change (behavior-preserving on desktop, where both change together).
+- **Responsive chrome selection.** `boot.js` now picks the mobile chrome when the window is `< 700px` wide (covers narrowed desktop windows) or a coarse-pointer device's short side is `< 600px` (covers phones in landscape); iPad (≥ 768) stays desktop. Evaluated at load — crossing the breakpoint needs a reload.
+- **Build/version readout on mobile** under the SETTINGS reset button (no footer on the mobile chrome).
+
+---
+
 ## v0.4.1 (Build 71) — 2026-06-01
 
 **Mobile chrome fixes from first phone testing.**

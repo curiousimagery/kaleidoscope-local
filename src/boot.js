@@ -13,11 +13,17 @@
 const params = new URLSearchParams(location.search);
 const override = params.get('chrome');
 
+// Mobile chrome when the window is narrow (< 700px — covers narrowed desktop
+// windows and phones in portrait) OR any coarse-pointer device whose short side
+// is < 600px (covers phones in landscape too). iPad (short side ≥ 768) stays on
+// the desktop chrome. Evaluated at load — resizing across the breakpoint needs a
+// reload to switch.
+const narrow = window.innerWidth < 700;
 const phoneClass =
-  Math.min(window.innerWidth, window.innerHeight) < 600 &&
-  matchMedia('(pointer: coarse)').matches;
+  matchMedia('(pointer: coarse)').matches &&
+  Math.min(window.innerWidth, window.innerHeight) < 600;
 
-const useMobile = override === 'mobile' || (override !== 'desktop' && phoneClass);
+const useMobile = override === 'mobile' || (override !== 'desktop' && (narrow || phoneClass));
 
 if (useMobile) {
   // Drop the desktop stylesheet (a static <link> in the shared index.html) so its

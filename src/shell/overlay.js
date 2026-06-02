@@ -79,7 +79,7 @@ export function drawSourceOverlay(env) {
   if (w === 0 || h === 0) return;
 
   const dpr = window.devicePixelRatio || 1;
-  if (canvas.width !== w * dpr) {
+  if (canvas.width !== w * dpr || canvas.height !== h * dpr) {
     canvas.width = w * dpr;
     canvas.height = h * dpr;
     canvas.style.width = w + 'px';

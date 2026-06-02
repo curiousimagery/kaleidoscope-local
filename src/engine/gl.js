@@ -22,7 +22,7 @@ import {
 // create a WebGL2 context on the provided canvas. returns an object with the
 // active GL handle, program, uniform location map, and helper methods. throws
 // on init failure with a descriptive message.
-export function createGLContext(canvas) {
+export function createGLContext(canvas, { maxProbeSize = Infinity } = {}) {
   const gl = canvas.getContext('webgl2', {
     preserveDrawingBuffer: true,
     antialias: false,
@@ -59,7 +59,9 @@ export function createGLContext(canvas) {
 
   const renderer = gl.getParameter(gl.RENDERER);
   const maxTextureSize = gl.getParameter(gl.MAX_TEXTURE_SIZE);
-  const maxFBOSize = probeMaxFBOSize(gl, maxTextureSize);
+  // maxProbeSize caps the probe — mobile passes a low cap so an iPhone doesn't
+  // attempt the 8K/16K texture+canvas allocations (a memory-crash vector).
+  const maxFBOSize = probeMaxFBOSize(gl, maxTextureSize, maxProbeSize);
 
   return {
     gl,
@@ -84,9 +86,10 @@ export function createGLContext(canvas) {
 //   Caught by: create a canvas at this size, write one pixel, read it back.
 //   If the browser silently clips or returns a null context, the pixel won't
 //   round-trip correctly, revealing the limit.
-function probeMaxFBOSize(gl, maxTextureSize) {
+function probeMaxFBOSize(gl, maxTextureSize, cap = Infinity) {
+  const limit = Math.min(maxTextureSize, cap);
   for (const size of [16384, 8192, 4096, 2048]) {
-    if (size > maxTextureSize) continue;
+    if (size > limit) continue;
 
     // — GPU path —
     const tex = gl.createTexture();

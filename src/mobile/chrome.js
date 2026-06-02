@@ -23,6 +23,7 @@ import { createSourceOverlay } from '../components/source-overlay.js';
 import { createOutputGestures } from '../components/output-gestures.js';
 import { mountRangeControl } from '../components/param-control.js';
 import { PARAMS, DECLARATIVE_PARAM_IDS } from '../shell/params.js';
+import { formatVersion } from '../version.js';
 
 // (The desktop stylesheet is dropped in boot.js before this module loads.)
 
@@ -55,7 +56,8 @@ outputEl.appendChild(outputCanvas);
 
 let engine;
 try {
-  engine = createEngine({ canvas: outputCanvas });
+  // Cap the FBO probe so an iPhone doesn't attempt 8K/16K allocations on init.
+  engine = createEngine({ canvas: outputCanvas, maxProbeSize: 4096 });
 } catch (e) {
   emptyEl.textContent = e.message;
   throw e;
@@ -132,6 +134,12 @@ resetBtn.addEventListener('click', () => {
   controlsSync.syncAll(); scheduleRender(); sourceOverlay.scheduleDraw();
 });
 settingsEl.appendChild(resetBtn);
+
+// build/version readout (useful while testing on a phone where there's no footer)
+const ver = document.createElement('div');
+ver.id = 'm-version';
+ver.textContent = formatVersion();
+settingsEl.appendChild(ver);
 
 // Form-aware control visibility (aspect → square, zoom → droste, etc.). A control
 // shows when its registry `formControl` is null (universal) or in the active
