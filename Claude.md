@@ -14,8 +14,8 @@ He works across three related apps that will share an engine: this one (kaleidos
 
 Every code change that ships requires four updates. Before committing any code change, confirm each one is done:
 
-- [ ] `src/version.js` BUILD counter incremented. BUILD is monotonic and never resets on version bump. See the comment in `version.js` if unsure.
-- [ ] `docs/CHANGELOG.md` entry added under the current version block. Bump the version block when the change is release-worthy on its own.
+- [ ] `src/version.js` BUILD counter incremented (monotonic, never resets) AND the VERSION patch bumped by one (`X.Y.Z` → `X.Y.Z+1`) on every code-shipping build. The minor/major still bump for milestones when called for; the patch increments every deploy that touches code. Docs-only changes bump neither.
+- [ ] `docs/CHANGELOG.md` entry added under a new version block (one per build, since the patch bumps every build).
 - [ ] `docs/HANDOFF.md` updated if the change affects current state, known issues, or what the next session should pick up. The "what's working" and "what we're doing right now" sections go stale fastest.
 - [ ] `docs/BACKLOG.md` updated if a backlog item was shipped (move it to CHANGELOG and remove from BACKLOG) or a new item was discovered.
 

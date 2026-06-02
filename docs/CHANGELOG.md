@@ -4,6 +4,15 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.5.6 (Build 80) — 2026-06-02
+
+**PWA (installable, standalone) + versioning policy.**
+
+- **PWA via vite-plugin-pwa.** Web manifest (name "Fold", standalone display, portrait, dark theme), an auto-updating service worker that precaches the build (offline-capable once loaded), and iOS standalone meta tags (`apple-mobile-web-app-capable` etc.) + an SVG app icon (`public/fold-icon.svg`). Installs to the home screen with no browser chrome. **Needs on-device verification:** (1) standalone hides the Safari UI and the tab bar sits cleanly; (2) **does `getUserMedia` work in an installed iOS standalone PWA** — historically fragile (the in-browser camera is the floor). Note: `base` is relative (`./`); if the service worker misregisters on the deploy, switching `base` to `/` is the fix (the app deploys at the domain root).
+- **Versioning policy change.** Per Daniel: the VERSION **patch bumps on every code-shipping build** now (not just milestones), alongside the monotonic BUILD. This catches the version up — builds 74→80 since the v0.5.0 milestone land us at v0.5.6. Codified in CLAUDE.md standing maintenance. (Builds 75–79 below were shipped under the old policy as v0.5.0.)
+
+---
+
 ## v0.5.0 (Build 79) — 2026-06-02
 
 **Export polish (desktop + mobile).**
