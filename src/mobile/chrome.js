@@ -583,10 +583,14 @@ function buildSaveSheet() {
       session.exportSize = String(Math.min(4096, cap));
     }
     szEl.innerHTML = '';
-    ['1024', '2048', '4096', '8192'].filter(s => parseInt(s, 10) <= cap).concat('max').forEach(s => {
+    const capK = (cap / 1024).toFixed(0);
+    ['1024', '2048', '4096', '8192', 'max'].forEach(s => {
       const b = document.createElement('button'); b.className = 'm-seg-btn'; b.dataset.v = s;
       b.textContent = s === 'max' ? 'max' : (parseInt(s, 10) / 1024) + 'K';
-      b.addEventListener('click', () => { session.exportSize = s; syncSize(); });
+      const unsupported = s !== 'max' && parseInt(s, 10) > cap;
+      b.disabled = unsupported;
+      if (unsupported) b.title = `max ~${capK}K on this device`;
+      b.addEventListener('click', () => { if (b.disabled) return; session.exportSize = s; syncSize(); });
       szEl.appendChild(b);
     });
     syncSize();

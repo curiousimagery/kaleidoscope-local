@@ -56,6 +56,7 @@ html, body { margin: 0; padding: 0; height: 100%; background: var(--m-bg); color
 .m-seg-btn { flex: 1; min-height: 40px; background: #1a1a1a; color: var(--m-fg);
   border: 1px solid var(--m-line); border-radius: 8px; font-size: 12px; }
 .m-seg-btn.active { border-color: #888; }
+.m-seg-btn:disabled { opacity: 0.35; }
 
 /* TAB BAR — relative + z-index so the context overlay can't paint over it */
 #m-tabbar { position: relative; z-index: 10; flex: 0 0 auto; display: flex; gap: 4px;

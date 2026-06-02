@@ -12,9 +12,23 @@ He prefers **no em dashes** in his own writing; respect that in any prose Claude
 
 ## current version
 
-`v0.5.6 · Build 80`. The footer in the running app shows this string from `src/version.js`.
+`v0.5.7 · Build 81`. The footer in the running app shows this string from `src/version.js`.
 
-**Versioning policy (Daniel, Build 80):** the VERSION **patch bumps every code-shipping build** now (alongside the monotonic BUILD), so each deploy advances `X.Y.Z` → `X.Y.Z+1`; minor/major still bump for milestones. Docs-only changes bump neither. (Codified in CLAUDE.md.) When delivering a new build, increment BUILD by 1 and bump VERSION when meaningful change ships. **BUILD never resets** on version bumps — it's a global monotonic counter (see `version.js` comment).
+**Versioning policy (Daniel, Build 80):** the VERSION **patch bumps every code-shipping build** now (alongside the monotonic BUILD), so each deploy advances `X.Y.Z` → `X.Y.Z+1`; minor/major still bump for milestones. Docs-only changes bump neither. (Codified in CLAUDE.md.)
+
+## NEXT (fresh session, Opus Max): Phase 3 — still-animation loop (desktop-first)
+
+The mobile + PWA arc is complete. The next chapter is **animation**, starting with the still-animation loop on the desktop chrome. This is a new, architecture-heavy phase — start it in a fresh thread with full context.
+
+**The leverage already in place:** a **state snapshot is the keyframe currency** (same shape as an undo entry / `shell/history.js`). The continuous **render-driver loop** pattern exists (mobile live loop; `engine.render(state)` is stateless). So animation = interpolate between snapshots over time and render each frame.
+
+**Build order (each its own build):**
+1. **Tween/easing primitive — `src/kit/tween.js`.** `lerpState(a, b, t, easing)` interpolating two state snapshots. **Critical:** only interpolate *continuous* fields (`sliceScale`, `sliceCx/Cy`, `sliceRotation`, `canvasZoom`, `canvasRotation`, `squareAspect`, `drosteZoom`, `drosteSpiral`, `drosteOffsetX/Y`). **Discrete fields must NOT be lerped** (`form`, `segments`, `drosteArms`, `oobMode`, `drosteMirror`, `drosteWedgeMirror`) — hold them across a span / step at keyframes. Angles (`sliceRotation`, `canvasRotation`) need **shortest-path** interpolation (wrap-aware). Easing fns (linear, ease-in-out, …).
+2. **A/B loop playback first (the doc's v1).** Two snapshots (A/B) + a play/pause + duration + a loop toggle, driven by a tween over a continuous render loop. Proves interpolation + a *seamless* loop (loop-lock: first state == last state). No video export yet.
+3. **Multi-keyframe timeline footer (desktop chrome).** Contextual footer (appears on "animate"): scrubber + draggable keyframe markers (add/remove/move, possibly uneven), duration, fps, aspect-crop for output framing. **IxD-sensitive — Daniel drives the timeline UI design.**
+4. **Video export host module.** WebCodecs `VideoEncoder` preferred (mp4/h264) → MediaRecorder fallback (webm/vp9). Render each interpolated frame via the FBO path (like `exportAt`) and feed the encoder. Gate to larger viewports (desktop/iPad).
+
+**Decisions to settle with Daniel early:** the timeline UI; which fields animate vs. hold; default easing; output aspect/fps options; loop-lock UX. **Verify:** a 2-keyframe loop interpolates smoothly and loops seamlessly. Full Phase 3/3.5/4/5 framing is in BACKLOG ("animation + performance track") and the plan doc `~/.claude/plans/i-d-like-to-think-parsed-sloth.md`. When delivering a new build, increment BUILD by 1 and bump VERSION when meaningful change ships. **BUILD never resets** on version bumps — it's a global monotonic counter (see `version.js` comment).
 
 ## what's working
 

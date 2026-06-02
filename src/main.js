@@ -945,10 +945,30 @@ function wireControls() {
   // export resolution
   document.querySelectorAll('#exportSizes button').forEach(btn => {
     btn.addEventListener('click', () => {
+      if (btn.disabled) return;
       session.exportSize = btn.dataset.size;
       document.querySelectorAll('#exportSizes button').forEach(b => b.classList.toggle('active', b === btn));
     });
   });
+  // Disable tiers the GPU/canvas can't actually export (with a tooltip), and
+  // re-home the selection if the default tier is unsupported on this hardware.
+  (function applyExportSizeLimits() {
+    const cap = engine.diagnostics.maxFBOSize;
+    const capK = (cap / 1024).toFixed(cap % 1024 ? 1 : 0);
+    const all = [...document.querySelectorAll('#exportSizes button')];
+    let activeDisabled = false;
+    all.forEach(b => {
+      const unsupported = b.dataset.size !== 'max' && parseInt(b.dataset.size, 10) > cap;
+      b.disabled = unsupported;
+      b.title = unsupported ? `not supported by this hardware (max ~${capK}K)` : '';
+      if (unsupported && b.classList.contains('active')) activeDisabled = true;
+    });
+    if (activeDisabled) {
+      const supported = all.filter(b => !b.disabled && b.dataset.size !== 'max');
+      const pick = supported[supported.length - 1] || all.find(b => b.dataset.size === 'max');
+      if (pick) { session.exportSize = pick.dataset.size; all.forEach(b => b.classList.toggle('active', b === pick)); }
+    }
+  })();
 
   // export format
   document.querySelectorAll('#exportFormats button').forEach(btn => {

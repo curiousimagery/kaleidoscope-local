@@ -4,6 +4,12 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.5.7 (Build 81) — 2026-06-02
+
+**Export: gate unsupported resolutions (desktop + mobile).** Resolution tiers larger than the device's actual export ceiling (`engine.diagnostics.maxFBOSize`) are now **disabled** rather than silently clamped/hidden, with a tooltip ("not supported by this hardware (max ~XK)"). On desktop, if the default 4K tier exceeds the cap, the selection re-homes to the largest supported tier. Mobile shows all tiers (1K–8K + max) with the unsupported ones greyed; the lazy 8192 probe on first save-sheet open re-enables 8K where the device supports it.
+
+---
+
 ## v0.5.6 (Build 80) — 2026-06-02
 
 **PWA (installable, standalone) + versioning policy.**
