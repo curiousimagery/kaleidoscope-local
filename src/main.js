@@ -12,7 +12,7 @@
 // keeping these in one object lets the modules collaborate without reaching
 // into each other for globals.
 
-import { state, session } from './shell/state.js';
+import { state, session, motion } from './shell/state.js';
 import { createEngine, getActiveForm } from './engine/index.js';
 import { FORMS } from './engine/forms/index.js';
 import { createSourceOverlay } from './components/source-overlay.js';
@@ -29,6 +29,7 @@ import { PARAMS, DECLARATIVE_PARAM_IDS } from './shell/params.js';
 import { createCamera } from './shell/camera.js';
 import { zipStore } from './shell/zip.js';
 import { snapSpiralValue as kitSnapSpiral, applyArmsSnap as kitApplyArmsSnap } from './kit/snaps.js';
+import { lerpState } from './kit/tween.js';
 import { formatVersion } from './version.js';
 import { push as historyPush, undo as historyUndo, redo as historyRedo, canUndo, canRedo } from './shell/history.js';
 import { wireDiagnosticButton } from './shell/diagnostics.js';
@@ -114,6 +115,7 @@ const env = {
   // mutable state (read by all modules, written by controls + drag handlers)
   state,
   session,
+  motion,
 
   // engine handle
   engine,
@@ -237,6 +239,7 @@ const sideEmptyMsg = document.getElementById('sideEmptyMsg');
 const placeholder = document.getElementById('placeholder');
 
 function arrangeSlots() {
+  updateMotionUI();   // gate motion availability on source/live state; force-exit if needed
   Array.from(mainSlot.querySelectorAll('.slot-content')).forEach(n => n.remove());
   Array.from(sideSlot.querySelectorAll('.slot-content')).forEach(n => n.remove());
 
@@ -449,6 +452,7 @@ function updateCameraUI() {
   // flip button labels the camera it switches TO.
   const flip = document.getElementById('flipBtn');
   if (flip) flip.textContent = camera.isFront() ? 'rear' : 'front';
+  updateMotionUI();   // motion mode is disabled while the camera is live
 }
 
 async function startCameraMode() {
@@ -1095,6 +1099,173 @@ window.addEventListener('keydown', e => {
 });
 
 // ============================================================================
+// motion mode (Phase 3 — A/B still-animation; desktop/iPad only)
+// ============================================================================
+//
+// A keyframe is a {...state} snapshot (the same currency as an undo entry).
+// Playback interpolates A→B with lerpState and renders each frame through the
+// stateless engine WITHOUT mutating the working `state` — so entering or leaving
+// motion mode never disturbs the user's edits, sliders, or undo history. Discrete
+// fields are locked for the loop (held by lerpState); only the captured A/B
+// continuous values animate. Mutually exclusive with the live camera.
+
+let motionActive = false;   // motion mode on/off (footer visible)
+let motionRaf = 0;
+let motionStart = 0;        // performance.now() at the start of the current play
+
+const motionCanPlay = () => !!(motion.a && motion.b);
+
+function setPlayhead(t) {
+  motion.playhead = t;
+  const ph = document.getElementById('mfPlayhead');
+  if (ph) ph.style.left = (t * 100) + '%';
+}
+
+// elapsed time → t in [0,1]. with loop on the phase oscillates A→B→A (a triangle
+// wave) so the cycle closes seamlessly; with loop off it runs once and clamps at B.
+function motionSampleT(nowMs) {
+  const span = Math.max(1, motion.durationMs);
+  const elapsed = nowMs - motionStart;
+  if (motion.loop) {
+    const phase = (elapsed % (span * 2)) / span;   // 0..2
+    return phase <= 1 ? phase : 2 - phase;          // triangle
+  }
+  return Math.min(1, elapsed / span);
+}
+
+function renderMotionFrame(t) {
+  if (engine && engine.getSourceImage()) {
+    engine.render(lerpState(motion.a, motion.b, t));   // transient — `state` untouched
+    if (session.isSwapped) drawMiniKaleidoscope();
+  }
+  setPlayhead(t);
+}
+
+function haltPlayback() {
+  motion.playing = false;
+  if (motionRaf) { cancelAnimationFrame(motionRaf); motionRaf = 0; }
+}
+
+function startMotionLoop() {
+  if (motion.playing || !motionCanPlay()) return;
+  motion.playing = true;
+  motionStart = performance.now();
+  const tick = () => {
+    if (!motion.playing) return;
+    const t = motionSampleT(performance.now());
+    renderMotionFrame(t);
+    if (!motion.loop && t >= 1) { haltPlayback(); updateMotionUI(); return; }
+    motionRaf = requestAnimationFrame(tick);
+  };
+  motionRaf = requestAnimationFrame(tick);
+  updateMotionUI();
+}
+
+function stopMotionLoop() {
+  haltPlayback();
+  updateMotionUI();
+}
+
+function captureKeyframe(slot) {
+  motion[slot] = { ...state };
+  updateMotionUI();
+}
+
+// load a captured snapshot back into the working state, so it can be tweaked and
+// re-captured. this mutates `state`, so it integrates with undo like any edit.
+function jumpToKeyframe(slot) {
+  const snap = motion[slot];
+  if (!snap) return;
+  if (motion.playing) stopMotionLoop();
+  env.pushHistory();
+  Object.assign(state, snap);
+  env.syncControls();
+  env.scheduleOverlayDraw();
+  env.scheduleRender();
+  env.updateUndoUI?.();
+}
+
+function toggleMotionMode() {
+  if (!engine || !engine.getSourceImage() || isLive) return;
+  motionActive = !motionActive;
+  if (!motionActive) haltPlayback();
+  updateMotionUI();
+  // the footer changes the main-slot height — re-fit the preview canvas (which
+  // also re-renders the working state, replacing any transient playback frame).
+  requestAnimationFrame(() => {
+    resizePreviewCanvas();
+    sourceOverlay.render();
+  });
+}
+
+function updateMotionUI() {
+  const available = !!(engine && engine.getSourceImage()) && !isLive;
+  // if motion became unavailable (camera started / source cleared), force-exit.
+  if (motionActive && !available) { motionActive = false; haltPlayback(); }
+
+  const q = (id) => document.getElementById(id);
+  const btn = q('motionBtn');
+  if (btn) { btn.disabled = !available; btn.classList.toggle('active', motionActive); }
+  const footer = q('motionFooter');
+  if (footer) footer.hidden = !motionActive;
+
+  const setA = !!motion.a, setB = !!motion.b;
+  q('mfSetA')?.classList.toggle('active', setA);
+  q('mfSetB')?.classList.toggle('active', setB);
+  if (q('mfJumpA')) q('mfJumpA').disabled = !setA;
+  if (q('mfJumpB')) q('mfJumpB').disabled = !setB;
+  if (q('mfPlay')) { q('mfPlay').disabled = !motionCanPlay(); q('mfPlay').textContent = motion.playing ? 'pause' : 'play'; }
+  q('mfLoop')?.classList.toggle('active', motion.loop);
+  q('mfDurVal')?._sync?.();
+}
+
+function wireMotion() {
+  const byId = (id) => document.getElementById(id);
+  byId('motionBtn')?.addEventListener('click', toggleMotionMode);
+  byId('mfSetA')?.addEventListener('click', () => captureKeyframe('a'));
+  byId('mfSetB')?.addEventListener('click', () => captureKeyframe('b'));
+  byId('mfJumpA')?.addEventListener('click', () => jumpToKeyframe('a'));
+  byId('mfJumpB')?.addEventListener('click', () => jumpToKeyframe('b'));
+  byId('mfPlay')?.addEventListener('click', () => {
+    if (motion.playing) stopMotionLoop(); else startMotionLoop();
+  });
+  byId('mfLoop')?.addEventListener('click', () => { motion.loop = !motion.loop; updateMotionUI(); });
+
+  // duration scrub field (DAW-style), in seconds.
+  makeScrubField(byId('mfDurVal'), {
+    get: () => motion.durationMs / 1000,
+    set: (v) => { motion.durationMs = Math.max(0.25, Math.min(30, v)) * 1000; },
+    step: 0.1, fineStep: 0.05, coarseStep: 1, min: 0.25, max: 30,
+    format: (v) => v.toFixed(1) + 's',
+    parse: (s) => { const n = parseFloat(String(s).replace(/[s\s]/g, '')); return isNaN(n) ? null : n; },
+  });
+
+  // scrubber track — drag anywhere to preview that point in the A→B span.
+  const track = byId('mfTrack');
+  if (track) {
+    let scrubbing = false;
+    const scrubTo = (clientX) => {
+      if (!motionCanPlay()) return;
+      const r = track.getBoundingClientRect();
+      renderMotionFrame(Math.max(0, Math.min(1, (clientX - r.left) / r.width)));
+    };
+    track.addEventListener('pointerdown', (e) => {
+      if (!motionCanPlay()) return;
+      scrubbing = true;
+      if (motion.playing) stopMotionLoop();
+      track.setPointerCapture(e.pointerId);
+      scrubTo(e.clientX);
+      e.preventDefault();
+    });
+    track.addEventListener('pointermove', (e) => { if (scrubbing) scrubTo(e.clientX); });
+    track.addEventListener('pointerup', (e) => { scrubbing = false; track.releasePointerCapture?.(e.pointerId); });
+    track.addEventListener('pointercancel', () => { scrubbing = false; });
+  }
+
+  updateMotionUI();
+}
+
+// ============================================================================
 // init
 // ============================================================================
 
@@ -1111,6 +1282,7 @@ if (engine) {
     onCommitEnd: () => updateUndoUI(),
   });
   setupUndoBar();
+  wireMotion();
   wireDiagnosticButton(engine, () => state);
 
   window.addEventListener('resize', () => {

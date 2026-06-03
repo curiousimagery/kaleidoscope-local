@@ -14,6 +14,10 @@
 </head>
 <body>
 
+<!-- work row: the horizontal split (output | divider | controls). wrapped so a
+     contextual motion-mode footer can sit beneath it; <body> is a column. -->
+<div class="work-row" id="workRow">
+
 <!-- main display slot — content swappable between kaleidoscope and source -->
 <div class="main-slot" id="mainSlot">
   <div class="placeholder" id="placeholder">
@@ -128,6 +132,8 @@
         <button class="toggle" data-oob="1">mirror</button>
         <button class="toggle" data-oob="2">transparent</button>
       </div>
+      <h2 style="margin-top: 4px;">animation</h2>
+      <button id="motionBtn" class="toggle" style="width: 100%;" disabled>motion mode</button>
     </div>
 
     <!-- export -->
@@ -158,6 +164,28 @@
       <div class="status" id="diag"></div>
       <div class="version-badge" id="versionBadge"></div>
     </div>
+  </div>
+</div>
+
+</div><!-- /work-row -->
+
+<!-- motion-mode contextual footer (Phase 3 A/B animation) — hidden unless active -->
+<div class="motion-footer" id="motionFooter" hidden>
+  <div class="motion-transport">
+    <button id="mfSetA" class="motion-kf">set A</button>
+    <button id="mfSetB" class="motion-kf">set B</button>
+    <span class="motion-sep"></span>
+    <button id="mfJumpA" disabled title="jump to keyframe A">A</button>
+    <button id="mfJumpB" disabled title="jump to keyframe B">B</button>
+    <span class="motion-sep"></span>
+    <button id="mfPlay" class="primary" disabled>play</button>
+    <button id="mfLoop" class="toggle active">loop</button>
+    <label class="motion-dur">duration <span class="val scrub" id="mfDurVal">4.0s</span></label>
+  </div>
+  <div class="motion-track" id="mfTrack" title="scrub A→B">
+    <span class="motion-end motion-end-a">A</span>
+    <span class="motion-end motion-end-b">B</span>
+    <div class="motion-playhead" id="mfPlayhead"></div>
   </div>
 </div>
 

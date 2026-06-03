@@ -4,6 +4,25 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.5.9 (Build 83) — 2026-06-02
+
+**Motion mode (A/B still-animation) — desktop + iPad.** First user-facing animation feature. A "motion mode" toggle (in the canvas group) reveals a contextual transport footer beneath the work area: **set A / set B** capture the current look as keyframe snapshots (`{...state}`), **A / B** jump back to a captured look to tweak and re-capture, **play/pause** animates A↔B via `lerpState` (Build 82) over a continuous rAF loop, a **loop** toggle closes the cycle seamlessly (triangle A→B→A with `easeInOut`, so no velocity snap at the ends), a **duration** scrub field (0.25–30s), and a **scrubber track** to preview any point in the span.
+
+- **Playback is transient.** Frames render interpolated snapshots straight through the stateless `engine.render` — the working `state`, the sliders, and undo are never touched. Exiting motion mode (or changing a control) repaints the working state.
+- **Discrete fields locked.** Only continuous fields animate; `form`/`segments`/`drosteArms`/`oobMode`/mirrors hold across the loop (per the settled decision).
+- **Gating.** Motion mode requires a loaded still source and is mutually exclusive with the live camera (starting the camera force-exits it).
+- **Layout.** `<body>` is now a column: the existing main/divider/panel split is wrapped in a `.work-row`; the footer sits beneath it and, when hidden, the layout is identical to before. Mobile chrome unaffected (it replaces `document.body`).
+
+Next: generalize A/B to a multi-keyframe timeline (Build 3, collaborative IxD), then video export (Build 4).
+
+---
+
+## v0.5.8 (Build 82) — 2026-06-02
+
+**Tween/easing kit (`src/kit/tween.js`) — animation infra, no UI yet.** First piece of the Phase 3 animation track. A pure Kit-layer module that interpolates two state snapshots (a keyframe is a `{...state}` snapshot, the same currency as an undo entry): `lerpState(a, b, t, easing)` plus `linear`/`easeIn`/`easeOut`/`easeInOut` (default) easing. The module owns the canonical field classification — **continuous** fields are interpolated (`sliceScale`, `sliceCx/Cy`, `sliceRotation`, `squareAspect`, `drosteZoom`, `drosteSpiral`, `drosteOffsetX/Y`, `canvasZoom`, `canvasRotation`), the two **angular** ones (`sliceRotation`, `canvasRotation`) take the shortest path around 360°, and **discrete** fields (`form`, `segments`, `drosteArms`, `oobMode`, `drosteMirror`, `drosteWedgeMirror`) are held. params.js can't carry this list because the direct-manipulation-only fields and `drosteSpiral` aren't declarative sliders. Nothing imports it yet — invisible build, like the Build 65 registry refactor. Next: motion mode (A/B loop) on the desktop/iPad chrome.
+
+---
+
 ## v0.5.7 (Build 81) — 2026-06-02
 
 **Export: gate unsupported resolutions (desktop + mobile).** Resolution tiers larger than the device's actual export ceiling (`engine.diagnostics.maxFBOSize`) are now **disabled** rather than silently clamped/hidden, with a tooltip ("not supported by this hardware (max ~XK)"). On desktop, if the default 4K tier exceeds the cap, the selection re-homes to the largest supported tier. Mobile shows all tiers (1K–8K + max) with the unsupported ones greyed; the lazy 8192 probe on first save-sheet open re-enables 8K where the device supports it.

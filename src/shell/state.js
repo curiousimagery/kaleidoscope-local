@@ -56,3 +56,17 @@ export const session = {
   exportSize: '4096',
   isSwapped: false,
 };
+
+// motion-mode authoring data (Phase 3 — A/B still-animation; desktop/iPad only).
+// kept OUT of `state` on purpose: a keyframe IS a {...state} snapshot, so the
+// captured snapshots can't live inside the thing they snapshot. parallel to
+// `session`, threaded via env.motion. reset on reload (not carried across a
+// responsive chrome switch — motion is desktop-only).
+export const motion = {
+  a: null,            // captured {...state} snapshot for keyframe A, or null
+  b: null,            // captured {...state} snapshot for keyframe B, or null
+  durationMs: 4000,   // time for one A→B span
+  loop: true,         // when true, the cycle closes by tweening B back to A
+  playing: false,
+  playhead: 0,        // 0..1 position within the current span (UI display only)
+};
