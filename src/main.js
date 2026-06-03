@@ -1052,14 +1052,7 @@ function updateUndoUI() {
 
 function setupUndoBar() {
   env.updateUndoUI = updateUndoUI;
-  const bar = document.createElement('div');
-  bar.id = 'undoBar';
-  bar.className = 'undo-bar';
-  bar.innerHTML =
-    '<button id="undoBtn" class="undo-btn" disabled title="Undo (Cmd+Z)">&#8592;</button>' +
-    '<button id="redoBtn" class="undo-btn" disabled title="Redo (Cmd+Shift+Z)">&#8594;</button>';
-  mainSlot.appendChild(bar);
-
+  // undo/redo now live in the output toolbar (index.html) — just wire them.
   document.getElementById('undoBtn').addEventListener('click', () => {
     if (historyUndo(state)) {
       env.syncControls();

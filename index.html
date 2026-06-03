@@ -20,11 +20,21 @@
 
 <!-- main display slot — content swappable between kaleidoscope and source -->
 <div class="main-slot" id="mainSlot">
+  <!-- output toolbar: view/workspace controls (not parameters) — undo/redo, swap, motion -->
+  <div class="output-toolbar" id="outputToolbar">
+    <div class="ot-group">
+      <button class="ot-btn" id="undoBtn" disabled title="undo (⌘Z)">←</button>
+      <button class="ot-btn" id="redoBtn" disabled title="redo (⌘⇧Z)">→</button>
+    </div>
+    <div class="ot-group">
+      <button class="ot-btn" id="swapBtn" disabled title="swap source / output">⇄</button>
+      <button class="ot-btn" id="motionBtn" disabled title="motion mode">motion</button>
+    </div>
+  </div>
   <div class="placeholder" id="placeholder">
     <strong id="placeholderTitle">kaleidoscope</strong>
     upload an image to begin
   </div>
-  <button class="swap-btn" id="swapBtn" disabled>swap ⇄</button>
 </div>
 
 <!-- divider -->
@@ -132,8 +142,6 @@
         <button class="toggle" data-oob="1">mirror</button>
         <button class="toggle" data-oob="2">transparent</button>
       </div>
-      <h2 style="margin-top: 4px;">animation</h2>
-      <button id="motionBtn" class="toggle" style="width: 100%;" disabled>motion mode</button>
     </div>
 
     <!-- export -->

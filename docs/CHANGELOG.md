@@ -4,6 +4,12 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.5.12 (Build 86) — 2026-06-02
+
+**Output toolbar (desktop/iPad).** A new top toolbar on the output area homes the view/workspace controls that aren't parameters: **undo/redo** (relocated from the floating bottom bar so it won't compete with the coming animation timeline), **swap** (moved from its floating top-right spot), and the **motion-mode** toggle (moved out of the canvas settings group, where it never belonged). The toolbar container is click-through; only the left/right button groups capture events, so the gap between them still passes gestures to the canvas. This is the start of a broader move (backlog) to pull non-settings out of the panel (source display, change-source, export, build info) into this toolbar. Mobile chrome unaffected. Also: captured Daniel's multi-keyframe timeline design direction in BACKLOG (Procreate-Dreams/iMovie north star, control areas, loop-bookend model, per-segment rotation winding, output PiP comparison, JSON project file) and the revised sequence (timeline → video export → video loops → gesture-record → transitions).
+
+---
+
 ## v0.5.11 (Build 85) — 2026-06-02
 
 **Flip icon, take two.** The Build 84 redraw used two full semicircles that met exactly at the arrowheads (3 and 9 o'clock), leaving no gap. Each arc is now pulled back ~20° from the opposite cardinal so the down/up arrowheads have breathing room — reads as two arrows chasing around a ring.
