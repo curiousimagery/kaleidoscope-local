@@ -4,6 +4,19 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.7.0 (Build 96) — 2026-06-03
+
+**Video export (Phase 4) — desktop/iPad. Milestone.** Render the still-animation loop to an H.264 `.mp4`, frame by frame, via WebCodecs `VideoEncoder` → **mp4-muxer** (the one new dependency, Daniel-approved). Frame-perfect and faster than real time.
+
+- **Non-square engine rendering (new):** a `u_outputAspect` uniform scales the longer axis in the shader so a non-square framebuffer is an undistorted CROP, not a stretch. `renderToFBO` now takes `w × h` (square still-export unchanged, `h` defaults to `w`), and `engine.exportFrame(state, w, h, ctx2d)` renders one frame into a 2D canvas for `VideoFrame`.
+- **UI:** a **render ▸** button in the motion footer opens a sheet with aspect (1:1 / 4:5 / 16:9), resolution (1080p / 1440p / 4K, clamped to the GPU FBO max and rounded even), and frame rate (24/30/60), a live `W×H · frames · duration` readout, and a progress bar. Output downloads as `<source>.mp4`. Frames sample the same `sampleAt` as playback, so easing and the loop-close are honored.
+- **WebCodecs required** (Chrome, Safari 16+ / iPadOS 16+); a clear message shows otherwise.
+- **Untested by Claude** (no browser / WebCodecs in this environment) — needs Daniel's in-browser pass. Watch: that the .mp4 plays + loops, that 4:5 / 16:9 crops look right (undistorted), and that 4K respects the FBO cap.
+
+Follow-ups: MediaRecorder fallback for non-WebCodecs browsers, 3K/6K tiers (memory/codec permitting), aspect crops for still export (the engine now supports it), loading a video file as the source (the other half of Phase 4).
+
+---
+
 ## v0.6.5 (Build 95) — 2026-06-03
 
 **Filmstrip refinements (from Daniel's Build 94 test).**

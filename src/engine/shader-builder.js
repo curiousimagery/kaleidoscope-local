@@ -36,6 +36,9 @@ export const COMMON_UNIFORMS = {
   u_sliceCenter:   { type: '2f', get: (state) => [state.sliceCx, state.sliceCy] },
   u_sourceAspect:  { type: '1f', get: (state, ctx) => ctx.sourceAspect },
   u_oobMode:       { type: '1i', get: (state) => state.oobMode },
+  // output framebuffer aspect (width/height). 1.0 for the square preview; the FBO
+  // export sets it so non-square output is an undistorted crop, not a stretch.
+  u_outputAspect:  { type: '1f', get: (state, ctx) => (ctx && ctx.outputAspect) || 1.0 },
 };
 
 // vertex shader is universal — full-screen quad in clip space, passing UVs.
@@ -65,6 +68,7 @@ uniform float u_sliceFactor;
 uniform float u_sliceRot;
 uniform vec2  u_sliceCenter;
 uniform float u_sourceAspect;
+uniform float u_outputAspect;
 uniform int   u_oobMode;
 
 #define PI 3.14159265359
@@ -143,6 +147,9 @@ export function buildFragmentSource() {
   const main = `
 void main() {
   vec2 p = v_uv * 2.0 - 1.0;
+  // output aspect: scale the longer axis so a non-square framebuffer shows an
+  // undistorted CROP (more of the pattern), rather than stretching the square.
+  if (u_outputAspect >= 1.0) p.x *= u_outputAspect; else p.y /= u_outputAspect;
   // canvas rotation — same convention as slice rotation: CW visually positive.
   float c = cos(u_canvasRot), s = sin(u_canvasRot);
   p = mat2(c, s, -s, c) * p;

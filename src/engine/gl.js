@@ -307,6 +307,7 @@ export function setUniforms(glCtx, state, ctx) {
 // bind/viewport/clear; this just pushes uniforms and draws.
 export function renderToCanvas(glCtx, state, ctx, width, height) {
   const { gl } = glCtx;
+  ctx.outputAspect = width / height;   // 1.0 for the square preview canvas
   gl.bindFramebuffer(gl.FRAMEBUFFER, null);
   gl.viewport(0, 0, width, height);
   gl.clearColor(0, 0, 0, 0);
@@ -315,18 +316,20 @@ export function renderToCanvas(glCtx, state, ctx, width, height) {
   gl.drawArrays(gl.TRIANGLES, 0, 6);
 }
 
-// render to an offscreen FBO at `size × size`, read back pixels, return the
-// pixel buffer + timing info. caller handles encoding to PNG/JPG.
+// render to an offscreen FBO at `w × h`, read back pixels, return the pixel
+// buffer + timing info. caller handles encoding (PNG/JPG for stills, VideoFrame
+// for video). `h` defaults to `w` for the square still-export path.
 //
-// returns: { pixels: Uint8Array, size, renderMs, readMs }
+// returns: { pixels: Uint8Array, w, h, renderMs, readMs }
 // throws on framebuffer-incomplete.
-export async function renderToFBO(glCtx, state, ctx, size) {
+export async function renderToFBO(glCtx, state, ctx, w, h = w) {
   const { gl } = glCtx;
+  ctx.outputAspect = w / h;   // undistorted non-square crop (see shader main())
 
   const fb = gl.createFramebuffer();
   const tex = gl.createTexture();
   gl.bindTexture(gl.TEXTURE_2D, tex);
-  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, size, size, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
@@ -339,11 +342,11 @@ export async function renderToFBO(glCtx, state, ctx, size) {
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     gl.deleteFramebuffer(fb);
     gl.deleteTexture(tex);
-    throw new Error(`framebuffer incomplete at ${size}×${size}`);
+    throw new Error(`framebuffer incomplete at ${w}×${h}`);
   }
 
   const t0 = performance.now();
-  gl.viewport(0, 0, size, size);
+  gl.viewport(0, 0, w, h);
   gl.clearColor(0, 0, 0, 0);
   gl.clear(gl.COLOR_BUFFER_BIT);
   setUniforms(glCtx, state, ctx);
@@ -352,8 +355,8 @@ export async function renderToFBO(glCtx, state, ctx, size) {
   const renderMs = performance.now() - t0;
 
   const t1 = performance.now();
-  const pixels = new Uint8Array(size * size * 4);
-  gl.readPixels(0, 0, size, size, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+  const pixels = new Uint8Array(w * h * 4);
+  gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
   const readMs = performance.now() - t1;
 
   // restore default framebuffer + free FBO resources
@@ -361,5 +364,5 @@ export async function renderToFBO(glCtx, state, ctx, size) {
   gl.deleteFramebuffer(fb);
   gl.deleteTexture(tex);
 
-  return { pixels, size, renderMs, readMs };
+  return { pixels, w, h, renderMs, readMs };
 }

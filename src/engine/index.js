@@ -50,6 +50,7 @@ export function createEngine({ canvas, maxProbeSize }) {
       sourceTexture,
       sourceAspect,
       formIndex: getActiveFormIndex(state),
+      outputAspect: 1,   // overridden per render target (square preview = 1; FBO = w/h)
     };
   }
 
@@ -181,6 +182,22 @@ export function createEngine({ canvas, maxProbeSize }) {
       const encodeMs = performance.now() - t2;
 
       return { blob, size, renderMs, readMs, encodeMs };
+    },
+
+    // render a single animation frame at w×h into a provided 2D canvas context
+    // (Y-flipped to top-down). used by the video exporter once per frame; reuses
+    // the same FBO path as exportAt, with non-square aspect handled by the shader.
+    async exportFrame(state, w, h, outCtx2d) {
+      if (!sourceTexture) throw new Error('no source loaded');
+      const ctx = buildCtx(state);
+      const { pixels } = await renderToFBO(glCtx, state, ctx, w, h);
+      const imgData = outCtx2d.createImageData(w, h);
+      const stride = w * 4;
+      for (let y = 0; y < h; y++) {
+        const src = (h - 1 - y) * stride;
+        imgData.data.set(pixels.subarray(src, src + stride), y * stride);
+      }
+      outCtx2d.putImageData(imgData, 0, 0);
     },
 
     // resolution hint — heuristic suggesting the largest output where ~1 source

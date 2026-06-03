@@ -30,6 +30,7 @@ import { createCamera } from './shell/camera.js';
 import { zipStore } from './shell/zip.js';
 import { snapSpiralValue as kitSnapSpiral, applyArmsSnap as kitApplyArmsSnap } from './kit/snaps.js';
 import { lerpState, DISCRETE_KEYS } from './kit/tween.js';
+import { exportVideo, videoExportSupported } from './shell/video-export.js';
 import { formatVersion } from './version.js';
 import { push as historyPush, undo as historyUndo, redo as historyRedo, canUndo, canRedo } from './shell/history.js';
 import { wireDiagnosticButton } from './shell/diagnostics.js';
@@ -1492,6 +1493,7 @@ function updateMotionUI() {
   const selKf = motion.selected > 0 ? kfList()[motion.selected] : null;   // kf0 is always the start anchor
   if (q('mfAnchor')) { q('mfAnchor').disabled = !selKf; q('mfAnchor').classList.toggle('active', !!(selKf && selKf.anchored)); }
   if (q('mfPlay')) { q('mfPlay').disabled = n < 2; q('mfPlay').textContent = motion.playing ? 'pause' : 'play'; }
+  if (q('mfRender')) q('mfRender').disabled = n < 2;
   if (q('mfPrev')) q('mfPrev').disabled = n < 1;
   if (q('mfNext')) q('mfNext').disabled = n < 1;
   q('mfLoop')?.classList.toggle('active', motion.loop);
@@ -1560,6 +1562,90 @@ function wireMotion() {
   updateMotionUI();
 }
 
+// ---- video export ---------------------------------------------------------
+function setupVideoExport() {
+  const byId = (id) => document.getElementById(id);
+  const sheet = byId('vidSheet');
+  if (!sheet) return;
+  const ASPECTS = { '1:1': [1, 1], '4:5': [4, 5], '16:9': [16, 9] };
+  let selAsp = '1:1', selH = 1440, selFps = 30, cancelRender = false, rendering = false;
+
+  const dims = () => {
+    const [aw, ah] = ASPECTS[selAsp];
+    let h = selH, w = Math.round((h * aw) / ah);
+    const cap = (engine && engine.diagnostics.maxFBOSize) || 4096;
+    const m = Math.max(w, h);
+    if (m > cap) { const s = cap / m; w = Math.round(w * s); h = Math.round(h * s); }
+    w -= w % 2; h -= h % 2;                       // H.264 needs even dimensions
+    return { w, h };
+  };
+  const frameCount = () => Math.max(2, Math.round((motion.durationMs / 1000) * selFps));
+  const refreshMeta = () => {
+    const { w, h } = dims();
+    const meta = byId('vidMeta');
+    if (meta) meta.textContent = `${w}×${h} · ${frameCount()} frames · ${(motion.durationMs / 1000).toFixed(1)}s @ ${selFps}fps`;
+  };
+
+  const wireGroup = (groupId, attr, set) => {
+    const grp = byId(groupId);
+    grp?.querySelectorAll('button').forEach((b) => {
+      b.addEventListener('click', () => {
+        grp.querySelectorAll('button').forEach((x) => x.classList.toggle('active', x === b));
+        set(b.dataset[attr]);
+        refreshMeta();
+      });
+    });
+  };
+  wireGroup('vidAspect', 'asp', (v) => { selAsp = v; });
+  wireGroup('vidRes', 'h', (v) => { selH = parseInt(v, 10); });
+  wireGroup('vidFps', 'fps', (v) => { selFps = parseInt(v, 10); });
+
+  function open() {
+    if (kfList().length < 2) return;
+    if (motion.playing) stopPlayback();
+    const status = byId('vidStatus');
+    const ok = videoExportSupported();
+    status.textContent = ok ? '' : 'video export needs WebCodecs (Chrome, or Safari 16+ / iPadOS 16+).';
+    status.className = ok ? 'status' : 'status error';
+    byId('vidRenderBtn').disabled = !ok;
+    refreshMeta();
+    sheet.hidden = false;
+  }
+  function close() {
+    cancelRender = true;                          // cancels an in-flight render
+    if (!rendering) sheet.hidden = true;
+  }
+
+  byId('mfRender')?.addEventListener('click', open);
+  byId('vidClose')?.addEventListener('click', close);
+  sheet.addEventListener('click', (e) => { if (e.target === sheet) close(); });
+  byId('vidRenderBtn')?.addEventListener('click', async () => {
+    const btn = byId('vidRenderBtn');
+    if (btn.disabled || rendering) return;
+    const { w, h } = dims();
+    rendering = true; cancelRender = false;
+    btn.disabled = true;
+    const prog = byId('vidProgress'), bar = byId('vidBar'), status = byId('vidStatus');
+    prog.hidden = false; bar.style.width = '0%';
+    status.textContent = 'rendering…'; status.className = 'status busy';
+    try {
+      const { blob } = await exportVideo({
+        engine, sampleAt, width: w, height: h, fps: selFps, durationMs: motion.durationMs,
+        onProgress: (p) => { bar.style.width = Math.round(p * 100) + '%'; },
+        shouldCancel: () => cancelRender,
+      });
+      downloadBlob(blob, (sourceFilename || 'animation') + '.mp4');
+      status.textContent = 'saved ✓'; status.className = 'status success';
+    } catch (e) {
+      if (e.code === 'cancelled') { status.textContent = 'cancelled'; status.className = 'status'; }
+      else { status.textContent = e.message || 'render failed'; status.className = 'status error'; console.error(e); }
+    } finally {
+      rendering = false; btn.disabled = false; prog.hidden = true;
+      if (cancelRender) sheet.hidden = true;
+    }
+  });
+}
+
 // ============================================================================
 // init
 // ============================================================================
@@ -1578,6 +1664,7 @@ if (engine) {
   });
   setupUndoBar();
   wireMotion();
+  setupVideoExport();
   wireDiagnosticButton(engine, () => state);
 
   window.addEventListener('resize', () => {

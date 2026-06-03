@@ -189,6 +189,7 @@
     <button class="mf-btn mf-gesture" id="mfGesture" disabled title="record gesture (coming soon)">＋ gesture</button>
     <button class="mf-btn" id="mfDelete" disabled title="delete the selected keyframe">delete</button>
     <button class="mf-btn mf-toggle" id="mfAnchor" disabled title="fix this keyframe's time, or let it auto-space">anchor</button>
+    <button class="mf-btn" id="mfRender" disabled title="render the animation to a video file">render ▸</button>
     <label class="mf-dur">duration <span class="val scrub" id="mfDurVal">30.0s</span></label>
     <label class="mf-field">easing <span class="val scrub" id="mfEaseVal">100%</span></label>
   </div>
@@ -196,6 +197,35 @@
     <div class="mf-strip" id="mfStrip"></div>
     <div class="mf-markers" id="mfMarkers"></div>
     <div class="mf-playhead" id="mfPlayhead"></div>
+  </div>
+</div>
+
+<!-- video export sheet (motion mode) -->
+<div class="vid-sheet" id="vidSheet" hidden>
+  <div class="vid-card">
+    <div class="vid-head"><span>render video</span><button class="vid-x" id="vidClose" title="close">✕</button></div>
+    <label class="setting-label">aspect</label>
+    <div class="row-buttons" id="vidAspect">
+      <button class="toggle active" data-asp="1:1">1:1</button>
+      <button class="toggle" data-asp="4:5">4:5</button>
+      <button class="toggle" data-asp="16:9">16:9</button>
+    </div>
+    <label class="setting-label">resolution</label>
+    <div class="row-buttons" id="vidRes">
+      <button class="toggle" data-h="1080">1080p</button>
+      <button class="toggle active" data-h="1440">1440p</button>
+      <button class="toggle" data-h="2160">4K</button>
+    </div>
+    <label class="setting-label">frame rate</label>
+    <div class="row-buttons" id="vidFps">
+      <button class="toggle" data-fps="24">24</button>
+      <button class="toggle active" data-fps="30">30</button>
+      <button class="toggle" data-fps="60">60</button>
+    </div>
+    <div class="vid-meta" id="vidMeta"></div>
+    <div class="vid-progress" id="vidProgress" hidden><div class="vid-bar" id="vidBar"></div></div>
+    <div class="status" id="vidStatus"></div>
+    <button class="primary" id="vidRenderBtn" style="width:100%;margin-top:8px;">render</button>
   </div>
 </div>
 

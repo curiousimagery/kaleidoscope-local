@@ -1,0 +1,99 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Daniel Nelson
+//
+// shell/video-export.js
+//
+// Render a still-animation loop to an MP4 (H.264) frame by frame, using the
+// WebCodecs VideoEncoder piped into mp4-muxer. This is the Host-layer video
+// export service (Phase 4). The engine renders each interpolated frame to an
+// offscreen FBO at the chosen w×h (non-square aspect handled in the shader);
+// each frame becomes a VideoFrame and is encoded — frame-perfect and faster than
+// real time, unlike a MediaRecorder canvas capture.
+//
+// WebCodecs is required (Chrome, Safari 16+/iPadOS 16+). When unavailable the
+// caller gets an error tagged `code === 'unsupported'`. A MediaRecorder fallback
+// is a tracked follow-up.
+
+import { Muxer, ArrayBufferTarget } from 'mp4-muxer';
+
+export function videoExportSupported() {
+  return typeof VideoEncoder !== 'undefined' && typeof VideoFrame !== 'undefined';
+}
+
+// exportVideo({ engine, sampleAt, width, height, fps, durationMs, onProgress, shouldCancel })
+//   engine     — the engine (engine.exportFrame(state, w, h, ctx2d))
+//   sampleAt   — (p: 0..1) => state snapshot for that point in the loop
+//   width/height — even pixel dimensions of the output (caller clamps to GPU max)
+//   fps, durationMs — frame rate and total loop length
+//   onProgress — (0..1) => void   (optional)
+//   shouldCancel — () => boolean  (optional; checked each frame)
+// → { blob, ext: 'mp4', frames } | throws (err.code === 'unsupported' / 'cancelled')
+export async function exportVideo({ engine, sampleAt, width, height, fps, durationMs, onProgress, shouldCancel }) {
+  if (!videoExportSupported()) {
+    const e = new Error('Video export needs a browser with WebCodecs (Chrome, or Safari 16+ / iPadOS 16+).');
+    e.code = 'unsupported';
+    throw e;
+  }
+
+  const frames = Math.max(2, Math.round((durationMs / 1000) * fps));
+  const codec = 'avc1.640033';   // H.264 High profile, level 5.1 (covers up to ~4K)
+  const bitrate = Math.min(40_000_000, Math.max(4_000_000, Math.round(width * height * fps * 0.07)));
+
+  // Confirm the device can encode this configuration before committing.
+  let support;
+  try {
+    support = await VideoEncoder.isConfigSupported({ codec, width, height, bitrate, framerate: fps });
+  } catch {
+    support = { supported: false };
+  }
+  if (!support || !support.supported) {
+    const e = new Error(`This browser can't encode H.264 at ${width}×${height}. Try a smaller resolution.`);
+    e.code = 'unsupported';
+    throw e;
+  }
+
+  const muxer = new Muxer({
+    target: new ArrayBufferTarget(),
+    video: { codec: 'avc', width, height, frameRate: fps },
+    fastStart: 'in-memory',
+  });
+
+  let encError = null;
+  const encoder = new VideoEncoder({
+    output: (chunk, meta) => muxer.addVideoChunk(chunk, meta),
+    error: (e) => { encError = e; },
+  });
+  encoder.configure({ codec, width, height, bitrate, framerate: fps });
+
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const c2d = canvas.getContext('2d');
+
+  const frameDur = Math.round(1_000_000 / fps);   // microseconds
+  const gop = Math.max(1, Math.round(fps * 2));    // keyframe every ~2s
+
+  try {
+    for (let i = 0; i < frames; i++) {
+      if (shouldCancel && shouldCancel()) { const e = new Error('cancelled'); e.code = 'cancelled'; throw e; }
+      if (encError) throw encError;
+
+      await engine.exportFrame(sampleAt(i / frames), width, height, c2d);
+      const frame = new VideoFrame(canvas, { timestamp: i * frameDur, duration: frameDur });
+      encoder.encode(frame, { keyFrame: i % gop === 0 });
+      frame.close();
+
+      // yield so the progress UI updates; throttle if the encoder queue backs up.
+      if (i % 3 === 0) { onProgress?.(i / frames); await new Promise((r) => setTimeout(r)); }
+      while (encoder.encodeQueueSize > 8) await new Promise((r) => setTimeout(r));
+    }
+
+    await encoder.flush();
+    if (encError) throw encError;
+    muxer.finalize();
+    onProgress?.(1);
+    return { blob: new Blob([muxer.target.buffer], { type: 'video/mp4' }), ext: 'mp4', frames };
+  } finally {
+    try { if (encoder.state !== 'closed') encoder.close(); } catch { /* already closed */ }
+  }
+}

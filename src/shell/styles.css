@@ -577,3 +577,24 @@ body.motion #segmentsLabel,
 body.motion #mirrorLabel,
 body.motion #wedgeMirrorLabel,
 body.motion #oobModes { pointer-events: none; opacity: 0.4; }
+
+/* video export sheet */
+.vid-sheet {
+  position: fixed; inset: 0; z-index: 200;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(10, 10, 10, 0.6);
+  backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px);
+}
+.vid-sheet[hidden] { display: none; }
+.vid-card {
+  width: 320px; max-width: 90vw;
+  background: #141414; border: 1px solid #2a2a2a; border-radius: 10px;
+  padding: 16px; display: flex; flex-direction: column; gap: 8px;
+}
+.vid-head { display: flex; justify-content: space-between; align-items: center; font-size: 13px; color: #e8e8e8; font-weight: 500; margin-bottom: 2px; }
+.vid-x { background: transparent; border: none; color: #888; font-size: 14px; cursor: pointer; padding: 2px 4px; }
+.vid-x:hover { color: #fff; }
+.vid-meta { font-size: 11px; color: #888; font-variant-numeric: tabular-nums; min-height: 14px; margin-top: 2px; }
+.vid-progress { height: 6px; background: #222; border-radius: 3px; overflow: hidden; }
+.vid-progress[hidden] { display: none; }
+.vid-bar { height: 100%; width: 0; background: #e8e8e8; transition: width 0.12s; }
