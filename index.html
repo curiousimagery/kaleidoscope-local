@@ -179,21 +179,20 @@
 
 <!-- motion-mode contextual footer (Phase 3 A/B animation) — hidden unless active -->
 <div class="motion-footer" id="motionFooter" hidden>
-  <div class="motion-transport">
-    <button id="mfSetA" class="motion-kf">set A</button>
-    <button id="mfSetB" class="motion-kf">set B</button>
-    <span class="motion-sep"></span>
-    <button id="mfJumpA" disabled title="jump to keyframe A">A</button>
-    <button id="mfJumpB" disabled title="jump to keyframe B">B</button>
-    <span class="motion-sep"></span>
-    <button id="mfPlay" class="primary" disabled>play</button>
-    <button id="mfLoop" class="toggle active">loop</button>
-    <label class="motion-dur">duration <span class="val scrub" id="mfDurVal">4.0s</span></label>
+  <div class="mf-controls">
+    <button class="mf-btn" id="mfPrev" title="previous keyframe">‹‹</button>
+    <button class="mf-btn" id="mfPlay" disabled title="play / pause">play</button>
+    <button class="mf-btn" id="mfNext" title="next keyframe">››</button>
+    <button class="mf-btn mf-toggle active" id="mfLoop" title="loop the animation">loop</button>
+    <span class="mf-sep"></span>
+    <button class="mf-btn mf-add" id="mfAdd" disabled title="add a keyframe at the scrubber">＋ keyframe</button>
+    <button class="mf-btn mf-gesture" id="mfGesture" disabled title="record gesture (coming soon)">＋ gesture</button>
+    <button class="mf-btn" id="mfDelete" disabled title="delete the selected keyframe">delete</button>
+    <label class="mf-dur">duration <span class="val scrub" id="mfDurVal">4.0s</span></label>
   </div>
-  <div class="motion-track" id="mfTrack" title="scrub A→B">
-    <span class="motion-end motion-end-a">A</span>
-    <span class="motion-end motion-end-b">B</span>
-    <div class="motion-playhead" id="mfPlayhead"></div>
+  <div class="mf-track" id="mfTrack" title="drag to scrub">
+    <div class="mf-markers" id="mfMarkers"></div>
+    <div class="mf-playhead" id="mfPlayhead"></div>
   </div>
 </div>
 

@@ -29,7 +29,7 @@ import { PARAMS, DECLARATIVE_PARAM_IDS } from './shell/params.js';
 import { createCamera } from './shell/camera.js';
 import { zipStore } from './shell/zip.js';
 import { snapSpiralValue as kitSnapSpiral, applyArmsSnap as kitApplyArmsSnap } from './kit/snaps.js';
-import { lerpState } from './kit/tween.js';
+import { lerpState, DISCRETE_KEYS } from './kit/tween.js';
 import { formatVersion } from './version.js';
 import { push as historyPush, undo as historyUndo, redo as historyRedo, canUndo, canRedo } from './shell/history.js';
 import { wireDiagnosticButton } from './shell/diagnostics.js';
@@ -154,6 +154,11 @@ function scheduleRender() {
     }
     sourceOverlay.render();
     updateResolutionHint();
+    // motion: editing a selected keyframe writes through to it live (snap + thumb).
+    if (motionActive && motion.selected >= 0 && !motion.playing && !motionScrubbing) {
+      const kf = motion.keyframes[motion.selected];
+      if (kf) { kf.snap = { ...state }; drawThumbInto(kf.thumb); }
+    }
   });
 }
 env.scheduleRender = scheduleRender;
@@ -1092,108 +1097,228 @@ window.addEventListener('keydown', e => {
 });
 
 // ============================================================================
-// motion mode (Phase 3 — A/B still-animation; desktop/iPad only)
+// motion mode (Phase 3 — multi-keyframe still-animation; desktop/iPad only)
 // ============================================================================
 //
-// A keyframe is a {...state} snapshot (the same currency as an undo entry).
-// Playback interpolates A→B with lerpState and renders each frame through the
-// stateless engine WITHOUT mutating the working `state` — so entering or leaving
-// motion mode never disturbs the user's edits, sliders, or undo history. Discrete
-// fields are locked for the loop (held by lerpState); only the captured A/B
-// continuous values animate. Mutually exclusive with the live camera.
+// A keyframe is a {...state} snapshot at a normalized time t (0..1). Playback
+// interpolates between adjacent keyframes (lerpState) and renders each frame
+// through the stateless engine. Keyframe 0 (t=0) is the start AND the loop
+// bookend: with loop on, the final span tweens the last keyframe back to kf0 at
+// t=1. Discrete fields are LOCKED to keyframe 0 for the whole animation.
+//
+// Edit model (explicit — nothing is keyframed without "+ keyframe"):
+//   - select a keyframe (click its marker, or land the scrubber on it): its snap
+//     loads into `state` and further edits write through to it live (scheduleRender).
+//   - edit while not on a keyframe: a staged preview in `state`; commit with
+//     "+ keyframe" (drops at the scrubber). scrubbing/playing away reloads the
+//     working state from the timeline, discarding the stage (undo still applies).
 
-let motionActive = false;   // motion mode on/off (footer visible)
+let motionActive = false;
 let motionRaf = 0;
-let motionStart = 0;        // performance.now() at the start of the current play
+let motionStart = 0;          // performance.now() baseline for the current play
+let motionScrubbing = false;
 
-const motionCanPlay = () => !!(motion.a && motion.b);
+const KF_EPS = 0.005;         // "on a keyframe" tolerance in normalized time
+const kfList = () => motion.keyframes;
 
-function setPlayhead(t) {
-  motion.playhead = t;
-  const ph = document.getElementById('mfPlayhead');
-  if (ph) ph.style.left = (t * 100) + '%';
-}
-
-// elapsed time → t in [0,1]. with loop on the phase oscillates A→B→A (a triangle
-// wave) so the cycle closes seamlessly; with loop off it runs once and clamps at B.
-function motionSampleT(nowMs) {
-  const span = Math.max(1, motion.durationMs);
-  const elapsed = nowMs - motionStart;
-  if (motion.loop) {
-    const phase = (elapsed % (span * 2)) / span;   // 0..2
-    return phase <= 1 ? phase : 2 - phase;          // triangle
+// ---- thumbnails -----------------------------------------------------------
+// copy the current preview canvas (whatever was last rendered) into a marker
+// canvas — cheap drawImage, same trick as drawMiniKaleidoscope.
+function drawThumbInto(canvas) {
+  if (!canvas) return;
+  if (engine && previewCanvas.width) {
+    canvas.getContext('2d').drawImage(previewCanvas, 0, 0, canvas.width, canvas.height);
   }
-  return Math.min(1, elapsed / span);
+}
+function makeThumb() {
+  const c = document.createElement('canvas');
+  c.width = 120; c.height = 120;
+  drawThumbInto(c);
+  return c;
 }
 
-function renderMotionFrame(t) {
+// ---- sampling -------------------------------------------------------------
+function spanSample(a, b, p) {
+  const span = b.t - a.t;
+  return lerpState(a.snap, b.snap, span > 1e-6 ? (p - a.t) / span : 0);
+}
+// interpolate the keyframe list at normalized time p (0..1); discrete fields are
+// always taken from keyframe 0 (locked). with loop on, a virtual return-to-kf0
+// sits at t=1, so the final span closes the cycle.
+function sampleAt(p) {
+  const list = kfList();
+  if (list.length === 0) return { ...state };
+  const first = list[0];
+  let out;
+  if (list.length === 1 || p <= first.t) {
+    out = { ...first.snap };
+  } else {
+    out = null;
+    for (let i = 0; i < list.length - 1; i++) {
+      if (p <= list[i + 1].t) { out = spanSample(list[i], list[i + 1], p); break; }
+    }
+    if (!out) {
+      const last = list[list.length - 1];
+      out = motion.loop ? spanSample(last, { t: 1, snap: first.snap }, Math.min(p, 1)) : { ...last.snap };
+    }
+  }
+  for (const k of DISCRETE_KEYS) out[k] = first.snap[k];   // lock discrete to kf0
+  return out;
+}
+function keyframeAt(p) {
+  const list = kfList();
+  for (let i = 0; i < list.length; i++) if (Math.abs(list[i].t - p) <= KF_EPS) return i;
+  return -1;
+}
+
+// ---- playhead + render ----------------------------------------------------
+function setPlayhead(p) {
+  motion.playhead = p;
+  const ph = document.getElementById('mfPlayhead');
+  if (ph) ph.style.left = (p * 100) + '%';
+}
+function renderSampled(p) {
   if (engine && engine.getSourceImage()) {
-    engine.render(lerpState(motion.a, motion.b, t));   // transient — `state` untouched
+    engine.render(sampleAt(p));
     if (session.isSwapped) drawMiniKaleidoscope();
   }
-  setPlayhead(t);
+  setPlayhead(p);
+}
+// load the sampled state at the playhead into the working state so the panel and
+// overlay reflect it (and editing can continue); selects a keyframe if we landed
+// on one. discards any uncommitted staged edit.
+function loadPlayheadIntoState() {
+  if (!kfList().length) return;
+  Object.assign(state, sampleAt(motion.playhead));
+  motion.selected = keyframeAt(motion.playhead);
+  env.syncControls();
+  env.scheduleOverlayDraw();
+  env.scheduleRender();
 }
 
+// ---- playback -------------------------------------------------------------
 function haltPlayback() {
   motion.playing = false;
   if (motionRaf) { cancelAnimationFrame(motionRaf); motionRaf = 0; }
 }
-
-function startMotionLoop() {
-  if (motion.playing || !motionCanPlay()) return;
+function startPlayback() {
+  if (motion.playing || kfList().length < 2) return;
   motion.playing = true;
-  motionStart = performance.now();
+  motion.selected = -1;
+  motionStart = performance.now() - motion.playhead * motion.durationMs;
   const tick = () => {
     if (!motion.playing) return;
-    const t = motionSampleT(performance.now());
-    renderMotionFrame(t);
-    if (!motion.loop && t >= 1) { haltPlayback(); updateMotionUI(); return; }
+    let p = (performance.now() - motionStart) / motion.durationMs;
+    if (motion.loop) { p -= Math.floor(p); }
+    else if (p >= 1) { renderSampled(1); haltPlayback(); loadPlayheadIntoState(); renderTimeline(); updateMotionUI(); return; }
+    renderSampled(p);
     motionRaf = requestAnimationFrame(tick);
   };
   motionRaf = requestAnimationFrame(tick);
   updateMotionUI();
 }
-
-function stopMotionLoop() {
+function stopPlayback() {
   haltPlayback();
+  loadPlayheadIntoState();
+  renderTimeline();
   updateMotionUI();
 }
 
-function captureKeyframe(slot) {
-  motion[slot] = { ...state };
+// ---- keyframe operations --------------------------------------------------
+function addKeyframe() {
+  if (!engine || !engine.getSourceImage()) return;
+  if (motion.playing) stopPlayback();
+  // first keyframe anchors at t=0 (start / loop bookend); others land at the scrubber.
+  const t = kfList().length === 0 ? 0 : Math.max(0, Math.min(0.999, motion.playhead));
+  engine.render(state);                          // ensure the preview shows this state for the thumb
+  const kf = { t, snap: { ...state }, thumb: makeThumb() };
+  const existing = keyframeAt(t);
+  if (existing >= 0) {
+    kf.t = kfList()[existing].t;
+    kfList()[existing] = kf;
+    motion.selected = existing;
+  } else {
+    kfList().push(kf);
+    kfList().sort((a, b) => a.t - b.t);
+    motion.selected = kfList().indexOf(kf);
+  }
+  setPlayhead(kf.t);
+  renderTimeline();
   updateMotionUI();
 }
-
-// load a captured snapshot back into the working state, so it can be tweaked and
-// re-captured. this mutates `state`, so it integrates with undo like any edit.
-function jumpToKeyframe(slot) {
-  const snap = motion[slot];
-  if (!snap) return;
-  if (motion.playing) stopMotionLoop();
-  env.pushHistory();
-  Object.assign(state, snap);
+function deleteSelected() {
+  if (motion.selected < 0) return;
+  kfList().splice(motion.selected, 1);
+  motion.selected = -1;
+  if (kfList().length) loadPlayheadIntoState();
+  renderTimeline();
+  updateMotionUI();
+}
+function selectKeyframe(i) {
+  if (i < 0 || i >= kfList().length) return;
+  if (motion.playing) stopPlayback();
+  motion.selected = i;
+  setPlayhead(kfList()[i].t);
+  Object.assign(state, kfList()[i].snap);
   env.syncControls();
   env.scheduleOverlayDraw();
   env.scheduleRender();
-  env.updateUndoUI?.();
+  renderTimeline();
+  updateMotionUI();
+}
+function stepKeyframe(dir) {
+  const list = kfList();
+  if (!list.length) return;
+  let target = -1;
+  if (dir > 0) { for (let i = 0; i < list.length; i++) if (list[i].t > motion.playhead + KF_EPS) { target = i; break; } }
+  else { for (let i = list.length - 1; i >= 0; i--) if (list[i].t < motion.playhead - KF_EPS) { target = i; break; } }
+  if (target < 0) target = dir > 0 ? 0 : list.length - 1;   // wrap to the far end
+  selectKeyframe(target);
 }
 
+// ---- timeline rendering ---------------------------------------------------
+function renderTimeline() {
+  const markers = document.getElementById('mfMarkers');
+  if (!markers) return;
+  markers.innerHTML = '';
+  const list = kfList();
+  list.forEach((kf, i) => {
+    const m = document.createElement('div');
+    m.className = 'mf-marker' + (i === motion.selected ? ' selected' : '');
+    m.style.left = (kf.t * 100) + '%';
+    if (kf.thumb) m.appendChild(kf.thumb);
+    const pin = document.createElement('div');
+    pin.className = 'mf-pin';
+    m.appendChild(pin);
+    m.addEventListener('pointerdown', (e) => { e.stopPropagation(); selectKeyframe(i); });
+    markers.appendChild(m);
+  });
+  // loop bookend: a faint return-to-kf0 marker at t=1.
+  if (motion.loop && list.length) {
+    const g = document.createElement('div');
+    g.className = 'mf-marker ghost';
+    g.style.left = '100%';
+    const pin = document.createElement('div'); pin.className = 'mf-pin';
+    g.appendChild(pin);
+    markers.appendChild(g);
+  }
+  setPlayhead(motion.playhead);
+}
+
+// ---- mode toggle + UI sync ------------------------------------------------
 function toggleMotionMode() {
   if (!engine || !engine.getSourceImage() || isLive) return;
   motionActive = !motionActive;
   if (!motionActive) haltPlayback();
+  else renderTimeline();
   updateMotionUI();
   // the footer changes the main-slot height — re-fit the preview canvas (which
   // also re-renders the working state, replacing any transient playback frame).
-  requestAnimationFrame(() => {
-    resizePreviewCanvas();
-    sourceOverlay.render();
-  });
+  requestAnimationFrame(() => { resizePreviewCanvas(); sourceOverlay.render(); });
 }
 
 function updateMotionUI() {
   const available = !!(engine && engine.getSourceImage()) && !isLive;
-  // if motion became unavailable (camera started / source cleared), force-exit.
   if (motionActive && !available) { motionActive = false; haltPlayback(); }
 
   const q = (id) => document.getElementById(id);
@@ -1201,13 +1326,16 @@ function updateMotionUI() {
   if (btn) { btn.disabled = !available; btn.classList.toggle('active', motionActive); }
   const footer = q('motionFooter');
   if (footer) footer.hidden = !motionActive;
+  // lock the form picker while animating (discrete fields are pinned to keyframe 0).
+  const fr = document.querySelector('.form-row');
+  if (fr) fr.style.display = motionActive ? 'none' : '';
 
-  const setA = !!motion.a, setB = !!motion.b;
-  q('mfSetA')?.classList.toggle('active', setA);
-  q('mfSetB')?.classList.toggle('active', setB);
-  if (q('mfJumpA')) q('mfJumpA').disabled = !setA;
-  if (q('mfJumpB')) q('mfJumpB').disabled = !setB;
-  if (q('mfPlay')) { q('mfPlay').disabled = !motionCanPlay(); q('mfPlay').textContent = motion.playing ? 'pause' : 'play'; }
+  const n = kfList().length;
+  if (q('mfAdd')) q('mfAdd').disabled = !available;
+  if (q('mfDelete')) q('mfDelete').disabled = motion.selected < 0;
+  if (q('mfPlay')) { q('mfPlay').disabled = n < 2; q('mfPlay').textContent = motion.playing ? 'pause' : 'play'; }
+  if (q('mfPrev')) q('mfPrev').disabled = n < 1;
+  if (q('mfNext')) q('mfNext').disabled = n < 1;
   q('mfLoop')?.classList.toggle('active', motion.loop);
   q('mfDurVal')?._sync?.();
 }
@@ -1215,44 +1343,48 @@ function updateMotionUI() {
 function wireMotion() {
   const byId = (id) => document.getElementById(id);
   byId('motionBtn')?.addEventListener('click', toggleMotionMode);
-  byId('mfSetA')?.addEventListener('click', () => captureKeyframe('a'));
-  byId('mfSetB')?.addEventListener('click', () => captureKeyframe('b'));
-  byId('mfJumpA')?.addEventListener('click', () => jumpToKeyframe('a'));
-  byId('mfJumpB')?.addEventListener('click', () => jumpToKeyframe('b'));
-  byId('mfPlay')?.addEventListener('click', () => {
-    if (motion.playing) stopMotionLoop(); else startMotionLoop();
-  });
-  byId('mfLoop')?.addEventListener('click', () => { motion.loop = !motion.loop; updateMotionUI(); });
+  byId('mfAdd')?.addEventListener('click', addKeyframe);
+  byId('mfDelete')?.addEventListener('click', deleteSelected);
+  byId('mfPrev')?.addEventListener('click', () => stepKeyframe(-1));
+  byId('mfNext')?.addEventListener('click', () => stepKeyframe(1));
+  byId('mfPlay')?.addEventListener('click', () => { if (motion.playing) stopPlayback(); else startPlayback(); });
+  byId('mfLoop')?.addEventListener('click', () => { motion.loop = !motion.loop; renderTimeline(); updateMotionUI(); });
 
-  // duration scrub field (DAW-style), in seconds.
+  // duration scrub field (DAW-style), in seconds (whole-animation length).
   makeScrubField(byId('mfDurVal'), {
     get: () => motion.durationMs / 1000,
-    set: (v) => { motion.durationMs = Math.max(0.25, Math.min(30, v)) * 1000; },
-    step: 0.1, fineStep: 0.05, coarseStep: 1, min: 0.25, max: 30,
+    set: (v) => { motion.durationMs = Math.max(0.5, Math.min(60, v)) * 1000; },
+    step: 0.5, fineStep: 0.1, coarseStep: 2, min: 0.5, max: 60,
     format: (v) => v.toFixed(1) + 's',
     parse: (s) => { const n = parseFloat(String(s).replace(/[s\s]/g, '')); return isNaN(n) ? null : n; },
   });
 
-  // scrubber track — drag anywhere to preview that point in the A→B span.
+  // scrubber — drag on the track background (markers handle their own selection).
   const track = byId('mfTrack');
   if (track) {
-    let scrubbing = false;
     const scrubTo = (clientX) => {
-      if (!motionCanPlay()) return;
       const r = track.getBoundingClientRect();
-      renderMotionFrame(Math.max(0, Math.min(1, (clientX - r.left) / r.width)));
+      renderSampled(Math.max(0, Math.min(1, (clientX - r.left) / r.width)));
     };
     track.addEventListener('pointerdown', (e) => {
-      if (!motionCanPlay()) return;
-      scrubbing = true;
-      if (motion.playing) stopMotionLoop();
+      if (e.target.closest('.mf-marker') || !kfList().length) return;
+      motionScrubbing = true;
+      if (motion.playing) haltPlayback();
       track.setPointerCapture(e.pointerId);
       scrubTo(e.clientX);
       e.preventDefault();
     });
-    track.addEventListener('pointermove', (e) => { if (scrubbing) scrubTo(e.clientX); });
-    track.addEventListener('pointerup', (e) => { scrubbing = false; track.releasePointerCapture?.(e.pointerId); });
-    track.addEventListener('pointercancel', () => { scrubbing = false; });
+    track.addEventListener('pointermove', (e) => { if (motionScrubbing) scrubTo(e.clientX); });
+    const end = (e) => {
+      if (!motionScrubbing) return;
+      motionScrubbing = false;
+      track.releasePointerCapture?.(e.pointerId);
+      loadPlayheadIntoState();
+      renderTimeline();
+      updateMotionUI();
+    };
+    track.addEventListener('pointerup', end);
+    track.addEventListener('pointercancel', end);
   }
 
   updateMotionUI();

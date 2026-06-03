@@ -74,7 +74,7 @@ Sequence below leads with mobile-still because it carries zero new engine/infra 
 
 ### animation + performance track (later, desktop-first)
 
-- **Phase 3 — Tween/easing kit + still-animation.** Tween primitive SHIPPED (Build 82). A/B loop motion mode SHIPPED (Build 83): motion toggle → contextual footer (set/jump A & B, play/pause, loop, duration scrub, scrubber); transient playback through the stateless engine (working state/undo untouched). **Now generalizing to the multi-keyframe timeline (next major build).**
+- **Phase 3 — Tween/easing kit + still-animation.** Tween primitive SHIPPED (Build 82). A/B loop motion mode SHIPPED (Build 83). **Multi-keyframe timeline CORE SHIPPED (Build 87):** N-keyframe data model (`motion.keyframes`), timeline track with saved-state thumbnails + scrubber + loop bookend, add/select/delete, play/pause/loop/stepper, total duration, explicit select-to-edit write-through, discrete locked to kf0. Output toolbar (Build 86) homes undo/swap/motion. **Fast-follows for the timeline:** drag-to-retime markers, pinch-zoom/pan + scale-to-fit, previous/next PiP output monitors (held loosely — large track thumbnails may suffice, esp. for iPad portrait), per-segment rotation winding (+N turns), fuller settings gating (hide non-animatable controls), per-marker contextual menu.
 
   **Revised near-term sequence (Daniel, 2026-06-02):** (1) multi-keyframe timeline → (2) **video export** → (3) **load video loops as source** → (4) gesture-record flows → (5) discrete transitions, only if a compelling case surfaces. Video export + video loops were deliberately nudged ahead of gesture flows.
 

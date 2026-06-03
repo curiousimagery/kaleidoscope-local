@@ -4,6 +4,19 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.5.13 (Build 87) — 2026-06-02
+
+**Multi-keyframe timeline — core (desktop/iPad).** The A/B motion mode generalizes to an N-keyframe timeline (built to Daniel's mockup). `motion` now holds a sorted `keyframes` list (each `{ t: 0..1, snap, thumb }`) plus total `durationMs`, `loop`, `playhead`, and `selected`. The footer is the timeline: global controls (prev/play-pause/next, loop, + keyframe, + gesture [reserved/disabled], delete, total duration) on the left, and a track on the right with **keyframe markers that render the saved-state thumbnail** under a magenta pin, a yellow scrubber, and a faint loop-bookend marker at t=1.
+
+- **Sampling:** interpolates between adjacent keyframes via `lerpState`; **discrete fields are locked to keyframe 0** for the whole animation (so changing form/segments mid-edit can't introduce a hard cut). Loop on closes the cycle by tweening the last keyframe back to kf0.
+- **Edit model (explicit):** select a keyframe (click its marker / land the scrubber on it) and edits write through to it live; edit off a keyframe and it's a staged preview that only commits via "+ keyframe" (drops at the scrubber). Scrubbing or playing away reloads the working state from the timeline, discarding the stage (undo still applies). First keyframe anchors at t=0.
+- **Thumbnails:** captured by copying the preview canvas (same trick as the swap mini-canvas), refreshed live while editing a selected keyframe.
+- The form picker is hidden in motion mode (discrete is pinned to kf0).
+
+**Deferred to fast-follows:** drag-to-retime markers, pinch-zoom/pan + scale-to-fit on the track, the previous/next PiP output monitors, per-segment rotation winding, gesture-record, and fuller settings gating. **Untested by Claude (no device/headless browser) — needs Daniel's in-browser pass.**
+
+---
+
 ## v0.5.12 (Build 86) — 2026-06-02
 
 **Output toolbar (desktop/iPad).** A new top toolbar on the output area homes the view/workspace controls that aren't parameters: **undo/redo** (relocated from the floating bottom bar so it won't compete with the coming animation timeline), **swap** (moved from its floating top-right spot), and the **motion-mode** toggle (moved out of the canvas settings group, where it never belonged). The toolbar container is click-through; only the left/right button groups capture events, so the gap between them still passes gestures to the canvas. This is the start of a broader move (backlog) to pull non-settings out of the panel (source display, change-source, export, build info) into this toolbar. Mobile chrome unaffected. Also: captured Daniel's multi-keyframe timeline design direction in BACKLOG (Procreate-Dreams/iMovie north star, control areas, loop-bookend model, per-segment rotation winding, output PiP comparison, JSON project file) and the revised sequence (timeline → video export → video loops → gesture-record → transitions).

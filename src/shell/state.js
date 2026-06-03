@@ -57,16 +57,17 @@ export const session = {
   isSwapped: false,
 };
 
-// motion-mode authoring data (Phase 3 — A/B still-animation; desktop/iPad only).
-// kept OUT of `state` on purpose: a keyframe IS a {...state} snapshot, so the
-// captured snapshots can't live inside the thing they snapshot. parallel to
-// `session`, threaded via env.motion. reset on reload (not carried across a
-// responsive chrome switch — motion is desktop-only).
+// motion-mode authoring data (Phase 3 — multi-keyframe still-animation;
+// desktop/iPad only). kept OUT of `state` on purpose: a keyframe IS a {...state}
+// snapshot, so the captured snapshots can't live inside the thing they snapshot.
+// parallel to `session`, threaded via env.motion. reset on reload (not carried
+// across a responsive chrome switch — motion is desktop-only).
 export const motion = {
-  a: null,            // captured {...state} snapshot for keyframe A, or null
-  b: null,            // captured {...state} snapshot for keyframe B, or null
-  durationMs: 4000,   // time for one A→B span
-  loop: true,         // when true, the cycle closes by tweening B back to A
+  keyframes: [],      // [{ t: 0..1, snap: {...state}, thumb: <canvas> }], sorted by t.
+                      // keyframe 0 (t=0) is the start AND the loop-return target.
+  durationMs: 4000,   // total animation length (the full 0..1 span)
+  loop: true,         // close the cycle by tweening the last keyframe back to kf0
   playing: false,
-  playhead: 0,        // 0..1 position within the current span (UI display only)
+  playhead: 0,        // 0..1 scrubber position
+  selected: -1,       // index of the selected (editable) keyframe, or -1
 };
