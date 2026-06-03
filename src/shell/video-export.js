@@ -37,7 +37,9 @@ export async function exportVideo({ engine, sampleAt, width, height, fps, durati
 
   const frames = Math.max(2, Math.round((durationMs / 1000) * fps));
   const codec = 'avc1.640033';   // H.264 High profile, level 5.1 (covers up to ~4K)
-  const bitrate = Math.min(40_000_000, Math.max(4_000_000, Math.round(width * height * fps * 0.07)));
+  // ~0.1 bits per pixel per frame — a high-quality H.264 target for this kind of
+  // high-detail content; clamped to a sane 4–80 Mbps.
+  const bitrate = Math.min(80_000_000, Math.max(4_000_000, Math.round(width * height * fps * 0.1)));
 
   // Confirm the device can encode this configuration before committing.
   let support;

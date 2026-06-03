@@ -4,6 +4,16 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.7.1 (Build 97) — 2026-06-03
+
+**Timeline duplicate-keyframe fix + video resolutions.**
+
+- **Duplicate keyframe / pause fixed.** The auto-select-on-add (Build 89) made the just-added keyframe the live edit target, so the *next* + keyframe copied it — leaving a trailing duplicate (a static pause). New model: **+ keyframe saves the current look and jumps forward; editing then stages the next pose**; click a marker to refine an existing keyframe (write-through). Plus a guard that skips adding a keyframe identical to the one already under the scrubber. Anchor/delete now also act on the keyframe under the scrubber, not only an explicitly clicked one.
+- **Video resolutions** are now long-side based and cover **1080p / 2.5K / 3K / 4K / 6K**, clamped to the device's FBO max (6K renders fully only on a high-cap desktop GPU; an iPad clamps down).
+- **Bitrate** raised to ~0.1 bits/pixel/frame (4–80 Mbps) — a high-quality H.264 target for this detailed content.
+
+---
+
 ## v0.7.0 (Build 96) — 2026-06-03
 
 **Video export (Phase 4) — desktop/iPad. Milestone.** Render the still-animation loop to an H.264 `.mp4`, frame by frame, via WebCodecs `VideoEncoder` → **mp4-muxer** (the one new dependency, Daniel-approved). Frame-perfect and faster than real time.

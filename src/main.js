@@ -29,7 +29,7 @@ import { PARAMS, DECLARATIVE_PARAM_IDS } from './shell/params.js';
 import { createCamera } from './shell/camera.js';
 import { zipStore } from './shell/zip.js';
 import { snapSpiralValue as kitSnapSpiral, applyArmsSnap as kitApplyArmsSnap } from './kit/snaps.js';
-import { lerpState, DISCRETE_KEYS } from './kit/tween.js';
+import { lerpState, DISCRETE_KEYS, CONTINUOUS_KEYS } from './kit/tween.js';
 import { exportVideo, videoExportSupported } from './shell/video-export.js';
 import { formatVersion } from './version.js';
 import { push as historyPush, undo as historyUndo, redo as historyRedo, canUndo, canRedo } from './shell/history.js';
@@ -1263,9 +1263,18 @@ function applyAutoSpacing() {
     i = j;
   }
 }
+// continuous-field equality — used to skip a redundant keyframe (same look).
+function sameLook(a, b) {
+  for (const k of CONTINUOUS_KEYS) if (Math.abs((a[k] || 0) - (b[k] || 0)) > 1e-4) return false;
+  return true;
+}
 function addKeyframe() {
   if (!engine || !engine.getSourceImage()) return;
   if (motion.playing) stopPlayback();
+  const onIdx = keyframeAt(motion.playhead);
+  // never drop a redundant duplicate of the keyframe already at the scrubber — that
+  // just makes a static pause (the "+keyframe again without editing" case).
+  if (onIdx >= 0 && sameLook(kfList()[onIdx].snap, state)) return;
   engine.render(state);                          // preview shows this state for the thumb
   const kf = { t: 0, snap: { ...state }, thumb: makeThumb(), anchored: false };
   let newIdx;
@@ -1273,30 +1282,28 @@ function addKeyframe() {
     kf.anchored = true;                          // keyframe 0 is the fixed start anchor
     kfList().push(kf);
     newIdx = 0;
+  } else if (onIdx >= 0) {
+    kfList().splice(onIdx + 1, 0, kf);           // insert after the keyframe at the scrubber
+    newIdx = onIdx + 1;
   } else {
-    const onIdx = keyframeAt(motion.playhead);
-    if (onIdx >= 0) {
-      kfList().splice(onIdx + 1, 0, kf);         // sequential: insert after the current
-      newIdx = onIdx + 1;
-    } else {
-      let ins = kfList().findIndex(k => k.t > motion.playhead);   // keep the array in time order
-      if (ins < 0) ins = kfList().length;
-      kfList().splice(ins, 0, kf);
-      newIdx = ins;
-    }
+    let ins = kfList().findIndex(k => k.t > motion.playhead);   // keep the array in time order
+    if (ins < 0) ins = kfList().length;
+    kfList().splice(ins, 0, kf);
+    newIdx = ins;
   }
-  // new keyframes are auto (anchored=false) — they even out around the anchors. drag
-  // one to pin it. Jump to + select the new keyframe so edits refine it directly.
   applyAutoSpacing();
-  motion.selected = newIdx;
+  // "+keyframe" saves the current look and jumps forward; editing then stages a NEW
+  // pose (it does NOT write through to the just-saved keyframe — that auto-select was
+  // the source of the duplicate/pause). Click a marker to refine an existing keyframe.
+  motion.selected = -1;
   setPlayhead(kfList()[newIdx].t);
   renderTimeline();
   updateMotionUI();
 }
 // toggle the selected keyframe between anchored (fixed time) and auto (even-spaced).
 function toggleAnchor() {
-  const i = motion.selected;
-  if (i <= 0) return;                            // keyframe 0 is always the start anchor
+  const i = motion.selected >= 0 ? motion.selected : keyframeAt(motion.playhead);
+  if (i <= 0) return;                            // keyframe 0 is always the start anchor; -1 = none
   kfList()[i].anchored = !kfList()[i].anchored;
   applyAutoSpacing();
   setPlayhead(kfList()[i].t);
@@ -1490,7 +1497,8 @@ function updateMotionUI() {
   const canDelete = motion.selected >= 0 || keyframeAt(motion.playhead) >= 0;
   if (q('mfAdd')) q('mfAdd').disabled = !available;
   if (q('mfDelete')) q('mfDelete').disabled = !canDelete;
-  const selKf = motion.selected > 0 ? kfList()[motion.selected] : null;   // kf0 is always the start anchor
+  const aIdx = motion.selected >= 0 ? motion.selected : keyframeAt(motion.playhead);
+  const selKf = aIdx > 0 ? kfList()[aIdx] : null;   // kf0 is always the start anchor
   if (q('mfAnchor')) { q('mfAnchor').disabled = !selKf; q('mfAnchor').classList.toggle('active', !!(selKf && selKf.anchored)); }
   if (q('mfPlay')) { q('mfPlay').disabled = n < 2; q('mfPlay').textContent = motion.playing ? 'pause' : 'play'; }
   if (q('mfRender')) q('mfRender').disabled = n < 2;
@@ -1568,14 +1576,17 @@ function setupVideoExport() {
   const sheet = byId('vidSheet');
   if (!sheet) return;
   const ASPECTS = { '1:1': [1, 1], '4:5': [4, 5], '16:9': [16, 9] };
-  let selAsp = '1:1', selH = 1440, selFps = 30, cancelRender = false, rendering = false;
+  let selAsp = '1:1', selLong = 2560, selFps = 30, cancelRender = false, rendering = false;
 
   const dims = () => {
     const [aw, ah] = ASPECTS[selAsp];
-    let h = selH, w = Math.round((h * aw) / ah);
+    // selLong sets the LONG side; the short side follows the aspect.
+    let w, h;
+    if (aw >= ah) { w = selLong; h = Math.round((selLong * ah) / aw); }   // square / landscape
+    else { h = selLong; w = Math.round((selLong * aw) / ah); }            // portrait (4:5)
     const cap = (engine && engine.diagnostics.maxFBOSize) || 4096;
     const m = Math.max(w, h);
-    if (m > cap) { const s = cap / m; w = Math.round(w * s); h = Math.round(h * s); }
+    if (m > cap) { const s = cap / m; w = Math.round(w * s); h = Math.round(h * s); }  // clamp to GPU FBO max
     w -= w % 2; h -= h % 2;                       // H.264 needs even dimensions
     return { w, h };
   };
@@ -1597,7 +1608,7 @@ function setupVideoExport() {
     });
   };
   wireGroup('vidAspect', 'asp', (v) => { selAsp = v; });
-  wireGroup('vidRes', 'h', (v) => { selH = parseInt(v, 10); });
+  wireGroup('vidRes', 'long', (v) => { selLong = parseInt(v, 10); });
   wireGroup('vidFps', 'fps', (v) => { selFps = parseInt(v, 10); });
 
   function open() {
