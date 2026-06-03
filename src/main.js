@@ -1225,30 +1225,43 @@ function stopPlayback() {
 }
 
 // ---- keyframe operations --------------------------------------------------
+// distribute all keyframes evenly across [0,1): t_i = i/n. keyframe 0 stays at 0;
+// the tail span [(n-1)/n, 1] is the loop return. (v1: sequential adds auto-space;
+// drag-to-retime — a fast-follow — will later allow manual, non-destructive spacing.)
+function redistributeEven() {
+  const n = kfList().length;
+  kfList().forEach((kf, i) => { kf.t = n > 1 ? i / n : 0; });
+}
 function addKeyframe() {
   if (!engine || !engine.getSourceImage()) return;
   if (motion.playing) stopPlayback();
-  // first keyframe anchors at t=0 (start / loop bookend); others land at the scrubber.
-  const t = kfList().length === 0 ? 0 : Math.max(0, Math.min(0.999, motion.playhead));
-  engine.render(state);                          // ensure the preview shows this state for the thumb
-  const kf = { t, snap: { ...state }, thumb: makeThumb() };
-  const existing = keyframeAt(t);
-  if (existing >= 0) {
-    kf.t = kfList()[existing].t;
-    kfList()[existing] = kf;
-    motion.selected = existing;
+  engine.render(state);                          // preview shows this state for the thumb
+  const kf = { t: 0, snap: { ...state }, thumb: makeThumb() };
+  const onIdx = keyframeAt(motion.playhead);
+  if (kfList().length === 0) {
+    kfList().push(kf);                           // first keyframe anchors at the start (t=0)
+  } else if (onIdx >= 0) {
+    // sitting on an existing keyframe: insert a NEW one after it (never overwrite)
+    // and re-even the spacing, so repeated clicks build an evenly-spaced sequence.
+    kfList().splice(onIdx + 1, 0, kf);
+    redistributeEven();
   } else {
+    // parked off a keyframe: drop at the scrubber (explicit), leave the others put.
+    kf.t = Math.max(0.001, Math.min(0.999, motion.playhead));
     kfList().push(kf);
     kfList().sort((a, b) => a.t - b.t);
-    motion.selected = kfList().indexOf(kf);
   }
+  // leave nothing selected so the next edit stages a fresh look (sequential add);
+  // click a marker to refine an existing keyframe via write-through.
+  motion.selected = -1;
   setPlayhead(kf.t);
   renderTimeline();
   updateMotionUI();
 }
 function deleteSelected() {
-  if (motion.selected < 0) return;
-  kfList().splice(motion.selected, 1);
+  const idx = motion.selected >= 0 ? motion.selected : keyframeAt(motion.playhead);
+  if (idx < 0) return;
+  kfList().splice(idx, 1);
   motion.selected = -1;
   if (kfList().length) loadPlayheadIntoState();
   renderTimeline();
@@ -1309,6 +1322,8 @@ function renderTimeline() {
 function toggleMotionMode() {
   if (!engine || !engine.getSourceImage() || isLive) return;
   motionActive = !motionActive;
+  motion.selected = -1;          // never carry a stale selection across the toggle
+                                 // (otherwise post-exit edits could write through to it)
   if (!motionActive) haltPlayback();
   else renderTimeline();
   updateMotionUI();
@@ -1326,13 +1341,14 @@ function updateMotionUI() {
   if (btn) { btn.disabled = !available; btn.classList.toggle('active', motionActive); }
   const footer = q('motionFooter');
   if (footer) footer.hidden = !motionActive;
-  // lock the form picker while animating (discrete fields are pinned to keyframe 0).
-  const fr = document.querySelector('.form-row');
-  if (fr) fr.style.display = motionActive ? 'none' : '';
+  // motion mode pins discrete fields to keyframe 0 — hide the form picker and
+  // dim/disable the non-animatable controls (see body.motion rules in styles.css).
+  document.body.classList.toggle('motion', motionActive);
 
   const n = kfList().length;
+  const canDelete = motion.selected >= 0 || keyframeAt(motion.playhead) >= 0;
   if (q('mfAdd')) q('mfAdd').disabled = !available;
-  if (q('mfDelete')) q('mfDelete').disabled = motion.selected < 0;
+  if (q('mfDelete')) q('mfDelete').disabled = !canDelete;
   if (q('mfPlay')) { q('mfPlay').disabled = n < 2; q('mfPlay').textContent = motion.playing ? 'pause' : 'play'; }
   if (q('mfPrev')) q('mfPrev').disabled = n < 1;
   if (q('mfNext')) q('mfNext').disabled = n < 1;

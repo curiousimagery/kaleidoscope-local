@@ -530,9 +530,7 @@ button .btn-spinner {
 .mf-btn:hover:not(:disabled) { background: #222; border-color: #333; color: #fff; }
 .mf-btn:disabled { opacity: 0.35; cursor: default; }
 .mf-toggle.active { border-color: #888; color: #fff; }
-.mf-add { color: #f0a8d0; border-color: #6a3a55; }                       /* magenta = primary add */
-.mf-add:hover:not(:disabled) { background: #2a1622; color: #ffc0e0; border-color: #864368; }
-.mf-gesture { color: #b0a0e0; border-color: #443a6a; }                   /* purple = gesture (reserved) */
+.mf-add:not(:disabled) { color: #fff; border-color: #555; }              /* primary add (monochrome emphasis) */
 .mf-dur { margin-left: auto; display: flex; align-items: center; gap: 6px; font-size: 12px; color: #888; }
 
 /* timeline track — keyframe markers (with saved-state thumbnails) + scrubber */
@@ -542,7 +540,7 @@ button .btn-spinner {
   overflow: hidden; cursor: pointer; touch-action: none;
 }
 .mf-markers { position: absolute; inset: 0; }
-.mf-marker { position: absolute; top: 8px; bottom: 8px; }   /* left = t% (set inline) */
+.mf-marker { position: absolute; top: 8px; bottom: 8px; transform: translateX(-50%); }  /* centered on t (left = t%) */
 .mf-marker canvas {
   height: 100%; width: auto; aspect-ratio: 1; display: block;
   border: 2px solid #555; border-radius: 4px; background: #000;
@@ -550,13 +548,25 @@ button .btn-spinner {
 }
 .mf-marker.selected canvas { border-color: #e8e8e8; }
 .mf-marker .mf-pin {
-  position: absolute; top: -5px; left: -5px; width: 10px; height: 10px;
-  background: #e0489d; border-radius: 2px; transform: rotate(45deg);     /* magenta diamond at t */
+  position: absolute; top: -5px; left: 50%; margin-left: -5px;
+  width: 10px; height: 10px; background: #555; border-radius: 2px;
+  transform: rotate(45deg);                 /* notch shares the thumbnail outline color */
 }
+.mf-marker.selected .mf-pin { background: #e8e8e8; }
 .mf-marker.ghost { opacity: 0.35; pointer-events: none; }
-.mf-marker.ghost .mf-pin { background: #888; }
+.mf-marker.ghost .mf-pin { background: #555; }
 .mf-playhead {
   position: absolute; top: 0; bottom: 0; left: 0; width: 2px;
-  background: #ffd23f; pointer-events: none; z-index: 2;
+  background: #e8e8e8; pointer-events: none; z-index: 2;   /* white scrubber */
 }
 @media (pointer: coarse) { .mf-btn { height: 44px; } }
+
+/* motion mode pins discrete fields to keyframe 0: hide the form picker and
+   dim/disable the controls that can't be animated. a CSS class is used (not
+   inline styles) so it doesn't fight applyFormControls' per-form display toggles
+   — opacity/pointer-events are orthogonal to display. */
+body.motion .form-row { display: none; }
+body.motion #segmentsLabel,
+body.motion #mirrorLabel,
+body.motion #wedgeMirrorLabel,
+body.motion #oobModes { pointer-events: none; opacity: 0.4; }

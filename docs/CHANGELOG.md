@@ -4,6 +4,19 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.5.14 (Build 88) — 2026-06-02
+
+**Timeline refinements (from Daniel's Build 87 test).**
+
+- **+ keyframe never overwrites.** Clicking + keyframe while parked on an existing keyframe now inserts a new one *after* it and re-distributes the set to even spacing, so repeated clicks build an evenly-spaced sequence. Parked off a keyframe still drops at the scrubber (explicit). (Even-redistribution on sequential add is destructive of manually-set spacing until drag-to-retime ships — fine for now since there's no manual retime yet.)
+- **Sequential authoring fixed.** After any add, nothing stays selected, so the next edit stages a fresh look (edit → + keyframe → edit → + keyframe…). Clicking a marker is what enters write-through edit on an existing keyframe. This also resolves the report that **editing after exiting motion mode could write through to a stale-selected keyframe** (selection is now cleared on the mode toggle).
+- **Monochrome + centered notches.** Dropped the sketch's magenta/purple (sketch was layout intent only). Keyframe notches are centered over their thumbnails and share the thumbnail outline color (grey, white when selected); the scrubber line is white. The first/last thumbnails clip at the track edges by design (they're two halves of the loop).
+- **Settings gating.** In motion mode the form picker is hidden and the non-animatable controls (segments, mirror, wedge-mirror, out-of-bounds) are dimmed and disabled, since discrete fields are pinned to keyframe 0.
+
+Deferred (with a clear reason): a **motion-smoothing** control + per-keyframe ease — the easing model deserves a proper design (likely spline-based, not a mislabeled linear↔ease blend) rather than a rushed version. Tracked in BACKLOG.
+
+---
+
 ## v0.5.13 (Build 87) — 2026-06-02
 
 **Multi-keyframe timeline — core (desktop/iPad).** The A/B motion mode generalizes to an N-keyframe timeline (built to Daniel's mockup). `motion` now holds a sorted `keyframes` list (each `{ t: 0..1, snap, thumb }`) plus total `durationMs`, `loop`, `playhead`, and `selected`. The footer is the timeline: global controls (prev/play-pause/next, loop, + keyframe, + gesture [reserved/disabled], delete, total duration) on the left, and a track on the right with **keyframe markers that render the saved-state thumbnail** under a magenta pin, a yellow scrubber, and a faint loop-bookend marker at t=1.
