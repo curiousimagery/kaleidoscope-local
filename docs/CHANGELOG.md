@@ -4,6 +4,22 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.6.1 (Build 91) — 2026-06-03
+
+**Global easing control (motion smoothing, v1).** A new "easing" field in the timeline controls (0–100%) blends each tween span between linear (0 = constant velocity, kills the pulse at short durations) and ease-in-out (100% = eased into each keyframe, the prior behavior and the default). Pre-blended in `spanSample` and passed to `lerpState` as linear so it isn't eased twice. The control previews live while paused. This is the first version of motion smoothing; the richer **smooth-through spline** (Catmull-Rom for continuous velocity through keyframes, no stops) and per-keyframe ease handles are the queued refinement (deliberately not bundling untested spline math here).
+
+---
+
+## v0.6.0 (Build 90) — 2026-06-03
+
+**Drag-to-retime keyframes (timeline milestone).** Keyframe markers can be dragged horizontally to set their timing. A click still selects; a horizontal drag past the 3px threshold retimes. Keyframe 0 stays locked at t=0 (the start/loop anchor); the rest clamp between their neighbors so a drag can't reorder them, and the last clamps short of t=1 (leaving the loop-return span). The scrubber follows a dragged selected keyframe.
+
+- **Sequential add is now non-destructive once you've retimed.** Before any manual drag, repeated + keyframe re-evens the set (the easy default). After the first drag (a `motion.retimed` flag), inserts go in at the midpoint of the next gap and leave your hand-set times alone. Deleting back to an empty timeline resets to auto-even.
+
+This is the v0.6.0 milestone — the still-animation timeline is now a real editor (add / select / edit / delete / **retime** / play / loop / scrub).
+
+---
+
 ## v0.5.15 (Build 89) — 2026-06-03
 
 **Timeline refinements (round 2, from Daniel's Build 88 test).**

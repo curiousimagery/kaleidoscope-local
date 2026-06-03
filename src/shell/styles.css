@@ -532,6 +532,7 @@ button .btn-spinner {
 .mf-toggle.active { border-color: #888; color: #fff; }
 .mf-add:not(:disabled) { color: #fff; border-color: #555; }              /* primary add (monochrome emphasis) */
 .mf-dur { margin-left: auto; display: flex; align-items: center; gap: 6px; font-size: 12px; color: #888; }
+.mf-field { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #888; }
 
 /* timeline track — keyframe markers (with saved-state thumbnails) + scrubber */
 .mf-track {

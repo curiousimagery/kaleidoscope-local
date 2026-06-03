@@ -1140,7 +1140,13 @@ function makeThumb() {
 // ---- sampling -------------------------------------------------------------
 function spanSample(a, b, p) {
   const span = b.t - a.t;
-  return lerpState(a.snap, b.snap, span > 1e-6 ? (p - a.t) / span : 0);
+  const lt = span > 1e-6 ? (p - a.t) / span : 0;
+  // global easing: blend linear ↔ ease-in-out by motion.easing (0 = constant
+  // velocity / less pulse at speed, 1 = eased into each keyframe). Pre-blend here
+  // and pass 'linear' to lerpState so it doesn't ease again.
+  const eased = lt < 0.5 ? 2 * lt * lt : 1 - ((-2 * lt + 2) ** 2) / 2;
+  const t = lt + (eased - lt) * motion.easing;
+  return lerpState(a.snap, b.snap, t, 'linear');
 }
 // interpolate the keyframe list at normalized time p (0..1); discrete fields are
 // always taken from keyframe 0 (locked). with loop on, a virtual return-to-kf0
@@ -1244,10 +1250,18 @@ function addKeyframe() {
     kfList().push(kf);                           // first keyframe anchors at the start (t=0)
     newIdx = 0;
   } else if (onIdx >= 0) {
-    // sitting on an existing keyframe: insert a NEW one after it (never overwrite)
-    // and re-even the spacing, so repeated clicks build an evenly-spaced sequence.
-    kfList().splice(onIdx + 1, 0, kf);
-    redistributeEven();
+    // sitting on an existing keyframe: insert a NEW one after it (never overwrite).
+    if (motion.retimed) {
+      // manual spacing is in play — insert at the midpoint of the next gap, leaving
+      // the other keyframes' hand-set times alone.
+      const nextT = onIdx < kfList().length - 1 ? kfList()[onIdx + 1].t : 1;
+      kf.t = (kfList()[onIdx].t + nextT) / 2;
+      kfList().splice(onIdx + 1, 0, kf);
+    } else {
+      // no manual spacing yet — re-even so repeated clicks build an evenly-spaced run.
+      kfList().splice(onIdx + 1, 0, kf);
+      redistributeEven();
+    }
     newIdx = onIdx + 1;
   } else {
     // parked off a keyframe: drop at the scrubber (explicit), leave the others put.
@@ -1269,6 +1283,7 @@ function deleteSelected() {
   if (idx < 0) return;
   kfList().splice(idx, 1);
   motion.selected = -1;
+  if (!kfList().length) motion.retimed = false;   // fresh sequence auto-evens again
   if (kfList().length) loadPlayheadIntoState();
   renderTimeline();
   updateMotionUI();
@@ -1302,6 +1317,43 @@ function stepKeyframe(dir) {
 }
 
 // ---- timeline rendering ---------------------------------------------------
+// marker interaction: a click (no drag past threshold) selects; a horizontal drag
+// retimes (keyframe 0 is the locked start anchor and only selects). Clamped between
+// neighbors so dragging can't reorder.
+function makeMarkerDraggable(m, i) {
+  let down = null;
+  m.addEventListener('pointerdown', (e) => {
+    e.stopPropagation();
+    if (motion.playing) stopPlayback();
+    const track = document.getElementById('mfTrack');
+    down = { x: e.clientX, moved: false, rect: track.getBoundingClientRect() };
+    m.setPointerCapture?.(e.pointerId);
+  });
+  m.addEventListener('pointermove', (e) => {
+    if (!down) return;
+    if (!down.moved && Math.abs(e.clientX - down.x) < 3) return;
+    down.moved = true;
+    if (i === 0) return;                            // keyframe 0 stays at t=0 (start anchor)
+    const list = kfList();
+    const lo = list[i - 1].t + 0.01;
+    const hi = (i < list.length - 1 ? list[i + 1].t : 1) - 0.01;
+    const t = Math.max(lo, Math.min(hi, (e.clientX - down.rect.left) / down.rect.width));
+    list[i].t = t;
+    motion.retimed = true;
+    m.style.left = (t * 100) + '%';
+    if (motion.selected === i) setPlayhead(t);
+  });
+  const end = (e) => {
+    if (!down) return;
+    const wasDrag = down.moved;
+    m.releasePointerCapture?.(e.pointerId);
+    down = null;
+    if (wasDrag) { renderTimeline(); loadPlayheadIntoState(); updateMotionUI(); }
+    else selectKeyframe(i);
+  };
+  m.addEventListener('pointerup', end);
+  m.addEventListener('pointercancel', () => { down = null; });
+}
 function renderTimeline() {
   const markers = document.getElementById('mfMarkers');
   if (!markers) return;
@@ -1315,7 +1367,7 @@ function renderTimeline() {
     const pin = document.createElement('div');
     pin.className = 'mf-pin';
     m.appendChild(pin);
-    m.addEventListener('pointerdown', (e) => { e.stopPropagation(); selectKeyframe(i); });
+    makeMarkerDraggable(m, i);
     markers.appendChild(m);
   });
   // loop bookend: a faint return-to-kf0 marker at t=1 (shows kf0's thumbnail, so its
@@ -1374,6 +1426,7 @@ function updateMotionUI() {
   if (q('mfNext')) q('mfNext').disabled = n < 1;
   q('mfLoop')?.classList.toggle('active', motion.loop);
   q('mfDurVal')?._sync?.();
+  q('mfEaseVal')?._sync?.();
 }
 
 function wireMotion() {
@@ -1393,6 +1446,16 @@ function wireMotion() {
     step: 0.5, fineStep: 0.1, coarseStep: 2, min: 0.5, max: 60,
     format: (v) => v.toFixed(1) + 's',
     parse: (s) => { const n = parseFloat(String(s).replace(/[s\s]/g, '')); return isNaN(n) ? null : n; },
+  });
+
+  // global easing (0 = linear, 100% = ease-in-out into each keyframe).
+  makeScrubField(byId('mfEaseVal'), {
+    get: () => Math.round(motion.easing * 100),
+    set: (v) => { motion.easing = Math.max(0, Math.min(100, v)) / 100; },
+    step: 5, fineStep: 1, coarseStep: 20, min: 0, max: 100,
+    format: (v) => Math.round(v) + '%',
+    parse: (s) => { const n = parseFloat(String(s).replace(/[%\s]/g, '')); return isNaN(n) ? null : n; },
+    onChange: () => { if (!motion.playing) renderSampled(motion.playhead); },
   });
 
   // scrubber — drag on the track background (markers handle their own selection).

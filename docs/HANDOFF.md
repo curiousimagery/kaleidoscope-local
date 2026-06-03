@@ -12,7 +12,7 @@ He prefers **no em dashes** in his own writing; respect that in any prose Claude
 
 ## current version
 
-`v0.5.15 · Build 89`. The footer in the running app shows this string from `src/version.js`.
+`v0.6.1 · Build 91`. The footer in the running app shows this string from `src/version.js`.
 
 **Mobile follow-ups from Daniel's Build 81 device testing (2026-06-02).** The PWA installs and runs on iPhone (chrome hidden, live camera works). Build 84 fixed three issues: touch-rotate runaway (suspected fix — **needs on-device confirmation**, couldn't reproduce remotely), the broken flip icon, and the tab popover toggle. The rest are queued in `BACKLOG.md` under "mobile chrome — Build 81 device-test follow-ups": mobile landscape mode (its own build, IxD), PWA tab-bar bottom anchoring (entangled with landscape), preserve source across a chrome switch, mobile settings ordering + OOB-as-canvas + slice/canvas headings, divider dock-snap, and the overlay min-size clamp.
 

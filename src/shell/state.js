@@ -67,7 +67,12 @@ export const motion = {
                       // keyframe 0 (t=0) is the start AND the loop-return target.
   durationMs: 30000,  // total animation length (the full 0..1 span)
   loop: true,         // close the cycle by tweening the last keyframe back to kf0
+  easing: 1,          // 0..1 global easing: 0 = linear (constant velocity, less
+                      // pulse at speed), 1 = ease-in-out into each keyframe.
   playing: false,
   playhead: 0,        // 0..1 scrubber position
   selected: -1,       // index of the selected (editable) keyframe, or -1
+  retimed: false,     // true once the user has manually dragged a keyframe — after
+                      // which sequential adds insert non-destructively instead of
+                      // re-distributing the whole set to even spacing.
 };
