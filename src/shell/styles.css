@@ -540,25 +540,27 @@ button .btn-spinner {
   background: #161616; border: 1px solid #2a2a2a; border-radius: 6px;
   overflow: hidden; cursor: pointer; touch-action: none;
 }
-.mf-strip { position: absolute; inset: 0; z-index: 0; }   /* tween filmstrip, behind the markers */
+/* tween filmstrip — inset to match the keyframe thumb size, dimmed so the
+   outlined keyframes read on top of it */
+.mf-strip { position: absolute; top: 8px; bottom: 8px; left: 0; right: 0; z-index: 0; opacity: 0.55; }
 .mf-markers { position: absolute; inset: 0; z-index: 1; }
 .mf-marker { position: absolute; top: 8px; bottom: 8px; transform: translateX(-50%); }  /* centered on t (left = t%) */
 .mf-marker canvas {
   height: 100%; width: auto; aspect-ratio: 1; display: block;
-  border: 2px solid #555; border-radius: 4px; background: #000;
+  border: 3px solid #fff; border-radius: 4px; background: #000;   /* thick white keyframe outline */
   pointer-events: none;
 }
-.mf-marker.selected canvas { border-color: #e8e8e8; }
+.mf-marker.selected canvas { border-color: #ffd23f; }              /* yellow = active selection */
 .mf-marker .mf-pin {
-  position: absolute; top: -5px; left: 50%; margin-left: -5px;
+  position: absolute; top: -6px; left: 50%; margin-left: -5px;
   width: 10px; height: 10px; border-radius: 2px; transform: rotate(45deg);
-  background: transparent; border: 1.5px solid #666;     /* auto = hollow diamond */
+  background: transparent; border: 2px solid #fff;                 /* auto = hollow */
 }
-.mf-marker.anchored .mf-pin { background: #888; border-color: #888; }   /* anchored = filled */
-.mf-marker.selected .mf-pin { border-color: #e8e8e8; }
-.mf-marker.selected.anchored .mf-pin { background: #e8e8e8; }
+.mf-marker.anchored .mf-pin { background: #fff; }                  /* anchored = filled */
+.mf-marker.selected .mf-pin { border-color: #ffd23f; }
+.mf-marker.selected.anchored .mf-pin { background: #ffd23f; }
 .mf-marker.ghost { opacity: 0.35; pointer-events: none; }
-.mf-marker.ghost .mf-pin { background: #888; border-color: #888; }
+.mf-marker.ghost .mf-pin { background: #fff; border-color: #fff; }
 .mf-playhead {
   position: absolute; top: 0; bottom: 0; left: 0; width: 2px;
   background: #e8e8e8; pointer-events: none; z-index: 2;   /* white scrubber */

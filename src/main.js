@@ -1351,7 +1351,7 @@ let filmstripTimer = 0;
 function scheduleFilmstrip() {
   if (!motionActive) return;
   clearTimeout(filmstripTimer);
-  filmstripTimer = setTimeout(buildFilmstrip, 120);
+  filmstripTimer = setTimeout(buildFilmstrip, 700);   // wait for a real pause before the N-render rebuild
 }
 function buildFilmstrip() {
   const strip = document.getElementById('mfStrip');
@@ -1361,18 +1361,19 @@ function buildFilmstrip() {
     strip.innerHTML = '';
     return;
   }
-  const w = track.clientWidth, h = track.clientHeight;
+  const w = strip.clientWidth, h = strip.clientHeight;   // strip is inset to match the keyframe thumb size
   if (w < 2 || h < 2) return;
-  const n = Math.max(1, Math.round(w / h));
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const W = Math.round(w * dpr), H = Math.round(h * dpr);
   const c = document.createElement('canvas');
-  c.width = Math.round(w * dpr); c.height = Math.round(h * dpr);
+  c.width = W; c.height = H;
   c.style.cssText = 'width:100%;height:100%;display:block';
   const cx = c.getContext('2d');
-  const slot = (w * dpr) / n;
+  const S = H;                                     // square frames, same size as the keyframe thumbnails
+  const n = Math.ceil(W / S);
   for (let i = 0; i < n; i++) {
-    engine.render(sampleAt((i + 0.5) / n));
-    cx.drawImage(previewCanvas, Math.round(i * slot), 0, Math.ceil(slot), h * dpr);
+    engine.render(sampleAt(Math.min(1, (i * S + S / 2) / W)));   // each frame's center maps to its time
+    cx.drawImage(previewCanvas, i * S, 0, S, H);
   }
   strip.innerHTML = '';
   strip.appendChild(c);
