@@ -16,9 +16,10 @@ export const ICONS = {
   photo: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="8.5" cy="10" r="1.5"/><path d="M21 16l-5-5L5 19"/></svg>`,
   aperture: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 3l4.6 8M21 12h-9.2M19.6 16.8L12 12M12 21l-4.6-8M3 12h9.2M4.4 7.2L12 12"/></svg>`,
   download: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11M7 11l5 5 5-5"/><path d="M5 20h14"/></svg>`,
-  // two half-circle arcs forming a ring, with arrowheads at the 3-o'clock (down)
-  // and 9-o'clock (up) ends — vertical arrows, like the iOS camera-flip glyph.
-  flip: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 12 A6 6 0 0 1 18 12"/><path d="M15.5 9.5 L18 12 L20.5 9.5"/><path d="M18 12 A6 6 0 0 1 6 12"/><path d="M8.5 14.5 L6 12 L3.5 14.5"/></svg>`,
+  // two arcs chasing around a ring, each pulled back ~20° from the opposite
+  // cardinal so the arrowheads (3-o'clock pointing down, 9-o'clock pointing up)
+  // have breathing room — vertical arrows, iOS camera-flip style.
+  flip: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6.36 9.95 A6 6 0 0 1 18 12"/><path d="M16.2 10.2 L18 12 L19.8 10.2"/><path d="M17.64 14.05 A6 6 0 0 1 6 12"/><path d="M7.8 13.8 L6 12 L4.2 13.8"/></svg>`,
   sliders: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="4" y1="8" x2="20" y2="8"/><line x1="4" y1="16" x2="20" y2="16"/><circle cx="9" cy="8" r="2.4" fill="#121212"/><circle cx="15" cy="16" r="2.4" fill="#121212"/></svg>`,
   target: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="2.2"/><path d="M12 3v3.5M12 17.5V21M3 12h3.5M17.5 12H21"/></svg>`,
   expand: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H3v5M16 3h5v5M8 21H3v-5M16 21h5v-5"/></svg>`,

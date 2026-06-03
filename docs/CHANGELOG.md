@@ -4,6 +4,12 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.5.11 (Build 85) — 2026-06-02
+
+**Flip icon, take two.** The Build 84 redraw used two full semicircles that met exactly at the arrowheads (3 and 9 o'clock), leaving no gap. Each arc is now pulled back ~20° from the opposite cardinal so the down/up arrowheads have breathing room — reads as two arrows chasing around a ring.
+
+---
+
 ## v0.5.10 (Build 84) — 2026-06-02
 
 **Mobile chrome fixes (from Daniel's Build 81 device testing).**
