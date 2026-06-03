@@ -4,6 +4,14 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.6.4 (Build 94) — 2026-06-03
+
+**Tween filmstrip.** A continuous strip of interpolated thumbnails now renders behind the keyframe markers (non-interactive, no outlines), like a video editor's filmstrip, so the progression between keyframes is visible across the track. It samples the animation at even intervals (`sampleAt`) across the track width and renders each to one strip canvas, rebuilt debounced after edits / adds / retimes / anchor toggles / easing changes / resize. The N renders run synchronously to the preview canvas in a single JS turn (no intermediate compositing → no flicker), then the current frame is restored. Skipped during playback and below two keyframes. The bordered, notched keyframe markers sit on top; the filmstrip is the outline-free background.
+
+Next: video export.
+
+---
+
 ## v0.6.3 (Build 93) — 2026-06-03
 
 **Anchor / auto-space keyframe model + affordances hidden on playback.**

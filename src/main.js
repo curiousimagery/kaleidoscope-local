@@ -157,7 +157,7 @@ function scheduleRender() {
     // motion: editing a selected keyframe writes through to it live (snap + thumb).
     if (motionActive && motion.selected >= 0 && !motion.playing && !motionScrubbing) {
       const kf = motion.keyframes[motion.selected];
-      if (kf) { kf.snap = { ...state }; drawThumbInto(kf.thumb); }
+      if (kf) { kf.snap = { ...state }; drawThumbInto(kf.thumb); scheduleFilmstrip(); }
     }
   });
 }
@@ -1340,6 +1340,46 @@ function stepKeyframe(dir) {
   selectKeyframe(target);
 }
 
+// ---- filmstrip ------------------------------------------------------------
+// a continuous strip of tween thumbnails rendered BEHIND the keyframe markers
+// (non-interactive, no outlines), like a video editor's filmstrip. Rebuilt
+// debounced on structural/edit changes; renders N sampled states synchronously to
+// the preview canvas — the browser composites only once after the JS turn, so there
+// is no on-screen flicker — captures each into one strip canvas, then restores the
+// current frame.
+let filmstripTimer = 0;
+function scheduleFilmstrip() {
+  if (!motionActive) return;
+  clearTimeout(filmstripTimer);
+  filmstripTimer = setTimeout(buildFilmstrip, 120);
+}
+function buildFilmstrip() {
+  const strip = document.getElementById('mfStrip');
+  if (!strip) return;
+  const track = document.getElementById('mfTrack');
+  if (!track || motion.playing || !engine || !engine.getSourceImage() || kfList().length < 2) {
+    strip.innerHTML = '';
+    return;
+  }
+  const w = track.clientWidth, h = track.clientHeight;
+  if (w < 2 || h < 2) return;
+  const n = Math.max(1, Math.round(w / h));
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const c = document.createElement('canvas');
+  c.width = Math.round(w * dpr); c.height = Math.round(h * dpr);
+  c.style.cssText = 'width:100%;height:100%;display:block';
+  const cx = c.getContext('2d');
+  const slot = (w * dpr) / n;
+  for (let i = 0; i < n; i++) {
+    engine.render(sampleAt((i + 0.5) / n));
+    cx.drawImage(previewCanvas, Math.round(i * slot), 0, Math.ceil(slot), h * dpr);
+  }
+  strip.innerHTML = '';
+  strip.appendChild(c);
+  engine.render(state);                          // restore the current frame (same JS turn → no flicker)
+  if (session.isSwapped) drawMiniKaleidoscope();
+}
+
 // ---- timeline rendering ---------------------------------------------------
 // marker interaction: a click (no drag past threshold) selects; a horizontal drag
 // retimes (keyframe 0 is the locked start anchor and only selects). Clamped between
@@ -1412,6 +1452,7 @@ function renderTimeline() {
     markers.appendChild(g);
   }
   setPlayhead(motion.playhead);
+  scheduleFilmstrip();
 }
 
 // ---- mode toggle + UI sync ------------------------------------------------
@@ -1484,7 +1525,7 @@ function wireMotion() {
     step: 5, fineStep: 1, coarseStep: 20, min: 0, max: 100,
     format: (v) => Math.round(v) + '%',
     parse: (s) => { const n = parseFloat(String(s).replace(/[%\s]/g, '')); return isNaN(n) ? null : n; },
-    onChange: () => { if (!motion.playing) renderSampled(motion.playhead); },
+    onChange: () => { if (!motion.playing) renderSampled(motion.playhead); scheduleFilmstrip(); },
   });
 
   // scrubber — drag on the track background (markers handle their own selection).
@@ -1542,5 +1583,6 @@ if (engine) {
     resizePreviewCanvas();
     if (session.isSwapped) arrangeSlots();
     sourceOverlay.render();
+    scheduleFilmstrip();
   });
 }

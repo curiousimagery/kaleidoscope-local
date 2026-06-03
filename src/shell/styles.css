@@ -540,7 +540,8 @@ button .btn-spinner {
   background: #161616; border: 1px solid #2a2a2a; border-radius: 6px;
   overflow: hidden; cursor: pointer; touch-action: none;
 }
-.mf-markers { position: absolute; inset: 0; }
+.mf-strip { position: absolute; inset: 0; z-index: 0; }   /* tween filmstrip, behind the markers */
+.mf-markers { position: absolute; inset: 0; z-index: 1; }
 .mf-marker { position: absolute; top: 8px; bottom: 8px; transform: translateX(-50%); }  /* centered on t (left = t%) */
 .mf-marker canvas {
   height: 100%; width: auto; aspect-ratio: 1; display: block;
