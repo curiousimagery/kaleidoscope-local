@@ -1065,6 +1065,11 @@ export function setupSourceInteraction(env, wrap) {
     const cls = classifyPointer(env, x, y, isTouch);
     if (!cls.mode) return;
 
+    // discrete edits are blocked when the host says so (motion mode after a keyframe):
+    // droste-arms drag becomes a no-op; the radial spoke falls through to a scale drag.
+    const allowDiscrete = env.canEditDiscrete ? env.canEditDiscrete() : true;
+    if (!allowDiscrete && cls.mode === 'droste-arms') return;
+
     env.overlayDragging = true;
     const g = env.sourceOverlayCanvas._geom;
     const { state } = env;
@@ -1077,7 +1082,7 @@ export function setupSourceInteraction(env, wrap) {
         dragOffsetY: g.cy - y,
       };
       setCursor('grabbing');
-    } else if (cls.mode === 'scale' && cls.onSpoke && form.spokeRule === 'radial') {
+    } else if (cls.mode === 'scale' && cls.onSpoke && form.spokeRule === 'radial' && allowDiscrete) {
       drag = {
         mode: 'segments',
         startSegments: state.segments,

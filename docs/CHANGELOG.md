@@ -4,6 +4,18 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.6.2 (Build 92) — 2026-06-03
+
+**Motion-mode refinements (from Daniel's Build 89 feedback).**
+
+- **Discrete params stay editable until the first keyframe.** Gating (hidden form picker, dimmed segments/mirror/OOB) now activates only once a keyframe exists, not the instant you enter motion mode — so you can pick the form/segments for your starting look first. Keys off `keyframes.length >= 1`.
+- **Direct-manipulation discrete edits are locked too.** The segment-spoke drag and droste-arms drag on the source overlay were bypassing the slider gating; a `canEditDiscrete` predicate threaded into the shared overlay now blocks them once motion mode has a keyframe (the spoke falls through to a scale drag; arms-drag is a no-op). Default-true, so desktop/mobile normal use is unchanged.
+- **The source wedge animates during playback and scrubbing.** Playback/scrub now mutate the working state to the sampled frame, so the overlay wedge moves in sync with the output instead of sitting at a stale position. Sliders still only resync on pause/scrub-end (no 60fps thrash); no history is pushed (it's navigation).
+
+Next: tween filmstrip and video export (Daniel: the two that make this genuinely usable).
+
+---
+
 ## v0.6.1 (Build 91) — 2026-06-03
 
 **Global easing control (motion smoothing, v1).** A new "easing" field in the timeline controls (0–100%) blends each tween span between linear (0 = constant velocity, kills the pulse at short durations) and ease-in-out (100% = eased into each keyframe, the prior behavior and the default). Pre-blended in `spanSample` and passed to `lerpState` as linear so it isn't eased twice. The control previews live while paused. This is the first version of motion smoothing; the richer **smooth-through spline** (Catmull-Rom for continuous velocity through keyframes, no stops) and per-keyframe ease handles are the queued refinement (deliberately not bundling untested spline math here).

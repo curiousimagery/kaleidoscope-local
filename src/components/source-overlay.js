@@ -52,6 +52,7 @@ export function createSourceOverlay(ctx) {
     scheduleRender: ctx.scheduleRender || (() => {}),
     pushHistory: ctx.onCommitStart || undefined,
     updateUndoUI: ctx.onCommitEnd || undefined,
+    canEditDiscrete: ctx.canEditDiscrete || (() => true),
 
     // form-snap logic from Kit, bound to this view's state (overlay.js reaches
     // it as view.applyArmsSnap during droste-arms drags).

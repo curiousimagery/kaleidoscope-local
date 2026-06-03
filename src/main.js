@@ -174,6 +174,9 @@ const sourceOverlay = createSourceOverlay({
   scheduleRender,
   onCommitStart: () => env.pushHistory(),
   onCommitEnd: () => env.updateUndoUI?.(),
+  // discrete edits (segment-spoke drag, droste-arms drag) are blocked once motion
+  // mode has a keyframe — discrete is pinned to keyframe 0.
+  canEditDiscrete: () => !(motionActive && motion.keyframes.length >= 1),
 });
 env.scheduleOverlayDraw = sourceOverlay.scheduleDraw;
 
@@ -1184,10 +1187,15 @@ function setPlayhead(p) {
   if (ph) ph.style.left = (p * 100) + '%';
 }
 function renderSampled(p) {
+  // mutate the working state to the sampled frame so BOTH the output and the source
+  // wedge overlay animate in sync during playback/scrub. (no syncControls — sliders
+  // resync on pause/scrub-end via loadPlayheadIntoState; no history push — it's navigation.)
+  Object.assign(state, sampleAt(p));
   if (engine && engine.getSourceImage()) {
-    engine.render(sampleAt(p));
+    engine.render(state);
     if (session.isSwapped) drawMiniKaleidoscope();
   }
+  sourceOverlay.render();
   setPlayhead(p);
 }
 // load the sampled state at the playhead into the working state so the panel and
@@ -1415,7 +1423,9 @@ function updateMotionUI() {
   if (footer) footer.hidden = !motionActive;
   // motion mode pins discrete fields to keyframe 0 — hide the form picker and
   // dim/disable the non-animatable controls (see body.motion rules in styles.css).
-  document.body.classList.toggle('motion', motionActive);
+  // gate only once the FIRST keyframe is saved — until then, changing form/segments
+  // to set up the starting look is allowed.
+  document.body.classList.toggle('motion', motionActive && kfList().length >= 1);
 
   const n = kfList().length;
   const canDelete = motion.selected >= 0 || keyframeAt(motion.playhead) >= 0;
