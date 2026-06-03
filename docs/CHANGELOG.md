@@ -4,6 +4,16 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.5.10 (Build 84) — 2026-06-02
+
+**Mobile chrome fixes (from Daniel's Build 81 device testing).**
+
+- **Touch-rotate runaway fixed (suspected).** On iPhone, rotating the wedge by touch spun it ~3× the finger's travel (a 90° drag → ~900°). Root cause analysis: the rotate gesture is the only *accumulative* one (it sums angle deltas via `prevAngle`), and it read the orbit center from the live overlay geometry every move; when the source panel reflows mid-drag (iPhone Safari hiding its address bar — doesn't happen on desktop/iPad), the drifting center corrupts the accumulated delta. Fix: snapshot the rotation center (`cx0/cy0`) at drag start and orbit that fixed point. Behavior-identical on desktop/iPad (center is stable there). **Couldn't reproduce remotely (no device/headless browser) — needs Daniel's on-device confirmation.**
+- **Reverse-camera (flip) icon redrawn.** The old glyph had broken arrowheads; replaced with two half-circle arcs and vertical arrowheads (3-o'clock down, 9-o'clock up), matching the iOS camera-flip style.
+- **Tab popover toggle.** Tapping an already-open tab (source/form) now closes its menu instead of flickering it closed-and-reopen.
+
+---
+
 ## v0.5.9 (Build 83) — 2026-06-02
 
 **Motion mode (A/B still-animation) — desktop + iPad.** First user-facing animation feature. A "motion mode" toggle (in the canvas group) reveals a contextual transport footer beneath the work area: **set A / set B** capture the current look as keyframe snapshots (`{...state}`), **A / B** jump back to a captured look to tweak and re-capture, **play/pause** animates A↔B via `lerpState` (Build 82) over a continuous rAF loop, a **loop** toggle closes the cycle seamlessly (triangle A→B→A with `easeInOut`, so no velocity snap at the ends), a **duration** scrub field (0.25–30s), and a **scrubber track** to preview any point in the span.

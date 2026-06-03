@@ -424,7 +424,11 @@ $('m-flip').addEventListener('click', flipCamera);
 // ----------------------------------------------------------------- tab popovers
 // items: { icon, iconClass?, label, action, current? }
 function showMenu(items, anchorId) {
+  // tapping the same tab again closes its open menu (toggle), not reopen it.
+  const open = document.getElementById('m-menu');
+  const toggleOff = open && open.dataset.anchor === anchorId;
   closeMenu();
+  if (toggleOff) return;
   const menu = document.createElement('div');
   menu.className = 'm-menu';
   menu.id = 'm-menu';

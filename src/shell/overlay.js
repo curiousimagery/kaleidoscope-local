@@ -968,7 +968,7 @@ export function setupSourceInteraction(env, wrap) {
         // the wedge graphic rotates the OPPOSITE direction from sliceRotation in
         // screen y-down terms. negate the cursor delta so dragging CCW in screen
         // rotates the wedge CCW in screen (intuitive).
-        const a = Math.atan2(y - g.cy, x - g.cx);
+        const a = Math.atan2(y - drag.cy0, x - drag.cx0);
         let delta = a - drag.prevAngle;
         if (delta > Math.PI)  delta -= 2 * Math.PI;
         if (delta < -Math.PI) delta += 2 * Math.PI;
@@ -1146,9 +1146,17 @@ export function setupSourceInteraction(env, wrap) {
       drag = { mode: 'droste-offset' };
       setCursor('grabbing');
     } else if (cls.mode === 'rotate') {
+      // Snapshot the rotation center at drag start and orbit THAT fixed point.
+      // The wedge center can't move during a rotate (only sliceRotation changes),
+      // so if the source panel reflows mid-drag — e.g. iPhone Safari hiding its
+      // address bar, which doesn't happen on desktop/iPad — reading the live geom
+      // center each move would corrupt the accumulated angle delta and the wedge
+      // spins much faster than the finger.
       drag = {
         mode: 'rotate',
         prevAngle: cls.theta,
+        cx0: g.cx,
+        cy0: g.cy,
       };
       setCursor(rotateCursorForAngle(cls.theta));
     }
