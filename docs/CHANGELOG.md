@@ -4,6 +4,16 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.7.2 (Build 98) — 2026-06-03
+
+**Global output aspect — WYSIWYG framing.** Aspect ratio (1:1 / 4:5 / 16:9) is now a global **frame** setting (in the canvas group), not an export-time crop. The preview canvas reshapes to the chosen frame, so what you edit is exactly what exports — no more pattern appearing outside the square preview.
+
+- `session.frameAspect` (w/h) drives the non-square preview (`resizePreviewCanvas`), the engine render (`u_outputAspect`, via the canvas dimensions), and is inherited by **both** still export (`exportAt` now renders the chosen size tier as the LONG side at the frame aspect) and video export (the sheet's own aspect selector is gone; it reads the global frame).
+- Timeline thumbnails, the filmstrip, and the swap mini stay square via a center-crop of the preview — they show the *look*, not the frame, so they don't distort and don't need re-capture when the aspect changes.
+- Note: still-export size tiers (1K…max) are now the long side; a non-square export's short side scales from the aspect.
+
+---
+
 ## v0.7.1 (Build 97) — 2026-06-03
 
 **Timeline duplicate-keyframe fix + video resolutions.**

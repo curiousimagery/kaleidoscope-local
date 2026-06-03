@@ -210,16 +210,22 @@ function resizePreviewCanvas() {
     containerW = main.clientWidth - 48;
     containerH = main.clientHeight - 48;
   }
+  // fit a frameAspect (w/h) rectangle inside the container — the preview canvas
+  // takes the output frame shape so editing is WYSIWYG with export.
+  const a = session.frameAspect || 1;
+  let cw, ch;
+  if (containerW / containerH >= a) { ch = Math.max(160, containerH); cw = ch * a; }
+  else { cw = Math.max(160, containerW); ch = cw / a; }
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
-  const cssSize = Math.max(200, Math.min(containerW, containerH));
-  const target = Math.max(400, Math.min(2048, Math.floor(cssSize * dpr)));
-
-  if (Math.abs(previewCanvas.width - target) > 16) {
-    previewCanvas.width = target;
-    previewCanvas.height = target;
+  let tw = Math.floor(cw * dpr), th = Math.floor(ch * dpr);
+  const mx = Math.max(tw, th);
+  if (mx > 2048) { const s = 2048 / mx; tw = Math.floor(tw * s); th = Math.floor(th * s); }
+  if (Math.abs(previewCanvas.width - tw) > 16 || Math.abs(previewCanvas.height - th) > 16) {
+    previewCanvas.width = tw;
+    previewCanvas.height = th;
   }
-  previewCanvas.style.width = cssSize + 'px';
-  previewCanvas.style.height = cssSize + 'px';
+  previewCanvas.style.width = Math.round(cw) + 'px';
+  previewCanvas.style.height = Math.round(ch) + 'px';
   scheduleRender();
 }
 env.resizePreviewCanvas = resizePreviewCanvas;
@@ -238,7 +244,9 @@ function drawMiniKaleidoscope() {
   if (!miniCanvas.parentElement) return;
   const ctx = miniCanvas.getContext('2d');
   ctx.clearRect(0, 0, miniCanvas.width, miniCanvas.height);
-  ctx.drawImage(previewCanvas, 0, 0, miniCanvas.width, miniCanvas.height);
+  // center-crop the (possibly non-square) preview into the square mini.
+  const pw = previewCanvas.width, ph = previewCanvas.height, s = Math.min(pw, ph);
+  ctx.drawImage(previewCanvas, (pw - s) / 2, (ph - s) / 2, s, s, 0, 0, miniCanvas.width, miniCanvas.height);
 }
 
 // ============================================================================
@@ -624,7 +632,7 @@ async function doExport(sizeArg) {
 
   let result;
   try {
-    result = await engine.exportAt(state, sizeArg, session.exportFormat);
+    result = await engine.exportAt(state, sizeArg, session.exportFormat, undefined, session.frameAspect);
   } catch (e) {
     statusEl.textContent = e.message;
     statusEl.classList.add('error');
@@ -666,7 +674,7 @@ async function exportPackage() {
 
   let result;
   try {
-    result = await engine.exportAt(state, session.exportSize, session.exportFormat);
+    result = await engine.exportAt(state, session.exportSize, session.exportFormat, undefined, session.frameAspect);
   } catch (e) {
     statusEl.textContent = e.message;
     statusEl.classList.add('error');
@@ -1132,10 +1140,11 @@ const kfList = () => motion.keyframes;
 // copy the current preview canvas (whatever was last rendered) into a marker
 // canvas — cheap drawImage, same trick as drawMiniKaleidoscope.
 function drawThumbInto(canvas) {
-  if (!canvas) return;
-  if (engine && previewCanvas.width) {
-    canvas.getContext('2d').drawImage(previewCanvas, 0, 0, canvas.width, canvas.height);
-  }
+  if (!canvas || !engine || !previewCanvas.width) return;
+  // center-crop the (possibly non-square) preview into the square thumbnail — the
+  // thumb represents the LOOK, independent of the output frame aspect.
+  const pw = previewCanvas.width, ph = previewCanvas.height, s = Math.min(pw, ph);
+  canvas.getContext('2d').drawImage(previewCanvas, (pw - s) / 2, (ph - s) / 2, s, s, 0, 0, canvas.width, canvas.height);
 }
 function makeThumb() {
   const c = document.createElement('canvas');
@@ -1381,7 +1390,8 @@ function buildFilmstrip() {
   const n = Math.ceil(W / S);
   for (let i = 0; i < n; i++) {
     engine.render(sampleAt(Math.min(1, (i * S + S / 2) / W)));   // each frame's center maps to its time
-    cx.drawImage(previewCanvas, i * S, 0, S, H);
+    const pw = previewCanvas.width, ph = previewCanvas.height, cs = Math.min(pw, ph);
+    cx.drawImage(previewCanvas, (pw - cs) / 2, (ph - cs) / 2, cs, cs, i * S, 0, S, H);   // center-crop square
   }
   strip.innerHTML = '';
   strip.appendChild(c);
@@ -1570,20 +1580,34 @@ function wireMotion() {
   updateMotionUI();
 }
 
+// global output frame aspect (1:1 / 4:5 / 16:9) — reshapes the preview (WYSIWYG)
+// and is inherited by still + video export.
+function wireFrameAspect() {
+  const grp = document.getElementById('frameAspect');
+  if (!grp) return;
+  grp.querySelectorAll('button').forEach((b) => {
+    b.addEventListener('click', () => {
+      grp.querySelectorAll('button').forEach((x) => x.classList.toggle('active', x === b));
+      session.frameAspect = parseFloat(b.dataset.asp) || 1;
+      resizePreviewCanvas();        // reshape the preview to the new frame (also re-renders)
+      scheduleFilmstrip();
+    });
+  });
+}
+
 // ---- video export ---------------------------------------------------------
 function setupVideoExport() {
   const byId = (id) => document.getElementById(id);
   const sheet = byId('vidSheet');
   if (!sheet) return;
-  const ASPECTS = { '1:1': [1, 1], '4:5': [4, 5], '16:9': [16, 9] };
-  let selAsp = '1:1', selLong = 2560, selFps = 30, cancelRender = false, rendering = false;
+  let selLong = 2560, selFps = 30, cancelRender = false, rendering = false;
 
   const dims = () => {
-    const [aw, ah] = ASPECTS[selAsp];
-    // selLong sets the LONG side; the short side follows the aspect.
+    // aspect comes from the global frame setting; selLong sets the LONG side.
+    const a = session.frameAspect || 1;          // w/h
     let w, h;
-    if (aw >= ah) { w = selLong; h = Math.round((selLong * ah) / aw); }   // square / landscape
-    else { h = selLong; w = Math.round((selLong * aw) / ah); }            // portrait (4:5)
+    if (a >= 1) { w = selLong; h = Math.round(selLong / a); }   // square / landscape: long = width
+    else { h = selLong; w = Math.round(selLong * a); }          // portrait (4:5): long = height
     const cap = (engine && engine.diagnostics.maxFBOSize) || 4096;
     const m = Math.max(w, h);
     if (m > cap) { const s = cap / m; w = Math.round(w * s); h = Math.round(h * s); }  // clamp to GPU FBO max
@@ -1607,7 +1631,6 @@ function setupVideoExport() {
       });
     });
   };
-  wireGroup('vidAspect', 'asp', (v) => { selAsp = v; });
   wireGroup('vidRes', 'long', (v) => { selLong = parseInt(v, 10); });
   wireGroup('vidFps', 'fps', (v) => { selFps = parseInt(v, 10); });
 
@@ -1674,6 +1697,7 @@ if (engine) {
     onCommitEnd: () => updateUndoUI(),
   });
   setupUndoBar();
+  wireFrameAspect();
   wireMotion();
   setupVideoExport();
   wireDiagnosticButton(engine, () => state);

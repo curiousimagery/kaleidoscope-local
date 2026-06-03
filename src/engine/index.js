@@ -145,28 +145,33 @@ export function createEngine({ canvas, maxProbeSize }) {
     // format is 'png' | 'jpg'. quality applies to JPG only.
     //
     // throws on framebuffer-incomplete (e.g. requested size exceeds GPU limits).
-    async exportAt(state, sizeArg, format = 'png', quality = 0.95) {
+    async exportAt(state, sizeArg, format = 'png', quality = 0.95, aspect = 1) {
       if (!sourceTexture) throw new Error('no source loaded');
       const cap = glCtx.diagnostics.maxFBOSize;
-      let size;
-      if (sizeArg === 'max') size = cap;
-      else { size = parseInt(sizeArg, 10); if (size > cap) size = cap; }
+      let longSide;
+      if (sizeArg === 'max') longSide = cap;
+      else { longSide = parseInt(sizeArg, 10); if (longSide > cap) longSide = cap; }
+
+      // the size tier is the LONG side; the short side follows the frame aspect (w/h).
+      let w, h;
+      if (aspect >= 1) { w = longSide; h = Math.round(longSide / aspect); }
+      else { h = longSide; w = Math.round(longSide * aspect); }
+      if (Math.max(w, h) > cap) { const s = cap / Math.max(w, h); w = Math.round(w * s); h = Math.round(h * s); }
 
       const ctx = buildCtx(state);
-      const { pixels, renderMs, readMs } = await renderToFBO(glCtx, state, ctx, size);
+      const { pixels, renderMs, readMs } = await renderToFBO(glCtx, state, ctx, w, h);
 
       // copy into 2D canvas, flipped Y (WebGL is bottom-up vs canvas top-down).
       const t2 = performance.now();
       const exportCanvas = document.createElement('canvas');
-      exportCanvas.width = size;
-      exportCanvas.height = size;
+      exportCanvas.width = w;
+      exportCanvas.height = h;
       const ctx2d = exportCanvas.getContext('2d');
-      const imgData = ctx2d.createImageData(size, size);
-      const stride = size * 4;
-      for (let y = 0; y < size; y++) {
-        const srcOffset = (size - 1 - y) * stride;
-        const dstOffset = y * stride;
-        imgData.data.set(pixels.subarray(srcOffset, srcOffset + stride), dstOffset);
+      const imgData = ctx2d.createImageData(w, h);
+      const stride = w * 4;
+      for (let y = 0; y < h; y++) {
+        const srcOffset = (h - 1 - y) * stride;
+        imgData.data.set(pixels.subarray(srcOffset, srcOffset + stride), y * stride);
       }
       ctx2d.putImageData(imgData, 0, 0);
 
@@ -175,13 +180,13 @@ export function createEngine({ canvas, maxProbeSize }) {
 
       const blob = await new Promise((resolve, reject) => {
         exportCanvas.toBlob((b) => {
-          if (!b) reject(new Error(`export failed at ${size}×${size}`));
+          if (!b) reject(new Error(`export failed at ${w}×${h}`));
           else resolve(b);
         }, mime, q);
       });
       const encodeMs = performance.now() - t2;
 
-      return { blob, size, renderMs, readMs, encodeMs };
+      return { blob, size: longSide, w, h, renderMs, readMs, encodeMs };
     },
 
     // render a single animation frame at w×h into a provided 2D canvas context
