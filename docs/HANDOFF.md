@@ -12,7 +12,7 @@ He prefers **no em dashes** in his own writing; respect that in any prose Claude
 
 ## current version
 
-`v0.7.2 · Build 98`. The footer in the running app shows this string from `src/version.js`.
+`v0.7.3 · Build 99`. The footer in the running app shows this string from `src/version.js`.
 
 **Video export SHIPPED (Build 96, v0.7.0) — needs Daniel's in-browser pass.** Render the loop to H.264 .mp4 via WebCodecs + **mp4-muxer** (a new, Daniel-approved dependency — the second authorized one after vite-plugin-pwa). Non-square output is now supported in the engine (`u_outputAspect` uniform; `renderToFBO(w,h)`; `engine.exportFrame`). The "render ▸" button in the motion footer opens a sheet (aspect 1:1/4:5/16:9, resolution 1080p/1440p/4K, fps 24/30/60). Untested by Claude (no WebCodecs here). Follow-ups: MediaRecorder fallback, 3K/6K, aspect crops for still export, video-file source loading.
 

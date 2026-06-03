@@ -196,6 +196,12 @@
     <button class="mf-btn" id="mfDelete" disabled title="delete the selected keyframe">delete</button>
     <button class="mf-btn mf-toggle" id="mfAnchor" disabled title="fix this keyframe's time, or let it auto-space">anchor</button>
     <button class="mf-btn" id="mfRender" disabled title="render the animation to a video file">render ▸</button>
+    <span class="mf-sep"></span>
+    <span class="mf-frame" id="mfFrame" title="output frame aspect">
+      <button class="mf-btn mf-toggle active" data-asp="1">1:1</button>
+      <button class="mf-btn mf-toggle" data-asp="0.8">4:5</button>
+      <button class="mf-btn mf-toggle" data-asp="1.7778">16:9</button>
+    </span>
     <label class="mf-dur">duration <span class="val scrub" id="mfDurVal">30.0s</span></label>
     <label class="mf-field">easing <span class="val scrub" id="mfEaseVal">100%</span></label>
   </div>

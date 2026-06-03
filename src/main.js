@@ -1365,12 +1365,16 @@ function stepKeyframe(dir) {
 // is no on-screen flicker — captures each into one strip canvas, then restores the
 // current frame.
 let filmstripTimer = 0;
+let filmstripToken = 0;
 function scheduleFilmstrip() {
   if (!motionActive) return;
   clearTimeout(filmstripTimer);
-  filmstripTimer = setTimeout(buildFilmstrip, 700);   // wait for a real pause before the N-render rebuild
+  filmstripTimer = setTimeout(buildFilmstrip, 600);   // wait for a real pause before rebuilding
 }
-function buildFilmstrip() {
+// Build the strip OFFSCREEN (small FBO renders via engine.exportFrame) with yields
+// between frames, so it never blocks the main thread and never disturbs the live
+// preview. A token cancels a build that's been superseded by a newer one.
+async function buildFilmstrip() {
   const strip = document.getElementById('mfStrip');
   if (!strip) return;
   const track = document.getElementById('mfTrack');
@@ -1378,7 +1382,7 @@ function buildFilmstrip() {
     strip.innerHTML = '';
     return;
   }
-  const w = strip.clientWidth, h = strip.clientHeight;   // strip is inset to match the keyframe thumb size
+  const w = strip.clientWidth, h = strip.clientHeight;
   if (w < 2 || h < 2) return;
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
   const W = Math.round(w * dpr), H = Math.round(h * dpr);
@@ -1386,17 +1390,22 @@ function buildFilmstrip() {
   c.width = W; c.height = H;
   c.style.cssText = 'width:100%;height:100%;display:block';
   const cx = c.getContext('2d');
-  const S = H;                                     // square frames, same size as the keyframe thumbnails
+  const S = H;                                     // square frames, matching the keyframe thumbnails
   const n = Math.ceil(W / S);
+  const fs = Math.min(H, 240);                     // small offscreen render size (the square "look")
+  const tmp = document.createElement('canvas');
+  tmp.width = fs; tmp.height = fs;
+  const tctx = tmp.getContext('2d');
+  const token = ++filmstripToken;
   for (let i = 0; i < n; i++) {
-    engine.render(sampleAt(Math.min(1, (i * S + S / 2) / W)));   // each frame's center maps to its time
-    const pw = previewCanvas.width, ph = previewCanvas.height, cs = Math.min(pw, ph);
-    cx.drawImage(previewCanvas, (pw - cs) / 2, (ph - cs) / 2, cs, cs, i * S, 0, S, H);   // center-crop square
+    if (token !== filmstripToken || !motionActive || motion.playing) return;   // superseded / exited / playing
+    await engine.exportFrame(sampleAt(Math.min(1, (i * S + S / 2) / W)), fs, fs, tctx);
+    cx.drawImage(tmp, i * S, 0, S, H);
+    if (i % 2 === 1) await new Promise((r) => setTimeout(r));   // yield to keep the UI responsive
   }
+  if (token !== filmstripToken) return;
   strip.innerHTML = '';
   strip.appendChild(c);
-  engine.render(state);                          // restore the current frame (same JS turn → no flicker)
-  if (session.isSwapped) drawMiniKaleidoscope();
 }
 
 // ---- timeline rendering ---------------------------------------------------
@@ -1583,16 +1592,22 @@ function wireMotion() {
 // global output frame aspect (1:1 / 4:5 / 16:9) — reshapes the preview (WYSIWYG)
 // and is inherited by still + video export.
 function wireFrameAspect() {
-  const grp = document.getElementById('frameAspect');
-  if (!grp) return;
-  grp.querySelectorAll('button').forEach((b) => {
-    b.addEventListener('click', () => {
-      grp.querySelectorAll('button').forEach((x) => x.classList.toggle('active', x === b));
-      session.frameAspect = parseFloat(b.dataset.asp) || 1;
-      resizePreviewCanvas();        // reshape the preview to the new frame (also re-renders)
-      scheduleFilmstrip();
-    });
-  });
+  // two synced control groups: the canvas-group "frame" (always visible, for stills)
+  // and the motion-footer one (near duration, for the animation workflow).
+  const groups = ['frameAspect', 'mfFrame'].map((id) => document.getElementById(id)).filter(Boolean);
+  if (!groups.length) return;
+  const syncActive = () => groups.forEach((g) =>
+    g.querySelectorAll('button').forEach((b) =>
+      b.classList.toggle('active', Math.abs(parseFloat(b.dataset.asp) - session.frameAspect) < 0.001)));
+  groups.forEach((g) =>
+    g.querySelectorAll('button').forEach((b) =>
+      b.addEventListener('click', () => {
+        session.frameAspect = parseFloat(b.dataset.asp) || 1;
+        syncActive();
+        resizePreviewCanvas();      // reshape the preview to the new frame (also re-renders)
+        scheduleFilmstrip();
+      })));
+  syncActive();
 }
 
 // ---- video export ---------------------------------------------------------

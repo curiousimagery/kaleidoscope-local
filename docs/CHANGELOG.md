@@ -4,6 +4,15 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.7.3 (Build 99) — 2026-06-03
+
+**Aspect control in the footer + filmstrip perf fix (from Daniel's 0.7.x testing).**
+
+- **Frame aspect control added to the motion footer** (1:1 / 4:5 / 16:9), next to duration where it's reachable while animating, synced with the canvas-group "frame" control — both drive `session.frameAspect`. (Build 98 only had it in the canvas group, which was easy to miss.)
+- **Filmstrip no longer blocks the main thread.** The rebuild renders frames OFFSCREEN at a small size (`engine.exportFrame`, ≤240px) with yields between them and a cancel token, instead of N full synchronous renders to the large non-square preview canvas. This fixes the multi-second lag after adding a keyframe (high-priority, affected every session) and no longer disturbs the live preview.
+
+---
+
 ## v0.7.2 (Build 98) — 2026-06-03
 
 **Global output aspect — WYSIWYG framing.** Aspect ratio (1:1 / 4:5 / 16:9) is now a global **frame** setting (in the canvas group), not an export-time crop. The preview canvas reshapes to the chosen frame, so what you edit is exactly what exports — no more pattern appearing outside the square preview.
