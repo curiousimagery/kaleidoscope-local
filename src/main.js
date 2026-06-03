@@ -177,6 +177,9 @@ const sourceOverlay = createSourceOverlay({
   // discrete edits (segment-spoke drag, droste-arms drag) are blocked once motion
   // mode has a keyframe — discrete is pinned to keyframe 0.
   canEditDiscrete: () => !(motionActive && motion.keyframes.length >= 1),
+  // hide the touch affordance arrows during playback/scrub (they're not useful while
+  // the animation runs).
+  hideAffordances: () => motionActive && (motion.playing || motionScrubbing),
 });
 env.scheduleOverlayDraw = sourceOverlay.scheduleDraw;
 
@@ -1240,49 +1243,62 @@ function stopPlayback() {
 }
 
 // ---- keyframe operations --------------------------------------------------
-// distribute all keyframes evenly across [0,1): t_i = i/n. keyframe 0 stays at 0;
-// the tail span [(n-1)/n, 1] is the loop return. (v1: sequential adds auto-space;
-// drag-to-retime — a fast-follow — will later allow manual, non-destructive spacing.)
-function redistributeEven() {
-  const n = kfList().length;
-  kfList().forEach((kf, i) => { kf.t = n > 1 ? i / n : 0; });
+// keyframe 0 is the fixed start anchor (t=0). other "anchored" keyframes keep their
+// hand-set t; the rest ("auto") distribute evenly within each gap between anchors
+// (and between the last anchor and the loop end at t=1). Recomputed after any
+// add / delete / drag / anchor-toggle.
+function applyAutoSpacing() {
+  const list = kfList();
+  if (!list.length) return;
+  list[0].t = 0;
+  let i = 0;
+  while (i < list.length) {
+    let j = i + 1;
+    while (j < list.length && !list[j].anchored) j++;
+    const leftT = list[i].t;
+    const rightT = j < list.length ? list[j].t : 1;
+    const gaps = j - i;
+    for (let k = i + 1; k < j; k++) list[k].t = leftT + (rightT - leftT) * (k - i) / gaps;
+    i = j;
+  }
 }
 function addKeyframe() {
   if (!engine || !engine.getSourceImage()) return;
   if (motion.playing) stopPlayback();
   engine.render(state);                          // preview shows this state for the thumb
-  const kf = { t: 0, snap: { ...state }, thumb: makeThumb() };
-  const onIdx = keyframeAt(motion.playhead);
+  const kf = { t: 0, snap: { ...state }, thumb: makeThumb(), anchored: false };
   let newIdx;
   if (kfList().length === 0) {
-    kfList().push(kf);                           // first keyframe anchors at the start (t=0)
-    newIdx = 0;
-  } else if (onIdx >= 0) {
-    // sitting on an existing keyframe: insert a NEW one after it (never overwrite).
-    if (motion.retimed) {
-      // manual spacing is in play — insert at the midpoint of the next gap, leaving
-      // the other keyframes' hand-set times alone.
-      const nextT = onIdx < kfList().length - 1 ? kfList()[onIdx + 1].t : 1;
-      kf.t = (kfList()[onIdx].t + nextT) / 2;
-      kfList().splice(onIdx + 1, 0, kf);
-    } else {
-      // no manual spacing yet — re-even so repeated clicks build an evenly-spaced run.
-      kfList().splice(onIdx + 1, 0, kf);
-      redistributeEven();
-    }
-    newIdx = onIdx + 1;
-  } else {
-    // parked off a keyframe: drop at the scrubber (explicit), leave the others put.
-    kf.t = Math.max(0.001, Math.min(0.999, motion.playhead));
+    kf.anchored = true;                          // keyframe 0 is the fixed start anchor
     kfList().push(kf);
-    kfList().sort((a, b) => a.t - b.t);
-    newIdx = kfList().indexOf(kf);
+    newIdx = 0;
+  } else {
+    const onIdx = keyframeAt(motion.playhead);
+    if (onIdx >= 0) {
+      kfList().splice(onIdx + 1, 0, kf);         // sequential: insert after the current
+      newIdx = onIdx + 1;
+    } else {
+      let ins = kfList().findIndex(k => k.t > motion.playhead);   // keep the array in time order
+      if (ins < 0) ins = kfList().length;
+      kfList().splice(ins, 0, kf);
+      newIdx = ins;
+    }
   }
-  // jump to + select the new keyframe so edits refine it directly (Daniel: "jump
-  // forward and auto-select each time"). insert-after above means this never
-  // overwrites the keyframe you were sitting on.
+  // new keyframes are auto (anchored=false) — they even out around the anchors. drag
+  // one to pin it. Jump to + select the new keyframe so edits refine it directly.
+  applyAutoSpacing();
   motion.selected = newIdx;
-  setPlayhead(kf.t);
+  setPlayhead(kfList()[newIdx].t);
+  renderTimeline();
+  updateMotionUI();
+}
+// toggle the selected keyframe between anchored (fixed time) and auto (even-spaced).
+function toggleAnchor() {
+  const i = motion.selected;
+  if (i <= 0) return;                            // keyframe 0 is always the start anchor
+  kfList()[i].anchored = !kfList()[i].anchored;
+  applyAutoSpacing();
+  setPlayhead(kfList()[i].t);
   renderTimeline();
   updateMotionUI();
 }
@@ -1291,7 +1307,7 @@ function deleteSelected() {
   if (idx < 0) return;
   kfList().splice(idx, 1);
   motion.selected = -1;
-  if (!kfList().length) motion.retimed = false;   // fresh sequence auto-evens again
+  applyAutoSpacing();                              // autos re-space to fill the gap
   if (kfList().length) loadPlayheadIntoState();
   renderTimeline();
   updateMotionUI();
@@ -1347,7 +1363,7 @@ function makeMarkerDraggable(m, i) {
     const hi = (i < list.length - 1 ? list[i + 1].t : 1) - 0.01;
     const t = Math.max(lo, Math.min(hi, (e.clientX - down.rect.left) / down.rect.width));
     list[i].t = t;
-    motion.retimed = true;
+    list[i].anchored = true;                        // a moved keyframe becomes a fixed anchor
     m.style.left = (t * 100) + '%';
     if (motion.selected === i) setPlayhead(t);
   });
@@ -1356,7 +1372,7 @@ function makeMarkerDraggable(m, i) {
     const wasDrag = down.moved;
     m.releasePointerCapture?.(e.pointerId);
     down = null;
-    if (wasDrag) { renderTimeline(); loadPlayheadIntoState(); updateMotionUI(); }
+    if (wasDrag) { applyAutoSpacing(); renderTimeline(); loadPlayheadIntoState(); updateMotionUI(); }
     else selectKeyframe(i);
   };
   m.addEventListener('pointerup', end);
@@ -1369,7 +1385,7 @@ function renderTimeline() {
   const list = kfList();
   list.forEach((kf, i) => {
     const m = document.createElement('div');
-    m.className = 'mf-marker' + (i === motion.selected ? ' selected' : '');
+    m.className = 'mf-marker' + (i === motion.selected ? ' selected' : '') + (kf.anchored ? ' anchored' : '');
     m.style.left = (kf.t * 100) + '%';
     if (kf.thumb) m.appendChild(kf.thumb);
     const pin = document.createElement('div');
@@ -1431,6 +1447,8 @@ function updateMotionUI() {
   const canDelete = motion.selected >= 0 || keyframeAt(motion.playhead) >= 0;
   if (q('mfAdd')) q('mfAdd').disabled = !available;
   if (q('mfDelete')) q('mfDelete').disabled = !canDelete;
+  const selKf = motion.selected > 0 ? kfList()[motion.selected] : null;   // kf0 is always the start anchor
+  if (q('mfAnchor')) { q('mfAnchor').disabled = !selKf; q('mfAnchor').classList.toggle('active', !!(selKf && selKf.anchored)); }
   if (q('mfPlay')) { q('mfPlay').disabled = n < 2; q('mfPlay').textContent = motion.playing ? 'pause' : 'play'; }
   if (q('mfPrev')) q('mfPrev').disabled = n < 1;
   if (q('mfNext')) q('mfNext').disabled = n < 1;
@@ -1444,6 +1462,7 @@ function wireMotion() {
   byId('motionBtn')?.addEventListener('click', toggleMotionMode);
   byId('mfAdd')?.addEventListener('click', addKeyframe);
   byId('mfDelete')?.addEventListener('click', deleteSelected);
+  byId('mfAnchor')?.addEventListener('click', toggleAnchor);
   byId('mfPrev')?.addEventListener('click', () => stepKeyframe(-1));
   byId('mfNext')?.addEventListener('click', () => stepKeyframe(1));
   byId('mfPlay')?.addEventListener('click', () => { if (motion.playing) stopPlayback(); else startPlayback(); });

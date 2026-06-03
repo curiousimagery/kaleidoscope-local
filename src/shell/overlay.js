@@ -302,7 +302,7 @@ export function drawSourceOverlay(env) {
 
   // Touch-only persistent affordances — drawn at ~60% opacity, fading to ~25%
   // during active drag so they don't compete with the active-state stroke highlights.
-  if (IS_TOUCH) {
+  if (IS_TOUCH && !(env.hideAffordances && env.hideAffordances())) {
     drawTouchAffordances(ctx, screenPts, cxPx, cyPx, outerEdges, spokeEdges, form,
       !!env.overlayDragging, env.overlayDragMode ?? null);
   }

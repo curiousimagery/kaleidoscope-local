@@ -550,12 +550,14 @@ button .btn-spinner {
 .mf-marker.selected canvas { border-color: #e8e8e8; }
 .mf-marker .mf-pin {
   position: absolute; top: -5px; left: 50%; margin-left: -5px;
-  width: 10px; height: 10px; background: #555; border-radius: 2px;
-  transform: rotate(45deg);                 /* notch shares the thumbnail outline color */
+  width: 10px; height: 10px; border-radius: 2px; transform: rotate(45deg);
+  background: transparent; border: 1.5px solid #666;     /* auto = hollow diamond */
 }
-.mf-marker.selected .mf-pin { background: #e8e8e8; }
+.mf-marker.anchored .mf-pin { background: #888; border-color: #888; }   /* anchored = filled */
+.mf-marker.selected .mf-pin { border-color: #e8e8e8; }
+.mf-marker.selected.anchored .mf-pin { background: #e8e8e8; }
 .mf-marker.ghost { opacity: 0.35; pointer-events: none; }
-.mf-marker.ghost .mf-pin { background: #555; }
+.mf-marker.ghost .mf-pin { background: #888; border-color: #888; }
 .mf-playhead {
   position: absolute; top: 0; bottom: 0; left: 0; width: 2px;
   background: #e8e8e8; pointer-events: none; z-index: 2;   /* white scrubber */

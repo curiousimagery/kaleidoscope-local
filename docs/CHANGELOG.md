@@ -4,6 +4,17 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.6.3 (Build 93) — 2026-06-03
+
+**Anchor / auto-space keyframe model + affordances hidden on playback.**
+
+- **Keyframe spacing is now anchor-based** (replaces the one-way `retimed` flag). A keyframe is either *anchored* (hand-positioned, fixed time) or *auto* (even-spaced). New keyframes are auto, so sequential adds stay evenly spaced; dragging a keyframe makes it an anchor and the autos re-space evenly around it. An **anchor** toggle (next to delete) flips the selected keyframe between fixed and auto at any time, so a manually-placed frame can rejoin auto-spacing later. Keyframe 0 is always the start anchor. On the track, auto keyframes show a hollow notch, anchored ones a filled notch.
+- **Touch affordance arrows hide during playback/scrub.** The rotate/scale arrows on the source overlay (touch surfaces) are suppressed while the animation runs, via a `hideAffordances` predicate threaded into the shared overlay (default off, so normal editing is unchanged).
+
+Next: tween filmstrip behind the keyframes.
+
+---
+
 ## v0.6.2 (Build 92) — 2026-06-03
 
 **Motion-mode refinements (from Daniel's Build 89 feedback).**

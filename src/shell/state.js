@@ -63,8 +63,10 @@ export const session = {
 // parallel to `session`, threaded via env.motion. reset on reload (not carried
 // across a responsive chrome switch — motion is desktop-only).
 export const motion = {
-  keyframes: [],      // [{ t: 0..1, snap: {...state}, thumb: <canvas> }], sorted by t.
-                      // keyframe 0 (t=0) is the start AND the loop-return target.
+  keyframes: [],      // [{ t: 0..1, snap, thumb, anchored }], sorted by t. keyframe 0
+                      // (t=0) is the start AND the loop-return target. `anchored` =
+                      // hand-positioned (fixed t); non-anchored keyframes auto-space
+                      // evenly between the anchors.
   durationMs: 30000,  // total animation length (the full 0..1 span)
   loop: true,         // close the cycle by tweening the last keyframe back to kf0
   easing: 1,          // 0..1 global easing: 0 = linear (constant velocity, less
@@ -72,7 +74,4 @@ export const motion = {
   playing: false,
   playhead: 0,        // 0..1 scrubber position
   selected: -1,       // index of the selected (editable) keyframe, or -1
-  retimed: false,     // true once the user has manually dragged a keyframe — after
-                      // which sequential adds insert non-destructively instead of
-                      // re-distributing the whole set to even spacing.
 };
