@@ -4,6 +4,20 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.5.15 (Build 89) — 2026-06-03
+
+**Timeline refinements (round 2, from Daniel's Build 88 test).**
+
+- **+ keyframe auto-selects and jumps forward.** Each add now selects the new keyframe and moves the scrubber to it (add-then-edit / duplicate-and-modify). Insert-after still means it never overwrites the keyframe you were on.
+- **Loop bookend shows its thumbnail.** The return-to-kf0 marker at the track end now renders keyframe 0's thumbnail (left edge visible), not just a notch. (kf0's thumbnail canvas is copied into a fresh canvas since a canvas node can't be in two places.)
+- **Default duration is 30s** (was 4s — far too fast for a still loop).
+- **Scrubber and notch align.** The scrubber line is centered on its time (matching the centered notch), and the playhead snaps onto a keyframe when scrubbing lands on one.
+- **Select guard for cross-form keyframes.** If a keyframe was captured under a different form (exit motion → change form → re-enter → add), selecting it no longer renders broken: discrete fields are forced to keyframe 0 on select, matching what playback already does. Elegant cross-form transition handling is backlogged.
+
+Still deferred: motion smoothing (proper easing model), drag-to-retime.
+
+---
+
 ## v0.5.14 (Build 88) — 2026-06-02
 
 **Timeline refinements (from Daniel's Build 87 test).**

@@ -558,6 +558,7 @@ button .btn-spinner {
 .mf-playhead {
   position: absolute; top: 0; bottom: 0; left: 0; width: 2px;
   background: #e8e8e8; pointer-events: none; z-index: 2;   /* white scrubber */
+  transform: translateX(-50%);                            /* center the line on its t (aligns with the centered notch) */
 }
 @media (pointer: coarse) { .mf-btn { height: 44px; } }
 

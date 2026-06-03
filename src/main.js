@@ -1189,8 +1189,9 @@ function renderSampled(p) {
 // on one. discards any uncommitted staged edit.
 function loadPlayheadIntoState() {
   if (!kfList().length) return;
-  Object.assign(state, sampleAt(motion.playhead));
   motion.selected = keyframeAt(motion.playhead);
+  if (motion.selected >= 0) setPlayhead(kfList()[motion.selected].t);   // snap onto the keyframe
+  Object.assign(state, sampleAt(motion.playhead));
   env.syncControls();
   env.scheduleOverlayDraw();
   env.scheduleRender();
@@ -1238,22 +1239,27 @@ function addKeyframe() {
   engine.render(state);                          // preview shows this state for the thumb
   const kf = { t: 0, snap: { ...state }, thumb: makeThumb() };
   const onIdx = keyframeAt(motion.playhead);
+  let newIdx;
   if (kfList().length === 0) {
     kfList().push(kf);                           // first keyframe anchors at the start (t=0)
+    newIdx = 0;
   } else if (onIdx >= 0) {
     // sitting on an existing keyframe: insert a NEW one after it (never overwrite)
     // and re-even the spacing, so repeated clicks build an evenly-spaced sequence.
     kfList().splice(onIdx + 1, 0, kf);
     redistributeEven();
+    newIdx = onIdx + 1;
   } else {
     // parked off a keyframe: drop at the scrubber (explicit), leave the others put.
     kf.t = Math.max(0.001, Math.min(0.999, motion.playhead));
     kfList().push(kf);
     kfList().sort((a, b) => a.t - b.t);
+    newIdx = kfList().indexOf(kf);
   }
-  // leave nothing selected so the next edit stages a fresh look (sequential add);
-  // click a marker to refine an existing keyframe via write-through.
-  motion.selected = -1;
+  // jump to + select the new keyframe so edits refine it directly (Daniel: "jump
+  // forward and auto-select each time"). insert-after above means this never
+  // overwrites the keyframe you were sitting on.
+  motion.selected = newIdx;
   setPlayhead(kf.t);
   renderTimeline();
   updateMotionUI();
@@ -1273,6 +1279,12 @@ function selectKeyframe(i) {
   motion.selected = i;
   setPlayhead(kfList()[i].t);
   Object.assign(state, kfList()[i].snap);
+  // keep discrete fields consistent with keyframe 0 even if this keyframe was
+  // captured under a different form (the animation already ignores its discrete;
+  // this stops a stale-form keyframe from rendering broken on select). Full
+  // cross-form transition handling is a backlog item.
+  const k0 = kfList()[0].snap;
+  for (const k of DISCRETE_KEYS) state[k] = k0[k];
   env.syncControls();
   env.scheduleOverlayDraw();
   env.scheduleRender();
@@ -1306,11 +1318,19 @@ function renderTimeline() {
     m.addEventListener('pointerdown', (e) => { e.stopPropagation(); selectKeyframe(i); });
     markers.appendChild(m);
   });
-  // loop bookend: a faint return-to-kf0 marker at t=1.
+  // loop bookend: a faint return-to-kf0 marker at t=1 (shows kf0's thumbnail, so its
+  // left edge is visible at the track end). a canvas can't live in two places, so
+  // copy kf0's thumb into a fresh canvas for the ghost.
   if (motion.loop && list.length) {
     const g = document.createElement('div');
     g.className = 'mf-marker ghost';
     g.style.left = '100%';
+    if (list[0].thumb) {
+      const gc = document.createElement('canvas');
+      gc.width = list[0].thumb.width; gc.height = list[0].thumb.height;
+      gc.getContext('2d').drawImage(list[0].thumb, 0, 0);
+      g.appendChild(gc);
+    }
     const pin = document.createElement('div'); pin.className = 'mf-pin';
     g.appendChild(pin);
     markers.appendChild(g);

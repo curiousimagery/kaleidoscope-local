@@ -65,7 +65,7 @@ export const session = {
 export const motion = {
   keyframes: [],      // [{ t: 0..1, snap: {...state}, thumb: <canvas> }], sorted by t.
                       // keyframe 0 (t=0) is the start AND the loop-return target.
-  durationMs: 4000,   // total animation length (the full 0..1 span)
+  durationMs: 30000,  // total animation length (the full 0..1 span)
   loop: true,         // close the cycle by tweening the last keyframe back to kf0
   playing: false,
   playhead: 0,        // 0..1 scrubber position
