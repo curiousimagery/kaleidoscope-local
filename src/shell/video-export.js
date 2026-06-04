@@ -5,9 +5,10 @@
 //
 // Render a still-animation loop to an MP4 (H.264) frame by frame, using the
 // WebCodecs VideoEncoder piped into mp4-muxer. This is the Host-layer video
-// export service (Phase 4). The engine renders each interpolated frame to an
-// offscreen FBO at the chosen w×h (non-square aspect handled in the shader);
-// each frame becomes a VideoFrame and is encoded — frame-perfect and faster than
+// export service (Phase 4). The engine renders each interpolated frame straight
+// to its GL canvas at the chosen w×h (non-square aspect handled in the shader)
+// and the canvas is wrapped directly in a VideoFrame — no readPixels / Y-flip /
+// putImageData (the single-core CPU bottleneck). Frame-perfect and faster than
 // real time, unlike a MediaRecorder canvas capture.
 //
 // WebCodecs is required (Chrome, Safari 16+/iPadOS 16+). When unavailable the
@@ -21,7 +22,7 @@ export function videoExportSupported() {
 }
 
 // exportVideo({ engine, sampleAt, width, height, fps, durationMs, onProgress, shouldCancel })
-//   engine     — the engine (engine.exportFrame(state, w, h, ctx2d))
+//   engine     — the engine (beginCapture(w,h) / captureFrame(state)→canvas / endCapture())
 //   sampleAt   — (p: 0..1) => state snapshot for that point in the loop
 //   width/height — even pixel dimensions of the output (caller clamps to GPU max)
 //   fps, durationMs — frame rate and total loop length
@@ -67,21 +68,20 @@ export async function exportVideo({ engine, sampleAt, width, height, fps, durati
   });
   encoder.configure({ codec, width, height, bitrate, framerate: fps });
 
-  const canvas = document.createElement('canvas');
-  canvas.width = width;
-  canvas.height = height;
-  const c2d = canvas.getContext('2d');
-
   const frameDur = Math.round(1_000_000 / fps);   // microseconds
   const gop = Math.max(1, Math.round(fps * 2));    // keyframe every ~2s
 
   try {
+    // Render each frame straight to the engine's GL canvas at output size and build
+    // the VideoFrame from the canvas — no readPixels / Y-flip / putImageData, which
+    // were the single-core, main-thread bottleneck (a 4K frame is ~37 MB GPU→CPU).
+    engine.beginCapture(width, height);
     for (let i = 0; i < frames; i++) {
       if (shouldCancel && shouldCancel()) { const e = new Error('cancelled'); e.code = 'cancelled'; throw e; }
       if (encError) throw encError;
 
-      await engine.exportFrame(sampleAt(i / frames), width, height, c2d);
-      const frame = new VideoFrame(canvas, { timestamp: i * frameDur, duration: frameDur });
+      const cv = engine.captureFrame(sampleAt(i / frames));
+      const frame = new VideoFrame(cv, { timestamp: i * frameDur, duration: frameDur });
       encoder.encode(frame, { keyFrame: i % gop === 0 });
       frame.close();
 
@@ -96,6 +96,7 @@ export async function exportVideo({ engine, sampleAt, width, height, fps, durati
     onProgress?.(1);
     return { blob: new Blob([muxer.target.buffer], { type: 'video/mp4' }), ext: 'mp4', frames };
   } finally {
+    engine.endCapture();
     try { if (encoder.state !== 'closed') encoder.close(); } catch { /* already closed */ }
   }
 }

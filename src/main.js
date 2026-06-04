@@ -1692,6 +1692,7 @@ function setupVideoExport() {
     } finally {
       rendering = false; btn.disabled = false; prog.hidden = true;
       if (cancelRender) sheet.hidden = true;
+      resizePreviewCanvas();   // the capture session resized the GL canvas — restore + repaint the preview
     }
   });
 }

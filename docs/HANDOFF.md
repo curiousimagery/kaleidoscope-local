@@ -12,7 +12,9 @@ He prefers **no em dashes** in his own writing; respect that in any prose Claude
 
 ## current version
 
-`v0.7.15 · Build 111`. The footer in the running app shows this string from `src/version.js`.
+`v0.7.16 · Build 112`. The footer in the running app shows this string from `src/version.js`.
+
+**Video export perf (Build 112, needs Daniel's in-browser timing):** replaced the per-frame `readPixels`+Y-flip+`putImageData` with a direct **GL-canvas → `VideoFrame`** capture path (`engine.beginCapture/captureFrame/endCapture`), removing the single-core CPU bottleneck. **Validate:** a 4K loop should be dramatically faster than before; confirm output is correct (orientation, color, no corruption) and the preview restores cleanly after export. If timing is still bottlenecked, the deferred next lever is moving encode/mux to a Worker. (`exportAt` still + `exportFrame` thumbnail paths unchanged.)
 
 **Keyframe model note (Build 111):** authoring reverted to **auto-select / duplicate-and-tweak** (undoes Build 97's "add deselects"). `+keyframe` always lays a keyframe after the current one and auto-selects it; edits write through (autosave) to the selected keyframe; an explicit synchronous commit-on-add prevents the stale-keyframe "pause" Build 97 was working around (Daniel diagnosed it as a missing save trigger, not auto-select). So the BACKLOG/CHANGELOG references to the Build 88/97 "add leaves nothing selected" model are now superseded.
 

@@ -4,6 +4,17 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.7.16 (Build 112) — 2026-06-04
+
+**Video export speed — eliminate the single-core readback bottleneck (Daniel; pro-tool framing).** Export previously did, per frame: `renderToFBO` → `gl.finish()` → **`readPixels`** (a 4K frame is ~37 MB GPU→CPU) → a **CPU Y-flip loop** → **`putImageData`** → `VideoFrame`. All serial, single-core, main-thread — thousands of times for a long 4K loop.
+
+- **New fast path:** the engine renders each frame **straight to its GL canvas** at output size and the canvas is wrapped **directly** in a `VideoFrame` (`engine.beginCapture(w,h)` / `captureFrame(state)→canvas` / `endCapture()`). No `readPixels`, no Y-flip, no `putImageData` — the browser ingests the canvas efficiently and the H.264 encode is already hardware. Orientation is correct (canvas is display-oriented); `preserveDrawingBuffer` (already on) makes the capture stable.
+- The GL canvas is the live preview canvas, so its size is snapshotted/restored around the session and the preview is repainted after (`resizePreviewCanvas`). The export sheet is modal + video export requires a still source, so no competing render can corrupt a frame.
+- **Still-image export (`exportAt`) and the thumbnail/filmstrip path (`exportFrame`) are untouched** — only the multi-frame video loop changed.
+- Worker-based encode/mux offload was deliberately deferred (the encode is hardware; `readPixels` was the cost) — measure first.
+
+---
+
 ## v0.7.15 (Build 111) — 2026-06-04
 
 **Keyframe authoring → back to auto-select / duplicate-and-tweak (Daniel).** Reverses the Build 97 model. Daniel's diagnosis: the Build 97 "duplicate pause" was a *missing save-on-add trigger*, not auto-select itself — so we keep auto-select and make the commit explicit.

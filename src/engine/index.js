@@ -32,6 +32,7 @@ export function createEngine({ canvas, maxProbeSize }) {
   let sourceImage = null;     // HTMLImageElement OR HTMLVideoElement (live camera)
   let sourceAspect = 1;
   let sourceW = 0, sourceH = 0;  // resolved pixel size (natural* for img, video* for video)
+  let capturePrevSize = null;    // preview canvas size snapshot during a video-capture session
 
   // a source is an <img> (naturalWidth), a <video> (videoWidth), or a <canvas>
   // (width — used for the mirrored front-camera frame). resolve to pixel
@@ -203,6 +204,33 @@ export function createEngine({ canvas, maxProbeSize }) {
         imgData.data.set(pixels.subarray(src, src + stride), y * stride);
       }
       outCtx2d.putImageData(imgData, 0, 0);
+    },
+
+    // --- video-capture session -------------------------------------------------
+    // The fast multi-frame path: render straight to the GL canvas at output size
+    // and let the caller wrap the canvas in a VideoFrame — NO readPixels / Y-flip /
+    // putImageData (the per-frame, single-core CPU cost that throttled export). The
+    // GL canvas IS the live preview canvas, so we snapshot + restore its size; the
+    // caller hides the preview during the session (render sheet) and re-renders
+    // after endCapture(). Frame orientation is already top-down (canvas
+    // presentation), so no manual flip is needed. preserveDrawingBuffer is on, so
+    // constructing the VideoFrame right after captureFrame() reads a stable buffer.
+    beginCapture(w, h) {
+      if (!sourceTexture) throw new Error('no source loaded');
+      const cv = glCtx.gl.canvas;
+      capturePrevSize = { w: cv.width, h: cv.height };
+      cv.width = w; cv.height = h;
+    },
+    captureFrame(state) {
+      const cv = glCtx.gl.canvas;
+      renderToCanvas(glCtx, state, buildCtx(state), cv.width, cv.height);
+      return cv;
+    },
+    endCapture() {
+      if (!capturePrevSize) return;
+      const cv = glCtx.gl.canvas;
+      cv.width = capturePrevSize.w; cv.height = capturePrevSize.h;
+      capturePrevSize = null;
     },
 
     // resolution hint — heuristic suggesting the largest output where ~1 source
