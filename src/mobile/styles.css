@@ -115,3 +115,38 @@ html, body { margin: 0; padding: 0; height: 100%; background: var(--m-bg); color
 .m-menu-icon { display: inline-flex; align-items: center; justify-content: center; width: 24px; color: var(--m-fg); }
 .m-menu-icon svg { width: 22px; height: 22px; display: block; }
 .m-icon-record { color: #e8504a; }   /* live camera = red in the menu (mono in the tab bar) */
+
+/* --------------------------------------------------------------- landscape layout
+   Same DOM, rotated. #m-root flips to a row so children read left→right:
+   OUTPUT | vertical divider | CONTEXT (source/settings) | vertical tab bar.
+   layout() (chrome.js) drives the OUTPUT width inline; everything else reflows.
+   Safe-area insets flip to the sides automatically: env(safe-area-inset-right) is
+   non-zero only when a Dynamic Island / notch rotates onto the RIGHT edge (CW
+   rotation), so the tab bar pads itself off that edge then and not otherwise. */
+@media (orientation: landscape) {
+  #m-root { flex-direction: row; }
+
+  /* OUTPUT width is set inline by layout(); height stretches via flex (row cross-axis). */
+
+  /* divider becomes a vertical grip spanning the full height */
+  #m-divider {
+    height: auto; width: var(--m-divider);
+    border-top: none; border-bottom: none;
+    border-left: 1px solid var(--m-line); border-right: 1px solid var(--m-line);
+    cursor: col-resize;
+  }
+  #m-divider::before { width: 5px; height: 44px; }
+
+  /* tab bar stacks down the RIGHT edge. right padding = the island's safe inset
+     (0 unless the island is on this edge) + an 8px buffer so the buttons are never
+     tucked under the OS chrome; bottom padding clears the home indicator. */
+  #m-tabbar {
+    flex-direction: column;
+    border-top: none; border-left: 1px solid var(--m-line);
+    padding: 8px calc(env(safe-area-inset-right) + 8px) max(8px, env(safe-area-inset-bottom)) 8px;
+  }
+  #m-tabbar button { min-width: 48px; }
+  /* the portrait bottom-corner rounding targets the wrong corners when vertical */
+  #m-tabbar button:first-child,
+  #m-tabbar button:last-child { border-radius: 8px; }
+}

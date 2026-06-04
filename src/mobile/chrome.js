@@ -494,10 +494,23 @@ function selectForm(id) {
 }
 
 // ------------------------------------------------------------- layout + sizing
+// The same DOM serves both orientations (DOM order = OUTPUT, divider, CONTEXT,
+// tab bar — already the left→right landscape order). CSS flips #m-root between a
+// column (portrait) and a row (landscape); here we just drive the OUTPUT's
+// main-axis size (height in portrait, width in landscape) and clear the other.
 let ratio = 0.5;                               // OUTPUT fraction of the split area
+const mqlLandscape = matchMedia('(orientation: landscape)');
+const isLandscape = () => mqlLandscape.matches;
 function layout() {
-  const availH = rootEl.clientHeight - tabbarEl.offsetHeight - dividerEl.offsetHeight;
-  outputEl.style.height = Math.round(ratio * availH) + 'px';   // context flex:1 fills the rest
+  if (isLandscape()) {
+    const availW = rootEl.clientWidth - tabbarEl.offsetWidth - dividerEl.offsetWidth;
+    outputEl.style.height = '';
+    outputEl.style.width = Math.round(ratio * availW) + 'px';   // context flex:1 fills the rest
+  } else {
+    const availH = rootEl.clientHeight - tabbarEl.offsetHeight - dividerEl.offsetHeight;
+    outputEl.style.width = '';
+    outputEl.style.height = Math.round(ratio * availH) + 'px';
+  }
   sizeOutput();
   sourceOverlay.scheduleDraw();
 }
@@ -519,10 +532,16 @@ function sizeOutput() {
   function onDown(e) { dragging = true; dividerEl.classList.add('dragging'); e.preventDefault(); }
   function onMove(e) {
     if (!dragging) return;
-    const y = (e.touches ? e.touches[0].clientY : e.clientY);
-    const availH = rootEl.clientHeight - tabbarEl.offsetHeight - dividerEl.offsetHeight;
-    const top = rootEl.getBoundingClientRect().top;
-    let r = (y - top) / availH;
+    let r;
+    if (isLandscape()) {
+      const x = (e.touches ? e.touches[0].clientX : e.clientX);
+      const availW = rootEl.clientWidth - tabbarEl.offsetWidth - dividerEl.offsetWidth;
+      r = (x - rootEl.getBoundingClientRect().left) / availW;
+    } else {
+      const y = (e.touches ? e.touches[0].clientY : e.clientY);
+      const availH = rootEl.clientHeight - tabbarEl.offsetHeight - dividerEl.offsetHeight;
+      r = (y - rootEl.getBoundingClientRect().top) / availH;
+    }
     if (Math.abs(r - 0.5) < 0.04) r = 0.5;     // soft center detent
     ratio = Math.max(0, Math.min(1, r));
     layout();
@@ -538,6 +557,9 @@ function sizeOutput() {
 })();
 
 window.addEventListener('resize', layout);
+// Relayout on rotation without tearing down the chrome, so a live camera feed
+// keeps running across portrait↔landscape (no reload, the <video> stays mounted).
+mqlLandscape.addEventListener('change', layout);
 requestAnimationFrame(layout);
 
 // ------------------------------------------------------------------ save sheet

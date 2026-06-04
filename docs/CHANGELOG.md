@@ -4,6 +4,17 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.7.7 (Build 103) — 2026-06-03
+
+**Mobile landscape layout — core (first pass; on-device validation pending).** The mobile chrome now reflows for landscape instead of staying portrait-only.
+
+- **In-place relayout, no reload.** `#m-root` flips between a column (portrait) and a row (landscape) via `@media (orientation)`; `layout()` and the divider drag became orientation-aware (drive/measure the OUTPUT's width in landscape, height in portrait; divider uses clientX vs clientY). Rotation triggers `resize` + a `matchMedia('(orientation: landscape)')` change, both re-running `layout()` — **the chrome is never torn down, so a live camera feed keeps running across rotation** (boot.js already stays on the mobile chrome in both orientations via the short-side test, so it doesn't reload either).
+- **Left→right order:** OUTPUT | vertical divider grip | CONTEXT (source/settings) | vertical tab bar on the right. The DOM order already matched, so only the flex axis flips. Divider grip rotates to vertical (`col-resize`); tab bar stacks down the right edge.
+- **Dynamic Island / notch handled by safe-area insets.** `env(safe-area-inset-right)` is non-zero only when the island rotates onto the right edge (clockwise rotation), so the tab bar pads itself off that edge **then and only then** (plus an 8px buffer so it's never tucked under the OS chrome); counter-clockwise (island on the left) leaves the tab bar flush. Home indicator (bottom in landscape) cleared via `inset-bottom`.
+- **Known follow-ups (IxD, on-device):** vertical tab-bar button sizing/feel, the source/form popover still anchors to the bottom of CONTEXT rather than near the tab bar, and full-bleed corner-hugging. Captured in BACKLOG.
+
+---
+
 ## v0.7.6 (Build 102) — 2026-06-03
 
 **PWA tab-bar bottom anchoring — first pass (on-device tuning to follow).** The installed-standalone tab bar floated well above the screen bottom because it reserved the full conservative home-indicator inset (`6px + safe-area-inset-bottom`) below the buttons.
