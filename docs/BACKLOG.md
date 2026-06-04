@@ -93,7 +93,7 @@ Sequence below leads with mobile-still because it carries zero new engine/infra 
 
   **Output comparison — PiP (refined, Daniel).** Wedge-outline onion-skin helps, but we ultimately need to compare the actual previous OUTPUT with the current: a small **picture-in-picture of the previous state** top-left of the current output, with an option for **side-by-side**. Needs rendering two states at once (stateless engine supports it via a second target). Also needed later for live-capture/Syphon (compare current output vs. adjusted next params).
 
-  **Animation project file (JSON).** Consider including a JSON in the download package that can be re-loaded to recreate/edit an animation later.
+  **Animation project file (JSON) — SHIPPED (Build 122, v0.7.26).** Motion JSON download/load (⋯ menu in the motion footer) + an "include motion data .json" render checkbox that bundles it into the export `.zip`. Source-agnostic (`keyframes` + settings, not the image); load re-applies to the current source. Possible follow-ups: embed a source reference/thumbnail; bundle the JSON automatically inside the still/video packages by default.
 
   **Timeline IxD refinement pass (Daniel, 2026-06-03).** The global animation controls need a dedicated interaction-design pass: (a) **prev/next stepper ergonomics** are weak; (b) the **loop on/off state is hard to read** with the current button styling — needs an unambiguous on/off affordance; (c) **pixel-precise refinement of the keyframe markers + scrubber** themselves; (d) **real time ticks + timestamps** along the timeline (per the design direction: ticks with occasional timestamps for a sense of duration, relative keyframe position still the focus). Daniel drives this.
 

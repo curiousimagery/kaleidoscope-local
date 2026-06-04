@@ -71,6 +71,9 @@ export function makeOverlayDrawer(env) {
 export function drawSourceOverlay(env) {
   const { state, engine } = env;
   if (!env.sourceOverlayCanvas || !engine.getSourceImage()) return;
+  // outline stroke multiplier — 1 for the live overlay; the companion source-preview
+  // render bumps it so the wedge lines read at 1920² instead of hairline.
+  const sw = env.overlayStrokeScale || 1;
 
   const canvas = env.sourceOverlayCanvas;
   const wrap = canvas.parentElement;
@@ -124,6 +127,7 @@ export function drawSourceOverlay(env) {
       cx: cxPx, cy: cyPx,
       sourceAspect,
       IS_TOUCH,
+      strokeScale: sw,
     });
     return;
   }
@@ -217,7 +221,7 @@ export function drawSourceOverlay(env) {
       ctx.fill();
       ctx.strokeStyle = 'rgba(255, 196, 80, 0.6)';
       ctx.setLineDash([4, 3]);
-      ctx.lineWidth = 1;
+      ctx.lineWidth = 1 * sw;
       ctx.stroke();
     }
     ctx.restore();
@@ -257,7 +261,7 @@ export function drawSourceOverlay(env) {
       ctx.strokeStyle = highlighted ? 'rgba(255, 255, 255, 1.0)' : 'rgba(255, 255, 255, 0.9)';
       ctx.setLineDash([]);
     }
-    ctx.lineWidth = highlighted ? 2.5 : 1.5;
+    ctx.lineWidth = (highlighted ? 2.5 : 1.5) * sw;
     ctx.beginPath();
     for (const e of edges) {
       ctx.moveTo(e.a.x, e.a.y);
@@ -283,7 +287,7 @@ export function drawSourceOverlay(env) {
   // reads as informational rather than competing with the interactive frame.
   if (sampleScreenPts && sampleScreenPts.length >= 2) {
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.7)';
-    ctx.lineWidth = 1;
+    ctx.lineWidth = 1 * sw;
     ctx.setLineDash([]);
     ctx.beginPath();
     sampleScreenPts.forEach((p, i) => {

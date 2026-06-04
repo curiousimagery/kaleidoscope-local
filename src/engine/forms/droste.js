@@ -223,7 +223,7 @@ export default {
   //   halfWedge, sliceRotationRad, isFullCircle
   drawOverlay(env, ctx, geom) {
     const { state } = env;
-    const { w, h, imgX, imgY, imgW, imgH, cx, cy, sourceAspect, IS_TOUCH } = geom;
+    const { w, h, imgX, imgY, imgW, imgH, cx, cy, sourceAspect, IS_TOUCH, strokeScale = 1 } = geom;
 
     // annulus radii in source-UV space, then mapped to screen pixels.
     // mirrors the engine's toSourceUV aspect correction (the smaller image
@@ -349,7 +349,7 @@ export default {
         ctx.strokeStyle = highlighted ? 'rgba(255, 255, 255, 1.0)' : 'rgba(255, 255, 255, 0.9)';
         ctx.setLineDash([]);
       }
-      ctx.lineWidth = highlighted ? 2.5 : 1.5;
+      ctx.lineWidth = (highlighted ? 2.5 : 1.5) * strokeScale;
       ctx.beginPath();
       if (isFullCircle) {
         ctx.arc(cx, cy, r, 0, TAU);
@@ -370,7 +370,7 @@ export default {
       ctx.strokeStyle = oobOut
         ? (sideHL ? 'rgba(255, 230, 140, 1.0)' : 'rgba(255, 196, 80, 0.95)')
         : (sideHL ? 'rgba(255, 255, 255, 1.0)' : 'rgba(255, 255, 255, 0.9)');
-      ctx.lineWidth = sideHL ? 2.5 : 1.5;
+      ctx.lineWidth = (sideHL ? 2.5 : 1.5) * strokeScale;
       ctx.setLineDash(oobOut ? [6, 4] : []);
       for (const a of [wedgeStart, wedgeEnd]) {
         ctx.beginPath();
@@ -400,7 +400,7 @@ export default {
       ctx.strokeStyle = oobOut
         ? 'rgba(255, 196, 80, 0.7)'
         : 'rgba(255, 255, 255, 0.7)';
-      ctx.lineWidth = 1.5;
+      ctx.lineWidth = 1.5 * strokeScale;
       ctx.setLineDash(oobOut ? [6, 4] : []);
 
       const drawCurve = (thetaCanvas) => {

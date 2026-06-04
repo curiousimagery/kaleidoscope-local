@@ -1191,15 +1191,16 @@ function renderSourcePreviewFrame(snap, size) {
   else { ih = size; iw = size * sa; ix = (size - iw) / 2; iy = 0; }
   fctx.drawImage(img, ix, iy, iw, ih);
 
-  const saved = { canvas: view.sourceOverlayCanvas, state: view.state, hover: view.hoverMode, hide: view.hideAffordances };
+  const saved = { canvas: view.sourceOverlayCanvas, state: view.state, hover: view.hoverMode, hide: view.hideAffordances, sw: view.overlayStrokeScale };
   view.sourceOverlayCanvas = _spOverlay;
   view.state = snap;
   view.hoverMode = null;
   view.hideAffordances = () => true;
+  view.overlayStrokeScale = size / 540;            // ~5px wedge lines at 1920² (vs hairline)
   try { drawSourceOverlay(view); }
   finally {
     view.sourceOverlayCanvas = saved.canvas; view.state = saved.state;
-    view.hoverMode = saved.hover; view.hideAffordances = saved.hide;
+    view.hoverMode = saved.hover; view.hideAffordances = saved.hide; view.overlayStrokeScale = saved.sw;
   }
   fctx.drawImage(_spOverlay, 0, 0, size, size);
   return _spFrame;
@@ -1570,6 +1571,44 @@ function updateMotionUI() {
   q('mfSmoothVal')?._sync?.();
 }
 
+// ---- motion data (JSON round-trip) ----------------------------------------
+// Portable motion authoring: keyframes + settings, source-AGNOSTIC (stores the
+// motion parameters, not the image), so loading applies the motion to whatever
+// source is currently loaded. Lets a user preserve/share work across sessions
+// without a backend.
+function motionToJSON() {
+  return JSON.stringify({
+    format: 'fold-motion', version: 1, app: formatVersion(),
+    durationMs: motion.durationMs, loop: motion.loop, smoothing: motion.smoothing,
+    keyframes: kfList().map(k => ({ t: k.t, anchored: !!k.anchored, snap: { ...k.snap } })),
+  });
+}
+function motionJSONBlob() { return new Blob([motionToJSON()], { type: 'application/json' }); }
+function downloadMotionJSON() {
+  if (!kfList().length) return;
+  downloadBlob(motionJSONBlob(), (sourceFilename || 'animation') + '-motion.json');
+}
+// returns null on success, or an error string
+function loadMotionFromJSON(text) {
+  let o;
+  try { o = JSON.parse(text); } catch { return 'not valid JSON'; }
+  if (!o || o.format !== 'fold-motion' || !Array.isArray(o.keyframes) || !o.keyframes.length) return 'not a Fold motion file';
+  motion.durationMs = Math.max(500, Math.min(60000, +o.durationMs || 30000));
+  motion.loop = o.loop !== false;
+  motion.smoothing = Math.max(0, Math.min(1, +o.smoothing || 0));
+  motion.keyframes = o.keyframes.map(k => ({ t: +k.t || 0, anchored: !!k.anchored, snap: { ...k.snap }, thumb: makeThumbCanvas() }));
+  motion.keyframes[0].anchored = true;          // kf0 is always the start anchor at t=0
+  motion.selected = -1;
+  applyAutoSpacing();
+  setPlayhead(0);
+  loadPlayheadIntoState();                       // adopt kf0's look (incl. discrete/form) into state
+  applyFormControls(env);                        // sync the form picker + form-specific controls
+  renderTimeline();
+  updateMotionUI();
+  scheduleFilmstrip();                           // regenerates thumbnails (readback-free)
+  return null;
+}
+
 function wireMotion() {
   const byId = (id) => document.getElementById(id);
   byId('motionBtn')?.addEventListener('click', toggleMotionMode);
@@ -1580,6 +1619,28 @@ function wireMotion() {
   byId('mfNext')?.addEventListener('click', () => stepKeyframe(1));
   byId('mfPlay')?.addEventListener('click', () => { if (motion.playing) stopPlayback(); else startPlayback(); });
   byId('mfLoop')?.addEventListener('click', () => { motion.loop = !motion.loop; renderTimeline(); updateMotionUI(); });
+
+  // ⋯ motion-data menu — download / load the keyframes+settings as portable JSON.
+  const moreMenu = byId('mfMoreMenu'), moreBtn = byId('mfMore');
+  const closeMore = () => { if (moreMenu) moreMenu.hidden = true; document.removeEventListener('pointerdown', onMoreOutside); };
+  function onMoreOutside(e) { if (!e.target.closest('#mfMoreMenu') && e.target !== moreBtn) closeMore(); }
+  moreBtn?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (!moreMenu.hidden) { closeMore(); return; }
+    moreMenu.hidden = false;
+    const r = moreBtn.getBoundingClientRect();              // place above the button (footer is at the bottom)
+    moreMenu.style.left = r.left + 'px';
+    moreMenu.style.top = Math.max(8, r.top - moreMenu.offsetHeight - 6) + 'px';
+    setTimeout(() => document.addEventListener('pointerdown', onMoreOutside), 0);
+  });
+  byId('mfSaveData')?.addEventListener('click', () => { downloadMotionJSON(); closeMore(); });
+  byId('mfLoadData')?.addEventListener('click', () => { byId('mfDataFile')?.click(); closeMore(); });
+  byId('mfDataFile')?.addEventListener('change', async (e) => {
+    const f = e.target.files?.[0]; e.target.value = '';
+    if (!f) return;
+    const err = loadMotionFromJSON(await f.text());
+    if (err) alert(`Couldn't load motion data: ${err}`);   // rare (wrong file) — needs to be visible
+  });
 
   // duration scrub field (DAW-style), in seconds (whole-animation length).
   makeScrubField(byId('mfDurVal'), {
@@ -1746,6 +1807,9 @@ function setupVideoExport() {
           shouldCancel: () => cancelRender,
         });
         extras.push({ name: base + '-source.mp4', blob: sblob });
+      }
+      if (byId('vidMotionJSON')?.checked) {
+        extras.push({ name: base + '-motion.json', blob: motionJSONBlob() });
       }
       if (extras.length) {
         const zipBlob = await zipStore([{ name: base + '.mp4', blob }, ...extras]);

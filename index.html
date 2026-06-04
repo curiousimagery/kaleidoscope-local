@@ -200,6 +200,7 @@
     <button class="mf-btn" id="mfDelete" disabled title="delete the selected keyframe">delete</button>
     <button class="mf-btn mf-toggle" id="mfAnchor" disabled title="fix this keyframe's time, or let it auto-space">anchor</button>
     <button class="mf-btn" id="mfRender" disabled title="render the animation to a video file">render ▸</button>
+    <button class="mf-btn" id="mfMore" title="motion data">⋯</button>
     <span class="mf-sep"></span>
     <span class="mf-frame" id="mfFrame" title="output frame aspect">
       <button class="mf-btn mf-toggle active" data-asp="1">1:1</button>
@@ -214,6 +215,11 @@
     <div class="mf-markers" id="mfMarkers"></div>
     <div class="mf-playhead" id="mfPlayhead"></div>
   </div>
+  <div class="mf-menu" id="mfMoreMenu" hidden>
+    <button id="mfSaveData">download motion data</button>
+    <button id="mfLoadData">load motion data</button>
+  </div>
+  <input type="file" id="mfDataFile" accept="application/json,.json" style="display:none">
 </div>
 
 <!-- video export sheet (motion mode) -->
@@ -236,6 +242,7 @@
     </div>
     <label class="setting-label">include</label>
     <label class="vid-opt"><input type="checkbox" id="vidSourcePreview"> source preview video (.zip)</label>
+    <label class="vid-opt"><input type="checkbox" id="vidMotionJSON"> motion data .json (.zip)</label>
     <div class="vid-meta" id="vidMeta"></div>
     <div class="vid-progress" id="vidProgress" hidden><div class="vid-bar" id="vidBar"></div></div>
     <div class="status" id="vidStatus"></div>

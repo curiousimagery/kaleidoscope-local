@@ -4,6 +4,16 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.7.26 (Build 122) — 2026-06-04
+
+**Companion-video stroke weight + motion JSON round-trip (Daniel).**
+
+- **Thicker wedge lines in the source-preview video.** The overlay strokes were hairline at 1920². Added an `overlayStrokeScale` (default 1, so the live overlay is unchanged) that the companion render sets to ~`size/540` (≈5px wedge lines at 1920²). Applied to the polygon outline/OOB/sample-region strokes and droste's ring/wedge/spiral outlines.
+- **Motion data JSON (download / load).** A new **⋯ menu** in the motion footer: "download motion data" saves `{format,version,app,durationMs,loop,smoothing,keyframes:[{t,anchored,snap}]}` (source-AGNOSTIC — stores the motion, not the image); "load motion data" re-applies it to the current source (thumbnails regenerate, form UI syncs, cross-session persistence with no backend). Invalid file → an alert.
+- **"motion data .json (.zip)" render checkbox**, alongside "source preview video". Any extra selected makes the render output a `.zip` (reuses the Build-121 packaging). The plain render (nothing checked) is still a single `.mp4`.
+
+---
+
 ## v0.7.25 (Build 121) — 2026-06-04
 
 **Companion "source preview" video + render packaging (Daniel).** Opt-in second video showing the SOURCE with the moving wedge overlay (the "how it was made" clip).

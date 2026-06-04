@@ -12,7 +12,9 @@ He prefers **no em dashes** in his own writing; respect that in any prose Claude
 
 ## current version
 
-`v0.7.25 · Build 121`. The footer in the running app shows this string from `src/version.js`.
+`v0.7.26 · Build 122`. The footer in the running app shows this string from `src/version.js`.
+
+**Motion JSON + companion stroke weight (Build 122, needs Daniel's verify).** Companion video wedge lines thickened via `overlayStrokeScale` (live overlay untouched). Motion JSON round-trip: ⋯ menu in the motion footer (download/load motion data — source-agnostic `{format,version,app,durationMs,loop,smoothing,keyframes:[{t,anchored,snap}]}`), + "motion data .json (.zip)" render checkbox (bundles into the Build-121 zip). Load re-applies to the current source (thumbnails regenerate, `applyFormControls` syncs the form UI). **Verify:** download then load round-trips (incl. cross-form, smoothing/duration/loop); the render zip contains the chosen extras. The whole render-package cluster (source preview + JSON) is now done — remaining backlog: MediaRecorder fallback for non-WebCodecs, and B4 (timeline pinch-zoom/pan, still deferred).
 
 **Companion source-preview video (Build 121, needs Daniel's visual verify).** Opt-in render-sheet checkbox renders a 2nd square 1920² video of the source + moving wedge (clean, no affordances) and packages both as a `.zip`. `exportVideo` is now generalized (`frameAt`/`onBegin`/`onEnd`). The frame compositor (`renderSourcePreviewFrame` in main.js) reuses `drawSourceOverlay` via the overlay view swapped onto an offscreen canvas. **Can't self-verify the visual** — check: wedge aligns with the source image, no affordance arrows, droste rings render, square fit looks right. **NEXT (planned with Daniel): motion JSON round-trip** — "download/load motion data" in a new ⋯ overflow menu in the motion footer + an "include motion JSON" render checkbox (reuses the Build-121 zip packaging: any extra selected → `.zip`). Source-agnostic JSON `{format,version,build,durationMs,loop,smoothing,keyframes:[{t,anchored,snap}]}`. Then B4 (timeline pinch-zoom/pan), still deferred.
 
