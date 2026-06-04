@@ -4,6 +4,15 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.7.24 (Build 120) — 2026-06-04
+
+**"Blue cells" — the real fix: filmstrip now avoids `readPixels` entirely.** Builds 118 (FBO reuse) and 119 (fence sync) both failed. New clues — **desktop Safari only** (not iPad/mobile), and **scrubbing alone re-triggers** corruption/correction — proved it's not a sync issue but desktop Safari's FBO `readPixels` path being broken (returns channel-swapped/banded data). No GPU sync fixes a broken readback, so we escape it: the filmstrip now renders via the engine **capture path** (`beginCapture`/`captureFrame` → `drawImage`, no `readPixels`) — the same approach that fixed iPad export. Also:
+- **Synchronous build** so the briefly-borrowed preview canvas never composites mid-build (no flicker); preview restored + repainted after.
+- **Content-signature skip:** scrubbing fires `renderTimeline` → `scheduleFilmstrip`, but the filmstrip is scrub-invariant, so it now skips the rebuild when keyframes/curve/duration/width are unchanged (no more needless rebuilds re-rolling the corruption).
+- **Keyframe marker thumbnails refreshed in the same readback-free session**, so they're corrected too (the instant on-add thumb still uses the old path, then self-corrects on the 600ms debounce).
+
+---
+
 ## v0.7.23 (Build 119) — 2026-06-04
 
 **"Blue cells" — second, higher-confidence fix: real GPU fence sync before readback.** Build 118 (FBO reuse) didn't fix it. New screenshots showed *partial fills, horizontal banding, channel-swapped (R↔B = blue) content, flickering and self-correcting* — the signature of `readPixels` reading the FBO **before the GPU finished + resolved it** (returning the raw swizzled/tiled buffer). `gl.finish()` is meant to prevent that but is unreliable on Safari. `renderToFBO` now waits on a WebGL2 **fence sync** (`fenceSync` + `clientWaitSync`, ~1s cap, `gl.finish` fallback) before `readPixels`. One cause explains every symptom (partial + banding + blue + flicker + self-correct), reproduced on a fresh webcam capture (so not image-specific). Affects all `renderToFBO` users (filmstrip/thumbnails, still export, diagnostics) — still export was already fine, so no regression expected.

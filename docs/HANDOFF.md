@@ -12,7 +12,9 @@ He prefers **no em dashes** in his own writing; respect that in any prose Claude
 
 ## current version
 
-`v0.7.23 · Build 119`. The footer in the running app shows this string from `src/version.js`.
+`v0.7.24 · Build 120`. The footer in the running app shows this string from `src/version.js`.
+
+**Blue-cells RESOLUTION attempt (Build 120, needs desktop-Safari verify):** root cause = desktop Safari's FBO `readPixels` returns corrupt (channel-swapped/banded) data; sync fixes (118 FBO-reuse, 119 fence-sync) both failed. Build 120 routes the **filmstrip** off `readPixels` to the `drawImage` capture path (`beginCapture/captureFrame`), synchronous, signature-skipped (no scrub rebuilds), and refreshes marker thumbs in the same session. The instant on-add keyframe thumb (`fillThumb` → `exportFrame` → `readPixels`) still uses the old path and self-corrects on the 600ms debounce — if Daniel still sees a brief blue on a just-added marker dot, move `fillThumb` to a readback-free path too (it can't resize the live preview, so: `drawImage` a warmed preview canvas, or defer entirely to the debounce). The fence sync (119) + FBO reuse (118) stay (harmless; help still-export robustness/GC).
 
 **Blue-cells saga (needs Daniel's Safari verify):** Build 118 (persistent FBO reuse) did NOT fix it; Build 119 added a WebGL2 fence sync (`fenceSync`+`clientWaitSync`) before `readPixels` in `renderToFBO` — the symptoms (partial/banded/channel-swapped/flickering/self-correcting, repro on fresh webcam) match `readPixels` reading before GPU resolve, which `gl.finish()` fails to prevent on Safari. If 119 still doesn't fix it, the escape hatch is readback-free thumbnails (render→`drawImage` to a 2D canvas, like the video-export path) — but that can't resize the live preview, so it needs a dedicated offscreen target (keyframe thumbs could alternatively `drawImage` the warmed-up preview canvas).
 

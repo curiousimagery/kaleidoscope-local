@@ -1345,47 +1345,59 @@ function stepKeyframe(dir) {
 // is no on-screen flicker — captures each into one strip canvas, then restores the
 // current frame.
 let filmstripTimer = 0;
-let filmstripToken = 0;
+let lastFilmstripSig = '';
 function scheduleFilmstrip() {
   if (!motionActive) return;
   clearTimeout(filmstripTimer);
   filmstripTimer = setTimeout(buildFilmstrip, 600);   // wait for a real pause before rebuilding
 }
-// Build the strip OFFSCREEN (small FBO renders via engine.exportFrame) with yields
-// between frames, so it never blocks the main thread and never disturbs the live
-// preview. A token cancels a build that's been superseded by a newer one.
-async function buildFilmstrip() {
+// Build the strip via the engine CAPTURE path (render → drawImage to a 2D canvas),
+// NOT readPixels: desktop Safari's FBO readback returns corrupt channel-swapped/
+// banded frames here (the "blue cells"), and a GPU sync doesn't help because the
+// readback itself is broken. Runs SYNCHRONOUSLY so the briefly-borrowed preview
+// canvas never composites mid-build (no flicker); the preview is restored after. A
+// content signature skips the rebuild when nothing relevant changed — e.g.
+// scrubbing fires renderTimeline but leaves the keyframes/curve untouched, so it no
+// longer needlessly rebuilds (and re-rolls the corruption). Refreshes the keyframe
+// marker thumbnails in the same session, off the same readback-free path.
+function buildFilmstrip() {
   const strip = document.getElementById('mfStrip');
   if (!strip) return;
   const track = document.getElementById('mfTrack');
   if (!track || motion.playing || !engine || !engine.getSourceImage() || kfList().length < 2) {
-    strip.innerHTML = '';
-    return;
+    strip.innerHTML = ''; lastFilmstripSig = ''; return;
   }
   const w = strip.clientWidth, h = strip.clientHeight;
   if (w < 2 || h < 2) return;
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
   const W = Math.round(w * dpr), H = Math.round(h * dpr);
+  const S = H;                                     // square frames, matching the keyframe thumbnails
+  const n = Math.ceil(W / S);
+  const fs = Math.min(H, 240);                     // small square render size (the "look")
+
+  const sig = W + '|' + motion.smoothing + '|' + motion.loop + '|' + motion.durationMs + '|' +
+    kfList().map(k => k.t.toFixed(4) + ':' + JSON.stringify(k.snap)).join(',');
+  if (sig === lastFilmstripSig && strip.firstChild) return;   // unchanged (e.g. scrub) — skip
+
   const c = document.createElement('canvas');
   c.width = W; c.height = H;
   c.style.cssText = 'width:100%;height:100%;display:block';
   const cx = c.getContext('2d');
-  const S = H;                                     // square frames, matching the keyframe thumbnails
-  const n = Math.ceil(W / S);
-  const fs = Math.min(H, 240);                     // small offscreen render size (the square "look")
-  const tmp = document.createElement('canvas');
-  tmp.width = fs; tmp.height = fs;
-  const tctx = tmp.getContext('2d');
-  const token = ++filmstripToken;
-  for (let i = 0; i < n; i++) {
-    if (token !== filmstripToken || !motionActive || motion.playing) return;   // superseded / exited / playing
-    await engine.exportFrame(sampleAt(Math.min(1, (i * S + S / 2) / W)), fs, fs, tctx);
-    cx.drawImage(tmp, i * S, 0, S, H);
-    if (i % 2 === 1) await new Promise((r) => setTimeout(r));   // yield to keep the UI responsive
+  try {
+    engine.beginCapture(fs, fs);
+    for (let i = 0; i < n; i++) {
+      cx.drawImage(engine.captureFrame(sampleAt(Math.min(1, (i * S + S / 2) / W))), i * S, 0, S, H);
+    }
+    for (const kf of kfList()) {                   // refresh marker thumbs (same readback-free path)
+      if (kf.thumb) kf.thumb.getContext('2d').drawImage(engine.captureFrame(kf.snap), 0, 0, kf.thumb.width, kf.thumb.height);
+    }
+  } finally {
+    engine.endCapture();
+    resizePreviewCanvas();                          // restore + repaint the live preview
   }
-  if (token !== filmstripToken) return;
   strip.innerHTML = '';
   strip.appendChild(c);
+  lastFilmstripSig = sig;
 }
 
 // ---- timeline rendering ---------------------------------------------------
