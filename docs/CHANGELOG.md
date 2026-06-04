@@ -4,6 +4,12 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.7.27 (Build 123) — 2026-06-04
+
+**Firefox overlay-drag lag — coalesce per-move control syncing (Daniel: severe slice-drag lag on Firefox, snappy on Safari).** The direct-manipulation drag path (source-overlay move/scale/rotate + output pinch/twist) called `syncControls()` on **every pointermove**. Each call does DOM writes (`slider.value` + value `textContent`) for every registered control, and those writes interleaved with the `getBoundingClientRect()` read in the move handler — a read→write→read pattern that forces a synchronous layout reflow per event (layout thrash). Firefox fires far more pointermoves than Safari/Chrome and is much harsher about forced reflow, so dragging was sluggish there. Render and overlay-draw were already rAF-coalesced; `syncControls` now is too (`scheduleSyncControls`, one rAF), so the per-move reads no longer interleave with the writes. Sliders still track the drag (updated once per frame). If lag persists, the next suspect is `preserveDrawingBuffer: true` (a known Firefox per-frame cost, but it's needed for the on-demand preview to stay visible, so it can't simply be dropped).
+
+---
+
 ## v0.7.26 (Build 122) — 2026-06-04
 
 **Companion-video stroke weight + motion JSON round-trip (Daniel).**

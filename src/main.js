@@ -165,6 +165,21 @@ function scheduleRender() {
 }
 env.scheduleRender = scheduleRender;
 
+// Coalesce control-widget syncing to one rAF. The direct-manipulation drag path
+// (source overlay + output gestures) fired syncControls on EVERY pointermove, and
+// its per-event DOM writes (slider.value / val textContent) interleaved with the
+// getBoundingClientRect read in the move handler — forcing a synchronous layout
+// reflow per event (read→write→read thrash). Firefox fires far more pointermoves
+// than Safari/Chrome and is much harsher about forced reflow, so this made slice
+// dragging/rotating/scaling sluggish there. Render + overlay-draw were already
+// rAF-coalesced; this brings syncControls in line.
+let syncCtrlScheduled = false;
+function scheduleSyncControls() {
+  if (syncCtrlScheduled) return;
+  syncCtrlScheduled = true;
+  requestAnimationFrame(() => { syncCtrlScheduled = false; env.syncControls(); });
+}
+
 // the shared source-overlay component (mounted by both chromes). Desktop bridges
 // it to the existing env methods; it owns its own canvas, hover/drag state, and
 // overlay-draw scheduler internally.
@@ -172,7 +187,7 @@ const sourceOverlay = createSourceOverlay({
   state,
   engine,
   getLiveVideo: () => env.liveVideo,
-  syncControls: () => env.syncControls(),
+  syncControls: scheduleSyncControls,
   scheduleRender,
   onCommitStart: () => env.pushHistory(),
   onCommitEnd: () => env.updateUndoUI?.(),
@@ -1845,7 +1860,7 @@ if (engine) {
   setupDivider(env);
   createOutputGestures(previewCanvas, {
     state,
-    onChange: () => { env.syncControls(); env.scheduleRender(); },
+    onChange: () => { scheduleSyncControls(); env.scheduleRender(); },
     onCommitStart: () => env.pushHistory(),
     onCommitEnd: () => updateUndoUI(),
   });

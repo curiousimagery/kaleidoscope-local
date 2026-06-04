@@ -12,7 +12,9 @@ He prefers **no em dashes** in his own writing; respect that in any prose Claude
 
 ## current version
 
-`v0.7.26 · Build 122`. The footer in the running app shows this string from `src/version.js`.
+`v0.7.27 · Build 123`. The footer in the running app shows this string from `src/version.js`.
+
+**Firefox overlay-drag lag (Build 123, needs Daniel's Firefox verify).** Coalesced the per-pointermove `syncControls()` to one rAF (`scheduleSyncControls`) in the source-overlay + output-gesture paths — it was layout-thrashing (per-event slider/textContent writes interleaved with the move handler's `getBoundingClientRect` read), which Firefox punishes much harder than Safari. If lag persists on Firefox: (a) cache the wrap rect at drag start for move/scale (rotate already does, Build 106) to drop the per-move `getBoundingClientRect`; (b) `preserveDrawingBuffer:true` is a known Firefox per-frame penalty but is required for the on-demand preview to stay visible — would need a continuous-render-during-drag or render-res-scaling approach to remove safely.
 
 **Motion JSON + companion stroke weight (Build 122, needs Daniel's verify).** Companion video wedge lines thickened via `overlayStrokeScale` (live overlay untouched). Motion JSON round-trip: ⋯ menu in the motion footer (download/load motion data — source-agnostic `{format,version,app,durationMs,loop,smoothing,keyframes:[{t,anchored,snap}]}`), + "motion data .json (.zip)" render checkbox (bundles into the Build-121 zip). Load re-applies to the current source (thumbnails regenerate, `applyFormControls` syncs the form UI). **Verify:** download then load round-trips (incl. cross-form, smoothing/duration/loop); the render zip contains the chosen extras. The whole render-package cluster (source preview + JSON) is now done — remaining backlog: MediaRecorder fallback for non-WebCodecs, and B4 (timeline pinch-zoom/pan, still deferred).
 
