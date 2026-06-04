@@ -4,6 +4,16 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.7.18 (Build 114) — 2026-06-04
+
+**Motion smoothing — velocity-continuous interpolation (Daniel's top animation priority, B3).** Replaces the per-segment easing that eased to **zero velocity at every keyframe** (a visible stutter when motion continued in one direction).
+
+- **Velocity continuity is now the baseline, always on.** `sampleAt` interpolates with a **Catmull-Rom / finite-difference Hermite** spline across the whole keyframe sequence (`kit/tween.js` `sampleKeyframes`), so motion flows *through* keyframes and only slows at genuine turning points (where a value actually reverses). Loop-aware (kf0 is the t=1 return target; the curve is periodic with continuous velocity across the seam) and angle-unwrapped (angular fields run on a continuous unwrapped curve via shortest-path deltas, then re-wrap) so a 350°→10° sweep crosses 0° smoothly. At smoothing 0 the curve passes through keyframes exactly. Verified numerically (no zero-velocity dip through a middle keyframe; exact pass-through; correct angle sweep).
+- **New "smoothing" control (replaces "easing").** `motion.smoothing` (0–100%, default 0) Laplacian-relaxes interior keyframe *values* toward their neighbours before interpolating — fudging exact values to absorb jaggy timing/placement (like a drawing app smoothing pen-stroke shake), as Daniel framed it. Endpoints/loop anchor stay fixed. The motion-footer field is relabeled `smoothing` (`mfSmoothVal`).
+- Removed the old `spanSample`/`motion.easing` per-segment ease. `lerpState` stays as a Kit primitive (A/B + future live transitions). Pending refinement (backlog): per-keyframe ease handles for deliberate holds.
+
+---
+
 ## v0.7.17 (Build 113) — 2026-06-04
 
 **Video export success text now reports render time.** After a successful render the status reads e.g. `saved ✓ · rendered in 6.2s · 145 frames/s` — the wall-clock duration plus effective throughput (frames rendered per second, a device/perf diagnostic distinct from the output fps). Helpful for comparing the Build 112 speedup across devices/resolutions.

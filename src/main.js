@@ -29,7 +29,7 @@ import { PARAMS, DECLARATIVE_PARAM_IDS } from './shell/params.js';
 import { createCamera } from './shell/camera.js';
 import { zipStore } from './shell/zip.js';
 import { snapSpiralValue as kitSnapSpiral, applyArmsSnap as kitApplyArmsSnap } from './kit/snaps.js';
-import { lerpState, DISCRETE_KEYS } from './kit/tween.js';
+import { sampleKeyframes, DISCRETE_KEYS } from './kit/tween.js';
 import { exportVideo, videoExportSupported } from './shell/video-export.js';
 import { formatVersion } from './version.js';
 import { push as historyPush, undo as historyUndo, redo as historyRedo, canUndo, canRedo } from './shell/history.js';
@@ -1156,37 +1156,16 @@ async function fillThumb(canvas, snap) {
 }
 
 // ---- sampling -------------------------------------------------------------
-function spanSample(a, b, p) {
-  const span = b.t - a.t;
-  const lt = span > 1e-6 ? (p - a.t) / span : 0;
-  // global easing: blend linear ↔ ease-in-out by motion.easing (0 = constant
-  // velocity / less pulse at speed, 1 = eased into each keyframe). Pre-blend here
-  // and pass 'linear' to lerpState so it doesn't ease again.
-  const eased = lt < 0.5 ? 2 * lt * lt : 1 - ((-2 * lt + 2) ** 2) / 2;
-  const t = lt + (eased - lt) * motion.easing;
-  return lerpState(a.snap, b.snap, t, 'linear');
-}
-// interpolate the keyframe list at normalized time p (0..1); discrete fields are
-// always taken from keyframe 0 (locked). with loop on, a virtual return-to-kf0
-// sits at t=1, so the final span closes the cycle.
+// Sample the keyframe list at normalized time p (0..1): a velocity-CONTINUOUS
+// Catmull-Rom across keyframes (motion flows through them, slowing only at real
+// turning points — no per-keyframe stutter), with motion.smoothing relaxing jaggy
+// keyframe values. Loop-aware (kf0 is the return target at t=1). Discrete fields
+// are locked to kf0. Math lives in kit/tween.js (sampleKeyframes).
 function sampleAt(p) {
   const list = kfList();
   if (list.length === 0) return { ...state };
-  const first = list[0];
-  let out;
-  if (list.length === 1 || p <= first.t) {
-    out = { ...first.snap };
-  } else {
-    out = null;
-    for (let i = 0; i < list.length - 1; i++) {
-      if (p <= list[i + 1].t) { out = spanSample(list[i], list[i + 1], p); break; }
-    }
-    if (!out) {
-      const last = list[list.length - 1];
-      out = motion.loop ? spanSample(last, { t: 1, snap: first.snap }, Math.min(p, 1)) : { ...last.snap };
-    }
-  }
-  for (const k of DISCRETE_KEYS) out[k] = first.snap[k];   // lock discrete to kf0
+  const out = sampleKeyframes(list, p, { smoothing: motion.smoothing, loop: motion.loop });
+  for (const k of DISCRETE_KEYS) out[k] = list[0].snap[k];   // lock discrete to kf0
   return out;
 }
 function keyframeAt(p) {
@@ -1526,7 +1505,7 @@ function updateMotionUI() {
   if (q('mfNext')) q('mfNext').disabled = n < 1;
   q('mfLoop')?.classList.toggle('active', motion.loop);
   q('mfDurVal')?._sync?.();
-  q('mfEaseVal')?._sync?.();
+  q('mfSmoothVal')?._sync?.();
 }
 
 function wireMotion() {
@@ -1549,10 +1528,12 @@ function wireMotion() {
     parse: (s) => { const n = parseFloat(String(s).replace(/[s\s]/g, '')); return isNaN(n) ? null : n; },
   });
 
-  // global easing (0 = linear, 100% = ease-in-out into each keyframe).
-  makeScrubField(byId('mfEaseVal'), {
-    get: () => Math.round(motion.easing * 100),
-    set: (v) => { motion.easing = Math.max(0, Math.min(100, v)) / 100; },
+  // motion smoothing degree (0 = exact keyframes; higher relaxes jaggy keyframe
+  // values toward a smoother path). Velocity-continuity through keyframes is always
+  // on regardless — this only adds value-fudging for sloppy timing/placement.
+  makeScrubField(byId('mfSmoothVal'), {
+    get: () => Math.round(motion.smoothing * 100),
+    set: (v) => { motion.smoothing = Math.max(0, Math.min(100, v)) / 100; },
     step: 5, fineStep: 1, coarseStep: 20, min: 0, max: 100,
     format: (v) => Math.round(v) + '%',
     parse: (s) => { const n = parseFloat(String(s).replace(/[%\s]/g, '')); return isNaN(n) ? null : n; },

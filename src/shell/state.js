@@ -72,8 +72,10 @@ export const motion = {
                       // evenly between the anchors.
   durationMs: 30000,  // total animation length (the full 0..1 span)
   loop: true,         // close the cycle by tweening the last keyframe back to kf0
-  easing: 1,          // 0..1 global easing: 0 = linear (constant velocity, less
-                      // pulse at speed), 1 = ease-in-out into each keyframe.
+  smoothing: 0,       // 0..1 motion smoothing degree. Velocity-continuity through
+                      // keyframes is ALWAYS on (Catmull-Rom baseline); this extra
+                      // amount relaxes jaggy keyframe values toward a smoother path
+                      // (0 = exact keyframes, higher = more fudging). See sampleAt.
   playing: false,
   playhead: 0,        // 0..1 scrubber position
   selected: -1,       // index of the selected (editable) keyframe, or -1
