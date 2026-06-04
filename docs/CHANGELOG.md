@@ -4,6 +4,15 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.7.14 (Build 110) — 2026-06-04
+
+**First-keyframe lag fixed (HIGH-priority motion bug).** Saving the first keyframe froze the "+ keyframe" button for ~4-8s before a second could be added (source-size dependent).
+
+- **Root cause:** `makeThumb()` did `drawImage(previewCanvas, …)` from the **large WebGL preview canvas** into the marker thumbnail. That's a synchronous GPU→CPU readback whose first (cold) sync stalls for seconds on big sources — and the add path also did a redundant full-size `engine.render(state)` first.
+- **Fix (`src/main.js`):** thumbnails now fill from a small **offscreen** `engine.exportFrame` at 120×120 (the same cheap path the filmstrip uses since Build 99), fire-and-forget and async — the marker appears instantly and the thumb paints into its live canvas a frame later, so the tap is never blocked. A 120² render+readback is cheap regardless of source size. Removed the redundant full-size render from the add path. The edit write-through thumb uses the same cheap path (also helps huge-source keyframe editing).
+
+---
+
 ## v0.7.13 (Build 109) — 2026-06-04
 
 **Save/export sheet → centered modal (per Daniel — stop the cross-variant whack-a-mole).** The bottom-sheet positioning rendered wrong in most variants (tiny responsive desktop, portrait/landscape PWA, landscape mobile app — only mobile portrait was correct). Rather than keep patching tab-bar-relative offsets, it's now a plain centered modal: `position: absolute; top/left 50%; translate(-50%,-50%); width: min(480px, 100vw-32px); max-height: 86dvh`. Centering with a viewport margin clears the tab bar, a side Dynamic Island, the home indicator, and tiny widths all at once — no orientation/tab-bar logic. Removed `positionSheet()` and its calls. Backdrop still dims + dismisses.

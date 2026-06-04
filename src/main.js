@@ -158,7 +158,7 @@ function scheduleRender() {
     // motion: editing a selected keyframe writes through to it live (snap + thumb).
     if (motionActive && motion.selected >= 0 && !motion.playing && !motionScrubbing) {
       const kf = motion.keyframes[motion.selected];
-      if (kf) { kf.snap = { ...state }; drawThumbInto(kf.thumb); scheduleFilmstrip(); }
+      if (kf) { kf.snap = { ...state }; fillThumb(kf.thumb, kf.snap); scheduleFilmstrip(); }
     }
   });
 }
@@ -1137,20 +1137,22 @@ const KF_EPS = 0.005;         // "on a keyframe" tolerance in normalized time
 const kfList = () => motion.keyframes;
 
 // ---- thumbnails -----------------------------------------------------------
-// copy the current preview canvas (whatever was last rendered) into a marker
-// canvas — cheap drawImage, same trick as drawMiniKaleidoscope.
-function drawThumbInto(canvas) {
-  if (!canvas || !engine || !previewCanvas.width) return;
-  // center-crop the (possibly non-square) preview into the square thumbnail — the
-  // thumb represents the LOOK, independent of the output frame aspect.
-  const pw = previewCanvas.width, ph = previewCanvas.height, s = Math.min(pw, ph);
-  canvas.getContext('2d').drawImage(previewCanvas, (pw - s) / 2, (ph - s) / 2, s, s, 0, 0, canvas.width, canvas.height);
-}
-function makeThumb() {
+// A keyframe thumbnail is filled by a small OFFSCREEN render (engine.exportFrame
+// at 120²), NOT a drawImage readback of the large preview canvas. The readback's
+// first cold GPU→CPU sync stalled the first keyframe add for several seconds on
+// big sources; a 120² render+readback is cheap regardless of source size (the
+// same trick the filmstrip uses, Build 99). Async + fire-and-forget: the marker
+// appears instantly and the thumb paints into the live canvas element a frame
+// later, so the "+ keyframe" tap is never blocked.
+function makeThumbCanvas() {
   const c = document.createElement('canvas');
   c.width = 120; c.height = 120;
-  drawThumbInto(c);
   return c;
+}
+async function fillThumb(canvas, snap) {
+  if (!canvas || !engine || !engine.getSourceImage()) return;
+  try { await engine.exportFrame(snap, canvas.width, canvas.height, canvas.getContext('2d')); }
+  catch { /* keep the prior/blank thumb on a transient FBO error */ }
 }
 
 // ---- sampling -------------------------------------------------------------
@@ -1284,8 +1286,7 @@ function addKeyframe() {
   // never drop a redundant duplicate of the keyframe already at the scrubber — that
   // just makes a static pause (the "+keyframe again without editing" case).
   if (onIdx >= 0 && sameLook(kfList()[onIdx].snap, state)) return;
-  engine.render(state);                          // preview shows this state for the thumb
-  const kf = { t: 0, snap: { ...state }, thumb: makeThumb(), anchored: false };
+  const kf = { t: 0, snap: { ...state }, thumb: makeThumbCanvas(), anchored: false };
   let newIdx;
   if (kfList().length === 0) {
     kf.anchored = true;                          // keyframe 0 is the fixed start anchor
@@ -1306,8 +1307,9 @@ function addKeyframe() {
   // the source of the duplicate/pause). Click a marker to refine an existing keyframe.
   motion.selected = -1;
   setPlayhead(kfList()[newIdx].t);
-  renderTimeline();
+  renderTimeline();                              // marker appears now; thumb paints in place when ready
   updateMotionUI();
+  fillThumb(kf.thumb, kf.snap);
 }
 // toggle the selected keyframe between anchored (fixed time) and auto (even-spaced).
 function toggleAnchor() {
