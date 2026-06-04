@@ -45,7 +45,7 @@ export const state = {
                         // tiers' source content drifts toward `a`. one handle.
   canvasZoom: 1.0,
   canvasRotation: 0,
-  oobMode: 0,           // 0=clamp, 1=mirror, 2=transparent. clamp is default.
+  oobMode: 1,           // 0=clamp, 1=mirror, 2=transparent. mirror is default.
 };
 
 // ad-hoc "session" flags that aren't part of the kaleidoscope-defining state

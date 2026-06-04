@@ -112,16 +112,36 @@ createOutputGestures(outputCanvas, {
 });
 
 // ------------------------------------------------------------ settings (State B)
-settingsEl.innerHTML = '<h2>settings</h2>';
+// Grouped to mirror the desktop panel: a "slice" section (form/slice controls
+// then reset) followed by a "canvas" section (composition zoom/rotation +
+// out-of-bounds). Section membership comes from each param's `scope` field in
+// params.js; the bespoke controls are mounted into their section by hand.
+settingsEl.innerHTML = '<h2>slice</h2>';
 mountSegmentsControl();
 for (const id of DECLARATIVE_PARAM_IDS) {
-  mountRangeControl(settingsEl, PARAMS[id], env);
+  if (PARAMS[id].scope === 'slice') mountRangeControl(settingsEl, PARAMS[id], env);
 }
 mountSpiralControl();
 mountToggleControl('mirror', 'drosteMirror', 'tier mirror');
 mountToggleControl('wedgeMirror', 'drosteWedgeMirror', 'wedge mirror');
+
+const resetBtn = document.createElement('button');
+resetBtn.id = 'm-reset';
+resetBtn.textContent = 'reset slice';
+resetBtn.addEventListener('click', () => {
+  state.sliceScale = 1.0; state.sliceRotation = 0; state.sliceCx = 0.5; state.sliceCy = 0.5;
+  state.squareAspect = 1.0; state.drosteZoom = 2.0; state.canvasZoom = 1.0; state.canvasRotation = 0;
+  controlsSync.syncAll(); scheduleRender(); sourceOverlay.scheduleDraw();
+});
+settingsEl.appendChild(resetBtn);
+
+settingsEl.insertAdjacentHTML('beforeend', '<h2>canvas</h2>');
+for (const id of DECLARATIVE_PARAM_IDS) {
+  if (PARAMS[id].scope === 'canvas') mountRangeControl(settingsEl, PARAMS[id], env);
+}
 // Out-of-bounds mode (clamp / mirror / transparent) — a stateful 3-way toggle,
 // not a range, so it's rendered directly here rather than via mountRangeControl.
+// Sits in the canvas section as a sibling to composition zoom / rotation.
 (function mountOobControl() {
   const wrap = document.createElement('div');
   wrap.className = 'm-control';
@@ -142,16 +162,6 @@ mountToggleControl('wedgeMirror', 'drosteWedgeMirror', 'wedge mirror');
   controlsSync.register(sync);
   sync();
 })();
-
-const resetBtn = document.createElement('button');
-resetBtn.id = 'm-reset';
-resetBtn.textContent = 'reset slice';
-resetBtn.addEventListener('click', () => {
-  state.sliceScale = 1.0; state.sliceRotation = 0; state.sliceCx = 0.5; state.sliceCy = 0.5;
-  state.squareAspect = 1.0; state.drosteZoom = 2.0; state.canvasZoom = 1.0; state.canvasRotation = 0;
-  controlsSync.syncAll(); scheduleRender(); sourceOverlay.scheduleDraw();
-});
-settingsEl.appendChild(resetBtn);
 
 // build/version readout (useful while testing on a phone where there's no footer)
 const ver = document.createElement('div');

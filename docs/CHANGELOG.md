@@ -4,6 +4,16 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.7.4 (Build 100) — 2026-06-03
+
+**UI/UX polish pass — OOB default + settings coherence.** First of a small batch of presentation/coherence refinements (the bigger landscape build is carved out separately).
+
+- **Default out-of-bounds is now mirror** (was clamp). Mirror is the generally-preferred OOB mode, so it's the default instead of an extra step every session. Desktop's active-button markup moved to match (desktop has no init-sync from state).
+- **Out-of-bounds is now a canvas control** on both chromes — its dedicated header is gone; on desktop it sits under the "canvas" group as a labeled control (`.setting-label`) beside composition zoom / rotation.
+- **Mobile settings regrouped to match desktop.** The list now reads **slice** (segments, scale, rotation, aspect/thickness, spiral, mirrors) → **reset slice** → **canvas** (composition zoom, rotation, out of bounds), with "slice" / "canvas" section headings (replacing the single generic "settings" header). Grouping is driven by each param's existing `scope` field, so canvas controls no longer interleave mid-slice (e.g. Droste's comp-zoom/rotation no longer sat above spiral).
+
+---
+
 ## v0.7.3 (Build 99) — 2026-06-03
 
 **Aspect control in the footer + filmstrip perf fix (from Daniel's 0.7.x testing).**

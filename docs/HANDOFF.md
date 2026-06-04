@@ -12,7 +12,11 @@ He prefers **no em dashes** in his own writing; respect that in any prose Claude
 
 ## current version
 
-`v0.7.3 · Build 99`. The footer in the running app shows this string from `src/version.js`.
+`v0.7.4 · Build 100`. The footer in the running app shows this string from `src/version.js`.
+
+**UI/UX polish pass in progress (Build 100+).** A small batch of presentation/coherence wins is underway, sequenced ahead of the higher-priority motion-perf work. Decisions with Daniel: **landscape mode is carved out** as its own build (needs a layout/IxD checkpoint first — seamless in-use rotation requires an in-place relayout that keeps the live camera alive, vs. today's reload-only chrome switch); the **motion-perf batch is interleaved** (first-keyframe lag → video-export render speed → motion smoothing → timeline pan/zoom). Plan: `~/.claude/plans/while-working-on-a-zesty-sonnet.md`.
+
+- **Build 100 (shipped, needs Daniel's in-browser pass):** default OOB → mirror; OOB demoted from a headed section to a labeled canvas control on both chromes; mobile settings regrouped into **slice → reset → canvas** sections with headings (driven by params' `scope` field). **Verify:** desktop fresh-load defaults to mirror with the mirror button highlighted under "canvas"; mobile settings read slice→reset→canvas across radial/square/droste; desktop + iPad still load unchanged through boot. *(Note for a later pass: the canvas group's "frame" control is still an `<h2>` sub-header while OOB is now a `.setting-label` — left as-is since only OOB was in scope; demote "frame" too if the adjacency reads inconsistent.)*
 
 **Video export SHIPPED (Build 96, v0.7.0) — needs Daniel's in-browser pass.** Render the loop to H.264 .mp4 via WebCodecs + **mp4-muxer** (a new, Daniel-approved dependency — the second authorized one after vite-plugin-pwa). Non-square output is now supported in the engine (`u_outputAspect` uniform; `renderToFBO(w,h)`; `engine.exportFrame`). The "render ▸" button in the motion footer opens a sheet (aspect 1:1/4:5/16:9, resolution 1080p/1440p/4K, fps 24/30/60). Untested by Claude (no WebCodecs here). Follow-ups: MediaRecorder fallback, 3K/6K, aspect crops for still export, video-file source loading.
 
