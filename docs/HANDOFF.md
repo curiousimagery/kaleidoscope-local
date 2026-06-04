@@ -12,7 +12,7 @@ He prefers **no em dashes** in his own writing; respect that in any prose Claude
 
 ## current version
 
-`v0.7.19 · Build 115`. The footer in the running app shows this string from `src/version.js`.
+`v0.7.20 · Build 116`. The footer in the running app shows this string from `src/version.js`.
 
 **iPad export fix (Build 115, needs Daniel's iPad re-test):** Build 112's direct `VideoFrame(webglCanvas)` hung iPadOS Safari; now `captureFrame` GPU-blits the GL canvas into a 2D canvas and wraps THAT (Safari-safe source), keeping the speedup. If iPad still fails, ask Daniel for any console error — would pinpoint whether it's the VideoFrame source (now addressed) or the 4K canvas resize.
 

@@ -4,6 +4,12 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.7.20 (Build 116) — 2026-06-04
+
+**Motion smoothing — much stronger, tunable range (Daniel found 100% too mild).** Build 114's smoothing did a single Laplacian relax pass at 100% (one neighbour-average — mild). It now compounds `SMOOTH_PASSES` (=4) stable passes, so 100% is dramatically stronger while staying continuous and monotonic across the slider. Per-pass strength is capped at 0.5 (a full λ=1 oscillates when iterated — verified). `SMOOTH_PASSES` in `kit/tween.js` is the single "make it wilder" knob. Note: heavy smoothing also gradually relaxes loop amplitude toward the anchor (it's pulling values toward neighbours); for crank-the-smoothness-without-losing-motion, a shape-preserving (Taubin) pass is the follow-up if wanted.
+
+---
+
 ## v0.7.19 (Build 115) — 2026-06-04
 
 **iPad video export fixed (regression from Build 112).** On iPadOS Safari, export hung before the first frame: Build 112 built each `VideoFrame` directly from the **WebGL canvas**, which Safari handles unreliably (especially with `premultipliedAlpha:false`). Chrome was fine; iPad was not.
