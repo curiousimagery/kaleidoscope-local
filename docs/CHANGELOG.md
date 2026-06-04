@@ -4,6 +4,24 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.7.11 (Build 107) — 2026-06-03
+
+**Save sheet rests on the tab bar + narrower in landscape (from Daniel's testing).**
+
+- **Rests on the tab bar, doesn't cover it.** `positionSheet()` now offsets the sheet panel so it sits *above* the tab bar in portrait (`bottom: tabbar height`) and *beside* it in landscape (`right: tabbar width`), re-applied on rotation. The full-screen backdrop still dims everything and catches a dismiss tap. (Interpretation of "rest on top of it rather than cover it" — confirm the feel.)
+- **Narrower in landscape:** sheet cap dropped 600 → 480px (≈ just over half a landscape screen, clearly wider than the 260px popover menus, clears a side island).
+
+---
+
+## v0.7.10 (Build 106) — 2026-06-03
+
+**Touch-rotate runaway fixed (regression from the backlog, reproduced on device).** Dragging a 90° arc to rotate the slice spun it 500°+ — an accumulating multiplier, not proportional tracking.
+
+- **Root cause:** the rotate gesture snapshotted the orbit *center* at drag start (the Build 84 fix) but `localCoords()` still read the **live** `wrap.getBoundingClientRect()` every move. When the source panel reflows mid-drag (iPhone Safari hiding its address bar fires `resize`/relayout), the live frame shifts under the snapshot center and injects spurious angle that accumulates.
+- **Fix (`src/shell/overlay.js`):** freeze the entire coordinate frame for the rotate gesture — snapshot `wrap.getBoundingClientRect()` at drag start and compute the pointer angle in that frozen frame, so rotation tracks the finger 1:1 regardless of mid-drag reflow. Also seeds `prevAngle` with the same `atan2` the move uses (instead of `cls.theta`, which a form's custom `classifyPointer` may compute in another convention) so there's no first-move jump on any form. The delta math itself was already correct (incremental + unwrapped); only the frame was drifting.
+
+---
+
 ## v0.7.9 (Build 105) — 2026-06-03
 
 **Mobile overlay positioning (from Daniel's device testing).**

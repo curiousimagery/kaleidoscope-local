@@ -963,12 +963,15 @@ export function setupSourceInteraction(env, wrap) {
           state.segments = newSegs;
         }
       } else if (drag.mode === 'rotate') {
-        if (!g) return;
-        // Y-flip in sliceVecToSourceUV (matching the shader's toSourceUV) means
-        // the wedge graphic rotates the OPPOSITE direction from sliceRotation in
-        // screen y-down terms. negate the cursor delta so dragging CCW in screen
-        // rotates the wedge CCW in screen (intuitive).
-        const a = Math.atan2(y - drag.cy0, x - drag.cx0);
+        // Compute the pointer angle in the FROZEN frame snapshotted at drag start
+        // (drag.rect + drag.cx0/cy0), not the live panel rect. If the source
+        // panel reflows mid-drag (e.g. iPhone Safari hiding its address bar fires
+        // resize), the live rect would shift under the snapshot center and inject
+        // spurious angle that accumulates — the wedge then spins far faster than
+        // the finger. Freezing the frame keeps rotation tracking the finger 1:1.
+        const fx = (e.touches ? e.touches[0].clientX : e.clientX) - drag.rect.left;
+        const fy = (e.touches ? e.touches[0].clientY : e.clientY) - drag.rect.top;
+        const a = Math.atan2(fy - drag.cy0, fx - drag.cx0);
         let delta = a - drag.prevAngle;
         if (delta > Math.PI)  delta -= 2 * Math.PI;
         if (delta < -Math.PI) delta += 2 * Math.PI;
@@ -1151,17 +1154,21 @@ export function setupSourceInteraction(env, wrap) {
       drag = { mode: 'droste-offset' };
       setCursor('grabbing');
     } else if (cls.mode === 'rotate') {
-      // Snapshot the rotation center at drag start and orbit THAT fixed point.
-      // The wedge center can't move during a rotate (only sliceRotation changes),
-      // so if the source panel reflows mid-drag — e.g. iPhone Safari hiding its
-      // address bar, which doesn't happen on desktop/iPad — reading the live geom
-      // center each move would corrupt the accumulated angle delta and the wedge
-      // spins much faster than the finger.
+      // Snapshot the rotation center AND the panel rect at drag start, then orbit
+      // that fixed point in that frozen frame. The wedge center can't move during
+      // a rotate (only sliceRotation changes), so if the source panel reflows
+      // mid-drag — e.g. iPhone Safari hiding its address bar, which doesn't happen
+      // on desktop/iPad — reading the live geom/rect each move corrupts the
+      // accumulated angle delta and the wedge spins far faster than the finger.
+      // prevAngle is seeded with the same atan2 the move uses (not cls.theta,
+      // which a form's custom classifyPointer may compute in another convention),
+      // so there's no first-move jump on any form.
       drag = {
         mode: 'rotate',
-        prevAngle: cls.theta,
+        rect: wrap.getBoundingClientRect(),
         cx0: g.cx,
         cy0: g.cy,
+        prevAngle: Math.atan2(y - g.cy, x - g.cx),
       };
       setCursor(rotateCursorForAngle(cls.theta));
     }

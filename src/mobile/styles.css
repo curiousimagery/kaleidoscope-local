@@ -82,9 +82,11 @@ html, body { margin: 0; padding: 0; height: 100%; background: var(--m-bg); color
 #m-sheet { position: absolute; inset: 0; z-index: 30; }
 #m-sheet.m-hidden { display: none; }
 .m-sheet-backdrop { position: absolute; inset: 0; background: rgba(0,0,0,0.5); }
-/* centered + capped at ~half-a-landscape-screen so it doesn't span under a side
-   Dynamic Island; stays full width in portrait (narrower than the cap). */
-.m-sheet-panel { position: absolute; left: 0; right: 0; bottom: 0; margin-inline: auto; max-width: 600px;
+/* centered + capped at ~half a landscape screen so it clears a side Dynamic
+   Island (and reads as just wider than the popover menus); full width in portrait
+   (narrower than the cap). bottom/right offsets are set by positionSheet() so the
+   panel rests on the tab bar instead of over it. */
+.m-sheet-panel { position: absolute; left: 0; right: 0; bottom: 0; margin-inline: auto; max-width: 480px;
   max-height: 88%; overflow-y: auto;
   background: #161616; border-top: 1px solid var(--m-line); border-radius: 16px 16px 0 0;
   padding: 8px 16px calc(16px + env(safe-area-inset-bottom)); }
