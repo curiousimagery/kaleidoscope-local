@@ -3,7 +3,13 @@
    Mobile chrome styles. Phone-class layout: OUTPUT (top) + CONTEXT (bottom)
    split by a fat sticky divider, with a bottom tab bar above the home indicator. */
 
-:root { --m-bg: #0a0a0a; --m-fg: #e8e8e8; --m-dim: #888; --m-line: #2a2a2a; --m-tabbar: 56px; --m-divider: 26px; }
+:root { --m-bg: #0a0a0a; --m-fg: #e8e8e8; --m-dim: #888; --m-line: #2a2a2a; --m-tabbar: 56px; --m-divider: 26px;
+  /* tab-bar bottom anchoring (A2, on-device tuning):
+     --m-tab-clear = how much of the conservative safe-area inset to trim so the
+     bar sits closer to the true bottom edge (clamped so it never goes negative).
+     --m-tab-corner = bottom-outer radius on the edge buttons, nodding to the
+     phone's screen corner radius. */
+  --m-tab-clear: 14px; --m-tab-corner: 20px; }
 
 * { box-sizing: border-box; }
 html, body { margin: 0; padding: 0; height: 100%; background: var(--m-bg); color: var(--m-fg);
@@ -58,13 +64,19 @@ html, body { margin: 0; padding: 0; height: 100%; background: var(--m-bg); color
 .m-seg-btn.active { border-color: #888; }
 .m-seg-btn:disabled { opacity: 0.35; }
 
-/* TAB BAR — relative + z-index so the context overlay can't paint over it */
+/* TAB BAR — relative + z-index so the context overlay can't paint over it.
+   Anchored toward the true bottom edge: instead of reserving the full
+   conservative home-indicator inset (which left the bar floating), trim it by
+   --m-tab-clear, clamped to a 6px floor so the glyphs still clear the pill. */
 #m-tabbar { position: relative; z-index: 10; flex: 0 0 auto; display: flex; gap: 4px;
-  padding: 6px 8px calc(6px + env(safe-area-inset-bottom));
+  padding: 6px 8px max(6px, calc(env(safe-area-inset-bottom) - var(--m-tab-clear)));
   background: #121212; border-top: 1px solid var(--m-line); }
 #m-tabbar button { flex: 1; min-height: 48px; background: #1a1a1a; color: #cfcfcf;
   border: 1px solid var(--m-line); border-radius: 8px; font-size: 12px;
   display: flex; align-items: center; justify-content: center; }
+/* edge buttons round their bottom-outer corner to follow the device corner */
+#m-tabbar button:first-child { border-bottom-left-radius: var(--m-tab-corner); }
+#m-tabbar button:last-child { border-bottom-right-radius: var(--m-tab-corner); }
 #m-tabbar button:active { background: #2a2a2a; color: #fff; }
 .m-tab svg, #m-context-toggle svg, .m-icon-btn svg { width: 24px; height: 24px; display: block; }
 /* form thumbnails use a `.stroke` group (32×32) designed for the desktop picker */
@@ -88,9 +100,11 @@ html, body { margin: 0; padding: 0; height: 100%; background: var(--m-bg); color
   border: 1px solid var(--m-line); background: #1a1a1a; color: var(--m-fg); font-size: 14px; }
 #m-save-comp.m-save-primary { background: #e8e8e8; color: #0a0a0a; border-color: #e8e8e8; font-weight: 500; }
 
-/* source popover (live camera / upload) — floats above the tab bar */
-.m-menu { position: absolute; left: 8px; right: 8px; z-index: 20;
-  bottom: calc(var(--m-tabbar) + env(safe-area-inset-bottom) + 8px);
+/* source/form popover (live camera / upload / form picker) — anchored just above
+   the tab bar. Mounted inside #m-context (position: relative), whose bottom edge
+   coincides with the tab bar's top, so an 8px offset clears the bar without
+   double-counting the tab-bar height or the safe-area inset. */
+.m-menu { position: absolute; left: 8px; right: 8px; z-index: 20; bottom: 8px;
   background: #1c1c1c; border: 1px solid var(--m-line); border-radius: 12px; overflow: hidden;
   box-shadow: 0 8px 24px rgba(0,0,0,0.5); }
 .m-menu-item { display: flex; align-items: center; gap: 14px; width: 100%; text-align: left;

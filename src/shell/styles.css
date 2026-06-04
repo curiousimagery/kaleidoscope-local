@@ -329,6 +329,11 @@ button .btn-spinner {
   margin-bottom: -4px;
 }
 
+/* a non-slider setting (button group) that reads as a sibling of the sliders:
+   same label type ramp (12px/#888), same label→control gap. */
+.field { display: flex; flex-direction: column; gap: 4px; }
+.field-label { font-size: 12px; color: #888; }
+
 /* resolution hint */
 .res-hint {
   font-size: 10px;

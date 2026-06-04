@@ -136,17 +136,21 @@
         <div class="row"><span>rotation</span><span class="val scrub" id="canvasRotVal" data-key="canvasRotation">0°</span></div>
         <input type="range" id="canvasRot" min="0" max="360" step="0.5" value="0">
       </label>
-      <label class="setting-label">out of bounds</label>
-      <div class="button-grid-3" id="oobModes">
-        <button class="toggle" data-oob="0">clamp</button>
-        <button class="toggle active" data-oob="1">mirror</button>
-        <button class="toggle" data-oob="2">transparent</button>
+      <div class="field">
+        <div class="field-label">out of bounds</div>
+        <div class="button-grid-3" id="oobModes">
+          <button class="toggle" data-oob="0">clamp</button>
+          <button class="toggle active" data-oob="1">mirror</button>
+          <button class="toggle" data-oob="2">transparent</button>
+        </div>
       </div>
-      <h2 style="margin-top: 4px;">frame</h2>
-      <div class="button-grid-3" id="frameAspect">
-        <button class="toggle active" data-asp="1">1:1</button>
-        <button class="toggle" data-asp="0.8">4:5</button>
-        <button class="toggle" data-asp="1.7778">16:9</button>
+      <div class="field">
+        <div class="field-label">frame</div>
+        <div class="button-grid-3" id="frameAspect">
+          <button class="toggle active" data-asp="1">1:1</button>
+          <button class="toggle" data-asp="0.8">4:5</button>
+          <button class="toggle" data-asp="1.7778">16:9</button>
+        </div>
       </div>
     </div>
 

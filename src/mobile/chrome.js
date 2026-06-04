@@ -451,7 +451,10 @@ function showMenu(items, anchorId) {
     b.addEventListener('click', () => { closeMenu(); it.action(); });
     menu.appendChild(b);
   });
-  rootEl.appendChild(menu);
+  // mount inside the context region (position: relative) whose bottom edge is the
+  // tab bar's top edge — so the menu anchors just above the tab bar regardless of
+  // tab-bar height or the home-indicator safe-area inset.
+  contextEl.appendChild(menu);
   setTimeout(() => document.addEventListener('pointerdown', onMenuOutside), 0);
 }
 function onMenuOutside(e) {

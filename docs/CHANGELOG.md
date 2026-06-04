@@ -4,6 +4,25 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.7.6 (Build 102) — 2026-06-03
+
+**PWA tab-bar bottom anchoring — first pass (on-device tuning to follow).** The installed-standalone tab bar floated well above the screen bottom because it reserved the full conservative home-indicator inset (`6px + safe-area-inset-bottom`) below the buttons.
+
+- The bottom padding now trims the inset by `--m-tab-clear` (default 14px), clamped to a 6px floor, so the bar sits closer to the true bottom edge while the glyphs still clear the home-indicator pill.
+- The edge buttons round their bottom-outer corner by `--m-tab-corner` (default 20px) to nod to the phone's screen corner radius.
+- Both values are `:root` CSS vars for quick iteration. **Open IxD question for on-device review:** whether to go full-bleed (drop the 8px side padding) so the corner rounding truly hugs the device corners. Entangled with the carved-out landscape build (the bar moves to the right edge there).
+
+---
+
+## v0.7.5 (Build 101) — 2026-06-03
+
+**Polish fixes from Build 100 testing (Daniel).**
+
+- **Desktop canvas type ramp unified.** The four settings under "canvas" (composition zoom, rotation, out of bounds, frame) were on three different type rungs — two 12px slider labels, OOB on the dim 10px `.setting-label`, and frame still an 11px `<h2>` sub-header — so OOB and frame read as subordinate rather than as siblings. OOB and frame are now `.field` blocks with a shared 12px/#888 `.field-label`, matching the slider labels, so all four read as peer settings under the one "canvas" header.
+- **Mobile popover float fixed (PWA).** The source/form popover floated well above the tab bar in standalone — its `bottom` offset hard-coded `--m-tabbar + safe-area-inset + 8px` while being positioned against the viewport, double-counting the bar. It's now mounted inside `#m-context` (whose bottom edge is the tab bar's top) with a plain `bottom: 8px`, so it anchors just above the bar regardless of bar height or the home-indicator inset.
+
+---
+
 ## v0.7.4 (Build 100) — 2026-06-03
 
 **UI/UX polish pass — OOB default + settings coherence.** First of a small batch of presentation/coherence refinements (the bigger landscape build is carved out separately).
