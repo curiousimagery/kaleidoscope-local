@@ -360,7 +360,21 @@ export async function renderToFBO(glCtx, state, ctx, w, h = w) {
   gl.clear(gl.COLOR_BUFFER_BIT);
   setUniforms(glCtx, state, ctx);
   gl.drawArrays(gl.TRIANGLES, 0, 6);
-  gl.finish();
+  // Block until the GPU has truly finished + resolved this FBO before readPixels.
+  // gl.finish() is unreliable on Safari: readPixels then returns a not-yet-resolved
+  // (internally swizzled/tiled) buffer → the filmstrip's channel-swapped/banded
+  // "blue cells". A fence sync + clientWaitSync is the robust WebGL2 guarantee.
+  const sync = gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0);
+  if (sync) {
+    let st = gl.clientWaitSync(sync, gl.SYNC_FLUSH_COMMANDS_BIT, 0);
+    const tw = performance.now();
+    while (st === gl.TIMEOUT_EXPIRED && performance.now() - tw < 1000) {
+      st = gl.clientWaitSync(sync, 0, 4_000_000);   // 4ms polls, up to ~1s
+    }
+    gl.deleteSync(sync);
+  } else {
+    gl.finish();   // WebGL1-style fallback (shouldn't happen on WebGL2)
+  }
   const renderMs = performance.now() - t0;
 
   const t1 = performance.now();

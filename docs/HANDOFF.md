@@ -12,7 +12,9 @@ He prefers **no em dashes** in his own writing; respect that in any prose Claude
 
 ## current version
 
-`v0.7.22 · Build 118`. The footer in the running app shows this string from `src/version.js`.
+`v0.7.23 · Build 119`. The footer in the running app shows this string from `src/version.js`.
+
+**Blue-cells saga (needs Daniel's Safari verify):** Build 118 (persistent FBO reuse) did NOT fix it; Build 119 added a WebGL2 fence sync (`fenceSync`+`clientWaitSync`) before `readPixels` in `renderToFBO` — the symptoms (partial/banded/channel-swapped/flickering/self-correcting, repro on fresh webcam) match `readPixels` reading before GPU resolve, which `gl.finish()` fails to prevent on Safari. If 119 still doesn't fix it, the escape hatch is readback-free thumbnails (render→`drawImage` to a 2D canvas, like the video-export path) — but that can't resize the live preview, so it needs a dedicated offscreen target (keyframe thumbs could alternatively `drawImage` the warmed-up preview canvas).
 
 **iPad export fix (Build 115, needs Daniel's iPad re-test):** Build 112's direct `VideoFrame(webglCanvas)` hung iPadOS Safari; now `captureFrame` GPU-blits the GL canvas into a 2D canvas and wraps THAT (Safari-safe source), keeping the speedup. If iPad still fails, ask Daniel for any console error — would pinpoint whether it's the VideoFrame source (now addressed) or the 4K canvas resize.
 

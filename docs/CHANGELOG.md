@@ -4,6 +4,12 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.7.23 (Build 119) — 2026-06-04
+
+**"Blue cells" — second, higher-confidence fix: real GPU fence sync before readback.** Build 118 (FBO reuse) didn't fix it. New screenshots showed *partial fills, horizontal banding, channel-swapped (R↔B = blue) content, flickering and self-correcting* — the signature of `readPixels` reading the FBO **before the GPU finished + resolved it** (returning the raw swizzled/tiled buffer). `gl.finish()` is meant to prevent that but is unreliable on Safari. `renderToFBO` now waits on a WebGL2 **fence sync** (`fenceSync` + `clientWaitSync`, ~1s cap, `gl.finish` fallback) before `readPixels`. One cause explains every symptom (partial + banding + blue + flicker + self-correct), reproduced on a fresh webcam capture (so not image-specific). Affects all `renderToFBO` users (filmstrip/thumbnails, still export, diagnostics) — still export was already fine, so no regression expected.
+
+---
+
 ## v0.7.22 (Build 118) — 2026-06-04
 
 **Filmstrip/thumbnail "blue cells" on Safari — attempted fix (needs Daniel's Safari verify).** `renderToFBO` created AND deleted a framebuffer + texture on *every* call; the filmstrip fires dozens of small renders in a burst, and Safari intermittently returned corrupt `readPixels` data under that churn → some thumbnails rendered blue (Firefox fine). Now reuses **one persistent FBO + texture**, (re)allocating only when the output size changes — removes the per-call churn and cuts GC. Shared by still export (`exportAt`) and the diagnostics path; behaviour otherwise unchanged. **If blue cells persist, the next diagnostic is whether they sit in fixed positions vs. move/flicker on rebuild** (fixed → state/shader-dependent; moving → readback corruption).
