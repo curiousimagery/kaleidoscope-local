@@ -4,6 +4,12 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.7.17 (Build 113) — 2026-06-04
+
+**Video export success text now reports render time.** After a successful render the status reads e.g. `saved ✓ · rendered in 6.2s · 145 frames/s` — the wall-clock duration plus effective throughput (frames rendered per second, a device/perf diagnostic distinct from the output fps). Helpful for comparing the Build 112 speedup across devices/resolutions.
+
+---
+
 ## v0.7.16 (Build 112) — 2026-06-04
 
 **Video export speed — eliminate the single-core readback bottleneck (Daniel; pro-tool framing).** Export previously did, per frame: `renderToFBO` → `gl.finish()` → **`readPixels`** (a 4K frame is ~37 MB GPU→CPU) → a **CPU Y-flip loop** → **`putImageData`** → `VideoFrame`. All serial, single-core, main-thread — thousands of times for a long 4K loop.

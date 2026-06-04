@@ -1678,14 +1678,19 @@ function setupVideoExport() {
     const prog = byId('vidProgress'), bar = byId('vidBar'), status = byId('vidStatus');
     prog.hidden = false; bar.style.width = '0%';
     status.textContent = 'rendering…'; status.className = 'status busy';
+    const renderStart = performance.now();
     try {
-      const { blob } = await exportVideo({
+      const { blob, frames } = await exportVideo({
         engine, sampleAt, width: w, height: h, fps: selFps, durationMs: motion.durationMs,
         onProgress: (p) => { bar.style.width = Math.round(p * 100) + '%'; },
         shouldCancel: () => cancelRender,
       });
       downloadBlob(blob, (sourceFilename || 'animation') + '.mp4');
-      status.textContent = 'saved ✓'; status.className = 'status success';
+      const secs = (performance.now() - renderStart) / 1000;
+      // render duration + effective throughput (frames rendered per wall-second — a
+      // device/perf diagnostic, distinct from the output fps).
+      const rate = frames ? ` · ${(frames / secs).toFixed(0)} frames/s` : '';
+      status.textContent = `saved ✓ · rendered in ${secs.toFixed(1)}s${rate}`; status.className = 'status success';
     } catch (e) {
       if (e.code === 'cancelled') { status.textContent = 'cancelled'; status.className = 'status'; }
       else { status.textContent = e.message || 'render failed'; status.className = 'status error'; console.error(e); }
