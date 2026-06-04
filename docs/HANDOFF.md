@@ -12,7 +12,7 @@ He prefers **no em dashes** in his own writing; respect that in any prose Claude
 
 ## current version
 
-`v0.7.11 · Build 107`. The footer in the running app shows this string from `src/version.js`.
+`v0.7.13 · Build 109`. The footer in the running app shows this string from `src/version.js`.
 
 **UI/UX polish pass in progress (Build 100+).** A small batch of presentation/coherence wins is underway, sequenced ahead of the higher-priority motion-perf work. Decisions with Daniel: **landscape mode is carved out** as its own build (needs a layout/IxD checkpoint first — seamless in-use rotation requires an in-place relayout that keeps the live camera alive, vs. today's reload-only chrome switch); the **motion-perf batch is interleaved** (first-keyframe lag → video-export render speed → motion smoothing → timeline pan/zoom). Plan: `~/.claude/plans/while-working-on-a-zesty-sonnet.md`.
 

@@ -528,7 +528,6 @@ function layout() {
   sourceOverlay.scheduleDraw();
   const om = document.getElementById('m-menu');     // keep an open popover anchored
   if (om) positionMenu(om, om.dataset.anchor);
-  if (!$('m-sheet')?.classList.contains('m-hidden')) positionSheet();   // keep the open sheet placed
 }
 function sizeOutput() {
   const w = outputEl.clientWidth, h = outputEl.clientHeight;
@@ -601,18 +600,8 @@ function openSaveSheet() {
     hint.textContent = s ? `sharp output up to ~${(s / 1024).toFixed(1)}K at current settings` : '';
   }
   $('m-sheet')?.classList.remove('m-hidden');
-  positionSheet();
 }
 function closeSaveSheet() { $('m-sheet')?.classList.add('m-hidden'); }
-// Rest the sheet panel ON the tab bar rather than over it: above it in portrait,
-// beside it (left of the right-edge bar) in landscape. The full-screen backdrop
-// still dims everything and catches a dismiss tap.
-function positionSheet() {
-  const panel = $('m-sheet')?.querySelector('.m-sheet-panel');
-  if (!panel) return;
-  if (isLandscape()) { panel.style.right = tabbarEl.offsetWidth + 'px'; panel.style.bottom = '0px'; }
-  else { panel.style.right = '0px'; panel.style.bottom = tabbarEl.offsetHeight + 'px'; }
-}
 
 function buildSaveSheet() {
   const sheet = document.createElement('div');

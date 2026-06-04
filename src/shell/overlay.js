@@ -806,16 +806,26 @@ function squareHandleCursorAngle(handle, cx, cy) {
 // drag dispatch
 // ===========================================================================
 
-// previously-attached window-level handlers from the most recent mount. tracked
-// so we can remove them before adding new ones — otherwise each remount of the
-// source view (every swap, every divider resize that re-fits the slot) leaks
-// a pair of listeners on window.
-let _windowHandlers = null;
+// Handlers attached by the most recent mount — tracked so we remove them before
+// re-binding. mountSourceView re-runs on every swap / fit-toggle / divider re-fit
+// / source change with the SAME persistent slot element (`wrap`), and clearing
+// the slot's innerHTML drops the canvas but NOT the slot's own listeners. Both
+// the wrap-level AND window-level listeners must be removed: a leaked wrap
+// `mousemove`/`touchmove` makes the accumulative rotate gesture fire N times per
+// move, multiplying a 90° drag into 2-3× the rotation (it's the only gesture
+// that sums deltas; absolute move/scale are immune, which is why only rotate ran
+// away). Single active source overlay per chrome, so a module singleton is fine.
+let _attachedHandlers = null;
 
 export function setupSourceInteraction(env, wrap) {
-  if (_windowHandlers) {
-    window.removeEventListener('mouseup', _windowHandlers.onUp);
-    window.removeEventListener('touchend', _windowHandlers.onUp);
+  if (_attachedHandlers) {
+    const h = _attachedHandlers;
+    h.wrap.removeEventListener('mousedown', h.onDown);
+    h.wrap.removeEventListener('mousemove', h.onMove);
+    h.wrap.removeEventListener('touchstart', h.onDown);
+    h.wrap.removeEventListener('touchmove', h.onMove);
+    window.removeEventListener('mouseup', h.onUp);
+    window.removeEventListener('touchend', h.onUp);
   }
 
   let drag = null;
@@ -1193,7 +1203,7 @@ export function setupSourceInteraction(env, wrap) {
   wrap.addEventListener('touchmove', onMove, { passive: false });
   window.addEventListener('touchend', onUp);
 
-  _windowHandlers = { onUp };
+  _attachedHandlers = { wrap, onDown, onMove, onUp };
 }
 
 // mount the source view (image div + overlay canvas) into a slot element.

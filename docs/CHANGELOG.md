@@ -4,6 +4,21 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.7.13 (Build 109) — 2026-06-04
+
+**Save/export sheet → centered modal (per Daniel — stop the cross-variant whack-a-mole).** The bottom-sheet positioning rendered wrong in most variants (tiny responsive desktop, portrait/landscape PWA, landscape mobile app — only mobile portrait was correct). Rather than keep patching tab-bar-relative offsets, it's now a plain centered modal: `position: absolute; top/left 50%; translate(-50%,-50%); width: min(480px, 100vw-32px); max-height: 86dvh`. Centering with a viewport margin clears the tab bar, a side Dynamic Island, the home indicator, and tiny widths all at once — no orientation/tab-bar logic. Removed `positionSheet()` and its calls. Backdrop still dims + dismisses.
+
+---
+
+## v0.7.12 (Build 108) — 2026-06-04
+
+**Touch-rotate runaway — actual root cause (stacked listeners).** Build 106's frozen-frame fix helped but rotation still multiplied (~2× mobile web, ~2.75× PWA). The real cause: `setupSourceInteraction` binds the move/down listeners to `slotEl` — the **persistent** source-panel container — and `mountSourceView` re-runs on every swap / fill-fit toggle / divider re-fit / source change. It de-duped only the **window** listeners, so the wrap-level `mousemove`/`touchmove` **stacked** with each remount. Because rotate is the only *accumulative* gesture (it sums angle deltas), N stacked `onMove`s multiplied a 90° drag into N× the rotation; absolute move/scale were immune (last-write-wins), which is why only rotate ran away. The non-integer ratio just reflected how many remounts a session had accumulated.
+
+- **Fix (`src/shell/overlay.js`):** track the attached **wrap-level** handlers (not just window) and remove them before re-binding, so exactly one listener set is ever active. Rotation now tracks the finger 1:1.
+- Build 106's frozen-frame snapshot is retained as defense against mid-drag panel reflow (a smaller, separate effect).
+
+---
+
 ## v0.7.11 (Build 107) — 2026-06-03
 
 **Save sheet rests on the tab bar + narrower in landscape (from Daniel's testing).**
