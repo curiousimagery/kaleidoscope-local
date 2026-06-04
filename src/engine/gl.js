@@ -326,23 +326,32 @@ export async function renderToFBO(glCtx, state, ctx, w, h = w) {
   const { gl } = glCtx;
   ctx.outputAspect = w / h;   // undistorted non-square crop (see shader main())
 
-  const fb = gl.createFramebuffer();
-  const tex = gl.createTexture();
-  gl.bindTexture(gl.TEXTURE_2D, tex);
-  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-
-  gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
-  gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
-
-  if (gl.checkFramebufferStatus(gl.FRAMEBUFFER) !== gl.FRAMEBUFFER_COMPLETE) {
-    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-    gl.deleteFramebuffer(fb);
-    gl.deleteTexture(tex);
-    throw new Error(`framebuffer incomplete at ${w}×${h}`);
+  // Reuse ONE persistent FBO + texture across calls, (re)allocating only when the
+  // requested size changes. Per-call create/delete churn (the filmstrip does dozens
+  // of small renders in a burst) caused intermittent corrupt readPixels on Safari —
+  // the filmstrip's "blue cells" — likely texture-memory recycling under churn.
+  // Reuse removes the churn and cuts per-frame GC.
+  const R = glCtx._fboReuse || (glCtx._fboReuse = { fb: null, tex: null, w: 0, h: 0 });
+  if (!R.fb || R.w !== w || R.h !== h) {
+    if (R.fb) { gl.deleteFramebuffer(R.fb); gl.deleteTexture(R.tex); R.fb = R.tex = null; }
+    const tex = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, tex);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    const fb = gl.createFramebuffer();
+    gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
+    if (gl.checkFramebufferStatus(gl.FRAMEBUFFER) !== gl.FRAMEBUFFER_COMPLETE) {
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      gl.deleteFramebuffer(fb); gl.deleteTexture(tex);
+      throw new Error(`framebuffer incomplete at ${w}×${h}`);
+    }
+    R.fb = fb; R.tex = tex; R.w = w; R.h = h;
+  } else {
+    gl.bindFramebuffer(gl.FRAMEBUFFER, R.fb);
   }
 
   const t0 = performance.now();
@@ -359,10 +368,6 @@ export async function renderToFBO(glCtx, state, ctx, w, h = w) {
   gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
   const readMs = performance.now() - t1;
 
-  // restore default framebuffer + free FBO resources
-  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-  gl.deleteFramebuffer(fb);
-  gl.deleteTexture(tex);
-
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);   // restore default; FBO kept for reuse
   return { pixels, w, h, renderMs, readMs };
 }

@@ -2,7 +2,11 @@
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
 html, body { height: 100%; background: #0a0a0a; color: #e8e8e8; font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif; font-size: 14px; user-select: none; }
-body { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+/* 100dvh (not 100vh) so the layout fits the VISIBLE viewport — on iPad Safari with
+   tabs/toolbars showing, 100vh is the larger toolbars-hidden height, which pushed
+   the motion timeline below the visible area (overflow:hidden hid it). 100vh fallback
+   for browsers without dvh. */
+body { display: flex; flex-direction: column; height: 100vh; height: 100dvh; overflow: hidden; }
 
 /* work row — the horizontal split (main | divider | panel). when the motion
    footer is hidden this fills the viewport, so the layout matches the pre-motion

@@ -4,6 +4,18 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.7.22 (Build 118) — 2026-06-04
+
+**Filmstrip/thumbnail "blue cells" on Safari — attempted fix (needs Daniel's Safari verify).** `renderToFBO` created AND deleted a framebuffer + texture on *every* call; the filmstrip fires dozens of small renders in a burst, and Safari intermittently returned corrupt `readPixels` data under that churn → some thumbnails rendered blue (Firefox fine). Now reuses **one persistent FBO + texture**, (re)allocating only when the output size changes — removes the per-call churn and cuts GC. Shared by still export (`exportAt`) and the diagnostics path; behaviour otherwise unchanged. **If blue cells persist, the next diagnostic is whether they sit in fixed positions vs. move/flicker on rebuild** (fixed → state/shader-dependent; moving → readback corruption).
+
+---
+
+## v0.7.21 (Build 117) — 2026-06-04
+
+**iPad timeline pushed offscreen with Safari tabs open — fixed.** The desktop chrome's `body` used `height: 100vh`. On iPad Safari, `100vh` is the *toolbars-hidden* (larger) viewport, so with the tab bar/toolbars showing the body ran taller than the visible area and the bottom (the motion timeline) was pushed below the fold — with `overflow: hidden` there was no way to scroll to it (closing tabs hid the bar and it fit again). Now `height: 100dvh` (dynamic viewport, fits the visible area; `100vh` fallback for old browsers), matching the mobile chrome. Desktop browsers are unaffected (dvh == vh there).
+
+---
+
 ## v0.7.20 (Build 116) — 2026-06-04
 
 **Motion smoothing — much stronger, tunable range (Daniel found 100% too mild).** Build 114's smoothing did a single Laplacian relax pass at 100% (one neighbour-average — mild). It now compounds `SMOOTH_PASSES` (=4) stable passes, so 100% is dramatically stronger while staying continuous and monotonic across the slider. Per-pass strength is capped at 0.5 (a full λ=1 oscillates when iterated — verified). `SMOOTH_PASSES` in `kit/tween.js` is the single "make it wilder" knob. Note: heavy smoothing also gradually relaxes loop amplitude toward the anchor (it's pulling values toward neighbours); for crank-the-smoothness-without-losing-motion, a shape-preserving (Taubin) pass is the follow-up if wanted.
