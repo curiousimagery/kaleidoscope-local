@@ -4,6 +4,16 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.7.15 (Build 111) — 2026-06-04
+
+**Keyframe authoring → back to auto-select / duplicate-and-tweak (Daniel).** Reverses the Build 97 model. Daniel's diagnosis: the Build 97 "duplicate pause" was a *missing save-on-add trigger*, not auto-select itself — so we keep auto-select and make the commit explicit.
+
+- **`+keyframe` now auto-selects the new keyframe** (`motion.selected = newIdx`), so subsequent edits write through (autosave) to it via the existing live write-through. (Was `-1`, which left edits unsaved unless you manually clicked the marker.)
+- **`+keyframe` always lays a keyframe after the current one** — removed the `sameLook` guard that skipped an add when the scrubber sat on a matching keyframe (that was the "you must move the slider between keyframes to add" symptom). Adding without editing now leaves an intentional hold.
+- **Explicit commit on add:** before laying the next keyframe, the currently-selected keyframe is synchronously committed from the working state, so the just-edited keyframe is never left stale (the save trigger Build 97 was missing). Removed the now-dead `sameLook` / `CONTINUOUS_KEYS` import.
+
+---
+
 ## v0.7.14 (Build 110) — 2026-06-04
 
 **First-keyframe lag fixed (HIGH-priority motion bug).** Saving the first keyframe froze the "+ keyframe" button for ~4-8s before a second could be added (source-size dependent).

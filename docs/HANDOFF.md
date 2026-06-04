@@ -12,7 +12,9 @@ He prefers **no em dashes** in his own writing; respect that in any prose Claude
 
 ## current version
 
-`v0.7.14 · Build 110`. The footer in the running app shows this string from `src/version.js`.
+`v0.7.15 · Build 111`. The footer in the running app shows this string from `src/version.js`.
+
+**Keyframe model note (Build 111):** authoring reverted to **auto-select / duplicate-and-tweak** (undoes Build 97's "add deselects"). `+keyframe` always lays a keyframe after the current one and auto-selects it; edits write through (autosave) to the selected keyframe; an explicit synchronous commit-on-add prevents the stale-keyframe "pause" Build 97 was working around (Daniel diagnosed it as a missing save trigger, not auto-select). So the BACKLOG/CHANGELOG references to the Build 88/97 "add leaves nothing selected" model are now superseded.
 
 **UI/UX polish pass in progress (Build 100+).** A small batch of presentation/coherence wins is underway, sequenced ahead of the higher-priority motion-perf work. Decisions with Daniel: **landscape mode is carved out** as its own build (needs a layout/IxD checkpoint first — seamless in-use rotation requires an in-place relayout that keeps the live camera alive, vs. today's reload-only chrome switch); the **motion-perf batch is interleaved** (first-keyframe lag → video-export render speed → motion smoothing → timeline pan/zoom). Plan: `~/.claude/plans/while-working-on-a-zesty-sonnet.md`.
 

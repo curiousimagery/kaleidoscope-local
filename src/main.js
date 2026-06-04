@@ -29,7 +29,7 @@ import { PARAMS, DECLARATIVE_PARAM_IDS } from './shell/params.js';
 import { createCamera } from './shell/camera.js';
 import { zipStore } from './shell/zip.js';
 import { snapSpiralValue as kitSnapSpiral, applyArmsSnap as kitApplyArmsSnap } from './kit/snaps.js';
-import { lerpState, DISCRETE_KEYS, CONTINUOUS_KEYS } from './kit/tween.js';
+import { lerpState, DISCRETE_KEYS } from './kit/tween.js';
 import { exportVideo, videoExportSupported } from './shell/video-export.js';
 import { formatVersion } from './version.js';
 import { push as historyPush, undo as historyUndo, redo as historyRedo, canUndo, canRedo } from './shell/history.js';
@@ -1274,18 +1274,17 @@ function applyAutoSpacing() {
     i = j;
   }
 }
-// continuous-field equality — used to skip a redundant keyframe (same look).
-function sameLook(a, b) {
-  for (const k of CONTINUOUS_KEYS) if (Math.abs((a[k] || 0) - (b[k] || 0)) > 1e-4) return false;
-  return true;
-}
 function addKeyframe() {
   if (!engine || !engine.getSourceImage()) return;
   if (motion.playing) stopPlayback();
+  // Commit any in-flight edit to the currently-selected keyframe BEFORE laying the
+  // next one, so the just-edited keyframe is never left stale. (Daniel's diagnosis:
+  // the old Build-97 "duplicate pause" was a missing save-on-add trigger, not
+  // auto-select itself — so we keep auto-select and make the commit explicit.)
+  if (motion.selected >= 0 && kfList()[motion.selected]) {
+    kfList()[motion.selected].snap = { ...state };
+  }
   const onIdx = keyframeAt(motion.playhead);
-  // never drop a redundant duplicate of the keyframe already at the scrubber — that
-  // just makes a static pause (the "+keyframe again without editing" case).
-  if (onIdx >= 0 && sameLook(kfList()[onIdx].snap, state)) return;
   const kf = { t: 0, snap: { ...state }, thumb: makeThumbCanvas(), anchored: false };
   let newIdx;
   if (kfList().length === 0) {
@@ -1302,10 +1301,10 @@ function addKeyframe() {
     newIdx = ins;
   }
   applyAutoSpacing();
-  // "+keyframe" saves the current look and jumps forward; editing then stages a NEW
-  // pose (it does NOT write through to the just-saved keyframe — that auto-select was
-  // the source of the duplicate/pause). Click a marker to refine an existing keyframe.
-  motion.selected = -1;
+  // "+keyframe" lays a new keyframe (a copy of the current look) after the current
+  // one and AUTO-SELECTS it, so subsequent edits write through (autosave) to it —
+  // duplicate-and-tweak. Adding without editing leaves an intentional hold.
+  motion.selected = newIdx;
   setPlayhead(kfList()[newIdx].t);
   renderTimeline();                              // marker appears now; thumb paints in place when ready
   updateMotionUI();
