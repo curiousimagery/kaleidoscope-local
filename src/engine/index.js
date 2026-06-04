@@ -33,6 +33,7 @@ export function createEngine({ canvas, maxProbeSize }) {
   let sourceAspect = 1;
   let sourceW = 0, sourceH = 0;  // resolved pixel size (natural* for img, video* for video)
   let capturePrevSize = null;    // preview canvas size snapshot during a video-capture session
+  let captureCanvas = null, captureCtx = null;   // 2D blit target → VideoFrame source (Safari-safe)
 
   // a source is an <img> (naturalWidth), a <video> (videoWidth), or a <canvas>
   // (width — used for the mirrored front-camera frame). resolve to pixel
@@ -207,30 +208,36 @@ export function createEngine({ canvas, maxProbeSize }) {
     },
 
     // --- video-capture session -------------------------------------------------
-    // The fast multi-frame path: render straight to the GL canvas at output size
-    // and let the caller wrap the canvas in a VideoFrame — NO readPixels / Y-flip /
-    // putImageData (the per-frame, single-core CPU cost that throttled export). The
-    // GL canvas IS the live preview canvas, so we snapshot + restore its size; the
-    // caller hides the preview during the session (render sheet) and re-renders
-    // after endCapture(). Frame orientation is already top-down (canvas
-    // presentation), so no manual flip is needed. preserveDrawingBuffer is on, so
-    // constructing the VideoFrame right after captureFrame() reads a stable buffer.
+    // The fast multi-frame path: render straight to the GL canvas at output size,
+    // then GPU-blit it into a 2D canvas (`drawImage`) that the caller wraps in a
+    // VideoFrame. Avoids the per-frame, single-core CPU cost that throttled export
+    // (NO readPixels / CPU Y-flip / putImageData — drawImage is a GPU copy and
+    // handles the flip). We hand the VideoFrame a 2D canvas, NOT the WebGL canvas
+    // directly: Safari/iPadOS is unreliable building a VideoFrame from a WebGL
+    // canvas (esp. with premultipliedAlpha:false), which hung iPad export. The GL
+    // canvas IS the live preview canvas, so we snapshot + restore its size; the
+    // caller hides the preview during the session and re-renders after endCapture().
     beginCapture(w, h) {
       if (!sourceTexture) throw new Error('no source loaded');
       const cv = glCtx.gl.canvas;
       capturePrevSize = { w: cv.width, h: cv.height };
       cv.width = w; cv.height = h;
+      captureCanvas = document.createElement('canvas');
+      captureCanvas.width = w; captureCanvas.height = h;
+      captureCtx = captureCanvas.getContext('2d');
     },
     captureFrame(state) {
       const cv = glCtx.gl.canvas;
       renderToCanvas(glCtx, state, buildCtx(state), cv.width, cv.height);
-      return cv;
+      captureCtx.drawImage(cv, 0, 0);   // GPU blit GL→2D (Safari-safe VideoFrame source)
+      return captureCanvas;
     },
     endCapture() {
       if (!capturePrevSize) return;
       const cv = glCtx.gl.canvas;
       cv.width = capturePrevSize.w; cv.height = capturePrevSize.h;
       capturePrevSize = null;
+      captureCanvas = null; captureCtx = null;
     },
 
     // resolution hint — heuristic suggesting the largest output where ~1 source

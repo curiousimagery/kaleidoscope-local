@@ -12,7 +12,9 @@ He prefers **no em dashes** in his own writing; respect that in any prose Claude
 
 ## current version
 
-`v0.7.18 · Build 114`. The footer in the running app shows this string from `src/version.js`.
+`v0.7.19 · Build 115`. The footer in the running app shows this string from `src/version.js`.
+
+**iPad export fix (Build 115, needs Daniel's iPad re-test):** Build 112's direct `VideoFrame(webglCanvas)` hung iPadOS Safari; now `captureFrame` GPU-blits the GL canvas into a 2D canvas and wraps THAT (Safari-safe source), keeping the speedup. If iPad still fails, ask Daniel for any console error — would pinpoint whether it's the VideoFrame source (now addressed) or the 4K canvas resize.
 
 **Motion smoothing (Build 114, needs Daniel's in-browser pass):** velocity-continuous Catmull-Rom interpolation is now the baseline (motion flows through keyframes, no per-keyframe stutter); the "easing" control became a "smoothing" degree (0 = exact keyframes, higher relaxes jaggy keyframe values). Math in `kit/tween.js` `sampleKeyframes` (loop-aware, angle-unwrapped); verified numerically. **Validate:** a multi-keyframe one-direction zoom/pan should flow continuously (no stutter); a 2-keyframe A↔B loop should still ease smoothly at the turns; the smoothing slider should visibly relax sloppy paths. Pending: per-keyframe ease handles (deliberate holds).
 

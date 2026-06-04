@@ -4,6 +4,14 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.7.19 (Build 115) — 2026-06-04
+
+**iPad video export fixed (regression from Build 112).** On iPadOS Safari, export hung before the first frame: Build 112 built each `VideoFrame` directly from the **WebGL canvas**, which Safari handles unreliably (especially with `premultipliedAlpha:false`). Chrome was fine; iPad was not.
+
+- **Fix (`engine.captureFrame`):** render to the GL canvas as before, then **GPU-blit it into a 2D canvas** (`drawImage`) and hand the `VideoFrame` that 2D canvas — a proven-compatible source (it's what the pre-112 path used). Still no `readPixels` / CPU Y-flip / `putImageData`, so the Build 112 speedup is preserved (`drawImage` is a GPU copy and handles the Y-flip). One path for all browsers.
+
+---
+
 ## v0.7.18 (Build 114) — 2026-06-04
 
 **Motion smoothing — velocity-continuous interpolation (Daniel's top animation priority, B3).** Replaces the per-segment easing that eased to **zero velocity at every keyframe** (a visible stutter when motion continued in one direction).

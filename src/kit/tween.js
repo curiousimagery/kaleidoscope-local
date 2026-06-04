@@ -70,6 +70,11 @@ export function lerpState(a, b, t, ease = easing.easeInOut) {
 }
 
 // ---- multi-keyframe sampling (velocity-continuous) ------------------------
+// How many Laplacian relax passes the smoothing control drives at 100%. 1 ≈ very
+// mild (a single neighbour-average); higher compounds into much stronger fudging.
+// This is the "make it wilder" knob — bump it for a more aggressive max.
+const SMOOTH_PASSES = 4;
+
 // shortest-path signed delta a→b (degrees), in [-180,180].
 function angDelta(a, b) { return ((b - a + 540) % 360) - 180; }
 
@@ -143,7 +148,9 @@ export function sampleKeyframes(list, p, { smoothing = 0, loop = false } = {}) {
       ts.push(1);
       vs.push(angular ? vs[n - 1] + angDelta(list[n - 1].snap[key] ?? 0, list[0].snap[key] ?? 0) : vs[0]);
     }
-    if (smoothing > 0) relaxInterior(ts, vs, smoothing);
+    // per-pass strength is capped at 0.5 (stable Laplacian; >0.5 oscillates when
+    // iterated). The control scales that, and SMOOTH_PASSES compounds it.
+    if (smoothing > 0) for (let s = 0; s < SMOOTH_PASSES; s++) relaxInterior(ts, vs, smoothing * 0.5);
     let v = hermiteSample(ts, vs, p, loop);
     if (angular) v = ((v % 360) + 360) % 360;
     out[key] = v;
