@@ -4,6 +4,25 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.7.9 (Build 105) — 2026-06-03
+
+**Mobile overlay positioning (from Daniel's device testing).**
+
+- **Popovers now anchor off their launching tab button.** The source/form menu was fixed to the bottom of CONTEXT, so in landscape it opened far from the (right-edge) tab button that triggered it. It's now `position: fixed`, positioned by `positionMenu()`: it unfurls upward from the button in portrait and to the left of the button (top-aligned) in landscape, clamped on-screen, and re-anchors on rotation. Width is bounded (260px) instead of full-width.
+- **Save/export sheet narrowed + centered.** It was full-width and ran under a side Dynamic Island in landscape. Now capped at `max-width: 600px` (≈ half a landscape screen, comfortably wide for the format/resolution rows) and centered via `margin-inline: auto`; still full width in portrait where it's narrower than the cap.
+
+---
+
+## v0.7.8 (Build 104) — 2026-06-03
+
+**Safe-area robustness — honor `env()`, stop pixel-matching (from Daniel's device testing).** Daniel flagged that the Build 102 "nudge the bar down" approach effectively *overrode* the OS-reported safe area (`--m-tab-clear` subtracted from `env(safe-area-inset-bottom)`), which is fragile across hardware and really a native-app concern.
+
+- **Reverted the nudge-down and the device-corner rounding** (`--m-tab-clear`, `--m-tab-corner`, and the `:first-child`/`:last-child` bottom-corner radii — the latter only ever rounded the live-camera state's last child anyway). The tab bar now honors `env(safe-area-inset-bottom)` verbatim, which also fixes the "icons touching the screen edge" symptom (the nudge had pushed buttons into the rounded-corner zone).
+- **Tab bar now respects side insets too** (`max(8px, env(safe-area-inset-left/right))` in portrait; `max(8px, env(safe-area-inset-right))` for the landscape right edge — no arbitrary buffer added, so an island on the LEFT gives a minimal right gap automatically).
+- **Flip (front/rear camera) button collision fixed.** It was at `top: 8px` and collided with the status bar / Dynamic Island in the installed PWA. Now offset by `env(safe-area-inset-top)` (and `inset-right` for landscape side-islands).
+
+---
+
 ## v0.7.7 (Build 103) — 2026-06-03
 
 **Mobile landscape layout — core (first pass; on-device validation pending).** The mobile chrome now reflows for landscape instead of staying portrait-only.

@@ -451,11 +451,24 @@ function showMenu(items, anchorId) {
     b.addEventListener('click', () => { closeMenu(); it.action(); });
     menu.appendChild(b);
   });
-  // mount inside the context region (position: relative) whose bottom edge is the
-  // tab bar's top edge — so the menu anchors just above the tab bar regardless of
-  // tab-bar height or the home-indicator safe-area inset.
-  contextEl.appendChild(menu);
+  rootEl.appendChild(menu);           // fixed-positioned; parent is irrelevant
+  positionMenu(menu, anchorId);
   setTimeout(() => document.addEventListener('pointerdown', onMenuOutside), 0);
+}
+// Anchor the popover off its launching tab button: unfurl upward from it in
+// portrait (tab bar at the bottom), to the left of it in landscape (tab bar on
+// the right), top-aligned to the button. Clamped to stay on-screen.
+function positionMenu(menu, anchorId) {
+  const a = document.getElementById(anchorId);
+  if (!a) return;
+  const b = a.getBoundingClientRect();
+  const gap = 8, m = 8;
+  const mw = menu.offsetWidth, mh = menu.offsetHeight;
+  let left, top;
+  if (isLandscape()) { left = b.left - gap - mw; top = b.top; }
+  else { left = b.left; top = b.top - gap - mh; }
+  menu.style.left = Math.max(m, Math.min(left, window.innerWidth - mw - m)) + 'px';
+  menu.style.top = Math.max(m, Math.min(top, window.innerHeight - mh - m)) + 'px';
 }
 function onMenuOutside(e) {
   const m = document.getElementById('m-menu');
@@ -513,6 +526,8 @@ function layout() {
   }
   sizeOutput();
   sourceOverlay.scheduleDraw();
+  const om = document.getElementById('m-menu');     // keep an open popover anchored
+  if (om) positionMenu(om, om.dataset.anchor);
 }
 function sizeOutput() {
   const w = outputEl.clientWidth, h = outputEl.clientHeight;

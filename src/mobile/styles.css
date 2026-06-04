@@ -3,13 +3,7 @@
    Mobile chrome styles. Phone-class layout: OUTPUT (top) + CONTEXT (bottom)
    split by a fat sticky divider, with a bottom tab bar above the home indicator. */
 
-:root { --m-bg: #0a0a0a; --m-fg: #e8e8e8; --m-dim: #888; --m-line: #2a2a2a; --m-tabbar: 56px; --m-divider: 26px;
-  /* tab-bar bottom anchoring (A2, on-device tuning):
-     --m-tab-clear = how much of the conservative safe-area inset to trim so the
-     bar sits closer to the true bottom edge (clamped so it never goes negative).
-     --m-tab-corner = bottom-outer radius on the edge buttons, nodding to the
-     phone's screen corner radius. */
-  --m-tab-clear: 14px; --m-tab-corner: 20px; }
+:root { --m-bg: #0a0a0a; --m-fg: #e8e8e8; --m-dim: #888; --m-line: #2a2a2a; --m-tabbar: 56px; --m-divider: 26px; }
 
 * { box-sizing: border-box; }
 html, body { margin: 0; padding: 0; height: 100%; background: var(--m-bg); color: var(--m-fg);
@@ -21,7 +15,10 @@ html, body { margin: 0; padding: 0; height: 100%; background: var(--m-bg); color
 /* OUTPUT region */
 #m-output { position: relative; flex: 0 0 auto; background: #000; display: flex; align-items: center; justify-content: center; overflow: hidden; }
 #m-output canvas { display: block; background: #111; }
-#m-flip { position: absolute; top: 8px; right: 8px; z-index: 6; width: 40px; height: 40px;
+/* offset by the top/right safe-area insets so the flip control never sits under
+   the status bar / Dynamic Island (portrait) or a side island (landscape). */
+#m-flip { position: absolute; top: calc(8px + env(safe-area-inset-top)); right: calc(8px + env(safe-area-inset-right));
+  z-index: 6; width: 40px; height: 40px;
   border-radius: 8px; border: 1px solid var(--m-line); background: rgba(20,20,20,0.85);
   color: var(--m-fg); font-size: 18px; }
 #m-empty { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
@@ -65,18 +62,16 @@ html, body { margin: 0; padding: 0; height: 100%; background: var(--m-bg); color
 .m-seg-btn:disabled { opacity: 0.35; }
 
 /* TAB BAR — relative + z-index so the context overlay can't paint over it.
-   Anchored toward the true bottom edge: instead of reserving the full
-   conservative home-indicator inset (which left the bar floating), trim it by
-   --m-tab-clear, clamped to a 6px floor so the glyphs still clear the pill. */
+   We honor the OS-reported safe-area insets verbatim rather than nudging the bar
+   toward the true edge or matching device corner radii (fragile across hardware,
+   and a native-app concern). env(safe-area-inset-bottom) already adapts to both
+   the installed-PWA home indicator and the Safari toolbar case. */
 #m-tabbar { position: relative; z-index: 10; flex: 0 0 auto; display: flex; gap: 4px;
-  padding: 6px 8px max(6px, calc(env(safe-area-inset-bottom) - var(--m-tab-clear)));
+  padding: 6px max(8px, env(safe-area-inset-left)) calc(6px + env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-right));
   background: #121212; border-top: 1px solid var(--m-line); }
 #m-tabbar button { flex: 1; min-height: 48px; background: #1a1a1a; color: #cfcfcf;
   border: 1px solid var(--m-line); border-radius: 8px; font-size: 12px;
   display: flex; align-items: center; justify-content: center; }
-/* edge buttons round their bottom-outer corner to follow the device corner */
-#m-tabbar button:first-child { border-bottom-left-radius: var(--m-tab-corner); }
-#m-tabbar button:last-child { border-bottom-right-radius: var(--m-tab-corner); }
 #m-tabbar button:active { background: #2a2a2a; color: #fff; }
 .m-tab svg, #m-context-toggle svg, .m-icon-btn svg { width: 24px; height: 24px; display: block; }
 /* form thumbnails use a `.stroke` group (32×32) designed for the desktop picker */
@@ -87,7 +82,10 @@ html, body { margin: 0; padding: 0; height: 100%; background: var(--m-bg); color
 #m-sheet { position: absolute; inset: 0; z-index: 30; }
 #m-sheet.m-hidden { display: none; }
 .m-sheet-backdrop { position: absolute; inset: 0; background: rgba(0,0,0,0.5); }
-.m-sheet-panel { position: absolute; left: 0; right: 0; bottom: 0; max-height: 88%; overflow-y: auto;
+/* centered + capped at ~half-a-landscape-screen so it doesn't span under a side
+   Dynamic Island; stays full width in portrait (narrower than the cap). */
+.m-sheet-panel { position: absolute; left: 0; right: 0; bottom: 0; margin-inline: auto; max-width: 600px;
+  max-height: 88%; overflow-y: auto;
   background: #161616; border-top: 1px solid var(--m-line); border-radius: 16px 16px 0 0;
   padding: 8px 16px calc(16px + env(safe-area-inset-bottom)); }
 .m-sheet-grip { width: 44px; height: 5px; border-radius: 3px; background: #444; margin: 6px auto 10px; }
@@ -100,11 +98,10 @@ html, body { margin: 0; padding: 0; height: 100%; background: var(--m-bg); color
   border: 1px solid var(--m-line); background: #1a1a1a; color: var(--m-fg); font-size: 14px; }
 #m-save-comp.m-save-primary { background: #e8e8e8; color: #0a0a0a; border-color: #e8e8e8; font-weight: 500; }
 
-/* source/form popover (live camera / upload / form picker) — anchored just above
-   the tab bar. Mounted inside #m-context (position: relative), whose bottom edge
-   coincides with the tab bar's top, so an 8px offset clears the bar without
-   double-counting the tab-bar height or the safe-area inset. */
-.m-menu { position: absolute; left: 8px; right: 8px; z-index: 20; bottom: 8px;
+/* source/form popover (live camera / upload / form picker). Fixed-positioned and
+   anchored off its launching tab button by positionMenu() in chrome.js (unfurls
+   upward from the button in portrait, to the left of it in landscape). */
+.m-menu { position: fixed; z-index: 20; width: 260px; max-width: calc(100vw - 16px);
   background: #1c1c1c; border: 1px solid var(--m-line); border-radius: 12px; overflow: hidden;
   box-shadow: 0 8px 24px rgba(0,0,0,0.5); }
 .m-menu-item { display: flex; align-items: center; gap: 14px; width: 100%; text-align: left;
@@ -137,16 +134,13 @@ html, body { margin: 0; padding: 0; height: 100%; background: var(--m-bg); color
   }
   #m-divider::before { width: 5px; height: 44px; }
 
-  /* tab bar stacks down the RIGHT edge. right padding = the island's safe inset
-     (0 unless the island is on this edge) + an 8px buffer so the buttons are never
-     tucked under the OS chrome; bottom padding clears the home indicator. */
+  /* tab bar stacks down the RIGHT edge. right padding honors the island's safe
+     inset (0 unless the island rotated onto this edge — so island-on-left gives a
+     minimal gap automatically); bottom padding clears the home indicator. */
   #m-tabbar {
     flex-direction: column;
     border-top: none; border-left: 1px solid var(--m-line);
-    padding: 8px calc(env(safe-area-inset-right) + 8px) max(8px, env(safe-area-inset-bottom)) 8px;
+    padding: 8px max(8px, env(safe-area-inset-right)) max(8px, env(safe-area-inset-bottom)) 8px;
   }
   #m-tabbar button { min-width: 48px; }
-  /* the portrait bottom-corner rounding targets the wrong corners when vertical */
-  #m-tabbar button:first-child,
-  #m-tabbar button:last-child { border-radius: 8px; }
 }
