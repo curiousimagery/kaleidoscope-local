@@ -12,7 +12,9 @@ He prefers **no em dashes** in his own writing; respect that in any prose Claude
 
 ## current version
 
-`v0.7.24 · Build 120`. The footer in the running app shows this string from `src/version.js`.
+`v0.7.25 · Build 121`. The footer in the running app shows this string from `src/version.js`.
+
+**Companion source-preview video (Build 121, needs Daniel's visual verify).** Opt-in render-sheet checkbox renders a 2nd square 1920² video of the source + moving wedge (clean, no affordances) and packages both as a `.zip`. `exportVideo` is now generalized (`frameAt`/`onBegin`/`onEnd`). The frame compositor (`renderSourcePreviewFrame` in main.js) reuses `drawSourceOverlay` via the overlay view swapped onto an offscreen canvas. **Can't self-verify the visual** — check: wedge aligns with the source image, no affordance arrows, droste rings render, square fit looks right. **NEXT (planned with Daniel): motion JSON round-trip** — "download/load motion data" in a new ⋯ overflow menu in the motion footer + an "include motion JSON" render checkbox (reuses the Build-121 zip packaging: any extra selected → `.zip`). Source-agnostic JSON `{format,version,build,durationMs,loop,smoothing,keyframes:[{t,anchored,snap}]}`. Then B4 (timeline pinch-zoom/pan), still deferred.
 
 **Blue-cells RESOLUTION attempt (Build 120, needs desktop-Safari verify):** root cause = desktop Safari's FBO `readPixels` returns corrupt (channel-swapped/banded) data; sync fixes (118 FBO-reuse, 119 fence-sync) both failed. Build 120 routes the **filmstrip** off `readPixels` to the `drawImage` capture path (`beginCapture/captureFrame`), synchronous, signature-skipped (no scrub rebuilds), and refreshes marker thumbs in the same session. The instant on-add keyframe thumb (`fillThumb` → `exportFrame` → `readPixels`) still uses the old path and self-corrects on the 600ms debounce — if Daniel still sees a brief blue on a just-added marker dot, move `fillThumb` to a readback-free path too (it can't resize the live preview, so: `drawImage` a warmed preview canvas, or defer entirely to the debounce). The fence sync (119) + FBO reuse (118) stay (harmless; help still-export robustness/GC).
 

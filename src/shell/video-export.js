@@ -21,15 +21,16 @@ export function videoExportSupported() {
   return typeof VideoEncoder !== 'undefined' && typeof VideoFrame !== 'undefined';
 }
 
-// exportVideo({ engine, sampleAt, width, height, fps, durationMs, onProgress, shouldCancel })
-//   engine     — the engine (beginCapture(w,h) / captureFrame(state)→canvas / endCapture())
-//   sampleAt   — (p: 0..1) => state snapshot for that point in the loop
+// exportVideo({ frameAt, onBegin, onEnd, width, height, fps, durationMs, onProgress, shouldCancel })
+//   frameAt    — (p: 0..1) => a CanvasImageSource (canvas) for that point in the loop
+//   onBegin/onEnd — optional setup/teardown around the frame loop (e.g. the engine's
+//                   beginCapture/endCapture, which borrows the preview canvas)
 //   width/height — even pixel dimensions of the output (caller clamps to GPU max)
 //   fps, durationMs — frame rate and total loop length
 //   onProgress — (0..1) => void   (optional)
 //   shouldCancel — () => boolean  (optional; checked each frame)
 // → { blob, ext: 'mp4', frames } | throws (err.code === 'unsupported' / 'cancelled')
-export async function exportVideo({ engine, sampleAt, width, height, fps, durationMs, onProgress, shouldCancel }) {
+export async function exportVideo({ frameAt, onBegin, onEnd, width, height, fps, durationMs, onProgress, shouldCancel }) {
   if (!videoExportSupported()) {
     const e = new Error('Video export needs a browser with WebCodecs (Chrome, or Safari 16+ / iPadOS 16+).');
     e.code = 'unsupported';
@@ -72,15 +73,15 @@ export async function exportVideo({ engine, sampleAt, width, height, fps, durati
   const gop = Math.max(1, Math.round(fps * 2));    // keyframe every ~2s
 
   try {
-    // Render each frame straight to the engine's GL canvas at output size and build
-    // the VideoFrame from the canvas — no readPixels / Y-flip / putImageData, which
-    // were the single-core, main-thread bottleneck (a 4K frame is ~37 MB GPU→CPU).
-    engine.beginCapture(width, height);
+    // Each frame is a canvas (from frameAt) wrapped directly in a VideoFrame — no
+    // readPixels / Y-flip / putImageData (the single-core bottleneck). onBegin/onEnd
+    // wrap any setup the frame source needs (e.g. the engine's capture session).
+    onBegin?.();
     for (let i = 0; i < frames; i++) {
       if (shouldCancel && shouldCancel()) { const e = new Error('cancelled'); e.code = 'cancelled'; throw e; }
       if (encError) throw encError;
 
-      const cv = engine.captureFrame(sampleAt(i / frames));
+      const cv = frameAt(i / frames);
       const frame = new VideoFrame(cv, { timestamp: i * frameDur, duration: frameDur });
       encoder.encode(frame, { keyFrame: i % gop === 0 });
       frame.close();
@@ -96,7 +97,7 @@ export async function exportVideo({ engine, sampleAt, width, height, fps, durati
     onProgress?.(1);
     return { blob: new Blob([muxer.target.buffer], { type: 'video/mp4' }), ext: 'mp4', frames };
   } finally {
-    engine.endCapture();
+    onEnd?.();
     try { if (encoder.state !== 'closed') encoder.close(); } catch { /* already closed */ }
   }
 }

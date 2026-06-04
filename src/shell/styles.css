@@ -605,6 +605,8 @@ body.motion #oobModes { pointer-events: none; opacity: 0.4; }
 .vid-x { background: transparent; border: none; color: #888; font-size: 14px; cursor: pointer; padding: 2px 4px; }
 .vid-x:hover { color: #fff; }
 .vid-meta { font-size: 11px; color: #888; font-variant-numeric: tabular-nums; min-height: 14px; margin-top: 2px; }
+.vid-opt { display: flex; align-items: center; gap: 8px; font-size: 13px; color: #ccc; margin: 4px 0 2px; cursor: pointer; }
+.vid-opt input { accent-color: #e8e8e8; }
 .vid-progress { height: 6px; background: #222; border-radius: 3px; overflow: hidden; }
 .vid-progress[hidden] { display: none; }
 .vid-bar { height: 100%; width: 0; background: #e8e8e8; transition: width 0.12s; }

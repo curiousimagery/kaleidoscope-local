@@ -28,6 +28,7 @@ import {
 import { PARAMS, DECLARATIVE_PARAM_IDS } from './shell/params.js';
 import { createCamera } from './shell/camera.js';
 import { zipStore } from './shell/zip.js';
+import { drawSourceOverlay } from './shell/overlay.js';
 import { snapSpiralValue as kitSnapSpiral, applyArmsSnap as kitApplyArmsSnap } from './kit/snaps.js';
 import { sampleKeyframes, DISCRETE_KEYS } from './kit/tween.js';
 import { exportVideo, videoExportSupported } from './shell/video-export.js';
@@ -1155,6 +1156,55 @@ async function fillThumb(canvas, snap) {
   catch { /* keep the prior/blank thumb on a transient FBO error */ }
 }
 
+// ---- companion source-preview frame --------------------------------------
+// Compose one frame of the optional "source preview" video: the source image
+// (square frame) with the CLEAN wedge overlay for `snap` — no editing affordances.
+// Reuses the live drawSourceOverlay by pointing the overlay view at a temp offscreen
+// canvas of the target size and neutralizing hover/affordances, so every form (incl.
+// droste's bespoke overlay) renders through its existing path with no per-form code.
+// Swap+restore is synchronous (no yield), so a stray live overlay draw can't land on
+// the temp canvas. Returns a reused canvas (wrapped in a VideoFrame before reuse).
+let _spFrame = null, _spOverlay = null, _spParent = null;
+function renderSourcePreviewFrame(snap, size) {
+  const img = engine.getSourceImage();
+  if (!img) return null;
+  if (!_spFrame) {
+    _spFrame = document.createElement('canvas');
+    _spParent = document.createElement('div');
+    _spParent.style.cssText = 'position:fixed;left:-99999px;top:0;pointer-events:none';
+    _spOverlay = document.createElement('canvas');
+    _spParent.appendChild(_spOverlay);
+    document.body.appendChild(_spParent);
+  }
+  _spFrame.width = size; _spFrame.height = size;
+  _spParent.style.width = _spParent.style.height = size + 'px';
+  const fctx = _spFrame.getContext('2d');
+  fctx.fillStyle = '#000'; fctx.fillRect(0, 0, size, size);
+
+  // source image rect — match drawSourceOverlay's fit math (square frame) so the
+  // wedge lines up with the image.
+  const view = sourceOverlay.view;
+  const sa = engine.getSourceAspect();
+  const cover = view.fit === 'cover';
+  let iw, ih, ix, iy;
+  if ((sa > 1) !== cover) { iw = size; ih = size / sa; ix = 0; iy = (size - ih) / 2; }
+  else { ih = size; iw = size * sa; ix = (size - iw) / 2; iy = 0; }
+  fctx.drawImage(img, ix, iy, iw, ih);
+
+  const saved = { canvas: view.sourceOverlayCanvas, state: view.state, hover: view.hoverMode, hide: view.hideAffordances };
+  view.sourceOverlayCanvas = _spOverlay;
+  view.state = snap;
+  view.hoverMode = null;
+  view.hideAffordances = () => true;
+  try { drawSourceOverlay(view); }
+  finally {
+    view.sourceOverlayCanvas = saved.canvas; view.state = saved.state;
+    view.hoverMode = saved.hover; view.hideAffordances = saved.hide;
+  }
+  fctx.drawImage(_spOverlay, 0, 0, size, size);
+  return _spFrame;
+}
+
 // ---- sampling -------------------------------------------------------------
 // Sample the keyframe list at normalized time p (0..1): a velocity-CONTINUOUS
 // Catmull-Rom across keyframes (motion flows through them, slowing only at real
@@ -1672,13 +1722,37 @@ function setupVideoExport() {
     prog.hidden = false; bar.style.width = '0%';
     status.textContent = 'rendering…'; status.className = 'status busy';
     const renderStart = performance.now();
+    const wantSource = byId('vidSourcePreview')?.checked;
+    const base = sourceFilename || 'animation';
     try {
+      // main kaleidoscope video (GL capture path)
       const { blob, frames } = await exportVideo({
-        engine, sampleAt, width: w, height: h, fps: selFps, durationMs: motion.durationMs,
-        onProgress: (p) => { bar.style.width = Math.round(p * 100) + '%'; },
+        width: w, height: h, fps: selFps, durationMs: motion.durationMs,
+        onBegin: () => engine.beginCapture(w, h),
+        frameAt: (p) => engine.captureFrame(sampleAt(p)),
+        onEnd: () => engine.endCapture(),
+        onProgress: (p) => { bar.style.width = Math.round(p * (wantSource ? 50 : 100)) + '%'; },
         shouldCancel: () => cancelRender,
       });
-      downloadBlob(blob, (sourceFilename || 'animation') + '.mp4');
+      // optional companion "source preview" video → forces a .zip package
+      const extras = [];
+      if (wantSource) {
+        status.textContent = 'rendering source preview…';
+        const SP = 1920;   // square, capped
+        const { blob: sblob } = await exportVideo({
+          width: SP, height: SP, fps: selFps, durationMs: motion.durationMs,
+          frameAt: (p) => renderSourcePreviewFrame(sampleAt(p), SP),
+          onProgress: (p) => { bar.style.width = Math.round(50 + p * 50) + '%'; },
+          shouldCancel: () => cancelRender,
+        });
+        extras.push({ name: base + '-source.mp4', blob: sblob });
+      }
+      if (extras.length) {
+        const zipBlob = await zipStore([{ name: base + '.mp4', blob }, ...extras]);
+        downloadBlob(zipBlob, base + '-package.zip');
+      } else {
+        downloadBlob(blob, base + '.mp4');
+      }
       const secs = (performance.now() - renderStart) / 1000;
       // render duration + effective throughput (frames rendered per wall-second — a
       // device/perf diagnostic, distinct from the output fps).

@@ -4,6 +4,16 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.7.25 (Build 121) — 2026-06-04
+
+**Companion "source preview" video + render packaging (Daniel).** Opt-in second video showing the SOURCE with the moving wedge overlay (the "how it was made" clip).
+
+- **Render sheet checkbox "source preview video (.zip)".** When on, the render produces the kaleidoscope mp4 **plus** a square 1920² source-preview mp4 (same fps/duration), bundled into a **`.zip` package** (`name.mp4` + `name-source.mp4`) via the existing `zipStore` — since multi-file downloads are unreliable. Off = a single mp4 as before.
+- **Source-preview frame compositor** (`renderSourcePreviewFrame`): draws the source image (square, matching the live fit) + a CLEAN wedge overlay (no editing affordances) by reusing `drawSourceOverlay` against the overlay component's view, pointed at an offscreen high-res canvas with hover/affordances neutralized — so **every form including droste** renders through its existing overlay path with no per-form code. Swap+restore is synchronous so a stray live overlay draw can't land on the temp canvas.
+- **`exportVideo` generalized** to take a `frameAt(p) → canvas` + optional `onBegin/onEnd`, so the kaleidoscope (GL capture) and the source preview (2D compositor) drive the same encoder/muxer. Kaleidoscope path behavior is unchanged.
+
+---
+
 ## v0.7.24 (Build 120) — 2026-06-04
 
 **"Blue cells" — the real fix: filmstrip now avoids `readPixels` entirely.** Builds 118 (FBO reuse) and 119 (fence sync) both failed. New clues — **desktop Safari only** (not iPad/mobile), and **scrubbing alone re-triggers** corruption/correction — proved it's not a sync issue but desktop Safari's FBO `readPixels` path being broken (returns channel-swapped/banded data). No GPU sync fixes a broken readback, so we escape it: the filmstrip now renders via the engine **capture path** (`beginCapture`/`captureFrame` → `drawImage`, no `readPixels`) — the same approach that fixed iPad export. Also:
