@@ -1737,12 +1737,28 @@ function wireFrameAspect() {
   syncActive();
 }
 
+// Frame source for video export, chosen per browser engine (Build 130 A/B data).
+// Desktop Safari is ~20x faster wrapping the WebGL canvas directly in a VideoFrame
+// (its 2D-canvas → VideoFrame conversion is ~177ms/frame at 4K); but that path
+// hung iPadOS (Build 115) and is slightly SLOWER on Firefox, so it's used ONLY for
+// non-touch WebKit (desktop Safari). Everyone else (Firefox, Chromium, iPad) uses
+// the proven, fast, Safari-safe 2D-canvas path. `?capture=2d|bitmap|gl` overrides,
+// e.g. to test whether iPad tolerates 'gl' now.
+function defaultCaptureMode() {
+  const q = new URLSearchParams(location.search).get('capture');
+  if (q === '2d' || q === 'bitmap' || q === 'gl') return q;
+  const ua = navigator.userAgent;
+  const isWebKit = /AppleWebKit/.test(ua) && !/Chrome|Chromium|Edg|OPR|Firefox|FxiOS|CriOS/.test(ua);
+  const isTouch = (navigator.maxTouchPoints || 0) > 1;   // iPad/iPhone (incl. iPadOS desktop-class UA)
+  return (isWebKit && !isTouch) ? 'gl' : '2d';
+}
+
 // ---- video export ---------------------------------------------------------
 function setupVideoExport() {
   const byId = (id) => document.getElementById(id);
   const sheet = byId('vidSheet');
   if (!sheet) return;
-  let selLong = 2560, selFps = 30, selCap = '2d', cancelRender = false, rendering = false;
+  let selLong = 2560, selFps = 30, selCap = defaultCaptureMode(), cancelRender = false, rendering = false;
 
   // raw output dimensions for a given LONG side + current aspect (even, unclamped).
   const rawDims = (long) => {
@@ -1817,7 +1833,6 @@ function setupVideoExport() {
   };
   wireGroup('vidRes', 'long', (v) => { selLong = parseInt(v, 10); });
   wireGroup('vidFps', 'fps', (v) => { selFps = parseInt(v, 10); gateResolutions(); });
-  wireGroup('vidCapMode', 'cap', (v) => { selCap = v; });   // EXPERIMENT (Build 130): frame-source A/B
 
   function open() {
     if (kfList().length < 2) return;
@@ -1895,7 +1910,7 @@ function setupVideoExport() {
         const f = timing.frames;
         const gl = timing.glMs / f, vf = timing.vfMs / f, enc = timing.encMs / f;
         diag = ` · /frame: gl ${gl.toFixed(0)} · vframe ${vf.toFixed(0)} · encode ${enc.toFixed(0)} ms`;
-        console.log('[video-export] per-frame ms:', { gl: +gl.toFixed(1), vframe: +vf.toFixed(1), encode: +enc.toFixed(1), frames: f, totalSecs: +secs.toFixed(1) });
+        console.log('[video-export] per-frame ms:', { mode: selCap, gl: +gl.toFixed(1), vframe: +vf.toFixed(1), encode: +enc.toFixed(1), frames: f, totalSecs: +secs.toFixed(1) });
       }
       status.textContent = `saved ✓ · rendered in ${secs.toFixed(1)}s${rate}${diag}`; status.className = 'status success';
     } catch (e) {

@@ -4,6 +4,12 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.7.35 (Build 131) — 2026-06-05
+
+**Per-engine frame source — WebGL-direct on desktop Safari (the export-speed fix).** Build-130's A/B settled it: desktop Safari renders ~20× faster wrapping the WebGL canvas directly in a `VideoFrame` (≈130 fps @4K, >30 @8K) vs the 2D-canvas path (≈6 fps); Firefox + Chromium are fast on 2D, and Firefox is actually slightly *slower* on WebGL-direct. So the frame source is now chosen by engine (`defaultCaptureMode` in `main.js`): **non-touch WebKit (desktop Safari) → WebGL direct; everyone else (Firefox, Chromium, iPad) → 2D canvas.** iPad stays on the proven 2D path (WebGL-direct hung iPadOS in Build 115); `?capture=2d|bitmap|gl` overrides for testing (e.g. whether iPad tolerates 'gl' now). Removed the experiment selector from the render sheet (kept `engine.captureFrameGL` + the per-mode timing reader). Net: export throughput is no longer a bottleneck on any tested engine. **Verify (Daniel):** a desktop-Safari render is fast AND visually correct (color + orientation); Firefox/Chromium unchanged.
+
+---
+
 ## v0.7.34 (Build 130) — 2026-06-05
 
 **Frame-source experiment — find a faster `VideoFrame` path on Safari.** Build 129 localized the export bottleneck to `new VideoFrame(canvas)` (Safari ~177 ms/frame vs Firefox ~5 ms; encode ~0 on both). This build adds a temporary **frame source** selector to the render sheet to A/B the three candidates and read the resulting per-frame `vframe` ms: **2D canvas** (current/default, the proven Safari-safe path), **ImageBitmap** (`createImageBitmap` → `VideoFrame`), and **WebGL direct** (`VideoFrame` straight from the WebGL canvas via new `engine.captureFrameGL`; this was fast in Build 112 but hung iPadOS in Build 115, so it's a **desktop-only probe** with a fallback to the default). Goal: see whether avoiding the 2D-canvas RGBA→YUV conversion cuts Safari's per-frame cost. If one mode is dramatically faster and correct, it becomes the default and may remove the need for a worker-pool speedup; if none help, the conversion is intrinsic and parallelizing it across a worker pool is the real lever. The selector is experimental scaffolding to be removed once a winner is picked. No change to the default render path.
