@@ -12,7 +12,11 @@ He prefers **no em dashes** in his own writing; respect that in any prose Claude
 
 ## current version
 
-`v0.7.27 · Build 123`. The footer in the running app shows this string from `src/version.js`.
+`v0.7.29 · Build 125`. The footer in the running app shows this string from `src/version.js`.
+
+**Motion-entry keyframe seed (Build 125).** Entering motion mode auto-adds kf0 (current look, auto-selected); discrete (form/segments/mirror/OOB) locks at `>= 2` keyframes instead of `>= 1` (so a single seeded keyframe stays editable). New cross-browser backlog item recorded (Chromium pass — we've only tested WebKit + Gecko).
+
+**Firefox motion-edit lag FIXED (Build 124, needs Firefox verify).** Root cause was a per-edit-frame / per-add keyframe-thumbnail `readPixels` (`fillThumb` → `exportFrame` → `renderToFBO`), which Firefox is much slower at than Safari. Removed `fillThumb`; thumbnails now come solely from `buildFilmstrip`'s readback-free capture path (debounced), which also handles a single keyframe now. (Build 123's `syncControls` coalescing was the wrong layer but is kept as a valid micro-opt.)
 
 **Firefox overlay-drag lag (Build 123, needs Daniel's Firefox verify).** Coalesced the per-pointermove `syncControls()` to one rAF (`scheduleSyncControls`) in the source-overlay + output-gesture paths — it was layout-thrashing (per-event slider/textContent writes interleaved with the move handler's `getBoundingClientRect` read), which Firefox punishes much harder than Safari. If lag persists on Firefox: (a) cache the wrap rect at drag start for move/scale (rotate already does, Build 106) to drop the per-move `getBoundingClientRect`; (b) `preserveDrawingBuffer:true` is a known Firefox per-frame penalty but is required for the on-demand preview to stay visible — would need a continuous-render-during-drag or render-res-scaling approach to remove safely.
 

@@ -4,6 +4,21 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.7.29 (Build 125) — 2026-06-04
+
+**Motion mode seeds a keyframe on entry; settings lock only at 2 keyframes (Daniel QoL).** Entering motion mode now immediately adds a keyframe of the current look (auto-selected, so edits write through to it) instead of opening to an empty timeline. Form/segments/mirror/OOB stay **editable while there's a single keyframe** (refine the starting look) and **lock once a second keyframe exists** — the moment animating actually begins. Light-touch: reuses `addKeyframe` (with the Build-111 auto-select) and just nudges the existing lock thresholds from `>= 1` to `>= 2` (the `body.motion` CSS gate + `canEditDiscrete`). Re-entering motion mode keeps existing keyframes (no duplicate seed). Pairs with Build 124 — editing that seeded keyframe is snappy now that the per-frame thumbnail readback is gone.
+
+---
+
+## v0.7.28 (Build 124) — 2026-06-04
+
+**Firefox motion-edit lag — the ACTUAL cause (per-frame keyframe-thumbnail readback).** Build 123 was the wrong layer. Daniel's finer detail nailed it: lag only when editing a *selected* keyframe (write-through) and on "+ keyframe" — both ran `fillThumb` → `engine.exportFrame` → `renderToFBO` → **`readPixels` (+ the Build-119 fence sync)** per edit frame / per add. Firefox is far slower at that GPU readback than Safari, so it stuttered there (snappy when no keyframe is selected → no write-through).
+
+- **Removed `fillThumb` entirely.** Write-through now just commits `kf.snap` live (cheap); keyframe thumbnails are painted by `buildFilmstrip`'s **readback-free capture path** (`beginCapture`/`captureFrame` → `drawImage`) on the debounced rebuild — no per-frame/per-add `readPixels`.
+- **`buildFilmstrip` now refreshes marker thumbnails even with a single keyframe** (the tween strip still only draws for ≥2), so a lone keyframe still gets a thumbnail. (Build 123's `syncControls` coalescing stays — a valid micro-opt, just not this bug.)
+
+---
+
 ## v0.7.27 (Build 123) — 2026-06-04
 
 **Firefox overlay-drag lag — coalesce per-move control syncing (Daniel: severe slice-drag lag on Firefox, snappy on Safari).** The direct-manipulation drag path (source-overlay move/scale/rotate + output pinch/twist) called `syncControls()` on **every pointermove**. Each call does DOM writes (`slider.value` + value `textContent`) for every registered control, and those writes interleaved with the `getBoundingClientRect()` read in the move handler — a read→write→read pattern that forces a synchronous layout reflow per event (layout thrash). Firefox fires far more pointermoves than Safari/Chrome and is much harsher about forced reflow, so dragging was sluggish there. Render and overlay-draw were already rAF-coalesced; `syncControls` now is too (`scheduleSyncControls`, one rAF), so the per-move reads no longer interleave with the writes. Sliders still track the drag (updated once per frame). If lag persists, the next suspect is `preserveDrawingBuffer: true` (a known Firefox per-frame cost, but it's needed for the on-demand preview to stay visible, so it can't simply be dropped).

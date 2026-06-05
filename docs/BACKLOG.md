@@ -181,6 +181,12 @@ Curatorial frame and full concept in `FOLD.md` under "gallery show concept." Wor
 
 ## developer tooling backlog
 
+- **Cross-browser test pass on a Chromium browser (Chrome/Edge/Brave) — NOT yet tested (Daniel, 2026-06-04).** We've only tested WebKit (Safari/iOS) and Gecko (Firefox), and have hit several engine-specific divergences; Blink is the third major engine and likely behaves differently again. Known engine differences to scrutinize, with the symptoms we've already seen:
+  - **`readPixels` from an FBO:** WebKit returned *corrupt/channel-swapped* data under rapid churn (the "blue cells", Build 120 → escaped via `drawImage` capture path); Gecko is *slow* at it (the motion-edit lag, Build 124 → removed per-frame readback). Verify Blink's readback (still used by `exportAt` still-export + diagnostics) is correct AND fast.
+  - **`VideoFrame` from a WebGL canvas:** WebKit hung on it (Build 115 → switched to a 2D-canvas `drawImage` source). Confirm Blink's WebCodecs path; WebCodecs is most mature on Blink so likely fine, but check the H.264 config/levels and `isConfigSupported`.
+  - **`gl.finish()` reliability** (Build 119 fence sync), **`preserveDrawingBuffer:true`** per-frame cost (a known Gecko penalty), and **pointer-event coalescing** (Gecko fires far more pointermoves; Blink/WebKit coalesce — affects drag-handler load; see Build 123).
+  - **`premultipliedAlpha:false`** context + 2D-canvas color management (the Safari thumbnail tint history).
+  - Also confirm: multi-download vs zip behavior, `dvh` layout, `accent-color`, and the PWA service worker on Chromium.
 - **GitHub Actions CI:** `npm run build` on push to main, deploy preview to Vercel on PR. (Vercel handles this automatically via its GitHub integration; CI workflow is for adding `npm run lint` / `npm run typecheck` etc. when those exist.)
 - **A `npm run check` script** that runs `node --check` against every JS file in `src/`. Useful as a pre-commit hook.
 - **Visual regression harness.** A small node script that loads each form at default settings, exports at 1K, and diffs against a saved baseline. Catches accidental shader regressions.

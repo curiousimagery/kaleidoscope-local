@@ -159,7 +159,10 @@ function scheduleRender() {
     // motion: editing a selected keyframe writes through to it live (snap + thumb).
     if (motionActive && motion.selected >= 0 && !motion.playing && !motionScrubbing) {
       const kf = motion.keyframes[motion.selected];
-      if (kf) { kf.snap = { ...state }; fillThumb(kf.thumb, kf.snap); scheduleFilmstrip(); }
+      // commit the edit live (cheap); the thumbnail refreshes on the debounced,
+      // readback-free filmstrip rebuild — NOT per frame (a per-frame exportFrame →
+      // readPixels here was the severe Firefox lag while editing a selected keyframe).
+      if (kf) { kf.snap = { ...state }; scheduleFilmstrip(); }
     }
   });
 }
@@ -192,8 +195,9 @@ const sourceOverlay = createSourceOverlay({
   onCommitStart: () => env.pushHistory(),
   onCommitEnd: () => env.updateUndoUI?.(),
   // discrete edits (segment-spoke drag, droste-arms drag) are blocked once motion
-  // mode has a keyframe — discrete is pinned to keyframe 0.
-  canEditDiscrete: () => !(motionActive && motion.keyframes.length >= 1),
+  // mode has TWO keyframes (discrete is pinned to keyframe 0 from then on); with a
+  // single seeded keyframe they stay editable to set up the starting look.
+  canEditDiscrete: () => !(motionActive && motion.keyframes.length >= 2),
   // hide the touch affordance arrows during playback/scrub (they're not useful while
   // the animation runs).
   hideAffordances: () => motionActive && (motion.playing || motionScrubbing),
@@ -1153,22 +1157,15 @@ const KF_EPS = 0.005;         // "on a keyframe" tolerance in normalized time
 const kfList = () => motion.keyframes;
 
 // ---- thumbnails -----------------------------------------------------------
-// A keyframe thumbnail is filled by a small OFFSCREEN render (engine.exportFrame
-// at 120²), NOT a drawImage readback of the large preview canvas. The readback's
-// first cold GPU→CPU sync stalled the first keyframe add for several seconds on
-// big sources; a 120² render+readback is cheap regardless of source size (the
-// same trick the filmstrip uses, Build 99). Async + fire-and-forget: the marker
-// appears instantly and the thumb paints into the live canvas element a frame
-// later, so the "+ keyframe" tap is never blocked.
+// Keyframes hold a blank 120² canvas; the actual thumbnails are painted by
+// buildFilmstrip's readback-free CAPTURE path (engine.beginCapture/captureFrame →
+// drawImage), on the debounced rebuild. There is intentionally NO per-edit / per-add
+// thumbnail render: an exportFrame→readPixels per frame was the severe Firefox lag
+// while editing a selected keyframe (Build 124).
 function makeThumbCanvas() {
   const c = document.createElement('canvas');
   c.width = 120; c.height = 120;
   return c;
-}
-async function fillThumb(canvas, snap) {
-  if (!canvas || !engine || !engine.getSourceImage()) return;
-  try { await engine.exportFrame(snap, canvas.width, canvas.height, canvas.getContext('2d')); }
-  catch { /* keep the prior/blank thumb on a transient FBO error */ }
 }
 
 // ---- companion source-preview frame --------------------------------------
@@ -1351,9 +1348,9 @@ function addKeyframe() {
   // duplicate-and-tweak. Adding without editing leaves an intentional hold.
   motion.selected = newIdx;
   setPlayhead(kfList()[newIdx].t);
-  renderTimeline();                              // marker appears now; thumb paints in place when ready
+  renderTimeline();                              // marker appears (blank thumb); also schedules the filmstrip
   updateMotionUI();
-  fillThumb(kf.thumb, kf.snap);
+  // thumbnail fills on the debounced, readback-free filmstrip rebuild (no per-add readPixels)
 }
 // toggle the selected keyframe between anchored (fixed time) and auto (even-spaced).
 function toggleAnchor() {
@@ -1430,7 +1427,7 @@ function buildFilmstrip() {
   const strip = document.getElementById('mfStrip');
   if (!strip) return;
   const track = document.getElementById('mfTrack');
-  if (!track || motion.playing || !engine || !engine.getSourceImage() || kfList().length < 2) {
+  if (!track || motion.playing || !engine || !engine.getSourceImage() || !kfList().length) {
     strip.innerHTML = ''; lastFilmstripSig = ''; return;
   }
   const w = strip.clientWidth, h = strip.clientHeight;
@@ -1440,21 +1437,29 @@ function buildFilmstrip() {
   const S = H;                                     // square frames, matching the keyframe thumbnails
   const n = Math.ceil(W / S);
   const fs = Math.min(H, 240);                     // small square render size (the "look")
+  const multi = kfList().length >= 2;             // only ≥2 keyframes get the tween strip
 
   const sig = W + '|' + motion.smoothing + '|' + motion.loop + '|' + motion.durationMs + '|' +
     kfList().map(k => k.t.toFixed(4) + ':' + JSON.stringify(k.snap)).join(',');
-  if (sig === lastFilmstripSig && strip.firstChild) return;   // unchanged (e.g. scrub) — skip
+  if (sig === lastFilmstripSig && (strip.firstChild || !multi)) return;   // unchanged (e.g. scrub) — skip
 
-  const c = document.createElement('canvas');
-  c.width = W; c.height = H;
-  c.style.cssText = 'width:100%;height:100%;display:block';
-  const cx = c.getContext('2d');
+  let c = null;
+  if (multi) {
+    c = document.createElement('canvas');
+    c.width = W; c.height = H;
+    c.style.cssText = 'width:100%;height:100%;display:block';
+  }
   try {
+    // one capture session renders the tween strip (≥2 kf) AND refreshes every marker
+    // thumbnail — all via the readback-free drawImage path (no readPixels).
     engine.beginCapture(fs, fs);
-    for (let i = 0; i < n; i++) {
-      cx.drawImage(engine.captureFrame(sampleAt(Math.min(1, (i * S + S / 2) / W))), i * S, 0, S, H);
+    if (multi) {
+      const cx = c.getContext('2d');
+      for (let i = 0; i < n; i++) {
+        cx.drawImage(engine.captureFrame(sampleAt(Math.min(1, (i * S + S / 2) / W))), i * S, 0, S, H);
+      }
     }
-    for (const kf of kfList()) {                   // refresh marker thumbs (same readback-free path)
+    for (const kf of kfList()) {
       if (kf.thumb) kf.thumb.getContext('2d').drawImage(engine.captureFrame(kf.snap), 0, 0, kf.thumb.width, kf.thumb.height);
     }
   } finally {
@@ -1462,7 +1467,7 @@ function buildFilmstrip() {
     resizePreviewCanvas();                          // restore + repaint the live preview
   }
   strip.innerHTML = '';
-  strip.appendChild(c);
+  if (multi) strip.appendChild(c);                  // single keyframe = marker thumb only, no strip
   lastFilmstripSig = sig;
 }
 
@@ -1548,7 +1553,8 @@ function toggleMotionMode() {
   motion.selected = -1;          // never carry a stale selection across the toggle
                                  // (otherwise post-exit edits could write through to it)
   if (!motionActive) haltPlayback();
-  else renderTimeline();
+  else if (!kfList().length) addKeyframe();   // QoL: enter motion mode with a keyframe of the current look
+  else renderTimeline();                       // (re-entry keeps existing keyframes)
   updateMotionUI();
   // the footer changes the main-slot height — re-fit the preview canvas (which
   // also re-renders the working state, replacing any transient playback frame).
@@ -1566,9 +1572,10 @@ function updateMotionUI() {
   if (footer) footer.hidden = !motionActive;
   // motion mode pins discrete fields to keyframe 0 — hide the form picker and
   // dim/disable the non-animatable controls (see body.motion rules in styles.css).
-  // gate only once the FIRST keyframe is saved — until then, changing form/segments
-  // to set up the starting look is allowed.
-  document.body.classList.toggle('motion', motionActive && kfList().length >= 1);
+  // The starting keyframe (kf0) is seeded on entry, but discrete stays editable
+  // while there's only ONE keyframe (refine the starting look); it locks once a
+  // SECOND keyframe exists — i.e. the moment animating actually begins.
+  document.body.classList.toggle('motion', motionActive && kfList().length >= 2);
 
   const n = kfList().length;
   const canDelete = motion.selected >= 0 || keyframeAt(motion.playhead) >= 0;
