@@ -1852,7 +1852,7 @@ function setupVideoExport() {
     const base = sourceFilename || 'animation';
     try {
       // main kaleidoscope video (GL capture path)
-      const { blob, frames } = await exportVideo({
+      const { blob, frames, timing } = await exportVideo({
         width: w, height: h, fps: selFps, durationMs: motion.durationMs,
         onBegin: () => engine.beginCapture(w, h),
         frameAt: (p) => engine.captureFrame(sampleAt(p)),
@@ -1886,7 +1886,17 @@ function setupVideoExport() {
       // render duration + effective throughput (frames rendered per wall-second — a
       // device/perf diagnostic, distinct from the output fps).
       const rate = frames ? ` · ${(frames / secs).toFixed(0)} frames/s` : '';
-      status.textContent = `saved ✓ · rendered in ${secs.toFixed(1)}s${rate}`; status.className = 'status success';
+      // per-stage timing reader — localizes the single-threaded export bottleneck
+      // (gl render+capture vs VideoFrame convert vs sequential encode). See BACKLOG
+      // "[HIGH PRI] Export throughput ceiling".
+      let diag = '';
+      if (timing && timing.frames) {
+        const f = timing.frames;
+        const gl = timing.glMs / f, vf = timing.vfMs / f, enc = timing.encMs / f;
+        diag = ` · /frame: gl ${gl.toFixed(0)} · vframe ${vf.toFixed(0)} · encode ${enc.toFixed(0)} ms`;
+        console.log('[video-export] per-frame ms:', { gl: +gl.toFixed(1), vframe: +vf.toFixed(1), encode: +enc.toFixed(1), frames: f, totalSecs: +secs.toFixed(1) });
+      }
+      status.textContent = `saved ✓ · rendered in ${secs.toFixed(1)}s${rate}${diag}`; status.className = 'status success';
     } catch (e) {
       if (e.code === 'cancelled') { status.textContent = 'cancelled'; status.className = 'status'; }
       else { status.textContent = e.message || 'render failed'; status.className = 'status error'; console.error(e); }

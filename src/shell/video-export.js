@@ -107,30 +107,48 @@ export async function exportVideo({ frameAt, onBegin, onEnd, width, height, fps,
   const frameDur = Math.round(1_000_000 / fps);   // microseconds
   const gop = Math.max(1, Math.round(fps * 2));    // keyframe every ~2s
 
+  // Per-stage timing accumulators (ms) — a diagnostic to localize the single-
+  // threaded export bottleneck (cost scales ~linearly with output pixels):
+  //   glMs  = frameAt (GL render + GL→2D capture blit)
+  //   vfMs  = VideoFrame construction (the suspected per-frame color conversion)
+  //   encMs = encoder backpressure wait + flush — where the real, sequential
+  //           encode throughput shows up, since encode() itself only queues.
+  let glMs = 0, vfMs = 0, encMs = 0;
+
   try {
     // Each frame is a canvas (from frameAt) wrapped directly in a VideoFrame — no
-    // readPixels / Y-flip / putImageData (the single-core bottleneck). onBegin/onEnd
-    // wrap any setup the frame source needs (e.g. the engine's capture session).
+    // readPixels / Y-flip / putImageData. onBegin/onEnd wrap any setup the frame
+    // source needs (e.g. the engine's capture session).
     onBegin?.();
     for (let i = 0; i < frames; i++) {
       if (shouldCancel && shouldCancel()) { const e = new Error('cancelled'); e.code = 'cancelled'; throw e; }
       if (encError) throw encError;
 
+      let t = performance.now();
       const cv = frameAt(i / frames);
+      glMs += performance.now() - t;
+
+      t = performance.now();
       const frame = new VideoFrame(cv, { timestamp: i * frameDur, duration: frameDur });
+      vfMs += performance.now() - t;
+
       encoder.encode(frame, { keyFrame: i % gop === 0 });
       frame.close();
 
       // yield so the progress UI updates; throttle if the encoder queue backs up.
       if (i % 3 === 0) { onProgress?.(i / frames); await new Promise((r) => setTimeout(r)); }
+      t = performance.now();
       while (encoder.encodeQueueSize > 8) await new Promise((r) => setTimeout(r));
+      encMs += performance.now() - t;
     }
 
+    const tFlush = performance.now();
     await encoder.flush();
+    encMs += performance.now() - tFlush;
     if (encError) throw encError;
     muxer.finalize();
     onProgress?.(1);
-    return { blob: new Blob([muxer.target.buffer], { type: 'video/mp4' }), ext: 'mp4', frames };
+    return { blob: new Blob([muxer.target.buffer], { type: 'video/mp4' }), ext: 'mp4', frames, timing: { frames, glMs, vfMs, encMs } };
   } finally {
     onEnd?.();
     try { if (encoder.state !== 'closed') encoder.close(); } catch { /* already closed */ }

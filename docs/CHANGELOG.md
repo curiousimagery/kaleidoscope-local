@@ -4,6 +4,12 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.7.33 (Build 129) — 2026-06-05
+
+**Export per-frame timing reader (diagnostic for the throughput ceiling).** `exportVideo` now accumulates and returns per-stage timing, and the render status + console show a per-frame breakdown: `gl` (frameAt = GL render + GL→2D capture blit), `vframe` (VideoFrame construction = the suspected color conversion), `encode` (encoder backpressure wait + flush = where the sequential encode cost surfaces, since `encode()` only queues). Purpose: localize which stage owns the single-threaded, output-pixel-linear cost Daniel measured (Safari ≈21 fps @1080p, ≈5–6 @4K, ≈1 @8K) so we can decide whether the browser-side lever (building `VideoFrame` straight from the WebGL canvas to drop the 2D-copy/convert) is worth attempting, or whether it's encode-bound and therefore native-wrapper territory. Captured as a **[HIGH PRI]** opportunity in BACKLOG. No behavior change to the render itself.
+
+---
+
 ## v0.7.32 (Build 128) — 2026-06-05
 
 **Revert the `prefer-hardware` hint — it was inert (export perf finding).** Daniel's Safari timings across resolutions: 4K ≈5 fps, 6K ≈2 fps, 8K ≈1 fps, all pegging a single "Safari Graphics and Media" core with the GPU idle, and cost scaling with OUTPUT pixels (not source size). Crucially, 8K HEVC was ~1 fps **both** in Build 126 (no hint) and Build 127 (hint), proving `hardwareAcceleration: 'prefer-hardware'` did nothing on Safari — this path is CPU / color-conversion bound (per-frame canvas→`VideoFrame` + sequential encode), not encoder-selection bound. Reverted to the default encode config (restores the verified Build-126 path and removes any doubt the hint touched the 4K H.264 path). The honest conclusion: browser WebCodecs encode here is single-threaded and has a throughput ceiling; the planned worker build makes a slow render non-blocking + abortable + memory-safe but will not multiply throughput (encode is sequential), and true multi-core/hardware-encode (plus Syphon) is the native-wrapper's job (FOLD.md Phase 4).
