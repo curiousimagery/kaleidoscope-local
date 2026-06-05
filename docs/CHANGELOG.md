@@ -4,6 +4,19 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.7.30 (Build 126) — 2026-06-05
+
+**Video-export hardening — honest device-aware resolutions, HEVC for 6K/8K, 10-minute durations (first build of the source-video animation track).** Groundwork shared by still-animation and the coming video-source feature.
+
+- **6K render crash fixed by gating + HEVC.** The crash was the encoder, not the renderer: we emit H.264 High@5.1, whose level caps frame size at 4K, so a 6K request was accepted by a lying `isConfigSupported`, encoded a few frames, then wedged (made worse by large frames piling up in the in-memory muxer). The render sheet now **probes each resolution tier per codec** (`pickVideoCodec` in `shell/video-export.js`) and only enables what this device can render (probed FBO ceiling) AND encode. Tiers that exceed the GPU/encoder are disabled with a reason in the tooltip; if the active tier is unsupported it falls back to a safe ≤4K pick.
+- **HEVC encode branch (no new dependency).** Anything above 4K now encodes as **HEVC** (`hvc1.1.6.L186.B0`, Main@6.2) where the device supports it — hardware-backed on Apple Silicon via Safari — falling back to H.264 ≤4K elsewhere. mp4-muxer already muxes HEVC, so no dependency was added. Added an **8K** tier (appears only where HEVC at that size probes supported); the resolution grid is now 3-up (two rows). The meta line shows the chosen codec.
+- **Duration cap 60s → 600s.** The motion duration field now scrubs to 10 minutes (`min 0.5, max 600`, coarse step 10); the motion-JSON load clamp follows (`600000`ms). NOTE: long high-res renders still risk the in-memory muxer OOM — Build 127 adds OPFS streaming-to-disk before 10-minute 4K is fully safe.
+- **FBO probe ladder.** `probeMaxFBOSize` / `probeMaxFBOSizeVerbose` (`engine/gl.js`) gained `6144` and `3072` candidates (was `[16384,8192,4096,2048]`), so the probed ceiling can land on the 6K/3K tiers instead of silently collapsing them to 4096.
+
+**Needs Daniel's in-browser pass:** on Apple Silicon Safari the sheet should offer 6K/8K (HEVC) and a 6K render should complete + play; on Firefox/Chrome (no HEVC encode) 6K/8K should be disabled with a tooltip and ≤4K H.264 unchanged; duration scrubs to 600s; 4K H.264 output unchanged from Build 125.
+
+---
+
 ## v0.7.29 (Build 125) — 2026-06-04
 
 **Motion mode seeds a keyframe on entry; settings lock only at 2 keyframes (Daniel QoL).** Entering motion mode now immediately adds a keyframe of the current look (auto-selected, so edits write through to it) instead of opening to an empty timeline. Form/segments/mirror/OOB stay **editable while there's a single keyframe** (refine the starting look) and **lock once a second keyframe exists** — the moment animating actually begins. Light-touch: reuses `addKeyframe` (with the Build-111 auto-select) and just nudges the existing lock thresholds from `>= 1` to `>= 2` (the `body.motion` CSS gate + `canEditDiscrete`). Re-entering motion mode keeps existing keyframes (no duplicate seed). Pairs with Build 124 — editing that seeded keyframe is snappy now that the per-frame thumbnail readback is gone.

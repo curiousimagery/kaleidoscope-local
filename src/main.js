@@ -31,7 +31,7 @@ import { zipStore } from './shell/zip.js';
 import { drawSourceOverlay } from './shell/overlay.js';
 import { snapSpiralValue as kitSnapSpiral, applyArmsSnap as kitApplyArmsSnap } from './kit/snaps.js';
 import { sampleKeyframes, DISCRETE_KEYS } from './kit/tween.js';
-import { exportVideo, videoExportSupported } from './shell/video-export.js';
+import { exportVideo, videoExportSupported, pickVideoCodec } from './shell/video-export.js';
 import { formatVersion } from './version.js';
 import { push as historyPush, undo as historyUndo, redo as historyRedo, canUndo, canRedo } from './shell/history.js';
 import { wireDiagnosticButton } from './shell/diagnostics.js';
@@ -1615,7 +1615,7 @@ function loadMotionFromJSON(text) {
   let o;
   try { o = JSON.parse(text); } catch { return 'not valid JSON'; }
   if (!o || o.format !== 'fold-motion' || !Array.isArray(o.keyframes) || !o.keyframes.length) return 'not a Fold motion file';
-  motion.durationMs = Math.max(500, Math.min(60000, +o.durationMs || 30000));
+  motion.durationMs = Math.max(500, Math.min(600000, +o.durationMs || 30000));
   motion.loop = o.loop !== false;
   motion.smoothing = Math.max(0, Math.min(1, +o.smoothing || 0));
   motion.keyframes = o.keyframes.map(k => ({ t: +k.t || 0, anchored: !!k.anchored, snap: { ...k.snap }, thumb: makeThumbCanvas() }));
@@ -1667,8 +1667,8 @@ function wireMotion() {
   // duration scrub field (DAW-style), in seconds (whole-animation length).
   makeScrubField(byId('mfDurVal'), {
     get: () => motion.durationMs / 1000,
-    set: (v) => { motion.durationMs = Math.max(0.5, Math.min(60, v)) * 1000; },
-    step: 0.5, fineStep: 0.1, coarseStep: 2, min: 0.5, max: 60,
+    set: (v) => { motion.durationMs = Math.max(0.5, Math.min(600, v)) * 1000; },
+    step: 0.5, fineStep: 0.1, coarseStep: 10, min: 0.5, max: 600,
     format: (v) => v.toFixed(1) + 's',
     parse: (s) => { const n = parseFloat(String(s).replace(/[s\s]/g, '')); return isNaN(n) ? null : n; },
   });
@@ -1744,24 +1744,66 @@ function setupVideoExport() {
   if (!sheet) return;
   let selLong = 2560, selFps = 30, cancelRender = false, rendering = false;
 
-  const dims = () => {
-    // aspect comes from the global frame setting; selLong sets the LONG side.
+  // raw output dimensions for a given LONG side + current aspect (even, unclamped).
+  const rawDims = (long) => {
     const a = session.frameAspect || 1;          // w/h
     let w, h;
-    if (a >= 1) { w = selLong; h = Math.round(selLong / a); }   // square / landscape: long = width
-    else { h = selLong; w = Math.round(selLong * a); }          // portrait (4:5): long = height
+    if (a >= 1) { w = long; h = Math.round(long / a); }   // square / landscape: long = width
+    else { h = long; w = Math.round(long * a); }          // portrait (4:5): long = height
+    w -= w % 2; h -= h % 2;                       // H.264/HEVC need even dimensions
+    return { w, h };
+  };
+  // clamped to the GPU FBO ceiling — a defensive net; gating already disables
+  // tiers this device can't render, so this is normally a no-op.
+  const dims = () => {
+    let { w, h } = rawDims(selLong);
     const cap = (engine && engine.diagnostics.maxFBOSize) || 4096;
     const m = Math.max(w, h);
-    if (m > cap) { const s = cap / m; w = Math.round(w * s); h = Math.round(h * s); }  // clamp to GPU FBO max
-    w -= w % 2; h -= h % 2;                       // H.264 needs even dimensions
+    if (m > cap) { const s = cap / m; w = Math.round(w * s); h = Math.round(h * s); }
+    w -= w % 2; h -= h % 2;
     return { w, h };
   };
   const frameCount = () => Math.max(2, Math.round((motion.durationMs / 1000) * selFps));
+  const codecLabel = () => {
+    const c = byId('vidRes')?.querySelector('button.active')?.dataset.codec;
+    return c === 'hevc' ? ' · HEVC' : c === 'avc' ? ' · H.264' : '';
+  };
   const refreshMeta = () => {
     const { w, h } = dims();
     const meta = byId('vidMeta');
-    if (meta) meta.textContent = `${w}×${h} · ${frameCount()} frames · ${(motion.durationMs / 1000).toFixed(1)}s @ ${selFps}fps`;
+    if (meta) meta.textContent = `${w}×${h} · ${frameCount()} frames · ${(motion.durationMs / 1000).toFixed(1)}s @ ${selFps}fps${codecLabel()}`;
   };
+
+  // Enable only the resolution tiers this device can actually render AND encode.
+  // Render limit = the probed FBO ceiling; encode limit = pickVideoCodec (H.264
+  // <=4K, HEVC above where supported). Disabled tiers carry the reason in their
+  // title; if the active tier becomes unsupported, fall back to a safe <=4K pick.
+  async function gateResolutions() {
+    const grp = byId('vidRes');
+    if (!grp) return;
+    const cap = (engine && engine.diagnostics.maxFBOSize) || 4096;
+    const btns = [...grp.querySelectorAll('button')];
+    await Promise.all(btns.map(async (b) => {
+      const { w, h } = rawDims(parseInt(b.dataset.long, 10));
+      const overFBO = Math.max(w, h) > cap;
+      const codec = overFBO ? null : await pickVideoCodec(w, h, selFps);
+      const ok = !overFBO && !!codec;
+      b.disabled = !ok;
+      b.dataset.codec = ok ? codec.muxerCodec : '';
+      b.title = ok
+        ? (codec.muxerCodec === 'hevc' ? 'HEVC (H.265)' : 'H.264')
+        : (overFBO ? `exceeds this device's render limit (~${Math.round(cap / 1024)}K)` : `this browser can't encode ${w}×${h}`);
+    }));
+    const active = grp.querySelector('button.active');
+    if (!active || active.disabled) {
+      const supported = btns.filter((b) => !b.disabled);
+      const safe = supported.filter((b) => parseInt(b.dataset.long, 10) <= 3840);
+      const pick = safe[safe.length - 1] || supported[0] || btns[0];
+      btns.forEach((x) => x.classList.toggle('active', x === pick));
+      selLong = parseInt(pick.dataset.long, 10);
+    }
+    refreshMeta();
+  }
 
   const wireGroup = (groupId, attr, set) => {
     const grp = byId(groupId);
@@ -1774,7 +1816,7 @@ function setupVideoExport() {
     });
   };
   wireGroup('vidRes', 'long', (v) => { selLong = parseInt(v, 10); });
-  wireGroup('vidFps', 'fps', (v) => { selFps = parseInt(v, 10); });
+  wireGroup('vidFps', 'fps', (v) => { selFps = parseInt(v, 10); gateResolutions(); });
 
   function open() {
     if (kfList().length < 2) return;
@@ -1786,6 +1828,7 @@ function setupVideoExport() {
     byId('vidRenderBtn').disabled = !ok;
     refreshMeta();
     sheet.hidden = false;
+    if (ok) gateResolutions();
   }
   function close() {
     cancelRender = true;                          // cancels an in-flight render

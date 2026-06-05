@@ -21,6 +21,41 @@ export function videoExportSupported() {
   return typeof VideoEncoder !== 'undefined' && typeof VideoFrame !== 'undefined';
 }
 
+// Codec strings for WebCodecs configure() + isConfigSupported(). H.264 High@5.1
+// tops out at 4K (the level caps frame size, and most hardware H.264 encoders
+// cap there too), so anything larger uses HEVC, which has hardware encode on
+// Apple Silicon (Safari) and lifts the 4K wall. mp4-muxer already supports both
+// container codecs, so HEVC adds no dependency.
+const AVC_CODEC = 'avc1.640033';        // H.264 High profile, level 5.1
+const HEVC_CODEC = 'hvc1.1.6.L186.B0';  // HEVC Main profile, level 6.2 (covers 6K/8K)
+
+// ~0.1 bits/pixel/frame for this high-detail content, clamped 4–120 Mbps (the
+// ceiling was raised from 80 to give 6K/8K room).
+function bitrateFor(width, height, fps) {
+  return Math.min(120_000_000, Math.max(4_000_000, Math.round(width * height * fps * 0.1)));
+}
+
+// Resolve the codec to use for an output size on THIS device, or null if none
+// can encode it. Prefers H.264 at <=4K (universal); uses HEVC above (and as a
+// fallback at <=4K if H.264 isn't available). Used to BOTH gate the resolution
+// UI and pick the encoder config inside exportVideo, so they always agree.
+// → { muxerCodec: 'avc'|'hevc', codec, bitrate } | null
+export async function pickVideoCodec(width, height, fps) {
+  if (typeof VideoEncoder === 'undefined') return null;
+  const bitrate = bitrateFor(width, height, fps);
+  const big = Math.max(width, height) > 4096;
+  const tries = big
+    ? [['hevc', HEVC_CODEC]]
+    : [['avc', AVC_CODEC], ['hevc', HEVC_CODEC]];
+  for (const [muxerCodec, codec] of tries) {
+    try {
+      const s = await VideoEncoder.isConfigSupported({ codec, width, height, bitrate, framerate: fps });
+      if (s && s.supported) return { muxerCodec, codec, bitrate };
+    } catch { /* try next codec */ }
+  }
+  return null;
+}
+
 // exportVideo({ frameAt, onBegin, onEnd, width, height, fps, durationMs, onProgress, shouldCancel })
 //   frameAt    — (p: 0..1) => a CanvasImageSource (canvas) for that point in the loop
 //   onBegin/onEnd — optional setup/teardown around the frame loop (e.g. the engine's
@@ -38,27 +73,20 @@ export async function exportVideo({ frameAt, onBegin, onEnd, width, height, fps,
   }
 
   const frames = Math.max(2, Math.round((durationMs / 1000) * fps));
-  const codec = 'avc1.640033';   // H.264 High profile, level 5.1 (covers up to ~4K)
-  // ~0.1 bits per pixel per frame — a high-quality H.264 target for this kind of
-  // high-detail content; clamped to a sane 4–80 Mbps.
-  const bitrate = Math.min(80_000_000, Math.max(4_000_000, Math.round(width * height * fps * 0.1)));
 
-  // Confirm the device can encode this configuration before committing.
-  let support;
-  try {
-    support = await VideoEncoder.isConfigSupported({ codec, width, height, bitrate, framerate: fps });
-  } catch {
-    support = { supported: false };
-  }
-  if (!support || !support.supported) {
-    const e = new Error(`This browser can't encode H.264 at ${width}×${height}. Try a smaller resolution.`);
+  // Pick the best-supported codec for this size (H.264 <=4K, HEVC above), and
+  // confirm the device can encode it before committing.
+  const picked = await pickVideoCodec(width, height, fps);
+  if (!picked) {
+    const e = new Error(`This browser can't encode video at ${width}×${height}. Try a smaller resolution.`);
     e.code = 'unsupported';
     throw e;
   }
+  const { codec, muxerCodec, bitrate } = picked;
 
   const muxer = new Muxer({
     target: new ArrayBufferTarget(),
-    video: { codec: 'avc', width, height, frameRate: fps },
+    video: { codec: muxerCodec, width, height, frameRate: fps },
     fastStart: 'in-memory',
   });
 

@@ -86,9 +86,17 @@ export function createGLContext(canvas, { maxProbeSize = Infinity } = {}) {
 //   Caught by: create a canvas at this size, write one pixel, read it back.
 //   If the browser silently clips or returns a null context, the pixel won't
 //   round-trip correctly, revealing the limit.
+// Candidate square FBO sizes, largest first. The probe returns the largest that
+// both renders (GPU) and round-trips through a 2D canvas (CPU/toBlob). 6144 and
+// 3072 were added so the ceiling can land on the 6K/3K export tiers instead of
+// collapsing them to 4096 — the old ladder skipped 8192→4096, so a device whose
+// real limit was ~6144 reported 8192 and never clamped a 6K request (a cause of
+// the 6K render stall, alongside the H.264 level ceiling).
+const FBO_PROBE_SIZES = [16384, 8192, 6144, 4096, 3072, 2048];
+
 export function probeMaxFBOSize(gl, maxTextureSize, cap = Infinity) {
   const limit = Math.min(maxTextureSize, cap);
-  for (const size of [16384, 8192, 4096, 2048]) {
+  for (const size of FBO_PROBE_SIZES) {
     if (size > limit) continue;
 
     // — GPU path —
@@ -151,7 +159,7 @@ export function probeMaxFBOSizeVerbose(gl, maxTextureSize) {
   const candidates = [];
   let chosen = 2048;
   let foundWinner = false;
-  for (const size of [16384, 8192, 4096, 2048]) {
+  for (const size of FBO_PROBE_SIZES) {
     const rec = { size, gpuTexImage: 'SKIP', gpuFBStatus: 'SKIP', gpuReadPixels: 'SKIP', canvasCreate: 'SKIP', canvasRoundTrip: 'SKIP', glError: 0 };
     if (size > maxTextureSize) {
       rec.gpuTexImage = `SKIP (exceeds MAX_TEXTURE_SIZE=${maxTextureSize})`;
