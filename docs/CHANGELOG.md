@@ -4,6 +4,12 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.7.31 (Build 127) — 2026-06-05
+
+**HEVC export — prefer the hardware encoder (8K render speed, from Daniel's test).** An 8K HEVC render came back correct but very slow (~1 frame/s, one CPU core pegged, GPU idle) — the signature of a single-threaded software encode (or per-frame CPU color conversion), not the hardware media engine. The Build 112 GL→`VideoFrame` capture path is codec-agnostic and still in use; what changed at 8K is that the bottleneck moved to the encoder. `encoder.configure` now passes `hardwareAcceleration: 'prefer-hardware'` so WebCodecs prefers the platform media engine (Apple Silicon VideoToolbox) where available, with software fallback intact. It's a hint, so it can't break a config gating already confirmed; gating still probes without the hint, so tiers stay offered even when only software encode exists. **Verify (Daniel):** re-render 8K HEVC and compare time + CPU usage; also try 6K — if 6K is fast and 8K stays slow, the hardware HEVC encoder caps below 8K on this machine and 8K is inherently software there (we'll then treat 8K as a slow/extreme tier with a warning, while 6K stays fast).
+
+---
+
 ## v0.7.30 (Build 126) — 2026-06-05
 
 **Video-export hardening — honest device-aware resolutions, HEVC for 6K/8K, 10-minute durations (first build of the source-video animation track).** Groundwork shared by still-animation and the coming video-source feature.

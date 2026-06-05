@@ -95,7 +95,13 @@ export async function exportVideo({ frameAt, onBegin, onEnd, width, height, fps,
     output: (chunk, meta) => muxer.addVideoChunk(chunk, meta),
     error: (e) => { encError = e; },
   });
-  encoder.configure({ codec, width, height, bitrate, framerate: fps });
+  // Prefer the platform's hardware video encoder (e.g. Apple Silicon's media
+  // engine) over a software encoder. It's a hint with software fallback, so it
+  // can't break a config gating already confirmed — but at high resolutions
+  // (esp. HEVC 6K/8K) it's the difference between the media engine and a single-
+  // threaded CPU encode. Gating still probes without the hint, so a tier stays
+  // offered even when only a software encoder exists.
+  encoder.configure({ codec, width, height, bitrate, framerate: fps, hardwareAcceleration: 'prefer-hardware' });
 
   const frameDur = Math.round(1_000_000 / fps);   // microseconds
   const gop = Math.max(1, Math.round(fps * 2));    // keyframe every ~2s
