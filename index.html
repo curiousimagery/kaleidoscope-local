@@ -241,6 +241,12 @@
       <button class="toggle active" data-fps="30">30</button>
       <button class="toggle" data-fps="60">60</button>
     </div>
+    <label class="setting-label">frame source (experiment · compare the /frame vframe ms)</label>
+    <div class="row-buttons" id="vidCapMode">
+      <button class="toggle active" data-cap="2d">2D canvas</button>
+      <button class="toggle" data-cap="bitmap">ImageBitmap</button>
+      <button class="toggle" data-cap="gl">WebGL direct</button>
+    </div>
     <label class="setting-label">include</label>
     <label class="vid-opt"><input type="checkbox" id="vidSourcePreview"> source preview video (.zip)</label>
     <label class="vid-opt"><input type="checkbox" id="vidMotionJSON"> motion data .json (.zip)</label>

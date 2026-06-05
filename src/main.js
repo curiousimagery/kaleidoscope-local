@@ -1742,7 +1742,7 @@ function setupVideoExport() {
   const byId = (id) => document.getElementById(id);
   const sheet = byId('vidSheet');
   if (!sheet) return;
-  let selLong = 2560, selFps = 30, cancelRender = false, rendering = false;
+  let selLong = 2560, selFps = 30, selCap = '2d', cancelRender = false, rendering = false;
 
   // raw output dimensions for a given LONG side + current aspect (even, unclamped).
   const rawDims = (long) => {
@@ -1817,6 +1817,7 @@ function setupVideoExport() {
   };
   wireGroup('vidRes', 'long', (v) => { selLong = parseInt(v, 10); });
   wireGroup('vidFps', 'fps', (v) => { selFps = parseInt(v, 10); gateResolutions(); });
+  wireGroup('vidCapMode', 'cap', (v) => { selCap = v; });   // EXPERIMENT (Build 130): frame-source A/B
 
   function open() {
     if (kfList().length < 2) return;
@@ -1853,9 +1854,9 @@ function setupVideoExport() {
     try {
       // main kaleidoscope video (GL capture path)
       const { blob, frames, timing } = await exportVideo({
-        width: w, height: h, fps: selFps, durationMs: motion.durationMs,
+        width: w, height: h, fps: selFps, durationMs: motion.durationMs, captureMode: selCap,
         onBegin: () => engine.beginCapture(w, h),
-        frameAt: (p) => engine.captureFrame(sampleAt(p)),
+        frameAt: (p) => selCap === 'gl' ? engine.captureFrameGL(sampleAt(p)) : engine.captureFrame(sampleAt(p)),
         onEnd: () => engine.endCapture(),
         onProgress: (p) => { bar.style.width = Math.round(p * (wantSource ? 50 : 100)) + '%'; },
         shouldCancel: () => cancelRender,

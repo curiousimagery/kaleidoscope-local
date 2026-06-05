@@ -232,6 +232,16 @@ export function createEngine({ canvas, maxProbeSize }) {
       captureCtx.drawImage(cv, 0, 0);   // GPU blit GL→2D (Safari-safe VideoFrame source)
       return captureCanvas;
     },
+    // EXPERIMENT (Build 130): return the GL canvas directly, skipping the GL→2D
+    // blit, so the caller can wrap it in a VideoFrame straight from WebGL. This
+    // was the Build-112 path (fast) that hung iPadOS in Build 115, so it's a
+    // desktop-only probe to find whether the 2D-canvas copy is what makes
+    // Safari's VideoFrame construction slow (~177ms/frame at 4K).
+    captureFrameGL(state) {
+      const cv = glCtx.gl.canvas;
+      renderToCanvas(glCtx, state, buildCtx(state), cv.width, cv.height);
+      return cv;
+    },
     endCapture() {
       if (!capturePrevSize) return;
       const cv = glCtx.gl.canvas;

@@ -4,6 +4,12 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.7.34 (Build 130) — 2026-06-05
+
+**Frame-source experiment — find a faster `VideoFrame` path on Safari.** Build 129 localized the export bottleneck to `new VideoFrame(canvas)` (Safari ~177 ms/frame vs Firefox ~5 ms; encode ~0 on both). This build adds a temporary **frame source** selector to the render sheet to A/B the three candidates and read the resulting per-frame `vframe` ms: **2D canvas** (current/default, the proven Safari-safe path), **ImageBitmap** (`createImageBitmap` → `VideoFrame`), and **WebGL direct** (`VideoFrame` straight from the WebGL canvas via new `engine.captureFrameGL`; this was fast in Build 112 but hung iPadOS in Build 115, so it's a **desktop-only probe** with a fallback to the default). Goal: see whether avoiding the 2D-canvas RGBA→YUV conversion cuts Safari's per-frame cost. If one mode is dramatically faster and correct, it becomes the default and may remove the need for a worker-pool speedup; if none help, the conversion is intrinsic and parallelizing it across a worker pool is the real lever. The selector is experimental scaffolding to be removed once a winner is picked. No change to the default render path.
+
+---
+
 ## v0.7.33 (Build 129) — 2026-06-05
 
 **Export per-frame timing reader (diagnostic for the throughput ceiling).** `exportVideo` now accumulates and returns per-stage timing, and the render status + console show a per-frame breakdown: `gl` (frameAt = GL render + GL→2D capture blit), `vframe` (VideoFrame construction = the suspected color conversion), `encode` (encoder backpressure wait + flush = where the sequential encode cost surfaces, since `encode()` only queues). Purpose: localize which stage owns the single-threaded, output-pixel-linear cost Daniel measured (Safari ≈21 fps @1080p, ≈5–6 @4K, ≈1 @8K) so we can decide whether the browser-side lever (building `VideoFrame` straight from the WebGL canvas to drop the 2D-copy/convert) is worth attempting, or whether it's encode-bound and therefore native-wrapper territory. Captured as a **[HIGH PRI]** opportunity in BACKLOG. No behavior change to the render itself.

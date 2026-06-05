@@ -65,7 +65,7 @@ export async function pickVideoCodec(width, height, fps) {
 //   onProgress — (0..1) => void   (optional)
 //   shouldCancel — () => boolean  (optional; checked each frame)
 // → { blob, ext: 'mp4', frames } | throws (err.code === 'unsupported' / 'cancelled')
-export async function exportVideo({ frameAt, onBegin, onEnd, width, height, fps, durationMs, onProgress, shouldCancel }) {
+export async function exportVideo({ frameAt, onBegin, onEnd, width, height, fps, durationMs, onProgress, shouldCancel, captureMode = '2d' }) {
   if (!videoExportSupported()) {
     const e = new Error('Video export needs a browser with WebCodecs (Chrome, or Safari 16+ / iPadOS 16+).');
     e.code = 'unsupported';
@@ -128,12 +128,23 @@ export async function exportVideo({ frameAt, onBegin, onEnd, width, height, fps,
       const cv = frameAt(i / frames);
       glMs += performance.now() - t;
 
+      // vframe bucket = whatever it takes to get an encodable VideoFrame for this
+      // mode (the Safari bottleneck). EXPERIMENT (Build 130): 'bitmap' routes through
+      // createImageBitmap; 'gl' wraps the WebGL canvas directly (cv is already the
+      // GL canvas via captureFrameGL); '2d' is the proven 2D-canvas path.
       t = performance.now();
-      const frame = new VideoFrame(cv, { timestamp: i * frameDur, duration: frameDur });
+      let frame, bmp;
+      if (captureMode === 'bitmap') {
+        bmp = await createImageBitmap(cv);
+        frame = new VideoFrame(bmp, { timestamp: i * frameDur, duration: frameDur });
+      } else {
+        frame = new VideoFrame(cv, { timestamp: i * frameDur, duration: frameDur });
+      }
       vfMs += performance.now() - t;
 
       encoder.encode(frame, { keyFrame: i % gop === 0 });
       frame.close();
+      bmp?.close();
 
       // yield so the progress UI updates; throttle if the encoder queue backs up.
       if (i % 3 === 0) { onProgress?.(i / frames); await new Promise((r) => setTimeout(r)); }
