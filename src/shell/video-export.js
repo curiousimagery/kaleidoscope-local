@@ -95,13 +95,14 @@ export async function exportVideo({ frameAt, onBegin, onEnd, width, height, fps,
     output: (chunk, meta) => muxer.addVideoChunk(chunk, meta),
     error: (e) => { encError = e; },
   });
-  // Prefer the platform's hardware video encoder (e.g. Apple Silicon's media
-  // engine) over a software encoder. It's a hint with software fallback, so it
-  // can't break a config gating already confirmed — but at high resolutions
-  // (esp. HEVC 6K/8K) it's the difference between the media engine and a single-
-  // threaded CPU encode. Gating still probes without the hint, so a tier stays
-  // offered even when only a software encoder exists.
-  encoder.configure({ codec, width, height, bitrate, framerate: fps, hardwareAcceleration: 'prefer-hardware' });
+  // NOTE: we tried `hardwareAcceleration: 'prefer-hardware'` (Build 127) and it
+  // made ZERO measurable difference on Safari — 8K HEVC stayed ~1 fps on a single
+  // pegged core both with and without it. So this export path is CPU / color-
+  // conversion bound (per-frame canvas→VideoFrame + sequential encode), not
+  // encoder-SELECTION bound; the hint was inert here, so we keep the default
+  // ('no-preference'). Real multi-core / hardware-encode throughput is a native-
+  // wrapper concern (FOLD.md Phase 4), not something this browser path can reach.
+  encoder.configure({ codec, width, height, bitrate, framerate: fps });
 
   const frameDur = Math.round(1_000_000 / fps);   // microseconds
   const gop = Math.max(1, Math.round(fps * 2));    // keyframe every ~2s

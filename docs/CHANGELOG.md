@@ -4,6 +4,12 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.7.32 (Build 128) — 2026-06-05
+
+**Revert the `prefer-hardware` hint — it was inert (export perf finding).** Daniel's Safari timings across resolutions: 4K ≈5 fps, 6K ≈2 fps, 8K ≈1 fps, all pegging a single "Safari Graphics and Media" core with the GPU idle, and cost scaling with OUTPUT pixels (not source size). Crucially, 8K HEVC was ~1 fps **both** in Build 126 (no hint) and Build 127 (hint), proving `hardwareAcceleration: 'prefer-hardware'` did nothing on Safari — this path is CPU / color-conversion bound (per-frame canvas→`VideoFrame` + sequential encode), not encoder-selection bound. Reverted to the default encode config (restores the verified Build-126 path and removes any doubt the hint touched the 4K H.264 path). The honest conclusion: browser WebCodecs encode here is single-threaded and has a throughput ceiling; the planned worker build makes a slow render non-blocking + abortable + memory-safe but will not multiply throughput (encode is sequential), and true multi-core/hardware-encode (plus Syphon) is the native-wrapper's job (FOLD.md Phase 4).
+
+---
+
 ## v0.7.31 (Build 127) — 2026-06-05
 
 **HEVC export — prefer the hardware encoder (8K render speed, from Daniel's test).** An 8K HEVC render came back correct but very slow (~1 frame/s, one CPU core pegged, GPU idle) — the signature of a single-threaded software encode (or per-frame CPU color conversion), not the hardware media engine. The Build 112 GL→`VideoFrame` capture path is codec-agnostic and still in use; what changed at 8K is that the bottleneck moved to the encoder. `encoder.configure` now passes `hardwareAcceleration: 'prefer-hardware'` so WebCodecs prefers the platform media engine (Apple Silicon VideoToolbox) where available, with software fallback intact. It's a hint, so it can't break a config gating already confirmed; gating still probes without the hint, so tiers stay offered even when only software encode exists. **Verify (Daniel):** re-render 8K HEVC and compare time + CPU usage; also try 6K — if 6K is fast and 8K stays slow, the hardware HEVC encoder caps below 8K on this machine and 8K is inherently software there (we'll then treat 8K as a slow/extreme tier with a warning, while 6K stays fast).
