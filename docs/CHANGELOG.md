@@ -4,6 +4,22 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.8.6 (Build 144) — 2026-06-06
+
+**Timeline ruler — ticks + occasional timestamps.** A measuring scale (`#mfRuler`) now sits above the track: minor ticks at a regular interval plus major ticks with a timestamp at a coarser "nice" interval (0.5/1/2/5/10/15/30/60/120/300/600/900/1800s) chosen so labels stay readable at the current width (~one label per 84px, 2–12 labels). Timestamps read as `m:ss` past a minute, else `Ns`/`N.Ns`. Relative keyframe position is still the focus; the labels give a sense of absolute time, which fixed-duration media (video) needs. Re-renders on duration change, timeline change, motion entry, and resize (label density tracks width). Tick positions are inset 1px to line up with the markers inside the track's border. **Verify (Daniel):** the ruler reads sensibly for both a short still loop and a multi-minute video (sensible label spacing, t=0 left-aligned, no crowding); labels update when you scrub the duration field (stills) and match the clip length on a video.
+
+---
+
+## v0.8.5 (Build 143) — 2026-06-06
+
+**Tween-strip band renders for video + flicker fixed (Firefox/Chrome).** The timeline's tween filmstrip (the continuous band behind the keyframe markers) now renders for a video source, and the rebuild flicker is gone on engines with sound FBO readback.
+- **Tween strip for video.** `buildFilmstripVideo` now seeks the footage per strip cell as well as per keyframe, in one ascending pass over time, so the band shows the actual footage + interpolated look across the whole timeline (previously skipped for video). Builds into a fresh canvas swapped in only when complete, so the old band stays visible during the rebuild instead of blanking.
+- **Flicker fixed (Firefox/Chrome).** The flicker came from the rebuild borrowing + resizing the LIVE preview canvas, with the async seeks letting it composite mid-build. Where the engine's FBO readback is sound (Firefox/Chrome) the thumbnails now render OFFSCREEN via `exportFrame`, never touching the preview — no flicker. Desktop Safari's FBO readback is the "blue cells" corruption, so WebKit stays on the capture path (its existing flicker remains there — status quo, not a regression).
+
+**Verify (Daniel):** on a video with ≥2 keyframes, the band behind the markers fills with the footage/tween across the timeline; on Firefox the preview no longer flickers during the debounced rebuild. (Safari still flickers — expected.) Longer/higher-res clips: the band takes a moment to fill (one seek per cell) — a known cost of seek-based rebuilds.
+
+---
+
 ## v0.8.4 (Build 142) — 2026-06-06
 
 **Video keyframe thumbnails actually render now + dragging a keyframe previews the footage.** Two fixes on the Build-141 thumbnail work:

@@ -1573,6 +1573,11 @@ function stepKeyframe(dir) {
 // the preview canvas — the browser composites only once after the JS turn, so there
 // is no on-screen flicker — captures each into one strip canvas, then restores the
 // current frame.
+// WebKit (desktop Safari / iOS): its FBO readPixels returns corrupt channel-swapped/
+// banded data (the "blue cells"), so the offscreen readback path can't be used there —
+// readback-based thumbnail rendering falls back to the live-canvas capture path.
+const IS_WEBKIT = /AppleWebKit/.test(navigator.userAgent) && !/Chrome|Chromium|Edg|OPR|Firefox|FxiOS|CriOS/.test(navigator.userAgent);
+
 let filmstripTimer = 0;
 let lastFilmstripSig = '';
 let _filmstripGen = 0, _filmstripBusy = false;   // async video-thumbnail build: cancellation + single-flight
@@ -1608,14 +1613,15 @@ function buildFilmstrip() {
 
   const sig = W + '|' + motion.smoothing + '|' + motion.loop + '|' + motion.durationMs + '|' +
     kfList().map(k => k.t.toFixed(4) + ':' + JSON.stringify(k.snap)).join(',');
-  if (sig === lastFilmstripSig && (strip.firstChild || !multi || env.sourceVideo)) return;   // unchanged (e.g. scrub) — skip
+  if (sig === lastFilmstripSig && (strip.firstChild || !multi)) return;   // unchanged (e.g. scrub) — skip
 
-  // Video source: each keyframe's thumbnail is the FOOTAGE at that keyframe's time,
-  // which needs an async seek per keyframe (so it stays correct under add / edit /
-  // auto-shift / drag). Handled separately; the tween strip is skipped for now.
+  // Video source: the thumbnails AND the tween-strip band are the FOOTAGE at each
+  // sample's time, which needs an async seek per sample (so they stay correct under
+  // add / edit / auto-shift / drag). Handled separately, off the main thread of this
+  // synchronous still path.
   if (env.sourceVideo) {
     if (_filmstripBusy) { scheduleFilmstrip(); return; }   // one build at a time — retry after the current finishes
-    buildFilmstripVideo(strip, sig);
+    buildFilmstripVideo(strip, sig, { W, H, S, n, fs, multi });
     return;
   }
 
@@ -1647,40 +1653,80 @@ function buildFilmstrip() {
   lastFilmstripSig = sig;
 }
 
-// Video source: refresh each keyframe's thumbnail by SEEKING the footage to that
-// keyframe's time, then capturing (so thumbs are correct under add / edit / auto-
-// shift / drag — the footage frame follows the keyframe's time, not the last edit).
-// Async + single-flight (_filmstripBusy) + cancellable (_filmstripGen, bumped by
-// scrub/playback). The preview is hidden during the build (captures resize + render
-// the live GL canvas) and the footage is restored to the playhead after. The tween
-// strip is skipped for video for now (it would need a seek per cell).
-async function buildFilmstripVideo(strip, sig) {
+// Video source: rebuild the marker thumbnails AND the tween-strip band by SEEKING the
+// footage to each sample's time, then rendering the look there (so both stay correct
+// under add / edit / auto-shift / drag — the footage frame follows the sample's time,
+// not the last edit). One ascending pass over time covers every cell + thumb (monotonic
+// seeks are smoother than jumping around). Async + single-flight (_filmstripBusy) +
+// cancellable (_filmstripGen, bumped by scrub/playback); the footage is restored to the
+// playhead after.
+//
+// Flicker: the readback-free capture path (beginCapture/captureFrame) borrows + resizes
+// the LIVE preview canvas, and the awaits between seeks let it composite mid-build → a
+// visible flicker. So where the engine's FBO readback is sound we render OFFSCREEN via
+// exportFrame (FBO → 2D scratch), never touching the preview (no flicker). Desktop
+// Safari's FBO readback is the "blue cells" corruption, so WebKit stays on the capture
+// path (its brief flicker is the lesser evil there).
+async function buildFilmstripVideo(strip, sig, geom) {
   _filmstripBusy = true;
   const gen = ++_filmstripGen;
   const v = env.sourceVideo;
   const saved = v.currentTime;
   const list = [...kfList()];                       // snapshot (the array may mutate during awaits)
-  const fs = 240;
-  strip.innerHTML = '';                             // no tween strip for video yet — markers carry the thumbs
-  // NOTE: we do NOT hide the preview canvas during the build — Firefox can drop the
-  // WebGL drawing buffer for a non-composited canvas, which made the captures (and
-  // thus the thumbnails) come back blank. The cost is a brief preview flicker as the
-  // captures render at thumbnail size; resizePreviewCanvas() restores it after.
-  engine.beginCapture(fs, fs);
+  const { W, H, S, n, fs, multi } = geom;
+
+  // a fresh tween-strip canvas, swapped in only once complete (the old band stays
+  // visible during the rebuild instead of blanking).
+  let stripCanvas = null, stripCtx = null;
+  if (multi) {
+    stripCanvas = document.createElement('canvas');
+    stripCanvas.width = W; stripCanvas.height = H;
+    stripCanvas.style.cssText = 'width:100%;height:100%;display:block';
+    stripCtx = stripCanvas.getContext('2d');
+  }
+
+  // capture jobs sorted by time: each strip cell (the tween look at that p) + each
+  // keyframe marker thumb (the keyframe's exact snap).
+  const jobs = [];
+  if (multi) {
+    for (let i = 0; i < n; i++) {
+      const p = Math.min(1, (i * S + S / 2) / W), x = i * S;
+      jobs.push({ p, snap: sampleAt(p), draw: (src) => stripCtx.drawImage(src, x, 0, S, H) });
+    }
+  }
+  for (const kf of list) {
+    if (!kf.thumb) continue;
+    jobs.push({ p: kf.t, snap: kf.snap, draw: (src) => kf.thumb.getContext('2d').drawImage(src, 0, 0, kf.thumb.width, kf.thumb.height) });
+  }
+  jobs.sort((a, b) => a.p - b.p);
+
+  const useFBO = !IS_WEBKIT;                         // WebKit FBO readback = blue cells → live-canvas capture path
+  let scratchCtx = null;
+  if (useFBO) { const sc = document.createElement('canvas'); sc.width = fs; sc.height = fs; scratchCtx = sc.getContext('2d'); }
+  else engine.beginCapture(fs, fs);
   try {
-    for (const kf of list) {
+    for (const job of jobs) {
       if (gen !== _filmstripGen) return;            // superseded by a scrub / playback / newer build
-      if (!kf.thumb) continue;
-      await seekVideoTo(v, pToMediaSec(v, kf.t));
+      await seekVideoTo(v, pToMediaSec(v, job.p));
       if (gen !== _filmstripGen) return;
       engine.updateSourceFrame();
-      kf.thumb.getContext('2d').drawImage(engine.captureFrame(kf.snap), 0, 0, kf.thumb.width, kf.thumb.height);
+      let src;
+      if (useFBO) { await engine.exportFrame(job.snap, fs, fs, scratchCtx); src = scratchCtx.canvas; }
+      else src = engine.captureFrame(job.snap);
+      job.draw(src);
     }
+    if (gen !== _filmstripGen) return;
+    if (multi) { strip.innerHTML = ''; strip.appendChild(stripCanvas); }
+    else strip.innerHTML = '';                       // single keyframe = marker thumb only, no band
     lastFilmstripSig = sig;
   } finally {
-    engine.endCapture();
-    if (gen === _filmstripGen) { await seekVideoTo(v, saved); engine.updateSourceFrame(); }   // restore (skip if cancelled — the canceller owns the frame)
-    resizePreviewCanvas();
+    if (!useFBO) engine.endCapture();                // restore the borrowed live canvas's backing size
+    if (gen === _filmstripGen) {                      // not cancelled → we own the footage; restore + repaint
+      await seekVideoTo(v, saved); engine.updateSourceFrame();
+      resizePreviewCanvas();
+    } else if (!useFBO) {
+      resizePreviewCanvas();                          // cancelled on the capture path: un-borrow the live canvas (the canceller owns the frame)
+    }
     _filmstripBusy = false;
   }
 }
@@ -1724,6 +1770,54 @@ function makeMarkerDraggable(m, i) {
   m.addEventListener('pointerup', end);
   m.addEventListener('pointercancel', () => { down = null; });
 }
+// ---- timeline ruler (ticks + occasional timestamps) -----------------------
+// A measuring scale above the track: minor ticks at a regular interval and major
+// ticks with a timestamp at a coarser "nice" interval chosen so labels stay readable
+// at the current width. Relative keyframe position stays the focus; the timestamps
+// give a sense of absolute time, which fixed-duration media (video) needs.
+const TICK_NICE = [0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 900, 1800];
+function fmtClock(sec) {
+  if (sec >= 60) { const m = Math.floor(sec / 60), s = Math.round(sec % 60); return `${m}:${String(s).padStart(2, '0')}`; }
+  return Number.isInteger(sec) ? `${sec}s` : `${sec.toFixed(1)}s`;
+}
+function renderRuler() {
+  const ruler = document.getElementById('mfRuler');
+  if (!ruler) return;
+  ruler.innerHTML = '';
+  const dur = motion.durationMs / 1000;
+  const w = ruler.clientWidth;
+  if (!(dur > 0) || w < 2) return;                              // footer hidden / zero width → nothing to draw
+  // labeled interval: ~one label per ~84px, snapped to a nice value (fallback to
+  // rounded seconds for very long clips).
+  const targetLabels = Math.max(2, Math.min(12, Math.floor(w / 84)));
+  let step = TICK_NICE.find(s => dur / s <= targetLabels) ?? Math.ceil(dur / targetLabels);
+  const minor = step / 5;                                       // 5 minor ticks per labeled span
+  const frag = document.createDocumentFragment();
+  if (dur / minor <= 400) {                                     // skip minors if they'd flood the DOM
+    const count = Math.floor(dur / minor + 1e-6);
+    for (let i = 0; i <= count; i++) {
+      if (i % 5 === 0) continue;                                // a major sits here
+      const tick = document.createElement('div');
+      tick.className = 'mf-tick minor';
+      tick.style.left = ((i * minor) / dur * 100) + '%';
+      frag.appendChild(tick);
+    }
+  }
+  const majors = Math.floor(dur / step + 1e-6);
+  for (let i = 0; i <= majors; i++) {
+    const t = i * step, p = t / dur;
+    const tick = document.createElement('div');
+    tick.className = 'mf-tick major';
+    tick.style.left = (p * 100) + '%';
+    frag.appendChild(tick);
+    const lab = document.createElement('span');
+    lab.className = 'mf-time' + (p <= 0.001 ? ' start' : p >= 0.999 ? ' end' : '');
+    lab.textContent = fmtClock(t);
+    lab.style.left = (p * 100) + '%';
+    frag.appendChild(lab);
+  }
+  ruler.appendChild(frag);
+}
 function renderTimeline() {
   const markers = document.getElementById('mfMarkers');
   if (!markers) return;
@@ -1758,6 +1852,7 @@ function renderTimeline() {
     markers.appendChild(g);
   }
   setPlayhead(motion.playhead);
+  renderRuler();
   scheduleFilmstrip();
 }
 
@@ -1788,6 +1883,7 @@ function toggleMotionMode() {
   requestAnimationFrame(() => {
     resizePreviewCanvas();
     sourceOverlay.render();
+    renderRuler();                       // footer is visible now → the ruler has a real width
     if (motionActive && env.sourceVideo) scrubVideo(motion.playhead);   // show the playhead frame
   });
 }
@@ -1902,6 +1998,7 @@ function wireMotion() {
     step: 0.5, fineStep: 0.1, coarseStep: 10, min: 0.5, max: 600,
     format: (v) => v.toFixed(1) + 's',
     parse: (s) => { const n = parseFloat(String(s).replace(/[s\s]/g, '')); return isNaN(n) ? null : n; },
+    onChange: renderRuler,               // duration drives the timestamps
   });
 
   // motion smoothing degree (0 = exact keyframes; higher relaxes jaggy keyframe
@@ -2191,6 +2288,7 @@ if (engine) {
     resizePreviewCanvas();
     if (session.isSwapped) arrangeSlots();
     sourceOverlay.render();
+    renderRuler();                       // label density depends on width
     scheduleFilmstrip();
   });
 }
