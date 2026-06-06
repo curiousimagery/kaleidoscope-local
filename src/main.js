@@ -1368,16 +1368,23 @@ async function advanceSourceToP(p) {
 }
 // Scrub the footage to p, coalescing seeks (latest target wins) so dragging the
 // timeline never floods the decoder. Renders params + the landed frame together.
-let _scrubSeekP = null, _scrubSeeking = false;
-async function scrubVideo(p) {
+let _scrubSeekP = null, _scrubSeeking = false, _scrubAssign = true;
+// Seek the footage to timeline position p (coalesced — latest target wins) and
+// re-render. assignParams=true samples the keyframed params at p (scrub / load-
+// playhead); false keeps the working state as-is — selecting a keyframe must show
+// its EXACT stored snap, just over the correct video frame (not the interpolated
+// value).
+async function scrubVideo(p, { assignParams = true } = {}) {
   _scrubSeekP = p;
+  _scrubAssign = assignParams;
   if (_scrubSeeking) return;
   _scrubSeeking = true;
   try {
     while (_scrubSeekP != null) {
       const target = _scrubSeekP; _scrubSeekP = null;
+      const assign = _scrubAssign;
       await advanceSourceToP(target);
-      Object.assign(state, sampleAt(target));
+      if (assign) Object.assign(state, sampleAt(target));
       if (engine && engine.getSourceImage()) { engine.render(state); if (session.isSwapped) drawMiniKaleidoscope(); }
       sourceOverlay.paintSourceVideo();
       sourceOverlay.render();
@@ -1542,6 +1549,9 @@ function selectKeyframe(i) {
   env.scheduleRender();
   renderTimeline();
   updateMotionUI();
+  // video: bring the footage to this keyframe's time too (params already loaded
+  // from the snap — don't re-sample them, just seek the frame).
+  if (env.sourceVideo) scrubVideo(kfList()[i].t, { assignParams: false });
 }
 function stepKeyframe(dir) {
   const list = kfList();

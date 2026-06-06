@@ -4,6 +4,12 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.8.2 (Build 140) — 2026-06-05
+
+**Selecting/cycling keyframes now seeks the footage (video).** `selectKeyframe` loaded the keyframe's params and re-rendered but never moved the video, so on a video source every keyframe you clicked or stepped to rendered over whatever frame was last positioned — the most-recently-edited keyframe's frame "projected" onto all the others (params differed, footage didn't). Now selecting a keyframe also seeks the footage to that keyframe's time. The coalescing seeker (`scrubVideo`) gained an `assignParams` option: scrub / load-playhead still sample the interpolated params at p, but selection passes `false` so the keyframe's EXACT stored snap shows (over the correct frame), not the interpolated value. Covers marker-click, prev/next stepper, and post-delete reselect. **Verify (Daniel):** with a video + several keyframes at different times, click/step through them — each shows its own footage frame, not a shared stale one. (The marker THUMBNAIL images are still the separate async-filmstrip gap.)
+
+---
+
 ## v0.8.1 (Build 139) — 2026-06-05
 
 **Frame-accurate video export — the footage now moves in the render.** `exportVideo` awaits each `frameAt`, and for a video source each output frame first seeks the footage to that point (`advanceSourceToP`) before capturing. So a rendered loop now shows the actual video advancing under the animated kaleidoscope params, instead of a single frozen frame. The companion source-preview video seeks too, and after a render the footage is restored to the playhead. **Note:** this is seek-based (one video seek per output frame), so a long high-res render is correct but slow — the WebCodecs-demuxer accelerator (faster decode) remains the future speed option, and the per-frame timing reader's `gl` bucket now includes the seek cost. Still-image animation export is unchanged. **Verify (Daniel):** render a keyframed loop over a moving clip — the footage should advance through the render, not stay frozen.
