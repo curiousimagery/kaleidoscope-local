@@ -1375,6 +1375,7 @@ let _scrubSeekP = null, _scrubSeeking = false, _scrubAssign = true;
 // its EXACT stored snap, just over the correct video frame (not the interpolated
 // value).
 async function scrubVideo(p, { assignParams = true } = {}) {
+  _filmstripGen++;                 // cancel any in-flight thumbnail build (it would fight our seeks)
   _scrubSeekP = p;
   _scrubAssign = assignParams;
   if (_scrubSeeking) return;
@@ -1425,6 +1426,7 @@ function startPlayback() {
 function startVideoPlayback() {
   const v = env.sourceVideo;
   if (!v) return;
+  _filmstripGen++;                 // cancel any in-flight thumbnail build before we drive the footage
   motion.playing = true;
   motion.selected = -1;
   const dur = (v.duration && isFinite(v.duration)) ? v.duration : 1;
@@ -1510,6 +1512,7 @@ function addKeyframe() {
   setPlayhead(kfList()[newIdx].t);
   renderTimeline();                              // marker appears (blank thumb); also schedules the filmstrip
   updateMotionUI();
+  if (env.sourceVideo) scrubVideo(kfList()[newIdx].t, { assignParams: false });   // footage follows the new keyframe's (auto-spaced) time
   // thumbnail fills on the debounced, readback-free filmstrip rebuild (no per-add readPixels)
 }
 // toggle the selected keyframe between anchored (fixed time) and auto (even-spaced).
@@ -1572,6 +1575,7 @@ function stepKeyframe(dir) {
 // current frame.
 let filmstripTimer = 0;
 let lastFilmstripSig = '';
+let _filmstripGen = 0, _filmstripBusy = false;   // async video-thumbnail build: cancellation + single-flight
 function scheduleFilmstrip() {
   if (!motionActive) return;
   clearTimeout(filmstripTimer);
@@ -1590,7 +1594,7 @@ function buildFilmstrip() {
   const strip = document.getElementById('mfStrip');
   if (!strip) return;
   const track = document.getElementById('mfTrack');
-  if (!track || motion.playing || !engine || !engine.getSourceImage() || !kfList().length) {
+  if (!track || motion.playing || motionScrubbing || !engine || !engine.getSourceImage() || !kfList().length) {
     strip.innerHTML = ''; lastFilmstripSig = ''; return;
   }
   const w = strip.clientWidth, h = strip.clientHeight;
@@ -1604,7 +1608,16 @@ function buildFilmstrip() {
 
   const sig = W + '|' + motion.smoothing + '|' + motion.loop + '|' + motion.durationMs + '|' +
     kfList().map(k => k.t.toFixed(4) + ':' + JSON.stringify(k.snap)).join(',');
-  if (sig === lastFilmstripSig && (strip.firstChild || !multi)) return;   // unchanged (e.g. scrub) — skip
+  if (sig === lastFilmstripSig && (strip.firstChild || !multi || env.sourceVideo)) return;   // unchanged (e.g. scrub) — skip
+
+  // Video source: each keyframe's thumbnail is the FOOTAGE at that keyframe's time,
+  // which needs an async seek per keyframe (so it stays correct under add / edit /
+  // auto-shift / drag). Handled separately; the tween strip is skipped for now.
+  if (env.sourceVideo) {
+    if (_filmstripBusy) { scheduleFilmstrip(); return; }   // one build at a time — retry after the current finishes
+    buildFilmstripVideo(strip, sig);
+    return;
+  }
 
   let c = null;
   if (multi) {
@@ -1632,6 +1645,42 @@ function buildFilmstrip() {
   strip.innerHTML = '';
   if (multi) strip.appendChild(c);                  // single keyframe = marker thumb only, no strip
   lastFilmstripSig = sig;
+}
+
+// Video source: refresh each keyframe's thumbnail by SEEKING the footage to that
+// keyframe's time, then capturing (so thumbs are correct under add / edit / auto-
+// shift / drag — the footage frame follows the keyframe's time, not the last edit).
+// Async + single-flight (_filmstripBusy) + cancellable (_filmstripGen, bumped by
+// scrub/playback). The preview is hidden during the build (captures resize + render
+// the live GL canvas) and the footage is restored to the playhead after. The tween
+// strip is skipped for video for now (it would need a seek per cell).
+async function buildFilmstripVideo(strip, sig) {
+  _filmstripBusy = true;
+  const gen = ++_filmstripGen;
+  const v = env.sourceVideo;
+  const saved = v.currentTime;
+  const list = [...kfList()];                       // snapshot (the array may mutate during awaits)
+  const fs = 240;
+  strip.innerHTML = '';                             // no tween strip for video yet — markers carry the thumbs
+  previewCanvas.style.visibility = 'hidden';
+  engine.beginCapture(fs, fs);
+  try {
+    for (const kf of list) {
+      if (gen !== _filmstripGen) return;            // superseded by a scrub / playback / newer build
+      if (!kf.thumb) continue;
+      await seekVideoTo(v, pToMediaSec(v, kf.t));
+      if (gen !== _filmstripGen) return;
+      engine.updateSourceFrame();
+      kf.thumb.getContext('2d').drawImage(engine.captureFrame(kf.snap), 0, 0, kf.thumb.width, kf.thumb.height);
+    }
+    lastFilmstripSig = sig;
+  } finally {
+    engine.endCapture();
+    if (gen === _filmstripGen) { await seekVideoTo(v, saved); engine.updateSourceFrame(); }   // restore (skip if cancelled — the canceller owns the frame)
+    previewCanvas.style.visibility = '';
+    resizePreviewCanvas();
+    _filmstripBusy = false;
+  }
 }
 
 // ---- timeline rendering ---------------------------------------------------

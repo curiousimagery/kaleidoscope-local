@@ -4,6 +4,12 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.8.3 (Build 141) — 2026-06-06
+
+**Keyframe thumbnails follow the footage (video).** Keyframe marker thumbnails now seek the footage to each keyframe's own time before capturing, so they stay correct under add / edit / auto-shift / drag instead of all rendering from the last-edited frame (the bug Daniel hit: editing one keyframe rewrote every other thumbnail with its frame). The rebuild is async + single-flight (`_filmstripBusy`) + cancellable (`_filmstripGen`, bumped by scrub/playback): it seeks per keyframe, hides the preview during the build (captures borrow the live GL canvas), restores the footage to the playhead after, and bails if a scrub / playback / newer build supersedes it. Adding a keyframe also moves the footage to the new keyframe's (auto-spaced) time. **Deferred for video:** the tween filmstrip STRIP (the band behind the markers) is skipped for now (it would need a seek per cell); the markers carry the correct per-keyframe thumbnails. **Verify (Daniel):** add several keyframes over a video at different times, then edit / auto-shift / drag them — each marker thumbnail should show that keyframe's own footage frame, and editing one should not change another's. A brief preview blank during the debounced thumbnail rebuild is expected (it's seeking).
+
+---
+
 ## v0.8.2 (Build 140) — 2026-06-05
 
 **Selecting/cycling keyframes now seeks the footage (video).** `selectKeyframe` loaded the keyframe's params and re-rendered but never moved the video, so on a video source every keyframe you clicked or stepped to rendered over whatever frame was last positioned — the most-recently-edited keyframe's frame "projected" onto all the others (params differed, footage didn't). Now selecting a keyframe also seeks the footage to that keyframe's time. The coalescing seeker (`scrubVideo`) gained an `assignParams` option: scrub / load-playhead still sample the interpolated params at p, but selection passes `false` so the keyframe's EXACT stored snap shows (over the correct frame), not the interpolated value. Covers marker-click, prev/next stepper, and post-delete reselect. **Verify (Daniel):** with a video + several keyframes at different times, click/step through them — each shows its own footage frame, not a shared stale one. (The marker THUMBNAIL images are still the separate async-filmstrip gap.)
