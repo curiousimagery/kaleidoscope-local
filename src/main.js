@@ -533,6 +533,11 @@ function startLiveLoop() {
       engine.updateSourceFrame();
       engine.render(state);
       if (session.isSwapped) drawMiniKaleidoscope();
+      // loaded source video: paint the current frame into the 2D preview canvas
+      // (the <video> itself renders black on Blink/Gecko while used as a texture).
+      if (env.sourceVideoCanvas && env.sourceVideo && env.sourceVideo.readyState >= 2) {
+        env.sourceVideoCtx.drawImage(env.sourceVideo, 0, 0, env.sourceVideoCanvas.width, env.sourceVideoCanvas.height);
+      }
     }
     sourceOverlay.render();
     liveRaf = requestAnimationFrame(tick);

@@ -1216,22 +1216,40 @@ export function mountSourceView(env, slotEl) {
   slotEl.innerHTML = '';
 
   const sourceImage = env.engine.getSourceImage();
-  const vid = env.liveVideo || env.sourceVideo;   // live camera OR a loaded source video
-  if (vid) {
-    // A <video> source (live camera or loaded file): mount the actual element (it
-    // can't be painted via background-image like a still). object-fit: contain
-    // matches the still path's letterboxing so the wedge overlay geometry still
-    // aligns. Set layout props individually so the camera's mirror transform
-    // survives. (For the camera the engine may be sampling a mirrored canvas, not
-    // this element — but the mirrored preview + texture share an orientation, so
-    // the overlay still lines up. See camera.js frameSource/refreshFrame.)
-    const v = vid;
+  env.sourceVideoCanvas = null;   // reset; set below only for a loaded source video
+  if (env.liveVideo) {
+    // Live camera: mount the actual <video> element (it can't be painted via
+    // background-image like a still). object-fit: contain matches the still
+    // path's letterboxing so the wedge overlay geometry still aligns. Set layout
+    // props individually so the camera's mirror transform survives. (The engine
+    // may be sampling a mirrored canvas, not this element — but the mirrored
+    // preview + texture share an orientation, so the overlay still lines up.)
+    const v = env.liveVideo;
     v.style.position = 'absolute';
     v.style.top = '0'; v.style.left = '0';
     v.style.width = '100%'; v.style.height = '100%';
     v.style.objectFit = env.fit === 'cover' ? 'cover' : 'contain';
     v.style.pointerEvents = 'none';
+    v.style.opacity = '';
     slotEl.appendChild(v);
+  } else if (env.sourceVideo) {
+    // Loaded source video: a <video> used as a WebGL texture source renders BLACK
+    // when displayed directly on Blink/Gecko (works on WebKit). So keep the
+    // <video> in the DOM but occluded (opacity 0) — it must stay live to decode +
+    // serve the texture — and paint a 2D-canvas COPY on top that the render loop
+    // refreshes each frame. A canvas composites reliably on every engine, and it
+    // also avoids the native-video color/rotation display quirks.
+    const sv = env.sourceVideo;
+    sv.style.cssText = 'position:absolute; top:0; left:0; width:100%; height:100%; object-fit:contain; pointer-events:none; opacity:0;';
+    slotEl.appendChild(sv);
+    const c = document.createElement('canvas');
+    const s = Math.min(1, 640 / Math.max(sv.videoWidth || 1, sv.videoHeight || 1));   // small thumbnail res
+    c.width = Math.max(16, Math.round((sv.videoWidth || 16) * s));
+    c.height = Math.max(16, Math.round((sv.videoHeight || 16) * s));
+    c.style.cssText = `position:absolute; top:0; left:0; width:100%; height:100%; object-fit:${env.fit === 'cover' ? 'cover' : 'contain'}; pointer-events:none;`;
+    slotEl.appendChild(c);
+    env.sourceVideoCanvas = c;
+    env.sourceVideoCtx = c.getContext('2d');
   } else {
     // div with background-image (vs <img>) avoids load-event race conditions on
     // remount (cache state varies across browsers).

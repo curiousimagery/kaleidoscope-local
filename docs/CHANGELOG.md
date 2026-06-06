@@ -4,6 +4,14 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.7.39 (Build 135) — 2026-06-05
+
+**Source-video preview painted via a 2D canvas (fixes the black preview on Blink/Gecko).** A `<video>` used as a WebGL texture source renders black when also displayed directly on Brave/Firefox (it worked only on Safari), even while playing. Fix: keep the `<video>` in the DOM but occluded (it must stay live to decode + feed the texture) and paint a small 2D-canvas copy on top that the render loop refreshes each frame — a canvas composites reliably on every engine, and it also dodges native-video color/rotation display quirks. The source slot now shows the moving footage with the wedge overlay on all three browsers. (Live camera is unchanged — it still mounts its `<video>` directly.)
+
+**Still open — real-world iPhone-video quirks (Daniel, backlog):** (a) **washed-out color in the kaleidoscope OUTPUT** for an iPhone `.mov` on Safari + Firefox — a texture colorspace/range issue in the WebGL upload (the painted source preview shows natural color); (b) **vertical aspect squish on Firefox** for the same clip — iPhone rotation / pixel-aspect metadata handled differently across engines, so `videoWidth/Height` (and thus the kaleidoscope aspect) come out wrong on Gecko. Both are deferred to a focused video-color/rotation pass; neither blocks the timeline-binding work.
+
+---
+
 ## v0.7.38 (Build 134) — 2026-06-05
 
 **Source-video fixes from Daniel's cross-browser test.** (1) **Preview now plays.** A loaded video plays muted-on-loop and drives the kaleidoscope each frame via the live-camera render path, so preview + output stay in sync. Replaces the static first-frame approach, which left a blank source preview on Chromium/Gecko (a paused, never-played `<video>` doesn't reliably paint there) and auto-played out of sync on Safari. (2) **`.m4v` (and any video) selectable** — file picker uses `accept="…,video/*"` instead of an explicit MIME list (Safari/Firefox were greying out `.m4v`). (3) **Clearer codec error** — failed loads say the browser may not support the codec and that ProRes works only in Safari. (4) **Motion mode gated off while a video is the source** (still-only until the timeline is bound to video next increment) so the playback loop and motion loop don't fight; loading a still re-enables it. Switching sources (still/camera/video) stops the video loop, pauses it, and revokes its objectURL.
