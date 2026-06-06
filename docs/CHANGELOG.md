@@ -4,6 +4,12 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.8.1 (Build 139) — 2026-06-05
+
+**Frame-accurate video export — the footage now moves in the render.** `exportVideo` awaits each `frameAt`, and for a video source each output frame first seeks the footage to that point (`advanceSourceToP`) before capturing. So a rendered loop now shows the actual video advancing under the animated kaleidoscope params, instead of a single frozen frame. The companion source-preview video seeks too, and after a render the footage is restored to the playhead. **Note:** this is seek-based (one video seek per output frame), so a long high-res render is correct but slow — the WebCodecs-demuxer accelerator (faster decode) remains the future speed option, and the per-frame timing reader's `gl` bucket now includes the seek cost. Still-image animation export is unchanged. **Verify (Daniel):** render a keyframed loop over a moving clip — the footage should advance through the render, not stay frozen.
+
+---
+
 ## v0.8.0 (Build 138) — 2026-06-05
 
 **Video animation milestone + the stuck-frame scrub fix.** Keyframing kaleidoscope parameters over a source video now works end to end (load → scrub → keyframe → play → render), hence the minor bump to 0.8.0.

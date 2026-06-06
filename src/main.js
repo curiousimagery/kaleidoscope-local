@@ -2043,7 +2043,11 @@ function setupVideoExport() {
       const { blob, frames, timing } = await exportVideo({
         width: w, height: h, fps: selFps, durationMs: motion.durationMs, captureMode: selCap,
         onBegin: () => engine.beginCapture(w, h),
-        frameAt: (p) => selCap === 'gl' ? engine.captureFrameGL(sampleAt(p)) : engine.captureFrame(sampleAt(p)),
+        // a video source seeks the footage to p BEFORE capturing, so the clip
+        // actually advances frame-by-frame in the render (frame-accurate export).
+        frameAt: env.sourceVideo
+          ? async (p) => { await advanceSourceToP(p); return selCap === 'gl' ? engine.captureFrameGL(sampleAt(p)) : engine.captureFrame(sampleAt(p)); }
+          : (p) => selCap === 'gl' ? engine.captureFrameGL(sampleAt(p)) : engine.captureFrame(sampleAt(p)),
         onEnd: () => engine.endCapture(),
         onProgress: (p) => { bar.style.width = Math.round(p * (wantSource ? 50 : 100)) + '%'; },
         shouldCancel: () => cancelRender,
@@ -2055,7 +2059,9 @@ function setupVideoExport() {
         const SP = 1920;   // square, capped
         const { blob: sblob } = await exportVideo({
           width: SP, height: SP, fps: selFps, durationMs: motion.durationMs,
-          frameAt: (p) => renderSourcePreviewFrame(sampleAt(p), SP),
+          frameAt: env.sourceVideo
+            ? async (p) => { await advanceSourceToP(p); return renderSourcePreviewFrame(sampleAt(p), SP); }
+            : (p) => renderSourcePreviewFrame(sampleAt(p), SP),
           onProgress: (p) => { bar.style.width = Math.round(50 + p * 50) + '%'; },
           shouldCancel: () => cancelRender,
         });
@@ -2092,6 +2098,7 @@ function setupVideoExport() {
       rendering = false; btn.disabled = false; prog.hidden = true;
       if (cancelRender) sheet.hidden = true;
       resizePreviewCanvas();   // the capture session resized the GL canvas — restore + repaint the preview
+      if (env.sourceVideo) scrubVideo(motion.playhead);   // restore the footage to the playhead (export left it at the last frame)
     }
   });
 }

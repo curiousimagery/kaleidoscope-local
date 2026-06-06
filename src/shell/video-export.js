@@ -57,7 +57,8 @@ export async function pickVideoCodec(width, height, fps) {
 }
 
 // exportVideo({ frameAt, onBegin, onEnd, width, height, fps, durationMs, onProgress, shouldCancel })
-//   frameAt    — (p: 0..1) => a CanvasImageSource (canvas) for that point in the loop
+//   frameAt    — (p: 0..1) => CanvasImageSource (canvas), optionally async (a video
+//                source awaits a per-frame seek before capturing) — awaited each frame
 //   onBegin/onEnd — optional setup/teardown around the frame loop (e.g. the engine's
 //                   beginCapture/endCapture, which borrows the preview canvas)
 //   width/height — even pixel dimensions of the output (caller clamps to GPU max)
@@ -125,7 +126,7 @@ export async function exportVideo({ frameAt, onBegin, onEnd, width, height, fps,
       if (encError) throw encError;
 
       let t = performance.now();
-      const cv = frameAt(i / frames);
+      const cv = await frameAt(i / frames);   // may be async (video source seeks the footage per frame)
       glMs += performance.now() - t;
 
       // vframe bucket = whatever it takes to get an encodable VideoFrame for this
