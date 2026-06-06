@@ -4,6 +4,18 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.9.3 (Build 150) — 2026-06-06
+
+**Tween band is aspect-locked cells now (no more zoom-stretch).** Replaces the single stretched strip canvas with a row of square thumbnail **cells** positioned by time (`makeStripCell`/`repositionStripCells`; `.mf-cell`). Per Daniel's proposal: at fit they tile edge-to-edge (the continuous-filmstrip look); zooming in **spreads them apart at their native aspect** (crisp, never stretched) via cheap repositioning; and a **debounced rebuild re-renders the cells for the current visible window when idle**, so they fill back in densely + crisply. The band always covers just the visible window (`[pan, pan+span]`, ~one square per track-height of width), so the seek count per rebuild stays bounded regardless of zoom. The strip's CSS transform is now pan-only (the cells carry zoom in their positions). Rebuild triggers added on zoom/pan settle (`scheduleFilmstrip` from the zoom/pan handlers; the sig now includes zoom + pan). Both still and video paths use the cell model (video seeks per cell, frozen-preview, as before). **Verify (Daniel):** at fit the band reads as a continuous filmstrip; zooming spreads crisp square thumbnails (gaps briefly, then they re-fill denser when you pause); panning re-fills for the new region; on video the cells show the footage at each time; no stretching at any zoom.
+
+---
+
+## v0.9.2 (Build 149) — 2026-06-06
+
+**Smooth playhead follow (replaces the Build-148 page-jump).** Daniel found the paged follow disorienting — it snapped the whole timeline forward in an instant while the eye was tracking the scrubber. Now the playhead **pins at ~80% of the window and the timeline scrolls continuously underneath it** (no jump); on a loop wrap it re-enters near the left. To make per-frame panning smooth and cheap, markers + ruler are now positioned by **zoom only** (`zPct`) and **panned via a single CSS layer transform** (`applyPan` on `#mfMarkers`/`#mfRuler`, plus the strip's existing transform) — so following and two-finger scroll just slide transforms instead of rebuilding the timeline each frame. The playhead lives in the track itself (absolute, via `tToPct`), so it stays put while the layers scroll. `relayoutTimeline` (rebuild) is now only for zoom + structural changes; pan-only updates use `applyPan`. **Verify (Daniel):** zoomed playback scrolls smoothly with the scrubber pinned near the right (no snap); two-finger scroll pans smoothly; markers/ruler/scrub stay aligned; loop wrap returns to the start cleanly.
+
+---
+
 ## v0.9.1 (Build 148) — 2026-06-06
 
 **Three timeline-interaction refinements (Daniel's smoke-test notes).**

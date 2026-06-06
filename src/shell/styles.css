@@ -574,7 +574,10 @@ button .btn-spinner {
 }
 /* tween filmstrip — inset to match the keyframe thumb size, dimmed so the
    outlined keyframes read on top of it */
-.mf-strip { position: absolute; top: 8px; bottom: 8px; left: 0; right: 0; z-index: 0; opacity: 0.55; }
+.mf-strip { position: absolute; top: 8px; bottom: 8px; left: 0; right: 0; z-index: 0; opacity: 0.55; transform-origin: left center; }
+/* tween band cells — aspect-locked square thumbnails positioned by time (zoom spreads
+   them, never stretches; a debounced rebuild re-fills the visible window crisply). */
+.mf-cell { position: absolute; top: 0; height: 100%; width: auto; aspect-ratio: 1; transform: translateX(-50%); display: block; pointer-events: none; }
 .mf-markers { position: absolute; inset: 0; z-index: 1; }
 .mf-marker { position: absolute; top: 8px; bottom: 8px; transform: translateX(-50%); }  /* centered on t (left = t%) */
 .mf-marker canvas {

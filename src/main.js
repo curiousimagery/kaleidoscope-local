@@ -1607,15 +1607,15 @@ function scheduleFilmstrip() {
   clearTimeout(filmstripTimer);
   filmstripTimer = setTimeout(buildFilmstrip, 600);   // wait for a real pause before rebuilding
 }
-// Build the strip via the engine CAPTURE path (render → drawImage to a 2D canvas),
-// NOT readPixels: desktop Safari's FBO readback returns corrupt channel-swapped/
-// banded frames here (the "blue cells"), and a GPU sync doesn't help because the
-// readback itself is broken. Runs SYNCHRONOUSLY so the briefly-borrowed preview
-// canvas never composites mid-build (no flicker); the preview is restored after. A
-// content signature skips the rebuild when nothing relevant changed — e.g.
-// scrubbing fires renderTimeline but leaves the keyframes/curve untouched, so it no
-// longer needlessly rebuilds (and re-rolls the corruption). Refreshes the keyframe
-// marker thumbnails in the same session, off the same readback-free path.
+// Build the tween band as a row of aspect-locked square CELLS spanning the currently
+// VISIBLE window [pan, pan+span] (so zoom gives crisp, denser thumbnails rather than a
+// stretched canvas). Cells are positioned by time (zPct); zoom repositions them (they
+// spread) and this rebuild — debounced, so it runs when idle — re-renders the set for
+// the new window. Uses the readback-free CAPTURE path (drawImage, no readPixels: desktop
+// Safari's FBO readback is the "blue cells" corruption, and Gecko's is slow). The still
+// path is synchronous (one JS turn → no on-screen flicker); the video path is async (a
+// seek per cell) and freezes the preview behind a snapshot. A content signature (now
+// incl. zoom + pan) skips the rebuild when nothing relevant changed.
 function buildFilmstrip() {
   const strip = document.getElementById('mfStrip');
   if (!strip) return;
@@ -1626,40 +1626,33 @@ function buildFilmstrip() {
   const w = strip.clientWidth, h = strip.clientHeight;
   if (w < 2 || h < 2) return;
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
-  const W = Math.round(w * dpr), H = Math.round(h * dpr);
-  const S = H;                                     // square frames, matching the keyframe thumbnails
-  const n = Math.ceil(W / S);
-  const fs = Math.min(H, 240);                     // small square render size (the "look")
-  const multi = kfList().length >= 2;             // only ≥2 keyframes get the tween strip
+  const fs = Math.min(Math.round(h * dpr), 240);    // square render resolution per cell
+  const n = Math.max(1, Math.ceil(w / h));          // square cells filling the visible window
+  const span = tlSpan(), pan = session.timelinePan || 0, z = session.timelineZoom || 1;
+  const multi = kfList().length >= 2;               // only ≥2 keyframes get the tween band
 
-  const sig = W + '|' + motion.smoothing + '|' + motion.loop + '|' + motion.durationMs + '|' +
+  const sig = w + '|' + h + '|' + z.toFixed(3) + '|' + pan.toFixed(4) + '|' + motion.smoothing + '|' + motion.loop + '|' + motion.durationMs + '|' +
     kfList().map(k => k.t.toFixed(4) + ':' + JSON.stringify(k.snap)).join(',');
   if (sig === lastFilmstripSig && (strip.firstChild || !multi)) return;   // unchanged (e.g. scrub) — skip
 
-  // Video source: the thumbnails AND the tween-strip band are the FOOTAGE at each
-  // sample's time, which needs an async seek per sample (so they stay correct under
-  // add / edit / auto-shift / drag). Handled separately, off the main thread of this
-  // synchronous still path.
+  const cellTime = (i) => Math.min(1, Math.max(0, pan + (i + 0.5) * span / n));
+
   if (env.sourceVideo) {
     if (_filmstripBusy) { scheduleFilmstrip(); return; }   // one build at a time — retry after the current finishes
-    buildFilmstripVideo(strip, sig, { W, H, S, n, fs, multi });
+    buildFilmstripVideo(strip, sig, { fs, n, multi, cellTime });
     return;
   }
 
-  let c = null;
-  if (multi) {
-    c = document.createElement('canvas');
-    c.width = W; c.height = H;
-    c.style.cssText = 'width:100%;height:100%;display:block';
-  }
+  const cells = [];
   try {
-    // one capture session renders the tween strip (≥2 kf) AND refreshes every marker
-    // thumbnail — all via the readback-free drawImage path (no readPixels).
+    // one capture session renders the tween cells (≥2 kf) AND every marker thumbnail.
     engine.beginCapture(fs, fs);
     if (multi) {
-      const cx = c.getContext('2d');
       for (let i = 0; i < n; i++) {
-        cx.drawImage(engine.captureFrame(sampleAt(Math.min(1, (i * S + S / 2) / W))), i * S, 0, S, H);
+        const t = cellTime(i);
+        const cv = makeStripCell(t, fs);
+        cv.getContext('2d').drawImage(engine.captureFrame(sampleAt(t)), 0, 0, fs, fs);
+        cells.push(cv);
       }
     }
     for (const kf of kfList()) {
@@ -1670,49 +1663,32 @@ function buildFilmstrip() {
     resizePreviewCanvas();                          // restore + repaint the live preview
   }
   strip.innerHTML = '';
-  if (multi) strip.appendChild(c);                  // single keyframe = marker thumb only, no strip
+  for (const c of cells) strip.appendChild(c);       // single keyframe = no band (cells empty)
   lastFilmstripSig = sig;
 }
 
-// Video source: rebuild the marker thumbnails AND the tween-strip band by SEEKING the
-// footage to each sample's time, then rendering the look there (so both stay correct
-// under add / edit / auto-shift / drag — the footage frame follows the sample's time,
-// not the last edit). One ascending pass over time covers every cell + thumb (monotonic
-// seeks are smoother than jumping around). Async + single-flight (_filmstripBusy) +
-// cancellable (_filmstripGen, bumped by scrub/playback); the footage is restored to the
-// playhead after.
-//
-// Render path: the readback-free CAPTURE path (beginCapture/captureFrame — a GPU
-// drawImage, no readPixels) on EVERY engine, because the FBO/readPixels alternative is
-// far too slow on Gecko (and corrupt on desktop Safari). It borrows + resizes the LIVE
-// preview canvas, so we freeze the preview behind a snapshot for the duration of the
-// background rebuild: the off-screen work never flashes on screen, on any browser.
+// Video source: same cell model, but each cell + marker thumb is the FOOTAGE at its time,
+// which needs an async seek (so they stay correct under add / edit / auto-shift / drag /
+// zoom). One ascending pass over time covers every cell + thumb (monotonic seeks are
+// smoother than jumping around). Async + single-flight (_filmstripBusy) + cancellable
+// (_filmstripGen, bumped by scrub/playback); footage restored to the playhead after; the
+// preview is frozen behind a snapshot so the borrowed GL canvas never flashes.
 async function buildFilmstripVideo(strip, sig, geom) {
   _filmstripBusy = true;
   const gen = ++_filmstripGen;
   const v = env.sourceVideo;
   const saved = v.currentTime;
   const list = [...kfList()];                       // snapshot (the array may mutate during awaits)
-  const { W, H, S, n, fs, multi } = geom;
+  const { fs, n, multi, cellTime } = geom;
 
-  // a fresh tween-strip canvas, swapped in only once complete (the old band stays
-  // visible during the rebuild instead of blanking).
-  let stripCanvas = null, stripCtx = null;
-  if (multi) {
-    stripCanvas = document.createElement('canvas');
-    stripCanvas.width = W; stripCanvas.height = H;
-    stripCanvas.style.cssText = 'width:100%;height:100%;display:block';
-    stripCtx = stripCanvas.getContext('2d');
-  }
-
-  // capture jobs sorted by time: each strip cell (the tween look at that p) + each
-  // keyframe marker thumb (the keyframe's exact snap). One ascending pass = monotonic
-  // seeks (smoother than jumping around).
+  const cells = [];
   const jobs = [];
   if (multi) {
     for (let i = 0; i < n; i++) {
-      const p = Math.min(1, (i * S + S / 2) / W), x = i * S;
-      jobs.push({ p, snap: sampleAt(p), draw: (src) => stripCtx.drawImage(src, x, 0, S, H) });
+      const t = cellTime(i);
+      const cv = makeStripCell(t, fs);
+      cells.push(cv);
+      jobs.push({ p: t, snap: sampleAt(t), draw: (src) => cv.getContext('2d').drawImage(src, 0, 0, fs, fs) });
     }
   }
   for (const kf of list) {
@@ -1733,7 +1709,7 @@ async function buildFilmstripVideo(strip, sig, geom) {
     }
     if (gen !== _filmstripGen) return;
     strip.innerHTML = '';
-    if (multi) strip.appendChild(stripCanvas);       // single keyframe = marker thumb only, no band
+    for (const c of cells) strip.appendChild(c);     // single keyframe = no band (cells empty)
     lastFilmstripSig = sig;
   } finally {
     engine.endCapture();                            // restore the borrowed canvas's backing size
@@ -1769,7 +1745,7 @@ function makeMarkerDraggable(m, i) {
     const t = Math.max(lo, Math.min(hi, pctToT((e.clientX - down.rect.left) / down.rect.width)));
     list[i].t = t;
     list[i].anchored = true;                        // a moved keyframe becomes a fixed anchor
-    m.style.left = tToPct(t) + '%';
+    m.style.left = zPct(t) + '%';                    // zoom-only; the layer transform supplies the pan
     if (env.sourceVideo) { setPlayhead(t); scrubVideo(t); }   // video: show the footage at the drop position while dragging
     else if (motion.selected === i) setPlayhead(t);
   });
@@ -1813,7 +1789,7 @@ function renderRuler() {
       if (i % 5 === 0) continue;                                // a major sits here
       const tick = document.createElement('div');
       tick.className = 'mf-tick minor';
-      tick.style.left = tToPct((i * minor) / dur) + '%';
+      tick.style.left = zPct((i * minor) / dur) + '%';
       frag.appendChild(tick);
     }
   }
@@ -1823,24 +1799,24 @@ function renderRuler() {
     if (i > 0 && (dur - t) < step * 0.45) continue;   // too close to the total-duration label — skip
     const tick = document.createElement('div');
     tick.className = 'mf-tick major';
-    tick.style.left = tToPct(p) + '%';
+    tick.style.left = zPct(p) + '%';
     frag.appendChild(tick);
     const lab = document.createElement('span');
     lab.className = 'mf-time' + (p <= 0.001 ? ' start' : '');
     lab.textContent = fmtClock(t);
-    lab.style.left = tToPct(p) + '%';
+    lab.style.left = zPct(p) + '%';
     frag.appendChild(lab);
   }
   // total-duration label, always present at the end (the bound — brighter so it reads
   // as the clip / loop length).
   const eTick = document.createElement('div');
   eTick.className = 'mf-tick major';
-  eTick.style.left = tToPct(1) + '%';
+  eTick.style.left = zPct(1) + '%';
   frag.appendChild(eTick);
   const eLab = document.createElement('span');
   eLab.className = 'mf-time end total';
   eLab.textContent = fmtClock(dur);
-  eLab.style.left = tToPct(1) + '%';
+  eLab.style.left = zPct(1) + '%';
   frag.appendChild(eLab);
   ruler.appendChild(frag);
 }
@@ -1861,9 +1837,37 @@ function clampTimelineView() {
 function applyTimelineTransform() {
   const strip = document.getElementById('mfStrip');
   if (!strip) return;
-  const z = session.timelineZoom || 1, p = session.timelinePan || 0;
   strip.style.transformOrigin = 'left center';
-  strip.style.transform = (z > 1 || p > 0) ? `translateX(${(-p * z * 100).toFixed(4)}%) scaleX(${z})` : '';
+  strip.style.transform = `translateX(${panPct().toFixed(4)}%)`;   // pan only — the cells carry zoom in their own positions (no stretch)
+}
+// the tween band is a row of aspect-locked square cells positioned by time. Zoom
+// repositions them (they spread, never stretch); a debounced rebuild re-renders the
+// set for the current visible window so they fill back in crisply when idle.
+function makeStripCell(t, fs) {
+  const cv = document.createElement('canvas');
+  cv.width = fs; cv.height = fs;
+  cv.className = 'mf-cell';
+  cv.dataset.t = t;
+  cv.style.left = zPct(t) + '%';
+  return cv;
+}
+function repositionStripCells() {
+  const strip = document.getElementById('mfStrip');
+  if (!strip) return;
+  for (const c of strip.children) { const t = +c.dataset.t; if (!Number.isNaN(t)) c.style.left = zPct(t) + '%'; }
+}
+// markers + ruler are positioned by ZOOM only (zPct) and PANNED via a layer translate,
+// so following the playhead / two-finger scroll just slides a transform — no DOM rebuild,
+// so it stays smooth + cheap. (The three layers — markers, ruler, strip — share the
+// track's inner width, so one panPct% translate aligns them all.)
+function zPct(t) { return t * (session.timelineZoom || 1) * 100; }                 // time → % within the zoom-only content layer
+function panPct() { return -(session.timelinePan || 0) * (session.timelineZoom || 1) * 100; }
+function applyPan() {
+  const tx = `translateX(${panPct().toFixed(4)}%)`;
+  const m = document.getElementById('mfMarkers'); if (m) m.style.transform = tx;
+  const r = document.getElementById('mfRuler'); if (r) r.style.transform = tx;
+  applyTimelineTransform();                  // strip (pan + scaleX)
+  setPlayhead(motion.playhead);              // playhead lives in the track itself (absolute, via tToPct)
 }
 function zoomTimelineAt(frac, factor) {      // zoom keeping the time under `frac` fixed
   const tUnder = pctToT(frac);
@@ -1873,8 +1877,9 @@ function zoomTimelineAt(frac, factor) {      // zoom keeping the time under `fra
   clampTimelineView();
   relayoutTimeline();
   updateZoomButtons();
+  scheduleFilmstrip();                       // re-render the cells for the new window when idle
 }
-function fitTimeline() { session.timelineZoom = 1; session.timelinePan = 0; relayoutTimeline(); updateZoomButtons(); }
+function fitTimeline() { session.timelineZoom = 1; session.timelinePan = 0; relayoutTimeline(); updateZoomButtons(); scheduleFilmstrip(); }
 let _tlRelayoutPending = false;
 function scheduleRelayout() {                 // coalesce rapid zoom/pan (wheel, pinch) to one frame
   if (_tlRelayoutPending) return;
@@ -1888,18 +1893,21 @@ function updateZoomButtons() {
   if (q('mfZoomOut')) q('mfZoomOut').disabled = z <= 1.001;
   if (q('mfZoomIn')) q('mfZoomIn').disabled = z >= mx * 0.999;
 }
-// During playback, keep the moving playhead on screen when zoomed in: once it passes
-// ~85% of the visible window (or runs off the left, e.g. on a loop wrap), page the view
-// so it sits ~15% in, leaving buffer ahead. Cheap — only relayouts at a threshold cross.
+// During playback when zoomed in, follow the playhead by sliding the timeline UNDER it
+// (continuous pan, not a jump): once it reaches ~80% of the window it stays pinned there
+// while the timeline scrolls, so the eye keeps tracking the scrubber. On a loop wrap
+// (playhead jumps left of view) we bring the start back near the left edge. Uses the
+// cheap applyPan (transform only), so it's smooth every frame.
 function followPlayhead(p) {
   if (!motion.playing || (session.timelineZoom || 1) <= 1) return;
   const span = tlSpan();
   const frac = (p - (session.timelinePan || 0)) / span;
-  if (frac > 0.85 || frac < 0.1) {
-    session.timelinePan = p - 0.15 * span;
-    clampTimelineView();
-    relayoutTimeline();
-  }
+  const PIN = 0.8;
+  if (frac > PIN) session.timelinePan = p - PIN * span;        // pin the scrubber; scroll the timeline
+  else if (frac < 0) session.timelinePan = p - 0.1 * span;     // wrapped/jumped left of view → re-enter near the left
+  else return;                                                 // comfortably in view — leave the pan be
+  clampTimelineView();
+  applyPan();
 }
 
 // renderTimeline = relayout (markers/playhead/ruler/strip-transform) + a debounced
@@ -1914,7 +1922,7 @@ function relayoutTimeline() {
   list.forEach((kf, i) => {
     const m = document.createElement('div');
     m.className = 'mf-marker' + (i === motion.selected ? ' selected' : '') + (kf.anchored ? ' anchored' : '');
-    m.style.left = tToPct(kf.t) + '%';
+    m.style.left = zPct(kf.t) + '%';                 // zoom-only; pan applied via the layer transform
     if (kf.thumb) m.appendChild(kf.thumb);
     const pin = document.createElement('div');
     pin.className = 'mf-pin';
@@ -1928,7 +1936,7 @@ function relayoutTimeline() {
   if (motion.loop && list.length) {
     const g = document.createElement('div');
     g.className = 'mf-marker ghost';
-    g.style.left = tToPct(1) + '%';
+    g.style.left = zPct(1) + '%';
     if (list[0].thumb) {
       const gc = document.createElement('canvas');
       gc.width = list[0].thumb.width; gc.height = list[0].thumb.height;
@@ -1939,9 +1947,9 @@ function relayoutTimeline() {
     g.appendChild(pin);
     markers.appendChild(g);
   }
-  setPlayhead(motion.playhead);
   renderRuler();
-  applyTimelineTransform();
+  repositionStripCells();              // zoom spreads the existing cells (rebuild fills the gaps when idle)
+  applyPan();                           // marker/ruler/strip transforms + playhead
 }
 
 // ---- mode toggle + UI sync ------------------------------------------------
@@ -2147,7 +2155,7 @@ function wireMotion() {
         clampTimelineView();
         session.timelinePan = tAnchor - Math.max(0, Math.min(1, (mid - r.left) / r.width)) * tlSpan();
         clampTimelineView();
-        scheduleRelayout(); updateZoomButtons();
+        scheduleRelayout(); updateZoomButtons(); scheduleFilmstrip();
         e.preventDefault();
         return;
       }
@@ -2175,7 +2183,8 @@ function wireMotion() {
         if ((session.timelineZoom || 1) <= 1) return;
         const dx = Math.abs(e.deltaX) >= Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
         session.timelinePan += (dx / r.width) * tlSpan();
-        clampTimelineView(); scheduleRelayout();
+        clampTimelineView(); applyPan();            // pan-only → cheap transform slide (no rebuild)
+        scheduleFilmstrip();                        // re-render the cells for the new window when idle
         e.preventDefault();
       }
     };
