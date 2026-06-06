@@ -4,6 +4,18 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.8.8 (Build 146) — 2026-06-06
+
+**Ruler shows total duration.** The timeline ruler now always renders the clip / loop length as a right-aligned label at the very end (slightly brighter `#aaa` so it reads as the bound), per Daniel's request to prioritize total-duration visibility. Any regular tick that would collide with it (within ~half a step of the end) is suppressed. **Verify (Daniel):** the right end of the ruler always shows the total time (matches the duration field on stills, the clip length on video), with no crowding against the last regular label.
+
+---
+
+## v0.8.7 (Build 145) — 2026-06-06
+
+**Filmstrip rebuild — fast + flash-free on every browser (fixes the Build-143 regression).** Build 143's browser-conditional render path backfired once the tween strip multiplied the per-rebuild work: on Firefox the offscreen FBO path uses `readPixels` (Gecko is slow at it — the old Build-124 lag cause), so rebuilds crawled and the band took minutes; on Safari the capture path borrows the live preview, so all the cell renders flashed through on screen ("a sequence of images" after editing). Fix: use the readback-free **capture path on every engine** (GPU `drawImage`, fast everywhere — what Firefox used fine in 142), and **freeze the live preview behind a static snapshot** (`freezePreview`/`unfreezePreview`, a 2D copy `position:fixed` over the preview rect) for the duration of the background rebuild, lifted after a synchronous repaint — so the off-screen work never flashes. Removed the `IS_WEBKIT`/`exportFrame` branch. **Verify (Daniel):** editing a keyframe (e.g. dragging the slice segment) over a video no longer flashes the output on Safari, and Firefox is responsive again (the band still takes a beat to fill on long clips — that's the seeks; a footage-frame cache is the next lever if it's still too slow). **Known remaining cost:** one seek per strip cell + thumb per rebuild (background, masked).
+
+---
+
 ## v0.8.6 (Build 144) — 2026-06-06
 
 **Timeline ruler — ticks + occasional timestamps.** A measuring scale (`#mfRuler`) now sits above the track: minor ticks at a regular interval plus major ticks with a timestamp at a coarser "nice" interval (0.5/1/2/5/10/15/30/60/120/300/600/900/1800s) chosen so labels stay readable at the current width (~one label per 84px, 2–12 labels). Timestamps read as `m:ss` past a minute, else `Ns`/`N.Ns`. Relative keyframe position is still the focus; the labels give a sense of absolute time, which fixed-duration media (video) needs. Re-renders on duration change, timeline change, motion entry, and resize (label density tracks width). Tick positions are inset 1px to line up with the markers inside the track's border. **Verify (Daniel):** the ruler reads sensibly for both a short still loop and a multi-minute video (sensible label spacing, t=0 left-aligned, no crowding); labels update when you scrub the duration field (stills) and match the clip length on a video.

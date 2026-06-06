@@ -564,6 +564,7 @@ button .btn-spinner {
 }
 .mf-time.start { transform: translateX(0); }
 .mf-time.end { transform: translateX(-100%); }
+.mf-time.total { color: #aaa; }   /* the clip / loop length — the bound, slightly emphasized */
 
 /* timeline track — keyframe markers (with saved-state thumbnails) + scrubber */
 .mf-track {

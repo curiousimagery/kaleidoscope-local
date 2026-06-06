@@ -12,7 +12,11 @@ He prefers **no em dashes** in any prose Claude generates for him.
 
 ## current version
 
-`v0.8.6 · Build 144`. The footer in the running app shows this string from `src/version.js`.
+`v0.8.8 · Build 146`. The footer in the running app shows this string from `src/version.js`.
+
+**Ruler shows total duration (Build 146, needs Daniel's verify).** Per Daniel's request, the ruler always renders the clip/loop length as a right-aligned, slightly-brighter (`#aaa`) end label; regular ticks within ~half a step of the end are suppressed to avoid crowding. **Verify:** right end always shows total time; no overlap with the last regular label.
+
+**Filmstrip rebuild fast + flash-free (Build 145, needs Daniel's verify).** Fixes a Build-143 regression Daniel hit: Firefox crawled (offscreen `exportFrame`/`readPixels` is slow on Gecko, ×~15 cells) and Safari flashed through the cell renders (capture path borrows the live preview). Now the video filmstrip uses the readback-free **capture path on all engines** (fast GPU `drawImage`) and **freezes the preview behind a snapshot** during the background rebuild (`freezePreview`/`unfreezePreview` in main.js), lifted after a sync `engine.render(state)` so there's no flash. `IS_WEBKIT`/FBO branch removed. **Verify:** edit a keyframe over a video — no output flash on Safari, Firefox responsive again; band still fills over a beat on long clips (seeks). **Open perf lever if still slow:** a footage-frame cache keyed by (W, duration) so param-only edits rebuild seek-free (cell footage times depend only on width + clip length, not on keyframe params). **Also requested by Daniel:** the ruler should show TOTAL DURATION (an end label) — small follow-up (Build 146).
 
 **Timeline ruler — ticks + timestamps (Build 144, needs Daniel's verify).** Second of the timeline-polish increment. A `#mfRuler` row above the track draws minor ticks + major ticks with timestamps at a width-aware "nice" interval (`renderRuler` in main.js, called from `renderTimeline` / resize / motion-entry rAF / duration onChange). `m:ss` past a minute else `Ns`. Inset 1px so ticks align with markers inside the track border. **Verify:** sensible label spacing on a short still loop and a multi-minute video; t=0 left-aligned; labels track the duration field (stills) / clip length (video). **Next in the increment:** source-switch reset (loading a new video keeps the old duration/thumbs/play-pause), then pinch/zoom/pan/scale-to-fit navigation — at which point the ruler + markers + strip + scrub all need to route through the zoom transform.
 

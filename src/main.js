@@ -1573,10 +1573,23 @@ function stepKeyframe(dir) {
 // the preview canvas — the browser composites only once after the JS turn, so there
 // is no on-screen flicker — captures each into one strip canvas, then restores the
 // current frame.
-// WebKit (desktop Safari / iOS): its FBO readPixels returns corrupt channel-swapped/
-// banded data (the "blue cells"), so the offscreen readback path can't be used there —
-// readback-based thumbnail rendering falls back to the live-canvas capture path.
-const IS_WEBKIT = /AppleWebKit/.test(navigator.userAgent) && !/Chrome|Chromium|Edg|OPR|Firefox|FxiOS|CriOS/.test(navigator.userAgent);
+// Freeze the live preview behind a static snapshot while a background filmstrip
+// rebuild borrows + resizes the GL canvas — so the off-screen work is invisible (no
+// flash) on every engine. A 2D copy of the current preview, position:fixed over the
+// preview's rect; lifted after the preview is repainted.
+let _freezeEl = null;
+function freezePreview() {
+  if (_freezeEl || !previewCanvas || previewCanvas.style.display === 'none') return;
+  const r = previewCanvas.getBoundingClientRect();
+  if (r.width < 2 || r.height < 2 || !previewCanvas.width) return;
+  const c = document.createElement('canvas');
+  c.width = previewCanvas.width; c.height = previewCanvas.height;
+  try { c.getContext('2d').drawImage(previewCanvas, 0, 0); } catch { return; }
+  c.style.cssText = `position:fixed;left:${r.left}px;top:${r.top}px;width:${r.width}px;height:${r.height}px;z-index:6;pointer-events:none`;
+  document.body.appendChild(c);
+  _freezeEl = c;
+}
+function unfreezePreview() { if (_freezeEl) { _freezeEl.remove(); _freezeEl = null; } }
 
 let filmstripTimer = 0;
 let lastFilmstripSig = '';
@@ -1661,12 +1674,11 @@ function buildFilmstrip() {
 // cancellable (_filmstripGen, bumped by scrub/playback); the footage is restored to the
 // playhead after.
 //
-// Flicker: the readback-free capture path (beginCapture/captureFrame) borrows + resizes
-// the LIVE preview canvas, and the awaits between seeks let it composite mid-build → a
-// visible flicker. So where the engine's FBO readback is sound we render OFFSCREEN via
-// exportFrame (FBO → 2D scratch), never touching the preview (no flicker). Desktop
-// Safari's FBO readback is the "blue cells" corruption, so WebKit stays on the capture
-// path (its brief flicker is the lesser evil there).
+// Render path: the readback-free CAPTURE path (beginCapture/captureFrame — a GPU
+// drawImage, no readPixels) on EVERY engine, because the FBO/readPixels alternative is
+// far too slow on Gecko (and corrupt on desktop Safari). It borrows + resizes the LIVE
+// preview canvas, so we freeze the preview behind a snapshot for the duration of the
+// background rebuild: the off-screen work never flashes on screen, on any browser.
 async function buildFilmstripVideo(strip, sig, geom) {
   _filmstripBusy = true;
   const gen = ++_filmstripGen;
@@ -1686,7 +1698,8 @@ async function buildFilmstripVideo(strip, sig, geom) {
   }
 
   // capture jobs sorted by time: each strip cell (the tween look at that p) + each
-  // keyframe marker thumb (the keyframe's exact snap).
+  // keyframe marker thumb (the keyframe's exact snap). One ascending pass = monotonic
+  // seeks (smoother than jumping around).
   const jobs = [];
   if (multi) {
     for (let i = 0; i < n; i++) {
@@ -1700,33 +1713,26 @@ async function buildFilmstripVideo(strip, sig, geom) {
   }
   jobs.sort((a, b) => a.p - b.p);
 
-  const useFBO = !IS_WEBKIT;                         // WebKit FBO readback = blue cells → live-canvas capture path
-  let scratchCtx = null;
-  if (useFBO) { const sc = document.createElement('canvas'); sc.width = fs; sc.height = fs; scratchCtx = sc.getContext('2d'); }
-  else engine.beginCapture(fs, fs);
+  freezePreview();                                  // hide the borrowed preview behind a snapshot
+  engine.beginCapture(fs, fs);
   try {
     for (const job of jobs) {
       if (gen !== _filmstripGen) return;            // superseded by a scrub / playback / newer build
       await seekVideoTo(v, pToMediaSec(v, job.p));
       if (gen !== _filmstripGen) return;
       engine.updateSourceFrame();
-      let src;
-      if (useFBO) { await engine.exportFrame(job.snap, fs, fs, scratchCtx); src = scratchCtx.canvas; }
-      else src = engine.captureFrame(job.snap);
-      job.draw(src);
+      job.draw(engine.captureFrame(job.snap));
     }
     if (gen !== _filmstripGen) return;
-    if (multi) { strip.innerHTML = ''; strip.appendChild(stripCanvas); }
-    else strip.innerHTML = '';                       // single keyframe = marker thumb only, no band
+    strip.innerHTML = '';
+    if (multi) strip.appendChild(stripCanvas);       // single keyframe = marker thumb only, no band
     lastFilmstripSig = sig;
   } finally {
-    if (!useFBO) engine.endCapture();                // restore the borrowed live canvas's backing size
-    if (gen === _filmstripGen) {                      // not cancelled → we own the footage; restore + repaint
-      await seekVideoTo(v, saved); engine.updateSourceFrame();
-      resizePreviewCanvas();
-    } else if (!useFBO) {
-      resizePreviewCanvas();                          // cancelled on the capture path: un-borrow the live canvas (the canceller owns the frame)
-    }
+    engine.endCapture();                            // restore the borrowed canvas's backing size
+    if (gen === _filmstripGen) { await seekVideoTo(v, saved); engine.updateSourceFrame(); }   // not cancelled → restore footage to the playhead
+    resizePreviewCanvas();
+    if (engine.getSourceImage()) engine.render(state);   // sync repaint BEFORE lifting the freeze (no flash)
+    unfreezePreview();
     _filmstripBusy = false;
   }
 }
@@ -1806,16 +1812,28 @@ function renderRuler() {
   const majors = Math.floor(dur / step + 1e-6);
   for (let i = 0; i <= majors; i++) {
     const t = i * step, p = t / dur;
+    if (i > 0 && (dur - t) < step * 0.45) continue;   // too close to the total-duration label — skip
     const tick = document.createElement('div');
     tick.className = 'mf-tick major';
     tick.style.left = (p * 100) + '%';
     frag.appendChild(tick);
     const lab = document.createElement('span');
-    lab.className = 'mf-time' + (p <= 0.001 ? ' start' : p >= 0.999 ? ' end' : '');
+    lab.className = 'mf-time' + (p <= 0.001 ? ' start' : '');
     lab.textContent = fmtClock(t);
     lab.style.left = (p * 100) + '%';
     frag.appendChild(lab);
   }
+  // total-duration label, always present at the end (the bound — brighter so it reads
+  // as the clip / loop length).
+  const eTick = document.createElement('div');
+  eTick.className = 'mf-tick major';
+  eTick.style.left = '100%';
+  frag.appendChild(eTick);
+  const eLab = document.createElement('span');
+  eLab.className = 'mf-time end total';
+  eLab.textContent = fmtClock(dur);
+  eLab.style.left = '100%';
+  frag.appendChild(eLab);
   ruler.appendChild(frag);
 }
 function renderTimeline() {
