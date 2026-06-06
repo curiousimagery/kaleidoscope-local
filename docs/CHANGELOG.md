@@ -4,6 +4,16 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.7.38 (Build 134) — 2026-06-05
+
+**Source-video fixes from Daniel's cross-browser test.** (1) **Preview now plays.** A loaded video plays muted-on-loop and drives the kaleidoscope each frame via the live-camera render path, so preview + output stay in sync. Replaces the static first-frame approach, which left a blank source preview on Chromium/Gecko (a paused, never-played `<video>` doesn't reliably paint there) and auto-played out of sync on Safari. (2) **`.m4v` (and any video) selectable** — file picker uses `accept="…,video/*"` instead of an explicit MIME list (Safari/Firefox were greying out `.m4v`). (3) **Clearer codec error** — failed loads say the browser may not support the codec and that ProRes works only in Safari. (4) **Motion mode gated off while a video is the source** (still-only until the timeline is bound to video next increment) so the playback loop and motion loop don't fight; loading a still re-enables it. Switching sources (still/camera/video) stops the video loop, pauses it, and revokes its objectURL.
+
+**Known limitation (flagged by Daniel):** browser `<video>` can't decode **ProRes** except on Safari (WebCodecs can't either, broadly) — relevant to the FCP→(Fold)→Resolume Alley workflow; ProRes sources need Safari or a transcode to H.264/HEVC first. Tracked in BACKLOG, not a blocker.
+
+**Verify (Daniel):** a video shows + plays in the source slot with the wedge aligned and the kaleidoscope animating in sync on Brave/Firefox/Safari; `.m4v` selectable; ProRes gives the clearer error on Chrome/FF and still loads on Safari; switching back to an image works and re-enables motion.
+
+---
+
 ## v0.7.37 (Build 133) — 2026-06-05
 
 **Load a video as the source (first increment of source-video animation).** The file picker + drag-drop now accept video (`mp4`/`mov`/`webm`); a chosen/dropped video routes to a new `loadVideo()` (parallel to `loadImage`) that mounts a paused `<video>`, hands it to `engine.setSource()` (the engine already samples a `<video>` — the live camera uses the same path), and kaleidoscopes its FIRST frame as a static source. All slice/canvas editing, swap, and export work on it like a still. `mountSourceView` now mounts a loaded source video (via `env.sourceVideo`), not just the live camera; switching to a still/camera clears it and revokes the objectURL. "upload image" button → "upload". **NEXT increment:** bind the video to the motion timeline (scrub the timeline to scrub the footage, then author parameter keyframes over the moving video; loop-lock for looping clips). **Verify (Daniel):** drop a video → it loads, shows in the source slot with the wedge overlay aligned, the kaleidoscope renders its first frame; slice/canvas controls + export behave like a still; switching back to an image still works.

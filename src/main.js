@@ -374,6 +374,7 @@ let sourceVideoUrl = null;   // objectURL of a loaded source video (revoked on r
 function loadImage(file) {
   if (!engine) return;
   if (isLive) stopCameraMode({ keepSource: true });  // uploading exits live mode
+  stopSourceVideoPlayback();                          // stop a loaded video's loop before switching
   env.sourceVideo = null;                            // switching to a still clears any source video
   if (sourceVideoUrl) { URL.revokeObjectURL(sourceVideoUrl); sourceVideoUrl = null; }
   const url = URL.createObjectURL(file);
@@ -411,6 +412,7 @@ function loadImage(file) {
     statusEl.classList.remove('error', 'busy');
     if (uploadErrorEl) uploadErrorEl.textContent = '';
 
+    updateMotionUI();   // re-enable motion mode for a still (it's gated off for video sources)
     arrangeSlots();
   };
   img.onerror = () => {
@@ -430,6 +432,7 @@ function loadImage(file) {
 function loadVideo(file) {
   if (!engine) return;
   if (isLive) stopCameraMode({ keepSource: true });   // uploading exits live mode
+  stopSourceVideoPlayback();                           // stop any previously loaded video's loop
   if (sourceVideoUrl) { URL.revokeObjectURL(sourceVideoUrl); sourceVideoUrl = null; }
   const url = URL.createObjectURL(file);
   sourceVideoUrl = url;
@@ -438,13 +441,12 @@ function loadVideo(file) {
   if (uploadErrorEl) uploadErrorEl.textContent = '';
 
   const v = document.createElement('video');
-  v.muted = true; v.playsInline = true; v.preload = 'auto';
+  v.muted = true; v.playsInline = true; v.loop = true; v.preload = 'auto';
   v.setAttribute('playsinline', ''); v.setAttribute('muted', '');
 
   v.addEventListener('loadeddata', () => {
     try {
       engine.setSource(v);            // videoWidth is known now (a frame is decoded)
-      engine.updateSourceFrame();     // upload the current (first) frame to the texture
     } catch (e) {
       if (uploadErrorEl) uploadErrorEl.textContent = e.message;
       statusEl.textContent = '';
@@ -461,17 +463,31 @@ function loadVideo(file) {
     const dur = isFinite(v.duration) ? ` · ${v.duration.toFixed(1)}s` : '';
     statusEl.textContent = `loaded ${v.videoWidth}×${v.videoHeight}${dur}`;
     statusEl.classList.remove('error', 'busy');
-    arrangeSlots();
-    env.scheduleRender?.();
+    updateMotionUI();                // motion mode stays gated off for a video (until timeline binding)
+    arrangeSlots();                  // mounts the <video> into the source slot
+    // Play it muted-on-loop and drive the kaleidoscope from it each frame — the
+    // same continuous path the live camera uses. A playing video paints reliably
+    // across engines (a paused, never-played one does NOT on Blink/Gecko), and the
+    // preview + output stay in sync. Timeline-driven scrub/keyframes replace this
+    // free-run in the next increment.
+    v.play().catch(() => {});        // muted playback is allowed; ignore autoplay rejection
+    startLiveLoop();
   }, { once: true });
 
   v.addEventListener('error', () => {
-    if (uploadErrorEl) uploadErrorEl.textContent = 'failed to load video (unsupported codec or corrupt file)';
+    if (uploadErrorEl) uploadErrorEl.textContent = 'could not load this video — the browser may not support its codec (ProRes works only in Safari). Try an H.264 or HEVC .mp4/.mov.';
     statusEl.textContent = '';
     statusEl.classList.remove('error', 'busy', 'success');
   }, { once: true });
 
   v.src = url;
+}
+
+// Stop a loaded source video's render loop + pause it. When the camera is live it
+// owns the loop, so leave it alone in that case (its own lifecycle stops it).
+function stopSourceVideoPlayback() {
+  if (!isLive) stopLiveLoop();
+  if (env.sourceVideo) { try { env.sourceVideo.pause(); } catch { /* ignore */ } }
 }
 
 // ============================================================================
@@ -558,6 +574,8 @@ async function startCameraMode() {
     return;
   }
   if (uploadErrorEl) uploadErrorEl.textContent = '';
+  stopSourceVideoPlayback();   // stop a loaded video's loop before the camera takes over
+  if (sourceVideoUrl) { URL.revokeObjectURL(sourceVideoUrl); sourceVideoUrl = null; }
   originalSource = null;  // no captured original until the shutter fires
   statusEl.textContent = 'starting camera…';
   statusEl.classList.add('busy');
@@ -1607,7 +1625,7 @@ function renderTimeline() {
 
 // ---- mode toggle + UI sync ------------------------------------------------
 function toggleMotionMode() {
-  if (!engine || !engine.getSourceImage() || isLive) return;
+  if (!engine || !engine.getSourceImage() || isLive || env.sourceVideo) return;
   motionActive = !motionActive;
   motion.selected = -1;          // never carry a stale selection across the toggle
                                  // (otherwise post-exit edits could write through to it)
@@ -1621,7 +1639,7 @@ function toggleMotionMode() {
 }
 
 function updateMotionUI() {
-  const available = !!(engine && engine.getSourceImage()) && !isLive;
+  const available = !!(engine && engine.getSourceImage()) && !isLive && !env.sourceVideo;
   if (motionActive && !available) { motionActive = false; haltPlayback(); }
 
   const q = (id) => document.getElementById(id);
