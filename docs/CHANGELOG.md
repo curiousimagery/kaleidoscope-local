@@ -4,7 +4,20 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
-## v0.8.9 (Build 147) — 2026-06-06
+## v0.9.1 (Build 148) — 2026-06-06
+
+**Three timeline-interaction refinements (Daniel's smoke-test notes).**
+- **Playhead auto-follow when zoomed.** During playback, once the scrubber passes ~85% of the visible window (or wraps to the left on a loop), the view pages so the playhead sits ~15% in, keeping buffer ahead (`followPlayhead`, called from both playback loops; only relayouts at a threshold cross, so it's cheap). No effect when fit (zoom = 1).
+- **Context-aware keyframe placement.** `+keyframe` now branches on whether a keyframe is highlighted: if one IS selected, it lays an auto-spaced keyframe after it (duplicate-and-tweak, as before); if NOTHING is selected (you scrubbed to a specific point), it ANCHORS a keyframe at that exact scrubber position. So you can place precise keyframes by scrubbing, or keep the auto-spaced flow by working from a selection.
+- **Scrub from the ruler.** Dragging the time ruler now moves the scrubber (single-pointer; pinch/pan stays on the track), since the ruler reads as a measuring scale you'd want to drag.
+
+**Verify (Daniel):** zoomed playback keeps the scrubber on screen with lookahead; scrub-to-a-gap + `+keyframe` drops an anchored keyframe there, while selecting a keyframe + `+keyframe` adds an auto-spaced one after it; dragging the ruler scrubs.
+
+---
+
+## v0.9.0 (Build 147) — 2026-06-06
+
+**Milestone: video support is real.** Marks the point where the source-video animation track is end-to-end usable (load → scrub/keyframe/play over footage → frame-accurate export) plus a navigable timeline. Lots of refinement still ahead, but the capability is real.
 
 **Timeline zoom / pan / scale-to-fit (the long-pending "B4").** The timeline is now navigable — essential for multi-minute video sources. Ephemeral, session-scoped view transform (`session.timelineZoom` ≥1, `session.timelinePan` = visible-window left edge in normalized [0,1]); everything positioned by time routes through `tToPct`/`pctToT`, so markers, playhead, ruler, and scrub share one window. The tween strip is rendered at full-timeline width and **CSS-transformed** (`translateX` + `scaleX` on `#mfStrip`), so zoom/pan is instant and never re-seeks the footage.
 - **Input (per Daniel):** trackpad-native — pinch-to-zoom (browsers map it to ctrl+wheel) zooms centered on the cursor; two-finger scroll pans (when zoomed in). Touch gets two-finger pinch-zoom + pan (anchored to the finger midpoint). Mouse users get **fit / zoom-in / zoom-out** buttons in the transport row.

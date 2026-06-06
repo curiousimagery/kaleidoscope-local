@@ -1416,6 +1416,7 @@ function startPlayback() {
     if (motion.loop) { p -= Math.floor(p); }
     else if (p >= 1) { renderSampled(1); haltPlayback(); loadPlayheadIntoState(); renderTimeline(); updateMotionUI(); return; }
     renderSampled(p);
+    followPlayhead(p);
     motionRaf = requestAnimationFrame(tick);
   };
   motionRaf = requestAnimationFrame(tick);
@@ -1448,6 +1449,7 @@ function startVideoPlayback() {
     sourceOverlay.paintSourceVideo();
     sourceOverlay.render();
     setPlayhead(p);
+    followPlayhead(p);
     motionRaf = requestAnimationFrame(tick);
   };
   motionRaf = requestAnimationFrame(tick);
@@ -1490,26 +1492,30 @@ function addKeyframe() {
   if (motion.selected >= 0 && kfList()[motion.selected]) {
     kfList()[motion.selected].snap = { ...state };
   }
-  const onIdx = keyframeAt(motion.playhead);
   const kf = { t: 0, snap: { ...state }, thumb: makeThumbCanvas(), anchored: false };
   let newIdx;
   if (kfList().length === 0) {
     kf.anchored = true;                          // keyframe 0 is the fixed start anchor
     kfList().push(kf);
     newIdx = 0;
-  } else if (onIdx >= 0) {
-    kfList().splice(onIdx + 1, 0, kf);           // insert after the keyframe at the scrubber
-    newIdx = onIdx + 1;
+  } else if (motion.selected >= 0) {
+    // a keyframe is highlighted → lay an AUTO-SPACED keyframe right after it (duplicate-
+    // and-tweak; the spacing rebalances across the auto keyframes).
+    kfList().splice(motion.selected + 1, 0, kf);
+    newIdx = motion.selected + 1;
   } else {
+    // scrubbed to a free point with nothing highlighted → ANCHOR a keyframe at that exact
+    // scrubber position (the user picked the moment; honor it instead of auto-spacing).
+    kf.anchored = true;
+    kf.t = motion.playhead;
     let ins = kfList().findIndex(k => k.t > motion.playhead);   // keep the array in time order
     if (ins < 0) ins = kfList().length;
     kfList().splice(ins, 0, kf);
     newIdx = ins;
   }
   applyAutoSpacing();
-  // "+keyframe" lays a new keyframe (a copy of the current look) after the current
-  // one and AUTO-SELECTS it, so subsequent edits write through (autosave) to it —
-  // duplicate-and-tweak. Adding without editing leaves an intentional hold.
+  // the new keyframe is AUTO-SELECTED, so subsequent edits write through (autosave) to
+  // it. Adding without editing leaves an intentional hold.
   motion.selected = newIdx;
   setPlayhead(kfList()[newIdx].t);
   renderTimeline();                              // marker appears (blank thumb); also schedules the filmstrip
@@ -1882,6 +1888,19 @@ function updateZoomButtons() {
   if (q('mfZoomOut')) q('mfZoomOut').disabled = z <= 1.001;
   if (q('mfZoomIn')) q('mfZoomIn').disabled = z >= mx * 0.999;
 }
+// During playback, keep the moving playhead on screen when zoomed in: once it passes
+// ~85% of the visible window (or runs off the left, e.g. on a loop wrap), page the view
+// so it sits ~15% in, leaving buffer ahead. Cheap — only relayouts at a threshold cross.
+function followPlayhead(p) {
+  if (!motion.playing || (session.timelineZoom || 1) <= 1) return;
+  const span = tlSpan();
+  const frac = (p - (session.timelinePan || 0)) / span;
+  if (frac > 0.85 || frac < 0.1) {
+    session.timelinePan = p - 0.15 * span;
+    clampTimelineView();
+    relayoutTimeline();
+  }
+}
 
 // renderTimeline = relayout (markers/playhead/ruler/strip-transform) + a debounced
 // filmstrip rebuild. Zoom/pan only relayout (no rebuild — the strip is CSS-transformed).
@@ -2146,7 +2165,7 @@ function wireMotion() {
     };
     track.addEventListener('pointerup', up);
     track.addEventListener('pointercancel', up);
-    track.addEventListener('wheel', (e) => {
+    const onTimelineWheel = (e) => {
       if (!motionActive) return;
       const r = track.getBoundingClientRect();
       if (e.ctrlKey) {                              // trackpad pinch (browsers map it to ctrl+wheel) → zoom on cursor
@@ -2159,7 +2178,33 @@ function wireMotion() {
         clampTimelineView(); scheduleRelayout();
         e.preventDefault();
       }
-    }, { passive: false });
+    };
+    track.addEventListener('wheel', onTimelineWheel, { passive: false });
+
+    // the ruler scrubs too (it reads as a measuring scale, so dragging it to move the
+    // scrubber feels natural) — single-pointer only; pinch/pan stays on the track.
+    const ruler = byId('mfRuler');
+    if (ruler) {
+      let rScrub = false;
+      ruler.addEventListener('pointerdown', (e) => {
+        if (!kfList().length) return;
+        rScrub = true; motionScrubbing = true;
+        if (motion.playing) haltPlayback();
+        ruler.setPointerCapture?.(e.pointerId);
+        scrubTo(e.clientX);
+        e.preventDefault();
+      });
+      ruler.addEventListener('pointermove', (e) => { if (rScrub) scrubTo(e.clientX); });
+      const rEnd = (e) => {
+        if (!rScrub) return;
+        rScrub = false; motionScrubbing = false;
+        ruler.releasePointerCapture?.(e.pointerId);
+        loadPlayheadIntoState(); renderTimeline(); updateMotionUI();
+      };
+      ruler.addEventListener('pointerup', rEnd);
+      ruler.addEventListener('pointercancel', rEnd);
+      ruler.addEventListener('wheel', onTimelineWheel, { passive: false });
+    }
   }
 
   updateMotionUI();

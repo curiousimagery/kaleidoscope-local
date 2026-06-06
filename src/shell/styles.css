@@ -554,7 +554,7 @@ button .btn-spinner {
    side so tick positions (% of the ruler) line up with markers (% inside the track's
    1px border). relative keyframe position is the focus; the labels give a sense of
    absolute time, which fixed-duration media (video) needs. */
-.mf-ruler { position: relative; height: 16px; flex-shrink: 0; margin: 0 1px; overflow: hidden; }
+.mf-ruler { position: relative; height: 16px; flex-shrink: 0; margin: 0 1px; overflow: hidden; cursor: pointer; touch-action: none; }
 .mf-tick { position: absolute; bottom: 0; width: 1px; transform: translateX(-50%); }
 .mf-tick.minor { height: 4px; background: #333; }
 .mf-tick.major { height: 7px; background: #555; }
