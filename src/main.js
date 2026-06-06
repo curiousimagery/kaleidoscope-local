@@ -32,6 +32,7 @@ import { drawSourceOverlay } from './shell/overlay.js';
 import { snapSpiralValue as kitSnapSpiral, applyArmsSnap as kitApplyArmsSnap } from './kit/snaps.js';
 import { sampleKeyframes, DISCRETE_KEYS } from './kit/tween.js';
 import { exportVideo, videoExportSupported, pickVideoCodec } from './shell/video-export.js';
+import { pToMediaSec, seekVideoTo } from './shell/video-source.js';
 import { formatVersion } from './version.js';
 import { push as historyPush, undo as historyUndo, redo as historyRedo, canUndo, canRedo } from './shell/history.js';
 import { wireDiagnosticButton } from './shell/diagnostics.js';
@@ -1345,15 +1346,45 @@ function loadPlayheadIntoState() {
   env.syncControls();
   env.scheduleOverlayDraw();
   env.scheduleRender();
+  if (env.sourceVideo) scrubVideo(motion.playhead);   // bring the footage to the (snapped) playhead
+}
+
+// ---- video-time binding (a video source's frame follows the timeline) -----
+// Put the source video's frame for timeline position p onto the texture.
+async function advanceSourceToP(p) {
+  const v = env.sourceVideo;
+  if (!v) return;
+  await seekVideoTo(v, pToMediaSec(v, p));
+  engine.updateSourceFrame();
+}
+// Scrub the footage to p, coalescing seeks (latest target wins) so dragging the
+// timeline never floods the decoder. Renders params + the landed frame together.
+let _scrubSeekP = null, _scrubSeeking = false;
+async function scrubVideo(p) {
+  _scrubSeekP = p;
+  if (_scrubSeeking) return;
+  _scrubSeeking = true;
+  while (_scrubSeekP != null) {
+    const target = _scrubSeekP; _scrubSeekP = null;
+    await advanceSourceToP(target);
+    Object.assign(state, sampleAt(target));
+    if (engine && engine.getSourceImage()) { engine.render(state); if (session.isSwapped) drawMiniKaleidoscope(); }
+    sourceOverlay.paintSourceVideo();
+    sourceOverlay.render();
+    setPlayhead(target);
+  }
+  _scrubSeeking = false;
 }
 
 // ---- playback -------------------------------------------------------------
 function haltPlayback() {
   motion.playing = false;
   if (motionRaf) { cancelAnimationFrame(motionRaf); motionRaf = 0; }
+  if (env.sourceVideo) { try { env.sourceVideo.pause(); } catch { /* ignore */ } }
 }
 function startPlayback() {
   if (motion.playing || kfList().length < 2) return;
+  if (env.sourceVideo) { startVideoPlayback(); return; }   // a video source is its own clock
   motion.playing = true;
   motion.selected = -1;
   motionStart = performance.now() - motion.playhead * motion.durationMs;
@@ -1363,6 +1394,37 @@ function startPlayback() {
     if (motion.loop) { p -= Math.floor(p); }
     else if (p >= 1) { renderSampled(1); haltPlayback(); loadPlayheadIntoState(); renderTimeline(); updateMotionUI(); return; }
     renderSampled(p);
+    motionRaf = requestAnimationFrame(tick);
+  };
+  motionRaf = requestAnimationFrame(tick);
+  updateMotionUI();
+}
+// Playback over a source video: the <video> is the master clock — it plays, and
+// each frame we derive p from its currentTime, sample the params at p, and render
+// (so params stay locked to the actual presented frame). Mirrors the live-camera
+// loop with parameter sampling layered on.
+function startVideoPlayback() {
+  const v = env.sourceVideo;
+  if (!v) return;
+  motion.playing = true;
+  motion.selected = -1;
+  const dur = (v.duration && isFinite(v.duration)) ? v.duration : 1;
+  v.currentTime = pToMediaSec(v, motion.playhead >= 1 ? 0 : motion.playhead);
+  v.loop = !!motion.loop;
+  v.play().catch(() => {});
+  const tick = () => {
+    if (!motion.playing) return;
+    if (!motion.loop && v.currentTime >= dur - 0.05) {   // ran off the end (non-loop)
+      haltPlayback(); loadPlayheadIntoState(); renderTimeline(); updateMotionUI(); return;
+    }
+    let p = v.currentTime / dur;
+    if (motion.loop) p -= Math.floor(p);
+    engine.updateSourceFrame();
+    Object.assign(state, sampleAt(p));
+    if (engine && engine.getSourceImage()) { engine.render(state); if (session.isSwapped) drawMiniKaleidoscope(); }
+    sourceOverlay.paintSourceVideo();
+    sourceOverlay.render();
+    setPlayhead(p);
     motionRaf = requestAnimationFrame(tick);
   };
   motionRaf = requestAnimationFrame(tick);
@@ -1627,21 +1689,37 @@ function renderTimeline() {
 
 // ---- mode toggle + UI sync ------------------------------------------------
 function toggleMotionMode() {
-  if (!engine || !engine.getSourceImage() || isLive || env.sourceVideo) return;
+  if (!engine || !engine.getSourceImage() || isLive) return;
   motionActive = !motionActive;
   motion.selected = -1;          // never carry a stale selection across the toggle
                                  // (otherwise post-exit edits could write through to it)
+  if (motionActive && env.sourceVideo) {
+    // video: the timeline drives the footage — stop the free-run loop + pause, and
+    // lock the loop duration to the clip length (the duration field is read-only then).
+    stopSourceVideoPlayback();
+    const d = env.sourceVideo.duration;
+    if (d && isFinite(d)) motion.durationMs = Math.round(d * 1000);
+  }
   if (!motionActive) haltPlayback();
   else if (!kfList().length) addKeyframe();   // QoL: enter motion mode with a keyframe of the current look
   else renderTimeline();                       // (re-entry keeps existing keyframes)
+  if (!motionActive && env.sourceVideo) {
+    // exiting motion on a video: resume free-run playback (video is "live" again)
+    env.sourceVideo.play().catch(() => {});
+    startLiveLoop();
+  }
   updateMotionUI();
   // the footer changes the main-slot height — re-fit the preview canvas (which
   // also re-renders the working state, replacing any transient playback frame).
-  requestAnimationFrame(() => { resizePreviewCanvas(); sourceOverlay.render(); });
+  requestAnimationFrame(() => {
+    resizePreviewCanvas();
+    sourceOverlay.render();
+    if (motionActive && env.sourceVideo) scrubVideo(motion.playhead);   // show the playhead frame
+  });
 }
 
 function updateMotionUI() {
-  const available = !!(engine && engine.getSourceImage()) && !isLive && !env.sourceVideo;
+  const available = !!(engine && engine.getSourceImage()) && !isLive;
   if (motionActive && !available) { motionActive = false; haltPlayback(); }
 
   const q = (id) => document.getElementById(id);
@@ -1746,7 +1824,7 @@ function wireMotion() {
   // duration scrub field (DAW-style), in seconds (whole-animation length).
   makeScrubField(byId('mfDurVal'), {
     get: () => motion.durationMs / 1000,
-    set: (v) => { motion.durationMs = Math.max(0.5, Math.min(600, v)) * 1000; },
+    set: (v) => { if (env.sourceVideo) return; motion.durationMs = Math.max(0.5, Math.min(600, v)) * 1000; },  // locked to clip length for a video
     step: 0.5, fineStep: 0.1, coarseStep: 10, min: 0.5, max: 600,
     format: (v) => v.toFixed(1) + 's',
     parse: (s) => { const n = parseFloat(String(s).replace(/[s\s]/g, '')); return isNaN(n) ? null : n; },
@@ -1769,7 +1847,9 @@ function wireMotion() {
   if (track) {
     const scrubTo = (clientX) => {
       const r = track.getBoundingClientRect();
-      renderSampled(Math.max(0, Math.min(1, (clientX - r.left) / r.width)));
+      const p = Math.max(0, Math.min(1, (clientX - r.left) / r.width));
+      if (env.sourceVideo) { setPlayhead(p); scrubVideo(p); }   // video: seek footage (coalesced) + params
+      else renderSampled(p);
     };
     track.addEventListener('pointerdown', (e) => {
       if (e.target.closest('.mf-marker') || !kfList().length) return;

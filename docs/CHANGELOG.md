@@ -4,6 +4,16 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.7.41 (Build 137) — 2026-06-05
+
+**Video bound to the motion timeline (increment 2a) — scrub + keyframe over the footage.** Motion mode now works on a video source (un-gated): entering it stops the free-run loop, pauses the video, and locks the loop duration to the clip length; exiting resumes the free-run preview. New `shell/video-source.js` (`pToMediaSec`; `seekVideoTo` — rVFC-preferred with a `'seeked'` fallback for Firefox) plus `advanceSourceToP` / `scrubVideo` (coalescing seeks, latest-target-wins) in `main.js`. **Scrub** the timeline → the footage seeks to that frame, params sampled at the same position. **Playback** uses the `<video>` as the master clock — it plays, and each frame derives `p` from `currentTime`, samples params at `p`, and renders, so params stay locked to the actual presented frame. The duration field is read-only for a video (it's the clip length). Net: you can author parameter keyframes over moving footage — scrub to a spot, tweak, add a keyframe, repeat.
+
+**Known gaps (next increments):** the filmstrip + keyframe thumbnails still sample only params against the *current* frame (no per-cell seek yet → the strip looks uniform across footage; the async filmstrip is a later increment); loop-lock for a looping clip + in/out trim are increment 2b; iPhone/Firefox color + rotation quirks still deferred.
+
+**Verify (Daniel):** load a video → the motion button is enabled; enter motion mode; scrub the timeline → the footage seeks under the wedge; add 2+ keyframes at different scrub positions with different looks; press play → the video plays with params animating in sync; exit motion → the free-run preview resumes. (Firefox uses the `'seeked'` fallback; expect scrubbing to feel a touch less immediate there.)
+
+---
+
 ## v0.7.40 (Build 136) — 2026-06-05
 
 **Source-video preview actually wired up (the real fix for blank source on Brave/Firefox).** Build 135's canvas preview never executed: `mountSourceView` operates on the source-overlay COMPONENT's `view` object, which only proxied `liveVideo`, not `sourceVideo` — so every loaded video fell through to the STILL path (a `background-image` of a video blob URL, which only WebKit renders, which is exactly why it "worked" on Safari and was blank on Blink/Gecko). Separately, the render loop read the preview canvas off `env` while `mountSourceView` wrote it onto `view`. Both halves are now connected: the component exposes `sourceVideo` (via a new `getSourceVideo` ctx hook) and a `paintSourceVideo()` method that the host render loop calls each frame. **Verify (Daniel):** the source slot shows the playing footage (not black/blank) on Brave + Firefox + Safari for mp4/m4v/mov. (The iPhone-`.mov` color/aspect quirks remain the separate deferred item.)
