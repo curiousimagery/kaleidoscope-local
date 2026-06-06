@@ -1216,15 +1216,16 @@ export function mountSourceView(env, slotEl) {
   slotEl.innerHTML = '';
 
   const sourceImage = env.engine.getSourceImage();
-  if (env.liveVideo) {
-    // Live camera: mount the actual <video> element (it can't be painted via
-    // background-image like a still). object-fit: contain matches the still
-    // path's letterboxing so the wedge overlay geometry still aligns. Set
-    // layout props individually so the camera's mirror transform survives.
-    // (The engine may be sampling a mirrored canvas, not this element — but the
-    // mirrored preview + mirrored texture share an orientation, so the overlay
-    // still lines up. See camera.js frameSource/refreshFrame.)
-    const v = env.liveVideo;
+  const vid = env.liveVideo || env.sourceVideo;   // live camera OR a loaded source video
+  if (vid) {
+    // A <video> source (live camera or loaded file): mount the actual element (it
+    // can't be painted via background-image like a still). object-fit: contain
+    // matches the still path's letterboxing so the wedge overlay geometry still
+    // aligns. Set layout props individually so the camera's mirror transform
+    // survives. (For the camera the engine may be sampling a mirrored canvas, not
+    // this element — but the mirrored preview + texture share an orientation, so
+    // the overlay still lines up. See camera.js frameSource/refreshFrame.)
+    const v = vid;
     v.style.position = 'absolute';
     v.style.top = '0'; v.style.left = '0';
     v.style.width = '100%'; v.style.height = '100%';

@@ -369,10 +369,13 @@ function clearBusy() {
 // ============================================================================
 
 let sourceFilename = '';
+let sourceVideoUrl = null;   // objectURL of a loaded source video (revoked on replace)
 
 function loadImage(file) {
   if (!engine) return;
   if (isLive) stopCameraMode({ keepSource: true });  // uploading exits live mode
+  env.sourceVideo = null;                            // switching to a still clears any source video
+  if (sourceVideoUrl) { URL.revokeObjectURL(sourceVideoUrl); sourceVideoUrl = null; }
   const url = URL.createObjectURL(file);
   sourceFilename = (file.name || 'image').replace(/\.[^.]+$/, '');
   originalSource = { blob: file, name: file.name || 'original' };  // for export package
@@ -416,6 +419,59 @@ function loadImage(file) {
     statusEl.classList.remove('error', 'busy', 'success');
   };
   img.src = url;
+}
+
+// Load a source VIDEO (Build 133). Mirrors loadImage, but the source is a paused
+// <video> the engine samples like any other texture source (it already accepts a
+// <video> — the live camera uses the same path). This first increment loads the
+// video and kaleidoscopes its FIRST frame as a static source (full slice/canvas
+// editing works on it like a still). Binding it to the motion timeline (scrub +
+// keyframes over the moving footage) is the next increment.
+function loadVideo(file) {
+  if (!engine) return;
+  if (isLive) stopCameraMode({ keepSource: true });   // uploading exits live mode
+  if (sourceVideoUrl) { URL.revokeObjectURL(sourceVideoUrl); sourceVideoUrl = null; }
+  const url = URL.createObjectURL(file);
+  sourceVideoUrl = url;
+  sourceFilename = (file.name || 'video').replace(/\.[^.]+$/, '');
+  originalSource = { blob: file, name: file.name || 'original' };   // for export package
+  if (uploadErrorEl) uploadErrorEl.textContent = '';
+
+  const v = document.createElement('video');
+  v.muted = true; v.playsInline = true; v.preload = 'auto';
+  v.setAttribute('playsinline', ''); v.setAttribute('muted', '');
+
+  v.addEventListener('loadeddata', () => {
+    try {
+      engine.setSource(v);            // videoWidth is known now (a frame is decoded)
+      engine.updateSourceFrame();     // upload the current (first) frame to the texture
+    } catch (e) {
+      if (uploadErrorEl) uploadErrorEl.textContent = e.message;
+      statusEl.textContent = '';
+      statusEl.classList.remove('error', 'busy', 'success');
+      console.error(e);
+      return;
+    }
+    env.sourceVideo = v;              // mountSourceView mounts this element
+    env.liveVideo = null;
+    const meta = document.getElementById('sourceMeta');
+    meta.children[0].textContent = `${v.videoWidth} × ${v.videoHeight}`;
+    meta.children[1].textContent = file.name;
+    document.getElementById('swapBtn').disabled = false;
+    const dur = isFinite(v.duration) ? ` · ${v.duration.toFixed(1)}s` : '';
+    statusEl.textContent = `loaded ${v.videoWidth}×${v.videoHeight}${dur}`;
+    statusEl.classList.remove('error', 'busy');
+    arrangeSlots();
+    env.scheduleRender?.();
+  }, { once: true });
+
+  v.addEventListener('error', () => {
+    if (uploadErrorEl) uploadErrorEl.textContent = 'failed to load video (unsupported codec or corrupt file)';
+    statusEl.textContent = '';
+    statusEl.classList.remove('error', 'busy', 'success');
+  }, { once: true });
+
+  v.src = url;
 }
 
 // ============================================================================
@@ -508,6 +564,7 @@ async function startCameraMode() {
   try {
     const video = await camera.start(DEFAULT_FACING);
     env.liveVideo = video;
+    env.sourceVideo = null;                          // camera takes over the source view
     engine.setSource(camera.frameSource());
   } catch (e) {
     env.liveVideo = null;
@@ -1051,7 +1108,8 @@ function wireControls() {
     document.getElementById('fileInput').click();
   });
   document.getElementById('fileInput').addEventListener('change', e => {
-    if (e.target.files[0]) loadImage(e.target.files[0]);
+    const f = e.target.files[0];
+    if (f) (f.type.startsWith('video/') ? loadVideo : loadImage)(f);
   });
 
   // drag & drop
@@ -1060,10 +1118,11 @@ function wireControls() {
     e.preventDefault();
     const file = e.dataTransfer.files[0];
     if (!file) return;
+    if (file.type.startsWith('video/')) { loadVideo(file); return; }
     const ok = /^image\/(jpeg|png|webp)$/i.test(file.type);
     if (ok) loadImage(file);
     else if (uploadErrorEl) {
-      uploadErrorEl.textContent = `unsupported format: ${file.type || 'unknown'} — use jpg, png, or webp`;
+      uploadErrorEl.textContent = `unsupported format: ${file.type || 'unknown'} — use jpg, png, webp, or a video`;
     }
   });
 
@@ -1737,20 +1796,21 @@ function wireFrameAspect() {
   syncActive();
 }
 
-// Frame source for video export, chosen per browser engine (Build 130 A/B data).
-// Desktop Safari is ~20x faster wrapping the WebGL canvas directly in a VideoFrame
-// (its 2D-canvas → VideoFrame conversion is ~177ms/frame at 4K); but that path
-// hung iPadOS (Build 115) and is slightly SLOWER on Firefox, so it's used ONLY for
-// non-touch WebKit (desktop Safari). Everyone else (Firefox, Chromium, iPad) uses
-// the proven, fast, Safari-safe 2D-canvas path. `?capture=2d|bitmap|gl` overrides,
-// e.g. to test whether iPad tolerates 'gl' now.
+// Frame source for video export, chosen per browser engine (Builds 130–132 A/B).
+// All WebKit (Safari) is far faster wrapping the WebGL canvas directly in a
+// VideoFrame than routing through a 2D canvas (whose 2D→VideoFrame conversion is
+// very slow on WebKit): desktop Safari ~130 fps vs ~6 @4K, iPad M1 ~55 vs ~18
+// (Daniel tested both). The VideoFrame-from-WebGL path that hung iPadOS in Build
+// 115 is fixed on current iPadOS (stable over a 75s render). Firefox + Chromium
+// are fast on — and Firefox slightly prefers — the 2D path, so WebGL-direct is
+// used for ALL WebKit and 2D for everyone else. `?capture=2d|bitmap|gl` overrides
+// (a safety hatch if some older iOS device still hangs on the WebGL path).
 function defaultCaptureMode() {
   const q = new URLSearchParams(location.search).get('capture');
   if (q === '2d' || q === 'bitmap' || q === 'gl') return q;
   const ua = navigator.userAgent;
   const isWebKit = /AppleWebKit/.test(ua) && !/Chrome|Chromium|Edg|OPR|Firefox|FxiOS|CriOS/.test(ua);
-  const isTouch = (navigator.maxTouchPoints || 0) > 1;   // iPad/iPhone (incl. iPadOS desktop-class UA)
-  return (isWebKit && !isTouch) ? 'gl' : '2d';
+  return isWebKit ? 'gl' : '2d';
 }
 
 // ---- video export ---------------------------------------------------------

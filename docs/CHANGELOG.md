@@ -4,6 +4,18 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.7.37 (Build 133) — 2026-06-05
+
+**Load a video as the source (first increment of source-video animation).** The file picker + drag-drop now accept video (`mp4`/`mov`/`webm`); a chosen/dropped video routes to a new `loadVideo()` (parallel to `loadImage`) that mounts a paused `<video>`, hands it to `engine.setSource()` (the engine already samples a `<video>` — the live camera uses the same path), and kaleidoscopes its FIRST frame as a static source. All slice/canvas editing, swap, and export work on it like a still. `mountSourceView` now mounts a loaded source video (via `env.sourceVideo`), not just the live camera; switching to a still/camera clears it and revokes the objectURL. "upload image" button → "upload". **NEXT increment:** bind the video to the motion timeline (scrub the timeline to scrub the footage, then author parameter keyframes over the moving video; loop-lock for looping clips). **Verify (Daniel):** drop a video → it loads, shows in the source slot with the wedge overlay aligned, the kaleidoscope renders its first frame; slice/canvas controls + export behave like a still; switching back to an image still works.
+
+---
+
+## v0.7.36 (Build 132) — 2026-06-05
+
+**All WebKit (incl. iPad) defaults to WebGL-direct export.** Daniel tested iPad M1: WebGL-direct gives ~55 fps vs ~18 on the 2D path, and a 75-second render was stable (the VideoFrame-from-WebGL hang from Build 115 is fixed on current iPadOS). Plus desktop-Safari 6K output verified correct. So `defaultCaptureMode` now selects WebGL-direct for ALL WebKit (desktop Safari + iPad), not just non-touch; Firefox + Chromium stay on 2D. `?capture=2d` remains as a safety hatch for any older iOS device that might still hang. Export speed is now fast on every engine and device we've tested.
+
+---
+
 ## v0.7.35 (Build 131) — 2026-06-05
 
 **Per-engine frame source — WebGL-direct on desktop Safari (the export-speed fix).** Build-130's A/B settled it: desktop Safari renders ~20× faster wrapping the WebGL canvas directly in a `VideoFrame` (≈130 fps @4K, >30 @8K) vs the 2D-canvas path (≈6 fps); Firefox + Chromium are fast on 2D, and Firefox is actually slightly *slower* on WebGL-direct. So the frame source is now chosen by engine (`defaultCaptureMode` in `main.js`): **non-touch WebKit (desktop Safari) → WebGL direct; everyone else (Firefox, Chromium, iPad) → 2D canvas.** iPad stays on the proven 2D path (WebGL-direct hung iPadOS in Build 115); `?capture=2d|bitmap|gl` overrides for testing (e.g. whether iPad tolerates 'gl' now). Removed the experiment selector from the render sheet (kept `engine.captureFrameGL` + the per-mode timing reader). Net: export throughput is no longer a bottleneck on any tested engine. **Verify (Daniel):** a desktop-Safari render is fast AND visually correct (color + orientation); Firefox/Chromium unchanged.
