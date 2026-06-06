@@ -12,7 +12,9 @@ He prefers **no em dashes** in any prose Claude generates for him.
 
 ## current version
 
-`v0.8.8 · Build 146`. The footer in the running app shows this string from `src/version.js`.
+`v0.8.9 · Build 147`. The footer in the running app shows this string from `src/version.js`.
+
+**Timeline zoom/pan/scale-to-fit (Build 147, needs Daniel's verify).** The long-pending "B4" — the timeline is now navigable for multi-minute clips. Ephemeral session view transform (`session.timelineZoom`/`timelinePan`); all time positioning routes through `tToPct`/`pctToT` (markers, playhead, ruler, scrub). The tween strip is CSS-transformed (`translateX`+`scaleX` on `#mfStrip`) so zoom/pan is instant and re-seeks nothing. Input (Daniel's pick): trackpad-native — ctrl/pinch wheel = cursor-centered zoom, two-finger scroll = pan; touch = two-finger pinch+pan; mouse = fit/±buttons in the transport row. `renderTimeline` = `relayoutTimeline` (no rebuild) + debounced filmstrip; zoom/pan only relayout. Entering motion mode resets to fit. **Verify:** zoom/pan/fit across engines; markers/playhead/ruler/scrub/marker-drag all correct under transform. **Known limits:** strip is CSS-stretched (soft at deep zoom — future crisp re-render-at-window); no playhead auto-follow during playback. **Milestone note:** this completes the core video-animation plan + timeline polish; could be the **v0.9.0** bump — left as a patch (v0.8.9) for Daniel to call, per his pattern of directing milestone version bumps. **Next:** source-switch reset, then loop-lock.
 
 **Ruler shows total duration (Build 146, needs Daniel's verify).** Per Daniel's request, the ruler always renders the clip/loop length as a right-aligned, slightly-brighter (`#aaa`) end label; regular ticks within ~half a step of the end are suppressed to avoid crowding. **Verify:** right end always shows total time; no overlap with the last regular label.
 

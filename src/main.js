@@ -1241,6 +1241,8 @@ let motionActive = false;
 let motionRaf = 0;
 let motionStart = 0;          // performance.now() baseline for the current play
 let motionScrubbing = false;
+let _tlPointers = new Map();   // active pointers on the track (multi-touch pinch/pan)
+let _tlGesture = null;         // two-finger gesture anchor (start dist / zoom / pan)
 
 const KF_EPS = 0.005;         // "on a keyframe" tolerance in normalized time
 const kfList = () => motion.keyframes;
@@ -1330,7 +1332,7 @@ function keyframeAt(p) {
 function setPlayhead(p) {
   motion.playhead = p;
   const ph = document.getElementById('mfPlayhead');
-  if (ph) ph.style.left = (p * 100) + '%';
+  if (ph) ph.style.left = tToPct(p) + '%';
 }
 function renderSampled(p) {
   // mutate the working state to the sampled frame so BOTH the output and the source
@@ -1758,10 +1760,10 @@ function makeMarkerDraggable(m, i) {
     const list = kfList();
     const lo = list[i - 1].t + 0.01;
     const hi = (i < list.length - 1 ? list[i + 1].t : 1) - 0.01;
-    const t = Math.max(lo, Math.min(hi, (e.clientX - down.rect.left) / down.rect.width));
+    const t = Math.max(lo, Math.min(hi, pctToT((e.clientX - down.rect.left) / down.rect.width)));
     list[i].t = t;
     list[i].anchored = true;                        // a moved keyframe becomes a fixed anchor
-    m.style.left = (t * 100) + '%';
+    m.style.left = tToPct(t) + '%';
     if (env.sourceVideo) { setPlayhead(t); scrubVideo(t); }   // video: show the footage at the drop position while dragging
     else if (motion.selected === i) setPlayhead(t);
   });
@@ -1805,7 +1807,7 @@ function renderRuler() {
       if (i % 5 === 0) continue;                                // a major sits here
       const tick = document.createElement('div');
       tick.className = 'mf-tick minor';
-      tick.style.left = ((i * minor) / dur * 100) + '%';
+      tick.style.left = tToPct((i * minor) / dur) + '%';
       frag.appendChild(tick);
     }
   }
@@ -1815,36 +1817,85 @@ function renderRuler() {
     if (i > 0 && (dur - t) < step * 0.45) continue;   // too close to the total-duration label — skip
     const tick = document.createElement('div');
     tick.className = 'mf-tick major';
-    tick.style.left = (p * 100) + '%';
+    tick.style.left = tToPct(p) + '%';
     frag.appendChild(tick);
     const lab = document.createElement('span');
     lab.className = 'mf-time' + (p <= 0.001 ? ' start' : '');
     lab.textContent = fmtClock(t);
-    lab.style.left = (p * 100) + '%';
+    lab.style.left = tToPct(p) + '%';
     frag.appendChild(lab);
   }
   // total-duration label, always present at the end (the bound — brighter so it reads
   // as the clip / loop length).
   const eTick = document.createElement('div');
   eTick.className = 'mf-tick major';
-  eTick.style.left = '100%';
+  eTick.style.left = tToPct(1) + '%';
   frag.appendChild(eTick);
   const eLab = document.createElement('span');
   eLab.className = 'mf-time end total';
   eLab.textContent = fmtClock(dur);
-  eLab.style.left = '100%';
+  eLab.style.left = tToPct(1) + '%';
   frag.appendChild(eLab);
   ruler.appendChild(frag);
 }
-function renderTimeline() {
+// ---- timeline view transform (zoom / pan) ---------------------------------
+// Ephemeral, session-scoped (never keyframed): timelineZoom (≥1) and timelinePan
+// (left edge of the visible window, in normalized [0,1]). Everything positioned by
+// time routes through tToPct/pctToT so markers, playhead, ruler, and scrub all share
+// one window. The tween strip is rendered at full-timeline width and CSS-transformed
+// (translate + scaleX) so zoom/pan is instant and never re-seeks the footage.
+function tlMaxZoom() { const dur = motion.durationMs / 1000 || 1; return Math.max(4, Math.min(240, dur / 2)); }
+function tlSpan() { return 1 / (session.timelineZoom || 1); }
+function tToPct(t) { return (t - (session.timelinePan || 0)) / tlSpan() * 100; }      // time → % across the track
+function pctToT(frac) { return (session.timelinePan || 0) + frac * tlSpan(); }         // 0..1 across the track → time
+function clampTimelineView() {
+  session.timelineZoom = Math.max(1, Math.min(tlMaxZoom(), session.timelineZoom || 1));
+  session.timelinePan = Math.max(0, Math.min(1 - tlSpan(), session.timelinePan || 0));
+}
+function applyTimelineTransform() {
+  const strip = document.getElementById('mfStrip');
+  if (!strip) return;
+  const z = session.timelineZoom || 1, p = session.timelinePan || 0;
+  strip.style.transformOrigin = 'left center';
+  strip.style.transform = (z > 1 || p > 0) ? `translateX(${(-p * z * 100).toFixed(4)}%) scaleX(${z})` : '';
+}
+function zoomTimelineAt(frac, factor) {      // zoom keeping the time under `frac` fixed
+  const tUnder = pctToT(frac);
+  session.timelineZoom = (session.timelineZoom || 1) * factor;
+  clampTimelineView();
+  session.timelinePan = tUnder - frac * tlSpan();
+  clampTimelineView();
+  relayoutTimeline();
+  updateZoomButtons();
+}
+function fitTimeline() { session.timelineZoom = 1; session.timelinePan = 0; relayoutTimeline(); updateZoomButtons(); }
+let _tlRelayoutPending = false;
+function scheduleRelayout() {                 // coalesce rapid zoom/pan (wheel, pinch) to one frame
+  if (_tlRelayoutPending) return;
+  _tlRelayoutPending = true;
+  requestAnimationFrame(() => { _tlRelayoutPending = false; relayoutTimeline(); });
+}
+function updateZoomButtons() {
+  const z = session.timelineZoom || 1, mx = tlMaxZoom();
+  const q = (id) => document.getElementById(id);
+  if (q('mfFit')) q('mfFit').disabled = z <= 1.001;
+  if (q('mfZoomOut')) q('mfZoomOut').disabled = z <= 1.001;
+  if (q('mfZoomIn')) q('mfZoomIn').disabled = z >= mx * 0.999;
+}
+
+// renderTimeline = relayout (markers/playhead/ruler/strip-transform) + a debounced
+// filmstrip rebuild. Zoom/pan only relayout (no rebuild — the strip is CSS-transformed).
+function renderTimeline() { relayoutTimeline(); scheduleFilmstrip(); }
+function relayoutTimeline() {
   const markers = document.getElementById('mfMarkers');
   if (!markers) return;
+  clampTimelineView();
   markers.innerHTML = '';
   const list = kfList();
   list.forEach((kf, i) => {
     const m = document.createElement('div');
     m.className = 'mf-marker' + (i === motion.selected ? ' selected' : '') + (kf.anchored ? ' anchored' : '');
-    m.style.left = (kf.t * 100) + '%';
+    m.style.left = tToPct(kf.t) + '%';
     if (kf.thumb) m.appendChild(kf.thumb);
     const pin = document.createElement('div');
     pin.className = 'mf-pin';
@@ -1858,7 +1909,7 @@ function renderTimeline() {
   if (motion.loop && list.length) {
     const g = document.createElement('div');
     g.className = 'mf-marker ghost';
-    g.style.left = '100%';
+    g.style.left = tToPct(1) + '%';
     if (list[0].thumb) {
       const gc = document.createElement('canvas');
       gc.width = list[0].thumb.width; gc.height = list[0].thumb.height;
@@ -1871,7 +1922,7 @@ function renderTimeline() {
   }
   setPlayhead(motion.playhead);
   renderRuler();
-  scheduleFilmstrip();
+  applyTimelineTransform();
 }
 
 // ---- mode toggle + UI sync ------------------------------------------------
@@ -1880,6 +1931,7 @@ function toggleMotionMode() {
   motionActive = !motionActive;
   motion.selected = -1;          // never carry a stale selection across the toggle
                                  // (otherwise post-exit edits could write through to it)
+  if (motionActive) { session.timelineZoom = 1; session.timelinePan = 0; }   // enter fit-to-view
   if (motionActive && env.sourceVideo) {
     // video: the timeline drives the footage — stop the free-run loop + pause, and
     // lock the loop duration to the clip length (the duration field is read-only then).
@@ -1934,6 +1986,7 @@ function updateMotionUI() {
   if (q('mfPrev')) q('mfPrev').disabled = n < 1;
   if (q('mfNext')) q('mfNext').disabled = n < 1;
   q('mfLoop')?.classList.toggle('active', motion.loop);
+  updateZoomButtons();
   q('mfDurVal')?._sync?.();
   q('mfSmoothVal')?._sync?.();
 }
@@ -1986,6 +2039,9 @@ function wireMotion() {
   byId('mfNext')?.addEventListener('click', () => stepKeyframe(1));
   byId('mfPlay')?.addEventListener('click', () => { if (motion.playing) stopPlayback(); else startPlayback(); });
   byId('mfLoop')?.addEventListener('click', () => { motion.loop = !motion.loop; renderTimeline(); updateMotionUI(); });
+  byId('mfFit')?.addEventListener('click', fitTimeline);
+  byId('mfZoomIn')?.addEventListener('click', () => zoomTimelineAt(0.5, 1.6));
+  byId('mfZoomOut')?.addEventListener('click', () => zoomTimelineAt(0.5, 1 / 1.6));
 
   // ⋯ motion-data menu — download / load the keyframes+settings as portable JSON.
   const moreMenu = byId('mfMoreMenu'), moreBtn = byId('mfMore');
@@ -2016,7 +2072,7 @@ function wireMotion() {
     step: 0.5, fineStep: 0.1, coarseStep: 10, min: 0.5, max: 600,
     format: (v) => v.toFixed(1) + 's',
     parse: (s) => { const n = parseFloat(String(s).replace(/[s\s]/g, '')); return isNaN(n) ? null : n; },
-    onChange: renderRuler,               // duration drives the timestamps
+    onChange: () => { clampTimelineView(); relayoutTimeline(); updateZoomButtons(); },   // duration drives the timestamps + max zoom
   });
 
   // motion smoothing degree (0 = exact keyframes; higher relaxes jaggy keyframe
@@ -2036,29 +2092,74 @@ function wireMotion() {
   if (track) {
     const scrubTo = (clientX) => {
       const r = track.getBoundingClientRect();
-      const p = Math.max(0, Math.min(1, (clientX - r.left) / r.width));
+      const p = Math.max(0, Math.min(1, pctToT((clientX - r.left) / r.width)));   // through the zoom/pan window
       if (env.sourceVideo) { setPlayhead(p); scrubVideo(p); }   // video: seek footage (coalesced) + params
       else renderSampled(p);
     };
     track.addEventListener('pointerdown', (e) => {
+      _tlPointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      track.setPointerCapture?.(e.pointerId);
+      if (_tlPointers.size === 2) {                 // second finger → switch from scrub to pinch/pan
+        motionScrubbing = false;
+        const pts = [..._tlPointers.values()];
+        _tlGesture = {
+          dist: Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y) || 1,
+          mid: (pts[0].x + pts[1].x) / 2,
+          zoom: session.timelineZoom || 1, pan: session.timelinePan || 0,
+          rect: track.getBoundingClientRect(),
+        };
+        return;
+      }
       if (e.target.closest('.mf-marker') || !kfList().length) return;
       motionScrubbing = true;
       if (motion.playing) haltPlayback();
-      track.setPointerCapture(e.pointerId);
       scrubTo(e.clientX);
       e.preventDefault();
     });
-    track.addEventListener('pointermove', (e) => { if (motionScrubbing) scrubTo(e.clientX); });
-    const end = (e) => {
+    track.addEventListener('pointermove', (e) => {
+      if (_tlPointers.has(e.pointerId)) _tlPointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (_tlGesture && _tlPointers.size >= 2) {    // pinch-zoom by the finger ratio; the start-midpoint's
+        const pts = [..._tlPointers.values()];      // content time follows the moving midpoint (= pan)
+        const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y) || 1;
+        const mid = (pts[0].x + pts[1].x) / 2, r = _tlGesture.rect;
+        const frac0 = (_tlGesture.mid - r.left) / r.width;
+        const tAnchor = _tlGesture.pan + frac0 * (1 / _tlGesture.zoom);   // content under the initial midpoint
+        session.timelineZoom = _tlGesture.zoom * (dist / _tlGesture.dist);
+        clampTimelineView();
+        session.timelinePan = tAnchor - Math.max(0, Math.min(1, (mid - r.left) / r.width)) * tlSpan();
+        clampTimelineView();
+        scheduleRelayout(); updateZoomButtons();
+        e.preventDefault();
+        return;
+      }
+      if (motionScrubbing) scrubTo(e.clientX);
+    });
+    const up = (e) => {
+      _tlPointers.delete(e.pointerId);
+      track.releasePointerCapture?.(e.pointerId);
+      if (_tlPointers.size < 2) _tlGesture = null;
       if (!motionScrubbing) return;
       motionScrubbing = false;
-      track.releasePointerCapture?.(e.pointerId);
       loadPlayheadIntoState();
       renderTimeline();
       updateMotionUI();
     };
-    track.addEventListener('pointerup', end);
-    track.addEventListener('pointercancel', end);
+    track.addEventListener('pointerup', up);
+    track.addEventListener('pointercancel', up);
+    track.addEventListener('wheel', (e) => {
+      if (!motionActive) return;
+      const r = track.getBoundingClientRect();
+      if (e.ctrlKey) {                              // trackpad pinch (browsers map it to ctrl+wheel) → zoom on cursor
+        zoomTimelineAt(Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)), Math.exp(-e.deltaY * 0.01));
+        e.preventDefault();
+      } else {                                      // two-finger scroll → pan (only meaningful when zoomed in)
+        if ((session.timelineZoom || 1) <= 1) return;
+        const dx = Math.abs(e.deltaX) >= Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
+        session.timelinePan += (dx / r.width) * tlSpan();
+        clampTimelineView(); scheduleRelayout();
+        e.preventDefault();
+      }
+    }, { passive: false });
   }
 
   updateMotionUI();

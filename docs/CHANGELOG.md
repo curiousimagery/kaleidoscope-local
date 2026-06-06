@@ -4,6 +4,17 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.8.9 (Build 147) — 2026-06-06
+
+**Timeline zoom / pan / scale-to-fit (the long-pending "B4").** The timeline is now navigable — essential for multi-minute video sources. Ephemeral, session-scoped view transform (`session.timelineZoom` ≥1, `session.timelinePan` = visible-window left edge in normalized [0,1]); everything positioned by time routes through `tToPct`/`pctToT`, so markers, playhead, ruler, and scrub share one window. The tween strip is rendered at full-timeline width and **CSS-transformed** (`translateX` + `scaleX` on `#mfStrip`), so zoom/pan is instant and never re-seeks the footage.
+- **Input (per Daniel):** trackpad-native — pinch-to-zoom (browsers map it to ctrl+wheel) zooms centered on the cursor; two-finger scroll pans (when zoomed in). Touch gets two-finger pinch-zoom + pan (anchored to the finger midpoint). Mouse users get **fit / zoom-in / zoom-out** buttons in the transport row.
+- **Scale-to-fit** resets to the full view; max zoom scales with clip length (~2s minimum visible window, capped 240×). Entering motion mode starts fit-to-view.
+- `renderTimeline` split into `relayoutTimeline` (markers/playhead/ruler/strip-transform, no rebuild) + a debounced filmstrip rebuild, so zoom/pan only relayout.
+
+**Verify (Daniel):** on a long video, pinch/scroll (trackpad) and the fit/±buttons zoom and pan; markers, playhead, ruler ticks, and click-to-scrub all stay correct under the transform; dragging a keyframe lands where expected when zoomed; fit resets. Touch: two-finger pinch + pan. **Known limitations:** the strip is CSS-stretched when zoomed (gets soft at deep zoom — a crisp re-render-at-window is a future polish); the view doesn't auto-follow the playhead during playback yet.
+
+---
+
 ## v0.8.8 (Build 146) — 2026-06-06
 
 **Ruler shows total duration.** The timeline ruler now always renders the clip / loop length as a right-aligned label at the very end (slightly brighter `#aaa` so it reads as the bound), per Daniel's request to prioritize total-duration visibility. Any regular tick that would collide with it (within ~half a step of the end) is suppressed. **Verify (Daniel):** the right end of the ruler always shows the total time (matches the duration field on stills, the clip length on video), with no crowding against the last regular label.
