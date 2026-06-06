@@ -445,8 +445,10 @@ function loadVideo(file) {
   const v = document.createElement('video');
   v.muted = true; v.playsInline = true; v.loop = true; v.preload = 'auto';
   v.setAttribute('playsinline', ''); v.setAttribute('muted', '');
+  let loaded = false;
 
   v.addEventListener('loadeddata', () => {
+    loaded = true;
     try {
       engine.setSource(v);            // videoWidth is known now (a frame is decoded)
     } catch (e) {
@@ -477,10 +479,17 @@ function loadVideo(file) {
   }, { once: true });
 
   v.addEventListener('error', () => {
+    if (loaded) {
+      // a decode hiccup AFTER the clip already loaded (seen on some Firefox .mov) —
+      // not a codec-support problem, so don't blame ProRes. (Firefox .mov decode
+      // robustness is a tracked, deferred issue.)
+      console.warn('source video decode error after load', v.error);
+      return;
+    }
     if (uploadErrorEl) uploadErrorEl.textContent = 'could not load this video — the browser may not support its codec (ProRes works only in Safari). Try an H.264 or HEVC .mp4/.mov.';
     statusEl.textContent = '';
     statusEl.classList.remove('error', 'busy', 'success');
-  }, { once: true });
+  });
 
   v.src = url;
 }
@@ -1364,16 +1373,19 @@ async function scrubVideo(p) {
   _scrubSeekP = p;
   if (_scrubSeeking) return;
   _scrubSeeking = true;
-  while (_scrubSeekP != null) {
-    const target = _scrubSeekP; _scrubSeekP = null;
-    await advanceSourceToP(target);
-    Object.assign(state, sampleAt(target));
-    if (engine && engine.getSourceImage()) { engine.render(state); if (session.isSwapped) drawMiniKaleidoscope(); }
-    sourceOverlay.paintSourceVideo();
-    sourceOverlay.render();
-    setPlayhead(target);
+  try {
+    while (_scrubSeekP != null) {
+      const target = _scrubSeekP; _scrubSeekP = null;
+      await advanceSourceToP(target);
+      Object.assign(state, sampleAt(target));
+      if (engine && engine.getSourceImage()) { engine.render(state); if (session.isSwapped) drawMiniKaleidoscope(); }
+      sourceOverlay.paintSourceVideo();
+      sourceOverlay.render();
+      setPlayhead(target);
+    }
+  } finally {
+    _scrubSeeking = false;   // never leave the loop flag stuck (even if a seek/render throws)
   }
-  _scrubSeeking = false;
 }
 
 // ---- playback -------------------------------------------------------------

@@ -16,26 +16,29 @@ export function pToMediaSec(video, p) {
   return Math.max(0, Math.min(d, p * d));
 }
 
-// Seek the video to `sec` and resolve once a decoded frame for that time is
-// presentable. Prefers requestVideoFrameCallback (guarantees the frame is ready)
-// and falls back to the 'seeked' event (Firefox lacks rVFC). Resolves immediately
-// if we're already there.
+// Seek the video to `sec` and resolve once the decoded frame is ready to upload
+// as a texture. Resolve on the 'seeked' event (the frame is decoded + available
+// for texImage2D then). We deliberately do NOT wait on requestVideoFrameCallback:
+// our source <video> is occluded (opacity 0, behind the preview canvas), so on
+// Blink/WebKit it may never present a frame to the compositor → rVFC never fires →
+// the seek promise hangs → the scrub loop wedges on a stuck frame (the original
+// bug). A long safety timeout guarantees we can never wedge even if 'seeked' is
+// somehow skipped. Resolves immediately if we're already there.
 export function seekVideoTo(video, sec) {
   return new Promise((resolve) => {
     if (!video) { resolve(); return; }
     if (video.readyState >= 2 && Math.abs(video.currentTime - sec) < 1e-3) { resolve(); return; }
     let done = false;
+    let timer = 0;
     const finish = () => {
       if (done) return;
       done = true;
-      video.removeEventListener('seeked', onSeeked);
+      clearTimeout(timer);
+      video.removeEventListener('seeked', finish);
       resolve();
     };
-    const onSeeked = () => {
-      if (typeof video.requestVideoFrameCallback === 'function') video.requestVideoFrameCallback(() => finish());
-      else finish();
-    };
-    video.addEventListener('seeked', onSeeked, { once: true });
+    video.addEventListener('seeked', finish, { once: true });
+    timer = setTimeout(finish, 2000);   // safety net — never let a scrub seek hang
     try { video.currentTime = sec; } catch { finish(); }
   });
 }

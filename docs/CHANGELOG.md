@@ -4,6 +4,19 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.8.0 (Build 138) — 2026-06-05
+
+**Video animation milestone + the stuck-frame scrub fix.** Keyframing kaleidoscope parameters over a source video now works end to end (load → scrub → keyframe → play → render), hence the minor bump to 0.8.0.
+
+- **Fixed the stuck-frame bug (Daniel, longer clips).** `seekVideoTo` waited on `requestVideoFrameCallback` after the seek, but the source `<video>` is occluded (opacity 0, behind the preview canvas), so on Blink/WebKit it may never present a frame to the compositor — the callback never fired, the seek promise hung, and the coalescing scrub loop wedged on whatever frame playback last left (clicking the scrubber elsewhere did nothing; only pressing play recovered, since playback reads `currentTime` instead of seeking). Now `seekVideoTo` resolves on the `'seeked'` event (the decoded frame is ready for the texture then) and never waits on the compositor, with a 2s safety timeout so a seek can never wedge the loop. `scrubVideo` also clears its in-flight flag in a `finally`. Scrub now updates live (coalesced) on all engines, which also fixes the source-overlay-not-animating symptom (same root cause).
+- **Firefox false-positive ProRes error fixed.** A mid-playback decode hiccup on some Firefox `.mov` files fired the load-error handler and wrongly blamed ProRes. The codec/ProRes hint now shows only if the error happens BEFORE the clip loads; a post-load decode error just warns to the console (the underlying Firefox `.mov` decode robustness is a tracked, deferred issue).
+
+**IMPORTANT — video export is still params-over-a-frozen-frame.** Rendering currently animates the keyframed params over a SINGLE (paused) video frame; the footage does NOT advance frame-by-frame in the output yet. Making the video move in the render is the **frame-accurate video export** increment (now unblocked by this seek fix). So the "animated loop over a video" renders so far are param animation over a still from the clip.
+
+**Verify (Daniel):** on a longer clip, click/scrub anywhere on the timeline → the footage jumps to that frame (no longer stuck) and you can keyframe there; play still works; the Firefox `.mov` that false-errored should no longer throw the ProRes message mid-playback.
+
+---
+
 ## v0.7.41 (Build 137) — 2026-06-05
 
 **Video bound to the motion timeline (increment 2a) — scrub + keyframe over the footage.** Motion mode now works on a video source (un-gated): entering it stops the free-run loop, pauses the video, and locks the loop duration to the clip length; exiting resumes the free-run preview. New `shell/video-source.js` (`pToMediaSec`; `seekVideoTo` — rVFC-preferred with a `'seeked'` fallback for Firefox) plus `advanceSourceToP` / `scrubVideo` (coalescing seeks, latest-target-wins) in `main.js`. **Scrub** the timeline → the footage seeks to that frame, params sampled at the same position. **Playback** uses the `<video>` as the master clock — it plays, and each frame derives `p` from `currentTime`, samples params at `p`, and renders, so params stay locked to the actual presented frame. The duration field is read-only for a video (it's the clip length). Net: you can author parameter keyframes over moving footage — scrub to a spot, tweak, add a keyframe, repeat.
