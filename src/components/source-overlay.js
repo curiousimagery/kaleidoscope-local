@@ -37,6 +37,7 @@ export function createSourceOverlay(ctx) {
     state: ctx.state,
     engine: ctx.engine,
     get liveVideo() { return ctx.getLiveVideo ? ctx.getLiveVideo() : null; },
+    get sourceVideo() { return ctx.getSourceVideo ? ctx.getSourceVideo() : null; },
 
     fit: ctx.fit || 'contain',   // 'contain' (letterbox) | 'cover' (fill + crop)
     container: null,
@@ -74,6 +75,17 @@ export function createSourceOverlay(ctx) {
 
     render() { drawSourceOverlay(view); },
     scheduleDraw: drawer.schedule,
+
+    // Paint the current frame of a loaded source video into its 2D preview canvas
+    // (created by mountSourceView). A textured <video> shows black when displayed
+    // directly on Blink/Gecko, so the source slot shows this canvas instead; the
+    // host's render loop calls this each frame.
+    paintSourceVideo() {
+      const v = view.sourceVideo;
+      if (view.sourceVideoCanvas && v && v.readyState >= 2) {
+        view.sourceVideoCtx.drawImage(v, 0, 0, view.sourceVideoCanvas.width, view.sourceVideoCanvas.height);
+      }
+    },
 
     // switch source display fit ('contain' | 'cover'). Re-mounts so the displayed
     // source's CSS fit + the overlay geometry update together.

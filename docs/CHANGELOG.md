@@ -4,6 +4,12 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.7.40 (Build 136) — 2026-06-05
+
+**Source-video preview actually wired up (the real fix for blank source on Brave/Firefox).** Build 135's canvas preview never executed: `mountSourceView` operates on the source-overlay COMPONENT's `view` object, which only proxied `liveVideo`, not `sourceVideo` — so every loaded video fell through to the STILL path (a `background-image` of a video blob URL, which only WebKit renders, which is exactly why it "worked" on Safari and was blank on Blink/Gecko). Separately, the render loop read the preview canvas off `env` while `mountSourceView` wrote it onto `view`. Both halves are now connected: the component exposes `sourceVideo` (via a new `getSourceVideo` ctx hook) and a `paintSourceVideo()` method that the host render loop calls each frame. **Verify (Daniel):** the source slot shows the playing footage (not black/blank) on Brave + Firefox + Safari for mp4/m4v/mov. (The iPhone-`.mov` color/aspect quirks remain the separate deferred item.)
+
+---
+
 ## v0.7.39 (Build 135) — 2026-06-05
 
 **Source-video preview painted via a 2D canvas (fixes the black preview on Blink/Gecko).** A `<video>` used as a WebGL texture source renders black when also displayed directly on Brave/Firefox (it worked only on Safari), even while playing. Fix: keep the `<video>` in the DOM but occluded (it must stay live to decode + feed the texture) and paint a small 2D-canvas copy on top that the render loop refreshes each frame — a canvas composites reliably on every engine, and it also dodges native-video color/rotation display quirks. The source slot now shows the moving footage with the wedge overlay on all three browsers. (Live camera is unchanged — it still mounts its `<video>` directly.)

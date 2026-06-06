@@ -190,6 +190,7 @@ const sourceOverlay = createSourceOverlay({
   state,
   engine,
   getLiveVideo: () => env.liveVideo,
+  getSourceVideo: () => env.sourceVideo,   // a loaded video file source (vs the live camera)
   syncControls: scheduleSyncControls,
   scheduleRender,
   onCommitStart: () => env.pushHistory(),
@@ -533,11 +534,7 @@ function startLiveLoop() {
       engine.updateSourceFrame();
       engine.render(state);
       if (session.isSwapped) drawMiniKaleidoscope();
-      // loaded source video: paint the current frame into the 2D preview canvas
-      // (the <video> itself renders black on Blink/Gecko while used as a texture).
-      if (env.sourceVideoCanvas && env.sourceVideo && env.sourceVideo.readyState >= 2) {
-        env.sourceVideoCtx.drawImage(env.sourceVideo, 0, 0, env.sourceVideoCanvas.width, env.sourceVideoCanvas.height);
-      }
+      sourceOverlay.paintSourceVideo();   // loaded source video → its 2D preview canvas (no-op otherwise)
     }
     sourceOverlay.render();
     liveRaf = requestAnimationFrame(tick);
