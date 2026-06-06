@@ -1662,7 +1662,10 @@ async function buildFilmstripVideo(strip, sig) {
   const list = [...kfList()];                       // snapshot (the array may mutate during awaits)
   const fs = 240;
   strip.innerHTML = '';                             // no tween strip for video yet — markers carry the thumbs
-  previewCanvas.style.visibility = 'hidden';
+  // NOTE: we do NOT hide the preview canvas during the build — Firefox can drop the
+  // WebGL drawing buffer for a non-composited canvas, which made the captures (and
+  // thus the thumbnails) come back blank. The cost is a brief preview flicker as the
+  // captures render at thumbnail size; resizePreviewCanvas() restores it after.
   engine.beginCapture(fs, fs);
   try {
     for (const kf of list) {
@@ -1677,7 +1680,6 @@ async function buildFilmstripVideo(strip, sig) {
   } finally {
     engine.endCapture();
     if (gen === _filmstripGen) { await seekVideoTo(v, saved); engine.updateSourceFrame(); }   // restore (skip if cancelled — the canceller owns the frame)
-    previewCanvas.style.visibility = '';
     resizePreviewCanvas();
     _filmstripBusy = false;
   }
@@ -1708,7 +1710,8 @@ function makeMarkerDraggable(m, i) {
     list[i].t = t;
     list[i].anchored = true;                        // a moved keyframe becomes a fixed anchor
     m.style.left = (t * 100) + '%';
-    if (motion.selected === i) setPlayhead(t);
+    if (env.sourceVideo) { setPlayhead(t); scrubVideo(t); }   // video: show the footage at the drop position while dragging
+    else if (motion.selected === i) setPlayhead(t);
   });
   const end = (e) => {
     if (!down) return;

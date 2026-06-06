@@ -4,6 +4,16 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.8.4 (Build 142) — 2026-06-06
+
+**Video keyframe thumbnails actually render now + dragging a keyframe previews the footage.** Two fixes on the Build-141 thumbnail work:
+- **Blank thumbnails fixed.** Build 141 hid the preview canvas during the thumbnail build; Firefox drops the WebGL drawing buffer for a non-composited canvas, so the captures came back empty (blank markers). Removed the hide — captures render correctly. Trade-off: a brief preview flicker during the debounced rebuild as the captures render at thumbnail size (cosmetic; `resizePreviewCanvas` restores the preview after).
+- **Dragging a keyframe previews the drop position.** The marker-drag handler updated the keyframe's time but never moved the footage, so you couldn't see where you were dropping it (scrub, memorize the spot, then drag blind). Dragging a marker now scrubs the footage to the drop position live (coalesced seeks) so you can place keyframes by eye.
+
+**Verify (Daniel):** keyframe marker thumbnails render (not blank) and match each keyframe's footage; dragging a keyframe shows the footage move to where it will land.
+
+---
+
 ## v0.8.3 (Build 141) — 2026-06-06
 
 **Keyframe thumbnails follow the footage (video).** Keyframe marker thumbnails now seek the footage to each keyframe's own time before capturing, so they stay correct under add / edit / auto-shift / drag instead of all rendering from the last-edited frame (the bug Daniel hit: editing one keyframe rewrote every other thumbnail with its frame). The rebuild is async + single-flight (`_filmstripBusy`) + cancellable (`_filmstripGen`, bumped by scrub/playback): it seeks per keyframe, hides the preview during the build (captures borrow the live GL canvas), restores the footage to the playhead after, and bails if a scrub / playback / newer build supersedes it. Adding a keyframe also moves the footage to the new keyframe's (auto-spaced) time. **Deferred for video:** the tween filmstrip STRIP (the band behind the markers) is skipped for now (it would need a seek per cell); the markers carry the correct per-keyframe thumbnails. **Verify (Daniel):** add several keyframes over a video at different times, then edit / auto-shift / drag them — each marker thumbnail should show that keyframe's own footage frame, and editing one should not change another's. A brief preview blank during the debounced thumbnail rebuild is expected (it's seeking).
