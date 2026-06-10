@@ -639,6 +639,10 @@ body.motion #oobModes { pointer-events: none; opacity: 0.4; }
 .clip-region { position: absolute; top: 0; bottom: 0; background: rgba(255, 210, 63, 0.14); border-left: 2px solid #ffd23f; border-right: 2px solid #ffd23f; pointer-events: none; }
 .clip-handle { position: absolute; top: -3px; bottom: -3px; width: 12px; transform: translateX(-50%); background: #ffd23f; border-radius: 4px; cursor: ew-resize; touch-action: none; }
 .clip-handle::after { content: ''; position: absolute; left: 50%; top: 50%; width: 2px; height: 16px; margin: -8px 0 0 -1px; background: rgba(0, 0, 0, 0.4); border-radius: 1px; }
+.clip-handle.cut { width: 8px; background: #4aa3ff; cursor: ew-resize; }   /* slice point — distinct from the yellow trim handles */
+.clip-handle.cut[hidden] { display: none; }
+.clip-xfade { margin-left: 8px; }
+.clip-xfade[hidden] { display: none; }
 .clip-playhead { position: absolute; top: 0; bottom: 0; width: 2px; background: #fff; transform: translateX(-50%); pointer-events: none; z-index: 1; }
 .clip-meta { font-size: 12px; color: #888; text-align: center; }
 .clip-mode { display: flex; align-items: center; gap: 6px; margin-top: 10px; }

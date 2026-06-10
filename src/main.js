@@ -511,6 +511,19 @@ function stopSourceVideoPlayback() {
   if (env.sourceVideo) { try { env.sourceVideo.pause(); } catch { /* ignore */ } }
 }
 
+// However you arrive in the motion editor — fresh entry, source switch, or the clip
+// editor (trim/bake) — you should always land with a kf0 (the start/end anchor recording
+// the current look) AND with it selected, so the next +keyframe adds an IN-BETWEEN
+// keyframe rather than re-creating a start anchor. Returns true if it seeded kf0 (which
+// renders/scrubs on its own, so the caller can skip its own render).
+function ensureSeededSelection() {
+  if (!motionActive) { motion.selected = -1; return false; }
+  if (!kfList().length) { addKeyframe(); return true; }      // seed kf0 (records the current slice look)
+  const i = keyframeAt(motion.playhead);
+  motion.selected = i >= 0 ? i : 0;                          // kf0 at the playhead → selected, so +keyframe inserts between
+  return false;
+}
+
 // A new source loaded while we're in motion mode with keyframes: re-bind the motion to
 // it instead of leaving stale state behind (old locked duration, old-source thumbnails,
 // a desynced play/pause). Keyframes are source-AGNOSTIC (params over time, like the
@@ -519,9 +532,9 @@ function rebindMotionToSource() {
   haltPlayback();
   session.timelineZoom = 1; session.timelinePan = 0;          // back to fit
   motion.playhead = 0;
-  motion.selected = -1;
   if (env.sourceVideo) lockVideoDuration();                  // re-lock to the new clip (× retime)
   lastFilmstripSig = '';                                      // old-source thumbs → force a rebuild
+  if (ensureSeededSelection()) return;                       // seeded kf0 → it handled render/scrub
   renderTimeline();
   updateMotionUI();
   if (env.sourceVideo) scrubVideo(0);                         // show the new clip's first frame (timeline-driven, not free-run)
@@ -584,9 +597,10 @@ function disposeClipPreview() {
 function rebindClipToTimeline() {
   if (!env.sourceVideo) return;
   lockVideoDuration();
-  motion.playhead = 0; motion.selected = -1;
+  motion.playhead = 0;
   session.timelineZoom = 1; session.timelinePan = 0;
   lastFilmstripSig = '';
+  if (ensureSeededSelection()) return;             // always land with a selected kf0 (so +keyframe adds an in-between)
   renderTimeline();
   updateMotionUI();
   scrubVideo(0);
@@ -606,21 +620,42 @@ function renderClipTrim() {
   if (inEl) inEl.style.left = (clip.inT * 100) + '%';
   if (outEl) outEl.style.left = (clip.outT * 100) + '%';
   if (region) { region.style.left = (clip.inT * 100) + '%'; region.style.right = ((1 - clip.outT) * 100) + '%'; }
+  const cutEl = document.getElementById('clipCut');
+  if (cutEl) cutEl.style.left = ((clip.inT + clip.slicePoint * (clip.outT - clip.inT)) * 100) + '%';
   const lab = document.getElementById('clipDur');
   if (lab && d) lab.textContent = `${fmtClock((clip.outT - clip.inT) * d)} of ${fmtClock(d)}`;
 }
+// preview segments to play in order (looping). slice previews the REARRANGEMENT — B
+// (=[cut,out]) then A (=[in,cut]) — so the seam is visible in context (a hard cut here;
+// the bake crossfades it). Other modes preview the trimmed forward range (bounce can't
+// reverse natively, so its preview is forward — the bake adds the reverse).
+function clipPreviewSegments() {
+  const d = (_clipPrevVideo && _clipPrevVideo.duration) || 1;
+  const inS = clip.inT * d, outS = clip.outT * d;
+  if (clip.mode === 'slice') {
+    const cut = (clip.inT + clip.slicePoint * (clip.outT - clip.inT)) * d;
+    return [[cut, outS], [inS, cut]];
+  }
+  return [[inS, outS]];
+}
+let _clipSeg = 0;
 function startClipPreview() {
   const v = _clipPrevVideo;
   if (!v) return;
-  const d = v.duration || 1;
-  try { v.currentTime = clip.inT * d; } catch { /* ignore */ }
+  _clipSeg = 0;
+  try { v.currentTime = clipPreviewSegments()[0][0]; } catch { /* ignore */ }
   v.play().catch(() => {});
   const tick = () => {
     if (!_clipPrevVideo) return;
-    const dd = v.duration || 1, inS = clip.inT * dd, outS = clip.outT * dd;
-    if (v.currentTime >= outS - 0.03 || v.currentTime < inS - 0.03) { try { v.currentTime = inS; } catch { /* ignore */ } }
+    const segs = clipPreviewSegments();           // re-read each frame so mode/cut/trim edits apply live
+    if (_clipSeg >= segs.length) _clipSeg = 0;
+    const [s, e] = segs[_clipSeg];
+    if (v.currentTime >= e - 0.03 || v.currentTime < s - 0.08) {
+      _clipSeg = (_clipSeg + 1) % segs.length;
+      try { v.currentTime = segs[_clipSeg][0]; } catch { /* ignore */ }
+    }
     const ph = document.getElementById('clipPlayhead');
-    if (ph) ph.style.left = ((v.currentTime / dd) * 100) + '%';
+    if (ph) ph.style.left = ((v.currentTime / (v.duration || 1)) * 100) + '%';
     _clipRaf = requestAnimationFrame(tick);
   };
   _clipRaf = requestAnimationFrame(tick);
@@ -662,9 +697,10 @@ function makeClipHandle(el, which) {
     const t = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width));
     const gap = 0.02;
     if (which === 'in') clip.inT = Math.min(t, clip.outT - gap);
-    else clip.outT = Math.max(t, clip.inT + gap);
+    else if (which === 'out') clip.outT = Math.max(t, clip.inT + gap);
+    else { const rng = (clip.outT - clip.inT) || 1; clip.slicePoint = Math.max(0.05, Math.min(0.95, (t - clip.inT) / rng)); }
     renderClipTrim();
-    const handleT = which === 'in' ? clip.inT : clip.outT;
+    const handleT = which === 'in' ? clip.inT : which === 'out' ? clip.outT : (clip.inT + clip.slicePoint * (clip.outT - clip.inT));
     clipSeekTo(handleT);                            // coalesced seek (no decoder flood) — shows the frame under the handle
     const ph = document.getElementById('clipPlayhead');
     if (ph) ph.style.left = (handleT * 100) + '%';
@@ -680,6 +716,11 @@ function setClipMode(mode) {
   sheet?.querySelectorAll('[data-mode]').forEach(b => b.classList.toggle('active', b.dataset.mode === mode));
   const apply = document.getElementById('clipApply');
   if (apply) apply.textContent = mode === 'forward' ? 'apply trim' : `bake ${mode} ▸`;
+  const slice = mode === 'slice';
+  const cutEl = document.getElementById('clipCut'); if (cutEl) cutEl.hidden = !slice;
+  const xfade = document.getElementById('clipXfadeRow'); if (xfade) xfade.hidden = !slice;
+  renderClipTrim();
+  if (_clipRaf && _clipPrevVideo && !_clipDrag) { stopClipPreview(); startClipPreview(); }   // re-segment a RUNNING preview for the new mode
 }
 const _even = (n) => Math.max(2, Math.round(n / 2) * 2);
 let _clipBaking = false;
@@ -719,7 +760,36 @@ async function bakeAndApply() {
       cctx.drawImage(decodeV, 0, 0, w, h);
       return cap;
     };
-  } else { _clipBaking = false; return; }         // slice = B2
+  } else if (clip.mode === 'slice') {
+    // Slice: rearrange the trimmed clip [inA,outA] as B(=[cut,outA]) then A(=[inA,cut])
+    // — the loop point (A end = B start = cut) is continuous; the B→A SEAM is crossfaded
+    // by overlapping B's tail with A's head (the FCP technique), which shortens the loop
+    // by the crossfade length.
+    const inA = clip.inT * dur, outA = clip.outT * dur;
+    const cut = (clip.inT + clip.slicePoint * range) * dur;
+    const Bdur = outA - cut, Adur = cut - inA;
+    const cfSec = Math.max(0, Math.min(clip.crossfadeMs / 1000, Bdur * 0.9, Adur * 0.9));
+    const outDur = (outA - inA) - cfSec;
+    const bEnd = Bdur - cfSec;                     // pure-B until here (output seconds)
+    durationMs = Math.max(200, outDur * 1000);
+    frameAt = async (p) => {
+      const t = p * outDur;
+      if (t < bEnd) {                              // pure B
+        await seekVideoTo(decodeV, cut + t);
+        cctx.globalAlpha = 1; cctx.drawImage(decodeV, 0, 0, w, h);
+      } else if (t < Bdur) {                       // crossfade: B tail dissolves into A head
+        const alpha = cfSec > 0 ? (t - bEnd) / cfSec : 1;
+        await seekVideoTo(decodeV, cut + t);       // B tail (outA-cfSec → outA)
+        cctx.globalAlpha = 1; cctx.drawImage(decodeV, 0, 0, w, h);
+        await seekVideoTo(decodeV, inA + (t - bEnd));   // A head (inA → inA+cfSec)
+        cctx.globalAlpha = alpha; cctx.drawImage(decodeV, 0, 0, w, h); cctx.globalAlpha = 1;
+      } else {                                     // pure A
+        await seekVideoTo(decodeV, inA + (t - bEnd));
+        cctx.globalAlpha = 1; cctx.drawImage(decodeV, 0, 0, w, h);
+      }
+      return cap;
+    };
+  } else { _clipBaking = false; return; }
 
   const prog = document.getElementById('clipProgress'), fill = document.getElementById('clipBarFill');
   const apply = document.getElementById('clipApply');
@@ -2377,6 +2447,14 @@ function wireMotion() {
     b.addEventListener('click', () => { if (!b.disabled) setClipMode(b.dataset.mode); }));
   makeClipHandle(byId('clipIn'), 'in');
   makeClipHandle(byId('clipOut'), 'out');
+  makeClipHandle(byId('clipCut'), 'cut');
+  if (byId('clipXfade')) makeScrubField(byId('clipXfade'), {
+    get: () => clip.crossfadeMs / 1000,
+    set: (v) => { clip.crossfadeMs = Math.max(0, Math.min(3, v)) * 1000; },
+    step: 0.1, fineStep: 0.05, min: 0, max: 3,
+    format: (v) => v.toFixed(2) + 's',
+    parse: (s) => { const n = parseFloat(String(s).replace(/[s\s]/g, '')); return isNaN(n) ? null : n; },
+  });
 
   // ⋯ motion-data menu — download / load the keyframes+settings as portable JSON.
   const moreMenu = byId('mfMoreMenu'), moreBtn = byId('mfMore');
