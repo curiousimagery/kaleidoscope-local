@@ -4,6 +4,12 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.9.8 (Build 155) — 2026-06-09
+
+**Fix: clip-editor trim handles no longer flood the decoder.** The trim handles seeked the preview video on *every* pointermove with no coalescing, so dragging flooded the decoder and made the clip-editor scrubber feel much heavier than the main timeline — even on Chrome (engine-independent; Daniel confirmed cross-engine). Now handle drags go through a coalesced `clipSeekTo` (latest-target-wins, mirroring `scrubVideo`), so only the latest position seeks. **Context (Daniel's diagnosis):** the broader "slow on M5" turned out to be a Firefox-vs-Chrome comparison, not a regression — 154 is snappy on Brave/Chromium; Firefox's heavier seek/decode cost (everything video is seek-based) is the real driver there, addressed later by seek-reduction (footage cache / decode-based thumbnails), not reversion. **Verify (Daniel):** dragging the clip-editor trim handles is now as responsive as the main scrubber on Chromium.
+
+---
+
 ## v0.9.7 (Build 154) — 2026-06-09
 
 **Clip editor — increment A: trim + looped preview (non-destructive).** First piece of the pre-animation clip editor. A **clip ▸** button in the motion footer (video-only) opens a sheet (`#clipSheet`, mirrors the render sheet) with a looping preview of the source and two drag handles to **trim** off the front and back. The preview is its OWN `<video>` (same blob URL) so it never disturbs the texture-source element; it loops within the trimmed range and a playhead tracks it. Apply commits the trim; Cancel reverts. Trim threads through the source-time seam non-destructively: `pToMediaSec(video, p, clip)` now scales `p` into `[inT, outT]` (default `[0,1]` = identical to before), `videoNativeDurationMs`/`lockVideoDuration` use the trimmed length (so the timeline + export cover only the trim, and retime stacks on top), and `startVideoPlayback` loops within the trimmed range. Trim resets to the whole clip on a new video load. **Next — increment B:** bounce + slice/crossfade (baked, reusing the export encoder) + the destructive-bake soft-warning + in-editor loop preview of the seam. **Verify (Daniel):** open clip ▸ on a video, trim front/back (preview loops the trimmed range), Apply → timeline/ruler/duration cover only the trim, scrub/playback/export honor it; Cancel reverts; loading a new video clears the trim.

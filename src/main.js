@@ -623,6 +623,25 @@ function stopClipPreview() {
   if (_clipRaf) { cancelAnimationFrame(_clipRaf); _clipRaf = 0; }
   if (_clipPrevVideo) { try { _clipPrevVideo.pause(); } catch { /* ignore */ } }
 }
+// Coalesced seek of the preview video to normalized position t (latest target wins) —
+// mirrors scrubVideo, so dragging a trim handle never floods the decoder (which made
+// the clip-editor scrubber feel much heavier than the main timeline, even on Chrome).
+let _clipSeekT = null, _clipSeeking = false;
+function clipSeekTo(t) {
+  const v = _clipPrevVideo;
+  if (!v) return;
+  _clipSeekT = t;
+  if (_clipSeeking) return;
+  _clipSeeking = true;
+  (async () => {
+    try {
+      while (_clipSeekT != null) {
+        const target = _clipSeekT; _clipSeekT = null;
+        await seekVideoTo(v, target * (v.duration || 1));
+      }
+    } finally { _clipSeeking = false; }
+  })();
+}
 function makeClipHandle(el, which) {
   if (!el) return;
   el.addEventListener('pointerdown', (e) => {
@@ -639,10 +658,10 @@ function makeClipHandle(el, which) {
     if (which === 'in') clip.inT = Math.min(t, clip.outT - gap);
     else clip.outT = Math.max(t, clip.inT + gap);
     renderClipTrim();
-    const v = _clipPrevVideo;                       // show the frame under the handle
-    if (v) { try { v.currentTime = (which === 'in' ? clip.inT : clip.outT) * (v.duration || 1); } catch { /* ignore */ } }
+    const handleT = which === 'in' ? clip.inT : clip.outT;
+    clipSeekTo(handleT);                            // coalesced seek (no decoder flood) — shows the frame under the handle
     const ph = document.getElementById('clipPlayhead');
-    if (ph) ph.style.left = ((which === 'in' ? clip.inT : clip.outT) * 100) + '%';
+    if (ph) ph.style.left = (handleT * 100) + '%';
   });
   const up = (e) => { if (_clipDrag !== which) return; _clipDrag = null; el.releasePointerCapture?.(e.pointerId); startClipPreview(); };
   el.addEventListener('pointerup', up);
