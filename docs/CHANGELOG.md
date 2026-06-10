@@ -4,6 +4,12 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.9.6 (Build 153) — 2026-06-09
+
+**Video retime (playback speed).** Video sources were stuck at native speed (stills can already set any duration). A new **speed** control in the motion footer (25% / 50% / 100% / 200%, video-only) retimes playback — especially to *slow busy footage down* so the kaleidoscope fold stays readable. Implementation maps onto what we already have: `motion.videoSpeed` sets the source `<video>.playbackRate` for preview, and the locked `motion.durationMs = nativeDuration ÷ videoSpeed`, so the timeline + frame-by-frame export stretch/compress automatically (no engine change). Re-locked on motion entry, source switch, and JSON load; `videoSpeed` is included in the motion JSON. **Caveat:** heavy slow-mo repeats the nearest footage frame on export (seek-based, no frame interpolation) — masked well by the fold; true interpolation is a future nicety. **Verify (Daniel):** with a video, the speed presets slow/speed playback (footage + params stay in sync), the ruler/duration reflect the new length, export runs at the retimed duration, and 50%/25% make a busy clip readable.
+
+---
+
 ## v0.9.5 (Build 152) — 2026-06-09
 
 **Source-switch reset.** Loading a new source while animating left stale state behind: the old clip's locked duration, the previous source's keyframe thumbnails, and a desynced play/pause (plus video always free-ran, even mid-animation). Now `loadVideo`/`loadImage` halt playback and clear the filmstrip signature on any switch, and — if you're in motion mode — `rebindMotionToSource` re-binds the keyframes to the new source: re-locks the duration to the new clip (video), resets the playhead + timeline view to fit, forces a thumbnail rebuild from the new source, and shows the new clip's first frame timeline-driven (no free-run). **Keyframes are kept** — they're source-agnostic (params over time, like the motion-JSON), so the bug was only the source-dependent state, not the animation. **Verify (Daniel):** animate over video A, load video B → duration matches B, thumbnails regenerate from B, playhead at start, play/pause sane, keyframes preserved; same for switching to a still.

@@ -549,6 +549,7 @@ button .btn-spinner {
 .mf-frame { display: inline-flex; gap: 4px; }
 .mf-dur { margin-left: auto; display: flex; align-items: center; gap: 6px; font-size: 12px; color: #888; }
 .mf-field { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #888; }
+.mf-field[hidden] { display: none; }   /* class display:flex would otherwise beat the hidden attribute */
 
 /* timeline ruler — ticks + occasional timestamps above the track. inset 1px on each
    side so tick positions (% of the ruler) line up with markers (% inside the track's

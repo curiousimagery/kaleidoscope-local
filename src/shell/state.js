@@ -79,4 +79,8 @@ export const motion = {
   playing: false,
   playhead: 0,        // 0..1 scrubber position
   selected: -1,       // index of the selected (editable) keyframe, or -1
+  videoSpeed: 1,      // VIDEO sources only: playback-speed multiplier (0.25=¼× slow-mo,
+                      // 2=2× fast). The locked durationMs = nativeDurationMs / videoSpeed,
+                      // so the timeline + export stretch/compress the clip. Stills set
+                      // durationMs directly and ignore this.
 };

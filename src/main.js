@@ -519,15 +519,33 @@ function rebindMotionToSource() {
   session.timelineZoom = 1; session.timelinePan = 0;          // back to fit
   motion.playhead = 0;
   motion.selected = -1;
-  if (env.sourceVideo) {
-    const d = env.sourceVideo.duration;
-    if (d && isFinite(d)) motion.durationMs = Math.round(d * 1000);   // re-lock to the new clip
-  }
+  if (env.sourceVideo) lockVideoDuration();                  // re-lock to the new clip (× retime)
   lastFilmstripSig = '';                                      // old-source thumbs → force a rebuild
   renderTimeline();
   updateMotionUI();
   if (env.sourceVideo) scrubVideo(0);                         // show the new clip's first frame (timeline-driven, not free-run)
   else renderSampled(0);                                      // still: show the playhead-0 look
+}
+
+// VIDEO retime: the locked motion duration = the clip's native length ÷ the playback-
+// speed multiplier (so ¼× makes the timeline + export 4× longer = slow-mo). Stills set
+// durationMs directly and ignore videoSpeed.
+function videoNativeDurationMs() {
+  const d = env.sourceVideo && env.sourceVideo.duration;
+  return (d && isFinite(d)) ? Math.round(d * 1000) : 0;
+}
+function lockVideoDuration() {
+  const nat = videoNativeDurationMs();
+  if (nat) motion.durationMs = Math.max(1, Math.round(nat / (motion.videoSpeed || 1)));
+}
+function setVideoSpeed(spd) {
+  if (!env.sourceVideo) return;
+  motion.videoSpeed = spd;
+  lockVideoDuration();
+  try { env.sourceVideo.playbackRate = spd; } catch { /* some browsers clamp extreme rates */ }
+  clampTimelineView();                 // duration changed → max-zoom bound changed
+  renderTimeline();                    // ruler reflects the new effective duration
+  updateMotionUI();
 }
 
 // ============================================================================
@@ -1464,6 +1482,7 @@ function startVideoPlayback() {
   const dur = (v.duration && isFinite(v.duration)) ? v.duration : 1;
   v.currentTime = pToMediaSec(v, motion.playhead >= 1 ? 0 : motion.playhead);
   v.loop = !!motion.loop;
+  try { v.playbackRate = motion.videoSpeed || 1; } catch { /* clamp */ }   // retime
   v.play().catch(() => {});
   const tick = () => {
     if (!motion.playing) return;
@@ -2008,8 +2027,7 @@ function toggleMotionMode() {
     // video: the timeline drives the footage — stop the free-run loop + pause, and
     // lock the loop duration to the clip length (the duration field is read-only then).
     stopSourceVideoPlayback();
-    const d = env.sourceVideo.duration;
-    if (d && isFinite(d)) motion.durationMs = Math.round(d * 1000);
+    lockVideoDuration();               // lock to clip length ÷ retime speed
   }
   if (!motionActive) haltPlayback();
   else if (!kfList().length) addKeyframe();   // QoL: enter motion mode with a keyframe of the current look
@@ -2059,6 +2077,13 @@ function updateMotionUI() {
   if (q('mfNext')) q('mfNext').disabled = n < 1;
   q('mfLoop')?.classList.toggle('active', motion.loop);
   updateZoomButtons();
+  // retime control: video sources only (stills set duration directly)
+  const sp = q('mfSpeed');
+  if (sp) {
+    sp.hidden = !env.sourceVideo;
+    sp.querySelectorAll('[data-spd]').forEach(b =>
+      b.classList.toggle('active', Math.abs(parseFloat(b.dataset.spd) - (motion.videoSpeed || 1)) < 1e-6));
+  }
   q('mfDurVal')?._sync?.();
   q('mfSmoothVal')?._sync?.();
 }
@@ -2071,7 +2096,7 @@ function updateMotionUI() {
 function motionToJSON() {
   return JSON.stringify({
     format: 'fold-motion', version: 1, app: formatVersion(),
-    durationMs: motion.durationMs, loop: motion.loop, smoothing: motion.smoothing,
+    durationMs: motion.durationMs, loop: motion.loop, smoothing: motion.smoothing, videoSpeed: motion.videoSpeed,
     keyframes: kfList().map(k => ({ t: k.t, anchored: !!k.anchored, snap: { ...k.snap } })),
   });
 }
@@ -2088,6 +2113,8 @@ function loadMotionFromJSON(text) {
   motion.durationMs = Math.max(500, Math.min(600000, +o.durationMs || 30000));
   motion.loop = o.loop !== false;
   motion.smoothing = Math.max(0, Math.min(1, +o.smoothing || 0));
+  motion.videoSpeed = Math.max(0.1, Math.min(4, +o.videoSpeed || 1));
+  if (env.sourceVideo) lockVideoDuration();      // a video source overrides duration with native ÷ speed
   motion.keyframes = o.keyframes.map(k => ({ t: +k.t || 0, anchored: !!k.anchored, snap: { ...k.snap }, thumb: makeThumbCanvas() }));
   motion.keyframes[0].anchored = true;          // kf0 is always the start anchor at t=0
   motion.selected = -1;
@@ -2114,6 +2141,8 @@ function wireMotion() {
   byId('mfFit')?.addEventListener('click', fitTimeline);
   byId('mfZoomIn')?.addEventListener('click', () => zoomTimelineAt(0.5, 1.6));
   byId('mfZoomOut')?.addEventListener('click', () => zoomTimelineAt(0.5, 1 / 1.6));
+  byId('mfSpeed')?.querySelectorAll('[data-spd]').forEach(b =>
+    b.addEventListener('click', () => setVideoSpeed(parseFloat(b.dataset.spd))));
 
   // ⋯ motion-data menu — download / load the keyframes+settings as portable JSON.
   const moreMenu = byId('mfMoreMenu'), moreBtn = byId('mfMore');
