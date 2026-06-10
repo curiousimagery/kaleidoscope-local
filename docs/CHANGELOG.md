@@ -4,6 +4,12 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.9.16 (Build 163) — 2026-06-10
+
+**Smooth crossfade preview (two-video live blend) — fixes the seam stutter.** The crossfade dissolve was stepping through a fixed ~8 captured frames (smooth at 0.5s, badly stuttery at 3s). Replaced the seam-frame capture entirely with a **two-video live blend**: a second hidden preview `<video>` (`_clipPrevVideoB`) plays the A-head while the main preview plays the B-tail, and the two are alpha-blended onto `#clipBlend` over the crossfade duration. Both play natively at 1× → smooth at any crossfade length, no capture, no seek pause when adjusting cut/crossfade. The main video's post-crossfade seek to `in+cfSec` is masked by keeping the blend up until the seek lands (no end-of-dissolve flicker). Removed `captureSeamFrames`/`scheduleSeamCapture`/the seam buffers. **Verify (Daniel):** slice mode → the seam dissolve is smooth at both short and long crossfades; dragging cut/crossfade updates the dissolve live with no pause; no flicker at the dissolve's end. (Decode-by-playback bake was investigated + deferred — seek-based bake kept for short loops; WebCodecs-decoder is the future fast-bake option, a new dependency.)
+
+---
+
 ## v0.9.15 (Build 162) — 2026-06-10
 
 **Bake no longer flickers the preview ("baking…" cover).** The bake decodes by seeking the *visible* clip-preview video, so the sheet flashed through frames + black while baking (the "feels broken" look Daniel flagged; the baked file was always fine). A simple `#clipBaking` cover now hides the clip stage during the bake, showing "baking…" + the progress bar. Independent of the decode method, so it's correct regardless of the later bake-speed work. **Verify (Daniel):** baking shows a clean "baking…" state instead of flickering. **NOTE — bake-speed investigation (see HANDOFF/response):** decode-by-playback turned out narrower than the plan assumed (≈3× on Firefox/Chromium only; Safari is encode-bound by the `VideoFrame`-from-canvas cost; bounce-reverse + long-crossfade seam buffers hit a memory wall). The real fast fix is a WebCodecs `VideoDecoder` + mp4 demuxer (new dependency). The smooth-dial-in need is better served by the two-video crossfade PREVIEW blend (next).

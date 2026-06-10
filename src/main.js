@@ -581,21 +581,28 @@ function openClipEditor() {
   if (!sheet) return;
   if (motion.playing) stopPlayback();
   _clipBackup = { ...clip };                       // for Cancel
-  _clipSeamKey = '';                               // force a fresh seam capture for this session
   const pv = document.getElementById('clipVideo');
   pv.muted = true; pv.playsInline = true; pv.loop = false;
   pv.src = sourceVideoUrl;
   _clipPrevVideo = pv;
+  // a second, hidden-but-decoding preview video: plays the A-head during the seam
+  // crossfade so the two streams can be alpha-blended live (smooth, no capture).
+  const vB = document.createElement('video');
+  vB.muted = true; vB.playsInline = true; vB.loop = false; vB.preload = 'auto';
+  vB.setAttribute('playsinline', ''); vB.setAttribute('muted', '');
+  vB.style.cssText = 'position:absolute;left:0;top:0;width:1px;height:1px;opacity:0;pointer-events:none';
+  vB.src = sourceVideoUrl;
+  (document.querySelector('.clip-stage') || sheet).appendChild(vB);
+  _clipPrevVideoB = vB;
   sheet.hidden = false;
   const init = () => { setClipMode(clip.mode); renderClipTrim(); startClipPreview(); };
   if (pv.readyState >= 1) init(); else pv.addEventListener('loadedmetadata', init, { once: true });
 }
 function disposeClipPreview() {
   stopClipPreview();
-  clearTimeout(_seamTimer);
-  _clipSeamB = []; _clipSeamA = []; _clipSeamKey = '';   // free the seam buffers
   const blend = document.getElementById('clipBlend'); if (blend) blend.hidden = true;
   if (_clipPrevVideo) { try { _clipPrevVideo.pause(); } catch { /* ignore */ } _clipPrevVideo.removeAttribute('src'); try { _clipPrevVideo.load(); } catch { /* ignore */ } _clipPrevVideo = null; }
+  if (_clipPrevVideoB) { try { _clipPrevVideoB.pause(); } catch { /* ignore */ } _clipPrevVideoB.removeAttribute('src'); try { _clipPrevVideoB.load(); } catch { /* ignore */ } _clipPrevVideoB.remove(); _clipPrevVideoB = null; }
 }
 // re-bind the motion timeline to the current (trimmed / baked) clip + show frame 0.
 function rebindClipToTimeline() {
@@ -699,88 +706,67 @@ function startClipPreview(reset = true) {
   _clipRaf = requestAnimationFrame(tick);
 }
 
-// --- slice preview with a real seam dissolve ---------------------------------
-// Native playback of the rearranged segments (B=[cut,out] then A=[in,cut], smooth) with
-// a phase machine that, at the B→A seam, PAUSES native and cross-dissolves pre-captured
-// seam frames (B-tail → A-head) on the #clipBlend overlay over the crossfade duration,
-// then seeks native to in+cfSec and continues A. Matches the baked output; the small
-// seam buffer is captured (seek-based, debounced) on entering slice / cut/crossfade/trim
-// change. Until the buffer is ready it falls back to a hard cut.
-let _clipSeamB = [], _clipSeamA = [], _clipSeamKey = '', _clipSeamBusy = false;
-let _clipPhase = 'B', _clipDissolveStart = 0, _seamTimer = 0;
+// --- slice preview with a real seam crossfade (two-video live blend) ----------
+// Native playback of the rearranged segments (B=[cut,out] then A=[in,cut], smooth). At
+// the B→A seam, a SECOND preview video (`_clipPrevVideoB`) plays the A-head in parallel
+// while the main video plays the B-tail, and the two are alpha-blended live onto the
+// #clipBlend overlay over the crossfade duration — smooth, no frame capture, no seek
+// pause (the fix for the seam stutter). Then the main video hands off to A at in+cfSec.
+let _clipPhase = 'B', _clipPrevVideoB = null;
 function sliceTimes() {
   const v = _clipPrevVideo, d = (v && v.duration) || 1, range = clip.outT - clip.inT;
   const inA = clip.inT * d, outA = clip.outT * d, cut = (clip.inT + clip.slicePoint * range) * d;
   const cfSec = Math.max(0.05, Math.min(clip.crossfadeMs / 1000, (outA - cut) * 0.9, (cut - inA) * 0.9));
   return { d, inA, outA, cut, cfSec };
 }
-function drawSeamBlend(a) {
+function drawTwoVideoBlend(a) {
   const blend = document.getElementById('clipBlend');
-  if (!blend || !_clipSeamB.length) return;
-  const N = _clipSeamB.length;
-  const i = Math.max(0, Math.min(N - 1, Math.round(a * (N - 1))));
-  const B = _clipSeamB[i], A = _clipSeamA[i] || B;
-  if (blend.width !== B.width || blend.height !== B.height) { blend.width = B.width; blend.height = B.height; }
+  const v = _clipPrevVideo, vB = _clipPrevVideoB;
+  if (!blend || !v) return;
+  const W = Math.min(640, v.videoWidth || 640), sc = W / (v.videoWidth || W), H = Math.max(1, Math.round((v.videoHeight || W) * sc));
+  if (blend.width !== W || blend.height !== H) { blend.width = W; blend.height = H; }
   const cx = blend.getContext('2d');
-  cx.globalAlpha = 1; cx.drawImage(B, 0, 0);
-  cx.globalAlpha = a; cx.drawImage(A, 0, 0); cx.globalAlpha = 1;
+  cx.globalAlpha = 1; cx.drawImage(v, 0, 0, W, H);                       // B-tail
+  if (vB && vB.readyState >= 2) { cx.globalAlpha = a; cx.drawImage(vB, 0, 0, W, H); }   // A-head
+  cx.globalAlpha = 1;
 }
 function startSlicePreview(reset) {
-  const v = _clipPrevVideo;
+  const v = _clipPrevVideo, vB = _clipPrevVideoB;
   if (!v) return;
   const blend = document.getElementById('clipBlend');
   if (reset) { _clipPhase = 'B'; try { v.currentTime = sliceTimes().cut; } catch { /* ignore */ } if (blend) blend.hidden = true; }
   v.play().catch(() => {});
+  if (vB) { try { vB.pause(); vB.currentTime = sliceTimes().inA; } catch { /* ignore */ } }   // pre-roll A-head
   const tick = () => {
     if (!_clipPrevVideo) return;
     const { d, inA, outA, cut, cfSec } = sliceTimes();
-    const haveSeam = _clipSeamB.length > 0;
-    if (_clipPhase === 'dissolve') {
-      const a = Math.min(1, (performance.now() - _clipDissolveStart) / (cfSec * 1000));
-      drawSeamBlend(a);
-      if (a >= 1) { _clipPhase = 'A'; if (blend) blend.hidden = true; try { v.currentTime = inA + cfSec; v.play().catch(() => {}); } catch { /* ignore */ } }
-    } else if (_clipPhase === 'B') {
-      if (v.currentTime >= outA - cfSec - 0.02 || v.currentTime < cut - 0.08) {
-        if (haveSeam) { _clipPhase = 'dissolve'; _clipDissolveStart = performance.now(); try { v.pause(); } catch { /* ignore */ } if (blend) blend.hidden = false; }
-        else { try { v.currentTime = inA; } catch { /* ignore */ } _clipPhase = 'A'; }   // fallback: hard cut
+    if (_clipPhase === 'crossfade') {
+      const a = Math.max(0, Math.min(1, (v.currentTime - (outA - cfSec)) / cfSec));
+      drawTwoVideoBlend(a);
+      if (a >= 1 || v.currentTime >= outA - 0.02) {
+        _clipPhase = 'A';
+        if (vB) { try { vB.pause(); } catch { /* ignore */ } }
+        try { v.pause(); v.currentTime = inA + cfSec; } catch { /* ignore */ }   // blend stays up, masking this seek
       }
-    } else {                                          // 'A' — native [in(+cf), cut]
-      if (v.currentTime >= cut - 0.02 || v.currentTime < inA - 0.08) { _clipPhase = 'B'; try { v.currentTime = cut; } catch { /* ignore */ } }
+    } else if (_clipPhase === 'B') {
+      if (vB && !vB.seeking && Math.abs(vB.currentTime - inA) > 0.05) { try { vB.currentTime = inA; } catch { /* ignore */ } }   // keep A-head pre-rolled
+      if (v.currentTime >= outA - cfSec - 0.02 || v.currentTime < cut - 0.08) {
+        _clipPhase = 'crossfade';
+        if (blend) blend.hidden = false;
+        if (vB) { try { vB.currentTime = inA; vB.play().catch(() => {}); } catch { /* ignore */ } }
+      }
+    } else {                                          // 'A' — native [in+cf, cut]
+      if (blend && !blend.hidden) {                   // still masking the post-crossfade seek
+        if (!v.seeking && v.currentTime >= inA + cfSec - 0.06) { blend.hidden = true; v.play().catch(() => {}); }
+      } else if (v.currentTime >= cut - 0.02) {       // loop back to B
+        _clipPhase = 'B'; try { v.currentTime = cut; v.play().catch(() => {}); } catch { /* ignore */ }
+      }
     }
     const ph = document.getElementById('clipPlayhead');
     if (ph) ph.style.left = ((v.currentTime / d) * 100) + '%';
     _clipRaf = requestAnimationFrame(tick);
   };
   _clipRaf = requestAnimationFrame(tick);
-}
-// Capture the short seam windows (B-tail = last cfSec of [cut,out]; A-head = first cfSec
-// of [in,cut]) at preview resolution, so the dissolve plays smoothly from the buffer.
-// Seek-based (small count, debounced); pauses/resumes the preview around the burst.
-async function captureSeamFrames() {
-  const v = _clipPrevVideo;
-  if (!v || clip.mode !== 'slice' || _clipSeamBusy) return;
-  const { d, inA, outA, cut, cfSec } = sliceTimes();
-  const key = `${clip.inT.toFixed(4)}|${clip.outT.toFixed(4)}|${clip.slicePoint.toFixed(4)}|${clip.crossfadeMs}`;
-  if (key === _clipSeamKey) return;
-  _clipSeamBusy = true;
-  const wasRunning = !!_clipRaf;
-  stopClipPreview();
-  const N = 8, pw = 320, sc = pw / (v.videoWidth || pw), ph = Math.max(1, Math.round((v.videoHeight || pw) * sc));
-  const grab = (sec) => seekVideoTo(v, sec).then(() => { const c = document.createElement('canvas'); c.width = pw; c.height = ph; c.getContext('2d').drawImage(v, 0, 0, pw, ph); return c; });
-  try {
-    const B = [], A = [];
-    for (let i = 0; i < N; i++) B.push(await grab(outA - cfSec + (i / (N - 1)) * cfSec));
-    for (let i = 0; i < N; i++) A.push(await grab(inA + (i / (N - 1)) * cfSec));
-    _clipSeamB = B; _clipSeamA = A; _clipSeamKey = key;
-  } catch { /* ignore */ } finally {
-    _clipSeamBusy = false;
-    if (wasRunning && _clipPrevVideo && !_clipDrag) startClipPreview();
-  }
-}
-function scheduleSeamCapture() {
-  clearTimeout(_seamTimer);
-  if (clip.mode !== 'slice') return;
-  _seamTimer = setTimeout(captureSeamFrames, 350);   // after the user stops adjusting
 }
 function stopClipPreview() {
   if (_clipRaf) { cancelAnimationFrame(_clipRaf); _clipRaf = 0; }
@@ -827,7 +813,7 @@ function makeClipHandle(el, which) {
     const ph = document.getElementById('clipPlayhead');
     if (ph) ph.style.left = (handleT * 100) + '%';
   });
-  const up = (e) => { if (_clipDrag !== which) return; _clipDrag = null; el.releasePointerCapture?.(e.pointerId); scheduleSeamCapture(); startClipPreview(); };
+  const up = (e) => { if (_clipDrag !== which) return; _clipDrag = null; el.releasePointerCapture?.(e.pointerId); startClipPreview(); };
   el.addEventListener('pointerup', up);
   el.addEventListener('pointercancel', up);
 }
@@ -843,7 +829,6 @@ function setClipMode(mode) {
   const xfade = document.getElementById('clipXfadeRow'); if (xfade) xfade.hidden = !slice;
   const blend = document.getElementById('clipBlend'); if (blend && !slice) blend.hidden = true;
   renderClipTrim();
-  if (slice) scheduleSeamCapture();                  // capture the seam windows for the dissolve preview
   if (_clipRaf && _clipPrevVideo && !_clipDrag) { stopClipPreview(); startClipPreview(); }   // re-segment a RUNNING preview for the new mode
 }
 const _even = (n) => Math.max(2, Math.round(n / 2) * 2);
@@ -2611,7 +2596,7 @@ function wireMotion() {
     step: 0.1, fineStep: 0.05, min: 0, max: 3,
     format: (v) => v.toFixed(2) + 's',
     parse: (s) => { const n = parseFloat(String(s).replace(/[s\s]/g, '')); return isNaN(n) ? null : n; },
-    onChange: scheduleSeamCapture,   // recapture the seam windows for the dissolve preview
+    // the live two-video blend reads the crossfade duration each frame — no recapture needed
   });
 
   // ⋯ motion-data menu — download / load the keyframes+settings as portable JSON.

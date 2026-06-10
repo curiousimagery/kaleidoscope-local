@@ -12,7 +12,9 @@ He prefers **no em dashes** in any prose Claude generates for him.
 
 ## current version
 
-`v0.9.15 · Build 162`. The footer in the running app shows this string from `src/version.js`. **Milestone (Daniel-approved, Build 147):** video support is real. Refinements ongoing.
+`v0.9.16 · Build 163`. The footer in the running app shows this string from `src/version.js`. **Milestone (Daniel-approved, Build 147):** video support is real. Refinements ongoing.
+
+**Smooth crossfade preview — two-video live blend (Build 163, needs Daniel's verify).** Replaced the stuttery seam-frame capture with a second hidden preview `<video>` (`_clipPrevVideoB`) playing the A-head alongside the main B-tail, alpha-blended on `#clipBlend` (`drawTwoVideoBlend`/`startSlicePreview`). Both 1× → smooth at any crossfade length; no capture, no adjust-pause; the post-crossfade main seek is masked by the blend (no end flicker). Removed `captureSeamFrames`/seam buffers. **Bake-speed decision (Daniel):** seek-based bake kept (flicker covered, 162) — fine for short loops; WebCodecs `VideoDecoder` + `mp4box.js` (new dependency) is the future fast-bake if long-clip speed becomes a blocker; decode-by-playback shelved (narrow/memory-walled — see BACKLOG). **Clip editor previews fully done** (scrubber, bounce, smooth crossfade). **Next candidates:** loop-lock (last plan item), retime UX (single-select + 150% + fps hint), or whatever Daniel surfaces.
 
 **Bake "baking…" cover (Build 162).** `#clipBaking` cover hides the clip stage during the bake so it doesn't flicker (the bake seeks the visible video). Fixes Daniel's issue 2 independent of decode method.
 
