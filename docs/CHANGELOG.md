@@ -4,6 +4,18 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.9.5 (Build 152) — 2026-06-09
+
+**Source-switch reset.** Loading a new source while animating left stale state behind: the old clip's locked duration, the previous source's keyframe thumbnails, and a desynced play/pause (plus video always free-ran, even mid-animation). Now `loadVideo`/`loadImage` halt playback and clear the filmstrip signature on any switch, and — if you're in motion mode — `rebindMotionToSource` re-binds the keyframes to the new source: re-locks the duration to the new clip (video), resets the playhead + timeline view to fit, forces a thumbnail rebuild from the new source, and shows the new clip's first frame timeline-driven (no free-run). **Keyframes are kept** — they're source-agnostic (params over time, like the motion-JSON), so the bug was only the source-dependent state, not the animation. **Verify (Daniel):** animate over video A, load video B → duration matches B, thumbnails regenerate from B, playhead at start, play/pause sane, keyframes preserved; same for switching to a still.
+
+---
+
+## v0.9.4 (Build 151) — 2026-06-09
+
+**Fix: inserting an auto-spaced keyframe between two keyframes no longer inherits the first one's look.** `+keyframe` captures `{...state}`, which (when a keyframe is highlighted) equals the *selected* keyframe's snapshot — so inserting between two keyframes with different slice properties detoured the motion to the first keyframe's values (Daniel's repro; the anchor-then-unlock workaround gave the right result because the anchored path captures the interpolated `state` from the playhead sample). Now an auto-spaced inserted keyframe captures the **interpolated value on the existing curve at its new time** (`sampleKeyframes` over the other keyframes, discrete still locked to kf0), so the insert lies on the path and doesn't disturb the motion until you tweak it. The working state + panel sync to the interpolated value so edits build on it. (Anchored-at-scrubber and kf0 adds are unchanged — they already captured the right value.) **Verify (Daniel):** two keyframes with different slice properties, `+keyframe` between them → the new keyframe sits on the curve (no detour to the first); editing it then works from the in-between value.
+
+---
+
 ## v0.9.3 (Build 150) — 2026-06-06
 
 **Tween band is aspect-locked cells now (no more zoom-stretch).** Replaces the single stretched strip canvas with a row of square thumbnail **cells** positioned by time (`makeStripCell`/`repositionStripCells`; `.mf-cell`). Per Daniel's proposal: at fit they tile edge-to-edge (the continuous-filmstrip look); zooming in **spreads them apart at their native aspect** (crisp, never stretched) via cheap repositioning; and a **debounced rebuild re-renders the cells for the current visible window when idle**, so they fill back in densely + crisply. The band always covers just the visible window (`[pan, pan+span]`, ~one square per track-height of width), so the seek count per rebuild stays bounded regardless of zoom. The strip's CSS transform is now pan-only (the cells carry zoom in their positions). Rebuild triggers added on zoom/pan settle (`scheduleFilmstrip` from the zoom/pan handlers; the sig now includes zoom + pan). Both still and video paths use the cell model (video seeks per cell, frozen-preview, as before). **Verify (Daniel):** at fit the band reads as a continuous filmstrip; zooming spreads crisp square thumbnails (gaps briefly, then they re-fill denser when you pause); panning re-fills for the new region; on video the cells show the footage at each time; no stretching at any zoom.

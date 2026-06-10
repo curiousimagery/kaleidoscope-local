@@ -377,6 +377,8 @@ function loadImage(file) {
   if (!engine) return;
   if (isLive) stopCameraMode({ keepSource: true });  // uploading exits live mode
   stopSourceVideoPlayback();                          // stop a loaded video's loop before switching
+  haltPlayback();                                     // stop motion playback before swapping the source
+  lastFilmstripSig = '';                              // any existing keyframe thumbs are from the old source
   env.sourceVideo = null;                            // switching to a still clears any source video
   if (sourceVideoUrl) { URL.revokeObjectURL(sourceVideoUrl); sourceVideoUrl = null; }
   const url = URL.createObjectURL(file);
@@ -416,6 +418,7 @@ function loadImage(file) {
 
     updateMotionUI();   // re-enable motion mode for a still (it's gated off for video sources)
     arrangeSlots();
+    if (motionActive) rebindMotionToSource();   // already animating → re-bind keyframes to the new still
   };
   img.onerror = () => {
     if (uploadErrorEl) uploadErrorEl.textContent = 'failed to load image';
@@ -435,6 +438,8 @@ function loadVideo(file) {
   if (!engine) return;
   if (isLive) stopCameraMode({ keepSource: true });   // uploading exits live mode
   stopSourceVideoPlayback();                           // stop any previously loaded video's loop
+  haltPlayback();                                      // stop motion playback before swapping the source
+  lastFilmstripSig = '';                               // any existing keyframe thumbs are from the old source
   if (sourceVideoUrl) { URL.revokeObjectURL(sourceVideoUrl); sourceVideoUrl = null; }
   const url = URL.createObjectURL(file);
   sourceVideoUrl = url;
@@ -474,8 +479,12 @@ function loadVideo(file) {
     // across engines (a paused, never-played one does NOT on Blink/Gecko), and the
     // preview + output stay in sync. Timeline-driven scrub/keyframes replace this
     // free-run in the next increment.
-    v.play().catch(() => {});        // muted playback is allowed; ignore autoplay rejection
-    startLiveLoop();
+    if (motionActive) {
+      rebindMotionToSource();        // already animating → re-bind keyframes to the new clip (timeline-driven, no free-run)
+    } else {
+      v.play().catch(() => {});      // muted playback is allowed; ignore autoplay rejection
+      startLiveLoop();
+    }
   }, { once: true });
 
   v.addEventListener('error', () => {
@@ -499,6 +508,26 @@ function loadVideo(file) {
 function stopSourceVideoPlayback() {
   if (!isLive) stopLiveLoop();
   if (env.sourceVideo) { try { env.sourceVideo.pause(); } catch { /* ignore */ } }
+}
+
+// A new source loaded while we're in motion mode with keyframes: re-bind the motion to
+// it instead of leaving stale state behind (old locked duration, old-source thumbnails,
+// a desynced play/pause). Keyframes are source-AGNOSTIC (params over time, like the
+// motion-JSON), so they're kept; everything that depends on the source is reset.
+function rebindMotionToSource() {
+  haltPlayback();
+  session.timelineZoom = 1; session.timelinePan = 0;          // back to fit
+  motion.playhead = 0;
+  motion.selected = -1;
+  if (env.sourceVideo) {
+    const d = env.sourceVideo.duration;
+    if (d && isFinite(d)) motion.durationMs = Math.round(d * 1000);   // re-lock to the new clip
+  }
+  lastFilmstripSig = '';                                      // old-source thumbs → force a rebuild
+  renderTimeline();
+  updateMotionUI();
+  if (env.sourceVideo) scrubVideo(0);                         // show the new clip's first frame (timeline-driven, not free-run)
+  else renderSampled(0);                                      // still: show the playhead-0 look
 }
 
 // ============================================================================
@@ -1499,8 +1528,8 @@ function addKeyframe() {
     kfList().push(kf);
     newIdx = 0;
   } else if (motion.selected >= 0) {
-    // a keyframe is highlighted → lay an AUTO-SPACED keyframe right after it (duplicate-
-    // and-tweak; the spacing rebalances across the auto keyframes).
+    // a keyframe is highlighted → lay an AUTO-SPACED keyframe right after it (the spacing
+    // rebalances across the auto keyframes).
     kfList().splice(motion.selected + 1, 0, kf);
     newIdx = motion.selected + 1;
   } else {
@@ -1514,13 +1543,29 @@ function addKeyframe() {
     newIdx = ins;
   }
   applyAutoSpacing();
-  // the new keyframe is AUTO-SELECTED, so subsequent edits write through (autosave) to
-  // it. Adding without editing leaves an intentional hold.
+  // An auto-spaced keyframe should LIE on the existing motion curve at its new time, so
+  // inserting it doesn't detour the motion — capture the INTERPOLATED value there, not a
+  // copy of the highlighted keyframe (the bug: inserting between two keyframes inherited
+  // the first one's look). Anchored adds already capture the interpolated value via
+  // `state` (loaded from the playhead sample), so this targets the auto-spaced branch.
+  let interpolated = false;
+  if (!kf.anchored && kfList().length > 1) {
+    const tNew = kfList()[newIdx].t;
+    const others = kfList().filter((_, i) => i !== newIdx);
+    const interp = sampleKeyframes(others, tNew, { smoothing: motion.smoothing, loop: motion.loop });
+    for (const dk of DISCRETE_KEYS) interp[dk] = kfList()[0].snap[dk];   // discrete stays locked to kf0
+    kf.snap = interp;
+    Object.assign(state, interp);                 // edits build on the interpolated base, not the old look
+    interpolated = true;
+  }
+  // the new keyframe is AUTO-SELECTED, so subsequent edits write through (autosave) to it.
   motion.selected = newIdx;
   setPlayhead(kfList()[newIdx].t);
+  if (interpolated) env.syncControls?.();         // panel reflects the interpolated value
   renderTimeline();                              // marker appears (blank thumb); also schedules the filmstrip
   updateMotionUI();
-  if (env.sourceVideo) scrubVideo(kfList()[newIdx].t, { assignParams: false });   // footage follows the new keyframe's (auto-spaced) time
+  if (env.sourceVideo) scrubVideo(kfList()[newIdx].t, { assignParams: false });   // footage follows the new keyframe's time
+  else if (interpolated) env.scheduleRender?.();  // re-render the output to the interpolated look
   // thumbnail fills on the debounced, readback-free filmstrip rebuild (no per-add readPixels)
 }
 // toggle the selected keyframe between anchored (fixed time) and auto (even-spaced).
