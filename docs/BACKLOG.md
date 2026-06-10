@@ -2,6 +2,95 @@
 
 Living list of things we want to do, in rough priority order within each section. When something ships, move it to `CHANGELOG.md` and remove from here.
 
+## ROADMAP NOTES — Daniel's broader next-steps (2026-06-10)
+
+Daniel's collected notes on bigger next steps, preserved here verbatim-in-substance (lightly reworded to dedupe; cross-references to existing items below noted in [brackets]). The **build-order / dependency analysis** is at the end of this cluster.
+
+### Motion control IxD/UI
+Two control tiers to design around:
+- **Occasional / global** (overflow-friendly): aspect ratio selection; duration; smoothing; render; ⋯ overflow (download/load motion data, clip editor).
+- **Always-used, tight with the timeline:** Playback (play/pause, next/prev, loop); Keyframe control (add, delete, anchor); Navigation (zoom in/out, fit, pan).
+
+Address:
+- **Keyboard:** delete = delete selected, space = play/pause, a quick lock/unlock; (keyboardability is likely poor across the whole app — untested).
+- **Shift+click** to multi-select keyframes on the timeline.
+- **Ambiguous state:** e.g. the outlined "loop on" reads the same as primary buttons that stay outlined all the time — needs unambiguous on/off.
+- **Clip-editor edges of long clips are hard to work with** → increase the modal size proportional to the viewport when possible.
+- **"Reset workspace"** command: delete all keyframes, start fresh on the same source.
+- **Exit criteria:** responsive down to a **700px mobile breakpoint**; ergonomic placement; visually scannable (iconography / visual cues); appropriate hierarchy + sensible groupings; progressive disclosure where appropriate. North star: Procreate Dreams / iMovie.
+
+### Global UI pass
+Somewhat tied to app name / distribution / Electron-wrapper + native-deployment decisions, but most can proceed on existing principles: **neutral, powerful, precise, intuitive** — the playful "portal to another world" feel comes from getting the UI *out of the way*.
+- Start by loading **screenshots into Figma** for a visual map of the whole surface; record/load video clips where motion elements matter.
+- **General audit:** what's working/not in the current build; areas lacking polish or feeling off/frustrating; discoverability challenges (missing tooltips, first-run, demo content); where the WYSIWYG model breaks (fix it or be more honest about it); **WCAG accessibility check.**
+- **In parallel:** itemize specific issues — awkward icons, weird wording, cruft to hide — an ad-hoc opportunities list for problem areas.
+- **Global style direction:** maybe play with Claude Design to art-direct the theme — color palette, font, type ramp, voice + tone guidelines; confirm staying **lowercase + minimal**; any iconic defining visual elements to add/rethink (esp. aspects of color in the UI).
+- **Itemize fixes:** decide new icon suite vs. targeted refinements/substitutions; rework problem areas conceptually (not pixel-perfect components yet).
+- **Plan the UI workflow:** which changes suit conversational Claude Code edits vs. manual Figma tweaks; what makes sense now vs. after a native app; can we polish now WITHOUT introducing rework for a native universal Mac app; is **Plasmic** worth bringing in for Figma→code, or are detailed ad-hoc sketches + tone/rules over chat + uploaded SVGs sufficient / more scalable.
+- **Start-from details (UX nits):** SVG misalignment on the slice overlay; motion not showing the actual slice area in non-square aspect ratios; don't show BOTH the reflected wedge AND the over-extended wedge (e.g. when yellow-dotted, show only the reflected mirror part, not the part extending beyond the canvas — tentative); fix the timeline UI esp. keyframes; motion global-controls IxD; keyboardability (suspected poor); inconsistent/sloppy desktop cursors; **lost the rotation affordance on the Droste circle** (want a grippy / rotation handle in or extending from the circle); mobile tab-bar icons still a little wonky.
+- **Note:** all of the above assumes the **PROSUMER creative-tool** use case. Nudging toward a kid-friendly / party-trick / live-experience version would call for a different flavor + reduced complexity.
+
+### Live video capture with PiP overlay  [merges with "Phase 5 — Live motion + external output"]
+Builds off the pencil-and-paper current/preview mobile-feed design. Build **save-to-disk first**, plan **Syphon** support later.
+Original description — **Realtime motion kaleidoscope, mobile + desktop:** like the still camera, but sending a LIVE video signal as output. As users manipulate the image they may want to manipulate the kaleidoscope shape/properties live, OR see a preview of new settings before applying to the live video. Anytime settings change, there should be **smart tween** animation easing between the previous and new settings — even with live direct manipulation. Best suited to VJ work: mobile phone → Resolume Arena. Secondary use case: record the live video to disk.
+
+### Native iOS / iPadOS / macOS app capability inventory  [ties to FOLD.md monetization Phase 3/4]
+Refine in backlog. Wanted: camera controls (which lens, resolution, EV, WB, etc.); switch live-video → full-res still on capture; **Syphon** output or **HDMI** live-out; more nuanced per-device tab-bar placement (vs. the over-cautious "safe zone").
+Value of a native app = largely **optimizing engines + locking the best path per platform** (e.g. only Safari handles the ProRes codec; Safari uniquely can't use the fast 2D-canvas path so uses WebGL — pick the best solution and lock it per platform).
+Feeling into the paths from mobile/PWA:
+- Native iOS/iPadOS/macOS **universal** feels like the obvious choice.
+- Could **gate** features (motion + various forms behind a paywall; keep core radial + rectangular slices + live camera free) and/or gate export resolutions for the free version.
+- Instead of / in addition to a Mac app, easiest adoption may be **inside an existing ecosystem**: Snapchat/Instagram filter; DaVinci Resolve / Premiere plugin; **especially Arena**; an **FCP plugin** (Daniel's personal want); IG/Snapchat filter = mass appeal.
+
+### Misc wishlist
+- **Audio sync:** not necessarily supporting video-with-audio, but loading a track from Spotify / uploading an mp3 and animating playback in time with the track.
+
+### Perf + stability cycle for motion work  [merges with the export-perf items + the Chromium cross-browser pass]
+Focus on **webmux + single-core render**; test on a Chromium browser; identify any perf/stability issues.
+- **BUG: motion JSON doesn't remember aspect ratio.**
+
+### Animation usability bugs
+- **Droste seams:** some Droste properties reveal seams — spirals seem to ALWAYS seam; thickness changes seam if the value changes between keyframes. Implication: if spiral is enabled, show a warning or gate motion mode to confirm seams will be visible.
+- **Change a property globally AFTER keyframes exist:** provide an elegant way to change a core parameter (segment count, Droste thickness, etc.) once an animation exists — note to the user it will apply across ALL keyframes, but allow it and update every keyframe. For Droste specifically, consider how to handle turning off tier mirror etc. [relates to "cross-form keyframe transitions"]
+- **Onion skinning** (consider).
+- **Auto-keyframe on drag:** if you drag the slice without a keyframe during playback, should it auto-save an anchored keyframe for your edit, or require the explicit add-keyframe step?
+
+### Add SVG overlay to the download package (stills)  [see "Export package layers / geometry overlay still"]
+Plus: ensure save-composition / save-package language is **consistent across mobile + desktop**.
+
+### Alpha test / marketing research / positioning  [ties to FOLD.md monetization]
+Getting to the point of dipping back from design over to strategy + marketing: URL, landing page, pricing, positioning.
+
+### Ad hoc UX issues  [mostly already in the backlog — cross-referenced]
+- **Mobile↔desktop view switch still interrupts the source** (we tried to fix this before; NOT resolved). [existing "preserve source across a chrome switch"]
+- **Per-form perceived scale:** as you switch forms the composition scale feels quite different — p3m1 triangle + hex feel like much tinier samples than radial, rectangle, droste; tighten per-form defaults so forms feel relatable (decouple parameter passthrough if needed). [existing]
+- **Min wedge sample size:** clamp to ~20×20px (currently shrinks to ~1px and the affordance UI breaks). [existing]
+- **Snap compositions to the nearest tileable size** where possible. [existing tile-aware]
+- **Mobile undo** access (two/three-finger tap?). [existing]
+
+### Droste-specific refinements  [partly existing]
+- **Offset behavior is confusing (Daniel):** pulling the center offset down-and-left DOES shift the vanishing point down-left, but the SAMPLED area moves up-and-right — it feels like the image is wrapped onto a SPHERE (rotating down-left pulls the top-right content into view). Is this expected with the current Möbius math? Daniel's mental model: moving the vanishing point should be like looking down a TUNNEL (sampled area linked to the offset direction), not rotating a sphere. [relates to "true vanishing-point offset / per-tier rigid translation"]
+- As canvas-side control is added: a **toggle for what the center offset does + whether it's locked**; recommend a **crosshair** affordance instead of the dot to differentiate.
+
+### BUILD-ORDER / DEPENDENCY ANALYSIS (Claude, 2026-06-10) — dependencies, not a prescribed sequence
+
+**Three upstream strategic forks gate big chunks of downstream work:**
+- **D1 — Positioning** (prosumer creative tool ↔ kid-friendly $.99 party app ↔ tiered/both). Gates: the Global-UI *style direction* (flavor, complexity, voice/tone); marketing/pricing; the free-vs-paid feature-gating model. Does NOT gate engine work or ergonomic IxD.
+- **D2 — Native wrapper** (PWA-only ↔ native iOS/iPadOS/macOS universal ↔ stays web). Gates: Syphon, advanced camera controls, per-platform codec locking, HDMI out — AND how much web-UI polish is safe to invest before a possible native redo.
+- **D3 — Distribution** (standalone ↔ Snapchat/IG filter ↔ NLE plugin: FCP/Premiere/DaVinci ↔ Lightroom/photo). The **core engine is shared under all of them**; only the shell/wrapper differs — so these are parallel *bets* on one engine, each a big lift, chosen per D1.
+
+**Parallel tracks (low cross-dependency — can run anytime, alongside each other, without waiting on D1/D2/D3):**
+- Motion-control IxD pass (ergonomics / keyboard / groupings / loop-state / reset-workspace) — positioning-agnostic.
+- Bug/polish cluster: animation usability bugs (Droste seams, global-property-change, onion-skin, auto-keyframe), ad-hoc UX (source-switch, per-form scale, min-wedge, snap-tile, mobile undo), Droste offset clarification + crosshair, SVG-overlay-in-package, motion-JSON-aspect-ratio bug.
+- Hardening: OPFS long-render-to-disk (required for 10-min/4K), Firefox color/orientation, Chromium perf/stability + webmux/single-core testing.
+
+**Sequential chains (each step unlocks the next):**
+- realtime live-video kaleidoscope (web, smart-tween on change) → **save-to-disk** → [D2 native wrapper] → **Syphon** / camera controls / codec-locking / HDMI. Realtime-to-disk is buildable NOW and de-risks the native/Syphon lift — a strong technical experiment to validate the VJ path before committing to native.
+- Tier-1 source-fps hint → frame interpolation → sub-25% retime speeds.
+- Global UI: Figma audit/map (NOW, positioning-agnostic) → [D1 style direction] → itemized fixes / icon suite.
+
+**Key leverage insight:** the **core engine + the tween/keyframe/realtime model is the shared asset under EVERY distribution path** (standalone, filter, plugin, native). Investing there (and in the realtime/smart-tween capability) pays off regardless of how D1/D2/D3 resolve; the distribution shells are parallel experiments on that shared base. So: the engine/realtime work and the parallel bug+ergonomics+hardening tracks are the safest momentum to keep now; the style-branding, Syphon, and plugin paths benefit from settling D1/D2 first.
+
 ## next up — small UI / quality refinements / known bugs
 - **6K/8K video — partly shipped (Build 126); remainder is non-HEVC browsers.** The 6K crash was the encoder, not the renderer: H.264 High@5.1 caps frame size at 4K, and a lying `isConfigSupported` let a 6K request start then wedge (worsened by large frames piling up in the in-memory muxer). Build 126 gates resolutions per codec and routes >4K through **HEVC**, so 6K/8K work where HEVC *encode* is available (hardware on Apple Silicon via Safari); Firefox/Chrome lack HEVC encode → those tiers stay disabled there. Future routes beyond HEVC: AV1 encode (software, slow today), a WebCodecs demuxer/tiled path, or a WebGPU port. (The 60-second duration cap was lifted to 600s in the same build.)
 - **Timeline thumbnails — "blue cells" on DESKTOP Safari only (not iPad/mobile). Filmstrip FIXED Build 120 (verify); on-add keyframe thumb still on readPixels.** Root cause: desktop Safari's FBO `readPixels` returns channel-swapped/banded data (not a sync issue — 118 FBO-reuse + 119 fence-sync both failed). Build 120 routes the filmstrip to the `drawImage` capture path (readback-free), synchronous + signature-skipped (no scrub rebuilds), and refreshes marker thumbs in the same session. **Remaining:** the instant on-add/edit keyframe thumb (`fillThumb`→`exportFrame`→`readPixels`) can still flash corrupt before the 600ms debounce corrects it — if that's bothersome, move `fillThumb` off readPixels too (`drawImage` a warmed preview canvas, or defer to the debounce). `renderToFBO` is still used by still export (`exportAt`) — if a corrupt still export ever appears on desktop Safari, it's the same readback bug and needs the same drawImage escape.
