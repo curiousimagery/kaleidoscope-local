@@ -4,6 +4,16 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.9.12 (Build 159) — 2026-06-10
+
+**Clip editor: scrubber + bounce preview (Phase 1a).** Two of Daniel's clip-editor findings:
+- **Scrubber.** Drag anywhere on the clip bar (off the trim/cut handles) to move the preview to that moment — pauses the auto-loop, coalesced seek (`clipSeekTo`), resumes on release. Lets you inspect any frame (e.g. the bounce turnaround) without waiting for the whole loop.
+- **Bounce preview actually bounces.** `bounce` mode previewed as a forward loop (native `<video>` can't reverse). Now it's seek-driven: a wall-clock `p` over the bounce duration → triangle (`q = 1 − |1 − 2p|`) → trimmed source time, seeked. It bounces between the trimmed ends; the reverse half is choppy on long clips (backward seeks), but the scrubber lets you inspect the turnaround precisely. Forward/trim/slice keep native segment playback.
+
+**Verify (Daniel):** drag the clip bar → preview jumps there, playhead tracks, loop resumes on release; bounce mode → preview plays forward then back between the trim points. **Next (Phase 1b):** a real crossfade dissolve in the slice preview; then (Phase 2) the bake speedup (decode-by-playback).
+
+---
+
 ## v0.9.11 (Build 158) — 2026-06-09
 
 **Clip editor — increment B2: slice + crossfade bake.** The **slice** mode is now live (the FCP technique): cut the trimmed clip at a point, move the head segment to the back, and crossfade the seam so it loops seamlessly. New controls in the clip sheet: a **cut-point** handle on the clip bar (blue, distinct from the yellow trim handles) and a **crossfade duration** scrub field (default 0.5s), both shown only in slice mode. The bake reuses the same pipeline (`bakeAndApply` slice branch): it rearranges to B(=[cut,out]) then A(=[in,cut]) — the loop point (A end = B start = cut) is continuous, and the B→A seam is cross-dissolved by overlapping B's tail with A's head (two source seeks per crossfade frame, `globalAlpha` blend), which shortens the loop by the crossfade length. The **in-editor preview** plays the rearrangement (B then A) so the seam is visible in context — a hard cut live; the bake applies the blend. **Verify (Daniel):** slice → set the cut point + crossfade → preview shows the rearranged seam → bake → the result loops seamlessly with a smooth dissolve at the seam; animate + export over it. **Known limits (shared with B1):** seek-based decode (slow on long clips), 30fps bake, no mid-bake cancel; the live preview shows a hard seam cut (blend only on bake), and bounce preview is forward-only (reverse can't play natively).

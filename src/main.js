@@ -638,10 +638,31 @@ function clipPreviewSegments() {
   }
   return [[inS, outS]];
 }
-let _clipSeg = 0;
+let _clipSeg = 0, _clipBounceStart = 0;
 function startClipPreview() {
   const v = _clipPrevVideo;
   if (!v) return;
+  // Bounce can't play natively (no reverse), so drive it seek-based: a wall-clock p over
+  // the bounce duration → triangle → trimmed source time, seeked (coalesced). The reverse
+  // half uses backward seeks so it's choppy on long clips, but it bounces; the scrubber
+  // lets you inspect the turnaround precisely.
+  if (clip.mode === 'bounce') {
+    try { v.pause(); } catch { /* ignore */ }
+    _clipBounceStart = performance.now();
+    const tickB = () => {
+      if (!_clipPrevVideo) return;
+      const d = v.duration || 1, range = clip.outT - clip.inT;
+      const loopMs = Math.max(400, range * d * 2 * 1000);
+      const p = ((performance.now() - _clipBounceStart) % loopMs) / loopMs;
+      const q = 1 - Math.abs(1 - 2 * p);                 // 0→1→0
+      clipSeekTo(clip.inT + q * range);
+      const ph = document.getElementById('clipPlayhead');
+      if (ph) ph.style.left = ((v.currentTime / d) * 100) + '%';
+      _clipRaf = requestAnimationFrame(tickB);
+    };
+    _clipRaf = requestAnimationFrame(tickB);
+    return;
+  }
   _clipSeg = 0;
   try { v.currentTime = clipPreviewSegments()[0][0]; } catch { /* ignore */ }
   v.play().catch(() => {});
@@ -2448,6 +2469,36 @@ function wireMotion() {
   makeClipHandle(byId('clipIn'), 'in');
   makeClipHandle(byId('clipOut'), 'out');
   makeClipHandle(byId('clipCut'), 'cut');
+  // scrub the clip bar (off the handles) to inspect any moment — pauses the auto-loop,
+  // coalesced seek, resumes on release.
+  const clipBar = byId('clipBar');
+  if (clipBar) {
+    let barScrub = false;
+    const seekToEvt = (e) => {
+      const r = clipBar.getBoundingClientRect();
+      const frac = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width));
+      clipSeekTo(frac);
+      const ph = byId('clipPlayhead');
+      if (ph) ph.style.left = (frac * 100) + '%';
+    };
+    clipBar.addEventListener('pointerdown', (e) => {
+      if (e.target.closest('.clip-handle')) return;   // handles own their drags
+      barScrub = true;
+      stopClipPreview();
+      clipBar.setPointerCapture?.(e.pointerId);
+      seekToEvt(e);
+      e.preventDefault();
+    });
+    clipBar.addEventListener('pointermove', (e) => { if (barScrub) seekToEvt(e); });
+    const barUp = (e) => {
+      if (!barScrub) return;
+      barScrub = false;
+      clipBar.releasePointerCapture?.(e.pointerId);
+      startClipPreview();                             // resume the auto-loop / bounce
+    };
+    clipBar.addEventListener('pointerup', barUp);
+    clipBar.addEventListener('pointercancel', barUp);
+  }
   if (byId('clipXfade')) makeScrubField(byId('clipXfade'), {
     get: () => clip.crossfadeMs / 1000,
     set: (v) => { clip.crossfadeMs = Math.max(0, Math.min(3, v)) * 1000; },

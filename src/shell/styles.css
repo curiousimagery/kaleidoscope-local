@@ -635,7 +635,7 @@ body.motion #oobModes { pointer-events: none; opacity: 0.4; }
 /* clip editor (pre-animation video prep) */
 .clip-card { width: 640px; max-width: 92vw; }
 .clip-video { width: 100%; max-height: 52vh; background: #000; border-radius: 6px; display: block; object-fit: contain; }
-.clip-bar { position: relative; height: 40px; margin: 12px 0 2px; background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 6px; touch-action: none; }
+.clip-bar { position: relative; height: 40px; margin: 12px 0 2px; background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 6px; touch-action: none; cursor: pointer; }
 .clip-region { position: absolute; top: 0; bottom: 0; background: rgba(255, 210, 63, 0.14); border-left: 2px solid #ffd23f; border-right: 2px solid #ffd23f; pointer-events: none; }
 .clip-handle { position: absolute; top: -3px; bottom: -3px; width: 12px; transform: translateX(-50%); background: #ffd23f; border-radius: 4px; cursor: ew-resize; touch-action: none; }
 .clip-handle::after { content: ''; position: absolute; left: 50%; top: 50%; width: 2px; height: 16px; margin: -8px 0 0 -1px; background: rgba(0, 0, 0, 0.4); border-radius: 1px; }

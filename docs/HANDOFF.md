@@ -12,7 +12,9 @@ He prefers **no em dashes** in any prose Claude generates for him.
 
 ## current version
 
-`v0.9.11 · Build 158`. The footer in the running app shows this string from `src/version.js`. **Milestone (Daniel-approved, Build 147):** video support is real. Refinements ongoing.
+`v0.9.12 · Build 159`. The footer in the running app shows this string from `src/version.js`. **Milestone (Daniel-approved, Build 147):** video support is real. Refinements ongoing.
+
+**Clip editor previews + scrubber (Phase 1a, Build 159, needs Daniel's verify).** Plan: `~/.claude/plans/we-just-finished-a-sorted-mist.md` (clip-editor previews + bake speedup). (1) **Scrubber** — drag `#clipBar` off the handles → coalesced `clipSeekTo` + pause/resume the preview. (2) **Bounce preview** now seek-driven (wall-clock triangle → `clipSeekTo`), so it bounces (reverse choppy on long clips; scrubber inspects the turnaround). **NEXT: Phase 1b** — real crossfade dissolve in the slice preview (pre-capture the short seam windows at preview res + `#clipBlend` overlay). **Then Phase 2** — bake decode-by-playback (root perf fix: replace per-frame seeks with sequential play-through capture; slice two-pass streaming, bounce buffered-reverse + size warn).
 
 **Clip editor B2 — slice + crossfade bake (Build 158, needs Daniel's verify).** Slice mode live: cut-point handle (blue) + crossfade-duration field; bake rearranges B(=[cut,out])+A(=[in,cut]) and cross-dissolves the B→A seam (overlap, two seeks/crossfade-frame). Preview plays the rearrangement (hard seam live; blend on bake). **Clip editor is now feature-complete (trim / bounce / slice).** Remaining clip-editor polish (deferred): seek-based decode is slow on long clips (WebCodecs-decode speedup), 30fps bake (source-fps estimation), no mid-bake cancel, live preview shows hard seam + bounce preview is forward-only. **NEXT options:** loop-lock (last plan item), retime UX (single-select + 150%), frame-interpolation (priority raised), seek-reduction (footage cache).
 
