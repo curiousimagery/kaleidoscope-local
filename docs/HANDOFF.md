@@ -12,7 +12,9 @@ He prefers **no em dashes** in any prose Claude generates for him.
 
 ## current version
 
-`v0.9.12 · Build 159`. The footer in the running app shows this string from `src/version.js`. **Milestone (Daniel-approved, Build 147):** video support is real. Refinements ongoing.
+`v0.9.13 · Build 160`. The footer in the running app shows this string from `src/version.js`. **Milestone (Daniel-approved, Build 147):** video support is real. Refinements ongoing.
+
+**Two fixes (Build 160, needs Daniel's verify).** (1) Clip scrubber resumes from the scrubbed position (`startClipPreview(reset=false)`), not the segment start. (2) Video plays/renders with ≥1 keyframe (`env.sourceVideo ? 1 : 2`) — the default seeded kf0 is now playable (footage moves under static params); stills still need ≥2. **NEXT (Daniel reframed):** crossfade preview is ESSENTIAL (the editor's whole point is dialing trim/crossfade BEFORE baking) — do BOTH the live previews AND the bake speedup, sequenced to minimize complexity. Recommended path = one shared **decode-by-playback** primitive (`captureRangeByPlayback`): capture the trimmed range once → a preview-res buffer drives SMOOTH bounce/slice/crossfade previews (blend buffered frames; no seeking), and the SAME capture at source res streams to the encoder for the fast bake. Plan: `~/.claude/plans/we-just-finished-a-sorted-mist.md`.
 
 **Clip editor previews + scrubber (Phase 1a, Build 159, needs Daniel's verify).** Plan: `~/.claude/plans/we-just-finished-a-sorted-mist.md` (clip-editor previews + bake speedup). (1) **Scrubber** — drag `#clipBar` off the handles → coalesced `clipSeekTo` + pause/resume the preview. (2) **Bounce preview** now seek-driven (wall-clock triangle → `clipSeekTo`), so it bounces (reverse choppy on long clips; scrubber inspects the turnaround). **NEXT: Phase 1b** — real crossfade dissolve in the slice preview (pre-capture the short seam windows at preview res + `#clipBlend` overlay). **Then Phase 2** — bake decode-by-playback (root perf fix: replace per-frame seeks with sequential play-through capture; slice two-pass streaming, bounce buffered-reverse + size warn).
 

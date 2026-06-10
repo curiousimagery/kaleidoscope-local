@@ -4,6 +4,16 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.9.13 (Build 160) — 2026-06-10
+
+**Two fixes from Daniel's Build-159 testing.**
+- **Clip scrubber resumes from where you scrubbed.** Releasing the scrubber reset the preview to the segment start (you couldn't scrub forward and play on). `startClipPreview(reset=false)` now resumes from the current frame — picks up the right segment for forward/slice, re-anchors the bounce clock.
+- **Video plays with just the default keyframe.** Playback/render required ≥2 keyframes (the still-animation rule); for a video, one keyframe is already playable — the footage moves under static params. Now video play/render/export are enabled at ≥1 keyframe (`env.sourceVideo ? 1 : 2`); stills still need ≥2.
+
+**Verify (Daniel):** scrub the clip bar, release → it keeps playing from there; enter motion mode on a video (just the seeded kf0) → play works without adding a second keyframe.
+
+---
+
 ## v0.9.12 (Build 159) — 2026-06-10
 
 **Clip editor: scrubber + bounce preview (Phase 1a).** Two of Daniel's clip-editor findings:

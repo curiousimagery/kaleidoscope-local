@@ -639,7 +639,9 @@ function clipPreviewSegments() {
   return [[inS, outS]];
 }
 let _clipSeg = 0, _clipBounceStart = 0;
-function startClipPreview() {
+// reset=true starts the loop from the beginning; reset=false resumes from the video's
+// CURRENT position (used after a scrub release, so you can scrub forward and play on).
+function startClipPreview(reset = true) {
   const v = _clipPrevVideo;
   if (!v) return;
   // Bounce can't play natively (no reverse), so drive it seek-based: a wall-clock p over
@@ -648,7 +650,13 @@ function startClipPreview() {
   // lets you inspect the turnaround precisely.
   if (clip.mode === 'bounce') {
     try { v.pause(); } catch { /* ignore */ }
-    _clipBounceStart = performance.now();
+    if (reset) _clipBounceStart = performance.now();
+    else {                                         // continue the triangle from the current frame (forward half)
+      const d = v.duration || 1, range = (clip.outT - clip.inT) || 1;
+      const loopMs = Math.max(400, range * d * 2 * 1000);
+      const q = Math.max(0, Math.min(1, (v.currentTime / d - clip.inT) / range));
+      _clipBounceStart = performance.now() - (q / 2) * loopMs;
+    }
     const tickB = () => {
       if (!_clipPrevVideo) return;
       const d = v.duration || 1, range = clip.outT - clip.inT;
@@ -663,8 +671,12 @@ function startClipPreview() {
     _clipRaf = requestAnimationFrame(tickB);
     return;
   }
-  _clipSeg = 0;
-  try { v.currentTime = clipPreviewSegments()[0][0]; } catch { /* ignore */ }
+  const segs = clipPreviewSegments();
+  if (reset) { _clipSeg = 0; try { v.currentTime = segs[0][0]; } catch { /* ignore */ } }
+  else {                                           // resume from the current frame (find its segment)
+    _clipSeg = 0;
+    for (let i = 0; i < segs.length; i++) { if (v.currentTime >= segs[i][0] - 0.05 && v.currentTime < segs[i][1] + 0.05) { _clipSeg = i; break; } }
+  }
   v.play().catch(() => {});
   const tick = () => {
     if (!_clipPrevVideo) return;
@@ -1767,7 +1779,7 @@ function haltPlayback() {
   if (env.sourceVideo) { try { env.sourceVideo.pause(); } catch { /* ignore */ } }
 }
 function startPlayback() {
-  if (motion.playing || kfList().length < 2) return;
+  if (motion.playing || kfList().length < (env.sourceVideo ? 1 : 2)) return;   // video: 1 kf is playable (footage moves)
   if (env.sourceVideo) { startVideoPlayback(); return; }   // a video source is its own clock
   motion.playing = true;
   motion.selected = -1;
@@ -2387,8 +2399,9 @@ function updateMotionUI() {
   const aIdx = motion.selected >= 0 ? motion.selected : keyframeAt(motion.playhead);
   const selKf = aIdx > 0 ? kfList()[aIdx] : null;   // kf0 is always the start anchor
   if (q('mfAnchor')) { q('mfAnchor').disabled = !selKf; q('mfAnchor').classList.toggle('active', !!(selKf && selKf.anchored)); }
-  if (q('mfPlay')) { q('mfPlay').disabled = n < 2; q('mfPlay').textContent = motion.playing ? 'pause' : 'play'; }
-  if (q('mfRender')) q('mfRender').disabled = n < 2;
+  const minKf = env.sourceVideo ? 1 : 2;   // video plays/renders with 1 kf (the footage provides motion)
+  if (q('mfPlay')) { q('mfPlay').disabled = n < minKf; q('mfPlay').textContent = motion.playing ? 'pause' : 'play'; }
+  if (q('mfRender')) q('mfRender').disabled = n < minKf;
   if (q('mfPrev')) q('mfPrev').disabled = n < 1;
   if (q('mfNext')) q('mfNext').disabled = n < 1;
   q('mfLoop')?.classList.toggle('active', motion.loop);
@@ -2494,7 +2507,7 @@ function wireMotion() {
       if (!barScrub) return;
       barScrub = false;
       clipBar.releasePointerCapture?.(e.pointerId);
-      startClipPreview();                             // resume the auto-loop / bounce
+      startClipPreview(false);                        // resume playing FROM the scrubbed position
     };
     clipBar.addEventListener('pointerup', barUp);
     clipBar.addEventListener('pointercancel', barUp);
@@ -2776,7 +2789,7 @@ function setupVideoExport() {
   wireGroup('vidFps', 'fps', (v) => { selFps = parseInt(v, 10); gateResolutions(); });
 
   function open() {
-    if (kfList().length < 2) return;
+    if (kfList().length < (env.sourceVideo ? 1 : 2)) return;
     if (motion.playing) stopPlayback();
     const status = byId('vidStatus');
     const ok = videoExportSupported();
