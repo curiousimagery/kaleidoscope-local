@@ -277,6 +277,13 @@
       <div class="clip-handle out" id="clipOut"></div>
     </div>
     <div class="clip-meta"><span id="clipDur">—</span> · drag the handles to trim front &amp; back</div>
+    <div class="clip-mode">
+      <span class="clip-mode-label">seamless loop</span>
+      <button class="mf-btn mf-toggle active" data-mode="forward" title="no seamless processing — just the trim">trim only</button>
+      <button class="mf-btn mf-toggle" data-mode="bounce" title="play forward then reverse (bakes a new clip)">bounce</button>
+      <button class="mf-btn mf-toggle" data-mode="slice" disabled title="slice + crossfade — coming soon">slice</button>
+    </div>
+    <div class="clip-progress" id="clipProgress" hidden><div class="clip-bar-fill" id="clipBarFill"></div></div>
     <div class="clip-actions">
       <button class="mf-btn" id="clipCancel">cancel</button>
       <button class="mf-btn mf-add" id="clipApply">apply trim</button>

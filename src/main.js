@@ -573,26 +573,32 @@ function openClipEditor() {
   pv.src = sourceVideoUrl;
   _clipPrevVideo = pv;
   sheet.hidden = false;
-  const init = () => { renderClipTrim(); startClipPreview(); };
+  const init = () => { setClipMode(clip.mode); renderClipTrim(); startClipPreview(); };
   if (pv.readyState >= 1) init(); else pv.addEventListener('loadedmetadata', init, { once: true });
 }
-function closeClipEditor(apply) {
+function disposeClipPreview() {
   stopClipPreview();
   if (_clipPrevVideo) { try { _clipPrevVideo.pause(); } catch { /* ignore */ } _clipPrevVideo.removeAttribute('src'); try { _clipPrevVideo.load(); } catch { /* ignore */ } _clipPrevVideo = null; }
+}
+// re-bind the motion timeline to the current (trimmed / baked) clip + show frame 0.
+function rebindClipToTimeline() {
+  if (!env.sourceVideo) return;
+  lockVideoDuration();
+  motion.playhead = 0; motion.selected = -1;
+  session.timelineZoom = 1; session.timelinePan = 0;
+  lastFilmstripSig = '';
+  renderTimeline();
+  updateMotionUI();
+  scrubVideo(0);
+}
+function closeClipEditor(apply) {
+  if (_clipBaking) return;                          // don't tear down mid-bake (the decode video is in use)
+  disposeClipPreview();
   const sheet = document.getElementById('clipSheet');
   if (sheet) sheet.hidden = true;
-  if (!apply && _clipBackup) Object.assign(clip, _clipBackup);   // revert the trim
+  if (!apply && _clipBackup) Object.assign(clip, _clipBackup);   // revert the trim/mode
   _clipBackup = null;
-  // re-bind the motion timeline to the (possibly trimmed) clip
-  if (env.sourceVideo) {
-    lockVideoDuration();
-    motion.playhead = 0; motion.selected = -1;
-    session.timelineZoom = 1; session.timelinePan = 0;
-    lastFilmstripSig = '';
-    renderTimeline();
-    updateMotionUI();
-    scrubVideo(0);
-  }
+  rebindClipToTimeline();
 }
 function renderClipTrim() {
   const d = (_clipPrevVideo && _clipPrevVideo.duration) || 0;
@@ -666,6 +672,104 @@ function makeClipHandle(el, which) {
   const up = (e) => { if (_clipDrag !== which) return; _clipDrag = null; el.releasePointerCapture?.(e.pointerId); startClipPreview(); };
   el.addEventListener('pointerup', up);
   el.addEventListener('pointercancel', up);
+}
+// loop strategy: forward (trim only, non-destructive) | bounce (baked) | slice (baked, B2)
+function setClipMode(mode) {
+  clip.mode = mode;
+  const sheet = document.getElementById('clipSheet');
+  sheet?.querySelectorAll('[data-mode]').forEach(b => b.classList.toggle('active', b.dataset.mode === mode));
+  const apply = document.getElementById('clipApply');
+  if (apply) apply.textContent = mode === 'forward' ? 'apply trim' : `bake ${mode} ▸`;
+}
+const _even = (n) => Math.max(2, Math.round(n / 2) * 2);
+let _clipBaking = false;
+// Apply: trim-only modes commit directly (non-destructive); bounce/slice BAKE a new
+// processed clip (destructive — confirmed first).
+async function applyClip() {
+  if (_clipBaking) return;
+  if (clip.mode === 'forward') { closeClipEditor(true); return; }
+  const ok = window.confirm(
+    `“${clip.mode}” bakes a new processed clip and replaces the working source. This is destructive ` +
+    `(your original file on disk is untouched, and you can re-upload it). Continue?`);
+  if (!ok) return;
+  await bakeAndApply();
+}
+// Bake the trimmed clip into a seamless loop and swap it in as the source. Reuses the
+// video EXPORT encoder (exportVideo) with a frameAt that DECODES + assembles source
+// frames: bounce = forward-then-reverse source time (no blend); slice = B2. Decode is
+// seek-based (WebCodecs decode is the future speedup), so it's one-time + shows progress.
+async function bakeAndApply() {
+  const src = env.sourceVideo;
+  if (!src) return;
+  const decodeV = _clipPrevVideo || src;
+  _clipBaking = true;
+  stopClipPreview();
+  const dur = decodeV.duration || src.duration || 1;
+  const w = _even(src.videoWidth), h = _even(src.videoHeight);
+  const cap = document.createElement('canvas'); cap.width = w; cap.height = h;
+  const cctx = cap.getContext('2d');
+  const fps = 30;                                 // bake fps (source-fps estimation = backlog item)
+  const range = clip.outT - clip.inT, trimmedSec = range * dur;
+  let durationMs, frameAt;
+  if (clip.mode === 'bounce') {
+    durationMs = Math.max(200, trimmedSec * 2 * 1000);   // forward + reverse
+    frameAt = async (p) => {
+      const q = 1 - Math.abs(1 - 2 * p);          // 0→1→0 ping-pong over the trimmed range
+      await seekVideoTo(decodeV, (clip.inT + q * range) * dur);
+      cctx.drawImage(decodeV, 0, 0, w, h);
+      return cap;
+    };
+  } else { _clipBaking = false; return; }         // slice = B2
+
+  const prog = document.getElementById('clipProgress'), fill = document.getElementById('clipBarFill');
+  const apply = document.getElementById('clipApply');
+  if (prog) prog.hidden = false;
+  if (apply) { apply.disabled = true; apply.textContent = 'baking…'; }
+  try {
+    const { blob } = await exportVideo({
+      frameAt, width: w, height: h, fps, durationMs, captureMode: '2d',
+      onProgress: (x) => { if (fill) fill.style.width = Math.round(x * 100) + '%'; },
+    });
+    await applyBakedClip(blob);                   // swaps the source + re-binds the timeline
+    disposeClipPreview();
+    const sheet = document.getElementById('clipSheet'); if (sheet) sheet.hidden = true;
+    _clipBackup = null;
+  } catch (e) {
+    console.error('clip bake failed', e);
+    alert('Could not bake the clip: ' + (e && e.message ? e.message : e));
+  } finally {
+    if (prog) prog.hidden = true;
+    if (fill) fill.style.width = '0%';
+    if (apply) { apply.disabled = false; }
+    setClipMode(clip.mode);                        // restore the apply label
+    _clipBaking = false;
+  }
+}
+// Swap a freshly-baked clip in as the working source (keeps the uploaded original in
+// `originalSource` for the export package). Resets the trim (the baked clip IS the
+// processed clip) and re-binds the motion timeline.
+async function applyBakedClip(blob) {
+  const url = URL.createObjectURL(blob);
+  const v = document.createElement('video');
+  v.muted = true; v.playsInline = true; v.loop = true; v.preload = 'auto';
+  v.setAttribute('playsinline', ''); v.setAttribute('muted', '');
+  await new Promise((res, rej) => {
+    v.addEventListener('loadeddata', () => res(), { once: true });
+    v.addEventListener('error', () => rej(new Error('the baked clip failed to load')), { once: true });
+    v.src = url;
+  });
+  stopSourceVideoPlayback();
+  const old = env.sourceVideo;
+  engine.setSource(v);
+  env.sourceVideo = v;
+  if (sourceVideoUrl) URL.revokeObjectURL(sourceVideoUrl);   // free the previous source URL (original File kept in originalSource)
+  sourceVideoUrl = url;
+  if (old) { try { old.pause(); old.removeAttribute('src'); old.load(); } catch { /* ignore */ } }
+  clip.inT = 0; clip.outT = 1; clip.mode = 'forward';        // the baked clip is the full processed clip
+  const meta = document.getElementById('sourceMeta');
+  if (meta) meta.children[0].textContent = `${v.videoWidth} × ${v.videoHeight}`;
+  arrangeSlots();
+  rebindClipToTimeline();
 }
 
 // ============================================================================
@@ -2268,7 +2372,9 @@ function wireMotion() {
   byId('mfClip')?.addEventListener('click', openClipEditor);
   byId('clipClose')?.addEventListener('click', () => closeClipEditor(false));
   byId('clipCancel')?.addEventListener('click', () => closeClipEditor(false));
-  byId('clipApply')?.addEventListener('click', () => closeClipEditor(true));
+  byId('clipApply')?.addEventListener('click', applyClip);
+  byId('clipSheet')?.querySelectorAll('[data-mode]').forEach(b =>
+    b.addEventListener('click', () => { if (!b.disabled) setClipMode(b.dataset.mode); }));
   makeClipHandle(byId('clipIn'), 'in');
   makeClipHandle(byId('clipOut'), 'out');
 

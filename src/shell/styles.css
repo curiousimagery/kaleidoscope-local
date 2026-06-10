@@ -641,6 +641,11 @@ body.motion #oobModes { pointer-events: none; opacity: 0.4; }
 .clip-handle::after { content: ''; position: absolute; left: 50%; top: 50%; width: 2px; height: 16px; margin: -8px 0 0 -1px; background: rgba(0, 0, 0, 0.4); border-radius: 1px; }
 .clip-playhead { position: absolute; top: 0; bottom: 0; width: 2px; background: #fff; transform: translateX(-50%); pointer-events: none; z-index: 1; }
 .clip-meta { font-size: 12px; color: #888; text-align: center; }
+.clip-mode { display: flex; align-items: center; gap: 6px; margin-top: 10px; }
+.clip-mode-label { font-size: 12px; color: #888; margin-right: 4px; }
+.clip-progress { height: 4px; margin-top: 10px; background: #1a1a1a; border-radius: 2px; overflow: hidden; }
+.clip-progress[hidden] { display: none; }
+.clip-bar-fill { height: 100%; width: 0; background: #ffd23f; transition: width .1s linear; }
 .clip-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
 .vid-opt { display: flex; align-items: center; gap: 8px; font-size: 13px; color: #ccc; margin: 4px 0 2px; cursor: pointer; }
 .vid-opt input { accent-color: #e8e8e8; }

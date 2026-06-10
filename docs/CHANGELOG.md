@@ -4,6 +4,12 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.9.9 (Build 156) — 2026-06-09
+
+**Clip editor — increment B1: bounce bake.** The clip editor gains a **seamless-loop mode** toggle (trim only / bounce / slice) and the **bake pipeline**. Bounce bakes a forward-then-reverse version of the trimmed clip so it loops seamlessly (the animation doesn't need to bounce — it ends on the same frame). The pipeline reuses the video **export encoder** (`exportVideo`): a `frameAt` callback decodes source frames (seek-based) along a triangle-wave source time (`q = 1 − |1 − 2p|`), draws them to a canvas, and re-encodes to mp4; the baked clip is swapped in as the working source (`applyBakedClip`), trim resets, and the motion timeline re-binds — downstream it's a normal forward loop (realtime, no engine change). Baking is **destructive** (replaces the working source; the uploaded original is kept in `originalSource` for the export package and is untouched on disk), so it's gated behind a **confirm** soft-warning, with an in-sheet progress bar. **Known limits (v1):** decode is seek-based so baking is one-time-slow on long clips (WebCodecs decode = future speedup); bakes at 30fps (source-fps estimation is a backlog item); no mid-bake cancel yet. **Slice** mode is present but disabled (B2 next). **Verify (Daniel):** clip ▸ → trim → bounce → bake; the result is a seamless forward-reverse loop, the timeline/duration cover it, and animating + export work over it; trim-only still applies non-destructively without baking.
+
+---
+
 ## v0.9.8 (Build 155) — 2026-06-09
 
 **Fix: clip-editor trim handles no longer flood the decoder.** The trim handles seeked the preview video on *every* pointermove with no coalescing, so dragging flooded the decoder and made the clip-editor scrubber feel much heavier than the main timeline — even on Chrome (engine-independent; Daniel confirmed cross-engine). Now handle drags go through a coalesced `clipSeekTo` (latest-target-wins, mirroring `scrubVideo`), so only the latest position seeks. **Context (Daniel's diagnosis):** the broader "slow on M5" turned out to be a Firefox-vs-Chrome comparison, not a regression — 154 is snappy on Brave/Chromium; Firefox's heavier seek/decode cost (everything video is seek-based) is the real driver there, addressed later by seek-reduction (footage cache / decode-based thumbnails), not reversion. **Verify (Daniel):** dragging the clip-editor trim handles is now as responsive as the main scrubber on Chromium.
