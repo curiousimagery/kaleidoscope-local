@@ -440,6 +440,7 @@ function loadVideo(file) {
   stopSourceVideoPlayback();                           // stop any previously loaded video's loop
   haltPlayback();                                      // stop motion playback before swapping the source
   lastFilmstripSig = '';                               // any existing keyframe thumbs are from the old source
+  clip.inT = 0; clip.outT = 1; clip.mode = 'forward';  // a new clip starts untrimmed
   if (sourceVideoUrl) { URL.revokeObjectURL(sourceVideoUrl); sourceVideoUrl = null; }
   const url = URL.createObjectURL(file);
   sourceVideoUrl = url;
@@ -527,12 +528,19 @@ function rebindMotionToSource() {
   else renderSampled(0);                                      // still: show the playhead-0 look
 }
 
-// VIDEO retime: the locked motion duration = the clip's native length ÷ the playback-
+// CLIP edit state (pre-animation): trim + loop strategy. `inT`/`outT` are normalized
+// trim handles (default = whole clip). bounce/slice are the seamless-loop modes (bounce
+// = forward-then-reverse source time; slice = baked crossfade — increment B). The
+// timeline spans only [inT, outT]; defaults reproduce the untrimmed behavior exactly.
+const clip = { inT: 0, outT: 1, mode: 'forward', slicePoint: 1 / 3, crossfadeMs: 500 };
+
+// VIDEO retime: the locked motion duration = the TRIMMED clip length ÷ the playback-
 // speed multiplier (so ¼× makes the timeline + export 4× longer = slow-mo). Stills set
 // durationMs directly and ignore videoSpeed.
 function videoNativeDurationMs() {
   const d = env.sourceVideo && env.sourceVideo.duration;
-  return (d && isFinite(d)) ? Math.round(d * 1000) : 0;
+  if (!(d && isFinite(d))) return 0;
+  return Math.round((clip.outT - clip.inT) * d * 1000);   // trimmed length
 }
 function lockVideoDuration() {
   const nat = videoNativeDurationMs();
@@ -546,6 +554,99 @@ function setVideoSpeed(spd) {
   clampTimelineView();                 // duration changed → max-zoom bound changed
   renderTimeline();                    // ruler reflects the new effective duration
   updateMotionUI();
+}
+
+// ---- clip editor (pre-animation video prep) -------------------------------
+// A focused sheet for prepping a video clip before animating: trim front/back (and,
+// increment B, bounce / slice+crossfade for seamless looping). Uses its OWN preview
+// <video> (the same blob URL) so it never disturbs the texture-source element. Applying
+// commits the trim to `clip`; the motion timeline re-binds to the trimmed range.
+let _clipPrevVideo = null, _clipBackup = null, _clipDrag = null, _clipRaf = 0;
+function openClipEditor() {
+  if (!env.sourceVideo || !sourceVideoUrl) return;
+  const sheet = document.getElementById('clipSheet');
+  if (!sheet) return;
+  if (motion.playing) stopPlayback();
+  _clipBackup = { ...clip };                       // for Cancel
+  const pv = document.getElementById('clipVideo');
+  pv.muted = true; pv.playsInline = true; pv.loop = false;
+  pv.src = sourceVideoUrl;
+  _clipPrevVideo = pv;
+  sheet.hidden = false;
+  const init = () => { renderClipTrim(); startClipPreview(); };
+  if (pv.readyState >= 1) init(); else pv.addEventListener('loadedmetadata', init, { once: true });
+}
+function closeClipEditor(apply) {
+  stopClipPreview();
+  if (_clipPrevVideo) { try { _clipPrevVideo.pause(); } catch { /* ignore */ } _clipPrevVideo.removeAttribute('src'); try { _clipPrevVideo.load(); } catch { /* ignore */ } _clipPrevVideo = null; }
+  const sheet = document.getElementById('clipSheet');
+  if (sheet) sheet.hidden = true;
+  if (!apply && _clipBackup) Object.assign(clip, _clipBackup);   // revert the trim
+  _clipBackup = null;
+  // re-bind the motion timeline to the (possibly trimmed) clip
+  if (env.sourceVideo) {
+    lockVideoDuration();
+    motion.playhead = 0; motion.selected = -1;
+    session.timelineZoom = 1; session.timelinePan = 0;
+    lastFilmstripSig = '';
+    renderTimeline();
+    updateMotionUI();
+    scrubVideo(0);
+  }
+}
+function renderClipTrim() {
+  const d = (_clipPrevVideo && _clipPrevVideo.duration) || 0;
+  const inEl = document.getElementById('clipIn'), outEl = document.getElementById('clipOut'), region = document.getElementById('clipRegion');
+  if (inEl) inEl.style.left = (clip.inT * 100) + '%';
+  if (outEl) outEl.style.left = (clip.outT * 100) + '%';
+  if (region) { region.style.left = (clip.inT * 100) + '%'; region.style.right = ((1 - clip.outT) * 100) + '%'; }
+  const lab = document.getElementById('clipDur');
+  if (lab && d) lab.textContent = `${fmtClock((clip.outT - clip.inT) * d)} of ${fmtClock(d)}`;
+}
+function startClipPreview() {
+  const v = _clipPrevVideo;
+  if (!v) return;
+  const d = v.duration || 1;
+  try { v.currentTime = clip.inT * d; } catch { /* ignore */ }
+  v.play().catch(() => {});
+  const tick = () => {
+    if (!_clipPrevVideo) return;
+    const dd = v.duration || 1, inS = clip.inT * dd, outS = clip.outT * dd;
+    if (v.currentTime >= outS - 0.03 || v.currentTime < inS - 0.03) { try { v.currentTime = inS; } catch { /* ignore */ } }
+    const ph = document.getElementById('clipPlayhead');
+    if (ph) ph.style.left = ((v.currentTime / dd) * 100) + '%';
+    _clipRaf = requestAnimationFrame(tick);
+  };
+  _clipRaf = requestAnimationFrame(tick);
+}
+function stopClipPreview() {
+  if (_clipRaf) { cancelAnimationFrame(_clipRaf); _clipRaf = 0; }
+  if (_clipPrevVideo) { try { _clipPrevVideo.pause(); } catch { /* ignore */ } }
+}
+function makeClipHandle(el, which) {
+  if (!el) return;
+  el.addEventListener('pointerdown', (e) => {
+    e.preventDefault(); el.setPointerCapture?.(e.pointerId);
+    _clipDrag = which;
+    stopClipPreview();                              // hold playback while scrubbing the handle
+  });
+  el.addEventListener('pointermove', (e) => {
+    if (_clipDrag !== which) return;
+    const bar = document.getElementById('clipBar');
+    const r = bar.getBoundingClientRect();
+    const t = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width));
+    const gap = 0.02;
+    if (which === 'in') clip.inT = Math.min(t, clip.outT - gap);
+    else clip.outT = Math.max(t, clip.inT + gap);
+    renderClipTrim();
+    const v = _clipPrevVideo;                       // show the frame under the handle
+    if (v) { try { v.currentTime = (which === 'in' ? clip.inT : clip.outT) * (v.duration || 1); } catch { /* ignore */ } }
+    const ph = document.getElementById('clipPlayhead');
+    if (ph) ph.style.left = ((which === 'in' ? clip.inT : clip.outT) * 100) + '%';
+  });
+  const up = (e) => { if (_clipDrag !== which) return; _clipDrag = null; el.releasePointerCapture?.(e.pointerId); startClipPreview(); };
+  el.addEventListener('pointerup', up);
+  el.addEventListener('pointercancel', up);
 }
 
 // ============================================================================
@@ -1412,7 +1513,7 @@ function loadPlayheadIntoState() {
 async function advanceSourceToP(p) {
   const v = env.sourceVideo;
   if (!v) return;
-  await seekVideoTo(v, pToMediaSec(v, p));
+  await seekVideoTo(v, pToMediaSec(v, p, clip));
   engine.updateSourceFrame();
 }
 // Scrub the footage to p, coalescing seeks (latest target wins) so dragging the
@@ -1480,17 +1581,18 @@ function startVideoPlayback() {
   motion.playing = true;
   motion.selected = -1;
   const dur = (v.duration && isFinite(v.duration)) ? v.duration : 1;
-  v.currentTime = pToMediaSec(v, motion.playhead >= 1 ? 0 : motion.playhead);
-  v.loop = !!motion.loop;
+  const inSec = clip.inT * dur, outSec = clip.outT * dur, span = Math.max(0.001, outSec - inSec);
+  v.currentTime = pToMediaSec(v, motion.playhead >= 1 ? 0 : motion.playhead, clip);
+  v.loop = false;                  // we loop within the TRIMMED range ourselves (native loop = whole clip)
   try { v.playbackRate = motion.videoSpeed || 1; } catch { /* clamp */ }   // retime
   v.play().catch(() => {});
   const tick = () => {
     if (!motion.playing) return;
-    if (!motion.loop && v.currentTime >= dur - 0.05) {   // ran off the end (non-loop)
-      haltPlayback(); loadPlayheadIntoState(); renderTimeline(); updateMotionUI(); return;
+    if (v.currentTime >= outSec - 0.03 || v.currentTime < inSec - 0.03) {   // reached the trimmed end
+      if (motion.loop) { try { v.currentTime = inSec; } catch { /* ignore */ } }
+      else { haltPlayback(); loadPlayheadIntoState(); renderTimeline(); updateMotionUI(); return; }
     }
-    let p = v.currentTime / dur;
-    if (motion.loop) p -= Math.floor(p);
+    let p = Math.max(0, Math.min(1, (v.currentTime - inSec) / span));
     engine.updateSourceFrame();
     Object.assign(state, sampleAt(p));
     if (engine && engine.getSourceImage()) { engine.render(state); if (session.isSwapped) drawMiniKaleidoscope(); }
@@ -1766,7 +1868,7 @@ async function buildFilmstripVideo(strip, sig, geom) {
   try {
     for (const job of jobs) {
       if (gen !== _filmstripGen) return;            // superseded by a scrub / playback / newer build
-      await seekVideoTo(v, pToMediaSec(v, job.p));
+      await seekVideoTo(v, pToMediaSec(v, job.p, clip));
       if (gen !== _filmstripGen) return;
       engine.updateSourceFrame();
       job.draw(engine.captureFrame(job.snap));
@@ -2084,6 +2186,7 @@ function updateMotionUI() {
     sp.querySelectorAll('[data-spd]').forEach(b =>
       b.classList.toggle('active', Math.abs(parseFloat(b.dataset.spd) - (motion.videoSpeed || 1)) < 1e-6));
   }
+  if (q('mfClip')) q('mfClip').hidden = !env.sourceVideo;   // clip editor: video sources only
   q('mfDurVal')?._sync?.();
   q('mfSmoothVal')?._sync?.();
 }
@@ -2143,6 +2246,12 @@ function wireMotion() {
   byId('mfZoomOut')?.addEventListener('click', () => zoomTimelineAt(0.5, 1 / 1.6));
   byId('mfSpeed')?.querySelectorAll('[data-spd]').forEach(b =>
     b.addEventListener('click', () => setVideoSpeed(parseFloat(b.dataset.spd))));
+  byId('mfClip')?.addEventListener('click', openClipEditor);
+  byId('clipClose')?.addEventListener('click', () => closeClipEditor(false));
+  byId('clipCancel')?.addEventListener('click', () => closeClipEditor(false));
+  byId('clipApply')?.addEventListener('click', () => closeClipEditor(true));
+  makeClipHandle(byId('clipIn'), 'in');
+  makeClipHandle(byId('clipOut'), 'out');
 
   // ⋯ motion-data menu — download / load the keyframes+settings as portable JSON.
   const moreMenu = byId('mfMoreMenu'), moreBtn = byId('mfMore');

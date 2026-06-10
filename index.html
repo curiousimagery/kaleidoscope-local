@@ -199,6 +199,7 @@
     <button class="mf-btn mf-gesture" id="mfGesture" disabled title="record gesture (coming soon)">＋ gesture</button>
     <button class="mf-btn" id="mfDelete" disabled title="delete the selected keyframe">delete</button>
     <button class="mf-btn mf-toggle" id="mfAnchor" disabled title="fix this keyframe's time, or let it auto-space">anchor</button>
+    <button class="mf-btn" id="mfClip" hidden title="edit clip — trim front/back (seamless-loop options coming)">clip ▸</button>
     <button class="mf-btn" id="mfRender" disabled title="render the animation to a video file">render ▸</button>
     <button class="mf-btn" id="mfMore" title="motion data">⋯</button>
     <span class="mf-sep"></span>
@@ -261,6 +262,25 @@
     <div class="vid-progress" id="vidProgress" hidden><div class="vid-bar" id="vidBar"></div></div>
     <div class="status" id="vidStatus"></div>
     <button class="primary" id="vidRenderBtn" style="width:100%;margin-top:8px;">render</button>
+  </div>
+</div>
+
+<!-- clip editor sheet (pre-animation video prep: trim; bounce/slice coming) -->
+<div class="vid-sheet" id="clipSheet" hidden>
+  <div class="vid-card clip-card">
+    <div class="vid-head"><span>clip editor</span><button class="vid-x" id="clipClose" title="close">✕</button></div>
+    <video id="clipVideo" class="clip-video" muted playsinline></video>
+    <div class="clip-bar" id="clipBar">
+      <div class="clip-region" id="clipRegion"></div>
+      <div class="clip-playhead" id="clipPlayhead"></div>
+      <div class="clip-handle in" id="clipIn"></div>
+      <div class="clip-handle out" id="clipOut"></div>
+    </div>
+    <div class="clip-meta"><span id="clipDur">—</span> · drag the handles to trim front &amp; back</div>
+    <div class="clip-actions">
+      <button class="mf-btn" id="clipCancel">cancel</button>
+      <button class="mf-btn mf-add" id="clipApply">apply trim</button>
+    </div>
   </div>
 </div>
 

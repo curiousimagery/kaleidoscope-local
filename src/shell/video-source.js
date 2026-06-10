@@ -8,12 +8,15 @@
 // Kept DOM-light + pure so the same primitives serve scrub, playback, and (later)
 // frame-accurate export.
 
-// Normalized timeline position p (0..1) → media seconds, clamped to the clip.
-// (v1 maps the whole clip; an in/out trim would scale into [inT,outT] here.)
-export function pToMediaSec(video, p) {
+// Normalized timeline position p (0..1) → media seconds, clamped to the clip. An
+// optional `clip` { inT, outT } (normalized trim, default the whole clip) scales p into
+// the trimmed range, so the timeline spans only [inT, outT] of the footage. Omitting
+// `clip` (or passing the full 0..1 range) reproduces the untrimmed mapping exactly.
+export function pToMediaSec(video, p, clip) {
   const d = video && video.duration;
   if (!d || !isFinite(d)) return 0;
-  return Math.max(0, Math.min(d, p * d));
+  const inT = clip ? clip.inT : 0, outT = clip ? clip.outT : 1;
+  return Math.max(0, Math.min(d, (inT + p * (outT - inT)) * d));
 }
 
 // Seek the video to `sec` and resolve once the decoded frame is ready to upload

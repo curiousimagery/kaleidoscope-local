@@ -4,6 +4,12 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.9.7 (Build 154) — 2026-06-09
+
+**Clip editor — increment A: trim + looped preview (non-destructive).** First piece of the pre-animation clip editor. A **clip ▸** button in the motion footer (video-only) opens a sheet (`#clipSheet`, mirrors the render sheet) with a looping preview of the source and two drag handles to **trim** off the front and back. The preview is its OWN `<video>` (same blob URL) so it never disturbs the texture-source element; it loops within the trimmed range and a playhead tracks it. Apply commits the trim; Cancel reverts. Trim threads through the source-time seam non-destructively: `pToMediaSec(video, p, clip)` now scales `p` into `[inT, outT]` (default `[0,1]` = identical to before), `videoNativeDurationMs`/`lockVideoDuration` use the trimmed length (so the timeline + export cover only the trim, and retime stacks on top), and `startVideoPlayback` loops within the trimmed range. Trim resets to the whole clip on a new video load. **Next — increment B:** bounce + slice/crossfade (baked, reusing the export encoder) + the destructive-bake soft-warning + in-editor loop preview of the seam. **Verify (Daniel):** open clip ▸ on a video, trim front/back (preview loops the trimmed range), Apply → timeline/ruler/duration cover only the trim, scrub/playback/export honor it; Cancel reverts; loading a new video clears the trim.
+
+---
+
 ## v0.9.6 (Build 153) — 2026-06-09
 
 **Video retime (playback speed).** Video sources were stuck at native speed (stills can already set any duration). A new **speed** control in the motion footer (25% / 50% / 100% / 200%, video-only) retimes playback — especially to *slow busy footage down* so the kaleidoscope fold stays readable. Implementation maps onto what we already have: `motion.videoSpeed` sets the source `<video>.playbackRate` for preview, and the locked `motion.durationMs = nativeDuration ÷ videoSpeed`, so the timeline + frame-by-frame export stretch/compress automatically (no engine change). Re-locked on motion entry, source switch, and JSON load; `videoSpeed` is included in the motion JSON. **Caveat:** heavy slow-mo repeats the nearest footage frame on export (seek-based, no frame interpolation) — masked well by the fold; true interpolation is a future nicety. **Verify (Daniel):** with a video, the speed presets slow/speed playback (footage + params stay in sync), the ruler/duration reflect the new length, export runs at the retimed duration, and 50%/25% make a busy clip readable.
