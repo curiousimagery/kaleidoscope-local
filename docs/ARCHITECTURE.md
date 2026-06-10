@@ -2,35 +2,58 @@
 
 ## one-paragraph summary
 
-The kaleidoscope is a Vite-based static web app. Its engine is a WebGL2 fragment shader composed at startup from a registry of self-contained "form" modules — each module declares its own GLSL math, JS-side polygon math, per-form uniforms, slice controls, file code, and thumbnail. Adding a new symmetry pattern is one new file plus one line in the registry. The UI shell layers on top of the engine via a runtime container `env` that's threaded through the shell modules; the engine itself knows nothing about DOM or controls.
+The kaleidoscope is a Vite-based static web app (plain vanilla JS + GLSL, no TypeScript/build steps beyond Vite). Its engine is a WebGL2 fragment shader composed at startup from a registry of self-contained "form" modules — each module declares its own GLSL math, JS-side polygon math, per-form uniforms, slice controls, file code, and thumbnail. Adding a new symmetry pattern is one new file plus one line in the registry. The engine is source-agnostic (still image, live camera, or video file all feed `setSource`) and DOM-agnostic. On top of it sit, in layers, a **Kit** (DOM-agnostic primitives: state, tween/keyframes, snaps, params, history), reusable **Components** (source-overlay, output-gestures, param-control), and a per-device **Chrome** (desktop `main.js` or mobile `chrome.js`, selected by `boot.js`). It now does still-image editing, multi-keyframe motion animation, live-camera input, and source-VIDEO animation with a frame-accurate MP4 exporter, a navigable timeline, and a pre-animation clip editor.
 
 ## directory map
 
 ```
 src/
-├── main.js                  entry — wires engine + shell, owns env runtime container
+├── boot.js                  chrome selection (phone → mobile/chrome.js; else desktop main.js; ?chrome= override)
+├── main.js                  DESKTOP chrome + the app wiring — owns the env runtime container, the motion
+│                            timeline, video source/scrub/playback, the clip editor, export wiring (large file)
 ├── version.js               VERSION + monotonic BUILD counter, footer string
 │
-├── engine/                  pure rendering — knows nothing about DOM or controls
-│   ├── index.js             public API: createEngine(), render, exportAt, suggestResolution
-│   ├── gl.js                WebGL2 plumbing — context, program, uniforms, FBO export
-│   ├── shader-builder.js    composes the fragment shader from forms registry
+├── engine/                  pure rendering — knows nothing about DOM or controls; source-agnostic
+│   ├── index.js             public API: createEngine, setSource/updateSourceFrame, render, exportAt/exportFrame,
+│   │                        beginCapture/captureFrame/captureFrameGL/endCapture (video-export frame path)
+│   ├── gl.js                WebGL2 plumbing — context, program, uniforms, FBO probe + export, texture upload
+│   ├── shader-builder.js    composes the fragment shader from the forms registry
 │   ├── geometry.js          pure JS-side geometric math (mirrors of shader transforms)
 │   └── forms/               REGISTRY OF SYMMETRY FORMS — each file is one form
 │       ├── index.js         registry array + lookup helpers
-│       ├── radial.js        radial wedge (classic kaleidoscope, n-fold)
-│       ├── square.js        p4m wallpaper, with rectangular cells
-│       ├── hex.js           p6m wallpaper
+│       ├── radial.js · square.js · hex.js · triangle.js · droste.js
 │       └── _template.js     annotated stub for adding new forms
 │
-└── shell/                   UI — owns DOM, state mutation, user input
-    ├── state.js             single state object + ephemeral session flags
-    ├── styles.css           extracted from the original monolith
-    ├── controls.js          scrub fields, sliders, form picker, divider
-    ├── overlay.js           source overlay drawing, hit-testing, drag dispatch
-    └── cursors.js           pre-baked rotate-cursor SVG variants
+├── kit/                     DOM-agnostic primitives shared by every front-end
+│   ├── tween.js             sampleKeyframes (velocity-continuous Catmull-Rom), lerpState, DISCRETE_KEYS
+│   └── snaps.js             droste arm/spiral snap points
+│
+├── components/              mountable UI mounted by BOTH chromes, parameterized not forked
+│   ├── source-overlay.js    createSourceOverlay — draw + hit-test + proportionality/mirroring gesture math
+│   ├── output-gestures.js   createOutputGestures — pinch/twist on the output
+│   └── param-control.js     mountRangeControl — registry-driven slider (mobile-facing)
+│
+├── shell/                   host services + state + DOM helpers (used by the chromes)
+│   ├── state.js             single state object + ephemeral session flags + the `motion` object (keyframes)
+│   ├── params.js            declarative parameter registry (catalog of clean params)
+│   ├── history.js           undo/redo over state snapshots
+│   ├── controls.js          makeScrubField (DAW-style scrub), sliders, form picker, divider
+│   ├── overlay.js           source-view mounting (still / camera / video) + overlay drawing
+│   ├── camera.js            live-camera host module (getUserMedia, continuous render loop)
+│   ├── video-source.js      pToMediaSec / seekVideoTo — the seek-based frame seam for video timeline binding
+│   ├── video-export.js      exportVideo (WebCodecs VideoEncoder → mp4-muxer), pickVideoCodec (H.264/HEVC)
+│   ├── diagnostics.js       FBO/encode probes, e2e render check
+│   ├── zip.js               dependency-free store-only zip (export package)
+│   ├── cursors.js           pre-baked rotate-cursor SVG variants
+│   └── styles.css           desktop styles
+│
+├── desktop/                 (desktop chrome currently lives in main.js; folder reserved)
+└── mobile/                  mobile chrome (touch, phone-class viewports)
+    ├── chrome.js            boot/mode-detect, sticky-divider layout, tab bar, popovers, camera, save sheet
+    ├── icons.js             mobile tab-bar/glyph icons
+    └── styles.css           mobile styles
 
-docs/                        all the long-form context lives here
+docs/                        all the long-form context lives here (HANDOFF is the rolling source of truth)
 ```
 
 ## key principles
@@ -42,6 +65,38 @@ docs/                        all the long-form context lives here
 **Forms are self-contained.** Each form file in `src/engine/forms/` exports a single object with a fixed schema (see `_template.js`). The schema covers GLSL fold function, per-form uniforms, polygon for overlay, hit-testing spoke rule, controls list, file code for filenames, thumbnail SVG, optional `tilesPerDim` for resolution hint, and optional `filenameSuffix` for per-form parameters. The shader is composed at startup by reading the registry and concatenating each form's contribution.
 
 **The `env` container threads shared state through shell modules.** Rather than module-level globals, `main.js` builds an `env` object that carries `state`, `engine`, key DOM refs, hover state, and the inter-module method handles (`scheduleRender`, `syncControls`, `arrangeSlots`, etc.). Shell modules accept `env` as a parameter. This keeps wiring readable while avoiding mutable module-level state.
+
+## layering: Engine / Kit / Components / Chrome (the settled vocabulary)
+
+The codebase is organized in four reuse tiers, deliberately (this is the model the multi-app strategy rests on — see BACKLOG capability tier):
+
+- **Engine** (`src/engine/`) — forms, shader, gl, geometry. Pure pixels, zero DOM, source-agnostic (`setSource` accepts an HTMLImageElement, HTMLVideoElement, or canvas; `updateSourceFrame` re-uploads the current frame). Never rebuilt per device.
+- **Kit** (`src/kit/`, plus `shell/state.js`, `params.js`, `history.js`) — DOM-agnostic primitives shared by every front-end: the single state schema, undo/redo, the parameter registry, droste snaps, and the **tween/keyframe model** (`kit/tween.js`). Plus host services (`shell/camera.js`, `shell/video-source.js`, `shell/video-export.js`, `shell/zip.js`). Grows over time; never rebuilt.
+- **Components** (`src/components/`) — UI mounted by BOTH chromes, parameterized (touch-target size, etc.) not forked: `createSourceOverlay` (the expensive draw + hit-test + proportionality/mirroring gesture math — never reimplement per chrome), `createOutputGestures`, `mountRangeControl`.
+- **Chrome** (`src/main.js` = desktop/iPad; `src/mobile/chrome.js` = phone) — layout, divider, tab bar, gesture routing, mode detection. The only layer genuinely rebuilt per device. `src/boot.js` picks the chrome (phone → mobile, else desktop; `?chrome=` override). **iPad stays on the desktop chrome** (it hosts the keyframe/timeline editor, which is desktop/iPad-only).
+
+**Why this matters for native (a recurring question):** because the Engine + Kit + Components are the bulk of the app and are device-agnostic, a NATIVE wrapper (Electron on macOS, Capacitor/WKWebView on iOS) reuses 100% of this code — it adds only a thin native shell + native modules (Syphon, camera). A wrapper does NOT fork the UI/IxD; only a full SwiftUI+Metal rewrite would, and that is not required for Syphon/camera. So the single web codebase stays the source of truth; native is a shell. (See HANDOFF + BACKLOG for the Electron-Syphon-spike plan.)
+
+## motion: keyframes, tween, the timeline
+
+State for animation lives in `motion` (in `shell/state.js`): `keyframes: [{ t: 0..1, snap, thumb, anchored }]`, `durationMs`, `loop`, `smoothing`, `playing`, `playhead`, `selected`, `videoSpeed`. A **keyframe's `snap` is a full state snapshot** — the universal currency that also powers undo and (future) live-transition tweening.
+
+- `kit/tween.js` `sampleKeyframes(list, p, {smoothing, loop})` is velocity-continuous Catmull-Rom: motion flows THROUGH keyframes (no per-keyframe stutter), loop-aware (periodic seam), angle-unwrapped. `DISCRETE_KEYS` (form, segments, arms, mirror toggles, oobMode) don't interpolate — they lock to keyframe 0. `smoothing` (0..1) Laplacian-relaxes jaggy interior keyframe values.
+- In `main.js`: `sampleAt(p)` = the interpolated state at p (discrete locked to kf0); `addKeyframe` (context-aware: a selected keyframe → auto-spaced in-between capturing the INTERPOLATED value; nothing selected → anchored at the scrubber); `applyAutoSpacing` (non-anchored keyframes even-space between anchors); the **timeline view transform** below.
+- **Timeline view transform (zoom/pan/fit):** ephemeral `session.timelineZoom`/`timelinePan`. Markers + ruler are positioned by ZOOM only (`zPct`) and PANNED via a CSS layer transform (`applyPan` on `#mfMarkers`/`#mfRuler`/`#mfStrip`), so following the playhead / two-finger scroll just slides a transform — no per-frame DOM rebuild. The playhead lives in the track itself (absolute, via `tToPct`). `relayoutTimeline` (rebuild) is only for zoom/structural changes; pan-only uses `applyPan`. The tween-strip band is a row of aspect-locked square `.mf-cell` thumbnails covering the visible window (rebuilt debounced, seek-per-cell for video).
+
+## video as a source: the seek-based frame seam
+
+The engine is already video-capable (the live camera uses `setSource(<video>)`). Source-VIDEO animation binds the timeline to the clip's own time. The whole thing reduces to ONE async primitive: put the right decoded frame for normalized `p` onto the texture, then render/capture as usual.
+
+- `shell/video-source.js`: `pToMediaSec(video, p, clip)` maps `p` → media seconds, scaled into the trim range `[clip.inT, clip.outT]`; `seekVideoTo(video, sec)` resolves on the `'seeked'` event + a safety timeout (deliberately NOT `requestVideoFrameCallback` — the occluded source `<video>` may never present to the compositor, so rVFC can hang).
+- `main.js`: `advanceSourceToP(p)` = `seekVideoTo` + `updateSourceFrame`; `scrubVideo(p)` coalesces seeks (latest-wins) so dragging never floods the decoder; `startVideoPlayback` uses the `<video>` as the master clock (plays within the trim range, derives `p` from `currentTime`, samples params, renders). Params (`sampleAt`) and source-time are independent functions of `p`.
+- **Browser-engine gotchas (hard-won):** desktop Safari's FBO `readPixels` returns corrupt "blue cells" → the filmstrip/thumbnails use the readback-free capture path (`beginCapture`/`captureFrame`, GL→2D `drawImage`). Per-frame `VideoFrame`-from-canvas is ~177ms on Safari (the export bottleneck) vs ~5ms elsewhere → export wraps the WebGL canvas directly on WebKit (`captureFrameGL`), 2D-canvas elsewhere (`defaultCaptureMode`). Firefox lacks rVFC, applies a 90° rotation to all videos, and is slow at seeks. Blink is still under-tested for the video path.
+
+## video export + the clip bake
+
+- `shell/video-export.js`: `exportVideo({ frameAt, ... })` renders frame-by-frame through WebCodecs `VideoEncoder` → mp4-muxer. `pickVideoCodec` gates resolution per codec (H.264 ≤4K, HEVC >4K where the device can encode) so the UI only offers what works. For a video source, `frameAt` is async and `await`s `advanceSourceToP` per output frame (frame-accurate). Companion "how it was made" source-preview video + motion-JSON bundle into a `.zip` (`shell/zip.js`).
+- **The clip editor** (pre-animation, in `main.js`, a sheet `#clipSheet`): trim + a seamless-loop mode (trim / bounce / slice). Bounce/slice **bake** a processed clip (the seek-based `frameAt` decodes + assembles source frames → `exportVideo` → swap the baked blob in as the source). The in-editor previews are smooth: scrubber, seek-driven bounce, and a **two-video live crossfade** (a second hidden preview `<video>` plays the A-head alongside the main B-tail, alpha-blended on `#clipBlend`). Bake is seek-based (fine for short loops; a WebCodecs `VideoDecoder` + demuxer is the deferred fast path — needs a new dependency). The bake/render share the in-memory muxer → OPFS streaming is the deferred fix for 10-min/4K.
 
 ## adding a new form
 
@@ -93,10 +148,12 @@ The divider drag uses rAF coalescing for the panel-width updates and hides both 
 
 ## things that aren't here yet but are coming
 
-See [BACKLOG.md](./BACKLOG.md) for the running list. Highlights:
+The big arcs since this doc was first written are now SHIPPED: the Droste + triangle forms; the **mobile chrome** + PWA (installable, offline); the **camera host**; the Components/Kit extraction; the **motion shell** (multi-keyframe timeline, velocity-continuous tween, MP4 export); **source-video animation** (load → scrub/keyframe/play over footage → frame-accurate export, navigable timeline, retime); and the **clip editor** (trim/bounce/slice bake + smooth previews).
 
-- More forms: Droste, hyperbolic, polygonal radial (n-fold polygons), wallpaper-group transforms beyond p4m and p6m
-- Motion shell: animate parameters over time, MP4/GIF export
-- Live shell: MIDI/touch input, full-screen kiosk mode
-- A real PWA manifest and offline support
-- "Scale to tile" snap (deferred — see backlog for the geometry investigation)
+`HANDOFF.md` is the rolling source of truth for current state + what's queued (read it first). `BACKLOG.md` carries the detailed running list + the roadmap/dependency analysis. Current highlights of what's next (see those docs for detail + sequencing):
+
+- **Engine/perf hardening** (Daniel's least-ambiguous next): webmux + single-core render, Chromium pass, frame interpolation + slower speeds, OPFS long-render-to-disk for 10-min/4K, Firefox color/orientation.
+- **Real-time live-video kaleidoscope** (smart-tween on setting change) → save-to-disk → Syphon (via an Electron/native wrapper — the reuse story is in the layering section above).
+- **+gesture record** + per-segment rotation winding (capture intended movement, not nearest path).
+- Motion-controls IxD + a global UI/brand pass (positioning-gated); more forms (hyperbolic, polygonal radial, p31m); "scale to tile" snap.
+- Native wrapper(s) and distribution bets (standalone / Snapchat-IG filter / NLE plugin) — all reuse the shared engine.
