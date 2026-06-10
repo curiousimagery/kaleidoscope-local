@@ -581,6 +581,7 @@ function openClipEditor() {
   if (!sheet) return;
   if (motion.playing) stopPlayback();
   _clipBackup = { ...clip };                       // for Cancel
+  _clipSeamKey = '';                               // force a fresh seam capture for this session
   const pv = document.getElementById('clipVideo');
   pv.muted = true; pv.playsInline = true; pv.loop = false;
   pv.src = sourceVideoUrl;
@@ -591,6 +592,9 @@ function openClipEditor() {
 }
 function disposeClipPreview() {
   stopClipPreview();
+  clearTimeout(_seamTimer);
+  _clipSeamB = []; _clipSeamA = []; _clipSeamKey = '';   // free the seam buffers
+  const blend = document.getElementById('clipBlend'); if (blend) blend.hidden = true;
   if (_clipPrevVideo) { try { _clipPrevVideo.pause(); } catch { /* ignore */ } _clipPrevVideo.removeAttribute('src'); try { _clipPrevVideo.load(); } catch { /* ignore */ } _clipPrevVideo = null; }
 }
 // re-bind the motion timeline to the current (trimmed / baked) clip + show frame 0.
@@ -671,6 +675,7 @@ function startClipPreview(reset = true) {
     _clipRaf = requestAnimationFrame(tickB);
     return;
   }
+  if (clip.mode === 'slice') { startSlicePreview(reset); return; }   // phase machine with a real seam dissolve
   const segs = clipPreviewSegments();
   if (reset) { _clipSeg = 0; try { v.currentTime = segs[0][0]; } catch { /* ignore */ } }
   else {                                           // resume from the current frame (find its segment)
@@ -692,6 +697,90 @@ function startClipPreview(reset = true) {
     _clipRaf = requestAnimationFrame(tick);
   };
   _clipRaf = requestAnimationFrame(tick);
+}
+
+// --- slice preview with a real seam dissolve ---------------------------------
+// Native playback of the rearranged segments (B=[cut,out] then A=[in,cut], smooth) with
+// a phase machine that, at the B→A seam, PAUSES native and cross-dissolves pre-captured
+// seam frames (B-tail → A-head) on the #clipBlend overlay over the crossfade duration,
+// then seeks native to in+cfSec and continues A. Matches the baked output; the small
+// seam buffer is captured (seek-based, debounced) on entering slice / cut/crossfade/trim
+// change. Until the buffer is ready it falls back to a hard cut.
+let _clipSeamB = [], _clipSeamA = [], _clipSeamKey = '', _clipSeamBusy = false;
+let _clipPhase = 'B', _clipDissolveStart = 0, _seamTimer = 0;
+function sliceTimes() {
+  const v = _clipPrevVideo, d = (v && v.duration) || 1, range = clip.outT - clip.inT;
+  const inA = clip.inT * d, outA = clip.outT * d, cut = (clip.inT + clip.slicePoint * range) * d;
+  const cfSec = Math.max(0.05, Math.min(clip.crossfadeMs / 1000, (outA - cut) * 0.9, (cut - inA) * 0.9));
+  return { d, inA, outA, cut, cfSec };
+}
+function drawSeamBlend(a) {
+  const blend = document.getElementById('clipBlend');
+  if (!blend || !_clipSeamB.length) return;
+  const N = _clipSeamB.length;
+  const i = Math.max(0, Math.min(N - 1, Math.round(a * (N - 1))));
+  const B = _clipSeamB[i], A = _clipSeamA[i] || B;
+  if (blend.width !== B.width || blend.height !== B.height) { blend.width = B.width; blend.height = B.height; }
+  const cx = blend.getContext('2d');
+  cx.globalAlpha = 1; cx.drawImage(B, 0, 0);
+  cx.globalAlpha = a; cx.drawImage(A, 0, 0); cx.globalAlpha = 1;
+}
+function startSlicePreview(reset) {
+  const v = _clipPrevVideo;
+  if (!v) return;
+  const blend = document.getElementById('clipBlend');
+  if (reset) { _clipPhase = 'B'; try { v.currentTime = sliceTimes().cut; } catch { /* ignore */ } if (blend) blend.hidden = true; }
+  v.play().catch(() => {});
+  const tick = () => {
+    if (!_clipPrevVideo) return;
+    const { d, inA, outA, cut, cfSec } = sliceTimes();
+    const haveSeam = _clipSeamB.length > 0;
+    if (_clipPhase === 'dissolve') {
+      const a = Math.min(1, (performance.now() - _clipDissolveStart) / (cfSec * 1000));
+      drawSeamBlend(a);
+      if (a >= 1) { _clipPhase = 'A'; if (blend) blend.hidden = true; try { v.currentTime = inA + cfSec; v.play().catch(() => {}); } catch { /* ignore */ } }
+    } else if (_clipPhase === 'B') {
+      if (v.currentTime >= outA - cfSec - 0.02 || v.currentTime < cut - 0.08) {
+        if (haveSeam) { _clipPhase = 'dissolve'; _clipDissolveStart = performance.now(); try { v.pause(); } catch { /* ignore */ } if (blend) blend.hidden = false; }
+        else { try { v.currentTime = inA; } catch { /* ignore */ } _clipPhase = 'A'; }   // fallback: hard cut
+      }
+    } else {                                          // 'A' — native [in(+cf), cut]
+      if (v.currentTime >= cut - 0.02 || v.currentTime < inA - 0.08) { _clipPhase = 'B'; try { v.currentTime = cut; } catch { /* ignore */ } }
+    }
+    const ph = document.getElementById('clipPlayhead');
+    if (ph) ph.style.left = ((v.currentTime / d) * 100) + '%';
+    _clipRaf = requestAnimationFrame(tick);
+  };
+  _clipRaf = requestAnimationFrame(tick);
+}
+// Capture the short seam windows (B-tail = last cfSec of [cut,out]; A-head = first cfSec
+// of [in,cut]) at preview resolution, so the dissolve plays smoothly from the buffer.
+// Seek-based (small count, debounced); pauses/resumes the preview around the burst.
+async function captureSeamFrames() {
+  const v = _clipPrevVideo;
+  if (!v || clip.mode !== 'slice' || _clipSeamBusy) return;
+  const { d, inA, outA, cut, cfSec } = sliceTimes();
+  const key = `${clip.inT.toFixed(4)}|${clip.outT.toFixed(4)}|${clip.slicePoint.toFixed(4)}|${clip.crossfadeMs}`;
+  if (key === _clipSeamKey) return;
+  _clipSeamBusy = true;
+  const wasRunning = !!_clipRaf;
+  stopClipPreview();
+  const N = 8, pw = 320, sc = pw / (v.videoWidth || pw), ph = Math.max(1, Math.round((v.videoHeight || pw) * sc));
+  const grab = (sec) => seekVideoTo(v, sec).then(() => { const c = document.createElement('canvas'); c.width = pw; c.height = ph; c.getContext('2d').drawImage(v, 0, 0, pw, ph); return c; });
+  try {
+    const B = [], A = [];
+    for (let i = 0; i < N; i++) B.push(await grab(outA - cfSec + (i / (N - 1)) * cfSec));
+    for (let i = 0; i < N; i++) A.push(await grab(inA + (i / (N - 1)) * cfSec));
+    _clipSeamB = B; _clipSeamA = A; _clipSeamKey = key;
+  } catch { /* ignore */ } finally {
+    _clipSeamBusy = false;
+    if (wasRunning && _clipPrevVideo && !_clipDrag) startClipPreview();
+  }
+}
+function scheduleSeamCapture() {
+  clearTimeout(_seamTimer);
+  if (clip.mode !== 'slice') return;
+  _seamTimer = setTimeout(captureSeamFrames, 350);   // after the user stops adjusting
 }
 function stopClipPreview() {
   if (_clipRaf) { cancelAnimationFrame(_clipRaf); _clipRaf = 0; }
@@ -738,7 +827,7 @@ function makeClipHandle(el, which) {
     const ph = document.getElementById('clipPlayhead');
     if (ph) ph.style.left = (handleT * 100) + '%';
   });
-  const up = (e) => { if (_clipDrag !== which) return; _clipDrag = null; el.releasePointerCapture?.(e.pointerId); startClipPreview(); };
+  const up = (e) => { if (_clipDrag !== which) return; _clipDrag = null; el.releasePointerCapture?.(e.pointerId); scheduleSeamCapture(); startClipPreview(); };
   el.addEventListener('pointerup', up);
   el.addEventListener('pointercancel', up);
 }
@@ -752,7 +841,9 @@ function setClipMode(mode) {
   const slice = mode === 'slice';
   const cutEl = document.getElementById('clipCut'); if (cutEl) cutEl.hidden = !slice;
   const xfade = document.getElementById('clipXfadeRow'); if (xfade) xfade.hidden = !slice;
+  const blend = document.getElementById('clipBlend'); if (blend && !slice) blend.hidden = true;
   renderClipTrim();
+  if (slice) scheduleSeamCapture();                  // capture the seam windows for the dissolve preview
   if (_clipRaf && _clipPrevVideo && !_clipDrag) { stopClipPreview(); startClipPreview(); }   // re-segment a RUNNING preview for the new mode
 }
 const _even = (n) => Math.max(2, Math.round(n / 2) * 2);
@@ -2518,6 +2609,7 @@ function wireMotion() {
     step: 0.1, fineStep: 0.05, min: 0, max: 3,
     format: (v) => v.toFixed(2) + 's',
     parse: (s) => { const n = parseFloat(String(s).replace(/[s\s]/g, '')); return isNaN(n) ? null : n; },
+    onChange: scheduleSeamCapture,   // recapture the seam windows for the dissolve preview
   });
 
   // ⋯ motion-data menu — download / load the keyframes+settings as portable JSON.

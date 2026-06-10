@@ -269,7 +269,10 @@
 <div class="vid-sheet" id="clipSheet" hidden>
   <div class="vid-card clip-card">
     <div class="vid-head"><span>clip editor</span><button class="vid-x" id="clipClose" title="close">✕</button></div>
-    <video id="clipVideo" class="clip-video" muted playsinline></video>
+    <div class="clip-stage">
+      <video id="clipVideo" class="clip-video" muted playsinline></video>
+      <canvas id="clipBlend" class="clip-blend" hidden></canvas>
+    </div>
     <div class="clip-bar" id="clipBar">
       <div class="clip-region" id="clipRegion"></div>
       <div class="clip-playhead" id="clipPlayhead"></div>

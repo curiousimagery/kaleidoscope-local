@@ -4,6 +4,12 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.9.14 (Build 161) — 2026-06-10
+
+**Clip editor: live crossfade dissolve preview.** Slice mode now previews the actual seam crossfade (not a hard cut), so you can dial in the cut point + crossfade duration before baking — the editor's whole purpose. The slice preview is a phase machine: native playback of B(=[cut,out]) → at the seam it PAUSES and cross-dissolves pre-captured seam frames (B-tail → A-head) on a `#clipBlend` overlay over the crossfade duration → seeks to in+cfSec and continues A → loops. The small seam buffer (~8 frames each side, preview res) is captured seek-based + debounced when you enter slice mode or change the cut/crossfade/trim; until it's ready the seam falls back to a hard cut. Matches the baked output. **Verify (Daniel — needs your eyes on timing/look):** slice mode → the seam shows a smooth dissolve that loops; dragging the cut point / crossfade re-captures (brief preview pause ~1–2s) then updates the dissolve; the dissolve length tracks the crossfade field. **Known:** entering slice / changing cut/crossfade pauses the preview briefly while it re-captures the seam (seek-based); the live dissolve is preview-res. **Next:** the bake speedup (decode-by-playback) — the remaining half.
+
+---
+
 ## v0.9.13 (Build 160) — 2026-06-10
 
 **Two fixes from Daniel's Build-159 testing.**
