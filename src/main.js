@@ -916,8 +916,9 @@ async function bakeAndApply() {
   } else { _clipBaking = false; return; }
 
   const prog = document.getElementById('clipProgress'), fill = document.getElementById('clipBarFill');
-  const apply = document.getElementById('clipApply');
+  const apply = document.getElementById('clipApply'), cover = document.getElementById('clipBaking');
   if (prog) prog.hidden = false;
+  if (cover) cover.hidden = false;                 // hide the seeking/decoding flicker behind a "baking…" cover
   if (apply) { apply.disabled = true; apply.textContent = 'baking…'; }
   try {
     const { blob } = await exportVideo({
@@ -934,6 +935,7 @@ async function bakeAndApply() {
   } finally {
     if (prog) prog.hidden = true;
     if (fill) fill.style.width = '0%';
+    if (cover) cover.hidden = true;
     if (apply) { apply.disabled = false; }
     setClipMode(clip.mode);                        // restore the apply label
     _clipBaking = false;

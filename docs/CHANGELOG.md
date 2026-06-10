@@ -4,6 +4,12 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.9.15 (Build 162) — 2026-06-10
+
+**Bake no longer flickers the preview ("baking…" cover).** The bake decodes by seeking the *visible* clip-preview video, so the sheet flashed through frames + black while baking (the "feels broken" look Daniel flagged; the baked file was always fine). A simple `#clipBaking` cover now hides the clip stage during the bake, showing "baking…" + the progress bar. Independent of the decode method, so it's correct regardless of the later bake-speed work. **Verify (Daniel):** baking shows a clean "baking…" state instead of flickering. **NOTE — bake-speed investigation (see HANDOFF/response):** decode-by-playback turned out narrower than the plan assumed (≈3× on Firefox/Chromium only; Safari is encode-bound by the `VideoFrame`-from-canvas cost; bounce-reverse + long-crossfade seam buffers hit a memory wall). The real fast fix is a WebCodecs `VideoDecoder` + mp4 demuxer (new dependency). The smooth-dial-in need is better served by the two-video crossfade PREVIEW blend (next).
+
+---
+
 ## v0.9.14 (Build 161) — 2026-06-10
 
 **Clip editor: live crossfade dissolve preview.** Slice mode now previews the actual seam crossfade (not a hard cut), so you can dial in the cut point + crossfade duration before baking — the editor's whole purpose. The slice preview is a phase machine: native playback of B(=[cut,out]) → at the seam it PAUSES and cross-dissolves pre-captured seam frames (B-tail → A-head) on a `#clipBlend` overlay over the crossfade duration → seeks to in+cfSec and continues A → loops. The small seam buffer (~8 frames each side, preview res) is captured seek-based + debounced when you enter slice mode or change the cut/crossfade/trim; until it's ready the seam falls back to a hard cut. Matches the baked output. **Verify (Daniel — needs your eyes on timing/look):** slice mode → the seam shows a smooth dissolve that loops; dragging the cut point / crossfade re-captures (brief preview pause ~1–2s) then updates the dissolve; the dissolve length tracks the crossfade field. **Known:** entering slice / changing cut/crossfade pauses the preview briefly while it re-captures the seam (seek-based); the live dissolve is preview-res. **Next:** the bake speedup (decode-by-playback) — the remaining half.
