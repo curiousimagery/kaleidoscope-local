@@ -139,18 +139,37 @@ const env = {
   arrangeSlots: null,
   pushHistory: () => historyPush({ ...state }),
   updateUndoUI: null,  // assigned after setupUndoBar
+
+  // ---- runtime state ------------------------------------------------------
+  // Ephemeral runtime flags (NOT the undoable `state`): grouped into cohesive
+  // sub-objects so the wiring functions read/write through `env` instead of
+  // closing over module-level locals (which is what lets the wiring move to a
+  // shared module later). Honors the "no module-level mutable globals" rule.
+  // `sourceVideo`/`liveVideo` stay top-level (the source-overlay component
+  // binds to those exact handles at construction).
+  media: { sourceFilename: '', sourceVideoUrl: null, originalSource: null, captureObjectURL: null },
+  live: { isLive: false, active: false, raf: 0 },
+  motionRT: { active: false, raf: 0, start: 0, scrubbing: false, pointers: new Map(), gesture: null, relayoutPending: false },
+  clip: {
+    trim: { inT: 0, outT: 1, mode: 'forward', slicePoint: 1 / 3, crossfadeMs: 500 },
+    prevVideo: null, prevVideoB: null, backup: null, drag: null, raf: 0,
+    seg: 0, bounceStart: 0, phase: 'B', seekT: null, seeking: false, baking: false,
+  },
+  filmstrip: { timer: 0, lastSig: '', gen: 0, busy: false, freezeEl: null },
+  scrub: { seekP: null, seeking: false, assign: true },
+  sched: { renderScheduled: false, syncCtrlScheduled: false },
+  sourcePreview: { frame: null, overlay: null, parent: null },
 };
 
 // ============================================================================
 // rendering scheduler
 // ============================================================================
 
-let renderScheduled = false;
 function scheduleRender() {
-  if (renderScheduled) return;
-  renderScheduled = true;
+  if (env.sched.renderScheduled) return;
+  env.sched.renderScheduled = true;
   requestAnimationFrame(() => {
-    renderScheduled = false;
+    env.sched.renderScheduled = false;
     if (engine && engine.getSourceImage()) {
       engine.render(state);
       if (session.isSwapped) drawMiniKaleidoscope();
@@ -158,7 +177,7 @@ function scheduleRender() {
     sourceOverlay.render();
     updateResolutionHint();
     // motion: editing a selected keyframe writes through to it live (snap + thumb).
-    if (motionActive && motion.selected >= 0 && !motion.playing && !motionScrubbing) {
+    if (env.motionRT.active && motion.selected >= 0 && !motion.playing && !env.motionRT.scrubbing) {
       const kf = motion.keyframes[motion.selected];
       // commit the edit live (cheap); the thumbnail refreshes on the debounced,
       // readback-free filmstrip rebuild — NOT per frame (a per-frame exportFrame →
@@ -177,11 +196,10 @@ env.scheduleRender = scheduleRender;
 // than Safari/Chrome and is much harsher about forced reflow, so this made slice
 // dragging/rotating/scaling sluggish there. Render + overlay-draw were already
 // rAF-coalesced; this brings syncControls in line.
-let syncCtrlScheduled = false;
 function scheduleSyncControls() {
-  if (syncCtrlScheduled) return;
-  syncCtrlScheduled = true;
-  requestAnimationFrame(() => { syncCtrlScheduled = false; env.syncControls(); });
+  if (env.sched.syncCtrlScheduled) return;
+  env.sched.syncCtrlScheduled = true;
+  requestAnimationFrame(() => { env.sched.syncCtrlScheduled = false; env.syncControls(); });
 }
 
 // the shared source-overlay component (mounted by both chromes). Desktop bridges
@@ -199,10 +217,10 @@ const sourceOverlay = createSourceOverlay({
   // discrete edits (segment-spoke drag, droste-arms drag) are blocked once motion
   // mode has TWO keyframes (discrete is pinned to keyframe 0 from then on); with a
   // single seeded keyframe they stay editable to set up the starting look.
-  canEditDiscrete: () => !(motionActive && motion.keyframes.length >= 2),
+  canEditDiscrete: () => !(env.motionRT.active && motion.keyframes.length >= 2),
   // hide the touch affordance arrows during playback/scrub (they're not useful while
   // the animation runs).
-  hideAffordances: () => motionActive && (motion.playing || motionScrubbing),
+  hideAffordances: () => env.motionRT.active && (motion.playing || env.motionRT.scrubbing),
 });
 env.scheduleOverlayDraw = sourceOverlay.scheduleDraw;
 
@@ -370,20 +388,17 @@ function clearBusy() {
 // image loading
 // ============================================================================
 
-let sourceFilename = '';
-let sourceVideoUrl = null;   // objectURL of a loaded source video (revoked on replace)
-
 function loadImage(file) {
   if (!engine) return;
-  if (isLive) stopCameraMode({ keepSource: true });  // uploading exits live mode
+  if (env.live.isLive) stopCameraMode({ keepSource: true });  // uploading exits live mode
   stopSourceVideoPlayback();                          // stop a loaded video's loop before switching
   haltPlayback();                                     // stop motion playback before swapping the source
-  lastFilmstripSig = '';                              // any existing keyframe thumbs are from the old source
+  env.filmstrip.lastSig = '';                         // any existing keyframe thumbs are from the old source
   env.sourceVideo = null;                            // switching to a still clears any source video
-  if (sourceVideoUrl) { URL.revokeObjectURL(sourceVideoUrl); sourceVideoUrl = null; }
+  if (env.media.sourceVideoUrl) { URL.revokeObjectURL(env.media.sourceVideoUrl); env.media.sourceVideoUrl = null; }
   const url = URL.createObjectURL(file);
-  sourceFilename = (file.name || 'image').replace(/\.[^.]+$/, '');
-  originalSource = { blob: file, name: file.name || 'original' };  // for export package
+  env.media.sourceFilename = (file.name || 'image').replace(/\.[^.]+$/, '');
+  env.media.originalSource = { blob: file, name: file.name || 'original' };  // for export package
   const img = new Image();
   // Clear any prior upload error before attempting this load.
   if (uploadErrorEl) uploadErrorEl.textContent = '';
@@ -418,7 +433,7 @@ function loadImage(file) {
 
     updateMotionUI();   // re-enable motion mode for a still (it's gated off for video sources)
     arrangeSlots();
-    if (motionActive) rebindMotionToSource();   // already animating → re-bind keyframes to the new still
+    if (env.motionRT.active) rebindMotionToSource();   // already animating → re-bind keyframes to the new still
   };
   img.onerror = () => {
     if (uploadErrorEl) uploadErrorEl.textContent = 'failed to load image';
@@ -436,16 +451,16 @@ function loadImage(file) {
 // keyframes over the moving footage) is the next increment.
 function loadVideo(file) {
   if (!engine) return;
-  if (isLive) stopCameraMode({ keepSource: true });   // uploading exits live mode
+  if (env.live.isLive) stopCameraMode({ keepSource: true });   // uploading exits live mode
   stopSourceVideoPlayback();                           // stop any previously loaded video's loop
   haltPlayback();                                      // stop motion playback before swapping the source
-  lastFilmstripSig = '';                               // any existing keyframe thumbs are from the old source
-  clip.inT = 0; clip.outT = 1; clip.mode = 'forward';  // a new clip starts untrimmed
-  if (sourceVideoUrl) { URL.revokeObjectURL(sourceVideoUrl); sourceVideoUrl = null; }
+  env.filmstrip.lastSig = '';                          // any existing keyframe thumbs are from the old source
+  env.clip.trim.inT = 0; env.clip.trim.outT = 1; env.clip.trim.mode = 'forward';  // a new clip starts untrimmed
+  if (env.media.sourceVideoUrl) { URL.revokeObjectURL(env.media.sourceVideoUrl); env.media.sourceVideoUrl = null; }
   const url = URL.createObjectURL(file);
-  sourceVideoUrl = url;
-  sourceFilename = (file.name || 'video').replace(/\.[^.]+$/, '');
-  originalSource = { blob: file, name: file.name || 'original' };   // for export package
+  env.media.sourceVideoUrl = url;
+  env.media.sourceFilename = (file.name || 'video').replace(/\.[^.]+$/, '');
+  env.media.originalSource = { blob: file, name: file.name || 'original' };   // for export package
   if (uploadErrorEl) uploadErrorEl.textContent = '';
 
   const v = document.createElement('video');
@@ -480,7 +495,7 @@ function loadVideo(file) {
     // across engines (a paused, never-played one does NOT on Blink/Gecko), and the
     // preview + output stay in sync. Timeline-driven scrub/keyframes replace this
     // free-run in the next increment.
-    if (motionActive) {
+    if (env.motionRT.active) {
       rebindMotionToSource();        // already animating → re-bind keyframes to the new clip (timeline-driven, no free-run)
     } else {
       v.play().catch(() => {});      // muted playback is allowed; ignore autoplay rejection
@@ -507,7 +522,7 @@ function loadVideo(file) {
 // Stop a loaded source video's render loop + pause it. When the camera is live it
 // owns the loop, so leave it alone in that case (its own lifecycle stops it).
 function stopSourceVideoPlayback() {
-  if (!isLive) stopLiveLoop();
+  if (!env.live.isLive) stopLiveLoop();
   if (env.sourceVideo) { try { env.sourceVideo.pause(); } catch { /* ignore */ } }
 }
 
@@ -517,7 +532,7 @@ function stopSourceVideoPlayback() {
 // keyframe rather than re-creating a start anchor. Returns true if it seeded kf0 (which
 // renders/scrubs on its own, so the caller can skip its own render).
 function ensureSeededSelection() {
-  if (!motionActive) { motion.selected = -1; return false; }
+  if (!env.motionRT.active) { motion.selected = -1; return false; }
   if (!kfList().length) { addKeyframe(); return true; }      // seed kf0 (records the current slice look)
   const i = keyframeAt(motion.playhead);
   motion.selected = i >= 0 ? i : 0;                          // kf0 at the playhead → selected, so +keyframe inserts between
@@ -533,7 +548,7 @@ function rebindMotionToSource() {
   session.timelineZoom = 1; session.timelinePan = 0;          // back to fit
   motion.playhead = 0;
   if (env.sourceVideo) lockVideoDuration();                  // re-lock to the new clip (× retime)
-  lastFilmstripSig = '';                                      // old-source thumbs → force a rebuild
+  env.filmstrip.lastSig = '';                                // old-source thumbs → force a rebuild
   if (ensureSeededSelection()) return;                       // seeded kf0 → it handled render/scrub
   renderTimeline();
   updateMotionUI();
@@ -541,11 +556,11 @@ function rebindMotionToSource() {
   else renderSampled(0);                                      // still: show the playhead-0 look
 }
 
-// CLIP edit state (pre-animation): trim + loop strategy. `inT`/`outT` are normalized
-// trim handles (default = whole clip). bounce/slice are the seamless-loop modes (bounce
-// = forward-then-reverse source time; slice = baked crossfade — increment B). The
-// timeline spans only [inT, outT]; defaults reproduce the untrimmed behavior exactly.
-const clip = { inT: 0, outT: 1, mode: 'forward', slicePoint: 1 / 3, crossfadeMs: 500 };
+// CLIP edit state (pre-animation): trim + loop strategy lives in `env.clip.trim`.
+// `inT`/`outT` are normalized trim handles (default = whole clip). bounce/slice are the
+// seamless-loop modes (bounce = forward-then-reverse source time; slice = baked
+// crossfade — increment B). The timeline spans only [inT, outT]; defaults reproduce the
+// untrimmed behavior exactly.
 
 // VIDEO retime: the locked motion duration = the TRIMMED clip length ÷ the playback-
 // speed multiplier (so ¼× makes the timeline + export 4× longer = slow-mo). Stills set
@@ -553,7 +568,7 @@ const clip = { inT: 0, outT: 1, mode: 'forward', slicePoint: 1 / 3, crossfadeMs:
 function videoNativeDurationMs() {
   const d = env.sourceVideo && env.sourceVideo.duration;
   if (!(d && isFinite(d))) return 0;
-  return Math.round((clip.outT - clip.inT) * d * 1000);   // trimmed length
+  return Math.round((env.clip.trim.outT - env.clip.trim.inT) * d * 1000);   // trimmed length
 }
 function lockVideoDuration() {
   const nat = videoNativeDurationMs();
@@ -574,35 +589,34 @@ function setVideoSpeed(spd) {
 // increment B, bounce / slice+crossfade for seamless looping). Uses its OWN preview
 // <video> (the same blob URL) so it never disturbs the texture-source element. Applying
 // commits the trim to `clip`; the motion timeline re-binds to the trimmed range.
-let _clipPrevVideo = null, _clipBackup = null, _clipDrag = null, _clipRaf = 0;
 function openClipEditor() {
-  if (!env.sourceVideo || !sourceVideoUrl) return;
+  if (!env.sourceVideo || !env.media.sourceVideoUrl) return;
   const sheet = document.getElementById('clipSheet');
   if (!sheet) return;
   if (motion.playing) stopPlayback();
-  _clipBackup = { ...clip };                       // for Cancel
+  env.clip.backup = { ...env.clip.trim };          // for Cancel
   const pv = document.getElementById('clipVideo');
   pv.muted = true; pv.playsInline = true; pv.loop = false;
-  pv.src = sourceVideoUrl;
-  _clipPrevVideo = pv;
+  pv.src = env.media.sourceVideoUrl;
+  env.clip.prevVideo = pv;
   // a second, hidden-but-decoding preview video: plays the A-head during the seam
   // crossfade so the two streams can be alpha-blended live (smooth, no capture).
   const vB = document.createElement('video');
   vB.muted = true; vB.playsInline = true; vB.loop = false; vB.preload = 'auto';
   vB.setAttribute('playsinline', ''); vB.setAttribute('muted', '');
   vB.style.cssText = 'position:absolute;left:0;top:0;width:1px;height:1px;opacity:0;pointer-events:none';
-  vB.src = sourceVideoUrl;
+  vB.src = env.media.sourceVideoUrl;
   (document.querySelector('.clip-stage') || sheet).appendChild(vB);
-  _clipPrevVideoB = vB;
+  env.clip.prevVideoB = vB;
   sheet.hidden = false;
-  const init = () => { setClipMode(clip.mode); renderClipTrim(); startClipPreview(); };
+  const init = () => { setClipMode(env.clip.trim.mode); renderClipTrim(); startClipPreview(); };
   if (pv.readyState >= 1) init(); else pv.addEventListener('loadedmetadata', init, { once: true });
 }
 function disposeClipPreview() {
   stopClipPreview();
   const blend = document.getElementById('clipBlend'); if (blend) blend.hidden = true;
-  if (_clipPrevVideo) { try { _clipPrevVideo.pause(); } catch { /* ignore */ } _clipPrevVideo.removeAttribute('src'); try { _clipPrevVideo.load(); } catch { /* ignore */ } _clipPrevVideo = null; }
-  if (_clipPrevVideoB) { try { _clipPrevVideoB.pause(); } catch { /* ignore */ } _clipPrevVideoB.removeAttribute('src'); try { _clipPrevVideoB.load(); } catch { /* ignore */ } _clipPrevVideoB.remove(); _clipPrevVideoB = null; }
+  if (env.clip.prevVideo) { try { env.clip.prevVideo.pause(); } catch { /* ignore */ } env.clip.prevVideo.removeAttribute('src'); try { env.clip.prevVideo.load(); } catch { /* ignore */ } env.clip.prevVideo = null; }
+  if (env.clip.prevVideoB) { try { env.clip.prevVideoB.pause(); } catch { /* ignore */ } env.clip.prevVideoB.removeAttribute('src'); try { env.clip.prevVideoB.load(); } catch { /* ignore */ } env.clip.prevVideoB.remove(); env.clip.prevVideoB = null; }
 }
 // re-bind the motion timeline to the current (trimmed / baked) clip + show frame 0.
 function rebindClipToTimeline() {
@@ -610,118 +624,120 @@ function rebindClipToTimeline() {
   lockVideoDuration();
   motion.playhead = 0;
   session.timelineZoom = 1; session.timelinePan = 0;
-  lastFilmstripSig = '';
+  env.filmstrip.lastSig = '';
   if (ensureSeededSelection()) return;             // always land with a selected kf0 (so +keyframe adds an in-between)
   renderTimeline();
   updateMotionUI();
   scrubVideo(0);
 }
 function closeClipEditor(apply) {
-  if (_clipBaking) return;                          // don't tear down mid-bake (the decode video is in use)
+  if (env.clip.baking) return;                      // don't tear down mid-bake (the decode video is in use)
   disposeClipPreview();
   const sheet = document.getElementById('clipSheet');
   if (sheet) sheet.hidden = true;
-  if (!apply && _clipBackup) Object.assign(clip, _clipBackup);   // revert the trim/mode
-  _clipBackup = null;
+  if (!apply && env.clip.backup) Object.assign(env.clip.trim, env.clip.backup);   // revert the trim/mode
+  env.clip.backup = null;
   rebindClipToTimeline();
 }
 function renderClipTrim() {
-  const d = (_clipPrevVideo && _clipPrevVideo.duration) || 0;
+  const trim = env.clip.trim;
+  const d = (env.clip.prevVideo && env.clip.prevVideo.duration) || 0;
   const inEl = document.getElementById('clipIn'), outEl = document.getElementById('clipOut'), region = document.getElementById('clipRegion');
-  if (inEl) inEl.style.left = (clip.inT * 100) + '%';
-  if (outEl) outEl.style.left = (clip.outT * 100) + '%';
-  if (region) { region.style.left = (clip.inT * 100) + '%'; region.style.right = ((1 - clip.outT) * 100) + '%'; }
+  if (inEl) inEl.style.left = (trim.inT * 100) + '%';
+  if (outEl) outEl.style.left = (trim.outT * 100) + '%';
+  if (region) { region.style.left = (trim.inT * 100) + '%'; region.style.right = ((1 - trim.outT) * 100) + '%'; }
   const cutEl = document.getElementById('clipCut');
-  if (cutEl) cutEl.style.left = ((clip.inT + clip.slicePoint * (clip.outT - clip.inT)) * 100) + '%';
+  if (cutEl) cutEl.style.left = ((trim.inT + trim.slicePoint * (trim.outT - trim.inT)) * 100) + '%';
   const lab = document.getElementById('clipDur');
-  if (lab && d) lab.textContent = `${fmtClock((clip.outT - clip.inT) * d)} of ${fmtClock(d)}`;
+  if (lab && d) lab.textContent = `${fmtClock((trim.outT - trim.inT) * d)} of ${fmtClock(d)}`;
 }
 // preview segments to play in order (looping). slice previews the REARRANGEMENT — B
 // (=[cut,out]) then A (=[in,cut]) — so the seam is visible in context (a hard cut here;
 // the bake crossfades it). Other modes preview the trimmed forward range (bounce can't
 // reverse natively, so its preview is forward — the bake adds the reverse).
 function clipPreviewSegments() {
-  const d = (_clipPrevVideo && _clipPrevVideo.duration) || 1;
-  const inS = clip.inT * d, outS = clip.outT * d;
-  if (clip.mode === 'slice') {
-    const cut = (clip.inT + clip.slicePoint * (clip.outT - clip.inT)) * d;
+  const trim = env.clip.trim;
+  const d = (env.clip.prevVideo && env.clip.prevVideo.duration) || 1;
+  const inS = trim.inT * d, outS = trim.outT * d;
+  if (trim.mode === 'slice') {
+    const cut = (trim.inT + trim.slicePoint * (trim.outT - trim.inT)) * d;
     return [[cut, outS], [inS, cut]];
   }
   return [[inS, outS]];
 }
-let _clipSeg = 0, _clipBounceStart = 0;
 // reset=true starts the loop from the beginning; reset=false resumes from the video's
 // CURRENT position (used after a scrub release, so you can scrub forward and play on).
 function startClipPreview(reset = true) {
-  const v = _clipPrevVideo;
+  const v = env.clip.prevVideo;
   if (!v) return;
+  const trim = env.clip.trim;
   // Bounce can't play natively (no reverse), so drive it seek-based: a wall-clock p over
   // the bounce duration → triangle → trimmed source time, seeked (coalesced). The reverse
   // half uses backward seeks so it's choppy on long clips, but it bounces; the scrubber
   // lets you inspect the turnaround precisely.
-  if (clip.mode === 'bounce') {
+  if (trim.mode === 'bounce') {
     try { v.pause(); } catch { /* ignore */ }
-    if (reset) _clipBounceStart = performance.now();
+    if (reset) env.clip.bounceStart = performance.now();
     else {                                         // continue the triangle from the current frame (forward half)
-      const d = v.duration || 1, range = (clip.outT - clip.inT) || 1;
+      const d = v.duration || 1, range = (trim.outT - trim.inT) || 1;
       const loopMs = Math.max(400, range * d * 2 * 1000);
-      const q = Math.max(0, Math.min(1, (v.currentTime / d - clip.inT) / range));
-      _clipBounceStart = performance.now() - (q / 2) * loopMs;
+      const q = Math.max(0, Math.min(1, (v.currentTime / d - trim.inT) / range));
+      env.clip.bounceStart = performance.now() - (q / 2) * loopMs;
     }
     const tickB = () => {
-      if (!_clipPrevVideo) return;
-      const d = v.duration || 1, range = clip.outT - clip.inT;
+      if (!env.clip.prevVideo) return;
+      const d = v.duration || 1, range = trim.outT - trim.inT;
       const loopMs = Math.max(400, range * d * 2 * 1000);
-      const p = ((performance.now() - _clipBounceStart) % loopMs) / loopMs;
+      const p = ((performance.now() - env.clip.bounceStart) % loopMs) / loopMs;
       const q = 1 - Math.abs(1 - 2 * p);                 // 0→1→0
-      clipSeekTo(clip.inT + q * range);
+      clipSeekTo(trim.inT + q * range);
       const ph = document.getElementById('clipPlayhead');
       if (ph) ph.style.left = ((v.currentTime / d) * 100) + '%';
-      _clipRaf = requestAnimationFrame(tickB);
+      env.clip.raf = requestAnimationFrame(tickB);
     };
-    _clipRaf = requestAnimationFrame(tickB);
+    env.clip.raf = requestAnimationFrame(tickB);
     return;
   }
-  if (clip.mode === 'slice') { startSlicePreview(reset); return; }   // phase machine with a real seam dissolve
+  if (trim.mode === 'slice') { startSlicePreview(reset); return; }   // phase machine with a real seam dissolve
   const segs = clipPreviewSegments();
-  if (reset) { _clipSeg = 0; try { v.currentTime = segs[0][0]; } catch { /* ignore */ } }
+  if (reset) { env.clip.seg = 0; try { v.currentTime = segs[0][0]; } catch { /* ignore */ } }
   else {                                           // resume from the current frame (find its segment)
-    _clipSeg = 0;
-    for (let i = 0; i < segs.length; i++) { if (v.currentTime >= segs[i][0] - 0.05 && v.currentTime < segs[i][1] + 0.05) { _clipSeg = i; break; } }
+    env.clip.seg = 0;
+    for (let i = 0; i < segs.length; i++) { if (v.currentTime >= segs[i][0] - 0.05 && v.currentTime < segs[i][1] + 0.05) { env.clip.seg = i; break; } }
   }
   v.play().catch(() => {});
   const tick = () => {
-    if (!_clipPrevVideo) return;
+    if (!env.clip.prevVideo) return;
     const segs = clipPreviewSegments();           // re-read each frame so mode/cut/trim edits apply live
-    if (_clipSeg >= segs.length) _clipSeg = 0;
-    const [s, e] = segs[_clipSeg];
+    if (env.clip.seg >= segs.length) env.clip.seg = 0;
+    const [s, e] = segs[env.clip.seg];
     if (v.currentTime >= e - 0.03 || v.currentTime < s - 0.08) {
-      _clipSeg = (_clipSeg + 1) % segs.length;
-      try { v.currentTime = segs[_clipSeg][0]; } catch { /* ignore */ }
+      env.clip.seg = (env.clip.seg + 1) % segs.length;
+      try { v.currentTime = segs[env.clip.seg][0]; } catch { /* ignore */ }
     }
     const ph = document.getElementById('clipPlayhead');
     if (ph) ph.style.left = ((v.currentTime / (v.duration || 1)) * 100) + '%';
-    _clipRaf = requestAnimationFrame(tick);
+    env.clip.raf = requestAnimationFrame(tick);
   };
-  _clipRaf = requestAnimationFrame(tick);
+  env.clip.raf = requestAnimationFrame(tick);
 }
 
 // --- slice preview with a real seam crossfade (two-video live blend) ----------
 // Native playback of the rearranged segments (B=[cut,out] then A=[in,cut], smooth). At
-// the B→A seam, a SECOND preview video (`_clipPrevVideoB`) plays the A-head in parallel
+// the B→A seam, a SECOND preview video (`env.clip.prevVideoB`) plays the A-head in parallel
 // while the main video plays the B-tail, and the two are alpha-blended live onto the
 // #clipBlend overlay over the crossfade duration — smooth, no frame capture, no seek
 // pause (the fix for the seam stutter). Then the main video hands off to A at in+cfSec.
-let _clipPhase = 'B', _clipPrevVideoB = null;
 function sliceTimes() {
-  const v = _clipPrevVideo, d = (v && v.duration) || 1, range = clip.outT - clip.inT;
-  const inA = clip.inT * d, outA = clip.outT * d, cut = (clip.inT + clip.slicePoint * range) * d;
-  const cfSec = Math.max(0.05, Math.min(clip.crossfadeMs / 1000, (outA - cut) * 0.9, (cut - inA) * 0.9));
+  const trim = env.clip.trim;
+  const v = env.clip.prevVideo, d = (v && v.duration) || 1, range = trim.outT - trim.inT;
+  const inA = trim.inT * d, outA = trim.outT * d, cut = (trim.inT + trim.slicePoint * range) * d;
+  const cfSec = Math.max(0.05, Math.min(trim.crossfadeMs / 1000, (outA - cut) * 0.9, (cut - inA) * 0.9));
   return { d, inA, outA, cut, cfSec };
 }
 function drawTwoVideoBlend(a) {
   const blend = document.getElementById('clipBlend');
-  const v = _clipPrevVideo, vB = _clipPrevVideoB;
+  const v = env.clip.prevVideo, vB = env.clip.prevVideoB;
   if (!blend || !v) return;
   const W = Math.min(640, v.videoWidth || 640), sc = W / (v.videoWidth || W), H = Math.max(1, Math.round((v.videoHeight || W) * sc));
   if (blend.width !== W || blend.height !== H) { blend.width = W; blend.height = H; }
@@ -731,27 +747,27 @@ function drawTwoVideoBlend(a) {
   cx.globalAlpha = 1;
 }
 function startSlicePreview(reset) {
-  const v = _clipPrevVideo, vB = _clipPrevVideoB;
+  const v = env.clip.prevVideo, vB = env.clip.prevVideoB;
   if (!v) return;
   const blend = document.getElementById('clipBlend');
-  if (reset) { _clipPhase = 'B'; try { v.currentTime = sliceTimes().cut; } catch { /* ignore */ } if (blend) blend.hidden = true; }
+  if (reset) { env.clip.phase = 'B'; try { v.currentTime = sliceTimes().cut; } catch { /* ignore */ } if (blend) blend.hidden = true; }
   v.play().catch(() => {});
   if (vB) { try { vB.pause(); vB.currentTime = sliceTimes().inA; } catch { /* ignore */ } }   // pre-roll A-head
   const tick = () => {
-    if (!_clipPrevVideo) return;
+    if (!env.clip.prevVideo) return;
     const { d, inA, outA, cut, cfSec } = sliceTimes();
-    if (_clipPhase === 'crossfade') {
+    if (env.clip.phase === 'crossfade') {
       const a = Math.max(0, Math.min(1, (v.currentTime - (outA - cfSec)) / cfSec));
       drawTwoVideoBlend(a);
       if (a >= 1 || v.currentTime >= outA - 0.02) {
-        _clipPhase = 'A';
+        env.clip.phase = 'A';
         if (vB) { try { vB.pause(); } catch { /* ignore */ } }
         try { v.pause(); v.currentTime = inA + cfSec; } catch { /* ignore */ }   // blend stays up, masking this seek
       }
-    } else if (_clipPhase === 'B') {
+    } else if (env.clip.phase === 'B') {
       if (vB && !vB.seeking && Math.abs(vB.currentTime - inA) > 0.05) { try { vB.currentTime = inA; } catch { /* ignore */ } }   // keep A-head pre-rolled
       if (v.currentTime >= outA - cfSec - 0.02 || v.currentTime < cut - 0.08) {
-        _clipPhase = 'crossfade';
+        env.clip.phase = 'crossfade';
         if (blend) blend.hidden = false;
         if (vB) { try { vB.currentTime = inA; vB.play().catch(() => {}); } catch { /* ignore */ } }
       }
@@ -759,67 +775,67 @@ function startSlicePreview(reset) {
       if (blend && !blend.hidden) {                   // still masking the post-crossfade seek
         if (!v.seeking && v.currentTime >= inA + cfSec - 0.06) { blend.hidden = true; v.play().catch(() => {}); }
       } else if (v.currentTime >= cut - 0.02) {       // loop back to B
-        _clipPhase = 'B'; try { v.currentTime = cut; v.play().catch(() => {}); } catch { /* ignore */ }
+        env.clip.phase = 'B'; try { v.currentTime = cut; v.play().catch(() => {}); } catch { /* ignore */ }
       }
     }
     const ph = document.getElementById('clipPlayhead');
     if (ph) ph.style.left = ((v.currentTime / d) * 100) + '%';
-    _clipRaf = requestAnimationFrame(tick);
+    env.clip.raf = requestAnimationFrame(tick);
   };
-  _clipRaf = requestAnimationFrame(tick);
+  env.clip.raf = requestAnimationFrame(tick);
 }
 function stopClipPreview() {
-  if (_clipRaf) { cancelAnimationFrame(_clipRaf); _clipRaf = 0; }
-  if (_clipPrevVideo) { try { _clipPrevVideo.pause(); } catch { /* ignore */ } }
+  if (env.clip.raf) { cancelAnimationFrame(env.clip.raf); env.clip.raf = 0; }
+  if (env.clip.prevVideo) { try { env.clip.prevVideo.pause(); } catch { /* ignore */ } }
 }
 // Coalesced seek of the preview video to normalized position t (latest target wins) —
 // mirrors scrubVideo, so dragging a trim handle never floods the decoder (which made
 // the clip-editor scrubber feel much heavier than the main timeline, even on Chrome).
-let _clipSeekT = null, _clipSeeking = false;
 function clipSeekTo(t) {
-  const v = _clipPrevVideo;
+  const v = env.clip.prevVideo;
   if (!v) return;
-  _clipSeekT = t;
-  if (_clipSeeking) return;
-  _clipSeeking = true;
+  env.clip.seekT = t;
+  if (env.clip.seeking) return;
+  env.clip.seeking = true;
   (async () => {
     try {
-      while (_clipSeekT != null) {
-        const target = _clipSeekT; _clipSeekT = null;
+      while (env.clip.seekT != null) {
+        const target = env.clip.seekT; env.clip.seekT = null;
         await seekVideoTo(v, target * (v.duration || 1));
       }
-    } finally { _clipSeeking = false; }
+    } finally { env.clip.seeking = false; }
   })();
 }
 function makeClipHandle(el, which) {
   if (!el) return;
   el.addEventListener('pointerdown', (e) => {
     e.preventDefault(); el.setPointerCapture?.(e.pointerId);
-    _clipDrag = which;
+    env.clip.drag = which;
     stopClipPreview();                              // hold playback while scrubbing the handle
   });
   el.addEventListener('pointermove', (e) => {
-    if (_clipDrag !== which) return;
+    if (env.clip.drag !== which) return;
+    const trim = env.clip.trim;
     const bar = document.getElementById('clipBar');
     const r = bar.getBoundingClientRect();
     const t = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width));
     const gap = 0.02;
-    if (which === 'in') clip.inT = Math.min(t, clip.outT - gap);
-    else if (which === 'out') clip.outT = Math.max(t, clip.inT + gap);
-    else { const rng = (clip.outT - clip.inT) || 1; clip.slicePoint = Math.max(0.05, Math.min(0.95, (t - clip.inT) / rng)); }
+    if (which === 'in') trim.inT = Math.min(t, trim.outT - gap);
+    else if (which === 'out') trim.outT = Math.max(t, trim.inT + gap);
+    else { const rng = (trim.outT - trim.inT) || 1; trim.slicePoint = Math.max(0.05, Math.min(0.95, (t - trim.inT) / rng)); }
     renderClipTrim();
-    const handleT = which === 'in' ? clip.inT : which === 'out' ? clip.outT : (clip.inT + clip.slicePoint * (clip.outT - clip.inT));
+    const handleT = which === 'in' ? trim.inT : which === 'out' ? trim.outT : (trim.inT + trim.slicePoint * (trim.outT - trim.inT));
     clipSeekTo(handleT);                            // coalesced seek (no decoder flood) — shows the frame under the handle
     const ph = document.getElementById('clipPlayhead');
     if (ph) ph.style.left = (handleT * 100) + '%';
   });
-  const up = (e) => { if (_clipDrag !== which) return; _clipDrag = null; el.releasePointerCapture?.(e.pointerId); startClipPreview(); };
+  const up = (e) => { if (env.clip.drag !== which) return; env.clip.drag = null; el.releasePointerCapture?.(e.pointerId); startClipPreview(); };
   el.addEventListener('pointerup', up);
   el.addEventListener('pointercancel', up);
 }
 // loop strategy: forward (trim only, non-destructive) | bounce (baked) | slice (baked, B2)
 function setClipMode(mode) {
-  clip.mode = mode;
+  env.clip.trim.mode = mode;
   const sheet = document.getElementById('clipSheet');
   sheet?.querySelectorAll('[data-mode]').forEach(b => b.classList.toggle('active', b.dataset.mode === mode));
   const apply = document.getElementById('clipApply');
@@ -829,17 +845,16 @@ function setClipMode(mode) {
   const xfade = document.getElementById('clipXfadeRow'); if (xfade) xfade.hidden = !slice;
   const blend = document.getElementById('clipBlend'); if (blend && !slice) blend.hidden = true;
   renderClipTrim();
-  if (_clipRaf && _clipPrevVideo && !_clipDrag) { stopClipPreview(); startClipPreview(); }   // re-segment a RUNNING preview for the new mode
+  if (env.clip.raf && env.clip.prevVideo && !env.clip.drag) { stopClipPreview(); startClipPreview(); }   // re-segment a RUNNING preview for the new mode
 }
 const _even = (n) => Math.max(2, Math.round(n / 2) * 2);
-let _clipBaking = false;
 // Apply: trim-only modes commit directly (non-destructive); bounce/slice BAKE a new
 // processed clip (destructive — confirmed first).
 async function applyClip() {
-  if (_clipBaking) return;
-  if (clip.mode === 'forward') { closeClipEditor(true); return; }
+  if (env.clip.baking) return;
+  if (env.clip.trim.mode === 'forward') { closeClipEditor(true); return; }
   const ok = window.confirm(
-    `“${clip.mode}” bakes a new processed clip and replaces the working source. This is destructive ` +
+    `“${env.clip.trim.mode}” bakes a new processed clip and replaces the working source. This is destructive ` +
     `(your original file on disk is untouched, and you can re-upload it). Continue?`);
   if (!ok) return;
   await bakeAndApply();
@@ -849,35 +864,36 @@ async function applyClip() {
 // frames: bounce = forward-then-reverse source time (no blend); slice = B2. Decode is
 // seek-based (WebCodecs decode is the future speedup), so it's one-time + shows progress.
 async function bakeAndApply() {
+  const trim = env.clip.trim;
   const src = env.sourceVideo;
   if (!src) return;
-  const decodeV = _clipPrevVideo || src;
-  _clipBaking = true;
+  const decodeV = env.clip.prevVideo || src;
+  env.clip.baking = true;
   stopClipPreview();
   const dur = decodeV.duration || src.duration || 1;
   const w = _even(src.videoWidth), h = _even(src.videoHeight);
   const cap = document.createElement('canvas'); cap.width = w; cap.height = h;
   const cctx = cap.getContext('2d');
   const fps = 30;                                 // bake fps (source-fps estimation = backlog item)
-  const range = clip.outT - clip.inT, trimmedSec = range * dur;
+  const range = trim.outT - trim.inT, trimmedSec = range * dur;
   let durationMs, frameAt;
-  if (clip.mode === 'bounce') {
+  if (trim.mode === 'bounce') {
     durationMs = Math.max(200, trimmedSec * 2 * 1000);   // forward + reverse
     frameAt = async (p) => {
       const q = 1 - Math.abs(1 - 2 * p);          // 0→1→0 ping-pong over the trimmed range
-      await seekVideoTo(decodeV, (clip.inT + q * range) * dur);
+      await seekVideoTo(decodeV, (trim.inT + q * range) * dur);
       cctx.drawImage(decodeV, 0, 0, w, h);
       return cap;
     };
-  } else if (clip.mode === 'slice') {
+  } else if (trim.mode === 'slice') {
     // Slice: rearrange the trimmed clip [inA,outA] as B(=[cut,outA]) then A(=[inA,cut])
     // — the loop point (A end = B start = cut) is continuous; the B→A SEAM is crossfaded
     // by overlapping B's tail with A's head (the FCP technique), which shortens the loop
     // by the crossfade length.
-    const inA = clip.inT * dur, outA = clip.outT * dur;
-    const cut = (clip.inT + clip.slicePoint * range) * dur;
+    const inA = trim.inT * dur, outA = trim.outT * dur;
+    const cut = (trim.inT + trim.slicePoint * range) * dur;
     const Bdur = outA - cut, Adur = cut - inA;
-    const cfSec = Math.max(0, Math.min(clip.crossfadeMs / 1000, Bdur * 0.9, Adur * 0.9));
+    const cfSec = Math.max(0, Math.min(trim.crossfadeMs / 1000, Bdur * 0.9, Adur * 0.9));
     const outDur = (outA - inA) - cfSec;
     const bEnd = Bdur - cfSec;                     // pure-B until here (output seconds)
     durationMs = Math.max(200, outDur * 1000);
@@ -898,7 +914,7 @@ async function bakeAndApply() {
       }
       return cap;
     };
-  } else { _clipBaking = false; return; }
+  } else { env.clip.baking = false; return; }
 
   const prog = document.getElementById('clipProgress'), fill = document.getElementById('clipBarFill');
   const apply = document.getElementById('clipApply'), cover = document.getElementById('clipBaking');
@@ -913,7 +929,7 @@ async function bakeAndApply() {
     await applyBakedClip(blob);                   // swaps the source + re-binds the timeline
     disposeClipPreview();
     const sheet = document.getElementById('clipSheet'); if (sheet) sheet.hidden = true;
-    _clipBackup = null;
+    env.clip.backup = null;
   } catch (e) {
     console.error('clip bake failed', e);
     alert('Could not bake the clip: ' + (e && e.message ? e.message : e));
@@ -922,8 +938,8 @@ async function bakeAndApply() {
     if (fill) fill.style.width = '0%';
     if (cover) cover.hidden = true;
     if (apply) { apply.disabled = false; }
-    setClipMode(clip.mode);                        // restore the apply label
-    _clipBaking = false;
+    setClipMode(env.clip.trim.mode);               // restore the apply label
+    env.clip.baking = false;
   }
 }
 // Swap a freshly-baked clip in as the working source (keeps the uploaded original in
@@ -943,10 +959,10 @@ async function applyBakedClip(blob) {
   const old = env.sourceVideo;
   engine.setSource(v);
   env.sourceVideo = v;
-  if (sourceVideoUrl) URL.revokeObjectURL(sourceVideoUrl);   // free the previous source URL (original File kept in originalSource)
-  sourceVideoUrl = url;
+  if (env.media.sourceVideoUrl) URL.revokeObjectURL(env.media.sourceVideoUrl);   // free the previous source URL (original File kept in originalSource)
+  env.media.sourceVideoUrl = url;
   if (old) { try { old.pause(); old.removeAttribute('src'); old.load(); } catch { /* ignore */ } }
-  clip.inT = 0; clip.outT = 1; clip.mode = 'forward';        // the baked clip is the full processed clip
+  env.clip.trim.inT = 0; env.clip.trim.outT = 1; env.clip.trim.mode = 'forward';        // the baked clip is the full processed clip
   const meta = document.getElementById('sourceMeta');
   if (meta) meta.children[0].textContent = `${v.videoWidth} × ${v.videoHeight}`;
   arrangeSlots();
@@ -965,17 +981,10 @@ async function applyBakedClip(blob) {
 // saved alongside the kaleidoscope on the first export (see doExport).
 
 const camera = createCamera();
-let isLive = false;
-let liveActive = false;
-let liveRaf = 0;
-
-// The unmodified original for the current source — bundled into "export
-// package" (.zip) alongside the composition. For an upload it's the uploaded
-// File; for a camera capture it's the raw frame. { blob, name } or null.
-let originalSource = null;
-// Object URL backing the frozen-capture still source. Kept alive while it's the
-// source (the source view paints it via background-image); revoked on replace.
-let captureObjectURL = null;
+// Live-camera runtime state lives in `env.live` (isLive / active / raf).
+// The source-identity tuple — the unmodified original bundled into the export
+// package, and the frozen-capture object URL — lives in `env.media`
+// (originalSource / captureObjectURL).
 
 // Default facing by device. Touch devices (iPad) default to the rear camera
 // ("frame the world"); desktops have no real rear camera and want the front
@@ -987,10 +996,10 @@ const DEFAULT_FACING =
 // refreshes the (possibly mirrored) frame, re-uploads it, renders, and redraws
 // the overlay.
 function startLiveLoop() {
-  if (liveActive) return;
-  liveActive = true;
+  if (env.live.active) return;
+  env.live.active = true;
   const tick = () => {
-    if (!liveActive) return;
+    if (!env.live.active) return;
     if (engine) {
       camera.refreshFrame();      // front camera: redraw the mirrored frame
       engine.updateSourceFrame();
@@ -999,13 +1008,13 @@ function startLiveLoop() {
       sourceOverlay.paintSourceVideo();   // loaded source video → its 2D preview canvas (no-op otherwise)
     }
     sourceOverlay.render();
-    liveRaf = requestAnimationFrame(tick);
+    env.live.raf = requestAnimationFrame(tick);
   };
-  liveRaf = requestAnimationFrame(tick);
+  env.live.raf = requestAnimationFrame(tick);
 }
 function stopLiveLoop() {
-  liveActive = false;
-  if (liveRaf) { cancelAnimationFrame(liveRaf); liveRaf = 0; }
+  env.live.active = false;
+  if (env.live.raf) { cancelAnimationFrame(env.live.raf); env.live.raf = 0; }
 }
 
 function cameraErrorMessage(e) {
@@ -1022,9 +1031,9 @@ function setCameraMeta(label) {
 }
 
 function updateCameraUI() {
-  document.getElementById('cameraBtn').style.display = isLive ? 'none' : '';
-  document.getElementById('uploadBtn').style.display = isLive ? 'none' : '';
-  document.getElementById('cameraLive').style.display = isLive ? 'flex' : 'none';
+  document.getElementById('cameraBtn').style.display = env.live.isLive ? 'none' : '';
+  document.getElementById('uploadBtn').style.display = env.live.isLive ? 'none' : '';
+  document.getElementById('cameraLive').style.display = env.live.isLive ? 'flex' : 'none';
   // flip button labels the camera it switches TO.
   const flip = document.getElementById('flipBtn');
   if (flip) flip.textContent = camera.isFront() ? 'rear' : 'front';
@@ -1039,8 +1048,8 @@ async function startCameraMode() {
   }
   if (uploadErrorEl) uploadErrorEl.textContent = '';
   stopSourceVideoPlayback();   // stop a loaded video's loop before the camera takes over
-  if (sourceVideoUrl) { URL.revokeObjectURL(sourceVideoUrl); sourceVideoUrl = null; }
-  originalSource = null;  // no captured original until the shutter fires
+  if (env.media.sourceVideoUrl) { URL.revokeObjectURL(env.media.sourceVideoUrl); env.media.sourceVideoUrl = null; }
+  env.media.originalSource = null;  // no captured original until the shutter fires
   statusEl.textContent = 'starting camera…';
   statusEl.classList.add('busy');
   try {
@@ -1058,8 +1067,8 @@ async function startCameraMode() {
   }
   statusEl.classList.remove('busy');
   statusEl.textContent = 'live camera';
-  isLive = true;
-  sourceFilename = 'camera';
+  env.live.isLive = true;
+  env.media.sourceFilename = 'camera';
   setCameraMeta('live camera');
   document.getElementById('swapBtn').disabled = false;
   updateCameraUI();
@@ -1072,7 +1081,7 @@ async function startCameraMode() {
 function stopCameraMode({ keepSource = false } = {}) {
   stopLiveLoop();
   camera.stop();
-  isLive = false;
+  env.live.isLive = false;
   env.liveVideo = null;
   updateCameraUI();
   if (keepSource) return;
@@ -1087,7 +1096,7 @@ function stopCameraMode({ keepSource = false } = {}) {
 }
 
 async function flipCamera() {
-  if (!isLive) return;
+  if (!env.live.isLive) return;
   try {
     const video = await camera.flip();
     env.liveVideo = video;
@@ -1130,30 +1139,30 @@ function captureFrame() {
   if (!frame) return;
   stopLiveLoop();
   camera.stop();
-  isLive = false;
+  env.live.isLive = false;
   env.liveVideo = null;
   updateCameraUI();
 
   const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-  sourceFilename = `camera-${ts}`;
+  env.media.sourceFilename = `camera-${ts}`;
 
   frame.toBlob(blob => {
     if (!blob) return;
-    originalSource = { blob, name: `${sourceFilename}-original.png` };
+    env.media.originalSource = { blob, name: `${env.media.sourceFilename}-original.png` };
     // keep the URL alive — the source view paints it via background-image.
-    if (captureObjectURL) URL.revokeObjectURL(captureObjectURL);
-    captureObjectURL = URL.createObjectURL(blob);
+    if (env.media.captureObjectURL) URL.revokeObjectURL(env.media.captureObjectURL);
+    env.media.captureObjectURL = URL.createObjectURL(blob);
     const img = new Image();
     img.onload = () => {
       engine.setSource(img);                            // frozen still source
       document.getElementById('sourceMeta').children[0].textContent = `${img.naturalWidth} × ${img.naturalHeight}`;
-      document.getElementById('sourceMeta').children[1].textContent = `${sourceFilename}.png`;
+      document.getElementById('sourceMeta').children[1].textContent = `${env.media.sourceFilename}.png`;
       document.getElementById('swapBtn').disabled = false;
       statusEl.textContent = 'captured — export to save';
       statusEl.classList.remove('busy', 'error', 'success');
       arrangeSlots();
     };
-    img.src = captureObjectURL;
+    img.src = env.media.captureObjectURL;
   }, 'image/png');
 }
 
@@ -1244,9 +1253,9 @@ async function exportPackage() {
   }
 
   const files = [{ name: buildFilename(result.size), blob: result.blob }];
-  if (originalSource) files.push({ name: originalSource.name, blob: originalSource.blob });
+  if (env.media.originalSource) files.push({ name: env.media.originalSource.name, blob: env.media.originalSource.blob });
   const zipBlob = await zipStore(files);
-  downloadBlob(zipBlob, `${sourceFilename}-package.zip`);
+  downloadBlob(zipBlob, `${env.media.sourceFilename}-package.zip`);
 
   engine.render(state);
   statusEl.textContent = `saved package • ${files.length} files • ${(zipBlob.size / 1024 / 1024).toFixed(1)}MB`;
@@ -1267,7 +1276,7 @@ function buildFilename(size) {
   const cy = Math.round(state.sliceCy * 1000).toString().padStart(3, '0');
   const oob = ['c','m','t'][state.oobMode];
   const ext = session.exportFormat === 'jpg' ? 'jpg' : 'png';
-  return `${sourceFilename}-${f}${formSuffix}-sr${sliceR}-cr${canvasR}-ss${sliceS}-cz${compZ}-xy${cx}${cy}-${oob}-${size}.${ext}`;
+  return `${env.media.sourceFilename}-${f}${formSuffix}-sr${sliceR}-cr${canvasR}-ss${sliceS}-cz${compZ}-xy${cx}${cy}-${oob}-${size}.${ext}`;
 }
 
 // ============================================================================
@@ -1689,12 +1698,10 @@ window.addEventListener('keydown', e => {
 //     "+ keyframe" (drops at the scrubber). scrubbing/playing away reloads the
 //     working state from the timeline, discarding the stage (undo still applies).
 
-let motionActive = false;
-let motionRaf = 0;
-let motionStart = 0;          // performance.now() baseline for the current play
-let motionScrubbing = false;
-let _tlPointers = new Map();   // active pointers on the track (multi-touch pinch/pan)
-let _tlGesture = null;         // two-finger gesture anchor (start dist / zoom / pan)
+// Motion runtime state lives in `env.motionRT`: active (mode on/off), raf (the play
+// loop handle), start (performance.now() baseline for the current play), scrubbing,
+// pointers (active track pointers for multi-touch pinch/pan), gesture (two-finger
+// anchor: start dist / zoom / pan), relayoutPending (timeline-relayout coalescing).
 
 const KF_EPS = 0.005;         // "on a keyframe" tolerance in normalized time
 const kfList = () => motion.keyframes;
@@ -1719,21 +1726,21 @@ function makeThumbCanvas() {
 // droste's bespoke overlay) renders through its existing path with no per-form code.
 // Swap+restore is synchronous (no yield), so a stray live overlay draw can't land on
 // the temp canvas. Returns a reused canvas (wrapped in a VideoFrame before reuse).
-let _spFrame = null, _spOverlay = null, _spParent = null;
 function renderSourcePreviewFrame(snap, size) {
+  const sp = env.sourcePreview;
   const img = engine.getSourceImage();
   if (!img) return null;
-  if (!_spFrame) {
-    _spFrame = document.createElement('canvas');
-    _spParent = document.createElement('div');
-    _spParent.style.cssText = 'position:fixed;left:-99999px;top:0;pointer-events:none';
-    _spOverlay = document.createElement('canvas');
-    _spParent.appendChild(_spOverlay);
-    document.body.appendChild(_spParent);
+  if (!sp.frame) {
+    sp.frame = document.createElement('canvas');
+    sp.parent = document.createElement('div');
+    sp.parent.style.cssText = 'position:fixed;left:-99999px;top:0;pointer-events:none';
+    sp.overlay = document.createElement('canvas');
+    sp.parent.appendChild(sp.overlay);
+    document.body.appendChild(sp.parent);
   }
-  _spFrame.width = size; _spFrame.height = size;
-  _spParent.style.width = _spParent.style.height = size + 'px';
-  const fctx = _spFrame.getContext('2d');
+  sp.frame.width = size; sp.frame.height = size;
+  sp.parent.style.width = sp.parent.style.height = size + 'px';
+  const fctx = sp.frame.getContext('2d');
   fctx.fillStyle = '#000'; fctx.fillRect(0, 0, size, size);
 
   // source image rect — match drawSourceOverlay's fit math (square frame) so the
@@ -1747,7 +1754,7 @@ function renderSourcePreviewFrame(snap, size) {
   fctx.drawImage(img, ix, iy, iw, ih);
 
   const saved = { canvas: view.sourceOverlayCanvas, state: view.state, hover: view.hoverMode, hide: view.hideAffordances, sw: view.overlayStrokeScale };
-  view.sourceOverlayCanvas = _spOverlay;
+  view.sourceOverlayCanvas = sp.overlay;
   view.state = snap;
   view.hoverMode = null;
   view.hideAffordances = () => true;
@@ -1757,8 +1764,8 @@ function renderSourcePreviewFrame(snap, size) {
     view.sourceOverlayCanvas = saved.canvas; view.state = saved.state;
     view.hoverMode = saved.hover; view.hideAffordances = saved.hide; view.overlayStrokeScale = saved.sw;
   }
-  fctx.drawImage(_spOverlay, 0, 0, size, size);
-  return _spFrame;
+  fctx.drawImage(sp.overlay, 0, 0, size, size);
+  return sp.frame;
 }
 
 // ---- sampling -------------------------------------------------------------
@@ -1817,27 +1824,26 @@ function loadPlayheadIntoState() {
 async function advanceSourceToP(p) {
   const v = env.sourceVideo;
   if (!v) return;
-  await seekVideoTo(v, pToMediaSec(v, p, clip));
+  await seekVideoTo(v, pToMediaSec(v, p, env.clip.trim));
   engine.updateSourceFrame();
 }
 // Scrub the footage to p, coalescing seeks (latest target wins) so dragging the
 // timeline never floods the decoder. Renders params + the landed frame together.
-let _scrubSeekP = null, _scrubSeeking = false, _scrubAssign = true;
 // Seek the footage to timeline position p (coalesced — latest target wins) and
 // re-render. assignParams=true samples the keyframed params at p (scrub / load-
 // playhead); false keeps the working state as-is — selecting a keyframe must show
 // its EXACT stored snap, just over the correct video frame (not the interpolated
 // value).
 async function scrubVideo(p, { assignParams = true } = {}) {
-  _filmstripGen++;                 // cancel any in-flight thumbnail build (it would fight our seeks)
-  _scrubSeekP = p;
-  _scrubAssign = assignParams;
-  if (_scrubSeeking) return;
-  _scrubSeeking = true;
+  env.filmstrip.gen++;             // cancel any in-flight thumbnail build (it would fight our seeks)
+  env.scrub.seekP = p;
+  env.scrub.assign = assignParams;
+  if (env.scrub.seeking) return;
+  env.scrub.seeking = true;
   try {
-    while (_scrubSeekP != null) {
-      const target = _scrubSeekP; _scrubSeekP = null;
-      const assign = _scrubAssign;
+    while (env.scrub.seekP != null) {
+      const target = env.scrub.seekP; env.scrub.seekP = null;
+      const assign = env.scrub.assign;
       await advanceSourceToP(target);
       if (assign) Object.assign(state, sampleAt(target));
       if (engine && engine.getSourceImage()) { engine.render(state); if (session.isSwapped) drawMiniKaleidoscope(); }
@@ -1846,14 +1852,14 @@ async function scrubVideo(p, { assignParams = true } = {}) {
       setPlayhead(target);
     }
   } finally {
-    _scrubSeeking = false;   // never leave the loop flag stuck (even if a seek/render throws)
+    env.scrub.seeking = false;   // never leave the loop flag stuck (even if a seek/render throws)
   }
 }
 
 // ---- playback -------------------------------------------------------------
 function haltPlayback() {
   motion.playing = false;
-  if (motionRaf) { cancelAnimationFrame(motionRaf); motionRaf = 0; }
+  if (env.motionRT.raf) { cancelAnimationFrame(env.motionRT.raf); env.motionRT.raf = 0; }
   if (env.sourceVideo) { try { env.sourceVideo.pause(); } catch { /* ignore */ } }
 }
 function startPlayback() {
@@ -1861,17 +1867,17 @@ function startPlayback() {
   if (env.sourceVideo) { startVideoPlayback(); return; }   // a video source is its own clock
   motion.playing = true;
   motion.selected = -1;
-  motionStart = performance.now() - motion.playhead * motion.durationMs;
+  env.motionRT.start = performance.now() - motion.playhead * motion.durationMs;
   const tick = () => {
     if (!motion.playing) return;
-    let p = (performance.now() - motionStart) / motion.durationMs;
+    let p = (performance.now() - env.motionRT.start) / motion.durationMs;
     if (motion.loop) { p -= Math.floor(p); }
     else if (p >= 1) { renderSampled(1); haltPlayback(); loadPlayheadIntoState(); renderTimeline(); updateMotionUI(); return; }
     renderSampled(p);
     followPlayhead(p);
-    motionRaf = requestAnimationFrame(tick);
+    env.motionRT.raf = requestAnimationFrame(tick);
   };
-  motionRaf = requestAnimationFrame(tick);
+  env.motionRT.raf = requestAnimationFrame(tick);
   updateMotionUI();
 }
 // Playback over a source video: the <video> is the master clock — it plays, and
@@ -1881,12 +1887,12 @@ function startPlayback() {
 function startVideoPlayback() {
   const v = env.sourceVideo;
   if (!v) return;
-  _filmstripGen++;                 // cancel any in-flight thumbnail build before we drive the footage
+  env.filmstrip.gen++;             // cancel any in-flight thumbnail build before we drive the footage
   motion.playing = true;
   motion.selected = -1;
   const dur = (v.duration && isFinite(v.duration)) ? v.duration : 1;
-  const inSec = clip.inT * dur, outSec = clip.outT * dur, span = Math.max(0.001, outSec - inSec);
-  v.currentTime = pToMediaSec(v, motion.playhead >= 1 ? 0 : motion.playhead, clip);
+  const inSec = env.clip.trim.inT * dur, outSec = env.clip.trim.outT * dur, span = Math.max(0.001, outSec - inSec);
+  v.currentTime = pToMediaSec(v, motion.playhead >= 1 ? 0 : motion.playhead, env.clip.trim);
   v.loop = false;                  // we loop within the TRIMMED range ourselves (native loop = whole clip)
   try { v.playbackRate = motion.videoSpeed || 1; } catch { /* clamp */ }   // retime
   v.play().catch(() => {});
@@ -1904,9 +1910,9 @@ function startVideoPlayback() {
     sourceOverlay.render();
     setPlayhead(p);
     followPlayhead(p);
-    motionRaf = requestAnimationFrame(tick);
+    env.motionRT.raf = requestAnimationFrame(tick);
   };
-  motionRaf = requestAnimationFrame(tick);
+  env.motionRT.raf = requestAnimationFrame(tick);
   updateMotionUI();
 }
 function stopPlayback() {
@@ -2055,9 +2061,8 @@ function stepKeyframe(dir) {
 // rebuild borrows + resizes the GL canvas — so the off-screen work is invisible (no
 // flash) on every engine. A 2D copy of the current preview, position:fixed over the
 // preview's rect; lifted after the preview is repainted.
-let _freezeEl = null;
 function freezePreview() {
-  if (_freezeEl || !previewCanvas || previewCanvas.style.display === 'none') return;
+  if (env.filmstrip.freezeEl || !previewCanvas || previewCanvas.style.display === 'none') return;
   const r = previewCanvas.getBoundingClientRect();
   if (r.width < 2 || r.height < 2 || !previewCanvas.width) return;
   const c = document.createElement('canvas');
@@ -2065,17 +2070,17 @@ function freezePreview() {
   try { c.getContext('2d').drawImage(previewCanvas, 0, 0); } catch { return; }
   c.style.cssText = `position:fixed;left:${r.left}px;top:${r.top}px;width:${r.width}px;height:${r.height}px;z-index:6;pointer-events:none`;
   document.body.appendChild(c);
-  _freezeEl = c;
+  env.filmstrip.freezeEl = c;
 }
-function unfreezePreview() { if (_freezeEl) { _freezeEl.remove(); _freezeEl = null; } }
+function unfreezePreview() { if (env.filmstrip.freezeEl) { env.filmstrip.freezeEl.remove(); env.filmstrip.freezeEl = null; } }
 
-let filmstripTimer = 0;
-let lastFilmstripSig = '';
-let _filmstripGen = 0, _filmstripBusy = false;   // async video-thumbnail build: cancellation + single-flight
+// Filmstrip async-build state lives in `env.filmstrip`: timer (debounce), lastSig
+// (content signature → skip unchanged rebuilds), gen (cancellation token, also bumped
+// by scrub/playback), busy (single-flight for the async video path).
 function scheduleFilmstrip() {
-  if (!motionActive) return;
-  clearTimeout(filmstripTimer);
-  filmstripTimer = setTimeout(buildFilmstrip, 600);   // wait for a real pause before rebuilding
+  if (!env.motionRT.active) return;
+  clearTimeout(env.filmstrip.timer);
+  env.filmstrip.timer = setTimeout(buildFilmstrip, 600);   // wait for a real pause before rebuilding
 }
 // Build the tween band as a row of aspect-locked square CELLS spanning the currently
 // VISIBLE window [pan, pan+span] (so zoom gives crisp, denser thumbnails rather than a
@@ -2090,8 +2095,8 @@ function buildFilmstrip() {
   const strip = document.getElementById('mfStrip');
   if (!strip) return;
   const track = document.getElementById('mfTrack');
-  if (!track || motion.playing || motionScrubbing || !engine || !engine.getSourceImage() || !kfList().length) {
-    strip.innerHTML = ''; lastFilmstripSig = ''; return;
+  if (!track || motion.playing || env.motionRT.scrubbing || !engine || !engine.getSourceImage() || !kfList().length) {
+    strip.innerHTML = ''; env.filmstrip.lastSig = ''; return;
   }
   const w = strip.clientWidth, h = strip.clientHeight;
   if (w < 2 || h < 2) return;
@@ -2103,12 +2108,12 @@ function buildFilmstrip() {
 
   const sig = w + '|' + h + '|' + z.toFixed(3) + '|' + pan.toFixed(4) + '|' + motion.smoothing + '|' + motion.loop + '|' + motion.durationMs + '|' +
     kfList().map(k => k.t.toFixed(4) + ':' + JSON.stringify(k.snap)).join(',');
-  if (sig === lastFilmstripSig && (strip.firstChild || !multi)) return;   // unchanged (e.g. scrub) — skip
+  if (sig === env.filmstrip.lastSig && (strip.firstChild || !multi)) return;   // unchanged (e.g. scrub) — skip
 
   const cellTime = (i) => Math.min(1, Math.max(0, pan + (i + 0.5) * span / n));
 
   if (env.sourceVideo) {
-    if (_filmstripBusy) { scheduleFilmstrip(); return; }   // one build at a time — retry after the current finishes
+    if (env.filmstrip.busy) { scheduleFilmstrip(); return; }   // one build at a time — retry after the current finishes
     buildFilmstripVideo(strip, sig, { fs, n, multi, cellTime });
     return;
   }
@@ -2134,18 +2139,18 @@ function buildFilmstrip() {
   }
   strip.innerHTML = '';
   for (const c of cells) strip.appendChild(c);       // single keyframe = no band (cells empty)
-  lastFilmstripSig = sig;
+  env.filmstrip.lastSig = sig;
 }
 
 // Video source: same cell model, but each cell + marker thumb is the FOOTAGE at its time,
 // which needs an async seek (so they stay correct under add / edit / auto-shift / drag /
 // zoom). One ascending pass over time covers every cell + thumb (monotonic seeks are
-// smoother than jumping around). Async + single-flight (_filmstripBusy) + cancellable
-// (_filmstripGen, bumped by scrub/playback); footage restored to the playhead after; the
+// smoother than jumping around). Async + single-flight (env.filmstrip.busy) + cancellable
+// (env.filmstrip.gen, bumped by scrub/playback); footage restored to the playhead after; the
 // preview is frozen behind a snapshot so the borrowed GL canvas never flashes.
 async function buildFilmstripVideo(strip, sig, geom) {
-  _filmstripBusy = true;
-  const gen = ++_filmstripGen;
+  env.filmstrip.busy = true;
+  const gen = ++env.filmstrip.gen;
   const v = env.sourceVideo;
   const saved = v.currentTime;
   const list = [...kfList()];                       // snapshot (the array may mutate during awaits)
@@ -2171,23 +2176,23 @@ async function buildFilmstripVideo(strip, sig, geom) {
   engine.beginCapture(fs, fs);
   try {
     for (const job of jobs) {
-      if (gen !== _filmstripGen) return;            // superseded by a scrub / playback / newer build
-      await seekVideoTo(v, pToMediaSec(v, job.p, clip));
-      if (gen !== _filmstripGen) return;
+      if (gen !== env.filmstrip.gen) return;        // superseded by a scrub / playback / newer build
+      await seekVideoTo(v, pToMediaSec(v, job.p, env.clip.trim));
+      if (gen !== env.filmstrip.gen) return;
       engine.updateSourceFrame();
       job.draw(engine.captureFrame(job.snap));
     }
-    if (gen !== _filmstripGen) return;
+    if (gen !== env.filmstrip.gen) return;
     strip.innerHTML = '';
     for (const c of cells) strip.appendChild(c);     // single keyframe = no band (cells empty)
-    lastFilmstripSig = sig;
+    env.filmstrip.lastSig = sig;
   } finally {
     engine.endCapture();                            // restore the borrowed canvas's backing size
-    if (gen === _filmstripGen) { await seekVideoTo(v, saved); engine.updateSourceFrame(); }   // not cancelled → restore footage to the playhead
+    if (gen === env.filmstrip.gen) { await seekVideoTo(v, saved); engine.updateSourceFrame(); }   // not cancelled → restore footage to the playhead
     resizePreviewCanvas();
     if (engine.getSourceImage()) engine.render(state);   // sync repaint BEFORE lifting the freeze (no flash)
     unfreezePreview();
-    _filmstripBusy = false;
+    env.filmstrip.busy = false;
   }
 }
 
@@ -2350,11 +2355,10 @@ function zoomTimelineAt(frac, factor) {      // zoom keeping the time under `fra
   scheduleFilmstrip();                       // re-render the cells for the new window when idle
 }
 function fitTimeline() { session.timelineZoom = 1; session.timelinePan = 0; relayoutTimeline(); updateZoomButtons(); scheduleFilmstrip(); }
-let _tlRelayoutPending = false;
 function scheduleRelayout() {                 // coalesce rapid zoom/pan (wheel, pinch) to one frame
-  if (_tlRelayoutPending) return;
-  _tlRelayoutPending = true;
-  requestAnimationFrame(() => { _tlRelayoutPending = false; relayoutTimeline(); });
+  if (env.motionRT.relayoutPending) return;
+  env.motionRT.relayoutPending = true;
+  requestAnimationFrame(() => { env.motionRT.relayoutPending = false; relayoutTimeline(); });
 }
 function updateZoomButtons() {
   const z = session.timelineZoom || 1, mx = tlMaxZoom();
@@ -2424,21 +2428,21 @@ function relayoutTimeline() {
 
 // ---- mode toggle + UI sync ------------------------------------------------
 function toggleMotionMode() {
-  if (!engine || !engine.getSourceImage() || isLive) return;
-  motionActive = !motionActive;
+  if (!engine || !engine.getSourceImage() || env.live.isLive) return;
+  env.motionRT.active = !env.motionRT.active;
   motion.selected = -1;          // never carry a stale selection across the toggle
                                  // (otherwise post-exit edits could write through to it)
-  if (motionActive) { session.timelineZoom = 1; session.timelinePan = 0; }   // enter fit-to-view
-  if (motionActive && env.sourceVideo) {
+  if (env.motionRT.active) { session.timelineZoom = 1; session.timelinePan = 0; }   // enter fit-to-view
+  if (env.motionRT.active && env.sourceVideo) {
     // video: the timeline drives the footage — stop the free-run loop + pause, and
     // lock the loop duration to the clip length (the duration field is read-only then).
     stopSourceVideoPlayback();
     lockVideoDuration();               // lock to clip length ÷ retime speed
   }
-  if (!motionActive) haltPlayback();
+  if (!env.motionRT.active) haltPlayback();
   else if (!kfList().length) addKeyframe();   // QoL: enter motion mode with a keyframe of the current look
   else renderTimeline();                       // (re-entry keeps existing keyframes)
-  if (!motionActive && env.sourceVideo) {
+  if (!env.motionRT.active && env.sourceVideo) {
     // exiting motion on a video: resume free-run playback (video is "live" again)
     env.sourceVideo.play().catch(() => {});
     startLiveLoop();
@@ -2450,25 +2454,25 @@ function toggleMotionMode() {
     resizePreviewCanvas();
     sourceOverlay.render();
     renderRuler();                       // footer is visible now → the ruler has a real width
-    if (motionActive && env.sourceVideo) scrubVideo(motion.playhead);   // show the playhead frame
+    if (env.motionRT.active && env.sourceVideo) scrubVideo(motion.playhead);   // show the playhead frame
   });
 }
 
 function updateMotionUI() {
-  const available = !!(engine && engine.getSourceImage()) && !isLive;
-  if (motionActive && !available) { motionActive = false; haltPlayback(); }
+  const available = !!(engine && engine.getSourceImage()) && !env.live.isLive;
+  if (env.motionRT.active && !available) { env.motionRT.active = false; haltPlayback(); }
 
   const q = (id) => document.getElementById(id);
   const btn = q('motionBtn');
-  if (btn) { btn.disabled = !available; btn.classList.toggle('active', motionActive); }
+  if (btn) { btn.disabled = !available; btn.classList.toggle('active', env.motionRT.active); }
   const footer = q('motionFooter');
-  if (footer) footer.hidden = !motionActive;
+  if (footer) footer.hidden = !env.motionRT.active;
   // motion mode pins discrete fields to keyframe 0 — hide the form picker and
   // dim/disable the non-animatable controls (see body.motion rules in styles.css).
   // The starting keyframe (kf0) is seeded on entry, but discrete stays editable
   // while there's only ONE keyframe (refine the starting look); it locks once a
   // SECOND keyframe exists — i.e. the moment animating actually begins.
-  document.body.classList.toggle('motion', motionActive && kfList().length >= 2);
+  document.body.classList.toggle('motion', env.motionRT.active && kfList().length >= 2);
 
   const n = kfList().length;
   const canDelete = motion.selected >= 0 || keyframeAt(motion.playhead) >= 0;
@@ -2511,7 +2515,7 @@ function motionToJSON() {
 function motionJSONBlob() { return new Blob([motionToJSON()], { type: 'application/json' }); }
 function downloadMotionJSON() {
   if (!kfList().length) return;
-  downloadBlob(motionJSONBlob(), (sourceFilename || 'animation') + '-motion.json');
+  downloadBlob(motionJSONBlob(), (env.media.sourceFilename || 'animation') + '-motion.json');
 }
 // returns null on success, or an error string
 function loadMotionFromJSON(text) {
@@ -2591,8 +2595,8 @@ function wireMotion() {
     clipBar.addEventListener('pointercancel', barUp);
   }
   if (byId('clipXfade')) makeScrubField(byId('clipXfade'), {
-    get: () => clip.crossfadeMs / 1000,
-    set: (v) => { clip.crossfadeMs = Math.max(0, Math.min(3, v)) * 1000; },
+    get: () => env.clip.trim.crossfadeMs / 1000,
+    set: (v) => { env.clip.trim.crossfadeMs = Math.max(0, Math.min(3, v)) * 1000; },
     step: 0.1, fineStep: 0.05, min: 0, max: 3,
     format: (v) => v.toFixed(2) + 's',
     parse: (s) => { const n = parseFloat(String(s).replace(/[s\s]/g, '')); return isNaN(n) ? null : n; },
@@ -2653,12 +2657,12 @@ function wireMotion() {
       else renderSampled(p);
     };
     track.addEventListener('pointerdown', (e) => {
-      _tlPointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      env.motionRT.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
       track.setPointerCapture?.(e.pointerId);
-      if (_tlPointers.size === 2) {                 // second finger → switch from scrub to pinch/pan
-        motionScrubbing = false;
-        const pts = [..._tlPointers.values()];
-        _tlGesture = {
+      if (env.motionRT.pointers.size === 2) {       // second finger → switch from scrub to pinch/pan
+        env.motionRT.scrubbing = false;
+        const pts = [...env.motionRT.pointers.values()];
+        env.motionRT.gesture = {
           dist: Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y) || 1,
           mid: (pts[0].x + pts[1].x) / 2,
           zoom: session.timelineZoom || 1, pan: session.timelinePan || 0,
@@ -2667,20 +2671,21 @@ function wireMotion() {
         return;
       }
       if (e.target.closest('.mf-marker') || !kfList().length) return;
-      motionScrubbing = true;
+      env.motionRT.scrubbing = true;
       if (motion.playing) haltPlayback();
       scrubTo(e.clientX);
       e.preventDefault();
     });
     track.addEventListener('pointermove', (e) => {
-      if (_tlPointers.has(e.pointerId)) _tlPointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
-      if (_tlGesture && _tlPointers.size >= 2) {    // pinch-zoom by the finger ratio; the start-midpoint's
-        const pts = [..._tlPointers.values()];      // content time follows the moving midpoint (= pan)
+      if (env.motionRT.pointers.has(e.pointerId)) env.motionRT.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      const g = env.motionRT.gesture;
+      if (g && env.motionRT.pointers.size >= 2) {    // pinch-zoom by the finger ratio; the start-midpoint's
+        const pts = [...env.motionRT.pointers.values()];   // content time follows the moving midpoint (= pan)
         const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y) || 1;
-        const mid = (pts[0].x + pts[1].x) / 2, r = _tlGesture.rect;
-        const frac0 = (_tlGesture.mid - r.left) / r.width;
-        const tAnchor = _tlGesture.pan + frac0 * (1 / _tlGesture.zoom);   // content under the initial midpoint
-        session.timelineZoom = _tlGesture.zoom * (dist / _tlGesture.dist);
+        const mid = (pts[0].x + pts[1].x) / 2, r = g.rect;
+        const frac0 = (g.mid - r.left) / r.width;
+        const tAnchor = g.pan + frac0 * (1 / g.zoom);   // content under the initial midpoint
+        session.timelineZoom = g.zoom * (dist / g.dist);
         clampTimelineView();
         session.timelinePan = tAnchor - Math.max(0, Math.min(1, (mid - r.left) / r.width)) * tlSpan();
         clampTimelineView();
@@ -2688,14 +2693,14 @@ function wireMotion() {
         e.preventDefault();
         return;
       }
-      if (motionScrubbing) scrubTo(e.clientX);
+      if (env.motionRT.scrubbing) scrubTo(e.clientX);
     });
     const up = (e) => {
-      _tlPointers.delete(e.pointerId);
+      env.motionRT.pointers.delete(e.pointerId);
       track.releasePointerCapture?.(e.pointerId);
-      if (_tlPointers.size < 2) _tlGesture = null;
-      if (!motionScrubbing) return;
-      motionScrubbing = false;
+      if (env.motionRT.pointers.size < 2) env.motionRT.gesture = null;
+      if (!env.motionRT.scrubbing) return;
+      env.motionRT.scrubbing = false;
       loadPlayheadIntoState();
       renderTimeline();
       updateMotionUI();
@@ -2703,7 +2708,7 @@ function wireMotion() {
     track.addEventListener('pointerup', up);
     track.addEventListener('pointercancel', up);
     const onTimelineWheel = (e) => {
-      if (!motionActive) return;
+      if (!env.motionRT.active) return;
       const r = track.getBoundingClientRect();
       if (e.ctrlKey) {                              // trackpad pinch (browsers map it to ctrl+wheel) → zoom on cursor
         zoomTimelineAt(Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)), Math.exp(-e.deltaY * 0.01));
@@ -2726,7 +2731,7 @@ function wireMotion() {
       let rScrub = false;
       ruler.addEventListener('pointerdown', (e) => {
         if (!kfList().length) return;
-        rScrub = true; motionScrubbing = true;
+        rScrub = true; env.motionRT.scrubbing = true;
         if (motion.playing) haltPlayback();
         ruler.setPointerCapture?.(e.pointerId);
         scrubTo(e.clientX);
@@ -2735,7 +2740,7 @@ function wireMotion() {
       ruler.addEventListener('pointermove', (e) => { if (rScrub) scrubTo(e.clientX); });
       const rEnd = (e) => {
         if (!rScrub) return;
-        rScrub = false; motionScrubbing = false;
+        rScrub = false; env.motionRT.scrubbing = false;
         ruler.releasePointerCapture?.(e.pointerId);
         loadPlayheadIntoState(); renderTimeline(); updateMotionUI();
       };
@@ -2898,7 +2903,7 @@ function setupVideoExport() {
     status.textContent = 'rendering…'; status.className = 'status busy';
     const renderStart = performance.now();
     const wantSource = byId('vidSourcePreview')?.checked;
-    const base = sourceFilename || 'animation';
+    const base = env.media.sourceFilename || 'animation';
     try {
       // main kaleidoscope video (GL capture path)
       const { blob, frames, timing } = await exportVideo({
