@@ -26,9 +26,7 @@ import {
 } from './shell/controls.js';
 import { PARAMS, DECLARATIVE_PARAM_IDS } from './shell/params.js';
 import { snapSpiralValue as kitSnapSpiral, applyArmsSnap as kitApplyArmsSnap } from './kit/snaps.js';
-import { createClipEditor } from './shell/clip-editor.js';
-import { createSourceHost } from './shell/source-host.js';
-import { createMotionRuntime } from './shell/motion-runtime.js';
+import { createApp } from './shell/app.js';
 import { formatVersion } from './version.js';
 import { push as historyPush, undo as historyUndo, redo as historyRedo, canUndo, canRedo } from './shell/history.js';
 import { wireDiagnosticButton } from './shell/diagnostics.js';
@@ -837,9 +835,11 @@ if (engine) {
   env.drawMiniKaleidoscope = drawMiniKaleidoscope;
   env.sourceOverlay = sourceOverlay;
   env.isFirefoxCappedAt8K = isFirefoxCappedAt8K;
-  createClipEditor(env);     // #clipSheet trim/bounce/slice + bake
-  createSourceHost(env);     // media load + camera (wires its buttons) + still export
-  createMotionRuntime(env);  // motion core + timeline + filmstrip + video-export sheet (wires motion + video-export)
+
+  // Mount the shared app wiring (clip editor + source host + motion runtime) and
+  // thread the injectable runtime seams. The web build passes no host/capabilities
+  // yet (Phase 3/4); a native shell injects its own here without touching the app.
+  createApp(env, { host: null, capabilities: null });
 
   buildFormGrid(env);
   applyFormControls(env);
