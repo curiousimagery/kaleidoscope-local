@@ -501,6 +501,44 @@ button .btn-spinner {
   text-shadow: 0 1px 3px rgba(0, 0, 0, 0.7);
 }
 
+/* output/broadcast status — the mirror of .output-status-area, pinned top-RIGHT
+   (input details left, output details right). Same Y as the left caption; shrinks
+   to its content; right-aligned. pointer-events off so it never blocks gestures. */
+.output-broadcast-area {
+  position: absolute;
+  top: calc(max(12px, env(safe-area-inset-top, 0px)) + 48px);
+  right: 16px;
+  z-index: 10;
+  pointer-events: none;
+  text-align: right;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.7);
+}
+/* active output states read brighter than the idle "output W×H" line. */
+#broadcastStatus.live { color: #70e890; }
+
+/* live-output controls dropdown — anchored under #outputBtn by JS (the panel
+   positions it off the button's rect), NOT a full-screen modal: no backdrop, so
+   the output status stays readable in the bar while it's open. */
+.output-popover {
+  position: fixed;
+  z-index: 200;
+  width: 260px; max-width: 92vw;
+  background: #141414; border: 1px solid #2a2a2a; border-radius: 10px;
+  padding: 14px; display: flex; flex-direction: column; gap: 8px;
+  box-shadow: 0 10px 34px rgba(0, 0, 0, 0.55);
+}
+.output-popover[hidden] { display: none; }
+/* broadcast indicator line inside the popover (dormant vs active). */
+.op-broadcast { font-size: 11px; color: #888; }
+.op-broadcast.live { color: #70e890; }
+/* text input (Syphon server name) */
+.text-input {
+  width: 100%; box-sizing: border-box;
+  background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 4px;
+  color: #e8e8e8; font-family: inherit; font-size: 12px; padding: 7px 10px;
+}
+.text-input:focus { outline: none; border-color: #888; }
+
 /* version chip — discrete always-visible diagnostics affordance; reads as info,
    not a primary action, and opens the diagnostics sheet. */
 .ot-version {

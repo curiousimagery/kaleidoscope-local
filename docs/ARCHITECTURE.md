@@ -35,7 +35,8 @@ src/
 │   ├── engine-adapter.js    THE CONTRACT: universal renderFrameAt(w,h); perform-tier getState/applyState/tween
 │   ├── output-bus.js        createOutputBus — paced loop renders one frame, fans it to registered sinks; owns
 │   │                        output resolution + fps + server name; pushes op:'live-output' records to diag.ops
-│   └── recorder.js          createRecorderSink — record-to-disk sink (2D canvas + MediaRecorder), the first sink
+│   ├── recorder.js          createRecorderSink — record-to-disk sink (2D canvas + MediaRecorder), the first sink
+│   └── mock-host.js         mockSyphonHost — fake native host for ?mocksyphon (exercises the broadcasting path on web)
 │
 ├── components/              mountable UI mounted by BOTH chromes, parameterized not forked
 │   ├── source-overlay.js    createSourceOverlay — draw + hit-test + proportionality/mirroring gesture math

@@ -56,6 +56,11 @@
     <div class="status" id="status">load an image to start</div>
     <div class="upload-error" id="uploadError"></div>
   </div>
+  <!-- output/broadcast status — pinned top-RIGHT, mirroring the source/input
+       details top-left: current output state (broadcast / record), resolution, fps. -->
+  <div class="output-broadcast-area">
+    <div class="status" id="broadcastStatus"></div>
+  </div>
   <div class="placeholder" id="placeholder">
     <strong id="placeholderTitle">kaleidoscope</strong>
     upload an image to begin
@@ -303,15 +308,33 @@
   </div>
 </div>
 
-<!-- output sheet (live output) — record-to-disk + live status; the Syphon /
-     output-window sinks and the resolution/server-name controls land in later
-     increments. Mirrors the export/diagnostics sheets (.vid-sheet). -->
-<div class="vid-sheet" id="outputSheet" hidden>
-  <div class="vid-card">
-    <div class="vid-head"><span>live output</span><button class="vid-x" id="outputClose" title="close">✕</button></div>
-    <button class="primary" id="recordBtn" style="width: 100%;">record to disk</button>
-    <div class="status" id="outputStatus"></div>
+<!-- live-output controls — an anchored DROPDOWN under #outputBtn (positioned by
+     createOutputPanel), NOT a modal: the live status stays visible in the global
+     bar (#broadcastStatus, top-right) while this is open or closed. Holds the
+     record control, the Syphon broadcast toggle + name (only active when a Syphon
+     host is available; dormant on plain web), and the output resolution picker
+     (aspect follows the composition frame). -->
+<div class="output-popover" id="outputPopover" hidden>
+  <div class="vid-head"><span>live output</span><button class="vid-x" id="outputClose" title="close">✕</button></div>
+
+  <div class="op-broadcast" id="opBroadcast">broadcast: dormant</div>
+  <button id="broadcastBtn" hidden>start broadcasting</button>
+
+  <button class="primary" id="recordBtn" style="width: 100%;">record to disk</button>
+
+  <label class="setting-label">output resolution</label>
+  <div class="row-buttons" id="outputResTiers">
+    <button class="toggle" data-tier="1280">HD</button>
+    <button class="toggle active" data-tier="1920">FHD</button>
+    <button class="toggle" data-tier="2560">QHD</button>
+    <button class="toggle" data-tier="3840">4K</button>
   </div>
+  <div class="res-hint" id="outputResHint"></div>
+
+  <label class="setting-label">name</label>
+  <input type="text" id="serverNameInput" class="text-input" value="Fold" maxlength="32" spellcheck="false">
+
+  <div class="status" id="outputStatus"></div>
 </div>
 
 <!-- diagnostics sheet (global) — discrete readout + recent live-output op records

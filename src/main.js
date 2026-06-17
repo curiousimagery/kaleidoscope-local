@@ -32,6 +32,7 @@ import { createApp } from './shell/app.js';
 import { createFoldAdapter } from './shell/fold-adapter.js';
 import { createOutputBus } from './stage/output-bus.js';
 import { createRecorderSink } from './stage/recorder.js';
+import { mockSyphonHost } from './stage/mock-host.js';
 import { createOutputPanel } from './shell/output-panel.js';
 import { VERSION, formatVersion } from './version.js';
 import { push as historyPush, undo as historyUndo, redo as historyRedo, canUndo, canRedo } from './shell/history.js';
@@ -843,7 +844,8 @@ function wireGlobalSheets() {
   };
   wire('exportSheet', 'openExportBtn', 'exportClose');
   wire('diagSheet', 'openDiagBtn', 'diagClose');
-  wire('outputSheet', 'outputBtn', 'outputClose');
+  // (#outputBtn / #outputPopover open/close is owned by createOutputPanel — it's an
+  //  anchored dropdown, not a modal, so it isn't wired through the generic helper.)
 
   // The diagnostics sheet surfaces the recent live-output op records (the unified
   // op-perf substrate, env.diag.ops) — refreshed each time the sheet is opened.
@@ -879,17 +881,22 @@ if (engine) {
 
   // Mount the shared app wiring (clip editor + source host + motion runtime) and
   // thread the injectable runtime seams. `capabilities` is the browser profile
-  // (kit/capabilities.js); `host` is the native-services seam — `window.foldHost`
-  // when an Electron/Capacitor shell injected one (Increment 4+), else createApp
-  // defaults to the web no-op (shell/host.js). (`?mocksyphon` → a mock host lands
-  // in Increment 3.) A native shell injects its own host without touching the app.
-  createApp(env, { capabilities, host: window.foldHost });
+  // (kit/capabilities.js); `host` is the native-services seam — `?mocksyphon` →
+  // the mock Syphon host (exercises the broadcasting path on web), else
+  // `window.foldHost` when an Electron/Capacitor shell injected one (Increment 4+),
+  // else createApp defaults to the web no-op (shell/host.js). A native shell
+  // injects its own host without touching the app.
+  const host = new URLSearchParams(window.location.search).has('mocksyphon')
+    ? mockSyphonHost
+    : window.foldHost;
+  createApp(env, { capabilities, host });
 
   // Stage layer: the engine-agnostic live-output bus + its first sink (record-to-
   // disk), wired through Fold's adapter. The bus renders one frame at the output
-  // resolution and fans it to sinks; the output panel (toolbar button + #outputSheet)
-  // drives record/stop and reads live status. Syphon + the output-only window are
-  // later sinks against this same bus. env.host is set by createApp above.
+  // resolution and fans it to sinks; the output panel (toolbar button + #outputPopover
+  // dropdown + the top-right #broadcastStatus readout) drives record/broadcast and
+  // shows live status. Syphon + the output-only window are later sinks against this
+  // same bus. env.host is set by createApp above (?mocksyphon → the mock host).
   const outputBus = createOutputBus({
     engineAdapter: createFoldAdapter(env),
     host: env.host,
