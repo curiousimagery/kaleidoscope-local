@@ -54,7 +54,7 @@ export function createSourceHost(env) {
         // discoverable. When the cap is a Firefox RFP limit and not a real
         // hardware constraint, append a hint to try Safari.
         let msg = e.message;
-        if (env.isFirefoxCappedAt8K(engine) && /too large/i.test(msg)) {
+        if (env.capabilities.firefoxTextureCapped && /too large/i.test(msg)) {
           msg += ' Firefox limits WebGL to 8K — try Safari for full-size images on Apple Silicon.';
         }
         if (uploadErrorEl) uploadErrorEl.textContent = msg;

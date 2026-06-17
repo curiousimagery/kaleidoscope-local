@@ -1162,29 +1162,15 @@ function wireMotion() {
   updateMotionUI();
 }
 
-// Frame source for video export, chosen per browser engine (Builds 130–132 A/B).
-// All WebKit (Safari) is far faster wrapping the WebGL canvas directly in a
-// VideoFrame than routing through a 2D canvas (whose 2D→VideoFrame conversion is
-// very slow on WebKit): desktop Safari ~130 fps vs ~6 @4K, iPad M1 ~55 vs ~18
-// (Daniel tested both). The VideoFrame-from-WebGL path that hung iPadOS in Build
-// 115 is fixed on current iPadOS (stable over a 75s render). Firefox + Chromium
-// are fast on — and Firefox slightly prefers — the 2D path, so WebGL-direct is
-// used for ALL WebKit and 2D for everyone else. `?capture=2d|bitmap|gl` overrides
-// (a safety hatch if some older iOS device still hangs on the WebGL path).
-function defaultCaptureMode() {
-  const q = new URLSearchParams(location.search).get('capture');
-  if (q === '2d' || q === 'bitmap' || q === 'gl') return q;
-  const ua = navigator.userAgent;
-  const isWebKit = /AppleWebKit/.test(ua) && !/Chrome|Chromium|Edg|OPR|Firefox|FxiOS|CriOS/.test(ua);
-  return isWebKit ? 'gl' : '2d';
-}
-
 // ---- video export ---------------------------------------------------------
+// The frame-source capture path (per browser engine: WebGL-direct on WebKit, 2D
+// elsewhere; `?capture=` override) now lives in the capability profile —
+// `env.capabilities.capturePath` (kit/capabilities.js).
 function setupVideoExport() {
   const byId = (id) => document.getElementById(id);
   const sheet = byId('vidSheet');
   if (!sheet) return;
-  let selLong = 2560, selFps = 30, selCap = defaultCaptureMode(), cancelRender = false, rendering = false;
+  let selLong = 2560, selFps = 30, selCap = env.capabilities.capturePath, cancelRender = false, rendering = false;
 
   // raw output dimensions for a given LONG side + current aspect (even, unclamped).
   const rawDims = (long) => {

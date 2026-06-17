@@ -26,6 +26,7 @@ import {
 } from './shell/controls.js';
 import { PARAMS, DECLARATIVE_PARAM_IDS } from './shell/params.js';
 import { snapSpiralValue as kitSnapSpiral, applyArmsSnap as kitApplyArmsSnap } from './kit/snaps.js';
+import { createCapabilities } from './kit/capabilities.js';
 import { createApp } from './shell/app.js';
 import { formatVersion } from './version.js';
 import { push as historyPush, undo as historyUndo, redo as historyRedo, canUndo, canRedo } from './shell/history.js';
@@ -61,19 +62,13 @@ const statusEl = document.getElementById('status');
 const diagEl = document.getElementById('diag');
 const uploadErrorEl = document.getElementById('uploadError');
 
-// Browser detection for the WebGL-cap notice + augmented upload-error text.
-// Firefox with Resist Fingerprinting (RFP) caps MAX_TEXTURE_SIZE at 8192
-// regardless of underlying hardware. We can't know with certainty whether
-// RFP is on, but the combination of "browser is Firefox" + "max texture
-// happens to be exactly 8192 on a non-mobile device" is a strong signal.
-const isFirefox = /Firefox\//i.test(navigator.userAgent);
-function isFirefoxCappedAt8K(engine) {
-  return isFirefox && engine.diagnostics.maxTextureSize <= 8192;
-}
-
-let engine;
+// The capability profile (engine identity, capture path, texture cap) is built
+// once from the engine's diagnostics — see kit/capabilities.js. Threaded onto
+// `env.capabilities` via createApp; used here for the Firefox WebGL-cap notice.
+let engine, capabilities;
 try {
   engine = createEngine({ canvas: previewCanvas });
+  capabilities = createCapabilities(engine);
   // basic always-on diagnostics. expanded with unmasked renderer and device
   // pixel ratio so cross-device comparisons are easier without invoking the
   // full diagnostic panel.
@@ -88,7 +83,7 @@ try {
   // Firefox WebGL-cap notice in the export group. Only rendered when the cap
   // is detected; no-op on Safari/Chrome/Edge and on a Firefox build that
   // somehow doesn't have the 8K cap (unlikely on macOS but possible).
-  if (isFirefoxCappedAt8K(engine)) {
+  if (capabilities.firefoxTextureCapped) {
     const notice = document.createElement('div');
     notice.className = 'browser-notice';
     notice.textContent = 'Firefox limits WebGL textures to 8K. For higher-resolution export on Apple Silicon, try Safari.';
@@ -827,19 +822,18 @@ function wireFrameAspect() {
 // ============================================================================
 
 if (engine) {
-  // Chrome + capability collaborators the extracted modules reach through `env`.
-  // Each createX(env) sets its OWN public handles (env.scrubVideo, env.loadImage,
-  // env.openClipEditor, …); these three stay in main.js — drawMiniKaleidoscope and
-  // the shared sourceOverlay are chrome, isFirefoxCappedAt8K is a capability check
-  // (it moves to kit/capabilities in Phase 3).
+  // Chrome collaborators the extracted modules reach through `env`. Each createX(env)
+  // sets its OWN public handles (env.scrubVideo, env.loadImage, env.openClipEditor,
+  // …); these two stay in main.js — drawMiniKaleidoscope and the shared sourceOverlay
+  // are chrome. (Per-engine capability checks live on env.capabilities, set below.)
   env.drawMiniKaleidoscope = drawMiniKaleidoscope;
   env.sourceOverlay = sourceOverlay;
-  env.isFirefoxCappedAt8K = isFirefoxCappedAt8K;
 
   // Mount the shared app wiring (clip editor + source host + motion runtime) and
-  // thread the injectable runtime seams. The web build passes no host/capabilities
-  // yet (Phase 3/4); a native shell injects its own here without touching the app.
-  createApp(env, { host: null, capabilities: null });
+  // thread the injectable runtime seams. `capabilities` is the browser profile
+  // (kit/capabilities.js); `host` is still null until Phase 4 (shell/host.js +
+  // webHost) — a native shell injects its own here without touching the app.
+  createApp(env, { host: null, capabilities });
 
   buildFormGrid(env);
   applyFormControls(env);
