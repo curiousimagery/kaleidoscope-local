@@ -14,6 +14,34 @@ He prefers **no em dashes** in any prose Claude generates for him.
 
 `v0.9.23 · Build 170`. The footer in the running app shows this string from `src/version.js`. **Milestone (Daniel-approved, Build 147):** video support is real. Refinements ongoing.
 
+## SESSION WRAP 2026-06-17 — Electron+Syphon spike complete
+
+**Spike verdict: green light.** The CPU readback path (drawImage + getImageData in a preload RAF loop → IPC → SyphonMetalServer) is viable for live VJ output on Apple Silicon. End-to-end confirmed: Electron → SyphonMetalServer → Resolume Arena showed live kaleidoscope frames as "Electron - Fold."
+
+**Benchmark results (M5 Max, Apple Silicon unified memory):**
+
+| Resolution | fps | Capture time | Viable? |
+|---|---|---|---|
+| 960×960 | ~120 fps | ~2.6ms | Yes |
+| 1920×1920 | ~95 fps | ~8.5ms | Yes |
+| 3840×2160 (16:9 4K) | ~41 fps | ~18.9ms | Yes |
+| 3840×3840 (square 4K) | ~23 fps | ~24ms | No (below 30fps) |
+
+Bottleneck is GPU→CPU pixel readback (getImageData), not IPC. Cost scales linearly with pixel count. Apple Silicon unified memory is the key enabler — no PCIe bus crossing. M1+ should handle 1920×1920 comfortably; 4K 16:9 suits M1 Pro/Max and up. Intel Mac likely not viable.
+
+**Important caveat:** the spike captured from the display canvas, which stayed at 300×150 in Electron (the app's resize logic doesn't fire the same way there). The real integration must use `renderToFBO()` in `engine/gl.js` — that path renders at arbitrary resolution independent of the display canvas. Syphon throughput numbers are accurate regardless (getImageData cost is set by the capture target size, not the source canvas size).
+
+**Integration path for the real Electron build:**
+- Implement `nativeHost.syphon` against the `shell/host.js` seam (`available`, `start`, `publish`, `stop`)
+- Use `engine.renderToFBO(w, h)` for frame capture at the target Syphon resolution
+- Use `SyphonMetalServer` (not `SyphonOpenGLServer`) — Metal works in Electron's main process; the OpenGL server fails due to GPU process isolation
+- Serve built `dist/` instead of the Vite dev server; package with electron-builder
+- Call `createApp(env, { host: nativeHost })` — the seam is already defined and waiting
+
+**Spike code:** `spike/electron-syphon/` — keep as reference for the native addon wiring. The `syphon-server.js` file in particular seeds the real integration (SyphonMetalServer init/publish/destroy pattern is proven). `node-syphon@1.5.0` is the npm package (GPL-3.0+, ships pre-built arm64 binary + Syphon.framework).
+
+**Next for the native Electron build:** separate project, not a continuation of the spike. The spike is throwaway except for the Syphon wiring pattern. The architecture is ready (shell/host.js seam, createApp mount point, engine FBO path). When Daniel is ready to build it for real, the plan is in BACKLOG Phase 4.
+
 ## SESSION WRAP 2026-06-10 — state + prioritized next (read this first)
 
 **Where we are.** The source-video animation track (the big arc of this session, plan `~/.claude/plans/we-just-finished-a-sorted-mist.md`) is feature-complete: load a video → scrub/keyframe/play over moving footage → frame-accurate export; a navigable timeline (zoom/pan/fit, ticks/timestamps, total duration, smooth playhead-follow); video retime (25/50/100/200%); and a **pre-animation clip editor** (trim + bounce + slice/crossfade bake, all behind a destructive warning) with smooth in-editor previews (scrubber, bounce, two-video crossfade dissolve). Bake is seek-based (fine for short loops; fast-bake via WebCodecs decoder is deferred). Everything below is the queue Daniel + I aligned on at the end of this session — roughly in priority order, but Daniel chooses.
