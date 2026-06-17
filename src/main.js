@@ -27,7 +27,12 @@ import {
 import { PARAMS, DECLARATIVE_PARAM_IDS } from './shell/params.js';
 import { snapSpiralValue as kitSnapSpiral, applyArmsSnap as kitApplyArmsSnap } from './kit/snaps.js';
 import { createCapabilities } from './kit/capabilities.js';
+import { createOpRing } from './kit/op-ring.js';
 import { createApp } from './shell/app.js';
+import { createFoldAdapter } from './shell/fold-adapter.js';
+import { createOutputBus } from './stage/output-bus.js';
+import { createRecorderSink } from './stage/recorder.js';
+import { createOutputPanel } from './shell/output-panel.js';
 import { VERSION, formatVersion } from './version.js';
 import { push as historyPush, undo as historyUndo, redo as historyRedo, canUndo, canRedo } from './shell/history.js';
 import { wireDiagnosticButton } from './shell/diagnostics.js';
@@ -150,6 +155,11 @@ const env = {
   scrub: { seekP: null, seeking: false, assign: true },
   sched: { renderScheduled: false, syncCtrlScheduled: false },
   sourcePreview: { frame: null, overlay: null, parent: null },
+
+  // diagnostics substrate (ephemeral runtime). The unified op-perf ring buffer the
+  // live-output bus pushes into and the diagnostics sheet reads back. See
+  // kit/op-ring.js + stage/output-bus.js.
+  diag: { ops: createOpRing(120) },
 };
 
 // ============================================================================
@@ -291,6 +301,7 @@ const placeholder = document.getElementById('placeholder');
 
 function arrangeSlots() {
   env.updateMotionUI();   // gate motion availability on source/live state; force-exit if needed
+  env.updateOutputUI?.();  // gate the live-output button on a loaded source
   Array.from(mainSlot.querySelectorAll('.slot-content')).forEach(n => n.remove());
   Array.from(sideSlot.querySelectorAll('.slot-content')).forEach(n => n.remove());
 
@@ -832,6 +843,25 @@ function wireGlobalSheets() {
   };
   wire('exportSheet', 'openExportBtn', 'exportClose');
   wire('diagSheet', 'openDiagBtn', 'diagClose');
+  wire('outputSheet', 'outputBtn', 'outputClose');
+
+  // The diagnostics sheet surfaces the recent live-output op records (the unified
+  // op-perf substrate, env.diag.ops) — refreshed each time the sheet is opened.
+  document.getElementById('openDiagBtn')?.addEventListener('click', renderDiagOps);
+}
+
+// Render the most recent live-output op records into the diagnostics sheet. Each
+// record is one ~1s window pushed by the output bus: throughput + per-frame
+// render/readback/publish timings. Empty until a record session has run.
+function renderDiagOps() {
+  const el = document.getElementById('diagOps');
+  if (!el || !env.diag?.ops) return;
+  const ops = env.diag.ops.toArray().filter(o => o.op === 'live-output').slice(-8);
+  if (!ops.length) { el.innerHTML = ''; return; }
+  const rows = ops.map(o =>
+    `${o.w}×${o.h} · ${o.throughputFps} fps · render ${o.perFrameMs.render} + read ${o.perFrameMs.read} + publish ${o.perFrameMs.publish} ms`
+  ).reverse().join('<br>');
+  el.innerHTML = `<br>live output (recent):<br>${rows}`;
 }
 
 
@@ -849,10 +879,25 @@ if (engine) {
 
   // Mount the shared app wiring (clip editor + source host + motion runtime) and
   // thread the injectable runtime seams. `capabilities` is the browser profile
-  // (kit/capabilities.js); `host` defaults to the web no-op (shell/host.js) — a
-  // native shell injects its own (Syphon/MIDI/camera/files) here without touching
-  // the app.
-  createApp(env, { capabilities });
+  // (kit/capabilities.js); `host` is the native-services seam — `window.foldHost`
+  // when an Electron/Capacitor shell injected one (Increment 4+), else createApp
+  // defaults to the web no-op (shell/host.js). (`?mocksyphon` → a mock host lands
+  // in Increment 3.) A native shell injects its own host without touching the app.
+  createApp(env, { capabilities, host: window.foldHost });
+
+  // Stage layer: the engine-agnostic live-output bus + its first sink (record-to-
+  // disk), wired through Fold's adapter. The bus renders one frame at the output
+  // resolution and fans it to sinks; the output panel (toolbar button + #outputSheet)
+  // drives record/stop and reads live status. Syphon + the output-only window are
+  // later sinks against this same bus. env.host is set by createApp above.
+  const outputBus = createOutputBus({
+    engineAdapter: createFoldAdapter(env),
+    host: env.host,
+    diag: env.diag,
+  });
+  outputBus.registerSink(createRecorderSink());
+  env.outputBus = outputBus;
+  createOutputPanel(env, outputBus);
 
   buildFormGrid(env);
   applyFormControls(env);

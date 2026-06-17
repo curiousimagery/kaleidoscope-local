@@ -15,6 +15,7 @@ src/
 │
 ├── engine/                  pure rendering — knows nothing about DOM or controls; source-agnostic
 │   ├── index.js             public API: createEngine, setSource/updateSourceFrame, render, exportAt/exportFrame,
+│   │                        exportFrameRaw (raw bottom-up RGBA from the FBO, for the live-output bus),
 │   │                        beginCapture/captureFrame/captureFrameGL/endCapture (video-export frame path)
 │   ├── gl.js                WebGL2 plumbing — context, program, uniforms, FBO probe + export, texture upload
 │   ├── shader-builder.js    composes the fragment shader from the forms registry
@@ -26,7 +27,15 @@ src/
 │
 ├── kit/                     DOM-agnostic primitives shared by every front-end
 │   ├── tween.js             sampleKeyframes (velocity-continuous Catmull-Rom), lerpState, DISCRETE_KEYS
+│   ├── capabilities.js      createCapabilities — probe-once per-engine profile (capture path, texture caps)
+│   ├── op-ring.js           createOpRing — fixed-capacity ring buffer for runtime op-perf records (env.diag.ops)
 │   └── snaps.js             droste arm/spiral snap points
+│
+├── stage/                   ENGINE-AGNOSTIC live-output layer (first tenant Fold) — zero kaleidoscope assumptions
+│   ├── engine-adapter.js    THE CONTRACT: universal renderFrameAt(w,h); perform-tier getState/applyState/tween
+│   ├── output-bus.js        createOutputBus — paced loop renders one frame, fans it to registered sinks; owns
+│   │                        output resolution + fps + server name; pushes op:'live-output' records to diag.ops
+│   └── recorder.js          createRecorderSink — record-to-disk sink (2D canvas + MediaRecorder), the first sink
 │
 ├── components/              mountable UI mounted by BOTH chromes, parameterized not forked
 │   ├── source-overlay.js    createSourceOverlay — draw + hit-test + proportionality/mirroring gesture math
@@ -42,6 +51,9 @@ src/
 │   ├── camera.js            live-camera host module (getUserMedia, continuous render loop)
 │   ├── video-source.js      pToMediaSec / seekVideoTo — the seek-based frame seam for video timeline binding
 │   ├── video-export.js      exportVideo (WebCodecs VideoEncoder → mp4-muxer), pickVideoCodec (H.264/HEVC)
+│   ├── host.js              host-services interface + webHost no-op (syphon/midi/nativeCamera/fileSystem)
+│   ├── fold-adapter.js      createFoldAdapter — Fold's implementation of the stage engine-adapter contract
+│   ├── output-panel.js      createOutputPanel — the #outputBtn + #outputSheet chrome over the output bus
 │   ├── diagnostics.js       FBO/encode probes, e2e render check
 │   ├── zip.js               dependency-free store-only zip (export package)
 │   ├── cursors.js           pre-baked rotate-cursor SVG variants
@@ -64,7 +76,7 @@ docs/                        all the long-form context lives here (HANDOFF is th
 
 **Forms are self-contained.** Each form file in `src/engine/forms/` exports a single object with a fixed schema (see `_template.js`). The schema covers GLSL fold function, per-form uniforms, polygon for overlay, hit-testing spoke rule, controls list, file code for filenames, thumbnail SVG, optional `tilesPerDim` for resolution hint, and optional `filenameSuffix` for per-form parameters. The shader is composed at startup by reading the registry and concatenating each form's contribution.
 
-**The `env` container threads shared state AND wiring through the app modules.** Rather than module-level globals, the chrome builds an `env` object that carries: `state`/`session`/`motion`; `engine`; key DOM refs; the **ephemeral runtime sub-objects** (`media`, `live`, `motionRT`, `clip`, `filmstrip`, `scrub`, `sched`, `sourcePreview` — grouped runtime flags that are NOT the undoable `state`); and the **inter-module method handles** (`scheduleRender`, `syncControls`, `arrangeSlots`, `scrubVideo`, `loadImage`, `openClipEditor`, …). Each wiring module takes `env`, reads collaborators late-bound as `env.X()`, and hangs its own public surface back on `env` — so a function's *definition* can live in any module without breaking callers. This is what let the app wiring move out of `main.js` (Build 164–168) with no module-level mutable globals: `env` is both the shared-state container and the cross-module call seam.
+**The `env` container threads shared state AND wiring through the app modules.** Rather than module-level globals, the chrome builds an `env` object that carries: `state`/`session`/`motion`; `engine`; key DOM refs; the **ephemeral runtime sub-objects** (`media`, `live`, `motionRT`, `clip`, `filmstrip`, `scrub`, `sched`, `sourcePreview`, `diag` — grouped runtime flags that are NOT the undoable `state`; `diag.ops` is the live-output op-perf ring buffer); the injectable **`host`/`capabilities`** seams; the **`outputBus`** (stage layer); and the **inter-module method handles** (`scheduleRender`, `syncControls`, `arrangeSlots`, `scrubVideo`, `loadImage`, `openClipEditor`, `updateOutputUI`, …). Each wiring module takes `env`, reads collaborators late-bound as `env.X()`, and hangs its own public surface back on `env` — so a function's *definition* can live in any module without breaking callers. This is what let the app wiring move out of `main.js` (Build 164–168) with no module-level mutable globals: `env` is both the shared-state container and the cross-module call seam.
 
 ## layering: Engine / Kit / Components / App-wiring / Chrome (the settled vocabulary)
 
@@ -73,6 +85,7 @@ The codebase is organized in reuse tiers, deliberately (this is the model the mu
 - **Engine** (`src/engine/`) — forms, shader, gl, geometry. Pure pixels, zero DOM, source-agnostic (`setSource` accepts an HTMLImageElement, HTMLVideoElement, or canvas; `updateSourceFrame` re-uploads the current frame). Never rebuilt per device.
 - **Kit** (`src/kit/`, plus `shell/state.js`, `params.js`, `history.js`) — DOM-agnostic primitives shared by every front-end: the single state schema, undo/redo, the parameter registry, droste snaps, the **tween/keyframe model** (`kit/tween.js`), and the **capability profile** (`kit/capabilities.js` — probe-once per-engine table: capture path, texture caps, Firefox cap; the home for per-platform feature locking). Plus host services (`shell/camera.js`, `shell/video-source.js`, `shell/video-export.js`, `shell/zip.js`). Grows over time; never rebuilt.
 - **Components** (`src/components/`) — UI mounted by BOTH chromes, parameterized (touch-target size, etc.) not forked: `createSourceOverlay` (the expensive draw + hit-test + proportionality/mirroring gesture math — never reimplement per chrome), `createOutputGestures`, `mountRangeControl`.
+- **Stage** (`src/stage/`) — the ENGINE-AGNOSTIC live-output layer (added Build 175, Fold Live Phase 0). "One program frame, many sinks": `createOutputBus` runs a paced loop that renders ONE frame at the chosen output resolution through an **engine adapter** and fans it to registered sinks (record-to-disk now; Syphon + an output-only window via the Electron shell later). The only coupling to an engine is the two-tier **engine-adapter contract** (`engine-adapter.js`): universal `renderFrameAt(w,h) → Frame` (every engine), perform-tier `getState/applyState/tween` (engines with addressable state; Phase 2 consumes these). The stage knows NOTHING about kaleidoscopes — a second tenant (a gesture light source, a zoetrope builder, an audio-viz) supplies its own adapter and reuses the stage verbatim. Do not extract it to a package until a second tenant exists; the clean boundary makes that cheap then. Fold's adapter is `shell/fold-adapter.js` (in shell/ so stage/ stays Fold-free), and Fold's chrome over the bus is `shell/output-panel.js` (the `#outputBtn` + `#outputSheet`).
 - **App wiring** (`src/shell/app.js` + `clip-editor.js` + `source-host.js` + `motion-runtime.js`) — the device-agnostic application logic that sits *beneath* the chrome: `createSourceHost` (media load + live camera + still export), `createClipEditor` (the trim/bounce/slice sheet + bake), `createMotionRuntime` (sampling/playback/keyframes/timeline/filmstrip/scrub/retime/video-export sheet). Each is a `createX(env)` that mounts onto `env`; `createApp(env, { host, capabilities })` mounts all three in one call and threads the injectable native seams. A chrome builds `env` (engine + DOM + schedulers + layout handles) then calls `createApp` — so a future Electron/live shell mounts the SAME wiring without forking it. (Extracted from `main.js` in Build 164–168; before that it was one ~2,600-line file.)
 - **Chrome** (`src/main.js` = desktop/iPad; `src/mobile/chrome.js` = phone) — *only* layout/divider/tab-bar/slots/control-wiring/undo + the engine+env+overlay construction; the app wiring above is mounted via `createApp`. The only layer genuinely rebuilt per device. `src/boot.js` picks the chrome (phone → mobile, else desktop; `?chrome=` override). **iPad stays on the desktop chrome** (it hosts the keyframe/timeline editor, which is desktop/iPad-only). (The phone chrome `mobile/chrome.js` has its own lighter wiring and does not yet mount `createApp` — a future convergence.)
 

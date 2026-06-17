@@ -44,6 +44,7 @@
     <div class="ot-group ot-right">
       <button class="ot-btn" id="swapBtn" disabled title="swap source / output">⇄</button>
       <button class="ot-btn" id="motionBtn" disabled title="motion mode">motion</button>
+      <button class="ot-btn" id="outputBtn" disabled title="live output">output</button>
       <button class="ot-btn" id="openExportBtn" title="save / export">save ▸</button>
       <button class="ot-btn ot-version" id="openDiagBtn" title="diagnostics">·</button>
     </div>
@@ -302,11 +303,24 @@
   </div>
 </div>
 
-<!-- diagnostics sheet (global) — discrete readout + full report / raw data -->
+<!-- output sheet (live output) — record-to-disk + live status; the Syphon /
+     output-window sinks and the resolution/server-name controls land in later
+     increments. Mirrors the export/diagnostics sheets (.vid-sheet). -->
+<div class="vid-sheet" id="outputSheet" hidden>
+  <div class="vid-card">
+    <div class="vid-head"><span>live output</span><button class="vid-x" id="outputClose" title="close">✕</button></div>
+    <button class="primary" id="recordBtn" style="width: 100%;">record to disk</button>
+    <div class="status" id="outputStatus"></div>
+  </div>
+</div>
+
+<!-- diagnostics sheet (global) — discrete readout + recent live-output op records
+     + full report / raw data -->
 <div class="vid-sheet" id="diagSheet" hidden>
   <div class="vid-card">
     <div class="vid-head"><span>diagnostics</span><button class="vid-x" id="diagClose" title="close">✕</button></div>
     <div class="status" id="diag"></div>
+    <div class="status" id="diagOps"></div>
     <div class="version-badge" id="versionBadge"></div>
   </div>
 </div>

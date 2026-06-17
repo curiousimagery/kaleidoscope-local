@@ -207,6 +207,20 @@ export function createEngine({ canvas, maxProbeSize }) {
       outCtx2d.putImageData(imgData, 0, 0);
     },
 
+    // raw-RGBA FBO capture for the live-output bus (src/stage/). Runs the same
+    // FBO render path as exportFrame/exportAt but STOPS at readPixels and returns
+    // the raw buffer — no 2D-canvas copy, no Y-flip, no encode. Sinks that want
+    // top-down (a recorder's 2D canvas) flip per-sink; sinks that take bottom-up
+    // (Syphon with flipped:true) hand the buffer straight through. Timings pass
+    // through so the output bus can push per-frame op records to env.diag.
+    //
+    // returns: Promise<{ pixels: Uint8Array (bottom-up RGBA), w, h, renderMs, readMs }>
+    exportFrameRaw(state, w, h) {
+      if (!sourceTexture) throw new Error('no source loaded');
+      const ctx = buildCtx(state);
+      return renderToFBO(glCtx, state, ctx, w, h);
+    },
+
     // --- video-capture session -------------------------------------------------
     // The fast multi-frame path: render straight to the GL canvas at output size,
     // then GPU-blit it into a 2D canvas (`drawImage`) that the caller wraps in a
