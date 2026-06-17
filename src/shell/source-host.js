@@ -69,7 +69,7 @@ export function createSourceHost(env) {
       document.getElementById('sourceMeta').children[1].textContent = file.name;
       document.getElementById('swapBtn').disabled = false;
 
-      statusEl.textContent = `loaded ${img.naturalWidth}×${img.naturalHeight}`;
+      statusEl.textContent = `${file.name} · ${img.naturalWidth}×${img.naturalHeight}`;
       statusEl.classList.remove('error', 'busy');
       if (uploadErrorEl) uploadErrorEl.textContent = '';
 
@@ -128,7 +128,7 @@ export function createSourceHost(env) {
       meta.children[1].textContent = file.name;
       document.getElementById('swapBtn').disabled = false;
       const dur = isFinite(v.duration) ? ` · ${v.duration.toFixed(1)}s` : '';
-      statusEl.textContent = `loaded ${v.videoWidth}×${v.videoHeight}${dur}`;
+      statusEl.textContent = `${file.name} · ${v.videoWidth}×${v.videoHeight}${dur}`;
       statusEl.classList.remove('error', 'busy');
       env.updateMotionUI();            // motion mode stays gated off for a video (until timeline binding)
       env.arrangeSlots();              // mounts the <video> into the source slot

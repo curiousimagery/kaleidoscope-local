@@ -105,8 +105,20 @@ body.resizing-divider .preview-canvas { visibility: hidden; }
    doesn't cover — it only accounts for the system status bar and rounded corners,
    not the browser's own chrome. 34px gives ~8-10px breathing room below the bar. */
 @media (pointer: coarse) and (orientation: landscape) {
-  .right-panel { padding-top: 16px; }
+  /* 34px so the right-panel content (the form picker is its first row) clears the
+     tab bar AND lands at the same Y as the toolbar: 34 + side-slot's 16px top
+     padding = 50px, matching .output-toolbar top below. Keeps the form icons
+     aligned with the global menu instead of dropping below it. */
+  .right-panel { padding-top: 34px; }
   .output-toolbar { top: 50px; }
+}
+/* Portrait touch (iPad) has less width: the fixed 1fr|auto|1fr grid forces the
+   side groups to overflow their cells and overlap the centered undo/redo. Fall
+   back to content-sized groups spread across the bar so nothing crams or wraps
+   (undo/redo sits between rather than pixel-centered — the right trade when space
+   is tight). */
+@media (pointer: coarse) and (orientation: portrait) {
+  .output-toolbar { display: flex; justify-content: space-between; }
 }
 
 /* side slot at top of right panel */
@@ -360,15 +372,15 @@ button .btn-spinner {
 .form-thumb {
   background: #1a1a1a;
   border: 1px solid #2a2a2a;
-  border-radius: 4px;
-  width: 36px;
-  height: 36px;
+  border-radius: 6px;            /* match .ot-btn */
+  width: 40px;                   /* match .ot-btn size so the picker aligns with the global toolbar */
+  height: 40px;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
   transition: border-color 0.1s, background 0.1s;
-  padding: 6px;
+  padding: 8px;
   flex-shrink: 0;
 }
 .form-thumb:hover { background: #222; border-color: #444; }
@@ -461,6 +473,7 @@ button .btn-spinner {
   border-radius: 6px;
   color: #ccc;
   font-size: 13px;
+  white-space: nowrap;   /* never wrap a label (e.g. "save ▸") when the toolbar is tight */
   cursor: pointer;
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
@@ -469,7 +482,11 @@ button .btn-spinner {
 .ot-btn:hover:not(:disabled) { background: rgba(40, 40, 40, 0.95); color: #fff; }
 .ot-btn:disabled { opacity: 0.35; cursor: default; }
 .ot-btn.active { background: rgba(40, 40, 40, 0.95); color: #fff; border-color: #888; }
-@media (pointer: coarse) { .ot-btn { min-width: 44px; height: 44px; } }
+/* touch: larger hit targets, and the form picker matches the toolbar buttons. */
+@media (pointer: coarse) {
+  .ot-btn { min-width: 44px; height: 44px; }
+  .form-thumb { width: 44px; height: 44px; }
+}
 /* global source/status caption area — sits just under the toolbar's left (source)
    controls so it's contextualized with them: the current source + live state
    (#status) plus upload errors (#uploadError). pointer-events off so it never
