@@ -831,9 +831,10 @@ if (engine) {
 
   // Mount the shared app wiring (clip editor + source host + motion runtime) and
   // thread the injectable runtime seams. `capabilities` is the browser profile
-  // (kit/capabilities.js); `host` is still null until Phase 4 (shell/host.js +
-  // webHost) — a native shell injects its own here without touching the app.
-  createApp(env, { host: null, capabilities });
+  // (kit/capabilities.js); `host` defaults to the web no-op (shell/host.js) — a
+  // native shell injects its own (Syphon/MIDI/camera/files) here without touching
+  // the app.
+  createApp(env, { capabilities });
 
   buildFormGrid(env);
   applyFormControls(env);

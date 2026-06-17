@@ -23,11 +23,13 @@
 import { createClipEditor } from './clip-editor.js';
 import { createSourceHost } from './source-host.js';
 import { createMotionRuntime } from './motion-runtime.js';
+import { webHost } from './host.js';
 
-export function createApp(env, { host = null, capabilities = null } = {}) {
-  // Injectable runtime seams. Native shells pass real implementations; the web
-  // build leaves them null (Phase 3/4 provide a browser capability profile +
-  // a no-op web host). Attached to env so any wiring module can query + degrade.
+export function createApp(env, { host = webHost, capabilities = null } = {}) {
+  // Injectable runtime seams. The web build gets `webHost` (everything reports
+  // unavailable) + a browser capability profile; a native shell passes its own
+  // host (Syphon/MIDI/native-camera/file-system) here. Attached to env so any
+  // wiring module can query (`env.host.syphon.available`) and degrade.
   env.host = host;
   env.capabilities = capabilities;
 

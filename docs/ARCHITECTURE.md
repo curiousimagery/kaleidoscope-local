@@ -78,6 +78,8 @@ The codebase is organized in reuse tiers, deliberately (this is the model the mu
 
 **Why this matters for native (a recurring question):** because the Engine + Kit + Components are the bulk of the app and are device-agnostic, a NATIVE wrapper (Electron on macOS, Capacitor/WKWebView on iOS) reuses 100% of this code — it adds only a thin native shell + native modules (Syphon, camera). A wrapper does NOT fork the UI/IxD; only a full SwiftUI+Metal rewrite would, and that is not required for Syphon/camera. So the single web codebase stays the source of truth; native is a shell. (See HANDOFF + BACKLOG for the Electron-Syphon-spike plan.)
 
+**The mount seam is in place (Builds 164–170).** A wrapper reuses the web app and calls `createApp(env, { host, capabilities })`, injecting its own **host services** (`shell/host.js` interface — `syphon`/`midi`/`nativeCamera`/`fileSystem`; the web build passes `webHost`, a no-op that reports everything unavailable) and **capability profile** (`kit/capabilities.js`). The app queries (`env.host.syphon.available`, `env.capabilities.capturePath`) and degrades — it never assumes a native capability or re-sniffs the engine inline. So the Syphon/MIDI/native-camera/native-file work later implements `shell/host.js` for the native shell instead of editing back into the app.
+
 ## motion: keyframes, tween, the timeline
 
 State for animation lives in `motion` (in `shell/state.js`): `keyframes: [{ t: 0..1, snap, thumb, anchored }]`, `durationMs`, `loop`, `smoothing`, `playing`, `playhead`, `selected`, `videoSpeed`. A **keyframe's `snap` is a full state snapshot** — the universal currency that also powers undo and (future) live-transition tweening.
