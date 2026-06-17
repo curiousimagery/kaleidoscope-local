@@ -26,11 +26,6 @@ export function createSourceHost(env) {
   const exportStatusEl = document.getElementById('exportStatus');   // export feedback lives in the save modal, not the global status line
   const uploadErrorEl = document.getElementById('uploadError');
 
-  // The source modal closes once a source actually loads, so the output (and the
-  // inline live-camera controls) are visible. On failure it stays open — the
-  // upload error renders inside it.
-  const closeSourceSheet = () => { const s = document.getElementById('sourceSheet'); if (s) s.hidden = true; };
-
   // ============================================================================
   // image / video loading
   // ============================================================================
@@ -81,7 +76,6 @@ export function createSourceHost(env) {
       env.updateMotionUI();   // re-enable motion mode for a still (it's gated off for video sources)
       env.arrangeSlots();
       if (env.motionRT.active) env.rebindMotionToSource();   // already animating → re-bind keyframes to the new still
-      closeSourceSheet();
     };
     img.onerror = () => {
       if (uploadErrorEl) uploadErrorEl.textContent = 'failed to load image';
@@ -149,7 +143,6 @@ export function createSourceHost(env) {
         v.play().catch(() => {});      // muted playback is allowed; ignore autoplay rejection
         startLiveLoop();
       }
-      closeSourceSheet();
     }, { once: true });
 
     v.addEventListener('error', () => {
@@ -233,10 +226,10 @@ export function createSourceHost(env) {
   }
 
   function updateCameraUI() {
-    // The inline live-camera group (capture/flip/stop) sits in the output toolbar
-    // and shows only while the camera runs. Upload/camera now live in the source
-    // modal and stay available there (uploading exits live mode on its own), so we
-    // no longer hide them when live.
+    // Upload/camera and the live capture/flip/stop group share the toolbar's left
+    // (source) slot; only one set shows at a time.
+    document.getElementById('cameraBtn').style.display = env.live.isLive ? 'none' : '';
+    document.getElementById('uploadBtn').style.display = env.live.isLive ? 'none' : '';
     document.getElementById('cameraLive').style.display = env.live.isLive ? 'flex' : 'none';
     // flip button labels the camera it switches TO.
     const flip = document.getElementById('flipBtn');
@@ -278,7 +271,6 @@ export function createSourceHost(env) {
     updateCameraUI();
     env.arrangeSlots();
     startLiveLoop();
-    closeSourceSheet();
   }
 
   // stop the camera. by default returns to the empty placeholder (cancel path);

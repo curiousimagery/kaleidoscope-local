@@ -830,7 +830,6 @@ function wireGlobalSheets() {
     document.getElementById(closeId)?.addEventListener('click', () => { sheet.hidden = true; });
     sheet.addEventListener('click', (e) => { if (e.target === sheet) sheet.hidden = true; });
   };
-  wire('sourceSheet', 'openSourceBtn', 'sourceClose');
   wire('exportSheet', 'openExportBtn', 'exportClose');
   wire('diagSheet', 'openDiagBtn', 'diagClose');
 }

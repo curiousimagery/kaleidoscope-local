@@ -441,13 +441,17 @@ button .btn-spinner {
   top: max(12px, env(safe-area-inset-top, 0px));
   left: 16px;
   right: 16px;
-  display: flex;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;   /* source | history | actions — history stays pixel-centered as the side widths change (e.g. camera live) */
+  align-items: start;
   gap: 8px;
   z-index: 10;
   pointer-events: none;
 }
 .output-toolbar .ot-group { display: flex; gap: 6px; pointer-events: auto; }
+.output-toolbar .ot-left { justify-self: start; }
+.output-toolbar .ot-center { justify-self: center; }
+.output-toolbar .ot-right { justify-self: end; }
 .ot-btn {
   min-width: 40px;
   height: 40px;
@@ -466,11 +470,11 @@ button .btn-spinner {
 .ot-btn:disabled { opacity: 0.35; cursor: default; }
 .ot-btn.active { background: rgba(40, 40, 40, 0.95); color: #fff; border-color: #888; }
 @media (pointer: coarse) { .ot-btn { min-width: 44px; height: 44px; } }
-/* global source/status caption — sits just under the toolbar over the output, so
-   the current source + live state is always visible (the live-camera controls are
-   inline in the toolbar; this is their textual companion + the engine-init error
-   target). pointer-events off so it never blocks canvas gestures. */
-.output-status {
+/* global source/status caption area — sits just under the toolbar's left (source)
+   controls so it's contextualized with them: the current source + live state
+   (#status) plus upload errors (#uploadError). pointer-events off so it never
+   blocks canvas gestures; text-shadow keeps it legible over any output. */
+.output-status-area {
   position: absolute;
   top: calc(max(12px, env(safe-area-inset-top, 0px)) + 48px);
   left: 16px;
@@ -479,7 +483,6 @@ button .btn-spinner {
   pointer-events: none;
   text-shadow: 0 1px 3px rgba(0, 0, 0, 0.7);
 }
-.output-status:empty { display: none; }
 
 /* version chip — discrete always-visible diagnostics affordance; reads as info,
    not a primary action, and opens the diagnostics sheet. */

@@ -22,30 +22,39 @@
 <div class="main-slot" id="mainSlot">
   <!-- output toolbar: view/workspace controls (not parameters) — undo/redo, swap, motion -->
   <div class="output-toolbar" id="outputToolbar">
-    <div class="ot-group">
+    <!-- left: source input — upload/camera inline; replaced by the live
+         capture/flip/stop controls while the camera runs (updateCameraUI toggles
+         display). Inline (no modal) so loading is one tap straight to the OS picker. -->
+    <div class="ot-group ot-left">
+      <input type="file" accept="image/jpeg,image/png,image/webp,video/*" class="file-input" id="fileInput">
+      <button class="ot-btn" id="uploadBtn" title="upload an image or video">upload</button>
+      <button class="ot-btn" id="cameraBtn" title="use the live camera">camera</button>
+      <div class="ot-group" id="cameraLive" style="display: none;">
+        <button class="ot-btn" id="shutterBtn" title="capture a still">capture</button>
+        <button class="ot-btn" id="flipBtn" title="switch front/rear camera">flip</button>
+        <button class="ot-btn" id="stopCameraBtn" title="stop the camera">stop</button>
+      </div>
+    </div>
+    <!-- center: history -->
+    <div class="ot-group ot-center">
       <button class="ot-btn" id="undoBtn" disabled title="undo (⌘Z)">←</button>
       <button class="ot-btn" id="redoBtn" disabled title="redo (⌘⇧Z)">→</button>
     </div>
-    <!-- live-camera controls — inline + always visible during a session (capture
-         must stay reachable, so these are not behind the source modal). Shown only
-         while the camera runs (updateCameraUI toggles display). -->
-    <div class="ot-group" id="cameraLive" style="display: none;">
-      <button class="ot-btn" id="shutterBtn" title="capture a still">capture</button>
-      <button class="ot-btn" id="flipBtn" title="switch front/rear camera">flip</button>
-      <button class="ot-btn" id="stopCameraBtn" title="stop the camera">stop</button>
-    </div>
-    <div class="ot-group">
-      <button class="ot-btn" id="openSourceBtn" title="upload or use camera">source ▸</button>
+    <!-- right: workspace + actions -->
+    <div class="ot-group ot-right">
       <button class="ot-btn" id="swapBtn" disabled title="swap source / output">⇄</button>
       <button class="ot-btn" id="motionBtn" disabled title="motion mode">motion</button>
       <button class="ot-btn" id="openExportBtn" title="save / export">save ▸</button>
       <button class="ot-btn ot-version" id="openDiagBtn" title="diagnostics">·</button>
     </div>
   </div>
-  <!-- global source / status caption (also the engine-init error target) — sits
-       just under the toolbar, over the output, so the current source + live state
-       is always visible. -->
-  <div class="status output-status" id="status">load an image to start</div>
+  <!-- global source / status caption — pinned under the toolbar's left (source)
+       controls so it's contextualized with them; current source + live state, plus
+       upload errors and the engine-init error target. -->
+  <div class="output-status-area">
+    <div class="status" id="status">load an image to start</div>
+    <div class="upload-error" id="uploadError"></div>
+  </div>
   <div class="placeholder" id="placeholder">
     <strong id="placeholderTitle">kaleidoscope</strong>
     upload an image to begin
@@ -267,20 +276,6 @@
       <button class="mf-btn" id="clipCancel">cancel</button>
       <button class="mf-btn mf-add" id="clipApply">apply trim</button>
     </div>
-  </div>
-</div>
-
-<!-- source sheet (global) — upload / use camera. Live capture/flip/stop controls
-     live inline in the output toolbar (they must stay visible during a session). -->
-<div class="vid-sheet" id="sourceSheet" hidden>
-  <div class="vid-card">
-    <div class="vid-head"><span>source</span><button class="vid-x" id="sourceClose" title="close">✕</button></div>
-    <input type="file" accept="image/jpeg,image/png,image/webp,video/*" class="file-input" id="fileInput">
-    <div class="source-input-row">
-      <button id="uploadBtn">upload</button>
-      <button id="cameraBtn">use camera</button>
-    </div>
-    <div class="upload-error" id="uploadError"></div>
   </div>
 </div>
 
