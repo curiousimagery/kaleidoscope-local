@@ -336,6 +336,27 @@ Curatorial frame and full concept in `FOLD.md` under "gallery show concept." Wor
 - **Visual regression harness.** A small node script that loads each form at default settings, exports at 1K, and diffs against a saved baseline. Catches accidental shader regressions.
 - **Source-mapped production builds.** Vite does this by default, but worth verifying when we deploy.
 
+### Diagnostics system — close the capability↔findings loop (spec, Claude 2026-06-17)
+
+**Problem.** Diagnostics today are real but scattered and ephemeral: (1) the always-on settings-panel readout shows RAW WebGL caps (renderer / max texture / max export / DPR) but NOT the DERIVED decisions the app actually makes — `engineId`, `capturePath` (gl vs 2d), `firefoxTextureCapped` — so a bug report can't say "gecko / 2d / 8K-capped"; (2) the rich "run diagnostics" JSON (`shell/diagnostics.js`) captures caps + FBO probe + e2e test but predates `kit/capabilities.js`, so it omits the capability profile; (3) per-op perf (the post-render line "rendered in 25.1s · 21 frames/s · /frame gl 40 · vframe 7 · encode 0 ms") is shown for **video render** and partially for **still export**, but is **ephemeral** (gone on the next action) and **absent for the clip bake**; (4) on-device findings ("Firefox felt stuttery") lose their runtime context between sessions, so we re-investigate. Goal: make every finding self-describing and paste-ready, cheaply and unobtrusively, while giving users light, friendly feedback.
+
+**Design — three layers, separated by audience (don't conflate):**
+
+1. **User feedback (light, always-on, friendly).** Keep the current post-op success lines but trim to the human-meaningful part ("saved ✓ · 17.5s @ 30fps · 25s to render"). No raw ms in the user's face. This layer reassures; it doesn't diagnose. **Add the missing one: a clip-bake progress/result line** (bake has none today — Daniel's note). Capability-driven *contextual hints* live here too, but earned + rare (we already do the Firefox-8K notice; a "this engine uses the slower 2D export path — Safari is ~Nx faster" hint could show only in the video-export sheet on non-WebKit, dismissible — not a nag).
+
+2. **Diagnostics readout (always-on, cheap, dev-facing but visible).** Extend the settings-panel readout to print the **capability profile** beside the raw caps: `engine: gecko · capture: 2d · maxFBO 8192 · FF-capped`. One line, derived from `env.capabilities` (already computed — near-zero cost). This is the cheapest, highest-value piece (the "close the loop" item): it turns the panel into a glanceable answer to "what runtime decisions am I on right now?"
+
+3. **Session report (opt-in, the paste-ready artifact).** A single **"copy diagnostics"** action (clipboard + optional download) that emits ONE JSON blob = the static profile (build, UA, platform, `env.capabilities`, the existing webgl/probe/e2e blob from `shell/diagnostics.js`) **+ a small ring buffer of the last N op-perf records**. This is what kills cross-session re-investigation: hit a stutter → copy → paste into the relevant BACKLOG finding, already carrying engineId/capturePath/the last render's per-frame timing.
+
+**The connective tissue: a unified op-perf record.** Instrument the three heavy ops (still export, video render, clip bake) to emit the SAME shape and push it to a session ring buffer on `env` (e.g. `env.diag.ops` — ephemeral runtime state, fits the env-subobject pattern):
+```
+{ op:'video-render'|'still-export'|'clip-bake', w, h, frames, totalMs,
+  perFrameMs:{ gl, vframe, encode }, throughputFps, engineId, capturePath, codec }
+```
+Video render already computes most of this (just route it to the buffer instead of only the status line); still export emits a subset; the clip bake emits nothing → add it there. Then both the user line (layer 1) and the session report (layer 3) read from the same record — no duplicate timing code.
+
+**Principles:** cheap (capabilities is already computed; perf numbers already measured — this is mostly *routing + surfacing* existing data, not new measurement); unobtrusive (users see only the light line + an unintrusive readout; the heavy report is opt-in behind a button); single-source (profile from `kit/capabilities.js`, perf from the shared record — no scattered re-derivation). **Pairs with:** the cross-engine test checklist (a finding template seeded by the session report), the BACKLOG engine matrix (paste target), and the Chromium cross-browser pass above. **Sequence:** do it as part of / just before the stability+perf cycle, since that's when the loop pays off most. Smallest first valuable slice = layer 2 (capability line in the readout) + adding `env.capabilities` to the existing "run diagnostics" JSON.
+
 ## open architecture questions
 
 Three former questions here are resolved by the layering vocabulary now recorded in the capability tier above (Engine / Kit / Host / chrome) — kept as brief settled notes so the reasoning isn't lost:
