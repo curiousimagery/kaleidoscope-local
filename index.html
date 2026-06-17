@@ -26,13 +26,26 @@
       <button class="ot-btn" id="undoBtn" disabled title="undo (⌘Z)">←</button>
       <button class="ot-btn" id="redoBtn" disabled title="redo (⌘⇧Z)">→</button>
     </div>
+    <!-- live-camera controls — inline + always visible during a session (capture
+         must stay reachable, so these are not behind the source modal). Shown only
+         while the camera runs (updateCameraUI toggles display). -->
+    <div class="ot-group" id="cameraLive" style="display: none;">
+      <button class="ot-btn" id="shutterBtn" title="capture a still">capture</button>
+      <button class="ot-btn" id="flipBtn" title="switch front/rear camera">flip</button>
+      <button class="ot-btn" id="stopCameraBtn" title="stop the camera">stop</button>
+    </div>
     <div class="ot-group">
+      <button class="ot-btn" id="openSourceBtn" title="upload or use camera">source ▸</button>
       <button class="ot-btn" id="swapBtn" disabled title="swap source / output">⇄</button>
       <button class="ot-btn" id="motionBtn" disabled title="motion mode">motion</button>
       <button class="ot-btn" id="openExportBtn" title="save / export">save ▸</button>
       <button class="ot-btn ot-version" id="openDiagBtn" title="diagnostics">·</button>
     </div>
   </div>
+  <!-- global source / status caption (also the engine-init error target) — sits
+       just under the toolbar, over the output, so the current source + live state
+       is always visible. -->
+  <div class="status output-status" id="status">load an image to start</div>
   <div class="placeholder" id="placeholder">
     <strong id="placeholderTitle">kaleidoscope</strong>
     upload an image to begin
@@ -45,24 +58,10 @@
 <!-- right panel -->
 <div class="right-panel" id="rightPanel">
 
-  <!-- side slot — flow: upload → form picker → thumbnail with overlay → meta → slice controls -->
+  <!-- side slot — flow: form picker → thumbnail with overlay → meta → slice controls.
+       Source input (upload / camera) lives in the global control area (source ▸
+       modal + inline live-camera controls in the output toolbar). -->
   <div class="side-slot">
-
-    <!-- upload — first because nothing else is meaningful without an image -->
-    <div>
-      <input type="file" accept="image/jpeg,image/png,image/webp,video/*" class="file-input" id="fileInput">
-      <div class="source-input-row">
-        <button id="uploadBtn">upload</button>
-        <button id="cameraBtn">use camera</button>
-      </div>
-      <!-- live-camera controls — shown only while the camera is running -->
-      <div class="camera-live-row" id="cameraLive" style="display: none;">
-        <button id="shutterBtn">capture</button>
-        <button id="flipBtn" title="switch front/rear camera">flip</button>
-        <button id="stopCameraBtn" title="stop the camera">stop</button>
-      </div>
-      <div class="upload-error" id="uploadError"></div>
-    </div>
 
     <!-- form picker: compact icon strip with inline label -->
     <div class="form-row">
@@ -155,11 +154,6 @@
         </div>
       </div>
     </div>
-
-    <!-- general source / status line (also the engine-init error target; export
-         progress writes here too). Sits at the panel bottom, where it lived in
-         the old export group. -->
-    <div class="status" id="status">load an image to start</div>
 
   </div>
 </div>
@@ -276,6 +270,20 @@
   </div>
 </div>
 
+<!-- source sheet (global) — upload / use camera. Live capture/flip/stop controls
+     live inline in the output toolbar (they must stay visible during a session). -->
+<div class="vid-sheet" id="sourceSheet" hidden>
+  <div class="vid-card">
+    <div class="vid-head"><span>source</span><button class="vid-x" id="sourceClose" title="close">✕</button></div>
+    <input type="file" accept="image/jpeg,image/png,image/webp,video/*" class="file-input" id="fileInput">
+    <div class="source-input-row">
+      <button id="uploadBtn">upload</button>
+      <button id="cameraBtn">use camera</button>
+    </div>
+    <div class="upload-error" id="uploadError"></div>
+  </div>
+</div>
+
 <!-- export sheet (global save) — controls relocated from the right sidebar -->
 <div class="vid-sheet" id="exportSheet" hidden>
   <div class="vid-card">
@@ -296,6 +304,7 @@
     <div class="res-hint" id="resHint"></div>
     <button id="exportPackageBtn" style="width: 100%; margin-top: 4px;" title="zip with the unmodified original included">save package (.zip)</button>
     <button class="primary" id="exportBtn" style="width: 100%; margin-top: 6px;">save composition</button>
+    <div class="status" id="exportStatus"></div>
   </div>
 </div>
 

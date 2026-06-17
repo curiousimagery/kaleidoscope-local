@@ -466,6 +466,21 @@ button .btn-spinner {
 .ot-btn:disabled { opacity: 0.35; cursor: default; }
 .ot-btn.active { background: rgba(40, 40, 40, 0.95); color: #fff; border-color: #888; }
 @media (pointer: coarse) { .ot-btn { min-width: 44px; height: 44px; } }
+/* global source/status caption — sits just under the toolbar over the output, so
+   the current source + live state is always visible (the live-camera controls are
+   inline in the toolbar; this is their textual companion + the engine-init error
+   target). pointer-events off so it never blocks canvas gestures. */
+.output-status {
+  position: absolute;
+  top: calc(max(12px, env(safe-area-inset-top, 0px)) + 48px);
+  left: 16px;
+  right: 16px;
+  z-index: 10;
+  pointer-events: none;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.7);
+}
+.output-status:empty { display: none; }
+
 /* version chip — discrete always-visible diagnostics affordance; reads as info,
    not a primary action, and opens the diagnostics sheet. */
 .ot-version {

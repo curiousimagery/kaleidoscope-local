@@ -23,7 +23,13 @@ import { getActiveForm } from '../engine/index.js';
 export function createSourceHost(env) {
   const { state, session, engine } = env;
   const statusEl = document.getElementById('status');
+  const exportStatusEl = document.getElementById('exportStatus');   // export feedback lives in the save modal, not the global status line
   const uploadErrorEl = document.getElementById('uploadError');
+
+  // The source modal closes once a source actually loads, so the output (and the
+  // inline live-camera controls) are visible. On failure it stays open — the
+  // upload error renders inside it.
+  const closeSourceSheet = () => { const s = document.getElementById('sourceSheet'); if (s) s.hidden = true; };
 
   // ============================================================================
   // image / video loading
@@ -75,6 +81,7 @@ export function createSourceHost(env) {
       env.updateMotionUI();   // re-enable motion mode for a still (it's gated off for video sources)
       env.arrangeSlots();
       if (env.motionRT.active) env.rebindMotionToSource();   // already animating → re-bind keyframes to the new still
+      closeSourceSheet();
     };
     img.onerror = () => {
       if (uploadErrorEl) uploadErrorEl.textContent = 'failed to load image';
@@ -142,6 +149,7 @@ export function createSourceHost(env) {
         v.play().catch(() => {});      // muted playback is allowed; ignore autoplay rejection
         startLiveLoop();
       }
+      closeSourceSheet();
     }, { once: true });
 
     v.addEventListener('error', () => {
@@ -225,8 +233,10 @@ export function createSourceHost(env) {
   }
 
   function updateCameraUI() {
-    document.getElementById('cameraBtn').style.display = env.live.isLive ? 'none' : '';
-    document.getElementById('uploadBtn').style.display = env.live.isLive ? 'none' : '';
+    // The inline live-camera group (capture/flip/stop) sits in the output toolbar
+    // and shows only while the camera runs. Upload/camera now live in the source
+    // modal and stay available there (uploading exits live mode on its own), so we
+    // no longer hide them when live.
     document.getElementById('cameraLive').style.display = env.live.isLive ? 'flex' : 'none';
     // flip button labels the camera it switches TO.
     const flip = document.getElementById('flipBtn');
@@ -268,6 +278,7 @@ export function createSourceHost(env) {
     updateCameraUI();
     env.arrangeSlots();
     startLiveLoop();
+    closeSourceSheet();
   }
 
   // stop the camera. by default returns to the empty placeholder (cancel path);
@@ -373,8 +384,8 @@ export function createSourceHost(env) {
 
   async function doExport(sizeArg) {
     if (!engine || !engine.getSourceImage()) {
-      statusEl.textContent = 'load an image first';
-      statusEl.classList.add('error');
+      exportStatusEl.textContent = 'load an image first';
+      exportStatusEl.classList.add('error');
       return;
     }
 
@@ -382,9 +393,9 @@ export function createSourceHost(env) {
     const cap = engine.diagnostics.maxFBOSize;
     let size = sizeArg === 'max' ? cap : Math.min(parseInt(sizeArg, 10), cap);
 
-    statusEl.textContent = `rendering ${size}×${size}...`;
-    statusEl.classList.remove('error');
-    statusEl.classList.add('busy');
+    exportStatusEl.textContent = `rendering ${size}×${size}...`;
+    exportStatusEl.classList.remove('error');
+    exportStatusEl.classList.add('busy');
     // (no setBusy here — the export button's own spinner + this status text are
     // the feedback path; the fullscreen busy overlay would cover the button.)
     // Double rAF so the spinner + status actually PAINT before the synchronous
@@ -396,9 +407,9 @@ export function createSourceHost(env) {
     try {
       result = await engine.exportAt(state, sizeArg, session.exportFormat, undefined, session.frameAspect);
     } catch (e) {
-      statusEl.textContent = e.message;
-      statusEl.classList.add('error');
-      statusEl.classList.remove('busy');
+      exportStatusEl.textContent = e.message;
+      exportStatusEl.classList.add('error');
+      exportStatusEl.classList.remove('busy');
       // restore preview render
       engine.render(state);
       console.error(e);
@@ -411,10 +422,10 @@ export function createSourceHost(env) {
     // restore preview render
     engine.render(state);
 
-    statusEl.textContent = `saved ${sz}×${sz} • ${session.exportFormat} • render ${renderMs.toFixed(0)}ms • read ${readMs.toFixed(0)}ms • encode ${encodeMs.toFixed(0)}ms • ${(blob.size / 1024 / 1024).toFixed(1)}MB`;
-    statusEl.classList.remove('busy');
-    statusEl.classList.add('success');
-    setTimeout(() => statusEl.classList.remove('success'), 2500);
+    exportStatusEl.textContent = `saved ${sz}×${sz} • ${session.exportFormat} • render ${renderMs.toFixed(0)}ms • read ${readMs.toFixed(0)}ms • encode ${encodeMs.toFixed(0)}ms • ${(blob.size / 1024 / 1024).toFixed(1)}MB`;
+    exportStatusEl.classList.remove('busy');
+    exportStatusEl.classList.add('success');
+    setTimeout(() => exportStatusEl.classList.remove('success'), 2500);
   }
 
   // "export package" — one .zip containing the composition + the unmodified
@@ -423,24 +434,24 @@ export function createSourceHost(env) {
   // BACKLOG; for now: composition + original only.
   async function exportPackage() {
     if (!engine || !engine.getSourceImage()) {
-      statusEl.textContent = 'load an image first';
-      statusEl.classList.add('error');
+      exportStatusEl.textContent = 'load an image first';
+      exportStatusEl.classList.add('error');
       return;
     }
     const cap = engine.diagnostics.maxFBOSize;
     const size = session.exportSize === 'max' ? cap : Math.min(parseInt(session.exportSize, 10), cap);
-    statusEl.textContent = `packaging ${size}×${size}...`;
-    statusEl.classList.remove('error');
-    statusEl.classList.add('busy');
+    exportStatusEl.textContent = `packaging ${size}×${size}...`;
+    exportStatusEl.classList.remove('error');
+    exportStatusEl.classList.add('busy');
     await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
 
     let result;
     try {
       result = await engine.exportAt(state, session.exportSize, session.exportFormat, undefined, session.frameAspect);
     } catch (e) {
-      statusEl.textContent = e.message;
-      statusEl.classList.add('error');
-      statusEl.classList.remove('busy');
+      exportStatusEl.textContent = e.message;
+      exportStatusEl.classList.add('error');
+      exportStatusEl.classList.remove('busy');
       engine.render(state);
       console.error(e);
       return;
@@ -452,10 +463,10 @@ export function createSourceHost(env) {
     downloadBlob(zipBlob, `${env.media.sourceFilename}-package.zip`);
 
     engine.render(state);
-    statusEl.textContent = `saved package • ${files.length} files • ${(zipBlob.size / 1024 / 1024).toFixed(1)}MB`;
-    statusEl.classList.remove('busy');
-    statusEl.classList.add('success');
-    setTimeout(() => statusEl.classList.remove('success'), 2500);
+    exportStatusEl.textContent = `saved package • ${files.length} files • ${(zipBlob.size / 1024 / 1024).toFixed(1)}MB`;
+    exportStatusEl.classList.remove('busy');
+    exportStatusEl.classList.add('success');
+    setTimeout(() => exportStatusEl.classList.remove('success'), 2500);
   }
 
   function buildFilename(size) {
