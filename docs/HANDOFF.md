@@ -14,6 +14,23 @@ He prefers **no em dashes** in any prose Claude generates for him.
 
 `v0.9.23 · Build 170`. The footer in the running app shows this string from `src/version.js`. **Milestone (Daniel-approved, Build 147):** video support is real. Refinements ongoing.
 
+## SESSION WRAP 2026-06-17 — Fold Live program spec approved (planning session, no code)
+
+**This was a brainstorm-to-spec session. No code shipped. The next session starts Phase 0.**
+
+We turned the green-lit Electron+Syphon spike into an approved, phased program for the **live performance shell** ("Fold Live"). The full spec is the durable artifact: `~/.claude/plans/in-our-last-thread-splendid-sparkle.md`. Read it first next session, then this HANDOFF, then ARCHITECTURE/BACKLOG as needed.
+
+**The shape (decided with Daniel):**
+- Fold becomes an instrument you play, via a **distinct perform mode** (program/preview, big output, peripheral controls) that reuses the engine + tween/keyframe kit + components. Two sibling live products share it: the Mac/Electron-Syphon rig (primary) and a later mobile/Capacitor HDMI surface.
+- **One program frame, many sinks**: render once to FBO at output resolution (`renderToFBO`, NOT the display canvas), fan out to Syphon / an output-only second window / record-to-disk.
+- Built as an **engine-agnostic `src/stage/` layer** (first tenant Fold) with a small engine-adapter contract (`renderFrameAt` universal tier; `getState/applyState/tween` perform tier). Daniel has N adjacent Electron-to-Arena app ideas (gesture light, zoetrope, audio-viz); the call is decoupled apps sharing a library, NOT a monolith and NOT N reinvented Syphons. Do not extract a package until a second tenant exists.
+- Native host injects via the existing one-line `createApp(env, { host })` seam (`window.foldHost` set by the Electron preload; web build byte-identical).
+- **Diagnostics is promoted into Phase 0** (capability-line readout + unified `env.diag.ops` record + a `live-output` op shape + copy-diagnostics report). The output-status chrome is built ON it. This is how the Chromium-perf question gets settled with data, not vibes.
+
+**Roadmap (each phase is roughly one arc):** Phase 0 Electron+Syphon foundation + stage layer + diagnostics, then 1 bounded motion-IxD cleanup (clean-as-you-go, non-blocking), 2 perform-mode core (program/preview + take/transition), 3 live gesture + smart-tween, 4 single source as a ready asset, 5 A/B crossfade (the deck's engine), 6 multi-slot deck (library UI over A/B), later Capacitor/iOS HDMI.
+
+**Next session = Phase 0** (detailed in the plan, including critical files + end-to-end verification against Arena). New `src/stage/` + `electron/` subproject (own deps: electron, electron-builder, node-syphon; web app stays plain Vite + vanilla). A Movink touch display plus a second monitor is Daniel's desktop rehearsal rig for the eventual iPad/iPhone touch UX (validates ergonomics, not the iOS HDMI signal path).
+
 ## SESSION WRAP 2026-06-17 — Electron+Syphon spike complete
 
 **Spike verdict: green light.** The CPU readback path (drawImage + getImageData in a preload RAF loop → IPC → SyphonMetalServer) is viable for live VJ output on Apple Silicon. End-to-end confirmed: Electron → SyphonMetalServer → Resolume Arena showed live kaleidoscope frames as "Electron - Fold."
