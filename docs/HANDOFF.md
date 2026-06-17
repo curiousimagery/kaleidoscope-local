@@ -12,7 +12,19 @@ He prefers **no em dashes** in any prose Claude generates for him.
 
 ## current version
 
-`v0.9.23 · Build 170`. The footer in the running app shows this string from `src/version.js`. **Milestone (Daniel-approved, Build 147):** video support is real. Refinements ongoing.
+`v0.9.24 · Build 171`. The footer in the running app shows this string from `src/version.js`. **Milestone (Daniel-approved, Build 147):** video support is real. Refinements ongoing.
+
+## FOLD LIVE — Phase 0 in progress (live performance shell → Electron+Syphon → Arena)
+
+**Active program.** Durable spec: `~/.claude/plans/in-our-last-thread-splendid-sparkle.md`. Working build plan for the current session: `~/.claude/plans/zany-baking-beaver.md` (the Phase 0 increment sequence). Read those first if you're picking this up.
+
+**Approach (locked with Daniel):** an engine-agnostic `src/stage/` layer (first tenant Fold) renders the program once to an FBO and fans it to many sinks (record-to-disk now; Syphon + an output-only window via an Electron shell later). The live-output affordance lives in the **global control area** (`#outputToolbar`), NOT the right sidebar. Clean-as-you-go IxD: while attention is on that toolbar, we relocate adjacent backlog cruft too. Web-first; each increment independently shippable; **the build that validates Syphon output in Arena bumps to v0.10.0** (milestone).
+
+**Increment sequence:** 1 ✅ global control-area IxD cleanup → 2 stage spine + record-to-disk + live-output button → 3 output settings + dormant/active Syphon state + `?mocksyphon` mock host → 4 Electron shell stands up (new deps in `electron/` only) → 5 Syphon first light → Arena (v0.10.0) → 6 output-only second window + matrix/polish.
+
+**Increment 1 — DONE (Build 171, behavior-preserving, needs Daniel's in-browser verify).** Export + diagnostics moved out of the right sidebar into modals launched from `#outputToolbar`, mirroring the mobile save sheet. New **save ▸** button → `#exportSheet` (export controls verbatim, original ids kept so wiring is untouched); a compact **version chip** (merges the old version badge; always-visible discrete-diagnostics affordance) → `#diagSheet` (the `#diag` readout + run-diagnostics + a new `profile: engine · capture · maxFBO` capability line; full report/copy-JSON still via `showDiagnosticPanel`). Sheets reuse `.vid-sheet` (open=`hidden=false`, ✕/backdrop closes). `#status` (general source/camera/capture feedback + engine-init error target) stays always-visible at the sidebar bottom — NOT in the export modal. Right sidebar now = slice + canvas only. Build green, `node --check` clean. **Verify:** save ▸ opens the export modal, all controls/hints/Firefox-notice work identically; version chip opens diagnostics; source/camera/capture status still shows; right sidebar is slice/canvas only.
+
+**Next — Increment 2 (no new deps):** `src/engine/index.js` `exportFrameRaw(state,w,h)` (raw bottom-up RGBA from `renderToFBO`, no 2D copy); `src/stage/` (engine-adapter contract, `output-bus.js`, `recorder.js`); `src/shell/fold-adapter.js`; `src/kit/op-ring.js` + `env.diag`; host seam at main.js:837 (`?mocksyphon`/`window.foldHost`/`webHost`); a persistent **output** button in `#outputToolbar` + `src/shell/output-panel.js` (record start/stop + live fps). The live-output op records feed the unified diagnostics area built in Increment 1. Update `docs/ARCHITECTURE.md` with the `src/stage/` layer + two-tier adapter contract.
 
 ## SESSION WRAP 2026-06-17 — Fold Live program spec approved (planning session, no code)
 

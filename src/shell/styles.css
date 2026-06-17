@@ -466,6 +466,15 @@ button .btn-spinner {
 .ot-btn:disabled { opacity: 0.35; cursor: default; }
 .ot-btn.active { background: rgba(40, 40, 40, 0.95); color: #fff; border-color: #888; }
 @media (pointer: coarse) { .ot-btn { min-width: 44px; height: 44px; } }
+/* version chip — discrete always-visible diagnostics affordance; reads as info,
+   not a primary action, and opens the diagnostics sheet. */
+.ot-version {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 11px;
+  color: #888;
+  padding: 0 10px;
+  min-width: 0;
+}
 
 /* version badge */
 .version-badge {

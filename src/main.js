@@ -28,7 +28,7 @@ import { PARAMS, DECLARATIVE_PARAM_IDS } from './shell/params.js';
 import { snapSpiralValue as kitSnapSpiral, applyArmsSnap as kitApplyArmsSnap } from './kit/snaps.js';
 import { createCapabilities } from './kit/capabilities.js';
 import { createApp } from './shell/app.js';
-import { formatVersion } from './version.js';
+import { VERSION, formatVersion } from './version.js';
 import { push as historyPush, undo as historyUndo, redo as historyRedo, canUndo, canRedo } from './shell/history.js';
 import { wireDiagnosticButton } from './shell/diagnostics.js';
 
@@ -37,6 +37,7 @@ import { wireDiagnosticButton } from './shell/diagnostics.js';
 // ============================================================================
 
 document.getElementById('versionBadge').textContent = formatVersion();
+document.getElementById('openDiagBtn').textContent = VERSION;   // the toolbar version chip opens diagnostics
 document.getElementById('placeholderTitle').textContent = `kaleidoscope — ${formatVersion()}`;
 document.title = `kaleidoscope — ${formatVersion()}`;
 
@@ -78,7 +79,8 @@ try {
     `renderer: ${unmasked || engine.diagnostics.renderer}<br>` +
     `max texture: ${engine.diagnostics.maxTextureSize}px<br>` +
     `max export: ${engine.diagnostics.maxFBOSize}px<br>` +
-    `DPR: ${window.devicePixelRatio || 1}`;
+    `DPR: ${window.devicePixelRatio || 1}<br>` +
+    `profile: ${capabilities.engineId} · capture ${capabilities.capturePath} · maxFBO ${capabilities.maxFBOSize}`;
 
   // Firefox WebGL-cap notice in the export group. Only rendered when the cap
   // is detected; no-op on Safari/Chrome/Edge and on a Firefox build that
@@ -816,6 +818,22 @@ function wireFrameAspect() {
   syncActive();
 }
 
+// Global output-toolbar sheets (save / diagnostics) — relocated from the right
+// sidebar into modals launched from the toolbar, mirroring the mobile save sheet.
+// The inner controls keep their original ids, so their wiring (wireControls /
+// wireDiagnosticButton) is unchanged; this only adds open/close.
+function wireGlobalSheets() {
+  const wire = (sheetId, openId, closeId) => {
+    const sheet = document.getElementById(sheetId);
+    if (!sheet) return;
+    document.getElementById(openId)?.addEventListener('click', () => { sheet.hidden = false; });
+    document.getElementById(closeId)?.addEventListener('click', () => { sheet.hidden = true; });
+    sheet.addEventListener('click', (e) => { if (e.target === sheet) sheet.hidden = true; });
+  };
+  wire('exportSheet', 'openExportBtn', 'exportClose');
+  wire('diagSheet', 'openDiagBtn', 'diagClose');
+}
+
 
 // ============================================================================
 // init
@@ -848,6 +866,7 @@ if (engine) {
   });
   setupUndoBar();
   wireFrameAspect();
+  wireGlobalSheets();
   wireDiagnosticButton(engine, () => state);
 
   window.addEventListener('resize', () => {

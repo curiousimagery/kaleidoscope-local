@@ -29,6 +29,8 @@
     <div class="ot-group">
       <button class="ot-btn" id="swapBtn" disabled title="swap source / output">⇄</button>
       <button class="ot-btn" id="motionBtn" disabled title="motion mode">motion</button>
+      <button class="ot-btn" id="openExportBtn" title="save / export">save ▸</button>
+      <button class="ot-btn ot-version" id="openDiagBtn" title="diagnostics">·</button>
     </div>
   </div>
   <div class="placeholder" id="placeholder">
@@ -154,34 +156,11 @@
       </div>
     </div>
 
-    <!-- export -->
-    <div class="group">
-      <h2>export</h2>
-      <label class="setting-label">format</label>
-      <div class="row-buttons" id="exportFormats">
-        <button data-format="png" class="toggle">PNG</button>
-        <button data-format="jpg" class="toggle active">JPG</button>
-      </div>
-      <label class="setting-label">resolution</label>
-      <div class="button-grid-5" id="exportSizes">
-        <button class="toggle" data-size="1024">1K</button>
-        <button class="toggle" data-size="2048">2K</button>
-        <button class="toggle active" data-size="4096">4K</button>
-        <button class="toggle" data-size="8192">8K</button>
-        <button class="toggle" data-size="max">max</button>
-      </div>
-      <div class="res-hint" id="resHint"></div>
-      <button id="exportPackageBtn" style="width: 100%; margin-top: 4px;" title="zip with the unmodified original included">save package (.zip)</button>
-      <button class="primary" id="exportBtn" style="width: 100%; margin-top: 6px;">save composition</button>
-      <div class="status" id="status">load an image to start</div>
-    </div>
+    <!-- general source / status line (also the engine-init error target; export
+         progress writes here too). Sits at the panel bottom, where it lived in
+         the old export group. -->
+    <div class="status" id="status">load an image to start</div>
 
-    <!-- diagnostics -->
-    <div class="group">
-      <h2>diagnostics</h2>
-      <div class="status" id="diag"></div>
-      <div class="version-badge" id="versionBadge"></div>
-    </div>
   </div>
 </div>
 
@@ -294,6 +273,38 @@
       <button class="mf-btn" id="clipCancel">cancel</button>
       <button class="mf-btn mf-add" id="clipApply">apply trim</button>
     </div>
+  </div>
+</div>
+
+<!-- export sheet (global save) — controls relocated from the right sidebar -->
+<div class="vid-sheet" id="exportSheet" hidden>
+  <div class="vid-card">
+    <div class="vid-head"><span>save composition</span><button class="vid-x" id="exportClose" title="close">✕</button></div>
+    <label class="setting-label">format</label>
+    <div class="row-buttons" id="exportFormats">
+      <button data-format="png" class="toggle">PNG</button>
+      <button data-format="jpg" class="toggle active">JPG</button>
+    </div>
+    <label class="setting-label">resolution</label>
+    <div class="button-grid-5" id="exportSizes">
+      <button class="toggle" data-size="1024">1K</button>
+      <button class="toggle" data-size="2048">2K</button>
+      <button class="toggle active" data-size="4096">4K</button>
+      <button class="toggle" data-size="8192">8K</button>
+      <button class="toggle" data-size="max">max</button>
+    </div>
+    <div class="res-hint" id="resHint"></div>
+    <button id="exportPackageBtn" style="width: 100%; margin-top: 4px;" title="zip with the unmodified original included">save package (.zip)</button>
+    <button class="primary" id="exportBtn" style="width: 100%; margin-top: 6px;">save composition</button>
+  </div>
+</div>
+
+<!-- diagnostics sheet (global) — discrete readout + full report / raw data -->
+<div class="vid-sheet" id="diagSheet" hidden>
+  <div class="vid-card">
+    <div class="vid-head"><span>diagnostics</span><button class="vid-x" id="diagClose" title="close">✕</button></div>
+    <div class="status" id="diag"></div>
+    <div class="version-badge" id="versionBadge"></div>
   </div>
 </div>
 
