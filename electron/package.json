@@ -1,0 +1,15 @@
+{
+  "name": "fold-live-shell",
+  "version": "0.1.0",
+  "description": "Electron shell for Fold Live — loads the built Fold web app (../dist) and provides native host services (Syphon output) the browser can't. Wrapper only; the web app stays plain Vite + vanilla JS.",
+  "main": "main.js",
+  "type": "commonjs",
+  "license": "AGPL-3.0-or-later",
+  "author": "Daniel Nelson",
+  "scripts": {
+    "start": "electron ."
+  },
+  "devDependencies": {
+    "electron": "latest"
+  }
+}
