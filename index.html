@@ -14,6 +14,31 @@
 </head>
 <body>
 
+<!-- live-output row — a solid docked band revealed by #outputBtn, sitting ABOVE the
+     work row (top-docked, the motion-footer pattern). Takes layout space and pushes
+     the work row down rather than overlaying the preview. Controls + live status fold
+     in here; the at-a-glance state lives in the #outputBtn traffic-light. -->
+<div class="output-row" id="outputRow" hidden>
+  <span class="or-label">live output</span>
+  <button id="recordBtn" title="record the live output to disk">record</button>
+  <button id="broadcastBtn" hidden title="broadcast to Syphon">broadcast</button>
+  <div class="or-group">
+    <span class="setting-label">resolution</span>
+    <div class="or-group" id="outputResTiers">
+      <button class="toggle" data-tier="1280">HD</button>
+      <button class="toggle active" data-tier="1920">FHD</button>
+      <button class="toggle" data-tier="2560">QHD</button>
+      <button class="toggle" data-tier="3840">4K</button>
+    </div>
+    <span class="res-hint" id="outputResHint"></span>
+  </div>
+  <div class="or-group" id="syphonNameField" hidden>
+    <span class="setting-label">syphon server name</span>
+    <input type="text" id="serverNameInput" class="text-input" value="Fold" maxlength="32" spellcheck="false" style="width: 120px;">
+  </div>
+  <span class="or-status" id="outputStatus"></span>
+</div>
+
 <!-- work row: the horizontal split (output | divider | controls). wrapped so a
      contextual motion-mode footer can sit beneath it; <body> is a column. -->
 <div class="work-row" id="workRow">
@@ -44,7 +69,7 @@
     <div class="ot-group ot-right">
       <button class="ot-btn" id="swapBtn" disabled title="swap source / output">⇄</button>
       <button class="ot-btn" id="motionBtn" disabled title="motion mode">motion</button>
-      <button class="ot-btn" id="outputBtn" disabled title="live output">output</button>
+      <button class="ot-btn" id="outputBtn" disabled title="live output">output<span class="ot-led" id="outputLed"><i></i><i></i></span></button>
       <button class="ot-btn" id="openExportBtn" title="save / export">save ▸</button>
       <button class="ot-btn ot-version" id="openDiagBtn" title="diagnostics">·</button>
     </div>
@@ -55,11 +80,6 @@
   <div class="output-status-area">
     <div class="status" id="status">load an image to start</div>
     <div class="upload-error" id="uploadError"></div>
-  </div>
-  <!-- output/broadcast status — pinned top-RIGHT, mirroring the source/input
-       details top-left: current output state (broadcast / record), resolution, fps. -->
-  <div class="output-broadcast-area">
-    <div class="status" id="broadcastStatus"></div>
   </div>
   <div class="placeholder" id="placeholder">
     <strong id="placeholderTitle">kaleidoscope</strong>
@@ -306,35 +326,6 @@
     <button class="primary" id="exportBtn" style="width: 100%; margin-top: 6px;">save composition</button>
     <div class="status" id="exportStatus"></div>
   </div>
-</div>
-
-<!-- live-output controls — an anchored DROPDOWN under #outputBtn (positioned by
-     createOutputPanel), NOT a modal: the live status stays visible in the global
-     bar (#broadcastStatus, top-right) while this is open or closed. Holds the
-     record control, the Syphon broadcast toggle + name (only active when a Syphon
-     host is available; dormant on plain web), and the output resolution picker
-     (aspect follows the composition frame). -->
-<div class="output-popover" id="outputPopover" hidden>
-  <div class="vid-head"><span>live output</span><button class="vid-x" id="outputClose" title="close">✕</button></div>
-
-  <div class="op-broadcast" id="opBroadcast">broadcast: dormant</div>
-  <button id="broadcastBtn" hidden>start broadcasting</button>
-
-  <button class="primary" id="recordBtn" style="width: 100%;">record to disk</button>
-
-  <label class="setting-label">output resolution</label>
-  <div class="row-buttons" id="outputResTiers">
-    <button class="toggle" data-tier="1280">HD</button>
-    <button class="toggle active" data-tier="1920">FHD</button>
-    <button class="toggle" data-tier="2560">QHD</button>
-    <button class="toggle" data-tier="3840">4K</button>
-  </div>
-  <div class="res-hint" id="outputResHint"></div>
-
-  <label class="setting-label">name</label>
-  <input type="text" id="serverNameInput" class="text-input" value="Fold" maxlength="32" spellcheck="false">
-
-  <div class="status" id="outputStatus"></div>
 </div>
 
 <!-- diagnostics sheet (global) — discrete readout + recent live-output op records

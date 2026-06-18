@@ -844,8 +844,8 @@ function wireGlobalSheets() {
   };
   wire('exportSheet', 'openExportBtn', 'exportClose');
   wire('diagSheet', 'openDiagBtn', 'diagClose');
-  // (#outputBtn / #outputPopover open/close is owned by createOutputPanel — it's an
-  //  anchored dropdown, not a modal, so it isn't wired through the generic helper.)
+  // (#outputBtn toggling the docked #outputRow is owned by createOutputPanel — it's a
+  //  docked band, not a sheet, so it isn't wired through the generic helper.)
 
   // The diagnostics sheet surfaces the recent live-output op records (the unified
   // op-perf substrate, env.diag.ops) — refreshed each time the sheet is opened.
@@ -893,10 +893,10 @@ if (engine) {
 
   // Stage layer: the engine-agnostic live-output bus + its first sink (record-to-
   // disk), wired through Fold's adapter. The bus renders one frame at the output
-  // resolution and fans it to sinks; the output panel (toolbar button + #outputPopover
-  // dropdown + the top-right #broadcastStatus readout) drives record/broadcast and
-  // shows live status. Syphon + the output-only window are later sinks against this
-  // same bus. env.host is set by createApp above (?mocksyphon → the mock host).
+  // resolution and fans it to sinks; the output panel (toolbar button with a traffic-
+  // light + the docked #outputRow band) drives record/broadcast and shows live status.
+  // Syphon + the output-only window are later sinks against this same bus. env.host is
+  // set by createApp above (?mocksyphon → the mock host).
   const outputBus = createOutputBus({
     engineAdapter: createFoldAdapter(env),
     host: env.host,

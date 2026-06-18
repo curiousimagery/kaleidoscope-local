@@ -315,6 +315,7 @@ Full narrative and rationale lives in `FOLD.md` under "monetization paths." Work
 - **Phase 3: Native iPad app via Capacitor.** Web code as core, native shells for Pencil pressure / Files app / Photos library / share sheet / Shortcuts. Paid in App Store at $5–15. Apple Developer account ($99/yr) + 15–30% cut.
 - **Phase 4 (sidebar): Native Mac wrapper for Syphon out.** Electron wrapper for direct routing into Resolume. **Spike + end-to-end proof complete (2026-06-17):** CPU readback path viable, `SyphonMetalServer` via `node-syphon@1.5.0` confirmed working (Arena showed "Electron - Fold" as a live Syphon source). No custom ObjC++ addon needed. Reference code in `spike/electron-syphon/`. **Next when ready:** proper Electron shell — serve built `dist/` (not dev server), implement `nativeHost.syphon` against the `shell/host.js` seam, drive output from `engine.renderToFBO()` at Syphon resolution, package with electron-builder.
 - **Phase 5 (deferred): Photoshop PSD export.** Not a plugin. Export kaleidoscope output + original image + wedge as separate PSD layers for clean handoff.
+- **Audio in the consumer "wonder" share (should be part of the Wonder-mode spec).** The live-output path is video-only by design (Syphon/HDMI carry video; Arena owns audio). The one real case for audio is the **Wonder-mode consumer flow**: someone records a clip with the live kaleidoscope effect baked in to SHARE, and expects the source audio to come along. Valid and meaningful, but far down the list (Daniel: not even top-10). **No corner:** the recorder sink's `captureStream` can add an audio track later with no redesign; just keep the recorder free of hardcoded "video-only" assumptions. When the Wonder-mode spec is written, fold audio capture into it. (Wonder framing lives in `FOLD.md`.)
 
 The license choice (AGPL-3.0) preserves all of these options without locking any of them in.
 
@@ -338,6 +339,19 @@ Curatorial frame and full concept in `FOLD.md` under "gallery show concept." Wor
 - **A `npm run check` script** that runs `node --check` against every JS file in `src/`. Useful as a pre-commit hook.
 - **Visual regression harness.** A small node script that loads each form at default settings, exports at 1K, and diffs against a saved baseline. Catches accidental shader regressions.
 - **Source-mapped production builds.** Vite does this by default, but worth verifying when we deploy.
+
+### Global control-area UI follow-ups (Fold Live era, Daniel 2026-06-17)
+
+Surfaced while building the output controls; the coherent control inventory + locked UI decisions live in `docs/CONTROLS.md`. Items here are the actionable changes.
+
+- **Output controls → a docked expanding ROW (committed; the next Fold Live UI increment, "3.5").** Replace the floating output popover with a solid row docked under the global bar, toggled by the output button (motion-footer pattern, top-docked; not an overlay/modal). Holds, single-click: record take toggle (red), broadcast arm toggle (green; hidden with no live channel), resolution tier picker, Syphon name field (gated + labeled "Syphon server name"). **Traffic-light dots** on the output button (green broadcast over red record, either/both lit); the persistent top-right status text folds into the row. Destination model: broadcast = arm-and-leave (green), record = momentary take (red), concurrent; remember last destination. Web-first, no deps. (Details + rationale in `docs/CONTROLS.md`.)
+- **Canvas controls are not slice settings — relocate.** `frameAspect`, OOB, canvas zoom, canvas rotation are composition-global. The **global bar IS the composition-global home** (it persists across still + motion + iPad, with the same abilities on mobile), so: desktop = a **canvas button beside motion** in the global bar opening a dropdown with the existing controls; mobile = a **settings button opposite the flip-camera control** in the output panel (mobile still groups these with slice; this resolves the inconsistency). Scope it as its own pass, not bundled into the row work. Resolution stays in the output panel; still-export resolution stays in the export sheet.
+- **Source/output swap control relocation.** Its current toolbar home no longer makes sense. Move it next to the **divider**, possibly as an **icon button over the source/input image(s)** themselves.
+- **Responsive + icon polish pass for the growing controls.** Add icons + responsive breakpoints so windows resize gracefully and small viewports work: standard convention of **icon+text as space allows → icon-only → "…" overflow** (dropdown) when extremely compact. Covers the output row + global bar as they grow.
+
+### Output calibration / test pattern (Fold Live, Claude 2026-06-17)
+
+**For when Syphon lands (Increment 5 validation aid; low priority until then).** Objective: prove that what we send into Arena arrives CLEAN. A diagnostic, not a creative control: a "send test pattern" toggle on the output that pushes a known reference frame instead of the program, making three things instantly visible in Arena (otherwise eyeball-guesswork on a kaleidoscope): **orientation** (the spike's Y-flip question — our FBO is bottom-up, the spike published top-down; a marked top-left corner shows a flip), **color** (the iPhone washed-out colorspace/range bug — color bars show a shift), **scale/aspect** (a known-ratio grid shows letterbox/stretch if Arena rescales). Natural moment: alongside the first Syphon hop, as the tool that validates it.
 
 ### Live record-to-disk sink — fast capture path (Fold Live, Claude 2026-06-17)
 
