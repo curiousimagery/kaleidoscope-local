@@ -33,6 +33,7 @@ import { createFoldAdapter } from './shell/fold-adapter.js';
 import { createOutputBus } from './stage/output-bus.js';
 import { createRecorderSink } from './stage/recorder.js';
 import { createSyphonSink } from './stage/syphon-sink.js';
+import { createWindowSink } from './stage/window-sink.js';
 import { mockSyphonHost } from './stage/mock-host.js';
 import { createOutputPanel } from './shell/output-panel.js';
 import { VERSION, formatVersion } from './version.js';
@@ -938,9 +939,11 @@ if (engine) {
     diag: env.diag,
   });
   outputBus.registerSink(createRecorderSink());
-  // The Syphon sink only exists where a native host advertises it (the Electron
-  // shell). On plain web / a host reporting unavailable it's never registered, so
-  // the bus never tries to publish a native frame and the panel hides broadcast.
+  // The external-window sink is universal (plain web APIs), so always available as an
+  // output destination. The Syphon sink only exists where a native host advertises it
+  // (the Electron shell); on plain web it's never registered, so the destination picker
+  // simply won't list it.
+  outputBus.registerSink(createWindowSink());
   if (env.host?.syphon?.available) outputBus.registerSink(createSyphonSink(env.host));
   env.outputBus = outputBus;
   createOutputPanel(env, outputBus);

@@ -59,7 +59,11 @@
   <div class="bar-row output-row" id="outputRow" hidden>
     <span class="or-label">live output</span>
     <button id="recordBtn" title="record the live output to disk">record</button>
-    <button id="broadcastBtn" hidden title="broadcast to Syphon">broadcast</button>
+    <div class="or-group">
+      <span class="setting-label">destination</span>
+      <div class="or-group" id="outputDest"></div>
+    </div>
+    <button id="broadcastBtn" title="start / stop output to the selected destination">start</button>
     <button id="testPatternBtn" class="toggle" title="publish a reference test pattern instead of the program — verify orientation, scale, crop and color in Arena or a recording">test pattern</button>
     <div class="or-group">
       <span class="setting-label">resolution</span>
