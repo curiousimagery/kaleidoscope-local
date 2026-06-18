@@ -14,38 +14,16 @@
 </head>
 <body>
 
-<!-- live-output row — a solid docked band revealed by #outputBtn, sitting ABOVE the
-     work row (top-docked, the motion-footer pattern). Takes layout space and pushes
-     the work row down rather than overlaying the preview. Controls + live status fold
-     in here; the at-a-glance state lives in the #outputBtn traffic-light. -->
-<div class="output-row" id="outputRow" hidden>
-  <span class="or-label">live output</span>
-  <button id="recordBtn" title="record the live output to disk">record</button>
-  <button id="broadcastBtn" hidden title="broadcast to Syphon">broadcast</button>
-  <div class="or-group">
-    <span class="setting-label">resolution</span>
-    <div class="or-group" id="outputResTiers">
-      <button class="toggle" data-tier="1280">HD</button>
-      <button class="toggle active" data-tier="1920">FHD</button>
-      <button class="toggle" data-tier="2560">QHD</button>
-      <button class="toggle" data-tier="3840">4K</button>
-    </div>
-    <span class="res-hint" id="outputResHint"></span>
-  </div>
-  <div class="or-group" id="syphonNameField" hidden>
-    <span class="setting-label">syphon server name</span>
-    <input type="text" id="serverNameInput" class="text-input" value="Fold" maxlength="32" spellcheck="false" style="width: 120px;">
-  </div>
-  <span class="or-status" id="outputStatus"></span>
-</div>
-
 <!-- work row: the horizontal split (output | divider | controls). wrapped so a
      contextual motion-mode footer can sit beneath it; <body> is a column. -->
 <div class="work-row" id="workRow">
 
-<!-- main display slot — content swappable between kaleidoscope and source -->
+<!-- main display slot = the OUTPUT column, structured as a vertical stack: an opaque
+     global control BAR, the contextual expand-bands it reveals (output controls /
+     canvas controls), then the preview STAGE. Each band takes layout space and pushes
+     ONLY the preview down — scoped to this column, so the right panel is never affected. -->
 <div class="main-slot" id="mainSlot">
-  <!-- output toolbar: view/workspace controls (not parameters) — undo/redo, swap, motion -->
+  <!-- global control bar: source input + history + workspace/actions (not parameters) -->
   <div class="output-toolbar" id="outputToolbar">
     <!-- left: source input — upload/camera inline; replaced by the live
          capture/flip/stop controls while the camera runs (updateCameraUI toggles
@@ -69,21 +47,54 @@
     <div class="ot-group ot-right">
       <button class="ot-btn" id="swapBtn" disabled title="swap source / output">⇄</button>
       <button class="ot-btn" id="motionBtn" disabled title="motion mode">motion</button>
+      <button class="ot-btn" id="canvasBtn" title="canvas controls">canvas</button>
       <button class="ot-btn" id="outputBtn" disabled title="live output">output<span class="ot-led" id="outputLed"><i></i><i></i></span></button>
       <button class="ot-btn" id="openExportBtn" title="save / export">save ▸</button>
       <button class="ot-btn ot-version" id="openDiagBtn" title="diagnostics">·</button>
     </div>
   </div>
-  <!-- global source / status caption — pinned under the toolbar's left (source)
-       controls so it's contextualized with them; current source + live state, plus
-       upload errors and the engine-init error target. -->
-  <div class="output-status-area">
-    <div class="status" id="status">load an image to start</div>
-    <div class="upload-error" id="uploadError"></div>
+
+  <!-- expand-band: live-output controls (revealed by #outputBtn). Mutually exclusive
+       with the canvas band. The at-a-glance output state lives in the #outputBtn LED. -->
+  <div class="bar-row output-row" id="outputRow" hidden>
+    <span class="or-label">live output</span>
+    <button id="recordBtn" title="record the live output to disk">record</button>
+    <button id="broadcastBtn" hidden title="broadcast to Syphon">broadcast</button>
+    <div class="or-group">
+      <span class="setting-label">resolution</span>
+      <div class="or-group" id="outputResTiers">
+        <button class="toggle" data-tier="1280">HD</button>
+        <button class="toggle active" data-tier="1920">FHD</button>
+        <button class="toggle" data-tier="2560">QHD</button>
+        <button class="toggle" data-tier="3840">4K</button>
+      </div>
+      <span class="res-hint" id="outputResHint"></span>
+    </div>
+    <div class="or-group" id="syphonNameField" hidden>
+      <span class="setting-label">syphon server name</span>
+      <input type="text" id="serverNameInput" class="text-input" value="Fold" maxlength="32" spellcheck="false" style="width: 120px;">
+    </div>
+    <span class="or-status" id="outputStatus"></span>
   </div>
-  <div class="placeholder" id="placeholder">
-    <strong id="placeholderTitle">kaleidoscope</strong>
-    upload an image to begin
+
+  <!-- expand-band: canvas controls (revealed by #canvasBtn). The canvas control group
+       (composition zoom / rotation / out-of-bounds / frame aspect — composition-global,
+       NOT slice settings) is relocated here from the right panel at init by the desktop
+       chrome (ids preserved → existing wiring intact). Mutually exclusive with output. -->
+  <div class="bar-row canvas-row" id="canvasRow" hidden></div>
+
+  <!-- preview stage: the kaleidoscope/source canvas, its status caption, the placeholder -->
+  <div class="ms-stage" id="msStage">
+    <!-- source / status caption — over the preview's top-left; current source + live
+         state, plus upload errors and the engine-init error target. -->
+    <div class="output-status-area">
+      <div class="status" id="status">load an image to start</div>
+      <div class="upload-error" id="uploadError"></div>
+    </div>
+    <div class="placeholder" id="placeholder">
+      <strong id="placeholderTitle">kaleidoscope</strong>
+      upload an image to begin
+    </div>
   </div>
 </div>
 

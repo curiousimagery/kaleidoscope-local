@@ -27,7 +27,6 @@ const TIER_DEFAULT = 1920;   // FHD long side — safe live default (never defau
 export function createOutputPanel(env, outputBus) {
   const byId = (id) => document.getElementById(id);
   const outputBtn = byId('outputBtn');
-  const outputRow = byId('outputRow');
   const led = byId('outputLed');
   const recordBtn = byId('recordBtn');
   const broadcastBtn = byId('broadcastBtn');
@@ -188,23 +187,12 @@ export function createOutputPanel(env, outputBus) {
     renderStatus();
   }
 
-  // ---- the docked row ----------------------------------------------------------
-  function setRowOpen(open) {
-    if (!outputRow) return;
-    outputRow.hidden = !open;
-    document.body.classList.toggle('output-open', open);
-    if (open) { applyResolution(); renderStatus(); }
-    // the row changes the work-row height — re-fit the preview canvas after layout
-    // settles, the same way the motion footer does (env handles set by the chrome).
-    requestAnimationFrame(() => {
-      env.resizePreviewCanvas?.();
-      env.sourceOverlay?.render?.();
-    });
-  }
-  function toggleRow() { setRowOpen(outputRow?.hidden); }
-
   // ---- wiring ------------------------------------------------------------------
-  outputBtn?.addEventListener('click', toggleRow);
+  // The #outputRow band's open/close (and the preview re-fit) is owned by the chrome's
+  // wireBarBands (it's one of the bar's mutually-exclusive expand-bands). This module
+  // owns the band's CONTENT; the chrome calls env.refreshOutputBand when it opens.
+  env.refreshOutputBand = () => { applyResolution(); renderStatus(); };
+
   recordBtn?.addEventListener('click', toggleRecord);
   broadcastBtn?.addEventListener('click', toggleBroadcast);
 

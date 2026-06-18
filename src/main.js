@@ -248,9 +248,9 @@ function resizePreviewCanvas() {
     containerW = wrap.clientWidth;
     containerH = wrap.clientHeight;
   } else {
-    const main = document.getElementById('mainSlot');
-    containerW = main.clientWidth - 48;
-    containerH = main.clientHeight - 48;
+    const stage = document.getElementById('msStage');
+    containerW = stage.clientWidth - 48;
+    containerH = stage.clientHeight - 48;
   }
   // fit a frameAspect (w/h) rectangle inside the container — the preview canvas
   // takes the output frame shape so editing is WYSIWYG with export.
@@ -296,6 +296,7 @@ function drawMiniKaleidoscope() {
 // ============================================================================
 
 const mainSlot = document.getElementById('mainSlot');
+const msStage = document.getElementById('msStage');   // the preview area inside mainSlot, below the bar/bands
 const sideSlot = document.getElementById('sideSlot');
 const sideEmptyMsg = document.getElementById('sideEmptyMsg');
 const placeholder = document.getElementById('placeholder');
@@ -303,7 +304,7 @@ const placeholder = document.getElementById('placeholder');
 function arrangeSlots() {
   env.updateMotionUI();   // gate motion availability on source/live state; force-exit if needed
   env.updateOutputUI?.();  // gate the live-output button on a loaded source
-  Array.from(mainSlot.querySelectorAll('.slot-content')).forEach(n => n.remove());
+  Array.from(msStage.querySelectorAll('.slot-content')).forEach(n => n.remove());
   Array.from(sideSlot.querySelectorAll('.slot-content')).forEach(n => n.remove());
 
   if (!engine || !engine.getSourceImage()) {
@@ -321,7 +322,7 @@ function arrangeSlots() {
     mainWrap.style.cssText = `position: relative; max-width: 100%; max-height: 100%; display: flex; align-items: center; justify-content: center;`;
     previewCanvas.style.display = 'block';
     mainWrap.appendChild(previewCanvas);
-    mainSlot.appendChild(mainWrap);
+    msStage.appendChild(mainWrap);
 
     const sideWrap = document.createElement('div');
     sideWrap.className = 'slot-content';
@@ -334,8 +335,8 @@ function arrangeSlots() {
     mainWrap.className = 'slot-content';
     mainWrap.style.cssText = `position: relative; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;`;
     const inner = document.createElement('div');
-    const slotW = mainSlot.clientWidth - 48;
-    const slotH = mainSlot.clientHeight - 48;
+    const slotW = msStage.clientWidth - 48;
+    const slotH = msStage.clientHeight - 48;
     const sourceAspect = engine.getSourceAspect();
     let dispW, dispH;
     if (sourceAspect > slotW / slotH) {
@@ -347,7 +348,7 @@ function arrangeSlots() {
     }
     inner.style.cssText = `position: relative; width: ${dispW}px; height: ${dispH}px; background: #1a1a1a; border: 1px solid #222;`;
     mainWrap.appendChild(inner);
-    mainSlot.appendChild(mainWrap);
+    msStage.appendChild(mainWrap);
     sourceOverlay.mount(inner);
 
     const sideWrap = document.createElement('div');
@@ -844,12 +845,45 @@ function wireGlobalSheets() {
   };
   wire('exportSheet', 'openExportBtn', 'exportClose');
   wire('diagSheet', 'openDiagBtn', 'diagClose');
-  // (#outputBtn toggling the docked #outputRow is owned by createOutputPanel — it's a
-  //  docked band, not a sheet, so it isn't wired through the generic helper.)
+  // (#outputBtn / #canvasBtn toggle the in-column expand-bands, not sheets — see
+  //  wireBarBands below.)
 
   // The diagnostics sheet surfaces the recent live-output op records (the unified
   // op-perf substrate, env.diag.ops) — refreshed each time the sheet is opened.
   document.getElementById('openDiagBtn')?.addEventListener('click', renderDiagOps);
+}
+
+// The global bar's expand-bands: #outputBtn reveals #outputRow (live-output controls,
+// content wired by createOutputPanel), #canvasBtn reveals #canvasRow (the canvas
+// control group, relocated here from the right panel — composition-global settings,
+// NOT slice). One open at a time (accordion); each band pushes only the preview down,
+// so the right panel is never affected. Re-fit the preview on toggle, like the motion
+// footer. The canvas group keeps its ids, so its existing wiring stays intact.
+function wireBarBands() {
+  const canvasGroup = document.querySelector('.controls .group');   // the <h2>canvas</h2> group
+  const canvasRow = document.getElementById('canvasRow');
+  if (canvasGroup && canvasRow) canvasRow.appendChild(canvasGroup);
+
+  const bands = { output: 'outputRow', canvas: 'canvasRow' };
+  const btns = { output: 'outputBtn', canvas: 'canvasBtn' };
+
+  function setBand(which) {
+    for (const k of Object.keys(bands)) {
+      const band = document.getElementById(bands[k]);
+      if (band) band.hidden = (k !== which);
+      document.getElementById(btns[k])?.classList.toggle('band-open', k === which);
+    }
+    if (which === 'output') env.refreshOutputBand?.();
+    requestAnimationFrame(() => { resizePreviewCanvas(); sourceOverlay.render(); });
+  }
+  env.setBand = setBand;
+
+  for (const k of Object.keys(bands)) {
+    document.getElementById(btns[k])?.addEventListener('click', () => {
+      const band = document.getElementById(bands[k]);
+      setBand(band && band.hidden ? k : null);
+    });
+  }
 }
 
 // Render the most recent live-output op records into the diagnostics sheet. Each
@@ -919,6 +953,7 @@ if (engine) {
   setupUndoBar();
   wireFrameAspect();
   wireGlobalSheets();
+  wireBarBands();
   wireDiagnosticButton(engine, () => state);
 
   window.addEventListener('resize', () => {
