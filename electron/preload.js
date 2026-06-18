@@ -12,27 +12,41 @@
 // contextIsolation is on, so the renderer never touches Node directly — every
 // service crosses the bridge as a plain value or a proxied function.
 //
-// Increment 4: Syphon is a STUB (available:false) — there's no native module yet,
-// so the honest answer is "can't broadcast," exactly like the web build. That's
-// the point of `?mocksyphon`: it exercises the broadcasting UI on web. Real
-// output arrives in Increment 5, which flips `available` to true and wires
-// `publish` to IPC → the Syphon Metal server in the main process.
+// Increment 5: Syphon is LIVE. `available:true`, and start/publish/stop send over
+// IPC to the Syphon Metal server in the main process (electron/syphon-bridge.js).
+// The renderer's output bus drives this through stage/syphon-sink.js; the sink only
+// forwards while broadcast is armed, so the hot publish path (a full RGBA frame
+// crossing the process boundary) runs only when you're actually live.
 
 'use strict';
 
-const { contextBridge } = require('electron');
+const { contextBridge, ipcRenderer } = require('electron');
+
+// Tracks the armed state on this side too: a belt-and-suspenders gate so a stray
+// publish can't send a frame when no server is up (the sink is the primary gate).
+let syphonStarted = false;
 
 const foldHost = {
   name: 'electron',
 
-  // Native GPU output (Syphon). Stub until Increment 5 wires the native bridge —
-  // dormant, same as web, but the seam is live so the sink drops in without
-  // app changes.
+  // Native GPU output (Syphon) → IPC → SyphonMetalServer in main. Created when
+  // armed (start, carrying the editable name), torn down on stop.
   syphon: {
-    available: false,
-    start() {},
-    publish(/* pixels, w, h */) {},
-    stop() {},
+    available: true,
+    start(name) {
+      syphonStarted = true;
+      ipcRenderer.send('syphon:start', { name: name || 'Fold' });
+    },
+    // pixels: a Uint8Array (raw bottom-up RGBA) from the renderer; structured-cloned
+    // across IPC. Orientation (the Syphon flipped flag) is the bridge's concern.
+    publish(pixels, width, height) {
+      if (!syphonStarted) return;
+      ipcRenderer.send('syphon:frame', { width, height, pixels });
+    },
+    stop() {
+      syphonStarted = false;
+      ipcRenderer.send('syphon:stop');
+    },
   },
 
   // Parity stubs with webHost — not yet implemented in the shell, but present so

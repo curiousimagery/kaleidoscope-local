@@ -9,6 +9,9 @@
   "scripts": {
     "start": "electron ."
   },
+  "dependencies": {
+    "node-syphon": "1.5.0"
+  },
   "devDependencies": {
     "electron": "latest"
   }

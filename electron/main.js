@@ -11,14 +11,15 @@
 // web path when a service isn't available, so this wrapper adds capability
 // without forking behavior.
 //
-// Increment 4 scope: stand the shell up — load the built app from disk, expose
-// the host seam. Syphon itself is still a stub here (preload.js); the native
-// bridge + IPC land in Increment 5.
+// Increment 5: the host seam is live — the preload's syphon.start/publish/stop
+// arrive here over IPC and drive the native SyphonMetalServer (syphon-bridge.js),
+// so Fold's program frames reach Resolume Arena.
 
 'use strict';
 
-const { app, BrowserWindow } = require('electron');
+const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
+const syphon = require('./syphon-bridge');
 
 let win;
 
@@ -55,7 +56,16 @@ app.whenReady().then(() => {
   });
 });
 
+// Syphon control from the renderer (via preload IPC). The server is created on
+// arm (carrying the editable name), fed one frame per publish, torn down on stop.
+ipcMain.on('syphon:start', (_e, { name } = {}) => syphon.start(name));
+ipcMain.on('syphon:frame', (_e, payload) => syphon.publish(payload));
+ipcMain.on('syphon:stop', () => syphon.stop());
+
 // Single-window tool: closing the window ends the session on every platform.
 app.on('window-all-closed', () => {
   app.quit();
 });
+
+// Make sure the Syphon server is released even if quitting while live.
+app.on('will-quit', () => { syphon.stop(); });

@@ -39,6 +39,7 @@ export function createOutputPanel(env, outputBus) {
   const ledRed = led ? led.querySelectorAll('i')[1] : null;     // record
 
   const recorder = outputBus.getSink('disk');
+  const syphonSink = outputBus.getSink('syphon');   // only registered on a Syphon host
   const host = env.host;
   const syphonAvailable = !!(host && host.syphon && host.syphon.available);
 
@@ -109,15 +110,16 @@ export function createOutputPanel(env, outputBus) {
   function toggleBroadcast() {
     if (!syphonAvailable) return;
     if (wantBroadcast) {
-      host.syphon.stop();
+      syphonSink?.stop();
       wantBroadcast = false;
       syncBusRunning();
       if (!recorder?.recording) stopPolling();
     } else {
       if (!hasSource()) return;
       applyResolution();
-      outputBus.setServerName(nameInput ? nameInput.value : 'Fold');
-      host.syphon.start();
+      const name = nameInput ? nameInput.value : 'Fold';
+      outputBus.setServerName(name);
+      syphonSink?.start(name);   // arms the sink + brings the native server up under `name`
       wantBroadcast = true;
       syncBusRunning();
       startPolling();
@@ -177,7 +179,7 @@ export function createOutputPanel(env, outputBus) {
     if (outputBtn) outputBtn.disabled = !ok;
     if (!ok && (recorder?.recording || wantBroadcast)) {
       if (recorder?.recording) recorder.stop();
-      if (wantBroadcast && syphonAvailable) host.syphon.stop();
+      if (wantBroadcast) syphonSink?.stop();
       wantRecord = false; wantBroadcast = false;
       syncBusRunning();
       stopPolling();
