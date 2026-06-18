@@ -215,7 +215,10 @@ export function createOutputPanel(env, outputBus) {
     // server name only when Syphon is the selected destination
     if (syphonNameField) syphonNameField.hidden = !(hasSyphon && destination === 'syphon');
 
+    // resolution + frame aspect both set the output size, which the bus locks while
+    // running — disable them so changing mid-broadcast can't silently do nothing.
     lockAspect(outputBus.running);
+    if (resTiers) resTiers.querySelectorAll('button').forEach((b) => { b.disabled = outputBus.running; });
   }
 
   function renderStatus() {

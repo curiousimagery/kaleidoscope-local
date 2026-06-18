@@ -4,6 +4,12 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.10.5 (Build 187) — 2026-06-18 — output-window polish
+
+From Daniel's Build-186 test: (1) the external window now **scales past 100%** to fill the display (canvas `width/height:100vw/vh` + `object-fit:contain`), so HD content fills a 4K window (letterboxed, no crop) instead of capping at native size. (2) The **resolution picker now locks while outputting**, same as the frame-aspect control, since the bus locks output size while running (changing it mid-broadcast silently did nothing). Two-line fixes; build green. **Known limitation (next session):** the window paints frames on the CPU (~5 fps at 4K, ~20 at HD); a GPU-direct path is now a priority, see BACKLOG.
+
+---
+
 ## v0.10.4 (Build 186) — 2026-06-18 — Increment 6: multi-destination output + external window
 
 **Phase 0 closed.** The output row is now a **single-select destination picker + independent start/stop** (Daniel's multi-destination model): pick where the live output goes, start/stop is separate, you stop to change destination, and the last choice is retained (localStorage) for one-tap restart. Record-to-disk stays a separate concurrent control. **New universal external-window sink** ([src/stage/window-sink.js](../src/stage/window-sink.js)) — a clean, chrome-free output window (`window.open` + a canvas, same-origin so the opener paints straight in; Y-flipped like the recorder). It's plain web APIs, so it works on the **web build and Electron** alike (no native code), and gives Fold a standalone output surface with no Arena required. Destinations are detected from registered sinks: external window everywhere, Syphon when the Electron host provides it (NDI/HDMI slot in later). [output-panel.js](../src/shell/output-panel.js) reworked to the destination model (the old separate record/broadcast toggles unified); the Syphon name field shows only when Syphon is selected. Build green, no dup ids; the validated Syphon path is intact (now just "Syphon" as one destination). **Verify (Daniel):** web → `output` band shows a `destination: output window` picker + `start` → opens a popup you can drag to a 2nd display + fullscreen; Electron → picker also lists Syphon; `start` only the selected one, picker locks while live, `stop` to switch. **Deferred (own sessions):** DMG packaging + Apple signing (no account yet); the global IxD/icon pass.

@@ -41,7 +41,8 @@ export function createWindowSink() {
       d.title = 'Fold — Output';
       d.body.style.cssText = 'margin:0;height:100vh;background:#000;overflow:hidden;display:flex;align-items:center;justify-content:center';
       canvas = d.createElement('canvas');
-      canvas.style.cssText = 'max-width:100vw;max-height:100vh;object-fit:contain;image-rendering:auto';
+      // fill the window, scaling UP past 100% if needed (contain = no crop, keep aspect)
+      canvas.style.cssText = 'width:100vw;height:100vh;object-fit:contain;image-rendering:auto';
       d.body.appendChild(canvas);
       ctx = canvas.getContext('2d');
       active = true;
