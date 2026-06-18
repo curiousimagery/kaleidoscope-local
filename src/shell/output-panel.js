@@ -30,6 +30,7 @@ export function createOutputPanel(env, outputBus) {
   const led = byId('outputLed');
   const recordBtn = byId('recordBtn');
   const broadcastBtn = byId('broadcastBtn');
+  const testPatternBtn = byId('testPatternBtn');
   const resTiers = byId('outputResTiers');
   const resHint = byId('outputResHint');
   const nameInput = byId('serverNameInput');
@@ -46,6 +47,7 @@ export function createOutputPanel(env, outputBus) {
   let tier = TIER_DEFAULT;
   let wantRecord = false;
   let wantBroadcast = false;
+  let testOn = false;
   let statusTimer = 0;
 
   // ---- output resolution: long-side tier × the composition frame aspect --------
@@ -157,6 +159,7 @@ export function createOutputPanel(env, outputBus) {
     const parts = [];
     if (s.broadcasting) parts.push(`◉ ${s.serverName}`);
     if (recorder?.recording) parts.push('● rec');
+    if (s.testPattern) parts.push('▦ test pattern');
     if (parts.length) {
       statusEl.textContent = `${parts.join(' · ')} · ${s.width}×${s.height} · ${s.fps || '…'} fps`;
       statusEl.classList.add('live');
@@ -197,6 +200,15 @@ export function createOutputPanel(env, outputBus) {
 
   recordBtn?.addEventListener('click', toggleRecord);
   broadcastBtn?.addEventListener('click', toggleBroadcast);
+
+  // Diagnostic toggle: swap the program for a reference test pattern on the bus. Takes
+  // effect whenever the bus is running (recording or broadcasting); arm one first.
+  testPatternBtn?.addEventListener('click', () => {
+    testOn = !testOn;
+    outputBus.setTestPattern(testOn);
+    testPatternBtn.classList.toggle('active', testOn);
+    renderStatus();
+  });
 
   resTiers?.querySelectorAll('button[data-tier]').forEach((b) => {
     b.addEventListener('click', () => {

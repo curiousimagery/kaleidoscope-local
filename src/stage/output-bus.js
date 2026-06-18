@@ -23,6 +23,8 @@
 // chrome and the copy-diagnostics report both read. This is also what settles the
 // Chromium-perf question with data rather than vibes.
 
+import { createTestFrame } from './test-pattern.js';
+
 const round1 = (n) => Math.round(n * 10) / 10;
 
 export function createOutputBus({ engineAdapter, host = null, diag = null } = {}) {
@@ -40,6 +42,7 @@ export function createOutputBus({ engineAdapter, host = null, diag = null } = {}
 
   let running = false;
   let raf = 0;
+  let testPattern = false;   // publish a known reference frame instead of the program
 
   const sinks = new Map();   // id -> sink
 
@@ -80,13 +83,18 @@ export function createOutputBus({ engineAdapter, host = null, diag = null } = {}
   async function frame() {
     if (!running) return;
     let f;
-    try {
-      f = await engineAdapter.renderFrameAt(width, height);
-    } catch {
-      stop();
-      return;
+    if (testPattern) {
+      // diagnostic: a static, cached reference frame (no engine, no source needed)
+      f = createTestFrame(width, height);
+    } else {
+      try {
+        f = await engineAdapter.renderFrameAt(width, height);
+      } catch {
+        stop();
+        return;
+      }
+      if (!running) return;   // could have been stopped during the await
     }
-    if (!running) return;   // could have been stopped during the await
 
     let publishMs = 0;
     for (const sink of sinks.values()) {
@@ -142,6 +150,11 @@ export function createOutputBus({ engineAdapter, host = null, diag = null } = {}
     },
     setServerName(name) { serverName = String(name || 'Fold'); },
 
+    // Diagnostic: when on, the loop publishes a known reference frame (test-pattern.js)
+    // instead of the program — to verify orientation/scale/color downstream (Arena, a
+    // recording). Takes effect on the next frame; no source required.
+    setTestPattern(on) { testPattern = !!on; },
+
     getStatus() {
       return {
         running,
@@ -151,6 +164,7 @@ export function createOutputBus({ engineAdapter, host = null, diag = null } = {}
         fps,
         width, height, aspect,
         serverName,
+        testPattern,
         sinks: [...sinks.keys()],
       };
     },
