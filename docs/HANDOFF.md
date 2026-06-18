@@ -12,7 +12,9 @@ He prefers **no em dashes** in any prose Claude generates for him.
 
 ## current version
 
-`v0.9.31 · Build 178`. The footer in the running app shows this string from `src/version.js`. **Milestone (Daniel-approved, Build 147):** video support is real. Refinements ongoing.
+`v0.9.32 · Build 179`. The footer in the running app shows this string from `src/version.js`. **Milestone (Daniel-approved, Build 147):** video support is real. Refinements ongoing.
+
+**Build 179:** fixed the Syphon name field leaking onto plain web (`.or-group[hidden] { display:none }` — `display:flex` was overriding the `hidden` attr). Daniel's other Build-178 UX notes are captured in BACKLOG "REFINE GLOBAL APP CONTROLS" (one coherent visual/IxD pass, deferred). Increment 4 (Electron) is next.
 
 ## FOLD LIVE — Phase 0 in progress (live performance shell → Electron+Syphon → Arena)
 

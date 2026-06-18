@@ -538,6 +538,7 @@ button .btn-spinner {
 .canvas-row .field { gap: 4px; }
 .or-label { color: #aaa; font-weight: 500; }
 .or-group { display: flex; align-items: center; gap: 6px; }
+.or-group[hidden] { display: none; }   /* author display:flex would otherwise override [hidden] (e.g. #syphonNameField on web) */
 .or-group .setting-label { margin: 0; }   /* inline label in the row, not stacked */
 #outputResTiers button { padding: 5px 9px; }
 .output-row .res-hint { margin: 0; }
