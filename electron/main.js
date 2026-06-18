@@ -59,7 +59,10 @@ app.whenReady().then(() => {
 // Syphon control from the renderer (via preload IPC). The server is created on
 // arm (carrying the editable name), fed one frame per publish, torn down on stop.
 ipcMain.on('syphon:start', (_e, { name } = {}) => syphon.start(name));
-ipcMain.on('syphon:frame', (_e, payload) => syphon.publish(payload));
+// `handle` (not `on`): publishImageData runs synchronously, so resolving the invoke
+// only after it returns gives the renderer true backpressure — it can't outrun main
+// and pile frames up in the IPC queue (the OOM fix; see preload.js publish()).
+ipcMain.handle('syphon:frame', (_e, payload) => { syphon.publish(payload); });
 ipcMain.on('syphon:stop', () => syphon.stop());
 
 // Single-window tool: closing the window ends the session on every platform.

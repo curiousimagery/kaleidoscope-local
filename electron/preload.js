@@ -25,6 +25,8 @@ const { contextBridge, ipcRenderer } = require('electron');
 // Tracks the armed state on this side too: a belt-and-suspenders gate so a stray
 // publish can't send a frame when no server is up (the sink is the primary gate).
 let syphonStarted = false;
+// Backpressure: at most ONE frame on the wire to main at a time (see publish).
+let frameInFlight = false;
 
 const foldHost = {
   name: 'electron',
@@ -35,16 +37,29 @@ const foldHost = {
     available: true,
     start(name) {
       syphonStarted = true;
+      frameInFlight = false;
       ipcRenderer.send('syphon:start', { name: name || 'Fold' });
     },
     // pixels: a Uint8Array (raw bottom-up RGBA) from the renderer; structured-cloned
     // across IPC. Orientation (the Syphon flipped flag) is the bridge's concern.
+    //
+    // BACKPRESSURE IS MANDATORY HERE. The renderer produces frames faster than main
+    // can upload them to Syphon, and `ipcRenderer.send` would QUEUE every frame's
+    // ~15MB payload without bound — the heap blows up (the out-of-memory we hit). So
+    // `invoke` + an in-flight flag caps it to one frame on the wire: while main is
+    // still publishing the previous frame, new frames are DROPPED, not buffered.
+    // Dropping is correct for live output — Arena only ever wants the freshest frame,
+    // never a backlog (a backlog is just latency you can't see past anyway).
     publish(pixels, width, height) {
-      if (!syphonStarted) return;
-      ipcRenderer.send('syphon:frame', { width, height, pixels });
+      if (!syphonStarted || frameInFlight) return;
+      frameInFlight = true;
+      ipcRenderer.invoke('syphon:frame', { width, height, pixels })
+        .catch(() => {})
+        .finally(() => { frameInFlight = false; });
     },
     stop() {
       syphonStarted = false;
+      frameInFlight = false;
       ipcRenderer.send('syphon:stop');
     },
   },
