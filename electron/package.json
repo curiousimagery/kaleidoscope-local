@@ -7,7 +7,8 @@
   "license": "AGPL-3.0-or-later",
   "author": "Daniel Nelson",
   "scripts": {
-    "start": "electron ."
+    "start": "electron .",
+    "postinstall": "node scripts/patch-node-syphon.cjs"
   },
   "dependencies": {
     "node-syphon": "1.5.0"

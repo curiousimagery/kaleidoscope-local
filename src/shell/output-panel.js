@@ -31,6 +31,7 @@ export function createOutputPanel(env, outputBus) {
   const recordBtn = byId('recordBtn');
   const broadcastBtn = byId('broadcastBtn');
   const testPatternBtn = byId('testPatternBtn');
+  const frameAspect = byId('frameAspect');   // canvas frame-aspect control (locked while outputting)
   const resTiers = byId('outputResTiers');
   const resHint = byId('outputResHint');
   const nameInput = byId('serverNameInput');
@@ -83,6 +84,23 @@ export function createOutputPanel(env, outputBus) {
   }
 
   function hasSource() { return !!(env.engine && env.engine.getSourceImage()); }
+  // What the bus can render: a loaded source, OR the test pattern (which needs no
+  // source). So you can broadcast/record the test pattern with nothing loaded — a
+  // pre-show pipe check — and the program otherwise.
+  function canArm() { return hasSource() || testOn; }
+
+  // The frame-aspect control sets the OUTPUT resolution, which the bus locks while
+  // running (you can't resize a live Syphon texture / recording canvas underneath).
+  // So disable it while outputting — otherwise changing it does nothing, which reads
+  // as a bug (Daniel hit exactly this in Arena). The other canvas controls (zoom /
+  // rotation / out-of-bounds) stay live — they re-render each frame and DO update.
+  function lockAspect(locked) {
+    if (!frameAspect) return;
+    frameAspect.classList.toggle('locked', locked);
+    frameAspect.title = locked
+      ? 'frame aspect is locked while recording or broadcasting — stop output to change it'
+      : '';
+  }
 
   function toggleRecord() {
     if (!recorder) return;
@@ -92,7 +110,7 @@ export function createOutputPanel(env, outputBus) {
       syncBusRunning();
       if (!wantBroadcast) stopPolling();
     } else {
-      if (!hasSource()) return;
+      if (!canArm()) return;
       if (!recorder.supported) { if (statusEl) statusEl.textContent = 'recording not supported in this browser'; return; }
       try {
         applyResolution();
@@ -117,7 +135,7 @@ export function createOutputPanel(env, outputBus) {
       syncBusRunning();
       if (!recorder?.recording) stopPolling();
     } else {
-      if (!hasSource()) return;
+      if (!canArm()) return;
       applyResolution();
       const name = nameInput ? nameInput.value : 'Fold';
       outputBus.setServerName(name);
@@ -133,28 +151,32 @@ export function createOutputPanel(env, outputBus) {
   // ---- status surfaces ---------------------------------------------------------
   function reflect() {
     const rec = !!recorder?.recording;
+    const armable = canArm();
     // traffic-light on the output button (always-on glance)
     if (ledGreen) ledGreen.classList.toggle('on-green', wantBroadcast);
     if (ledRed) ledRed.classList.toggle('on-red', rec);
     if (outputBtn) outputBtn.classList.toggle('active', rec || wantBroadcast);
-    // record control (red take)
+    // record control (red take) — disabled until there's something to output
     if (recordBtn) {
       recordBtn.textContent = rec ? 'stop' : 'record';
       recordBtn.classList.toggle('rec', rec);
+      recordBtn.disabled = !armable && !rec;
     }
     // broadcast control (green arm) — only present with a Syphon host
     if (broadcastBtn) {
       broadcastBtn.hidden = !syphonAvailable;
       broadcastBtn.textContent = wantBroadcast ? 'stop broadcast' : 'broadcast';
       broadcastBtn.classList.toggle('armed', wantBroadcast);
+      broadcastBtn.disabled = !armable && !wantBroadcast;
     }
     if (syphonNameField) syphonNameField.hidden = !syphonAvailable;
+    lockAspect(outputBus.running);   // frame aspect can't change mid-session
   }
 
   // The live readout, folded into the row: output target + state + fps.
   function renderStatus() {
     if (!statusEl) return;
-    if (!hasSource()) { statusEl.textContent = 'load a source to output'; statusEl.classList.remove('live'); return; }
+    if (!canArm()) { statusEl.textContent = 'load a source (or use the test pattern) to output'; statusEl.classList.remove('live'); return; }
     const s = outputBus.getStatus();
     const parts = [];
     if (s.broadcasting) parts.push(`◉ ${s.serverName}`);
@@ -175,12 +197,14 @@ export function createOutputPanel(env, outputBus) {
   }
   function stopPolling() { if (statusTimer) { clearInterval(statusTimer); statusTimer = 0; } }
 
-  // gate the toolbar button on a loaded source; called by the chrome on source/
-  // layout change (alongside motion). A running output can't outlive its source.
+  // Called by the chrome on source/layout change (alongside motion). The output band
+  // is reachable whenever output is POSSIBLE (a sink exists), not gated on a source —
+  // so you can open it to configure resolution or run the test pattern before loading
+  // content; arming itself is gated on canArm() (source or test pattern). A running
+  // output that loses its only frame source (no source, test pattern off) is stopped.
   function updateOutputUI() {
-    const ok = hasSource();
-    if (outputBtn) outputBtn.disabled = !ok;
-    if (!ok && (recorder?.recording || wantBroadcast)) {
+    if (outputBtn) outputBtn.disabled = !(hasSource() || recorder?.supported || syphonAvailable);
+    if (!canArm() && (recorder?.recording || wantBroadcast)) {
       if (recorder?.recording) recorder.stop();
       if (wantBroadcast) syphonSink?.stop();
       wantRecord = false; wantBroadcast = false;
@@ -201,13 +225,14 @@ export function createOutputPanel(env, outputBus) {
   recordBtn?.addEventListener('click', toggleRecord);
   broadcastBtn?.addEventListener('click', toggleBroadcast);
 
-  // Diagnostic toggle: swap the program for a reference test pattern on the bus. Takes
-  // effect whenever the bus is running (recording or broadcasting); arm one first.
+  // Diagnostic toggle: swap the program for a reference test pattern on the bus. The
+  // pattern needs no source, so this also makes record/broadcast armable on its own
+  // (pre-show pipe check); turning it back off with no source stops a running output.
   testPatternBtn?.addEventListener('click', () => {
     testOn = !testOn;
     outputBus.setTestPattern(testOn);
     testPatternBtn.classList.toggle('active', testOn);
-    renderStatus();
+    updateOutputUI();
   });
 
   resTiers?.querySelectorAll('button[data-tier]').forEach((b) => {

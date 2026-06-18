@@ -377,6 +377,10 @@ button .btn-spinner {
 .res-hint .num { color: #c0c0c0; font-variant-numeric: tabular-nums; }
 
 .button-grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+/* locked while outputting (frame aspect can't change mid-session). Container keeps
+   pointer-events for its title tooltip; buttons go inert so clicks don't register. */
+.button-grid-3.locked { opacity: 0.4; cursor: not-allowed; }
+.button-grid-3.locked button { pointer-events: none; }
 .button-grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
 .button-grid-5 { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; }
 
