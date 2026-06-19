@@ -17,7 +17,7 @@
 
 'use strict';
 
-const { app, BrowserWindow, ipcMain } = require('electron');
+const { app, BrowserWindow, ipcMain, session } = require('electron');
 const path = require('path');
 const syphon = require('./syphon-bridge');
 
@@ -51,7 +51,19 @@ function createWindow() {
   win.on('closed', () => { win = null; });
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  // The built web app ships a PWA service worker (offline precache for the browser).
+  // In Electron that causes STALE loads: a freshly rebuilt dist/ is ignored because
+  // the SW keeps serving the old cached bundle, so the app is stuck on an old build
+  // no matter how many times you restart. Clear the SW + Cache-API storage on each
+  // launch so Electron always loads the CURRENT dist. localStorage prefs (camera
+  // device, output destination) are NOT cleared.
+  try {
+    await session.defaultSession.clearStorageData({ storages: ['serviceworkers', 'cachestorage'] });
+  } catch (e) {
+    console.warn('[fold] could not clear service-worker cache', e);
+  }
+
   createWindow();
 
   app.on('activate', () => {
