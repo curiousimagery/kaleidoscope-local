@@ -66,7 +66,15 @@ export function createOutputEngine(env) {
     }
     // A live source (camera / loaded video) changes every frame; re-upload the
     // current frame from the shared element. A still uploads once (above) and holds.
-    if (env.live?.isLive || env.sourceVideo) {
+    //
+    // BUT skip a video that's mid-seek: this loop runs continuously (unlike the
+    // render-on-demand preview), so without the guard it uploads every intermediate
+    // frame the decoder presents WHILE a seek resolves — which on pause/scrub of a
+    // long clip flickers the broadcast through stray timestamps before settling. The
+    // preview only renders the SETTLED frame (after the 'seeked' await in scrubVideo);
+    // holding our last upload until v.seeking clears matches that. Covers the loop-
+    // around seek during playback too. The live camera (no env.sourceVideo) is exempt.
+    if (env.live?.isLive || (env.sourceVideo && !env.sourceVideo.seeking)) {
       hidden.updateSourceFrame();
     }
   }

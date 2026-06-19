@@ -4,6 +4,12 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.10.18 (Build 200) — 2026-06-19 — fix: Syphon broadcast flickers stray frames when pausing a long video clip
+
+**Daniel's smoke test of the Build-199 refactor:** the perf win landed big (4K ~35-40fps, HD 100+fps, record less compressed + faster). One bug surfaced — pausing motion playback on a long clip (6-10 min) paused the main preview cleanly, but the **Syphon broadcast flickered through a series of different timestamps from the clip before settling**. Cause: pausing runs `stopPlayback` → `loadPlayheadIntoState` → `scrubVideo(playhead)`, which **seeks** the source `<video>` to the (keyframe-snapped) playhead; on a long clip that seek resolves slowly and the decoder presents a run of intermediate frames. The preview renders only ONCE (after the `'seeked'` await), but the bus's hidden output engine ([shell/output-engine.js](../src/shell/output-engine.js)) runs a CONTINUOUS loop and was calling `updateSourceFrame()` every tick — uploading each of those in-between decode frames. **Fix:** the output engine now skips the per-frame video re-upload while `env.sourceVideo.seeking` is true, holding its last settled frame until the seek clears — the same settled-frame discipline the preview follows. Covers the loop-around seek during playback too; the live camera (no `env.sourceVideo`) and stills (upload-once) are unaffected. `node --check` clean, build green. **Verify (Daniel):** broadcast a long clip in motion mode, pause — the Syphon output should hold the last frame and snap once to the playhead, no flicker.
+
+---
+
 ## v0.10.17 (Build 199) — 2026-06-19 — output bus beats the readback wall (hidden engine + getImageData)
 
 **The perf arc the Build-197 benchmark green-lit.** The live-output bus rendered the program to an FBO and pulled it back with `readPixels` — ~43ms for a single 1080p frame on ANGLE-Metal, the entire cost of Syphon/record (HD ~22fps, 4K ~5fps). The benchmark proved `drawImage` GL→2D + `getImageData` is ~9× faster (4.7ms vs 42.9ms), but that path needs the program on a REAL GL canvas drawing buffer (drawImage can't read an FBO) and we can't commandeer the visible preview every frame.
