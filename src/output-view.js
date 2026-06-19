@@ -146,6 +146,10 @@ channel.onmessage = (e) => {
     latestState = msg.state;
     latestVideo = msg.video || null;
     applyOutput(msg.output);
+    // Reconcile the video clock HERE too, not only in the rAF loop: Firefox
+    // suspends rAF in an unfocused window, so the loop can stall while messages
+    // still arrive — without this the popup's video free-runs when motion pauses.
+    reconcileVideo();
   } else if (msg.type === 'source') {
     applyOutput(msg.output);
     setupSource(msg.payload);

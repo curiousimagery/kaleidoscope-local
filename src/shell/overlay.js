@@ -828,6 +828,7 @@ export function setupSourceInteraction(env, wrap) {
     h.wrap.removeEventListener('mousemove', h.onMove);
     h.wrap.removeEventListener('touchstart', h.onDown);
     h.wrap.removeEventListener('touchmove', h.onMove);
+    h.wrap.removeEventListener('wheel', h.onWheel);
     window.removeEventListener('mouseup', h.onUp);
     window.removeEventListener('touchend', h.onUp);
   }
@@ -1200,6 +1201,24 @@ export function setupSourceInteraction(env, wrap) {
     env.scheduleOverlayDraw?.();
   }
 
+  // Trackpad pinch-to-scale the SLICE. macOS browsers deliver a trackpad pinch as a
+  // `wheel` event with ctrlKey (no real multi-touch on a Mac — see memory), so this
+  // is the one pinch gesture that works on desktop incl. our Electron build. Scales
+  // sliceScale (same clamp as the two-finger pinch); one undo entry per burst.
+  let wheelTimer = 0;
+  function onWheel(e) {
+    if (!e.ctrlKey) return;
+    e.preventDefault();
+    if (!wheelTimer) env.pushHistory?.();
+    const factor = Math.exp(-e.deltaY * 0.01);
+    env.state.sliceScale = Math.max(0.05, Math.min(10, env.state.sliceScale * factor));
+    env.syncControls?.();
+    env.scheduleRender?.();
+    env.scheduleOverlayDraw?.();
+    clearTimeout(wheelTimer);
+    wheelTimer = setTimeout(() => { wheelTimer = 0; env.updateUndoUI?.(); }, 250);
+  }
+
   // Claim multi-touch on the source surface so the browser doesn't swallow a
   // two-finger pinch as a page zoom (it was reaching the browser, not our pinch
   // handler — most visibly on desktop touchscreens like the Movink). Mobile already
@@ -1211,8 +1230,9 @@ export function setupSourceInteraction(env, wrap) {
   wrap.addEventListener('touchstart', onDown, { passive: false });
   wrap.addEventListener('touchmove', onMove, { passive: false });
   window.addEventListener('touchend', onUp);
+  wrap.addEventListener('wheel', onWheel, { passive: false });
 
-  _attachedHandlers = { wrap, onDown, onMove, onUp };
+  _attachedHandlers = { wrap, onDown, onMove, onUp, onWheel };
 }
 
 // mount the source view (image div + overlay canvas) into a slot element.

@@ -49,15 +49,32 @@ export function createOutputGestures(canvas, ctx) {
     if (e.touches.length < 2) { pinch = null; ctx.onCommitEnd?.(); }
   }
 
+  // Trackpad pinch-to-zoom the OUTPUT. macOS delivers a trackpad pinch as wheel +
+  // ctrlKey (no multi-touch on a Mac), so this is the desktop/Electron pinch path
+  // (rotate isn't exposed there — Safari-gesture-only). One undo entry per burst.
+  let wheelTimer = 0;
+  function onWheel(e) {
+    if (!e.ctrlKey) return;
+    e.preventDefault();
+    if (!wheelTimer) ctx.onCommitStart?.();
+    const factor = Math.exp(-e.deltaY * 0.01);
+    state.canvasZoom = Math.max(0.15, Math.min(4, state.canvasZoom * factor));
+    ctx.onChange?.();
+    clearTimeout(wheelTimer);
+    wheelTimer = setTimeout(() => { wheelTimer = 0; ctx.onCommitEnd?.(); }, 250);
+  }
+
   canvas.addEventListener('touchstart', onStart, { passive: false });
   canvas.addEventListener('touchmove', onMove, { passive: false });
   canvas.addEventListener('touchend', onEnd);
+  canvas.addEventListener('wheel', onWheel, { passive: false });
 
   return {
     destroy() {
       canvas.removeEventListener('touchstart', onStart);
       canvas.removeEventListener('touchmove', onMove);
       canvas.removeEventListener('touchend', onEnd);
+      canvas.removeEventListener('wheel', onWheel);
     },
   };
 }

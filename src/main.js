@@ -108,6 +108,23 @@ try {
   console.error(e);
 }
 
+// WebGL context-loss safety + diagnostic. preventDefault keeps the context
+// RESTORABLE (without it the GPU drops it for good); we surface the loss (a silent
+// black preview is worse) and log both edges. This is also the data point for the
+// "panels black out on resize while broadcasting" report: if the preview goes black
+// but NO 'webglcontextlost' fires, the context is fine and it's a repaint bug, not a
+// context loss. (A full restore re-inits engine GL state — a scoped follow-up.)
+if (engine) {
+  previewCanvas.addEventListener('webglcontextlost', (ev) => {
+    ev.preventDefault();
+    console.warn('[fold] WebGL context LOST (preview canvas)');
+    if (statusEl) { statusEl.textContent = 'graphics context lost — reload to recover'; statusEl.classList.add('error'); }
+  });
+  previewCanvas.addEventListener('webglcontextrestored', () => {
+    console.warn('[fold] WebGL context RESTORED (preview canvas)');
+  });
+}
+
 // ============================================================================
 // env — shared runtime container threaded through shell modules
 // ============================================================================
@@ -277,21 +294,28 @@ env.resizePreviewCanvas = resizePreviewCanvas;
 
 function sizeMiniCanvas() {
   const sideSlot = document.getElementById('sideSlot');
-  const w = sideSlot.clientWidth;
+  const cw = sideSlot.clientWidth || 1;
+  const ch = sideSlot.clientHeight || cw;
+  // fit a frameAspect (w/h) rectangle into the side slot so the swapped-side
+  // kaleidoscope matches the OUTPUT frame shape (not a square crop) — e.g. a 16:9
+  // comp stays 16:9 when source/output are swapped.
+  const a = session.frameAspect || 1;
+  let w, h;
+  if (cw / ch >= a) { h = ch; w = h * a; } else { w = cw; h = w / a; }
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
   miniCanvas.width = Math.floor(w * dpr);
-  miniCanvas.height = Math.floor(w * dpr);
-  miniCanvas.style.width = w + 'px';
-  miniCanvas.style.height = w + 'px';
+  miniCanvas.height = Math.floor(h * dpr);
+  miniCanvas.style.width = Math.round(w) + 'px';
+  miniCanvas.style.height = Math.round(h) + 'px';
 }
 
 function drawMiniKaleidoscope() {
   if (!miniCanvas.parentElement) return;
   const ctx = miniCanvas.getContext('2d');
   ctx.clearRect(0, 0, miniCanvas.width, miniCanvas.height);
-  // center-crop the (possibly non-square) preview into the square mini.
-  const pw = previewCanvas.width, ph = previewCanvas.height, s = Math.min(pw, ph);
-  ctx.drawImage(previewCanvas, (pw - s) / 2, (ph - s) / 2, s, s, 0, 0, miniCanvas.width, miniCanvas.height);
+  // draw the FULL preview (mini now shares the preview's frame aspect — no crop).
+  ctx.drawImage(previewCanvas, 0, 0, previewCanvas.width, previewCanvas.height,
+                0, 0, miniCanvas.width, miniCanvas.height);
 }
 
 // ============================================================================
@@ -356,7 +380,8 @@ function arrangeSlots() {
 
     const sideWrap = document.createElement('div');
     sideWrap.className = 'slot-content';
-    sideWrap.style.cssText = `position: absolute; inset: 0;`;
+    // center the (now frame-aspect, non-square) mini kaleidoscope in the slot.
+    sideWrap.style.cssText = `position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;`;
     sideWrap.appendChild(miniCanvas);
     sideSlot.appendChild(sideWrap);
   }

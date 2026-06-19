@@ -93,7 +93,13 @@ export function createRecorderSink({ filenamePrefix = 'fold-live' } = {}) {
       if (mime === null) throw new Error('MediaRecorder is not available in this browser');
       chunks = [];
       stream = canvas.captureStream();   // tracks the canvas as it's drawn each frame
-      recorder = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
+      // Quality: MediaRecorder's default bitrate for a canvas stream is low → heavily
+      // compressed footage. Target ~0.2 bits/pixel/frame at 30fps (≈ w·h·6), capped so
+      // the real-time encoder can keep up. Much better fidelity than the default.
+      const videoBitsPerSecond = Math.min(40_000_000, Math.round(w * h * 6));
+      const opts = { videoBitsPerSecond };
+      if (mime) opts.mimeType = mime;
+      recorder = new MediaRecorder(stream, opts);
       const finalMime = recorder.mimeType || mime || 'video/webm';
       recorder.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
       recorder.onstop = () => {
