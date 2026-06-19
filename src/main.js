@@ -346,7 +346,10 @@ function arrangeSlots() {
     // main = K, side = S
     const mainWrap = document.createElement('div');
     mainWrap.className = 'slot-content';
-    mainWrap.style.cssText = `position: relative; max-width: 100%; max-height: 100%; display: flex; align-items: center; justify-content: center;`;
+    // fill the stage (NOT max-content) so the flex centering has room to act —
+    // with max-height the wrap shrank to the canvas and the 16:9 preview pinned to
+    // the top. Matches the swapped branch below, which centers correctly.
+    mainWrap.style.cssText = `position: relative; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;`;
     previewCanvas.style.display = 'block';
     mainWrap.appendChild(previewCanvas);
     msStage.appendChild(mainWrap);
