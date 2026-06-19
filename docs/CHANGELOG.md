@@ -4,6 +4,18 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.10.9 (Build 191) — 2026-06-18 — touch-action on the gesture surfaces + an input diagnostic
+
+**From Daniel's Movink rehearsal: the two-finger reposition+scale+rotate gesture didn't work on the desktop touchscreen (works on iPad).** First, concrete, high-confidence fix: the source surface (`overlay.js` `setupSourceInteraction`) and the output preview (`main.js`) now set **`touch-action: none`**, so the browser stops swallowing a two-finger pinch as a page zoom and our existing pinch handler (already wired unconditionally) can receive it. This is the likely fix wherever the OS actually delivers touch to the browser. **It is NOT guaranteed to be the whole story** — the hybrid input matrix differs by device/browser (a Sidecar iPad may not deliver finger-touch to the Mac at all; a desktop trackpad pinch fires `gesturestart`/`wheel+ctrl`, not touch events), so a small **opt-in input diagnostic** ships alongside ([src/shell/input-debug.js](../src/shell/input-debug.js), `?inputdebug`): an on-screen readout of the pointer/touch/gesture/wheel events + the peak simultaneous pointer/touch count, so we can see per device + browser exactly what reaches the browser and add the right handler(s) next without guessing. Build green, `node --check` clean. **Verify (Daniel):** with `?inputdebug`, two-finger on the Movink slice — does the readout show `touches=2` / `peak pointers=2`, and does the slice now pinch instead of the page zooming? Report what each of Movink / Sidecar / desktop Safari (trackpad) / Firefox shows. **Scaling touch targets** (Movink ~7" effective) and the **trackpad/Sidecar paths** are tracked in BACKLOG ("Hybrid touch/pen/cursor input").
+
+---
+
+## v0.10.8 (Build 190) — 2026-06-18 — output window: video sync to the main clock
+
+**Follow-up to Build 189, from Daniel's test.** The output window's WedgE/slice params already tracked instantly, but a loaded-video source could drift, because the popup played its OWN copy independently — most visibly when entering motion mode (which pauses the main preview's video but not the window). Now the main app posts its video clock — `currentTime`, `paused`, and retime `playbackRate` — alongside each `state` message ([output-window.js](../src/shell/output-window.js) `videoSync()`), and the popup ([output-view.js](../src/output-view.js) `reconcileVideo()`) slaves its copy to it: it matches paused (so motion-mode pause/scrub now carries to the window) and rate, and nudges `currentTime` toward the master only on real drift (tight ≤0.05s when paused/scrubbing, looser ≤0.2s while playing so it doesn't re-seek every frame). Camera + still sources are unaffected (camera is already in-sync via the shared device; a still is one frame). Build green, `node --check` clean. **Verify (Daniel):** load a video → output window → the window tracks the preview's playback; hop into motion mode and back → the window pauses/scrubs with the preview instead of free-running.
+
+---
+
 ## v0.10.7 (Build 189) — 2026-06-18 — output window: GPU-direct render path
 
 **Fold Live enablement arc, increment 2 (the headline).** The external output window is now a **first-class destination**: it renders the live program **itself on the GPU at the output resolution** instead of CPU-painting read-back pixels (was ~5fps@4K via `putImageData`). It stays smooth to 4K, needs **zero chrome** (click the window to toggle fullscreen; cursor hides), and is **pure web** — no Electron dependency (works there too, since it's just `window.open` + `BroadcastChannel` + WebGL). This makes the window viable for standalone/no-Arena use, **gallery exhibits**, and a **kaleidoscope photo booth**.

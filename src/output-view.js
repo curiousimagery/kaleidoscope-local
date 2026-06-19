@@ -34,6 +34,7 @@ try {
 }
 
 let latestState = null;          // the most recent program state (params)
+let latestVideo = null;          // {t,paused,rate} of the main app's video clock (loaded-video source)
 let liveSource = false;          // camera/video re-upload the texture each frame; a still does not
 let haveSource = false;
 let camera = null;               // createCamera() when the source is the live camera
@@ -101,9 +102,26 @@ async function setupSource(payload) {
 
 // ---- the render loop: GPU-direct, zero readback --------------------------------
 let frames = 0, fpsT = performance.now(), measuredFps = 0;
+// Keep the popup's own <video> copy locked to the main app's clock: match paused
+// (motion mode pauses the main video) + retime rate, and nudge currentTime toward
+// the master only on real drift (tight when paused/scrubbing, looser while playing
+// so we don't seek every frame).
+function reconcileVideo() {
+  if (!videoEl || !latestVideo) return;
+  if (latestVideo.paused) {
+    if (!videoEl.paused) videoEl.pause();
+    if (Math.abs(videoEl.currentTime - latestVideo.t) > 0.05) videoEl.currentTime = latestVideo.t;
+  } else {
+    if (videoEl.paused) videoEl.play().catch(() => {});
+    if (videoEl.playbackRate !== latestVideo.rate) videoEl.playbackRate = latestVideo.rate || 1;
+    if (Math.abs(videoEl.currentTime - latestVideo.t) > 0.2) videoEl.currentTime = latestVideo.t;
+  }
+}
+
 function tick() {
   if (haveSource && latestState) {
     if (camera) camera.refreshFrame();        // front-camera: redraw the mirrored frame
+    if (videoEl) reconcileVideo();             // keep the video copy in sync with the main clock
     if (liveSource) engine.updateSourceFrame(); // re-upload camera/video texture
     engine.render(latestState);
     if (hint && !document.body.classList.contains('live')) document.body.classList.add('live');
@@ -126,6 +144,7 @@ channel.onmessage = (e) => {
   if (!msg) return;
   if (msg.type === 'state') {
     latestState = msg.state;
+    latestVideo = msg.video || null;
     applyOutput(msg.output);
   } else if (msg.type === 'source') {
     applyOutput(msg.output);

@@ -36,6 +36,7 @@ import { createSyphonSink } from './stage/syphon-sink.js';
 import { createOutputWindow } from './shell/output-window.js';
 import { mockSyphonHost } from './stage/mock-host.js';
 import { createOutputPanel } from './shell/output-panel.js';
+import { mountInputDebug } from './shell/input-debug.js';
 import { VERSION, formatVersion } from './version.js';
 import { push as historyPush, undo as historyUndo, redo as historyRedo, canUndo, canRedo } from './shell/history.js';
 import { wireDiagnosticButton } from './shell/diagnostics.js';
@@ -953,6 +954,9 @@ if (engine) {
   applyFormControls(env);
   wireControls();
   setupDivider(env);
+  // claim multi-touch on the output preview too (pinch/twist), same reason as the
+  // source surface — keep the browser from swallowing the gesture as a page zoom.
+  previewCanvas.style.touchAction = 'none';
   createOutputGestures(previewCanvas, {
     state,
     onChange: () => { scheduleSyncControls(); env.scheduleRender(); },
@@ -964,6 +968,7 @@ if (engine) {
   wireGlobalSheets();
   wireBarBands();
   wireDiagnosticButton(engine, () => state);
+  mountInputDebug();   // ?inputdebug → on-screen pointer/touch/gesture readout (hybrid-input diagnosis)
 
   window.addEventListener('resize', () => {
     resizePreviewCanvas();

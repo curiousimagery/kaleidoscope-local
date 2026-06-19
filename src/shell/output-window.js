@@ -61,6 +61,15 @@ export function createOutputWindow(env) {
     return { width: bus?.width || 1920, height: bus?.height || 1080 };
   }
 
+  // For a loaded-video source, slave the popup's own copy to the main app's clock:
+  // its current time, paused state (motion mode pauses the main video), and retime
+  // rate. The popup plays smoothly and nudges toward this on drift (see output-view).
+  function videoSync() {
+    const v = env.sourceVideo;
+    if (!v) return null;
+    return { t: v.currentTime || 0, paused: !!v.paused, rate: v.playbackRate || 1 };
+  }
+
   async function postSource() {
     if (!channel || sourcePending) return;
     sourcePending = true;
@@ -81,7 +90,7 @@ export function createOutputWindow(env) {
     const sig = sourceSignature();
     if (sig !== lastSourceSig) { lastSourceSig = sig; postSource(); }
     if (channel) {
-      try { channel.postMessage({ type: 'state', state: env.state, output: outputDims() }); } catch {}
+      try { channel.postMessage({ type: 'state', state: env.state, output: outputDims(), video: videoSync() }); } catch {}
     }
     raf = requestAnimationFrame(loop);
   }

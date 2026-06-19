@@ -1200,6 +1200,11 @@ export function setupSourceInteraction(env, wrap) {
     env.scheduleOverlayDraw?.();
   }
 
+  // Claim multi-touch on the source surface so the browser doesn't swallow a
+  // two-finger pinch as a page zoom (it was reaching the browser, not our pinch
+  // handler — most visibly on desktop touchscreens like the Movink). Mobile already
+  // wants this; it's harmless where there's no touch (a mouse is single-pointer).
+  wrap.style.touchAction = 'none';
   wrap.addEventListener('mousedown', onDown);
   wrap.addEventListener('mousemove', onMove);
   window.addEventListener('mouseup', onUp);
