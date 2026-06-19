@@ -12,6 +12,7 @@ src/
 ├── main.js                  DESKTOP chrome + the app wiring — owns the env runtime container, the motion
 │                            timeline, video source/scrub/playback, the clip editor, export wiring (large file)
 ├── version.js               VERSION + monotonic BUILD counter, footer string
+├── lab.js                   UI Lab renderer — design-system gallery (tokens read live + core controls); /lab.html entry
 │
 ├── engine/                  pure rendering — knows nothing about DOM or controls; source-agnostic
 │   ├── index.js             public API: createEngine, setSource/updateSourceFrame, render, exportAt/exportFrame,
@@ -58,13 +59,14 @@ src/
 │   ├── diagnostics.js       FBO/encode probes, e2e render check
 │   ├── zip.js               dependency-free store-only zip (export package)
 │   ├── cursors.js           pre-baked rotate-cursor SVG variants
-│   └── styles.css           desktop styles
+│   ├── tokens.css           DESIGN TOKENS — primitives + semantic aliases; the editable visual surface (desktop + mobile)
+│   └── styles.css           desktop styles (token-driven)
 │
 ├── desktop/                 (desktop chrome currently lives in main.js; folder reserved)
 └── mobile/                  mobile chrome (touch, phone-class viewports)
     ├── chrome.js            boot/mode-detect, sticky-divider layout, tab bar, popovers, camera, save sheet
     ├── icons.js             mobile tab-bar/glyph icons
-    └── styles.css           mobile styles
+    └── styles.css           mobile styles (token-driven; shares shell/tokens.css)
 
 docs/                        all the long-form context lives here (HANDOFF is the rolling source of truth)
 ```
@@ -89,6 +91,8 @@ The codebase is organized in reuse tiers, deliberately (this is the model the mu
 - **Stage** (`src/stage/`) — the ENGINE-AGNOSTIC live-output layer (added Build 175, Fold Live Phase 0). "One program frame, many sinks": `createOutputBus` runs a paced loop that renders ONE frame at the chosen output resolution through an **engine adapter** and fans it to registered sinks (record-to-disk now; Syphon + an output-only window via the Electron shell later). The only coupling to an engine is the two-tier **engine-adapter contract** (`engine-adapter.js`): universal `renderFrameAt(w,h) → Frame` (every engine), perform-tier `getState/applyState/tween` (engines with addressable state; Phase 2 consumes these). The stage knows NOTHING about kaleidoscopes — a second tenant (a gesture light source, a zoetrope builder, an audio-viz) supplies its own adapter and reuses the stage verbatim. Do not extract it to a package until a second tenant exists; the clean boundary makes that cheap then. Fold's adapter is `shell/fold-adapter.js` (in shell/ so stage/ stays Fold-free), and Fold's chrome over the bus is `shell/output-panel.js` (the `#outputBtn` + `#outputSheet`).
 - **App wiring** (`src/shell/app.js` + `clip-editor.js` + `source-host.js` + `motion-runtime.js`) — the device-agnostic application logic that sits *beneath* the chrome: `createSourceHost` (media load + live camera + still export), `createClipEditor` (the trim/bounce/slice sheet + bake), `createMotionRuntime` (sampling/playback/keyframes/timeline/filmstrip/scrub/retime/video-export sheet). Each is a `createX(env)` that mounts onto `env`; `createApp(env, { host, capabilities })` mounts all three in one call and threads the injectable native seams. A chrome builds `env` (engine + DOM + schedulers + layout handles) then calls `createApp` — so a future Electron/live shell mounts the SAME wiring without forking it. (Extracted from `main.js` in Build 164–168; before that it was one ~2,600-line file.)
 - **Chrome** (`src/main.js` = desktop/iPad; `src/mobile/chrome.js` = phone) — *only* layout/divider/tab-bar/slots/control-wiring/undo + the engine+env+overlay construction; the app wiring above is mounted via `createApp`. The only layer genuinely rebuilt per device. `src/boot.js` picks the chrome (phone → mobile, else desktop; `?chrome=` override). **iPad stays on the desktop chrome** (it hosts the keyframe/timeline editor, which is desktop/iPad-only). (The phone chrome `mobile/chrome.js` has its own lighter wiring and does not yet mount `createApp` — a future convergence.)
+
+**Design system** (`src/shell/tokens.css` + the UI Lab at `lab.html`/`src/lab.js`, added Builds 205-208) is a cross-cutting CSS-custom-property layer, NOT a reuse tier. Two tiers: raw `--c-*` PRIMITIVES (neutral ramp + accents + type/radii/spacing scales) feed SEMANTIC aliases (`--bg`/`--surface`/`--text-dim`/`--accent`/`--ok`/`--danger`/`--touch-target`/…). Defined once in `tokens.css` (linked in `index.html` before the chrome styles, so it reaches desktop AND mobile via the shared `<head>` that boot.js leaves intact) and consumed by both `shell/styles.css` and `mobile/styles.css`. Edit a semantic token once and every consumer (both chromes plus the Lab) moves together. The **UI Lab** (`/lab.html`) renders every token live via `getComputedStyle` plus the core controls in their states: the shared visual reference, and the "edit once" proof. The full token map, the working loop, and the responsive/touch-target rules live in `DESIGN.md`.
 
 **Why this matters for native (a recurring question):** because the Engine + Kit + Components are the bulk of the app and are device-agnostic, a NATIVE wrapper (Electron on macOS, Capacitor/WKWebView on iOS) reuses 100% of this code — it adds only a thin native shell + native modules (Syphon, camera). A wrapper does NOT fork the UI/IxD; only a full SwiftUI+Metal rewrite would, and that is not required for Syphon/camera. So the single web codebase stays the source of truth; native is a shell. (See HANDOFF + BACKLOG for the Electron-Syphon-spike plan.)
 

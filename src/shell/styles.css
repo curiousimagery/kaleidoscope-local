@@ -247,8 +247,12 @@ input[type="range"]:disabled::-webkit-slider-thumb { background: var(--c-neutral
 input[type="range"]:disabled::-moz-range-thumb { background: var(--c-neutral-550); cursor: not-allowed; }
 label.slider.disabled { opacity: var(--disabled-opacity); }
 
+/* coarse pointer (touch): the ONE token-driven touch-target style, shared by the
+   desktop-touch surface AND the mobile chrome (mobile no longer overrides the slider
+   height — it inherits these rules; see mobile/styles.css). Edit --touch-target once
+   and both surfaces move together. */
 @media (pointer: coarse) {
-  input[type="range"] { height: 44px; }
+  input[type="range"] { height: var(--touch-target); }
   input[type="range"]::-webkit-slider-thumb { width: 28px; height: 28px; margin-top: -13px; }
   input[type="range"]::-webkit-slider-runnable-track { height: 3px; }
   input[type="range"]::-moz-range-thumb { width: 28px; height: 28px; }
@@ -259,7 +263,7 @@ label.slider.disabled { opacity: var(--disabled-opacity); }
     min-height: 28px;
     padding: 6px 8px;
     margin: -6px -8px;
-    min-width: 44px;
+    min-width: var(--touch-target);
   }
 }
 
@@ -514,8 +518,8 @@ button .btn-spinner {
 .ot-select[hidden] { display: none; }
 /* touch: larger hit targets, and the form picker matches the toolbar buttons. */
 @media (pointer: coarse) {
-  .ot-btn { min-width: 44px; height: 44px; }
-  .form-thumb { width: 44px; height: 44px; }
+  .ot-btn { min-width: var(--touch-target); height: var(--touch-target); }
+  .form-thumb { width: var(--touch-target); height: var(--touch-target); }
 }
 /* source/status caption — floats over the preview's top-left inside the stage:
    current source + live state (#status) plus upload errors (#uploadError).
@@ -722,7 +726,7 @@ button .btn-spinner {
   background: var(--fill-bright); pointer-events: none; z-index: 2;   /* white scrubber */
   transform: translateX(-50%);                            /* center the line on its t (aligns with the centered notch) */
 }
-@media (pointer: coarse) { .mf-btn { height: 44px; } }
+@media (pointer: coarse) { .mf-btn { height: var(--touch-target); } }
 
 /* motion mode pins discrete fields to keyframe 0: hide the form picker and
    dim/disable the controls that can't be animated. a CSS class is used (not
