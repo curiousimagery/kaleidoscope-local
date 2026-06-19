@@ -60,13 +60,21 @@ export function createOutputEngine(env) {
     });
   }
 
-  // Keep the hidden engine's texture pointed at the same source as the preview.
-  // Reference identity covers every transition (still upload, video load, camera
-  // start/flip/device-switch — each hands the main engine a new/changed element).
+  // Keep the hidden engine's texture pointed at the same source as the preview, with
+  // the right ASPECT. Reference identity covers new elements (still upload, video load).
+  // But the camera reuses ONE <video>/mirror-canvas element across device switches AND
+  // resolution renegotiation (camera.js ensureVideo), so the reference can stay the same
+  // while the dimensions change — and setSource is what records sourceAspect. If we only
+  // re-uploaded on a reference change, the hidden engine would keep a STALE aspect and
+  // the output would stretch (the preview is fine because the main engine re-setSources
+  // on every camera switch). So also re-setSource when the source's dimensions change.
   function syncSource(src) {
-    if (src !== lastSource) {
+    const w = src.naturalWidth || src.videoWidth || src.width || 0;
+    const h = src.naturalHeight || src.videoHeight || src.height || 0;
+    const cur = hidden.getSourceSize();   // dims currently uploaded to the hidden engine
+    if (src !== lastSource || (w && h && (w !== cur.w || h !== cur.h))) {
       try {
-        hidden.setSource(src);     // throws if the element has no dims yet
+        hidden.setSource(src);     // records sourceAspect from the live dims; throws if not ready
         lastSource = src;
       } catch {
         // not ready this frame (rare — the preview already validated the source);

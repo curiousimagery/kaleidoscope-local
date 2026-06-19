@@ -283,10 +283,13 @@ export function createSourceHost(env) {
   }
 
   function updateCameraUI() {
-    // Upload/camera and the live capture/flip/stop group share the toolbar's left
-    // (source) slot; only one set shows at a time.
+    // The camera button swaps for the live capture/flip/stop group while live. Upload
+    // PERSISTS through live camera (sits leftmost, beside that group) so you can switch
+    // to an image/video without first stopping the camera — which would clear the source
+    // and tear down a live broadcast. loadImage/loadVideo already exit live with
+    // keepSource:true, so the source (and the broadcast) survive the switch.
     document.getElementById('cameraBtn').style.display = env.live.isLive ? 'none' : '';
-    document.getElementById('uploadBtn').style.display = env.live.isLive ? 'none' : '';
+    document.getElementById('uploadBtn').style.display = '';
     document.getElementById('cameraLive').style.display = env.live.isLive ? 'flex' : 'none';
     // flip button labels the camera it switches TO.
     const flip = document.getElementById('flipBtn');

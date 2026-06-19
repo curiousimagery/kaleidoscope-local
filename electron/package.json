@@ -8,7 +8,7 @@
   "author": "Daniel Nelson",
   "scripts": {
     "start": "electron .",
-    "dist": "npm run build --prefix .. && electron-builder",
+    "dist": "node scripts/build-dmg.cjs",
     "postinstall": "node scripts/patch-node-syphon.cjs"
   },
   "dependencies": {
