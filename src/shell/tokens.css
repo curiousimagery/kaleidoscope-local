@@ -50,7 +50,7 @@
      error red (#e87070); mobile uses a third (#e8504a) — flagged for unification. */
   --c-amber-500: #ffd23f;     /* accent: keyframe selection, clip trim, progress */
   --c-amber-300: #e8c870;     /* warning text (busy status) */
-  --c-green-500: #70e890;     /* ok: broadcast/live/success */
+  --c-green-500: #2dc555;     /* ok: broadcast/live/success */
   --c-red-600:   #ff5a5a;     /* danger: record (desktop) */
   --c-red-500:   #e8504a;     /* record (mobile variant) — unify candidate */
   --c-red-400:   #e87070;     /* inline error text (softer) */
