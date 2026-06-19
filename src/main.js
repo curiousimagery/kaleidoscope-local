@@ -389,8 +389,14 @@ function arrangeSlots() {
   requestAnimationFrame(() => {
     resizePreviewCanvas();
     if (session.isSwapped) sizeMiniCanvas();
+    // A swap/relayout re-mounts the source view with a FRESH (blank) video canvas.
+    // Only scrub/playback repaint it (paintSourceVideo), so a video source in motion
+    // mode went dark on every swap until you scrubbed/added a keyframe. Repaint it +
+    // rebuild the filmstrip here so the relayout shows the current frame immediately.
+    sourceOverlay.paintSourceVideo();
     sourceOverlay.render();
     scheduleRender();
+    if (env.motionRT.active && env.sourceVideo) env.scheduleFilmstrip();
   });
 }
 env.arrangeSlots = arrangeSlots;

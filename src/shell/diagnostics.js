@@ -253,6 +253,43 @@ function escapeHTML(s) {
 // Mount: wire up button + URL param auto-open
 // ---------------------------------------------------------------------------
 
+// Readback benchmark — settles whether the live-output readback (the Syphon/record
+// bottleneck) is beatable IN-BROWSER. Renders w×h two ways and compares the GPU→CPU
+// read: (A) renderToFBO + readPixels (what the output bus does today; ~44ms on
+// ANGLE-Metal), vs (B) render to the canvas + drawImage GL→2D + getImageData (the
+// engine's fast capture path, ~20× faster than readPixels on WebKit — Blink unknown).
+// If B wins big, an offscreen-canvas refactor of the bus is worth it; if not, the
+// readback wall is real and we accept the resolution constraint / go native.
+export async function benchmarkReadback(engine, getState, w = 1920, h = 1080, iters = 15) {
+  const state = getState();
+  if (!engine || !engine.getSourceImage()) return 'load a source first, then benchmark';
+  await engine.exportFrameRaw(state, w, h);   // warm
+  let aRead = 0;
+  for (let i = 0; i < iters; i++) aRead += (await engine.exportFrameRaw(state, w, h)).readMs;
+  aRead /= iters;
+
+  let bDraw = 0, bRead = 0;
+  engine.beginCapture(w, h);
+  try {
+    engine.captureFrame(state);   // warm
+    for (let i = 0; i < iters; i++) {
+      const t0 = performance.now();
+      const cv = engine.captureFrame(state);            // render + drawImage GL→2D
+      const t1 = performance.now();
+      cv.getContext('2d').getImageData(0, 0, w, h);     // the readback under test
+      bDraw += t1 - t0; bRead += performance.now() - t1;
+    }
+  } finally {
+    engine.endCapture();
+  }
+  bDraw /= iters; bRead /= iters;
+  const ratio = bRead > 0 ? aRead / bRead : 0;
+  return `readback @ ${w}×${h} (avg ${iters}):\n` +
+    `A readPixels = ${aRead.toFixed(1)}ms\n` +
+    `B getImageData = ${bRead.toFixed(1)}ms (+ render/drawImage ${bDraw.toFixed(1)}ms)\n` +
+    `→ getImageData ${ratio >= 1 ? `${ratio.toFixed(1)}× FASTER` : `${(1 / ratio).toFixed(1)}× slower`}`;
+}
+
 export function wireDiagnosticButton(engine, getState) {
   const diagEl = document.getElementById('diag');
   if (!diagEl) return;
@@ -278,6 +315,21 @@ export function wireDiagnosticButton(engine, getState) {
   });
   diagEl.appendChild(document.createElement('br'));
   diagEl.appendChild(btn);
+
+  // Readback benchmark button + its result line (the perf spike).
+  const benchBtn = document.createElement('button');
+  benchBtn.textContent = 'benchmark readback';
+  benchBtn.style.cssText = btn.style.cssText + 'margin-left:6px;';
+  const benchOut = document.createElement('pre');
+  benchOut.style.cssText = 'white-space:pre-wrap; font:11px/1.4 ui-monospace,monospace; color:#7fffd4; margin:6px 0 0;';
+  benchBtn.addEventListener('click', async () => {
+    benchBtn.textContent = 'benchmarking…'; benchBtn.disabled = true;
+    try { benchOut.textContent = await benchmarkReadback(engine, getState); }
+    catch (e) { benchOut.textContent = 'benchmark failed: ' + e.message; }
+    finally { benchBtn.textContent = 'benchmark readback'; benchBtn.disabled = false; }
+  });
+  diagEl.appendChild(benchBtn);
+  diagEl.appendChild(benchOut);
 
   // Auto-open if ?diag is in the URL.
   if (new URLSearchParams(window.location.search).has('diag')) {
