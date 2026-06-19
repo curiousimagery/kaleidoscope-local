@@ -224,6 +224,14 @@ function scheduleSyncControls() {
   requestAnimationFrame(() => { env.sched.syncCtrlScheduled = false; env.syncControls(); });
 }
 
+// True while an animation OWNS the program state — playback or an active scrub
+// sample params into `state` every frame. Param-editing gestures (slice drag, output
+// pinch/twist) are clobbered by that next tick, so they must be inert: the live-output
+// bus renders `state` on its own loop and would otherwise broadcast the half-second of
+// uncommitted drag before playback re-asserts (the wedge "jumps" in Syphon). Same
+// shape as the hideAffordances condition below.
+const isMotionDriven = () => env.motionRT.active && (motion.playing || env.motionRT.scrubbing);
+
 // the shared source-overlay component (mounted by both chromes). Desktop bridges
 // it to the existing env methods; it owns its own canvas, hover/drag state, and
 // overlay-draw scheduler internally.
@@ -243,6 +251,9 @@ const sourceOverlay = createSourceOverlay({
   // hide the touch affordance arrows during playback/scrub (they're not useful while
   // the animation runs).
   hideAffordances: () => env.motionRT.active && (motion.playing || env.motionRT.scrubbing),
+  // lock slice editing while an animation drives the state (see isMotionDriven) —
+  // the edit would be clobbered next tick and would leak into the Syphon broadcast.
+  editLocked: isMotionDriven,
 });
 env.scheduleOverlayDraw = sourceOverlay.scheduleDraw;
 
@@ -996,6 +1007,9 @@ if (engine) {
     onChange: () => { scheduleSyncControls(); env.scheduleRender(); },
     onCommitStart: () => env.pushHistory(),
     onCommitEnd: () => updateUndoUI(),
+    // same lock as the source overlay: canvasZoom/canvasRotation are animated, so an
+    // output pinch/twist during playback is clobbered + would leak into the broadcast.
+    editLocked: isMotionDriven,
   });
   setupUndoBar();
   wireFrameAspect();

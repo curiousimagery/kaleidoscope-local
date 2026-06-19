@@ -55,6 +55,10 @@ export function createSourceOverlay(ctx) {
     updateUndoUI: ctx.onCommitEnd || undefined,
     canEditDiscrete: ctx.canEditDiscrete || (() => true),
     hideAffordances: ctx.hideAffordances || (() => false),
+    // when true, the overlay is read-only (an animation is driving the state — see
+    // main.js isMotionDriven); onDown/onWheel bail so a drag can't write transient
+    // edits that the playback tick clobbers and the output bus would broadcast.
+    editLocked: ctx.editLocked || (() => false),
 
     // form-snap logic from Kit, bound to this view's state (overlay.js reaches
     // it as view.applyArmsSnap during droste-arms drags).

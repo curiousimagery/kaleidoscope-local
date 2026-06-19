@@ -13,13 +13,20 @@
 //     onChange,        // () => void  after a gesture updates state (render + sync)
 //     onCommitStart,   // () => void  gesture start (undo push) — optional
 //     onCommitEnd,     // () => void  gesture end (undo UI) — optional
+//     editLocked,      // () => bool  read-only while playback/scrub drives state — optional
 //   }) → { destroy() }
 
 export function createOutputGestures(canvas, ctx) {
   const { state } = ctx;
   let pinch = null;
 
+  // canvasZoom/canvasRotation are animated params; while an animation drives the
+  // state a gesture's write is clobbered next tick and would leak into the live
+  // broadcast (the output bus renders state on its own loop). So go inert then.
+  const locked = () => !!(ctx.editLocked && ctx.editLocked());
+
   function onStart(e) {
+    if (locked()) return;
     if (e.touches.length === 2) {
       ctx.onCommitStart?.();
       const t0 = e.touches[0], t1 = e.touches[1];
@@ -55,6 +62,7 @@ export function createOutputGestures(canvas, ctx) {
   let wheelTimer = 0;
   function onWheel(e) {
     if (!e.ctrlKey) return;
+    if (locked()) return;
     e.preventDefault();
     if (!wheelTimer) ctx.onCommitStart?.();
     const factor = Math.exp(-e.deltaY * 0.01);

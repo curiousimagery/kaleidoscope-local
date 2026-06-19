@@ -1055,6 +1055,10 @@ export function setupSourceInteraction(env, wrap) {
 
   function onDown(e) {
     if (!env.engine.getSourceImage()) return;
+    // read-only while an animation drives the state (playback/scrub): the edit would
+    // be clobbered next tick and would leak into the live-output broadcast. Bail
+    // before pushHistory so we don't log a no-op undo entry.
+    if (env.editLocked && env.editLocked()) return;
     env.pushHistory?.();
     const isTouch = !!e.touches;
 
@@ -1208,6 +1212,7 @@ export function setupSourceInteraction(env, wrap) {
   let wheelTimer = 0;
   function onWheel(e) {
     if (!e.ctrlKey) return;
+    if (env.editLocked && env.editLocked()) return;   // read-only while playback/scrub drives state
     e.preventDefault();
     if (!wheelTimer) env.pushHistory?.();
     const factor = Math.exp(-e.deltaY * 0.01);
