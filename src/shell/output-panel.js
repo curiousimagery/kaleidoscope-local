@@ -84,9 +84,12 @@ export function createOutputPanel(env, outputBus) {
     resHint.textContent = tier >= 3840 ? `${w}×${h} · clean hardware only` : `${w}×${h}`;
   }
 
-  // ---- bus lifecycle: run while recording OR broadcasting -----------------------
+  // ---- bus lifecycle: run while recording OR a bus-consuming destination is live --
   function syncBusRunning() {
-    const need = wantRecord || broadcasting;
+    // the output-window destination self-renders (needsBus:false), so a window-only
+    // session never starts the bus's read-back loop. Recording or Syphon do need it.
+    const destNeedsBus = broadcasting && selectedDest()?.sink.needsBus !== false;
+    const need = wantRecord || destNeedsBus;
     if (need && !outputBus.running) outputBus.start();
     else if (!need && outputBus.running) outputBus.stop();
   }
@@ -215,10 +218,12 @@ export function createOutputPanel(env, outputBus) {
     // server name only when Syphon is the selected destination
     if (syphonNameField) syphonNameField.hidden = !(hasSyphon && destination === 'syphon');
 
-    // resolution + frame aspect both set the output size, which the bus locks while
-    // running — disable them so changing mid-broadcast can't silently do nothing.
-    lockAspect(outputBus.running);
-    if (resTiers) resTiers.querySelectorAll('button').forEach((b) => { b.disabled = outputBus.running; });
+    // resolution + frame aspect both set the output size, which is fixed for the
+    // session once output starts (the bus locks it; the window reads it at open) —
+    // disable them while live so a mid-session change can't silently do nothing.
+    const sizeLocked = outputBus.running || broadcasting;
+    lockAspect(sizeLocked);
+    if (resTiers) resTiers.querySelectorAll('button').forEach((b) => { b.disabled = sizeLocked; });
   }
 
   function renderStatus() {
@@ -233,7 +238,10 @@ export function createOutputPanel(env, outputBus) {
     if (recorder?.recording) parts.push('● rec');
     if (s.testPattern) parts.push('▦ test pattern');
     if (parts.length) {
-      statusEl.textContent = `${parts.join(' · ')} · ${s.width}×${s.height} · ${s.fps || '…'} fps`;
+      // the self-rendering window measures its own GPU fps; the bus measures the
+      // read-back fps for Syphon/record. Prefer the live destination's own number.
+      const fps = (broadcasting && selectedDest()?.sink.fps) || s.fps;
+      statusEl.textContent = `${parts.join(' · ')} · ${s.width}×${s.height} · ${fps || '…'} fps`;
       statusEl.classList.add('live');
     } else {
       statusEl.textContent = `output ${s.width}×${s.height}`;

@@ -545,6 +545,13 @@ export function createSourceHost(env) {
   // Wire the camera buttons now (the chrome no longer calls wireCamera directly).
   wireCamera();
 
+  // The live camera's current device + facing, for the output window to open its OWN
+  // capture of the same physical camera (in-sync, zero per-frame transfer). Null when
+  // the camera isn't live.
+  env.liveCameraInfo = () => env.live.isLive
+    ? { deviceId: camera.getDeviceId(), facing: camera.getFacing() }
+    : null;
+
   // Public surface used by the chrome's control/upload wiring + collaborators.
   env.loadImage = loadImage;
   env.loadVideo = loadVideo;

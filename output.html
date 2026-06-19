@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Fold — Output</title>
+  <style>
+    html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
+    /* the WebGL canvas fills the window, letterboxed to the output aspect (no crop) */
+    #outputCanvas { display: block; width: 100vw; height: 100vh; object-fit: contain; }
+    /* a faint, dismissible hint until the first program frame arrives */
+    #hint {
+      position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+      color: #555; font: 13px system-ui, -apple-system, sans-serif; letter-spacing: .02em;
+      pointer-events: none; transition: opacity .4s ease;
+    }
+    body.live #hint { opacity: 0; }
+    body.fs { cursor: none; }   /* hide the cursor once fullscreen (gallery / projector) */
+  </style>
+</head>
+<body>
+  <canvas id="outputCanvas"></canvas>
+  <div id="hint">connecting to Fold&hellip; &nbsp;·&nbsp; click anywhere for fullscreen</div>
+  <script type="module" src="./src/output-view.js"></script>
+</body>
+</html>

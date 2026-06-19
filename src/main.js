@@ -33,7 +33,7 @@ import { createFoldAdapter } from './shell/fold-adapter.js';
 import { createOutputBus } from './stage/output-bus.js';
 import { createRecorderSink } from './stage/recorder.js';
 import { createSyphonSink } from './stage/syphon-sink.js';
-import { createWindowSink } from './stage/window-sink.js';
+import { createOutputWindow } from './shell/output-window.js';
 import { mockSyphonHost } from './stage/mock-host.js';
 import { createOutputPanel } from './shell/output-panel.js';
 import { VERSION, formatVersion } from './version.js';
@@ -939,11 +939,12 @@ if (engine) {
     diag: env.diag,
   });
   outputBus.registerSink(createRecorderSink());
-  // The external-window sink is universal (plain web APIs), so always available as an
-  // output destination. The Syphon sink only exists where a native host advertises it
-  // (the Electron shell); on plain web it's never registered, so the destination picker
-  // simply won't list it.
-  outputBus.registerSink(createWindowSink());
+  // The external-window destination is universal (plain web APIs), so always available.
+  // It's a self-rendering GPU engine view (shell/output-window.js, needsBus:false), not
+  // a bus pixel sink — the bus's read-back loop never runs for a window-only session.
+  // The Syphon sink only exists where a native host advertises it (the Electron shell);
+  // on plain web it's never registered, so the destination picker simply won't list it.
+  outputBus.registerSink(createOutputWindow(env));
   if (env.host?.syphon?.available) outputBus.registerSink(createSyphonSink(env.host));
   env.outputBus = outputBus;
   createOutputPanel(env, outputBus);
