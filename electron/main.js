@@ -38,12 +38,15 @@ function createWindow() {
 
   // Load the built web app from disk — the same dist/ deployed to the browser.
   // vite builds with base:'./' (relative asset paths), so file:// resolves cleanly
-  // with no dev server. Build it first: `npm run build` in the repo root.
-  win.loadFile(path.join(__dirname, '..', 'dist', 'index.html'));
+  // with no dev server. In DEV (`npm start`) dist/ is the sibling repo build; in a
+  // PACKAGED app it's copied into Resources/dist (electron-builder extraResources).
+  const indexHtml = app.isPackaged
+    ? path.join(process.resourcesPath, 'dist', 'index.html')
+    : path.join(__dirname, '..', 'dist', 'index.html');
+  win.loadFile(indexHtml);
 
-  // Detached so devtools don't resize the app window. Handy for verifying
-  // window.foldHost during bring-up; revisit before any distributable build.
-  win.webContents.openDevTools({ mode: 'detach' });
+  // Detached devtools during dev only — never in a packaged build.
+  if (!app.isPackaged) win.webContents.openDevTools({ mode: 'detach' });
 
   win.on('closed', () => { win = null; });
 }

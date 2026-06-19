@@ -8,12 +8,32 @@
   "author": "Daniel Nelson",
   "scripts": {
     "start": "electron .",
+    "dist": "npm run build --prefix .. && electron-builder",
     "postinstall": "node scripts/patch-node-syphon.cjs"
   },
   "dependencies": {
     "node-syphon": "1.5.0"
   },
   "devDependencies": {
-    "electron": "latest"
+    "electron": "latest",
+    "electron-builder": "latest"
+  },
+  "build": {
+    "appId": "art.curiousimagery.fold-live",
+    "productName": "Fold Live",
+    "copyright": "Copyright © 2026 Daniel Nelson",
+    "directories": { "output": "release" },
+    "files": ["main.js", "preload.js", "syphon-bridge.js", "node_modules/**/*"],
+    "extraResources": [{ "from": "../dist", "to": "dist" }],
+    "asarUnpack": ["node_modules/node-syphon/**/*"],
+    "npmRebuild": false,
+    "mac": {
+      "target": [{ "target": "dmg", "arch": "arm64" }],
+      "identity": null,
+      "category": "public.app-category.video",
+      "extendInfo": {
+        "NSCameraUsageDescription": "Fold uses the camera as a live kaleidoscope source."
+      }
+    }
   }
 }
