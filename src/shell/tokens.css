@@ -134,6 +134,10 @@
   --info:            var(--c-blue-500);      /* informational accents */
   --focus:           var(--c-neutral-350);   /* focus border color */
 
+  /* bright UI-element fills — the light "primary" surface (primary button,
+     slider thumb, timeline scrubber, progress bars) as opposed to bright TEXT. */
+  --fill-bright:     var(--c-neutral-100);   /* #e8e8e8 */
+
   /* on-accent foreground (text/icons sitting ON an accent fill) */
   --on-accent:       var(--c-neutral-950);   /* dark text on amber/green/red fills */
 
