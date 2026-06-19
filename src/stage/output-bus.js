@@ -43,6 +43,7 @@ export function createOutputBus({ engineAdapter, host = null, diag = null } = {}
   let running = false;
   let raf = 0;
   let testPattern = false;   // publish a known reference frame instead of the program
+  let lastError = null;      // last render failure (surfaced via getStatus so the panel can report it)
 
   const sinks = new Map();   // id -> sink
 
@@ -89,7 +90,12 @@ export function createOutputBus({ engineAdapter, host = null, diag = null } = {}
     } else {
       try {
         f = await engineAdapter.renderFrameAt(width, height);
-      } catch {
+      } catch (e) {
+        // Render failed (most likely the output engine couldn't create its GL
+        // context). Record + log the reason, then stop — getStatus().error lets the
+        // output panel surface it instead of the broadcast dying silently.
+        lastError = e;
+        console.warn('[fold] output bus render failed — stopping:', e);
         stop();
         return;
       }
@@ -115,6 +121,7 @@ export function createOutputBus({ engineAdapter, host = null, diag = null } = {}
 
   function start() {
     if (running) return;
+    lastError = null;          // fresh attempt — clear any prior failure
     running = true;
     resetWindow(performance.now());
     raf = requestAnimationFrame(frame);
@@ -166,6 +173,8 @@ export function createOutputBus({ engineAdapter, host = null, diag = null } = {}
         serverName,
         testPattern,
         sinks: [...sinks.keys()],
+        // a render failure that stopped the bus (null when healthy); the panel reports it
+        error: lastError ? (lastError.message || String(lastError)) : null,
       };
     },
 

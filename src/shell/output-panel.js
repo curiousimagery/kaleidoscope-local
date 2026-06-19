@@ -249,9 +249,28 @@ export function createOutputPanel(env, outputBus) {
     }
   }
 
+  // The bus stopped itself on a render failure (e.g. the output engine couldn't create
+  // its second GL context) — tear down our side cleanly and surface the reason, so the
+  // broadcast/record doesn't just die silently with the controls still lit.
+  function failOutput(message) {
+    if (recorder?.recording) recorder.stop();
+    if (broadcasting) selectedDest()?.sink.stop();
+    wantRecord = false; broadcasting = false;
+    syncBusRunning();
+    stopPolling();
+    reflect();
+    if (statusEl) { statusEl.textContent = `output stopped: ${message}`; statusEl.classList.remove('live'); }
+  }
+
   function startPolling() {
     stopPolling();
     statusTimer = setInterval(() => {
+      // bus render failure: it needs the bus (record or a bus-consuming destination)
+      // but the bus reported an error and stopped → surface it and reset.
+      const err = outputBus.getStatus().error;
+      const neededBus = wantRecord || (broadcasting && selectedDest()?.sink.needsBus !== false);
+      if (err && neededBus && !outputBus.running) { failOutput(err); return; }
+
       // the user may have closed the output window directly — reconcile our state.
       const d = selectedDest();
       if (broadcasting && d && d.sink.active === false) {

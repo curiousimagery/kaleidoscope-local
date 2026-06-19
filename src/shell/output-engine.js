@@ -35,8 +35,17 @@ export function createOutputEngine(env) {
   // pays nothing — no second GL context, no offscreen canvases.
   function ensure() {
     if (hidden) return;
-    glCanvas = document.createElement('canvas');   // never added to the DOM
-    hidden = createEngine({ canvas: glCanvas });
+    const canvas = document.createElement('canvas');   // never added to the DOM
+    try {
+      hidden = createEngine({ canvas });               // a SECOND WebGL2 context
+    } catch (e) {
+      // The browser couldn't give us another GL context (context limit, GPU fault,
+      // WebGL2 unsupported). Throw a clear, surfaceable reason — the bus catches it,
+      // stops, and exposes it via getStatus().error so the output panel can tell the
+      // user why the broadcast/record didn't start, instead of dying silently.
+      throw new Error('could not start the live-output engine (a second GL context failed): ' + (e.message || e));
+    }
+    glCanvas = canvas;
     capCanvas = document.createElement('canvas');
     capCtx = capCanvas.getContext('2d');
     // A second context-loss surface (we already handle the preview's). Log it so a
