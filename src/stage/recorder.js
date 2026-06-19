@@ -9,11 +9,13 @@
 // MediaRecorder over that canvas's captureStream(); start/stop bookend a session
 // and stop downloads a playable file.
 //
-// Frames arrive raw and BOTTOM-UP (WebGL FBO order; see engine-adapter.js), so
-// publish does the per-frame Y-flip into the 2D canvas (the same flip exportFrame
-// does for stills) — top-down is what the 2D canvas / video wants. Engine-agnostic
-// and self-contained (no shell/engine imports): it only touches the Frame shape
-// and the DOM APIs it needs, so it lives cleanly in the stage layer.
+// Frame orientation is declared by frame.topDown (see engine-adapter.js). The live
+// output engine renders via drawImage→getImageData and hands us a TOP-DOWN frame —
+// often with its own 2D capture canvas (frame.canvas) already holding it — so we
+// drawImage that straight in (no flip, no putImageData copy). A bottom-up frame (the
+// legacy FBO path) still gets the per-row Y-flip. Engine-agnostic and self-contained
+// (no shell/engine imports): it only touches the Frame shape and the DOM APIs it
+// needs, so it lives cleanly in the stage layer.
 //
 // Minimal here (Increment 2); a higher-quality WebCodecs path can reuse
 // shell/video-export.js later if recording fidelity becomes a need.
@@ -73,13 +75,22 @@ export function createRecorderSink({ filenamePrefix = 'fold-live' } = {}) {
     // bus calls this every frame; a no-op until a recording session is started.
     publish(frame) {
       if (!recording || !ctx) return;
-      const { pixels, w, h } = frame;
+      const { pixels, w, h, topDown, canvas: src } = frame;
       ensureCanvas(w, h);
+
+      // Fast path: the producer already has the frame top-down in a 2D canvas — GPU
+      // blit it straight into ours (no readback bytes, no putImageData copy).
+      if (src) { ctx.drawImage(src, 0, 0, w, h); return; }
+
       const stride = w * 4;
       const data = imgData.data;
-      for (let y = 0; y < h; y++) {
-        const src = (h - 1 - y) * stride;   // bottom-up FBO row → top-down canvas row
-        data.set(pixels.subarray(src, src + stride), y * stride);
+      if (topDown) {
+        data.set(pixels);                   // already top-left order — one copy, no flip
+      } else {
+        for (let y = 0; y < h; y++) {
+          const s = (h - 1 - y) * stride;   // bottom-up FBO row → top-down canvas row
+          data.set(pixels.subarray(s, s + stride), y * stride);
+        }
       }
       ctx.putImageData(imgData, 0, 0);
     },

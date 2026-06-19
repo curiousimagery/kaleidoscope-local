@@ -6,9 +6,10 @@
 // A known reference frame the output bus can publish INSTEAD of the program, to
 // answer "does what I send arrive clean?" in Arena (and in a recording) — which a
 // kaleidoscope can't answer by eye, since it's symmetric and hides flips/mirrors.
-// Engine-agnostic; returns the SAME Frame shape the engine produces (raw BOTTOM-UP
-// RGBA), so it travels the exact same per-sink path (recorder Y-flip, Syphon flipped
-// flag) as a real frame — that's what makes it a faithful orientation probe.
+// Engine-agnostic; returns the SAME Frame shape the live output engine produces (raw
+// TOP-DOWN RGBA + topDown:true), so it travels the EXACT same per-sink path (recorder
+// passthrough, Syphon flipped flag) as a real frame — that's what makes it a faithful
+// orientation probe of the live path.
 //
 // What it reveals:
 //   - ORIENTATION + MIRRORING — corner labels TL/TR/BL/BR + a "▲ TOP" arrow. Upright
@@ -76,16 +77,12 @@ export function createTestFrame(w, h) {
   g.textBaseline = 'middle'; g.font = `bold ${Math.round(fs * 0.9)}px sans-serif`;
   g.fillText(`${w}×${h}`, w / 2, h / 2);
 
-  // top-down (canvas) → bottom-up (engine FBO convention every sink expects)
-  const top = g.getImageData(0, 0, w, h).data;
-  const pixels = new Uint8Array(w * h * 4);
-  const stride = w * 4;
-  for (let y = 0; y < h; y++) {
-    const srcRow = y * stride;
-    pixels.set(top.subarray(srcRow, srcRow + stride), (h - 1 - y) * stride);
-  }
+  // Top-down (canvas order) — matches the live output engine's getImageData frames,
+  // so sinks flip it identically (topDown:true). Hand the source canvas through too,
+  // so the recorder can drawImage it straight in (the same fast path real frames take).
+  const pixels = new Uint8Array(g.getImageData(0, 0, w, h).data.buffer);
 
-  const frame = { pixels, w, h, renderMs: 0, readMs: 0 };
+  const frame = { pixels, w, h, topDown: true, canvas: c, renderMs: 0, readMs: 0 };
   cache = { w, h, frame };
   return frame;
 }

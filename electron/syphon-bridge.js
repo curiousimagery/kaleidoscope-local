@@ -34,10 +34,11 @@ function start(name) {
   }
 }
 
-// payload: { width, height, pixels } — pixels is raw RGBA from the engine FBO.
+// payload: { width, height, pixels, flipped } — pixels is raw RGBA from the renderer's
+// output engine; `flipped` declares its row order (top-down getImageData ⇒ true).
 function publish(payload) {
   if (!server || !payload) return;
-  const { width, height, pixels } = payload;
+  const { width, height, pixels, flipped } = payload;
   if (!width || !height || !pixels) return;
 
   if (width !== lastW || height !== lastH) {
@@ -46,16 +47,16 @@ function publish(payload) {
   }
 
   try {
-    // Our frames come straight from the engine FBO via readPixels: raw RGBA in
-    // OpenGL's native BOTTOM-UP order. Syphon's `flipped` flag declares the data is
-    // in top-left screen order; ours is NOT, so flipped:false. (The spike fed
-    // top-down getImageData and passed flipped:true — opposite source, opposite
-    // flag.) VERIFY IN ARENA: if "Fold" is upside-down, flip this one arg to true.
+    // The output engine renders via drawImage→getImageData, which yields raw RGBA in
+    // TOP-DOWN (top-left screen) order, so flipped:true. Syphon's `flipped` flag
+    // declares the data IS in top-left order. (The original FBO readPixels path was
+    // bottom-up ⇒ flipped:false; the renderer now declares orientation per frame.)
+    // VERIFY IN ARENA via the test pattern: if "TOP" is upside-down, this flag is wrong.
     server.publishImageData(
       new Uint8ClampedArray(pixels.buffer, pixels.byteOffset, pixels.byteLength),
       { x: 0, y: 0, width, height },
       { width, height },
-      false,
+      !!flipped,
     );
   } catch (e) {
     console.error('[syphon] publish error:', e.message);

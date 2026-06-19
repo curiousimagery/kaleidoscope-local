@@ -11,23 +11,29 @@
 // reuses the whole stage layer unchanged.
 //
 // Universal tier: renderFrameAt reads the LIVE env.state each frame (so dragging
-// the wedge updates the live output for free) and renders raw bottom-up RGBA from
-// the engine's FBO path (engine.exportFrameRaw, reusing renderToFBO).
+// the wedge updates the live output for free). It delegates to the output engine
+// (shell/output-engine.js) — a hidden second engine that renders to a real GL canvas
+// and pulls pixels with the fast drawImage→getImageData path (~9× faster than the
+// FBO readPixels it replaced). The returned Frame is TOP-DOWN (getImageData order);
+// sinks flip via its topDown flag.
 //
 // Perform tier (Phase 2 consumes these): Fold's single state object + kit/tween.js
 // satisfy getState/applyState/tween richly, enabling program/preview + transitions
 // when that work lands.
 
 import { lerpState } from '../kit/tween.js';
+import { createOutputEngine } from './output-engine.js';
 
 export function createFoldAdapter(env) {
+  const outputEngine = createOutputEngine(env);
+
   return {
     engineId: 'fold',
 
     // universal tier
     renderFrameAt(w, h) {
       // reads env.state live → manipulating Fold updates the output with no extra wiring
-      return env.engine.exportFrameRaw(env.state, w, h);
+      return outputEngine.renderFrameAt(w, h);
     },
 
     // perform tier (Phase 2)

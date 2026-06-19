@@ -46,11 +46,12 @@ export function createSyphonSink(host) {
       syphon.stop();
     },
 
-    // Hot path. Raw bottom-up RGBA straight from the bus; the host/bridge owns
-    // orientation (Syphon's flipped flag) and the process hop.
+    // Hot path. Raw RGBA straight from the bus; we declare its orientation
+    // (frame.topDown) so the native bridge sets Syphon's `flipped` flag correctly.
+    // Top-down (getImageData) ⇒ flipped:true; bottom-up (legacy FBO) ⇒ flipped:false.
     publish(frame) {
       if (!active || !syphon) return;
-      syphon.publish(frame.pixels, frame.w, frame.h);
+      syphon.publish(frame.pixels, frame.w, frame.h, !!frame.topDown);
     },
   };
 }

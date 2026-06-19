@@ -1,0 +1,112 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Daniel Nelson
+//
+// shell/output-engine.js
+//
+// The output bus's RENDER SURFACE — a hidden, second engine instance that lets the
+// live-output path beat the readback wall. The bus used to render the program to an
+// FBO and pull it back with readPixels (~43ms/frame at 1080p on ANGLE-Metal — the
+// entire cost). Daniel's benchmark proved `drawImage` GL→2D + `getImageData` is ~9×
+// faster, but that fast path needs the program on a REAL GL canvas drawing buffer
+// (drawImage can't read an FBO), and we can't commandeer the visible preview every
+// frame. So we give the bus its own offscreen engine and render there.
+//
+// This is the exact shape the GPU output window already ships (src/output-view.js, a
+// second createEngine at 120fps) — applied in-document. Lives in shell/ (not stage/)
+// because the source-sync is Fold-aware; the stage layer stays engine-agnostic.
+//
+// Source-sync is trivial in-document: the hidden engine shares the SAME source element
+// the preview uses (env.engine.getSourceImage() returns the current <img>/<video>/
+// camera frame-source in every case), and texImage2D reads from any GL context — so
+// no second camera/video like the cross-document popup. We re-setSource only when the
+// element reference changes, and re-upload each frame for a live source (camera/video)
+// since the main app's render loops keep that shared element's pixels fresh.
+
+import { createEngine } from '../engine/index.js';
+
+export function createOutputEngine(env) {
+  let hidden = null;        // the second engine (lazy — plain-web sessions never output)
+  let glCanvas = null;      // the hidden engine's GL drawing buffer (drawImage source)
+  let capCanvas = null, capCtx = null;   // 2D blit target → getImageData
+  let lastSource = null;    // identity of the source currently uploaded to the hidden engine
+
+  // Lazy: created on the first frame the bus actually renders. The bus only runs for
+  // record/Syphon (output-panel.js syncBusRunning), so a session that never outputs
+  // pays nothing — no second GL context, no offscreen canvases.
+  function ensure() {
+    if (hidden) return;
+    glCanvas = document.createElement('canvas');   // never added to the DOM
+    hidden = createEngine({ canvas: glCanvas });
+    capCanvas = document.createElement('canvas');
+    capCtx = capCanvas.getContext('2d');
+    // A second context-loss surface (we already handle the preview's). Log it so a
+    // black output is never silent; the bus stops on render failure regardless.
+    glCanvas.addEventListener('webglcontextlost', (ev) => {
+      ev.preventDefault();
+      console.warn('[fold] WebGL context LOST (output engine)');
+    });
+    glCanvas.addEventListener('webglcontextrestored', () => {
+      console.warn('[fold] WebGL context RESTORED (output engine)');
+      lastSource = null;   // force a re-upload onto the restored context
+    });
+  }
+
+  // Keep the hidden engine's texture pointed at the same source as the preview.
+  // Reference identity covers every transition (still upload, video load, camera
+  // start/flip/device-switch — each hands the main engine a new/changed element).
+  function syncSource(src) {
+    if (src !== lastSource) {
+      try {
+        hidden.setSource(src);     // throws if the element has no dims yet
+        lastSource = src;
+      } catch {
+        // not ready this frame (rare — the preview already validated the source);
+        // leave lastSource so we retry next frame, and render whatever's uploaded.
+      }
+    }
+    // A live source (camera / loaded video) changes every frame; re-upload the
+    // current frame from the shared element. A still uploads once (above) and holds.
+    if (env.live?.isLive || env.sourceVideo) {
+      hidden.updateSourceFrame();
+    }
+  }
+
+  return {
+    // Universal-tier render for the bus. Renders the live program to the hidden GL
+    // canvas at w×h, then drawImage→getImageData (TOP-DOWN). Throws when there is no
+    // source so the bus stops quietly (its frame() catch).
+    renderFrameAt(w, h) {
+      ensure();
+      const src = env.engine?.getSourceImage?.();
+      if (!src) throw new Error('no source loaded');
+      syncSource(src);
+
+      if (glCanvas.width !== w || glCanvas.height !== h) { glCanvas.width = w; glCanvas.height = h; }
+      if (capCanvas.width !== w || capCanvas.height !== h) { capCanvas.width = w; capCanvas.height = h; }
+
+      // render + GPU blit GL→2D. drawImage handles the Y-flip (GL bottom-up →
+      // canvas top-down) and the colorspace, just like the engine's video-capture
+      // fast path (engine.captureFrame). Cheap (~0.3ms in the benchmark).
+      const t0 = performance.now();
+      hidden.render(env.state);
+      capCtx.drawImage(glCanvas, 0, 0);
+      const renderMs = performance.now() - t0;
+
+      // the actual readback — getImageData, the ~9× win over readPixels.
+      const t1 = performance.now();
+      const img = capCtx.getImageData(0, 0, w, h);
+      const readMs = performance.now() - t1;
+
+      // pixels: a Uint8Array view over the getImageData buffer (no copy). TOP-DOWN,
+      // so sinks flip via the topDown flag. capCanvas is handed through too so the
+      // recorder can drawImage it straight in (skipping a putImageData copy).
+      return {
+        pixels: new Uint8Array(img.data.buffer),
+        w, h,
+        topDown: true,
+        renderMs, readMs,
+        canvas: capCanvas,
+      };
+    },
+  };
+}

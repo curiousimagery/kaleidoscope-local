@@ -44,8 +44,9 @@ const foldHost = {
       framesInFlight = 0;
       ipcRenderer.send('syphon:start', { name: name || 'Fold' });
     },
-    // pixels: a Uint8Array (raw bottom-up RGBA) from the renderer; structured-cloned
-    // across IPC. Orientation (the Syphon flipped flag) is the bridge's concern.
+    // pixels: a Uint8Array (raw RGBA) from the renderer; structured-cloned across IPC.
+    // `flipped` declares the row order (top-down getImageData ⇒ true) and is forwarded
+    // to the bridge, which sets Syphon's flipped flag accordingly.
     //
     // BACKPRESSURE IS MANDATORY HERE. The renderer produces frames faster than main
     // can upload them to Syphon, and `ipcRenderer.send` would QUEUE every frame's
@@ -54,10 +55,10 @@ const foldHost = {
     // still publishing the previous frame, new frames are DROPPED, not buffered.
     // Dropping is correct for live output — Arena only ever wants the freshest frame,
     // never a backlog (a backlog is just latency you can't see past anyway).
-    publish(pixels, width, height) {
+    publish(pixels, width, height, flipped) {
       if (!syphonStarted || framesInFlight >= MAX_FRAMES_IN_FLIGHT) return;
       framesInFlight++;
-      ipcRenderer.invoke('syphon:frame', { width, height, pixels })
+      ipcRenderer.invoke('syphon:frame', { width, height, pixels, flipped: !!flipped })
         .catch(() => {})
         .finally(() => { framesInFlight--; });
     },

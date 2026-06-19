@@ -30,11 +30,21 @@
 //   only app omits them and the perform features simply stay unavailable.
 //
 // @typedef {Object} Frame
-// @property {Uint8Array} pixels  RGBA, BOTTOM-UP (WebGL FBO order). Sinks that
-//                                want top-down flip per-sink; sinks that accept
-//                                bottom-up (Syphon flipped:true) pass it through.
+// @property {Uint8Array} pixels  RGBA. Orientation is declared by `topDown`: the live
+//                                output engine renders via drawImage→getImageData and
+//                                yields TOP-DOWN (top-left screen order); the legacy FBO
+//                                path (still/video export, the diagnostics benchmark)
+//                                yields BOTTOM-UP. Sinks flip according to the flag.
 // @property {number} w
 // @property {number} h
+// @property {boolean} [topDown]  true = top-left screen order (getImageData); absent or
+//                                false = bottom-up WebGL FBO order. Threaded to sinks so
+//                                each flips correctly (the recorder's Y-flip; Syphon's
+//                                `flipped` flag across the native bridge).
+// @property {HTMLCanvasElement} [canvas]  the 2D capture canvas already holding this
+//                                frame top-down, when the producer has one — lets a
+//                                canvas-consuming sink (the recorder) drawImage it
+//                                straight in and skip a putImageData copy.
 // @property {number} [renderMs]  GPU render time, if measured (for op records).
 // @property {number} [readMs]    GPU→CPU readback time, if measured.
 //
