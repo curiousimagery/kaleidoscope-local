@@ -1,0 +1,159 @@
+/* SPDX-License-Identifier: AGPL-3.0-or-later
+   Copyright (C) 2026 Daniel Nelson
+
+   DESIGN TOKENS — the single editable surface for Fold's visual system.
+
+   Two tiers:
+     1. PRIMITIVES (--c-*, raw ramps/scales) — the palette's raw material. Faithful
+        to every value observed in the app today, so adopting tokens is a pure parity
+        refactor (no pixels move). You rarely edit these directly.
+     2. SEMANTIC ALIASES (--bg, --surface, --text, --accent, …) — what the CSS
+        actually consumes. Edit ONE of these and every consumer (both desktop and
+        mobile chrome, plus the UI Lab) updates at once. This is the layer you own.
+
+   Linked in index.html BEFORE styles.css; mobile reuses index.html's <head> (boot.js
+   swaps the body, not the head), so this :root reaches desktop AND mobile.
+
+   See docs/DESIGN.md for the working loop and the responsive/touch-target rules. */
+
+:root {
+  /* ====================================================================
+     PRIMITIVES — color
+     ==================================================================== */
+
+  /* Neutral ramp, dark (950) → light (0). Comments note the dominant use; the
+     ramp is intentionally faithful (some near-duplicate darks exist in the app
+     today — consolidating them is a separate, conscious cleanup, not a token of). */
+  --c-neutral-950: #0a0a0a;   /* app background, divider, theme-color */
+  --c-neutral-900: #0e0e0e;   /* chrome surface: panels, bars, footer */
+  --c-neutral-850: #141414;   /* elevated surface: modal cards */
+  --c-neutral-825: #161616;   /* raised surface: busy card, timeline track */
+  --c-neutral-800: #1a1a1a;   /* control surface: buttons, inputs; subtle border */
+  --c-neutral-775: #1c1c1c;   /* overlay surface: popover menus */
+  --c-neutral-750: #222222;   /* hover surface */
+  --c-neutral-700: #2a2a2a;   /* default border */
+  --c-neutral-650: #333333;   /* border (hover) */
+  --c-neutral-600: #3a3a3a;   /* LED off */
+  --c-neutral-550: #444444;   /* strong border, disabled control fill, grip */
+  --c-neutral-500: #555555;   /* faint text, version badge, major tick */
+  --c-neutral-450: #666666;   /* muted text, captions, meta */
+  --c-neutral-400: #777777;   /* dim text (alt), grip-active */
+  --c-neutral-350: #888888;   /* dim text (the workhorse), focus border */
+  --c-neutral-250: #aaaaaa;   /* brighter dim */
+  --c-neutral-200: #c0c0c0;   /* numeric value emphasis */
+  --c-neutral-150: #cccccc;   /* secondary text, idle button label */
+  --c-neutral-100: #e8e8e8;   /* primary text / foreground */
+  --c-neutral-0:   #ffffff;   /* bright text, active emphasis */
+
+  --c-black: #000000;         /* pure-black media backplate (mobile output region) */
+
+  /* Accents. Two reds today: the desktop record red (#ff5a5a) and a softer inline
+     error red (#e87070); mobile uses a third (#e8504a) — flagged for unification. */
+  --c-amber-500: #ffd23f;     /* accent: keyframe selection, clip trim, progress */
+  --c-amber-300: #e8c870;     /* warning text (busy status) */
+  --c-green-500: #70e890;     /* ok: broadcast/live/success */
+  --c-red-600:   #ff5a5a;     /* danger: record (desktop) */
+  --c-red-500:   #e8504a;     /* record (mobile variant) — unify candidate */
+  --c-red-400:   #e87070;     /* inline error text (softer) */
+  --c-blue-500:  #4aa3ff;     /* info: clip cut point */
+
+  /* ====================================================================
+     PRIMITIVES — type, radii, spacing
+     ==================================================================== */
+
+  /* One unified sans stack (folds the desktop "Helvetica Neue" and mobile
+     "Segoe UI"/Roboto stacks into one superset). */
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, monospace;
+
+  /* Size ramp (mapped from the observed 9-18px cluster). */
+  --text-2xs:  9px;
+  --text-xs:  10px;
+  --text-sm:  11px;
+  --text-base:12px;
+  --text-md:  13px;
+  --text-lg:  14px;
+  --text-xl:  18px;
+
+  /* Radii. */
+  --radius-2xs:  1px;
+  --radius-xs:   2px;
+  --radius-sm:   3px;
+  --radius:      4px;
+  --radius-md:   6px;
+  --radius-lg:   8px;
+  --radius-xl:  10px;
+  --radius-2xl: 12px;   /* mobile menu */
+  --radius-3xl: 16px;   /* mobile sheet */
+  --radius-full: 50%;
+
+  /* Spacing — named by pixel value (designer-truthful; covers every observed gap). */
+  --space-2:   2px;
+  --space-4:   4px;
+  --space-6:   6px;
+  --space-8:   8px;
+  --space-10: 10px;
+  --space-12: 12px;
+  --space-14: 14px;
+  --space-16: 16px;
+  --space-20: 20px;
+  --space-24: 24px;
+
+  /* ====================================================================
+     SEMANTIC ALIASES — what the CSS consumes (edit these)
+     ==================================================================== */
+
+  /* surfaces */
+  --bg:              var(--c-neutral-950);   /* app background */
+  --surface:         var(--c-neutral-900);   /* chrome: panels, bars, footer */
+  --surface-raised:  var(--c-neutral-850);   /* modal cards */
+  --surface-control: var(--c-neutral-800);   /* buttons, inputs, control fills */
+  --surface-hover:   var(--c-neutral-750);   /* hover state */
+  --surface-overlay: var(--c-neutral-775);   /* popover menus */
+
+  /* borders */
+  --border:          var(--c-neutral-700);   /* default */
+  --border-subtle:   var(--c-neutral-800);   /* faint dividers (panel/group separators) */
+  --border-hover:    var(--c-neutral-650);   /* hover */
+  --border-strong:   var(--c-neutral-550);   /* inputs, disabled */
+
+  /* text */
+  --text:            var(--c-neutral-100);   /* primary foreground */
+  --text-bright:     var(--c-neutral-0);     /* emphasis / active */
+  --text-secondary:  var(--c-neutral-150);   /* values, idle button labels */
+  --text-dim:        var(--c-neutral-350);   /* labels (workhorse) */
+  --text-muted:      var(--c-neutral-450);   /* captions, meta */
+  --text-faint:      var(--c-neutral-500);   /* placeholders */
+
+  /* intent */
+  --accent:          var(--c-amber-500);     /* keyframes, clip trim, accents */
+  --ok:              var(--c-green-500);      /* broadcast / live / success */
+  --danger:          var(--c-red-600);       /* record / error states */
+  --danger-text:     var(--c-red-400);       /* inline error text */
+  --warn-text:       var(--c-amber-300);     /* busy status text */
+  --info:            var(--c-blue-500);      /* informational accents */
+  --focus:           var(--c-neutral-350);   /* focus border color */
+
+  /* on-accent foreground (text/icons sitting ON an accent fill) */
+  --on-accent:       var(--c-neutral-950);   /* dark text on amber/green/red fills */
+
+  /* ====================================================================
+     CONTROL / STATE
+     ==================================================================== */
+
+  --touch-target: 32px;                          /* fine-pointer hit size (coarse override below) */
+  --focus-ring: 0 0 0 2px rgba(136, 136, 136, 0.4);  /* available; not yet consumed */
+  --disabled-opacity: 0.4;
+  --disabled-opacity-strong: 0.35;               /* ot-/mf- buttons — unify candidate */
+  --dur: 0.1s;                                   /* base transition */
+  --dur-slow: 0.15s;
+}
+
+/* Coarse pointer (touch): fatter hit targets. The one place output intentionally
+   shifts toward consistency when the controls adopt --touch-target (the mobile
+   slider's bespoke 28px override goes away). */
+@media (pointer: coarse) {
+  :root {
+    --touch-target: 44px;
+  }
+}

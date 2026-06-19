@@ -1,7 +1,8 @@
 // vite.config.js
-// minimal Vite config. TWO html entries: index.html (the app) and output.html
+// minimal Vite config. THREE html entries: index.html (the app), output.html
 // (the chrome-free GPU output window — a second engine view that renders the live
-// program; see src/output-view.js). dev server defaults to port 5173.
+// program; see src/output-view.js), and lab.html (the UI Lab / design-system
+// gallery; see src/lab.js). dev server defaults to port 5173.
 // build outputs to dist/ as static files; deployable as-is to Vercel/Netlify.
 //
 // vite-plugin-pwa adds the web manifest + a service worker (offline precache)
@@ -24,6 +25,7 @@ export default {
       input: {
         main: resolve(root, 'index.html'),
         output: resolve(root, 'output.html'),
+        lab: resolve(root, 'lab.html'),
       },
     },
   },
