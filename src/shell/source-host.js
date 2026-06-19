@@ -180,12 +180,69 @@ export function createSourceHost(env) {
   // saved alongside the kaleidoscope on the first export (see doExport).
 
   const camera = createCamera();
+  const CAMERA_DEVICE_KEY = 'fold.cameraDeviceId';   // last-picked camera, persisted across sessions
 
   // Default facing by device. Touch devices (iPad) default to the rear camera
   // ("frame the world"); desktops have no real rear camera and want the front
   // (mirrored, selfie-intuitive) by default.
   const DEFAULT_FACING =
     matchMedia('(pointer: coarse)').matches ? 'environment' : 'user';
+
+  // Start the camera, preferring the last-picked device when it's still present.
+  // A stale/blocked deviceId (the cam was unplugged, or is in use) throws
+  // OverconstrainedError/NotReadableError → fall back to the default facing.
+  async function startWithPreferredDevice() {
+    const savedId = localStorage.getItem(CAMERA_DEVICE_KEY);
+    if (savedId) {
+      try { return await camera.start({ deviceId: savedId }); }
+      catch { /* device gone or busy — fall through to default */ }
+    }
+    return camera.start({ facingMode: DEFAULT_FACING });
+  }
+
+  // Populate / show the multi-camera picker. Device labels need permission, so this
+  // runs only after a stream is live. Show the picker (replacing the front/rear flip
+  // button) only when ≥2 labeled cameras exist — the desktop/installation case (a USB
+  // webcam vs the built-in / iPhone Continuity cam); a single-camera device keeps flip.
+  async function refreshCameraDevices() {
+    const select = document.getElementById('cameraSelect');
+    const flip = document.getElementById('flipBtn');
+    if (!select) return;
+    let devices = [];
+    try { devices = await camera.listDevices(); } catch { /* enumeration unsupported */ }
+    const labeled = devices.filter(d => d.label);   // unlabeled = no permission yet for that device
+    const multi = labeled.length >= 2;
+    select.hidden = !multi;
+    if (flip) flip.hidden = multi;
+    if (!multi) { select.innerHTML = ''; return; }
+    const activeId = camera.getDeviceId();
+    select.innerHTML = '';
+    for (const d of labeled) {
+      const opt = document.createElement('option');
+      opt.value = d.deviceId;
+      opt.textContent = d.label;
+      if (d.deviceId === activeId) opt.selected = true;
+      select.appendChild(opt);
+    }
+  }
+
+  // Picker change: re-acquire that exact camera, persist the choice, re-source.
+  async function selectCameraDevice(deviceId) {
+    if (!deviceId || !env.live.isLive) return;
+    try {
+      const video = await camera.start({ deviceId });
+      env.liveVideo = video;
+      engine.setSource(camera.frameSource());
+    } catch (e) {
+      if (uploadErrorEl) uploadErrorEl.textContent = cameraErrorMessage(e);
+      return;
+    }
+    localStorage.setItem(CAMERA_DEVICE_KEY, deviceId);
+    setCameraMeta('live camera');
+    updateCameraUI();
+    refreshCameraDevices();
+    env.arrangeSlots();   // remount picks up the (possibly different) mirror + aspect
+  }
 
   // continuous render driver — runs only while the camera is live. each tick
   // refreshes the (possibly mirrored) frame, re-uploads it, renders, and redraws
@@ -250,7 +307,7 @@ export function createSourceHost(env) {
     statusEl.textContent = 'starting camera…';
     statusEl.classList.add('busy');
     try {
-      const video = await camera.start(DEFAULT_FACING);
+      const video = await startWithPreferredDevice();
       env.liveVideo = video;
       env.sourceVideo = null;                          // camera takes over the source view
       engine.setSource(camera.frameSource());
@@ -269,6 +326,7 @@ export function createSourceHost(env) {
     setCameraMeta('live camera');
     document.getElementById('swapBtn').disabled = false;
     updateCameraUI();
+    refreshCameraDevices();   // now that permission is granted, labels are available
     env.arrangeSlots();
     startLiveLoop();
   }
@@ -304,6 +362,7 @@ export function createSourceHost(env) {
     }
     setCameraMeta('live camera');
     updateCameraUI();
+    refreshCameraDevices();          // keep the picker selection in sync after a flip
     env.arrangeSlots();              // remount picks up the mirror transform + aspect
   }
 
@@ -368,6 +427,13 @@ export function createSourceHost(env) {
     document.getElementById('shutterBtn').addEventListener('click', captureFrame);
     document.getElementById('flipBtn').addEventListener('click', flipCamera);
     document.getElementById('stopCameraBtn').addEventListener('click', () => stopCameraMode());
+    document.getElementById('cameraSelect').addEventListener('change', (e) => selectCameraDevice(e.target.value));
+    // a cam plugged/unplugged mid-session re-evaluates whether to show the picker.
+    if (navigator.mediaDevices && navigator.mediaDevices.addEventListener) {
+      navigator.mediaDevices.addEventListener('devicechange', () => {
+        if (env.live.isLive) refreshCameraDevices();
+      });
+    }
   }
 
   // ============================================================================

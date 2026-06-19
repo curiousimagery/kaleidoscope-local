@@ -16,6 +16,7 @@ export function createCamera() {
   let video = null;
   let facing = 'environment';  // 'environment' (rear) | 'user' (front)
   let mirrorCanvas = null;     // front-camera frames flipped horizontally
+  let currentDeviceId = null;  // the deviceId of the live track (for the picker)
 
   function ensureVideo() {
     if (video) return video;
@@ -29,20 +30,28 @@ export function createCamera() {
     return video;
   }
 
-  async function start(facingMode = facing) {
-    facing = facingMode;
+  // start the camera. `opts` is either a facingMode string (legacy: 'user' /
+  // 'environment') or an object { facingMode, deviceId }. A deviceId (the picker
+  // path) wins — it pins an exact camera; we then derive `facing` from the track
+  // so mirroring still follows whether the chosen camera is user-facing.
+  async function start(opts = {}) {
+    if (typeof opts === 'string') opts = { facingMode: opts };
+    const wantDevice = opts.deviceId || null;
+    if (opts.facingMode) facing = opts.facingMode;
     stopStream();
     // Request as much resolution as the camera will give — capture saves the
-    // raw frame at native size. facingMode is `ideal` so devices with only one
-    // camera (most laptops) still succeed.
-    stream = await navigator.mediaDevices.getUserMedia({
-      video: {
-        facingMode: { ideal: facing },
-        width: { ideal: 3840 },
-        height: { ideal: 2160 },
-      },
-      audio: false,
-    });
+    // raw frame at native size. By facingMode (`ideal`, so single-camera laptops
+    // still succeed) unless an exact deviceId was picked.
+    const video = wantDevice
+      ? { deviceId: { exact: wantDevice }, width: { ideal: 3840 }, height: { ideal: 2160 } }
+      : { facingMode: { ideal: facing }, width: { ideal: 3840 }, height: { ideal: 2160 } };
+    stream = await navigator.mediaDevices.getUserMedia({ video, audio: false });
+    const track = stream.getVideoTracks()[0];
+    const settings = track ? track.getSettings() : {};
+    currentDeviceId = settings.deviceId || wantDevice || null;
+    // Picked by device → no facingMode intent; mirror only if the track itself
+    // reports user-facing (external/USB cams report nothing → no mirror).
+    if (wantDevice) facing = settings.facingMode === 'user' ? 'user' : 'environment';
     const v = ensureVideo();
     v.srcObject = stream;
     applyMirror();
@@ -54,6 +63,16 @@ export function createCamera() {
     }
     refreshFrame();   // prime the mirror canvas before the first setSource
     return v;
+  }
+
+  // List the available video input devices (deviceId + label). Labels are only
+  // populated once camera permission has been granted, so call this after start.
+  async function listDevices() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) return [];
+    const all = await navigator.mediaDevices.enumerateDevices();
+    return all
+      .filter(d => d.kind === 'videoinput')
+      .map(d => ({ deviceId: d.deviceId, label: d.label }));
   }
 
   // Mirror the front-camera preview (selfie convention) on the displayed video
@@ -108,10 +127,12 @@ export function createCamera() {
     start,
     stop,
     flip,
+    listDevices,
     refreshFrame,
     frameSource,
     getVideo: () => video,
     getFacing: () => facing,
+    getDeviceId: () => currentDeviceId,
     isFront: () => facing === 'user',
     isActive: () => !!stream,
   };

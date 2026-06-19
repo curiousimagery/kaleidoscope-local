@@ -502,6 +502,16 @@ button .btn-spinner {
 .ot-btn.active { background: rgba(40, 40, 40, 0.95); color: #fff; border-color: #888; }
 /* band-open: the bar button whose expand-band (output / canvas) is currently open. */
 .ot-btn.band-open { background: rgba(40, 40, 40, 0.95); color: #fff; border-color: #555; }
+/* the camera picker reuses .ot-btn but needs the native select chrome reset and a
+   width cap so a long device label doesn't blow out the toolbar. */
+.ot-select {
+  -webkit-appearance: none;
+  appearance: none;
+  max-width: 160px;
+  box-sizing: border-box;
+  text-overflow: ellipsis;
+}
+.ot-select[hidden] { display: none; }
 /* touch: larger hit targets, and the form picker matches the toolbar buttons. */
 @media (pointer: coarse) {
   .ot-btn { min-width: 44px; height: 44px; }
