@@ -609,7 +609,7 @@ button .btn-spinner {
 }
 .busy-overlay.visible { display: flex; }
 .busy-overlay .busy-card {
-  background: var(--c-neutral-825);
+  background: var(--surface-raised);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   padding: 16px 20px;
@@ -690,7 +690,7 @@ button .btn-spinner {
 /* timeline track — keyframe markers (with saved-state thumbnails) + scrubber */
 .mf-track {
   position: relative; flex: 1; min-height: 0;
-  background: var(--c-neutral-825); border: 1px solid var(--border); border-radius: var(--radius-md);
+  background: var(--surface-raised); border: 1px solid var(--border); border-radius: var(--radius-md);
   overflow: hidden; cursor: pointer; touch-action: none;
 }
 /* tween filmstrip — inset to match the keyframe thumb size, dimmed so the

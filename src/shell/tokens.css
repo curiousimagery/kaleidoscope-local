@@ -21,15 +21,14 @@
      PRIMITIVES — color
      ==================================================================== */
 
-  /* Neutral ramp, dark (950) → light (0). Comments note the dominant use; the
-     ramp is intentionally faithful (some near-duplicate darks exist in the app
-     today — consolidating them is a separate, conscious cleanup, not a token of). */
+  /* Neutral ramp, dark (950) → light (0). Comments note the dominant use. A light
+     consolidation (Build 207, Daniel-approved) folded two near-exact duplicate darks
+     into their neighbours (#161616 → #141414, #1c1c1c → #1a1a1a); the ramp below is
+     the post-collapse set, each step now ≥6 apart in value. */
   --c-neutral-950: #0a0a0a;   /* app background, divider, theme-color */
-  --c-neutral-900: #0e0e0e;   /* chrome surface: panels, bars, footer */
-  --c-neutral-850: #141414;   /* elevated surface: modal cards */
-  --c-neutral-825: #161616;   /* raised surface: busy card, timeline track */
-  --c-neutral-800: #1a1a1a;   /* control surface: buttons, inputs; subtle border */
-  --c-neutral-775: #1c1c1c;   /* overlay surface: popover menus */
+  --c-neutral-900: #0e0e0e;   /* chrome surface: panels, bars, footer, tab bar */
+  --c-neutral-850: #141414;   /* elevated surface: modal cards, busy card, timeline track */
+  --c-neutral-800: #1a1a1a;   /* control surface: buttons, inputs, menus; subtle border */
   --c-neutral-750: #222222;   /* hover surface */
   --c-neutral-700: #2a2a2a;   /* default border */
   --c-neutral-650: #333333;   /* border (hover) */
@@ -106,10 +105,10 @@
   /* surfaces */
   --bg:              var(--c-neutral-950);   /* app background */
   --surface:         var(--c-neutral-900);   /* chrome: panels, bars, footer */
-  --surface-raised:  var(--c-neutral-850);   /* modal cards */
+  --surface-raised:  var(--c-neutral-850);   /* modal cards, busy card, timeline track */
   --surface-control: var(--c-neutral-800);   /* buttons, inputs, control fills */
   --surface-hover:   var(--c-neutral-750);   /* hover state */
-  --surface-overlay: var(--c-neutral-775);   /* popover menus */
+  --surface-overlay: var(--c-neutral-800);   /* popover menus (shares the control surface) */
 
   /* borders */
   --border:          var(--c-neutral-700);   /* default */

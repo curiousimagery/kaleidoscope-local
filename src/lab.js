@@ -56,8 +56,8 @@ function swatchGrid(names) {
 
 // ---- token catalogs (the editable surface, mirrored from tokens.css) --------
 const NEUTRALS = [
-  '--c-neutral-950', '--c-neutral-900', '--c-neutral-850', '--c-neutral-825',
-  '--c-neutral-800', '--c-neutral-775', '--c-neutral-750', '--c-neutral-700',
+  '--c-neutral-950', '--c-neutral-900', '--c-neutral-850',
+  '--c-neutral-800', '--c-neutral-750', '--c-neutral-700',
   '--c-neutral-650', '--c-neutral-600', '--c-neutral-550', '--c-neutral-500',
   '--c-neutral-450', '--c-neutral-400', '--c-neutral-350', '--c-neutral-250',
   '--c-neutral-200', '--c-neutral-150', '--c-neutral-100', '--c-neutral-0',
