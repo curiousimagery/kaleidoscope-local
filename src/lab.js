@@ -11,6 +11,13 @@
 
 import './shell/tokens.css';
 import './shell/styles.css';
+import './mobile/styles.css';   // so mobile component specimens (.m-*) render correctly
+// Same CSS as raw source text (Vite ?inline) — parsed for the usage cross-reference
+// through a stylesheet we own, which is reliably readable everywhere (document.styleSheets
+// introspection was returning nothing depending on how the styles were injected).
+import tokensText from './shell/tokens.css?inline';
+import stylesText from './shell/styles.css?inline';
+import mobileText from './mobile/styles.css?inline';
 import { ICONS } from './mobile/icons.js';
 import { FORMS } from './engine/forms/index.js';
 import { rotateCursorForAngle, scaleCursorForAngle } from './shell/cursors.js';
@@ -43,11 +50,15 @@ function walkRules(rules) {
   }
 }
 function buildUsageIndex() {
-  for (const sheet of document.styleSheets) {
-    let rules;
-    try { rules = sheet.cssRules; } catch { continue; }   // cross-origin guard
-    if (rules) walkRules(rules);
-  }
+  // Parse the app CSS source text through a stylesheet we create and own, so
+  // cssRules is reliably readable (dev, built http, and file://).
+  const tmp = document.createElement('style');
+  tmp.textContent = `${tokensText}\n${stylesText}\n${mobileText}`;
+  (document.head || document.documentElement).appendChild(tmp);
+  try {
+    if (tmp.sheet && tmp.sheet.cssRules) walkRules(tmp.sheet.cssRules);
+  } catch (e) { /* leave USAGE empty; the banner explains */ }
+  tmp.remove();
 }
 function usageList(name) {
   const s = USAGE.get(name);
@@ -163,7 +174,6 @@ const ICON_USAGE = {
   record: 'mobile · source = live; "go live" (turns red)',
   captureCam: 'mobile · capture tab / shutter',
   photo: 'mobile · "choose photo / file"',
-  aperture: '',   // not referenced anywhere
   download: 'mobile · save tab',
   flip: 'mobile · flip-camera button',
   sliders: 'mobile · source/settings toggle',
@@ -212,26 +222,49 @@ function formThumbCard(form) {
   ]);
 }
 
+// Text/unicode glyphs that function AS icons inside buttons (in index.html today —
+// placeholders that should become real icons). label = the desired direction.
+const BUTTON_GLYPHS = [
+  ['←', 'ot-btn', '#undoBtn · undo — wants a looped undo arrow, not a plain ←'],
+  ['→', 'ot-btn', '#redoBtn · redo — wants a looped redo arrow'],
+  ['⇄', 'ot-btn', '#swapBtn · swap source/output — wants proper swap arrows'],
+  ['save ▸', 'ot-btn', '#openExportBtn · the ▸ caret (also clip ▸ / render ▸) = "opens a sheet"'],
+  ['＋ keyframe', 'mf-btn mf-add', '#mfAdd · add keyframe (＋ glyph)'],
+  ['‹‹', 'mf-btn', '#mfPrev · previous keyframe'],
+  ['››', 'mf-btn', '#mfNext · next keyframe'],
+];
+function glyphCard(glyph, cls, note) {
+  return el('div', { class: 'lab-icon' }, [
+    el('div', { class: 'lab-icon-previews' }, [el('button', { class: cls, text: glyph })]),
+    el('div', { class: 'lab-note lab-icon-usage', text: note }),
+  ]);
+}
+
 function iconsSection() {
   const glyphs = Object.entries(ICONS).map(([name, svg]) => iconCard(name, svg));
   const thumbs = FORMS.map(formThumbCard);
-  const appIcon = el('div', { class: 'lab-icon' }, [
-    el('div', { class: 'lab-icon-previews lab-appicon' }, [
-      el('img', { src: '/fold-icon.svg', width: '24', height: '24' }),
-      el('img', { src: '/fold-icon.svg', width: '48', height: '48' }),
-      el('img', { src: '/fold-icon.svg', width: '96', height: '96' }),
+  const btnGlyphs = BUTTON_GLYPHS.map(([g, c, n]) => glyphCard(g, c, n));
+  const appIcon = el('div', { class: 'lab-appicon-card' }, [
+    el('div', { class: 'lab-appicon-previews' }, [16, 24, 48, 96].map((s) =>
+      el('div', { class: 'lab-appicon-cell' }, [
+        el('img', { src: '/fold-icon.svg', width: String(s), height: String(s) }),
+        el('code', { class: 'lab-val', text: `${s}px` }),
+      ]))),
+    el('div', { class: 'lab-appicon-meta' }, [
+      el('code', { class: 'lab-name', text: 'public/fold-icon.svg' }),
+      el('div', { class: 'lab-note', text: 'The PWA / app icon. GAPS the Lab surfaced: (1) no <link rel="icon"> favicon exists at all; (2) the DMG app icon differs from this mark; (3) at 16px (favicon size) this detailed mark may not read — a simplified favicon variant is likely needed.' }),
     ]),
-    el('code', { class: 'lab-name', text: 'fold-icon.svg' }),
-    el('div', { class: 'lab-note lab-icon-usage', text: 'app icon / PWA / favicon · a DELIVERABLE, not just a reference' }),
   ]);
 
-  return section('icons', 'Icons', 'Every glyph rendered on its real surface, with grepped usage and auto-flagged problems (hardcoded fills, off-grid viewBoxes, orphans). The ICONS set is mobile-chrome only today — the desktop bar is text, which is why the responsive icon/overflow pattern is a tracked gap.', [
+  return section('icons', 'Icons', 'Every glyph on its real surface, with grepped usage and auto-flagged problems (hardcoded fills, off-grid viewBoxes, orphans). The ICONS set is mobile-chrome only — the desktop bar is text/unicode glyphs (below), which is why the responsive icon/overflow pattern is a tracked gap.', [
     el('h3', { class: 'lab-h3', text: 'App glyphs · mobile/icons.js' }),
     el('div', { class: 'lab-grid lab-grid-icon' }, glyphs),
+    el('h3', { class: 'lab-h3', text: 'Button glyphs · desktop chrome (unicode placeholders → want real icons)' }),
+    el('div', { class: 'lab-grid lab-grid-icon' }, btnGlyphs),
     el('h3', { class: 'lab-h3', text: 'Form thumbnails · engine/forms (idle + active)' }),
     el('div', { class: 'lab-grid lab-grid-icon' }, thumbs),
     el('h3', { class: 'lab-h3', text: 'App icon' }),
-    el('div', { class: 'lab-grid lab-grid-icon' }, [appIcon]),
+    appIcon,
   ]);
 }
 
@@ -272,30 +305,43 @@ function cursorsSection() {
 
 // ---- AFFORDANCE INVENTORY ---------------------------------------------------
 // Rendered from the REAL draw primitives exported from shell/overlay.js (no
-// divergent reproduction). Drawn white-on-gray to approximate the over-image look.
-function affCanvas(label, drawFn) {
-  const W = 96, H = 96, dpr = 2;
+// divergent reproduction), and IN CONTEXT around a reference slice — the bare
+// primitives are illegible in isolation because they only mean something relative
+// to the slice they act on (a short rotation arc, a perpendicular scale arrow).
+function sliceContextCanvas() {
+  const W = 260, H = 190, dpr = 2;
   const canvas = el('canvas', { width: String(W * dpr), height: String(H * dpr), style: `width:${W}px;height:${H}px` });
   const ctx = canvas.getContext('2d');
   ctx.scale(dpr, dpr);
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
-  drawFn(ctx, W / 2, H / 2);
+  const cx = W / 2, cy = H / 2 + 6, s = 34;
+  // reference slice (a square) so the affordances read in context
+  ctx.strokeStyle = 'rgba(255,255,255,0.4)';
+  ctx.lineWidth = 1.5;
+  ctx.strokeRect(cx - s, cy - s, 2 * s, 2 * s);
+  // the REAL affordance primitives, positioned like the live overlay does
+  afScaleArrow(ctx, cx, cy - s, 0, -1, 0.95, 2);                   // scale · top edge
+  afScaleArrow(ctx, cx + s, cy, 1, 0, 0.95, 2);                    // scale · right edge
+  afScaleArrow(ctx, cx + s, cy - s, Math.SQRT1_2, -Math.SQRT1_2, 0.95, 2); // scale · corner (diagonal)
+  afRotationArc(ctx, cx, cy, -Math.PI / 2, s * 1.414 + 18, 0.95, 2); // rotate · arc above
+  ctx.fillStyle = '#fff';                                           // center handle (dot) — move whole slice
+  ctx.beginPath(); ctx.arc(cx, cy, 3, 0, Math.PI * 2); ctx.fill();
+  // Droste center-offset handle: filled blue diamond (from droste.js drawOverlay —
+  // fill rgba(170,220,255), r=5). Note: this blue is NOT the --info token (#4aa3ff).
+  const dx = cx - 16, dy = cy + 13, dr = 5;
+  ctx.fillStyle = 'rgba(170, 220, 255, 1)';
+  ctx.beginPath();
+  ctx.moveTo(dx, dy - dr); ctx.lineTo(dx + dr, dy); ctx.lineTo(dx, dy + dr); ctx.lineTo(dx - dr, dy);
+  ctx.closePath(); ctx.fill();
   return el('div', { class: 'lab-aff' }, [
     el('div', { class: 'lab-aff-stage' }, [canvas]),
-    el('code', { class: 'lab-name', text: label }),
+    el('code', { class: 'lab-name', text: 'scale arrows (edge + corner) · rotate arc · white center dot (move) · blue Droste offset diamond' }),
   ]);
 }
 function affordancesSection() {
-  const specimens = [
-    affCanvas('scale · horizontal', (ctx, cx, cy) => afScaleArrow(ctx, cx, cy, 1, 0, 1, 2)),
-    affCanvas('scale · diagonal', (ctx, cx, cy) => afScaleArrow(ctx, cx, cy, Math.SQRT1_2, Math.SQRT1_2, 1, 2)),
-    affCanvas('rotate arc · 0°', (ctx, cx, cy) => afRotationArc(ctx, cx, cy, 0, 26, 1, 2)),
-    affCanvas('rotate arc · 135°', (ctx, cx, cy) => afRotationArc(ctx, cx, cy, (3 * Math.PI) / 4, 26, 1, 2)),
-    affCanvas('center handle', (ctx, cx, cy) => { ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(cx, cy, 3, 0, Math.PI * 2); ctx.fill(); }),
-  ];
-  return section('affordances', 'Affordances', 'The on-canvas gesture affordances for slice/segment manipulation, drawn from the REAL primitives exported from shell/overlay.js (afScaleArrow / afRotationArc / center dot). The full touch composite — move / segment-spoke / square-edge / droste-arm handles in drawTouchAffordances — needs a geometry harness to render standalone (a follow-on). Known gaps from BACKLOG to design against here: the LOST Droste rotation handle (want a grippy extending from the circle), a crosshair instead of the dot for the Droste offset, and the min-wedge ~20px clamp where the affordance UI breaks.', [
-    el('div', { class: 'lab-grid lab-grid-cursor' }, specimens),
+  return section('affordances', 'Affordances', 'The on-canvas gesture affordances for slice manipulation, drawn from the REAL, ACTIVELY-USED primitives in shell/overlay.js (afScaleArrow / afRotationArc / center dot — 8 call sites; the rotate ARC is distinct from the rotate CURSOR and both ship). Shown around a reference slice because the primitives only read in context. The full touch composite (move / segment-spoke / square-edge / droste-arm handles in drawTouchAffordances) is form-specific and needs a geometry harness to render standalone — a follow-on. Known gaps from BACKLOG to design against here: the LOST Droste rotation handle (want a grippy extending from the circle), a crosshair instead of the dot for the Droste offset, and the min-wedge ~20px clamp where the affordance UI breaks. Also: the Droste offset diamond is drawn in #aadcff, which is OFF-TOKEN (not --info #4aa3ff) — a color to reconcile.', [
+    sliceContextCanvas(),
   ]);
 }
 
@@ -400,6 +446,77 @@ function componentsSection() {
   ]);
 }
 
+// ---- CLI cheat sheet (the Lab is the one surface where Daniel is the only
+// consumer, so dev tooling fits here) ----------------------------------------
+const CLI_COMMANDS = [
+  { group: 'Develop', items: [
+    ['npm run dev', 'start the local dev server, then open the URLs below',
+      'Run while you are working. Starts Vite on http://localhost:5173 with hot-reload — edits to src/ appear instantly, no build step. Serves both the app (/) and this Lab (/lab.html) straight from source. Leave it running; Ctrl+C stops it. Writes nothing to disk. (If it says the port is in use, an old dev server is already running — just open that one.)'],
+    ['npm run build', 'compile the web app → dist/',
+      'Run before packaging a DMG or deploying the website. Bundles src/ into static production files in dist/ (hashed JS/CSS + index.html + lab.html). Does NOT make a DMG by itself. Overwrites dist/ each run; ~1s.'],
+    ['npm run preview', 'serve the built dist/ over http to check it',
+      'Run after npm run build to view the real production bundle. Serves dist/ on a local http port. Use this (not double-clicking dist files) whenever you need the Lab usage cross-reference — file:// blocks reading the CSS, http does not. Read-only; does not rebuild.'],
+    ['npm run check', 'syntax-check every JS file',
+      'Run before committing to catch typos fast. Runs node --check across the src JS and prints "all syntax checks pass" or the first error. No output files; does not run the app.'],
+  ] },
+  { group: 'Electron / DMG  ·  run from the electron/ folder', items: [
+    ['cd electron && npm install', 'first-time setup for the desktop build',
+      'Run once after cloning, or when the electron deps change. Installs Electron + node-syphon into electron/node_modules; a postinstall hook then patches node-syphon\'s memory leak (swaps in a vendored fixed binary). Required before npm start or npm run dist will work.'],
+    ['cd electron && npm start', 'run the desktop app locally (no packaging)',
+      'Run to test the Mac app + Syphon output to Arena. Launches Electron loading the ALREADY-BUILT dist/ — so run npm run build first if you changed web code. Opens a window; close it to stop. Fast iteration without making a DMG.'],
+    ['cd electron && npm run dist', 'produce the installable DMG',
+      'Run to make the shippable installer. Sequence: (1) rebuilds the web app (dist/), (2) packages it with electron-builder, (3) re-applies the leak-fixed node-syphon, (4) names the file from src/version.js. Output: electron/release/Fold Live-<version>-arm64.dmg. NOTE: arm64 (Apple Silicon) only + unsigned, so Gatekeeper warns on first open (right-click → Open). The app icon is currently the DEFAULT Electron icon — we do not ship a custom .icns yet (see BACKLOG).'],
+  ] },
+  { group: 'Open in the browser', items: [
+    ['http://localhost:5173/', 'the app',
+      'Open while npm run dev is running to use Fold itself.'],
+    ['http://localhost:5173/lab.html', 'this UI Lab',
+      'Open while npm run dev (or npm run preview) is running. The usage cross-reference needs this http URL, not a file:// path.'],
+  ] },
+];
+function copyBtn(text) {
+  const b = el('button', { class: 'lab-copy', text: 'copy' });
+  b.addEventListener('click', async () => {
+    try { await navigator.clipboard.writeText(text); b.textContent = 'copied'; }
+    catch { b.textContent = 'press ⌘C'; }
+    setTimeout(() => { b.textContent = 'copy'; }, 1200);
+  });
+  return b;
+}
+function cheatSheetModal() {
+  const rows = [];
+  for (const { group, items } of CLI_COMMANDS) {
+    rows.push(el('div', { class: 'lab-cli-group', text: group }));
+    for (const [cmd, note, detail] of items) {
+      rows.push(el('div', { class: 'lab-cli-row' }, [
+        el('code', { class: 'lab-cli-cmd', text: cmd }),
+        copyBtn(cmd),
+        el('div', { class: 'lab-cli-note' }, [
+          el('div', { class: 'lab-cli-note-short', text: note }),
+          detail ? el('div', { class: 'lab-cli-detail', text: detail }) : null,
+        ]),
+      ]));
+    }
+  }
+  const card = el('div', { class: 'lab-cli-card' }, [
+    el('div', { class: 'lab-cli-head' }, [
+      el('div', { class: 'lab-h2', text: 'CLI cheat sheet' }),
+      el('button', { class: 'lab-cli-x', text: '✕' }),
+    ]),
+    ...rows,
+  ]);
+  const modal = el('div', { class: 'lab-cli-modal', hidden: '' }, [el('div', { class: 'lab-cli-backdrop' }), card]);
+  const close = () => { modal.hidden = true; };
+  card.querySelector('.lab-cli-x').addEventListener('click', close);
+  modal.querySelector('.lab-cli-backdrop').addEventListener('click', close);
+  return modal;
+}
+function usageBanner() {
+  return el('div', { class: 'lab-banner' }, [
+    'Usage cross-reference is empty — the app CSS could not be parsed. This is unexpected (it reads from the bundled source text); worth flagging.',
+  ]);
+}
+
 // ---- compose the page -------------------------------------------------------
 function build() {
   buildUsageIndex();   // scan the loaded CSS so each token can show its consumers
@@ -423,15 +540,23 @@ function build() {
     componentsSection(),
   ]);
 
+  // if introspection found nothing (e.g. opened over file://), explain it
+  if (USAGE.size === 0) content.insertBefore(usageBanner(), content.children[1]);
+
   // build the sticky nav from the sections actually present
   const navItems = [...content.querySelectorAll('.lab-section')].map((s) =>
     el('a', { class: 'lab-navlink', href: `#${s.id}`, text: s.querySelector('.lab-h2').textContent }));
+  const modal = cheatSheetModal();
+  const cliBtn = el('button', { class: 'lab-cli-open', text: '⌘ CLI cheat sheet' });
+  cliBtn.addEventListener('click', () => { modal.hidden = false; });
   const nav = el('nav', { class: 'lab-nav' }, [
     el('div', { class: 'lab-nav-title', text: 'Fold · Lab' }),
     ...navItems,
+    el('div', { class: 'lab-nav-foot' }, [cliBtn]),
   ]);
 
   document.body.appendChild(el('div', { class: 'lab' }, [nav, content]));
+  document.body.appendChild(modal);
 }
 
 // ---- lab-only layout (NOT part of the design system) ------------------------
@@ -464,6 +589,8 @@ labStyle.textContent = `
   .lab-usebadge-zero { color: var(--warn-text); border-color: rgba(232, 200, 112, 0.4); }
   .lab-usage { margin-top: 6px; padding: 8px; background: var(--bg); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); display: flex; flex-direction: column; gap: 2px; }
   .lab-usage-row { font-family: var(--font-mono); font-size: var(--text-2xs); color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .lab-usage[hidden] { display: none; }                 /* class display:flex would otherwise beat [hidden] */
+  .lab-row .lab-usebadge { justify-self: start; }       /* don't stretch across the grid track */
   .lab-list { display: flex; flex-direction: column; gap: 2px; }
   .lab-row { display: grid; grid-template-columns: 220px 150px 70px auto; align-items: center; gap: 16px; padding: 4px 0; }
   .lab-typesample { color: var(--text); white-space: nowrap; }
@@ -491,7 +618,7 @@ labStyle.textContent = `
   .lab-cursor-stage, .lab-aff-stage { width: 96px; height: 64px; display: flex; align-items: center; justify-content: center; border-radius: var(--radius-md); border: 1px solid var(--border-subtle); background: var(--c-neutral-450); }
   .lab-cursor-stage img { display: block; }
   .lab-cursor-hover { font-size: var(--text-xs); color: var(--c-neutral-950); }
-  .lab-aff-stage { height: 96px; background: var(--c-neutral-500); }
+  .lab-aff-stage { width: auto; height: auto; padding: 14px; background: var(--c-neutral-500); display: inline-block; }
   /* component state matrix */
   .lab-matrix { display: flex; flex-direction: column; gap: 4px; }
   .lab-matrow { display: grid; grid-template-columns: 150px 1fr; align-items: center; gap: 16px; padding: 8px 0; border-bottom: 1px solid var(--border-subtle); }
@@ -499,6 +626,33 @@ labStyle.textContent = `
   .lab-matcells { display: flex; flex-wrap: wrap; gap: 10px; }
   .lab-state { display: flex; flex-direction: column; gap: 4px; align-items: flex-start; }
   .lab-state-stage { padding: 8px; background: var(--surface); border-radius: var(--radius-sm); display: flex; align-items: center; }
+  /* app icon (own full-width row, not the icon grid) */
+  .lab-appicon-card { display: flex; flex-wrap: wrap; gap: 24px; align-items: flex-start; padding: 16px; border: 1px solid var(--border-subtle); border-radius: var(--radius-md); background: var(--surface); }
+  .lab-appicon-previews { display: flex; align-items: flex-end; gap: 18px; }
+  .lab-appicon-cell { display: flex; flex-direction: column; align-items: center; gap: 4px; color: var(--text); }
+  .lab-appicon-meta { flex: 1; min-width: 240px; display: flex; flex-direction: column; gap: 4px; }
+  /* file:// usage banner */
+  .lab-banner { margin: 16px 0; padding: 10px 14px; border: 1px solid rgba(232, 200, 112, 0.4); background: rgba(232, 200, 112, 0.1); border-radius: var(--radius-md); font-size: var(--text-sm); color: var(--warn-text); line-height: 1.5; }
+  .lab-banner code { font-family: var(--font-mono); color: var(--text); }
+  /* nav footer + CLI cheat sheet */
+  .lab-nav-foot { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--border-subtle); }
+  .lab-cli-open { width: 100%; text-align: left; background: var(--surface-control); border: 1px solid var(--border); border-radius: var(--radius-md); color: var(--text-secondary); font-size: var(--text-xs); padding: 8px 10px; cursor: pointer; }
+  .lab-cli-open:hover { color: var(--text); border-color: var(--border-hover); }
+  .lab-cli-modal[hidden] { display: none; }
+  .lab-cli-modal { position: fixed; inset: 0; z-index: 200; display: flex; align-items: center; justify-content: center; padding: 24px; }
+  .lab-cli-backdrop { position: absolute; inset: 0; background: rgba(10, 10, 10, 0.6); backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px); }
+  .lab-cli-card { position: relative; width: 680px; max-width: 100%; max-height: 86vh; overflow: auto; background: var(--surface-raised); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 16px 20px 20px; }
+  .lab-cli-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+  .lab-cli-x { background: transparent; border: none; color: var(--text-dim); font-size: var(--text-lg); cursor: pointer; }
+  .lab-cli-x:hover { color: var(--text-bright); }
+  .lab-cli-group { font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-dim); margin: 16px 0 6px; }
+  .lab-cli-row { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 8px 12px; padding: 6px 0; border-bottom: 1px solid var(--border-subtle); }
+  .lab-cli-cmd { font-family: var(--font-mono); font-size: var(--text-sm); color: var(--text); overflow: auto; }
+  .lab-cli-note { grid-column: 1 / -1; }
+  .lab-cli-note-short { font-size: var(--text-xs); color: var(--text-muted); }
+  .lab-cli-detail { font-size: var(--text-2xs); color: var(--text-dim); line-height: 1.55; margin-top: 4px; }
+  .lab-copy { background: var(--surface-control); border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--text-dim); font-size: var(--text-2xs); font-family: var(--font-mono); padding: 3px 9px; cursor: pointer; }
+  .lab-copy:hover { color: var(--text); border-color: var(--border-hover); }
 `;
 document.head.appendChild(labStyle);
 
