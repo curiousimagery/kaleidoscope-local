@@ -503,7 +503,9 @@ function drawTouchAffordances(ctx, screenPts, cx, cy, outerEdges, spokeEdges, fo
 
 // Bidirectional scale arrow at (mx, my) oriented along (nx, ny).
 // HALF=14 gives 28px total line (Issue 2: was 14px, too short).
-function afScaleArrow(ctx, mx, my, nx, ny, op, lw) {
+// Exported so the UI Lab can render the REAL affordance primitive (no divergent
+// reproduction). Pure: draws on the given 2D context at the given coords.
+export function afScaleArrow(ctx, mx, my, nx, ny, op, lw) {
   const HALF = 14, HEAD = 5;
   ctx.strokeStyle = `rgba(255,255,255,${op})`;
   ctx.lineWidth = lw;
@@ -527,7 +529,8 @@ function afScaleArrow(ctx, mx, my, nx, ny, op, lw) {
 
 // Rotation arc: bidirectional curved arc, centered at (cx,cy), pointing toward
 // cAngle direction, at explicit radius arcR. Arrowheads at both ends.
-function afRotationArc(ctx, cx, cy, cAngle, arcR, op, lw) {
+// Exported for the UI Lab (renders the real affordance primitive).
+export function afRotationArc(ctx, cx, cy, cAngle, arcR, op, lw) {
   const HSPAN = 11 * Math.PI / 180;
   const HEAD  = 5;
   ctx.strokeStyle = `rgba(255,255,255,${op})`;

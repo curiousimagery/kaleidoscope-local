@@ -13,9 +13,56 @@ import './shell/tokens.css';
 import './shell/styles.css';
 import { ICONS } from './mobile/icons.js';
 import { FORMS } from './engine/forms/index.js';
+import { rotateCursorForAngle, scaleCursorForAngle } from './shell/cursors.js';
+import { afScaleArrow, afRotationArc } from './shell/overlay.js';
 
 const root = getComputedStyle(document.documentElement);
 const val = (name) => root.getPropertyValue(name).trim();
+
+// ---- live usage cross-reference --------------------------------------------
+// Scan the loaded stylesheets and build token -> [selectors that consume it].
+// Computed from the real CSS (zero maintenance, always accurate). Lab-internal
+// selectors (.lab*) are excluded so the Lab doesn't count its own usage. This is
+// the CSS half of the cross-reference; JS-referenced icons carry a grepped usage
+// map (see ICON_USAGE) — a fuller automatic JS scan would need a build step.
+const USAGE = new Map();
+function walkRules(rules) {
+  for (const rule of rules) {
+    if (rule.cssRules) { walkRules(rule.cssRules); continue; }   // @media / @supports
+    const sel = rule.selectorText;
+    if (!rule.style || !sel || /\.lab/.test(sel)) continue;
+    for (let i = 0; i < rule.style.length; i++) {
+      const prop = rule.style[i];
+      const v = rule.style.getPropertyValue(prop);
+      for (const m of v.matchAll(/var\((--[a-z0-9-]+)/gi)) {
+        const t = m[1];
+        if (!USAGE.has(t)) USAGE.set(t, new Set());
+        USAGE.get(t).add(`${sel} · ${prop}`);
+      }
+    }
+  }
+}
+function buildUsageIndex() {
+  for (const sheet of document.styleSheets) {
+    let rules;
+    try { rules = sheet.cssRules; } catch { continue; }   // cross-origin guard
+    if (rules) walkRules(rules);
+  }
+}
+function usageList(name) {
+  const s = USAGE.get(name);
+  return s ? [...s] : [];
+}
+// a clickable "n×" badge that toggles an on-demand list of consumers (no inline bloat)
+function usageNode(name) {
+  const uses = usageList(name);
+  const detail = el('div', { class: 'lab-usage', hidden: '' },
+    uses.length ? uses.map((u) => el('code', { class: 'lab-usage-row', text: u }))
+                : [el('div', { class: 'lab-note', text: 'no consumers found in app CSS' })]);
+  const badge = el('button', { class: `lab-usebadge${uses.length ? '' : ' lab-usebadge-zero'}`, text: `${uses.length}×` });
+  badge.addEventListener('click', () => { detail.hidden = !detail.hidden; });
+  return { badge, detail };
+}
 
 // ---- tiny DOM helpers -------------------------------------------------------
 function el(tag, props = {}, children = []) {
@@ -45,14 +92,16 @@ function chip(text, kind) {
   return el('span', { class: `lab-flag lab-flag-${kind || 'info'}`, text });
 }
 
-// A color swatch: the var rendered as a chip + its name + resolved value.
+// A color swatch: the var rendered as a chip + its name + resolved value + usage.
 function swatch(name) {
+  const u = usageNode(name);
   return el('div', { class: 'lab-swatch' }, [
     el('div', { class: 'lab-chip', style: `background:var(${name})` }),
     el('div', { class: 'lab-meta' }, [
-      el('code', { class: 'lab-name', text: name }),
+      el('div', { class: 'lab-swatch-head' }, [el('code', { class: 'lab-name', text: name }), u.badge]),
       el('code', { class: 'lab-val', text: val(name) || '—' }),
     ]),
+    u.detail,
   ]);
 }
 function swatchGrid(names) {
@@ -82,26 +131,26 @@ const RADII = ['--radius-2xs', '--radius-xs', '--radius-sm', '--radius', '--radi
 const SPACING = ['--space-2', '--space-4', '--space-6', '--space-8', '--space-10', '--space-12', '--space-14', '--space-16', '--space-20', '--space-24'];
 
 // ---- non-color token renderers ---------------------------------------------
-function typeSample(name) {
-  return el('div', { class: 'lab-row' }, [
-    el('span', { class: 'lab-typesample', style: `font-size:var(${name})`, text: 'Fold visual symmetry' }),
-    el('code', { class: 'lab-name', text: name }),
-    el('code', { class: 'lab-val', text: val(name) }),
+function sampleRow(preview, name) {
+  const u = usageNode(name);
+  return el('div', {}, [
+    el('div', { class: 'lab-row' }, [
+      preview,
+      el('code', { class: 'lab-name', text: name }),
+      el('code', { class: 'lab-val', text: val(name) }),
+      u.badge,
+    ]),
+    u.detail,
   ]);
+}
+function typeSample(name) {
+  return sampleRow(el('span', { class: 'lab-typesample', style: `font-size:var(${name})`, text: 'Fold visual symmetry' }), name);
 }
 function radiusSample(name) {
-  return el('div', { class: 'lab-row' }, [
-    el('div', { class: 'lab-radiusbox', style: `border-radius:var(${name})` }),
-    el('code', { class: 'lab-name', text: name }),
-    el('code', { class: 'lab-val', text: val(name) }),
-  ]);
+  return sampleRow(el('div', { class: 'lab-radiusbox', style: `border-radius:var(${name})` }), name);
 }
 function spaceSample(name) {
-  return el('div', { class: 'lab-row' }, [
-    el('div', { class: 'lab-spacebar', style: `width:var(${name})` }),
-    el('code', { class: 'lab-name', text: name }),
-    el('code', { class: 'lab-val', text: val(name) }),
-  ]);
+  return sampleRow(el('div', { class: 'lab-spacebar', style: `width:var(${name})` }), name);
 }
 
 // ---- ICON INVENTORY ---------------------------------------------------------
@@ -186,6 +235,70 @@ function iconsSection() {
   ]);
 }
 
+// ---- CURSOR INVENTORY -------------------------------------------------------
+// rotateCursorForAngle returns a CSS cursor: url("data:image/svg+xml;utf8,<svg…>") 16 16, move.
+// Extract the SVG so we can render it as an <img> (re-encoded for a valid img src),
+// and apply the real cursor string so hovering shows the actual pointer.
+function cursorSvg(cssCursor) {
+  const m = cssCursor.match(/data:image\/svg\+xml;utf8,(.+?)"\)/);
+  return m ? m[1] : '';
+}
+function rotateCursorTile(theta) {
+  const css = rotateCursorForAngle(theta);
+  const src = 'data:image/svg+xml,' + encodeURIComponent(cursorSvg(css));
+  return el('div', { class: 'lab-cursor', style: `cursor:${css}` }, [
+    el('div', { class: 'lab-cursor-stage' }, [el('img', { src, width: '32', height: '32' })]),
+    el('code', { class: 'lab-name', text: `${Math.round((theta * 180) / Math.PI)}°` }),
+  ]);
+}
+function scaleCursorTile(name) {
+  return el('div', { class: 'lab-cursor', style: `cursor:${name}` }, [
+    el('div', { class: 'lab-cursor-stage lab-cursor-hover', text: 'hover' }),
+    el('code', { class: 'lab-name', text: name }),
+  ]);
+}
+function cursorsSection() {
+  const TAU = Math.PI * 2;
+  const rotates = [];
+  for (let i = 0; i < 16; i++) rotates.push(rotateCursorTile((i / 16) * TAU));
+  const scales = ['ew-resize', 'nwse-resize', 'ns-resize', 'nesw-resize'].map(scaleCursorTile);
+  return section('cursors', 'Cursors', 'Desktop mouse affordances for segment manipulation. The 16 baked rotate variants (shell/cursors.js — CSS can’t rotate a cursor, so they’re pre-generated SVGs) shown as images + live on hover; the 4 scale cursors are standard CSS resize cursors (hover to see). Backlog flags this surface as "inconsistent/sloppy cursors" — this is where we judge + redraw them as a set.', [
+    el('h3', { class: 'lab-h3', text: 'Rotate · 16 angle-indexed variants' }),
+    el('div', { class: 'lab-grid lab-grid-cursor' }, rotates),
+    el('h3', { class: 'lab-h3', text: 'Scale · CSS resize cursors' }),
+    el('div', { class: 'lab-grid lab-grid-cursor' }, scales),
+  ]);
+}
+
+// ---- AFFORDANCE INVENTORY ---------------------------------------------------
+// Rendered from the REAL draw primitives exported from shell/overlay.js (no
+// divergent reproduction). Drawn white-on-gray to approximate the over-image look.
+function affCanvas(label, drawFn) {
+  const W = 96, H = 96, dpr = 2;
+  const canvas = el('canvas', { width: String(W * dpr), height: String(H * dpr), style: `width:${W}px;height:${H}px` });
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  drawFn(ctx, W / 2, H / 2);
+  return el('div', { class: 'lab-aff' }, [
+    el('div', { class: 'lab-aff-stage' }, [canvas]),
+    el('code', { class: 'lab-name', text: label }),
+  ]);
+}
+function affordancesSection() {
+  const specimens = [
+    affCanvas('scale · horizontal', (ctx, cx, cy) => afScaleArrow(ctx, cx, cy, 1, 0, 1, 2)),
+    affCanvas('scale · diagonal', (ctx, cx, cy) => afScaleArrow(ctx, cx, cy, Math.SQRT1_2, Math.SQRT1_2, 1, 2)),
+    affCanvas('rotate arc · 0°', (ctx, cx, cy) => afRotationArc(ctx, cx, cy, 0, 26, 1, 2)),
+    affCanvas('rotate arc · 135°', (ctx, cx, cy) => afRotationArc(ctx, cx, cy, (3 * Math.PI) / 4, 26, 1, 2)),
+    affCanvas('center handle', (ctx, cx, cy) => { ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(cx, cy, 3, 0, Math.PI * 2); ctx.fill(); }),
+  ];
+  return section('affordances', 'Affordances', 'The on-canvas gesture affordances for slice/segment manipulation, drawn from the REAL primitives exported from shell/overlay.js (afScaleArrow / afRotationArc / center dot). The full touch composite — move / segment-spoke / square-edge / droste-arm handles in drawTouchAffordances — needs a geometry harness to render standalone (a follow-on). Known gaps from BACKLOG to design against here: the LOST Droste rotation handle (want a grippy extending from the circle), a crosshair instead of the dot for the Droste offset, and the min-wedge ~20px clamp where the affordance UI breaks.', [
+    el('div', { class: 'lab-grid lab-grid-cursor' }, specimens),
+  ]);
+}
+
 // ---- control samples (real app classes) -------------------------------------
 function labeled(label, node) {
   return el('div', { class: 'lab-ctl' }, [el('code', { class: 'lab-name', text: label }), node]);
@@ -193,17 +306,78 @@ function labeled(label, node) {
 function btn(label, props = {}) { return el('button', { ...props, text: label }); }
 function slider(props = {}) { return el('input', { type: 'range', min: '0', max: '100', value: '40', ...props }); }
 
-function controlsSection() {
-  const buttons = el('div', { class: 'lab-stack' }, [
-    labeled('button (base)', btn('Button')),
-    labeled('button.primary', btn('Primary', { class: 'primary' })),
-    labeled('button.toggle.active', btn('Toggle on', { class: 'toggle active' })),
-    labeled('button.reset', btn('Reset', { class: 'reset' })),
-    labeled('button:disabled', btn('Disabled', { disabled: '' })),
-    labeled('.ot-btn', btn('ot-btn', { class: 'ot-btn' })),
-    labeled('.ot-btn.active', btn('ot-btn active', { class: 'ot-btn active' })),
-    labeled('.mf-btn', btn('mf-btn', { class: 'mf-btn' })),
+// state-matrix cell: a component on a realistic surface + its class label
+function stateCell(node, label) {
+  return el('div', { class: 'lab-state' }, [
+    el('div', { class: 'lab-state-stage' }, [node]),
+    el('code', { class: 'lab-name', text: label }),
   ]);
+}
+function btnEl(cls, text, opts = {}) {
+  const p = { text };
+  if (cls) p.class = cls;
+  if (opts.disabled) p.disabled = '';
+  if (opts.id) p.id = opts.id;
+  return el('button', p);
+}
+function matrixRow(family, cells) {
+  return el('div', { class: 'lab-matrow' }, [
+    el('div', { class: 'lab-matlabel', text: family }),
+    el('div', { class: 'lab-matcells' }, cells.map(([lbl, node]) => stateCell(node, lbl))),
+  ]);
+}
+
+function buttonMatrix() {
+  return el('div', { class: 'lab-matrix' }, [
+    matrixRow('Neutral · button', [
+      ['button', btnEl('', 'Button')],
+      ['.primary', btnEl('primary', 'Primary')],
+      ['.toggle.active', btnEl('toggle active', 'Toggle on')],
+      ['.reset', btnEl('reset', 'Reset')],
+      [':disabled', btnEl('', 'Disabled', { disabled: 1 })],
+    ]),
+    matrixRow('Bar · .ot-btn', [
+      ['.ot-btn', btnEl('ot-btn', 'ot-btn')],
+      ['.active', btnEl('ot-btn active', 'active')],
+      ['.band-open', btnEl('ot-btn band-open', 'band-open')],
+      [':disabled', btnEl('ot-btn', 'disabled', { disabled: 1 })],
+    ]),
+    matrixRow('Motion · .mf-btn', [
+      ['.mf-btn', btnEl('mf-btn', 'mf-btn')],
+      ['.mf-toggle.active', btnEl('mf-btn mf-toggle active', 'loop on')],
+      ['.mf-add', btnEl('mf-btn mf-add', 'add')],
+      [':disabled', btnEl('mf-btn', 'disabled', { disabled: 1 })],
+    ]),
+    matrixRow('Intent (id+class)', [
+      ['#recordBtn.rec', btnEl('ot-btn rec', '● rec', { id: 'recordBtn' })],
+      ['#broadcastBtn.armed', btnEl('ot-btn armed', '◉ live', { id: 'broadcastBtn' })],
+    ]),
+    matrixRow('Mobile · .m-seg-btn', [
+      ['.m-seg-btn', btnEl('m-seg-btn', 'seg')],
+      ['.active', btnEl('m-seg-btn active', 'seg on')],
+      [':disabled', btnEl('m-seg-btn', 'seg', { disabled: 1 })],
+    ]),
+  ]);
+}
+
+function menusPair() {
+  const mf = el('div', { class: 'mf-menu', style: 'position:static' }, [
+    el('button', { text: 'Duplicate keyframe' }),
+    el('button', { text: 'Delete keyframe' }),
+    el('button', { text: 'Reset workspace' }),
+  ]);
+  const mm = el('div', { class: 'm-menu', style: 'position:static' }, [
+    el('button', { class: 'm-menu-item', html: `<span class="m-menu-icon m-icon-record">${ICONS.record}</span> live camera` }),
+    el('button', { class: 'm-menu-item', html: `<span class="m-menu-icon">${ICONS.camera}</span> take still` }),
+    el('button', { class: 'm-menu-item current', html: `<span class="m-menu-icon">${ICONS.photo}</span> choose photo / file` }),
+  ]);
+  return el('div', { class: 'lab-cols' }, [
+    el('div', {}, [el('h3', { class: 'lab-h3', text: '.mf-menu · desktop (radius 8, 13px)' }), mf]),
+    el('div', {}, [el('h3', { class: 'lab-h3', text: '.m-menu · mobile (radius 12, 15px, bordered items)' }), mm]),
+  ]);
+}
+
+function componentsSection() {
   const sliders = el('div', { class: 'lab-stack' }, [
     labeled('input[type=range]', el('label', { class: 'slider' }, [slider()])),
     labeled('disabled', el('label', { class: 'slider disabled' }, [slider({ disabled: '' })])),
@@ -214,9 +388,12 @@ function controlsSection() {
     labeled('.scrub-input', el('input', { class: 'scrub-input', value: '128' })),
     labeled('.text-input', el('input', { class: 'text-input', value: 'Fold' })),
   ]);
-  return section('controls', 'Controls', 'Rendered with the real app classes — they consume the live styles. (A full state-matrix component gallery is a planned increment of this arc.)', [
-    el('div', { class: 'lab-cols' }, [
-      el('div', {}, [el('h3', { class: 'lab-h3', text: 'Buttons' }), buttons]),
+  return section('components', 'Components', 'Real app classes in a state matrix. (:hover/:active are live on hover; the class-based states below are static so collisions are visible at a glance.) NOTE the over-variation this surfaces: SIX distinct "emphasis/selected" treatments — .primary (fill), .toggle.active, .ot-btn.active, .band-open, .mf-toggle.active, .mf-add — several outlined and near-identical, which is why a "loop on" toggle reads like a primary button. And desktop↔mobile button/menu divergence (two menu implementations, different radii/type). These are the reduce-variation + disambiguation targets.', [
+    el('h3', { class: 'lab-h3', text: 'Button state matrix' }),
+    buttonMatrix(),
+    el('h3', { class: 'lab-h3', text: 'Menus · desktop ↔ mobile (divergence)' }),
+    menusPair(),
+    el('div', { class: 'lab-cols', style: 'margin-top:18px' }, [
       el('div', {}, [el('h3', { class: 'lab-h3', text: 'Sliders' }), sliders]),
       el('div', {}, [el('h3', { class: 'lab-h3', text: 'Fields' }), fields]),
     ]),
@@ -225,10 +402,11 @@ function controlsSection() {
 
 // ---- compose the page -------------------------------------------------------
 function build() {
+  buildUsageIndex();   // scan the loaded CSS so each token can show its consumers
   const content = el('div', { class: 'lab-main' }, [
     el('header', { class: 'lab-header' }, [
       el('h1', { class: 'lab-h1', text: 'Fold · UI Lab' }),
-      el('p', { class: 'lab-note', text: 'The design system in isolation, and a visual inventory. Every value is read live from tokens.css — edit a token and watch its swatch and consumers move together.' }),
+      el('p', { class: 'lab-note', text: 'The design system in isolation, a visual inventory, and a usage instrument. Every value is read live from tokens.css; the n× badge on each token lists where it is actually consumed (click to expand). A 0× badge means an unused token — a candidate to cut.' }),
     ]),
     section('primitives', 'Primitives · neutral ramp', 'Raw palette, dark → light. Post-collapse set (each step ≥6 apart).', [swatchGrid(NEUTRALS)]),
     section('accents', 'Primitives · accents', 'Two record reds (--c-red-600 desktop, --c-red-500 mobile) now both resolve to --danger.', [swatchGrid(ACCENTS)]),
@@ -240,7 +418,9 @@ function build() {
     section('radii', 'Radii', null, [el('div', { class: 'lab-list' }, RADII.map(radiusSample))]),
     section('spacing', 'Spacing', null, [el('div', { class: 'lab-list' }, SPACING.map(spaceSample))]),
     iconsSection(),
-    controlsSection(),
+    cursorsSection(),
+    affordancesSection(),
+    componentsSection(),
   ]);
 
   // build the sticky nav from the sections actually present
@@ -275,10 +455,17 @@ labStyle.textContent = `
   .lab-swatch { display: flex; flex-direction: column; gap: 6px; }
   .lab-chip { height: 56px; border-radius: var(--radius-md); border: 1px solid var(--border); }
   .lab-meta { display: flex; flex-direction: column; gap: 1px; }
+  .lab-swatch-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
   .lab-name { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-secondary); }
   .lab-val { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-muted); }
-  .lab-list { display: flex; flex-direction: column; gap: 4px; }
-  .lab-row { display: grid; grid-template-columns: 220px 160px 1fr; align-items: center; gap: 16px; padding: 4px 0; }
+  /* usage cross-reference */
+  .lab-usebadge { font-family: var(--font-mono); font-size: var(--text-2xs); color: var(--text-dim); background: var(--surface-control); border: 1px solid var(--border); border-radius: var(--radius-full); padding: 1px 7px; cursor: pointer; flex: none; }
+  .lab-usebadge:hover { color: var(--text); border-color: var(--border-hover); }
+  .lab-usebadge-zero { color: var(--warn-text); border-color: rgba(232, 200, 112, 0.4); }
+  .lab-usage { margin-top: 6px; padding: 8px; background: var(--bg); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); display: flex; flex-direction: column; gap: 2px; }
+  .lab-usage-row { font-family: var(--font-mono); font-size: var(--text-2xs); color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .lab-list { display: flex; flex-direction: column; gap: 2px; }
+  .lab-row { display: grid; grid-template-columns: 220px 150px 70px auto; align-items: center; gap: 16px; padding: 4px 0; }
   .lab-typesample { color: var(--text); white-space: nowrap; }
   .lab-radiusbox { width: 56px; height: 32px; background: var(--surface-control); border: 1px solid var(--border-strong); }
   .lab-spacebar { height: 16px; background: var(--accent); border-radius: var(--radius-xs); }
@@ -298,6 +485,20 @@ labStyle.textContent = `
   .lab-flag { font-size: var(--text-2xs); font-family: var(--font-mono); padding: 2px 6px; border-radius: var(--radius-xs); }
   .lab-flag-warn { background: rgba(255, 90, 90, 0.14); color: var(--danger-text); border: 1px solid rgba(255, 90, 90, 0.3); }
   .lab-flag-info { background: var(--surface-control); color: var(--text-dim); }
+  /* cursors + affordances */
+  .lab-grid-cursor { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 10px; }
+  .lab-cursor, .lab-aff { display: flex; flex-direction: column; gap: 6px; align-items: center; }
+  .lab-cursor-stage, .lab-aff-stage { width: 96px; height: 64px; display: flex; align-items: center; justify-content: center; border-radius: var(--radius-md); border: 1px solid var(--border-subtle); background: var(--c-neutral-450); }
+  .lab-cursor-stage img { display: block; }
+  .lab-cursor-hover { font-size: var(--text-xs); color: var(--c-neutral-950); }
+  .lab-aff-stage { height: 96px; background: var(--c-neutral-500); }
+  /* component state matrix */
+  .lab-matrix { display: flex; flex-direction: column; gap: 4px; }
+  .lab-matrow { display: grid; grid-template-columns: 150px 1fr; align-items: center; gap: 16px; padding: 8px 0; border-bottom: 1px solid var(--border-subtle); }
+  .lab-matlabel { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-dim); }
+  .lab-matcells { display: flex; flex-wrap: wrap; gap: 10px; }
+  .lab-state { display: flex; flex-direction: column; gap: 4px; align-items: flex-start; }
+  .lab-state-stage { padding: 8px; background: var(--surface); border-radius: var(--radius-sm); display: flex; align-items: center; }
 `;
 document.head.appendChild(labStyle);
 
