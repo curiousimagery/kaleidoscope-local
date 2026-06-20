@@ -12,12 +12,13 @@
 import './shell/tokens.css';
 import './shell/styles.css';
 import './mobile/styles.css';   // so mobile component specimens (.m-*) render correctly
-// Same CSS as raw source text (Vite ?inline) — parsed for the usage cross-reference
-// through a stylesheet we own, which is reliably readable everywhere (document.styleSheets
-// introspection was returning nothing depending on how the styles were injected).
-import tokensText from './shell/tokens.css?inline';
-import stylesText from './shell/styles.css?inline';
-import mobileText from './mobile/styles.css?inline';
+// Same CSS as raw source TEXT (Vite ?raw = the verbatim file, identical to what Node
+// reads) — parsed as a string for the usage cross-reference, with NO dependency on the
+// browser CSSOM (document.styleSheets / .sheet.cssRules was returning nothing). The parser
+// is validated in Node against these same files (scripts can't run, but see the build notes).
+import tokensText from './shell/tokens.css?raw';
+import stylesText from './shell/styles.css?raw';
+import mobileText from './mobile/styles.css?raw';
 import { ICONS } from './mobile/icons.js';
 import { FORMS } from './engine/forms/index.js';
 import { rotateCursorForAngle, scaleCursorForAngle } from './shell/cursors.js';
@@ -33,32 +34,33 @@ const val = (name) => root.getPropertyValue(name).trim();
 // the CSS half of the cross-reference; JS-referenced icons carry a grepped usage
 // map (see ICON_USAGE) — a fuller automatic JS scan would need a build step.
 const USAGE = new Map();
-function walkRules(rules) {
-  for (const rule of rules) {
-    if (rule.cssRules) { walkRules(rule.cssRules); continue; }   // @media / @supports
-    const sel = rule.selectorText;
-    if (!rule.style || !sel || /\.lab/.test(sel)) continue;
-    for (let i = 0; i < rule.style.length; i++) {
-      const prop = rule.style[i];
-      const v = rule.style.getPropertyValue(prop);
-      for (const m of v.matchAll(/var\((--[a-z0-9-]+)/gi)) {
-        const t = m[1];
-        if (!USAGE.has(t)) USAGE.set(t, new Set());
-        USAGE.get(t).add(`${sel} · ${prop}`);
+// Pure-string CSS parser — no CSSOM. Extracts innermost `selector { decls }` rules
+// (the /[^{}]+{[^{}]*}/ pattern skips @media wrappers and matches the rule INSIDE them),
+// then for each declaration records which token it consumes. Same code path runs in
+// Node, so it's validatable without a browser. Exported for the Node test.
+export function parseUsage(cssText, usage = new Map()) {
+  const css = cssText.replace(/\/\*[\s\S]*?\*\//g, '');   // strip comments
+  const ruleRe = /([^{}]+)\{([^{}]*)\}/g;
+  let m;
+  while ((m = ruleRe.exec(css)) !== null) {
+    const sel = m[1].trim().replace(/\s+/g, ' ');
+    if (!sel || sel.startsWith('@') || /\.lab/.test(sel)) continue;
+    for (const decl of m[2].split(';')) {
+      const ci = decl.indexOf(':');
+      if (ci < 0) continue;
+      const prop = decl.slice(0, ci).trim();
+      const value = decl.slice(ci + 1);
+      for (const vm of value.matchAll(/var\((--[a-z0-9-]+)/gi)) {
+        const t = vm[1];
+        if (!usage.has(t)) usage.set(t, new Set());
+        usage.get(t).add(`${sel} · ${prop}`);
       }
     }
   }
+  return usage;
 }
 function buildUsageIndex() {
-  // Parse the app CSS source text through a stylesheet we create and own, so
-  // cssRules is reliably readable (dev, built http, and file://).
-  const tmp = document.createElement('style');
-  tmp.textContent = `${tokensText}\n${stylesText}\n${mobileText}`;
-  (document.head || document.documentElement).appendChild(tmp);
-  try {
-    if (tmp.sheet && tmp.sheet.cssRules) walkRules(tmp.sheet.cssRules);
-  } catch (e) { /* leave USAGE empty; the banner explains */ }
-  tmp.remove();
+  parseUsage(`${tokensText}\n${stylesText}\n${mobileText}`, USAGE);
 }
 function usageList(name) {
   const s = USAGE.get(name);
@@ -446,6 +448,181 @@ function componentsSection() {
   ]);
 }
 
+// ---- FUNCTIONAL TEXT STYLES -------------------------------------------------
+// The composed text roles in the app (heading / label / value / caption / status /
+// meta / …), parsed from the CSS. Same "collapse the diffs" goal as the raw size +
+// color tokens, one level up: these are the candidate NAMED text styles.
+function txtRow(node, label, spec) {
+  return el('div', { class: 'lab-textrow' }, [
+    el('div', { class: 'lab-text-sample' }, [node]),
+    el('div', { class: 'lab-text-meta' }, [
+      el('code', { class: 'lab-name', text: label }),
+      el('code', { class: 'lab-val', text: spec }),
+    ]),
+  ]);
+}
+const tc = (cls, sample) => el('div', { class: cls, text: sample });   // direct-class specimen
+function textGroup(title, rows) {
+  return [el('h3', { class: 'lab-h3', text: title }), el('div', { class: 'lab-textlist' }, rows)];
+}
+function textStylesSection() {
+  return section('textstyles', 'Text styles', 'Every functional text role in the app, parsed from the CSS and rendered with its real class. The point (same as the tokens): collapse the diffs. Note --text-sm (11px) alone is reused by ~12 roles in different colors, the lowercase "heading" pattern recurs at 11px AND 10px, and desktop↔mobile labels drift (12px vs 13px). These should resolve into a SMALL named set of text styles (heading / label / value / caption / hint / status / meta / mono). Tooltips are NOT here because they are native browser title= tooltips — unstyled (a gap).', [
+    ...textGroup('Headings / titles', [
+      txtRow(el('div', { class: 'group', style: 'border:none;padding:0;gap:0' }, [el('h2', { text: 'segment' })]), '.group h2', '11px · --text-dim · 500 · lowercase · ls .08em'),
+      txtRow(tc('vid-head', 'export video'), '.vid-head', '13px · --text · 500'),
+      txtRow(el('div', { class: 'placeholder' }, [el('strong', { text: 'kaleidoscope' })]), '.placeholder strong', '14px · --text-dim · 500 · block'),
+    ]),
+    ...textGroup('Labels', [
+      txtRow(tc('field-label', 'out of bounds'), '.field-label', '12px · --text-dim'),
+      txtRow(el('label', { class: 'slider', style: 'gap:0' }, ['segments']), 'label.slider', '12px · --text-dim'),
+      txtRow(tc('m-control-row', 'rotation'), '.m-control-row (mobile)', '13px · --text-dim — note: 12 vs 13 drift'),
+    ]),
+    ...textGroup('Values (numeric, tabular)', [
+      txtRow(el('label', { class: 'slider', style: 'gap:0' }, [el('span', { class: 'val', text: '128' })]), 'label.slider .val', '11px · --text-secondary · tabular'),
+      txtRow(el('div', { class: 'res-hint' }, [el('span', { class: 'num', text: '1920×1080' })]), '.res-hint .num', '10px · --c-neutral-200 · tabular'),
+    ]),
+    ...textGroup('Captions / hints', [
+      txtRow(tc('setting-label', 'resolution'), '.setting-label', '10px · --text-muted · lowercase · ls .06em'),
+      txtRow(tc('res-hint', 'clean hardware only'), '.res-hint', '10px · --text-dim'),
+      txtRow(tc('browser-notice', 'Firefox caps WebGL at 8K'), '.browser-notice', '11px · --text-dim'),
+      txtRow(tc('m-sheet-cap', 'save'), '.m-sheet-cap (mobile)', '11px · --text-dim · lowercase · ls .06em'),
+    ]),
+    ...textGroup('Status / feedback', [
+      txtRow(tc('status', 'live camera'), '.status', '11px · --text-muted'),
+      txtRow(tc('status error', 'codec not supported'), '.status.error', '→ --danger-text'),
+      txtRow(tc('status busy', 'encoding…'), '.status.busy', '→ --warn-text'),
+      txtRow(tc('status success', 'saved'), '.status.success', '→ --ok'),
+      txtRow(tc('upload-error', 'could not read file'), '.upload-error', '11px · --danger-text'),
+    ]),
+    ...textGroup('Meta', [
+      txtRow(tc('source-meta', 'photo.jpg · 4032×3024'), '.source-meta', '11px · --text-muted · tabular'),
+      txtRow(tc('vid-meta', '1920×1080 · mp4'), '.vid-meta', '11px · --text-dim · tabular'),
+      txtRow(tc('clip-meta', 'drag handles to trim'), '.clip-meta', '12px · --text-dim'),
+      txtRow(tc('mf-time', '0:04'), '.mf-time', '9px · --c-neutral-400'),
+      txtRow(tc('mf-time total', '1:20'), '.mf-time.total', '→ --c-neutral-250'),
+    ]),
+    ...textGroup('Mono / version / diag', [
+      txtRow(tc('ot-version', 'v0.10.34 · Build 216'), '.ot-version', 'mono · 11px · --text-dim'),
+      txtRow(tc('version-badge', 'Build 216'), '.version-badge', 'mono · 10px · --text-faint'),
+    ]),
+    ...textGroup('Empty states', [
+      txtRow(tc('empty-msg', 'no image loaded'), '.empty-msg', '12px · --text-faint'),
+      txtRow(el('div', { class: 'placeholder' }, ['upload an image to begin']), '.placeholder', '14px · --text-faint · lh 1.6'),
+    ]),
+  ]);
+}
+
+// ---- BUILDING BLOCKS (base, reused pieces) ----------------------------------
+function ledBtn(label, greenOn, redOn) {
+  const led = el('span', { class: 'ot-led' }, [
+    el('i', { class: greenOn ? 'on-green' : '' }),
+    el('i', { class: redOn ? 'on-red' : '' }),
+  ]);
+  const btn = el('button', { class: 'ot-btn' }, ['output', led]);
+  return stateCell(btn, label);
+}
+function buildingBlocksSection() {
+  // grippy resize handles (desktop .divider + mobile #m-divider, real ::before grips)
+  const deskGrip = el('div', { class: 'divider', style: 'position:relative;height:90px' });
+  const mobGrip = el('div', { id: 'm-divider', style: 'position:relative;width:160px' });
+  // traffic-light LED states (the stacked dots on #outputBtn)
+  const leds = el('div', { class: 'lab-matcells' }, [
+    ledBtn('off', false, false),
+    ledBtn('broadcast (.on-green)', true, false),
+    ledBtn('record (.on-red)', false, true),
+    ledBtn('both', true, true),
+  ]);
+  // separators
+  const seps = el('div', { class: 'lab-stack', style: 'width:260px' }, [
+    el('div', { style: 'border-bottom:1px solid var(--border-subtle);padding-bottom:8px;width:100%', text: '--border-subtle (panel/group)' }),
+    el('div', { style: 'border-bottom:1px solid var(--border);padding-bottom:8px;width:100%', text: '--border (default rule)' }),
+  ]);
+  return section('blocks', 'Building blocks', 'Base reused pieces below the components: the grippy resize handles (desktop ::before line vs mobile ::before bar — different treatments), the traffic-light LED (the stacked dots on the output button) in its states, and the separator/rule weights.', [
+    el('div', { class: 'lab-cols' }, [
+      el('div', {}, [el('h3', { class: 'lab-h3', text: 'Grippy · desktop .divider' }), deskGrip]),
+      el('div', {}, [el('h3', { class: 'lab-h3', text: 'Grippy · mobile #m-divider' }), mobGrip]),
+    ]),
+    el('h3', { class: 'lab-h3', text: 'Traffic-light LED · #outputBtn .ot-led' }),
+    leds,
+    el('h3', { class: 'lab-h3', text: 'Separators' }),
+    seps,
+  ]);
+}
+
+// ---- COMPOSITES -------------------------------------------------------------
+function mfMarker(leftPct, stateCls) {
+  return el('div', { class: `mf-marker ${stateCls}`, style: `left:${leftPct}%` }, [
+    el('canvas', { width: '40', height: '40' }),
+    el('div', { class: 'mf-pin' }),
+  ]);
+}
+function compositesSection() {
+  // timeline: track + keyframe markers in their states + playhead
+  const timeline = el('div', { class: 'mf-track', style: 'position:relative;height:72px' }, [
+    mfMarker(12, ''),
+    mfMarker(32, 'anchored'),
+    mfMarker(52, 'selected'),
+    mfMarker(72, 'selected anchored'),
+    mfMarker(90, 'ghost'),
+    el('div', { class: 'mf-playhead', style: 'left:44%' }),
+  ]);
+  // clip-editor bar: region + trim handles + blue slice point + playhead
+  const clip = el('div', { class: 'clip-bar', style: 'position:relative;margin:0' }, [
+    el('div', { class: 'clip-region', style: 'left:22%;width:46%' }),
+    el('div', { class: 'clip-handle', style: 'left:22%' }),
+    el('div', { class: 'clip-handle', style: 'left:68%' }),
+    el('div', { class: 'clip-handle cut', style: 'left:45%' }),
+    el('div', { class: 'clip-playhead', style: 'left:55%' }),
+  ]);
+  // modals — the cards (static), backdrop spec noted separately
+  const vidCard = el('div', { class: 'vid-card', style: 'position:static' }, [
+    el('div', { class: 'vid-head' }, ['export video', el('button', { class: 'vid-x', text: '✕' })]),
+    el('div', { class: 'vid-meta', text: '1920×1080 · mp4 · ~12 MB' }),
+    el('button', { class: 'primary', style: 'margin-top:8px', text: 'render' }),
+  ]);
+  const mSheet = el('div', { class: 'm-sheet-panel', style: 'position:static;transform:none;max-height:none' }, [
+    el('div', { class: 'm-sheet-grip' }),
+    el('div', { class: 'm-sheet-cap', text: 'save' }),
+    el('div', { class: 'm-sheet-status', text: 'saved ✓' }),
+  ]);
+  return section('composites', 'Composites', 'Higher-order assemblies. Keyframe markers shown across their states (auto/hollow-pin · anchored/filled-pin · selected/amber · ghost), the clip-editor range (amber trim region + handles + the blue slice-point + white playhead), and the modal cards (desktop ↔ mobile). Modal backdrops are noted, not rendered full-screen: desktop .vid-sheet = rgba(10,10,10,0.6)+blur(3px); mobile .m-sheet-backdrop = rgba(0,0,0,0.5).', [
+    el('h3', { class: 'lab-h3', text: 'Timeline · .mf-track + keyframe marker states + .mf-playhead' }),
+    el('div', { class: 'lab-bar-wrap' }, [timeline]),
+    el('h3', { class: 'lab-h3', text: 'Clip-editor range · .clip-bar (region / handles / blue cut / playhead)' }),
+    el('div', { class: 'lab-bar-wrap' }, [clip]),
+    el('h3', { class: 'lab-h3', text: 'Modal cards · desktop ↔ mobile' }),
+    el('div', { class: 'lab-cols' }, [
+      el('div', {}, [el('div', { class: 'lab-name', style: 'margin-bottom:8px', text: '.vid-card' }), vidCard]),
+      el('div', {}, [el('div', { class: 'lab-name', style: 'margin-bottom:8px', text: '.m-sheet-panel' }), mSheet]),
+    ]),
+  ]);
+}
+
+// ---- CROSS-DEVICE STATES (reused, handled inconsistently across chromes) -----
+function crossDeviceStatesSection() {
+  const deskOutput = el('div', { class: 'lab-state-stage', style: 'flex-direction:column;align-items:center;gap:6px;padding:20px;min-width:200px' }, [
+    el('div', { class: 'placeholder' }, [el('strong', { text: 'kaleidoscope' }), 'upload an image to begin']),
+    el('div', { class: 'status', text: 'load an image to start' }),
+  ]);
+  const mobOutput = el('div', { class: 'lab-state-stage', style: 'padding:20px;min-width:200px;color:var(--text-dim);font-size:var(--text-lg)', text: 'tap + to add a source' });
+  const deskSource = el('div', { class: 'side-display-wrap', style: 'aspect-ratio:auto;min-height:90px;height:90px' }, [
+    el('div', { class: 'empty-msg', text: 'no image loaded' }),
+  ]);
+  const mobSource = el('div', { class: 'lab-state-stage', style: 'padding:20px;min-width:200px;color:var(--text-dim);font-size:var(--text-base)', text: '(mobile source slot)' });
+  return section('states', 'Cross-device states', 'Reused states that are NOT strictly components but are handled inconsistently across the two chromes — worth comparing side by side. Note desktop alone already carries THREE different empty messages: the placeholder "kaleidoscope / upload an image to begin", the status caption "load an image to start", and the side "no image loaded" — different wording, color (--text-faint vs --text-dim vs --text-muted), and size. A consolidation target.', [
+    el('h3', { class: 'lab-h3', text: 'Empty output · desktop ↔ mobile' }),
+    el('div', { class: 'lab-cols' }, [
+      el('div', {}, [el('div', { class: 'lab-name', style: 'margin-bottom:8px', text: 'desktop · .placeholder + .status' }), deskOutput]),
+      el('div', {}, [el('div', { class: 'lab-name', style: 'margin-bottom:8px', text: 'mobile · #m-empty' }), mobOutput]),
+    ]),
+    el('h3', { class: 'lab-h3', text: 'Empty source · desktop ↔ mobile' }),
+    el('div', { class: 'lab-cols' }, [
+      el('div', {}, [el('div', { class: 'lab-name', style: 'margin-bottom:8px', text: 'desktop · .side-display-wrap .empty-msg' }), deskSource]),
+      el('div', {}, [el('div', { class: 'lab-name', style: 'margin-bottom:8px', text: 'mobile' }), mobSource]),
+    ]),
+  ]);
+}
+
 // ---- CLI cheat sheet (the Lab is the one surface where Daniel is the only
 // consumer, so dev tooling fits here) ----------------------------------------
 const CLI_COMMANDS = [
@@ -532,12 +709,16 @@ function build() {
     section('text', 'Semantic · text', null, [swatchGrid(SEM_TEXT)]),
     section('intent', 'Semantic · intent', 'Accent / state colors.', [swatchGrid(SEM_INTENT)]),
     section('type', 'Type · size ramp', `Sans: ${val('--font-sans')}`, [el('div', { class: 'lab-list' }, TYPE_RAMP.map(typeSample))]),
+    textStylesSection(),
     section('radii', 'Radii', null, [el('div', { class: 'lab-list' }, RADII.map(radiusSample))]),
     section('spacing', 'Spacing', null, [el('div', { class: 'lab-list' }, SPACING.map(spaceSample))]),
     iconsSection(),
     cursorsSection(),
     affordancesSection(),
     componentsSection(),
+    buildingBlocksSection(),
+    compositesSection(),
+    crossDeviceStatesSection(),
   ]);
 
   // if introspection found nothing (e.g. opened over file://), explain it
@@ -626,6 +807,13 @@ labStyle.textContent = `
   .lab-matcells { display: flex; flex-wrap: wrap; gap: 10px; }
   .lab-state { display: flex; flex-direction: column; gap: 4px; align-items: flex-start; }
   .lab-state-stage { padding: 8px; background: var(--surface); border-radius: var(--radius-sm); display: flex; align-items: center; }
+  /* composites: give the full-width bars (timeline / clip) a bounded stage */
+  .lab-bar-wrap { width: 420px; max-width: 100%; padding: 16px; background: var(--surface); border-radius: var(--radius-md); }
+  /* functional text styles */
+  .lab-textlist { display: flex; flex-direction: column; gap: 2px; margin-bottom: 10px; }
+  .lab-textrow { display: grid; grid-template-columns: 280px 1fr; align-items: center; gap: 20px; padding: 5px 0; border-bottom: 1px solid var(--border-subtle); }
+  .lab-text-sample { min-width: 0; }
+  .lab-text-meta { display: flex; flex-direction: column; gap: 1px; }
   /* app icon (own full-width row, not the icon grid) */
   .lab-appicon-card { display: flex; flex-wrap: wrap; gap: 24px; align-items: flex-start; padding: 16px; border: 1px solid var(--border-subtle); border-radius: var(--radius-md); background: var(--surface); }
   .lab-appicon-previews { display: flex; align-items: flex-end; gap: 18px; }
