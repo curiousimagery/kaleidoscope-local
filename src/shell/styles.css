@@ -785,3 +785,25 @@ body.motion #oobModes { pointer-events: none; opacity: var(--disabled-opacity); 
 .vid-progress { height: 6px; background: var(--surface-hover); border-radius: var(--radius-sm); overflow: hidden; }
 .vid-progress[hidden] { display: none; }
 .vid-bar { height: 100%; width: 0; background: var(--fill-bright); transition: width 0.12s; }
+
+/* ===========================================================================
+   NAMED TEXT STYLES (proposed canonical set — Build 218)
+   The composed text roles, collapsed from the ~25 sprawled text rules (.group h2,
+   .field-label, .status, .vid-meta, .setting-label, …) into a small intentional
+   set. ADDITIVE for now — nothing consumes these yet; migrating the existing rules
+   onto them is a separate parity-checked step. VALUES ARE A PROPOSAL: this is where
+   the consolidation decisions live (e.g. labels unified to --text-dim; hint unified
+   to 11px; desktop/mobile label drift resolved). Tune in the Lab, then migrate.
+   =========================================================================== */
+.t-heading  { font-size: var(--text-sm); color: var(--text-dim); font-weight: 500; text-transform: lowercase; letter-spacing: 0.08em; }
+.t-title    { font-size: var(--text-md); color: var(--text); font-weight: 500; }
+.t-label    { font-size: var(--text-base); color: var(--text-dim); }
+.t-value    { font-size: var(--text-sm); color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+.t-caption  { font-size: var(--text-xs); color: var(--text-muted); text-transform: lowercase; letter-spacing: 0.06em; }
+.t-hint     { font-size: var(--text-sm); color: var(--text-dim); line-height: 1.4; }
+.t-meta     { font-size: var(--text-sm); color: var(--text-dim); font-variant-numeric: tabular-nums; }
+.t-status   { font-size: var(--text-sm); color: var(--text-muted); }
+.t-status.error   { color: var(--danger-text); }
+.t-status.busy    { color: var(--warn-text); }
+.t-status.success { color: var(--ok); }
+.t-mono     { font-family: var(--font-mono); font-size: var(--text-sm); color: var(--text-dim); }

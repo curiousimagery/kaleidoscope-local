@@ -466,7 +466,20 @@ function textGroup(title, rows) {
   return [el('h3', { class: 'lab-h3', text: title }), el('div', { class: 'lab-textlist' }, rows)];
 }
 function textStylesSection() {
-  return section('textstyles', 'Text styles', 'Every functional text role in the app, parsed from the CSS and rendered with its real class. The point (same as the tokens): collapse the diffs. Note --text-sm (11px) alone is reused by ~12 roles in different colors, the lowercase "heading" pattern recurs at 11px AND 10px, and desktop↔mobile labels drift (12px vs 13px). These should resolve into a SMALL named set of text styles (heading / label / value / caption / hint / status / meta / mono). Tooltips are NOT here because they are native browser title= tooltips — unstyled (a gap).', [
+  return section('textstyles', 'Text styles', 'Every functional text role in the app, parsed from the CSS. The PROPOSED named set (.t-*, now in styles.css — additive, nothing consumes it yet) is the consolidation target; below it is the current sprawl it replaces. --text-sm (11px) alone is reused by ~12 roles in different colors, the lowercase "heading" pattern recurs at 11px AND 10px, and desktop↔mobile labels drift (12px vs 13px). Tooltips are NOT here — they are native browser title= tooltips, unstyled (a gap). Tune the .t-* values, then migrate the sprawl onto them (a parity step).', [
+    ...textGroup('★ Proposed named set (.t-* — the target)', [
+      txtRow(tc('t-heading', 'segment'), '.t-heading', '11px · --text-dim · 500 · lowercase · ls .08em'),
+      txtRow(tc('t-title', 'export video'), '.t-title', '13px · --text · 500'),
+      txtRow(tc('t-label', 'out of bounds'), '.t-label', '12px · --text-dim'),
+      txtRow(tc('t-value', '128'), '.t-value', '11px · --text-secondary · tabular'),
+      txtRow(tc('t-caption', 'resolution'), '.t-caption', '10px · --text-muted · lowercase · ls .06em'),
+      txtRow(tc('t-hint', 'clean hardware only'), '.t-hint', '11px · --text-dim'),
+      txtRow(tc('t-meta', '1920×1080 · mp4'), '.t-meta', '11px · --text-dim · tabular'),
+      txtRow(tc('t-status', 'live camera'), '.t-status', '11px · --text-muted'),
+      txtRow(tc('t-status success', 'saved'), '.t-status.success', '→ --ok (.error/.busy too)'),
+      txtRow(tc('t-mono', 'v0.10.35 · Build 217'), '.t-mono', 'mono · 11px · --text-dim'),
+    ]),
+    el('h3', { class: 'lab-h3', style: 'margin-top:24px', text: 'Current sprawl (what the named set replaces)' }),
     ...textGroup('Headings / titles', [
       txtRow(el('div', { class: 'group', style: 'border:none;padding:0;gap:0' }, [el('h2', { text: 'segment' })]), '.group h2', '11px · --text-dim · 500 · lowercase · ls .08em'),
       txtRow(tc('vid-head', 'export video'), '.vid-head', '13px · --text · 500'),
@@ -574,26 +587,35 @@ function compositesSection() {
     el('div', { class: 'clip-handle cut', style: 'left:45%' }),
     el('div', { class: 'clip-playhead', style: 'left:55%' }),
   ]);
-  // modals — the cards (static), backdrop spec noted separately
-  const vidCard = el('div', { class: 'vid-card', style: 'position:static' }, [
-    el('div', { class: 'vid-head' }, ['export video', el('button', { class: 'vid-x', text: '✕' })]),
-    el('div', { class: 'vid-meta', text: '1920×1080 · mp4 · ~12 MB' }),
+  // modals — desktop renders the FULL treatment (backdrop dim + blur + centered card)
+  // over faux content; mobile differs (centered panel, grip, radius 16, lighter backdrop).
+  const vidCard = el('div', { class: 'vid-card' }, [
+    el('div', { class: 'vid-head' }, ['render video', el('button', { class: 'vid-x', text: '✕' })]),
+    el('div', { class: 'vid-meta', text: '1920×1080 · mp4 · h.264' }),
     el('button', { class: 'primary', style: 'margin-top:8px', text: 'render' }),
+  ]);
+  const desktopModal = el('div', { class: 'lab-modal-demo' }, [
+    el('div', { class: 'lab-modal-behind' }, [
+      el('div', { class: 't-heading', text: 'segment' }),
+      el('button', { class: 'ot-btn', style: 'margin-top:8px', text: 'output' }),
+      el('div', { class: 't-meta', style: 'margin-top:10px', text: 'photo.jpg · 4032×3024' }),
+    ]),
+    el('div', { class: 'vid-sheet', style: 'position:absolute' }, [vidCard]),
   ]);
   const mSheet = el('div', { class: 'm-sheet-panel', style: 'position:static;transform:none;max-height:none' }, [
     el('div', { class: 'm-sheet-grip' }),
     el('div', { class: 'm-sheet-cap', text: 'save' }),
     el('div', { class: 'm-sheet-status', text: 'saved ✓' }),
   ]);
-  return section('composites', 'Composites', 'Higher-order assemblies. Keyframe markers shown across their states (auto/hollow-pin · anchored/filled-pin · selected/amber · ghost), the clip-editor range (amber trim region + handles + the blue slice-point + white playhead), and the modal cards (desktop ↔ mobile). Modal backdrops are noted, not rendered full-screen: desktop .vid-sheet = rgba(10,10,10,0.6)+blur(3px); mobile .m-sheet-backdrop = rgba(0,0,0,0.5).', [
+  return section('composites', 'Composites', 'Higher-order assemblies. Keyframe markers shown across their states (auto/hollow-pin · anchored/filled-pin · selected/amber · ghost), the clip-editor range (amber trim region + handles + the blue slice-point + white playhead), and the modals. The desktop modal is shown with its FULL treatment — the .vid-sheet backdrop (dim rgba(10,10,10,0.6) + blur(3px)) over faux content, the centered .vid-card (radius 10, border, no drop-shadow — it relies on the backdrop for separation). Mobile differs: a bottom-ish centered .m-sheet-panel (radius 16, grip handle, lighter dim .5). This desktop↔mobile modal divergence (corner radius, backdrop, shadow approach) is a consolidation candidate.', [
     el('h3', { class: 'lab-h3', text: 'Timeline · .mf-track + keyframe marker states + .mf-playhead' }),
     el('div', { class: 'lab-bar-wrap' }, [timeline]),
     el('h3', { class: 'lab-h3', text: 'Clip-editor range · .clip-bar (region / handles / blue cut / playhead)' }),
     el('div', { class: 'lab-bar-wrap' }, [clip]),
-    el('h3', { class: 'lab-h3', text: 'Modal cards · desktop ↔ mobile' }),
+    el('h3', { class: 'lab-h3', text: 'Modal · desktop full treatment (backdrop dim + blur) ↔ mobile panel' }),
     el('div', { class: 'lab-cols' }, [
-      el('div', {}, [el('div', { class: 'lab-name', style: 'margin-bottom:8px', text: '.vid-card' }), vidCard]),
-      el('div', {}, [el('div', { class: 'lab-name', style: 'margin-bottom:8px', text: '.m-sheet-panel' }), mSheet]),
+      el('div', {}, [el('div', { class: 'lab-name', style: 'margin-bottom:8px', text: '.vid-sheet + .vid-card · radius 10 · blur 3px · dim .6' }), desktopModal]),
+      el('div', {}, [el('div', { class: 'lab-name', style: 'margin-bottom:8px', text: '.m-sheet-panel · radius 16 · grip · dim .5' }), mSheet]),
     ]),
   ]);
 }
@@ -769,7 +791,7 @@ labStyle.textContent = `
   .lab-usebadge:hover { color: var(--text); border-color: var(--border-hover); }
   .lab-usebadge-zero { color: var(--warn-text); border-color: rgba(232, 200, 112, 0.4); }
   .lab-usage { margin-top: 6px; padding: 8px; background: var(--bg); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); display: flex; flex-direction: column; gap: 2px; }
-  .lab-usage-row { font-family: var(--font-mono); font-size: var(--text-2xs); color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .lab-usage-row { font-family: var(--font-mono); font-size: var(--text-2xs); color: var(--text-secondary); white-space: normal; overflow-wrap: anywhere; line-height: 1.5; }
   .lab-usage[hidden] { display: none; }                 /* class display:flex would otherwise beat [hidden] */
   .lab-row .lab-usebadge { justify-self: start; }       /* don't stretch across the grid track */
   .lab-list { display: flex; flex-direction: column; gap: 2px; }
@@ -809,6 +831,10 @@ labStyle.textContent = `
   .lab-state-stage { padding: 8px; background: var(--surface); border-radius: var(--radius-sm); display: flex; align-items: center; }
   /* composites: give the full-width bars (timeline / clip) a bounded stage */
   .lab-bar-wrap { width: 420px; max-width: 100%; padding: 16px; background: var(--surface); border-radius: var(--radius-md); }
+  /* modal demo: real backdrop dim + blur over faux content, scoped to a box */
+  .lab-modal-demo { position: relative; height: 240px; overflow: hidden; border-radius: var(--radius-md); border: 1px solid var(--border-subtle); }
+  .lab-modal-behind { padding: 16px; height: 100%; }
+  .lab-modal-demo .vid-sheet { inset: 0; }
   /* functional text styles */
   .lab-textlist { display: flex; flex-direction: column; gap: 2px; margin-bottom: 10px; }
   .lab-textrow { display: grid; grid-template-columns: 280px 1fr; align-items: center; gap: 20px; padding: 5px 0; border-bottom: 1px solid var(--border-subtle); }
