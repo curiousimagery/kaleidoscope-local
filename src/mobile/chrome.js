@@ -316,6 +316,7 @@ function loadImage(file, sourceType = 'file') {
 
 // ------------------------------------------------------------------- live camera
 let cameraMode = 'off';        // 'off' | 'live' | 'frozen'
+let lastFacing = 'environment';  // remembered so freeze → "go live" keeps the flipped (selfie) camera
 let liveActive = false, liveRaf = 0;
 
 function startLiveLoop() {
@@ -369,7 +370,7 @@ async function startCamera() {
     return;
   }
   try {
-    const video = await camera.start('environment');   // rear default on phones
+    const video = await camera.start(lastFacing);   // rear by default; remembers a flip across freeze→go-live
     liveVideo = video;
     console.log(`[camera] granted resolution ${video.videoWidth}×${video.videoHeight}`);
     engine.setSource(camera.frameSource());
@@ -422,6 +423,7 @@ async function flipCamera() {
   try {
     const video = await camera.flip();
     liveVideo = video;
+    lastFacing = camera.isFront() ? 'user' : 'environment';   // remember for go-live
     engine.setSource(camera.frameSource());
     sourceOverlay.mount(sourceEl);             // remount picks up the mirror transform
   } catch (e) { console.error(e); }

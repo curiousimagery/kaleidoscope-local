@@ -273,7 +273,11 @@ export function drawSourceOverlay(env) {
       ctx.lineJoin = 'round';
       ctx.moveTo(edges[0].a.x, edges[0].a.y);
       for (const e of edges) ctx.lineTo(e.b.x, e.b.y);
-      ctx.closePath();
+      // Close the loop ONLY if the chain actually returns to its start (a true closed
+      // polygon: square/hex/triangle). Radial's outerEdges is an OPEN arc (the spokes
+      // close the shape) — closing it would draw a chord across the wedge mouth.
+      const f = edges[0].a, l = edges[edges.length - 1].b;
+      if (Math.hypot(l.x - f.x, l.y - f.y) < 1.5) ctx.closePath();
     } else {
       for (const e of edges) {
         ctx.moveTo(e.a.x, e.a.y);

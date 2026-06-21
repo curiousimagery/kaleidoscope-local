@@ -293,18 +293,20 @@ function rotateCursorTile(theta) {
     el('code', { class: 'lab-name', text: `${Math.round((theta * 180) / Math.PI)}°` }),
   ]);
 }
-function scaleCursorTile(name) {
-  return el('div', { class: 'lab-cursor', style: `cursor:${name}` }, [
-    el('div', { class: 'lab-cursor-stage lab-cursor-hover', text: 'hover' }),
-    el('code', { class: 'lab-name', text: name }),
+function scaleCursorTile(theta, label) {
+  const css = scaleCursorForAngle(theta);
+  const src = 'data:image/svg+xml,' + encodeURIComponent(cursorSvg(css));
+  return el('div', { class: 'lab-cursor', style: `cursor:${css}` }, [
+    el('div', { class: 'lab-cursor-stage' }, [el('img', { src, width: '40', height: '40' })]),
+    el('code', { class: 'lab-name', text: label }),
   ]);
 }
 function cursorsSection() {
   const TAU = Math.PI * 2;
   const rotates = [];
   for (let i = 0; i < 16; i++) rotates.push(rotateCursorTile((i / 16) * TAU));
-  const scales = ['ew-resize', 'nwse-resize', 'ns-resize', 'nesw-resize'].map(scaleCursorTile);
-  return section('cursors', 'Cursors', 'Desktop mouse affordances for segment manipulation. The 16 baked rotate variants (shell/cursors.js — CSS can’t rotate a cursor, so they’re pre-generated SVGs) shown as images + live on hover; the 4 scale cursors are standard CSS resize cursors (hover to see). Backlog flags this surface as "inconsistent/sloppy cursors" — this is where we judge + redraw them as a set.', [
+  const scales = [[0, '↔ ew'], [Math.PI / 4, '⤡ nwse'], [Math.PI / 2, '↕ ns'], [3 * Math.PI / 4, '⤢ nesw']].map(([t, l]) => scaleCursorTile(t, l));
+  return section('cursors', 'Cursors', 'Desktop mouse affordances for segment manipulation, all now in ONE style (Build 225, Daniel’s shapes): WHITE fill + BLACK outline. The 16 baked rotate variants use Daniel’s filled-arrow shape; the 4 scale cursors are now custom SVGs in the same style (replacing the OS resize cursors, which were the opposite). Shown as images + live on hover. Hotspots are a first guess — sanity-check on screen.', [
     el('h3', { class: 'lab-h3', text: 'Rotate · 16 angle-indexed variants' }),
     el('div', { class: 'lab-grid lab-grid-cursor' }, rotates),
     el('h3', { class: 'lab-h3', text: 'Scale · CSS resize cursors' }),
