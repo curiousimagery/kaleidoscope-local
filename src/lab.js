@@ -174,7 +174,8 @@ const ICON_USAGE = {
   folder: 'mobile · source = file',
   camera: 'mobile · source = still; "take still"',
   record: 'mobile · source = live; "go live" (turns red)',
-  captureCam: 'mobile · capture tab / shutter',
+  captureCam: '',   // now UNUSED (capture/freeze switched to the stop icon, Build 222)
+  stop: 'mobile · capture/freeze live (replaced the aperture)',
   photo: 'mobile · "choose photo / file"',
   download: 'mobile · save tab',
   flip: 'mobile · flip-camera button',

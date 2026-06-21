@@ -252,7 +252,12 @@ export function drawSourceOverlay(env) {
     outerEdges.push({ a, b });
   }
 
-  function strokeEdges(edges, highlighted) {
+  // `closed` (Build 223): draw the boundary as ONE continuous path so its corners JOIN.
+  // The per-edge moveTo/lineTo path (used for spokes) leaves butt-ended, unjoined corners
+  // at the polygon vertices — the "rough corners" cleanup. Assumes the edges are sequential
+  // around the loop (e[i].b === e[i+1].a), which holds for the slice polygon boundary.
+  // REVERT: drop the `closed` branch + the `true` arg at the outerEdges call.
+  function strokeEdges(edges, highlighted, closed) {
     if (edges.length === 0) return;
     if (oobAnyAxis) {
       ctx.strokeStyle = highlighted ? 'rgba(255, 230, 140, 1.0)' : 'rgba(255, 196, 80, 0.95)';
@@ -262,12 +267,21 @@ export function drawSourceOverlay(env) {
       ctx.setLineDash([]);
     }
     ctx.lineWidth = (highlighted ? 2.5 : 1.5) * sw;
+    const prevJoin = ctx.lineJoin;
     ctx.beginPath();
-    for (const e of edges) {
-      ctx.moveTo(e.a.x, e.a.y);
-      ctx.lineTo(e.b.x, e.b.y);
+    if (closed) {
+      ctx.lineJoin = 'round';
+      ctx.moveTo(edges[0].a.x, edges[0].a.y);
+      for (const e of edges) ctx.lineTo(e.b.x, e.b.y);
+      ctx.closePath();
+    } else {
+      for (const e of edges) {
+        ctx.moveTo(e.a.x, e.a.y);
+        ctx.lineTo(e.b.x, e.b.y);
+      }
     }
     ctx.stroke();
+    ctx.lineJoin = prevJoin;
     ctx.setLineDash([]);
   }
 
@@ -279,7 +293,7 @@ export function drawSourceOverlay(env) {
   const dm = env.overlayDragMode;
   const dragHL      = dm === 'rotate' || dm === 'scale' || dm === 'square-edge' || dm === 'square-corner' || dm === 'pinch';
   const dragHLSpoke = dm === 'segments' || dm === 'pinch';
-  strokeEdges(outerEdges, isRotateHover || isScaleArcHover || dragHL);
+  strokeEdges(outerEdges, isRotateHover || isScaleArcHover || dragHL, true);   /* closed loop → joined corners */
   strokeEdges(spokeEdges, isRotateHover || isScaleSpokeHover || dragHLSpoke);
 
   // sample-region outline: indicator showing the actual fold sample region.

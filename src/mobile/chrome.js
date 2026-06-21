@@ -49,7 +49,7 @@ document.body.innerHTML = `
       <button id="m-tab-source" class="m-tab" title="source">${ICONS.plus}</button>
       <button id="m-tab-form" class="m-tab" title="form"></button>
       <button id="m-tab-export" class="m-tab" title="save">${ICONS.download}</button>
-      <button id="m-tab-capture" class="m-tab" title="capture" style="display:none">${ICONS.captureCam}</button>
+      <button id="m-tab-capture" class="m-tab" title="freeze" style="display:none">${ICONS.stop}</button>
     </div>
     <input type="file" class="m-file-input" id="m-file" accept="image/jpeg,image/png,image/webp">
     <input type="file" class="m-file-input" id="m-file-still" accept="image/*" capture="environment">
@@ -246,10 +246,12 @@ controlsSync.register(applyFormVisibility);
 applyFormVisibility();
 
 // --------------------------------------------------------------- tab-bar icons
-// Tab icons reflect the current selection (per Daniel's tab-bar spec).
-function setSourceIcon(type) {
-  const map = { none: ICONS.plus, file: ICONS.folder, still: ICONS.camera, live: ICONS.record };
-  $('m-tab-source').innerHTML = map[type] || ICONS.plus;
+// The source tab stays "+" regardless of the active source (Daniel, Build 222): the
+// per-source-type icon swap (folder/camera/record) was more confusing than helpful —
+// people couldn't tell how to take a picture. The arg is ignored now (kept so existing
+// callers don't change). FALLBACK: map { none:plus, file:folder, still:camera, live:record }.
+function setSourceIcon(_type) {
+  $('m-tab-source').innerHTML = ICONS.plus;
 }
 function setFormIcon() { $('m-tab-form').innerHTML = getActiveForm(state).thumbnail; }
 setSourceIcon('none');
@@ -342,7 +344,7 @@ function stopCameraStream() {
 function updateLiveUI() {
   const cap = $('m-tab-capture'), flip = $('m-flip');
   if (cameraMode === 'live') {
-    cap.style.display = ''; cap.innerHTML = ICONS.captureCam; cap.title = 'capture'; cap.style.color = '';
+    cap.style.display = ''; cap.innerHTML = ICONS.stop; cap.title = 'freeze'; cap.style.color = '';   /* was ICONS.captureCam (aperture, read too like the form icon) */
     flip.style.display = ''; setSourceIcon('live');
   } else if (cameraMode === 'frozen') {
     // still "in" live capture, just paused: go-live record is RED (actionable),
