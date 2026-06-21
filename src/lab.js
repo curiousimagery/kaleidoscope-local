@@ -23,6 +23,7 @@ import { ICONS } from './mobile/icons.js';
 import { FORMS } from './engine/forms/index.js';
 import { rotateCursorForAngle, scaleCursorForAngle } from './shell/cursors.js';
 import { afScaleArrow, afRotationArc } from './shell/overlay.js';
+import { discoverTokens, groupTokens } from './lab-tokens.js';
 
 const root = getComputedStyle(document.documentElement);
 const val = (name) => root.getPropertyValue(name).trim();
@@ -117,31 +118,9 @@ function swatch(name) {
     u.detail,
   ]);
 }
-function swatchGrid(names) {
-  return el('div', { class: 'lab-grid lab-grid-color' }, names.map(swatch));
-}
-
-// ---- token catalogs (mirrored from tokens.css) ------------------------------
-const NEUTRALS = [
-  '--c-neutral-950', '--c-neutral-900', '--c-neutral-850',
-  '--c-neutral-800', '--c-neutral-750', '--c-neutral-700',
-  '--c-neutral-650', '--c-neutral-600', '--c-neutral-550', '--c-neutral-500',
-  '--c-neutral-450', '--c-neutral-400', '--c-neutral-350', '--c-neutral-250',
-  '--c-neutral-200', '--c-neutral-150', '--c-neutral-100', '--c-neutral-0',
-  '--c-black',
-];
-const ACCENTS = [
-  '--c-amber-500', '--c-amber-300', '--c-green-500',
-  '--c-red-600', '--c-red-400', '--c-blue-500',
-];
-const SEM_SURFACE = ['--bg', '--surface', '--surface-raised', '--surface-control', '--surface-hover', '--surface-overlay'];
-const SEM_BORDER = ['--border', '--border-subtle', '--border-hover', '--border-strong'];
-const SEM_TEXT = ['--text', '--text-bright', '--text-secondary', '--text-dim', '--text-muted', '--text-faint', '--fill-bright', '--on-accent'];
-const SEM_INTENT = ['--accent', '--ok', '--danger', '--danger-text', '--warn-text', '--info', '--focus'];
-
-const TYPE_RAMP = ['--text-2xs', '--text-xs', '--text-sm', '--text-base', '--text-md', '--text-lg', '--text-xl'];
-const RADII = ['--radius-2xs', '--radius-xs', '--radius-sm', '--radius', '--radius-md', '--radius-lg', '--radius-xl', '--radius-2xl', '--radius-3xl', '--radius-full'];
-const SPACING = ['--space-2', '--space-4', '--space-6', '--space-8', '--space-10', '--space-12', '--space-14', '--space-16', '--space-20', '--space-24'];
+// Token catalogs are no longer hand-listed — they're auto-discovered from tokens.css at build
+// time (see lab-tokens.js: discoverTokens + groupTokens + TOKEN_GROUPS). A new token in
+// tokens.css appears on its own; anything no group claims lands in the "unfiled" drift bucket.
 
 // ---- non-color token renderers ---------------------------------------------
 function sampleRow(preview, name) {
@@ -164,6 +143,32 @@ function radiusSample(name) {
 }
 function spaceSample(name) {
   return sampleRow(el('div', { class: 'lab-spacebar', style: `width:var(${name})` }), name);
+}
+function fontSample(name) {
+  return sampleRow(el('span', { class: 'lab-typesample', style: `font-family:var(${name})`, text: 'Fold visual symmetry' }), name);
+}
+function plainSample(name) {
+  // control/state tokens (durations, opacities, hit size, focus ring) — no single visual; the
+  // value + usage columns carry it. A neutral chip keeps the row aligned with the others.
+  return sampleRow(el('span', { class: 'lab-plainchip' }), name);
+}
+
+// ---- auto-discovered token sections ----------------------------------------
+// Each TOKEN_GROUPS group renders with its declared `render` kind; the discovery + assignment is
+// the Node-tested logic in lab-tokens.js. Empty groups are skipped; the unfiled bucket only shows
+// when something drifted (a token no rule claimed).
+const TOKEN_RENDERERS = { swatch, type: typeSample, radius: radiusSample, space: spaceSample, font: fontSample, plain: plainSample };
+function tokenSection(g) {
+  const render = TOKEN_RENDERERS[g.render] || plainSample;
+  const body = g.render === 'swatch'
+    ? el('div', { class: 'lab-grid lab-grid-color' }, g.tokens.map(render))
+    : el('div', { class: 'lab-list' }, g.tokens.map(render));
+  return section(g.id, g.title, g.note, [body]);
+}
+function unfiledSection(names) {
+  return section('unfiled', `Unfiled tokens (${names.length})`,
+    'Tokens no group rule claimed — they still render + count usage here, but file them into a TOKEN_GROUPS rule in lab-tokens.js (or rename) so they land in the right place. This is the drift flag; it should normally be empty.',
+    [el('div', { class: 'lab-list' }, names.map((n) => sampleRow(el('span', { class: 'lab-flag lab-flag-warn', text: 'unfiled' }), n)))]);
 }
 
 // ---- ICON INVENTORY ---------------------------------------------------------
@@ -673,7 +678,7 @@ const CLI_COMMANDS = [
     ['cd electron && npm start', 'run the desktop app locally (no packaging)',
       'Run to test the Mac app + Syphon output to Arena. Launches Electron loading the ALREADY-BUILT dist/ — so run npm run build first if you changed web code. Opens a window; close it to stop. Fast iteration without making a DMG.'],
     ['cd electron && npm run dist', 'produce the installable DMG',
-      'Run to make the shippable installer. Sequence: (1) rebuilds the web app (dist/), (2) packages it with electron-builder, (3) re-applies the leak-fixed node-syphon, (4) names the file from src/version.js. Output: electron/release/Fold Live-<version>-arm64.dmg. NOTE: arm64 (Apple Silicon) only + unsigned, so Gatekeeper warns on first open (right-click → Open). The app icon is currently the DEFAULT Electron icon — we do not ship a custom .icns yet (see BACKLOG).'],
+      'Run to make the shippable installer. Sequence: (1) rebuilds the web app (dist/), (2) packages it with electron-builder, (3) re-applies the leak-fixed node-syphon, (4) names the file from src/version.js. Output: electron/release/Fold Live-<version>-arm64.dmg. NOTE: arm64 (Apple Silicon) only + unsigned, so Gatekeeper warns on first open (right-click → Open). The app icon comes from electron/build/icon.png (electron-builder mac.icon) — a placeholder for now; drop a real 1024px PNG or .icns there to replace it.'],
   ] },
   { group: 'Open in the browser', items: [
     ['http://localhost:5173/', 'the app',
@@ -728,21 +733,16 @@ function usageBanner() {
 // ---- compose the page -------------------------------------------------------
 function build() {
   buildUsageIndex();   // scan the loaded CSS so each token can show its consumers
+  // Auto-discover every token straight from tokens.css and bucket it (Node-tested in lab-tokens.js).
+  const { groups, unfiled } = groupTokens(discoverTokens(tokensText));
   const content = el('div', { class: 'lab-main' }, [
     el('header', { class: 'lab-header' }, [
       el('h1', { class: 'lab-h1', text: 'Fold · UI Lab' }),
-      el('p', { class: 'lab-note', text: 'The design system in isolation, a visual inventory, and a usage instrument. Every value is read live from tokens.css; the n× badge on each token lists where it is actually consumed (click to expand). A 0× badge means an unused token — a candidate to cut.' }),
+      el('p', { class: 'lab-note', text: 'The design system in isolation, a visual inventory, and a usage instrument. Token sections are auto-discovered from tokens.css — add a token there and it appears here with a live value + usage count (no edit to the Lab). Every value is read live; the n× badge lists where each token is consumed (click to expand). A 0× badge means an unused token (a candidate to cut); the "unfiled" section, if present, flags a token no group rule has claimed yet.' }),
     ]),
-    section('primitives', 'Primitives · neutral ramp', 'Raw palette, dark → light. Post-collapse set (each step ≥6 apart).', [swatchGrid(NEUTRALS)]),
-    section('accents', 'Primitives · accents', 'Record red unified to --danger (--c-red-600); the old mobile variant #e8504a was removed (0 consumers).', [swatchGrid(ACCENTS)]),
-    section('surfaces', 'Semantic · surfaces', 'What CSS consumes for backgrounds. Edit these, not the primitives.', [swatchGrid(SEM_SURFACE)]),
-    section('borders', 'Semantic · borders', null, [swatchGrid(SEM_BORDER)]),
-    section('text', 'Semantic · text', null, [swatchGrid(SEM_TEXT)]),
-    section('intent', 'Semantic · intent', 'Accent / state colors.', [swatchGrid(SEM_INTENT)]),
-    section('type', 'Type · size ramp', `Sans: ${val('--font-sans')}`, [el('div', { class: 'lab-list' }, TYPE_RAMP.map(typeSample))]),
+    ...groups.filter((g) => g.tokens.length).map(tokenSection),
+    unfiled.length ? unfiledSection(unfiled) : null,
     textStylesSection(),
-    section('radii', 'Radii', null, [el('div', { class: 'lab-list' }, RADII.map(radiusSample))]),
-    section('spacing', 'Spacing', null, [el('div', { class: 'lab-list' }, SPACING.map(spaceSample))]),
     iconsSection(),
     cursorsSection(),
     affordancesSection(),
@@ -808,6 +808,7 @@ labStyle.textContent = `
   .lab-typesample { color: var(--text); white-space: nowrap; }
   .lab-radiusbox { width: 56px; height: 32px; background: var(--surface-control); border: 1px solid var(--border-strong); }
   .lab-spacebar { height: 16px; background: var(--accent); border-radius: var(--radius-xs); }
+  .lab-plainchip { display: inline-block; width: 40px; height: 16px; background: var(--surface-control); border: 1px solid var(--border-subtle); border-radius: var(--radius-xs); }
   .lab-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 32px; }
   .lab-stack { display: flex; flex-direction: column; gap: 14px; align-items: flex-start; }
   .lab-ctl { display: flex; flex-direction: column; gap: 6px; width: 100%; }
