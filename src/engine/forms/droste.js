@@ -452,7 +452,7 @@ export default {
     const offsetHandleY = cy - rOut * oy;
     const offsetHL = env.hoverMode === 'droste-offset' || env.overlayDragMode === 'droste-offset';
     const offsetDiamondR = offsetHL ? 7 : 5;
-    ctx.fillStyle = oobOut ? 'rgba(255, 196, 80, 1)' : 'rgba(170, 220, 255, 1)';
+    ctx.fillStyle = oobOut ? 'rgba(255, 196, 80, 1)' : '#ffffff';   /* white (was light-blue #aadcff) — tidier; distinct from the center dot by SHAPE; amber when OOB */
     ctx.beginPath();
     ctx.moveTo(offsetHandleX, offsetHandleY - offsetDiamondR);
     ctx.lineTo(offsetHandleX + offsetDiamondR, offsetHandleY);

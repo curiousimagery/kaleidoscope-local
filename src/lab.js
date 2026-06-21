@@ -132,7 +132,7 @@ const NEUTRALS = [
 ];
 const ACCENTS = [
   '--c-amber-500', '--c-amber-300', '--c-green-500',
-  '--c-red-600', '--c-red-500', '--c-red-400', '--c-blue-500',
+  '--c-red-600', '--c-red-400', '--c-blue-500',
 ];
 const SEM_SURFACE = ['--bg', '--surface', '--surface-raised', '--surface-control', '--surface-hover', '--surface-overlay'];
 const SEM_BORDER = ['--border', '--border-subtle', '--border-hover', '--border-strong'];
@@ -246,16 +246,21 @@ function iconsSection() {
   const glyphs = Object.entries(ICONS).map(([name, svg]) => iconCard(name, svg));
   const thumbs = FORMS.map(formThumbCard);
   const btnGlyphs = BUTTON_GLYPHS.map(([g, c, n]) => glyphCard(g, c, n));
-  const appIcon = el('div', { class: 'lab-appicon-card' }, [
-    el('div', { class: 'lab-appicon-previews' }, [16, 24, 48, 96].map((s) =>
+  const appIconCard = (src, sizes, name, note) => el('div', { class: 'lab-appicon-card' }, [
+    el('div', { class: 'lab-appicon-previews' }, sizes.map((s) =>
       el('div', { class: 'lab-appicon-cell' }, [
-        el('img', { src: '/fold-icon.svg', width: String(s), height: String(s) }),
+        el('img', { src, width: String(s), height: String(s) }),
         el('code', { class: 'lab-val', text: `${s}px` }),
       ]))),
     el('div', { class: 'lab-appicon-meta' }, [
-      el('code', { class: 'lab-name', text: 'public/fold-icon.svg' }),
-      el('div', { class: 'lab-note', text: 'The PWA / app icon. GAPS the Lab surfaced: (1) no <link rel="icon"> favicon exists at all; (2) the DMG app icon differs from this mark; (3) at 16px (favicon size) this detailed mark may not read — a simplified favicon variant is likely needed.' }),
+      el('code', { class: 'lab-name', text: name }),
+      el('div', { class: 'lab-note', text: note }),
     ]),
+  ]);
+  const appIcons = el('div', { class: 'lab-stack', style: 'width:100%;gap:12px' }, [
+    appIconCard('/fold-icon.svg', [16, 24, 48, 96], 'public/fold-icon.svg', 'PWA / installed app / apple-touch-icon. The full mark.'),
+    appIconCard('/favicon.svg', [16, 24, 32], 'public/favicon.svg', 'Browser-tab favicon (own home; = the mark for now). At 16px this detailed mark may not read — drop a SIMPLIFIED variant here.'),
+    appIconCard('/fold-icon.svg', [32, 64, 128], 'electron/build/icon.png', 'macOS DMG / app icon — now wired into npm run dist (electron-builder mac.icon). Shown via the shared mark (the .png is not web-served). Drop your Apple Icon Composer 1024px PNG or .icns here to replace; usually wants a background/treatment.'),
   ]);
 
   return section('icons', 'Icons', 'Every glyph on its real surface, with grepped usage and auto-flagged problems (hardcoded fills, off-grid viewBoxes, orphans). The ICONS set is mobile-chrome only — the desktop bar is text/unicode glyphs (below), which is why the responsive icon/overflow pattern is a tracked gap.', [
@@ -265,8 +270,8 @@ function iconsSection() {
     el('div', { class: 'lab-grid lab-grid-icon' }, btnGlyphs),
     el('h3', { class: 'lab-h3', text: 'Form thumbnails · engine/forms (idle + active)' }),
     el('div', { class: 'lab-grid lab-grid-icon' }, thumbs),
-    el('h3', { class: 'lab-h3', text: 'App icon' }),
-    appIcon,
+    el('h3', { class: 'lab-h3', text: 'App icons · PWA / favicon / DMG (separate homes, shared mark for now)' }),
+    appIcons,
   ]);
 }
 
@@ -329,10 +334,10 @@ function sliceContextCanvas() {
   afRotationArc(ctx, cx, cy, -Math.PI / 2, s * 1.414 + 18, 0.95, 2); // rotate · arc above
   ctx.fillStyle = '#fff';                                           // center handle (dot) — move whole slice
   ctx.beginPath(); ctx.arc(cx, cy, 3, 0, Math.PI * 2); ctx.fill();
-  // Droste center-offset handle: filled blue diamond (from droste.js drawOverlay —
-  // fill rgba(170,220,255), r=5). Note: this blue is NOT the --info token (#4aa3ff).
+  // Droste center-offset handle: filled diamond (from droste.js drawOverlay, r=5),
+  // now WHITE (was light-blue #aadcff) — distinct from the center dot by shape.
   const dx = cx - 16, dy = cy + 13, dr = 5;
-  ctx.fillStyle = 'rgba(170, 220, 255, 1)';
+  ctx.fillStyle = '#ffffff';
   ctx.beginPath();
   ctx.moveTo(dx, dy - dr); ctx.lineTo(dx + dr, dy); ctx.lineTo(dx, dy + dr); ctx.lineTo(dx - dr, dy);
   ctx.closePath(); ctx.fill();
@@ -342,7 +347,7 @@ function sliceContextCanvas() {
   ]);
 }
 function affordancesSection() {
-  return section('affordances', 'Affordances', 'The on-canvas gesture affordances for slice manipulation, drawn from the REAL, ACTIVELY-USED primitives in shell/overlay.js (afScaleArrow / afRotationArc / center dot — 8 call sites; the rotate ARC is distinct from the rotate CURSOR and both ship). Shown around a reference slice because the primitives only read in context. The full touch composite (move / segment-spoke / square-edge / droste-arm handles in drawTouchAffordances) is form-specific and needs a geometry harness to render standalone — a follow-on. Known gaps from BACKLOG to design against here: the LOST Droste rotation handle (want a grippy extending from the circle), a crosshair instead of the dot for the Droste offset, and the min-wedge ~20px clamp where the affordance UI breaks. Also: the Droste offset diamond is drawn in #aadcff, which is OFF-TOKEN (not --info #4aa3ff) — a color to reconcile.', [
+  return section('affordances', 'Affordances', 'The on-canvas gesture affordances for slice manipulation, drawn from the REAL, ACTIVELY-USED primitives in shell/overlay.js (afScaleArrow / afRotationArc / center dot — 8 call sites; the rotate ARC is distinct from the rotate CURSOR and both ship). Shown around a reference slice because the primitives only read in context. The full touch composite (move / segment-spoke / square-edge / droste-arm handles in drawTouchAffordances) is form-specific and needs a geometry harness to render standalone — a follow-on. Known gaps from BACKLOG to design against here: the LOST Droste rotation handle (want a grippy extending from the circle), a crosshair instead of the dot for the Droste offset, and the min-wedge ~20px clamp where the affordance UI breaks. (The Droste offset diamond was off-token light-blue #aadcff — now unified to white, Build 219.)', [
     sliceContextCanvas(),
   ]);
 }
@@ -725,7 +730,7 @@ function build() {
       el('p', { class: 'lab-note', text: 'The design system in isolation, a visual inventory, and a usage instrument. Every value is read live from tokens.css; the n× badge on each token lists where it is actually consumed (click to expand). A 0× badge means an unused token — a candidate to cut.' }),
     ]),
     section('primitives', 'Primitives · neutral ramp', 'Raw palette, dark → light. Post-collapse set (each step ≥6 apart).', [swatchGrid(NEUTRALS)]),
-    section('accents', 'Primitives · accents', 'Two record reds (--c-red-600 desktop, --c-red-500 mobile) now both resolve to --danger.', [swatchGrid(ACCENTS)]),
+    section('accents', 'Primitives · accents', 'Record red unified to --danger (--c-red-600); the old mobile variant #e8504a was removed (0 consumers).', [swatchGrid(ACCENTS)]),
     section('surfaces', 'Semantic · surfaces', 'What CSS consumes for backgrounds. Edit these, not the primitives.', [swatchGrid(SEM_SURFACE)]),
     section('borders', 'Semantic · borders', null, [swatchGrid(SEM_BORDER)]),
     section('text', 'Semantic · text', null, [swatchGrid(SEM_TEXT)]),

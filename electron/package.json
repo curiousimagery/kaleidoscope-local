@@ -30,6 +30,7 @@
     "mac": {
       "target": [{ "target": "dmg", "arch": "arm64" }],
       "identity": null,
+      "icon": "build/icon.png",
       "category": "public.app-category.video",
       "extendInfo": {
         "NSCameraUsageDescription": "Fold uses the camera as a live kaleidoscope source."
