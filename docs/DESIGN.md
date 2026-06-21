@@ -72,11 +72,53 @@ consumed).
 - **Daniel's pixel-granular ad-hoc:** point at the Lab or the running app and say what
   should change. Claude encodes it as either a token edit (if it is really a global
   intent) or a scoped exception (if it is local). Defaults hold everywhere else.
-- **Ad-hoc visual assets** (an icon, a cursor): inline-SVG modules in a conventioned
-  location, beside `mobile/icons.js` and `shell/cursors.js`. Not loose files.
+- **Ad-hoc visual assets** (an icon, a cursor, an on-canvas affordance): inline-SVG /
+  drawn modules in a conventioned location, beside `mobile/icons.js`, `shell/cursors.js`,
+  and the `overlay.js` affordance primitives. Not loose files. **When Daniel hands over an
+  SVG, clarify which mode this handoff is** — there are two, and they look identical until
+  you ask: (1) *design intent* — take its geometry (arc curvature, arrowhead angles, the
+  shape it implies) and *redraw* it in our normalized style (our stroke weights, our cursor
+  size ~32px not the source's export scale, our grid `0 0 24 24`, `currentColor`); or
+  (2) *a literal asset* he wants integrated as-authored. Default to asking which, rather than
+  assuming. A raw paste of an intent-asset lands off-weight, off-size, and often rotated; a
+  redraw of a literal asset throws away the exact shape he wanted — so the cost of guessing
+  wrong runs both ways. For affordances specifically, render from the real exported draw
+  primitives, never a divergent reproduction.
 
 The exit criterion for any element type: one style, edited once, applied everywhere;
 a variant only where the difference is earned.
+
+## extending onto new surfaces (perform / live, and beyond)
+
+This app already spans two consumers of the layer: the still tool AND the motion editor
+(the keyframe timeline + clip editor — its controls are in the Lab: `.mf-btn`, `.mf-track`,
+the keyframe markers, `.clip-bar`). So motion isn't a future shell to prepare for — it's
+already proving the components hold up in a denser, timeline-heavy surface. The genuinely-new
+surface ahead is the **live / perform shell** (the VJ / MIDI-driven output surface), plus any
+future repackaging of the engine (native wrapper, plugin). They share the engine AND should
+share this visual layer — the goal is that a new surface reaches for the existing vocabulary
+instead of inventing a parallel, slightly-different one. The rules that keep that from
+fragmenting (and that the still↔motion split already follows):
+
+- **Add a primitive only for a genuinely new raw value; reach for a semantic alias for
+  everything else.** A new shell almost never needs a new color — it needs to consume `--surface`,
+  `--text-dim`, `--accent` like the existing chromes do. If you find yourself adding `--c-*`,
+  ask whether an existing primitive already covers it.
+- **The Lab is the pre-ship gate.** Before a new shell's UI lands, it should appear in the Lab
+  (its controls in the state matrix, its tokens in the catalogs) and read coherently beside the
+  existing surfaces. The usage cross-reference (`n×` badges, `0×` = unused) is the
+  fragmentation detector: a new token with no consumers, or an old role re-implemented under a
+  new class, shows up there.
+- **Components are parameterized, not forked.** Touch-target size scales with the input class
+  (coarse vs fine), not by copying a control per shell. Two chromes already prove this; a third
+  joins the same rules.
+- **Spacing is declared but not yet load-bearing.** The `--space-*` scale exists and reads `0×`
+  in the Lab — the stylesheets still use literal padding/gap. So a new shell has *no adopted
+  spacing precedent to copy*; don't freelance pixel values. The open intent is to reduce the
+  current sprawl of spacing/sizing variants toward a smaller, more intentional set — base-8 is
+  **one experiment to try on the app bar, hands open, not a committed direction.** Until that
+  settles, keep new spacing minimal and flag it for the consolidation pass rather than minting
+  new one-off values.
 
 ## responsive + touch targets
 
