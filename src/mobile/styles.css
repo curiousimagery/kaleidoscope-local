@@ -51,7 +51,7 @@ html, body { margin: 0; padding: 0; height: 100%; background: var(--bg); color: 
 /* settings controls (rendered from the registry via mountRangeControl) */
 .m-control { display: block; margin-bottom: 16px; }
 .m-control-row { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px;
-  font-size: var(--text-md); color: var(--text-dim); }
+  font-size: var(--text-base); color: var(--text-dim); }   /* was --text-md (13px); matched to the desktop 12px label */
 .m-control-val { color: var(--text); font-variant-numeric: tabular-nums; }
 /* the slider inherits the shared input[type=range] rules from styles.css — including
    the coarse touch target (--touch-target, 44px). No mobile-specific height override

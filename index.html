@@ -45,12 +45,14 @@
     </div>
     <!-- center: history -->
     <div class="ot-group ot-center">
-      <button class="ot-btn" id="undoBtn" disabled title="undo (⌘Z)">←</button>
-      <button class="ot-btn" id="redoBtn" disabled title="redo (⌘⇧Z)">→</button>
+      <!-- fallback glyphs were ← / → -->
+      <button class="ot-btn" id="undoBtn" disabled title="undo (⌘Z)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9h11a5 5 0 0 1 0 10H8"/><path d="M7 6 4 9l3 3"/></svg></button>
+      <button class="ot-btn" id="redoBtn" disabled title="redo (⌘⇧Z)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 9H9a5 5 0 0 0 0 10h7"/><path d="M17 6l3 3-3 3"/></svg></button>
     </div>
     <!-- right: workspace + actions -->
     <div class="ot-group ot-right">
-      <button class="ot-btn" id="swapBtn" disabled title="swap source / output">⇄</button>
+      <!-- fallback glyph was ⇄ -->
+      <button class="ot-btn" id="swapBtn" disabled title="swap source / output"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h13"/><path d="M14 5l3 3-3 3"/><path d="M20 16H7"/><path d="M10 13l-3 3 3 3"/></svg></button>
       <button class="ot-btn" id="motionBtn" disabled title="motion mode">motion</button>
       <button class="ot-btn" id="canvasBtn" title="canvas controls">canvas</button>
       <button class="ot-btn" id="outputBtn" disabled title="live output">output<span class="ot-led" id="outputLed"><i></i><i></i></span></button>

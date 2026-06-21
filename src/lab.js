@@ -182,6 +182,9 @@ const ICON_USAGE = {
   target: 'mobile · settings-active toggle state',
   expand: 'mobile · fit toggle (→ fill)',
   contract: 'mobile · fit toggle (→ cover)',
+  undo: 'desktop · undo button (replaced unicode ←, Build 221)',
+  redo: 'desktop · redo button (replaced unicode →, Build 221)',
+  swap: 'desktop · swap source/output (replaced unicode ⇄, Build 221)',
 };
 
 // auto-detect sloppy-iconography problems from the raw SVG markup
@@ -227,9 +230,7 @@ function formThumbCard(form) {
 // Text/unicode glyphs that function AS icons inside buttons (in index.html today —
 // placeholders that should become real icons). label = the desired direction.
 const BUTTON_GLYPHS = [
-  ['←', 'ot-btn', '#undoBtn · undo — wants a looped undo arrow, not a plain ←'],
-  ['→', 'ot-btn', '#redoBtn · redo — wants a looped redo arrow'],
-  ['⇄', 'ot-btn', '#swapBtn · swap source/output — wants proper swap arrows'],
+  // undo / redo / swap are now real SVG icons (Build 221) — see the App-glyphs grid above.
   ['save ▸', 'ot-btn', '#openExportBtn · the ▸ caret (also clip ▸ / render ▸) = "opens a sheet"'],
   ['＋ keyframe', 'mf-btn mf-add', '#mfAdd · add keyframe (＋ glyph)'],
   ['‹‹', 'mf-btn', '#mfPrev · previous keyframe'],

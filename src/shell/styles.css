@@ -309,7 +309,7 @@ button {
   border: 1px solid var(--border);
   padding: 8px 10px;
   font-size: var(--text-base);
-  border-radius: var(--radius);
+  border-radius: var(--radius-md);   /* was --radius (4px); unified desktop buttons to 6px */
   cursor: pointer;
   font-family: inherit;
   transition: background 0.1s, border-color 0.1s;
@@ -490,22 +490,21 @@ button .btn-spinner {
   min-width: 40px;
   height: 40px;
   padding: 0 12px;
-  background: rgba(20, 20, 20, 0.85);
+  background: var(--surface-control);   /* was rgba(20,20,20,0.85) + blur — vestigial since the bar became opaque/in-flow; now solid like the other buttons */
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   color: var(--text-secondary);
   font-size: var(--text-md);
   white-space: nowrap;   /* never wrap a label (e.g. "save ▸") when the toolbar is tight */
   cursor: pointer;
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
   transition: background 0.1s, color 0.1s, border-color 0.1s;
 }
-.ot-btn:hover:not(:disabled) { background: rgba(40, 40, 40, 0.95); color: var(--text-bright); }
+.ot-btn:hover:not(:disabled) { background: var(--surface-hover); color: var(--text-bright); }
 .ot-btn:disabled { opacity: var(--disabled-opacity-strong); cursor: default; }
-.ot-btn.active { background: rgba(40, 40, 40, 0.95); color: var(--text-bright); border-color: var(--focus); }
+.ot-btn.active { background: var(--surface-hover); color: var(--text-bright); border-color: var(--focus); }
 /* band-open: the bar button whose expand-band (output / canvas) is currently open. */
-.ot-btn.band-open { background: rgba(40, 40, 40, 0.95); color: var(--text-bright); border-color: var(--c-neutral-500); }
+.ot-btn.band-open { background: var(--surface-hover); color: var(--text-bright); border-color: var(--c-neutral-500); }
+.ot-btn svg { width: 18px; height: 18px; display: block; }   /* icon buttons (undo/redo/swap) */
 /* the camera picker reuses .ot-btn but needs the native select chrome reset and a
    width cap so a long device label doesn't blow out the toolbar. */
 .ot-select {
@@ -711,16 +710,28 @@ button .btn-spinner {
   pointer-events: none;
 }
 .mf-marker.selected canvas { border-color: var(--accent); }              /* yellow = active selection */
+/* keyframe pin — a TRIANGULAR notch flush on the square's top edge (replaces the old
+   floating rotated-square diamond). Built from an up-pointing border-triangle (the white
+   outline) + an ::after inner triangle that's track-coloured (hollow = auto) or white
+   (filled = anchored/locked). Nothing dips below the square's top.
+   FALLBACK (old diamond): top:-6px; left:50%; margin-left:-5px; width/height:10px;
+   border-radius:2px; transform:rotate(45deg); border:2px solid white; anchored→filled. */
 .mf-marker .mf-pin {
-  position: absolute; top: -6px; left: 50%; margin-left: -5px;
-  width: 10px; height: 10px; border-radius: var(--radius-xs); transform: rotate(45deg);
-  background: transparent; border: 2px solid var(--text-bright);                 /* auto = hollow */
+  position: absolute; left: 50%; bottom: 100%; margin-left: -6px; margin-bottom: -1px;
+  width: 0; height: 0;
+  border-left: 6px solid transparent; border-right: 6px solid transparent;
+  border-bottom: 8px solid var(--text-bright);     /* the white notch outline */
 }
-.mf-marker.anchored .mf-pin { background: var(--text-bright); }                  /* anchored = filled */
-.mf-marker.selected .mf-pin { border-color: var(--accent); }
-.mf-marker.selected.anchored .mf-pin { background: var(--accent); }
+.mf-marker .mf-pin::after {                          /* inner fill — track-coloured = hollow (auto) */
+  content: ''; position: absolute; left: -4px; top: 3px;
+  border-left: 4px solid transparent; border-right: 4px solid transparent;
+  border-bottom: 5px solid var(--surface-raised);
+}
+.mf-marker.anchored .mf-pin::after { border-bottom-color: var(--text-bright); }   /* locked = filled notch */
+.mf-marker.selected .mf-pin { border-bottom-color: var(--accent); }
+.mf-marker.selected.anchored .mf-pin::after { border-bottom-color: var(--accent); }
 .mf-marker.ghost { opacity: 0.35; pointer-events: none; }
-.mf-marker.ghost .mf-pin { background: var(--text-bright); border-color: var(--text-bright); }
+.mf-marker.ghost .mf-pin::after { border-bottom-color: var(--text-bright); }
 .mf-playhead {
   position: absolute; top: 0; bottom: 0; left: 0; width: 2px;
   background: var(--fill-bright); pointer-events: none; z-index: 2;   /* white scrubber */
