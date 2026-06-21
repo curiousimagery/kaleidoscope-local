@@ -4,34 +4,52 @@
 // angle-indexed SVG variants at module load) and the helpers that pick one for a
 // given drag mode + angle.
 //
-// Build 225 — Daniel-supplied rotate shape (a filled curved double-arrow, WHITE fill
-// + BLACK outline) replaces the old stroked design; the SCALE cursors are now custom
-// SVGs in the SAME white-fill/black-outline style (replacing the OS resize cursors,
-// which are the opposite — light outline over dark), so all cursors are consistent.
-// Hotspots are a first guess (cursor centre); sanity-check on screen and nudge.
+// Build 226 — re-done in ONE normalized style: a thin BLACK outline with a WHITE line
+// on top (high contrast over any image). The ROTATE cursor takes the DESIGN from
+// Daniel's art — a rotation arc with TANGENT arrowheads at both ends — but drawn in our
+// stroked style at a normal cursor size (32px, not his ~76px raw asset). The SCALE
+// cursors are a matching double-arrow (replacing the OS resize cursors, which are the
+// opposite: light outline over dark), with the CSS keyword as a graceful fallback.
 //
-// FALLBACK (old rotate design, 32×32, hotspot 16 16) — to revert, restore:
-//   arcD='M -3 -8 A 9 9 0 0 0 -3 8'; arrowTopD='M -5 -4.5 L -0.56 -6.6 L -5.44 -9.4 Z';
-//   arrowBotD='M -5 4.5 L -0.56 6.6 L -5.44 9.4 Z'; drawn black(4)+white(1.75) stroked,
-//   rotate(deg), 'url(...) 16 16, move'. And SCALE returned the CSS keywords
-//   'ew-resize' / 'ns-resize' / 'nwse-resize' / 'nesw-resize'.
+// Orientation: in the base frame the slice centre is toward +X, so the arc bulges LEFT
+// (concave toward the centre). `rotate(deg)` spins it to each angle. Hotspot = centre.
 
+const STROKE_BLACK = 4, STROKE_WHITE = 2;   // shared outline/fill weights (both cursors)
+
+// ---- ROTATE -----------------------------------------------------------------
 const ROTATE_CURSOR_STEPS = 16;
-// Daniel's 0° rotate shape (his 31×67 art; bbox ~x4-27 y4-63, centre ~15.5,33.5).
-const ROTATE_SHAPE = 'M24.1605 33.6411C24.1605 28.2002 22.0491 19.5955 15.2488 12.7887L11.9329 18.2631L4 4L20.3909 4.30159L16.7556 10.3015C24.5871 17.8095 27 27.4766 27 33.6411C27 39.7247 25.356 48.0088 18.395 55.5594L22.5611 61.1629L6.27161 63L12.8158 48.0565L16.6724 53.2431C22.7275 46.4478 24.1605 39.0978 24.1605 33.6411Z';
-// 76×76 canvas so the shape never clips when rotated; centre the art at (38,38)
-// (translate 22.5,4.5 maps its centre 15.5,33.5 → 38,38) then rotate about (38,38).
+// Build the arc + tangent-arrowhead path once (afRotationArc geometry): an arc of a
+// circle centred at (ACX,0), radius AR, spanning ±HSPAN about the leftmost point, with
+// a V arrowhead tangent to each end.
+function rotateArcPath() {
+  const ACX = 7, AR = 11, HSPAN = 1.05, HEAD = 4.5, BARB = 2.5, N = 16;
+  const base = Math.PI, sA = base - HSPAN, eA = base + HSPAN;
+  let d = '';
+  for (let k = 0; k <= N; k++) {
+    const e = sA + (eA - sA) * k / N;
+    d += (k ? 'L' : 'M') + (ACX + AR * Math.cos(e)).toFixed(2) + ' ' + (AR * Math.sin(e)).toFixed(2);
+  }
+  for (const [a, tang] of [[eA, eA + Math.PI / 2], [sA, sA - Math.PI / 2]]) {
+    const tx = ACX + AR * Math.cos(a), ty = AR * Math.sin(a);
+    const b1x = tx + Math.cos(tang + BARB) * HEAD, b1y = ty + Math.sin(tang + BARB) * HEAD;
+    const b2x = tx + Math.cos(tang - BARB) * HEAD, b2y = ty + Math.sin(tang - BARB) * HEAD;
+    d += `M${b1x.toFixed(2)} ${b1y.toFixed(2)}L${tx.toFixed(2)} ${ty.toFixed(2)}L${b2x.toFixed(2)} ${b2y.toFixed(2)}`;
+  }
+  return d;
+}
+const ROTATE_PATH = rotateArcPath();
 const ROTATE_CURSORS = (() => {
   const arr = [];
   for (let i = 0; i < ROTATE_CURSOR_STEPS; i++) {
     const deg = (i / ROTATE_CURSOR_STEPS) * 360;
     const svg =
-      `<svg xmlns='http://www.w3.org/2000/svg' width='76' height='76' viewBox='0 0 76 76'>` +
-        `<g transform='rotate(${deg.toFixed(1)} 38 38) translate(22.5 4.5)'>` +
-          `<path d='${ROTATE_SHAPE}' fill='white' stroke='black' stroke-width='2.5' stroke-linejoin='round'/>` +
+      `<svg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='-16 -16 32 32'>` +
+        `<g transform='rotate(${deg.toFixed(1)})' fill='none' stroke-linecap='round' stroke-linejoin='round'>` +
+          `<path d='${ROTATE_PATH}' stroke='black' stroke-width='${STROKE_BLACK}'/>` +
+          `<path d='${ROTATE_PATH}' stroke='white' stroke-width='${STROKE_WHITE}'/>` +
         `</g>` +
       `</svg>`;
-    arr.push(`url("data:image/svg+xml;utf8,${svg}") 38 38, move`);
+    arr.push(`url("data:image/svg+xml;utf8,${svg}") 16 16, move`);
   }
   return arr;
 })();
@@ -44,24 +62,23 @@ export function rotateCursorForAngle(theta) {
   return ROTATE_CURSORS[idx];
 }
 
-// SCALE cursors — a bidirectional double-arrow in the same white-fill/black-outline
-// style (drawn black-wide then white-thin), baked for the four 45° directions so the
-// scale cursor matches the rotate cursor instead of the OS resize cursor. Falls back
-// to the matching CSS resize keyword if the SVG can't load.
-const SCALE_ARROW = 'M8 20H32M11 17L8 20L11 23M29 17L32 20L29 23';   // horizontal ↔ in a 40 box
+// ---- SCALE ------------------------------------------------------------------
+// A bidirectional double-arrow in the same black-outline/white style, baked for the
+// four 45° directions; falls back to the matching CSS resize keyword.
+const SCALE_PATH = 'M-9 0H9M-6 -3L-9 0L-6 3M6 -3L9 0L6 3';   // horizontal ↔, -16..16 frame
 function scaleCursor(angleDeg, fallback) {
   const svg =
-    `<svg xmlns='http://www.w3.org/2000/svg' width='40' height='40' viewBox='0 0 40 40'>` +
-      `<g transform='rotate(${angleDeg} 20 20)' fill='none' stroke-linecap='round' stroke-linejoin='round'>` +
-        `<path d='${SCALE_ARROW}' stroke='black' stroke-width='5'/>` +
-        `<path d='${SCALE_ARROW}' stroke='white' stroke-width='2.5'/>` +
+    `<svg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='-16 -16 32 32'>` +
+      `<g transform='rotate(${angleDeg})' fill='none' stroke-linecap='round' stroke-linejoin='round'>` +
+        `<path d='${SCALE_PATH}' stroke='black' stroke-width='${STROKE_BLACK}'/>` +
+        `<path d='${SCALE_PATH}' stroke='white' stroke-width='${STROKE_WHITE}'/>` +
       `</g>` +
     `</svg>`;
-  return `url("data:image/svg+xml;utf8,${svg}") 20 20, ${fallback}`;
+  return `url("data:image/svg+xml;utf8,${svg}") 16 16, ${fallback}`;
 }
-const SCALE_EW = scaleCursor(0, 'ew-resize');     // ↔
-const SCALE_NS = scaleCursor(90, 'ns-resize');    // ↕
-const SCALE_NWSE = scaleCursor(45, 'nwse-resize'); // ⤡
+const SCALE_EW = scaleCursor(0, 'ew-resize');       // ↔
+const SCALE_NS = scaleCursor(90, 'ns-resize');      // ↕
+const SCALE_NWSE = scaleCursor(45, 'nwse-resize');  // ⤡
 const SCALE_NESW = scaleCursor(135, 'nesw-resize'); // ⤢
 
 // pick a scale cursor for scale-direction at angle theta (radians, screen-y-down).
@@ -69,8 +86,8 @@ const SCALE_NESW = scaleCursor(135, 'nesw-resize'); // ⤢
 export function scaleCursorForAngle(theta) {
   const t = ((theta % Math.PI) + Math.PI) % Math.PI;
   const step = Math.PI / 8;
-  if (t < step || t >= 7 * step) return SCALE_EW;      // ~horizontal
-  if (t < 3 * step) return SCALE_NWSE;                 // ⤡
-  if (t < 5 * step) return SCALE_NS;                   // ~vertical
-  return SCALE_NESW;                                   // ⤢
+  if (t < step || t >= 7 * step) return SCALE_EW;
+  if (t < 3 * step) return SCALE_NWSE;
+  if (t < 5 * step) return SCALE_NS;
+  return SCALE_NESW;
 }
