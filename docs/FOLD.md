@@ -94,6 +94,12 @@ Source material for video voiceover, landing page, and pitches. The beat list be
 
 The canonical version replaces "transform imagery through folding, repetition, and spatial transformation" with the more experiential "find the patterns hiding inside any image," and names the pro-and-playful range explicitly with the "phone in a forest to a gallery print" line.
 
+### descriptive copy for alpha test
+June 25 drop in note here. My friend Pete has a buddy he thought would love the app. I suggested doing a semi-structured alpha test since I already need to do some usability testing and am curious to chat with people about their use cases, price points that would be attractive, specific features they especially love or would want, etc. Pete asked for a quick pitch and I was feeling sassy so I wrote some things that probably supplement our earlier descriptions and might help us find more edge/soul in our positioning:
+> Fold is a tool to bend visual space. Interact gesturally with mathematical mirrors to reveal worlds within worlds. Garbage on the ground becomes a cathedral. A forest becomes a creature. Your face becomes, well… something else. Built to be intuitive enough for a playful garden exploration with a kid or an impromptu psychedelic journey at a festival, it is also powerful and performant enough to handle designing ultra high resolution visual art and motion loops, including for realtime output for live performance. Use it as a decoder ring to see the world around you in unexpected ways. Take a photo shoot within a single image. Take your friends on a psychedelic journey while stone cold sober. Discover realities you didn’t dream were possible. Optimized equally for play and professional output, it scales from a fun party trick to a full mindfuck. How deep do you want to go? 
+
+>Disclaimer: while relatively full featured and robustly usable, Fold is currently in a pre-release alpha version. Ease of *learnability* is… mixed. If you’re interested in exploring what’s possible and are curious to see what it can do for you, and would like to shape its development, I’d love to setup a loosely guided usability session with you. We’ll take ~20-40 minutes where you were I watch you play with it, gently nudge you toward certain capabilities, and debrief with a few questions and open ended conversation. Curious? Lemme know and we’ll make some weird magic together. 
+
 ---
 
 ## brand and distribution
