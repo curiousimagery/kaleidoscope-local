@@ -53,7 +53,13 @@
     <div class="ot-group ot-right">
       <!-- fallback glyph was ⇄ -->
       <button class="ot-btn" id="swapBtn" disabled title="swap source / output"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h13"/><path d="M14 5l3 3-3 3"/><path d="M20 16H7"/><path d="M10 13l-3 3 3 3"/></svg></button>
-      <button class="ot-btn" id="motionBtn" disabled title="motion mode">motion</button>
+      <!-- still|motion mode selector (Arc 1) — radio semantics: the active segment is
+           the current mode; save is still-only, output is motion-only (live camera +
+           a running bus keep output reachable; see updateMotionUI) -->
+      <span class="ot-mode" role="group" aria-label="mode">
+        <button class="ot-btn active" id="stillBtn" title="still mode">still</button>
+        <button class="ot-btn" id="motionBtn" disabled title="motion mode">motion</button>
+      </span>
       <button class="ot-btn" id="canvasBtn" title="canvas controls">canvas</button>
       <button class="ot-btn" id="outputBtn" disabled title="live output">output<span class="ot-led" id="outputLed"><i></i><i></i></span></button>
       <button class="ot-btn" id="openExportBtn" title="save / export">save ▸</button>

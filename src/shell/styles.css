@@ -502,6 +502,13 @@ button .btn-spinner {
 .ot-btn:hover:not(:disabled) { background: var(--surface-hover); color: var(--text-bright); }
 .ot-btn:disabled { opacity: var(--disabled-opacity-strong); cursor: default; }
 .ot-btn.active { background: var(--surface-hover); color: var(--text-bright); border-color: var(--focus); }
+/* still|motion mode selector — two .ot-btn joined as a segmented pair; the active
+   segment is the CURRENT MODE (radio semantics), not a pressed toggle. */
+.ot-mode { display: inline-flex; }
+.ot-mode .ot-btn + .ot-btn { margin-left: -1px; }
+.ot-mode .ot-btn:first-child { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.ot-mode .ot-btn:last-child { border-top-left-radius: 0; border-bottom-left-radius: 0; }
+.ot-mode .ot-btn.active { position: relative; }   /* selected segment's border wins the shared edge */
 /* band-open: the bar button whose expand-band (output / canvas) is currently open. */
 .ot-btn.band-open { background: var(--surface-hover); color: var(--text-bright); border-color: var(--c-neutral-500); }
 .ot-btn svg { width: 18px; height: 18px; display: block; }   /* icon buttons (undo/redo/swap) */

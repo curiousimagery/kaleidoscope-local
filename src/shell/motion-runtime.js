@@ -883,6 +883,24 @@ function updateMotionUI() {
   const q = (id) => document.getElementById(id);
   const btn = q('motionBtn');
   if (btn) { btn.disabled = !available; btn.classList.toggle('active', env.motionRT.active); }
+  // still|motion segments are radio semantics: exactly one active. still is the
+  // resting mode, so it's active whenever motion isn't.
+  q('stillBtn')?.classList.toggle('active', !env.motionRT.active);
+  // Mode-gated export surfaces (Arc 1): SAVE applies to stills, OUTPUT
+  // (record/broadcast) to motion. Two deliberate exceptions keep output
+  // reachable in still mode: a LIVE CAMERA (motion mode rejects live sources
+  // until perform mode lands, and live broadcast is the core rig use) and a
+  // RUNNING bus (stop must never be hidden mid-broadcast/record).
+  const saveBtn = q('openExportBtn');
+  if (saveBtn) saveBtn.hidden = env.motionRT.active;
+  const outBtn = q('outputBtn');
+  if (outBtn) {
+    const busRunning = !!env.outputBus?.getStatus?.().running;
+    outBtn.hidden = !env.motionRT.active && !env.live.isLive && !busRunning;
+    // if the gate hides the button while its expand-band is open, close the band
+    // through its own toggle so the accordion state stays consistent
+    if (outBtn.hidden && outBtn.classList.contains('band-open')) outBtn.click();
+  }
   const footer = q('motionFooter');
   if (footer) footer.hidden = !env.motionRT.active;
   // motion mode pins discrete fields to keyframe 0 — hide the form picker and
@@ -962,7 +980,9 @@ function loadMotionFromJSON(text) {
 
 function wireMotion() {
   const byId = (id) => document.getElementById(id);
-  byId('motionBtn')?.addEventListener('click', toggleMotionMode);
+  // segments select a mode; clicking the current mode's segment is a no-op
+  byId('motionBtn')?.addEventListener('click', () => { if (!env.motionRT.active) toggleMotionMode(); });
+  byId('stillBtn')?.addEventListener('click', () => { if (env.motionRT.active) toggleMotionMode(); });
   byId('mfAdd')?.addEventListener('click', addKeyframe);
   byId('mfDelete')?.addEventListener('click', deleteSelected);
   byId('mfAnchor')?.addEventListener('click', toggleAnchor);
