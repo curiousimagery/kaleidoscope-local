@@ -34,13 +34,14 @@
       <input type="file" accept="image/jpeg,image/png,image/webp,video/*" class="file-input" id="fileInput">
       <button class="ot-btn" id="uploadBtn" title="upload an image or video">upload</button>
       <button class="ot-btn" id="cameraBtn" title="use the live camera">camera</button>
+      <!-- in-camera group (Daniel's camera-module spec): the shutter is a record/pause
+           TOGGLE (pause = frozen still, record = go live — the mobile pattern), and the
+           camera DROPDOWN is the camera identity: current camera selected, every camera
+           listed, "quit camera" at the bottom (replaces the old stop button). -->
       <div class="ot-group" id="cameraLive" style="display: none;">
-        <button class="ot-btn" id="shutterBtn" title="capture a still">capture</button>
-        <!-- multi-camera picker: shown in place of "flip" when ≥2 cameras are present
-             (e.g. a USB webcam vs the built-in / iPhone Continuity cam). -->
-        <select class="ot-btn ot-select" id="cameraSelect" title="choose a camera" hidden></select>
+        <button class="ot-btn" id="shutterBtn" title="pause — freeze the frame">pause</button>
+        <select class="ot-btn ot-select" id="cameraSelect" title="camera" hidden></select>
         <button class="ot-btn" id="flipBtn" title="switch front/rear camera">flip</button>
-        <button class="ot-btn" id="stopCameraBtn" title="stop the camera">stop</button>
       </div>
     </div>
     <!-- center: history -->

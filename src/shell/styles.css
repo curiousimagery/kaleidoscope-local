@@ -435,8 +435,7 @@ button .btn-spinner {
 /* live-camera controls — shown only while the camera is running */
 .camera-live-row { display: flex; gap: 8px; margin-top: 8px; }
 .camera-live-row #shutterBtn { flex: 2; }
-.camera-live-row #flipBtn,
-.camera-live-row #stopCameraBtn { flex: 1; }
+.camera-live-row #flipBtn { flex: 1; }   /* (stopCameraBtn removed — quit lives in the camera dropdown now; this whole row block may be dead legacy, flagged in BACKLOG) */
 
 /* status */
 .status {

@@ -165,7 +165,7 @@ const env = {
   // `sourceVideo`/`liveVideo` stay top-level (the source-overlay component
   // binds to those exact handles at construction).
   media: { sourceFilename: '', sourceVideoUrl: null, originalSource: null, captureObjectURL: null },
-  live: { isLive: false, active: false, raf: 0 },
+  live: { isLive: false, active: false, raf: 0, frozen: false },   // frozen = paused on a captured frame, camera resumable (record/pause toggle)
   motionRT: { active: false, raf: 0, start: 0, scrubbing: false, pointers: new Map(), gesture: null, relayoutPending: false },
   clip: {
     trim: { inT: 0, outT: 1, mode: 'forward', slicePoint: 1 / 3, crossfadeMs: 500 },

@@ -43,6 +43,7 @@ Living list of things we want to do, grouped by **surface / family** (not by whe
 - **Test-pattern: add a moving element** (sweep or counter) so a frozen pipe doesn't look identical to a working one. [Fold Live — test pattern]
 - **Drop the real assets:** Daniel drops a 16px-legible favicon (`public/favicon.svg`) + the Apple Icon Composer app-icon (`electron/build/icon.png`); homes are wired + shown in the Lab. [Design system]
 - **Hide (don't disable) settings that don't apply to the current form** (e.g. no segments row on hex). Rides Arc 2's per-panel control stacks ("only show when they apply"), but is a cheap standalone if reached earlier.
+- **Dead CSS: the `.camera-live-row` block** (styles.css ~436) references a layout the camera controls no longer use (they live in the toolbar `#cameraLive` group; `#stopCameraBtn` is gone as of Build 233). Confirm nothing renders it, then delete the block.
 
 ---
 

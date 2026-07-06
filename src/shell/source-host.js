@@ -32,7 +32,7 @@ export function createSourceHost(env) {
 
   function loadImage(file) {
     if (!engine) return;
-    if (env.live.isLive) stopCameraMode({ keepSource: true });  // uploading exits live mode
+    if (env.live.isLive || env.live.frozen) stopCameraMode({ keepSource: true });  // uploading exits the camera workflow
     stopSourceVideoPlayback();                          // stop a loaded video's loop before switching
     env.haltPlayback();                                 // stop motion playback before swapping the source
     env.filmstrip.lastSig = '';                         // any existing keyframe thumbs are from the old source
@@ -93,7 +93,7 @@ export function createSourceHost(env) {
   // keyframes over the moving footage) is the next increment.
   function loadVideo(file) {
     if (!engine) return;
-    if (env.live.isLive) stopCameraMode({ keepSource: true });   // uploading exits live mode
+    if (env.live.isLive || env.live.frozen) stopCameraMode({ keepSource: true });   // uploading exits the camera workflow
     stopSourceVideoPlayback();                           // stop any previously loaded video's loop
     env.haltPlayback();                                  // stop motion playback before swapping the source
     env.filmstrip.lastSig = '';                          // any existing keyframe thumbs are from the old source
@@ -212,9 +212,11 @@ export function createSourceHost(env) {
     try { devices = await camera.listDevices(); } catch { /* enumeration unsupported */ }
     const labeled = devices.filter(d => d.label);   // unlabeled = no permission yet for that device
     const multi = labeled.length >= 2;
-    select.hidden = !multi;
+    // The dropdown is the camera IDENTITY while in camera (Daniel's camera-module
+    // spec): always visible, current camera selected, every camera listed, "quit
+    // camera" at the bottom. flip still covers the single-camera facing switch.
+    select.hidden = false;
     if (flip) flip.hidden = multi;
-    if (!multi) { select.innerHTML = ''; return; }
     const activeId = camera.getDeviceId();
     select.innerHTML = '';
     for (const d of labeled) {
@@ -224,6 +226,17 @@ export function createSourceHost(env) {
       if (d.deviceId === activeId) opt.selected = true;
       select.appendChild(opt);
     }
+    if (!labeled.length) {
+      const opt = document.createElement('option');
+      opt.value = ''; opt.textContent = 'camera'; opt.selected = true;
+      select.appendChild(opt);
+    }
+    const sep = document.createElement('option');
+    sep.disabled = true; sep.textContent = '────────';
+    select.appendChild(sep);
+    const quit = document.createElement('option');
+    quit.value = '__quit'; quit.textContent = 'quit camera';
+    select.appendChild(quit);
   }
 
   // Picker change: re-acquire that exact camera, persist the choice, re-source.
@@ -283,17 +296,29 @@ export function createSourceHost(env) {
   }
 
   function updateCameraUI() {
-    // The camera button swaps for the live capture/flip/stop group while live. Upload
+    // The camera button swaps for the in-camera group while live OR frozen. Upload
     // PERSISTS through live camera (sits leftmost, beside that group) so you can switch
-    // to an image/video without first stopping the camera — which would clear the source
-    // and tear down a live broadcast. loadImage/loadVideo already exit live with
+    // to an image/video without first quitting the camera — which would clear the source
+    // and tear down a live broadcast. loadImage/loadVideo already exit camera with
     // keepSource:true, so the source (and the broadcast) survive the switch.
-    document.getElementById('cameraBtn').style.display = env.live.isLive ? 'none' : '';
+    const inCamera = env.live.isLive || env.live.frozen;
+    document.getElementById('cameraBtn').style.display = inCamera ? 'none' : '';
     document.getElementById('uploadBtn').style.display = '';
-    document.getElementById('cameraLive').style.display = env.live.isLive ? 'flex' : 'none';
-    // flip button labels the camera it switches TO.
+    document.getElementById('cameraLive').style.display = inCamera ? 'flex' : 'none';
+    // shutter = record/pause toggle (the mobile pattern): live shows pause (freeze),
+    // frozen shows a red record (go live).
+    const shutter = document.getElementById('shutterBtn');
+    if (shutter) {
+      shutter.textContent = env.live.frozen ? 'record' : 'pause';
+      shutter.title = env.live.frozen ? 'record — go live again' : 'pause — freeze the frame';
+      shutter.style.color = env.live.frozen ? 'var(--danger)' : '';
+    }
+    // flip button labels the camera it switches TO; nothing to flip while frozen.
     const flip = document.getElementById('flipBtn');
-    if (flip) flip.textContent = camera.isFront() ? 'rear' : 'front';
+    if (flip) {
+      flip.textContent = camera.isFront() ? 'rear' : 'front';
+      flip.style.display = env.live.frozen ? 'none' : '';
+    }
     env.updateMotionUI();   // motion mode is disabled while the camera is live
   }
 
@@ -325,6 +350,7 @@ export function createSourceHost(env) {
     statusEl.classList.remove('busy');
     statusEl.textContent = 'live camera';
     env.live.isLive = true;
+    env.live.frozen = false;   // (re)entering live — also the "record" half of the pause/record toggle
     env.media.sourceFilename = 'camera';
     setCameraMeta('live camera');
     document.getElementById('swapBtn').disabled = false;
@@ -340,6 +366,7 @@ export function createSourceHost(env) {
     stopLiveLoop();
     camera.stop();
     env.live.isLive = false;
+    env.live.frozen = false;
     env.liveVideo = null;
     updateCameraUI();
     if (keepSource) return;
@@ -390,15 +417,18 @@ export function createSourceHost(env) {
     URL.revokeObjectURL(url);
   }
 
-  // shutter: freeze the current frame as the new editable still and stop the
-  // camera. Nothing is saved automatically — the raw frame is stashed as the
-  // pending original and written out, with the kaleidoscope, on the first export.
+  // pause (the shutter's freeze half): freeze the current frame as the new editable
+  // still and release the camera hardware — but stay IN the camera workflow (frozen):
+  // the dropdown + a red record button remain, and record re-acquires the preferred
+  // device. Nothing is saved automatically — the raw frame is stashed as the pending
+  // original and written out, with the kaleidoscope, on the first export.
   function captureFrame() {
     const frame = captureLiveFrame();
     if (!frame) return;
     stopLiveLoop();
     camera.stop();
     env.live.isLive = false;
+    env.live.frozen = true;
     env.liveVideo = null;
     updateCameraUI();
 
@@ -427,10 +457,31 @@ export function createSourceHost(env) {
 
   function wireCamera() {
     document.getElementById('cameraBtn').addEventListener('click', startCameraMode);
-    document.getElementById('shutterBtn').addEventListener('click', captureFrame);
+    // the shutter is a record/pause toggle: live → freeze; frozen → go live again
+    document.getElementById('shutterBtn').addEventListener('click', () => {
+      if (env.live.isLive) captureFrame();
+      else if (env.live.frozen) startCameraMode();
+    });
     document.getElementById('flipBtn').addEventListener('click', flipCamera);
-    document.getElementById('stopCameraBtn').addEventListener('click', () => stopCameraMode());
-    document.getElementById('cameraSelect').addEventListener('change', (e) => selectCameraDevice(e.target.value));
+    document.getElementById('cameraSelect').addEventListener('change', (e) => {
+      const v = e.target.value;
+      if (v === '__quit') {
+        // quit while live tears down to the placeholder (the old stop button);
+        // quit while frozen just leaves the camera workflow — the frozen still
+        // stays as the editable source.
+        if (env.live.isLive) stopCameraMode();
+        else { env.live.frozen = false; updateCameraUI(); }
+        return;
+      }
+      if (!v) return;
+      if (env.live.frozen) {
+        // picking a camera while frozen resumes live on that device
+        localStorage.setItem(CAMERA_DEVICE_KEY, v);
+        startCameraMode();
+        return;
+      }
+      selectCameraDevice(v);
+    });
     // a cam plugged/unplugged mid-session re-evaluates whether to show the picker.
     if (navigator.mediaDevices && navigator.mediaDevices.addEventListener) {
       navigator.mediaDevices.addEventListener('devicechange', () => {
