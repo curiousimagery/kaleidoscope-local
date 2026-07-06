@@ -27,7 +27,7 @@ export { sliceVecToSourceUV, polygonRadiusAt, pointInPolygon } from './geometry.
 // preview rendering and as the GL context owner — exports go to a separate
 // FBO so the canvas isn't disturbed.
 export function createEngine({ canvas, maxProbeSize }) {
-  const glCtx = createGLContext(canvas, { maxProbeSize });
+  let glCtx = createGLContext(canvas, { maxProbeSize });
   let sourceTexture = null;
   let sourceImage = null;     // HTMLImageElement OR HTMLVideoElement (live camera)
   let sourceAspect = 1;
@@ -77,6 +77,23 @@ export function createEngine({ canvas, maxProbeSize }) {
     // with per-step reporting. NOT for general consumption by shell code —
     // forms and overlay should go through render()/exportAt() instead.
     glContext: glCtx.gl,
+
+    // Rebuild every GPU-side resource on the SAME canvas after a context
+    // loss/restore cycle (program, buffers, FBO probe) and re-upload the current
+    // source. The engine object, its canvas, and the exposed glContext all stay
+    // reference-stable — getContext on the same canvas returns the restored SAME
+    // context object — so callers holding references (components, env) need no
+    // rewiring. Call from a `webglcontextrestored` handler; calling while the
+    // context is still lost fails shader compilation.
+    reinitGL() {
+      const fresh = createGLContext(canvas, { maxProbeSize });
+      // shells captured `engine.diagnostics` at init — keep that object as the one
+      // identity: refresh its values in place, point the new ctx at it.
+      fresh.diagnostics = Object.assign(this.diagnostics, fresh.diagnostics);
+      glCtx = fresh;
+      sourceTexture = null;                          // the old handle died with the context
+      if (sourceImage) this.setSource(sourceImage);  // re-upload; aspect re-derives
+    },
 
     // run the same end-to-end render path as exportAt, but stop after readPixels
     // and return the raw pixel buffer + size + render timings. Used by the
