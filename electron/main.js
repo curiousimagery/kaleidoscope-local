@@ -21,6 +21,13 @@ const { app, BrowserWindow, ipcMain, session } = require('electron');
 const path = require('path');
 const syphon = require('./syphon-bridge');
 
+// A live-output shell must keep rendering when it ISN'T the focused window —
+// the whole point is driving Arena while Fold broadcasts underneath. Chromium
+// deprioritizes background renderers (starving rAF/timers), which paused Fold's
+// playback the moment focus moved to Arena. This switch opts the renderer out
+// process-wide; the per-window backgroundThrottling below covers occlusion.
+app.commandLine.appendSwitch('disable-renderer-backgrounding');
+
 let win;
 
 function createWindow() {
@@ -33,6 +40,10 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,   // renderer can't reach Node; host crosses via contextBridge
       nodeIntegration: false,
+      // Keep rAF + timers + the Page Visibility API running while blurred or
+      // fully occluded (e.g. Arena fullscreen over Fold) — otherwise playback
+      // and the output bus freeze the moment Fold loses focus mid-broadcast.
+      backgroundThrottling: false,
     },
   });
 
