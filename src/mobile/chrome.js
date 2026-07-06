@@ -49,7 +49,7 @@ document.body.innerHTML = `
       <button id="m-tab-source" class="m-tab" title="source">${ICONS.plus}</button>
       <button id="m-tab-form" class="m-tab" title="form"></button>
       <button id="m-tab-export" class="m-tab" title="save">${ICONS.download}</button>
-      <button id="m-tab-capture" class="m-tab" title="freeze" style="display:none">${ICONS.stop}</button>
+      <button id="m-tab-capture" class="m-tab" title="pause" style="display:none">${ICONS.pause}</button>
     </div>
     <input type="file" class="m-file-input" id="m-file" accept="image/jpeg,image/png,image/webp">
     <input type="file" class="m-file-input" id="m-file-still" accept="image/*" capture="environment">
@@ -345,7 +345,7 @@ function stopCameraStream() {
 function updateLiveUI() {
   const cap = $('m-tab-capture'), flip = $('m-flip');
   if (cameraMode === 'live') {
-    cap.style.display = ''; cap.innerHTML = ICONS.stop; cap.title = 'freeze'; cap.style.color = '';   /* was ICONS.captureCam (aperture, read too like the form icon) */
+    cap.style.display = ''; cap.innerHTML = ICONS.pause; cap.title = 'pause'; cap.style.color = '';   /* record/pause toggle (was the stop square; before that the aperture) */
     flip.style.display = ''; setSourceIcon('live');
   } else if (cameraMode === 'frozen') {
     // still "in" live capture, just paused: go-live record is RED (actionable),

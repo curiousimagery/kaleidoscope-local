@@ -180,7 +180,7 @@ const ICON_USAGE = {
   camera: 'mobile · source = still; "take still"',
   record: 'mobile · source = live; "go live" (turns red)',
   captureCam: '',   // now UNUSED (capture/freeze switched to the stop icon, Build 222)
-  stop: 'mobile · capture/freeze live (replaced the aperture)',
+  pause: 'mobile · record/pause live toggle (pause = frozen still; replaced the stop square)',
   photo: 'mobile · "choose photo / file"',
   download: 'mobile · save tab',
   flip: 'mobile · flip-camera button',
