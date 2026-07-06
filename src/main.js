@@ -154,7 +154,7 @@ const env = {
   applyFormControls: () => applyFormControls(env),
   resizePreviewCanvas: null,
   arrangeSlots: null,
-  pushHistory: () => historyPush({ ...state }),
+  pushHistory: () => historyPush(state, motion),
   updateUndoUI: null,  // assigned after setupUndoBar
 
   // ---- runtime state ------------------------------------------------------
@@ -817,44 +817,34 @@ function updateUndoUI() {
   redoBtn.disabled = !canRedo();
 }
 
+// One restore path for all four triggers (buttons + ⌘Z/⇧⌘Z). History entries now
+// carry the keyframe slice of `motion` too, so a restore must also stop playback
+// (the tick would clobber the restored state) and rebuild the timeline surfaces.
+function performHistoryStep(step) {
+  if (motion.playing) env.stopPlayback?.();
+  if (!step(state, motion)) return;
+  env.syncControls();
+  env.scheduleRender();
+  env.scheduleOverlayDraw();
+  env.renderTimeline?.();
+  env.updateMotionUI?.();
+  updateUndoUI();
+}
+
 function setupUndoBar() {
   env.updateUndoUI = updateUndoUI;
   // undo/redo now live in the output toolbar (index.html) — just wire them.
-  document.getElementById('undoBtn').addEventListener('click', () => {
-    if (historyUndo(state)) {
-      env.syncControls();
-      env.scheduleRender();
-      env.scheduleOverlayDraw();
-      updateUndoUI();
-    }
-  });
-  document.getElementById('redoBtn').addEventListener('click', () => {
-    if (historyRedo(state)) {
-      env.syncControls();
-      env.scheduleRender();
-      env.scheduleOverlayDraw();
-      updateUndoUI();
-    }
-  });
+  document.getElementById('undoBtn').addEventListener('click', () => performHistoryStep(historyUndo));
+  document.getElementById('redoBtn').addEventListener('click', () => performHistoryStep(historyRedo));
 }
 
 window.addEventListener('keydown', e => {
   if (e.metaKey && e.key === 'z' && !e.shiftKey) {
     e.preventDefault();
-    if (historyUndo(state)) {
-      env.syncControls();
-      env.scheduleRender();
-      env.scheduleOverlayDraw();
-      updateUndoUI();
-    }
+    performHistoryStep(historyUndo);
   } else if (e.metaKey && e.key === 'z' && e.shiftKey) {
     e.preventDefault();
-    if (historyRedo(state)) {
-      env.syncControls();
-      env.scheduleRender();
-      env.scheduleOverlayDraw();
-      updateUndoUI();
-    }
+    performHistoryStep(historyRedo);
   }
 });
 

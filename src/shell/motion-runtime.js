@@ -38,7 +38,7 @@ export function createMotionRuntime(env) {
 // renders/scrubs on its own, so the caller can skip its own render).
 function ensureSeededSelection() {
   if (!env.motionRT.active) { motion.selected = -1; return false; }
-  if (!kfList().length) { addKeyframe(); return true; }      // seed kf0 (records the current slice look)
+  if (!kfList().length) { addKeyframe({ seed: true }); return true; }   // seed kf0 (records the current slice look)
   const i = keyframeAt(motion.playhead);
   motion.selected = i >= 0 ? i : 0;                          // kf0 at the playhead → selected, so +keyframe inserts between
   return false;
@@ -351,9 +351,14 @@ function applyAutoSpacing() {
     i = j;
   }
 }
-function addKeyframe() {
+function addKeyframe(opts) {
   if (!engine || !engine.getSourceImage()) return;
   if (motion.playing) stopPlayback();
+  // Undoable — EXCEPT the automatic kf0 seed on entering motion mode (a system
+  // add the user didn't perform; recording it would put a weird empty-motion
+  // step in the history). Click handlers pass an event here, not opts, so the
+  // seed flag only exists on the explicit seed call sites.
+  if (!(opts && opts.seed)) { env.pushHistory?.(); env.updateUndoUI?.(); }
   // Commit any in-flight edit to the currently-selected keyframe BEFORE laying the
   // next one, so the just-edited keyframe is never left stale. (Daniel's diagnosis:
   // the old Build-97 "duplicate pause" was a missing save-on-add trigger, not
@@ -412,6 +417,7 @@ function addKeyframe() {
 function toggleAnchor() {
   const i = motion.selected >= 0 ? motion.selected : keyframeAt(motion.playhead);
   if (i <= 0) return;                            // keyframe 0 is always the start anchor; -1 = none
+  env.pushHistory?.(); env.updateUndoUI?.();     // undoable: re-spacing moves keyframe times
   kfList()[i].anchored = !kfList()[i].anchored;
   applyAutoSpacing();
   setPlayhead(kfList()[i].t);
@@ -421,6 +427,7 @@ function toggleAnchor() {
 function deleteSelected() {
   const idx = motion.selected >= 0 ? motion.selected : keyframeAt(motion.playhead);
   if (idx < 0) return;
+  env.pushHistory?.(); env.updateUndoUI?.();     // undoable
   kfList().splice(idx, 1);
   motion.selected = -1;
   applyAutoSpacing();                              // autos re-space to fill the gap
@@ -623,6 +630,8 @@ function makeMarkerDraggable(m, i) {
     if (!down.moved && Math.abs(e.clientX - down.x) < 3) return;
     down.moved = true;
     if (i === 0) return;                            // keyframe 0 stays at t=0 (start anchor)
+    // undoable: capture once, at the moment a press becomes a retime drag
+    if (!down.pushed) { env.pushHistory?.(); env.updateUndoUI?.(); down.pushed = true; }
     const list = kfList();
     const lo = list[i - 1].t + 0.01;
     const hi = (i < list.length - 1 ? list[i + 1].t : 1) - 0.01;
@@ -849,7 +858,7 @@ function toggleMotionMode() {
     lockVideoDuration();               // lock to clip length ÷ retime speed
   }
   if (!env.motionRT.active) haltPlayback();
-  else if (!kfList().length) addKeyframe();   // QoL: enter motion mode with a keyframe of the current look
+  else if (!kfList().length) addKeyframe({ seed: true });   // QoL: enter motion mode with a keyframe of the current look
   else renderTimeline();                       // (re-entry keeps existing keyframes)
   if (!env.motionRT.active && env.sourceVideo) {
     // exiting motion on a video: resume free-run playback (video is "live" again)
@@ -931,6 +940,8 @@ function loadMotionFromJSON(text) {
   let o;
   try { o = JSON.parse(text); } catch { return 'not valid JSON'; }
   if (!o || o.format !== 'fold-motion' || !Array.isArray(o.keyframes) || !o.keyframes.length) return 'not a Fold motion file';
+  env.pushHistory?.(); env.updateUndoUI?.();   // undoable (keyframes + selection/playhead;
+                                               // duration/loop/smoothing are outside history's scope)
   motion.durationMs = Math.max(500, Math.min(600000, +o.durationMs || 30000));
   motion.loop = o.loop !== false;
   motion.smoothing = Math.max(0, Math.min(1, +o.smoothing || 0));
