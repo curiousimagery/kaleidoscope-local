@@ -145,20 +145,20 @@
           <span class="name">—</span>
         </div>
         <!-- persistent source controls: the form picker (header of the form settings —
-             it decides which popover rows show), the slice-settings popover trigger,
-             and reset slice -->
+             it decides which popover rows show) + the slice-settings popover trigger.
+             (reset slice lives at the BOTTOM of the popover — Daniel demoted both resets.) -->
         <div class="panel-ctl" id="srcCtl">
           <div class="form-row">
             <div class="form-grid" id="formGrid"></div>
             <button class="ot-btn panel-gear" id="sliceSettingsBtn" title="slice settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="4" y1="8" x2="20" y2="8"/><line x1="4" y1="16" x2="20" y2="16"/><circle cx="9" cy="8" r="2.4" fill="currentColor"/><circle cx="15" cy="16" r="2.4" fill="currentColor"/></svg></button>
           </div>
-          <button type="button" id="sliceReset" class="reset" title="reset slice and form-specific controls to defaults">reset slice</button>
         </div>
       </div>
       <div class="stage-divider" id="stageDivider" title="drag to resize the panels"></div>
       <div class="stage-panel stage-out" id="outPanel">
-        <!-- persistent output controls: frame aspect (renamed from "frame"), the
-             canvas-settings popover trigger, and reset canvas -->
+        <!-- persistent output controls: frame aspect (renamed from "frame") + the
+             canvas-settings popover trigger. (reset canvas lives at the BOTTOM of
+             the popover — Daniel demoted both resets.) -->
         <div class="panel-ctl" id="outCtl">
           <div class="panel-ctl-row">
             <div class="field">
@@ -176,7 +176,6 @@
             </div>
             <button class="ot-btn panel-gear" id="canvasSettingsBtn" title="canvas settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="4" y1="8" x2="20" y2="8"/><line x1="4" y1="16" x2="20" y2="16"/><circle cx="9" cy="8" r="2.4" fill="currentColor"/><circle cx="15" cy="16" r="2.4" fill="currentColor"/></svg></button>
           </div>
-          <button type="button" id="canvasReset" class="reset" title="reset canvas controls to defaults">reset canvas</button>
         </div>
       </div>
     </div>
@@ -391,6 +390,7 @@
         <button class="toggle active" data-wedgemirror="1">on</button>
       </div>
     </label>
+    <button type="button" id="sliceReset" class="reset" title="reset slice and form-specific controls to defaults">reset slice</button>
   </div>
 </div>
 <div class="panel-popover" id="canvasPopover" hidden>
@@ -414,6 +414,7 @@
         <button class="toggle" data-oob="2">transparent</button>
       </div>
     </div>
+    <button type="button" id="canvasReset" class="reset" title="reset canvas controls to defaults">reset canvas</button>
   </div>
 </div>
 

@@ -170,8 +170,10 @@ body { display: flex; flex-direction: column; height: 100vh; height: 100dvh; ove
 }
 .panel-ctl .form-row { justify-content: center; }
 .panel-ctl-row { display: flex; align-items: flex-end; gap: 12px; }
-.panel-ctl .reset { width: auto; padding: 6px 14px; }
 .panel-gear { flex-shrink: 0; }
+/* every control in the output row shares one height (the gear was taller than the
+   aspect buttons); the source row's gear stays 40px to match the form thumbs */
+#outCtl .panel-gear { height: 34px; min-width: 34px; padding: 0 8px; }
 .panel-gear.open { background: var(--surface-hover); color: var(--text-bright); border-color: var(--c-neutral-500); }   /* mirrors .ot-btn.band-open */
 .panel-popover {
   position: fixed;
@@ -871,7 +873,7 @@ button .btn-spinner {
    dim/disable the controls that can't be animated. a CSS class is used (not
    inline styles) so it doesn't fight applyFormControls' per-form display toggles
    — opacity/pointer-events are orthogonal to display. */
-body.motion .form-grid { display: none; }   /* the gear + reset stay reachable in motion */
+body.motion .form-grid { pointer-events: none; opacity: var(--disabled-opacity); }   /* disabled like the other multi-keyframe-scoped settings, not hidden */
 body.motion #segmentsLabel,
 body.motion #mirrorLabel,
 body.motion #wedgeMirrorLabel,
