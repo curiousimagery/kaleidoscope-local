@@ -37,6 +37,7 @@ import { createOutputWindow } from './shell/output-window.js';
 import { mockSyphonHost } from './stage/mock-host.js';
 import { createOutputPanel } from './shell/output-panel.js';
 import { mountInputDebug } from './shell/input-debug.js';
+import { ICONS } from './mobile/icons.js';   // shared glyph set (fit/fill toggle)
 import { VERSION, formatVersion } from './version.js';
 import { push as historyPush, undo as historyUndo, redo as historyRedo, canUndo, canRedo } from './shell/history.js';
 import { wireDiagnosticButton } from './shell/diagnostics.js';
@@ -354,7 +355,12 @@ function arrangeSlots() {
   const slotH = Math.max(80, srcWrap.clientHeight - 8);
   const sourceAspect = engine.getSourceAspect() || 1;
   let dispW, dispH;
-  if (sourceAspect > slotW / slotH) {
+  if (sourceOverlay.getFit() === 'cover') {
+    // FILL: the source box takes the whole wrap and the source covers it (cropped)
+    // — a bigger manipulation surface; the overlay owns the cover-fit geometry.
+    dispW = slotW;
+    dispH = slotH;
+  } else if (sourceAspect > slotW / slotH) {
     dispW = slotW;
     dispH = slotW / sourceAspect;
   } else {
@@ -378,6 +384,22 @@ function arrangeSlots() {
   });
 }
 env.arrangeSlots = arrangeSlots;
+
+// fit/fill toggle (the last Arc 2 source extra, from mobile): fit = the whole
+// source, aspect-fit; fill = the source covers the panel space (cropped) for a
+// bigger manipulation surface. The icon shows the ACTION you'll take.
+const srcFitBtn = document.getElementById('srcFitBtn');
+if (srcFitBtn) {
+  srcFitBtn.innerHTML = ICONS.expand;
+  srcFitBtn.addEventListener('click', () => {
+    if (!engine || !engine.getSourceImage()) return;
+    const next = sourceOverlay.getFit() === 'cover' ? 'contain' : 'cover';
+    sourceOverlay.setFit(next);
+    srcFitBtn.innerHTML = next === 'cover' ? ICONS.contract : ICONS.expand;
+    srcFitBtn.title = next === 'cover' ? 'fit the whole source (letterbox)' : 'fill the panel (crop)';
+    arrangeSlots();   // the source box is sized per fit — refit + remount
+  });
+}
 
 function toggleSwap() {
   if (!engine || !engine.getSourceImage()) return;

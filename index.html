@@ -127,6 +127,10 @@
          selectors (#slicePopover / #canvasPopover at the end of <body>). -->
     <div class="stage-split" id="stageSplit" hidden>
       <div class="stage-panel stage-src" id="srcPanel">
+        <!-- fit/fill toggle (from mobile): fit = whole source aspect-fit; fill = the
+             source COVERS the panel space (cropped) for a bigger manipulation
+             surface. Icon shows the ACTION you'll take (glyph set by main.js). -->
+        <button class="src-fit" id="srcFitBtn" title="fill the panel (crop)"></button>
         <!-- still-mode frame picker for a VIDEO source: scrub to choose the frame to
              work with — deliberately no playback transport (Arc 2c). A mini TIMELINE
              (track + vertical playhead, the mf-track vocabulary), not a slider — the

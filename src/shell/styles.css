@@ -99,6 +99,30 @@ body { display: flex; flex-direction: column; height: 100vh; height: 100dvh; ove
 @media (pointer: coarse) {
   .stage-divider::after { left: -18px; right: -18px; }
 }
+/* fit/fill toggle — floats over the source panel's top-right corner (a view
+   control for the source display, like mobile's), subtle at rest */
+.stage-src .src-fit {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 6;
+  width: 30px;
+  height: 30px;
+  min-width: 30px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface-control);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  opacity: 0.85;
+}
+.stage-src .src-fit:hover { opacity: 1; color: var(--text-bright); }
+.stage-src .src-fit svg { width: 16px; height: 16px; display: block; }
+@media (pointer: coarse) { .stage-src .src-fit { width: 38px; height: 38px; } }
+
 /* source meta rides WITH the source panel — the one home for source info.
    order pins it BELOW the dynamically-mounted slot-content wrap; the still-mode
    frame scrubber sits between the source and the meta. */
