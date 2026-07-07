@@ -367,12 +367,33 @@ export function setupStageDivider(env) {
   const split = document.getElementById('stageSplit');
   if (!divider || !split) return;
   let dragging = false, startX = 0, startPct = 32, splitW = 1, dir = 1;
+  let skel = null;   // gray skeleton standing in for the (hidden, pixel-sized) preview mid-drag
+
+  // The preview canvas is pixel-sized and can't track the CSS panels mid-drag, so it
+  // hides — the SKELETON shows what size the output will land at: a gray box, fit to
+  // the output panel at the frame aspect, re-fit every coalesced frame (Daniel's nit).
+  function sizeSkeleton() {
+    if (!skel) return;
+    const p = document.getElementById('outPanel');
+    if (!p) return;
+    const cw = p.clientWidth - 16, ch = p.clientHeight - 16;
+    const a = env.session.frameAspect || 1;
+    let w, h;
+    if (cw / ch >= a) { h = Math.max(160, ch); w = h * a; }
+    else { w = Math.max(160, cw); h = w / a; }
+    skel.style.width = Math.round(w) + 'px';
+    skel.style.height = Math.round(h) + 'px';
+  }
 
   let pendingPct = null;
   let rafQueued = false;
   function applyPending() {
     rafQueued = false;
-    if (pendingPct != null) { split.style.setProperty('--stage-src-pct', pendingPct + '%'); pendingPct = null; }
+    if (pendingPct != null) {
+      split.style.setProperty('--stage-src-pct', pendingPct + '%');
+      pendingPct = null;
+      sizeSkeleton();   // reading clientWidth after the var write reflects the new split
+    }
   }
 
   function startDrag(clientX) {
@@ -383,7 +404,16 @@ export function setupStageDivider(env) {
     dir = env.session.isSwapped ? -1 : 1;
     divider.classList.add('dragging');
     document.body.classList.add('resizing-divider');
-    env.previewCanvas.style.visibility = 'hidden';   // pixel-sized; lags the CSS panels mid-drag
+    // display (not visibility): the hidden canvas must give up its flex space so the
+    // skeleton centers where the canvas will be
+    env.previewCanvas.style.display = 'none';
+    const wrap = env.previewCanvas.parentElement;
+    if (wrap) {
+      skel = document.createElement('div');
+      skel.className = 'canvas-skeleton';
+      wrap.appendChild(skel);
+      sizeSkeleton();
+    }
     document.body.style.cursor = 'col-resize';
   }
 
@@ -401,7 +431,8 @@ export function setupStageDivider(env) {
     dragging = false;
     divider.classList.remove('dragging');
     document.body.classList.remove('resizing-divider');
-    env.previewCanvas.style.visibility = '';
+    if (skel) { skel.remove(); skel = null; }
+    env.previewCanvas.style.display = 'block';
     document.body.style.cursor = '';
     requestAnimationFrame(() => env.arrangeSlots());   // refit the source box + preview to the new split
   }

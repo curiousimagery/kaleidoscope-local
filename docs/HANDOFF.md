@@ -18,6 +18,8 @@ He prefers **no em dashes** in any prose Claude generates for him.
 
 **BUILD 235 (Arc 1 — record/pause icon+text component):** shutter moved right of the camera dropdown; new `.ot-icontext` pattern (12px glyph + label; glyph carries state color, text stays neutral) — red dot + "record" frozen, white pause bars + "pause" live; Lab button matrix gained the specimen row. First standard icon+text button per Daniel's spec.
 
+**BUILD 240 (2b feedback):** stage-divider drag now shows a gray SKELETON tracking the output's landing size (canvas display:none during drag so the stand-in takes its spot); **BELOW is the default stack placement** per Daniel's lean (controls flow horizontally + wrap under each panel; `?panelctl=flank` keeps the columns for the A/B). Canvas reset CONFIRMED by Daniel.
+
 **BUILD 239 (ARC 2b SHIPPED — control stacks, needs Daniel's comparison + walk-through):** the right panel + its divider are deleted; form settings (form-picker header + slice controls) stack with the source panel, canvas settings (+ NEW reset canvas) with the output panel. Placement comparison: default flank vs **`?panelctl=below`** — Daniel picks, we delete the loser (popover variant on request; pairs with the deferred dropdown direction). All ids preserved → wiring untouched. **Arc 2 remaining:** 2c source extras (fit/fill, mini scrubber, top-left caption dedup) → 2d aspect expansion.
 
 **ARC 2a VALIDATED (Daniel, desktop + iPad) — renders and functions as expected.** One note fixed in **238**: the stage divider's touch target was only the 6px bar → the invisible ±12px `::after` hit extender (the panel divider's own pattern) makes the whole ~30px zone draggable, no visual change. **Now building: 2b (control stacks + placement variations).**

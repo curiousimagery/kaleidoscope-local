@@ -99,10 +99,10 @@ body { display: flex; flex-direction: column; height: 100vh; height: 100dvh; ove
   justify-content: center;
   padding: 8px 4px 0;
 }
-/* Arc 2b — per-panel control stacks. Default placement = FLANK: each stack is a
-   fixed-width column on its panel's outer edge of the split (form settings by the
-   source, canvas settings by the output). ?panelctl=below moves each stack inside
-   its panel, beneath the content (.ctl-below). Compare, pick one, delete the other. */
+/* Arc 2b — per-panel control stacks. Default placement = BELOW (each stack inside
+   its panel, under the content — .ctl-below). ?panelctl=flank leaves the stacks as
+   fixed-width columns on the panels' outer edges (the static markup order).
+   Compare, pick one, delete the other. */
 .ctl-stack {
   flex: 0 0 250px;
   min-width: 0;
@@ -116,7 +116,27 @@ body { display: flex; flex-direction: column; height: 100vh; height: 100dvh; ove
   flex: 0 0 auto;
   order: 12;             /* beneath the panel content + meta */
   max-height: 45%;
+  overflow-y: auto;
   padding: 8px 4px 0;
+}
+/* below-placement: controls flow horizontally and wrap (the treatment the old
+   canvas band proved out) instead of stacking a tall column under the panel */
+.stage-split.ctl-below #sliceGroup,
+.stage-split.ctl-below #outStack .group {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 10px 16px;
+}
+.stage-split.ctl-below .ctl-stack .slider { width: 160px; }
+.stage-split.ctl-below #sliceGroup h2,
+.stage-split.ctl-below #outStack .group h2 { margin: 0; align-self: center; }
+/* gray stand-in for the hidden preview during a stage-divider drag — shows what
+   size the output will land at (sized per-frame by setupStageDivider) */
+.canvas-skeleton {
+  background: var(--surface-control);
+  border: 1px solid var(--border);
 }
 .main-slot .display-wrap {
   position: relative;

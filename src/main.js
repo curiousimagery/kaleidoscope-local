@@ -887,13 +887,13 @@ function wireBarBands() {
   }
 }
 
-// Arc 2b placement variations for the per-panel control stacks. Default = FLANK
-// (the static markup order: stacks on the outer edges of the split). ?panelctl=below
-// moves each stack INSIDE its panel, beneath the content (CSS .ctl-below lays it out).
-// Compare on-screen, pick one, delete the other.
+// Arc 2b placement variations for the per-panel control stacks. Default = BELOW
+// (each stack inside its panel, beneath the content — Daniel's lean: settings under
+// the visuals). ?panelctl=flank keeps the static markup order (stacks as columns on
+// the outer edges) for the on-screen comparison. Pick one, delete the other.
 function mountControlStacks() {
-  const mode = new URLSearchParams(location.search).get('panelctl') || 'flank';
-  if (mode !== 'below') return;
+  const mode = new URLSearchParams(location.search).get('panelctl') || 'below';
+  if (mode === 'flank') return;   // static markup order IS the flank layout
   stageSplit.classList.add('ctl-below');
   srcPanel.appendChild(document.getElementById('srcStack'));
   outPanel.appendChild(document.getElementById('outStack'));
