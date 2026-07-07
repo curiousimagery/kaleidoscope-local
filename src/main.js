@@ -831,9 +831,9 @@ window.addEventListener('keydown', e => {
 // global output frame aspect (1:1 / 4:5 / 16:9) — reshapes the preview (WYSIWYG)
 // and is inherited by still + video export.
 function wireFrameAspect() {
-  // two synced control groups: the canvas-group "frame" (always visible, for stills)
-  // and the motion-footer one (near duration, for the animation workflow).
-  const groups = ['frameAspect', 'mfFrame'].map((id) => document.getElementById(id)).filter(Boolean);
+  // one group since Arc 3: the output panel's "frame aspect" persists across modes,
+  // so the motion-footer duplicate is gone. (kept as a list — output-staged may add one.)
+  const groups = ['frameAspect'].map((id) => document.getElementById(id)).filter(Boolean);
   if (!groups.length) return;
   const syncActive = () => groups.forEach((g) =>
     g.querySelectorAll('button').forEach((b) =>

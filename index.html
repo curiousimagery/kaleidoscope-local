@@ -65,6 +65,9 @@
         <button class="ot-btn" id="motionBtn" disabled title="motion mode">motion</button>
       </span>
       <button class="ot-btn" id="outputBtn" disabled title="live output">output<span class="ot-led" id="outputLed"><i></i><i></i></span></button>
+      <!-- per-mode export controls (the app-bar spec): render shows in motion,
+           save in still (updateMotionUI gates both) -->
+      <button class="ot-btn" id="mfRender" hidden disabled title="render the animation to a video file">render ▸</button>
       <button class="ot-btn" id="openExportBtn" title="save / export">save ▸</button>
       <button class="ot-btn ot-version" id="openDiagBtn" title="diagnostics">·</button>
     </div>
@@ -176,49 +179,55 @@
 
 </div><!-- /work-row -->
 
-<!-- motion-mode contextual footer (Phase 3 A/B animation) — hidden unless active -->
+<!-- motion-mode contextual footer — Arc 3 rework: timeline HEIGHT is the priority.
+     Controls cluster LEFT (fat transport) and RIGHT (minimal icon stack) instead of
+     a row on top; occasional settings (duration/smoothing/loop/speed/clip/motion
+     data) live in the ⋯ overflow menu; render moved to the app bar (per-mode
+     export). Hidden unless motion mode is active. -->
 <div class="motion-footer" id="motionFooter" hidden>
-  <div class="mf-controls">
-    <button class="mf-btn" id="mfPrev" title="previous keyframe">‹‹</button>
-    <button class="mf-btn" id="mfPlay" disabled title="play / pause">play</button>
-    <button class="mf-btn" id="mfNext" title="next keyframe">››</button>
-    <button class="mf-btn mf-toggle active" id="mfLoop" title="loop the animation">loop</button>
-    <span class="mf-sep"></span>
+  <!-- left: three rows of fat buttons (+keyframe/+gesture · prev/next · wide
+       play/pause) + a quieter keyframe-ops row (delete/anchor) -->
+  <div class="mf-left">
     <button class="mf-btn mf-add" id="mfAdd" disabled title="add a keyframe at the scrubber">＋ keyframe</button>
     <button class="mf-btn mf-gesture" id="mfGesture" disabled title="record gesture (coming soon)">＋ gesture</button>
-    <button class="mf-btn" id="mfDelete" disabled title="delete the selected keyframe">delete</button>
-    <button class="mf-btn mf-toggle" id="mfAnchor" disabled title="fix this keyframe's time, or let it auto-space">anchor</button>
-    <button class="mf-btn" id="mfClip" hidden title="edit clip — trim front/back (seamless-loop options coming)">clip ▸</button>
-    <button class="mf-btn" id="mfRender" disabled title="render the animation to a video file">render ▸</button>
-    <button class="mf-btn" id="mfMore" title="motion data">⋯</button>
-    <span class="mf-sep"></span>
+    <button class="mf-btn" id="mfPrev" title="previous keyframe">‹ prev</button>
+    <button class="mf-btn" id="mfNext" title="next keyframe">next ›</button>
+    <button class="mf-btn mf-play" id="mfPlay" disabled title="play / pause (space)">play</button>
+    <button class="mf-btn mf-sub" id="mfDelete" disabled title="delete the selected keyframe (delete)">delete</button>
+    <button class="mf-btn mf-sub mf-toggle" id="mfAnchor" disabled title="fix this keyframe's time, or let it auto-space">anchor</button>
+  </div>
+  <!-- center: the tall timeline (ruler + track — the big pinch/zoom/pan surface) -->
+  <div class="mf-center">
+    <div class="mf-ruler" id="mfRuler"></div>
+    <div class="mf-track" id="mfTrack" title="drag to scrub">
+      <div class="mf-strip" id="mfStrip"></div>
+      <div class="mf-markers" id="mfMarkers"></div>
+      <div class="mf-playhead" id="mfPlayhead"></div>
+    </div>
+  </div>
+  <!-- right: minimal icon stack (overflow · zoom · fit) -->
+  <div class="mf-right">
+    <button class="mf-btn" id="mfMore" title="motion settings + data">⋯</button>
     <button class="mf-btn" id="mfZoomOut" title="zoom out timeline">－</button>
     <button class="mf-btn" id="mfZoomIn" title="zoom in timeline">＋</button>
-    <button class="mf-btn" id="mfFit" disabled title="fit timeline to view">fit</button>
-    <span class="mf-sep"></span>
-    <span class="mf-frame" id="mfFrame" title="output frame aspect">
-      <button class="mf-btn mf-toggle active" data-asp="1">1:1</button>
-      <button class="mf-btn mf-toggle" data-asp="0.8">4:5</button>
-      <button class="mf-btn mf-toggle" data-asp="1.7778">16:9</button>
-    </span>
-    <span class="mf-field mf-speed" id="mfSpeed" hidden title="playback speed — slow busy footage so the fold reads">speed
-      <span class="mf-frame">
+    <button class="mf-btn" id="mfFit" disabled title="fit timeline to view">⛶</button>
+  </div>
+  <!-- ⋯ overflow: the occasional settings + motion data -->
+  <div class="mf-menu" id="mfMoreMenu" hidden>
+    <label class="mf-menu-field">duration <span class="val scrub" id="mfDurVal">30.0s</span></label>
+    <label class="mf-menu-field">smoothing <span class="val scrub" id="mfSmoothVal">0%</span></label>
+    <button class="mf-toggle" id="mfLoop" title="loop the animation — with loop on, the end returns to the first keyframe">loop</button>
+    <div class="mf-menu-field" id="mfSpeed" hidden title="playback speed — slow busy footage so the fold reads">speed
+      <span class="mf-speed-btns">
         <button class="mf-btn mf-toggle" data-spd="0.25">25%</button>
         <button class="mf-btn mf-toggle" data-spd="0.5">50%</button>
         <button class="mf-btn mf-toggle active" data-spd="1">100%</button>
+        <button class="mf-btn mf-toggle" data-spd="1.5">150%</button>
         <button class="mf-btn mf-toggle" data-spd="2">200%</button>
       </span>
-    </span>
-    <label class="mf-dur">duration <span class="val scrub" id="mfDurVal">30.0s</span></label>
-    <label class="mf-field">smoothing <span class="val scrub" id="mfSmoothVal">0%</span></label>
-  </div>
-  <div class="mf-ruler" id="mfRuler"></div>
-  <div class="mf-track" id="mfTrack" title="drag to scrub">
-    <div class="mf-strip" id="mfStrip"></div>
-    <div class="mf-markers" id="mfMarkers"></div>
-    <div class="mf-playhead" id="mfPlayhead"></div>
-  </div>
-  <div class="mf-menu" id="mfMoreMenu" hidden>
+    </div>
+    <button id="mfClip" hidden title="edit clip — trim front/back, bounce/slice loop">edit clip…</button>
+    <div class="mf-menu-sep"></div>
     <button id="mfSaveData">download motion data</button>
     <button id="mfLoadData">load motion data</button>
   </div>

@@ -123,7 +123,7 @@ const kfList = () => motion.keyframes;
 // while editing a selected keyframe (Build 124).
 function makeThumbCanvas() {
   const c = document.createElement('canvas');
-  c.width = 120; c.height = 120;
+  c.width = 160; c.height = 160;   // 120² before Arc 3 — the taller track shows bigger keyframes
   return c;
 }
 
@@ -425,7 +425,7 @@ function toggleAnchor() {
 }
 function deleteSelected() {
   const idx = motion.selected >= 0 ? motion.selected : keyframeAt(motion.playhead);
-  if (idx < 0) return;
+  if (idx <= 0) return;   // kf0 is the primary/start anchor — never deletable (Arc 3 hardening)
   env.pushHistory?.(); env.updateUndoUI?.();     // undoable
   kfList().splice(idx, 1);
   motion.selected = -1;
@@ -913,15 +913,16 @@ function updateMotionUI() {
   document.body.classList.toggle('motion', env.motionRT.active && kfList().length >= 2);
 
   const n = kfList().length;
-  const canDelete = motion.selected >= 0 || keyframeAt(motion.playhead) >= 0;
-  if (q('mfAdd')) q('mfAdd').disabled = !available;
-  if (q('mfDelete')) q('mfDelete').disabled = !canDelete;
   const aIdx = motion.selected >= 0 ? motion.selected : keyframeAt(motion.playhead);
+  if (q('mfAdd')) q('mfAdd').disabled = !available;
+  // kf0 (the primary/start anchor) is never deletable — delete enables from kf1 up
+  if (q('mfDelete')) q('mfDelete').disabled = aIdx <= 0;
   const selKf = aIdx > 0 ? kfList()[aIdx] : null;   // kf0 is always the start anchor
   if (q('mfAnchor')) { q('mfAnchor').disabled = !selKf; q('mfAnchor').classList.toggle('active', !!(selKf && selKf.anchored)); }
   const minKf = env.sourceVideo ? 1 : 2;   // video plays/renders with 1 kf (the footage provides motion)
   if (q('mfPlay')) { q('mfPlay').disabled = n < minKf; q('mfPlay').textContent = motion.playing ? 'pause' : 'play'; }
-  if (q('mfRender')) q('mfRender').disabled = n < minKf;
+  // render lives in the APP BAR (per-mode export controls): motion-only, gated like play
+  if (q('mfRender')) { q('mfRender').hidden = !env.motionRT.active; q('mfRender').disabled = n < minKf; }
   if (q('mfPrev')) q('mfPrev').disabled = n < 1;
   if (q('mfNext')) q('mfNext').disabled = n < 1;
   q('mfLoop')?.classList.toggle('active', motion.loop);
@@ -997,7 +998,7 @@ function wireMotion() {
   byId('mfZoomOut')?.addEventListener('click', () => zoomTimelineAt(0.5, 1 / 1.6));
   byId('mfSpeed')?.querySelectorAll('[data-spd]').forEach(b =>
     b.addEventListener('click', () => setVideoSpeed(parseFloat(b.dataset.spd))));
-  byId('mfClip')?.addEventListener('click', () => env.openClipEditor());
+  // (mfClip is wired with the ⋯ menu below — it closes the menu before opening the sheet)
   byId('clipClose')?.addEventListener('click', () => env.closeClipEditor(false));
   byId('clipCancel')?.addEventListener('click', () => env.closeClipEditor(false));
   byId('clipApply')?.addEventListener('click', () => env.applyClip());
@@ -1045,7 +1046,9 @@ function wireMotion() {
     // the live two-video blend reads the crossfade duration each frame — no recapture needed
   });
 
-  // ⋯ motion-data menu — download / load the keyframes+settings as portable JSON.
+  // ⋯ overflow menu (Arc 3) — the occasional settings (duration / smoothing / loop /
+  // speed / clip editor) + the motion-data JSON round-trip. Setting rows keep the
+  // menu open (you're adjusting); actions that open a sheet close it.
   const moreMenu = byId('mfMoreMenu'), moreBtn = byId('mfMore');
   const closeMore = () => { if (moreMenu) moreMenu.hidden = true; document.removeEventListener('pointerdown', onMoreOutside); };
   function onMoreOutside(e) { if (!e.target.closest('#mfMoreMenu') && e.target !== moreBtn) closeMore(); }
@@ -1053,11 +1056,14 @@ function wireMotion() {
     e.stopPropagation();
     if (!moreMenu.hidden) { closeMore(); return; }
     moreMenu.hidden = false;
-    const r = moreBtn.getBoundingClientRect();              // place above the button (footer is at the bottom)
-    moreMenu.style.left = r.left + 'px';
+    // place above the button (footer is at the bottom), clamped to the right edge
+    // (the ⋯ sits in the right icon stack now)
+    const r = moreBtn.getBoundingClientRect();
+    moreMenu.style.left = Math.max(8, Math.min(r.left, window.innerWidth - moreMenu.offsetWidth - 8)) + 'px';
     moreMenu.style.top = Math.max(8, r.top - moreMenu.offsetHeight - 6) + 'px';
     setTimeout(() => document.addEventListener('pointerdown', onMoreOutside), 0);
   });
+  byId('mfClip')?.addEventListener('click', () => { closeMore(); env.openClipEditor(); });
   byId('mfSaveData')?.addEventListener('click', () => { downloadMotionJSON(); closeMore(); });
   byId('mfLoadData')?.addEventListener('click', () => { byId('mfDataFile')?.click(); closeMore(); });
   byId('mfDataFile')?.addEventListener('change', async (e) => {
@@ -1191,6 +1197,23 @@ function wireMotion() {
       ruler.addEventListener('wheel', onTimelineWheel, { passive: false });
     }
   }
+
+  // keyboard (Arc 3): space = play/pause, delete/backspace = delete the selected
+  // keyframe. Motion mode only; never while focus is in a field (inputs, selects,
+  // in-flight scrub edits) — those keep their native behavior.
+  window.addEventListener('keydown', (e) => {
+    if (!env.motionRT.active) return;
+    const t = e.target;
+    if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return;
+    if (e.metaKey || e.ctrlKey || e.altKey) return;   // don't shadow shortcuts (⌘Z etc.)
+    if (e.code === 'Space') {
+      e.preventDefault();                             // page scroll
+      if (motion.playing) stopPlayback(); else startPlayback();
+    } else if (e.key === 'Delete' || e.key === 'Backspace') {
+      e.preventDefault();
+      deleteSelected();
+    }
+  });
 
   updateMotionUI();
 }

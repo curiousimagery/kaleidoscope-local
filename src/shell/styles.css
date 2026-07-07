@@ -680,23 +680,44 @@ button .btn-spinner {
 }
 
 /* ===========================================================================
-   motion mode (Phase 3) — contextual timeline footer
+   motion mode — contextual timeline footer (Arc 3 rework: HEIGHT is the
+   priority; fat transport LEFT, tall timeline CENTER, icon stack RIGHT;
+   occasional settings in the ⋯ overflow menu)
    =========================================================================== */
 .motion-footer {
   flex-shrink: 0;
   display: flex;
-  flex-direction: column;
-  gap: 8px;
-  height: 172px;
-  padding: 10px 16px;
-  padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px));
+  flex-direction: row;
+  align-items: stretch;
+  gap: 12px;
+  height: min(236px, 32vh);
+  padding: 12px 16px;
+  padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
   background: var(--surface);
   border-top: 1px solid var(--border-subtle);
 }
 .motion-footer[hidden] { display: none; }
 
-.mf-controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; flex-shrink: 0; }
-.mf-controls .mf-sep { width: 1px; align-self: stretch; min-height: 24px; background: var(--border); }
+/* left cluster: 2-column grid — [+keyframe|+gesture] / [prev|next] / [play wide]
+   + the quieter delete/anchor row */
+.mf-left {
+  flex: 0 0 auto;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(96px, 1fr));
+  gap: 6px;
+  align-content: center;
+}
+.mf-left .mf-btn { height: 42px; }
+.mf-left .mf-play { grid-column: 1 / -1; }
+.mf-left .mf-sub { height: 32px; font-size: var(--text-sm); color: var(--text-dim); }
+
+/* center: ruler + the tall track (the big pinch/zoom/pan surface) */
+.mf-center { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+
+/* right: minimal icon stack */
+.mf-right { flex: 0 0 auto; display: flex; flex-direction: column; gap: 6px; justify-content: center; }
+.mf-right .mf-btn { width: 40px; min-width: 40px; height: 40px; padding: 0; }
+
 .mf-btn {
   height: 36px; min-width: 36px; padding: 0 12px;
   background: var(--surface-control); border: 1px solid var(--border); border-radius: var(--radius-md);
@@ -705,16 +726,28 @@ button .btn-spinner {
 }
 .mf-btn:hover:not(:disabled) { background: var(--surface-hover); border-color: var(--border-hover); color: var(--text-bright); }
 .mf-btn:disabled { opacity: var(--disabled-opacity-strong); cursor: default; }
-.mf-menu { position: fixed; z-index: 50; background: var(--surface-overlay); border: 1px solid var(--border); border-radius: var(--radius-lg);
+.mf-menu { position: fixed; z-index: 50; min-width: 220px; background: var(--surface-overlay); border: 1px solid var(--border); border-radius: var(--radius-lg);
   padding: 4px; box-shadow: 0 8px 24px rgba(0,0,0,0.5); display: flex; flex-direction: column; gap: 2px; }
 .mf-menu[hidden] { display: none; }
 .mf-menu button { background: transparent; border: none; color: var(--text); font-size: var(--text-md); text-align: left;
   padding: 9px 14px; border-radius: var(--radius-md); white-space: nowrap; cursor: pointer; }
 .mf-menu button:hover { background: var(--c-neutral-700); }
+.mf-menu button[hidden] { display: none; }
+/* menu setting rows (duration / smoothing / speed): label left, control right */
+.mf-menu .mf-menu-field {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  color: var(--text); font-size: var(--text-md); padding: 9px 14px; white-space: nowrap;
+}
+.mf-menu .mf-menu-field[hidden] { display: none; }
+.mf-menu-sep { height: 1px; background: var(--border); margin: 4px 8px; }
+/* the loop row is a LABELED toggle — state in words, no ambiguous pressed-look */
+#mfLoop::after { content: ' · off'; color: var(--text-dim); }
+#mfLoop.active { color: var(--text-bright); }
+#mfLoop.active::after { content: ' · on'; color: var(--ok); }
+.mf-speed-btns { display: inline-flex; gap: 4px; }
+.mf-speed-btns .mf-btn { height: 28px; min-width: 0; padding: 0 8px; font-size: var(--text-sm); }
 .mf-toggle.active { border-color: var(--focus); color: var(--text-bright); }
 .mf-add:not(:disabled) { color: var(--text-bright); border-color: var(--c-neutral-500); }              /* primary add (monochrome emphasis) */
-.mf-frame { display: inline-flex; gap: 4px; }
-.mf-dur { margin-left: auto; display: flex; align-items: center; gap: 6px; font-size: var(--text-base); color: var(--text-dim); }
 .mf-field { display: flex; align-items: center; gap: 6px; font-size: var(--text-base); color: var(--text-dim); }
 .mf-field[hidden] { display: none; }   /* class display:flex would otherwise beat the hidden attribute */
 
@@ -781,7 +814,12 @@ button .btn-spinner {
   background: var(--fill-bright); pointer-events: none; z-index: 2;   /* white scrubber */
   transform: translateX(-50%);                            /* center the line on its t (aligns with the centered notch) */
 }
-@media (pointer: coarse) { .mf-btn { height: var(--touch-target); } }
+@media (pointer: coarse) {
+  .mf-btn { height: var(--touch-target); }
+  .mf-left .mf-btn { height: var(--touch-target); }
+  .mf-left .mf-sub { height: 38px; }
+  .mf-right .mf-btn { width: var(--touch-target); height: var(--touch-target); }
+}
 
 /* motion mode pins discrete fields to keyframe 0: hide the form picker and
    dim/disable the controls that can't be animated. a CSS class is used (not
