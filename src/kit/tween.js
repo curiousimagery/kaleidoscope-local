@@ -75,8 +75,9 @@ export function lerpState(a, b, t, ease = easing.easeInOut) {
 // This is the "make it wilder" knob — bump it for a more aggressive max.
 const SMOOTH_PASSES = 4;
 
-// shortest-path signed delta a→b (degrees), in [-180,180].
-function angDelta(a, b) { return ((b - a + 540) % 360) - 180; }
+// shortest-path signed delta a→b (degrees), in [-180,180]. Exported for the
+// perform follower (kit/follow.js), which unwraps angles with the same rule.
+export function angDelta(a, b) { return ((b - a + 540) % 360) - 180; }
 
 // Laplacian relax of INTERIOR control points toward the mean of their immediate
 // neighbours by `amount`∈[0,1]. Endpoints (and the loop bookend, which is kf0) stay
