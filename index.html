@@ -64,7 +64,6 @@
         <button class="ot-btn active" id="stillBtn" title="still mode">still</button>
         <button class="ot-btn" id="motionBtn" disabled title="motion mode">motion</button>
       </span>
-      <button class="ot-btn" id="canvasBtn" title="canvas controls">canvas</button>
       <button class="ot-btn" id="outputBtn" disabled title="live output">output<span class="ot-led" id="outputLed"><i></i><i></i></span></button>
       <button class="ot-btn" id="openExportBtn" title="save / export">save ▸</button>
       <button class="ot-btn ot-version" id="openDiagBtn" title="diagnostics">·</button>
@@ -99,11 +98,8 @@
     <span class="or-status" id="outputStatus"></span>
   </div>
 
-  <!-- expand-band: canvas controls (revealed by #canvasBtn). The canvas control group
-       (composition zoom / rotation / out-of-bounds / frame aspect — composition-global,
-       NOT slice settings) is relocated here from the right panel at init by the desktop
-       chrome (ids preserved → existing wiring intact). Mutually exclusive with output. -->
-  <div class="bar-row canvas-row" id="canvasRow" hidden></div>
+  <!-- (the canvas expand-band is GONE — Arc 2b moved the canvas controls into the
+       output panel's control stack, #outStack) -->
 
   <!-- preview stage: the kaleidoscope/source canvas, its status caption, the placeholder -->
   <div class="ms-stage" id="msStage">
@@ -121,7 +117,61 @@
          ratio set by the stage divider (output-dominant default), swap mirrors the sides
          (row-reverse). Built third-panel-ready: output-staged (Arc 5) joins as one more
          .stage-panel. The dynamic .slot-content wraps are mounted by arrangeSlots. -->
+    <!-- Arc 2b: each sibling panel owns a CONTROL STACK — form settings flank the
+         source, canvas settings flank the output (the right panel is gone). The
+         form picker is the form stack's HEADER (it decides which controls show).
+         Placement variations: default = flank (this order); ?panelctl=below moves
+         each stack beneath its panel (mountControlStacks). -->
     <div class="stage-split" id="stageSplit" hidden>
+      <div class="ctl-stack ctl-src" id="srcStack">
+        <!-- form picker: the header of the form settings -->
+        <div class="form-row">
+          <div class="form-grid" id="formGrid"></div>
+        </div>
+        <!-- form / slice settings (rows show only when they apply to the form) -->
+        <div id="sliceGroup">
+          <h2 style="font-size: 11px; font-weight: 500; color: #888; text-transform: lowercase; letter-spacing: 0.08em; margin-bottom: 8px;">slice</h2>
+          <label class="slider" id="segmentsLabel" style="margin-bottom: 10px;">
+            <div class="row"><span>segments</span><span class="val scrub" id="segVal" data-key="segments">12</span></div>
+            <input type="range" id="segments" min="2" max="48" step="2" value="12">
+          </label>
+          <label class="slider" style="margin-bottom: 10px;">
+            <div class="row"><span>scale</span><span class="val scrub" id="scaleVal" data-key="sliceScale">1.00×</span></div>
+            <input type="range" id="scale" min="0.05" max="3" step="0.005" value="1">
+          </label>
+          <label class="slider" style="margin-bottom: 10px;">
+            <div class="row"><span>rotation</span><span class="val scrub" id="sliceRotVal" data-key="sliceRotation">0°</span></div>
+            <input type="range" id="sliceRot" min="0" max="360" step="0.5" value="0">
+          </label>
+          <label class="slider" id="aspectLabel" style="margin-bottom: 10px; display: none;">
+            <div class="row"><span>aspect</span><span class="val scrub" id="aspectVal" data-key="squareAspect">1.00</span></div>
+            <input type="range" id="aspect" min="0.25" max="4" step="0.01" value="1">
+          </label>
+          <label class="slider" id="zoomLabel" style="margin-bottom: 10px; display: none;">
+            <div class="row"><span>thickness</span><span class="val scrub" id="zoomVal" data-key="drosteZoom">2.00×</span></div>
+            <input type="range" id="zoom" min="1.1" max="16" step="0.05" value="2">
+          </label>
+          <label class="slider" id="spiralLabel" style="margin-bottom: 10px; display: none;">
+            <div class="row"><span>spiral</span><span class="val scrub" id="spiralVal" data-key="drosteSpiral">0</span></div>
+            <input type="range" id="spiral" min="0" max="6" step="0.001" value="0">
+          </label>
+          <label class="slider" id="mirrorLabel" style="margin-bottom: 10px; display: none;">
+            <div class="row"><span>tier mirror</span></div>
+            <div class="row-buttons" id="mirrorToggle">
+              <button class="toggle" data-mirror="0">off</button>
+              <button class="toggle active" data-mirror="1">on</button>
+            </div>
+          </label>
+          <label class="slider" id="wedgeMirrorLabel" style="margin-bottom: 10px; display: none;">
+            <div class="row"><span>wedge mirror</span></div>
+            <div class="row-buttons" id="wedgeMirrorToggle">
+              <button class="toggle" data-wedgemirror="0">off</button>
+              <button class="toggle active" data-wedgemirror="1">on</button>
+            </div>
+          </label>
+          <button type="button" id="sliceReset" class="reset" title="reset slice and form-specific controls to defaults">reset slice</button>
+        </div>
+      </div>
       <div class="stage-panel stage-src" id="srcPanel">
         <!-- source meta lives WITH the source panel (the one home for source info) -->
         <div class="source-meta" id="sourceMeta">
@@ -131,107 +181,44 @@
       </div>
       <div class="stage-divider" id="stageDivider" title="drag to resize the panels"></div>
       <div class="stage-panel stage-out" id="outPanel"></div>
+      <div class="ctl-stack ctl-out" id="outStack">
+        <!-- canvas settings (composition-global, the output panel's parallel of the
+             form stack; relocated from the old #canvasRow band) -->
+        <div class="group">
+          <h2>canvas</h2>
+          <label class="slider">
+            <div class="row"><span>composition zoom</span><span class="val scrub" id="compZoomVal" data-key="canvasZoom">1.00×</span></div>
+            <input type="range" id="compZoom" min="0.15" max="4" step="0.01" value="1">
+          </label>
+          <label class="slider">
+            <div class="row"><span>rotation</span><span class="val scrub" id="canvasRotVal" data-key="canvasRotation">0°</span></div>
+            <input type="range" id="canvasRot" min="0" max="360" step="0.5" value="0">
+          </label>
+          <div class="field">
+            <div class="field-label">out of bounds</div>
+            <div class="button-grid-3" id="oobModes">
+              <button class="toggle" data-oob="0">clamp</button>
+              <button class="toggle active" data-oob="1">mirror</button>
+              <button class="toggle" data-oob="2">transparent</button>
+            </div>
+          </div>
+          <div class="field">
+            <div class="field-label">frame</div>
+            <div class="button-grid-3" id="frameAspect">
+              <button class="toggle active" data-asp="1">1:1</button>
+              <button class="toggle" data-asp="0.8">4:5</button>
+              <button class="toggle" data-asp="1.7778">16:9</button>
+            </div>
+          </div>
+          <button type="button" id="canvasReset" class="reset" title="reset canvas controls to defaults">reset canvas</button>
+        </div>
+      </div>
     </div>
   </div>
 </div>
 
-<!-- divider -->
-<div class="divider" id="divider"></div>
-
-<!-- right panel -->
-<div class="right-panel" id="rightPanel">
-
-  <!-- side slot — flow: form picker → thumbnail with overlay → meta → slice controls.
-       Source input (upload / camera) lives in the global control area (source ▸
-       modal + inline live-camera controls in the output toolbar). -->
-  <div class="side-slot">
-
-    <!-- form picker: icon strip sized + aligned to the global toolbar buttons -->
-    <div class="form-row">
-      <div class="form-grid" id="formGrid"></div>
-    </div>
-
-    <!-- the source thumbnail + its meta moved to the stage's SOURCE PANEL (Arc 2a) —
-         the right panel is controls-only now: form picker → slice attributes. -->
-
-    <!-- slice attributes -->
-    <div style="margin-top: 4px;">
-      <h2 style="font-size: 11px; font-weight: 500; color: #888; text-transform: lowercase; letter-spacing: 0.08em; margin-bottom: 8px;">slice</h2>
-      <label class="slider" id="segmentsLabel" style="margin-bottom: 10px;">
-        <div class="row"><span>segments</span><span class="val scrub" id="segVal" data-key="segments">12</span></div>
-        <input type="range" id="segments" min="2" max="48" step="2" value="12">
-      </label>
-      <label class="slider" style="margin-bottom: 10px;">
-        <div class="row"><span>scale</span><span class="val scrub" id="scaleVal" data-key="sliceScale">1.00×</span></div>
-        <input type="range" id="scale" min="0.05" max="3" step="0.005" value="1">
-      </label>
-      <label class="slider" style="margin-bottom: 10px;">
-        <div class="row"><span>rotation</span><span class="val scrub" id="sliceRotVal" data-key="sliceRotation">0°</span></div>
-        <input type="range" id="sliceRot" min="0" max="360" step="0.5" value="0">
-      </label>
-      <label class="slider" id="aspectLabel" style="margin-bottom: 10px; display: none;">
-        <div class="row"><span>aspect</span><span class="val scrub" id="aspectVal" data-key="squareAspect">1.00</span></div>
-        <input type="range" id="aspect" min="0.25" max="4" step="0.01" value="1">
-      </label>
-      <label class="slider" id="zoomLabel" style="margin-bottom: 10px; display: none;">
-        <div class="row"><span>thickness</span><span class="val scrub" id="zoomVal" data-key="drosteZoom">2.00×</span></div>
-        <input type="range" id="zoom" min="1.1" max="16" step="0.05" value="2">
-      </label>
-      <label class="slider" id="spiralLabel" style="margin-bottom: 10px; display: none;">
-        <div class="row"><span>spiral</span><span class="val scrub" id="spiralVal" data-key="drosteSpiral">0</span></div>
-        <input type="range" id="spiral" min="0" max="6" step="0.001" value="0">
-      </label>
-      <label class="slider" id="mirrorLabel" style="margin-bottom: 10px; display: none;">
-        <div class="row"><span>tier mirror</span></div>
-        <div class="row-buttons" id="mirrorToggle">
-          <button class="toggle" data-mirror="0">off</button>
-          <button class="toggle active" data-mirror="1">on</button>
-        </div>
-      </label>
-      <label class="slider" id="wedgeMirrorLabel" style="margin-bottom: 10px; display: none;">
-        <div class="row"><span>wedge mirror</span></div>
-        <div class="row-buttons" id="wedgeMirrorToggle">
-          <button class="toggle" data-wedgemirror="0">off</button>
-          <button class="toggle active" data-wedgemirror="1">on</button>
-        </div>
-      </label>
-      <button type="button" id="sliceReset" class="reset" title="reset slice and form-specific controls to defaults">reset slice</button>
-    </div>
-  </div>
-
-  <div class="controls">
-
-    <!-- canvas attributes -->
-    <div class="group">
-      <h2>canvas</h2>
-      <label class="slider">
-        <div class="row"><span>composition zoom</span><span class="val scrub" id="compZoomVal" data-key="canvasZoom">1.00×</span></div>
-        <input type="range" id="compZoom" min="0.15" max="4" step="0.01" value="1">
-      </label>
-      <label class="slider">
-        <div class="row"><span>rotation</span><span class="val scrub" id="canvasRotVal" data-key="canvasRotation">0°</span></div>
-        <input type="range" id="canvasRot" min="0" max="360" step="0.5" value="0">
-      </label>
-      <div class="field">
-        <div class="field-label">out of bounds</div>
-        <div class="button-grid-3" id="oobModes">
-          <button class="toggle" data-oob="0">clamp</button>
-          <button class="toggle active" data-oob="1">mirror</button>
-          <button class="toggle" data-oob="2">transparent</button>
-        </div>
-      </div>
-      <div class="field">
-        <div class="field-label">frame</div>
-        <div class="button-grid-3" id="frameAspect">
-          <button class="toggle active" data-asp="1">1:1</button>
-          <button class="toggle" data-asp="0.8">4:5</button>
-          <button class="toggle" data-asp="1.7778">16:9</button>
-        </div>
-      </div>
-    </div>
-
-  </div>
-</div>
+<!-- (the right panel + its divider are GONE — Arc 2b dissolved them into the
+     per-panel control stacks inside the stage split above) -->
 
 </div><!-- /work-row -->
 

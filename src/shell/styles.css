@@ -99,6 +99,25 @@ body { display: flex; flex-direction: column; height: 100vh; height: 100dvh; ove
   justify-content: center;
   padding: 8px 4px 0;
 }
+/* Arc 2b — per-panel control stacks. Default placement = FLANK: each stack is a
+   fixed-width column on its panel's outer edge of the split (form settings by the
+   source, canvas settings by the output). ?panelctl=below moves each stack inside
+   its panel, beneath the content (.ctl-below). Compare, pick one, delete the other. */
+.ctl-stack {
+  flex: 0 0 250px;
+  min-width: 0;
+  overflow-y: auto;
+  padding: 4px 12px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.stage-split.ctl-below .ctl-stack {
+  flex: 0 0 auto;
+  order: 12;             /* beneath the panel content + meta */
+  max-height: 45%;
+  padding: 8px 4px 0;
+}
 .main-slot .display-wrap {
   position: relative;
   max-width: 100%;
@@ -121,39 +140,8 @@ body { display: flex; flex-direction: column; height: 100vh; height: 100dvh; ove
 }
 .main-slot .placeholder strong { color: var(--text-dim); display: block; margin-bottom: 8px; font-weight: 500; }
 
-/* draggable divider */
-.divider {
-  width: 6px;
-  background: var(--bg);
-  cursor: col-resize;
-  position: relative;
-  flex-shrink: 0;
-  transition: background 0.15s;
-}
-.divider:hover, .divider.dragging { background: var(--border); }
-.divider::before {
-  content: '';
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  transform: translate(-50%, -50%);
-  width: 2px;
-  height: 32px;
-  background: var(--border);
-  border-radius: var(--radius-2xs);
-  transition: background 0.15s;
-}
-.divider:hover::before, .divider.dragging::before { background: var(--c-neutral-350); }
-.divider::after {
-  content: '';
-  position: absolute;
-  left: -12px;
-  right: -12px;
-  top: 0;
-  bottom: 0;
-}
-
-/* (undo/redo moved into .output-toolbar — see above) */
+/* (the right-panel divider is gone — the stage divider in .stage-split is the one
+   divider; undo/redo moved into .output-toolbar — see above) */
 
 /* during divider drag, hide canvas-pixel-buffer surfaces — the slice overlay
    and the kaleidoscope preview canvas — because they're sized in pixels and
@@ -162,28 +150,11 @@ body { display: flex; flex-direction: column; height: 100vh; height: 100dvh; ove
 body.resizing-divider .overlay-canvas,
 body.resizing-divider .preview-canvas { visibility: hidden; }
 
-/* right panel — single scroll container; everything inside flows naturally and
-   scrolls together as one column. */
-.right-panel {
-  width: 360px;
-  display: flex;
-  flex-direction: column;
-  background: var(--surface);
-  border-left: 1px solid var(--border-subtle);
-  flex-shrink: 0;
-  min-width: 280px;
-  max-width: min(50vw, 1600px);
-  overflow-y: auto;
-  padding-top: env(safe-area-inset-top, 0px);
-}
+/* (the right panel is gone — Arc 2b dissolved it into the per-panel control stacks) */
 /* Safari's compact tab bar in landscape adds ~44px that env(safe-area-inset-top)
    doesn't cover — it only accounts for the system status bar and rounded corners,
    not the browser's own chrome. 34px gives ~8-10px breathing room below the bar. */
 @media (pointer: coarse) and (orientation: landscape) {
-  /* 34px so BOTH columns clear Safari's compact tab bar at the same Y: the right-panel
-     content (form picker is its first row) and the output column's in-flow bar both
-     start at 34px, keeping the form icons aligned with the global menu. */
-  .right-panel { padding-top: 34px; }
   .main-slot { padding-top: 34px; }
 }
 /* Portrait touch (iPad) has less width: the fixed 1fr|auto|1fr grid forces the
@@ -193,43 +164,6 @@ body.resizing-divider .preview-canvas { visibility: hidden; }
    is tight). */
 @media (pointer: coarse) and (orientation: portrait) {
   .output-toolbar { display: flex; justify-content: space-between; }
-}
-
-/* side slot at top of right panel */
-.side-slot {
-  padding: 16px;
-  border-bottom: 1px solid var(--border-subtle);
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  flex-shrink: 0;
-}
-.side-display-wrap {
-  position: relative;
-  width: 100%;
-  aspect-ratio: 1;
-  min-height: 200px;
-  background: var(--surface-control);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  overflow: hidden;
-  flex-shrink: 0;
-}
-.side-display-wrap .src-img, .side-display-wrap canvas {
-  position: absolute;
-  top: 0; left: 0;
-  width: 100%;
-  height: 100%;
-}
-.side-display-wrap .empty-msg {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--text-faint);
-  font-size: var(--text-base);
-  pointer-events: none;
 }
 
 .source-meta {
@@ -242,17 +176,8 @@ body.resizing-divider .preview-canvas { visibility: hidden; }
 }
 .source-meta .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-/* controls panel */
-.controls {
-  padding: 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-/* desktop relocates the canvas .group out of here into the bar's canvas band, leaving
-   .controls empty on desktop — collapse it so it doesn't leave a gap. (Mobile keeps
-   the group here.) */
-.controls:empty { display: none; }
+/* (the .controls panel wrapper is gone with the right panel — the canvas .group now
+   lives in the output stack, #outStack) */
 
 .group {
   display: flex;
@@ -621,12 +546,7 @@ button .btn-spinner {
   font-size: var(--text-base);
 }
 .bar-row[hidden] { display: none; }
-/* canvas band: the relocated canvas .group laid out horizontally (a band, not the
-   tall stack it is in the right panel). */
-.canvas-row .group { display: flex; flex-direction: row; flex-wrap: wrap; align-items: flex-end; gap: 10px 16px; margin: 0; }
-.canvas-row .group h2 { margin: 0; align-self: center; }
-.canvas-row .slider { width: 150px; margin: 0; }
-.canvas-row .field { gap: 4px; }
+/* (the canvas band is gone — the canvas .group lives in the output stack now) */
 .or-label { color: var(--c-neutral-250); font-weight: 500; }
 .or-group { display: flex; align-items: center; gap: 6px; }
 .or-group[hidden] { display: none; }   /* author display:flex would otherwise override [hidden] (e.g. #syphonNameField on web) */

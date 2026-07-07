@@ -6,7 +6,7 @@
 //   - wireSliderWithScrub: pairs an HTML <input type="range"> with a scrub
 //     field, both bound to the same state key.
 //   - buildFormGrid: renders the form picker thumbnail strip from FORMS.
-//   - setupDivider: draggable vertical divider with rAF-coalesced width updates.
+//   - setupStageDivider: the stage split's draggable divider (rAF-coalesced).
 //
 // none of these reach into the engine — they only mutate state and call
 // env.scheduleRender() when they need a redraw.
@@ -354,70 +354,9 @@ export function applyFormControls(env) {
 }
 
 // ===========================================================================
-// divider
+// divider — the right-panel divider is GONE (Arc 2b dissolved the panel into
+// the per-panel control stacks); setupStageDivider below is the one divider.
 // ===========================================================================
-
-export function setupDivider(env) {
-  const divider = document.getElementById('divider');
-  const panel = document.getElementById('rightPanel');
-  let dragging = false;
-  let startX, startW;
-
-  // rAF-coalesced width updates — at most one panel.style.width write per frame
-  // regardless of event rate.
-  let pendingW = null;
-  let widthRafQueued = false;
-  function applyPendingWidth() {
-    widthRafQueued = false;
-    if (pendingW != null) {
-      panel.style.width = pendingW + 'px';
-      pendingW = null;
-    }
-  }
-
-  function startDrag(clientX) {
-    dragging = true;
-    startX = clientX;
-    startW = panel.clientWidth;
-    divider.classList.add('dragging');
-    document.body.classList.add('resizing-divider');
-    env.previewCanvas.style.visibility = 'hidden';
-    document.body.style.cursor = 'col-resize';
-  }
-
-  function moveDrag(clientX) {
-    if (!dragging) return;
-    const dx = startX - clientX;
-    const upper = Math.min(window.innerWidth * 0.5, 1600);
-    pendingW = Math.max(280, Math.min(upper, startW + dx));
-    if (!widthRafQueued) {
-      widthRafQueued = true;
-      requestAnimationFrame(applyPendingWidth);
-    }
-  }
-
-  function endDrag() {
-    if (!dragging) return;
-    dragging = false;
-    divider.classList.remove('dragging');
-    document.body.classList.remove('resizing-divider');
-    env.previewCanvas.style.visibility = '';
-    document.body.style.cursor = '';
-    requestAnimationFrame(() => {
-      // panel width moves BOTH sibling stage panels — rebuild so the source box
-      // refits and the preview resizes (arrangeSlots does both)
-      env.arrangeSlots();
-    });
-  }
-
-  divider.addEventListener('mousedown', e => { startDrag(e.clientX); e.preventDefault(); });
-  window.addEventListener('mousemove', e => moveDrag(e.clientX));
-  window.addEventListener('mouseup', endDrag);
-
-  divider.addEventListener('touchstart', e => { startDrag(e.touches[0].clientX); e.preventDefault(); }, { passive: false });
-  window.addEventListener('touchmove', e => { if (dragging) { moveDrag(e.touches[0].clientX); e.preventDefault(); } }, { passive: false });
-  window.addEventListener('touchend', endDrag);
-}
 
 // The STAGE divider between the sibling source/output panels (Arc 2a): drags the
 // split ratio (session.stageSrcPct, a percent) via the --stage-src-pct CSS var —

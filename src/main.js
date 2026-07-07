@@ -21,7 +21,6 @@ import {
   makeScrubField,
   buildFormGrid,
   applyFormControls,
-  setupDivider,
   setupStageDivider,
   makeControlsSync,
 } from './shell/controls.js';
@@ -654,6 +653,22 @@ function wireControls() {
     updateUndoUI();
   });
 
+  // canvas reset — the output stack's parallel of reset slice (Arc 2b). Frame aspect
+  // resets through its own button so both synced groups + the preview reshape follow
+  // (frame clicks don't touch history, so this stays ONE undo step).
+  document.getElementById('canvasReset')?.addEventListener('click', () => {
+    env.pushHistory();
+    state.canvasZoom     = 1.0;
+    state.canvasRotation = 0;
+    state.oobMode        = 1;   // mirror, the default
+    env.controlsSync.syncAll();
+    // the OOB buttons sync only in their own click handler — mirror the state here
+    document.querySelectorAll('#oobModes button').forEach(b => b.classList.toggle('active', b.dataset.oob === '1'));
+    document.querySelector('#frameAspect button[data-asp="1"]')?.click();
+    scheduleRender();
+    updateUndoUI();
+  });
+
   // OOB modes
   document.querySelectorAll('#oobModes button').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -837,7 +852,7 @@ function wireGlobalSheets() {
   };
   wire('exportSheet', 'openExportBtn', 'exportClose');
   wire('diagSheet', 'openDiagBtn', 'diagClose');
-  // (#outputBtn / #canvasBtn toggle the in-column expand-bands, not sheets — see
+  // (#outputBtn toggles the in-column output expand-band, not a sheet — see
   //  wireBarBands below.)
 
   // The diagnostics sheet surfaces the recent live-output op records (the unified
@@ -845,19 +860,13 @@ function wireGlobalSheets() {
   document.getElementById('openDiagBtn')?.addEventListener('click', renderDiagOps);
 }
 
-// The global bar's expand-bands: #outputBtn reveals #outputRow (live-output controls,
-// content wired by createOutputPanel), #canvasBtn reveals #canvasRow (the canvas
-// control group, relocated here from the right panel — composition-global settings,
-// NOT slice). One open at a time (accordion); each band pushes only the preview down,
-// so the right panel is never affected. Re-fit the preview on toggle, like the motion
-// footer. The canvas group keeps its ids, so its existing wiring stays intact.
+// The global bar's expand-band: #outputBtn reveals #outputRow (live-output controls,
+// content wired by createOutputPanel). The band pushes only the preview down.
+// (The canvas band is gone — Arc 2b moved the canvas controls into the output
+// panel's control stack.)
 function wireBarBands() {
-  const canvasGroup = document.querySelector('.controls .group');   // the <h2>canvas</h2> group
-  const canvasRow = document.getElementById('canvasRow');
-  if (canvasGroup && canvasRow) canvasRow.appendChild(canvasGroup);
-
-  const bands = { output: 'outputRow', canvas: 'canvasRow' };
-  const btns = { output: 'outputBtn', canvas: 'canvasBtn' };
+  const bands = { output: 'outputRow' };
+  const btns = { output: 'outputBtn' };
 
   function setBand(which) {
     for (const k of Object.keys(bands)) {
@@ -876,6 +885,18 @@ function wireBarBands() {
       setBand(band && band.hidden ? k : null);
     });
   }
+}
+
+// Arc 2b placement variations for the per-panel control stacks. Default = FLANK
+// (the static markup order: stacks on the outer edges of the split). ?panelctl=below
+// moves each stack INSIDE its panel, beneath the content (CSS .ctl-below lays it out).
+// Compare on-screen, pick one, delete the other.
+function mountControlStacks() {
+  const mode = new URLSearchParams(location.search).get('panelctl') || 'flank';
+  if (mode !== 'below') return;
+  stageSplit.classList.add('ctl-below');
+  srcPanel.appendChild(document.getElementById('srcStack'));
+  outPanel.appendChild(document.getElementById('outStack'));
 }
 
 // Render the most recent live-output op records into the diagnostics sheet. Each
@@ -941,8 +962,8 @@ if (engine) {
   buildFormGrid(env);
   applyFormControls(env);
   wireControls();
-  setupDivider(env);
   setupStageDivider(env);
+  mountControlStacks();
   // claim multi-touch on the output preview too (pinch/twist), same reason as the
   // source surface — keep the browser from swallowing the gesture as a page zoom.
   previewCanvas.style.touchAction = 'none';
