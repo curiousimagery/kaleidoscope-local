@@ -705,6 +705,15 @@ buildSaveSheet();
 // keeps the context restorable, and on `webglcontextrestored` the engine rebuilds
 // its GPU resources + re-uploads the source on the same context object. Also
 // covers genuine OS-initiated context losses.
+//
+// CRITICAL: the WEBGL_lose_context extension must be grabbed WHILE THE CONTEXT IS
+// ALIVE and cached — on a LOST context Safari's getExtension returns null, which is
+// exactly why the Build-230 restore silently never fired (restoreContext was looked
+// up after the loss). The cached object stays valid across loss/restore cycles
+// (extensions belong to the context, and the context object survives).
+const loseCtxExt = (() => {
+  try { return engine.glContext?.getExtension('WEBGL_lose_context') || null; } catch { return null; }
+})();
 outputCanvas.addEventListener('webglcontextlost', (e) => e.preventDefault());
 outputCanvas.addEventListener('webglcontextrestored', () => {
   try { engine.reinitGL(); } catch (e) { console.warn('[fold] GL reinit failed', e); return; }
@@ -716,7 +725,7 @@ outputCanvas.addEventListener('webglcontextrestored', () => {
 // contexts (a known iOS Safari crash vector — possible cause of the intermittent
 // "a problem repeatedly occurred" on reload).
 window.addEventListener('pagehide', () => {
-  try { engine.glContext?.getExtension('WEBGL_lose_context')?.loseContext(); } catch { /* noop */ }
+  try { loseCtxExt?.loseContext(); } catch { /* noop */ }
 });
 
 // Returning to the app (e.g. after viewing an exported image) can leave the
@@ -726,9 +735,10 @@ function onVisible() {
   if (document.visibilityState !== 'visible') return;
   // if pagehide released the context, ask for it back first — the
   // webglcontextrestored handler above rebuilds + repaints when it arrives.
+  // (Must use the CACHED extension: getExtension on a lost context returns null.)
   const gl = engine.glContext;
   if (gl && gl.isContextLost()) {
-    try { gl.getExtension('WEBGL_lose_context')?.restoreContext(); } catch { /* browser-initiated losses restore on their own */ }
+    try { loseCtxExt?.restoreContext(); } catch { /* browser-initiated losses restore on their own */ }
     return;
   }
   if (cameraMode === 'live') { stopLiveLoop(); startLiveLoop(); }
