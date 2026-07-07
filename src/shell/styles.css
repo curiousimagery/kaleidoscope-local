@@ -57,12 +57,14 @@ body { display: flex; flex-direction: column; height: 100vh; height: 100dvh; ove
   min-height: 0;
   display: flex;
   flex-direction: column;
+  overflow: hidden;   /* a mis-sized preview must never paint over the toolbar / controls */
 }
 .stage-src { flex: 0 0 var(--stage-src-pct, 32%); }
-/* the stage divider shares the grippy vocabulary of the panel divider */
+/* the stage divider shares the grippy vocabulary of the panel divider — but with a
+   WIDER visible grippy (Daniel: touch felt finicky; the pre-rework divider read wider) */
 .stage-divider {
-  width: 6px;
-  margin: 0 4px;
+  width: 10px;
+  margin: 0 6px;
   cursor: col-resize;
   position: relative;
   flex-shrink: 0;
@@ -70,13 +72,13 @@ body { display: flex; flex-direction: column; height: 100vh; height: 100dvh; ove
   transition: background 0.15s;
 }
 .stage-divider:hover, .stage-divider.dragging { background: var(--border); }
-/* invisible hit-area extender (same pattern as .divider::after): the whole ~30px
+/* invisible hit-area extender (same pattern as .divider::after): the whole ~38px
    affordance+buffer zone drags, with zero visual or layout change */
 .stage-divider::after {
   content: '';
   position: absolute;
-  left: -12px;
-  right: -12px;
+  left: -14px;
+  right: -14px;
   top: 0;
   bottom: 0;
 }
@@ -86,10 +88,16 @@ body { display: flex; flex-direction: column; height: 100vh; height: 100dvh; ove
   left: 50%;
   top: 50%;
   transform: translate(-50%, -50%);
-  width: 2px;
-  height: 32px;
+  width: 4px;
+  height: 48px;
   background: var(--border);
   border-radius: var(--radius-2xs);
+  transition: background 0.15s;
+}
+.stage-divider:hover::before, .stage-divider.dragging::before { background: var(--c-neutral-350); }
+/* touch: an even wider invisible zone (fingers, not cursors) */
+@media (pointer: coarse) {
+  .stage-divider::after { left: -18px; right: -18px; }
 }
 /* source meta rides WITH the source panel — the one home for source info.
    order pins it BELOW the dynamically-mounted slot-content wrap; the still-mode
@@ -103,10 +111,27 @@ body { display: flex; flex-direction: column; height: 100vh; height: 100dvh; ove
 .stage-src .src-scrub {
   flex: 0 0 auto;
   order: 8;
-  padding: 6px 4px 0;
+  margin: 8px 4px 0;
 }
 .stage-src .src-scrub[hidden] { display: none; }
-.stage-src .src-scrub input[type=range] { width: 100%; display: block; }
+/* the frame picker is a mini TIMELINE (the mf-track vocabulary: recessed track +
+   vertical playhead line), not a slider — it cues "this is motion content". */
+.src-scrub {
+  position: relative;
+  height: 36px;
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  cursor: pointer;
+  touch-action: none;
+}
+.src-scrub .ss-playhead {
+  position: absolute; top: 0; bottom: 0; left: 0; width: 2px;
+  background: var(--fill-bright);
+  transform: translateX(-50%);
+  pointer-events: none;
+}
 /* Arc 2b — per-panel control stacks. Default placement = BELOW (each stack inside
    its panel, under the content — .ctl-below). ?panelctl=flank leaves the stacks as
    fixed-width columns on the panels' outer edges (the static markup order).

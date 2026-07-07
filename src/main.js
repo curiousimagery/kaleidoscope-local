@@ -270,8 +270,11 @@ function updateResolutionHint() {
 function resizePreviewCanvas() {
   if (!engine || !engine.getSourceImage()) return;
   // the preview always lives in the OUTPUT sibling panel (swap mirrors sides, it
-  // doesn't relocate content) — size to that panel, leaving a little breathing room
-  const wrap = document.getElementById('outPanel');
+  // doesn't relocate content) — size to the panel's CONTENT WRAP (flex-basis 0, so
+  // it measures the actual free space after the meta/control rows take theirs;
+  // measuring the whole panel oversized the canvas into its siblings)
+  const panel = document.getElementById('outPanel');
+  const wrap = panel.querySelector('.slot-content') || panel;
   const containerW = wrap.clientWidth - 16;
   const containerH = wrap.clientHeight - 16;
   // fit a frameAspect (w/h) rectangle inside the container — the preview canvas
@@ -324,22 +327,31 @@ function arrangeSlots() {
   stageSplit.classList.toggle('swapped', session.isSwapped);
   stageSplit.style.setProperty('--stage-src-pct', (session.stageSrcPct || 32) + '%');
 
+  // Both content wraps use flex-basis 0 (not auto): their size is the free space the
+  // flex layout hands them AFTER the scrubber/meta/control rows take theirs — so
+  // measuring a wrap gives the true available box no matter what's inside it. (Basis
+  // auto let oversized content inflate the wrap and overflow the panel — the iPad
+  // "source covers the toolbar" bug.)
+  const WRAP_CSS = `position: relative; flex: 1 1 0; min-height: 0; display: flex; align-items: center; justify-content: center;`;
+
   // OUTPUT panel: the WebGL preview, centered (resizePreviewCanvas sizes it)
   const outWrap = document.createElement('div');
   outWrap.className = 'slot-content';
-  outWrap.style.cssText = `position: relative; flex: 1 1 auto; min-height: 0; display: flex; align-items: center; justify-content: center;`;
+  outWrap.style.cssText = WRAP_CSS;
   previewCanvas.style.display = 'block';
   outWrap.appendChild(previewCanvas);
   outPanel.appendChild(outWrap);
 
   // SOURCE panel: an aspect-fit box, centered — the same middle alignment as the
-  // output. (unhiding the split above forces layout, so panel dims are readable)
+  // output. Mount the (empty) wrap FIRST, then measure IT — the wrap is the real
+  // available space, panel minus the sibling rows.
   const srcWrap = document.createElement('div');
   srcWrap.className = 'slot-content';
-  srcWrap.style.cssText = `position: relative; flex: 1 1 auto; min-height: 0; display: flex; align-items: center; justify-content: center;`;
+  srcWrap.style.cssText = WRAP_CSS;
+  srcPanel.appendChild(srcWrap);
   const inner = document.createElement('div');
-  const slotW = Math.max(80, srcPanel.clientWidth - 16);
-  const slotH = Math.max(80, srcPanel.clientHeight - 40);   // room for the meta line
+  const slotW = Math.max(80, srcWrap.clientWidth - 8);
+  const slotH = Math.max(80, srcWrap.clientHeight - 8);
   const sourceAspect = engine.getSourceAspect() || 1;
   let dispW, dispH;
   if (sourceAspect > slotW / slotH) {
@@ -351,7 +363,6 @@ function arrangeSlots() {
   }
   inner.style.cssText = `position: relative; width: ${Math.round(dispW)}px; height: ${Math.round(dispH)}px; background: #1a1a1a; border: 1px solid #222;`;
   srcWrap.appendChild(inner);
-  srcPanel.appendChild(srcWrap);
   sourceOverlay.mount(inner);
 
   requestAnimationFrame(() => {

@@ -374,7 +374,10 @@ export function setupStageDivider(env) {
   // the output panel at the frame aspect, re-fit every coalesced frame (Daniel's nit).
   function sizeSkeleton() {
     if (!skel) return;
-    const p = document.getElementById('outPanel');
+    // measure the content WRAP (flex-basis 0 = the true free space), matching
+    // resizePreviewCanvas — the whole panel includes the meta/control rows
+    const panel = document.getElementById('outPanel');
+    const p = panel?.querySelector('.slot-content') || panel;
     if (!p) return;
     const cw = p.clientWidth - 16, ch = p.clientHeight - 16;
     const a = env.session.frameAspect || 1;

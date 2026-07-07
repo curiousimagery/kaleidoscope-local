@@ -624,8 +624,8 @@ export function createSourceHost(env) {
     const show = !!v && !env.motionRT.active && !env.live.isLive && !env.live.frozen;
     wrap.hidden = !show;
     if (show && isFinite(v.duration) && v.duration > 0) {
-      const range = document.getElementById('srcScrubRange');
-      if (range) range.value = String(Math.round((v.currentTime / v.duration) * 1000));
+      const head = document.getElementById('srcScrubHead');
+      if (head) head.style.left = ((v.currentTime / v.duration) * 100) + '%';
     }
   }
   env.updateSrcScrub = updateSrcScrub;
@@ -647,9 +647,30 @@ export function createSourceHost(env) {
     }
     if (srcSeekNext != null) { const n = srcSeekNext; srcSeekNext = null; scrubStillFrame(n); }
   }
-  document.getElementById('srcScrubRange')?.addEventListener('input', (e) => {
-    scrubStillFrame((parseInt(e.target.value, 10) || 0) / 1000);
-  });
+  // drag anywhere on the mini timeline — the playhead line tracks the pointer
+  // immediately; the actual frame lands via the coalesced seek.
+  (function wireSrcScrub() {
+    const track = document.getElementById('srcScrub');
+    if (!track) return;
+    let down = false;
+    const at = (e) => {
+      const r = track.getBoundingClientRect();
+      const p = Math.max(0, Math.min(1, (e.clientX - r.left) / Math.max(1, r.width)));
+      const head = document.getElementById('srcScrubHead');
+      if (head) head.style.left = (p * 100) + '%';
+      scrubStillFrame(p);
+    };
+    track.addEventListener('pointerdown', (e) => {
+      down = true;
+      track.setPointerCapture?.(e.pointerId);
+      at(e);
+      e.preventDefault();
+    });
+    track.addEventListener('pointermove', (e) => { if (down) at(e); });
+    const up = (e) => { down = false; track.releasePointerCapture?.(e.pointerId); };
+    track.addEventListener('pointerup', up);
+    track.addEventListener('pointercancel', up);
+  })();
 
   // The live camera's current device + facing, for the output window to open its OWN
   // capture of the same physical camera (in-sync, zero per-frame transfer). Null when
