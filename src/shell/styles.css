@@ -70,6 +70,16 @@ body { display: flex; flex-direction: column; height: 100vh; height: 100dvh; ove
   transition: background 0.15s;
 }
 .stage-divider:hover, .stage-divider.dragging { background: var(--border); }
+/* invisible hit-area extender (same pattern as .divider::after): the whole ~30px
+   affordance+buffer zone drags, with zero visual or layout change */
+.stage-divider::after {
+  content: '';
+  position: absolute;
+  left: -12px;
+  right: -12px;
+  top: 0;
+  bottom: 0;
+}
 .stage-divider::before {
   content: '';
   position: absolute;
