@@ -382,7 +382,6 @@ export function setupDivider(env) {
     divider.classList.add('dragging');
     document.body.classList.add('resizing-divider');
     env.previewCanvas.style.visibility = 'hidden';
-    if (env.miniCanvas) env.miniCanvas.style.visibility = 'hidden';
     document.body.style.cursor = 'col-resize';
   }
 
@@ -403,16 +402,69 @@ export function setupDivider(env) {
     divider.classList.remove('dragging');
     document.body.classList.remove('resizing-divider');
     env.previewCanvas.style.visibility = '';
-    if (env.miniCanvas) env.miniCanvas.style.visibility = '';
     document.body.style.cursor = '';
     requestAnimationFrame(() => {
-      env.resizePreviewCanvas();
-      if (env.session.isSwapped) {
-        env.arrangeSlots();
-      } else {
-        env.scheduleOverlayDraw();
-      }
+      // panel width moves BOTH sibling stage panels — rebuild so the source box
+      // refits and the preview resizes (arrangeSlots does both)
+      env.arrangeSlots();
     });
+  }
+
+  divider.addEventListener('mousedown', e => { startDrag(e.clientX); e.preventDefault(); });
+  window.addEventListener('mousemove', e => moveDrag(e.clientX));
+  window.addEventListener('mouseup', endDrag);
+
+  divider.addEventListener('touchstart', e => { startDrag(e.touches[0].clientX); e.preventDefault(); }, { passive: false });
+  window.addEventListener('touchmove', e => { if (dragging) { moveDrag(e.touches[0].clientX); e.preventDefault(); } }, { passive: false });
+  window.addEventListener('touchend', endDrag);
+}
+
+// The STAGE divider between the sibling source/output panels (Arc 2a): drags the
+// split ratio (session.stageSrcPct, a percent) via the --stage-src-pct CSS var —
+// rAF-coalesced like the panel divider above. Swap mirrors the panels with
+// row-reverse, so the drag direction mirrors too.
+export function setupStageDivider(env) {
+  const divider = document.getElementById('stageDivider');
+  const split = document.getElementById('stageSplit');
+  if (!divider || !split) return;
+  let dragging = false, startX = 0, startPct = 32, splitW = 1, dir = 1;
+
+  let pendingPct = null;
+  let rafQueued = false;
+  function applyPending() {
+    rafQueued = false;
+    if (pendingPct != null) { split.style.setProperty('--stage-src-pct', pendingPct + '%'); pendingPct = null; }
+  }
+
+  function startDrag(clientX) {
+    dragging = true;
+    startX = clientX;
+    startPct = env.session.stageSrcPct || 32;
+    splitW = split.clientWidth || 1;
+    dir = env.session.isSwapped ? -1 : 1;
+    divider.classList.add('dragging');
+    document.body.classList.add('resizing-divider');
+    env.previewCanvas.style.visibility = 'hidden';   // pixel-sized; lags the CSS panels mid-drag
+    document.body.style.cursor = 'col-resize';
+  }
+
+  function moveDrag(clientX) {
+    if (!dragging) return;
+    const dPct = ((clientX - startX) / splitW) * 100 * dir;
+    const pct = Math.round(Math.max(15, Math.min(70, startPct + dPct)) * 10) / 10;
+    env.session.stageSrcPct = pct;
+    pendingPct = pct;
+    if (!rafQueued) { rafQueued = true; requestAnimationFrame(applyPending); }
+  }
+
+  function endDrag() {
+    if (!dragging) return;
+    dragging = false;
+    divider.classList.remove('dragging');
+    document.body.classList.remove('resizing-divider');
+    env.previewCanvas.style.visibility = '';
+    document.body.style.cursor = '';
+    requestAnimationFrame(() => env.arrangeSlots());   // refit the source box + preview to the new split
   }
 
   divider.addEventListener('mousedown', e => { startDrag(e.clientX); e.preventDefault(); });

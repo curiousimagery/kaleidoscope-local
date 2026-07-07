@@ -11,7 +11,7 @@
 // in-file calls into cross-module handles with no real separation).
 //
 // Extracted from main.js (Phase 2c). Collaborators are reached via late-bound env
-// handles (env.resizePreviewCanvas / arrangeSlots / drawMiniKaleidoscope / sourceOverlay /
+// handles (env.resizePreviewCanvas / arrangeSlots / sourceOverlay /
 // scheduleRender / syncControls / pushHistory / applyFormControls / stopSourceVideoPlayback /
 // startLiveLoop / openClipEditor …); the runtime hangs its own public surface back on env
 // (env.scrubVideo / renderTimeline / updateMotionUI / haltPlayback / rebindMotionToSource /
@@ -209,7 +209,6 @@ function renderSampled(p) {
   Object.assign(state, sampleAt(p));
   if (engine && engine.getSourceImage()) {
     engine.render(state);
-    if (session.isSwapped) env.drawMiniKaleidoscope();
   }
   env.sourceOverlay.render();
   setPlayhead(p);
@@ -255,7 +254,7 @@ async function scrubVideo(p, { assignParams = true } = {}) {
       const assign = env.scrub.assign;
       await advanceSourceToP(target);
       if (assign) Object.assign(state, sampleAt(target));
-      if (engine && engine.getSourceImage()) { engine.render(state); if (session.isSwapped) env.drawMiniKaleidoscope(); }
+      if (engine && engine.getSourceImage()) engine.render(state);
       env.sourceOverlay.paintSourceVideo();
       env.sourceOverlay.render();
       setPlayhead(target);
@@ -314,7 +313,7 @@ function startVideoPlayback() {
     let p = Math.max(0, Math.min(1, (v.currentTime - inSec) / span));
     engine.updateSourceFrame();
     Object.assign(state, sampleAt(p));
-    if (engine && engine.getSourceImage()) { engine.render(state); if (session.isSwapped) env.drawMiniKaleidoscope(); }
+    if (engine && engine.getSourceImage()) engine.render(state);
     env.sourceOverlay.paintSourceVideo();
     env.sourceOverlay.render();
     setPlayhead(p);

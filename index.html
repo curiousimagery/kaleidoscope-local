@@ -117,6 +117,21 @@
       <strong id="placeholderTitle">kaleidoscope</strong>
       upload an image to begin
     </div>
+    <!-- Arc 2a — symmetric sibling panels: source and output are PEERS, middle-aligned,
+         ratio set by the stage divider (output-dominant default), swap mirrors the sides
+         (row-reverse). Built third-panel-ready: output-staged (Arc 5) joins as one more
+         .stage-panel. The dynamic .slot-content wraps are mounted by arrangeSlots. -->
+    <div class="stage-split" id="stageSplit" hidden>
+      <div class="stage-panel stage-src" id="srcPanel">
+        <!-- source meta lives WITH the source panel (the one home for source info) -->
+        <div class="source-meta" id="sourceMeta">
+          <span>—</span>
+          <span class="name">—</span>
+        </div>
+      </div>
+      <div class="stage-divider" id="stageDivider" title="drag to resize the panels"></div>
+      <div class="stage-panel stage-out" id="outPanel"></div>
+    </div>
   </div>
 </div>
 
@@ -136,15 +151,8 @@
       <div class="form-grid" id="formGrid"></div>
     </div>
 
-    <!-- the thumbnail itself, with the wedge overlay drawn on top of the source image -->
-    <div class="side-display-wrap" id="sideSlot">
-      <div class="empty-msg" id="sideEmptyMsg">no image loaded</div>
-    </div>
-
-    <div class="source-meta" id="sourceMeta">
-      <span>—</span>
-      <span class="name">—</span>
-    </div>
+    <!-- the source thumbnail + its meta moved to the stage's SOURCE PANEL (Arc 2a) —
+         the right panel is controls-only now: form picker → slice attributes. -->
 
     <!-- slice attributes -->
     <div style="margin-top: 4px;">

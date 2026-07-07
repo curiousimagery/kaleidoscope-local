@@ -22,6 +22,7 @@ import {
   buildFormGrid,
   applyFormControls,
   setupDivider,
+  setupStageDivider,
   makeControlsSync,
 } from './shell/controls.js';
 import { PARAMS, DECLARATIVE_PARAM_IDS } from './shell/params.js';
@@ -63,10 +64,8 @@ previewCanvas.style.maxWidth = '100%';
 previewCanvas.style.maxHeight = '100%';
 previewCanvas.style.display = 'none';
 
-// "mini" canvas for showing the kaleidoscope in the side slot when swapped.
-// drawn from previewCanvas via 2D copy — separate from the WebGL preview canvas.
-const miniCanvas = document.createElement('canvas');
-miniCanvas.style.cssText = `position: absolute; top: 0; left: 0; width: 100%; height: 100%;`;
+// (the "mini" 2D-copy canvas is GONE — Arc 2a's sibling panels show BOTH real
+// views at once, so nothing needs a second-hand copy of the WebGL preview.)
 
 const statusEl = document.getElementById('status');
 const diagEl = document.getElementById('diag');
@@ -142,7 +141,6 @@ const env = {
 
   // DOM refs the shell shares
   previewCanvas,
-  miniCanvas,
   // (sourceOverlayCanvas + overlay hover state now live inside the
   //  source-overlay component, not on the shared env.)
 
@@ -194,7 +192,6 @@ function scheduleRender() {
     env.sched.renderScheduled = false;
     if (engine && engine.getSourceImage()) {
       engine.render(state);
-      if (session.isSwapped) drawMiniKaleidoscope();
     }
     sourceOverlay.render();
     updateResolutionHint();
@@ -273,16 +270,11 @@ function updateResolutionHint() {
 
 function resizePreviewCanvas() {
   if (!engine || !engine.getSourceImage()) return;
-  let containerW, containerH;
-  if (session.isSwapped) {
-    const wrap = document.getElementById('sideSlot');
-    containerW = wrap.clientWidth;
-    containerH = wrap.clientHeight;
-  } else {
-    const stage = document.getElementById('msStage');
-    containerW = stage.clientWidth - 48;
-    containerH = stage.clientHeight - 48;
-  }
+  // the preview always lives in the OUTPUT sibling panel (swap mirrors sides, it
+  // doesn't relocate content) — size to that panel, leaving a little breathing room
+  const wrap = document.getElementById('outPanel');
+  const containerW = wrap.clientWidth - 16;
+  const containerH = wrap.clientHeight - 16;
   // fit a frameAspect (w/h) rectangle inside the container — the preview canvas
   // takes the output frame shape so editing is WYSIWYG with export.
   const a = session.frameAspect || 1;
@@ -303,109 +295,71 @@ function resizePreviewCanvas() {
 }
 env.resizePreviewCanvas = resizePreviewCanvas;
 
-function sizeMiniCanvas() {
-  const sideSlot = document.getElementById('sideSlot');
-  const cw = sideSlot.clientWidth || 1;
-  const ch = sideSlot.clientHeight || cw;
-  // fit a frameAspect (w/h) rectangle into the side slot so the swapped-side
-  // kaleidoscope matches the OUTPUT frame shape (not a square crop) — e.g. a 16:9
-  // comp stays 16:9 when source/output are swapped.
-  const a = session.frameAspect || 1;
-  let w, h;
-  if (cw / ch >= a) { h = ch; w = h * a; } else { w = cw; h = w / a; }
-  const dpr = Math.min(window.devicePixelRatio || 1, 2);
-  miniCanvas.width = Math.floor(w * dpr);
-  miniCanvas.height = Math.floor(h * dpr);
-  miniCanvas.style.width = Math.round(w) + 'px';
-  miniCanvas.style.height = Math.round(h) + 'px';
-}
-
-function drawMiniKaleidoscope() {
-  if (!miniCanvas.parentElement) return;
-  const ctx = miniCanvas.getContext('2d');
-  ctx.clearRect(0, 0, miniCanvas.width, miniCanvas.height);
-  // draw the FULL preview (mini now shares the preview's frame aspect — no crop).
-  ctx.drawImage(previewCanvas, 0, 0, previewCanvas.width, previewCanvas.height,
-                0, 0, miniCanvas.width, miniCanvas.height);
-}
-
 // ============================================================================
-// slot management — main and side slots, swappable content
+// slot management — the symmetric sibling panels (Arc 2a)
+// Source and output are PEER panels inside the stage split: middle-aligned,
+// ratio via --stage-src-pct (the stage divider drags session.stageSrcPct),
+// swap mirrors the sides (row-reverse) — content never relocates, so the old
+// mini-canvas 2D copy is gone. Third-panel-ready: output-staged (Arc 5) joins
+// as one more .stage-panel.
 // ============================================================================
 
-const mainSlot = document.getElementById('mainSlot');
 const msStage = document.getElementById('msStage');   // the preview area inside mainSlot, below the bar/bands
-const sideSlot = document.getElementById('sideSlot');
-const sideEmptyMsg = document.getElementById('sideEmptyMsg');
+const stageSplit = document.getElementById('stageSplit');
+const srcPanel = document.getElementById('srcPanel');
+const outPanel = document.getElementById('outPanel');
 const placeholder = document.getElementById('placeholder');
 
 function arrangeSlots() {
   env.updateMotionUI();   // gate motion availability on source/live state; force-exit if needed
   env.updateOutputUI?.();  // gate the live-output button on a loaded source
-  Array.from(msStage.querySelectorAll('.slot-content')).forEach(n => n.remove());
-  Array.from(sideSlot.querySelectorAll('.slot-content')).forEach(n => n.remove());
+  Array.from(stageSplit.querySelectorAll('.slot-content')).forEach(n => n.remove());
 
   if (!engine || !engine.getSourceImage()) {
     placeholder.style.display = 'block';
-    sideEmptyMsg.style.display = 'flex';
+    stageSplit.hidden = true;
     return;
   }
   placeholder.style.display = 'none';
-  sideEmptyMsg.style.display = 'none';
+  stageSplit.hidden = false;
+  stageSplit.classList.toggle('swapped', session.isSwapped);
+  stageSplit.style.setProperty('--stage-src-pct', (session.stageSrcPct || 32) + '%');
 
-  if (!session.isSwapped) {
-    // main = K, side = S
-    const mainWrap = document.createElement('div');
-    mainWrap.className = 'slot-content';
-    // fill the stage (NOT max-content) so the flex centering has room to act —
-    // with max-height the wrap shrank to the canvas and the 16:9 preview pinned to
-    // the top. Matches the swapped branch below, which centers correctly.
-    mainWrap.style.cssText = `position: relative; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;`;
-    previewCanvas.style.display = 'block';
-    mainWrap.appendChild(previewCanvas);
-    msStage.appendChild(mainWrap);
+  // OUTPUT panel: the WebGL preview, centered (resizePreviewCanvas sizes it)
+  const outWrap = document.createElement('div');
+  outWrap.className = 'slot-content';
+  outWrap.style.cssText = `position: relative; flex: 1 1 auto; min-height: 0; display: flex; align-items: center; justify-content: center;`;
+  previewCanvas.style.display = 'block';
+  outWrap.appendChild(previewCanvas);
+  outPanel.appendChild(outWrap);
 
-    const sideWrap = document.createElement('div');
-    sideWrap.className = 'slot-content';
-    sideWrap.style.cssText = `position: absolute; inset: 0;`;
-    sideSlot.appendChild(sideWrap);
-    sourceOverlay.mount(sideWrap);
+  // SOURCE panel: an aspect-fit box, centered — the same middle alignment as the
+  // output. (unhiding the split above forces layout, so panel dims are readable)
+  const srcWrap = document.createElement('div');
+  srcWrap.className = 'slot-content';
+  srcWrap.style.cssText = `position: relative; flex: 1 1 auto; min-height: 0; display: flex; align-items: center; justify-content: center;`;
+  const inner = document.createElement('div');
+  const slotW = Math.max(80, srcPanel.clientWidth - 16);
+  const slotH = Math.max(80, srcPanel.clientHeight - 40);   // room for the meta line
+  const sourceAspect = engine.getSourceAspect() || 1;
+  let dispW, dispH;
+  if (sourceAspect > slotW / slotH) {
+    dispW = slotW;
+    dispH = slotW / sourceAspect;
   } else {
-    // main = S, side = K
-    const mainWrap = document.createElement('div');
-    mainWrap.className = 'slot-content';
-    mainWrap.style.cssText = `position: relative; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;`;
-    const inner = document.createElement('div');
-    const slotW = msStage.clientWidth - 48;
-    const slotH = msStage.clientHeight - 48;
-    const sourceAspect = engine.getSourceAspect();
-    let dispW, dispH;
-    if (sourceAspect > slotW / slotH) {
-      dispW = slotW;
-      dispH = slotW / sourceAspect;
-    } else {
-      dispH = slotH;
-      dispW = slotH * sourceAspect;
-    }
-    inner.style.cssText = `position: relative; width: ${dispW}px; height: ${dispH}px; background: #1a1a1a; border: 1px solid #222;`;
-    mainWrap.appendChild(inner);
-    msStage.appendChild(mainWrap);
-    sourceOverlay.mount(inner);
-
-    const sideWrap = document.createElement('div');
-    sideWrap.className = 'slot-content';
-    // center the (now frame-aspect, non-square) mini kaleidoscope in the slot.
-    sideWrap.style.cssText = `position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;`;
-    sideWrap.appendChild(miniCanvas);
-    sideSlot.appendChild(sideWrap);
+    dispH = slotH;
+    dispW = slotH * sourceAspect;
   }
+  inner.style.cssText = `position: relative; width: ${Math.round(dispW)}px; height: ${Math.round(dispH)}px; background: #1a1a1a; border: 1px solid #222;`;
+  srcWrap.appendChild(inner);
+  srcPanel.appendChild(srcWrap);
+  sourceOverlay.mount(inner);
 
   requestAnimationFrame(() => {
     resizePreviewCanvas();
-    if (session.isSwapped) sizeMiniCanvas();
-    // A swap/relayout re-mounts the source view with a FRESH (blank) video canvas.
+    // A relayout re-mounts the source view with a FRESH (blank) video canvas.
     // Only scrub/playback repaint it (paintSourceVideo), so a video source in motion
-    // mode went dark on every swap until you scrubbed/added a keyframe. Repaint it +
+    // mode went dark on every relayout until you scrubbed/added a keyframe. Repaint it +
     // rebuild the filmstrip here so the relayout shows the current frame immediately.
     sourceOverlay.paintSourceVideo();
     sourceOverlay.render();
@@ -946,9 +900,8 @@ function renderDiagOps() {
 if (engine) {
   // Chrome collaborators the extracted modules reach through `env`. Each createX(env)
   // sets its OWN public handles (env.scrubVideo, env.loadImage, env.openClipEditor,
-  // …); these two stay in main.js — drawMiniKaleidoscope and the shared sourceOverlay
-  // are chrome. (Per-engine capability checks live on env.capabilities, set below.)
-  env.drawMiniKaleidoscope = drawMiniKaleidoscope;
+  // …); the shared sourceOverlay stays in main.js — it's chrome. (Per-engine
+  // capability checks live on env.capabilities, set below.)
   env.sourceOverlay = sourceOverlay;
 
   // Mount the shared app wiring (clip editor + source host + motion runtime) and
@@ -989,6 +942,7 @@ if (engine) {
   applyFormControls(env);
   wireControls();
   setupDivider(env);
+  setupStageDivider(env);
   // claim multi-touch on the output preview too (pinch/twist), same reason as the
   // source surface — keep the browser from swallowing the gesture as a page zoom.
   previewCanvas.style.touchAction = 'none';
@@ -1009,8 +963,10 @@ if (engine) {
   mountInputDebug();   // ?inputdebug → on-screen pointer/touch/gesture readout (hybrid-input diagnosis)
 
   window.addEventListener('resize', () => {
-    resizePreviewCanvas();
-    if (session.isSwapped) arrangeSlots();
+    // both sibling panels resize with the window — rebuild so the source box
+    // refits (same as the old swapped branch, now unconditional)
+    if (engine && engine.getSourceImage()) arrangeSlots();
+    else resizePreviewCanvas();
     sourceOverlay.render();
     env.renderRuler();                   // label density depends on width
     env.scheduleFilmstrip();

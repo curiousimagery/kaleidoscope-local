@@ -37,6 +37,58 @@ body { display: flex; flex-direction: column; height: 100vh; height: 100dvh; ove
   position: relative;
   padding: 24px;
 }
+/* Arc 2a — symmetric sibling panels. Source and output are peers inside the stage:
+   middle-aligned, ratio via --stage-src-pct (the stage divider drags it; output-
+   dominant default), swap mirrors the sides with row-reverse. Third-panel-ready:
+   output-staged (Arc 5) joins as one more .stage-panel. */
+.stage-split {
+  position: absolute;
+  inset: 0;
+  padding: 24px 24px 12px;
+  display: flex;
+  align-items: stretch;
+}
+.stage-split[hidden] { display: none; }   /* [hidden] must beat the display:flex above */
+.stage-split.swapped { flex-direction: row-reverse; }
+.stage-panel {
+  position: relative;
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.stage-src { flex: 0 0 var(--stage-src-pct, 32%); }
+/* the stage divider shares the grippy vocabulary of the panel divider */
+.stage-divider {
+  width: 6px;
+  margin: 0 4px;
+  cursor: col-resize;
+  position: relative;
+  flex-shrink: 0;
+  border-radius: var(--radius-2xs);
+  transition: background 0.15s;
+}
+.stage-divider:hover, .stage-divider.dragging { background: var(--border); }
+.stage-divider::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 2px;
+  height: 32px;
+  background: var(--border);
+  border-radius: var(--radius-2xs);
+}
+/* source meta rides WITH the source panel — the one home for source info.
+   order pins it BELOW the dynamically-mounted slot-content wrap. */
+.stage-src .source-meta {
+  flex: 0 0 auto;
+  order: 9;
+  justify-content: center;
+  padding: 8px 4px 0;
+}
 .main-slot .display-wrap {
   position: relative;
   max-width: 100%;

@@ -13,7 +13,7 @@
 //
 // Extracted from main.js (Phase 2b). Collaborators are reached via late-bound
 // env handles (env.haltPlayback, env.rebindMotionToSource, env.arrangeSlots,
-// env.drawMiniKaleidoscope, env.sourceOverlay, …); the host's public surface is
+// env.sourceOverlay, …); the host's public surface is
 // hung back on env for the chrome's control/upload wiring.
 
 import { createCamera } from './camera.js';
@@ -269,7 +269,7 @@ export function createSourceHost(env) {
         camera.refreshFrame();      // front camera: redraw the mirrored frame
         engine.updateSourceFrame();
         engine.render(state);
-        if (session.isSwapped) env.drawMiniKaleidoscope();
+        // (mini-canvas 2D copy removed — the sibling panels show both real views)
         env.sourceOverlay.paintSourceVideo();   // loaded source video → its 2D preview canvas (no-op otherwise)
       }
       env.sourceOverlay.render();

@@ -54,10 +54,12 @@ export const state = {
 export const session = {
   exportFormat: 'jpg',
   exportSize: '4096',
-  isSwapped: false,
+  isSwapped: false,   // sibling panels mirrored (source right of output) — see stage-split
   frameAspect: 1,     // output frame aspect (width/height): 1 = square, 0.8 = 4:5, 16/9 = 16:9.
                       // a global output-framing choice (not animated); reshapes the preview
                       // canvas (WYSIWYG) and is inherited by still + video export.
+  stageSrcPct: 32,    // source panel's share of the stage split (percent). Output-dominant
+                      // by default (the artwork is the show); the stage divider drags it.
 };
 
 // motion-mode authoring data (Phase 3 — multi-keyframe still-animation;
