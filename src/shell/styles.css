@@ -420,10 +420,23 @@ button .btn-spinner {
 .button-grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
 /* locked while outputting (frame aspect can't change mid-session). Container keeps
    pointer-events for its title tooltip; buttons go inert so clicks don't register. */
-.button-grid-3.locked { opacity: var(--disabled-opacity); cursor: not-allowed; }
-.button-grid-3.locked button { pointer-events: none; }
+.button-grid-3.locked, .button-grid-5.locked { opacity: var(--disabled-opacity); cursor: not-allowed; }
+.button-grid-3.locked button, .button-grid-5.locked button { pointer-events: none; }
 .button-grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
 .button-grid-5 { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; }
+
+/* frame aspect (Arc 2d): hovering the SELECTED ratio hints the portrait/landscape
+   flip (click-again). Corner-pinned so the label never shifts; 1:1 has no flip. */
+#frameAspect button { position: relative; padding-left: 6px; padding-right: 6px; }
+#frameAspect button.active:not([data-asp="1"]):hover::after {
+  content: '⇅';
+  position: absolute;
+  top: 1px;
+  right: 3px;
+  font-size: 9px;
+  line-height: 1;
+  color: var(--text-dim);
+}
 
 /* form thumbnails */
 .form-grid {

@@ -159,10 +159,15 @@
           <div class="panel-ctl-row">
             <div class="field">
               <div class="field-label">frame aspect</div>
-              <div class="button-grid-3" id="frameAspect">
-                <button class="toggle active" data-asp="1">1:1</button>
-                <button class="toggle" data-asp="0.8">4:5</button>
-                <button class="toggle" data-asp="1.7778">16:9</button>
+              <!-- squarest → widest, LANDSCAPE default; clicking the selected ratio
+                   again flips portrait ↔ landscape (data-l / data-p labels; 1:1 has
+                   no flip). data-asp is the landscape value. -->
+              <div class="button-grid-5" id="frameAspect" title="output frame aspect — click the selected ratio again to flip portrait / landscape">
+                <button class="toggle active" data-asp="1" data-l="1:1" data-p="1:1">1:1</button>
+                <button class="toggle" data-asp="1.25" data-l="5:4" data-p="4:5">5:4</button>
+                <button class="toggle" data-asp="1.3333" data-l="4:3" data-p="3:4">4:3</button>
+                <button class="toggle" data-asp="1.5" data-l="3:2" data-p="2:3">3:2</button>
+                <button class="toggle" data-asp="1.7778" data-l="16:9" data-p="9:16">16:9</button>
               </div>
             </div>
             <button class="ot-btn panel-gear" id="canvasSettingsBtn" title="canvas settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="4" y1="8" x2="20" y2="8"/><line x1="4" y1="16" x2="20" y2="16"/><circle cx="9" cy="8" r="2.4" fill="currentColor"/><circle cx="15" cy="16" r="2.4" fill="currentColor"/></svg></button>

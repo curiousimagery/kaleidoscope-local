@@ -828,24 +828,42 @@ window.addEventListener('keydown', e => {
   }
 });
 
-// global output frame aspect (1:1 / 4:5 / 16:9) — reshapes the preview (WYSIWYG)
-// and is inherited by still + video export.
+// global output frame aspect — reshapes the preview (WYSIWYG) and is inherited by
+// still + video export. Arc 2d: 1:1 · 5:4 · 4:3 · 3:2 · 16:9 (squarest → widest,
+// LANDSCAPE default); clicking the SELECTED ratio again flips portrait ↔ landscape
+// (the button label follows — 4:3 becomes 3:4). One group since Arc 3 (the output
+// panel's frame-aspect row persists across modes).
 function wireFrameAspect() {
-  // one group since Arc 3: the output panel's "frame aspect" persists across modes,
-  // so the motion-footer duplicate is gone. (kept as a list — output-staged may add one.)
-  const groups = ['frameAspect'].map((id) => document.getElementById(id)).filter(Boolean);
-  if (!groups.length) return;
-  const syncActive = () => groups.forEach((g) =>
-    g.querySelectorAll('button').forEach((b) =>
-      b.classList.toggle('active', Math.abs(parseFloat(b.dataset.asp) - session.frameAspect) < 0.001)));
-  groups.forEach((g) =>
-    g.querySelectorAll('button').forEach((b) =>
-      b.addEventListener('click', () => {
-        session.frameAspect = parseFloat(b.dataset.asp) || 1;
-        syncActive();
-        resizePreviewCanvas();      // reshape the preview to the new frame (also re-renders)
-        env.scheduleFilmstrip();
-      })));
+  const group = document.getElementById('frameAspect');
+  if (!group) return;
+  const EPS = 0.001;
+  const buttons = [...group.querySelectorAll('button')];
+  const landOf = (b) => parseFloat(b.dataset.asp) || 1;
+  const isActive = (b) => {
+    const land = landOf(b);
+    return Math.abs(session.frameAspect - land) < EPS || Math.abs(session.frameAspect - 1 / land) < EPS;
+  };
+  const syncActive = () => buttons.forEach((b) => {
+    const active = isActive(b);
+    const portrait = active && landOf(b) > 1 && session.frameAspect < 1;
+    b.classList.toggle('active', active);
+    b.textContent = portrait ? b.dataset.p : b.dataset.l;
+  });
+  const apply = () => {
+    syncActive();
+    resizePreviewCanvas();      // reshape the preview to the new frame (also re-renders)
+    env.scheduleFilmstrip();
+  };
+  buttons.forEach((b) => b.addEventListener('click', () => {
+    const land = landOf(b);
+    if (isActive(b) && land > 1) {
+      // click-again flips orientation (1:1 has none)
+      session.frameAspect = session.frameAspect > 1 ? 1 / land : land;
+    } else {
+      session.frameAspect = land;   // a new ratio lands in landscape, the default
+    }
+    apply();
+  }));
   syncActive();
 }
 
