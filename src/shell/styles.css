@@ -92,13 +92,21 @@ body { display: flex; flex-direction: column; height: 100vh; height: 100dvh; ove
   border-radius: var(--radius-2xs);
 }
 /* source meta rides WITH the source panel — the one home for source info.
-   order pins it BELOW the dynamically-mounted slot-content wrap. */
+   order pins it BELOW the dynamically-mounted slot-content wrap; the still-mode
+   frame scrubber sits between the source and the meta. */
 .stage-src .source-meta {
   flex: 0 0 auto;
   order: 9;
   justify-content: center;
   padding: 8px 4px 0;
 }
+.stage-src .src-scrub {
+  flex: 0 0 auto;
+  order: 8;
+  padding: 6px 4px 0;
+}
+.stage-src .src-scrub[hidden] { display: none; }
+.stage-src .src-scrub input[type=range] { width: 100%; display: block; }
 /* Arc 2b — per-panel control stacks. Default placement = BELOW (each stack inside
    its panel, under the content — .ctl-below). ?panelctl=flank leaves the stacks as
    fixed-width columns on the panels' outer edges (the static markup order).

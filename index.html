@@ -173,6 +173,12 @@
         </div>
       </div>
       <div class="stage-panel stage-src" id="srcPanel">
+        <!-- still-mode frame picker for a VIDEO source: scrub to choose the frame to
+             work with — deliberately no playback transport (Arc 2c). Sits above the
+             meta line via CSS order. -->
+        <div class="src-scrub" id="srcScrub" hidden>
+          <input type="range" id="srcScrubRange" min="0" max="1000" step="1" value="0" title="pick the frame to work with">
+        </div>
         <!-- source meta lives WITH the source panel (the one home for source info) -->
         <div class="source-meta" id="sourceMeta">
           <span>—</span>

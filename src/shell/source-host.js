@@ -17,6 +17,7 @@
 // hung back on env for the chrome's control/upload wiring.
 
 import { createCamera } from './camera.js';
+import { seekVideoTo } from './video-source.js';
 import { zipStore } from './zip.js';
 import { getActiveForm } from '../engine/index.js';
 
@@ -69,10 +70,13 @@ export function createSourceHost(env) {
       document.getElementById('sourceMeta').children[1].textContent = file.name;
       document.getElementById('swapBtn').disabled = false;
 
-      statusEl.textContent = `${file.name} · ${img.naturalWidth}×${img.naturalHeight}`;
+      // the source panel's meta line is the ONE home for source info (Arc 2c dedup) —
+      // the top-left caption stays empty for resting state, carrying only transients/errors
+      statusEl.textContent = '';
       statusEl.classList.remove('error', 'busy');
       if (uploadErrorEl) uploadErrorEl.textContent = '';
 
+      env.updateSrcScrub?.();
       env.updateMotionUI();   // re-enable motion mode for a still (it's gated off for video sources)
       env.arrangeSlots();
       if (env.motionRT.active) env.rebindMotionToSource();   // already animating → re-bind keyframes to the new still
@@ -124,24 +128,32 @@ export function createSourceHost(env) {
       env.sourceVideo = v;              // mountSourceView mounts this element
       env.liveVideo = null;
       const meta = document.getElementById('sourceMeta');
-      meta.children[0].textContent = `${v.videoWidth} × ${v.videoHeight}`;
+      // motion data carries DURATION beside the dims (Daniel's spec); meta is the one home
+      const dur = isFinite(v.duration) ? ` · ${v.duration.toFixed(1)}s` : '';
+      meta.children[0].textContent = `${v.videoWidth} × ${v.videoHeight}${dur}`;
       meta.children[1].textContent = file.name;
       document.getElementById('swapBtn').disabled = false;
-      const dur = isFinite(v.duration) ? ` · ${v.duration.toFixed(1)}s` : '';
-      statusEl.textContent = `${file.name} · ${v.videoWidth}×${v.videoHeight}${dur}`;
+      statusEl.textContent = '';
       statusEl.classList.remove('error', 'busy');
       env.updateMotionUI();            // motion mode stays gated off for a video (until timeline binding)
       env.arrangeSlots();              // mounts the <video> into the source slot
-      // Play it muted-on-loop and drive the kaleidoscope from it each frame — the
-      // same continuous path the live camera uses. A playing video paints reliably
-      // across engines (a paused, never-played one does NOT on Blink/Gecko), and the
-      // preview + output stay in sync. Timeline-driven scrub/keyframes replace this
-      // free-run in the next increment.
+      // STILL MODE NO LONGER AUTOPLAYS (Arc 2c, Daniel's universal-sources direction):
+      // the mini scrubber under the source picks the frame to work with. One catch —
+      // a paused, NEVER-PLAYED video does not paint on Blink/Gecko — so nudge it:
+      // play muted, pause after the first frames present, land parked at t=0.
       if (env.motionRT.active) {
         env.rebindMotionToSource();    // already animating → re-bind keyframes to the new clip (timeline-driven, no free-run)
       } else {
-        v.play().catch(() => {});      // muted playback is allowed; ignore autoplay rejection
-        startLiveLoop();
+        const park = async () => {
+          try { v.pause(); await seekVideoTo(v, 0); } catch { /* keep whatever frame presented */ }
+          engine.updateSourceFrame();
+          engine.render(state);
+          env.sourceOverlay.paintSourceVideo();
+          env.sourceOverlay.render();
+          env.updateSrcScrub?.();
+        };
+        v.play().then(() => setTimeout(park, 80))
+          .catch(() => { park(); });   // autoplay refused: loadeddata decoded frame 0 — park directly
       }
     }, { once: true });
 
@@ -350,7 +362,7 @@ export function createSourceHost(env) {
       return;
     }
     statusEl.classList.remove('busy');
-    statusEl.textContent = 'live camera';
+    statusEl.textContent = '';   // the meta line under the source carries "live camera" (Arc 2c dedup)
     env.live.isLive = true;
     env.live.frozen = false;   // (re)entering live — also the "record" half of the pause/record toggle
     env.media.sourceFilename = 'camera';
@@ -600,6 +612,44 @@ export function createSourceHost(env) {
 
   // Wire the camera buttons now (the chrome no longer calls wireCamera directly).
   wireCamera();
+
+  // ---- still-mode frame scrubber (Arc 2c) -----------------------------------
+  // A video source in still mode parks paused; this mini timeline under the source
+  // picks the frame to work with (no transport by design). Latest-wins seek
+  // coalescing so dragging never floods the decoder (the scrubVideo pattern).
+  function updateSrcScrub() {
+    const wrap = document.getElementById('srcScrub');
+    if (!wrap) return;
+    const v = env.sourceVideo;
+    const show = !!v && !env.motionRT.active && !env.live.isLive && !env.live.frozen;
+    wrap.hidden = !show;
+    if (show && isFinite(v.duration) && v.duration > 0) {
+      const range = document.getElementById('srcScrubRange');
+      if (range) range.value = String(Math.round((v.currentTime / v.duration) * 1000));
+    }
+  }
+  env.updateSrcScrub = updateSrcScrub;
+
+  let srcSeekBusy = false, srcSeekNext = null;
+  async function scrubStillFrame(p) {
+    const v = env.sourceVideo;
+    if (!v || !isFinite(v.duration) || v.duration <= 0) return;
+    if (srcSeekBusy) { srcSeekNext = p; return; }
+    srcSeekBusy = true;
+    try {
+      await seekVideoTo(v, p * v.duration);
+      engine.updateSourceFrame();
+      engine.render(state);
+      env.sourceOverlay.paintSourceVideo();
+      env.sourceOverlay.render();
+    } finally {
+      srcSeekBusy = false;
+    }
+    if (srcSeekNext != null) { const n = srcSeekNext; srcSeekNext = null; scrubStillFrame(n); }
+  }
+  document.getElementById('srcScrubRange')?.addEventListener('input', (e) => {
+    scrubStillFrame((parseInt(e.target.value, 10) || 0) / 1000);
+  });
 
   // The live camera's current device + facing, for the output window to open its OWN
   // capture of the same physical camera (in-sync, zero per-frame transfer). Null when

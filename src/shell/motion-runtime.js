@@ -860,10 +860,12 @@ function toggleMotionMode() {
   else if (!kfList().length) addKeyframe({ seed: true });   // QoL: enter motion mode with a keyframe of the current look
   else renderTimeline();                       // (re-entry keeps existing keyframes)
   if (!env.motionRT.active && env.sourceVideo) {
-    // exiting motion on a video: resume free-run playback (video is "live" again)
-    env.sourceVideo.play().catch(() => {});
-    env.startLiveLoop();
+    // exiting motion on a video: STILL MODE DOESN'T AUTOPLAY (Arc 2c) — stay parked
+    // on the playhead's frame; the source panel's mini scrubber picks frames.
+    try { env.sourceVideo.pause(); } catch { /* ignore */ }
+    env.scheduleRender();
   }
+  env.updateSrcScrub?.();   // video-in-still shows the frame scrubber; motion/camera hide it
   updateMotionUI();
   // the footer changes the main-slot height — re-fit the preview canvas (which
   // also re-renders the working state, replacing any transient playback frame).
@@ -902,6 +904,7 @@ function updateMotionUI() {
   }
   const footer = q('motionFooter');
   if (footer) footer.hidden = !env.motionRT.active;
+  env.updateSrcScrub?.();   // the still-mode frame scrubber hides in motion/live/frozen
   // motion mode pins discrete fields to keyframe 0 — hide the form picker and
   // dim/disable the non-animatable controls (see body.motion rules in styles.css).
   // The starting keyframe (kf0) is seeded on entry, but discrete stays editable
