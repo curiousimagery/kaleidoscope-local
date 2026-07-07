@@ -39,8 +39,11 @@
            camera DROPDOWN is the camera identity: current camera selected, every camera
            listed, "quit camera" at the bottom (replaces the old stop button). -->
       <div class="ot-group" id="cameraLive" style="display: none;">
-        <button class="ot-btn" id="shutterBtn" title="pause — freeze the frame">pause</button>
         <select class="ot-btn ot-select" id="cameraSelect" title="camera" hidden></select>
+        <!-- record/pause toggle — the first standard ICON+TEXT button (.ot-icontext,
+             in the Lab): red dot + "record" when frozen, pause bars + "pause" while
+             live. Glyphs are set by updateCameraUI (source-host.js). -->
+        <button class="ot-btn ot-icontext" id="shutterBtn" title="pause — freeze the frame">pause</button>
         <button class="ot-btn" id="flipBtn" title="switch front/rear camera">flip</button>
       </div>
     </div>

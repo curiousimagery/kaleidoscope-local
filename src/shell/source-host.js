@@ -305,13 +305,15 @@ export function createSourceHost(env) {
     document.getElementById('cameraBtn').style.display = inCamera ? 'none' : '';
     document.getElementById('uploadBtn').style.display = '';
     document.getElementById('cameraLive').style.display = inCamera ? 'flex' : 'none';
-    // shutter = record/pause toggle (the mobile pattern): live shows pause (freeze),
-    // frozen shows a red record (go live).
+    // shutter = record/pause toggle (the mobile pattern) as an icon+text button:
+    // frozen shows a RED DOT + "record" (go live); live shows PAUSE BARS + "pause".
+    // The glyph carries the state color; the text stays the button's normal color.
     const shutter = document.getElementById('shutterBtn');
     if (shutter) {
-      shutter.textContent = env.live.frozen ? 'record' : 'pause';
+      shutter.innerHTML = env.live.frozen
+        ? '<svg viewBox="0 0 12 12" aria-hidden="true"><circle cx="6" cy="6" r="5" fill="var(--danger)"/></svg>record'
+        : '<svg viewBox="0 0 12 12" aria-hidden="true"><rect x="2" y="1.5" width="3" height="9" rx="1" fill="currentColor"/><rect x="7" y="1.5" width="3" height="9" rx="1" fill="currentColor"/></svg>pause';
       shutter.title = env.live.frozen ? 'record — go live again' : 'pause — freeze the frame';
-      shutter.style.color = env.live.frozen ? 'var(--danger)' : '';
     }
     // flip button labels the camera it switches TO; nothing to flip while frozen.
     const flip = document.getElementById('flipBtn');

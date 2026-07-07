@@ -511,6 +511,12 @@ button .btn-spinner {
 /* band-open: the bar button whose expand-band (output / canvas) is currently open. */
 .ot-btn.band-open { background: var(--surface-hover); color: var(--text-bright); border-color: var(--c-neutral-500); }
 .ot-btn svg { width: 18px; height: 18px; display: block; }   /* icon buttons (undo/redo/swap) */
+/* icon+text button — the standard pattern for a small status glyph beside a label
+   (first consumer: the camera record/pause toggle; specimen in the Lab). The glyph
+   is a compact 12px, colored by its own fill (e.g. the record dot's --danger) or
+   currentColor, and never changes the button's text color. */
+.ot-icontext { display: inline-flex; align-items: center; gap: 6px; }
+.ot-icontext svg { width: 12px; height: 12px; }
 /* the camera picker reuses .ot-btn but needs the native select chrome reset and a
    width cap so a long device label doesn't blow out the toolbar. */
 .ot-select {

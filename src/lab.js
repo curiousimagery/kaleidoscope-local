@@ -382,6 +382,13 @@ function btnEl(cls, text, opts = {}) {
   if (opts.id) p.id = opts.id;
   return el('button', p);
 }
+// icon+text specimen (.ot-icontext): glyph svg string + label, matching how
+// updateCameraUI composes the real record/pause toggle.
+function iconTextBtn(glyphSvg, label) {
+  const b = el('button', { class: 'ot-btn ot-icontext' });
+  b.innerHTML = glyphSvg + label;
+  return b;
+}
 function matrixRow(family, cells) {
   return el('div', { class: 'lab-matrow' }, [
     el('div', { class: 'lab-matlabel', text: family }),
@@ -403,6 +410,12 @@ function buttonMatrix() {
       ['.active', btnEl('ot-btn active', 'active')],
       ['.band-open', btnEl('ot-btn band-open', 'band-open')],
       [':disabled', btnEl('ot-btn', 'disabled', { disabled: 1 })],
+    ]),
+    // the standard ICON+TEXT pattern (first consumer: the camera record/pause
+    // toggle): a compact 12px glyph carries the state color, text stays neutral.
+    matrixRow('Icon+text · .ot-icontext', [
+      ['record (frozen)', iconTextBtn('<svg viewBox="0 0 12 12" aria-hidden="true"><circle cx="6" cy="6" r="5" fill="var(--danger)"/></svg>', 'record')],
+      ['pause (live)', iconTextBtn('<svg viewBox="0 0 12 12" aria-hidden="true"><rect x="2" y="1.5" width="3" height="9" rx="1" fill="currentColor"/><rect x="7" y="1.5" width="3" height="9" rx="1" fill="currentColor"/></svg>', 'pause')],
     ]),
     matrixRow('Motion · .mf-btn', [
       ['.mf-btn', btnEl('mf-btn', 'mf-btn')],

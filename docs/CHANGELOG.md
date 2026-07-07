@@ -4,6 +4,12 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.10.53 (Build 235) — 2026-07-06 — record/pause as the first standard icon+text button (Arc 1, Daniel's nit)
+
+**Daniel's design nit on Build 233, implemented as a design-system pattern.** The camera shutter now sits to the **right of the camera dropdown** ([index.html](../index.html)) and is the first **`.ot-icontext`** button ([styles.css](../src/shell/styles.css)): a compact 12px glyph beside the label — **red dot + "record"** when frozen (the glyph carries the state color via `--danger`), **white pause bars + "pause"** while live (currentColor); the text always stays the button's normal color (replaces 233's red-text record). [source-host.js](../src/shell/source-host.js) `updateCameraUI` composes the two states. **The pattern is a component:** specimen row "Icon+text · .ot-icontext" added to the Lab's button state matrix ([lab.js](../src/lab.js)) with both variants. Build + `node --check` green. **Verify (Daniel, A/B):** camera → dropdown then pause-button order reads right; pause shows white bars + white text; frozen shows the red dot + white "record"; `/lab.html` components section shows the new row.
+
+---
+
 ## v0.10.52 (Build 234) — 2026-07-06 — mobile restore fix, take 2: cache the lose-context extension (Arc 0)
 
 **Why Build 230 didn't stick (Daniel's repro: still black after save):** the restore path looked up `WEBGL_lose_context` at restore time — but **on a LOST context Safari's `getExtension` returns null**, so `restoreContext()` silently never fired. Fixed in [mobile/chrome.js](../src/mobile/chrome.js): the extension is grabbed once WHILE THE CONTEXT IS ALIVE and cached (`loseCtxExt`); both `pagehide`'s `loseContext()` and `onVisible`'s `restoreContext()` use the cached object (extensions stay valid across loss/restore cycles). **The live-camera case is different:** "start live cam → view download → back → BOTH panels reset" reads as iOS discarding the page entirely (a full reload — nothing to restore); that's the existing "persist the source across reload" backlog item (blob → IndexedDB), now cross-referenced there — not a context-loss bug. Build + `node --check` green. **Verify (Daniel, on device):** still → save → back → output intact; camera-frozen still → save → back → intact. If live-cam → save → back still resets both panels, confirm whether the page visibly reloaded (that's the persistence item, not this fix).
