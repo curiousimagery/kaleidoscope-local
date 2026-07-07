@@ -4,6 +4,12 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.10.54 (Build 236) — 2026-07-06 — the output window honors the test pattern (fixes "test pattern doesn't work")
+
+**Root cause of Daniel's "test pattern doesn't work on iPad AND desktop (Brave/Safari)":** on the web the only broadcast destination is the **output window**, which self-renders from state and ignored the bus's test pattern entirely — the known "inert test-pattern button" triage item, now confirmed as what he was hitting (the pattern itself worked; only Syphon/record ever received it). Fixed: [output-window.js](../src/shell/output-window.js) rides a `test` flag on the per-frame state message (read from `outputBus.getStatus().testPattern`); [output-view.js](../src/output-view.js) shows a **2D overlay canvas** with the same letterbox treatment as the GL canvas, drawing the cached test-pattern canvas (`createTestFrame(w,h).canvas`) — redrawn only on toggle/resolution change, works with **no source loaded** (pre-show pipe check), dismisses the connect hint. Both test-pattern triage items closed. Build + `node --check` green. **Verify (Daniel):** web → destination "output window" → start broadcast → toggle test pattern → the WINDOW shows the pattern (labels upright, circle round, border whole); toggle off → program returns; also with no source loaded; then iPad.
+
+---
+
 ## v0.10.53 (Build 235) — 2026-07-06 — record/pause as the first standard icon+text button (Arc 1, Daniel's nit)
 
 **Daniel's design nit on Build 233, implemented as a design-system pattern.** The camera shutter now sits to the **right of the camera dropdown** ([index.html](../index.html)) and is the first **`.ot-icontext`** button ([styles.css](../src/shell/styles.css)): a compact 12px glyph beside the label — **red dot + "record"** when frozen (the glyph carries the state color via `--danger`), **white pause bars + "pause"** while live (currentColor); the text always stays the button's normal color (replaces 233's red-text record). [source-host.js](../src/shell/source-host.js) `updateCameraUI` composes the two states. **The pattern is a component:** specimen row "Icon+text · .ot-icontext" added to the Lab's button state matrix ([lab.js](../src/lab.js)) with both variants. Build + `node --check` green. **Verify (Daniel, A/B):** camera → dropdown then pause-button order reads right; pause shows white bars + white text; frozen shows the red dot + white "record"; `/lab.html` components section shows the new row.

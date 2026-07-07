@@ -19,6 +19,7 @@
 
 import { createEngine } from './engine/index.js';
 import { createCamera } from './shell/camera.js';
+import { createTestFrame } from './stage/test-pattern.js';
 
 const CHANNEL = 'fold-output';
 
@@ -100,6 +101,40 @@ async function setupSource(payload) {
   }
 }
 
+// ---- test pattern overlay -------------------------------------------------------
+// The bus's test pattern is a reference frame this GPU-direct window used to IGNORE
+// (it self-renders from state, not bus frames) — the "test pattern inert during
+// output-window broadcast" bug, confirmed on desktop + iPad. A 2D overlay canvas
+// with the SAME letterbox treatment as the GL canvas mirrors the pattern here, so
+// the window is an honest probe of the display path too. Works with no source
+// loaded (the pattern is a pre-show pipe check).
+let testOn = false;
+let testCanvas = null;
+let testDrawnKey = '';   // "WxH" last drawn — state messages arrive per frame; redraw only on toggle/resize
+function applyTestPattern(on) {
+  if (!on) {
+    if (testOn && testCanvas) testCanvas.style.display = 'none';
+    testOn = false; testDrawnKey = '';
+    return;
+  }
+  testOn = true;
+  if (!testCanvas) {
+    testCanvas = document.createElement('canvas');
+    testCanvas.id = 'testCanvas';
+    testCanvas.style.cssText = 'display:block;width:100vw;height:100vh;object-fit:contain;position:fixed;inset:0;background:#000;';
+    document.body.appendChild(testCanvas);
+  }
+  testCanvas.style.display = 'block';
+  const w = canvas.width || 1920, h = canvas.height || 1080;
+  const key = w + 'x' + h;
+  if (testDrawnKey === key) return;
+  testDrawnKey = key;
+  testCanvas.width = w; testCanvas.height = h;
+  // createTestFrame caches per size and hands its drawn 2D canvas through
+  testCanvas.getContext('2d').drawImage(createTestFrame(w, h).canvas, 0, 0);
+  document.body.classList.add('live');   // the pattern IS a frame — dismiss the hint
+}
+
 // ---- the render loop: GPU-direct, zero readback --------------------------------
 let frames = 0, fpsT = performance.now(), measuredFps = 0;
 // Keep the popup's own <video> copy locked to the main app's clock: match paused
@@ -146,6 +181,7 @@ channel.onmessage = (e) => {
     latestState = msg.state;
     latestVideo = msg.video || null;
     applyOutput(msg.output);
+    applyTestPattern(!!msg.test);
     // Reconcile the video clock HERE too, not only in the rAF loop: Firefox
     // suspends rAF in an unfocused window, so the loop can stall while messages
     // still arrive — without this the popup's video free-runs when motion pauses.

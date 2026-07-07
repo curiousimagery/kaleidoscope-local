@@ -90,7 +90,9 @@ export function createOutputWindow(env) {
     const sig = sourceSignature();
     if (sig !== lastSourceSig) { lastSourceSig = sig; postSource(); }
     if (channel) {
-      try { channel.postMessage({ type: 'state', state: env.state, output: outputDims(), video: videoSync() }); } catch {}
+      // `test` rides the per-frame state message so the popup honors the bus's test
+      // pattern (it self-renders and would otherwise ignore it — the old inert-button bug)
+      try { channel.postMessage({ type: 'state', state: env.state, output: outputDims(), video: videoSync(), test: !!env.outputBus?.getStatus?.().testPattern }); } catch {}
     }
     raf = requestAnimationFrame(loop);
   }
