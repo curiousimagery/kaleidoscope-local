@@ -486,6 +486,18 @@ function selectKeyframe(i) {
   // from the snap — don't re-sample them, just seek the frame).
   if (env.sourceVideo) scrubVideo(kfList()[i].t, { assignParams: false });
 }
+// jump the playhead to a bare position (keyboard Home/End) — same path as a track
+// scrub landing there, including the state reload + keyframe snap.
+function jumpToPlayhead(p) {
+  if (!kfList().length) return;
+  if (motion.playing) haltPlayback();
+  if (env.sourceVideo) { setPlayhead(p); scrubVideo(p); }
+  else renderSampled(p);
+  loadPlayheadIntoState();
+  renderTimeline();
+  updateMotionUI();
+}
+
 function stepKeyframe(dir) {
   const list = kfList();
   if (!list.length) return;
@@ -1246,9 +1258,11 @@ function wireMotion() {
     }
   }
 
-  // keyboard (Arc 3): space = play/pause, delete/backspace = delete the selected
-  // keyframe. Motion mode only; never while focus is in a field (inputs, selects,
-  // in-flight scrub edits) — those keep their native behavior.
+  // keyboard (Arc 3, full set blessed by Daniel): space = play/pause · delete =
+  // delete selected · ←/→ = prev/next · K = +keyframe · A = anchor/auto toggle ·
+  // Home/End = playhead to start/end · +/− = zoom · 0 = fit. Motion mode only;
+  // never while focus is in a field (inputs, selects, in-flight scrub edits).
+  // (G is reserved for +gesture when the capability lands.)
   window.addEventListener('keydown', (e) => {
     if (!env.motionRT.active) return;
     const t = e.target;
@@ -1265,6 +1279,31 @@ function wireMotion() {
       e.preventDefault();                             // page/element scroll
       closeKfMenu();
       stepKeyframe(e.key === 'ArrowLeft' ? -1 : 1);   // cycle prev / next (wraps at the ends)
+    } else if (e.key === 'k' || e.key === 'K') {
+      e.preventDefault();
+      closeKfMenu();
+      addKeyframe();
+    } else if (e.key === 'a' || e.key === 'A') {
+      e.preventDefault();
+      const i = motion.selected;
+      if (i > 0 && kfList()[i]) { closeKfMenu(); setAnchored(!kfList()[i].anchored); }
+    } else if (e.key === 'Home') {
+      e.preventDefault();
+      closeKfMenu();
+      jumpToPlayhead(0);
+    } else if (e.key === 'End') {
+      e.preventDefault();
+      closeKfMenu();
+      jumpToPlayhead(1);
+    } else if (e.key === '+' || e.key === '=') {
+      e.preventDefault();
+      zoomTimelineAt(0.5, 1.6);
+    } else if (e.key === '-' || e.key === '_') {
+      e.preventDefault();
+      zoomTimelineAt(0.5, 1 / 1.6);
+    } else if (e.key === '0') {
+      e.preventDefault();
+      fitTimeline();
     }
   });
 

@@ -197,7 +197,7 @@
        play/pause). Keyframe OPS (anchor/auto-space/delete) are contextual to the
        keyframe itself — the #kfMenu context menu on select / right-click. -->
   <div class="mf-left">
-    <button class="mf-btn mf-add" id="mfAdd" disabled title="add a keyframe at the scrubber">＋ keyframe</button>
+    <button class="mf-btn mf-add" id="mfAdd" disabled title="add a keyframe at the scrubber (K)">＋ keyframe</button>
     <button class="mf-btn mf-gesture" id="mfGesture" disabled title="record gesture (coming soon)">＋ gesture</button>
     <button class="mf-btn" id="mfPrev" title="previous keyframe (←)">‹ prev</button>
     <button class="mf-btn" id="mfNext" title="next keyframe (→)">next ›</button>
@@ -215,18 +215,19 @@
   <!-- right: minimal icon stack (overflow · zoom · fit) -->
   <div class="mf-right">
     <button class="mf-btn" id="mfMore" title="motion settings + data">⋯</button>
-    <button class="mf-btn" id="mfZoomOut" title="zoom out timeline">－</button>
-    <button class="mf-btn" id="mfZoomIn" title="zoom in timeline">＋</button>
-    <button class="mf-btn" id="mfFit" disabled title="fit timeline to view">⛶</button>
+    <button class="mf-btn" id="mfZoomOut" title="zoom out timeline (−)">－</button>
+    <button class="mf-btn" id="mfZoomIn" title="zoom in timeline (+)">＋</button>
+    <button class="mf-btn" id="mfFit" disabled title="fit timeline to view (0)">⛶</button>
   </div>
   <!-- ⋯ overflow: the occasional settings + motion data -->
   <div class="mf-menu" id="mfMoreMenu" hidden>
     <label class="mf-menu-field">duration <span class="val scrub" id="mfDurVal">30.0s</span></label>
     <label class="mf-menu-field">smoothing <span class="val scrub" id="mfSmoothVal">0%</span></label>
     <button class="mf-toggle" id="mfLoop" title="loop the animation — with loop on, the end returns to the first keyframe">loop</button>
+    <!-- (25% is deliberately OMITTED until real frame interpolation exists — the
+         frame-hold stutter can't produce good results; see BACKLOG) -->
     <div class="mf-menu-field" id="mfSpeed" hidden title="playback speed — slow busy footage so the fold reads">speed
       <span class="mf-speed-btns">
-        <button class="mf-btn mf-toggle" data-spd="0.25">25%</button>
         <button class="mf-btn mf-toggle" data-spd="0.5">50%</button>
         <button class="mf-btn mf-toggle active" data-spd="1">100%</button>
         <button class="mf-btn mf-toggle" data-spd="1.5">150%</button>
@@ -241,8 +242,8 @@
   <!-- keyframe context menu — contextual ops on the selected keyframe (shown on
        select / right-click near the marker; kf0 has no ops, so no menu) -->
   <div class="mf-menu kf-menu" id="kfMenu" hidden>
-    <button id="kfAnchorPos" title="pin this keyframe at its exact time">anchor position</button>
-    <button id="kfAutoSpace" title="space this keyframe evenly between anchors">auto space</button>
+    <button id="kfAnchorPos" title="pin this keyframe at its exact time (A toggles)">anchor position</button>
+    <button id="kfAutoSpace" title="space this keyframe evenly between anchors (A toggles)">auto space</button>
     <div class="mf-menu-sep"></div>
     <button id="kfDelete" class="danger" title="delete this keyframe (delete)">delete keyframe</button>
   </div>

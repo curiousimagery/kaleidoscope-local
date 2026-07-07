@@ -181,9 +181,11 @@ body { display: flex; flex-direction: column; height: 100vh; height: 100dvh; ove
 .panel-ctl .form-row { justify-content: center; }
 .panel-ctl-row { display: flex; align-items: flex-end; gap: 12px; }
 .panel-gear { flex-shrink: 0; }
-/* every control in the output row shares one height (the gear was taller than the
-   aspect buttons); the source row's gear stays 40px to match the form thumbs */
-#outCtl .panel-gear { height: 34px; min-width: 34px; padding: 0 8px; }
+/* one coherent control height across BOTH panel rows (Daniel): the aspect buttons
+   rise to the 40px standard (form thumbs + gears already sit there) rather than
+   the gears shrinking */
+.panel-ctl button.toggle { height: 40px; }
+@media (pointer: coarse) { .panel-ctl button.toggle { height: var(--touch-target); } }
 .panel-gear.open { background: var(--surface-hover); color: var(--text-bright); border-color: var(--c-neutral-500); }   /* mirrors .ot-btn.band-open */
 .panel-popover {
   position: fixed;
@@ -739,7 +741,7 @@ button .btn-spinner {
   flex-direction: row;
   align-items: stretch;
   gap: 12px;
-  height: min(208px, 30vh);
+  height: min(184px, 28vh);
   padding: 12px 16px;
   padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
   background: var(--surface);
@@ -762,9 +764,10 @@ button .btn-spinner {
 /* center: ruler + the tall track (the big pinch/zoom/pan surface) */
 .mf-center { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
 
-/* right: minimal icon stack */
+/* right: minimal icon stack — deliberately COMPACT (32px): this column is what
+   sets the footer's floor, so smaller icons buy back overall timeline height */
 .mf-right { flex: 0 0 auto; display: flex; flex-direction: column; gap: 6px; justify-content: center; }
-.mf-right .mf-btn { width: 40px; min-width: 40px; height: 40px; padding: 0; }
+.mf-right .mf-btn { width: 32px; min-width: 32px; height: 32px; padding: 0; }
 
 .mf-btn {
   height: 36px; min-width: 36px; padding: 0 12px;
@@ -876,7 +879,8 @@ button .btn-spinner {
 @media (pointer: coarse) {
   .mf-btn { height: var(--touch-target); }
   .mf-left .mf-btn { height: var(--touch-target); }
-  .mf-right .mf-btn { width: var(--touch-target); height: var(--touch-target); }
+  /* the right icon stack stays compact on touch too (Daniel: footer height wins) */
+  .mf-right .mf-btn { width: 32px; height: 32px; }
 }
 
 /* motion mode pins discrete fields to keyframe 0: hide the form picker and
