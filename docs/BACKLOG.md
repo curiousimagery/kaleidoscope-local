@@ -43,7 +43,7 @@ Living list of things we want to do, grouped by **surface / family** (not by whe
 - **Test-pattern: add a moving element** (sweep or counter) so a frozen pipe doesn't look identical to a working one. [Fold Live — test pattern]
 - **Drop the real assets:** Daniel drops a 16px-legible favicon (`public/favicon.svg`) + the Apple Icon Composer app-icon (`electron/build/icon.png`); homes are wired + shown in the Lab. [Design system]
 - **Hide (don't disable) settings that don't apply to the current form** (e.g. no segments row on hex). Rides Arc 2's per-panel control stacks ("only show when they apply"), but is a cheap standalone if reached earlier.
-- **Still-mode frame picker: filmstrip thumbnails in the mini timeline.** B242 made the frame picker a real mini timeline (track + playhead line); a row of small footage thumbs inside it (like `mfStrip`) would make it read unmistakably as motion content. Costs a seek pass per load — reuse the debounced/cancellable filmstrip machinery if wanted.
+- **Still-mode frame picker thumbs: re-render on resize.** B249 shipped footage thumbnails in the picker; cells stretch with panel resizes instead of re-rendering (slight distortion after big divider drags). If it bothers, add a debounced rebuild on resize (the build is already cancellable + single-flight).
 - **Dead CSS: the `.camera-live-row` block** (styles.css ~436) references a layout the camera controls no longer use (they live in the toolbar `#cameraLive` group; `#stopCameraBtn` is gone as of Build 233). Confirm nothing renders it, then delete the block.
 
 ---

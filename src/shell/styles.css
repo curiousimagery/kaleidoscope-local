@@ -150,11 +150,21 @@ body { display: flex; flex-direction: column; height: 100vh; height: 100dvh; ove
   cursor: pointer;
   touch-action: none;
 }
+/* footage thumbnails behind the playhead — the motion-timeline treatment, dimmed
+   so the picker reads as a track, not a strip of images */
+.src-scrub .ss-cell {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  pointer-events: none;
+  opacity: 0.7;
+}
 .src-scrub .ss-playhead {
   position: absolute; top: 0; bottom: 0; left: 0; width: 2px;
   background: var(--fill-bright);
   transform: translateX(-50%);
   pointer-events: none;
+  z-index: 2;
 }
 /* Arc 2b resolution — PROGRESSIVE DISCLOSURE (Daniel, round 5; the below/flank
    variations are gone). Each panel persists only its essentials beneath the visual;

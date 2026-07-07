@@ -151,6 +151,7 @@ export function createSourceHost(env) {
           env.sourceOverlay.paintSourceVideo();
           env.sourceOverlay.render();
           env.updateSrcScrub?.();
+          requestAnimationFrame(() => buildSrcStrip());   // footage thumbs into the frame picker (layout is ready)
         };
         v.play().then(() => setTimeout(park, 80))
           .catch(() => { park(); });   // autoplay refused: loadeddata decoded frame 0 — park directly
@@ -626,14 +627,67 @@ export function createSourceHost(env) {
     if (show && isFinite(v.duration) && v.duration > 0) {
       const head = document.getElementById('srcScrubHead');
       if (head) head.style.left = ((v.currentTime / v.duration) * 100) + '%';
+      // no thumbs yet (e.g. the video was loaded while IN motion mode) → build them
+      // now that the track is visible. rAF so layout (and module setup) are done.
+      if (!wrap.querySelector('.ss-cell')) requestAnimationFrame(() => buildSrcStrip());
     }
   }
   env.updateSrcScrub = updateSrcScrub;
+
+  // ---- footage thumbnails inside the frame picker (Daniel: the motion-timeline
+  // treatment, so it reads as motion content). One ascending seek pass per video
+  // load. It NEVER touches the engine texture (no updateSourceFrame), so the parked
+  // frame keeps rendering while thumbs build; cancelled (gen bump) the moment the
+  // user scrubs, and rebuilt on scrub end if it was cut short.
+  const srcStrip = { gen: 0, dirty: false, building: false };
+  async function buildSrcStrip() {
+    const track = document.getElementById('srcScrub');
+    const v = env.sourceVideo;
+    if (srcStrip.building) return;   // single-flight (updateSrcScrub may re-trigger)
+    if (!track || track.hidden || !v || !isFinite(v.duration) || v.duration <= 0) return;
+    const w = track.clientWidth, h = track.clientHeight;
+    if (w < 8 || h < 8) return;
+    const gen = ++srcStrip.gen;
+    srcStrip.dirty = false;
+    srcStrip.building = true;
+    const saved = v.currentTime;
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const n = Math.max(4, Math.min(16, Math.round(w / h)));   // ~square cells across the track
+    const cells = [];
+    try {
+      for (let i = 0; i < n; i++) {
+        if (gen !== srcStrip.gen) { srcStrip.dirty = true; return; }
+        await seekVideoTo(v, ((i + 0.5) / n) * v.duration);
+        if (gen !== srcStrip.gen) { srcStrip.dirty = true; return; }
+        const cw = Math.ceil((w / n) * dpr), ch = Math.ceil(h * dpr);
+        const c = document.createElement('canvas');
+        c.width = cw; c.height = ch;
+        c.className = 'ss-cell';
+        c.style.left = (i * 100 / n) + '%';
+        c.style.width = (100 / n) + '%';
+        // cover-fit the frame into the cell (center crop)
+        const va = (v.videoWidth || 1) / (v.videoHeight || 1), ca = cw / ch;
+        let sw, sh, sx, sy;
+        if (va > ca) { sh = v.videoHeight; sw = sh * ca; sx = (v.videoWidth - sw) / 2; sy = 0; }
+        else { sw = v.videoWidth; sh = sw / ca; sx = 0; sy = (v.videoHeight - sh) / 2; }
+        c.getContext('2d').drawImage(v, sx, sy, sw, sh, 0, 0, cw, ch);
+        cells.push(c);
+      }
+      track.querySelectorAll('.ss-cell').forEach((el) => el.remove());
+      for (const c of cells) track.appendChild(c);
+    } finally {
+      srcStrip.building = false;
+      if (gen === srcStrip.gen) {
+        try { await seekVideoTo(v, saved); } catch { /* keep whatever frame presented */ }
+      }
+    }
+  }
 
   let srcSeekBusy = false, srcSeekNext = null;
   async function scrubStillFrame(p) {
     const v = env.sourceVideo;
     if (!v || !isFinite(v.duration) || v.duration <= 0) return;
+    if (srcStrip.building) { srcStrip.gen++; srcStrip.dirty = true; }   // a scrub owns the decoder — cancel the thumb pass
     if (srcSeekBusy) { srcSeekNext = p; return; }
     srcSeekBusy = true;
     try {
@@ -667,7 +721,13 @@ export function createSourceHost(env) {
       e.preventDefault();
     });
     track.addEventListener('pointermove', (e) => { if (down) at(e); });
-    const up = (e) => { down = false; track.releasePointerCapture?.(e.pointerId); };
+    const up = (e) => {
+      down = false;
+      track.releasePointerCapture?.(e.pointerId);
+      // finish a thumb pass the scrub cut short — after the coalesced seek settles,
+      // so the rebuild's seeks never race the scrub's
+      if (srcStrip.dirty) setTimeout(() => { if (!srcSeekBusy && !srcStrip.building && srcStrip.dirty) buildSrcStrip(); }, 300);
+    };
     track.addEventListener('pointerup', up);
     track.addEventListener('pointercancel', up);
   })();
