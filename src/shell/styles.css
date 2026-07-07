@@ -727,7 +727,7 @@ button .btn-spinner {
   flex-direction: row;
   align-items: stretch;
   gap: 12px;
-  height: min(236px, 32vh);
+  height: min(208px, 30vh);
   padding: 12px 16px;
   padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
   background: var(--surface);
@@ -735,8 +735,8 @@ button .btn-spinner {
 }
 .motion-footer[hidden] { display: none; }
 
-/* left cluster: 2-column grid — [+keyframe|+gesture] / [prev|next] / [play wide]
-   + the quieter delete/anchor row */
+/* left cluster: 2-column grid — [+keyframe|+gesture] / [prev|next] / [play wide].
+   Keyframe ops live in the #kfMenu context menu (contextual to the keyframe). */
 .mf-left {
   flex: 0 0 auto;
   display: grid;
@@ -746,7 +746,6 @@ button .btn-spinner {
 }
 .mf-left .mf-btn { height: 42px; }
 .mf-left .mf-play { grid-column: 1 / -1; }
-.mf-left .mf-sub { height: 32px; font-size: var(--text-sm); color: var(--text-dim); }
 
 /* center: ruler + the tall track (the big pinch/zoom/pan surface) */
 .mf-center { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
@@ -777,6 +776,14 @@ button .btn-spinner {
 }
 .mf-menu .mf-menu-field[hidden] { display: none; }
 .mf-menu-sep { height: 1px; background: var(--border); margin: 4px 8px; }
+/* keyframe context menu: anchor/auto-space are mutually exclusive (the current one
+   reads active); delete is destructive red */
+.kf-menu button.active { color: var(--text-bright); }
+.kf-menu button.active::after { content: ' ✓'; color: var(--text-dim); }
+.kf-menu button.danger { color: var(--danger-text); }
+/* a scrub field that is read-only in the current context (e.g. duration is locked
+   to clip length ÷ speed for a video source) */
+.scrub.locked { pointer-events: none; opacity: var(--disabled-opacity); cursor: default; }
 /* the loop row is a LABELED toggle — state in words, no ambiguous pressed-look */
 #mfLoop::after { content: ' · off'; color: var(--text-dim); }
 #mfLoop.active { color: var(--text-bright); }
@@ -844,7 +851,10 @@ button .btn-spinner {
 .mf-marker.anchored .mf-pin::after { border-bottom-color: var(--text-bright); }   /* locked = filled notch */
 .mf-marker.selected .mf-pin { border-bottom-color: var(--accent); }
 .mf-marker.selected.anchored .mf-pin::after { border-bottom-color: var(--accent); }
-.mf-marker.ghost { opacity: 0.35; pointer-events: none; }
+/* loop bookend ghost — CLICKABLE: it shows kf0's thumb at the end position, so
+   clicking it selects kf0 (Daniel: "select the first keyframe from the end") */
+.mf-marker.ghost { opacity: 0.35; cursor: pointer; }
+.mf-marker.ghost:hover { opacity: 0.6; }
 .mf-marker.ghost .mf-pin::after { border-bottom-color: var(--text-bright); }
 .mf-playhead {
   position: absolute; top: 0; bottom: 0; left: 0; width: 2px;
@@ -854,7 +864,6 @@ button .btn-spinner {
 @media (pointer: coarse) {
   .mf-btn { height: var(--touch-target); }
   .mf-left .mf-btn { height: var(--touch-target); }
-  .mf-left .mf-sub { height: 38px; }
   .mf-right .mf-btn { width: var(--touch-target); height: var(--touch-target); }
 }
 

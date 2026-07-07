@@ -195,15 +195,14 @@
      export). Hidden unless motion mode is active. -->
 <div class="motion-footer" id="motionFooter" hidden>
   <!-- left: three rows of fat buttons (+keyframe/+gesture · prev/next · wide
-       play/pause) + a quieter keyframe-ops row (delete/anchor) -->
+       play/pause). Keyframe OPS (anchor/auto-space/delete) are contextual to the
+       keyframe itself — the #kfMenu context menu on select / right-click. -->
   <div class="mf-left">
     <button class="mf-btn mf-add" id="mfAdd" disabled title="add a keyframe at the scrubber">＋ keyframe</button>
     <button class="mf-btn mf-gesture" id="mfGesture" disabled title="record gesture (coming soon)">＋ gesture</button>
-    <button class="mf-btn" id="mfPrev" title="previous keyframe">‹ prev</button>
-    <button class="mf-btn" id="mfNext" title="next keyframe">next ›</button>
+    <button class="mf-btn" id="mfPrev" title="previous keyframe (←)">‹ prev</button>
+    <button class="mf-btn" id="mfNext" title="next keyframe (→)">next ›</button>
     <button class="mf-btn mf-play" id="mfPlay" disabled title="play / pause (space)">play</button>
-    <button class="mf-btn mf-sub" id="mfDelete" disabled title="delete the selected keyframe (delete)">delete</button>
-    <button class="mf-btn mf-sub mf-toggle" id="mfAnchor" disabled title="fix this keyframe's time, or let it auto-space">anchor</button>
   </div>
   <!-- center: the tall timeline (ruler + track — the big pinch/zoom/pan surface) -->
   <div class="mf-center">
@@ -239,6 +238,14 @@
     <div class="mf-menu-sep"></div>
     <button id="mfSaveData">download motion data</button>
     <button id="mfLoadData">load motion data</button>
+  </div>
+  <!-- keyframe context menu — contextual ops on the selected keyframe (shown on
+       select / right-click near the marker; kf0 has no ops, so no menu) -->
+  <div class="mf-menu kf-menu" id="kfMenu" hidden>
+    <button id="kfAnchorPos" title="pin this keyframe at its exact time">anchor position</button>
+    <button id="kfAutoSpace" title="space this keyframe evenly between anchors">auto space</button>
+    <div class="mf-menu-sep"></div>
+    <button id="kfDelete" class="danger" title="delete this keyframe (delete)">delete keyframe</button>
   </div>
   <input type="file" id="mfDataFile" accept="application/json,.json" style="display:none">
 </div>

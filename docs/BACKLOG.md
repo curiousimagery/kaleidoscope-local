@@ -114,7 +114,8 @@ Daniel's spec landed in B244: tall track (footer ~236px, controls off the top), 
 - **Shift+click** to multi-select keyframes on the timeline.
 - **Clip-editor edges of long clips are hard to work with** → increase the modal size proportional to the viewport.
 - **"Reset workspace"** command: delete all keyframes, start fresh on the same source.
-- **Broader keyboardability** beyond space/delete (quick lock/unlock; app-wide keyboard support untested).
+- **Broader keyboardability** beyond space/delete/arrows (B247 added ←/→ prev-next). Proposed to Daniel (2026-07-07, awaiting his picks): K = +keyframe, G = +gesture (when it exists), A = toggle anchor/auto on selected, Home/End = jump playhead to start/end, +/− = timeline zoom, 0 or F = fit. Quick lock/unlock still unassigned; app-wide keyboard support untested.
+- **Editable duration for a VIDEO source, within speed bounds (Daniel's idea, 2026-07-07).** Duration is currently locked to clip length ÷ speed (B247 makes that legible). It could become editable by treating a duration edit as an implicit speed change, clamped to the allowed speed range (0.25×–2×) — i.e. duration and speed are two views of one control. Needs incremental (non-preset) speeds.
 - **Exit criteria:** responsive down to a **700px mobile breakpoint**; ergonomic placement; visually scannable; appropriate hierarchy + groupings; progressive disclosure. North star: Procreate Dreams / iMovie.
 
 ### Motion editor — design direction (north star + IxD reference)

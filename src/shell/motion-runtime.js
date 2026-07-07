@@ -272,6 +272,7 @@ function haltPlayback() {
 }
 function startPlayback() {
   if (motion.playing || kfList().length < (env.sourceVideo ? 1 : 2)) return;   // video: 1 kf is playable (footage moves)
+  closeKfMenu();
   if (env.sourceVideo) { startVideoPlayback(); return; }   // a video source is its own clock
   motion.playing = true;
   motion.selected = -1;
@@ -412,17 +413,47 @@ function addKeyframe(opts) {
   else if (interpolated) env.scheduleRender?.();  // re-render the output to the interpolated look
   // thumbnail fills on the debounced, readback-free filmstrip rebuild (no per-add readPixels)
 }
-// toggle the selected keyframe between anchored (fixed time) and auto (even-spaced).
-function toggleAnchor() {
-  const i = motion.selected >= 0 ? motion.selected : keyframeAt(motion.playhead);
-  if (i <= 0) return;                            // keyframe 0 is always the start anchor; -1 = none
+// set the selected keyframe anchored (pinned at its exact time) or auto (even-spaced
+// between anchors) — the two states are explicit commands in the keyframe context menu.
+function setAnchored(val) {
+  const i = motion.selected;
+  if (i <= 0 || !kfList()[i] || !!kfList()[i].anchored === val) return;   // kf0 is always the start anchor
   env.pushHistory?.(); env.updateUndoUI?.();     // undoable: re-spacing moves keyframe times
-  kfList()[i].anchored = !kfList()[i].anchored;
+  kfList()[i].anchored = val;
   applyAutoSpacing();
   setPlayhead(kfList()[i].t);
   renderTimeline();
   updateMotionUI();
+  if (env.sourceVideo) scrubVideo(kfList()[i].t, { assignParams: false });   // footage follows the re-spaced time
 }
+
+// ---- keyframe context menu --------------------------------------------------
+// Keyframe ops are contextual to the keyframe itself (Daniel): selecting a marker
+// (or right-clicking it) opens a small menu near it — anchor position / auto space
+// (mutually exclusive, current one reads active) and destructive delete. kf0 has
+// no ops (fixed start anchor, undeletable), so it never shows a menu.
+function showKfMenu(i) {
+  const menu = document.getElementById('kfMenu');
+  const track = document.getElementById('mfTrack');
+  const kf = kfList()[i];
+  if (!menu || !track || i <= 0 || !kf) return;
+  menu.hidden = false;
+  document.getElementById('kfAnchorPos')?.classList.toggle('active', !!kf.anchored);
+  document.getElementById('kfAutoSpace')?.classList.toggle('active', !kf.anchored);
+  // position above the marker's time on the track (markers are rebuilt on select,
+  // so anchor to coordinates, not the element), clamped to the viewport
+  const r = track.getBoundingClientRect();
+  const x = r.left + (tToPct(kf.t) / 100) * r.width;
+  menu.style.left = Math.round(Math.max(8, Math.min(x - menu.offsetWidth / 2, window.innerWidth - menu.offsetWidth - 8))) + 'px';
+  menu.style.top = Math.round(Math.max(8, r.top - menu.offsetHeight - 10)) + 'px';
+  setTimeout(() => document.addEventListener('pointerdown', onKfMenuOutside), 0);
+}
+function closeKfMenu() {
+  const menu = document.getElementById('kfMenu');
+  if (menu) menu.hidden = true;
+  document.removeEventListener('pointerdown', onKfMenuOutside);
+}
+function onKfMenuOutside(e) { if (!e.target.closest('#kfMenu')) closeKfMenu(); }
 function deleteSelected() {
   const idx = motion.selected >= 0 ? motion.selected : keyframeAt(motion.playhead);
   if (idx <= 0) return;   // kf0 is the primary/start anchor — never deletable (Arc 3 hardening)
@@ -647,10 +678,16 @@ function makeMarkerDraggable(m, i) {
     m.releasePointerCapture?.(e.pointerId);
     down = null;
     if (wasDrag) { applyAutoSpacing(); renderTimeline(); loadPlayheadIntoState(); updateMotionUI(); }
-    else selectKeyframe(i);
+    else { selectKeyframe(i); showKfMenu(i); }   // select opens the keyframe's context menu (no-op for kf0)
   };
   m.addEventListener('pointerup', end);
   m.addEventListener('pointercancel', () => { down = null; });
+  m.addEventListener('contextmenu', (e) => {     // right-click = the same contextual menu
+    e.preventDefault();
+    if (motion.playing) stopPlayback();
+    selectKeyframe(i);
+    showKfMenu(i);
+  });
 }
 // ---- timeline ruler (ticks + occasional timestamps) -----------------------
 // A measuring scale above the track: minor ticks at a regular interval and major
@@ -828,6 +865,7 @@ function relayoutTimeline() {
     const g = document.createElement('div');
     g.className = 'mf-marker ghost';
     g.style.left = zPct(1) + '%';
+    g.title = 'the loop returns to the first keyframe — click to select it';
     if (list[0].thumb) {
       const gc = document.createElement('canvas');
       gc.width = list[0].thumb.width; gc.height = list[0].thumb.height;
@@ -836,6 +874,10 @@ function relayoutTimeline() {
     }
     const pin = document.createElement('div'); pin.className = 'mf-pin';
     g.appendChild(pin);
+    // the ghost IS kf0 at the end position — clicking it selects kf0 (it isn't
+    // draggable/retimable; stopPropagation keeps the track from scrubbing)
+    g.addEventListener('pointerdown', (e) => e.stopPropagation());
+    g.addEventListener('click', () => selectKeyframe(0));
     markers.appendChild(g);
   }
   renderRuler();
@@ -913,12 +955,9 @@ function updateMotionUI() {
   document.body.classList.toggle('motion', env.motionRT.active && kfList().length >= 2);
 
   const n = kfList().length;
-  const aIdx = motion.selected >= 0 ? motion.selected : keyframeAt(motion.playhead);
   if (q('mfAdd')) q('mfAdd').disabled = !available;
-  // kf0 (the primary/start anchor) is never deletable — delete enables from kf1 up
-  if (q('mfDelete')) q('mfDelete').disabled = aIdx <= 0;
-  const selKf = aIdx > 0 ? kfList()[aIdx] : null;   // kf0 is always the start anchor
-  if (q('mfAnchor')) { q('mfAnchor').disabled = !selKf; q('mfAnchor').classList.toggle('active', !!(selKf && selKf.anchored)); }
+  // (keyframe ops — anchor/auto-space/delete — live in the #kfMenu context menu,
+  //  which gates itself: it only opens for kf1+.)
   const minKf = env.sourceVideo ? 1 : 2;   // video plays/renders with 1 kf (the footage provides motion)
   if (q('mfPlay')) { q('mfPlay').disabled = n < minKf; q('mfPlay').textContent = motion.playing ? 'pause' : 'play'; }
   // render lives in the APP BAR (per-mode export controls): motion-only, gated like play
@@ -935,6 +974,13 @@ function updateMotionUI() {
       b.classList.toggle('active', Math.abs(parseFloat(b.dataset.spd) - (motion.videoSpeed || 1)) < 1e-6));
   }
   if (q('mfClip')) q('mfClip').hidden = !env.sourceVideo;   // clip editor: video sources only
+  // duration is READ-ONLY for a video source (locked to clip length ÷ speed) — show
+  // it as locked instead of an editable-looking scrub field that ignores input
+  const durEl = q('mfDurVal');
+  if (durEl) {
+    durEl.classList.toggle('locked', !!env.sourceVideo);
+    durEl.title = env.sourceVideo ? 'locked to the clip length ÷ playback speed' : '';
+  }
   q('mfDurVal')?._sync?.();
   q('mfSmoothVal')?._sync?.();
 }
@@ -987,10 +1033,12 @@ function wireMotion() {
   byId('motionBtn')?.addEventListener('click', () => { if (!env.motionRT.active) toggleMotionMode(); });
   byId('stillBtn')?.addEventListener('click', () => { if (env.motionRT.active) toggleMotionMode(); });
   byId('mfAdd')?.addEventListener('click', addKeyframe);
-  byId('mfDelete')?.addEventListener('click', deleteSelected);
-  byId('mfAnchor')?.addEventListener('click', toggleAnchor);
-  byId('mfPrev')?.addEventListener('click', () => stepKeyframe(-1));
-  byId('mfNext')?.addEventListener('click', () => stepKeyframe(1));
+  // keyframe context menu actions (the menu opens from marker select / right-click)
+  byId('kfAnchorPos')?.addEventListener('click', () => { setAnchored(true); closeKfMenu(); });
+  byId('kfAutoSpace')?.addEventListener('click', () => { setAnchored(false); closeKfMenu(); });
+  byId('kfDelete')?.addEventListener('click', () => { closeKfMenu(); deleteSelected(); });
+  byId('mfPrev')?.addEventListener('click', () => { closeKfMenu(); stepKeyframe(-1); });
+  byId('mfNext')?.addEventListener('click', () => { closeKfMenu(); stepKeyframe(1); });
   byId('mfPlay')?.addEventListener('click', () => { if (motion.playing) stopPlayback(); else startPlayback(); });
   byId('mfLoop')?.addEventListener('click', () => { motion.loop = !motion.loop; renderTimeline(); updateMotionUI(); });
   byId('mfFit')?.addEventListener('click', fitTimeline);
@@ -1211,7 +1259,12 @@ function wireMotion() {
       if (motion.playing) stopPlayback(); else startPlayback();
     } else if (e.key === 'Delete' || e.key === 'Backspace') {
       e.preventDefault();
+      closeKfMenu();
       deleteSelected();
+    } else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+      e.preventDefault();                             // page/element scroll
+      closeKfMenu();
+      stepKeyframe(e.key === 'ArrowLeft' ? -1 : 1);   // cycle prev / next (wraps at the ends)
     }
   });
 
