@@ -98,8 +98,8 @@
     <span class="or-status" id="outputStatus"></span>
   </div>
 
-  <!-- (the canvas expand-band is GONE — Arc 2b moved the canvas controls into the
-       output panel's control stack, #outStack) -->
+  <!-- (the canvas expand-band is GONE — the canvas controls live in the output
+       panel's persistent row + the #canvasPopover) -->
 
   <!-- preview stage: the kaleidoscope/source canvas, its status caption, the placeholder -->
   <div class="ms-stage" id="msStage">
@@ -117,61 +117,12 @@
          ratio set by the stage divider (output-dominant default), swap mirrors the sides
          (row-reverse). Built third-panel-ready: output-staged (Arc 5) joins as one more
          .stage-panel. The dynamic .slot-content wraps are mounted by arrangeSlots. -->
-    <!-- Arc 2b: each sibling panel owns a CONTROL STACK — form settings flank the
-         source, canvas settings flank the output (the right panel is gone). The
-         form picker is the form stack's HEADER (it decides which controls show).
-         Placement variations: default = flank (this order); ?panelctl=below moves
-         each stack beneath its panel (mountControlStacks). -->
+    <!-- Arc 2b resolution — PROGRESSIVE DISCLOSURE (Daniel, round 5): each panel
+         persists only its ESSENTIALS beneath the visual (source: scrubber + meta +
+         form picker + reset slice; output: frame aspect + reset canvas); the dense
+         controls live in a POPOVER opened by the sliders button beside the
+         selectors (#slicePopover / #canvasPopover at the end of <body>). -->
     <div class="stage-split" id="stageSplit" hidden>
-      <div class="ctl-stack ctl-src" id="srcStack">
-        <!-- form picker: the header of the form settings -->
-        <div class="form-row">
-          <div class="form-grid" id="formGrid"></div>
-        </div>
-        <!-- form / slice settings (rows show only when they apply to the form) -->
-        <div id="sliceGroup">
-          <h2 style="font-size: 11px; font-weight: 500; color: #888; text-transform: lowercase; letter-spacing: 0.08em; margin-bottom: 8px;">slice</h2>
-          <label class="slider" id="segmentsLabel" style="margin-bottom: 10px;">
-            <div class="row"><span>segments</span><span class="val scrub" id="segVal" data-key="segments">12</span></div>
-            <input type="range" id="segments" min="2" max="48" step="2" value="12">
-          </label>
-          <label class="slider" style="margin-bottom: 10px;">
-            <div class="row"><span>scale</span><span class="val scrub" id="scaleVal" data-key="sliceScale">1.00×</span></div>
-            <input type="range" id="scale" min="0.05" max="3" step="0.005" value="1">
-          </label>
-          <label class="slider" style="margin-bottom: 10px;">
-            <div class="row"><span>rotation</span><span class="val scrub" id="sliceRotVal" data-key="sliceRotation">0°</span></div>
-            <input type="range" id="sliceRot" min="0" max="360" step="0.5" value="0">
-          </label>
-          <label class="slider" id="aspectLabel" style="margin-bottom: 10px; display: none;">
-            <div class="row"><span>aspect</span><span class="val scrub" id="aspectVal" data-key="squareAspect">1.00</span></div>
-            <input type="range" id="aspect" min="0.25" max="4" step="0.01" value="1">
-          </label>
-          <label class="slider" id="zoomLabel" style="margin-bottom: 10px; display: none;">
-            <div class="row"><span>thickness</span><span class="val scrub" id="zoomVal" data-key="drosteZoom">2.00×</span></div>
-            <input type="range" id="zoom" min="1.1" max="16" step="0.05" value="2">
-          </label>
-          <label class="slider" id="spiralLabel" style="margin-bottom: 10px; display: none;">
-            <div class="row"><span>spiral</span><span class="val scrub" id="spiralVal" data-key="drosteSpiral">0</span></div>
-            <input type="range" id="spiral" min="0" max="6" step="0.001" value="0">
-          </label>
-          <label class="slider" id="mirrorLabel" style="margin-bottom: 10px; display: none;">
-            <div class="row"><span>tier mirror</span></div>
-            <div class="row-buttons" id="mirrorToggle">
-              <button class="toggle" data-mirror="0">off</button>
-              <button class="toggle active" data-mirror="1">on</button>
-            </div>
-          </label>
-          <label class="slider" id="wedgeMirrorLabel" style="margin-bottom: 10px; display: none;">
-            <div class="row"><span>wedge mirror</span></div>
-            <div class="row-buttons" id="wedgeMirrorToggle">
-              <button class="toggle" data-wedgemirror="0">off</button>
-              <button class="toggle active" data-wedgemirror="1">on</button>
-            </div>
-          </label>
-          <button type="button" id="sliceReset" class="reset" title="reset slice and form-specific controls to defaults">reset slice</button>
-        </div>
-      </div>
       <div class="stage-panel stage-src" id="srcPanel">
         <!-- still-mode frame picker for a VIDEO source: scrub to choose the frame to
              work with — deliberately no playback transport (Arc 2c). A mini TIMELINE
@@ -186,37 +137,32 @@
           <span>—</span>
           <span class="name">—</span>
         </div>
+        <!-- persistent source controls: the form picker (header of the form settings —
+             it decides which popover rows show), the slice-settings popover trigger,
+             and reset slice -->
+        <div class="panel-ctl" id="srcCtl">
+          <div class="form-row">
+            <div class="form-grid" id="formGrid"></div>
+            <button class="ot-btn panel-gear" id="sliceSettingsBtn" title="slice settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="4" y1="8" x2="20" y2="8"/><line x1="4" y1="16" x2="20" y2="16"/><circle cx="9" cy="8" r="2.4" fill="currentColor"/><circle cx="15" cy="16" r="2.4" fill="currentColor"/></svg></button>
+          </div>
+          <button type="button" id="sliceReset" class="reset" title="reset slice and form-specific controls to defaults">reset slice</button>
+        </div>
       </div>
       <div class="stage-divider" id="stageDivider" title="drag to resize the panels"></div>
-      <div class="stage-panel stage-out" id="outPanel"></div>
-      <div class="ctl-stack ctl-out" id="outStack">
-        <!-- canvas settings (composition-global, the output panel's parallel of the
-             form stack; relocated from the old #canvasRow band) -->
-        <div class="group">
-          <h2>canvas</h2>
-          <label class="slider">
-            <div class="row"><span>composition zoom</span><span class="val scrub" id="compZoomVal" data-key="canvasZoom">1.00×</span></div>
-            <input type="range" id="compZoom" min="0.15" max="4" step="0.01" value="1">
-          </label>
-          <label class="slider">
-            <div class="row"><span>rotation</span><span class="val scrub" id="canvasRotVal" data-key="canvasRotation">0°</span></div>
-            <input type="range" id="canvasRot" min="0" max="360" step="0.5" value="0">
-          </label>
-          <div class="field">
-            <div class="field-label">out of bounds</div>
-            <div class="button-grid-3" id="oobModes">
-              <button class="toggle" data-oob="0">clamp</button>
-              <button class="toggle active" data-oob="1">mirror</button>
-              <button class="toggle" data-oob="2">transparent</button>
+      <div class="stage-panel stage-out" id="outPanel">
+        <!-- persistent output controls: frame aspect (renamed from "frame"), the
+             canvas-settings popover trigger, and reset canvas -->
+        <div class="panel-ctl" id="outCtl">
+          <div class="panel-ctl-row">
+            <div class="field">
+              <div class="field-label">frame aspect</div>
+              <div class="button-grid-3" id="frameAspect">
+                <button class="toggle active" data-asp="1">1:1</button>
+                <button class="toggle" data-asp="0.8">4:5</button>
+                <button class="toggle" data-asp="1.7778">16:9</button>
+              </div>
             </div>
-          </div>
-          <div class="field">
-            <div class="field-label">frame</div>
-            <div class="button-grid-3" id="frameAspect">
-              <button class="toggle active" data-asp="1">1:1</button>
-              <button class="toggle" data-asp="0.8">4:5</button>
-              <button class="toggle" data-asp="1.7778">16:9</button>
-            </div>
+            <button class="ot-btn panel-gear" id="canvasSettingsBtn" title="canvas settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="4" y1="8" x2="20" y2="8"/><line x1="4" y1="16" x2="20" y2="16"/><circle cx="9" cy="8" r="2.4" fill="currentColor"/><circle cx="15" cy="16" r="2.4" fill="currentColor"/></svg></button>
           </div>
           <button type="button" id="canvasReset" class="reset" title="reset canvas controls to defaults">reset canvas</button>
         </div>
@@ -372,6 +318,77 @@
     <div class="status" id="diag"></div>
     <div class="status" id="diagOps"></div>
     <div class="version-badge" id="versionBadge"></div>
+  </div>
+</div>
+
+<!-- panel-settings popovers (progressive disclosure) — fixed-position, anchored to
+     their .panel-gear trigger at open time (wirePanelPopovers in main.js); body-level
+     so the panels' overflow clipping can't cut them off. Single column by design. -->
+<div class="panel-popover" id="slicePopover" hidden>
+  <!-- form / slice settings (rows show only when they apply to the form) -->
+  <div id="sliceGroup">
+    <h2 style="font-size: 11px; font-weight: 500; color: #888; text-transform: lowercase; letter-spacing: 0.08em; margin-bottom: 8px;">slice</h2>
+    <label class="slider" id="segmentsLabel" style="margin-bottom: 10px;">
+      <div class="row"><span>segments</span><span class="val scrub" id="segVal" data-key="segments">12</span></div>
+      <input type="range" id="segments" min="2" max="48" step="2" value="12">
+    </label>
+    <label class="slider" style="margin-bottom: 10px;">
+      <div class="row"><span>scale</span><span class="val scrub" id="scaleVal" data-key="sliceScale">1.00×</span></div>
+      <input type="range" id="scale" min="0.05" max="3" step="0.005" value="1">
+    </label>
+    <label class="slider" style="margin-bottom: 10px;">
+      <div class="row"><span>rotation</span><span class="val scrub" id="sliceRotVal" data-key="sliceRotation">0°</span></div>
+      <input type="range" id="sliceRot" min="0" max="360" step="0.5" value="0">
+    </label>
+    <label class="slider" id="aspectLabel" style="margin-bottom: 10px; display: none;">
+      <div class="row"><span>aspect</span><span class="val scrub" id="aspectVal" data-key="squareAspect">1.00</span></div>
+      <input type="range" id="aspect" min="0.25" max="4" step="0.01" value="1">
+    </label>
+    <label class="slider" id="zoomLabel" style="margin-bottom: 10px; display: none;">
+      <div class="row"><span>thickness</span><span class="val scrub" id="zoomVal" data-key="drosteZoom">2.00×</span></div>
+      <input type="range" id="zoom" min="1.1" max="16" step="0.05" value="2">
+    </label>
+    <label class="slider" id="spiralLabel" style="margin-bottom: 10px; display: none;">
+      <div class="row"><span>spiral</span><span class="val scrub" id="spiralVal" data-key="drosteSpiral">0</span></div>
+      <input type="range" id="spiral" min="0" max="6" step="0.001" value="0">
+    </label>
+    <label class="slider" id="mirrorLabel" style="margin-bottom: 10px; display: none;">
+      <div class="row"><span>tier mirror</span></div>
+      <div class="row-buttons" id="mirrorToggle">
+        <button class="toggle" data-mirror="0">off</button>
+        <button class="toggle active" data-mirror="1">on</button>
+      </div>
+    </label>
+    <label class="slider" id="wedgeMirrorLabel" style="margin-bottom: 10px; display: none;">
+      <div class="row"><span>wedge mirror</span></div>
+      <div class="row-buttons" id="wedgeMirrorToggle">
+        <button class="toggle" data-wedgemirror="0">off</button>
+        <button class="toggle active" data-wedgemirror="1">on</button>
+      </div>
+    </label>
+  </div>
+</div>
+<div class="panel-popover" id="canvasPopover" hidden>
+  <!-- canvas settings (composition-global; frame aspect + reset stay persistent
+       under the output panel) -->
+  <div class="group">
+    <h2>canvas</h2>
+    <label class="slider">
+      <div class="row"><span>composition zoom</span><span class="val scrub" id="compZoomVal" data-key="canvasZoom">1.00×</span></div>
+      <input type="range" id="compZoom" min="0.15" max="4" step="0.01" value="1">
+    </label>
+    <label class="slider">
+      <div class="row"><span>rotation</span><span class="val scrub" id="canvasRotVal" data-key="canvasRotation">0°</span></div>
+      <input type="range" id="canvasRot" min="0" max="360" step="0.5" value="0">
+    </label>
+    <div class="field">
+      <div class="field-label">out of bounds</div>
+      <div class="button-grid-3" id="oobModes">
+        <button class="toggle" data-oob="0">clamp</button>
+        <button class="toggle active" data-oob="1">mirror</button>
+        <button class="toggle" data-oob="2">transparent</button>
+      </div>
+    </div>
   </div>
 </div>
 

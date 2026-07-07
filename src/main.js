@@ -898,16 +898,41 @@ function wireBarBands() {
   }
 }
 
-// Arc 2b placement variations for the per-panel control stacks. Default = BELOW
-// (each stack inside its panel, beneath the content — Daniel's lean: settings under
-// the visuals). ?panelctl=flank keeps the static markup order (stacks as columns on
-// the outer edges) for the on-screen comparison. Pick one, delete the other.
-function mountControlStacks() {
-  const mode = new URLSearchParams(location.search).get('panelctl') || 'below';
-  if (mode === 'flank') return;   // static markup order IS the flank layout
-  stageSplit.classList.add('ctl-below');
-  srcPanel.appendChild(document.getElementById('srcStack'));
-  outPanel.appendChild(document.getElementById('outStack'));
+// Progressive disclosure (Daniel's round-5 direction; replaces the below/flank
+// placement variations): each panel persists its essentials, and the dense controls
+// open in a POPOVER anchored to the panel's .panel-gear trigger. One popover at a
+// time; re-click, outside pointerdown, or Escape closes. The popovers are fixed-
+// position at body level so the panels' overflow clipping can't cut them off.
+function wirePanelPopovers() {
+  const pairs = [
+    { btn: document.getElementById('sliceSettingsBtn'), pop: document.getElementById('slicePopover') },
+    { btn: document.getElementById('canvasSettingsBtn'), pop: document.getElementById('canvasPopover') },
+  ].filter((p) => p.btn && p.pop);
+  const closeAll = () => pairs.forEach(({ btn, pop }) => { pop.hidden = true; btn.classList.remove('open'); });
+  document.addEventListener('pointerdown', (e) => {
+    // drags that START inside a popover (sliders, scrub fields) never re-enter here
+    if (e.target.closest('.panel-popover') || e.target.closest('.panel-gear')) return;
+    closeAll();
+  });
+  window.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeAll(); });
+  for (const { btn, pop } of pairs) {
+    btn.addEventListener('click', () => {
+      const wasOpen = !pop.hidden;
+      closeAll();
+      if (wasOpen) return;
+      pop.hidden = false;
+      btn.classList.add('open');
+      // anchor ABOVE the trigger (it sits near the panel's bottom edge), centered on
+      // it, clamped to the viewport; measured after unhide so the dims are real.
+      const r = btn.getBoundingClientRect();
+      const pw = pop.offsetWidth, ph = pop.offsetHeight;
+      const left = Math.min(Math.max(8, r.left + r.width / 2 - pw / 2), window.innerWidth - pw - 8);
+      let top = r.top - ph - 8;
+      if (top < 8) top = Math.min(r.bottom + 8, window.innerHeight - ph - 8);
+      pop.style.left = Math.round(left) + 'px';
+      pop.style.top = Math.round(top) + 'px';
+    });
+  }
 }
 
 // Render the most recent live-output op records into the diagnostics sheet. Each
@@ -974,7 +999,7 @@ if (engine) {
   applyFormControls(env);
   wireControls();
   setupStageDivider(env);
-  mountControlStacks();
+  wirePanelPopovers();
   // claim multi-touch on the output preview too (pinch/twist), same reason as the
   // source surface — keep the browser from swallowing the gesture as a page zoom.
   previewCanvas.style.touchAction = 'none';
