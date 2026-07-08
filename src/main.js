@@ -1019,6 +1019,15 @@ if (engine) {
   // settles in one pass (motion toggles, then perform shuts down).
   createPerformRuntime(env);
 
+  // the visible mode picker: a dropdown proxying the hidden segmented buttons
+  // (which keep the ordered mode-switch wiring); updateMotionUI re-syncs the
+  // select afterward, so a refused switch snaps back
+  document.getElementById('modeSelect')?.addEventListener('change', (e) => {
+    const id = { still: 'stillBtn', motion: 'motionBtn', perform: 'performBtn' }[e.target.value];
+    document.getElementById(id)?.click();
+    env.updateMotionUI?.();
+  });
+
   // Stage layer: the engine-agnostic live-output bus + its first sink (record-to-
   // disk), wired through Fold's adapter. The bus renders one frame at the output
   // resolution and fans it to sinks; the output panel (toolbar button with a traffic-

@@ -951,6 +951,17 @@ function updateMotionUI() {
     pBtn.disabled = !(engine && engine.getSourceImage());
     pBtn.classList.toggle('active', performing);
   }
+  // the visible mode picker (a dropdown proxying the hidden buttons): current
+  // mode selected, unavailable modes disabled (re-synced here so a refused
+  // switch snaps the select back)
+  const sel = q('modeSelect');
+  if (sel) {
+    sel.value = performing ? 'perform' : env.motionRT.active ? 'motion' : 'still';
+    const optM = sel.querySelector('option[value="motion"]');
+    if (optM) optM.disabled = !available;
+    const optP = sel.querySelector('option[value="perform"]');
+    if (optP) optP.disabled = !(engine && engine.getSourceImage());
+  }
   // Mode-gated export surfaces (Arc 1): SAVE applies to stills, OUTPUT
   // (record/broadcast) to motion AND perform (broadcasting the live loop is the
   // point). Two deliberate exceptions keep output reachable in still mode: a

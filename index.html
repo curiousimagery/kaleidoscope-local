@@ -47,8 +47,15 @@
         <button class="ot-btn" id="flipBtn" title="switch front/rear camera">flip</button>
       </div>
     </div>
-    <!-- center: history -->
+    <!-- center: mode + history. The MODE PICKER is a dropdown showing the current
+         mode (Daniel: don't reveal all modes all the time); it proxies the hidden
+         segmented buttons below, which keep the ordered mode-switch wiring. -->
     <div class="ot-group ot-center">
+      <select class="ot-btn ot-select" id="modeSelect" title="mode">
+        <option value="still">still</option>
+        <option value="motion">motion</option>
+        <option value="perform">perform</option>
+      </select>
       <!-- fallback glyphs were ← / → -->
       <button class="ot-btn" id="undoBtn" disabled title="undo (⌘Z)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9h11a5 5 0 0 1 0 10H8"/><path d="M7 6 4 9l3 3"/></svg></button>
       <button class="ot-btn" id="redoBtn" disabled title="redo (⌘⇧Z)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 9H9a5 5 0 0 0 0 10h7"/><path d="M17 6l3 3-3 3"/></svg></button>
@@ -60,7 +67,9 @@
       <!-- still|motion mode selector (Arc 1) — radio semantics: the active segment is
            the current mode; save is still-only, output is motion-only (live camera +
            a running bus keep output reachable; see updateMotionUI) -->
-      <span class="ot-mode" role="group" aria-label="mode">
+      <!-- HIDDEN mode buttons — the wiring substrate the #modeSelect dropdown
+           proxies (motion-runtime + perform-runtime listeners run in order here) -->
+      <span class="ot-mode" role="group" aria-label="mode" hidden>
         <button class="ot-btn active" id="stillBtn" title="still mode">still</button>
         <button class="ot-btn" id="motionBtn" disabled title="motion mode">motion</button>
         <!-- perform (Arc 4): the live output eases toward your edits — its own mode

@@ -132,10 +132,10 @@ body { display: flex; flex-direction: column; height: 100vh; height: 100dvh; ove
   top: 6px;
   right: 6px;
   z-index: 7;
-  width: 32%;
-  min-width: 140px;
+  width: 24%;
+  min-width: 120px;
   border: 1px solid var(--border-strong);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-2xl);
   overflow: hidden;
   background: var(--c-black);
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.45);
@@ -156,8 +156,10 @@ body { display: flex; flex-direction: column; height: 100vh; height: 100dvh; ove
   text-transform: lowercase;
   pointer-events: none;
 }
+/* in-sync affordance: the dot shows ONLY while the live view chases (accent);
+   in sync = quiet (hidden — green competed with the broadcast-active green) */
 .lp-dot { width: 7px; height: 7px; border-radius: var(--radius-full); background: var(--accent); }
-.lp-dot.sync { background: var(--ok); }
+.lp-dot.sync { visibility: hidden; }
 /* perform footer: source transport (video loop play/pause + speed) + THE
    transition-speed control, together */
 .perform-footer {
@@ -643,6 +645,7 @@ button .btn-spinner {
 /* still|motion mode selector — two .ot-btn joined as a segmented pair; the active
    segment is the CURRENT MODE (radio semantics), not a pressed toggle. */
 .ot-mode { display: inline-flex; }
+.ot-mode[hidden] { display: none; }   /* the segmented trio is the #modeSelect dropdown's hidden wiring substrate */
 .ot-mode .ot-btn + .ot-btn { margin-left: -1px; }
 /* three segments now (still|motion|perform): inner edges square on BOTH sides,
    so the middle segment doesn't keep rounded corners */
