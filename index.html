@@ -171,12 +171,6 @@
              canvas-settings popover trigger. (reset canvas lives at the BOTTOM of
              the popover — Daniel demoted both resets.) -->
         <div class="panel-ctl" id="outCtl">
-          <!-- perform: THE transition-speed control (the follower's response; the
-               same primitive later drives the staged blend-in) -->
-          <label class="slider" id="performFollowRow" hidden>
-            <div class="row"><span>transition speed</span><span class="val" id="followVal">0.35s</span></div>
-            <input type="range" id="followSpeed" min="0" max="2" step="0.01" value="0.35">
-          </label>
           <div class="panel-ctl-row">
             <div class="field">
               <div class="field-label">frame aspect</div>
@@ -265,6 +259,26 @@
     <button id="kfDelete" class="danger" title="delete this keyframe (delete)">delete keyframe</button>
   </div>
   <input type="file" id="mfDataFile" accept="application/json,.json" style="display:none">
+</div>
+
+<!-- perform-mode contextual footer (Arc 4): the SOURCE TRANSPORT (a video source
+     plays as a loop while performing — play/pause + speed) together with THE
+     transition-speed control (Daniel: shimming it into canvas settings was
+     conceptually off; perform controls live together). Hidden unless perform. -->
+<div class="perform-footer" id="performFooter" hidden>
+  <button class="mf-btn" id="pfPlay" hidden title="play / pause the source video">pause</button>
+  <span class="mf-field" id="pfSpeed" hidden title="source playback speed">speed
+    <span class="mf-speed-btns">
+      <button class="mf-btn mf-toggle" data-pspd="0.5">50%</button>
+      <button class="mf-btn mf-toggle active" data-pspd="1">100%</button>
+      <button class="mf-btn mf-toggle" data-pspd="1.5">150%</button>
+      <button class="mf-btn mf-toggle" data-pspd="2">200%</button>
+    </span>
+  </span>
+  <label class="slider pf-follow" id="performFollowRow">
+    <div class="row"><span>transition speed</span><span class="val" id="followVal">0.35s</span></div>
+    <input type="range" id="followSpeed" min="0" max="2" step="0.01" value="0.35">
+  </label>
 </div>
 
 <!-- video export sheet (motion mode) -->

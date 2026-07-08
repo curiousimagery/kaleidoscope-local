@@ -158,9 +158,21 @@ body { display: flex; flex-direction: column; height: 100vh; height: 100dvh; ove
 }
 .lp-dot { width: 7px; height: 7px; border-radius: var(--radius-full); background: var(--accent); }
 .lp-dot.sync { background: var(--ok); }
-/* the perform transition-speed row sits with the output panel's persistent controls */
-#performFollowRow { width: 220px; }
-#performFollowRow[hidden] { display: none; }
+/* perform footer: source transport (video loop play/pause + speed) + THE
+   transition-speed control, together */
+.perform-footer {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 10px 16px;
+  padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px));
+  background: var(--surface);
+  border-top: 1px solid var(--border-subtle);
+}
+.perform-footer[hidden] { display: none; }
+.perform-footer #pfPlay { min-width: 84px; }
+.perform-footer .pf-follow { width: 260px; margin-left: auto; }
 
 /* source meta rides WITH the source panel — the one home for source info.
    order pins it BELOW the dynamically-mounted slot-content wrap; the still-mode

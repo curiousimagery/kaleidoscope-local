@@ -625,7 +625,10 @@ export function createSourceHost(env) {
     const wrap = document.getElementById('srcScrub');
     if (!wrap) return;
     const v = env.sourceVideo;
-    const show = !!v && !env.motionRT.active && !env.live.isLive && !env.live.frozen;
+    // hidden while a perform-mode video LOOP is running (the footer's transport
+    // owns playback); shows again when paused so a frame can be picked mid-set
+    const show = !!v && !env.motionRT.active && !env.live.isLive && !env.live.frozen
+      && !(env.performRT?.active && !v.paused);
     wrap.hidden = !show;
     if (show && isFinite(v.duration) && v.duration > 0) {
       const head = document.getElementById('srcScrubHead');

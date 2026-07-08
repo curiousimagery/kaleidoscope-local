@@ -62,6 +62,8 @@ export const session = {
                       // by default (the artwork is the show); the stage divider drags it.
   performResponse: 0.35,  // perform-mode transition speed (the follower's response, seconds):
                       // ~0 = instant, bigger = slower easing of the live output toward edits.
+  performVideoSpeed: 1,   // perform-mode source playback rate (a video source loops while
+                      // performing; presets 50–200%, separate from motion's retime).
 };
 
 // motion-mode authoring data (Phase 3 — multi-keyframe still-animation;

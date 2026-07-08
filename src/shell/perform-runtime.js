@@ -102,6 +102,37 @@ export function createPerformRuntime(env) {
     return pipLastSource === src;
   }
 
+  // ---- source transport (a video source LOOPS while performing) -------------
+  function startVideoLoop() {
+    const v = env.sourceVideo;
+    if (!v) return;
+    v.loop = true;
+    try { v.playbackRate = session.performVideoSpeed || 1; } catch { /* clamped */ }
+    v.play().catch(() => {});
+    syncTransportUI();
+    env.updateSrcScrub?.();
+  }
+  function toggleVideoPlayback() {
+    const v = env.sourceVideo;
+    if (!v) return;
+    if (v.paused) { v.loop = true; v.play().catch(() => {}); }
+    else v.pause();
+    syncTransportUI();
+    env.updateSrcScrub?.();   // the frame picker shows while paused (pick a frame mid-set)
+  }
+  function syncTransportUI() {
+    const v = env.sourceVideo;
+    const hasVideo = !!v && env.performRT.active;
+    const play = byId('pfPlay');
+    if (play) { play.hidden = !hasVideo; play.textContent = hasVideo && !v.paused ? 'pause' : 'play'; }
+    const sp = byId('pfSpeed');
+    if (sp) {
+      sp.hidden = !hasVideo;
+      sp.querySelectorAll('[data-pspd]').forEach((b) =>
+        b.classList.toggle('active', Math.abs(parseFloat(b.dataset.pspd) - (session.performVideoSpeed || 1)) < 1e-6));
+    }
+  }
+
   function updateSyncDot() {
     const synced = follower ? follower.isSettled() : true;
     if (synced === dotSynced) return;
@@ -120,6 +151,19 @@ export function createPerformRuntime(env) {
     lastT = t;
     // the working state IS the target: every input path (sliders, scrubs, wedge
     // drags, output gestures) feeds the follower with zero per-control wiring
+    // a PLAYING video source drives the stage each frame (the preview otherwise
+    // renders on demand): fresh frame → texture → render the target state.
+    // (the camera's own live loop already does this for live sources.)
+    const v = env.sourceVideo;
+    if (v && !v.paused && !v.seeking && env.engine?.getSourceImage?.()) {
+      env.engine.updateSourceFrame();
+      env.engine.render(state);
+      env.sourceOverlay.paintSourceVideo();
+      if (!env.performRT.videoWasPlaying) { env.performRT.videoWasPlaying = true; syncTransportUI(); }
+    } else if (env.performRT.videoWasPlaying) {
+      env.performRT.videoWasPlaying = false;
+      syncTransportUI();
+    }
     follower.setTarget(state);
     env.performRT.followed = follower.step(dt);
     if (pipEngine && syncPipSource()) {
@@ -173,8 +217,10 @@ export function createPerformRuntime(env) {
       trail = []; lastGhostT = 0; settleFadeT = 0;
       ensurePipEngine();
       if (!pipFailed) { const p = byId('livePip'); if (p) p.hidden = false; }
-      const row = byId('performFollowRow');
-      if (row) row.hidden = false;
+      const footer = byId('performFooter');
+      if (footer) footer.hidden = false;
+      startVideoLoop();                // a video source loops while performing
+      syncTransportUI();
       dotSynced = null;
       lastT = 0;
       raf = requestAnimationFrame(tick);
@@ -184,13 +230,18 @@ export function createPerformRuntime(env) {
       follower = null;
       if (raf) { cancelAnimationFrame(raf); raf = 0; }
       const p = byId('livePip'); if (p) p.hidden = true;
-      const row = byId('performFollowRow'); if (row) row.hidden = true;
+      const footer = byId('performFooter'); if (footer) footer.hidden = true;
+      // park a playing video (still-mode semantics: the frame picker owns frames)
+      if (env.sourceVideo && !env.sourceVideo.paused) { try { env.sourceVideo.pause(); } catch { /* ignore */ } }
+      env.scheduleRender?.();
       trail = []; settleFadeT = 0;
       if (env.sourceOverlay?.view) env.sourceOverlay.view.performGhosts = null;
       env.sourceOverlay?.scheduleDraw?.();   // wipe any lingering ghost strokes
     }
     env.updateMotionUI?.();   // one radio sync + export gating pass for all three modes
     env.updateSrcScrub?.();
+    // the footer changes the stage height — refit the panels + preview
+    requestAnimationFrame(() => env.arrangeSlots?.());
   }
   env.setPerform = setPerform;
 
@@ -215,4 +266,14 @@ export function createPerformRuntime(env) {
     applyResponse(parseFloat(speedInput.value));
     speedInput.addEventListener('input', () => applyResponse(parseFloat(speedInput.value) || 0));
   }
+
+  // source transport (video-loop play/pause + playback speed)
+  byId('pfPlay')?.addEventListener('click', toggleVideoPlayback);
+  byId('pfSpeed')?.querySelectorAll('[data-pspd]').forEach((b) =>
+    b.addEventListener('click', () => {
+      session.performVideoSpeed = parseFloat(b.dataset.pspd) || 1;
+      const v = env.sourceVideo;
+      if (v) { try { v.playbackRate = session.performVideoSpeed; } catch { /* clamped */ } }
+      syncTransportUI();
+    }));
 }
