@@ -127,8 +127,9 @@ export function createPerformRuntime(env) {
   function syncTransportUI() {
     const v = env.sourceVideo;
     const hasVideo = !!v && env.performRT.active;
+    // play keeps its motion-mode geography — disabled (not hidden) for non-video
     const play = byId('pfPlay');
-    if (play) { play.hidden = !hasVideo; play.textContent = hasVideo && !v.paused ? 'pause' : 'play'; }
+    if (play) { play.disabled = !hasVideo; play.textContent = hasVideo && !v.paused ? 'pause' : 'play'; }
     const sp = byId('pfSpeed');
     if (sp) {
       sp.hidden = !hasVideo;
@@ -138,6 +139,30 @@ export function createPerformRuntime(env) {
     byId('pfHold')?.classList.toggle('active', !!env.performRT.hold);
     const take = byId('pfTake');
     if (take) take.disabled = !env.performRT.hold;
+    // center: a live camera shows icon + device name where the timeline would go
+    const liveLabel = byId('pfLiveLabel');
+    if (liveLabel) {
+      const isLive = !!env.live?.isLive && env.performRT.active;
+      liveLabel.hidden = !isLive;
+      if (isLive) {
+        const sel = document.getElementById('cameraSelect');
+        const name = sel?.selectedOptions?.[0]?.textContent;
+        byId('pfLiveName').textContent = name || 'live camera';
+      }
+    }
+  }
+
+  // the source timeline (#srcScrub) lives in the SOURCE PANEL in still mode and
+  // re-parents into the footer center in perform (full-size playback timeline);
+  // CSS `order` places it correctly in the panel regardless of DOM position
+  function placeSrcScrub(inFooter) {
+    const scrub = byId('srcScrub');
+    if (!scrub) return;
+    const home = inFooter ? byId('pfCenter') : byId('srcPanel');
+    if (home && scrub.parentElement !== home) {
+      home.appendChild(scrub);
+      requestAnimationFrame(() => env.buildSrcStrip?.());   // re-render thumbs at the new width
+    }
   }
 
   // normalized live-vs-stage distance (the in-sync read). Measured directly
@@ -192,6 +217,11 @@ export function createPerformRuntime(env) {
       env.engine.updateSourceFrame();
       env.engine.render(state);
       env.sourceOverlay.paintSourceVideo();
+      // the footer timeline's playhead rides the loop
+      if (isFinite(v.duration) && v.duration > 0) {
+        const head = byId('srcScrubHead');
+        if (head) head.style.left = ((v.currentTime / v.duration) * 100) + '%';
+      }
       if (!env.performRT.videoWasPlaying) { env.performRT.videoWasPlaying = true; syncTransportUI(); }
     } else if (env.performRT.videoWasPlaying) {
       env.performRT.videoWasPlaying = false;
@@ -262,6 +292,7 @@ export function createPerformRuntime(env) {
       const sl = byId('stageLabel'); if (sl) sl.hidden = false;
       const footer = byId('performFooter');
       if (footer) footer.hidden = false;
+      placeSrcScrub(true);             // the video timeline moves into the footer center
       startVideoLoop();                // a video source loops while performing
       syncTransportUI();
       dotSynced = null;
@@ -276,6 +307,7 @@ export function createPerformRuntime(env) {
       const p = byId('livePip'); if (p) p.hidden = true;
       const sl = byId('stageLabel'); if (sl) sl.hidden = true;
       const footer = byId('performFooter'); if (footer) footer.hidden = true;
+      placeSrcScrub(false);            // the timeline returns to the source panel
       // park a playing video (still-mode semantics: the frame picker owns frames)
       if (env.sourceVideo && !env.sourceVideo.paused) { try { env.sourceVideo.pause(); } catch { /* ignore */ } }
       env.scheduleRender?.();

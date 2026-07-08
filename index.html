@@ -276,30 +276,39 @@
      plays as a loop while performing — play/pause + speed) together with THE
      transition-speed control (Daniel: shimming it into canvas settings was
      conceptually off; perform controls live together). Hidden unless perform. -->
+<!-- perform footer, Daniel's directive layout (motion-mode ergonomics — controls in
+     the SAME physical places): LEFT = [stage wide] / [take|cut] / [play wide, same
+     size+placement as motion's]; CENTER = the source timeline (a video's #srcScrub
+     is RE-PARENTED here full-size; live camera shows icon + name; still's
+     current→staged tween strip is a spec'd follow-up); RIGHT = transition speed ·
+     playback speed · (the future PiP/three-panel layout selector). -->
 <div class="perform-footer" id="performFooter" hidden>
-  <!-- staged-transition transport (Arc 5 core): HOLD freezes the live output so
-       the stage edits off-air; TAKE blends live → stage at the transition speed
-       (the shared primitive); CUT snaps instantly. take is hold-only; cut always
-       works (it also skips an in-flight ease). -->
-  <span class="pf-transport">
-    <button class="mf-btn mf-toggle" id="pfHold" title="stage — freeze the live output and build what's up next off-air (S / space)">stage</button>
+  <div class="pf-left">
+    <button class="mf-btn mf-toggle pf-wide" id="pfHold" title="stage — freeze the live output and build what's up next off-air (S / space)">stage</button>
     <button class="mf-btn mf-add" id="pfTake" disabled title="take — blend the live output to the staged look at the transition speed (T / space)">take</button>
     <button class="mf-btn" id="pfCut" title="cut — snap the live output to the staged look instantly">cut</button>
-  </span>
-  <span class="mf-sep pf-sep"></span>
-  <button class="mf-btn" id="pfPlay" hidden title="play / pause the source video">pause</button>
-  <span class="mf-field" id="pfSpeed" hidden title="source playback speed">speed
-    <span class="mf-speed-btns">
-      <button class="mf-btn mf-toggle" data-pspd="0.5">50%</button>
-      <button class="mf-btn mf-toggle active" data-pspd="1">100%</button>
-      <button class="mf-btn mf-toggle" data-pspd="1.5">150%</button>
-      <button class="mf-btn mf-toggle" data-pspd="2">200%</button>
+    <button class="mf-btn pf-wide" id="pfPlay" disabled title="play / pause the source video">play</button>
+  </div>
+  <div class="pf-center" id="pfCenter">
+    <span class="pf-live-label" id="pfLiveLabel" hidden>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="13" height="12" rx="2"/><path d="M15 10.5 22 7v10l-7-3.5"/></svg>
+      <span id="pfLiveName">live camera</span>
     </span>
-  </span>
-  <label class="slider pf-follow" id="performFollowRow">
-    <div class="row"><span>transition speed</span><span class="val" id="followVal">0.35s</span></div>
-    <input type="range" id="followSpeed" min="0" max="2" step="0.01" value="0.35">
-  </label>
+  </div>
+  <div class="pf-right">
+    <label class="slider pf-follow" id="performFollowRow">
+      <div class="row"><span>transition speed</span><span class="val" id="followVal">0.35s</span></div>
+      <input type="range" id="followSpeed" min="0" max="2" step="0.01" value="0.35">
+    </label>
+    <span class="mf-field" id="pfSpeed" hidden title="source playback speed">speed
+      <span class="mf-speed-btns">
+        <button class="mf-btn mf-toggle" data-pspd="0.5">50%</button>
+        <button class="mf-btn mf-toggle active" data-pspd="1">100%</button>
+        <button class="mf-btn mf-toggle" data-pspd="1.5">150%</button>
+        <button class="mf-btn mf-toggle" data-pspd="2">200%</button>
+      </span>
+    </span>
+  </div>
 </div>
 
 <!-- video export sheet (motion mode) -->

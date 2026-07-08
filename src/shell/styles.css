@@ -176,23 +176,37 @@ body { display: flex; flex-direction: column; height: 100vh; height: 100dvh; ove
   pointer-events: none;
 }
 .stage-label[hidden] { display: none; }
-/* perform footer: source transport (video loop play/pause + speed) + THE
-   transition-speed control, together */
+/* perform footer — Daniel's directive layout: left transport in motion-mode
+   geography, center source timeline, right speed controls */
 .perform-footer {
   flex-shrink: 0;
   display: flex;
-  align-items: center;
-  gap: 16px;
-  padding: 10px 16px;
-  padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px));
+  align-items: stretch;
+  gap: 12px;
+  height: min(168px, 26vh);
+  padding: 12px 16px;
+  padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
   background: var(--surface);
   border-top: 1px solid var(--border-subtle);
 }
 .perform-footer[hidden] { display: none; }
-.perform-footer .pf-transport { display: inline-flex; gap: 6px; }
-.perform-footer .pf-sep { width: 1px; align-self: stretch; background: var(--border); }
-.perform-footer #pfPlay { min-width: 84px; }
-.perform-footer .pf-follow { width: 260px; margin-left: auto; }
+.pf-left {
+  flex: 0 0 auto;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(84px, 1fr));
+  gap: 6px;
+  align-content: center;
+}
+.pf-left .mf-btn { height: 42px; }
+.pf-left .pf-wide { grid-column: 1 / -1; }
+.pf-center { flex: 1; min-width: 0; display: flex; align-items: center; justify-content: center; }
+/* the video source's timeline (#srcScrub) is re-parented here in perform — full width, taller */
+.pf-center .src-scrub { flex: 1; height: 100%; max-height: 110px; margin: 0; }
+.pf-live-label { display: inline-flex; align-items: center; gap: 8px; color: var(--text-dim); font-size: var(--text-md); }
+.pf-live-label svg { width: 20px; height: 20px; }
+.pf-live-label[hidden] { display: none; }
+.pf-right { flex: 0 0 auto; width: 240px; display: flex; flex-direction: column; justify-content: center; gap: 12px; }
+.pf-right .pf-follow { width: 100%; }
 
 /* source meta rides WITH the source panel — the one home for source info.
    order pins it BELOW the dynamically-mounted slot-content wrap; the still-mode
