@@ -59,6 +59,7 @@ body { display: flex; flex-direction: column; height: 100vh; height: 100dvh; ove
   flex-direction: column;
   overflow: hidden;   /* a mis-sized preview must never paint over the toolbar / controls */
 }
+.stage-panel[hidden] { display: none; }   /* [hidden] must beat the display:flex above (live panel) */
 .stage-src { flex: 0 0 var(--stage-src-pct, 32%); }
 /* the stage divider shares the grippy vocabulary of the panel divider — but with a
    WIDER visible grippy (Daniel: touch felt finicky; the pre-rework divider read wider) */
@@ -176,6 +177,73 @@ body { display: flex; flex-direction: column; height: 100vh; height: 100dvh; ove
   pointer-events: none;
 }
 .stage-label[hidden] { display: none; }
+/* three-panel layout (Arc 5): the live view as a real third sibling panel.
+   #livePip re-parents into .live-wrap and takes .docked — the overlay chrome
+   (border, shadow, fixed width) comes off and the canvas aspect-fits the wrap
+   (sizePip sets its px dims each tick). */
+.stage-live { flex: 0 0 var(--stage-live-pct, 32%); }
+.stage-live .live-wrap {
+  position: relative;
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.live-pip.docked {
+  position: relative;
+  top: 0;
+  right: 0;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.live-pip.docked canvas { width: auto; background: var(--c-black); }
+.live-pip.docked .lp-label { top: 8px; left: 10px; }   /* the stage label's geometry */
+/* hover affordance on the PiP: dock the live view out as a panel */
+.lp-dock {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  z-index: 8;
+  width: 24px;
+  height: 24px;
+  padding: 4px;
+  border: none;
+  border-radius: var(--radius-2xs);
+  background: rgba(0, 0, 0, 0.55);
+  color: var(--text-bright);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.lp-dock svg { width: 100%; height: 100%; }
+.live-pip:hover .lp-dock { display: inline-flex; }
+.live-pip.docked .lp-dock { display: none; }
+/* the too-small-to-be-a-panel hint (shown mid-drag under ~300px; release auto-docks) */
+.live-small-hint {
+  position: absolute;
+  inset: 0;
+  z-index: 8;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 12px;
+  font-size: var(--text-xs);
+  color: var(--text-bright);
+  background: rgba(0, 0, 0, 0.55);
+  pointer-events: none;
+}
+.live-small-hint[hidden] { display: none; }
 /* perform footer — Daniel's directive layout: left transport in motion-mode
    geography, center source timeline, right speed controls */
 .perform-footer {

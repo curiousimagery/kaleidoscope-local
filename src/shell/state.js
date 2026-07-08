@@ -64,6 +64,10 @@ export const session = {
                       // ~0 = instant, bigger = slower easing of the live output toward edits.
   performVideoSpeed: 1,   // perform-mode source playback rate (a video source loops while
                       // performing; presets 50–200%, separate from motion's retime).
+  performLayout: 'pip',   // where the LIVE view lives in perform: 'pip' (docked over the
+                      // stage — the practical default) or 'three' (a third sibling panel).
+  stageLivePct: 32,   // the live panel's share of the stage split in the three-panel
+                      // layout (percent; the live divider drags it).
 };
 
 // motion-mode authoring data (Phase 3 — multi-keyframe still-animation;

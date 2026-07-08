@@ -177,6 +177,9 @@
         <div class="live-pip" id="livePip" hidden>
           <canvas id="livePipCanvas"></canvas>
           <span class="lp-label"><i class="lp-dot" id="lpDot"></i>live</span>
+          <!-- hover affordance: dock the live view out as a THIRD PANEL (one of the
+               three ways in — this button, the footer view selector, the far grippy) -->
+          <button class="lp-dock" id="pipDockBtn" title="dock the live view as a panel"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="2.5" y="5" width="11.5" height="14" rx="1.5"/><rect x="17" y="5" width="4.5" height="14" rx="1.5"/></svg></button>
         </div>
         <!-- persistent output controls: frame aspect (renamed from "frame") + the
              canvas-settings popover trigger. (reset canvas lives at the BOTTOM of
@@ -199,6 +202,15 @@
             <button class="ot-btn panel-gear" id="canvasSettingsBtn" title="canvas settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="4" y1="8" x2="20" y2="8"/><line x1="4" y1="16" x2="20" y2="16"/><circle cx="9" cy="8" r="2.4" fill="currentColor"/><circle cx="15" cy="16" r="2.4" fill="currentColor"/></svg></button>
           </div>
         </div>
+      </div>
+      <!-- perform, three-panel layout (Arc 5): the LIVE view as a real third sibling.
+           #livePip re-parents into #liveWrap (class 'docked') when the layout is
+           'three'; the divider shows in BOTH perform layouts — in PiP it sits at the
+           far edge, and pulling it out reopens the panel (Daniel's grippy way back). -->
+      <div class="stage-divider stage-divider-live" id="liveDivider" title="drag to resize the live panel" hidden></div>
+      <div class="stage-panel stage-live" id="livePanel" hidden>
+        <div class="live-wrap" id="liveWrap"></div>
+        <div class="live-small-hint" id="liveSmallHint" hidden>release to move live to the PiP overlay</div>
       </div>
     </div>
   </div>
@@ -318,6 +330,14 @@
         <button class="mf-btn mf-toggle active" data-pspd="1">100%</button>
         <button class="mf-btn mf-toggle" data-pspd="1.5">150%</button>
         <button class="mf-btn mf-toggle" data-pspd="2">200%</button>
+      </span>
+    </span>
+    <!-- the live-view layout selector (Daniel's spec'd lower-right control):
+         PiP overlay over the stage, or a third sibling panel -->
+    <span class="mf-field" id="pfLayout" title="where the live view lives">view
+      <span class="mf-speed-btns">
+        <button class="mf-btn mf-toggle active" data-playout="pip" title="live view as a PiP overlay">pip</button>
+        <button class="mf-btn mf-toggle" data-playout="three" title="live view as a third panel">panel</button>
       </span>
     </span>
   </div>

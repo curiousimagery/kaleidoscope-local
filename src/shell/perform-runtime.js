@@ -74,20 +74,65 @@ export function createPerformRuntime(env) {
   function sizePip() {
     const canvas = byId('livePipCanvas');
     if (!canvas) return;
-    const w = canvas.clientWidth;
-    if (w < 8) return;
+    const docked = byId('livePip')?.classList.contains('docked');
     const a = session.frameAspect || 1;
-    const h = Math.max(40, Math.round(w / a));
-    if (canvas.style.height !== h + 'px') canvas.style.height = h + 'px';
+    let w, h;
+    if (docked) {
+      // three-panel layout: fit the frame aspect inside the live panel's wrap
+      // (both dimensions constrain — the panel can be shorter than wide)
+      const wrap = byId('liveWrap');
+      const cw = (wrap?.clientWidth || 0) - 16, ch = (wrap?.clientHeight || 0) - 16;
+      if (cw < 8 || ch < 8) return;
+      if (cw / ch >= a) { h = ch; w = h * a; } else { w = cw; h = w / a; }
+      const ws = Math.round(w) + 'px';
+      if (canvas.style.width !== ws) canvas.style.width = ws;
+    } else {
+      w = canvas.clientWidth;
+      if (w < 8) return;
+      h = Math.max(40, Math.round(w / a));
+      if (canvas.style.width) canvas.style.width = '';   // the PiP is CSS-sized (width 100%)
+    }
+    const hs = Math.round(h) + 'px';
+    if (canvas.style.height !== hs) canvas.style.height = hs;
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
     let tw = Math.round(w * dpr), th = Math.round(h * dpr);
     const mx = Math.max(tw, th);
-    if (mx > 960) { const s = 960 / mx; tw = Math.round(tw * s); th = Math.round(th * s); }
+    const cap = docked ? 1600 : 960;   // the docked panel is a big view — let it stay crisp
+    if (mx > cap) { const s = cap / mx; tw = Math.round(tw * s); th = Math.round(th * s); }
     if (Math.abs(canvas.width - tw) > 8 || Math.abs(canvas.height - th) > 8) {
       canvas.width = tw;
       canvas.height = th;
     }
   }
+
+  // ---- the live-view layout (Arc 5): PiP overlay ↔ third sibling panel -------
+  // #livePip re-parents between the stage panel (absolute overlay) and the live
+  // panel's wrap (docked, aspect-fit) — the canvas keeps its GL context across
+  // the move (the srcScrub re-parenting pattern). The live DIVIDER shows in BOTH
+  // layouts while performing: in PiP it sits at the far edge, and pulling it out
+  // reopens the panel (Daniel's grippy way back, beside the PiP button + the
+  // footer selector).
+  function applyLayout() {
+    const pip = byId('livePip'), panel = byId('livePanel'),
+          div = byId('liveDivider'), wrap = byId('liveWrap');
+    if (!pip || !panel) return;
+    const on = env.performRT.active && !pipFailed;
+    const three = on && session.performLayout === 'three';
+    if (three && wrap && pip.parentElement !== wrap) wrap.appendChild(pip);
+    else if (!three && pip.parentElement !== byId('outPanel')) byId('outPanel').appendChild(pip);
+    pip.classList.toggle('docked', three);
+    pip.hidden = !on;
+    panel.hidden = !three;
+    if (div) div.hidden = !on;
+    byId('pfLayout')?.querySelectorAll('[data-playout]').forEach((b) =>
+      b.classList.toggle('active', b.dataset.playout === (session.performLayout || 'pip')));
+    requestAnimationFrame(() => env.arrangeSlots?.());
+  }
+  function setLayout(l) {
+    session.performLayout = l;
+    applyLayout();
+  }
+  env.setPerformLayout = setLayout;
 
   // output-engine's source-sync rules, applied to the PiP engine
   function syncPipSource() {
@@ -366,7 +411,7 @@ export function createPerformRuntime(env) {
       env.performRT.hold = false;
       trail = []; lastGhostT = 0; settleFadeT = 0;
       ensurePipEngine();
-      if (!pipFailed) { const p = byId('livePip'); if (p) p.hidden = false; }
+      applyLayout();   // shows the live view per session.performLayout (pip / three-panel)
       const sl = byId('stageLabel'); if (sl) sl.hidden = false;
       const footer = byId('performFooter');
       if (footer) footer.hidden = false;
@@ -384,7 +429,7 @@ export function createPerformRuntime(env) {
       env.performRT.hold = false;
       follower = null;
       if (raf) { cancelAnimationFrame(raf); raf = 0; }
-      const p = byId('livePip'); if (p) p.hidden = true;
+      applyLayout();   // hides the live view, panel + divider; re-homes the PiP
       const sl = byId('stageLabel'); if (sl) sl.hidden = true;
       const footer = byId('performFooter'); if (footer) footer.hidden = true;
       placeSrcScrub(false);            // the timeline returns to the source panel
@@ -478,6 +523,14 @@ export function createPerformRuntime(env) {
       syncTransportUI();
       renderPfRuler();   // effective duration changed
     }));
+
+  // the live-view layout: the footer selector + the hover dock button on the PiP
+  byId('pfLayout')?.querySelectorAll('[data-playout]').forEach((b) =>
+    b.addEventListener('click', () => setLayout(b.dataset.playout)));
+  byId('pipDockBtn')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    setLayout('three');
+  });
 
   // clicked footer buttons release focus, so space/S/T always reach the perform
   // keys (a focused button ate space; a focused select did native type-ahead)

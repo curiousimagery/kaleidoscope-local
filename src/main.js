@@ -22,6 +22,7 @@ import {
   buildFormGrid,
   applyFormControls,
   setupStageDivider,
+  setupLiveDivider,
   makeControlsSync,
 } from './shell/controls.js';
 import { PARAMS, DECLARATIVE_PARAM_IDS } from './shell/params.js';
@@ -329,6 +330,7 @@ function arrangeSlots() {
   stageSplit.hidden = false;
   stageSplit.classList.toggle('swapped', session.isSwapped);
   stageSplit.style.setProperty('--stage-src-pct', (session.stageSrcPct || 32) + '%');
+  stageSplit.style.setProperty('--stage-live-pct', (session.stageLivePct || 32) + '%');
 
   // Both content wraps use flex-basis 0 (not auto): their size is the free space the
   // flex layout hands them AFTER the scrubber/meta/control rows take theirs — so
@@ -1059,6 +1061,7 @@ if (engine) {
   applyFormControls(env);
   wireControls();
   setupStageDivider(env);
+  setupLiveDivider(env);
   wirePanelPopovers();
   // claim multi-touch on the output preview too (pinch/twist), same reason as the
   // source surface — keep the browser from swallowing the gesture as a page zoom.

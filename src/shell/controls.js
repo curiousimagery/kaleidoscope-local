@@ -448,3 +448,108 @@ export function setupStageDivider(env) {
   window.addEventListener('touchmove', e => { if (dragging) { moveDrag(e.touches[0].clientX); e.preventDefault(); } }, { passive: false });
   window.addEventListener('touchend', endDrag);
 }
+
+// The LIVE divider (perform, Arc 5): sizes the third (live) panel in the
+// three-panel layout via --stage-live-pct / session.stageLivePct. It shows in
+// BOTH perform layouts — in PiP it sits at the far edge, and pulling it out
+// OPENS the three-panel view (Daniel's grippy way back). Dragging the panel
+// below ~300px shows a hint and AUTO-DOCKS back to the PiP on release. Mirrors
+// setupStageDivider's mechanics (rAF-coalesced, skeleton stand-in for the
+// pixel-sized preview).
+export function setupLiveDivider(env) {
+  const divider = document.getElementById('liveDivider');
+  const split = document.getElementById('stageSplit');
+  const panel = document.getElementById('livePanel');
+  const hint = document.getElementById('liveSmallHint');
+  if (!divider || !split || !panel) return;
+  const DOCK_PX = 300;   // narrower than this is unusable as a panel — back to the PiP
+  let dragging = false, startX = 0, startPct = 32, splitW = 1, dir = -1;
+  let skel = null;
+
+  function sizeSkeleton() {
+    if (!skel) return;
+    const p = document.getElementById('outPanel')?.querySelector('.slot-content');
+    if (!p) return;
+    const cw = p.clientWidth - 16, ch = p.clientHeight - 16;
+    const a = env.session.frameAspect || 1;
+    let w, h;
+    if (cw / ch >= a) { h = Math.max(160, ch); w = h * a; }
+    else { w = Math.max(160, cw); h = w / a; }
+    skel.style.width = Math.round(w) + 'px';
+    skel.style.height = Math.round(h) + 'px';
+  }
+
+  let pendingPct = null, rafQueued = false;
+  function applyPending() {
+    rafQueued = false;
+    if (pendingPct != null) {
+      split.style.setProperty('--stage-live-pct', pendingPct + '%');
+      pendingPct = null;
+      sizeSkeleton();
+      if (hint) hint.hidden = panel.clientWidth >= DOCK_PX;
+    }
+  }
+
+  function startDrag(clientX) {
+    dragging = true;
+    startX = clientX;
+    splitW = split.clientWidth || 1;
+    // the live panel sits on the FAR side: dragging toward the center grows it
+    dir = env.session.isSwapped ? 1 : -1;
+    if ((env.session.performLayout || 'pip') !== 'three') {
+      // the far-edge grippy in PiP layout: pulling it out opens the panel from zero
+      env.session.stageLivePct = 2;
+      split.style.setProperty('--stage-live-pct', '2%');   // before the panel shows (no 32% flash)
+      env.setPerformLayout?.('three');
+    }
+    startPct = env.session.stageLivePct || 32;
+    divider.classList.add('dragging');
+    document.body.classList.add('resizing-divider');
+    env.previewCanvas.style.display = 'none';
+    const wrap = env.previewCanvas.parentElement;
+    if (wrap) {
+      skel = document.createElement('div');
+      skel.className = 'canvas-skeleton';
+      wrap.appendChild(skel);
+      sizeSkeleton();
+    }
+    document.body.style.cursor = 'col-resize';
+  }
+
+  function moveDrag(clientX) {
+    if (!dragging) return;
+    const dPct = ((clientX - startX) / splitW) * 100 * dir;
+    const pct = Math.round(Math.max(2, Math.min(60, startPct + dPct)) * 10) / 10;
+    env.session.stageLivePct = pct;
+    pendingPct = pct;
+    if (!rafQueued) { rafQueued = true; requestAnimationFrame(applyPending); }
+  }
+
+  function endDrag() {
+    if (!dragging) return;
+    dragging = false;
+    divider.classList.remove('dragging');
+    document.body.classList.remove('resizing-divider');
+    if (skel) { skel.remove(); skel = null; }
+    env.previewCanvas.style.display = 'block';
+    document.body.style.cursor = '';
+    if (hint) hint.hidden = true;
+    if (panel.clientWidth < DOCK_PX) {
+      // released unusably small — auto-dock to the PiP; the pct resets so the
+      // next open lands at a usable size
+      env.session.stageLivePct = 32;
+      split.style.setProperty('--stage-live-pct', '32%');
+      env.setPerformLayout?.('pip');
+    } else {
+      requestAnimationFrame(() => env.arrangeSlots());
+    }
+  }
+
+  divider.addEventListener('mousedown', e => { startDrag(e.clientX); e.preventDefault(); });
+  window.addEventListener('mousemove', e => moveDrag(e.clientX));
+  window.addEventListener('mouseup', endDrag);
+
+  divider.addEventListener('touchstart', e => { startDrag(e.touches[0].clientX); e.preventDefault(); }, { passive: false });
+  window.addEventListener('touchmove', e => { if (dragging) { moveDrag(e.touches[0].clientX); e.preventDefault(); } }, { passive: false });
+  window.addEventListener('touchend', endDrag);
+}
