@@ -156,10 +156,26 @@ body { display: flex; flex-direction: column; height: 100vh; height: 100dvh; ove
   text-transform: lowercase;
   pointer-events: none;
 }
-/* in-sync affordance: the dot shows ONLY while the live view chases (accent);
-   in sync = quiet (hidden — green competed with the broadcast-active green) */
+/* in-sync affordance (Daniel's clarified spec): accent while the live view
+   chases / a staged look differs; in sync + BROADCASTING = green (the honest
+   "what's out is what you see"); in sync without a broadcast = quiet (hidden). */
 .lp-dot { width: 7px; height: 7px; border-radius: var(--radius-full); background: var(--accent); }
 .lp-dot.sync { visibility: hidden; }
+.lp-dot.sync.live { visibility: visible; background: var(--ok); }
+/* the stage panel's counterpart label ("staged" vs the PiP's "live") */
+.stage-label {
+  position: absolute;
+  top: 8px;
+  left: 10px;
+  z-index: 6;
+  font-size: var(--text-xs);
+  color: var(--text-bright);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+  letter-spacing: 0.06em;
+  text-transform: lowercase;
+  pointer-events: none;
+}
+.stage-label[hidden] { display: none; }
 /* perform footer: source transport (video loop play/pause + speed) + THE
    transition-speed control, together */
 .perform-footer {
@@ -671,6 +687,12 @@ button .btn-spinner {
   max-width: 160px;
   box-sizing: border-box;
   text-overflow: ellipsis;
+  /* a down caret — appearance:none strips the native one, and a dropdown should
+     read as having options within (Daniel's nit on the mode picker) */
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%23888' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 9px center;
+  padding-right: 26px;
 }
 .ot-select[hidden] { display: none; }
 /* touch: larger hit targets, and the form picker matches the toolbar buttons. */

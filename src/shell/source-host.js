@@ -326,10 +326,11 @@ export function createSourceHost(env) {
     // The glyph carries the state color; the text stays the button's normal color.
     const shutter = document.getElementById('shutterBtn');
     if (shutter) {
+      // "live", not "record" — record is reserved for recording to disk (output)
       shutter.innerHTML = env.live.frozen
-        ? '<svg viewBox="0 0 12 12" aria-hidden="true"><circle cx="6" cy="6" r="5" fill="var(--danger)"/></svg>record'
+        ? '<svg viewBox="0 0 12 12" aria-hidden="true"><circle cx="6" cy="6" r="5" fill="var(--danger)"/></svg>live'
         : '<svg viewBox="0 0 12 12" aria-hidden="true"><rect x="2" y="1.5" width="3" height="9" rx="1" fill="currentColor"/><rect x="7" y="1.5" width="3" height="9" rx="1" fill="currentColor"/></svg>pause';
-      shutter.title = env.live.frozen ? 'record — go live again' : 'pause — freeze the frame';
+      shutter.title = env.live.frozen ? 'live — resume the camera' : 'pause — freeze the frame';
     }
     // flip button labels the camera it switches TO; nothing to flip while frozen.
     const flip = document.getElementById('flipBtn');

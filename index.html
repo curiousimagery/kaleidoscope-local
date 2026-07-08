@@ -168,6 +168,8 @@
       </div>
       <div class="stage-divider" id="stageDivider" title="drag to resize the panels"></div>
       <div class="stage-panel stage-out" id="outPanel">
+        <!-- perform: the main panel is the STAGE ("staged", vs the PiP's "live") -->
+        <span class="stage-label" id="stageLabel" hidden>staged</span>
         <!-- perform mode (Arc 4): the LIVE PiP — what the audience currently sees
              (the follower's output), docked over the preview. The main panel below
              it becomes the STAGE for what's up next (it renders your edits
@@ -280,9 +282,9 @@
        (the shared primitive); CUT snaps instantly. take is hold-only; cut always
        works (it also skips an in-flight ease). -->
   <span class="pf-transport">
-    <button class="mf-btn mf-toggle" id="pfHold" title="hold — freeze the live output and edit what's up next off-air">hold</button>
-    <button class="mf-btn mf-add" id="pfTake" disabled title="take — blend the live output to the stage at the transition speed">take</button>
-    <button class="mf-btn" id="pfCut" title="cut — snap the live output to the stage instantly">cut</button>
+    <button class="mf-btn mf-toggle" id="pfHold" title="stage — freeze the live output and build what's up next off-air (S / space)">stage</button>
+    <button class="mf-btn mf-add" id="pfTake" disabled title="take — blend the live output to the staged look at the transition speed (T / space)">take</button>
+    <button class="mf-btn" id="pfCut" title="cut — snap the live output to the staged look instantly">cut</button>
   </span>
   <span class="mf-sep pf-sep"></span>
   <button class="mf-btn" id="pfPlay" hidden title="play / pause the source video">pause</button>

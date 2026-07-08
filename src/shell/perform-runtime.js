@@ -43,7 +43,7 @@ export function createPerformRuntime(env) {
   // graded oldest-faint → newest-strong, and the entire trail fades out over
   // ~450ms once the live output catches up. (Round 1 aged samples out after
   // 900ms, which truncated long chases to the last stretch — Daniel's note.)
-  const GHOST_EVERY_MS = 80, GHOST_MAX = 28, GHOST_FADE_MS = 450, GHOST_MAX_A = 0.32;
+  const GHOST_EVERY_MS = 80, GHOST_MAX = 28, GHOST_FADE_MS = 450, GHOST_MAX_A = 0.18;   // was 0.32 — Daniel: too high
   let trail = [];          // { snap } — ordered oldest → newest
   let lastGhostT = 0;
   let settleFadeT = 0;     // when the catch-up fade started (0 = still chasing)
@@ -160,13 +160,21 @@ export function createPerformRuntime(env) {
 
   function updateSyncDot() {
     const synced = follower ? (follower.isSettled() && stageDivergence() < 0.002) : true;
-    if (synced === dotSynced) return;
-    dotSynced = synced;
-    byId('lpDot')?.classList.toggle('sync', synced);
+    // Daniel's clarified spec: amber while differing; in sync + BROADCASTING =
+    // GREEN (honest "what's out is what you see"); in sync, no broadcast = quiet.
+    const broadcasting = !!document.querySelector('#outputLed i.on-green');
+    const key = synced + ':' + broadcasting;
+    if (key === dotSynced) return;
+    dotSynced = key;
+    const dot = byId('lpDot');
+    if (dot) {
+      dot.classList.toggle('sync', synced);
+      dot.classList.toggle('live', synced && broadcasting);
+    }
     const pip = byId('livePip');
     if (pip) pip.title = synced
       ? 'live output — in sync with the stage'
-      : (env.performRT.hold ? 'live output — HELD; the stage differs' : 'live output — easing toward your edits');
+      : (env.performRT.hold ? 'live output — holding; the staged look differs' : 'live output — easing toward your edits');
   }
 
   // ---- the perform loop -----------------------------------------------------
@@ -215,12 +223,18 @@ export function createPerformRuntime(env) {
       if (t - settleFadeT >= GHOST_FADE_MS) { trail = []; settleFadeT = 0; }
     }
     const view = env.sourceOverlay.view;
-    if (trail.length) {
+    if (env.performRT.hold && stageDivergence() > 0.002 && settled) {
+      // STAGING onion skin (Daniel): while a staged look is being built, show the
+      // PRIOR (held live) state as one steady ghost beside the staged wedge —
+      // the side-by-side read; the animated trail belongs to the take itself
+      view.performGhosts = [{ snap: env.performRT.followed, alpha: 0.22 }];
+      env.sourceOverlay.scheduleDraw();
+    } else if (trail.length) {
       const fade = settleFadeT ? Math.max(0, 1 - (t - settleFadeT) / GHOST_FADE_MS) : 1;
       const n = trail.length;
       view.performGhosts = trail.map((g, i) => ({
         snap: g.snap,
-        alpha: fade * (0.05 + GHOST_MAX_A * ((i + 1) / n)),   // oldest nearly invisible
+        alpha: fade * (0.03 + GHOST_MAX_A * ((i + 1) / n)),   // oldest nearly invisible
       }));
       env.sourceOverlay.scheduleDraw();
     } else if (view.performGhosts) {
@@ -245,6 +259,7 @@ export function createPerformRuntime(env) {
       trail = []; lastGhostT = 0; settleFadeT = 0;
       ensurePipEngine();
       if (!pipFailed) { const p = byId('livePip'); if (p) p.hidden = false; }
+      const sl = byId('stageLabel'); if (sl) sl.hidden = false;
       const footer = byId('performFooter');
       if (footer) footer.hidden = false;
       startVideoLoop();                // a video source loops while performing
@@ -259,6 +274,7 @@ export function createPerformRuntime(env) {
       follower = null;
       if (raf) { cancelAnimationFrame(raf); raf = 0; }
       const p = byId('livePip'); if (p) p.hidden = true;
+      const sl = byId('stageLabel'); if (sl) sl.hidden = true;
       const footer = byId('performFooter'); if (footer) footer.hidden = true;
       // park a playing video (still-mode semantics: the frame picker owns frames)
       if (env.sourceVideo && !env.sourceVideo.paused) { try { env.sourceVideo.pause(); } catch { /* ignore */ } }
@@ -309,6 +325,29 @@ export function createPerformRuntime(env) {
     if (env.performRT.hold) follower?.setTarget(state);
   });
   byId('pfCut')?.addEventListener('click', () => { follower?.jump(state); });
+
+  // keyboard (perform only — space is FREE here, unlike motion, so it gets the
+  // ergonomic star role Daniel wanted: press to STAGE the next take, press again
+  // to TAKE. S / T are the explicit memorable pair; video play/pause stays a
+  // button (P if it earns a key later).
+  window.addEventListener('keydown', (e) => {
+    if (!env.performRT.active) return;
+    const el = e.target;
+    if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.isContentEditable)) return;
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    if (e.code === 'Space') {
+      e.preventDefault();
+      if (!env.performRT.hold) { env.performRT.hold = true; syncTransportUI(); }
+      else follower?.setTarget(state);   // take — stays staged for the next build
+    } else if (e.key === 's' || e.key === 'S') {
+      e.preventDefault();
+      env.performRT.hold = !env.performRT.hold;
+      syncTransportUI();
+    } else if (e.key === 't' || e.key === 'T') {
+      e.preventDefault();
+      if (env.performRT.hold) follower?.setTarget(state);
+    }
+  });
 
   // source transport (video-loop play/pause + playback speed)
   byId('pfPlay')?.addEventListener('click', toggleVideoPlayback);
