@@ -24,7 +24,6 @@
 
 import { createFollower } from '../kit/follow.js';
 import { createEngine } from '../engine/index.js';
-import { drawGhostWedges } from './overlay.js';
 
 export function createPerformRuntime(env) {
   const { state, session } = env;
@@ -35,13 +34,15 @@ export function createPerformRuntime(env) {
   let pipEngine = null, pipLastSource = null, pipFailed = false;
   let dotSynced = null;   // last applied sync-dot state (avoid per-frame class churn)
 
-  // onion-skin trail (Daniel's ghost spec): recent live positions, each fading
-  // with age — older samples nearly invisible — and the whole trail dying out as
-  // the live output catches up (no new samples while settled + aging kills the rest)
-  const GHOST_EVERY_MS = 80, GHOST_LIFE_MS = 900, GHOST_MAX_A = 0.35;
-  let trail = [];          // { snap, t }
+  // onion-skin trail (Daniel's ghost spec, round 2): the trail spans the FULL
+  // transition — samples persist for the whole chase (capped, oldest dropped),
+  // graded oldest-faint → newest-strong, and the entire trail fades out over
+  // ~450ms once the live output catches up. (Round 1 aged samples out after
+  // 900ms, which truncated long chases to the last stretch — Daniel's note.)
+  const GHOST_EVERY_MS = 80, GHOST_MAX = 28, GHOST_FADE_MS = 450, GHOST_MAX_A = 0.32;
+  let trail = [];          // { snap } — ordered oldest → newest
   let lastGhostT = 0;
-  let ghostsVisible = false;
+  let settleFadeT = 0;     // when the catch-up fade started (0 = still chasing)
 
   const byId = (id) => document.getElementById(id);
 
@@ -125,20 +126,35 @@ export function createPerformRuntime(env) {
       sizePip();
       try { pipEngine.render(env.performRT.followed); } catch { /* keep the loop alive */ }
     }
-    // onion skin on the source overlay: sample the live position while chasing,
-    // then redraw the overlay fresh + stroke the fading trail on top
-    if (!follower.isSettled() && t - lastGhostT >= GHOST_EVERY_MS) {
-      trail.push({ snap: env.performRT.followed, t });
-      lastGhostT = t;
+    // onion skin: sample the live position across the WHOLE chase; on catch-up,
+    // fade the entire trail out. The ghosts are handed to the overlay via
+    // view.performGhosts and painted by EVERY overlay draw (ours, the camera
+    // loop's, hover redraws) — drawing them from out here strobed against the
+    // camera loop's own per-frame draws.
+    const settled = follower.isSettled();
+    if (!settled) {
+      settleFadeT = 0;
+      if (t - lastGhostT >= GHOST_EVERY_MS) {
+        trail.push({ snap: env.performRT.followed });
+        if (trail.length > GHOST_MAX) trail.shift();
+        lastGhostT = t;
+      }
+    } else if (trail.length) {
+      if (!settleFadeT) settleFadeT = t;
+      if (t - settleFadeT >= GHOST_FADE_MS) { trail = []; settleFadeT = 0; }
     }
-    if (trail.length) trail = trail.filter((g) => t - g.t < GHOST_LIFE_MS);
-    if (trail.length || ghostsVisible) {
-      env.sourceOverlay.render();          // fresh base draw (also wipes stale ghosts)
-      drawGhostWedges(env.sourceOverlay.view, trail.map((g) => ({
+    const view = env.sourceOverlay.view;
+    if (trail.length) {
+      const fade = settleFadeT ? Math.max(0, 1 - (t - settleFadeT) / GHOST_FADE_MS) : 1;
+      const n = trail.length;
+      view.performGhosts = trail.map((g, i) => ({
         snap: g.snap,
-        alpha: GHOST_MAX_A * (1 - (t - g.t) / GHOST_LIFE_MS),
-      })));
-      ghostsVisible = trail.length > 0;    // one clean redraw after the trail empties
+        alpha: fade * (0.05 + GHOST_MAX_A * ((i + 1) / n)),   // oldest nearly invisible
+      }));
+      env.sourceOverlay.scheduleDraw();
+    } else if (view.performGhosts) {
+      view.performGhosts = null;
+      env.sourceOverlay.scheduleDraw();     // one clean redraw after the trail clears
     }
     updateSyncDot();
     raf = requestAnimationFrame(tick);
@@ -154,7 +170,7 @@ export function createPerformRuntime(env) {
       follower = createFollower(state, { response: session.performResponse ?? 0.35 });
       env.performRT.active = true;
       env.performRT.followed = { ...state };
-      trail = []; lastGhostT = 0; ghostsVisible = false;
+      trail = []; lastGhostT = 0; settleFadeT = 0;
       ensurePipEngine();
       if (!pipFailed) { const p = byId('livePip'); if (p) p.hidden = false; }
       const row = byId('performFollowRow');
@@ -169,7 +185,8 @@ export function createPerformRuntime(env) {
       if (raf) { cancelAnimationFrame(raf); raf = 0; }
       const p = byId('livePip'); if (p) p.hidden = true;
       const row = byId('performFollowRow'); if (row) row.hidden = true;
-      trail = []; ghostsVisible = false;
+      trail = []; settleFadeT = 0;
+      if (env.sourceOverlay?.view) env.sourceOverlay.view.performGhosts = null;
       env.sourceOverlay?.scheduleDraw?.();   // wipe any lingering ghost strokes
     }
     env.updateMotionUI?.();   // one radio sync + export gating pass for all three modes

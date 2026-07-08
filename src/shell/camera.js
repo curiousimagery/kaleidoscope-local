@@ -27,6 +27,10 @@ export function createCamera() {
     // iOS Safari needs the attribute form too to avoid fullscreen takeover.
     video.setAttribute('playsinline', '');
     video.setAttribute('muted', '');
+    // suppress the browser's own picture-in-picture toggle (Firefox overlays one
+    // on the displayed camera video — clicking it rips the source out of the app)
+    video.disablePictureInPicture = true;
+    video.setAttribute('disablepictureinpicture', '');
     return video;
   }
 

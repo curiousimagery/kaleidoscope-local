@@ -112,6 +112,9 @@ export function createSourceHost(env) {
     const v = document.createElement('video');
     v.muted = true; v.playsInline = true; v.loop = true; v.preload = 'auto';
     v.setAttribute('playsinline', ''); v.setAttribute('muted', '');
+    // no browser PiP toggle over the source (Firefox overlays one — see camera.js)
+    v.disablePictureInPicture = true;
+    v.setAttribute('disablepictureinpicture', '');
     let loaded = false;
 
     v.addEventListener('loadeddata', () => {

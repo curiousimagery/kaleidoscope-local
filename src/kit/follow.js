@@ -65,9 +65,24 @@ export function createFollower(initial, { response = 0.35 } = {}) {
   function setTarget(next) {
     for (const k of CONTINUOUS_KEYS) {
       if (next[k] == null) continue;
-      // angular: accumulate the shortest-path delta from the PREVIOUS target —
-      // a streamed 0→350 unwinds forward, a single jump goes the short way
-      tgt[k] = ANGULAR.has(k) ? tgt[k] + angDelta(wrap360(tgt[k]), next[k]) : next[k];
+      if (ANGULAR.has(k)) {
+        // angular: accumulate the shortest-path delta from the PREVIOUS target —
+        // a streamed 0→350 unwinds forward, a single jump goes the short way
+        let nt = tgt[k] + angDelta(wrap360(tgt[k]), next[k]);
+        // cap the accumulated LEAD at one turn: live following chases where you
+        // ARE (in your direction, at most a full lap behind) — it never replays
+        // stacked laps. Spinning past 360° used to queue every lap and leave the
+        // output visibly rotating long after the hand stopped.
+        const lead = nt - cur[k];
+        if (lead > 360) { const m = lead % 360; nt = cur[k] + (m === 0 ? 360 : m); }
+        else if (lead < -360) { const m = (-lead) % 360; nt = cur[k] + (m === 0 ? -360 : -m); }
+        // re-base a long session's drift toward 0 so unwrapped values never grow
+        // unbounded (shift target + current together; velocity is a rate, unchanged)
+        if (Math.abs(nt) > 7200) { const s = 360 * Math.floor(nt / 360); nt -= s; cur[k] -= s; }
+        tgt[k] = nt;
+      } else {
+        tgt[k] = next[k];
+      }
     }
     // everything non-continuous (form, segments, mirrors, any future field) cuts
     // immediately — there is no meaningful interpolation for discrete state

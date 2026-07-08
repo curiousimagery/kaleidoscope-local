@@ -91,12 +91,14 @@ function imageRect(env, w, h, sourceAspect) {
 }
 
 // Perform-mode ONION SKIN (Arc 4): ghost wedge outlines for where the live
-// output is / recently was, drawn ON TOP of a fresh overlay draw at low alpha
-// (outlines only, so over-vs-under is visually equivalent). Older samples are
-// nearly invisible; the caller fades the trail as the live output catches up
-// (Daniel's onion-skin spec). Forms with bespoke overlays (droste) have no
-// polygon to ghost yet — skipped, flagged in BACKLOG.
-export function drawGhostWedges(env, ghosts) {
+// output is / recently was, painted as part of EVERY overlay draw (the perform
+// runtime sets env.performGhosts; drawSourceOverlay calls this at its exits) —
+// so the camera loop's own per-frame draws and the perform loop's never fight
+// (drawing them from outside strobed). Outlines only, low alpha: older samples
+// nearly invisible; the runtime fades the whole trail as the live output
+// catches up (Daniel's onion-skin spec). Forms with bespoke overlays (droste)
+// have no polygon to ghost yet — skipped, flagged in BACKLOG.
+function drawGhostWedges(env, ghosts) {
   const { engine } = env;
   if (!env.sourceOverlayCanvas || !engine.getSourceImage() || !ghosts?.length) return;
   const canvas = env.sourceOverlayCanvas;
@@ -175,6 +177,7 @@ export function drawSourceOverlay(env) {
       IS_TOUCH,
       strokeScale: sw,
     });
+    if (env.performGhosts?.length) drawGhostWedges(env, env.performGhosts);
     return;
   }
 
@@ -377,6 +380,9 @@ export function drawSourceOverlay(env) {
 
   // store geometry for hit testing
   canvas._geom = { imgX, imgY, imgW, imgH, screenPts, cx: cxPx, cy: cyPx };
+
+  // perform-mode onion skin rides every draw (see drawGhostWedges)
+  if (env.performGhosts?.length) drawGhostWedges(env, env.performGhosts);
 }
 
 // ===========================================================================
