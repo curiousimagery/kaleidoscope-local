@@ -75,7 +75,13 @@ async function setupSource(payload) {
   if (payload.kind === 'camera') {
     camera = createCamera();
     try {
-      await camera.start(payload.deviceId ? { deviceId: payload.deviceId } : {});
+      // match the MAIN app's negotiated capture mode (width/height ride the
+      // payload) — a second consumer of the same device can otherwise land on a
+      // different aspect and skew every slice coordinate in this window
+      await camera.start({
+        ...(payload.deviceId ? { deviceId: payload.deviceId } : {}),
+        ...(payload.width ? { width: payload.width, height: payload.height } : {}),
+      });
     } catch (e) {
       if (hint) hint.textContent = 'output window could not open the camera: ' + (e.message || e.name);
       camera = null; return;

@@ -43,7 +43,17 @@ export function createOutputWindow(env) {
 
   async function buildSourcePayload() {
     if (env.live?.isLive) {
-      return { kind: 'camera', deviceId: env.liveCameraInfo?.()?.deviceId || null };
+      // include the MAIN capture's negotiated dimensions so the popup's own
+      // capture of the same device lands on the same mode — a second consumer
+      // can otherwise negotiate a different aspect (seen on Firefox), which
+      // skews every normalized slice coordinate horizontally in the window
+      const size = env.engine?.getSourceSize?.() || {};
+      return {
+        kind: 'camera',
+        deviceId: env.liveCameraInfo?.()?.deviceId || null,
+        width: size.w || undefined,
+        height: size.h || undefined,
+      };
     }
     if (env.sourceVideo && env.media?.sourceVideoUrl) {
       return { kind: 'video', url: env.media.sourceVideoUrl };

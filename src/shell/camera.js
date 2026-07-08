@@ -45,10 +45,14 @@ export function createCamera() {
     stopStream();
     // Request as much resolution as the camera will give — capture saves the
     // raw frame at native size. By facingMode (`ideal`, so single-camera laptops
-    // still succeed) unless an exact deviceId was picked.
+    // still succeed) unless an exact deviceId was picked. An explicit width/height
+    // (the output window matching the MAIN capture's negotiated mode — a second
+    // consumer of the same device can otherwise land on a different aspect, which
+    // skews every normalized slice coordinate) overrides the max-res ask.
+    const idealW = opts.width || 3840, idealH = opts.height || 2160;
     const video = wantDevice
-      ? { deviceId: { exact: wantDevice }, width: { ideal: 3840 }, height: { ideal: 2160 } }
-      : { facingMode: { ideal: facing }, width: { ideal: 3840 }, height: { ideal: 2160 } };
+      ? { deviceId: { exact: wantDevice }, width: { ideal: idealW }, height: { ideal: idealH } }
+      : { facingMode: { ideal: facing }, width: { ideal: idealW }, height: { ideal: idealH } };
     stream = await navigator.mediaDevices.getUserMedia({ video, audio: false });
     const track = stream.getVideoTracks()[0];
     const settings = track ? track.getSettings() : {};
