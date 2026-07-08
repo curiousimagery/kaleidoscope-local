@@ -934,24 +934,34 @@ function toggleMotionMode() {
 function updateMotionUI() {
   const available = !!(engine && engine.getSourceImage()) && !env.live.isLive;
   if (env.motionRT.active && !available) { env.motionRT.active = false; haltPlayback(); }
+  // perform force-exits only when the SOURCE goes away (it accepts live sources);
+  // setPerform re-enters here once with performing=false, then settles
+  if (env.performRT?.active && !(engine && engine.getSourceImage())) env.setPerform?.(false);
 
   const q = (id) => document.getElementById(id);
+  const performing = !!env.performRT?.active;
   const btn = q('motionBtn');
   if (btn) { btn.disabled = !available; btn.classList.toggle('active', env.motionRT.active); }
-  // still|motion segments are radio semantics: exactly one active. still is the
-  // resting mode, so it's active whenever motion isn't.
-  q('stillBtn')?.classList.toggle('active', !env.motionRT.active);
+  // still|motion|perform segments are radio semantics: exactly one active. still
+  // is the resting mode, so it's active whenever neither of the others is.
+  // Perform accepts LIVE sources (unlike motion) — any source enables it.
+  q('stillBtn')?.classList.toggle('active', !env.motionRT.active && !performing);
+  const pBtn = q('performBtn');
+  if (pBtn) {
+    pBtn.disabled = !(engine && engine.getSourceImage());
+    pBtn.classList.toggle('active', performing);
+  }
   // Mode-gated export surfaces (Arc 1): SAVE applies to stills, OUTPUT
-  // (record/broadcast) to motion. Two deliberate exceptions keep output
-  // reachable in still mode: a LIVE CAMERA (motion mode rejects live sources
-  // until perform mode lands, and live broadcast is the core rig use) and a
-  // RUNNING bus (stop must never be hidden mid-broadcast/record).
+  // (record/broadcast) to motion AND perform (broadcasting the live loop is the
+  // point). Two deliberate exceptions keep output reachable in still mode: a
+  // LIVE CAMERA (live broadcast is the core rig use) and a RUNNING bus (stop
+  // must never be hidden mid-broadcast/record).
   const saveBtn = q('openExportBtn');
-  if (saveBtn) saveBtn.hidden = env.motionRT.active;
+  if (saveBtn) saveBtn.hidden = env.motionRT.active || performing;
   const outBtn = q('outputBtn');
   if (outBtn) {
     const busRunning = !!env.outputBus?.getStatus?.().running;
-    outBtn.hidden = !env.motionRT.active && !env.live.isLive && !busRunning;
+    outBtn.hidden = !env.motionRT.active && !performing && !env.live.isLive && !busRunning;
     // if the gate hides the button while its expand-band is open, close the band
     // through its own toggle so the accordion state stays consistent
     if (outBtn.hidden && outBtn.classList.contains('band-open')) outBtn.click();

@@ -37,6 +37,7 @@ import { createOutputWindow } from './shell/output-window.js';
 import { mockSyphonHost } from './stage/mock-host.js';
 import { createOutputPanel } from './shell/output-panel.js';
 import { mountInputDebug } from './shell/input-debug.js';
+import { createPerformRuntime } from './shell/perform-runtime.js';
 import { ICONS } from './mobile/icons.js';   // shared glyph set (fit/fill toggle)
 import { VERSION, formatVersion } from './version.js';
 import { push as historyPush, undo as historyUndo, redo as historyRedo, canUndo, canRedo } from './shell/history.js';
@@ -1012,6 +1013,11 @@ if (engine) {
     ? mockSyphonHost
     : window.foldHost;
   createApp(env, { capabilities, host });
+
+  // Perform mode (Arc 4) — wired AFTER createApp on purpose: its still/motion
+  // segment listeners must run after motion-runtime's own, so a mode switch
+  // settles in one pass (motion toggles, then perform shuts down).
+  createPerformRuntime(env);
 
   // Stage layer: the engine-agnostic live-output bus + its first sink (record-to-
   // disk), wired through Fold's adapter. The bus renders one frame at the output

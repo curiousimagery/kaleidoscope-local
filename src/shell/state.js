@@ -60,6 +60,8 @@ export const session = {
                       // canvas (WYSIWYG) and is inherited by still + video export.
   stageSrcPct: 32,    // source panel's share of the stage split (percent). Output-dominant
                       // by default (the artwork is the show); the stage divider drags it.
+  performResponse: 0.35,  // perform-mode transition speed (the follower's response, seconds):
+                      // ~0 = instant, bigger = slower easing of the live output toward edits.
 };
 
 // motion-mode authoring data (Phase 3 — multi-keyframe still-animation;

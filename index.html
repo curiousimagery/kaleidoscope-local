@@ -63,6 +63,9 @@
       <span class="ot-mode" role="group" aria-label="mode">
         <button class="ot-btn active" id="stillBtn" title="still mode">still</button>
         <button class="ot-btn" id="motionBtn" disabled title="motion mode">motion</button>
+        <!-- perform (Arc 4): the live output eases toward your edits — its own mode
+             so live-performance needs never fight the authoring modes -->
+        <button class="ot-btn" id="performBtn" disabled title="perform mode — the live output follows your edits">perform</button>
       </span>
       <button class="ot-btn" id="outputBtn" disabled title="live output">output<span class="ot-led" id="outputLed"><i></i><i></i></span></button>
       <!-- per-mode export controls (the app-bar spec): render shows in motion,
@@ -156,10 +159,24 @@
       </div>
       <div class="stage-divider" id="stageDivider" title="drag to resize the panels"></div>
       <div class="stage-panel stage-out" id="outPanel">
+        <!-- perform mode (Arc 4): the LIVE PiP — what the audience currently sees
+             (the follower's output), docked over the preview. The main panel below
+             it becomes the STAGE for what's up next (it renders your edits
+             immediately; the live view eases toward them). -->
+        <div class="live-pip" id="livePip" hidden>
+          <canvas id="livePipCanvas"></canvas>
+          <span class="lp-label"><i class="lp-dot" id="lpDot"></i>live</span>
+        </div>
         <!-- persistent output controls: frame aspect (renamed from "frame") + the
              canvas-settings popover trigger. (reset canvas lives at the BOTTOM of
              the popover — Daniel demoted both resets.) -->
         <div class="panel-ctl" id="outCtl">
+          <!-- perform: THE transition-speed control (the follower's response; the
+               same primitive later drives the staged blend-in) -->
+          <label class="slider" id="performFollowRow" hidden>
+            <div class="row"><span>transition speed</span><span class="val" id="followVal">0.35s</span></div>
+            <input type="range" id="followSpeed" min="0" max="2" step="0.01" value="0.35">
+          </label>
           <div class="panel-ctl-row">
             <div class="field">
               <div class="field-label">frame aspect</div>

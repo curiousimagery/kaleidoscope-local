@@ -112,8 +112,10 @@ export function createOutputEngine(env) {
       // render + GPU blit GL→2D. drawImage handles the Y-flip (GL bottom-up →
       // canvas top-down) and the colorspace, just like the engine's video-capture
       // fast path (engine.captureFrame). Cheap (~0.3ms in the benchmark).
+      // programState = what the audience sees: the working state in still/motion,
+      // the perform follower's snapshot in perform mode (shell/perform-runtime.js).
       const t0 = performance.now();
-      hidden.render(env.state);
+      hidden.render(env.programState ? env.programState() : env.state);
       capCtx.drawImage(glCanvas, 0, 0);
       const renderMs = performance.now() - t0;
 

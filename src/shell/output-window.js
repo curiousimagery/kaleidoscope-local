@@ -91,8 +91,10 @@ export function createOutputWindow(env) {
     if (sig !== lastSourceSig) { lastSourceSig = sig; postSource(); }
     if (channel) {
       // `test` rides the per-frame state message so the popup honors the bus's test
-      // pattern (it self-renders and would otherwise ignore it — the old inert-button bug)
-      try { channel.postMessage({ type: 'state', state: env.state, output: outputDims(), video: videoSync(), test: !!env.outputBus?.getStatus?.().testPattern }); } catch {}
+      // pattern (it self-renders and would otherwise ignore it — the old inert-button bug).
+      // The state posted is programState — what the audience sees (the perform
+      // follower's snapshot in perform mode, the working state otherwise).
+      try { channel.postMessage({ type: 'state', state: env.programState ? env.programState() : env.state, output: outputDims(), video: videoSync(), test: !!env.outputBus?.getStatus?.().testPattern }); } catch {}
     }
     raf = requestAnimationFrame(loop);
   }

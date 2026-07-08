@@ -123,6 +123,45 @@ body { display: flex; flex-direction: column; height: 100vh; height: 100dvh; ove
 .stage-src .src-fit svg { width: 16px; height: 16px; display: block; }
 @media (pointer: coarse) { .stage-src .src-fit { width: 38px; height: 38px; } }
 
+/* perform mode (Arc 4): the LIVE PiP over the output panel — what the audience
+   sees (the follower's output). The panel underneath is the stage for what's up
+   next. The dot is the in-sync affordance: accent while the live view chases,
+   green when live ≡ staged. */
+.live-pip {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 7;
+  width: 32%;
+  min-width: 140px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  background: var(--c-black);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.45);
+}
+.live-pip[hidden] { display: none; }
+.live-pip canvas { display: block; width: 100%; }
+.lp-label {
+  position: absolute;
+  top: 4px;
+  left: 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: var(--text-xs);
+  color: var(--text-bright);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+  letter-spacing: 0.06em;
+  text-transform: lowercase;
+  pointer-events: none;
+}
+.lp-dot { width: 7px; height: 7px; border-radius: var(--radius-full); background: var(--accent); }
+.lp-dot.sync { background: var(--ok); }
+/* the perform transition-speed row sits with the output panel's persistent controls */
+#performFollowRow { width: 220px; }
+#performFollowRow[hidden] { display: none; }
+
 /* source meta rides WITH the source panel — the one home for source info.
    order pins it BELOW the dynamically-mounted slot-content wrap; the still-mode
    frame scrubber sits between the source and the meta. */
@@ -593,8 +632,10 @@ button .btn-spinner {
    segment is the CURRENT MODE (radio semantics), not a pressed toggle. */
 .ot-mode { display: inline-flex; }
 .ot-mode .ot-btn + .ot-btn { margin-left: -1px; }
-.ot-mode .ot-btn:first-child { border-top-right-radius: 0; border-bottom-right-radius: 0; }
-.ot-mode .ot-btn:last-child { border-top-left-radius: 0; border-bottom-left-radius: 0; }
+/* three segments now (still|motion|perform): inner edges square on BOTH sides,
+   so the middle segment doesn't keep rounded corners */
+.ot-mode .ot-btn:not(:last-child) { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.ot-mode .ot-btn:not(:first-child) { border-top-left-radius: 0; border-bottom-left-radius: 0; }
 .ot-mode .ot-btn.active { position: relative; }   /* selected segment's border wins the shared edge */
 /* band-open: the bar button whose expand-band (output / canvas) is currently open. */
 .ot-btn.band-open { background: var(--surface-hover); color: var(--text-bright); border-color: var(--c-neutral-500); }
