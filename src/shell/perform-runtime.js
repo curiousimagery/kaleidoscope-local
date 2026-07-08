@@ -141,8 +141,8 @@ export function createPerformRuntime(env) {
     if (take) take.disabled = !env.performRT.hold;
     // center: a live camera shows icon + device name where the timeline would go
     const liveLabel = byId('pfLiveLabel');
+    const isLive = !!env.live?.isLive && env.performRT.active;
     if (liveLabel) {
-      const isLive = !!env.live?.isLive && env.performRT.active;
       liveLabel.hidden = !isLive;
       if (isLive) {
         const sel = document.getElementById('cameraSelect');
@@ -150,7 +150,84 @@ export function createPerformRuntime(env) {
         byId('pfLiveName').textContent = name || 'live camera';
       }
     }
+    // center: a STILL shows a lightweight placeholder (thumb + name · dims) — the
+    // current→staged tween strip stays a spec'd follow-up pending conviction
+    const stillLabel = byId('pfStillLabel');
+    if (stillLabel) {
+      const src = env.engine?.getSourceImage?.();
+      const isStill = env.performRT.active && !!src && !env.sourceVideo && !isLive;
+      stillLabel.hidden = !isStill;
+      if (isStill) {
+        const img = byId('pfStillThumb');
+        const url = src.src || src.currentSrc || '';
+        if (img) {
+          if (url && img.src !== url) img.src = url;
+          img.style.display = url ? '' : 'none';   // a frozen-camera canvas has no URL — meta only
+        }
+        const size = env.engine.getSourceSize?.() || {};
+        const name = env.media?.originalSource?.name || env.media?.sourceFilename || 'source';
+        byId('pfStillMeta').textContent = `${name}${size.w ? ` · ${size.w} × ${size.h}` : ''}`;
+      }
+    }
   }
+
+  // video time ruler above the footer timeline — EFFECTIVE duration (clip length ÷
+  // playback speed), so retiming visibly stretches/shrinks the scale (Daniel: seeing
+  // 2 vs 8 minutes remaining matters when performing over footage)
+  function renderPfRuler() {
+    const ruler = byId('pfRuler');
+    if (!ruler) return;
+    const v = env.sourceVideo;
+    const show = env.performRT.active && !!v && isFinite(v.duration) && v.duration > 0;
+    ruler.hidden = !show;
+    ruler.innerHTML = '';
+    if (!show) return;
+    const fmt = env.fmtClock || ((s) => s.toFixed(1) + 's');
+    const NICE = [0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 900, 1800];
+    const dur = v.duration / (session.performVideoSpeed || 1);
+    const w = ruler.clientWidth || 400;
+    const targetLabels = Math.max(2, Math.min(12, Math.floor(w / 84)));
+    const step = NICE.find((s) => dur / s <= targetLabels) ?? Math.ceil(dur / targetLabels);
+    const frag = document.createDocumentFragment();
+    const majors = Math.floor(dur / step + 1e-6);
+    for (let i = 0; i <= majors; i++) {
+      const t = i * step, p = t / dur;
+      if (i > 0 && dur - t < step * 0.45) continue;   // too close to the total label
+      const tick = document.createElement('div');
+      tick.className = 'mf-tick major';
+      tick.style.left = (p * 100) + '%';
+      frag.appendChild(tick);
+      const lab = document.createElement('span');
+      lab.className = 'mf-time' + (p <= 0.001 ? ' start' : '');
+      lab.textContent = fmt(t);
+      lab.style.left = (p * 100) + '%';
+      frag.appendChild(lab);
+    }
+    const eTick = document.createElement('div');
+    eTick.className = 'mf-tick major'; eTick.style.left = '100%';
+    frag.appendChild(eTick);
+    const eLab = document.createElement('span');
+    eLab.className = 'mf-time end total'; eLab.textContent = fmt(dur); eLab.style.left = '100%';
+    frag.appendChild(eLab);
+    ruler.appendChild(frag);
+  }
+
+  // source changed mid-perform (upload, camera start/stop): re-home the timeline,
+  // restart the loop for a new video, refresh every center/transport read. Guarded
+  // by source identity so relayouts (divider drags → arrangeSlots) don't re-play a
+  // deliberately paused video.
+  let lastSrcRef = null;
+  env.refreshPerformSource = () => {
+    if (!env.performRT.active) return;
+    const src = env.engine?.getSourceImage?.() || null;
+    if (src === lastSrcRef) { syncTransportUI(); return; }
+    lastSrcRef = src;
+    placeSrcScrub(true);
+    startVideoLoop();
+    syncTransportUI();
+    env.updateSrcScrub?.();
+    requestAnimationFrame(renderPfRuler);
+  };
 
   // the source timeline (#srcScrub) lives in the SOURCE PANEL in still mode and
   // re-parents into the footer center in perform (full-size playback timeline);
@@ -294,7 +371,9 @@ export function createPerformRuntime(env) {
       if (footer) footer.hidden = false;
       placeSrcScrub(true);             // the video timeline moves into the footer center
       startVideoLoop();                // a video source loops while performing
+      lastSrcRef = env.engine?.getSourceImage?.() || null;
       syncTransportUI();
+      requestAnimationFrame(renderPfRuler);   // after the footer lays out (real width)
       dotSynced = null;
       lastT = 0;
       raf = requestAnimationFrame(tick);
@@ -308,6 +387,7 @@ export function createPerformRuntime(env) {
       const sl = byId('stageLabel'); if (sl) sl.hidden = true;
       const footer = byId('performFooter'); if (footer) footer.hidden = true;
       placeSrcScrub(false);            // the timeline returns to the source panel
+      renderPfRuler();                 // hides itself when perform is off
       // park a playing video (still-mode semantics: the frame picker owns frames)
       if (env.sourceVideo && !env.sourceVideo.paused) { try { env.sourceVideo.pause(); } catch { /* ignore */ } }
       env.scheduleRender?.();
@@ -389,5 +469,10 @@ export function createPerformRuntime(env) {
       const v = env.sourceVideo;
       if (v) { try { v.playbackRate = session.performVideoSpeed; } catch { /* clamped */ } }
       syncTransportUI();
+      renderPfRuler();   // effective duration changed
     }));
+
+  // clicked footer buttons release focus, so space/S/T always reach the perform
+  // keys (a focused button ate space; a focused select did native type-ahead)
+  byId('performFooter')?.addEventListener('click', (e) => e.target.closest('button')?.blur());
 }

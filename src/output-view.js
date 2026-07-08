@@ -159,21 +159,33 @@ function reconcileVideo() {
   }
 }
 
-function tick() {
-  if (haveSource && latestState) {
-    if (camera) camera.refreshFrame();        // front-camera: redraw the mirrored frame
-    if (videoEl) reconcileVideo();             // keep the video copy in sync with the main clock
-    if (liveSource) engine.updateSourceFrame(); // re-upload camera/video texture
-    engine.render(latestState);
-    if (hint && !document.body.classList.contains('live')) document.body.classList.add('live');
-    frames++;
-    const now = performance.now();
-    if (now - fpsT >= 1000) {
-      measuredFps = Math.round((frames * 1000) / (now - fpsT));
-      frames = 0; fpsT = now;
-      try { channel.postMessage({ type: 'fps', fps: measuredFps }); } catch {}
-    }
+// One frame of the popup's render. Driven PRIMARILY by the per-frame state
+// message from the main app (below): Firefox throttles/suspends rAF in an
+// unfocused window, so a loop-driven popup renders jerkily (or freezes) the
+// moment focus goes elsewhere — exactly the perform-mode showstopper (the main
+// app streams smooth 60Hz state, the popup painted it at whatever its starved
+// rAF allowed). Messages aren't throttled, so rendering on arrival keeps the
+// broadcast smooth; the rAF tick stays as a fallback for when messages pause.
+let lastRenderT = 0;
+function renderFrame() {
+  if (!(haveSource && latestState)) return;
+  if (camera) camera.refreshFrame();        // front-camera: redraw the mirrored frame
+  if (videoEl) reconcileVideo();             // keep the video copy in sync with the main clock
+  if (liveSource) engine.updateSourceFrame(); // re-upload camera/video texture
+  engine.render(latestState);
+  if (hint && !document.body.classList.contains('live')) document.body.classList.add('live');
+  lastRenderT = performance.now();
+  frames++;
+  if (lastRenderT - fpsT >= 1000) {
+    measuredFps = Math.round((frames * 1000) / (lastRenderT - fpsT));
+    frames = 0; fpsT = lastRenderT;
+    try { channel.postMessage({ type: 'fps', fps: measuredFps }); } catch {}
   }
+}
+
+function tick() {
+  // fallback only: the state stream normally drives rendering (see above)
+  if (performance.now() - lastRenderT > 100) renderFrame();
   requestAnimationFrame(tick);
 }
 requestAnimationFrame(tick);
@@ -188,10 +200,8 @@ channel.onmessage = (e) => {
     latestVideo = msg.video || null;
     applyOutput(msg.output);
     applyTestPattern(!!msg.test);
-    // Reconcile the video clock HERE too, not only in the rAF loop: Firefox
-    // suspends rAF in an unfocused window, so the loop can stall while messages
-    // still arrive — without this the popup's video free-runs when motion pauses.
-    reconcileVideo();
+    // the state stream IS the render clock (rAF is throttled unfocused — see renderFrame)
+    renderFrame();
   } else if (msg.type === 'source') {
     applyOutput(msg.output);
     setupSource(msg.payload);

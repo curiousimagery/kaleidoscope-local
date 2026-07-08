@@ -317,6 +317,7 @@ const placeholder = document.getElementById('placeholder');
 function arrangeSlots() {
   env.updateMotionUI();   // gate motion availability on source/live state; force-exit if needed
   env.updateOutputUI?.();  // gate the live-output button on a loaded source
+  env.refreshPerformSource?.();   // mid-perform source switches refresh the footer (identity-guarded)
   Array.from(stageSplit.querySelectorAll('.slot-content')).forEach(n => n.remove());
 
   if (!engine || !engine.getSourceImage()) {
@@ -687,9 +688,11 @@ function wireControls() {
     updateUndoUI();
   });
 
-  // canvas reset — the output stack's parallel of reset slice (Arc 2b). Frame aspect
-  // resets through its own button so both synced groups + the preview reshape follow
-  // (frame clicks don't touch history, so this stays ONE undo step).
+  // canvas reset — the output stack's parallel of reset slice (Arc 2b). FRAME
+  // ASPECT is deliberately NOT reset (Daniel): the canvas settings are
+  // sub-attributes OF the selected aspect, so reset applies to them only —
+  // and resetting aspect mid-broadcast desynced the preview from the locked
+  // output resolution.
   document.getElementById('canvasReset')?.addEventListener('click', () => {
     env.pushHistory();
     state.canvasZoom     = 1.0;
@@ -698,7 +701,6 @@ function wireControls() {
     env.controlsSync.syncAll();
     // the OOB buttons sync only in their own click handler — mirror the state here
     document.querySelectorAll('#oobModes button').forEach(b => b.classList.toggle('active', b.dataset.oob === '1'));
-    document.querySelector('#frameAspect button[data-asp="1"]')?.click();
     scheduleRender();
     updateUndoUI();
   });
@@ -1026,6 +1028,9 @@ if (engine) {
     const id = { still: 'stillBtn', motion: 'motionBtn', perform: 'performBtn' }[e.target.value];
     document.getElementById(id)?.click();
     env.updateMotionUI?.();
+    // release focus: a focused select eats the perform keys (S did native
+    // type-ahead → jumped to STILL; space toggled the dropdown open)
+    e.target.blur();
   });
 
   // Stage layer: the engine-agnostic live-output bus + its first sink (record-to-

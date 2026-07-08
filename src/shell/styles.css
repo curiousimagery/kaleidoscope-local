@@ -199,12 +199,17 @@ body { display: flex; flex-direction: column; height: 100vh; height: 100dvh; ove
 }
 .pf-left .mf-btn { height: 42px; }
 .pf-left .pf-wide { grid-column: 1 / -1; }
-.pf-center { flex: 1; min-width: 0; display: flex; align-items: center; justify-content: center; }
+.pf-center { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; }
 /* the video source's timeline (#srcScrub) is re-parented here in perform — full width, taller */
-.pf-center .src-scrub { flex: 1; height: 100%; max-height: 110px; margin: 0; }
+.pf-center .src-scrub { width: 100%; flex: 1; max-height: 110px; margin: 0; }
+.pf-center .pf-ruler { width: 100%; flex: 0 0 16px; }
+.pf-center .pf-ruler[hidden] { display: none; }
 .pf-live-label { display: inline-flex; align-items: center; gap: 8px; color: var(--text-dim); font-size: var(--text-md); }
 .pf-live-label svg { width: 20px; height: 20px; }
 .pf-live-label[hidden] { display: none; }
+.pf-still-label { display: inline-flex; align-items: center; gap: 10px; color: var(--text-dim); font-size: var(--text-sm); }
+.pf-still-label img { height: 56px; border-radius: var(--radius-sm); border: 1px solid var(--border); }
+.pf-still-label[hidden] { display: none; }
 .pf-right { flex: 0 0 auto; width: 240px; display: flex; flex-direction: column; justify-content: center; gap: 12px; }
 .pf-right .pf-follow { width: 100%; }
 
@@ -703,10 +708,18 @@ button .btn-spinner {
   text-overflow: ellipsis;
   /* a down caret — appearance:none strips the native one, and a dropdown should
      read as having options within (Daniel's nit on the mode picker) */
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%23888' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='5'%3E%3Cpath d='M0 0h8L4 5z' fill='%23888'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: right 9px center;
   padding-right: 26px;
+}
+/* .ot-btn's hover/active rules set the `background` SHORTHAND, which wipes the
+   caret image (it visibly "flew away" as the background transitioned) — re-pin
+   the caret longhands in every state */
+.ot-select:hover, .ot-select:focus, .ot-select:active {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='5'%3E%3Cpath d='M0 0h8L4 5z' fill='%23888'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 9px center;
 }
 .ot-select[hidden] { display: none; }
 /* touch: larger hit targets, and the form picker matches the toolbar buttons. */
