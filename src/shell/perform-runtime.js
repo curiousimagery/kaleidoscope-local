@@ -22,12 +22,16 @@
 // rules: re-setSource on reference/dimension change, per-frame re-upload for
 // live sources, hold during video seeks.
 
-import { createFollower } from '../kit/follow.js';
+import { createFollower, FOLLOW_SPANS, CONTINUOUS_KEYS } from '../kit/follow.js';
+import { angDelta, ANGULAR_KEYS } from '../kit/tween.js';
 import { createEngine } from '../engine/index.js';
 
 export function createPerformRuntime(env) {
   const { state, session } = env;
-  env.performRT = { active: false, followed: null };
+  // hold (Arc 5): while true, the follower stops receiving targets — the live
+  // output freezes on its last committed look and the stage edits OFF-AIR.
+  env.performRT = { active: false, followed: null, hold: false };
+  const ANGULAR = new Set(ANGULAR_KEYS);
 
   let follower = null;
   let raf = 0, lastT = 0;
@@ -131,17 +135,38 @@ export function createPerformRuntime(env) {
       sp.querySelectorAll('[data-pspd]').forEach((b) =>
         b.classList.toggle('active', Math.abs(parseFloat(b.dataset.pspd) - (session.performVideoSpeed || 1)) < 1e-6));
     }
+    byId('pfHold')?.classList.toggle('active', !!env.performRT.hold);
+    const take = byId('pfTake');
+    if (take) take.disabled = !env.performRT.hold;
+  }
+
+  // normalized live-vs-stage distance (the in-sync read). Measured directly
+  // between the stage (state) and the live view (followed) — the follower's own
+  // settle flag isn't enough once HOLD exists (a settled spring on a frozen
+  // target still differs from an edited stage).
+  function stageDivergence() {
+    const f = env.performRT.followed;
+    if (!f) return 0;
+    let mx = 0;
+    for (const k of CONTINUOUS_KEYS) {
+      const span = FOLLOW_SPANS[k] || 1;
+      const d = ANGULAR.has(k)
+        ? Math.abs(angDelta(f[k] ?? 0, state[k] ?? 0))
+        : Math.abs((state[k] ?? 0) - (f[k] ?? 0));
+      if (d / span > mx) mx = d / span;
+    }
+    return mx;
   }
 
   function updateSyncDot() {
-    const synced = follower ? follower.isSettled() : true;
+    const synced = follower ? (follower.isSettled() && stageDivergence() < 0.002) : true;
     if (synced === dotSynced) return;
     dotSynced = synced;
     byId('lpDot')?.classList.toggle('sync', synced);
     const pip = byId('livePip');
     if (pip) pip.title = synced
       ? 'live output — in sync with the stage'
-      : 'live output — easing toward your edits';
+      : (env.performRT.hold ? 'live output — HELD; the stage differs' : 'live output — easing toward your edits');
   }
 
   // ---- the perform loop -----------------------------------------------------
@@ -164,7 +189,9 @@ export function createPerformRuntime(env) {
       env.performRT.videoWasPlaying = false;
       syncTransportUI();
     }
-    follower.setTarget(state);
+    // HOLD gates the target feed: while holding, the live view keeps its last
+    // committed look and stage edits stay off-air (take/cut commit them)
+    if (!env.performRT.hold) follower.setTarget(state);
     env.performRT.followed = follower.step(dt);
     if (pipEngine && syncPipSource()) {
       sizePip();
@@ -214,6 +241,7 @@ export function createPerformRuntime(env) {
       follower = createFollower(state, { response: session.performResponse ?? 0.35 });
       env.performRT.active = true;
       env.performRT.followed = { ...state };
+      env.performRT.hold = false;
       trail = []; lastGhostT = 0; settleFadeT = 0;
       ensurePipEngine();
       if (!pipFailed) { const p = byId('livePip'); if (p) p.hidden = false; }
@@ -227,6 +255,7 @@ export function createPerformRuntime(env) {
     } else {
       env.performRT.active = false;
       env.performRT.followed = null;   // broadcasts revert to the working state (a hard cut)
+      env.performRT.hold = false;
       follower = null;
       if (raf) { cancelAnimationFrame(raf); raf = 0; }
       const p = byId('livePip'); if (p) p.hidden = true;
@@ -266,6 +295,20 @@ export function createPerformRuntime(env) {
     applyResponse(parseFloat(speedInput.value));
     speedInput.addEventListener('input', () => applyResponse(parseFloat(speedInput.value) || 0));
   }
+
+  // staged-transition transport (Arc 5 core). HOLD toggles the target gate;
+  // TAKE commits the CURRENT stage once (the spring blends live → stage at the
+  // transition speed) and STAYS held, so you keep building the next look
+  // off-air; CUT snaps live to the stage instantly (also skips an in-flight
+  // ease while following).
+  byId('pfHold')?.addEventListener('click', () => {
+    env.performRT.hold = !env.performRT.hold;
+    syncTransportUI();
+  });
+  byId('pfTake')?.addEventListener('click', () => {
+    if (env.performRT.hold) follower?.setTarget(state);
+  });
+  byId('pfCut')?.addEventListener('click', () => { follower?.jump(state); });
 
   // source transport (video-loop play/pause + playback speed)
   byId('pfPlay')?.addEventListener('click', toggleVideoPlayback);

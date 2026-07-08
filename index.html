@@ -275,6 +275,16 @@
      transition-speed control (Daniel: shimming it into canvas settings was
      conceptually off; perform controls live together). Hidden unless perform. -->
 <div class="perform-footer" id="performFooter" hidden>
+  <!-- staged-transition transport (Arc 5 core): HOLD freezes the live output so
+       the stage edits off-air; TAKE blends live → stage at the transition speed
+       (the shared primitive); CUT snaps instantly. take is hold-only; cut always
+       works (it also skips an in-flight ease). -->
+  <span class="pf-transport">
+    <button class="mf-btn mf-toggle" id="pfHold" title="hold — freeze the live output and edit what's up next off-air">hold</button>
+    <button class="mf-btn mf-add" id="pfTake" disabled title="take — blend the live output to the stage at the transition speed">take</button>
+    <button class="mf-btn" id="pfCut" title="cut — snap the live output to the stage instantly">cut</button>
+  </span>
+  <span class="mf-sep pf-sep"></span>
   <button class="mf-btn" id="pfPlay" hidden title="play / pause the source video">pause</button>
   <span class="mf-field" id="pfSpeed" hidden title="source playback speed">speed
     <span class="mf-speed-btns">

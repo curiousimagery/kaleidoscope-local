@@ -173,6 +173,8 @@ body { display: flex; flex-direction: column; height: 100vh; height: 100dvh; ove
   border-top: 1px solid var(--border-subtle);
 }
 .perform-footer[hidden] { display: none; }
+.perform-footer .pf-transport { display: inline-flex; gap: 6px; }
+.perform-footer .pf-sep { width: 1px; align-self: stretch; background: var(--border); }
 .perform-footer #pfPlay { min-width: 84px; }
 .perform-footer .pf-follow { width: 260px; margin-left: auto; }
 
