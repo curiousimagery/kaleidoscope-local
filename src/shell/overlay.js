@@ -68,6 +68,69 @@ export function makeOverlayDrawer(env) {
   return { draw, schedule };
 }
 
+// displayed image rect inside the wrap. `contain` (default) letterboxes; `cover`
+// fills the panel and crops the overflow (the displayed source's CSS fit must
+// match — see mountSourceView). Cover is the contain branch inverted. Shared by
+// the main overlay draw and the perform-mode ghost pass.
+function imageRect(env, w, h, sourceAspect) {
+  const coverMode = env.fit === 'cover';
+  const wrapAspect = w / h;
+  let imgW, imgH, imgX, imgY;
+  if ((sourceAspect > wrapAspect) !== coverMode) {
+    imgW = w;
+    imgH = w / sourceAspect;
+    imgX = 0;
+    imgY = (h - imgH) / 2;
+  } else {
+    imgH = h;
+    imgW = h * sourceAspect;
+    imgX = (w - imgW) / 2;
+    imgY = 0;
+  }
+  return { imgX, imgY, imgW, imgH };
+}
+
+// Perform-mode ONION SKIN (Arc 4): ghost wedge outlines for where the live
+// output is / recently was, drawn ON TOP of a fresh overlay draw at low alpha
+// (outlines only, so over-vs-under is visually equivalent). Older samples are
+// nearly invisible; the caller fades the trail as the live output catches up
+// (Daniel's onion-skin spec). Forms with bespoke overlays (droste) have no
+// polygon to ghost yet — skipped, flagged in BACKLOG.
+export function drawGhostWedges(env, ghosts) {
+  const { engine } = env;
+  if (!env.sourceOverlayCanvas || !engine.getSourceImage() || !ghosts?.length) return;
+  const canvas = env.sourceOverlayCanvas;
+  const wrap = canvas.parentElement;
+  if (!wrap) return;
+  const w = wrap.clientWidth, h = wrap.clientHeight;
+  if (!w || !h) return;
+  const dpr = window.devicePixelRatio || 1;
+  const ctx = canvas.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const sourceAspect = engine.getSourceAspect();
+  const { imgX, imgY, imgW, imgH } = imageRect(env, w, h, sourceAspect);
+  for (const g of ghosts) {
+    const st = g.snap;
+    const form = getActiveForm(st);
+    if (!form.buildPolygon) continue;
+    const pts = form.buildPolygon(st);
+    ctx.save();
+    ctx.globalAlpha = Math.max(0, Math.min(1, g.alpha));
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    pts.forEach((p, i) => {
+      const { dx, dy } = sliceVecToSourceUV(p.vx, p.vy, st, sourceAspect);
+      const x = imgX + (st.sliceCx + dx) * imgW;
+      const y = imgY + (st.sliceCy + dy) * imgH;
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    });
+    ctx.closePath();
+    ctx.stroke();
+    ctx.restore();
+  }
+}
+
 export function drawSourceOverlay(env) {
   const { state, engine } = env;
   if (!env.sourceOverlayCanvas || !engine.getSourceImage()) return;
@@ -93,24 +156,7 @@ export function drawSourceOverlay(env) {
   ctx.clearRect(0, 0, w, h);
 
   const sourceAspect = engine.getSourceAspect();
-
-  // figure out displayed image rect. `contain` (default) letterboxes; `cover`
-  // fills the panel and crops the overflow (the displayed source's CSS fit must
-  // match — see mountSourceView). Cover is the contain branch inverted.
-  const coverMode = env.fit === 'cover';
-  const wrapAspect = w / h;
-  let imgW, imgH, imgX, imgY;
-  if ((sourceAspect > wrapAspect) !== coverMode) {
-    imgW = w;
-    imgH = w / sourceAspect;
-    imgX = 0;
-    imgY = (h - imgH) / 2;
-  } else {
-    imgH = h;
-    imgW = h * sourceAspect;
-    imgX = (w - imgW) / 2;
-    imgY = 0;
-  }
+  const { imgX, imgY, imgW, imgH } = imageRect(env, w, h, sourceAspect);
 
   const form = getActiveForm(state);
 
