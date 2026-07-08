@@ -359,6 +359,7 @@ export function createPerformRuntime(env) {
       if (!env.engine?.getSourceImage?.()) return;
       // leaving motion for perform goes through motion's own exit path
       if (env.motionRT.active) byId('stillBtn')?.click();
+      document.activeElement?.blur?.();   // enter with clean focus — the keys work from keypress one
       follower = createFollower(state, { response: session.performResponse ?? 0.35 });
       env.performRT.active = true;
       env.performRT.followed = { ...state };
@@ -445,8 +446,14 @@ export function createPerformRuntime(env) {
   window.addEventListener('keydown', (e) => {
     if (!env.performRT.active) return;
     const el = e.target;
-    if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.isContentEditable)) return;
+    const tag = el?.tagName;
+    // only TEXT-ENTRY fields keep the keys: any clicked slider/button holds focus
+    // afterward, and a blanket INPUT guard silently ate space/S/T until something
+    // else blurred it (Daniel: "not reliable until I press take in the UI")
+    if (el && (el.isContentEditable || tag === 'TEXTAREA' || tag === 'SELECT' ||
+        (tag === 'INPUT' && !/^(range|checkbox|radio|button|submit|reset|color|file)$/.test(el.type)))) return;
     if (e.metaKey || e.ctrlKey || e.altKey) return;
+    if (tag === 'BUTTON') el.blur();   // space must never double as "re-click the focused button"
     if (e.code === 'Space') {
       e.preventDefault();
       if (!env.performRT.hold) { env.performRT.hold = true; syncTransportUI(); }
@@ -475,4 +482,9 @@ export function createPerformRuntime(env) {
   // clicked footer buttons release focus, so space/S/T always reach the perform
   // keys (a focused button ate space; a focused select did native type-ahead)
   byId('performFooter')?.addEventListener('click', (e) => e.target.closest('button')?.blur());
+  // any select used while performing releases focus too — a focused select owns
+  // the keyboard natively (space opens it, S type-aheads) and can't be shared
+  document.addEventListener('change', (e) => {
+    if (env.performRT.active && e.target?.tagName === 'SELECT') e.target.blur();
+  });
 }

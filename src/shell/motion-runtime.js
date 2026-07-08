@@ -1287,8 +1287,17 @@ function wireMotion() {
   window.addEventListener('keydown', (e) => {
     if (!env.motionRT.active) return;
     const t = e.target;
-    if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return;
+    const tag = t?.tagName;
+    // only TEXT-ENTRY fields keep the whole keyboard (same fix as perform's): a
+    // clicked slider is an INPUT that holds focus, and the blanket guard ate
+    // space until something else blurred it. A focused slider DOES keep its own
+    // native keys (arrows / Home / End = precision nudge) — everything else
+    // falls through to the shortcuts.
+    if (t && (t.isContentEditable || tag === 'TEXTAREA' || tag === 'SELECT' ||
+        (tag === 'INPUT' && !/^(range|checkbox|radio|button|submit|reset|color|file)$/.test(t.type)))) return;
+    if (tag === 'INPUT' && t.type === 'range' && /^(Arrow(Left|Right|Up|Down)|Home|End)$/.test(e.key)) return;
     if (e.metaKey || e.ctrlKey || e.altKey) return;   // don't shadow shortcuts (⌘Z etc.)
+    if (tag === 'BUTTON') t.blur();   // space must never double as "re-click the focused button"
     if (e.code === 'Space') {
       e.preventDefault();                             // page scroll
       if (motion.playing) stopPlayback(); else startPlayback();

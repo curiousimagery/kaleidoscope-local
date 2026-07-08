@@ -148,7 +148,12 @@ export function createSourceHost(env) {
         env.rebindMotionToSource();    // already animating → re-bind keyframes to the new clip (timeline-driven, no free-run)
       } else {
         const park = async () => {
-          try { v.pause(); await seekVideoTo(v, 0); } catch { /* keep whatever frame presented */ }
+          // Brave blocks even MUTED autoplay by default: play() rejects, the video
+          // has never PRESENTED a frame, and the park's seek-to-0 was a same-time
+          // no-op (currentTime is already 0) — so Blink painted/uploaded blank (the
+          // first-load blank source panel). A never-played video parks a hair in
+          // instead: a REAL seek forces frame presentation; 10ms is invisible.
+          try { v.pause(); await seekVideoTo(v, v.played.length ? 0 : 0.01); } catch { /* keep whatever frame presented */ }
           engine.updateSourceFrame();
           engine.render(state);
           env.sourceOverlay.paintSourceVideo();
