@@ -20,6 +20,7 @@
 
 import { sampleKeyframes, DISCRETE_KEYS, CONTINUOUS_KEYS, ANGULAR_KEYS, angDelta } from '../kit/tween.js';
 import { FOLLOW_SPANS } from '../kit/follow.js';
+import { ICONS } from '../mobile/icons.js';
 import { pToMediaSec, seekVideoTo } from './video-source.js';
 import { exportVideo, videoExportSupported, pickVideoCodec } from './video-export.js';
 import { drawSourceOverlay } from './overlay.js';
@@ -1355,7 +1356,13 @@ function updateMotionUI() {
   // (keyframe ops — anchor/auto-space/delete — live in the #kfMenu context menu,
   //  which gates itself: it only opens for kf1+.)
   const minKf = env.sourceVideo ? 1 : 2;   // video plays/renders with 1 kf (the footage provides motion)
-  if (q('mfPlay')) { q('mfPlay').disabled = n < minKf; q('mfPlay').textContent = motion.playing ? 'pause' : 'play'; }
+  if (q('mfPlay')) {
+    q('mfPlay').disabled = n < minKf;
+    // icon+label normally; ICON-ONLY while staging (the cell splits to fit "+ sync")
+    q('mfPlay').innerHTML = (motion.playing ? ICONS.pause : ICONS.play)
+      + (stg.on ? '' : `<span>${motion.playing ? 'pause' : 'play'}</span>`);
+  }
+  if (q('mfSyncPlay')) { q('mfSyncPlay').hidden = !stg.on; q('mfSyncPlay').disabled = n < minKf; }
   // render lives in the APP BAR (per-mode export controls): motion-only, gated like play
   if (q('mfRender')) { q('mfRender').hidden = !env.motionRT.active; q('mfRender').disabled = n < minKf; }
   if (q('mfPrev')) q('mfPrev').disabled = n < 1;
@@ -1442,6 +1449,20 @@ function wireMotion() {
   byId('mfPrev')?.addEventListener('click', () => { closeKfMenu(); stepKeyframe(-1); });
   byId('mfNext')?.addEventListener('click', () => { closeKfMenu(); stepKeyframe(1); });
   byId('mfPlay')?.addEventListener('click', () => { if (motion.playing) stopPlayback(); else startPlayback(); });
+  // staging's sync+play: start the staged preview FROM the on-air playhead, in
+  // lockstep (same clock as the committed loop → zero drift)
+  const syncBtn = byId('mfSyncPlay');
+  if (syncBtn) {
+    syncBtn.innerHTML = ICONS.play + '<span>+ sync</span>';
+    syncBtn.addEventListener('click', () => {
+      if (!stg.on) return;
+      if (motion.playing) haltPlayback();
+      motion.playhead = stgAdvance(performance.now());
+      startPlayback();
+      if (stg.playing && motion.playing) env.motionRT.start = stg.t0;
+      updateMotionUI();
+    });
+  }
   byId('mfLoop')?.addEventListener('click', () => { motion.loop = !motion.loop; renderTimeline(); updateMotionUI(); });
   byId('mfFit')?.addEventListener('click', fitTimeline);
   byId('mfZoomIn')?.addEventListener('click', () => zoomTimelineAt(0.5, 1.6));

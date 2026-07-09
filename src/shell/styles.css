@@ -1019,6 +1019,14 @@ button .btn-spinner {
 .mf-marker.stg-del { pointer-events: none; }
 .mf-marker.stg-del canvas { border-color: rgba(255, 255, 255, 0.25); }
 .mf-marker.stg-del .mf-pin { opacity: 0.25; }
+/* transport buttons carry icon+label (the camera control's icon+text pattern);
+   while staging the play cell splits into [icon-only play][play "+ sync"] */
+.mf-left .mf-play-cell { grid-column: 1 / -1; display: flex; gap: 6px; }
+.mf-play-cell .mf-btn { flex: 1; min-width: 0; }
+.mf-play, #mfSyncPlay, #pfPlay { display: inline-flex; align-items: center; justify-content: center; gap: 7px; }
+.mf-play svg, #mfSyncPlay svg, #pfPlay svg { width: 13px; height: 13px; flex: 0 0 auto; }
+#mfSyncPlay[hidden] { display: none; }
+
 /* the staging bar floats over the timeline's top-right corner */
 .mf-center { position: relative; }
 .stg-bar {

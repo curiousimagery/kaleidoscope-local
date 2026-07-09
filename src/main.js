@@ -983,12 +983,7 @@ function wireBarBands() {
 // elementFromPoint still hit-tests them — listen at the document.
 function wireDisabledTips() {
   let tip = null, tipT = 0;
-  document.addEventListener('touchstart', (e) => {
-    const t = e.touches[0];
-    if (!t) return;
-    const el = document.elementFromPoint(t.clientX, t.clientY);
-    const dis = el?.closest?.('button[disabled], input[disabled], select[disabled], [aria-disabled="true"]');
-    const text = dis && (dis.title || dis.getAttribute('aria-label'));
+  const show = (x, y, text) => {
     if (!text) return;
     if (!tip) {
       tip = document.createElement('div');
@@ -996,12 +991,32 @@ function wireDisabledTips() {
       document.body.appendChild(tip);
     }
     tip.textContent = text;
-    const r = dis.getBoundingClientRect();
-    tip.style.left = Math.round(Math.min(window.innerWidth - 12, Math.max(12, r.left + r.width / 2))) + 'px';
-    tip.style.top = Math.round(Math.max(34, r.top - 8)) + 'px';
+    tip.style.left = Math.round(Math.min(window.innerWidth - 12, Math.max(12, x))) + 'px';
+    tip.style.top = Math.round(Math.max(34, y)) + 'px';
     tip.classList.add('on');
     clearTimeout(tipT);
     tipT = setTimeout(() => tip.classList.remove('on'), 2400);
+  };
+  document.addEventListener('touchstart', (e) => {
+    const t = e.touches[0];
+    if (!t) return;
+    const el = document.elementFromPoint(t.clientX, t.clientY);
+    if (!el) return;
+    const dis = el.closest?.('button[disabled], input[disabled], select[disabled], [aria-disabled="true"]');
+    if (dis) {
+      const r = dis.getBoundingClientRect();
+      show(r.left + r.width / 2, r.top - 8, dis.title || dis.getAttribute('aria-label'));
+      return;
+    }
+    // CSS-gated clusters (pointer-events: none — motion locks the form grid /
+    // discrete rows this way) never hit-test, so the tap lands on an ancestor:
+    // it carries data-tip-motion, honored only while the motion gate is on.
+    // Live interactive elements win over the container tip.
+    if (el.closest('button:not([disabled]), input:not([disabled]), select:not([disabled]), a, .val.scrub')) return;
+    const holder = el.closest('[data-tip-motion]');
+    if (holder && document.body.classList.contains('motion')) {
+      show(t.clientX, t.clientY - 14, holder.getAttribute('data-tip-motion'));
+    }
   }, { passive: true });
 }
 

@@ -25,6 +25,7 @@
 import { createFollower, FOLLOW_SPANS, CONTINUOUS_KEYS } from '../kit/follow.js';
 import { angDelta, ANGULAR_KEYS } from '../kit/tween.js';
 import { createEngine } from '../engine/index.js';
+import { ICONS } from '../mobile/icons.js';
 
 export function createPerformRuntime(env) {
   const { state, session } = env;
@@ -204,7 +205,11 @@ export function createPerformRuntime(env) {
     const hasVideo = !!v && env.performRT.active;
     // play keeps its motion-mode geography — disabled (not hidden) for non-video
     const play = byId('pfPlay');
-    if (play) { play.disabled = !hasVideo; play.textContent = hasVideo && !v.paused ? 'pause' : 'play'; }
+    if (play) {
+      const playing = hasVideo && !v.paused;
+      play.disabled = !hasVideo;
+      play.innerHTML = (playing ? ICONS.pause : ICONS.play) + `<span>${playing ? 'pause' : 'play'}</span>`;
+    }
     const sp = byId('pfSpeed');
     if (sp) {
       sp.hidden = !hasVideo;

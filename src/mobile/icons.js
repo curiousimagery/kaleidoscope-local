@@ -28,6 +28,9 @@ export const ICONS = {
   // TOGGLE (pause = frozen still, record = go live), the same pattern desktop adopts.
   // FALLBACK (old stop): `<rect x="4" y="4" width="16" height="16" rx="2.5" fill="currentColor"/>`
   pause: `<svg viewBox="0 0 24 24"><rect x="6" y="4" width="4.5" height="16" rx="1.5" fill="currentColor"/><rect x="13.5" y="4" width="4.5" height="16" rx="1.5" fill="currentColor"/></svg>`,
+  // play — pairs with pause (filled, not line-art); the desktop transport
+  // buttons use icon+label (the camera control's icon+text pattern).
+  play: `<svg viewBox="0 0 24 24"><path d="M8.2 5.3v13.4c0 1 1.1 1.6 1.9 1L20 13.1c.8-.5.8-1.7 0-2.2L10.1 4.3c-.8-.6-1.9 0-1.9 1z" fill="currentColor"/></svg>`,
   sliders: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="4" y1="8" x2="20" y2="8"/><line x1="4" y1="16" x2="20" y2="16"/><circle cx="9" cy="8" r="2.4" fill="currentColor"/><circle cx="15" cy="16" r="2.4" fill="currentColor"/></svg>`,
   target: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="2.2"/><path d="M12 3v3.5M12 17.5V21M3 12h3.5M17.5 12H21"/></svg>`,
   expand: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H3v5M16 3h5v5M8 21H3v-5M16 21h5v-5"/></svg>`,
