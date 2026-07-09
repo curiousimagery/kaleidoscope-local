@@ -415,24 +415,22 @@ function addKeyframe(opts) {
   // thumbnail fills on the debounced, readback-free filmstrip rebuild (no per-add readPixels)
 }
 // ===========================================================================
-// +gesture — record a manipulation as keyframes (Arc 3's reserved slot,
-// unblocked by the perform substrate: every input path mutates env.state, so
-// sampling state per frame IS the capture tap). Arm → your next manipulation
-// starts the take → press again ends it (or ~1.2s of stillness). The sample
-// stream simplifies (RDP over the normalized state metric) into sparse
-// ANCHORED keyframes — captured timing is the gesture's rhythm, so nothing
-// auto-spaces — and the take becomes the loop (replaces the timeline;
-// undoable, confirmed when real keyframes exist). If the take ends near its
-// start, the closing sample drops: the loop's return to keyframe 0 IS the
-// closing move.
+// +gesture — record a manipulation as ONE keyframe (Daniel's model, round 2:
+// a gesture is not a timing recording — it lands as a single keyframe that
+// blends from the previous one like any other. What the capture adds is the
+// WINDING: rotate 350° or 400° and the tween travels the full amount instead
+// of the shortest path, because the take accumulates the signed angular
+// travel and stores it as kf.wind — consumed by sampleKeyframes' winding
+// class snap. The smoothed translation-path capture is a spec'd follow-up.)
+// Arm → your next manipulation starts the take → press again ends it (or
+// ~1.2s of stillness). The keyframe inserts exactly like +keyframe would
+// (same selection/auto-space/undo semantics).
 // ===========================================================================
 const GEST_ANGULAR = new Set(ANGULAR_KEYS);
-const gest = { armed: false, recording: false, samples: [], base: null, t0: 0, lastMoveT: 0, raf: 0 };
+const gest = { armed: false, recording: false, base: null, last: null, wind: {}, lastMoveT: 0, raf: 0, preSel: -1 };
 const GEST_EPS = 0.006;       // movement threshold (normalized state distance)
 const GEST_IDLE_MS = 1200;    // stillness that ends a take
 const GEST_MAX_MS = 120000;   // hard cap on a take
-const GEST_TOL = 0.012;       // simplification tolerance
-const GEST_MAX_KF = 24;       // keyframe budget (tolerance widens to fit)
 
 function gestDist(a, b) {
   let mx = 0;
@@ -446,53 +444,22 @@ function gestDist(a, b) {
   return mx;
 }
 
-// Ramer-Douglas-Peucker over the multi-field time series: a sample's error is
-// its normalized distance from the endpoint-interpolated state at its time.
-function simplifyGesture(samples, tol) {
-  const keep = new Array(samples.length).fill(false);
-  keep[0] = keep[samples.length - 1] = true;
-  const stack = [[0, samples.length - 1]];
-  while (stack.length) {
-    const [i0, i1] = stack.pop();
-    if (i1 - i0 < 2) continue;
-    const a = samples[i0], b = samples[i1];
-    const dt = (b.ms - a.ms) || 1;
-    let worst = -1, worstD = tol;
-    for (let i = i0 + 1; i < i1; i++) {
-      const s = samples[i];
-      const f = (s.ms - a.ms) / dt;
-      let mx = 0;
-      for (const k of CONTINUOUS_KEYS) {
-        const span = FOLLOW_SPANS[k] || 1;
-        const av = a.snap[k] ?? 0, bv = b.snap[k] ?? 0, sv = s.snap[k] ?? 0;
-        let d;
-        if (GEST_ANGULAR.has(k)) d = Math.abs(angDelta(av + angDelta(av, bv) * f, sv));
-        else d = Math.abs(sv - (av + (bv - av) * f));
-        if (d / span > mx) mx = d / span;
-      }
-      if (mx > worstD) { worstD = mx; worst = i; }
-    }
-    if (worst >= 0) { keep[worst] = true; stack.push([i0, worst], [worst, i1]); }
-  }
-  return samples.filter((_, i) => keep[i]);
-}
-
 function syncGestUI() {
   const btn = document.getElementById('mfGesture');
   if (!btn) return;
   btn.classList.toggle('active', gest.armed);
   btn.textContent = gest.recording ? '● recording' : gest.armed ? '● armed' : '＋ gesture';
   btn.title = gest.recording
-    ? 'recording — press again to finish (G)'
+    ? 'recording — press again to land the keyframe (G)'
     : gest.armed
       ? 'armed — your next manipulation starts the take; press again to cancel (G)'
-      : 'record a gesture as keyframes: arm, manipulate, press again to finish (G)';
+      : 'record a gesture as a keyframe — full rotations kept: arm, manipulate, press again to finish (G)';
 }
 
 function cancelGesture() {
   gest.armed = gest.recording = false;
   if (gest.raf) { cancelAnimationFrame(gest.raf); gest.raf = 0; }
-  gest.samples = [];
+  gest.wind = {};
   syncGestUI();
 }
 
@@ -501,58 +468,53 @@ function gestTick() {
   const now = performance.now();
   if (!gest.recording && gestDist(state, gest.base) > GEST_EPS) {
     gest.recording = true;
-    gest.t0 = now - 16;
+    gest.t0 = now;
     gest.lastMoveT = now;
-    gest.samples = [{ ms: 0, snap: gest.base }];   // the take starts from the armed look
+    gest.last = { ...gest.base };
+    gest.wind = {};
     syncGestUI();
   }
   if (gest.recording) {
-    const last = gest.samples[gest.samples.length - 1];
-    const snap = { ...state };
-    if (gestDist(snap, last.snap) > GEST_EPS * 0.5) gest.lastMoveT = now;
-    gest.samples.push({ ms: now - gest.t0, snap });
+    // accumulate the signed angular travel — per-frame deltas are < 180°, so
+    // the sum is the exact winding (this is the whole point of the capture)
+    for (const k of ANGULAR_KEYS) {
+      gest.wind[k] = (gest.wind[k] || 0) + angDelta(gest.last[k] ?? 0, state[k] ?? 0);
+    }
+    if (gestDist(state, gest.last) > GEST_EPS * 0.5) gest.lastMoveT = now;
+    gest.last = { ...state };
     if (now - gest.lastMoveT > GEST_IDLE_MS || now - gest.t0 > GEST_MAX_MS) { finishGesture(); return; }
   }
   gest.raf = requestAnimationFrame(gestTick);
 }
 
 function finishGesture() {
-  const samples = gest.samples;
-  const cutoff = gest.lastMoveT - gest.t0;
+  const base = gest.base, wind = gest.wind;
+  const final = { ...state };
   cancelGesture();
-  // drop the trailing stillness that ended the take (an intentional mid-take
-  // hold survives — only the dead tail goes)
-  while (samples.length > 2 && samples[samples.length - 1].ms > cutoff + 120) samples.pop();
-  if (samples.length < 8) { syncGestUI(); return; }               // a twitch, not a take
-  let tol = GEST_TOL;
-  let kept = simplifyGesture(samples, tol);
-  while (kept.length > GEST_MAX_KF) { tol *= 1.6; kept = simplifyGesture(samples, tol); }
-  const total = kept[kept.length - 1].ms - kept[0].ms;
-  if (kept.length < 2 || total < 400) { syncGestUI(); return; }
-  if (kfList().length > 1 &&
-      !window.confirm('Replace the current keyframes with this gesture?')) return;
-  env.pushHistory?.(); env.updateUndoUI?.();
-  const closed = gestDist(kept[0].snap, kept[kept.length - 1].snap) < 0.03;
-  const usable = (closed && kept.length > 2) ? kept.slice(0, -1) : kept;
-  motion.keyframes = usable.map((s) => ({
-    t: Math.max(0, Math.min(1, (s.ms - kept[0].ms) / total)),
-    snap: { ...s.snap },
-    thumb: makeThumbCanvas(),
-    anchored: true,
-  }));
-  // discrete state locks to kf0 (the timeline invariant)
-  for (const kf of motion.keyframes) {
-    for (const dk of DISCRETE_KEYS) kf.snap[dk] = motion.keyframes[0].snap[dk];
+  // a real take moved somewhere — or wound somewhere and back (a full 360 spin
+  // ends where it began; the winding is exactly what it captured)
+  const wound = Object.values(wind).some((w) => Math.abs(w) > 5);
+  if (gestDist(base, final) < GEST_EPS && !wound) { updateMotionUI(); return; }
+  // insert through the normal +keyframe pathway (history push, in-flight commit,
+  // selection/auto-space semantics) — with state restored to the ARMED look so
+  // the commit-to-selected step writes the pre-take state, not the take's end
+  Object.assign(state, base);
+  motion.selected = gest.preSel;
+  addKeyframe();
+  const kf = kfList()[motion.selected];
+  if (!kf) return;
+  kf.snap = { ...final };
+  for (const dk of DISCRETE_KEYS) kf.snap[dk] = kfList()[0].snap[dk];   // the timeline invariant
+  // winding rides the keyframe for fields that traveled meaningfully; the
+  // sampler snaps it to the class that lands exactly on the keyframe's angle
+  const w = {};
+  for (const k of ANGULAR_KEYS) {
+    if (wind[k] != null && Math.abs(wind[k]) > 1) w[k] = Math.round(wind[k] * 10) / 10;
   }
-  // the take's real duration becomes the loop duration (a video source keeps
-  // its locked clip-derived duration; the keyframes' relative rhythm holds)
-  if (!env.sourceVideo) motion.durationMs = Math.max(1000, Math.min(600000, Math.round(total)));
-  motion.selected = 0;
-  Object.assign(state, motion.keyframes[0].snap);
-  setPlayhead(0);
+  if (Object.keys(w).length) kf.wind = w;
+  Object.assign(state, kf.snap);
   env.syncControls?.();
   renderTimeline();
-  updateMotionUI();
   env.scheduleRender?.();
 }
 
@@ -565,6 +527,7 @@ function toggleGesture() {
   }
   if (motion.playing) stopPlayback();
   closeKfMenu();
+  gest.preSel = motion.selected;          // the take's keyframe inserts where +keyframe would have
   motion.selected = -1;                   // edits must not write through to a keyframe mid-take
   renderTimeline();
   gest.armed = true;
@@ -1190,7 +1153,7 @@ function motionToJSON() {
   return JSON.stringify({
     format: 'fold-motion', version: 1, app: formatVersion(),
     durationMs: motion.durationMs, loop: motion.loop, smoothing: motion.smoothing, videoSpeed: motion.videoSpeed,
-    keyframes: kfList().map(k => ({ t: k.t, anchored: !!k.anchored, snap: { ...k.snap } })),
+    keyframes: kfList().map(k => ({ t: k.t, anchored: !!k.anchored, snap: { ...k.snap }, ...(k.wind ? { wind: { ...k.wind } } : {}) })),
   });
 }
 function motionJSONBlob() { return new Blob([motionToJSON()], { type: 'application/json' }); }
@@ -1210,7 +1173,7 @@ function loadMotionFromJSON(text) {
   motion.smoothing = Math.max(0, Math.min(1, +o.smoothing || 0));
   motion.videoSpeed = Math.max(0.1, Math.min(4, +o.videoSpeed || 1));
   if (env.sourceVideo) lockVideoDuration();      // a video source overrides duration with native ÷ speed
-  motion.keyframes = o.keyframes.map(k => ({ t: +k.t || 0, anchored: !!k.anchored, snap: { ...k.snap }, thumb: makeThumbCanvas() }));
+  motion.keyframes = o.keyframes.map(k => ({ t: +k.t || 0, anchored: !!k.anchored, snap: { ...k.snap }, thumb: makeThumbCanvas(), ...(k.wind && typeof k.wind === 'object' ? { wind: { ...k.wind } } : {}) }));
   motion.keyframes[0].anchored = true;          // kf0 is always the start anchor at t=0
   motion.selected = -1;
   applyAutoSpacing();

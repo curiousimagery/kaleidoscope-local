@@ -27,7 +27,7 @@ const redoStack = [];
 
 function snapshotMotion(motion) {
   return {
-    keyframes: motion.keyframes.map(k => ({ t: k.t, anchored: k.anchored, thumb: k.thumb, snap: { ...k.snap } })),
+    keyframes: motion.keyframes.map(k => ({ t: k.t, anchored: k.anchored, thumb: k.thumb, snap: { ...k.snap }, ...(k.wind ? { wind: { ...k.wind } } : {}) })),
     selected: motion.selected,
     playhead: motion.playhead,
   };

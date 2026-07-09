@@ -143,7 +143,16 @@ export function sampleKeyframes(list, p, { smoothing = 0, loop = false } = {}) {
     for (let i = 0; i < n; i++) {
       const raw = list[i].snap[key] ?? 0;
       ts.push(list[i].t);
-      vs.push(i === 0 || !angular ? raw : vs[i - 1] + angDelta(list[i - 1].snap[key] ?? 0, raw));
+      if (i === 0 || !angular) { vs.push(raw); continue; }
+      // shortest-path by default; a keyframe with recorded WINDING (a +gesture
+      // capture: kf.wind[key] = signed travel into this keyframe) keeps its
+      // laps + direction — the recorded travel is snapped to the winding class
+      // that lands exactly on the keyframe's angle, so a 350° drag plays 350°
+      // (not −10°) and later edits to the angle keep the laps gracefully.
+      let d = angDelta(list[i - 1].snap[key] ?? 0, raw);
+      const w = list[i].wind?.[key];
+      if (w != null) d += 360 * Math.round((w - d) / 360);
+      vs.push(vs[i - 1] + d);
     }
     if (loop) {   // kf0's look returns at t=1 (unwrapped so it lands on the same angle)
       ts.push(1);
