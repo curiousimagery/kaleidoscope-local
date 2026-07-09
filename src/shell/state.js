@@ -66,9 +66,10 @@ export const session = {
                       // performing; presets 50–200%, separate from motion's retime).
   performLayout: 'pip',   // where the LIVE view lives in perform: 'pip' (docked over the
                       // stage — the practical default) or 'three' (a third sibling panel).
-  performAutoEnergy: 0.5,   // autoplay pacing: how often/fast wander destinations change
+  performAutoPace: 0.5,     // autoplay: how often a new destination is initiated
   performAutoRange: 0.35,   // autoplay guardrail: max normalized distance from each field's home
   performAutoVariety: 0.5,  // autoplay breadth: how many fields wander at once
+  performAutoSmooth: 0.45,  // autoplay motion smoothing: the wander spring's response (bigger = silkier)
   stageLivePct: 32,   // the live panel's share of the stage split in the three-panel
                       // layout (percent; the live divider drags it).
 };

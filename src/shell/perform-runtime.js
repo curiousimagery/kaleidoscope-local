@@ -184,6 +184,22 @@ export function createPerformRuntime(env) {
     byId('pfHold')?.classList.toggle('active', !!env.performRT.hold);
     const take = byId('pfTake');
     if (take) take.disabled = !env.performRT.hold;
+    // staging and autoplay are mutually exclusive (both want to drive the
+    // stage) — each disables the other, and the title says why
+    const hold = byId('pfHold');
+    if (hold) {
+      hold.disabled = auto.on;
+      hold.title = auto.on
+        ? 'staging is available when autoplay is off — auto drives the stage continuously'
+        : 'stage — freeze the live output and build what’s up next off-air (S / space)';
+    }
+    const autoBtn = byId('pfAuto');
+    if (autoBtn) {
+      autoBtn.disabled = !!env.performRT.hold;
+      autoBtn.title = env.performRT.hold
+        ? 'autoplay is available when staging is off — take or cut the staged look first'
+        : 'autoplay — the look drifts on its own within the guardrails (A)';
+    }
     // center: a live camera shows icon + device name where the timeline would go
     const liveLabel = byId('pfLiveLabel');
     const isLive = !!env.live?.isLive && env.performRT.active;
@@ -317,23 +333,40 @@ export function createPerformRuntime(env) {
     let F = auto.f[k];
     if (!F) {
       const v = state[k] ?? 0;
-      F = auto.f[k] = { cur: v, home: v, dest: v, pickT: now + Math.random() * 800, ownedUntil: 0, active: false };
+      F = auto.f[k] = { cur: v, vel: 0, home: v, dest: v, dir: 0, pickT: now + Math.random() * 800, ownedUntil: 0, active: false };
     }
     return F;
   }
+  // destination picks carry INTENT (Daniel's tuning round): momentum (mostly
+  // keep traveling the same way — fewer startling reversals, more full
+  // rotations) and a coverage bias (the slice leans toward looks that cover
+  // MORE of the source: scale picks lean high, position picks stay near home).
   function autoPick(k, F, now) {
     const range = session.performAutoRange ?? 0.35;
     if (ANGULAR.has(k)) {
-      F.dest = F.cur + (Math.random() * 2 - 1) * range * 360;   // wander is directionful; wrap on write
+      const dir = F.dir || (Math.random() < 0.5 ? -1 : 1);
+      const keep = Math.random() < 0.78 ? dir : -dir;
+      const sweep = (0.25 + 0.75 * Math.random()) * range * 360;   // never a micro-nudge
+      F.dest = F.cur + keep * sweep;
+      F.dir = keep;
     } else {
       const span = FOLLOW_SPANS[k] || 1;
-      let d = F.home + (Math.random() * 2 - 1) * range * span;
+      let r = Math.random() * 2 - 1;
+      if (k === 'sliceScale') r = 1 - 2 * Math.pow(Math.random(), 1.7);      // leans large (coverage)
+      else if (k === 'sliceCx' || k === 'sliceCy') r *= Math.random();       // leans home (keeps big slices on-image)
+      else if (F.dir && Math.random() < 0.65) r = Math.abs(r) * F.dir;       // momentum
+      let d = F.home + r * range * span;
       const b = AUTO_BOUNDS[k];
-      if (b) d = Math.max(b[0], Math.min(b[1], d));
+      if (b) {
+        // the guardrail bounds AUTO's wandering, never the user: if a manual
+        // edit homed the field outside them, the window stretches to include it
+        d = Math.max(Math.min(b[0], F.home), Math.min(Math.max(b[1], F.home), d));
+      }
+      F.dir = Math.sign(d - F.cur) || F.dir;
       F.dest = d;
     }
-    const energy = session.performAutoEnergy ?? 0.5;
-    F.pickT = now + (250 + (1 - energy) * 3500) * (0.6 + Math.random() * 0.8);
+    const pace = session.performAutoPace ?? 0.5;
+    F.pickT = now + (300 + (1 - pace) * 5200) * (0.6 + Math.random() * 0.8);
   }
   function autoTick(now, dt) {
     const fields = autoFields();
@@ -345,33 +378,51 @@ export function createPerformRuntime(env) {
       for (const k of fields) autoField(k, now).active = set.has(k);
       auto.roll = now + 5000 + Math.random() * 5000;
     }
-    const energy = session.performAutoEnergy ?? 0.5;
-    const ease = 1 - Math.exp(-dt / ((500 + (1 - energy) * 3500)));
+    // the glide is a critically damped SPRING per field (smoothing = its
+    // response): velocity stays CONTINUOUS across destination changes, so a
+    // new pick never jerks and an opposite pick decelerates through zero
+    // instead of snapping into reverse — the honest in-auto smoothing.
+    const smooth = session.performAutoSmooth ?? 0.45;
+    const tau = 0.35 + smooth * 3.6;
+    const omega = 2 / tau;
+    const dts = Math.min(dt, 100) / 1000;
+    const decay = Math.exp(-omega * dts);
     for (const k of fields) {
       const F = autoField(k, now);
       const live = state[k] ?? 0;
-      const drift = ANGULAR.has(k)
-        ? Math.abs(angDelta(wrap360(F.cur), wrap360(live)))
-        : Math.abs(live - F.cur);
-      if (drift > (ANGULAR.has(k) ? 0.75 : (FOLLOW_SPANS[k] || 1) * 0.004)) {
-        // your hand moved this field — back off and adopt the placement as home
+      // ownership: auto writes exact values, so ANY external change means a
+      // hand (or system) moved the field — yield, adopt it as the new home
+      const moved = ANGULAR.has(k)
+        ? Math.abs(angDelta(wrap360(F.cur), wrap360(live))) > 1e-4
+        : Math.abs(live - F.cur) > (FOLLOW_SPANS[k] || 1) * 1e-6;
+      if (moved) {
         F.ownedUntil = now + AUTO_OWN_MS;
-        F.cur = live; F.home = live; F.dest = live;
+        F.cur = live; F.vel = 0; F.home = live; F.dest = live; F.dir = 0;
         F.pickT = now + 400;
         continue;
       }
-      if (!F.active || now < F.ownedUntil) { F.cur = live; F.home = live; F.dest = live; continue; }
+      if (!F.active || now < F.ownedUntil) { F.cur = live; F.vel = 0; F.home = live; F.dest = live; continue; }
       if (now >= F.pickT) autoPick(k, F, now);
-      F.cur += (F.dest - F.cur) * ease;
-      state[k] = ANGULAR.has(k) ? wrap360(F.cur) : F.cur;
-      if (ANGULAR.has(k)) F.cur = wrap360(F.cur);
+      const y = F.cur - F.dest;
+      const tmp = (F.vel + omega * y) * dts;
+      F.cur = F.dest + (y + tmp) * decay;
+      F.vel = (F.vel - omega * tmp) * decay;
+      if (ANGULAR.has(k)) {
+        // re-base a long drift toward 0 so unwrapped values never grow unbounded
+        if (Math.abs(F.cur) > 7200) { const s = 360 * Math.floor(F.cur / 360); F.cur -= s; F.dest -= s; }
+        state[k] = wrap360(F.cur);
+      } else {
+        state[k] = F.cur;
+      }
     }
   }
   function setAuto(on) {
     if (on === auto.on) return;
+    if (on && env.performRT.hold) return;     // mutually exclusive with staging (the buttons explain)
     auto.on = on;
     if (on) { auto.f = {}; auto.roll = 0; }   // fresh homes at the current look
     byId('pfAuto')?.classList.toggle('active', on);
+    syncTransportUI();                         // stage/auto disable each other with explanatory titles
   }
 
   // normalized live-vs-stage distance (the in-sync read). Measured directly
@@ -599,10 +650,12 @@ export function createPerformRuntime(env) {
     if (tag === 'BUTTON') el.blur();   // space must never double as "re-click the focused button"
     if (e.code === 'Space') {
       e.preventDefault();
+      if (auto.on) return;               // staging is off while autoplay drives the stage
       if (!env.performRT.hold) { env.performRT.hold = true; syncTransportUI(); }
       else follower?.setTarget(state);   // take — stays staged for the next build
     } else if (e.key === 's' || e.key === 'S') {
       e.preventDefault();
+      if (auto.on) return;               // staging is off while autoplay drives the stage
       env.performRT.hold = !env.performRT.hold;
       syncTransportUI();
     } else if (e.key === 't' || e.key === 'T') {
@@ -636,9 +689,10 @@ export function createPerformRuntime(env) {
     show();
     el.addEventListener('input', () => { session[key] = parseFloat(el.value) || 0; show(); });
   };
-  wireAutoDial('autoEnergy', 'autoEnergyVal', 'performAutoEnergy');
+  wireAutoDial('autoPace', 'autoPaceVal', 'performAutoPace');
   wireAutoDial('autoRange', 'autoRangeVal', 'performAutoRange');
   wireAutoDial('autoVariety', 'autoVarietyVal', 'performAutoVariety');
+  wireAutoDial('autoSmooth', 'autoSmoothVal', 'performAutoSmooth');
 
   // the live-view layout: the footer selector + the hover dock button on the PiP
   byId('pfLayout')?.querySelectorAll('[data-playout]').forEach((b) =>

@@ -456,17 +456,21 @@
      auto toggle. energy = pacing of destination changes; range = how far from each
      field's HOME it may wander; variety = how many fields wander at once. -->
 <div class="panel-popover" id="autoPopover" hidden>
-  <label class="slider" style="margin-bottom: 10px;">
-    <div class="row"><span>energy</span><span class="val" id="autoEnergyVal">50%</span></div>
-    <input type="range" id="autoEnergy" min="0.05" max="1" step="0.05" value="0.5">
+  <label class="slider" style="margin-bottom: 10px;" title="how often a new position is initiated">
+    <div class="row"><span>pace</span><span class="val" id="autoPaceVal">50%</span></div>
+    <input type="range" id="autoPace" min="0.05" max="1" step="0.05" value="0.5">
   </label>
-  <label class="slider" style="margin-bottom: 10px;">
+  <label class="slider" style="margin-bottom: 10px;" title="how far from each parameter's home the drift may wander">
     <div class="row"><span>range</span><span class="val" id="autoRangeVal">35%</span></div>
     <input type="range" id="autoRange" min="0.05" max="1" step="0.05" value="0.35">
   </label>
-  <label class="slider">
+  <label class="slider" style="margin-bottom: 10px;" title="how many parameters wander at once">
     <div class="row"><span>variety</span><span class="val" id="autoVarietyVal">50%</span></div>
     <input type="range" id="autoVariety" min="0" max="1" step="0.05" value="0.5">
+  </label>
+  <label class="slider" title="motion smoothing between positions — the wander's own easing, independent of transition speed">
+    <div class="row"><span>smoothing</span><span class="val" id="autoSmoothVal">45%</span></div>
+    <input type="range" id="autoSmooth" min="0.05" max="1" step="0.05" value="0.45">
   </label>
 </div>
 <div class="panel-popover" id="slicePopover" hidden>
