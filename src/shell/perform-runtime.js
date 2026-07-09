@@ -412,8 +412,9 @@ export function createPerformRuntime(env) {
       trail = []; lastGhostT = 0; settleFadeT = 0;
       ensurePipEngine();
       applyLayout();   // shows the live view per session.performLayout (pip / three-panel)
-      const sl = byId('stageLabel'); if (sl) sl.hidden = false;
-      const srl = byId('srcLabel'); if (srl) srl.hidden = false;
+      // the labels show in EVERY mode; perform just renames the output panel to
+      // its perform role ("staged" — what's up next, vs the live view)
+      const sl = byId('stageLabel'); if (sl) sl.textContent = 'staged';
       const footer = byId('performFooter');
       if (footer) footer.hidden = false;
       placeSrcScrub(true);             // the video timeline moves into the footer center
@@ -431,8 +432,7 @@ export function createPerformRuntime(env) {
       follower = null;
       if (raf) { cancelAnimationFrame(raf); raf = 0; }
       applyLayout();   // hides the live view, panel + divider; re-homes the PiP
-      const sl = byId('stageLabel'); if (sl) sl.hidden = true;
-      const srl = byId('srcLabel'); if (srl) srl.hidden = true;
+      const sl = byId('stageLabel'); if (sl) sl.textContent = 'output';
       const footer = byId('performFooter'); if (footer) footer.hidden = true;
       placeSrcScrub(false);            // the timeline returns to the source panel
       renderPfRuler();                 // hides itself when perform is off
