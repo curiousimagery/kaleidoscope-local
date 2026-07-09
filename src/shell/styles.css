@@ -985,9 +985,32 @@ button .btn-spinner {
    to clip length ÷ speed for a video source) */
 .scrub.locked { pointer-events: none; opacity: var(--disabled-opacity); cursor: default; }
 /* the loop row is a LABELED toggle — state in words, no ambiguous pressed-look */
-#mfLoop::after { content: ' · off'; color: var(--text-dim); }
-#mfLoop.active { color: var(--text-bright); }
-#mfLoop.active::after { content: ' · on'; color: var(--ok); }
+#mfLoop::after, #mfStage::after { content: ' · off'; color: var(--text-dim); }
+#mfLoop.active, #mfStage.active { color: var(--text-bright); }
+#mfLoop.active::after, #mfStage.active::after { content: ' · on'; color: var(--ok); }
+/* staging: the ON-AIR playhead (committed loop) — dimmed, non-interactive */
+.mf-livehead { opacity: 0.35; pointer-events: none; }
+.mf-livehead[hidden] { display: none; }
+/* the staging bar floats over the timeline's top-right corner */
+.mf-center { position: relative; }
+.stg-bar {
+  position: absolute;
+  top: 20px;
+  right: 8px;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px 4px 10px;
+  background: rgba(0, 0, 0, 0.65);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-2xs);
+  font-size: var(--text-xs);
+  color: var(--text-bright);
+  letter-spacing: 0.04em;
+}
+.stg-bar[hidden] { display: none; }
+.stg-bar .mf-btn { height: 26px; padding: 0 10px; }
 .mf-speed-btns { display: inline-flex; gap: 4px; }
 .mf-speed-btns .mf-btn { height: 28px; min-width: 0; padding: 0 8px; font-size: var(--text-sm); }
 .mf-toggle.active { border-color: var(--focus); color: var(--text-bright); }

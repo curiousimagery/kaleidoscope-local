@@ -51,8 +51,13 @@ export function createPerformRuntime(env) {
   const byId = (id) => document.getElementById(id);
 
   // ---- the program-state seam (bus + output window read this) --------------
-  env.programState = () =>
-    (env.performRT.active && env.performRT.followed) ? env.performRT.followed : env.state;
+  // perform's follower first; then motion's staging/blend (the committed loop
+  // stays on-air while keyframes are edited off-air); else the working state
+  env.programState = () => {
+    if (env.performRT.active && env.performRT.followed) return env.performRT.followed;
+    const staged = env.motionStageLive?.();
+    return staged || env.state;
+  };
 
   // ---- the live PiP ---------------------------------------------------------
   function ensurePipEngine() {
@@ -112,11 +117,12 @@ export function createPerformRuntime(env) {
   // layouts while performing: in PiP it sits at the far edge, and pulling it out
   // reopens the panel (Daniel's grippy way back, beside the PiP button + the
   // footer selector).
+  let externalLive = false;   // motion staging borrows the live view (same layouts)
   function applyLayout() {
     const pip = byId('livePip'), panel = byId('livePanel'),
           div = byId('liveDivider'), wrap = byId('liveWrap');
     if (!pip || !panel) return;
-    const on = env.performRT.active && !pipFailed;
+    const on = (env.performRT.active || externalLive) && !pipFailed;
     const three = on && session.performLayout === 'three';
     if (three && wrap && pip.parentElement !== wrap) wrap.appendChild(pip);
     else if (!three && pip.parentElement !== byId('outPanel')) byId('outPanel').appendChild(pip);
@@ -133,6 +139,30 @@ export function createPerformRuntime(env) {
     applyLayout();
   }
   env.setPerformLayout = setLayout;
+
+  // the live view, lendable: motion's STAGE CHANGES shows the committed loop
+  // through the same PiP / third panel (same engine, same layout selector)
+  env.liveView = {
+    set(on) {
+      externalLive = !!on;
+      if (on) {
+        ensurePipEngine();
+        pipLastSource = null;   // re-sync the source on borrow (it may have changed since perform last ran)
+        const dot = byId('lpDot');
+        dot?.classList.add('sync');     // no chase semantics here — keep the dot quiet
+        dot?.classList.remove('live');
+        dotSynced = null;               // perform re-evaluates fresh next time it runs
+      }
+      applyLayout();
+    },
+    render(snap) {
+      if (!pipEngine || pipFailed || !snap) return;
+      if (syncPipSource()) {
+        sizePip();
+        try { pipEngine.render(snap); } catch { /* keep the loop alive */ }
+      }
+    },
+  };
 
   // output-engine's source-sync rules, applied to the PiP engine
   function syncPipSource() {

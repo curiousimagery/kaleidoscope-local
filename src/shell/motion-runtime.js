@@ -537,6 +537,161 @@ function toggleGesture() {
   gest.raf = requestAnimationFrame(gestTick);
 }
 
+// ===========================================================================
+// STAGE CHANGES — live keyframe editing while the animation keeps playing
+// (Daniel's approved spec + his two-playhead play/pause decision). On entry
+// the keyframe set FORKS: the COMMITTED copy keeps driving the live view and
+// every broadcast (the programState seam) on its own clock — on-air and
+// untouchable; motion.keyframes becomes the STAGED set you edit with every
+// normal interaction, and the stage canvas previews it. SPACE plays/pauses
+// the STAGED preview (the existing playback machinery IS that player — it
+// drives env.state, which no longer feeds broadcasts while staging). TAKE
+// (T, the only commit key) swaps committed→staged and eases the on-air
+// output across the discontinuity at the shared transition speed; CUT swaps
+// instantly; DISCARD restores the committed set (undoable). Leaving motion
+// mid-staging commits as a cut — staged edits are never silently lost.
+// v1 is STILL sources only: one <video> can't present two times at once
+// (the committed loop's frame vs your edit frame) — a second decode path is
+// the spec'd follow-up.
+// ===========================================================================
+const stg = { on: false, committed: null, playing: false, p: 0, t0: 0, raf: 0, live: null, blend: null, lastBar: 0 };
+const stgWrap360 = (v) => ((v % 360) + 360) % 360;
+// consumed by env.programState (perform-runtime): what the audience sees
+// while staging (the committed loop) or while a take blends across
+env.motionStageLive = () => (stg.on ? stg.live : (stg.blend ? stg.blend.live : null));
+
+function stgEval(list, p) {
+  const out = sampleKeyframes(list, p, { smoothing: motion.smoothing, loop: motion.loop });
+  for (const k of DISCRETE_KEYS) out[k] = list[0].snap[k];
+  return out;
+}
+function stgAdvance(now) {
+  if (stg.playing) {
+    let p = (now - stg.t0) / motion.durationMs;
+    if (motion.loop) p -= Math.floor(p);
+    else if (p >= 1) { p = 1; stg.playing = false; }
+    stg.p = p;
+  }
+  return stg.p;
+}
+function stgChanges() {
+  const a = motion.keyframes, b = stg.committed || [];
+  let n = Math.abs(a.length - b.length);
+  for (let i = 0; i < Math.min(a.length, b.length); i++) {
+    if (Math.abs(a[i].t - b[i].t) > 1e-6) { n++; continue; }
+    let diff = false;
+    for (const k of CONTINUOUS_KEYS) if ((a[i].snap[k] ?? 0) !== (b[i].snap[k] ?? 0)) { diff = true; break; }
+    if (!diff) for (const k of DISCRETE_KEYS) if (a[i].snap[k] !== b[i].snap[k]) { diff = true; break; }
+    if (diff) n++;
+  }
+  return n;
+}
+function stgLoop(now) {
+  if (!stg.on) return;
+  const p = stgAdvance(now);
+  stg.live = stgEval(stg.committed, p);
+  env.liveView?.render(stg.live);
+  const head = document.getElementById('mfLiveHead');
+  if (head) head.style.left = tToPct(p) + '%';
+  if (now - stg.lastBar > 300) {   // the change counter is a diff — keep it off the per-frame path
+    stg.lastBar = now;
+    const c = document.getElementById('stgCount');
+    if (c) { const n = stgChanges(); c.textContent = n ? `staging · ${n} change${n === 1 ? '' : 's'}` : 'staging'; }
+  }
+  stg.raf = requestAnimationFrame(stgLoop);
+}
+function stgSetUI(on) {
+  const bar = document.getElementById('stgBar');
+  if (bar) bar.hidden = !on;
+  const head = document.getElementById('mfLiveHead');
+  if (head) head.hidden = !on;
+  const sl = document.getElementById('stageLabel');
+  if (sl) sl.textContent = on ? 'staged' : 'output';
+  document.getElementById('mfStage')?.classList.toggle('active', on);
+  env.liveView?.set(on);
+}
+function startStaging() {
+  if (stg.on || !env.motionRT.active || env.sourceVideo || env.live?.isLive) return;
+  if (kfList().length < 2) return;               // nothing meaningful to stage against
+  closeKfMenu();
+  stg.committed = kfList().map((k) => ({ t: k.t, anchored: k.anchored, snap: { ...k.snap }, thumb: k.thumb, ...(k.wind ? { wind: { ...k.wind } } : {}) }));
+  stg.playing = motion.playing;
+  stg.p = motion.playhead;
+  stg.t0 = performance.now() - stg.p * motion.durationMs;
+  // the edit side parks for editing; the committed loop keeps running on-air
+  if (motion.playing) { haltPlayback(); loadPlayheadIntoState(); }
+  stg.on = true;
+  stg.blend = null;
+  stg.lastBar = 0;
+  stgSetUI(true);
+  stg.raf = requestAnimationFrame(stgLoop);
+  renderTimeline();
+  updateMotionUI();
+}
+function endStaging(how, { resume = true } = {}) {   // 'take' | 'cut' | 'discard'
+  if (!stg.on) return;
+  const committed = stg.committed;
+  const wasPlaying = stg.playing;
+  const pNow = stgAdvance(performance.now());
+  if (stg.raf) { cancelAnimationFrame(stg.raf); stg.raf = 0; }
+  stg.on = false;
+  stg.live = null;
+  stg.committed = null;
+  if (how === 'discard') {
+    env.pushHistory?.(); env.updateUndoUI?.();   // undo brings the discarded staged set back
+    motion.keyframes = committed;
+    motion.selected = -1;
+  } else if (how === 'take') {
+    // ease the on-air output across the swap at the shared transition speed —
+    // the loop keeps playing while the look crossfades onto the new keyframes
+    const dur = Math.max(120, (env.session?.performResponse ?? 0.35) * 2500);
+    stg.blend = { from: committed, t0: performance.now(), dur, playing: wasPlaying, p: pNow, clock0: performance.now() - pNow * motion.durationMs, live: null };
+    requestAnimationFrame(stgBlendLoop);
+  }
+  stgSetUI(false);
+  // one timeline again. If the STAGED preview is currently playing, it simply
+  // keeps playing (it's the new committed loop now — don't interrupt it);
+  // otherwise the on-air position carries over, resuming if IT was playing.
+  if (resume && !motion.playing) {
+    motion.playhead = Math.max(0, Math.min(1, pNow));
+    if (wasPlaying) startPlayback();
+    else loadPlayheadIntoState();
+  }
+  renderTimeline();
+  updateMotionUI();
+}
+function stgBlendLoop() {
+  const B = stg.blend;
+  if (!B) return;
+  const now = performance.now();
+  const b = Math.min(1, (now - B.t0) / B.dur);
+  const e = b * b * (3 - 2 * b);                 // smoothstep
+  let pOld = B.p;
+  if (B.playing) {
+    pOld = (now - B.clock0) / motion.durationMs;
+    if (motion.loop) pOld -= Math.floor(pOld);
+    else pOld = Math.min(1, pOld);
+  }
+  const from = stgEval(B.from, pOld);
+  const to = state;                              // resumed playback IS the new committed eval
+  const out = { ...to };
+  for (const k of CONTINUOUS_KEYS) {
+    const av = from[k] ?? 0, bv = to[k] ?? 0;
+    out[k] = GEST_ANGULAR.has(k) ? stgWrap360(av + angDelta(av, bv) * e) : av + (bv - av) * e;
+  }
+  B.live = out;
+  if (b >= 1) { stg.blend = null; return; }
+  requestAnimationFrame(stgBlendLoop);
+}
+function requestStagingExit() {
+  if (!stg.on) return;
+  if (stgChanges() > 0) {
+    if (window.confirm('Discard the staged changes? Take (T) commits them instead.')) endStaging('discard');
+  } else {
+    endStaging('cut');   // nothing changed — a silent exit
+  }
+}
+
 // set the selected keyframe anchored (pinned at its exact time) or auto (even-spaced
 // between anchors) — the two states are explicit commands in the keyframe context menu.
 function setAnchored(val) {
@@ -1024,6 +1179,9 @@ function relayoutTimeline() {
 // ---- mode toggle + UI sync ------------------------------------------------
 function toggleMotionMode() {
   if (!engine || !engine.getSourceImage() || env.live.isLive) return;
+  // leaving motion mid-staging commits as a CUT (no playback resume — the mode
+  // is ending); staged edits are never silently lost
+  if (env.motionRT.active && stg.on) endStaging('cut', { resume: false });
   env.motionRT.active = !env.motionRT.active;
   motion.selected = -1;          // never carry a stale selection across the toggle
                                  // (otherwise post-exit edits could write through to it)
@@ -1115,6 +1273,13 @@ function updateMotionUI() {
   if (q('mfAdd')) q('mfAdd').disabled = !available;
   if (q('mfGesture')) q('mfGesture').disabled = !available;
   if (!env.motionRT.active && gest.armed) cancelGesture();   // leaving motion abandons a take
+  const stgBtn = q('mfStage');
+  if (stgBtn) {
+    stgBtn.disabled = !available || !!env.sourceVideo || kfList().length < 2;
+    stgBtn.title = env.sourceVideo
+      ? 'stage changes needs a still source for now — footage can’t present two times at once (a second decode path is spec’d)'
+      : 'stage changes — edit keyframes off-air while the animation keeps playing to the live output (S)';
+  }
   // (keyframe ops — anchor/auto-space/delete — live in the #kfMenu context menu,
   //  which gates itself: it only opens for kf1+.)
   const minKf = env.sourceVideo ? 1 : 2;   // video plays/renders with 1 kf (the footage provides motion)
@@ -1193,6 +1358,11 @@ function wireMotion() {
   byId('stillBtn')?.addEventListener('click', () => { if (env.motionRT.active) toggleMotionMode(); });
   byId('mfAdd')?.addEventListener('click', addKeyframe);
   byId('mfGesture')?.addEventListener('click', toggleGesture);
+  // stage changes: the ⋯ toggle + the staging bar's transport
+  byId('mfStage')?.addEventListener('click', () => { if (stg.on) requestStagingExit(); else startStaging(); });
+  byId('stgTake')?.addEventListener('click', () => endStaging('take'));
+  byId('stgCut')?.addEventListener('click', () => endStaging('cut'));
+  byId('stgDiscard')?.addEventListener('click', requestStagingExit);
   // keyframe context menu actions (the menu opens from marker select / right-click)
   byId('kfAnchorPos')?.addEventListener('click', () => { setAnchored(true); closeKfMenu(); });
   byId('kfAutoSpace')?.addEventListener('click', () => { setAnchored(false); closeKfMenu(); });
@@ -1443,6 +1613,12 @@ function wireMotion() {
     } else if (e.key === 'g' || e.key === 'G') {
       e.preventDefault();
       toggleGesture();      // arm / finish / cancel — the +gesture button's key
+    } else if (e.key === 's' || e.key === 'S') {
+      e.preventDefault();
+      if (stg.on) requestStagingExit(); else startStaging();   // staging toggle (perform's S, same vocabulary)
+    } else if (e.key === 't' || e.key === 'T') {
+      e.preventDefault();
+      if (stg.on) endStaging('take');   // T is the ONLY commit key (Daniel)
     } else if (e.key === 'a' || e.key === 'A') {
       e.preventDefault();
       const i = motion.selected;

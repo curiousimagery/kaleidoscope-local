@@ -247,7 +247,18 @@
     <div class="mf-track" id="mfTrack" title="drag to scrub">
       <div class="mf-strip" id="mfStrip"></div>
       <div class="mf-markers" id="mfMarkers"></div>
+      <!-- staging: the ON-AIR playhead — rides the committed loop, dimmed,
+           non-interactive; your edit playhead stays the normal one -->
+      <div class="mf-playhead mf-livehead" id="mfLiveHead" hidden></div>
       <div class="mf-playhead" id="mfPlayhead"></div>
+    </div>
+    <!-- staging bar (stage changes): shown while editing off-air — the committed
+         loop keeps playing to live + broadcasts; T takes, cut swaps instantly -->
+    <div class="stg-bar" id="stgBar" hidden>
+      <span id="stgCount">staging</span>
+      <button class="mf-btn" id="stgTake" title="take — blend the on-air loop onto the staged keyframes at the transition speed (T)">take</button>
+      <button class="mf-btn" id="stgCut" title="cut — switch the on-air loop to the staged keyframes instantly">cut</button>
+      <button class="mf-btn" id="stgDiscard" title="discard the staged changes and return to the on-air keyframes">discard</button>
     </div>
   </div>
   <!-- right: minimal icon stack (overflow · zoom · fit) -->
@@ -262,6 +273,7 @@
     <label class="mf-menu-field">duration <span class="val scrub" id="mfDurVal">30.0s</span></label>
     <label class="mf-menu-field">smoothing <span class="val scrub" id="mfSmoothVal">0%</span></label>
     <button class="mf-toggle" id="mfLoop" title="loop the animation — with loop on, the end returns to the first keyframe">loop</button>
+    <button class="mf-toggle" id="mfStage" title="stage changes — edit keyframes off-air while the animation keeps playing to the live output (S)">stage changes</button>
     <!-- (25% is deliberately OMITTED until real frame interpolation exists — the
          frame-hold stutter can't produce good results; see BACKLOG) -->
     <div class="mf-menu-field" id="mfSpeed" hidden title="playback speed — slow busy footage so the fold reads">speed
