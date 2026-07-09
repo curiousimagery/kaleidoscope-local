@@ -25,10 +25,12 @@ export function createMidiInput(onSignal, onDevices) {
         const type = st & 0xf0, ch = st & 0x0f;
         const dev = slug(input.name);
         if (type === 0xb0) {
-          onSignal(`midi:${dev}.cc${ch}.${d1}`, d2 / 127, { label: `${input.name} cc${d1}`, momentary: false });
+          onSignal(`midi:${dev}.cc${ch}.${d1}`, d2 / 127,
+            { device: dev, deviceName: input.name, kind: 'cc', label: `cc ${d1}`, momentary: false });
         } else if (type === 0x90 || type === 0x80) {
           const v = type === 0x80 ? 0 : d2 / 127;   // note-off (or vel 0) = release
-          onSignal(`midi:${dev}.n${ch}.${d1}`, v > 0 ? 1 : 0, { label: `${input.name} pad ${d1}`, momentary: true });
+          onSignal(`midi:${dev}.n${ch}.${d1}`, v > 0 ? 1 : 0,
+            { device: dev, deviceName: input.name, kind: 'pad', label: `pad ${d1}`, momentary: true });
         }
       };
     }
@@ -49,9 +51,9 @@ export function createMidiInput(onSignal, onDevices) {
     },
     devices() {
       if (!access) return [];
-      const names = new Set();
-      for (const i of access.inputs.values()) if (i.state === 'connected') names.add(i.name);
-      return [...names];
+      const seen = new Map();
+      for (const i of access.inputs.values()) if (i.state === 'connected') seen.set(slug(i.name), i.name);
+      return [...seen].map(([key, name]) => ({ key, name }));
     },
     // note-signal introspection for LED paint: midi:<device>.n<ch>.<note>
     parseNoteSig(sig) {

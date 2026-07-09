@@ -41,7 +41,7 @@ import { mountInputDebug } from './shell/input-debug.js';
 import { createPerformRuntime } from './shell/perform-runtime.js';
 import { createInputBus } from './shell/input-bus.js';
 import { ICONS } from './mobile/icons.js';   // shared glyph set (fit/fill toggle)
-import { VERSION, formatVersion } from './version.js';
+import { formatVersion } from './version.js';
 import { push as historyPush, undo as historyUndo, redo as historyRedo, canUndo, canRedo } from './shell/history.js';
 import { wireDiagnosticButton } from './shell/diagnostics.js';
 
@@ -50,7 +50,7 @@ import { wireDiagnosticButton } from './shell/diagnostics.js';
 // ============================================================================
 
 document.getElementById('versionBadge').textContent = formatVersion();
-document.getElementById('openDiagBtn').textContent = VERSION;   // the toolbar version chip opens diagnostics
+document.getElementById('aboutVersion').textContent = formatVersion();   // the settings gear replaced the version chip
 document.getElementById('placeholderTitle').textContent = `kaleidoscope — ${formatVersion()}`;
 document.title = `kaleidoscope — ${formatVersion()}`;
 
@@ -937,13 +937,19 @@ function wireGlobalSheets() {
     sheet.addEventListener('click', (e) => { if (e.target === sheet) sheet.hidden = true; });
   };
   wire('exportSheet', 'openExportBtn', 'exportClose');
-  wire('diagSheet', 'openDiagBtn', 'diagClose');
+  wire('settingsSheet', 'settingsBtn', 'settingsClose');
   // (#outputBtn toggles the in-column output expand-band, not a sheet — see
   //  wireBarBands below.)
 
-  // The diagnostics sheet surfaces the recent live-output op records (the unified
-  // op-perf substrate, env.diag.ops) — refreshed each time the sheet is opened.
-  document.getElementById('openDiagBtn')?.addEventListener('click', renderDiagOps);
+  // the settings sheet's tabs (about · inputs · diagnostics). The diag tab
+  // surfaces the recent live-output op records (env.diag.ops) on each show.
+  const tabs = document.getElementById('setTabs');
+  tabs?.querySelectorAll('[data-tab]').forEach((b) => b.addEventListener('click', () => {
+    tabs.querySelectorAll('[data-tab]').forEach((x) => x.classList.toggle('active', x === b));
+    for (const t of document.querySelectorAll('.set-tab')) t.hidden = t.id !== b.dataset.tab;
+    if (b.dataset.tab === 'tabDiag') renderDiagOps();
+  }));
+  document.getElementById('settingsBtn')?.addEventListener('click', renderDiagOps);
 }
 
 // The global bar's expand-band: #outputBtn reveals #outputRow (live-output controls,

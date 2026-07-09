@@ -76,14 +76,17 @@
              so live-performance needs never fight the authoring modes -->
         <button class="ot-btn" id="performBtn" disabled title="perform mode — the live output follows your edits">perform</button>
       </span>
-      <!-- the control bus admin (Arc 6): devices, mappings, learn, pad LED colors -->
-      <button class="ot-btn" id="inputBtn" title="input devices + mappings (MIDI, game controllers)">input</button>
       <button class="ot-btn" id="outputBtn" disabled title="live output">output<span class="ot-led" id="outputLed"><i></i><i></i></span></button>
       <!-- per-mode export controls (the app-bar spec): render shows in motion,
            save in still (updateMotionUI gates both) -->
       <button class="ot-btn" id="mfRender" hidden disabled title="render the animation to a video file">render ▸</button>
       <button class="ot-btn" id="openExportBtn" title="save / export">save ▸</button>
-      <button class="ot-btn ot-version" id="openDiagBtn" title="diagnostics">·</button>
+      <!-- one green dot per ONLINE input device (control bus); empty = hidden.
+           this real-estate later hosts the audio-reactivity micro-visualizer too -->
+      <span class="in-lights" id="inputLights"></span>
+      <!-- the settings gizmo (replaced the version chip — the version still prints
+           on the null-state screen + the about tab) -->
+      <button class="ot-btn ot-version" id="settingsBtn" title="settings — about · inputs · diagnostics">⚙</button>
     </div>
   </div>
 
@@ -376,17 +379,39 @@
   </div>
 </div>
 
-<!-- input mappings sheet (the control bus admin — Arc 6) -->
-<div class="vid-sheet" id="inputSheet" hidden>
+<!-- settings sheet (the app-bar gear): about · inputs (the control bus admin) ·
+     diagnostics. The diag readout elements keep their ids — diagnostics.js and
+     renderDiagOps write into them wherever they live. -->
+<div class="vid-sheet" id="settingsSheet" hidden>
   <div class="vid-card in-card">
-    <div class="vid-head"><span>inputs</span><button class="vid-x" id="inClose" title="close">✕</button></div>
-    <label class="setting-label">devices</label>
-    <div class="in-devices" id="inDevices"></div>
-    <label class="setting-label">mappings</label>
-    <div class="in-maps" id="inMaps"></div>
-    <button class="primary" id="inLearn" style="width:100%;margin-top:10px;"
-      title="press, then move the hardware control you want to assign">＋ map — move a control to capture it</button>
-    <div class="in-hint">a mapping writes the parameter exactly like your hand — the live output follows at the transition speed, and autoplay yields the field. pad rows carry an LED swatch (tap to cycle the hardware color).</div>
+    <div class="vid-head"><span>settings</span><button class="vid-x" id="settingsClose" title="close">✕</button></div>
+    <div class="set-tabs" id="setTabs">
+      <button class="toggle" data-tab="tabAbout">about</button>
+      <button class="toggle active" data-tab="tabInputs">inputs</button>
+      <button class="toggle" data-tab="tabDiag">diagnostics</button>
+    </div>
+    <div class="set-tab" id="tabAbout" hidden>
+      <div class="about-name">Fold</div>
+      <div class="about-line" id="aboutVersion"></div>
+      <div class="about-line">created by Daniel Nelson</div>
+      <div class="about-line dim">a kaleidoscope instrument for stills, motion, and live performance</div>
+    </div>
+    <div class="set-tab" id="tabInputs">
+      <label class="setting-label">devices &amp; mappings</label>
+      <div class="in-maps" id="inMaps"></div>
+      <div class="in-actions">
+        <button class="primary" id="inLearn" title="press, then move the hardware control you want to assign">＋ map — move a control to capture it</button>
+        <button class="toggle" id="inSaveRig" title="download the full rig (devices + mappings) as JSON">save rig</button>
+        <button class="toggle" id="inLoadRig" title="load a rig JSON (replaces current mappings)">load rig</button>
+        <input type="file" id="inRigFile" accept="application/json" hidden>
+      </div>
+      <div class="in-hint"><b>abs</b> — the control's position IS the value (faders, knobs). <b>rel</b> — each event nudges by sensitivity × range (endless encoders, buttons). <b>rate</b> — deflection sets speed; release to stop (sticks, throttles). Hover a target for its low → high direction. Names are editable; drag ≡ to reorder; pad rows carry an LED swatch (tap to cycle the hardware color). Mappings write the parameter exactly like your hand — the live output follows at the transition speed and autoplay yields the field.</div>
+    </div>
+    <div class="set-tab" id="tabDiag" hidden>
+      <div class="status" id="diag"></div>
+      <div class="status" id="diagOps"></div>
+      <div class="version-badge" id="versionBadge"></div>
+    </div>
   </div>
 </div>
 
@@ -475,16 +500,7 @@
   </div>
 </div>
 
-<!-- diagnostics sheet (global) — discrete readout + recent live-output op records
-     + full report / raw data -->
-<div class="vid-sheet" id="diagSheet" hidden>
-  <div class="vid-card">
-    <div class="vid-head"><span>diagnostics</span><button class="vid-x" id="diagClose" title="close">✕</button></div>
-    <div class="status" id="diag"></div>
-    <div class="status" id="diagOps"></div>
-    <div class="version-badge" id="versionBadge"></div>
-  </div>
-</div>
+<!-- (diagnostics moved into the settings sheet's diagnostics tab — the gear) -->
 
 <!-- panel-settings popovers (progressive disclosure) — fixed-position, anchored to
      their .panel-gear trigger at open time (wirePanelPopovers in main.js); body-level

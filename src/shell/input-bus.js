@@ -4,46 +4,44 @@
 // shell/input-bus.js
 //
 // THE CONTROL BUS (Arc 6): one signal pool + one mapping layer between every
-// physical input and the app. Adapters (midi-input, gamepad-input; trackpad
-// and audio later) turn hardware events into normalized SIGNALS — a stable
-// string id + a 0..1 (or ±1) value — and the bus routes them through
-// user-assigned MAPPINGS onto state fields or transport actions. Nothing is
-// hard-coded to any device: LEARN captures whatever control you wiggle, and
-// the mapping row decides what it drives, how (absolute / relative / rate /
-// trigger), over what range, inverted or not, and (for MIDI pads) which LED
-// color marks it on the hardware.
+// physical input and the app. Adapters (midi-input, gamepad-input; trackpad,
+// mobile-gesture, and audio later) turn hardware events into normalized
+// SIGNALS — a stable string id + a 0..1 (or ±1) value — and the bus routes
+// them through user-assigned MAPPINGS onto state fields or transport actions.
+// Nothing is hard-coded to any device: LEARN captures whatever you wiggle.
 //
-// The bus writes env.state exactly like a hand on a slider — so the follower,
-// staging, autoplay's per-field ownership (a bus write reads as "manual" and
-// autoplay yields), and every broadcast compose downstream for free. A future
-// audio adapter is just another signal source into the same mappings; additive
-// audio-over-hand layering is a planned 'pulse' mode (offset with decay on top
-// of the base value), not a v1 mode.
+// The admin lives in the settings sheet's INPUTS tab: mappings grouped by
+// DEVICE (green/gray status dot per device; a friendly rename on both devices
+// and individual controls), per-row target / mode (abs·rel·rate) / sensitivity
+// / invert / pad-LED color, drag-to-reorder, and a rig save/load (JSON
+// download; localStorage carries the rig across sessions regardless). One
+// green dot per ONLINE device also shows in the app bar beside the gear.
 //
-// Persistence: mappings + adapter opt-ins in localStorage (fold-inputs-v1) so
-// a rig survives reload. Signal ids key on device NAME (not port id), so they
-// survive reconnects and machine moves.
+// The bus writes env.state exactly like a hand on a slider — the follower,
+// staging, autoplay's per-field ownership, and every broadcast compose
+// downstream for free. A future audio adapter is one more signal source into
+// the same mappings; additive audio-over-hand layering is a planned 'pulse'
+// mode (decaying offsets on top of the base), not a v1 mode.
 
 import { createMidiInput } from './midi-input.js';
 import { createGamepadInput } from './gamepad-input.js';
 
 const STORE_KEY = 'fold-inputs-v1';
 
-// Mappable targets: continuous params (label + full range; wrap = angular) and
-// transport ACTIONS (mode-aware dispatch below). Ranges mirror the sliders /
-// follow spans; a mapping can narrow to a sub-range via lo/hi later if needed.
+// Mappable targets: continuous params (full slider range; wrap = angular) and
+// transport ACTIONS. `dir` names the low → high direction for the invert read.
 const PARAM_TARGETS = [
-  { key: 'sliceRotation', label: 'slice rotation', min: 0, max: 360, wrap: true },
-  { key: 'sliceScale', label: 'slice scale', min: 0.05, max: 3 },
-  { key: 'sliceCx', label: 'slice position x', min: 0, max: 1 },
-  { key: 'sliceCy', label: 'slice position y', min: 0, max: 1 },
-  { key: 'canvasZoom', label: 'composition zoom', min: 0.15, max: 4 },
-  { key: 'canvasRotation', label: 'canvas rotation', min: 0, max: 360, wrap: true },
-  { key: 'squareAspect', label: 'square aspect', min: 0.25, max: 4 },
-  { key: 'drosteZoom', label: 'droste thickness', min: 1.1, max: 16 },
-  { key: 'drosteSpiral', label: 'droste spiral', min: -3, max: 3 },
-  { key: 'drosteOffsetX', label: 'droste offset x', min: -1, max: 1 },
-  { key: 'drosteOffsetY', label: 'droste offset y', min: -1, max: 1 },
+  { key: 'sliceRotation', label: 'slice rotation', min: 0, max: 360, wrap: true, dir: '0° → 360° counterclockwise' },
+  { key: 'sliceScale', label: 'slice scale', min: 0.05, max: 3, dir: 'small → large' },
+  { key: 'sliceCx', label: 'slice position x', min: 0, max: 1, dir: 'left → right' },
+  { key: 'sliceCy', label: 'slice position y', min: 0, max: 1, dir: 'top → bottom' },
+  { key: 'canvasZoom', label: 'composition zoom', min: 0.15, max: 4, dir: 'zoomed out → zoomed in' },
+  { key: 'canvasRotation', label: 'canvas rotation', min: 0, max: 360, wrap: true, dir: '0° → 360°' },
+  { key: 'squareAspect', label: 'square aspect', min: 0.25, max: 4, dir: 'tall → wide' },
+  { key: 'drosteZoom', label: 'droste thickness', min: 1.1, max: 16, dir: 'thin → thick' },
+  { key: 'drosteSpiral', label: 'droste spiral', min: -3, max: 3, dir: 'wind left → wind right' },
+  { key: 'drosteOffsetX', label: 'droste offset x', min: -1, max: 1, dir: 'left → right' },
+  { key: 'drosteOffsetY', label: 'droste offset y', min: -1, max: 1, dir: 'up → down' },
 ];
 const ACTION_TARGETS = [
   { key: 'action:stage', label: '⏻ stage (hold)' },
@@ -52,8 +50,9 @@ const ACTION_TARGETS = [
   { key: 'action:auto', label: '⏻ autoplay' },
   { key: 'action:play', label: '⏻ play / pause' },
 ];
-// APC40 MK2 pad-LED palette (velocity = color index) — a small curated set;
-// full 128-color painting can come with the tuned APC40 profile.
+const SENS_OPTS = [0.01, 0.02, 0.05, 0.1, 0.25, 0.5];
+// APC40 MK2 pad-LED palette (velocity = color index) — a curated set; full
+// 128-color painting comes with the tuned APC40 profile.
 const LED_COLORS = [
   { v: 0, label: 'off', css: '#333' },
   { v: 3, label: 'white', css: '#eee' },
@@ -65,31 +64,56 @@ const LED_COLORS = [
   { v: 45, label: 'blue', css: '#36e' },
   { v: 53, label: 'purple', css: '#93e' },
 ];
+// signal-kind chips: what the hardware control physically is (from the
+// adapter's read; a MIDI cc can't distinguish knob from fader — 'cc' is honest)
+const KIND_CHIP = { cc: 'cc', pad: 'pad', stick: 'stick', btn: 'btn' };
 
 export function createInputBus(env) {
   const { state } = env;
   const byId = (id) => document.getElementById(id);
 
-  // ---- persistence ----------------------------------------------------------
-  let store = { v: 1, maps: [], midi: false, pad: false };
-  try { const s = JSON.parse(localStorage.getItem(STORE_KEY)); if (s && s.v === 1) store = s; } catch { /* fresh */ }
+  // ---- persistence -----------------------------------------------------------
+  // v2: devices registry (friendly names, offline display) + per-map sens/label.
+  let store = { v: 2, devices: {}, maps: [], midi: false, pad: false };
+  try {
+    const s = JSON.parse(localStorage.getItem(STORE_KEY));
+    if (s && s.v === 2) store = s;
+    else if (s && s.v === 1) {
+      // v1 → v2: derive device keys, seed sensitivity. v1 GAMEPAD signals keyed
+      // on gp.index (unstable across reconnects) — dropped; re-learn takes seconds
+      // and the new ids survive replugging. MIDI ids were already name-stable.
+      store.maps = (s.maps || []).filter((m) => !/^pad:\d+\./.test(m.sig)).map((m) => ({
+        sens: m.mode === 'rate' ? 0.25 : 0.05, ...m,
+        dev: (/^midi:([a-z0-9-]+)\./.exec(m.sig) || [])[1] || 'unknown',
+      }));
+      store.midi = !!s.midi; store.pad = !!s.pad;
+    }
+  } catch { /* fresh */ }
   const save = () => { try { localStorage.setItem(STORE_KEY, JSON.stringify(store)); } catch { /* private mode */ } };
 
-  // ---- adapters --------------------------------------------------------------
+  // ---- adapters ----------------------------------------------------------------
   const midi = createMidiInput(onSignal, refreshDevices);
   const pads = createGamepadInput(onSignal, refreshDevices);
+  const online = () => new Map([...midi.devices(), ...pads.devices()].map((d) => [d.key, d.name]));
 
-  // ---- signal routing ---------------------------------------------------------
-  let learnCb = null;            // armed learn: the next signal is captured, not applied
-  let lastSyncT = 0;             // throttle the control-panel resync (autoplay's pattern)
-  const rate = new Map();        // signal → deflection, for rate-mode integration
+  // ---- signal routing ------------------------------------------------------------
+  let learnCb = null;
+  let lastSyncT = 0;
+  const rate = new Map();        // sig→target → deflection, for rate integration
   let rateRaf = 0, rateLastT = 0;
+
+  function rememberDevice(meta) {
+    if (!meta?.device) return;
+    const d = store.devices[meta.device];
+    if (!d) { store.devices[meta.device] = { name: meta.deviceName || meta.device }; save(); }
+    else if (meta.deviceName && d.name !== meta.deviceName) { d.name = meta.deviceName; save(); }
+  }
 
   function onSignal(sig, value, meta) {
     if (learnCb) {
-      // buttons/pads learn on PRESS only; a release must not re-capture
-      if (meta.momentary && value === 0) return;
+      if (meta.momentary && value === 0) return;   // learn on press, not release
       const cb = learnCb; learnCb = null;
+      rememberDevice(meta);
       cb(sig, meta);
       return;
     }
@@ -102,32 +126,33 @@ export function createInputBus(env) {
     if (hit) paintActivity(sig);
   }
 
-  function targetOf(key) { return PARAM_TARGETS.find((t) => t.key === key); }
+  const targetOf = (key) => PARAM_TARGETS.find((t) => t.key === key);
 
   function applyMapping(m, value, meta) {
     if (m.target.startsWith('action:')) {
-      if (value > 0.5) fireAction(m.target.slice(7));    // press edge (adapters emit edges)
+      if (value > 0.5) fireAction(m.target.slice(7));
       return;
     }
     const t = targetOf(m.target);
     if (!t) return;
     const span = t.max - t.min;
+    const sens = m.sens ?? 0.05;
     if (m.mode === 'rate') {
-      // deflection drives velocity (game-stick natural mode) — integrated below
-      let d = value;                                     // −1..1
+      let d = value;
       if (m.invert) d = -d;
-      rate.set(m.sig + '→' + m.target, { key: t.key, d, span, wrap: t.wrap });
+      rate.set(m.sig + '→' + m.target, { key: t.key, d, span, sens });
       startRateLoop();
       return;
     }
     if (m.mode === 'rel') {
-      // relative encoder: adapters hand a signed step in `value` (±n/64)
-      let d = value * span * 0.5;
+      // one event = one nudge of sensitivity × range (buttons send 1; encoders
+      // send signed fractions) — sens is the whole step-size story
+      let d = (meta.momentary ? Math.sign(value) : value) * span * sens;
       if (m.invert) d = -d;
-      writeParam(t, (state[t.key] ?? 0) + d);
+      if (d) writeParam(t, (state[t.key] ?? 0) + d);
       return;
     }
-    // absolute: 0..1 (bipolar axes fold to 0..1) across the full target range
+    // absolute: position IS the value across the target's full range
     let v01 = meta.bipolar ? (value + 1) / 2 : value;
     if (m.invert) v01 = 1 - v01;
     writeParam(t, t.min + v01 * span);
@@ -143,8 +168,8 @@ export function createInputBus(env) {
     if (now - lastSyncT > 250) { lastSyncT = now; env.syncControls?.(); }
   }
 
-  // rate-mode integration: its own light rAF, alive only while any stick is
-  // deflected past the deadzone (adapters already deadzone; 0 clears the entry)
+  // rate-mode integration: alive only while something is deflected. Full
+  // deflection sweeps sens × range × 2.4 per second (sens 25% ≈ 60%/s).
   function startRateLoop() {
     if (rateRaf) return;
     rateLastT = performance.now();
@@ -156,16 +181,14 @@ export function createInputBus(env) {
       for (const [k, r] of rate) {
         if (!r.d) { rate.delete(k); continue; }
         live = true;
-        const tgt = targetOf(r.key);
-        writeParam(tgt, (state[r.key] ?? 0) + r.d * r.span * 0.6 * dt);   // full deflection ≈ 60% of range per second
+        writeParam(targetOf(r.key), (state[r.key] ?? 0) + r.d * r.span * r.sens * 2.4 * dt);
       }
       if (live) rateRaf = requestAnimationFrame(tick);
     };
     rateRaf = requestAnimationFrame(tick);
   }
 
-  // transport actions dispatch to whichever mode owns them right now — the
-  // same buttons the keyboard shortcuts press (disabled buttons no-op)
+  // transport actions press the same buttons the keyboard does, mode-aware
   function fireAction(a) {
     const perform = !!env.performRT?.active;
     const map = {
@@ -179,7 +202,7 @@ export function createInputBus(env) {
     if (btn && !btn.disabled && !btn.hidden) btn.click();
   }
 
-  // ---- LED paint (MIDI note signals only) -------------------------------------
+  // ---- LED paint (MIDI note signals) -------------------------------------------
   function paintLeds() {
     for (const m of store.maps) {
       if (m.led == null) continue;
@@ -188,68 +211,122 @@ export function createInputBus(env) {
     }
   }
   function paintActivity(sig) {
-    // the sheet's rows flash on hardware activity — the "which knob is this" read
-    if (byId('inputSheet')?.hidden !== false) return;   // sheet closed — skip the query
+    if (byId('settingsSheet')?.hidden !== false) return;
     const row = document.querySelector(`[data-sig="${CSS.escape(sig)}"]`);
     if (row) { row.classList.add('in-live'); setTimeout(() => row.classList.remove('in-live'), 150); }
   }
 
-  // ---- the admin sheet ---------------------------------------------------------
-  function refreshDevices() {
-    const list = byId('inDevices');
-    if (!list) return;
-    const devs = [...midi.devices(), ...pads.devices()];
-    list.innerHTML = devs.length
-      ? devs.map((d) => `<div class="in-dev">● ${d}</div>`).join('')
-      : '<div class="in-dev none">no devices detected — connect MIDI (Chromium/Electron) or press a button on a game controller</div>';
-    paintLeds();   // a (re)connect repaints the mapped pads
+  // ---- app-bar presence: one green dot per online device ------------------------
+  function renderLights() {
+    const el = byId('inputLights');
+    if (!el) return;
+    const on = online();
+    el.innerHTML = [...on.values()].map((n) => `<i title="${n} — connected"></i>`).join('');
+    el.hidden = !on.size;
   }
 
+  // ---- the inputs tab -------------------------------------------------------------
+  function refreshDevices() {
+    // remember every device we see, so it lists (offline) after disconnect
+    for (const [key, name] of online()) {
+      if (!store.devices[key]) { store.devices[key] = { name }; save(); }
+    }
+    renderLights();
+    if (byId('settingsSheet')?.hidden === false) renderMaps();
+    paintLeds();
+  }
+
+  let dragIdx = -1;   // store.maps index being dragged
   function renderMaps() {
     const wrap = byId('inMaps');
     if (!wrap) return;
     wrap.innerHTML = '';
-    if (!store.maps.length) {
-      wrap.innerHTML = '<div class="in-dev none">no mappings yet — press “+ map”, then move the hardware control you want to assign</div>';
+    const on = online();
+    const devKeys = [...new Set([...Object.keys(store.devices), ...store.maps.map((m) => m.dev)])].filter(Boolean);
+    if (!devKeys.length) {
+      wrap.innerHTML = '<div class="in-dev none">no devices yet — connect MIDI (Chromium/Electron) or press a button on a game controller, then “+ map”</div>';
       return;
     }
-    store.maps.forEach((m, i) => {
-      const row = document.createElement('div');
-      row.className = 'in-map';
-      row.dataset.sig = m.sig;
-      const isNote = !!midi.parseNoteSig(m.sig);
-      const opts = [
-        '<optgroup label="parameters">',
-        ...PARAM_TARGETS.map((t) => `<option value="${t.key}"${m.target === t.key ? ' selected' : ''}>${t.label}</option>`),
-        '</optgroup><optgroup label="transport">',
-        ...ACTION_TARGETS.map((t) => `<option value="${t.key}"${m.target === t.key ? ' selected' : ''}>${t.label}</option>`),
-        '</optgroup>',
-      ].join('');
-      const modes = ['abs', 'rel', 'rate'].map((md) => `<option value="${md}"${m.mode === md ? ' selected' : ''}>${md}</option>`).join('');
-      row.innerHTML = `
-        <span class="in-sig" title="${m.sig}">${m.label || m.sig}</span>
-        <select class="in-target">${opts}</select>
-        <select class="in-mode" ${m.target.startsWith('action:') ? 'disabled' : ''}>${modes}</select>
-        <button class="toggle in-inv${m.invert ? ' active' : ''}" title="invert">inv</button>
-        ${isNote ? `<button class="in-led" title="pad LED color"></button>` : '<span></span>'}
-        <button class="vid-x in-del" title="remove mapping">✕</button>`;
-      const ledBtn = row.querySelector('.in-led');
-      const paintSwatch = () => { if (ledBtn) ledBtn.style.background = (LED_COLORS.find((c) => c.v === (m.led ?? 0)) || LED_COLORS[0]).css; };
-      paintSwatch();
-      row.querySelector('.in-target').addEventListener('change', (e) => { m.target = e.target.value; save(); renderMaps(); });
-      row.querySelector('.in-mode').addEventListener('change', (e) => { m.mode = e.target.value; save(); });
-      row.querySelector('.in-inv').addEventListener('click', (e) => { m.invert = !m.invert; e.target.classList.toggle('active', m.invert); save(); });
-      ledBtn?.addEventListener('click', () => {
-        const i2 = LED_COLORS.findIndex((c) => c.v === (m.led ?? 0));
-        m.led = LED_COLORS[(i2 + 1) % LED_COLORS.length].v;
-        paintSwatch(); save(); paintLeds();
+    for (const dev of devKeys) {
+      const d = store.devices[dev] || { name: dev };
+      const head = document.createElement('div');
+      head.className = 'in-devhead';
+      head.innerHTML = `<i class="in-dot${on.has(dev) ? ' on' : ''}" title="${on.has(dev) ? 'connected' : 'offline'}"></i>
+        <input class="in-name" value="${(d.friendly || d.name || dev).replace(/"/g, '&quot;')}" title="device name — click to rename">
+        <span class="in-devstate">${on.has(dev) ? 'connected' : 'offline'}</span>`;
+      head.querySelector('.in-name').addEventListener('change', (e) => {
+        (store.devices[dev] ??= { name: dev }).friendly = e.target.value.trim();
+        save();
       });
-      row.querySelector('.in-del').addEventListener('click', () => {
-        if (m.led != null) { const p = midi.parseNoteSig(m.sig); if (p) midi.sendNote(p.device, p.ch, p.note, 0); }
-        store.maps.splice(i, 1); save(); renderMaps();
-      });
-      wrap.appendChild(row);
+      wrap.appendChild(head);
+      store.maps.forEach((m, i) => { if (m.dev === dev) wrap.appendChild(mapRow(m, i)); });
+    }
+  }
+
+  function mapRow(m, i) {
+    const row = document.createElement('div');
+    row.className = 'in-map';
+    row.dataset.sig = m.sig;
+    const isNote = !!midi.parseNoteSig(m.sig);
+    const momentary = /\.(n|b)\d/.test(m.sig);
+    const isAction = m.target.startsWith('action:');
+    const opts = [
+      '<optgroup label="parameters">',
+      ...PARAM_TARGETS.map((t) => `<option value="${t.key}"${m.target === t.key ? ' selected' : ''}>${t.label}</option>`),
+      '</optgroup><optgroup label="transport">',
+      ...ACTION_TARGETS.map((t) => `<option value="${t.key}"${m.target === t.key ? ' selected' : ''}>${t.label}</option>`),
+      '</optgroup>',
+    ].join('');
+    // abs is position-is-value — meaningless for momentary controls, so they omit it
+    const modes = (momentary ? ['rel', 'rate'] : ['abs', 'rel', 'rate'])
+      .map((md) => `<option value="${md}"${m.mode === md ? ' selected' : ''}>${md}</option>`).join('');
+    const sens = SENS_OPTS.map((s) => `<option value="${s}"${(m.sens ?? 0.05) === s ? ' selected' : ''}>${Math.round(s * 100)}%</option>`).join('');
+    row.innerHTML = `
+      <span class="in-grip" draggable="true" title="drag to reorder">≡</span>
+      <span class="in-kind">${KIND_CHIP[m.kind] || (isNote ? 'pad' : m.sig.split('.')[1]?.[0] === 'a' ? 'stick' : m.sig.includes('.cc') ? 'cc' : 'btn')}</span>
+      <input class="in-name in-label" value="${(m.label || m.sig).replace(/"/g, '&quot;')}" title="${m.sig} — click to rename">
+      <select class="in-target" title="${isAction ? '' : dirTitle(m.target)}">${opts}</select>
+      <select class="in-mode" ${isAction ? 'disabled' : ''} title="abs: position is the value · rel: nudge per event · rate: deflection is speed">${modes}</select>
+      <select class="in-sens" ${isAction ? 'disabled' : ''} title="sensitivity — step size for rel, speed for rate">${sens}</select>
+      <button class="toggle in-inv${m.invert ? ' active' : ''}" title="invert${isAction ? '' : ' — ' + dirTitle(m.target)}">inv</button>
+      ${isNote ? '<button class="in-led" title="pad LED color — tap to cycle"></button>' : '<span></span>'}
+      <button class="vid-x in-del" title="remove mapping">✕</button>`;
+    const ledBtn = row.querySelector('.in-led');
+    const paintSwatch = () => { if (ledBtn) ledBtn.style.background = (LED_COLORS.find((c) => c.v === (m.led ?? 0)) || LED_COLORS[0]).css; };
+    paintSwatch();
+    row.querySelector('.in-label').addEventListener('change', (e) => { m.label = e.target.value.trim() || m.sig; save(); });
+    row.querySelector('.in-target').addEventListener('change', (e) => { m.target = e.target.value; save(); renderMaps(); });
+    row.querySelector('.in-mode').addEventListener('change', (e) => { m.mode = e.target.value; save(); });
+    row.querySelector('.in-sens').addEventListener('change', (e) => { m.sens = parseFloat(e.target.value); save(); });
+    row.querySelector('.in-inv').addEventListener('click', (e) => { m.invert = !m.invert; e.target.classList.toggle('active', m.invert); save(); });
+    ledBtn?.addEventListener('click', () => {
+      const c = LED_COLORS.findIndex((x) => x.v === (m.led ?? 0));
+      m.led = LED_COLORS[(c + 1) % LED_COLORS.length].v;
+      paintSwatch(); save(); paintLeds();
     });
+    row.querySelector('.in-del').addEventListener('click', () => {
+      if (m.led != null) { const p = midi.parseNoteSig(m.sig); if (p) midi.sendNote(p.device, p.ch, p.note, 0); }
+      store.maps.splice(store.maps.indexOf(m), 1); save(); renderMaps();
+    });
+    // drag-to-reorder (within the flat maps array; groups re-render around it)
+    const grip = row.querySelector('.in-grip');
+    grip.addEventListener('dragstart', (e) => { dragIdx = store.maps.indexOf(m); e.dataTransfer.effectAllowed = 'move'; });
+    row.addEventListener('dragover', (e) => { if (dragIdx >= 0) { e.preventDefault(); row.classList.add('in-over'); } });
+    row.addEventListener('dragleave', () => row.classList.remove('in-over'));
+    row.addEventListener('drop', (e) => {
+      e.preventDefault();
+      row.classList.remove('in-over');
+      const to = store.maps.indexOf(m);
+      if (dragIdx < 0 || to < 0 || dragIdx === to) { dragIdx = -1; return; }
+      const [moved] = store.maps.splice(dragIdx, 1);
+      store.maps.splice(to, 0, moved);
+      dragIdx = -1; save(); renderMaps();
+    });
+    return row;
+  }
+  function dirTitle(key) {
+    const t = targetOf(key);
+    return t ? `${t.label}: low → high runs ${t.dir}` : '';
   }
 
   function setLearn(on) {
@@ -257,11 +334,13 @@ export function createInputBus(env) {
     if (on) {
       learnCb = (sig, meta) => {
         btn?.classList.remove('active');
-        if (store.maps.some((m) => m.sig === sig)) { renderMaps(); return; }   // already mapped — the row flash locates it
+        if (store.maps.some((m) => m.sig === sig)) { renderMaps(); return; }   // already mapped — its row flashes to locate it
         store.maps.push({
-          sig, label: meta.label || sig,
+          sig, dev: meta.device || 'unknown', kind: meta.kind,
+          label: meta.label || sig,
           target: meta.momentary ? 'action:take' : 'sliceRotation',
-          mode: meta.bipolar ? 'rate' : 'abs',
+          mode: meta.momentary ? 'rel' : meta.bipolar ? 'rate' : 'abs',
+          sens: meta.bipolar ? 0.25 : 0.05,
           invert: false,
           ...(midi.parseNoteSig(sig) ? { led: 21 } : {}),
         });
@@ -274,25 +353,41 @@ export function createInputBus(env) {
     }
   }
 
-  async function openSheet() {
-    byId('inputSheet').hidden = false;
-    // adapters start on first open (MIDI permission prompts once; both opt-ins
-    // persist so a saved rig re-arms on every future load without the sheet)
-    if (!midi.active()) { store.midi = await midi.init(); save(); }
-    if (!pads.active()) { pads.init(); store.pad = true; save(); }
-    refreshDevices();
-    renderMaps();
+  // ---- rig save / load (JSON) ------------------------------------------------------
+  function saveRig() {
+    const blob = new Blob([JSON.stringify({ format: 'fold-rig', v: 2, devices: store.devices, maps: store.maps }, null, 2)], { type: 'application/json' });
+    env.downloadBlob?.(blob, 'fold-rig.json');
   }
-  function closeSheet() { setLearn(false); byId('inputSheet').hidden = true; }
+  function loadRig(text) {
+    let o;
+    try { o = JSON.parse(text); } catch { return alert('not valid JSON'); }
+    if (o?.format !== 'fold-rig' || !Array.isArray(o.maps)) return alert('not a Fold rig file');
+    store.devices = o.devices || {};
+    store.maps = o.maps;
+    save(); renderMaps(); paintLeds();
+  }
 
+  // ---- wiring --------------------------------------------------------------------
   function wire() {
-    byId('inputBtn')?.addEventListener('click', openSheet);
-    byId('inClose')?.addEventListener('click', closeSheet);
-    byId('inputSheet')?.addEventListener('click', (e) => { if (e.target === byId('inputSheet')) closeSheet(); });
+    byId('settingsBtn')?.addEventListener('click', async () => {
+      // adapters start on first open (MIDI permission prompts once; opt-ins
+      // persist so a saved rig re-arms at boot with no sheet visit)
+      if (!midi.active()) { store.midi = await midi.init(); save(); }
+      if (!pads.active()) { pads.init(); store.pad = true; save(); }
+      refreshDevices();
+      renderMaps();
+    });
+    byId('settingsClose')?.addEventListener('click', () => setLearn(false));
     byId('inLearn')?.addEventListener('click', () => setLearn(!learnCb));
+    byId('inSaveRig')?.addEventListener('click', saveRig);
+    byId('inLoadRig')?.addEventListener('click', () => byId('inRigFile')?.click());
+    byId('inRigFile')?.addEventListener('change', async (e) => {
+      const f = e.target.files?.[0]; e.target.value = '';
+      if (f) loadRig(await f.text());
+    });
     // a saved rig re-arms silently at boot (the permission grant is remembered)
-    if (store.midi) midi.init().then(() => { refreshDevices(); paintLeds(); });
-    if (store.pad) pads.init();
+    if (store.midi) midi.init().then(refreshDevices);
+    if (store.pad) { pads.init(); renderLights(); }
   }
   wire();
 }

@@ -1207,23 +1207,47 @@ body.motion #oobModes { pointer-events: none; opacity: var(--disabled-opacity); 
 .t-status.success { color: var(--ok); }
 .t-mono     { font-family: var(--font-mono); font-size: var(--text-sm); color: var(--text-dim); }
 
-/* input mappings sheet (the control bus admin — Arc 6) */
-.in-card { width: 560px; max-width: 94vw; }
-.in-devices { display: flex; flex-direction: column; gap: 3px; }
+/* settings sheet (the app-bar gear): about · inputs (control bus admin) · diagnostics */
+.in-card { width: 720px; max-width: 96vw; }
+.set-tabs { display: flex; gap: 6px; margin-bottom: 4px; }
+.set-tabs .toggle { font-size: var(--text-xs); padding: 4px 10px; }
+.about-name { font-size: var(--text-lg); color: var(--text-bright); font-weight: 600; }
+.about-line { font-size: var(--text-sm); color: var(--text); margin-top: 4px; }
+.about-line.dim { color: var(--text-dim); }
+/* app-bar presence: one green dot per online input device (beside the gear) */
+.in-lights { display: inline-flex; gap: 4px; align-items: center; padding: 0 2px; }
+.in-lights[hidden] { display: none; }
+.in-lights i { width: 7px; height: 7px; border-radius: 50%; background: #3c3; box-shadow: 0 0 5px rgba(60, 200, 60, 0.7); }
+/* inputs tab: device headers + mapping rows */
 .in-dev { font-size: var(--text-sm); color: var(--text); }
 .in-dev.none { color: var(--text-dim); }
-.in-maps { display: flex; flex-direction: column; gap: 5px; max-height: 46vh; overflow-y: auto; }
+.in-maps { display: flex; flex-direction: column; gap: 5px; max-height: 52vh; overflow-y: auto; }
+.in-devhead { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+.in-devhead:first-child { margin-top: 0; }
+.in-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--border); flex: none; }
+.in-dot.on { background: #3c3; box-shadow: 0 0 5px rgba(60, 200, 60, 0.7); }
+.in-name { background: transparent; border: 1px solid transparent; border-radius: var(--radius-sm);
+  color: var(--text); font-size: var(--text-sm); padding: 2px 4px; min-width: 0; }
+.in-name:hover, .in-name:focus { border-color: var(--border); background: var(--surface); }
+.in-devhead .in-name { font-weight: 600; flex: 1; }
+.in-devstate { font-size: var(--text-xs); color: var(--text-dim); }
 .in-map {
-  display: grid; grid-template-columns: minmax(90px, 1fr) minmax(120px, 1.2fr) 58px 40px 24px 24px;
+  display: grid; grid-template-columns: 14px 34px minmax(90px, 1fr) minmax(130px, 1.2fr) 54px 56px 38px 22px 22px;
   gap: 6px; align-items: center;
-  padding: 5px 6px; border: 1px solid var(--border); border-radius: var(--radius-md);
+  padding: 4px 6px; border: 1px solid var(--border); border-radius: var(--radius-md);
   transition: border-color 120ms;
 }
 .in-map.in-live { border-color: var(--accent); }
-.in-sig { font-size: var(--text-xs); color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.in-map.in-over { border-color: var(--accent); border-style: dashed; }
+.in-grip { color: var(--text-dim); cursor: grab; user-select: none; text-align: center; }
+.in-kind { font-size: 9px; color: var(--text-muted); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); padding: 1px 3px; text-align: center; }
+.in-label { font-size: var(--text-xs); }
 .in-map select { font-size: var(--text-xs); min-width: 0; }
 .in-map .toggle { font-size: var(--text-xs); padding: 3px 4px; }
 .in-led { width: 18px; height: 18px; border-radius: 50%; border: 1px solid var(--border); cursor: pointer; padding: 0; }
+.in-actions { display: flex; gap: 8px; margin-top: 10px; }
+.in-actions .primary { flex: 1; }
 .in-hint { font-size: var(--text-xs); color: var(--text-dim); line-height: 1.45; margin-top: 6px; }
 #inLearn.active { animation: inPulse 1s ease-in-out infinite; }
 @keyframes inPulse { 50% { opacity: 0.55; } }
