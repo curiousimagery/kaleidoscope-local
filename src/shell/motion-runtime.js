@@ -18,7 +18,8 @@
 // ensureSeededSelection / lockVideoDuration / stopPlayback / fmtClock / renderRuler /
 // scheduleFilmstrip) and wires its own DOM (wireMotion + setupVideoExport).
 
-import { sampleKeyframes, DISCRETE_KEYS } from '../kit/tween.js';
+import { sampleKeyframes, DISCRETE_KEYS, CONTINUOUS_KEYS, ANGULAR_KEYS, angDelta } from '../kit/tween.js';
+import { FOLLOW_SPANS } from '../kit/follow.js';
 import { pToMediaSec, seekVideoTo } from './video-source.js';
 import { exportVideo, videoExportSupported, pickVideoCodec } from './video-export.js';
 import { drawSourceOverlay } from './overlay.js';
@@ -413,6 +414,166 @@ function addKeyframe(opts) {
   else if (interpolated) env.scheduleRender?.();  // re-render the output to the interpolated look
   // thumbnail fills on the debounced, readback-free filmstrip rebuild (no per-add readPixels)
 }
+// ===========================================================================
+// +gesture — record a manipulation as keyframes (Arc 3's reserved slot,
+// unblocked by the perform substrate: every input path mutates env.state, so
+// sampling state per frame IS the capture tap). Arm → your next manipulation
+// starts the take → press again ends it (or ~1.2s of stillness). The sample
+// stream simplifies (RDP over the normalized state metric) into sparse
+// ANCHORED keyframes — captured timing is the gesture's rhythm, so nothing
+// auto-spaces — and the take becomes the loop (replaces the timeline;
+// undoable, confirmed when real keyframes exist). If the take ends near its
+// start, the closing sample drops: the loop's return to keyframe 0 IS the
+// closing move.
+// ===========================================================================
+const GEST_ANGULAR = new Set(ANGULAR_KEYS);
+const gest = { armed: false, recording: false, samples: [], base: null, t0: 0, lastMoveT: 0, raf: 0 };
+const GEST_EPS = 0.006;       // movement threshold (normalized state distance)
+const GEST_IDLE_MS = 1200;    // stillness that ends a take
+const GEST_MAX_MS = 120000;   // hard cap on a take
+const GEST_TOL = 0.012;       // simplification tolerance
+const GEST_MAX_KF = 24;       // keyframe budget (tolerance widens to fit)
+
+function gestDist(a, b) {
+  let mx = 0;
+  for (const k of CONTINUOUS_KEYS) {
+    const span = FOLLOW_SPANS[k] || 1;
+    const d = GEST_ANGULAR.has(k)
+      ? Math.abs(angDelta(a[k] ?? 0, b[k] ?? 0))
+      : Math.abs((a[k] ?? 0) - (b[k] ?? 0));
+    if (d / span > mx) mx = d / span;
+  }
+  return mx;
+}
+
+// Ramer-Douglas-Peucker over the multi-field time series: a sample's error is
+// its normalized distance from the endpoint-interpolated state at its time.
+function simplifyGesture(samples, tol) {
+  const keep = new Array(samples.length).fill(false);
+  keep[0] = keep[samples.length - 1] = true;
+  const stack = [[0, samples.length - 1]];
+  while (stack.length) {
+    const [i0, i1] = stack.pop();
+    if (i1 - i0 < 2) continue;
+    const a = samples[i0], b = samples[i1];
+    const dt = (b.ms - a.ms) || 1;
+    let worst = -1, worstD = tol;
+    for (let i = i0 + 1; i < i1; i++) {
+      const s = samples[i];
+      const f = (s.ms - a.ms) / dt;
+      let mx = 0;
+      for (const k of CONTINUOUS_KEYS) {
+        const span = FOLLOW_SPANS[k] || 1;
+        const av = a.snap[k] ?? 0, bv = b.snap[k] ?? 0, sv = s.snap[k] ?? 0;
+        let d;
+        if (GEST_ANGULAR.has(k)) d = Math.abs(angDelta(av + angDelta(av, bv) * f, sv));
+        else d = Math.abs(sv - (av + (bv - av) * f));
+        if (d / span > mx) mx = d / span;
+      }
+      if (mx > worstD) { worstD = mx; worst = i; }
+    }
+    if (worst >= 0) { keep[worst] = true; stack.push([i0, worst], [worst, i1]); }
+  }
+  return samples.filter((_, i) => keep[i]);
+}
+
+function syncGestUI() {
+  const btn = document.getElementById('mfGesture');
+  if (!btn) return;
+  btn.classList.toggle('active', gest.armed);
+  btn.textContent = gest.recording ? '● recording' : gest.armed ? '● armed' : '＋ gesture';
+  btn.title = gest.recording
+    ? 'recording — press again to finish (G)'
+    : gest.armed
+      ? 'armed — your next manipulation starts the take; press again to cancel (G)'
+      : 'record a gesture as keyframes: arm, manipulate, press again to finish (G)';
+}
+
+function cancelGesture() {
+  gest.armed = gest.recording = false;
+  if (gest.raf) { cancelAnimationFrame(gest.raf); gest.raf = 0; }
+  gest.samples = [];
+  syncGestUI();
+}
+
+function gestTick() {
+  if (!gest.armed) return;
+  const now = performance.now();
+  if (!gest.recording && gestDist(state, gest.base) > GEST_EPS) {
+    gest.recording = true;
+    gest.t0 = now - 16;
+    gest.lastMoveT = now;
+    gest.samples = [{ ms: 0, snap: gest.base }];   // the take starts from the armed look
+    syncGestUI();
+  }
+  if (gest.recording) {
+    const last = gest.samples[gest.samples.length - 1];
+    const snap = { ...state };
+    if (gestDist(snap, last.snap) > GEST_EPS * 0.5) gest.lastMoveT = now;
+    gest.samples.push({ ms: now - gest.t0, snap });
+    if (now - gest.lastMoveT > GEST_IDLE_MS || now - gest.t0 > GEST_MAX_MS) { finishGesture(); return; }
+  }
+  gest.raf = requestAnimationFrame(gestTick);
+}
+
+function finishGesture() {
+  const samples = gest.samples;
+  const cutoff = gest.lastMoveT - gest.t0;
+  cancelGesture();
+  // drop the trailing stillness that ended the take (an intentional mid-take
+  // hold survives — only the dead tail goes)
+  while (samples.length > 2 && samples[samples.length - 1].ms > cutoff + 120) samples.pop();
+  if (samples.length < 8) { syncGestUI(); return; }               // a twitch, not a take
+  let tol = GEST_TOL;
+  let kept = simplifyGesture(samples, tol);
+  while (kept.length > GEST_MAX_KF) { tol *= 1.6; kept = simplifyGesture(samples, tol); }
+  const total = kept[kept.length - 1].ms - kept[0].ms;
+  if (kept.length < 2 || total < 400) { syncGestUI(); return; }
+  if (kfList().length > 1 &&
+      !window.confirm('Replace the current keyframes with this gesture?')) return;
+  env.pushHistory?.(); env.updateUndoUI?.();
+  const closed = gestDist(kept[0].snap, kept[kept.length - 1].snap) < 0.03;
+  const usable = (closed && kept.length > 2) ? kept.slice(0, -1) : kept;
+  motion.keyframes = usable.map((s) => ({
+    t: Math.max(0, Math.min(1, (s.ms - kept[0].ms) / total)),
+    snap: { ...s.snap },
+    thumb: makeThumbCanvas(),
+    anchored: true,
+  }));
+  // discrete state locks to kf0 (the timeline invariant)
+  for (const kf of motion.keyframes) {
+    for (const dk of DISCRETE_KEYS) kf.snap[dk] = motion.keyframes[0].snap[dk];
+  }
+  // the take's real duration becomes the loop duration (a video source keeps
+  // its locked clip-derived duration; the keyframes' relative rhythm holds)
+  if (!env.sourceVideo) motion.durationMs = Math.max(1000, Math.min(600000, Math.round(total)));
+  motion.selected = 0;
+  Object.assign(state, motion.keyframes[0].snap);
+  setPlayhead(0);
+  env.syncControls?.();
+  renderTimeline();
+  updateMotionUI();
+  env.scheduleRender?.();
+}
+
+function toggleGesture() {
+  if (!env.motionRT.active || !engine || !engine.getSourceImage()) return;
+  if (gest.armed) {
+    if (gest.recording) finishGesture();
+    else cancelGesture();                 // armed but never moved → disarm quietly
+    return;
+  }
+  if (motion.playing) stopPlayback();
+  closeKfMenu();
+  motion.selected = -1;                   // edits must not write through to a keyframe mid-take
+  renderTimeline();
+  gest.armed = true;
+  gest.recording = false;
+  gest.base = { ...state };
+  syncGestUI();
+  gest.raf = requestAnimationFrame(gestTick);
+}
+
 // set the selected keyframe anchored (pinned at its exact time) or auto (even-spaced
 // between anchors) — the two states are explicit commands in the keyframe context menu.
 function setAnchored(val) {
@@ -989,6 +1150,8 @@ function updateMotionUI() {
 
   const n = kfList().length;
   if (q('mfAdd')) q('mfAdd').disabled = !available;
+  if (q('mfGesture')) q('mfGesture').disabled = !available;
+  if (!env.motionRT.active && gest.armed) cancelGesture();   // leaving motion abandons a take
   // (keyframe ops — anchor/auto-space/delete — live in the #kfMenu context menu,
   //  which gates itself: it only opens for kf1+.)
   const minKf = env.sourceVideo ? 1 : 2;   // video plays/renders with 1 kf (the footage provides motion)
@@ -1066,6 +1229,7 @@ function wireMotion() {
   byId('motionBtn')?.addEventListener('click', () => { if (!env.motionRT.active) toggleMotionMode(); });
   byId('stillBtn')?.addEventListener('click', () => { if (env.motionRT.active) toggleMotionMode(); });
   byId('mfAdd')?.addEventListener('click', addKeyframe);
+  byId('mfGesture')?.addEventListener('click', toggleGesture);
   // keyframe context menu actions (the menu opens from marker select / right-click)
   byId('kfAnchorPos')?.addEventListener('click', () => { setAnchored(true); closeKfMenu(); });
   byId('kfAutoSpace')?.addEventListener('click', () => { setAnchored(false); closeKfMenu(); });
@@ -1313,6 +1477,9 @@ function wireMotion() {
       e.preventDefault();
       closeKfMenu();
       addKeyframe();
+    } else if (e.key === 'g' || e.key === 'G') {
+      e.preventDefault();
+      toggleGesture();      // arm / finish / cancel — the +gesture button's key
     } else if (e.key === 'a' || e.key === 'A') {
       e.preventDefault();
       const i = motion.selected;
