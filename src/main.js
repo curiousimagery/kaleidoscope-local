@@ -981,6 +981,7 @@ function wirePanelPopovers() {
   const pairs = [
     { btn: document.getElementById('sliceSettingsBtn'), pop: document.getElementById('slicePopover') },
     { btn: document.getElementById('canvasSettingsBtn'), pop: document.getElementById('canvasPopover') },
+    { btn: document.getElementById('pfAutoGear'), pop: document.getElementById('autoPopover') },
   ].filter((p) => p.btn && p.pop);
   const closeAll = () => pairs.forEach(({ btn, pop }) => { pop.hidden = true; btn.classList.remove('open'); });
   document.addEventListener('pointerdown', (e) => {

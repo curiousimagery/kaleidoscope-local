@@ -273,6 +273,10 @@ body { display: flex; flex-direction: column; height: 100vh; height: 100dvh; ove
 }
 .pf-left .mf-btn { height: 42px; }
 .pf-left .pf-wide { grid-column: 1 / -1; }
+/* the auto toggle + its settings gear share one grid cell */
+.pf-auto-cell { display: flex; gap: 6px; min-width: 0; }
+.pf-auto-cell .mf-btn { flex: 1; min-width: 0; }
+.pf-auto-cell .panel-gear { flex: 0 0 auto; width: 38px; height: 42px; }
 .pf-center { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; }
 /* the video source's timeline (#srcScrub) is re-parented here in perform — full width, taller */
 .pf-center .src-scrub { width: 100%; flex: 1; max-height: 110px; margin: 0; }

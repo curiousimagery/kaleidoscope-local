@@ -303,7 +303,13 @@
     <button class="mf-btn mf-toggle pf-wide" id="pfHold" title="stage — freeze the live output and build what's up next off-air (S / space)">stage</button>
     <button class="mf-btn mf-add" id="pfTake" disabled title="take — blend the live output to the staged look at the transition speed (T / space)">take</button>
     <button class="mf-btn" id="pfCut" title="cut — snap the live output to the staged look instantly">cut</button>
-    <button class="mf-btn pf-wide" id="pfPlay" disabled title="play / pause the source video">play</button>
+    <button class="mf-btn" id="pfPlay" disabled title="play / pause the source video">play</button>
+    <!-- autoplay ("drift"): the look wanders on its own within the guardrails —
+         another pair of hands on the same stage (the follower chases as always) -->
+    <span class="pf-auto-cell">
+      <button class="mf-btn mf-toggle" id="pfAuto" title="autoplay — the look drifts on its own within the guardrails (A)">auto</button>
+      <button class="ot-btn panel-gear" id="pfAutoGear" title="autoplay settings — energy · range · variety"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="4" y1="8" x2="20" y2="8"/><line x1="4" y1="16" x2="20" y2="16"/><circle cx="9" cy="8" r="2.4" fill="currentColor"/><circle cx="15" cy="16" r="2.4" fill="currentColor"/></svg></button>
+    </span>
   </div>
   <div class="pf-center" id="pfCenter">
     <!-- video: a time ruler (EFFECTIVE duration — clip length ÷ playback speed)
@@ -446,6 +452,23 @@
 <!-- panel-settings popovers (progressive disclosure) — fixed-position, anchored to
      their .panel-gear trigger at open time (wirePanelPopovers in main.js); body-level
      so the panels' overflow clipping can't cut them off. Single column by design. -->
+<!-- autoplay ("drift") guardrails — opened by the gear beside the perform footer's
+     auto toggle. energy = pacing of destination changes; range = how far from each
+     field's HOME it may wander; variety = how many fields wander at once. -->
+<div class="panel-popover" id="autoPopover" hidden>
+  <label class="slider" style="margin-bottom: 10px;">
+    <div class="row"><span>energy</span><span class="val" id="autoEnergyVal">50%</span></div>
+    <input type="range" id="autoEnergy" min="0.05" max="1" step="0.05" value="0.5">
+  </label>
+  <label class="slider" style="margin-bottom: 10px;">
+    <div class="row"><span>range</span><span class="val" id="autoRangeVal">35%</span></div>
+    <input type="range" id="autoRange" min="0.05" max="1" step="0.05" value="0.35">
+  </label>
+  <label class="slider">
+    <div class="row"><span>variety</span><span class="val" id="autoVarietyVal">50%</span></div>
+    <input type="range" id="autoVariety" min="0" max="1" step="0.05" value="0.5">
+  </label>
+</div>
 <div class="panel-popover" id="slicePopover" hidden>
   <!-- form / slice settings (rows show only when they apply to the form) -->
   <div id="sliceGroup">

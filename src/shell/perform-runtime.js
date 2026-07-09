@@ -287,6 +287,93 @@ export function createPerformRuntime(env) {
     }
   }
 
+  // ---- autoplay ("drift") — Daniel's spec, approved 2026-07-08 --------------
+  // Auto is ANOTHER PAIR OF HANDS ON THE SAME STAGE: a per-field wander writes
+  // destinations into env.state exactly like user input, and the follower
+  // chases as always — onion skin, sync dot, stage/take/cut, broadcasts need
+  // zero special-casing. MANUAL WINS PER FIELD: auto tracks what it last
+  // wrote, and a mismatch means your hand moved the field — it backs off
+  // (cooldown), adopts your placement as the field's new HOME, and resumes
+  // breathing around it. Staging pauses the drift (the stage is your off-air
+  // workbench); on unhold the mismatch detection re-homes automatically.
+  const AUTO_BOUNDS = {   // guardrails: destinations never leave these (rotation wraps freely)
+    sliceScale: [0.25, 2.6], sliceCx: [0.15, 0.85], sliceCy: [0.15, 0.85],
+    canvasZoom: [0.45, 2.4], squareAspect: [0.45, 2.4],
+    drosteZoom: [1.4, 9], drosteSpiral: [-3, 3],
+    drosteOffsetX: [-0.55, 0.55], drosteOffsetY: [-0.55, 0.55],
+  };
+  const AUTO_OWN_MS = 2000;   // manual-input cooldown before auto touches a field again
+  const wrap360 = (v) => ((v % 360) + 360) % 360;
+  const auto = { on: false, f: {}, roll: 0, lastSync: 0 };
+
+  function autoFields() {
+    return CONTINUOUS_KEYS.filter((k) => {
+      if (k.startsWith('droste')) return state.form === 'droste';
+      if (k === 'squareAspect') return state.form === 'square';
+      return true;
+    });
+  }
+  function autoField(k, now) {
+    let F = auto.f[k];
+    if (!F) {
+      const v = state[k] ?? 0;
+      F = auto.f[k] = { cur: v, home: v, dest: v, pickT: now + Math.random() * 800, ownedUntil: 0, active: false };
+    }
+    return F;
+  }
+  function autoPick(k, F, now) {
+    const range = session.performAutoRange ?? 0.35;
+    if (ANGULAR.has(k)) {
+      F.dest = F.cur + (Math.random() * 2 - 1) * range * 360;   // wander is directionful; wrap on write
+    } else {
+      const span = FOLLOW_SPANS[k] || 1;
+      let d = F.home + (Math.random() * 2 - 1) * range * span;
+      const b = AUTO_BOUNDS[k];
+      if (b) d = Math.max(b[0], Math.min(b[1], d));
+      F.dest = d;
+    }
+    const energy = session.performAutoEnergy ?? 0.5;
+    F.pickT = now + (250 + (1 - energy) * 3500) * (0.6 + Math.random() * 0.8);
+  }
+  function autoTick(now, dt) {
+    const fields = autoFields();
+    if (now >= auto.roll) {
+      // variety: how many fields wander at once (a fresh weighted subset)
+      const variety = session.performAutoVariety ?? 0.5;
+      const count = Math.max(1, Math.round(fields.length * (0.15 + 0.85 * variety)));
+      const set = new Set([...fields].sort(() => Math.random() - 0.5).slice(0, count));
+      for (const k of fields) autoField(k, now).active = set.has(k);
+      auto.roll = now + 5000 + Math.random() * 5000;
+    }
+    const energy = session.performAutoEnergy ?? 0.5;
+    const ease = 1 - Math.exp(-dt / ((500 + (1 - energy) * 3500)));
+    for (const k of fields) {
+      const F = autoField(k, now);
+      const live = state[k] ?? 0;
+      const drift = ANGULAR.has(k)
+        ? Math.abs(angDelta(wrap360(F.cur), wrap360(live)))
+        : Math.abs(live - F.cur);
+      if (drift > (ANGULAR.has(k) ? 0.75 : (FOLLOW_SPANS[k] || 1) * 0.004)) {
+        // your hand moved this field — back off and adopt the placement as home
+        F.ownedUntil = now + AUTO_OWN_MS;
+        F.cur = live; F.home = live; F.dest = live;
+        F.pickT = now + 400;
+        continue;
+      }
+      if (!F.active || now < F.ownedUntil) { F.cur = live; F.home = live; F.dest = live; continue; }
+      if (now >= F.pickT) autoPick(k, F, now);
+      F.cur += (F.dest - F.cur) * ease;
+      state[k] = ANGULAR.has(k) ? wrap360(F.cur) : F.cur;
+      if (ANGULAR.has(k)) F.cur = wrap360(F.cur);
+    }
+  }
+  function setAuto(on) {
+    if (on === auto.on) return;
+    auto.on = on;
+    if (on) { auto.f = {}; auto.roll = 0; }   // fresh homes at the current look
+    byId('pfAuto')?.classList.toggle('active', on);
+  }
+
   // normalized live-vs-stage distance (the in-sync read). Measured directly
   // between the stage (state) and the live view (followed) — the follower's own
   // settle flag isn't enough once HOLD exists (a settled spring on a frozen
@@ -348,6 +435,14 @@ export function createPerformRuntime(env) {
     } else if (env.performRT.videoWasPlaying) {
       env.performRT.videoWasPlaying = false;
       syncTransportUI();
+    }
+    // autoplay drifts the stage like any hand would (paused while staged —
+    // the stage is the off-air workbench; unhold re-homes via mismatch)
+    if (auto.on && !env.performRT.hold) {
+      autoTick(t, dt);
+      env.scheduleRender?.();               // repaint the stage with the drifted look
+      env.sourceOverlay.scheduleDraw();     // the wedge overlay rides along
+      if (t - auto.lastSync > 250) { auto.lastSync = t; env.syncControls?.(); }
     }
     // HOLD gates the target feed: while holding, the live view keeps its last
     // committed look and stage edits stay off-air (take/cut commit them)
@@ -429,6 +524,7 @@ export function createPerformRuntime(env) {
       env.performRT.active = false;
       env.performRT.followed = null;   // broadcasts revert to the working state (a hard cut)
       env.performRT.hold = false;
+      setAuto(false);                  // the drift is a perform behavior — off with the mode
       follower = null;
       if (raf) { cancelAnimationFrame(raf); raf = 0; }
       applyLayout();   // hides the live view, panel + divider; re-homes the PiP
@@ -512,6 +608,9 @@ export function createPerformRuntime(env) {
     } else if (e.key === 't' || e.key === 'T') {
       e.preventDefault();
       if (env.performRT.hold) follower?.setTarget(state);
+    } else if (e.key === 'a' || e.key === 'A') {
+      e.preventDefault();
+      setAuto(!auto.on);   // autoplay toggle (the footer button's key)
     }
   });
 
@@ -525,6 +624,21 @@ export function createPerformRuntime(env) {
       syncTransportUI();
       renderPfRuler();   // effective duration changed
     }));
+
+  // autoplay: the footer toggle + the guardrail dials (the gear's popover is
+  // wired by main.js wirePanelPopovers alongside the panel popovers)
+  byId('pfAuto')?.addEventListener('click', () => setAuto(!auto.on));
+  const wireAutoDial = (id, valId, key) => {
+    const el = byId(id), val = byId(valId);
+    if (!el) return;
+    el.value = String(session[key] ?? parseFloat(el.value));
+    const show = () => { if (val) val.textContent = Math.round(parseFloat(el.value) * 100) + '%'; };
+    show();
+    el.addEventListener('input', () => { session[key] = parseFloat(el.value) || 0; show(); });
+  };
+  wireAutoDial('autoEnergy', 'autoEnergyVal', 'performAutoEnergy');
+  wireAutoDial('autoRange', 'autoRangeVal', 'performAutoRange');
+  wireAutoDial('autoVariety', 'autoVarietyVal', 'performAutoVariety');
 
   // the live-view layout: the footer selector + the hover dock button on the PiP
   byId('pfLayout')?.querySelectorAll('[data-playout]').forEach((b) =>
