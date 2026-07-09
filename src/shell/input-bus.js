@@ -237,6 +237,8 @@ export function createInputBus(env) {
   }
 
   let dragIdx = -1;   // store.maps index being dragged
+  const clearDropLine = () => document.querySelectorAll('.in-drop-before, .in-drop-after')
+    .forEach((el) => el.classList.remove('in-drop-before', 'in-drop-after'));
   function renderMaps() {
     const wrap = byId('inMaps');
     if (!wrap) return;
@@ -308,17 +310,37 @@ export function createInputBus(env) {
       if (m.led != null) { const p = midi.parseNoteSig(m.sig); if (p) midi.sendNote(p.device, p.ch, p.note, 0); }
       store.maps.splice(store.maps.indexOf(m), 1); save(); renderMaps();
     });
-    // drag-to-reorder (within the flat maps array; groups re-render around it)
+    // drag-to-reorder. The affordance is an INSERTION LINE: neighbors part a
+    // little and an accent line marks where the row will land (above or below
+    // the hovered row by cursor half) — not an outline on the hovered row.
     const grip = row.querySelector('.in-grip');
-    grip.addEventListener('dragstart', (e) => { dragIdx = store.maps.indexOf(m); e.dataTransfer.effectAllowed = 'move'; });
-    row.addEventListener('dragover', (e) => { if (dragIdx >= 0) { e.preventDefault(); row.classList.add('in-over'); } });
-    row.addEventListener('dragleave', () => row.classList.remove('in-over'));
+    grip.addEventListener('dragstart', (e) => {
+      dragIdx = store.maps.indexOf(m);
+      e.dataTransfer.effectAllowed = 'move';
+      row.classList.add('in-dragging');
+    });
+    grip.addEventListener('dragend', () => {
+      row.classList.remove('in-dragging');
+      clearDropLine();
+      dragIdx = -1;
+    });
+    row.addEventListener('dragover', (e) => {
+      if (dragIdx < 0) return;
+      e.preventDefault();
+      const before = e.offsetY < row.offsetHeight / 2;
+      if (!row.classList.contains(before ? 'in-drop-before' : 'in-drop-after')) {
+        clearDropLine();
+        row.classList.add(before ? 'in-drop-before' : 'in-drop-after');
+      }
+    });
     row.addEventListener('drop', (e) => {
       e.preventDefault();
-      row.classList.remove('in-over');
-      const to = store.maps.indexOf(m);
-      if (dragIdx < 0 || to < 0 || dragIdx === to) { dragIdx = -1; return; }
+      const before = row.classList.contains('in-drop-before');
+      clearDropLine();
+      let to = store.maps.indexOf(m) + (before ? 0 : 1);
+      if (dragIdx < 0 || dragIdx === to || dragIdx === to - 1) { dragIdx = -1; return; }
       const [moved] = store.maps.splice(dragIdx, 1);
+      if (dragIdx < to) to--;
       store.maps.splice(to, 0, moved);
       dragIdx = -1; save(); renderMaps();
     });

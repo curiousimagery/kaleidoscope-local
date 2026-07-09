@@ -889,6 +889,9 @@ button .btn-spinner {
   padding: 0 10px;
   min-width: 0;
 }
+/* the app-bar settings gear — standard ~18px icon like the panel gears */
+.ot-settings { padding: 0 8px; }
+.ot-settings svg { width: 18px; height: 18px; display: block; }
 
 /* version badge */
 .version-badge {
@@ -1238,7 +1241,11 @@ body.motion #oobModes { pointer-events: none; opacity: var(--disabled-opacity); 
   transition: border-color 120ms;
 }
 .in-map.in-live { border-color: var(--accent); }
-.in-map.in-over { border-color: var(--accent); border-style: dashed; }
+/* drag-to-reorder: an insertion LINE — neighbors part to show where the row lands */
+.in-map { transition: border-color 120ms, margin 90ms; }
+.in-map.in-dragging { opacity: 0.45; }
+.in-map.in-drop-before { margin-top: 8px; box-shadow: 0 -6px 0 -2px var(--accent); }
+.in-map.in-drop-after { margin-bottom: 8px; box-shadow: 0 6px 0 -2px var(--accent); }
 .in-grip { color: var(--text-dim); cursor: grab; user-select: none; text-align: center; }
 .in-kind { font-size: 9px; color: var(--text-muted); border: 1px solid var(--border);
   border-radius: var(--radius-sm); padding: 1px 3px; text-align: center; }
