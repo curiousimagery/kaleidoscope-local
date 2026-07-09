@@ -39,6 +39,7 @@ import { mockSyphonHost } from './stage/mock-host.js';
 import { createOutputPanel } from './shell/output-panel.js';
 import { mountInputDebug } from './shell/input-debug.js';
 import { createPerformRuntime } from './shell/perform-runtime.js';
+import { createInputBus } from './shell/input-bus.js';
 import { ICONS } from './mobile/icons.js';   // shared glyph set (fit/fill toggle)
 import { VERSION, formatVersion } from './version.js';
 import { push as historyPush, undo as historyUndo, redo as historyRedo, canUndo, canRedo } from './shell/history.js';
@@ -1095,6 +1096,11 @@ if (engine) {
   // segment listeners must run after motion-runtime's own, so a mode switch
   // settles in one pass (motion toggles, then perform shuts down).
   createPerformRuntime(env);
+
+  // The control bus (Arc 6): MIDI + game-controller signals through the mapping
+  // layer onto state fields / transport actions. Wired after perform so action
+  // dispatch can see env.performRT.
+  createInputBus(env);
 
   // the visible mode picker: a dropdown proxying the hidden segmented buttons
   // (which keep the ordered mode-switch wiring); updateMotionUI re-syncs the

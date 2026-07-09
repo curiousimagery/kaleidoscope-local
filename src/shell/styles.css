@@ -1206,3 +1206,24 @@ body.motion #oobModes { pointer-events: none; opacity: var(--disabled-opacity); 
 .t-status.busy    { color: var(--warn-text); }
 .t-status.success { color: var(--ok); }
 .t-mono     { font-family: var(--font-mono); font-size: var(--text-sm); color: var(--text-dim); }
+
+/* input mappings sheet (the control bus admin — Arc 6) */
+.in-card { width: 560px; max-width: 94vw; }
+.in-devices { display: flex; flex-direction: column; gap: 3px; }
+.in-dev { font-size: var(--text-sm); color: var(--text); }
+.in-dev.none { color: var(--text-dim); }
+.in-maps { display: flex; flex-direction: column; gap: 5px; max-height: 46vh; overflow-y: auto; }
+.in-map {
+  display: grid; grid-template-columns: minmax(90px, 1fr) minmax(120px, 1.2fr) 58px 40px 24px 24px;
+  gap: 6px; align-items: center;
+  padding: 5px 6px; border: 1px solid var(--border); border-radius: var(--radius-md);
+  transition: border-color 120ms;
+}
+.in-map.in-live { border-color: var(--accent); }
+.in-sig { font-size: var(--text-xs); color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.in-map select { font-size: var(--text-xs); min-width: 0; }
+.in-map .toggle { font-size: var(--text-xs); padding: 3px 4px; }
+.in-led { width: 18px; height: 18px; border-radius: 50%; border: 1px solid var(--border); cursor: pointer; padding: 0; }
+.in-hint { font-size: var(--text-xs); color: var(--text-dim); line-height: 1.45; margin-top: 6px; }
+#inLearn.active { animation: inPulse 1s ease-in-out infinite; }
+@keyframes inPulse { 50% { opacity: 0.55; } }
