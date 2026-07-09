@@ -67,9 +67,10 @@ export const session = {
   performLayout: 'pip',   // where the LIVE view lives in perform: 'pip' (docked over the
                       // stage — the practical default) or 'three' (a third sibling panel).
   performAutoPace: 0.5,     // autoplay: how often a new destination is initiated
-  performAutoRange: 0.35,   // autoplay guardrail: max normalized distance from each field's home
-  performAutoVariety: 0.5,  // autoplay breadth: how many fields wander at once
-  performAutoSmooth: 0.45,  // autoplay motion smoothing: the wander spring's response (bigger = silkier)
+  performAutoRange: 0.3,    // autoplay guardrail: max normalized distance from each field's home
+  performAutoVariety: 0.6,  // autoplay breadth: how many fields wander at once
+  performAutoSmooth: 0.65,  // autoplay motion smoothing: the wander spring's response (bigger = silkier)
+                      // (defaults = Daniel's 2026-07-09 calibration, remapped to mid-slider)
   stageLivePct: 32,   // the live panel's share of the stage split in the three-panel
                       // layout (percent; the live divider drags it).
 };

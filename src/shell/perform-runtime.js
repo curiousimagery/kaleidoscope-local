@@ -319,6 +319,11 @@ export function createPerformRuntime(env) {
     drosteOffsetX: [-0.55, 0.55], drosteOffsetY: [-0.55, 0.55],
   };
   const AUTO_OWN_MS = 2000;   // manual-input cooldown before auto touches a field again
+  // FRAMING fields are tempered (Daniel's calibration round: canvas zoom +
+  // rotation were "more enthusiastic than expected") — they wander a fraction
+  // of the range and stay anchored to their autoplay-start home; the slice is
+  // the show, the canvas is the frame.
+  const AUTO_TEMPER = { canvasZoom: 0.3, canvasRotation: 0.25 };
   const wrap360 = (v) => ((v % 360) + 360) % 360;
   const auto = { on: false, f: {}, roll: 0, lastSync: 0 };
 
@@ -342,8 +347,12 @@ export function createPerformRuntime(env) {
   // rotations) and a coverage bias (the slice leans toward looks that cover
   // MORE of the source: scale picks lean high, position picks stay near home).
   function autoPick(k, F, now) {
-    const range = session.performAutoRange ?? 0.35;
-    if (ANGULAR.has(k)) {
+    const range = (session.performAutoRange ?? 0.3) * (AUTO_TEMPER[k] || 1);
+    if (k === 'canvasRotation') {
+      // framing rotation OSCILLATES around home instead of walking — the
+      // momentum walk belongs to the slice (full rotations are the show there)
+      F.dest = F.home + (Math.random() * 2 - 1) * range * 360;
+    } else if (ANGULAR.has(k)) {
       const dir = F.dir || (Math.random() < 0.5 ? -1 : 1);
       const keep = Math.random() < 0.78 ? dir : -dir;
       const sweep = (0.25 + 0.75 * Math.random()) * range * 360;   // never a micro-nudge
@@ -365,8 +374,11 @@ export function createPerformRuntime(env) {
       F.dir = Math.sign(d - F.cur) || F.dir;
       F.dest = d;
     }
+    // pace curve recentered on Daniel's calibration (his found-good sat at the
+    // old slider's floor): default (50%) ≈ 5.2s between picks, floor ≈ 15s,
+    // ceiling ≈ 1.5s
     const pace = session.performAutoPace ?? 0.5;
-    F.pickT = now + (300 + (1 - pace) * 5200) * (0.6 + Math.random() * 0.8);
+    F.pickT = now + (1500 + Math.pow(1 - pace, 2) * 14800) * (0.6 + Math.random() * 0.8);
   }
   function autoTick(now, dt) {
     const fields = autoFields();
@@ -382,8 +394,10 @@ export function createPerformRuntime(env) {
     // response): velocity stays CONTINUOUS across destination changes, so a
     // new pick never jerks and an opposite pick decelerates through zero
     // instead of snapping into reverse — the honest in-auto smoothing.
-    const smooth = session.performAutoSmooth ?? 0.45;
-    const tau = 0.35 + smooth * 3.6;
+    // smoothing recentered the same way (his found-good was ~90% of the old
+    // curve): default (65%) ≈ the feel he liked, ceiling reaches silkier still
+    const smooth = session.performAutoSmooth ?? 0.65;
+    const tau = 0.4 + Math.pow(smooth, 1.3) * 5.0;
     const omega = 2 / tau;
     const dts = Math.min(dt, 100) / 1000;
     const decay = Math.exp(-omega * dts);
