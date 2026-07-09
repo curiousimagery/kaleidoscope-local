@@ -366,7 +366,10 @@ export function setupStageDivider(env) {
   const divider = document.getElementById('stageDivider');
   const split = document.getElementById('stageSplit');
   if (!divider || !split) return;
+  const SNAP_PX = 24;     // within this of even source/staged sizes, lock a true 50/50 split
+  const MIN_OUT = 220;    // the staged panel keeps a usable floor (the source has its 15% min)
   let dragging = false, startX = 0, startPct = 32, splitW = 1, dir = 1;
+  let contentW = 1, eqW = 0, maxPct = 70;
   let skel = null;   // gray skeleton standing in for the (hidden, pixel-sized) preview mid-drag
 
   // The preview canvas is pixel-sized and can't track the CSS panels mid-drag, so it
@@ -405,6 +408,14 @@ export function setupStageDivider(env) {
     startPct = env.session.stageSrcPct || 32;
     splitW = split.clientWidth || 1;
     dir = env.session.isSwapped ? -1 : 1;
+    // source + staged share a fixed total during this drag (live/dividers don't
+    // move), so the 50/50 point and the staged-panel floor are constants
+    const cs = getComputedStyle(split);
+    contentW = splitW - (parseFloat(cs.paddingLeft) || 0) - (parseFloat(cs.paddingRight) || 0);
+    const srcW0 = document.getElementById('srcPanel')?.offsetWidth || 0;
+    const outW0 = document.getElementById('outPanel')?.offsetWidth || 0;
+    eqW = (srcW0 + outW0) / 2;
+    maxPct = Math.min(70, ((srcW0 + outW0 - MIN_OUT) / contentW) * 100);
     divider.classList.add('dragging');
     document.body.classList.add('resizing-divider');
     // display (not visibility): the hidden canvas must give up its flex space so the
@@ -423,7 +434,11 @@ export function setupStageDivider(env) {
   function moveDrag(clientX) {
     if (!dragging) return;
     const dPct = ((clientX - startX) / splitW) * 100 * dir;
-    const pct = Math.round(Math.max(15, Math.min(70, startPct + dPct)) * 10) / 10;
+    let pct = Math.round(Math.max(15, Math.min(maxPct, startPct + dPct)) * 10) / 10;
+    // snap point (Daniel): within ~24px of even source/staged sizes, lock 50/50
+    if (eqW > 0 && Math.abs((pct / 100) * contentW - eqW) < SNAP_PX) {
+      pct = Math.round((eqW / contentW) * 1000) / 10;
+    }
     env.session.stageSrcPct = pct;
     pendingPct = pct;
     if (!rafQueued) { rafQueued = true; requestAnimationFrame(applyPending); }
@@ -464,8 +479,9 @@ export function setupLiveDivider(env) {
   if (!divider || !split || !panel) return;
   const DOCK_PX = 300;   // narrower than this is unusable as a panel — back to the PiP
   const SNAP_PX = 24;    // within this of even staged/live sizes, lock a true 50/50 split
+  const MIN_OUT = 220;   // the staged panel keeps a usable floor here too
   let dragging = false, startX = 0, startPct = 32, splitW = 1, dir = -1;
-  let contentW = 1, eqPct = 0;   // flex-basis % resolves against the CONTENT box
+  let contentW = 1, eqPct = 0, maxPct = 60;   // flex-basis % resolves against the CONTENT box
   let skel = null;
 
   function sizeSkeleton() {
@@ -513,6 +529,9 @@ export function setupLiveDivider(env) {
     const divTot = 2 * (divider.offsetWidth + (parseFloat(dcs.marginLeft) || 0) + (parseFloat(dcs.marginRight) || 0));
     const srcPx = document.getElementById('srcPanel')?.offsetWidth || 0;
     eqPct = ((contentW - srcPx - divTot) / 2 / contentW) * 100;
+    // staged + live share a fixed total during this drag — the staged floor caps
+    // how far the live panel can grow
+    maxPct = Math.min(60, ((contentW - srcPx - divTot - MIN_OUT) / contentW) * 100);
     divider.classList.add('dragging');
     document.body.classList.add('resizing-divider');
     env.previewCanvas.style.display = 'none';
@@ -529,7 +548,7 @@ export function setupLiveDivider(env) {
   function moveDrag(clientX) {
     if (!dragging) return;
     const dPct = ((clientX - startX) / splitW) * 100 * dir;
-    let pct = Math.round(Math.max(2, Math.min(60, startPct + dPct)) * 10) / 10;
+    let pct = Math.round(Math.max(2, Math.min(maxPct, startPct + dPct)) * 10) / 10;
     // snap point (Daniel): within ~24px of even staged/live sizes, lock 50/50
     if (eqPct > 0 && Math.abs((pct - eqPct) / 100 * contentW) < SNAP_PX) {
       pct = Math.round(eqPct * 10) / 10;

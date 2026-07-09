@@ -64,6 +64,22 @@ Living list of things we want to do, grouped by **surface / family** (not by whe
 > - **Arc 7 — mobile perform.** Output-live always a PiP; **record with audio** + the realtime effect; ghost/echo reuse.
 > - **Later:** +gesture record (winding capture — its timeline button slot is reserved in Arc 3), single-source-as-asset / loop-builder mode, A/B crossfade → multi-slot deck (the engine only ever blends TWO sources; the deck is a library UI, never a compositor), Capacitor / iOS HDMI.
 
+### Perform AUTOPLAY ("drift") — [DIRECTED, Daniel 2026-07-08; SPEC PROPOSED, awaiting his react]
+
+His ask: hands-off perform — parameters for the extent and speed of changes and overall variety, letting the segment overlays and canvas properties adjust on their own within guardrails; plus a vision for MANUAL adjustments while auto runs.
+
+**Proposed architecture: auto is another pair of hands on the same stage.** A wandering TARGET GENERATOR writes to the stage (env.state) exactly like user input; the follower chases as always. Onion skin, sync dot, stage/take/cut, keyboard, broadcasts — all work with ZERO special-casing because nothing downstream knows auto exists.
+
+1. **v1 fields: continuous only** (rotation, position, scale, canvas zoom/rotation, droste zoom/spiral — CONTINUOUS_KEYS as applicable to the active form). NO form/segment/mirror changes in v1; discrete variety is a later tier of the variety control.
+2. **Generator model, per-field independent wander:** pick a destination within RANGE of the field's HOME; glide toward it with its own slow ease (distinct from the transition-speed spring, which stays the live view's chase); dwell with jitter; pick the next. The spring smooths everything downstream, so the drift reads organic without noise functions.
+3. **The three dials:** **energy** (how often/fast destinations change), **range** (max normalized distance from home, FOLLOW_SPANS units — small = breathing around the current look, large = full-space exploration), **variety** (how many fields wander at once; a weighted random subset re-rolls at intervals).
+4. **HOME = the look when auto engaged**, re-anchored per-field by manual edits (below). Range guards against drifting off to ugly extremes; the home re-anchor makes auto follow YOUR curation.
+5. **Manual-while-auto (his tension — the proposal): PER-FIELD OWNERSHIP with cooldown.** A field you're actively manipulating (pointer down, or input in the last ~2s) is off-limits to auto. On release it becomes that field's new HOME, and auto resumes wandering it after the cooldown. You duet with the drift: grab rotation mid-drift, place it, let go, auto breathes around your placement. This same ownership pattern is the eventual answer to the parked perform-from-a-looping-motion hybrid (the loop owns fields by default; manual steals a field; staged edits gate off-air).
+6. **Staging interplay:** stage/hold works untouched (it gates the follower, not the stage). v1 PAUSES auto while staged (the stage is your off-air workbench); take/cut resumes it. Letting auto keep drifting a staged look is a deferred variant.
+7. **UI:** an **auto** toggle in the perform footer's left cluster (motion geography, beside play) with an active state; its dials (energy/range/variety) in a compact popover on the panel-gear idiom. Keyboard: **A** toggles auto. Params session-persisted.
+
+Cost: the generator is small (a per-field state machine on the existing tick); the dials + popover are routine; the ownership cooldown is a timestamp per field updated from the existing input paths.
+
 ### Perform-mode input — controller-driven (Arc 6; mapping TBD with Daniel)
 
 **macOS gives browsers no multi-touch.** Diagnostic (Brave + Sidecar, `?inputdebug`): `peak pointers=1 touches=0` — neither the Wacom Movink nor Sidecar delivers multi-touch; touch registers as a single `mouse` pointer. A macOS platform limit (Chromium/Electron + Safari don't fire TouchEvents on macOS), not our code. The only multi-finger event is the **trackpad pinch as `wheel`+`ctrlKey` (scale only)** — SHIPPED (scales `sliceScale` over source, `canvasZoom` over output); desktop Safari also fires `gesturestart/change/end` with scale+rotation. So the iPad-style combined gesture is impossible on a Mac touchscreen.

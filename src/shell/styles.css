@@ -64,6 +64,9 @@ body { display: flex; flex-direction: column; height: 100vh; height: 100dvh; ove
    stacks so every panel's picture centers on the same true middle (main.js sizes it) */
 .stage-spacer { flex: 0 0 auto; order: 20; }
 .stage-src { flex: 0 0 var(--stage-src-pct, 32%); }
+/* the staged panel keeps a usable floor (both divider drags also clamp to it —
+   this is the belt for window-resize squeezes) */
+.stage-out { min-width: 220px; }
 /* the stage divider shares the grippy vocabulary of the panel divider — but with a
    WIDER visible grippy (Daniel: touch felt finicky; the pre-rework divider read wider) */
 .stage-divider {
