@@ -206,6 +206,58 @@ export default {
     return pts;
   },
 
+  // the TRUE sampled-region outline for the perform onion skin (overlay.js
+  // drawGhostWedges) — the placeholder circle above made every droste ghost a
+  // complete circle regardless of arms. arms=1 → the full annulus (outer +
+  // inner ring, two paths); arms≥2 → the annular wedge with twist-shifted
+  // inner arc and log-spiral sides (the drawOverlay OOB-probe geometry).
+  // vec space: fold-radius 1 = the outer ring; sliceVecToSourceUV rotates then
+  // Y-flips, mapping vec angle a to overlay angle −a — so the inner arc's
+  // −twist screen shift is emitted as +twist here.
+  ghostPaths(state) {
+    const zoom = Math.max(1.0001, state.drosteZoom);
+    const rIn = 1 / zoom;
+    const n = Math.round(state.drosteArms || 1);
+    const arms = n <= 1 ? 1 : Math.max(2, Math.min(12, n - (n % 2)));
+    if (arms === 1) {
+      const circle = (r) => {
+        const pts = [];
+        for (let i = 0; i < 32; i++) {
+          const a = (i / 32) * TAU;
+          pts.push({ vx: r * Math.cos(a), vy: r * Math.sin(a) });
+        }
+        return pts;
+      };
+      return [circle(1), circle(rIn)];
+    }
+    const hW = Math.PI / arms;
+    const logS = Math.log(zoom);
+    const twist = -(state.drosteSpiral || 0) * logS * logS / (2 * Math.PI);
+    const ARC = 12, SIDE = 8;
+    const pts = [];
+    for (let i = 0; i <= ARC; i++) {           // outer arc
+      const a = -hW + (i / ARC) * 2 * hW;
+      pts.push({ vx: Math.cos(a), vy: Math.sin(a) });
+    }
+    for (let i = 1; i <= SIDE; i++) {          // log-spiral side, outer → inner
+      const t = 1 - i / SIDE;
+      const r = Math.pow(zoom, t - 1);
+      const a = hW + twist * (1 - t);
+      pts.push({ vx: r * Math.cos(a), vy: r * Math.sin(a) });
+    }
+    for (let i = 1; i <= ARC; i++) {           // inner arc (twist-shifted)
+      const a = hW - (i / ARC) * 2 * hW + twist;
+      pts.push({ vx: rIn * Math.cos(a), vy: rIn * Math.sin(a) });
+    }
+    for (let i = 1; i < SIDE; i++) {           // log-spiral side, inner → outer
+      const t = i / SIDE;
+      const r = Math.pow(zoom, t - 1);
+      const a = -hW + twist * (1 - t);
+      pts.push({ vx: r * Math.cos(a), vy: r * Math.sin(a) });
+    }
+    return [pts];   // closePath returns to the first outer point
+  },
+
   // ---------------------------------------------------------------------------
   // overlay drawing — bespoke, replaces the polygon path
   // ---------------------------------------------------------------------------
@@ -429,6 +481,40 @@ export default {
       ctx.setLineDash([]);
     }
 
+    // SEAM DIVIDER (arms = 1): the one angular landmark on a full-circle
+    // annulus — the rotation TELL (it turns with sliceRotation; without it a
+    // spiral-less ring is rotation-invariant on screen) and the segment-count
+    // affordance (classifyPointer returns droste-arms along it: grab and pull
+    // it around the ring to fold the circle into arms). With spiral active the
+    // seam IS the spiral curve above; without, a straight radial line. The
+    // double-line grippy rides the seam's middle (radial's spoke idiom).
+    if (isFullCircle) {
+      const seamHL = env.hoverMode === 'droste-arms' || env.overlayDragMode === 'droste-arms';
+      if (Math.abs(spiral) <= 0.005) {
+        ctx.strokeStyle = oobOut
+          ? 'rgba(255, 196, 80, 0.7)'
+          : `rgba(255, 255, 255, ${seamHL ? 1.0 : 0.7})`;
+        ctx.lineWidth = (seamHL ? 2.5 : 1.5) * strokeScale;
+        ctx.beginPath();
+        ctx.moveTo(cx + rIn * Math.cos(seamPhaseRad), cy + rIn * Math.sin(seamPhaseRad));
+        ctx.lineTo(cx + rOut * Math.cos(seamPhaseRad), cy + rOut * Math.sin(seamPhaseRad));
+        ctx.stroke();
+      }
+      const ux = Math.cos(seamPhaseRad), uy = Math.sin(seamPhaseRad);
+      const perpX = -uy, perpY = ux;
+      const GAP = 2.5;
+      const t0 = rIn + (rOut - rIn) * 0.25;
+      const t1 = rIn + (rOut - rIn) * 0.75;
+      ctx.lineWidth = (seamHL ? 2 : 1) * strokeScale;
+      ctx.strokeStyle = `rgba(255, 255, 255, ${seamHL ? 0.9 : 0.4})`;
+      for (const sign of [-1, 1]) {
+        ctx.beginPath();
+        ctx.moveTo(cx + ux * t0 + perpX * GAP * sign, cy + uy * t0 + perpY * GAP * sign);
+        ctx.lineTo(cx + ux * t1 + perpX * GAP * sign, cy + uy * t1 + perpY * GAP * sign);
+        ctx.stroke();
+      }
+    }
+
     // center dot.
     ctx.fillStyle = '#ffffff';
     ctx.beginPath();
@@ -628,6 +714,27 @@ export default {
             boundarySign: sign,
           };
         }
+      }
+    }
+
+    // 3b. the SEAM DIVIDER (arms = 1): the segment-count affordance on a full
+    // circle — a radial band along the seam line. The drag handler measures
+    // the new half-wedge from drag.sliceRotationRad; a seam grab flags
+    // seamGrab so the drag start flips that reference by π (the seam is the
+    // wedge CENTER, not a boundary — the grab then starts at arms 1 and folds
+    // upward as you pull away around the ring).
+    if (isFullCircle) {
+      const ux = Math.cos(sliceRotationRad), uy = Math.sin(sliceRotationRad);
+      const along = dx * ux + dy * uy;
+      const perp = Math.abs(dx * (-uy) + dy * ux);
+      const allowance = isTouch ? 14 : 10;
+      if (along >= rIn - SIDE_BAND_OUT && along <= rOut + SIDE_BAND_OUT && perp <= allowance) {
+        return {
+          mode: 'droste-arms',
+          r, theta, R: along,
+          cursorTheta: sliceRotationRad + Math.PI / 2,
+          seamGrab: true,
+        };
       }
     }
 

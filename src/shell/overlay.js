@@ -96,8 +96,10 @@ function imageRect(env, w, h, sourceAspect) {
 // so the camera loop's own per-frame draws and the perform loop's never fight
 // (drawing them from outside strobed). Outlines only, low alpha: older samples
 // nearly invisible; the runtime fades the whole trail as the live output
-// catches up (Daniel's onion-skin spec). Forms with bespoke overlays (droste)
-// have no polygon to ghost yet — skipped, flagged in BACKLOG.
+// catches up (Daniel's onion-skin spec). A form can override the outline with
+// ghostPaths(state) → [pts, ...] when its sampled region isn't its buildPolygon
+// (droste: the placeholder polygon is a full circle, but the real region is the
+// annular wedge / ring — the "ghosts show a complete circle" bug).
 function drawGhostWedges(env, ghosts) {
   const { engine } = env;
   if (!env.sourceOverlayCanvas || !engine.getSourceImage() || !ghosts?.length) return;
@@ -114,21 +116,24 @@ function drawGhostWedges(env, ghosts) {
   for (const g of ghosts) {
     const st = g.snap;
     const form = getActiveForm(st);
-    if (!form.buildPolygon) continue;
-    const pts = form.buildPolygon(st);
+    const paths = form.ghostPaths ? form.ghostPaths(st)
+      : form.buildPolygon ? [form.buildPolygon(st)] : [];
+    if (!paths.length) continue;
     ctx.save();
     ctx.globalAlpha = Math.max(0, Math.min(1, g.alpha));
     ctx.strokeStyle = '#fff';
     ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    pts.forEach((p, i) => {
-      const { dx, dy } = sliceVecToSourceUV(p.vx, p.vy, st, sourceAspect);
-      const x = imgX + (st.sliceCx + dx) * imgW;
-      const y = imgY + (st.sliceCy + dy) * imgH;
-      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
-    });
-    ctx.closePath();
-    ctx.stroke();
+    for (const pts of paths) {
+      ctx.beginPath();
+      pts.forEach((p, i) => {
+        const { dx, dy } = sliceVecToSourceUV(p.vx, p.vy, st, sourceAspect);
+        const x = imgX + (st.sliceCx + dx) * imgW;
+        const y = imgY + (st.sliceCy + dy) * imgH;
+        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      });
+      ctx.closePath();
+      ctx.stroke();
+    }
     ctx.restore();
   }
 }
@@ -1238,7 +1243,11 @@ export function setupSourceInteraction(env, wrap) {
     } else if (cls.mode === 'droste-arms') {
       drag = {
         mode: 'droste-arms',
-        sliceRotationRad: env.sourceOverlayCanvas._geom.sliceRotationRad,
+        // a SEAM grab (arms=1) measures the half-wedge from the opposite
+        // direction: the seam is the wedge CENTER, so flipping the reference
+        // by π makes the grab start at halfWedge=π (arms 1, no jump) and fold
+        // upward as the cursor pulls away around the ring
+        sliceRotationRad: env.sourceOverlayCanvas._geom.sliceRotationRad + (cls.seamGrab ? Math.PI : 0),
         boundarySign: cls.boundarySign,
       };
       setCursor(scaleCursorForAngle(cls.cursorTheta != null ? cls.cursorTheta : cls.theta));
