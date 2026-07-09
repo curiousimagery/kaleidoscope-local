@@ -463,7 +463,9 @@ export function setupLiveDivider(env) {
   const hint = document.getElementById('liveSmallHint');
   if (!divider || !split || !panel) return;
   const DOCK_PX = 300;   // narrower than this is unusable as a panel — back to the PiP
+  const SNAP_PX = 24;    // within this of even staged/live sizes, lock a true 50/50 split
   let dragging = false, startX = 0, startPct = 32, splitW = 1, dir = -1;
+  let contentW = 1, eqPct = 0;   // flex-basis % resolves against the CONTENT box
   let skel = null;
 
   function sizeSkeleton() {
@@ -503,6 +505,14 @@ export function setupLiveDivider(env) {
       env.setPerformLayout?.('three');
     }
     startPct = env.session.stageLivePct || 32;
+    // the 50/50 reference: the live pct at which staged and live panels are even
+    // (the source pct is fixed during this drag, so it's a constant)
+    const cs = getComputedStyle(split);
+    contentW = splitW - (parseFloat(cs.paddingLeft) || 0) - (parseFloat(cs.paddingRight) || 0);
+    const dcs = getComputedStyle(divider);
+    const divTot = 2 * (divider.offsetWidth + (parseFloat(dcs.marginLeft) || 0) + (parseFloat(dcs.marginRight) || 0));
+    const srcPx = document.getElementById('srcPanel')?.offsetWidth || 0;
+    eqPct = ((contentW - srcPx - divTot) / 2 / contentW) * 100;
     divider.classList.add('dragging');
     document.body.classList.add('resizing-divider');
     env.previewCanvas.style.display = 'none';
@@ -519,7 +529,11 @@ export function setupLiveDivider(env) {
   function moveDrag(clientX) {
     if (!dragging) return;
     const dPct = ((clientX - startX) / splitW) * 100 * dir;
-    const pct = Math.round(Math.max(2, Math.min(60, startPct + dPct)) * 10) / 10;
+    let pct = Math.round(Math.max(2, Math.min(60, startPct + dPct)) * 10) / 10;
+    // snap point (Daniel): within ~24px of even staged/live sizes, lock 50/50
+    if (eqPct > 0 && Math.abs((pct - eqPct) / 100 * contentW) < SNAP_PX) {
+      pct = Math.round(eqPct * 10) / 10;
+    }
     env.session.stageLivePct = pct;
     pendingPct = pct;
     if (!rafQueued) { rafQueued = true; requestAnimationFrame(applyPending); }

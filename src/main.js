@@ -315,6 +315,34 @@ const srcPanel = document.getElementById('srcPanel');
 const outPanel = document.getElementById('outPanel');
 const placeholder = document.getElementById('placeholder');
 
+// vertical-middle parity (Daniel): every sibling panel's PICTURE shares one true
+// vertical middle. The below-picture stacks differ per panel (source: meta + form
+// row; output: aspect + gear; live: nothing), so each panel gets a bottom SPACER
+// sized to the tallest stack minus its own — every content wrap then centers in
+// the same box. Runs synchronously inside arrangeSlots, BEFORE the wraps are
+// measured, so the source box and preview size against the equalized space.
+function equalizeStageMiddles() {
+  const panels = [srcPanel, outPanel, document.getElementById('livePanel')]
+    .filter(p => p && !p.hidden);
+  const stacks = panels.map(p => {
+    let h = 0;
+    for (const el of p.children) {
+      if (el.classList.contains('slot-content') || el.classList.contains('live-wrap') ||
+          el.classList.contains('stage-spacer') || el.hidden) continue;
+      const cs = getComputedStyle(el);
+      if (cs.position === 'absolute' || cs.display === 'none') continue;
+      h += el.offsetHeight + (parseFloat(cs.marginTop) || 0) + (parseFloat(cs.marginBottom) || 0);
+    }
+    return h;
+  });
+  const tallest = Math.max(0, ...stacks);
+  panels.forEach((p, i) => {
+    let sp = p.querySelector(':scope > .stage-spacer');
+    if (!sp) { sp = document.createElement('div'); sp.className = 'stage-spacer'; p.appendChild(sp); }
+    sp.style.height = Math.max(0, Math.round(tallest - stacks[i])) + 'px';
+  });
+}
+
 function arrangeSlots() {
   env.updateMotionUI();   // gate motion availability on source/live state; force-exit if needed
   env.updateOutputUI?.();  // gate the live-output button on a loaded source
@@ -331,6 +359,7 @@ function arrangeSlots() {
   stageSplit.classList.toggle('swapped', session.isSwapped);
   stageSplit.style.setProperty('--stage-src-pct', (session.stageSrcPct || 32) + '%');
   stageSplit.style.setProperty('--stage-live-pct', (session.stageLivePct || 32) + '%');
+  equalizeStageMiddles();
 
   // Both content wraps use flex-basis 0 (not auto): their size is the free space the
   // flex layout hands them AFTER the scrubber/meta/control rows take theirs — so
