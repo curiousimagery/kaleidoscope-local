@@ -165,9 +165,11 @@ export function createPerformRuntime(env) {
     },
   };
 
-  // output-engine's source-sync rules, applied to the PiP engine
+  // output-engine's source-sync rules, applied to the PiP engine. programVideo
+  // = the footage the audience sees (motion staging's committed copy, on its
+  // own clock); the seek guard reads the element actually being uploaded.
   function syncPipSource() {
-    const src = env.engine?.getSourceImage?.();
+    const src = env.programVideo?.() || env.engine?.getSourceImage?.();
     if (!src || !pipEngine) return false;
     const w = src.naturalWidth || src.videoWidth || src.width || 0;
     const h = src.naturalHeight || src.videoHeight || src.height || 0;
@@ -176,7 +178,8 @@ export function createPerformRuntime(env) {
       try { pipEngine.setSource(src); pipLastSource = src; }
       catch { /* not ready this frame — retry next tick */ }
     }
-    if (env.live?.isLive || (env.sourceVideo && !env.sourceVideo.seeking)) {
+    const vid = src.tagName === 'VIDEO' ? src : null;
+    if (env.live?.isLive || (vid && !vid.seeking)) {
       pipEngine.updateSourceFrame();
     }
     return pipLastSource === src;

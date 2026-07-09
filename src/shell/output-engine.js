@@ -90,8 +90,11 @@ export function createOutputEngine(env) {
     // long clip flickers the broadcast through stray timestamps before settling. The
     // preview only renders the SETTLED frame (after the 'seeked' await in scrubVideo);
     // holding our last upload until v.seeking clears matches that. Covers the loop-
-    // around seek during playback too. The live camera (no env.sourceVideo) is exempt.
-    if (env.live?.isLive || (env.sourceVideo && !env.sourceVideo.seeking)) {
+    // around seek during playback too. The live camera (not a <video> src) is exempt.
+    // The seek guard reads the element we're ACTUALLY uploading (src can be the
+    // staging fork's committed copy, whose seeks are independent of env.sourceVideo).
+    const vid = src.tagName === 'VIDEO' ? src : null;
+    if (env.live?.isLive || (vid && !vid.seeking)) {
       hidden.updateSourceFrame();
     }
   }
@@ -102,7 +105,9 @@ export function createOutputEngine(env) {
     // source so the bus stops quietly (its frame() catch).
     renderFrameAt(w, h) {
       ensure();
-      const src = env.engine?.getSourceImage?.();
+      // programVideo = the footage the AUDIENCE sees (motion staging's committed
+      // copy, on its own clock); otherwise the shared source element as always
+      const src = env.programVideo?.() || env.engine?.getSourceImage?.();
       if (!src) throw new Error('no source loaded');
       syncSource(src);
 

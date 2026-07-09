@@ -71,11 +71,13 @@ export function createOutputWindow(env) {
     return { width: bus?.width || 1920, height: bus?.height || 1080 };
   }
 
-  // For a loaded-video source, slave the popup's own copy to the main app's clock:
-  // its current time, paused state (motion mode pauses the main video), and retime
+  // For a loaded-video source, slave the popup's own copy to the PROGRAM's clock:
+  // current time, paused state (motion mode pauses the main video), and retime
   // rate. The popup plays smoothly and nudges toward this on drift (see output-view).
+  // While motion staging runs, the program clock is the committed copy
+  // (env.programVideo) — the popup follows the on-air loop, not the edit scrubs.
   function videoSync() {
-    const v = env.sourceVideo;
+    const v = env.programVideo?.() || env.sourceVideo;
     if (!v) return null;
     return { t: v.currentTime || 0, paused: !!v.paused, rate: v.playbackRate || 1 };
   }
