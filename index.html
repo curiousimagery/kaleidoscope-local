@@ -243,7 +243,10 @@
   </div>
   <!-- center: the tall timeline (ruler + track — the big pinch/zoom/pan surface) -->
   <div class="mf-center">
-    <div class="mf-ruler" id="mfRuler"></div>
+    <!-- the ruler box stays FIXED (full width, owns the pointer handlers); the
+         inner layer carries the ticks and the pan transform — transforming the
+         box itself slid it under the left cluster and off the right edge -->
+    <div class="mf-ruler" id="mfRuler"><div class="mf-ruler-layer" id="mfRulerLayer"></div></div>
     <div class="mf-track" id="mfTrack" title="drag to scrub">
       <div class="mf-strip" id="mfStrip"></div>
       <div class="mf-markers" id="mfMarkers"></div>

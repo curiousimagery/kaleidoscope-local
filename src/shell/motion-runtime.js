@@ -618,8 +618,9 @@ function startStaging() {
   stg.playing = motion.playing;
   stg.p = motion.playhead;
   stg.t0 = performance.now() - stg.p * motion.durationMs;
-  // the edit side parks for editing; the committed loop keeps running on-air
-  if (motion.playing) { haltPlayback(); loadPlayheadIntoState(); }
+  // BOTH sides keep playing (Daniel's round-2 call: auto-pausing the staged
+  // preview was unexpected — users pause it themselves; edit interactions
+  // still pause it exactly as they do outside staging)
   stg.on = true;
   stg.blend = null;
   stg.lastBar = 0;
@@ -643,12 +644,20 @@ function endStaging(how, { resume = true } = {}) {   // 'take' | 'cut' | 'discar
     motion.selected = -1;
   } else if (how === 'take') {
     // ease the on-air output across the swap at the shared transition speed —
-    // the loop keeps playing while the look crossfades onto the new keyframes
+    // the loop keeps playing while the look crossfades onto the new keyframes.
+    // live is PRE-SEEDED with the exact on-air look: an unseeded first frame
+    // fell through to the NEW state for one frame (Daniel read the flash as a
+    // hard cut).
     const dur = Math.max(120, (env.session?.performResponse ?? 0.35) * 2500);
-    stg.blend = { from: committed, t0: performance.now(), dur, playing: wasPlaying, p: pNow, clock0: performance.now() - pNow * motion.durationMs, live: null };
+    stg.blend = {
+      from: committed, t0: performance.now(), dur, playing: wasPlaying, p: pNow,
+      clock0: performance.now() - pNow * motion.durationMs,
+      live: stgEval(committed, pNow),
+    };
     requestAnimationFrame(stgBlendLoop);
   }
   stgSetUI(false);
+  if (stg.blend) env.liveView?.set(true);   // the live view stays up to show the take LAND (hides on settle)
   // one timeline again. If the STAGED preview is currently playing, it simply
   // keeps playing (it's the new committed loop now — don't interrupt it);
   // otherwise the on-air position carries over, resuming if IT was playing.
@@ -680,9 +689,37 @@ function stgBlendLoop() {
     out[k] = GEST_ANGULAR.has(k) ? stgWrap360(av + angDelta(av, bv) * e) : av + (bv - av) * e;
   }
   B.live = out;
-  if (b >= 1) { stg.blend = null; return; }
+  env.liveView?.render(out);                       // the live view shows the take landing
+  if (b >= 1) { stg.blend = null; env.liveView?.set(false); return; }
   requestAnimationFrame(stgBlendLoop);
 }
+// staged-diff classification for the marker vocabulary (Daniel's spec): added/
+// edited keyframes read DOTTED; deleted committed keyframes stay visible as
+// FADED phantoms until the take (then they disappear and dotted turns solid —
+// which falls out of the re-render, since the diff is gone).
+function stgMarkerDiff() {
+  if (!stg.on) return null;
+  const a = motion.keyframes, b = stg.committed || [];
+  const matched = new Set();
+  const changed = new Set();
+  a.forEach((kf, i) => {
+    let bi = -1, best = 0.004;                     // match by nearest committed time
+    b.forEach((ck, j) => {
+      if (matched.has(j)) return;
+      const d = Math.abs(ck.t - kf.t);
+      if (d < best) { best = d; bi = j; }
+    });
+    if (bi < 0) { changed.add(i); return; }        // no committed partner → added/moved
+    matched.add(bi);
+    const ck = b[bi];
+    let diff = false;
+    for (const k of CONTINUOUS_KEYS) if ((kf.snap[k] ?? 0) !== (ck.snap[k] ?? 0)) { diff = true; break; }
+    if (!diff) for (const k of DISCRETE_KEYS) if (kf.snap[k] !== ck.snap[k]) { diff = true; break; }
+    if (diff) changed.add(i);
+  });
+  return { changed, deleted: b.filter((_, j) => !matched.has(j)) };
+}
+
 function requestStagingExit() {
   if (!stg.on) return;
   if (stgChanges() > 0) {
@@ -992,20 +1029,30 @@ function fmtClock(sec) {
 }
 function renderRuler() {
   const ruler = document.getElementById('mfRuler');
-  if (!ruler) return;
-  ruler.innerHTML = '';
+  const layer = document.getElementById('mfRulerLayer');
+  if (!ruler || !layer) return;
+  layer.innerHTML = '';
   const dur = motion.durationMs / 1000;
   const w = ruler.clientWidth;
   if (!(dur > 0) || w < 2) return;                              // footer hidden / zero width → nothing to draw
-  // labeled interval: ~one label per ~84px, snapped to a nice value (fallback to
-  // rounded seconds for very long clips).
+  // The labeled interval comes from the VISIBLE window (zoom-aware: a zoomed
+  // view labels finer), and ticks generate a couple of screens past each edge
+  // so cheap transform pans stay covered — the debounced refresh re-centers
+  // the tick window after a pan. (Daniel's iPad bug: ticks used to exist only
+  // for the full-duration scale, and the PAN transform sat on the ruler BOX,
+  // sliding it under the left cluster and off the right edge — the box is
+  // fixed now and the layer pans.)
+  const spanT = tlSpan();
+  const pan = session.timelinePan || 0;
+  const visDur = dur * spanT;
   const targetLabels = Math.max(2, Math.min(12, Math.floor(w / 84)));
-  let step = TICK_NICE.find(s => dur / s <= targetLabels) ?? Math.ceil(dur / targetLabels);
+  const step = TICK_NICE.find(s => visDur / s <= targetLabels) ?? Math.ceil(visDur / targetLabels);
+  const tA = Math.max(0, (pan - 2 * spanT) * dur);
+  const tB = Math.min(dur, (pan + 3 * spanT) * dur);
   const minor = step / 5;                                       // 5 minor ticks per labeled span
   const frag = document.createDocumentFragment();
-  if (dur / minor <= 400) {                                     // skip minors if they'd flood the DOM
-    const count = Math.floor(dur / minor + 1e-6);
-    for (let i = 0; i <= count; i++) {
+  if ((tB - tA) / minor <= 600) {                               // skip minors if they'd flood the DOM
+    for (let i = Math.ceil(tA / minor - 1e-6); i * minor <= tB + 1e-6; i++) {
       if (i % 5 === 0) continue;                                // a major sits here
       const tick = document.createElement('div');
       tick.className = 'mf-tick minor';
@@ -1013,10 +1060,9 @@ function renderRuler() {
       frag.appendChild(tick);
     }
   }
-  const majors = Math.floor(dur / step + 1e-6);
-  for (let i = 0; i <= majors; i++) {
+  for (let i = Math.ceil(tA / step - 1e-6); i * step <= tB + 1e-6; i++) {
     const t = i * step, p = t / dur;
-    if (i > 0 && (dur - t) < step * 0.45) continue;   // too close to the total-duration label — skip
+    if (t > 0 && (dur - t) < step * 0.45) continue;   // too close to the total-duration label — skip
     const tick = document.createElement('div');
     tick.className = 'mf-tick major';
     tick.style.left = zPct(p) + '%';
@@ -1027,19 +1073,24 @@ function renderRuler() {
     lab.style.left = zPct(p) + '%';
     frag.appendChild(lab);
   }
-  // total-duration label, always present at the end (the bound — brighter so it reads
-  // as the clip / loop length).
-  const eTick = document.createElement('div');
-  eTick.className = 'mf-tick major';
-  eTick.style.left = zPct(1) + '%';
-  frag.appendChild(eTick);
-  const eLab = document.createElement('span');
-  eLab.className = 'mf-time end total';
-  eLab.textContent = fmtClock(dur);
-  eLab.style.left = zPct(1) + '%';
-  frag.appendChild(eLab);
-  ruler.appendChild(frag);
+  if (tB >= dur - 1e-6) {
+    // total-duration label at the end (the bound — brighter so it reads as the
+    // clip / loop length); only when the end is within the tick window
+    const eTick = document.createElement('div');
+    eTick.className = 'mf-tick major';
+    eTick.style.left = zPct(1) + '%';
+    frag.appendChild(eTick);
+    const eLab = document.createElement('span');
+    eLab.className = 'mf-time end total';
+    eLab.textContent = fmtClock(dur);
+    eLab.style.left = zPct(1) + '%';
+    frag.appendChild(eLab);
+  }
+  layer.appendChild(frag);
+  layer.style.transform = `translateX(${panPct().toFixed(4)}%)`;
 }
+let rulerRefreshT = 0;
+function scheduleRulerRefresh() { clearTimeout(rulerRefreshT); rulerRefreshT = setTimeout(renderRuler, 120); }
 // ---- timeline view transform (zoom / pan) ---------------------------------
 // Ephemeral, session-scoped (never keyframed): timelineZoom (≥1) and timelinePan
 // (left edge of the visible window, in normalized [0,1]). Everything positioned by
@@ -1085,7 +1136,7 @@ function panPct() { return -(session.timelinePan || 0) * (session.timelineZoom |
 function applyPan() {
   const tx = `translateX(${panPct().toFixed(4)}%)`;
   const m = document.getElementById('mfMarkers'); if (m) m.style.transform = tx;
-  const r = document.getElementById('mfRuler'); if (r) r.style.transform = tx;
+  const r = document.getElementById('mfRulerLayer'); if (r) r.style.transform = tx;   // the LAYER pans; the box stays put
   applyTimelineTransform();                  // strip (pan + scaleX)
   setPlayhead(motion.playhead);              // playhead lives in the track itself (absolute, via tToPct)
 }
@@ -1138,9 +1189,11 @@ function relayoutTimeline() {
   clampTimelineView();
   markers.innerHTML = '';
   const list = kfList();
+  const sd = stgMarkerDiff();          // staging vocabulary (null outside staging)
   list.forEach((kf, i) => {
     const m = document.createElement('div');
     m.className = 'mf-marker' + (i === motion.selected ? ' selected' : '') + (kf.anchored ? ' anchored' : '');
+    if (sd?.changed.has(i)) m.classList.add('stg-new');   // added/edited → dotted outline
     m.style.left = zPct(kf.t) + '%';                 // zoom-only; pan applied via the layer transform
     if (kf.thumb) m.appendChild(kf.thumb);
     const pin = document.createElement('div');
@@ -1149,6 +1202,25 @@ function relayoutTimeline() {
     makeMarkerDraggable(m, i);
     markers.appendChild(m);
   });
+  // deleted committed keyframes stay visible as FADED phantoms until the take
+  // (thumb copied — a canvas can't live in two places; non-interactive)
+  if (sd) {
+    for (const ck of sd.deleted) {
+      const d = document.createElement('div');
+      d.className = 'mf-marker stg-del';
+      d.style.left = zPct(ck.t) + '%';
+      d.title = 'deleted in this staging — take removes it, discard restores it';
+      if (ck.thumb) {
+        const dc = document.createElement('canvas');
+        dc.width = ck.thumb.width; dc.height = ck.thumb.height;
+        dc.getContext('2d').drawImage(ck.thumb, 0, 0);
+        d.appendChild(dc);
+      }
+      const pin = document.createElement('div'); pin.className = 'mf-pin';
+      d.appendChild(pin);
+      markers.appendChild(d);
+    }
+  }
   // loop bookend: a faint return-to-kf0 marker at t=1 (shows kf0's thumbnail, so its
   // left edge is visible at the track end). a canvas can't live in two places, so
   // copy kf0's thumb into a fresh canvas for the ghost.
@@ -1545,29 +1617,63 @@ function wireMotion() {
         session.timelinePan += (dx / r.width) * tlSpan();
         clampTimelineView(); applyPan();            // pan-only → cheap transform slide (no rebuild)
         scheduleFilmstrip();                        // re-render the cells for the new window when idle
+        scheduleRulerRefresh();                     // re-center the ruler's tick window when idle
         e.preventDefault();
       }
     };
     track.addEventListener('wheel', onTimelineWheel, { passive: false });
 
-    // the ruler scrubs too (it reads as a measuring scale, so dragging it to move the
-    // scrubber feels natural) — single-pointer only; pinch/pan stays on the track.
+    // the ruler scrubs AND pinch-zooms/pans (Daniel: it must respond like the
+    // track everywhere along its width — it reads as part of the timeline
+    // surface). Mirrors the track's two-finger logic with its own pointer map.
     const ruler = byId('mfRuler');
     if (ruler) {
-      let rScrub = false;
+      const rPtrs = new Map();
+      let rScrub = false, rGesture = null;
       ruler.addEventListener('pointerdown', (e) => {
+        rPtrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+        ruler.setPointerCapture?.(e.pointerId);
+        if (rPtrs.size === 2) {                     // second finger → pinch/pan, not scrub
+          rScrub = false; env.motionRT.scrubbing = false;
+          const pts = [...rPtrs.values()];
+          rGesture = {
+            dist: Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y) || 1,
+            mid: (pts[0].x + pts[1].x) / 2,
+            zoom: session.timelineZoom || 1, pan: session.timelinePan || 0,
+            rect: ruler.getBoundingClientRect(),
+          };
+          return;
+        }
         if (!kfList().length) return;
         rScrub = true; env.motionRT.scrubbing = true;
         if (motion.playing) haltPlayback();
-        ruler.setPointerCapture?.(e.pointerId);
         scrubTo(e.clientX);
         e.preventDefault();
       });
-      ruler.addEventListener('pointermove', (e) => { if (rScrub) scrubTo(e.clientX); });
+      ruler.addEventListener('pointermove', (e) => {
+        if (rPtrs.has(e.pointerId)) rPtrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+        if (rGesture && rPtrs.size >= 2) {
+          const pts = [...rPtrs.values()];
+          const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y) || 1;
+          const mid = (pts[0].x + pts[1].x) / 2, r = rGesture.rect;
+          const frac0 = (rGesture.mid - r.left) / r.width;
+          const tAnchor = rGesture.pan + frac0 * (1 / rGesture.zoom);
+          session.timelineZoom = rGesture.zoom * (dist / rGesture.dist);
+          clampTimelineView();
+          session.timelinePan = tAnchor - Math.max(0, Math.min(1, (mid - r.left) / r.width)) * tlSpan();
+          clampTimelineView();
+          scheduleRelayout(); updateZoomButtons(); scheduleFilmstrip();
+          e.preventDefault();
+          return;
+        }
+        if (rScrub) scrubTo(e.clientX);
+      });
       const rEnd = (e) => {
+        rPtrs.delete(e.pointerId);
+        ruler.releasePointerCapture?.(e.pointerId);
+        if (rPtrs.size < 2) rGesture = null;
         if (!rScrub) return;
         rScrub = false; env.motionRT.scrubbing = false;
-        ruler.releasePointerCapture?.(e.pointerId);
         loadPlayheadIntoState(); renderTimeline(); updateMotionUI();
       };
       ruler.addEventListener('pointerup', rEnd);

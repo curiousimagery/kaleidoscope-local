@@ -250,6 +250,26 @@ body { display: flex; flex-direction: column; height: 100vh; height: 100dvh; ove
   pointer-events: none;
 }
 .live-small-hint[hidden] { display: none; }
+/* disabled controls explain themselves on TAP (title tooltips don't exist on
+   touch): a transient tip above the tapped control (main.js wireDisabledTips) */
+.tap-tip {
+  position: fixed;
+  z-index: 400;
+  transform: translate(-50%, -100%);
+  max-width: 260px;
+  padding: 6px 10px;
+  background: rgba(20, 20, 20, 0.95);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-xs);
+  line-height: 1.35;
+  color: var(--text-bright);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.tap-tip.on { opacity: 1; }
+
 /* perform footer — Daniel's directive layout: left transport in motion-mode
    geography, center source timeline, right speed controls */
 .perform-footer {
@@ -991,6 +1011,14 @@ button .btn-spinner {
 /* staging: the ON-AIR playhead (committed loop) — dimmed, non-interactive */
 .mf-livehead { opacity: 0.35; pointer-events: none; }
 .mf-livehead[hidden] { display: none; }
+/* the ruler's pan layer — the BOX stays fixed (full-width hit area), ticks pan */
+.mf-ruler-layer { position: absolute; inset: 0; will-change: transform; }
+/* staging marker vocabulary (Daniel): added/edited = dotted outline; deleted =
+   faded phantom that disappears on take */
+.mf-marker.stg-new canvas { border-style: dotted; }
+.mf-marker.stg-del { pointer-events: none; }
+.mf-marker.stg-del canvas { border-color: rgba(255, 255, 255, 0.25); }
+.mf-marker.stg-del .mf-pin { opacity: 0.25; }
 /* the staging bar floats over the timeline's top-right corner */
 .mf-center { position: relative; }
 .stg-bar {

@@ -977,6 +977,34 @@ function wireBarBands() {
 // open in a POPOVER anchored to the panel's .panel-gear trigger. One popover at a
 // time; re-click, outside pointerdown, or Escape closes. The popovers are fixed-
 // position at body level so the panels' overflow clipping can't cut them off.
+// disabled controls explain themselves on TAP (Daniel, mobile usability):
+// title tooltips don't exist on touch, so tapping a disabled control flashes
+// its title as a transient tip. Disabled elements never receive events, but
+// elementFromPoint still hit-tests them — listen at the document.
+function wireDisabledTips() {
+  let tip = null, tipT = 0;
+  document.addEventListener('touchstart', (e) => {
+    const t = e.touches[0];
+    if (!t) return;
+    const el = document.elementFromPoint(t.clientX, t.clientY);
+    const dis = el?.closest?.('button[disabled], input[disabled], select[disabled], [aria-disabled="true"]');
+    const text = dis && (dis.title || dis.getAttribute('aria-label'));
+    if (!text) return;
+    if (!tip) {
+      tip = document.createElement('div');
+      tip.className = 'tap-tip';
+      document.body.appendChild(tip);
+    }
+    tip.textContent = text;
+    const r = dis.getBoundingClientRect();
+    tip.style.left = Math.round(Math.min(window.innerWidth - 12, Math.max(12, r.left + r.width / 2))) + 'px';
+    tip.style.top = Math.round(Math.max(34, r.top - 8)) + 'px';
+    tip.classList.add('on');
+    clearTimeout(tipT);
+    tipT = setTimeout(() => tip.classList.remove('on'), 2400);
+  }, { passive: true });
+}
+
 function wirePanelPopovers() {
   const pairs = [
     { btn: document.getElementById('sliceSettingsBtn'), pop: document.getElementById('slicePopover') },
@@ -1093,6 +1121,7 @@ if (engine) {
   setupStageDivider(env);
   setupLiveDivider(env);
   wirePanelPopovers();
+  wireDisabledTips();
   // claim multi-touch on the output preview too (pinch/twist), same reason as the
   // source surface — keep the browser from swallowing the gesture as a page zoom.
   previewCanvas.style.touchAction = 'none';
