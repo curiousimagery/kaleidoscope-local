@@ -26,6 +26,7 @@
 import { createMidiInput } from './midi-input.js';
 import { createGamepadInput } from './gamepad-input.js';
 import { createTrackpadInput } from './trackpad-input.js';
+import { createRemoteInput } from './remote-input.js';
 
 const STORE_KEY = 'fold-inputs-v1';
 
@@ -101,7 +102,8 @@ export function createInputBus(env) {
   const midi = createMidiInput(onSignal, refreshDevices);
   const pads = createGamepadInput(onSignal, refreshDevices);
   const tp = createTrackpadInput(onSignal, refreshDevices, env.host);   // Electron shell only
-  const online = () => new Map([...midi.devices(), ...pads.devices(), ...tp.devices()].map((d) => [d.key, d.name]));
+  const rem = createRemoteInput(onSignal, refreshDevices, env.host);    // Electron shell only
+  const online = () => new Map([...midi.devices(), ...pads.devices(), ...tp.devices(), ...rem.devices()].map((d) => [d.key, d.name]));
 
   // ---- signal routing ------------------------------------------------------------
   let learnCb = null;
@@ -254,6 +256,7 @@ export function createInputBus(env) {
     const devKeys = [...new Set([...Object.keys(store.devices), ...store.maps.map((m) => m.dev)])].filter(Boolean);
     if (!devKeys.length) {
       wrap.innerHTML = '<div class="in-dev none">no devices yet — connect MIDI (Chromium/Electron) or press a button on a game controller, then “+ map”</div>';
+      renderPairing(wrap);
       return;
     }
     for (const dev of devKeys) {
@@ -270,6 +273,29 @@ export function createInputBus(env) {
       wrap.appendChild(head);
       store.maps.forEach((m, i) => { if (m.dev === dev) wrap.appendChild(mapRow(m, i)); });
     }
+    renderPairing(wrap);
+  }
+
+  // "+ add this iPhone/iPad" — the mobile gesture surface pairs from HERE (it
+  // is a device beside the APC and the DualSense, not a mode). The shell hosts
+  // the page; the URL shown is the whole pairing step.
+  function renderPairing(wrap) {
+    if (!rem.supported()) return;
+    const el = document.createElement('div');
+    el.className = 'in-pair';
+    if (!rem.active()) {
+      el.innerHTML = '<button class="toggle" id="inAddMobile">＋ add an iPhone / iPad (gesture input)</button>';
+      el.querySelector('#inAddMobile').addEventListener('click', async () => {
+        store.remote = true; save();
+        await rem.init();
+        renderMaps();
+      });
+    } else {
+      const n = rem.clients();
+      el.innerHTML = `<div class="in-pair-url">on the phone, open: <b>${rem.url() || '…'}</b></div>
+        <div class="in-pair-state">${n ? `${n} connected — move a finger on the phone, then “+ map”` : 'waiting for the phone… (same wifi)'}</div>`;
+    }
+    wrap.appendChild(el);
   }
 
   function mapRow(m, i) {
@@ -288,7 +314,7 @@ export function createInputBus(env) {
     ].join('');
     // abs is position-is-value — meaningless for momentary controls, so they
     // omit it; gesture signals are pure deltas, so they're rel by definition
-    const isDelta = m.kind === 'gesture' || m.sig.startsWith('tp:');
+    const isDelta = m.kind === 'gesture' || m.kind === 'touch' || m.sig.startsWith('tp:') || m.sig.startsWith('mob:');
     const modes = (isDelta ? ['rel'] : momentary ? ['rel', 'rate'] : ['abs', 'rel', 'rate'])
       .map((md) => `<option value="${md}"${m.mode === md ? ' selected' : ''}>${md}</option>`).join('');
     const sens = SENS_OPTS.map((s) => `<option value="${s}"${(m.sens ?? 0.05) === s ? ' selected' : ''}>${Math.round(s * 100)}%</option>`).join('');
@@ -425,6 +451,7 @@ export function createInputBus(env) {
       if (store.midi) midi.init().then(refreshDevices);
       if (store.pad) { pads.init(); renderLights(); }
       if (tp.supported()) { tp.init(); renderLights(); }
+      if (store.remote && rem.supported()) rem.init();
     };
     if (env.host?.config?.available) {
       env.host.config.read().then((cfg) => {

@@ -82,6 +82,25 @@ const foldHost = {
     },
   },
 
+  // Mobile gesture input: the shell serves the phone page + WebSocket
+  // (electron/remote-input.js); start() returns the LAN URL to show the
+  // performer, and gesture/status events stream back here.
+  remote: {
+    available: true,
+    start() { return ipcRenderer.invoke('remote:start'); },
+    stop() { ipcRenderer.send('remote:stop'); },
+    onSignal(cb) {
+      const h = (_e, msg) => cb(msg);
+      ipcRenderer.on('remote:signal', h);
+      return () => ipcRenderer.removeListener('remote:signal', h);
+    },
+    onStatus(cb) {
+      const h = (_e, st) => cb(st);
+      ipcRenderer.on('remote:status', h);
+      return () => ipcRenderer.removeListener('remote:status', h);
+    },
+  },
+
   // Lightweight local config (user preferences — the input rig): one JSON file
   // in userData via main. The renderer treats localStorage as the fallback.
   config: {

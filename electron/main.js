@@ -22,6 +22,7 @@ const path = require('path');
 const fs = require('fs');
 const syphon = require('./syphon-bridge');
 const trackpad = require('./trackpad-bridge');
+const remote = require('./remote-input');
 
 // A live-output shell must keep rendering when it ISN'T the focused window —
 // the whole point is driving Arena while Fold broadcasts underneath. Chromium
@@ -105,6 +106,22 @@ ipcMain.on('trackpad:start', (e) => {
 });
 ipcMain.on('trackpad:stop', () => trackpad.stop());
 
+// Mobile gesture input (Arc 6): the shell hosts the LAN page + WebSocket that
+// turns an iPhone/iPad into an input device; gesture deltas and connect status
+// forward to the renderer where the control bus maps them.
+remote.setHandlers({
+  message: (msg) => {
+    const wc = win?.webContents;
+    if (wc && !wc.isDestroyed()) wc.send('remote:signal', msg);
+  },
+  status: (st) => {
+    const wc = win?.webContents;
+    if (wc && !wc.isDestroyed()) wc.send('remote:status', st);
+  },
+});
+ipcMain.handle('remote:start', () => remote.start());
+ipcMain.on('remote:stop', () => remote.stop());
+
 // Lightweight local config (user preferences — the input rig, etc.): one JSON
 // file in userData. No database, session discipline intact; the renderer keeps
 // localStorage as its fallback so the web build is unaffected.
@@ -123,4 +140,4 @@ app.on('window-all-closed', () => {
 });
 
 // Make sure the Syphon server is released even if quitting while live.
-app.on('will-quit', () => { syphon.stop(); });
+app.on('will-quit', () => { syphon.stop(); trackpad.stop(); remote.stop(); });

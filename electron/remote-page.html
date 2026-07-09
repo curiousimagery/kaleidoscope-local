@@ -1,0 +1,244 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: AGPL-3.0-or-later
+     Copyright (C) 2026 Daniel Nelson
+
+     electron/remote-page.html — Fold's mobile GESTURE INPUT surface.
+     Served by the desktop app (remote-input.js) over the LAN; the same-origin
+     WebSocket is the control link. Deliberately affordance-light (eyes stay on
+     the desktop output): a crosshair over concentric circles as the spatial
+     anchor, low-opacity dots at the actual finger locations, and an
+     old-iPhone-style slide-to-unlock so the surface can't be left by accident.
+     Gestures emit DELTAS (drag / pinch / rotate) — the desktop's control bus
+     maps them like any other input device. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>Fold — gesture input</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-user-select: none; user-select: none; }
+  html, body { height: 100%; overflow: hidden; background: #0a0a0a; color: #888;
+    font: 13px/1.4 -apple-system, system-ui, sans-serif; }
+  #pad { position: fixed; inset: 0; touch-action: none; }
+  #hud { position: fixed; top: env(safe-area-inset-top, 12px); left: 0; right: 0;
+    text-align: center; padding-top: 10px; pointer-events: none; letter-spacing: 0.06em; }
+  #hud .st { color: #555; font-size: 11px; text-transform: lowercase; }
+  #hud .st.live { color: #3c3; }
+  /* slide to exit (unlock) — bottom bar */
+  #unlockWrap { position: fixed; left: 16px; right: 16px;
+    bottom: calc(env(safe-area-inset-bottom, 12px) + 14px); height: 52px;
+    border: 1px solid #2a2a2a; border-radius: 26px; background: rgba(20,20,20,0.85);
+    overflow: hidden; touch-action: none; }
+  #unlockHint { position: absolute; inset: 0; display: flex; align-items: center;
+    justify-content: center; color: #555; font-size: 12px; letter-spacing: 0.12em; }
+  #unlockThumb { position: absolute; left: 3px; top: 3px; width: 46px; height: 44px;
+    border-radius: 23px; background: #222; border: 1px solid #333; color: #999;
+    display: flex; align-items: center; justify-content: center; font-size: 18px; }
+  /* paused overlay */
+  #paused { position: fixed; inset: 0; background: rgba(10,10,10,0.92); display: none;
+    align-items: center; justify-content: center; flex-direction: column; gap: 18px; z-index: 5; }
+  #paused.on { display: flex; }
+  #resume { padding: 14px 26px; border-radius: 12px; border: 1px solid #333;
+    background: #1a1a1a; color: #ccc; font-size: 15px; }
+</style>
+</head>
+<body>
+<canvas id="pad"></canvas>
+<div id="hud"><div class="st" id="status">connecting…</div></div>
+<div id="unlockWrap"><div id="unlockHint">slide to pause input ›››</div><div id="unlockThumb">›</div></div>
+<div id="paused"><div>input paused — touches are ignored</div><button id="resume">hold to resume</button></div>
+<script>
+(() => {
+  const K = new URL(location.href).searchParams.get('k') || '';
+  const pad = document.getElementById('pad');
+  const ctx = pad.getContext('2d');
+  const statusEl = document.getElementById('status');
+  let W = 0, H = 0, dpr = 1;
+
+  // ---- websocket link (auto-reconnect) ------------------------------------
+  let ws = null, wsOpen = false;
+  function connect() {
+    ws = new WebSocket(`ws://${location.host}/ws?k=${K}`);
+    ws.onopen = () => {
+      wsOpen = true;
+      statusEl.textContent = 'live — fold is listening';
+      statusEl.classList.add('live');
+      const ua = navigator.userAgent;
+      const name = /iPad/.test(ua) ? 'iPad' : /iPhone/.test(ua) ? 'iPhone' : 'mobile';
+      send({ t: 'hi', name });
+    };
+    ws.onclose = () => {
+      wsOpen = false;
+      statusEl.textContent = 'reconnecting…';
+      statusEl.classList.remove('live');
+      setTimeout(connect, 1200);
+    };
+    ws.onerror = () => { try { ws.close(); } catch (e) {} };
+  }
+  const send = (o) => { if (wsOpen) try { ws.send(JSON.stringify(o)); } catch (e) {} };
+  connect();
+
+  // keep the screen awake during a set (best-effort)
+  try { navigator.wakeLock?.request('screen').catch(() => {}); } catch (e) {}
+
+  // ---- the surface ----------------------------------------------------------
+  function resize() {
+    dpr = Math.min(window.devicePixelRatio || 1, 2);
+    W = innerWidth; H = innerHeight;
+    pad.width = W * dpr; pad.height = H * dpr;
+    pad.style.width = W + 'px'; pad.style.height = H + 'px';
+    draw();
+  }
+  addEventListener('resize', resize);
+
+  // touches: id → {x,y}; fading finger ghosts after lift
+  const touches = new Map();
+  const ghosts = [];   // {x,y,t0}
+
+  function draw() {
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, W, H);
+    const cx = W / 2, cy = H / 2, R = Math.min(W, H) * 0.42;
+    // concentric circles + crosshair — the canvas scale/rotation anchor
+    ctx.strokeStyle = 'rgba(255,255,255,0.07)';
+    ctx.lineWidth = 1;
+    for (const f of [0.25, 0.5, 0.75, 1]) {
+      ctx.beginPath(); ctx.arc(cx, cy, R * f, 0, Math.PI * 2); ctx.stroke();
+    }
+    ctx.beginPath();
+    ctx.moveTo(cx, cy - R * 1.08); ctx.lineTo(cx, cy + R * 1.08);
+    ctx.moveTo(cx - R * 1.08, cy); ctx.lineTo(cx + R * 1.08, cy);
+    ctx.stroke();
+    // low-opacity circles at the ACTUAL finger locations (watch the desktop,
+    // not the phone — these confirm where your fingers are peripherally)
+    const now = performance.now();
+    for (const t of touches.values()) {
+      ctx.beginPath(); ctx.arc(t.x, t.y, 34, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(255,255,255,0.10)'; ctx.fill();
+      ctx.strokeStyle = 'rgba(255,255,255,0.22)'; ctx.stroke();
+    }
+    for (let i = ghosts.length - 1; i >= 0; i--) {
+      const g = ghosts[i], a = 1 - (now - g.t0) / 450;
+      if (a <= 0) { ghosts.splice(i, 1); continue; }
+      ctx.beginPath(); ctx.arc(g.x, g.y, 34, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(255,255,255,${0.08 * a})`; ctx.fill();
+    }
+    if (touches.size || ghosts.length) requestAnimationFrame(draw);
+  }
+
+  // ---- gesture math → delta messages (batched per frame) --------------------
+  let locked = true;           // live = touches are signals
+  let acc = { dx: 0, dy: 0, pinch: 0, rot: 0 };
+  let flushQueued = false;
+  function queueFlush() {
+    if (flushQueued) return;
+    flushQueued = true;
+    requestAnimationFrame(() => {
+      flushQueued = false;
+      const { dx, dy, pinch, rot } = acc;
+      acc = { dx: 0, dy: 0, pinch: 0, rot: 0 };
+      const m = Math.min(W, H);
+      if (dx || dy) send({ t: 'd', x: dx / m, y: dy / m });
+      if (pinch) send({ t: 'p', v: pinch });
+      if (rot) send({ t: 'r', v: rot });
+    });
+  }
+
+  let g0 = null;   // two-finger anchor { dist, ang }
+  function twoFinger() {
+    const [a, b] = [...touches.values()];
+    return { dist: Math.hypot(a.x - b.x, a.y - b.y) || 1, ang: Math.atan2(b.y - a.y, b.x - a.x) };
+  }
+
+  pad.addEventListener('touchstart', (e) => {
+    e.preventDefault();
+    for (const t of e.changedTouches) touches.set(t.identifier, { x: t.clientX, y: t.clientY });
+    if (touches.size === 2) g0 = twoFinger();
+    draw();
+  }, { passive: false });
+
+  pad.addEventListener('touchmove', (e) => {
+    e.preventDefault();
+    const moves = [];
+    for (const t of e.changedTouches) {
+      const prev = touches.get(t.identifier);
+      if (!prev) continue;
+      moves.push({ dx: t.clientX - prev.x, dy: t.clientY - prev.y });
+      touches.set(t.identifier, { x: t.clientX, y: t.clientY });
+    }
+    if (!locked) { draw(); return; }
+    if (touches.size >= 2 && g0) {
+      const g = twoFinger();
+      acc.pinch += (g.dist / g0.dist) - 1;
+      let da = (g.ang - g0.ang) * 180 / Math.PI;
+      if (da > 180) da -= 360; else if (da < -180) da += 360;
+      acc.rot += da;
+      g0 = g;
+    } else if (touches.size === 1 && moves.length) {
+      acc.dx += moves[0].dx;
+      acc.dy += moves[0].dy;
+    }
+    queueFlush();
+    draw();
+  }, { passive: false });
+
+  const lift = (e) => {
+    e.preventDefault();
+    for (const t of e.changedTouches) {
+      const p = touches.get(t.identifier);
+      if (p) ghosts.push({ x: p.x, y: p.y, t0: performance.now() });
+      touches.delete(t.identifier);
+    }
+    g0 = touches.size === 2 ? twoFinger() : null;
+    draw();
+  };
+  pad.addEventListener('touchend', lift, { passive: false });
+  pad.addEventListener('touchcancel', lift, { passive: false });
+
+  // ---- slide to pause (the unlock) — hold to resume ---------------------------
+  const wrap = document.getElementById('unlockWrap');
+  const thumb = document.getElementById('unlockThumb');
+  const paused = document.getElementById('paused');
+  let slide = null;
+  wrap.addEventListener('touchstart', (e) => { e.preventDefault(); slide = e.changedTouches[0].clientX; }, { passive: false });
+  wrap.addEventListener('touchmove', (e) => {
+    e.preventDefault();
+    if (slide == null) return;
+    const max = wrap.clientWidth - thumb.offsetWidth - 6;
+    const x = Math.max(0, Math.min(max, e.changedTouches[0].clientX - slide));
+    thumb.style.transform = `translateX(${x}px)`;
+    if (x >= max) {   // slid to the end → pause
+      slide = null;
+      locked = false;
+      thumb.style.transform = '';
+      paused.classList.add('on');
+      send({ t: 'pause' });
+    }
+  }, { passive: false });
+  const slideEnd = (e) => { e.preventDefault(); slide = null; thumb.style.transform = ''; };
+  wrap.addEventListener('touchend', slideEnd, { passive: false });
+  wrap.addEventListener('touchcancel', slideEnd, { passive: false });
+
+  // hold-to-resume (600ms) — a tap can't accidentally re-arm
+  const resume = document.getElementById('resume');
+  let holdT = 0;
+  const startHold = (e) => {
+    e.preventDefault();
+    holdT = setTimeout(() => {
+      locked = true;
+      paused.classList.remove('on');
+      send({ t: 'resume' });
+    }, 600);
+  };
+  const endHold = () => clearTimeout(holdT);
+  resume.addEventListener('touchstart', startHold, { passive: false });
+  resume.addEventListener('touchend', endHold);
+  resume.addEventListener('touchcancel', endHold);
+
+  resize();
+})();
+</script>
+</body>
+</html>

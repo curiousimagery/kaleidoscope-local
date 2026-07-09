@@ -43,6 +43,17 @@ export const webHost = {
     onGesture(/* handler */) { return () => {}; },   // subscribe; returns unsubscribe
   },
 
+  // Mobile gesture input: the native shell serves a LAN page + WebSocket that
+  // turns an iPhone/iPad into an input device for the control bus
+  // (electron/remote-input.js; shell/remote-input.js adapter).
+  remote: {
+    available: false,
+    async start() { return null; },   // → { url } when available
+    stop() {},
+    onSignal(/* handler */) { return () => {}; },
+    onStatus(/* handler */) { return () => {}; },
+  },
+
   // Lightweight local config (user preferences — the input rig): a JSON file in
   // the native shell's userData. The web app keeps localStorage.
   config: {
