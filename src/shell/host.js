@@ -35,6 +35,22 @@ export const webHost = {
     stop() {},
   },
 
+  // Native macOS trackpad gestures (magnify + rotate via an NSEvent monitor in
+  // the Electron shell — Chromium swallows rotate). Feeds the control bus as
+  // the "trackpad" input device (shell/trackpad-input.js adapter).
+  trackpad: {
+    available: false,
+    onGesture(/* handler */) { return () => {}; },   // subscribe; returns unsubscribe
+  },
+
+  // Lightweight local config (user preferences — the input rig): a JSON file in
+  // the native shell's userData. The web app keeps localStorage.
+  config: {
+    available: false,
+    async read() { return null; },
+    async write(/* obj */) { return false; },
+  },
+
   // MIDI control input (APC40 etc.) — map controllers to params live. The Web MIDI
   // API exists in some browsers but is gated/inconsistent; the native path is the
   // reliable one. (Deferred MIDI/kiosk front-end.)

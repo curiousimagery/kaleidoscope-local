@@ -25,6 +25,7 @@
 
 import { createMidiInput } from './midi-input.js';
 import { createGamepadInput } from './gamepad-input.js';
+import { createTrackpadInput } from './trackpad-input.js';
 
 const STORE_KEY = 'fold-inputs-v1';
 
@@ -66,7 +67,7 @@ const LED_COLORS = [
 ];
 // signal-kind chips: what the hardware control physically is (from the
 // adapter's read; a MIDI cc can't distinguish knob from fader — 'cc' is honest)
-const KIND_CHIP = { cc: 'cc', pad: 'pad', stick: 'stick', btn: 'btn' };
+const KIND_CHIP = { cc: 'cc', pad: 'pad', stick: 'stick', btn: 'btn', gesture: 'tp', touch: 'tap' };
 
 export function createInputBus(env) {
   const { state } = env;
@@ -89,12 +90,18 @@ export function createInputBus(env) {
       store.midi = !!s.midi; store.pad = !!s.pad;
     }
   } catch { /* fresh */ }
-  const save = () => { try { localStorage.setItem(STORE_KEY, JSON.stringify(store)); } catch { /* private mode */ } };
+  const save = () => {
+    try { localStorage.setItem(STORE_KEY, JSON.stringify(store)); } catch { /* private mode */ }
+    // native shell: mirror the rig into the userData config file (survives
+    // storage clears + travels with the app; localStorage stays the web path)
+    env.host?.config?.available && env.host.config.write({ inputs: store });
+  };
 
   // ---- adapters ----------------------------------------------------------------
   const midi = createMidiInput(onSignal, refreshDevices);
   const pads = createGamepadInput(onSignal, refreshDevices);
-  const online = () => new Map([...midi.devices(), ...pads.devices()].map((d) => [d.key, d.name]));
+  const tp = createTrackpadInput(onSignal, refreshDevices, env.host);   // Electron shell only
+  const online = () => new Map([...midi.devices(), ...pads.devices(), ...tp.devices()].map((d) => [d.key, d.name]));
 
   // ---- signal routing ------------------------------------------------------------
   let learnCb = null;
@@ -279,8 +286,10 @@ export function createInputBus(env) {
       ...ACTION_TARGETS.map((t) => `<option value="${t.key}"${m.target === t.key ? ' selected' : ''}>${t.label}</option>`),
       '</optgroup>',
     ].join('');
-    // abs is position-is-value — meaningless for momentary controls, so they omit it
-    const modes = (momentary ? ['rel', 'rate'] : ['abs', 'rel', 'rate'])
+    // abs is position-is-value — meaningless for momentary controls, so they
+    // omit it; gesture signals are pure deltas, so they're rel by definition
+    const isDelta = m.kind === 'gesture' || m.sig.startsWith('tp:');
+    const modes = (isDelta ? ['rel'] : momentary ? ['rel', 'rate'] : ['abs', 'rel', 'rate'])
       .map((md) => `<option value="${md}"${m.mode === md ? ' selected' : ''}>${md}</option>`).join('');
     const sens = SENS_OPTS.map((s) => `<option value="${s}"${(m.sens ?? 0.05) === s ? ' selected' : ''}>${Math.round(s * 100)}%</option>`).join('');
     row.innerHTML = `
@@ -361,8 +370,8 @@ export function createInputBus(env) {
           sig, dev: meta.device || 'unknown', kind: meta.kind,
           label: meta.label || sig,
           target: meta.momentary ? 'action:take' : 'sliceRotation',
-          mode: meta.momentary ? 'rel' : meta.bipolar ? 'rate' : 'abs',
-          sens: meta.bipolar ? 0.25 : 0.05,
+          mode: meta.relative ? 'rel' : meta.momentary ? 'rel' : meta.bipolar ? 'rate' : 'abs',
+          sens: meta.relative || meta.bipolar ? 0.25 : 0.05,
           invert: false,
           ...(midi.parseNoteSig(sig) ? { led: 21 } : {}),
         });
@@ -396,6 +405,7 @@ export function createInputBus(env) {
       // persist so a saved rig re-arms at boot with no sheet visit)
       if (!midi.active()) { store.midi = await midi.init(); save(); }
       if (!pads.active()) { pads.init(); store.pad = true; save(); }
+      if (tp.supported() && !tp.active()) tp.init();
       refreshDevices();
       renderMaps();
     });
@@ -407,9 +417,23 @@ export function createInputBus(env) {
       const f = e.target.files?.[0]; e.target.value = '';
       if (f) loadRig(await f.text());
     });
-    // a saved rig re-arms silently at boot (the permission grant is remembered)
-    if (store.midi) midi.init().then(refreshDevices);
-    if (store.pad) { pads.init(); renderLights(); }
+    // a saved rig re-arms silently at boot (the permission grant is remembered);
+    // the native trackpad needs no permission, so it simply arms when the shell
+    // provides it. In the native shell the userData config file is authoritative
+    // over localStorage (it survives storage clears) — adopt it, then arm.
+    const boot = () => {
+      if (store.midi) midi.init().then(refreshDevices);
+      if (store.pad) { pads.init(); renderLights(); }
+      if (tp.supported()) { tp.init(); renderLights(); }
+    };
+    if (env.host?.config?.available) {
+      env.host.config.read().then((cfg) => {
+        if (cfg?.inputs?.v === 2) store = cfg.inputs;
+        boot();
+      }).catch(boot);
+    } else {
+      boot();
+    }
   }
   wire();
 }

@@ -37,6 +37,13 @@ const ebBin = path.join(electronDir, 'node_modules', '.bin', 'electron-builder')
 
 // 0) ensure the leak-fixed node-syphon binary is vendored in (idempotent)
 sh('node', ['scripts/patch-node-syphon.cjs']);
+// 0b) build the native trackpad-gesture addon if its binary is missing (N-API →
+//     ABI-stable, so one build serves Node and Electron alike)
+const tpNode = path.join(electronDir, 'native', 'trackpad', 'build', 'Release', 'fold_trackpad.node');
+if (!fs.existsSync(tpNode)) {
+  console.log('[build-dmg] building the trackpad gesture addon…');
+  execFileSync('npx', ['node-gyp', 'rebuild'], { stdio: 'inherit', cwd: path.join(electronDir, 'native', 'trackpad') });
+}
 // 1) build the web app into ../dist
 sh('npm', ['run', 'build', '--prefix', '..']);
 // 2) package, injecting the real app version so the DMG name reflects the build

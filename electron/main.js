@@ -19,7 +19,9 @@
 
 const { app, BrowserWindow, ipcMain, session } = require('electron');
 const path = require('path');
+const fs = require('fs');
 const syphon = require('./syphon-bridge');
+const trackpad = require('./trackpad-bridge');
 
 // A live-output shell must keep rendering when it ISN'T the focused window —
 // the whole point is driving Arena while Fold broadcasts underneath. Chromium
@@ -90,6 +92,30 @@ ipcMain.on('syphon:start', (_e, { name } = {}) => syphon.start(name));
 // and pile frames up in the IPC queue (the OOM fix; see preload.js publish()).
 ipcMain.handle('syphon:frame', (_e, payload) => { syphon.publish(payload); });
 ipcMain.on('syphon:stop', () => syphon.stop());
+
+// Native trackpad gestures (Arc 6): the NSEvent monitor streams magnify/rotate
+// deltas; forward them to the renderer where the control bus maps them like any
+// other input device. `sendSync` availability probe runs once from the preload.
+ipcMain.on('trackpad:available', (e) => { e.returnValue = trackpad.available; });
+ipcMain.on('trackpad:start', (e) => {
+  trackpad.start((ev) => {
+    const wc = win?.webContents;
+    if (wc && !wc.isDestroyed()) wc.send('trackpad:gesture', ev);
+  });
+});
+ipcMain.on('trackpad:stop', () => trackpad.stop());
+
+// Lightweight local config (user preferences — the input rig, etc.): one JSON
+// file in userData. No database, session discipline intact; the renderer keeps
+// localStorage as its fallback so the web build is unaffected.
+const configPath = () => path.join(app.getPath('userData'), 'fold-config.json');
+ipcMain.handle('config:read', () => {
+  try { return JSON.parse(fs.readFileSync(configPath(), 'utf8')); } catch { return null; }
+});
+ipcMain.handle('config:write', (_e, obj) => {
+  try { fs.writeFileSync(configPath(), JSON.stringify(obj, null, 2)); return true; }
+  catch (err) { console.warn('[fold] config write failed', err); return false; }
+});
 
 // Single-window tool: closing the window ends the session on every platform.
 app.on('window-all-closed', () => {

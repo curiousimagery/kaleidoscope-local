@@ -23,9 +23,9 @@
     "productName": "Fold Live",
     "copyright": "Copyright © 2026 Daniel Nelson",
     "directories": { "output": "release" },
-    "files": ["main.js", "preload.js", "syphon-bridge.js", "node_modules/**/*"],
+    "files": ["main.js", "preload.js", "syphon-bridge.js", "trackpad-bridge.js", "remote-input.js", "remote-page.html", "native/trackpad/build/Release/*.node", "node_modules/**/*"],
     "extraResources": [{ "from": "../dist", "to": "dist" }],
-    "asarUnpack": ["node_modules/node-syphon/**/*"],
+    "asarUnpack": ["node_modules/node-syphon/**/*", "native/trackpad/build/Release/*.node"],
     "npmRebuild": false,
     "mac": {
       "target": [{ "target": "dmg", "arch": "arm64" }],

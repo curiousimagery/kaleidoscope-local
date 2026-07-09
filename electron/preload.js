@@ -69,6 +69,27 @@ const foldHost = {
     },
   },
 
+  // Native trackpad gestures (Arc 6): magnify + rotate deltas from the NSEvent
+  // monitor in main (Chromium swallows rotate; pinch only reaches the page as
+  // ctrl+wheel). The control bus registers this as the "trackpad" device.
+  trackpad: {
+    available: ipcRenderer.sendSync('trackpad:available') === true,
+    onGesture(cb) {
+      const h = (_e, ev) => cb(ev);
+      ipcRenderer.on('trackpad:gesture', h);
+      ipcRenderer.send('trackpad:start');
+      return () => ipcRenderer.removeListener('trackpad:gesture', h);
+    },
+  },
+
+  // Lightweight local config (user preferences — the input rig): one JSON file
+  // in userData via main. The renderer treats localStorage as the fallback.
+  config: {
+    available: true,
+    read() { return ipcRenderer.invoke('config:read'); },
+    write(obj) { return ipcRenderer.invoke('config:write', obj); },
+  },
+
   // Parity stubs with webHost — not yet implemented in the shell, but present so
   // the interface shape stays whole for the app's `if (available)` guards.
   midi: {
