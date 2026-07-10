@@ -25,6 +25,7 @@ import { mountRangeControl } from '../components/param-control.js';
 import { PARAMS, DECLARATIVE_PARAM_IDS } from '../shell/params.js';
 import { formatVersion } from '../version.js';
 import { createCamera } from '../shell/camera.js';
+import { createFollower } from '../kit/follow.js';
 import { ICONS } from './icons.js';
 import { applyArmsSnap, snapSpiralValue } from '../kit/snaps.js';
 import { zipStore } from '../shell/zip.js';
@@ -41,6 +42,8 @@ document.body.innerHTML = `
         <canvas id="m-pip-canvas"></canvas>
         <span class="m-pip-label"><i id="m-pip-dot"></i>output</span>
       </div>
+      <button id="m-canvas-gear" class="m-hidden" title="canvas settings">${ICONS.sliders}</button>
+      <div id="m-canvas-pop" class="m-hidden"></div>
     </div>
     <div id="m-divider"></div>
     <div id="m-context">
@@ -102,6 +105,10 @@ env.scheduleRender = scheduleRender;
 // ----------------------------------------------------------------- components
 const camera = createCamera();
 let liveVideo = null;          // the camera <video> while live; null otherwise
+// the record-video FOLLOWER (declared early — the transition-speed control
+// binds to it at mount time): the recorded output eases toward edits at
+// session.performResponse, the same primitive as desktop perform.
+let follower = null;
 
 const sourceOverlay = createSourceOverlay({
   state, engine,
@@ -117,10 +124,12 @@ createOutputGestures(outputCanvas, {
 });
 
 // ------------------------------------------------------------ settings (State B)
-// Grouped to mirror the desktop panel: a "slice" section (form/slice controls
-// then reset) followed by a "canvas" section (composition zoom/rotation +
-// out-of-bounds). Section membership comes from each param's `scope` field in
-// params.js; the bespoke controls are mounted into their section by hand.
+// The SLICE settings live in the context panel (its top-left sliders toggle);
+// the CANVAS settings moved to their own popover on the OUTPUT panel top-left
+// (Daniel's record-video reorg, B295 — "these are all slice-related behaviors"
+// now includes the motion block: transition speed, autoplay later). Section
+// membership comes from each param's `scope` field in params.js.
+const canvasPopEl = $('m-canvas-pop');
 settingsEl.innerHTML = '<h2>slice</h2>';
 mountSegmentsControl();
 for (const id of DECLARATIVE_PARAM_IDS) {
@@ -134,19 +143,88 @@ const resetBtn = document.createElement('button');
 resetBtn.id = 'm-reset';
 resetBtn.textContent = 'reset slice';
 resetBtn.addEventListener('click', () => {
+  // slice-scoped only — the canvas menu has its own reset now
   state.sliceScale = 1.0; state.sliceRotation = 0; state.sliceCx = 0.5; state.sliceCy = 0.5;
-  state.squareAspect = 1.0; state.drosteZoom = 2.0; state.canvasZoom = 1.0; state.canvasRotation = 0;
+  state.squareAspect = 1.0; state.drosteZoom = 2.0;
   controlsSync.syncAll(); scheduleRender(); sourceOverlay.scheduleDraw();
 });
 settingsEl.appendChild(resetBtn);
 
-settingsEl.insertAdjacentHTML('beforeend', '<h2>canvas</h2>');
+// motion block (record video only): the transition speed the recorded output
+// eases with. Autoplay + its sub-settings join here (spec v2; next increment).
+const motionSec = document.createElement('div');
+motionSec.id = 'm-motion-sec';
+motionSec.className = 'm-hidden';
+motionSec.innerHTML = '<h2>motion</h2>';
+settingsEl.appendChild(motionSec);
+(function mountTransitionSpeed() {
+  const wrap = document.createElement('label');
+  wrap.className = 'm-control';
+  wrap.innerHTML = '<div class="m-control-row"><span>transition speed</span><span class="m-control-val" id="m-followv"></span></div><input type="range" id="m-follow" min="0" max="10" step="0.05">';
+  motionSec.appendChild(wrap);
+  const inp = wrap.querySelector('#m-follow'), val = wrap.querySelector('#m-followv');
+  const fmt = (v) => (v < 0.02 ? 'instant' : v.toFixed(2) + 's');
+  const apply = (v) => {
+    session.performResponse = v;
+    follower?.setResponse(v);
+    val.textContent = fmt(v);
+  };
+  inp.value = String(session.performResponse ?? 0.35);
+  apply(parseFloat(inp.value));
+  inp.addEventListener('input', () => apply(parseFloat(inp.value) || 0));
+})();
+
+// build/version readout (useful while testing on a phone where there's no footer)
+const ver = document.createElement('div');
+ver.id = 'm-version';
+ver.textContent = formatVersion();
+settingsEl.appendChild(ver);
+
+// ---- the CANVAS settings popover (output panel, top-left gear) --------------
+canvasPopEl.innerHTML = '<h2>canvas</h2>';
+// frame aspect — the desktop row's exact behavior (1:1 · 5:4 · 4:3 · 3:2 · 16:9,
+// landscape default, tapping the SELECTED ratio flips portrait ↔ landscape);
+// mobile output honored only square before this.
+(function mountAspectControl() {
+  const wrap = document.createElement('div');
+  wrap.className = 'm-control';
+  wrap.innerHTML = '<div class="m-control-row"><span>frame aspect</span></div>';
+  const seg = document.createElement('div');
+  seg.className = 'm-seg';
+  const DEFS = [[1, '1:1', '1:1'], [1.25, '5:4', '4:5'], [1.3333, '4:3', '3:4'], [1.5, '3:2', '2:3'], [1.7778, '16:9', '9:16']];
+  const EPS = 0.001;
+  const btns = DEFS.map(([land, l, p]) => {
+    const b = document.createElement('button');
+    b.className = 'm-seg-btn';
+    b.textContent = l;
+    b.addEventListener('click', () => {
+      const a = session.frameAspect || 1;
+      const active = Math.abs(a - land) < EPS || Math.abs(a - 1 / land) < EPS;
+      if (active && land > 1) session.frameAspect = a > 1 ? 1 / land : land;   // re-tap flips (1:1 has none)
+      else session.frameAspect = land;
+      sync(); sizeOutput(); scheduleRender();
+    });
+    seg.appendChild(b);
+    return { b, land, l, p };
+  });
+  function sync() {
+    const a = session.frameAspect || 1;
+    for (const { b, land, l, p } of btns) {
+      const active = Math.abs(a - land) < EPS || Math.abs(a - 1 / land) < EPS;
+      b.classList.toggle('active', active);
+      b.textContent = active && land > 1 && a < 1 ? p : l;
+    }
+  }
+  wrap.appendChild(seg);
+  canvasPopEl.appendChild(wrap);
+  controlsSync.register(sync);
+  sync();
+})();
 for (const id of DECLARATIVE_PARAM_IDS) {
-  if (PARAMS[id].scope === 'canvas') mountRangeControl(settingsEl, PARAMS[id], env);
+  if (PARAMS[id].scope === 'canvas') mountRangeControl(canvasPopEl, PARAMS[id], env);
 }
 // Out-of-bounds mode (clamp / mirror / transparent) — a stateful 3-way toggle,
 // not a range, so it's rendered directly here rather than via mountRangeControl.
-// Sits in the canvas section as a sibling to composition zoom / rotation.
 (function mountOobControl() {
   const wrap = document.createElement('div');
   wrap.className = 'm-control';
@@ -163,16 +241,29 @@ for (const id of DECLARATIVE_PARAM_IDS) {
   });
   function sync() { btns.forEach(([b, v]) => b.classList.toggle('active', state.oobMode === v)); }
   wrap.appendChild(seg);
-  settingsEl.appendChild(wrap);
+  canvasPopEl.appendChild(wrap);
   controlsSync.register(sync);
   sync();
 })();
+const resetCanvasBtn = document.createElement('button');
+resetCanvasBtn.id = 'm-reset-canvas';
+resetCanvasBtn.textContent = 'reset canvas';
+resetCanvasBtn.addEventListener('click', () => {
+  state.canvasZoom = 1.0; state.canvasRotation = 0; state.oobMode = 1;
+  session.frameAspect = 1;
+  controlsSync.syncAll(); sizeOutput(); scheduleRender();
+});
+canvasPopEl.appendChild(resetCanvasBtn);
 
-// build/version readout (useful while testing on a phone where there's no footer)
-const ver = document.createElement('div');
-ver.id = 'm-version';
-ver.textContent = formatVersion();
-settingsEl.appendChild(ver);
+// gear toggles the popover; a tap outside closes it
+$('m-canvas-gear').addEventListener('click', (e) => {
+  e.stopPropagation();
+  canvasPopEl.classList.toggle('m-hidden');
+});
+document.addEventListener('pointerdown', (e) => {
+  if (canvasPopEl.classList.contains('m-hidden')) return;
+  if (!e.target.closest('#m-canvas-pop') && !e.target.closest('#m-canvas-gear')) canvasPopEl.classList.add('m-hidden');
+});
 
 // Stateful settings controls (not declarative ranges): segments (form-routed),
 // droste spiral, and the mirror toggles. Behavior/snap is shared with desktop
@@ -270,6 +361,7 @@ function setContext(settings) {
   settingsEl.classList.toggle('m-hidden', !settings);
   // show the icon of the mode you'll switch TO: sliders (→ settings) / target (→ direct manip)
   $('m-context-toggle').innerHTML = settings ? ICONS.target : ICONS.sliders;
+  $('m-canvas-gear').classList.toggle('m-hidden', !engine.getSourceImage());
   if (!settings) sourceOverlay.render();      // re-draw overlay (it was zero-sized while hidden)
 }
 $('m-context-toggle').addEventListener('click', () => setContext(!showingSettings));
@@ -338,6 +430,16 @@ let recState = 'idle';         // 'idle' | 'recording'
 let recordedVideo = null;      // { blob, ext } — the finished take
 let recordingSaved = false;    // download tapped since the take finished
 let mediaRec = null, recChunks = [], micStream = null;
+let recordCanvas = null;       // full-res 2D canvas the recorder captures
+function paintRecord() {
+  if (recState !== 'recording' || !recordCanvas) return;
+  const ctx = recordCanvas.getContext('2d');
+  ctx.drawImage(outputCanvas, 0, 0, recordCanvas.width, recordCanvas.height);
+  // FORCE the copy to rasterize NOW: Chromium 2D canvases are deferred — a
+  // drawImage from a WebGL canvas that re-renders later in the SAME task would
+  // otherwise capture the LATER render (the preview, not the followed output)
+  ctx.getImageData(0, 0, 1, 1);
+}
 
 // one guard for every path that would lose an unsaved take (re-record, source
 // switch, leaving the mode). Native confirm() is the interim treatment — the
@@ -361,8 +463,17 @@ async function startRecording() {
   if (recState === 'recording') return;
   if (recordedVideo && !recordingSaved &&
       !window.confirm('start a new recording? it will replace this one — save first if you want to keep it.')) return;
+  // the recording captures a dedicated full-res canvas painted with the
+  // FOLLOWED output each tick (not the on-screen preview) — size locked at
+  // record start so a mid-take divider drag can't change the file's resolution
   let stream;
-  try { stream = outputCanvas.captureStream(30); } catch { return; }
+  try {
+    recordCanvas = document.createElement('canvas');
+    recordCanvas.width = outputCanvas.width || 1080;
+    recordCanvas.height = outputCanvas.height || 1080;
+    recordCanvas.getContext('2d').drawImage(outputCanvas, 0, 0);
+    stream = recordCanvas.captureStream(30);
+  } catch { recordCanvas = null; return; }
   // mic joins the canvas stream; denied permission degrades to video-only
   try {
     micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -384,6 +495,7 @@ async function startRecording() {
     recChunks = [];
     recordingSaved = false;
     micStream?.getTracks().forEach((t) => t.stop()); micStream = null;
+    recordCanvas = null;
     recState = 'idle';
     releaseRecWakeLock();
     updateLiveUI();
@@ -410,6 +522,7 @@ function leaveVideoMode() {
   videoMode = false;
   recordedVideo = null;
   recordingSaved = false;
+  follower = null;
 }
 
 async function startRecordVideo() {
@@ -443,7 +556,9 @@ function paintPip() {
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
   const pw = Math.round(w * dpr), ph = Math.max(1, Math.round((w / ar) * dpr));
   if (pipCanvas.width !== pw || pipCanvas.height !== ph) { pipCanvas.width = pw; pipCanvas.height = ph; }
-  pipCanvas.getContext('2d').drawImage(outputCanvas, 0, 0, pw, ph);
+  const pctx = pipCanvas.getContext('2d');
+  pctx.drawImage(outputCanvas, 0, 0, pw, ph);
+  pctx.getImageData(0, 0, 1, 1);   // same forced flush as paintRecord (deferral)
 }
 // drag → snap to the nearest allowed corner (a small move is a tap: no-op)
 (function setupPipDrag() {
@@ -486,16 +601,33 @@ function releaseRecWakeLock() {
   recWakeLock = null;
 }
 
+let lastTickT = 0;
 function startLiveLoop() {
   if (liveActive) return;
   liveActive = true;
-  const tick = () => {
+  lastTickT = 0;
+  const tick = (now) => {
     if (!liveActive) return;
     camera.refreshFrame();                     // front camera: redraw mirrored frame
     engine.updateSourceFrame();
-    engine.render(state);
+    if (videoMode) {
+      // record video: the OUTPUT (PiP + recording) eases toward the edited
+      // state through the follower; the big panel stays the immediate PREVIEW.
+      // While settled the two are identical — one render serves both.
+      if (!follower) follower = createFollower(state, { response: session.performResponse ?? 0.35 });
+      follower.setTarget(state);
+      const dt = lastTickT ? Math.min(now - lastTickT, 100) : 16;
+      const eased = follower.step(dt);
+      const diverged = !follower.isSettled(0.002);
+      engine.render(diverged ? eased : state);
+      paintRecord();
+      paintPip();
+      if (diverged) engine.render(state);      // restore the preview on screen
+    } else {
+      engine.render(state);
+    }
+    lastTickT = now;
     sourceOverlay.render();
-    if (videoMode) paintPip();
     liveRaf = requestAnimationFrame(tick);
   };
   liveRaf = requestAnimationFrame(tick);
@@ -533,11 +665,14 @@ function updateLiveUI() {
   // download: in record-video mode it saves the take, so it needs one to exist
   $('m-tab-export').disabled = videoMode ? !recordedVideo : false;
   // record-video chrome: the "preview" stage label + the output PiP (+ its
-  // recording dot) show only while the mode is live
+  // recording dot) show only while the mode is live; the motion settings block
+  // rides the mode too. The canvas gear shows whenever a source is loaded.
   const inVideo = videoMode && cameraMode === 'live';
   $('m-stage-label').classList.toggle('m-hidden', !inVideo);
   pipEl.classList.toggle('m-hidden', !inVideo);
   $('m-pip-dot').classList.toggle('rec', recState === 'recording');
+  $('m-motion-sec').classList.toggle('m-hidden', !videoMode);
+  $('m-canvas-gear').classList.toggle('m-hidden', !engine.getSourceImage());
   if (inVideo) paintPip();
 }
 
@@ -734,11 +869,17 @@ function sizeOutput() {
   const w = outputEl.clientWidth, h = outputEl.clientHeight;
   if (w === 0 || h === 0) return;
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
-  const css = Math.max(1, Math.min(w, h));
-  const target = Math.max(1, Math.min(2048, Math.floor(css * dpr)));
-  if (outputCanvas.width !== target) { outputCanvas.width = target; outputCanvas.height = target; }
-  outputCanvas.style.width = css + 'px';
-  outputCanvas.style.height = css + 'px';
+  // fit a frameAspect (w/h) rect in the panel — mobile was square-only until
+  // the canvas menu gained the aspect row (B295)
+  const a = session.frameAspect || 1;
+  let cw = Math.min(w, h * a), ch = cw / a;
+  cw = Math.max(1, cw); ch = Math.max(1, ch);
+  let pw = Math.floor(cw * dpr), ph = Math.floor(ch * dpr);
+  const cap = 2048 / Math.max(pw, ph);
+  if (cap < 1) { pw = Math.floor(pw * cap); ph = Math.floor(ph * cap); }
+  if (outputCanvas.width !== pw || outputCanvas.height !== ph) { outputCanvas.width = pw; outputCanvas.height = Math.max(1, ph); }
+  outputCanvas.style.width = Math.round(cw) + 'px';
+  outputCanvas.style.height = Math.round(ch) + 'px';
   if (engine.getSourceImage()) scheduleRender();
 }
 

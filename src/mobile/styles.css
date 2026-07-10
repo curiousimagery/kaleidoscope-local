@@ -37,6 +37,16 @@ html, body { margin: 0; padding: 0; height: 100%; background: var(--bg); color: 
   letter-spacing: 0.06em; text-transform: lowercase; pointer-events: none; }
 #m-pip-dot { width: 7px; height: 7px; border-radius: var(--radius-full); background: var(--danger); display: none; }
 #m-pip-dot.rec { display: block; }
+/* canvas settings: the gear top-left of the OUTPUT panel + its popover
+   (safe-area offset — this corner sits under the status bar / island) */
+#m-canvas-gear { position: absolute; top: calc(8px + env(safe-area-inset-top)); left: calc(8px + env(safe-area-inset-left));
+  z-index: 6; width: 40px; height: 40px; border-radius: var(--radius-lg); border: 1px solid var(--border);
+  background: rgba(20,20,20,0.85); color: var(--text); display: flex; align-items: center; justify-content: center; }
+#m-canvas-gear svg { width: 24px; height: 24px; display: block; }
+#m-canvas-pop { position: absolute; top: calc(56px + env(safe-area-inset-top)); left: calc(8px + env(safe-area-inset-left));
+  z-index: 7; width: min(320px, calc(100% - 16px)); max-height: calc(100% - 64px); overflow-y: auto;
+  -webkit-overflow-scrolling: touch; background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius-lg); padding: 14px 16px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5); }
 #m-empty { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
   color: var(--text-dim); font-size: var(--text-lg); text-align: center; padding: 24px; }
 
@@ -68,7 +78,7 @@ html, body { margin: 0; padding: 0; height: 100%; background: var(--bg); color: 
 /* the slider inherits the shared input[type=range] rules from styles.css — including
    the coarse touch target (--touch-target, 44px). No mobile-specific height override
    (the old height:28px gave irregular, too-small touch targets). */
-#m-settings h2 { font-size: var(--text-sm); color: var(--text-dim); text-transform: lowercase; letter-spacing: 0.08em; margin: 4px 0 12px; }
+#m-settings h2, #m-canvas-pop h2 { font-size: var(--text-sm); color: var(--text-dim); text-transform: lowercase; letter-spacing: 0.08em; margin: 4px 0 12px; }
 #m-reset { width: 100%; margin-top: 8px; padding: 12px; background: transparent; color: var(--text-dim);
   border: 1px solid var(--border); border-radius: var(--radius-lg); font-size: var(--text-md); }
 #m-version { margin-top: 14px; text-align: center; color: var(--text-faint); font-size: var(--text-sm); font-variant-numeric: tabular-nums; }
