@@ -90,6 +90,27 @@ function imageRect(env, w, h, sourceAspect) {
   return { imgX, imgY, imgW, imgH };
 }
 
+// Remote (phone) finger echo — drawn INSIDE the overlay pass with the exact
+// geometry it just computed, so the dots can never disagree with the outline
+// (a separate fixed-position layer drifted: dpr/border/origin mismatches put
+// Daniel's fingers down-right of his touches). env.remoteFingers = [[u,v],..].
+function drawRemoteFingers(env) {
+  const pts = env.remoteFingers;
+  if (!pts?.length || !env.sourceOverlayCanvas) return;
+  const g = env.sourceOverlayCanvas._geom;
+  if (!g) return;
+  const ctx = env.sourceOverlayCanvas.getContext('2d');
+  const r = Math.max(5, g.imgW * 0.022);   // ~finger-pad, proportional to the panel
+  ctx.save();
+  for (const [u, v] of pts) {
+    const x = g.imgX + u * g.imgW, y = g.imgY + v * g.imgH;
+    ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(255,255,255,0.12)'; ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,0.35)'; ctx.lineWidth = 1.5; ctx.stroke();
+  }
+  ctx.restore();
+}
+
 // Perform-mode ONION SKIN (Arc 4): ghost wedge outlines for where the live
 // output is / recently was, painted as part of EVERY overlay draw (the perform
 // runtime sets env.performGhosts; drawSourceOverlay calls this at its exits) —
@@ -183,6 +204,7 @@ export function drawSourceOverlay(env) {
       strokeScale: sw,
     });
     if (env.performGhosts?.length) drawGhostWedges(env, env.performGhosts);
+    drawRemoteFingers(env);
     return;
   }
 
@@ -388,6 +410,7 @@ export function drawSourceOverlay(env) {
 
   // perform-mode onion skin rides every draw (see drawGhostWedges)
   if (env.performGhosts?.length) drawGhostWedges(env, env.performGhosts);
+  drawRemoteFingers(env);
 }
 
 // ===========================================================================

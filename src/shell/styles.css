@@ -1217,10 +1217,13 @@ body.motion #oobModes { pointer-events: none; opacity: var(--disabled-opacity); 
 .about-name { font-size: var(--text-lg); color: var(--text-bright); font-weight: 600; }
 .about-line { font-size: var(--text-sm); color: var(--text); margin-top: 4px; }
 .about-line.dim { color: var(--text-dim); }
-/* app-bar presence: one green dot per online input device (beside the gear) */
-.in-lights { display: inline-flex; gap: 4px; align-items: center; padding: 0 2px; }
+/* app-bar presence: one green dot per online input device — sized and stacked
+   like the output traffic light (.ot-led): pairs stack vertically, columns
+   grow rightward (6 devices = 3 slim double stacks, 1–2 = one slim stack) */
+.in-lights { display: inline-flex; flex-flow: column wrap; align-content: center; justify-content: center;
+  height: 14px; gap: 2px; padding: 0 2px; align-self: center; }
 .in-lights[hidden] { display: none; }
-.in-lights i { width: 7px; height: 7px; border-radius: 50%; background: #3c3; box-shadow: 0 0 5px rgba(60, 200, 60, 0.7); }
+.in-lights i { width: 5px; height: 5px; border-radius: var(--radius-full); background: var(--ok); flex: none; }
 /* inputs tab: device headers + mapping rows */
 .in-dev { font-size: var(--text-sm); color: var(--text); }
 .in-dev.none { color: var(--text-dim); }

@@ -76,20 +76,23 @@ export function createRemoteInput(onSignal, onDevices, host, env) {
     const saved = {
       canvas: view.sourceOverlayCanvas, hover: view.hoverMode,
       force: view.forceTouchAffordances, stroke: view.overlayStrokeScale,
+      fingers: view.remoteFingers,
     };
     view.sourceOverlayCanvas = ovCanvas;
     view.hoverMode = null;
     view.forceTouchAffordances = true;
     view.overlayStrokeScale = 1;
+    view.remoteFingers = null;        // the fingers are literally on the phone — don't bake them in
     try { drawSourceOverlay(view); }
     finally {
       view.sourceOverlayCanvas = saved.canvas; view.hoverMode = saved.hover;
       view.forceTouchAffordances = saved.force; view.overlayStrokeScale = saved.stroke;
+      view.remoteFingers = saved.fingers;
     }
     try { return ovCanvas.toDataURL('image/png'); } catch { return null; }
   }
 
-  let pushTimer = 0, lastPushSig = '';
+  let pushTimer = 0, lastPushSig = '', wasGhostsLive = false;
   function pushState() {
     const geo = slicePolysUV();
     const st = env.state;
@@ -100,9 +103,13 @@ export function createRemoteInput(onSignal, onDevices, host, env) {
       ...(geo || {}),
     };
     const sig = JSON.stringify(msg);
-    if (sig === lastPushSig) return;
+    // the onion-skin trail animates INDEPENDENTLY of state — while ghosts are
+    // live, re-render every tick so the phone's trail fades/follows like the
+    // desktop's (a sig-gated PNG froze it at full strength — Daniel's note)
+    const ghostsLive = !!env.sourceOverlay?.view?.performGhosts?.length;
+    if (sig === lastPushSig && !ghostsLive && !wasGhostsLive) return;
+    wasGhostsLive = ghostsLive;   // one extra render AFTER they clear wipes the trail
     lastPushSig = sig;
-    // the overlay PNG re-renders only when the same sig says something changed
     msg.ov = geo ? overlayFrame(geo.sa) : null;
     host.remote.push(msg);
   }
@@ -142,14 +149,15 @@ export function createRemoteInput(onSignal, onDevices, host, env) {
     if (h > r.height) { h = r.height; w = h * az; }
     return { x: r.left + (r.width - w) / 2, y: r.top + (r.height - h) / 2, w, h };
   }
+  let canvasFadeT = 0;
   function updateFingers(zone, pts, ar) {
     fingers[zone] = pts || [];
     if (zone === 'canvas' && ar) fingers.canvasAr = ar;
     repaintFingers();
-    // stale-frame guard: a dropped stream clears that zone's fingers
-    clearTimeout(fingerFadeT);
-    if (fingers.slice.length || fingers.canvas.length) {
-      fingerFadeT = setTimeout(() => { fingers.slice = []; fingers.canvas = []; repaintFingers(); }, 700);
+    // stale-frame guard: a dropped stream clears the zone's fingers
+    clearTimeout(canvasFadeT);
+    if (fingers.canvas.length) {
+      canvasFadeT = setTimeout(() => { fingers.canvas = []; repaintFingers(); }, 700);
     }
   }
   function repaintFingers() {
@@ -171,8 +179,6 @@ export function createRemoteInput(onSignal, onDevices, host, env) {
       ctx.fillStyle = 'rgba(255,255,255,0.12)'; ctx.fill();
       ctx.strokeStyle = 'rgba(255,255,255,0.35)'; ctx.lineWidth = 1.5; ctx.stroke();
     };
-    const sr = fingers.slice.length ? sliceImageRect() : null;
-    if (sr) for (const [u, v] of fingers.slice) dot(sr.x + u * sr.w, sr.y + v * sr.h);
     const cr = fingers.canvas.length ? canvasEchoRect() : null;
     if (cr) for (const [u, v] of fingers.canvas) dot(cr.x + u * cr.w, cr.y + v * cr.h);
   }
@@ -206,8 +212,16 @@ export function createRemoteInput(onSignal, onDevices, host, env) {
         touches, targetTouches: touches, changedTouches: changedT,
       }));
     } catch { /* TouchEvent constructor unsupported — overlay stays view-only */ }
-    // the finger echo rides the same registration (identical rect, by identity)
-    updateFingers('slice', (all || []).map(([, u, v]) => [u, v]));
+    // the finger echo is drawn INSIDE the overlay's own draw pass (same ctx,
+    // same geometry — it cannot disagree with the outline)
+    if (view) {
+      view.remoteFingers = (all || []).map(([, u, v]) => [u, v]);
+      env.sourceOverlay?.scheduleDraw?.();
+      clearTimeout(fingerFadeT);
+      if (view.remoteFingers.length) {
+        fingerFadeT = setTimeout(() => { view.remoteFingers = null; env.sourceOverlay?.scheduleDraw?.(); }, 700);
+      }
+    }
   }
 
   return {
@@ -236,7 +250,11 @@ export function createRemoteInput(onSignal, onDevices, host, env) {
       host.remote.onStatus((st) => {
         clientCount = st?.clients || 0;
         setStreaming(clientCount > 0);
-        if (!clientCount) { fingers.slice = []; fingers.canvas = []; repaintFingers(); }
+        if (!clientCount) {
+          fingers.canvas = []; repaintFingers();
+          const view = env.sourceOverlay?.view;
+          if (view?.remoteFingers) { view.remoteFingers = null; env.sourceOverlay?.scheduleDraw?.(); }
+        }
         onDevices?.();
       });
       const res = await host.remote.start();
