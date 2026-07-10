@@ -1264,3 +1264,7 @@ body.motion #oobModes { pointer-events: none; opacity: var(--disabled-opacity); 
 .in-pair-url { font-size: var(--text-sm); color: var(--text); font-variant-numeric: tabular-nums; }
 .in-pair-url b { color: var(--text-bright); font-weight: 600; user-select: text; -webkit-user-select: text; }
 .in-pair-state { font-size: var(--text-xs); color: var(--text-dim); margin-top: 3px; }
+
+/* QR pairing row */
+.in-pair-row { display: flex; gap: 14px; align-items: center; }
+.in-qr { border-radius: var(--radius-sm); flex: none; }

@@ -97,20 +97,46 @@
   const touches = new Map();
   const ghosts = [];   // {x,y,t0}
 
+  // TWO ZONES along the long axis (Daniel's spec: slice one side, canvas the
+  // other) — each emits its own drag/pinch/rotate signals, mapped separately.
+  const portrait = () => H >= W;
+  function zoneAt(x, y) { return portrait() ? (y < H / 2 ? 'slice' : 'canvas') : (x < W / 2 ? 'slice' : 'canvas'); }
+  function zoneCenter(z) {
+    if (portrait()) return { x: W / 2, y: z === 'slice' ? H / 4 : H * 3 / 4, r: Math.min(W, H / 2) * 0.38 };
+    return { x: z === 'slice' ? W / 4 : W * 3 / 4, y: H / 2, r: Math.min(W / 2, H) * 0.38 };
+  }
   function draw() {
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, W, H);
-    const cx = W / 2, cy = H / 2, R = Math.min(W, H) * 0.42;
-    // concentric circles + crosshair — the canvas scale/rotation anchor
     ctx.strokeStyle = 'rgba(255,255,255,0.07)';
     ctx.lineWidth = 1;
-    for (const f of [0.25, 0.5, 0.75, 1]) {
-      ctx.beginPath(); ctx.arc(cx, cy, R * f, 0, Math.PI * 2); ctx.stroke();
+    // the zone divider
+    ctx.beginPath();
+    if (portrait()) { ctx.moveTo(14, H / 2); ctx.lineTo(W - 14, H / 2); }
+    else { ctx.moveTo(W / 2, 14); ctx.lineTo(W / 2, H - 14); }
+    ctx.stroke();
+    // SLICE zone: a faint wedge glyph
+    const zs = zoneCenter('slice');
+    ctx.beginPath();
+    ctx.moveTo(zs.x, zs.y + zs.r * 0.5);
+    ctx.lineTo(zs.x - zs.r * 0.55, zs.y - zs.r * 0.5);
+    ctx.arc(zs.x, zs.y + zs.r * 0.5, zs.r * 1.15, Math.PI * 1.32, Math.PI * 1.68);
+    ctx.closePath(); ctx.stroke();
+    // CANVAS zone: concentric circles + crosshair — the scale/rotation anchor
+    const zc = zoneCenter('canvas');
+    for (const f of [0.33, 0.66, 1]) {
+      ctx.beginPath(); ctx.arc(zc.x, zc.y, zc.r * f, 0, Math.PI * 2); ctx.stroke();
     }
     ctx.beginPath();
-    ctx.moveTo(cx, cy - R * 1.08); ctx.lineTo(cx, cy + R * 1.08);
-    ctx.moveTo(cx - R * 1.08, cy); ctx.lineTo(cx + R * 1.08, cy);
+    ctx.moveTo(zc.x, zc.y - zc.r * 1.08); ctx.lineTo(zc.x, zc.y + zc.r * 1.08);
+    ctx.moveTo(zc.x - zc.r * 1.08, zc.y); ctx.lineTo(zc.x + zc.r * 1.08, zc.y);
     ctx.stroke();
+    // zone names, faint
+    ctx.fillStyle = 'rgba(255,255,255,0.16)';
+    ctx.font = '11px -apple-system, system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('slice', zs.x, zs.y - zs.r - 10);
+    ctx.fillText('canvas', zc.x, zc.y - zc.r - 10);
     // low-opacity circles at the ACTUAL finger locations (watch the desktop,
     // not the phone — these confirm where your fingers are peripherally)
     const now = performance.now();
@@ -130,7 +156,9 @@
 
   // ---- gesture math → delta messages (batched per frame) --------------------
   let locked = true;           // live = touches are signals
-  let acc = { dx: 0, dy: 0, pinch: 0, rot: 0 };
+  let zone = 'canvas';         // the zone the current gesture STARTED in
+  const freshAcc = () => ({ dx: 0, dy: 0, pinch: 0, rot: 0 });
+  let acc = freshAcc();
   let flushQueued = false;
   function queueFlush() {
     if (flushQueued) return;
@@ -138,11 +166,14 @@
     requestAnimationFrame(() => {
       flushQueued = false;
       const { dx, dy, pinch, rot } = acc;
-      acc = { dx: 0, dy: 0, pinch: 0, rot: 0 };
+      acc = freshAcc();
       const m = Math.min(W, H);
-      if (dx || dy) send({ t: 'd', x: dx / m, y: dy / m });
-      if (pinch) send({ t: 'p', v: pinch });
-      if (rot) send({ t: 'r', v: rot });
+      if (dx || dy) send({ t: 'd', z: zone, x: dx / m, y: dy / m });
+      if (pinch) send({ t: 'p', z: zone, v: pinch });
+      if (rot) send({ t: 'r', z: zone, v: rot });
+      // finger positions ride along (normalized) — the DESKTOP paints them so
+      // eyes never have to drop to the phone
+      send({ t: 'f', ar: W / H, p: [...touches.values()].map((q) => [q.x / W, q.y / H]) });
     });
   }
 
@@ -155,7 +186,12 @@
   pad.addEventListener('touchstart', (e) => {
     e.preventDefault();
     for (const t of e.changedTouches) touches.set(t.identifier, { x: t.clientX, y: t.clientY });
+    if (touches.size === e.changedTouches.length) {   // a fresh gesture — lock its zone
+      const t0 = e.changedTouches[0];
+      zone = zoneAt(t0.clientX, t0.clientY);
+    }
     if (touches.size === 2) g0 = twoFinger();
+    queueFlush();
     draw();
   }, { passive: false });
 
@@ -192,6 +228,7 @@
       touches.delete(t.identifier);
     }
     g0 = touches.size === 2 ? twoFinger() : null;
+    queueFlush();   // an empty finger set clears the desktop overlay promptly
     draw();
   };
   pad.addEventListener('touchend', lift, { passive: false });

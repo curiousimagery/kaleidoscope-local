@@ -20,6 +20,7 @@
     "node": ">=18.0.0"
   },
   "dependencies": {
-    "mp4-muxer": "^5.2.2"
+    "mp4-muxer": "^5.2.2",
+    "qrcode-generator": "^2.0.4"
   }
 }

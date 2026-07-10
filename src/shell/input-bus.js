@@ -27,6 +27,7 @@ import { createMidiInput } from './midi-input.js';
 import { createGamepadInput } from './gamepad-input.js';
 import { createTrackpadInput } from './trackpad-input.js';
 import { createRemoteInput } from './remote-input.js';
+import qrcode from 'qrcode-generator';   // QR pairing (Daniel-approved dependency, MIT, zero-dep)
 
 const STORE_KEY = 'fold-inputs-v1';
 
@@ -265,10 +266,21 @@ export function createInputBus(env) {
       head.className = 'in-devhead';
       head.innerHTML = `<i class="in-dot${on.has(dev) ? ' on' : ''}" title="${on.has(dev) ? 'connected' : 'offline'}"></i>
         <input class="in-name" value="${(d.friendly || d.name || dev).replace(/"/g, '&quot;')}" title="device name — click to rename">
-        <span class="in-devstate">${on.has(dev) ? 'connected' : 'offline'}</span>`;
+        <span class="in-devstate">${on.has(dev) ? 'connected' : 'offline'}</span>
+        <button class="vid-x in-devdel" title="remove this device and its mappings">✕</button>`;
       head.querySelector('.in-name').addEventListener('change', (e) => {
         (store.devices[dev] ??= { name: dev }).friendly = e.target.value.trim();
         save();
+      });
+      head.querySelector('.in-devdel').addEventListener('click', () => {
+        const nMaps = store.maps.filter((m) => m.dev === dev).length;
+        if (nMaps && !window.confirm(`Remove ${d.friendly || d.name || dev} and its ${nMaps} mapping${nMaps === 1 ? '' : 's'}?`)) return;
+        for (const m of store.maps) {   // unpaint any LEDs it owned
+          if (m.dev === dev && m.led != null) { const pn = midi.parseNoteSig(m.sig); if (pn) midi.sendNote(pn.device, pn.ch, pn.note, 0); }
+        }
+        store.maps = store.maps.filter((m) => m.dev !== dev);
+        delete store.devices[dev];
+        save(); renderMaps(); renderLights();
       });
       wrap.appendChild(head);
       store.maps.forEach((m, i) => { if (m.dev === dev) wrap.appendChild(mapRow(m, i)); });
@@ -292,10 +304,31 @@ export function createInputBus(env) {
       });
     } else {
       const n = rem.clients();
-      el.innerHTML = `<div class="in-pair-url">on the phone, open: <b>${rem.url() || '…'}</b></div>
-        <div class="in-pair-state">${n ? `${n} connected — move a finger on the phone, then “+ map”` : 'waiting for the phone… (same wifi)'}</div>`;
+      el.innerHTML = `<div class="in-pair-row"><canvas class="in-qr"></canvas><div>
+        <div class="in-pair-url">scan, or open on the phone:<br><b>${rem.url() || '…'}</b></div>
+        <div class="in-pair-state">${n ? `${n} connected — move a finger on the phone, then “+ map”` : 'waiting for the phone… (same wifi)'}</div>
+      </div></div>`;
+      drawQR(el.querySelector('.in-qr'), rem.url());
     }
     wrap.appendChild(el);
+  }
+  function drawQR(canvas, text) {
+    if (!canvas || !text) return;
+    try {
+      const qr = qrcode(0, 'M');   // auto version, medium EC
+      qr.addData(text);
+      qr.make();
+      const n = qr.getModuleCount(), cell = 4, quiet = 3;
+      const size = (n + quiet * 2) * cell;
+      canvas.width = size; canvas.height = size;
+      canvas.style.width = canvas.style.height = Math.min(148, size) + 'px';
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, size, size);
+      ctx.fillStyle = '#000';
+      for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) {
+        if (qr.isDark(r, c)) ctx.fillRect((c + quiet) * cell, (r + quiet) * cell, cell, cell);
+      }
+    } catch { canvas.remove(); }   // over-long URL etc. — the text stays
   }
 
   function mapRow(m, i) {
@@ -426,14 +459,20 @@ export function createInputBus(env) {
 
   // ---- wiring --------------------------------------------------------------------
   function wire() {
-    byId('settingsBtn')?.addEventListener('click', async () => {
-      // adapters start on first open (MIDI permission prompts once; opt-ins
-      // persist so a saved rig re-arms at boot with no sheet visit)
-      if (!midi.active()) { store.midi = await midi.init(); save(); }
-      if (!pads.active()) { pads.init(); store.pad = true; save(); }
-      if (tp.supported() && !tp.active()) tp.init();
+    byId('settingsBtn')?.addEventListener('click', () => {
+      // render FIRST — the sheet must never sit behind an adapter's async init
+      // (requestMIDIAccess wedged indefinitely in the un-handled Electron shell
+      // and took the whole inputs tab with it: no rows, no learn, no gamepad
+      // polling). Adapters start in the background and refresh when ready,
+      // with a timeout guard so a pathological hang can't wedge anything.
       refreshDevices();
       renderMaps();
+      if (!pads.active()) { pads.init(); store.pad = true; save(); }
+      if (tp.supported() && !tp.active()) tp.init();
+      if (!midi.active()) {
+        Promise.race([midi.init(), new Promise((r) => setTimeout(() => r(false), 4000))])
+          .then((ok) => { if (ok) { store.midi = true; save(); refreshDevices(); renderMaps(); } });
+      }
     });
     byId('settingsClose')?.addEventListener('click', () => setLearn(false));
     byId('inLearn')?.addEventListener('click', () => setLearn(!learnCb));

@@ -17,7 +17,7 @@
 #include <node_api.h>
 #include <stdlib.h>
 
-typedef struct { int type; double delta; } GestureEvent;   // type: 1 magnify, 2 rotate
+typedef struct { int type; double delta; } GestureEvent;   // type: 0 ready, 1 magnify, 2 rotate
 
 static napi_threadsafe_function g_tsfn = NULL;
 static id g_monitor = nil;
@@ -29,7 +29,7 @@ static void CallJs(napi_env env, napi_value js_cb, void* ctx, void* data) {
     napi_value undefined, obj, v;
     napi_get_undefined(env, &undefined);
     napi_create_object(env, &obj);
-    napi_create_string_utf8(env, ev->type == 1 ? "magnify" : "rotate", NAPI_AUTO_LENGTH, &v);
+    napi_create_string_utf8(env, ev->type == 0 ? "ready" : ev->type == 1 ? "magnify" : "rotate", NAPI_AUTO_LENGTH, &v);
     napi_set_named_property(env, obj, "type", v);
     napi_create_double(env, ev->delta, &v);
     napi_set_named_property(env, obj, "delta", v);
@@ -56,7 +56,12 @@ static napi_value Start(napi_env env, napi_callback_info info) {
   // the monitor must never keep the process alive on its own
   napi_unref_threadsafe_function(env, g_tsfn);
 
-  dispatch_async(dispatch_get_main_queue(), ^{
+  // Install DIRECTLY: in the Electron main process, JS runs ON the AppKit main
+  // thread, and Chromium's message pump does NOT reliably drain GCD main-queue
+  // blocks — the original dispatch_async never ran, so the monitor never
+  // installed (the "no gestures recorded" bug). The dispatch path remains only
+  // as a fallback for a non-main-thread caller.
+  void (^install)(void) = ^{
     if (g_monitor != nil) return;
     g_monitor = [NSEvent addLocalMonitorForEventsMatchingMask:(NSEventMaskMagnify | NSEventMaskRotate)
       handler:^NSEvent* (NSEvent* event) {
@@ -68,14 +73,23 @@ static napi_value Start(napi_env env, napi_callback_info info) {
         }
         return event;   // pass through — Chromium's own gesture handling continues
       }];
-  });
+    // announce installation through the same pipe (the JS side logs it — the
+    // proof the monitor actually exists, which dispatch_async silently wasn't)
+    GestureEvent* ready = (GestureEvent*)malloc(sizeof(GestureEvent));
+    ready->type = 0; ready->delta = 0;
+    if (g_tsfn == NULL || napi_call_threadsafe_function(g_tsfn, ready, napi_tsfn_nonblocking) != napi_ok) free(ready);
+  };
+  if ([NSThread isMainThread]) install();
+  else dispatch_async(dispatch_get_main_queue(), install);
   return NULL;
 }
 
 static napi_value Stop(napi_env env, napi_callback_info info) {
-  dispatch_async(dispatch_get_main_queue(), ^{
+  void (^remove)(void) = ^{
     if (g_monitor != nil) { [NSEvent removeMonitor:g_monitor]; g_monitor = nil; }
-  });
+  };
+  if ([NSThread isMainThread]) remove();
+  else dispatch_async(dispatch_get_main_queue(), remove);
   if (g_tsfn != NULL) {
     napi_release_threadsafe_function(g_tsfn, napi_tsfn_release);
     g_tsfn = NULL;

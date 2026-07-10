@@ -78,6 +78,15 @@ app.whenReady().then(async () => {
     console.warn('[fold] could not clear service-worker cache', e);
   }
 
+  // Grant renderer permission REQUESTS and CHECKS. Electron approves requests
+  // by default, but Web MIDI also consults the permission CHECK handler — with
+  // none set, navigator.requestMIDIAccess NEVER SETTLES (verified: it hangs,
+  // which wedged the whole inputs tab in the DMG). This is our own app in a
+  // trusted shell; granting everything matches the browser-with-user-consent
+  // posture the web build gets.
+  session.defaultSession.setPermissionRequestHandler((_wc, _permission, cb) => cb(true));
+  session.defaultSession.setPermissionCheckHandler(() => true);
+
   createWindow();
 
   app.on('activate', () => {

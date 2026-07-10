@@ -24,6 +24,7 @@ export function createTrackpadInput(onSignal, onDevices, host) {
       running = true;
       host.trackpad.onGesture((ev) => {
         if (!ev) return;
+        if (ev.type === 'ready') { onDevices?.(); return; }   // monitor confirmed installed
         if (ev.type === 'rotate') {
           onSignal('tp:trackpad.rotate', ev.delta / 90,
             { device: 'trackpad', deviceName: 'trackpad (native)', kind: 'gesture', label: 'two-finger rotate', momentary: false, relative: true });
