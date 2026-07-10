@@ -126,7 +126,7 @@ export function createRemoteInput(onSignal, onDevices, host, env) {
   // is what put Daniel's fingers under the wrong panel). Slice + canvas fingers
   // live in ONE store with per-zone ownership: a slice repaint can't clear
   // canvas fingers and vice versa (the interleaved-clear flicker).
-  let fingerCanvas = null, fingerFadeT = 0;
+  let fingerFadeT = 0;
   const fingers = { slice: [], canvas: [], canvasAr: 1 };
   function sliceImageRect() {
     const c = env.sourceOverlay?.view?.sourceOverlayCanvas;
@@ -137,18 +137,7 @@ export function createRemoteInput(onSignal, onDevices, host, env) {
     if (!wr.width) return null;
     return { x: wr.left + g.imgX, y: wr.top + g.imgY, w: g.imgW, h: g.imgH };
   }
-  function canvasEchoRect() {
-    const c = env.previewCanvas;
-    if (!c) return null;
-    const r = c.getBoundingClientRect();
-    if (!r.width) return null;
-    // aspect-true: fit the phone's canvas-zone shape inside the preview rect,
-    // centered — proportional stretch read as "positions all over the place"
-    const az = fingers.canvasAr || 1;
-    let w = r.width, h = w / az;
-    if (h > r.height) { h = r.height; w = h * az; }
-    return { x: r.left + (r.width - w) / 2, y: r.top + (r.height - h) / 2, w, h };
-  }
+
   let canvasFadeT = 0;
   function updateFingers(zone, pts, ar) {
     fingers[zone] = pts || [];
@@ -160,27 +149,44 @@ export function createRemoteInput(onSignal, onDevices, host, env) {
       canvasFadeT = setTimeout(() => { fingers.canvas = []; repaintFingers(); }, 700);
     }
   }
+  // canvas-zone dots live on a small overlay GLUED to the preview canvas (a
+  // sibling in its parent, synced to its offset box) — parent-relative
+  // coordinates, so the window-fixed drift class can't reach it either. The
+  // dots appear over the OUTPUT panel and nowhere else.
+  let cvOverlay = null;
   function repaintFingers() {
-    if (!fingerCanvas) {
-      fingerCanvas = document.createElement('canvas');
-      fingerCanvas.style.cssText = 'position:fixed;inset:0;z-index:420;pointer-events:none';
-      document.body.appendChild(fingerCanvas);
+    const pc = env.previewCanvas;
+    if (!pc || !pc.parentElement) return;
+    if (!cvOverlay || cvOverlay.parentElement !== pc.parentElement) {
+      cvOverlay?.remove();
+      cvOverlay = document.createElement('canvas');
+      cvOverlay.style.cssText = 'position:absolute;pointer-events:none;z-index:5';
+      if (getComputedStyle(pc.parentElement).position === 'static') pc.parentElement.style.position = 'relative';
+      pc.parentElement.appendChild(cvOverlay);
     }
+    const w = pc.clientWidth, h = pc.clientHeight;
+    if (!w || !h) return;
+    cvOverlay.style.left = pc.offsetLeft + 'px';
+    cvOverlay.style.top = pc.offsetTop + 'px';
+    cvOverlay.style.width = w + 'px';
+    cvOverlay.style.height = h + 'px';
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
-    const w = window.innerWidth, h = window.innerHeight;
-    if (fingerCanvas.width !== Math.round(w * dpr) || fingerCanvas.height !== Math.round(h * dpr)) {
-      fingerCanvas.width = Math.round(w * dpr); fingerCanvas.height = Math.round(h * dpr);
-    }
-    const ctx = fingerCanvas.getContext('2d');
+    if (cvOverlay.width !== Math.round(w * dpr)) { cvOverlay.width = Math.round(w * dpr); cvOverlay.height = Math.round(h * dpr); }
+    const ctx = cvOverlay.getContext('2d');
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, w, h);
-    const dot = (x, y) => {
-      ctx.beginPath(); ctx.arc(x, y, 9, 0, Math.PI * 2);   // ~finger-pad size
+    if (!fingers.canvas.length) return;
+    // aspect-true: the phone's canvas-zone shape, centered in the preview
+    const az = fingers.canvasAr || 1;
+    let rw = w, rh = rw / az;
+    if (rh > h) { rh = h; rw = rh * az; }
+    const rx = (w - rw) / 2, ry = (h - rh) / 2;
+    const r = Math.max(5, rw * 0.022);
+    for (const [u, v] of fingers.canvas) {
+      ctx.beginPath(); ctx.arc(rx + u * rw, ry + v * rh, r, 0, Math.PI * 2);
       ctx.fillStyle = 'rgba(255,255,255,0.12)'; ctx.fill();
       ctx.strokeStyle = 'rgba(255,255,255,0.35)'; ctx.lineWidth = 1.5; ctx.stroke();
-    };
-    const cr = fingers.canvas.length ? canvasEchoRect() : null;
-    if (cr) for (const [u, v] of fingers.canvas) dot(cr.x + u * cr.w, cr.y + v * cr.h);
+    }
   }
 
   // ---- RAW slice-zone touches → synthetic TouchEvents on the desktop's own
