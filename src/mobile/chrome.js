@@ -26,6 +26,7 @@ import { PARAMS, DECLARATIVE_PARAM_IDS } from '../shell/params.js';
 import { formatVersion } from '../version.js';
 import { createCamera } from '../shell/camera.js';
 import { createFollower } from '../kit/follow.js';
+import { createAutoDrift } from '../kit/drift.js';
 import { ICONS } from './icons.js';
 import { applyArmsSnap, snapSpiralValue } from '../kit/snaps.js';
 import { zipStore } from '../shell/zip.js';
@@ -109,6 +110,13 @@ let liveVideo = null;          // the camera <video> while live; null otherwise
 // binds to it at mount time): the recorded output eases toward edits at
 // session.performResponse, the same primitive as desktop perform.
 let follower = null;
+// AUTOPLAY: the same kit drift desktop perform runs — another pair of hands
+// writing state; the preview shows it immediately, the follower eases the
+// recorded output through it. Manual edits win per field (kit contract).
+const drift = createAutoDrift({ state, session });
+let autoOn = false;
+let lastAutoSync = 0;
+let syncAutoUI = () => {};   // bound by the motion-section mount below
 
 const sourceOverlay = createSourceOverlay({
   state, engine,
@@ -172,6 +180,57 @@ settingsEl.appendChild(motionSec);
   inp.value = String(session.performResponse ?? 0.35);
   apply(parseFloat(inp.value));
   inp.addEventListener('input', () => apply(parseFloat(inp.value) || 0));
+})();
+// autoplay: the on/off toggle (the loop-toggle pattern) + the four guardrail
+// dials, disabled until autoplay is on (Daniel's spec).
+(function mountAutoplay() {
+  const wrap = document.createElement('div');
+  wrap.className = 'm-control';
+  wrap.innerHTML = '<div class="m-control-row"><span>autoplay</span></div>';
+  const seg = document.createElement('div');
+  seg.className = 'm-seg';
+  const btns = [['off', false], ['on', true]].map(([t, v]) => {
+    const b = document.createElement('button');
+    b.className = 'm-seg-btn';
+    b.textContent = t;
+    b.addEventListener('click', () => {
+      if (v === autoOn) return;
+      autoOn = v;
+      if (v) drift.reset();          // fresh homes at the current look
+      syncAutoUI();
+    });
+    seg.appendChild(b);
+    return [b, v];
+  });
+  wrap.appendChild(seg);
+  motionSec.appendChild(wrap);
+
+  const DIALS = [
+    ['pace', 'performAutoPace', 0.5],
+    ['range', 'performAutoRange', 0.3],
+    ['variety', 'performAutoVariety', 0.5],
+    ['smoothing', 'performAutoSmooth', 0.65],
+  ];
+  const dialEls = DIALS.map(([label, key, dflt]) => {
+    const row = document.createElement('label');
+    row.className = 'm-control';
+    row.innerHTML = `<div class="m-control-row"><span>${label}</span><span class="m-control-val"></span></div><input type="range" min="0.05" max="1" step="0.05">`;
+    const inp2 = row.querySelector('input'), val2 = row.querySelector('.m-control-val');
+    inp2.value = String(session[key] ?? dflt);
+    const show = () => { val2.textContent = Math.round(parseFloat(inp2.value) * 100) + '%'; };
+    show();
+    inp2.addEventListener('input', () => { session[key] = parseFloat(inp2.value) || 0; show(); });
+    motionSec.appendChild(row);
+    return { row, inp2 };
+  });
+  syncAutoUI = () => {
+    btns.forEach(([b, v]) => b.classList.toggle('active', autoOn === v));
+    for (const { row, inp2 } of dialEls) {
+      inp2.disabled = !autoOn;
+      row.style.opacity = autoOn ? '' : '0.45';
+    }
+  };
+  syncAutoUI();
 })();
 
 // build/version readout (useful while testing on a phone where there's no footer)
@@ -523,6 +582,8 @@ function leaveVideoMode() {
   recordedVideo = null;
   recordingSaved = false;
   follower = null;
+  autoOn = false;
+  syncAutoUI();
 }
 
 async function startRecordVideo() {
@@ -615,8 +676,13 @@ function startLiveLoop() {
       // state through the follower; the big panel stays the immediate PREVIEW.
       // While settled the two are identical — one render serves both.
       if (!follower) follower = createFollower(state, { response: session.performResponse ?? 0.35 });
-      follower.setTarget(state);
       const dt = lastTickT ? Math.min(now - lastTickT, 100) : 16;
+      if (autoOn) {
+        drift.tick(now, dt);                   // wander writes state like a hand
+        sourceOverlay.scheduleDraw();          // the slice overlay rides along
+        if (now - lastAutoSync > 250) { lastAutoSync = now; controlsSync.syncAll(); }
+      }
+      follower.setTarget(state);
       const eased = follower.step(dt);
       const diverged = !follower.isSettled(0.002);
       engine.render(diverged ? eased : state);

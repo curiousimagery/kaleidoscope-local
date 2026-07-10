@@ -24,6 +24,7 @@
 
 import { createFollower, FOLLOW_SPANS, CONTINUOUS_KEYS } from '../kit/follow.js';
 import { angDelta, ANGULAR_KEYS } from '../kit/tween.js';
+import { createAutoDrift } from '../kit/drift.js';
 import { createEngine } from '../engine/index.js';
 import { ICONS } from '../mobile/icons.js';
 
@@ -342,137 +343,21 @@ export function createPerformRuntime(env) {
   }
 
   // ---- autoplay ("drift") — Daniel's spec, approved 2026-07-08 --------------
-  // Auto is ANOTHER PAIR OF HANDS ON THE SAME STAGE: a per-field wander writes
-  // destinations into env.state exactly like user input, and the follower
-  // chases as always — onion skin, sync dot, stage/take/cut, broadcasts need
-  // zero special-casing. MANUAL WINS PER FIELD: auto tracks what it last
-  // wrote, and a mismatch means your hand moved the field — it backs off
-  // (cooldown), adopts your placement as the field's new HOME, and resumes
-  // breathing around it. Staging pauses the drift (the stage is your off-air
-  // workbench); on unhold the mismatch detection re-homes automatically.
-  const AUTO_BOUNDS = {   // guardrails: destinations never leave these (rotation wraps freely)
-    sliceScale: [0.25, 2.6], sliceCx: [0.15, 0.85], sliceCy: [0.15, 0.85],
-    canvasZoom: [0.45, 2.4], squareAspect: [0.45, 2.4],
-    drosteZoom: [1.4, 9], drosteSpiral: [-3, 3],
-    drosteOffsetX: [-0.55, 0.55], drosteOffsetY: [-0.55, 0.55],
-  };
-  const AUTO_OWN_MS = 2000;   // manual-input cooldown before auto touches a field again
-  // FRAMING fields are tempered (Daniel's calibration round: canvas zoom +
-  // rotation were "more enthusiastic than expected") — they wander a fraction
-  // of the range and stay anchored to their autoplay-start home; the slice is
-  // the show, the canvas is the frame.
-  const AUTO_TEMPER = { canvasZoom: 0.3, canvasRotation: 0.25 };
-  const wrap360 = (v) => ((v % 360) + 360) % 360;
-  const auto = { on: false, f: {}, roll: 0, lastSync: 0 };
+  // The wander itself lives in kit/drift.js now (extracted verbatim in B296 so
+  // mobile record video drives the SAME drift — no fork). The contract stands:
+  // auto is another pair of hands writing env.state; the follower chases as
+  // always; MANUAL WINS PER FIELD (mismatch → cooldown → re-home). Staging
+  // pauses the drift (the stage is your off-air workbench); on unhold the
+  // mismatch detection re-homes automatically. Dials read live from session.
+  const drift = createAutoDrift({ state, session });
+  const auto = { on: false, lastSync: 0 };
+  const autoTick = (now, dt) => drift.tick(now, dt);
 
-  function autoFields() {
-    return CONTINUOUS_KEYS.filter((k) => {
-      if (k.startsWith('droste')) return state.form === 'droste';
-      if (k === 'squareAspect') return state.form === 'square';
-      return true;
-    });
-  }
-  function autoField(k, now) {
-    let F = auto.f[k];
-    if (!F) {
-      const v = state[k] ?? 0;
-      F = auto.f[k] = { cur: v, vel: 0, home: v, dest: v, dir: 0, pickT: now + Math.random() * 800, ownedUntil: 0, active: false };
-    }
-    return F;
-  }
-  // destination picks carry INTENT (Daniel's tuning round): momentum (mostly
-  // keep traveling the same way — fewer startling reversals, more full
-  // rotations) and a coverage bias (the slice leans toward looks that cover
-  // MORE of the source: scale picks lean high, position picks stay near home).
-  function autoPick(k, F, now) {
-    const range = (session.performAutoRange ?? 0.3) * (AUTO_TEMPER[k] || 1);
-    if (k === 'canvasRotation') {
-      // framing rotation OSCILLATES around home instead of walking — the
-      // momentum walk belongs to the slice (full rotations are the show there)
-      F.dest = F.home + (Math.random() * 2 - 1) * range * 360;
-    } else if (ANGULAR.has(k)) {
-      const dir = F.dir || (Math.random() < 0.5 ? -1 : 1);
-      const keep = Math.random() < 0.78 ? dir : -dir;
-      const sweep = (0.25 + 0.75 * Math.random()) * range * 360;   // never a micro-nudge
-      F.dest = F.cur + keep * sweep;
-      F.dir = keep;
-    } else {
-      const span = FOLLOW_SPANS[k] || 1;
-      let r = Math.random() * 2 - 1;
-      if (k === 'sliceScale') r = 1 - 2 * Math.pow(Math.random(), 1.7);      // leans large (coverage)
-      else if (k === 'sliceCx' || k === 'sliceCy') r *= Math.random();       // leans home (keeps big slices on-image)
-      else if (F.dir && Math.random() < 0.65) r = Math.abs(r) * F.dir;       // momentum
-      let d = F.home + r * range * span;
-      const b = AUTO_BOUNDS[k];
-      if (b) {
-        // the guardrail bounds AUTO's wandering, never the user: if a manual
-        // edit homed the field outside them, the window stretches to include it
-        d = Math.max(Math.min(b[0], F.home), Math.min(Math.max(b[1], F.home), d));
-      }
-      F.dir = Math.sign(d - F.cur) || F.dir;
-      F.dest = d;
-    }
-    // pace curve recentered on Daniel's calibration (his found-good sat at the
-    // old slider's floor): default (50%) ≈ 5.2s between picks, floor ≈ 15s,
-    // ceiling ≈ 1.5s
-    const pace = session.performAutoPace ?? 0.5;
-    F.pickT = now + (1500 + Math.pow(1 - pace, 2) * 14800) * (0.6 + Math.random() * 0.8);
-  }
-  function autoTick(now, dt) {
-    const fields = autoFields();
-    if (now >= auto.roll) {
-      // variety: how many fields wander at once (a fresh weighted subset)
-      const variety = session.performAutoVariety ?? 0.5;
-      const count = Math.max(1, Math.round(fields.length * (0.15 + 0.85 * variety)));
-      const set = new Set([...fields].sort(() => Math.random() - 0.5).slice(0, count));
-      for (const k of fields) autoField(k, now).active = set.has(k);
-      auto.roll = now + 5000 + Math.random() * 5000;
-    }
-    // the glide is a critically damped SPRING per field (smoothing = its
-    // response): velocity stays CONTINUOUS across destination changes, so a
-    // new pick never jerks and an opposite pick decelerates through zero
-    // instead of snapping into reverse — the honest in-auto smoothing.
-    // smoothing recentered the same way (his found-good was ~90% of the old
-    // curve): default (65%) ≈ the feel he liked, ceiling reaches silkier still
-    const smooth = session.performAutoSmooth ?? 0.65;
-    const tau = 0.4 + Math.pow(smooth, 1.3) * 5.0;
-    const omega = 2 / tau;
-    const dts = Math.min(dt, 100) / 1000;
-    const decay = Math.exp(-omega * dts);
-    for (const k of fields) {
-      const F = autoField(k, now);
-      const live = state[k] ?? 0;
-      // ownership: auto writes exact values, so ANY external change means a
-      // hand (or system) moved the field — yield, adopt it as the new home
-      const moved = ANGULAR.has(k)
-        ? Math.abs(angDelta(wrap360(F.cur), wrap360(live))) > 1e-4
-        : Math.abs(live - F.cur) > (FOLLOW_SPANS[k] || 1) * 1e-6;
-      if (moved) {
-        F.ownedUntil = now + AUTO_OWN_MS;
-        F.cur = live; F.vel = 0; F.home = live; F.dest = live; F.dir = 0;
-        F.pickT = now + 400;
-        continue;
-      }
-      if (!F.active || now < F.ownedUntil) { F.cur = live; F.vel = 0; F.home = live; F.dest = live; continue; }
-      if (now >= F.pickT) autoPick(k, F, now);
-      const y = F.cur - F.dest;
-      const tmp = (F.vel + omega * y) * dts;
-      F.cur = F.dest + (y + tmp) * decay;
-      F.vel = (F.vel - omega * tmp) * decay;
-      if (ANGULAR.has(k)) {
-        // re-base a long drift toward 0 so unwrapped values never grow unbounded
-        if (Math.abs(F.cur) > 7200) { const s = 360 * Math.floor(F.cur / 360); F.cur -= s; F.dest -= s; }
-        state[k] = wrap360(F.cur);
-      } else {
-        state[k] = F.cur;
-      }
-    }
-  }
   function setAuto(on) {
     if (on === auto.on) return;
     if (on && env.performRT.hold) return;     // mutually exclusive with staging (the buttons explain)
     auto.on = on;
-    if (on) { auto.f = {}; auto.roll = 0; }   // fresh homes at the current look
+    if (on) drift.reset();                     // fresh homes at the current look
     byId('pfAuto')?.classList.toggle('active', on);
     syncTransportUI();                         // stage/auto disable each other with explanatory titles
   }
