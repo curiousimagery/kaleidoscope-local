@@ -160,6 +160,11 @@ export function createRemoteInput(onSignal, onDevices, host, env) {
     if (!cvOverlay || cvOverlay.parentElement !== pc.parentElement) {
       cvOverlay?.remove();
       cvOverlay = document.createElement('canvas');
+      // overlay-canvas EXEMPTS it from the stage's bare-canvas rule
+      // (.main-slot canvas:not(.overlay-canvas) gets an OPAQUE surface bg +
+      // border) — without it this transparent echo layer covers the whole
+      // output panel in solid gray the moment a finger frame arrives
+      cvOverlay.className = 'overlay-canvas';
       cvOverlay.style.cssText = 'position:absolute;pointer-events:none;z-index:5';
       if (getComputedStyle(pc.parentElement).position === 'static') pc.parentElement.style.position = 'relative';
       pc.parentElement.appendChild(cvOverlay);

@@ -790,6 +790,10 @@ button .btn-spinner {
 /* band-open: the bar button whose expand-band (output / canvas) is currently open. */
 .ot-btn.band-open { background: var(--surface-hover); color: var(--text-bright); border-color: var(--c-neutral-500); }
 .ot-btn svg { width: 18px; height: 18px; display: block; }   /* icon buttons (undo/redo/swap) */
+/* icon-only bar button: a fixed 40px square, glyph flex-centered. Padding can't
+   do this job — once the button hits min-width, the slack lands entirely to the
+   RIGHT of the display:block svg (the settings gear read 8px left / 12px right). */
+.ot-btn.ot-icon { display: inline-flex; align-items: center; justify-content: center; width: 40px; padding: 0; }
 /* icon+text button — the standard pattern for a small status glyph beside a label
    (first consumer: the camera record/pause toggle; specimen in the Lab). The glyph
    is a compact 12px, colored by its own fill (e.g. the record dot's --danger) or
@@ -889,9 +893,7 @@ button .btn-spinner {
   padding: 0 10px;
   min-width: 0;
 }
-/* the app-bar settings gear — standard ~18px icon like the panel gears */
-.ot-settings { padding: 0 8px; }
-.ot-settings svg { width: 18px; height: 18px; display: block; }
+/* (the app-bar settings gear now rides .ot-btn.ot-icon — no bespoke rules) */
 
 /* version badge */
 .version-badge {
@@ -1230,8 +1232,8 @@ body.motion #oobModes { pointer-events: none; opacity: var(--disabled-opacity); 
 .in-maps { display: flex; flex-direction: column; gap: 5px; max-height: 62vh; overflow-y: auto; }
 .in-devhead { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
 .in-devhead:first-child { margin-top: 0; }
-.in-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--border); flex: none; }
-.in-dot.on { background: #3c3; box-shadow: 0 0 5px rgba(60, 200, 60, 0.7); }
+.in-dot { width: 8px; height: 8px; border-radius: var(--radius-full); background: var(--border); flex: none; }
+.in-dot.on { background: var(--ok); box-shadow: 0 0 5px var(--ok); }
 .in-name { background: transparent; border: 1px solid transparent; border-radius: var(--radius-sm);
   color: var(--text); font-size: var(--text-sm); padding: 2px 4px; min-width: 0; }
 .in-name:hover, .in-name:focus { border-color: var(--border); background: var(--surface); }

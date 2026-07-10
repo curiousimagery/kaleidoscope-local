@@ -389,6 +389,12 @@ function iconTextBtn(glyphSvg, label) {
   b.innerHTML = glyphSvg + label;
   return b;
 }
+// icon-only specimen (.ot-btn.ot-icon): the app-bar gear pattern
+function iconOnlyBtn(glyphSvg) {
+  const b = el('button', { class: 'ot-btn ot-icon' });
+  b.innerHTML = glyphSvg;
+  return b;
+}
 function matrixRow(family, cells) {
   return el('div', { class: 'lab-matrow' }, [
     el('div', { class: 'lab-matlabel', text: family }),
@@ -410,6 +416,10 @@ function buttonMatrix() {
       ['.active', btnEl('ot-btn active', 'active')],
       ['.band-open', btnEl('ot-btn band-open', 'band-open')],
       [':disabled', btnEl('ot-btn', 'disabled', { disabled: 1 })],
+      // icon-ONLY variant (first consumer: the settings gear): a 40px square
+      // with the glyph flex-centered — padding hacks under min-width left the
+      // block svg lopsided (8px left / 12px right on the gear, Build 290 fix).
+      ['.ot-icon', iconOnlyBtn('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M19.1 4.9L17 7M7 17l-2.1 2.1"/></svg>')],
     ]),
     // the standard ICON+TEXT pattern (first consumer: the camera record/pause
     // toggle): a compact 12px glyph carries the state color, text stays neutral.
