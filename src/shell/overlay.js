@@ -182,6 +182,13 @@ export function drawSourceOverlay(env) {
   const ctx = canvas.getContext('2d');
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, w, h);
+  // ROUND CAPS for the whole overlay pass — the scale-proof seam seal. Butt
+  // ends leave gaps wherever separate strokes meet (spokes at the apex/mouth,
+  // droste's arcs meeting its wedge sides): invisible at the live 1.5px
+  // hairline, glaring at the companion video's ~5px overlayStrokeScale. Set
+  // HERE, in the one shared drawer, so every borrower (companion render,
+  // phone stream, live) and every form inherits it.
+  ctx.lineCap = 'round';
 
   const sourceAspect = engine.getSourceAspect();
   const { imgX, imgY, imgW, imgH } = imageRect(env, w, h, sourceAspect);

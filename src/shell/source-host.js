@@ -148,15 +148,32 @@ export function createSourceHost(env) {
         env.rebindMotionToSource();    // already animating → re-bind keyframes to the new clip (timeline-driven, no free-run)
       } else {
         const park = async () => {
-          // Brave blocks even MUTED autoplay by default: play() rejects, the video
-          // has never PRESENTED a frame, and the park's seek-to-0 was a same-time
-          // no-op (currentTime is already 0) — so Blink painted/uploaded blank (the
-          // first-load blank source panel). A never-played video parks a hair in
-          // instead: a REAL seek forces frame presentation; 10ms is invisible.
-          try { v.pause(); await seekVideoTo(v, v.played.length ? 0 : 0.01); } catch { /* keep whatever frame presented */ }
-          engine.updateSourceFrame();
-          engine.render(state);
-          env.sourceOverlay.paintSourceVideo();
+          // Blink only rasterizes a frame for drawImage/texImage2D after a seek
+          // that actually MOVES the clock; an occluded, never-presented video
+          // otherwise paints BLACK (the Brave/Electron first-load blank panel).
+          // The old branch keyed on v.played.length, which proved unreliable
+          // (blocked autoplay can still leave played ranges → seek-to-0 landed
+          // ~at currentTime → no-op → blank; reproduced + verified in Electron
+          // with autoplay-policy=user-gesture-required). So: (1) a GUARANTEED-
+          // REAL seek — pick a park target ≥5ms away from wherever the clock
+          // sits; (2) VERIFY the paint and retry with a fresh real seek if the
+          // panel still reads blank (self-healing whatever the cause; capped,
+          // so a genuinely black opening frame settles after 3 tries).
+          const parkSeek = async () => {
+            const target = Math.abs(v.currentTime - 0.01) < 0.005 ? 0.03 : 0.01;
+            await seekVideoTo(v, target);
+          };
+          try { v.pause(); await parkSeek(); } catch { /* keep whatever frame presented */ }
+          const present = () => {
+            engine.updateSourceFrame();
+            engine.render(state);
+            env.sourceOverlay.paintSourceVideo();
+          };
+          present();
+          for (let i = 0; i < 3 && env.sourceOverlay.sourceVideoBlank?.(); i++) {
+            try { await seekVideoTo(v, 0.05 + i * 0.05); await parkSeek(); } catch { break; }
+            present();
+          }
           env.sourceOverlay.render();
           env.updateSrcScrub?.();
           requestAnimationFrame(() => buildSrcStrip());   // footage thumbs into the frame picker (layout is ready)

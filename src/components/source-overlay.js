@@ -91,6 +91,23 @@ export function createSourceOverlay(ctx) {
       }
     },
 
+    // Did the last paint land actual pixels? Blink draws BLACK from a video
+    // that has never PRESENTED a frame (occluded + never really seeked) — the
+    // first-load blank-panel bug. Samples a sparse grid; all-black ⇒ blank.
+    // (A genuinely black frame reads as blank too — callers retry a couple of
+    // times and then accept it.)
+    sourceVideoBlank() {
+      const c = view.sourceVideoCanvas;
+      if (!c || !view.sourceVideoCtx) return false;
+      try {
+        const d = view.sourceVideoCtx.getImageData(0, 0, c.width, c.height).data;
+        for (let i = 0; i < d.length; i += 199 * 4) {
+          if (d[i] > 8 || d[i + 1] > 8 || d[i + 2] > 8) return false;
+        }
+        return true;
+      } catch { return false; }
+    },
+
     // switch source display fit ('contain' | 'cover'). Re-mounts so the displayed
     // source's CSS fit + the overlay geometry update together.
     getFit() { return view.fit; },
