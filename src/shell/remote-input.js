@@ -27,6 +27,7 @@
 
 import { getActiveForm } from '../engine/forms/index.js';
 import { sliceVecToSourceUV } from '../engine/geometry.js';
+import { drawSourceOverlay } from './overlay.js';
 
 export function createRemoteInput(onSignal, onDevices, host, env) {
   let running = false;
@@ -51,6 +52,43 @@ export function createRemoteInput(onSignal, onDevices, host, env) {
     }));
     return { polys, sa: +sa.toFixed(4) };
   }
+  // The phone can't hover, so it needs the PERSISTENT touch affordances the
+  // iPad build shows (droste's arms handle, scale arrows, rotate arcs). Rather
+  // than porting the affordance drawing, the desktop renders the REAL overlay
+  // for the phone: borrow the overlay drawer against an offscreen canvas with
+  // touch styling forced on (env.forceTouchAffordances — the same swap trick
+  // as the source-preview export; synchronous, so live draws can't collide)
+  // and ship it as a PNG. Pixel-exact affordances for every form, free.
+  let ovParent = null, ovCanvas = null;
+  function overlayFrame(sa) {
+    const view = env.sourceOverlay?.view;
+    if (!view?.sourceOverlayCanvas || !env.engine?.getSourceImage?.()) return null;
+    const W2 = 480, H2 = Math.round(480 / (sa || 1));
+    if (!ovParent) {
+      ovParent = document.createElement('div');
+      ovParent.style.cssText = 'position:fixed;left:-99999px;top:0;pointer-events:none';
+      ovCanvas = document.createElement('canvas');
+      ovParent.appendChild(ovCanvas);
+      document.body.appendChild(ovParent);
+    }
+    ovParent.style.width = W2 + 'px';
+    ovParent.style.height = H2 + 'px';
+    const saved = {
+      canvas: view.sourceOverlayCanvas, hover: view.hoverMode,
+      force: view.forceTouchAffordances, stroke: view.overlayStrokeScale,
+    };
+    view.sourceOverlayCanvas = ovCanvas;
+    view.hoverMode = null;
+    view.forceTouchAffordances = true;
+    view.overlayStrokeScale = 1;
+    try { drawSourceOverlay(view); }
+    finally {
+      view.sourceOverlayCanvas = saved.canvas; view.hoverMode = saved.hover;
+      view.forceTouchAffordances = saved.force; view.overlayStrokeScale = saved.stroke;
+    }
+    try { return ovCanvas.toDataURL('image/png'); } catch { return null; }
+  }
+
   let pushTimer = 0, lastPushSig = '';
   function pushState() {
     const geo = slicePolysUV();
@@ -64,6 +102,8 @@ export function createRemoteInput(onSignal, onDevices, host, env) {
     const sig = JSON.stringify(msg);
     if (sig === lastPushSig) return;
     lastPushSig = sig;
+    // the overlay PNG re-renders only when the same sig says something changed
+    msg.ov = geo ? overlayFrame(geo.sa) : null;
     host.remote.push(msg);
   }
   function setStreaming(on) {

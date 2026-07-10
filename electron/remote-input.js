@@ -47,7 +47,8 @@ function sendFrame(sock, data, op = 1) {
   const buf = Buffer.from(data);
   let head;
   if (buf.length < 126) head = Buffer.from([0x80 | op, buf.length]);
-  else { head = Buffer.alloc(4); head[0] = 0x80 | op; head[1] = 126; head.writeUInt16BE(buf.length, 2); }
+  else if (buf.length < 65536) { head = Buffer.alloc(4); head[0] = 0x80 | op; head[1] = 126; head.writeUInt16BE(buf.length, 2); }
+  else { head = Buffer.alloc(10); head[0] = 0x80 | op; head[1] = 127; head.writeBigUInt64BE(BigInt(buf.length), 2); }   // overlay PNGs can pass 64KB
   try { sock.write(Buffer.concat([head, buf])); } catch { /* closing */ }
 }
 

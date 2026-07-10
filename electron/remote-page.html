@@ -42,9 +42,11 @@
   const statusEl = document.getElementById('status');
   let W = 0, H = 0, dpr = 1;
 
-  // the DESKTOP streams the truth: the active form's real outline polygons in
-  // source-UV space + canvas rotation/zoom. The phone only ever draws these.
+  // the DESKTOP streams the truth: the real overlay RENDER (ov — a PNG with
+  // the persistent touch affordances forced on) plus outline polygons as the
+  // fallback, and canvas rotation/zoom. The phone only ever draws these.
   let st = { rot: 0, zoom: 1, polys: null, sa: 1 };
+  let ovImg = null, ovSrc = '';
 
   // ---- websocket link (auto-reconnect) ------------------------------------
   let ws = null, wsOpen = false;
@@ -61,7 +63,16 @@
     ws.onmessage = (e) => {
       try {
         const m = JSON.parse(e.data);
-        if (m && m.t === 'st') { st = { ...st, ...m }; draw(); }
+        if (m && m.t === 'st') {
+          st = { ...st, ...m };
+          if (m.ov && m.ov !== ovSrc) {
+            ovSrc = m.ov;
+            const im = new Image();
+            im.onload = () => { ovImg = im; draw(); };
+            im.src = m.ov;
+          } else if (!m.ov) { ovImg = null; ovSrc = ''; }
+          draw();
+        }
       } catch (err) {}
     };
     ws.onclose = () => {
@@ -125,7 +136,11 @@
     ctx.fillRect(sr.x, sr.y, sr.w, sr.h);
     ctx.strokeStyle = 'rgba(255,255,255,0.12)';
     ctx.strokeRect(sr.x, sr.y, sr.w, sr.h);
-    if (st.polys) {
+    if (ovImg) {
+      // the desktop's own overlay render — outline + persistent touch
+      // affordances (droste arms handle, scale arrows, rotate arcs), exact
+      ctx.drawImage(ovImg, sr.x, sr.y, sr.w, sr.h);
+    } else if (st.polys) {
       ctx.strokeStyle = 'rgba(255,255,255,0.65)';
       ctx.lineWidth = 1.5;
       for (const poly of st.polys) {
