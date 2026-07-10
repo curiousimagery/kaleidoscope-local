@@ -81,6 +81,10 @@ html, body { margin: 0; padding: 0; height: 100%; background: var(--bg); color: 
   display: flex; align-items: center; justify-content: center; }
 #m-tabbar button:active { background: var(--c-neutral-700); color: var(--text-bright); }
 .m-tab svg, #m-context-toggle svg, .m-icon-btn svg { width: 24px; height: 24px; display: block; }
+/* mobile icon-only button recipe (the .ot-icon counterpart): flex-center the
+   glyph — UA button padding + a display:block svg otherwise shove it off-axis
+   (the off-center flip-camera icon). Size stays per-consumer. */
+.m-icon-btn { display: inline-flex; align-items: center; justify-content: center; padding: 0; }
 /* form thumbnails use a `.stroke` group (32×32) designed for the desktop picker */
 .stroke { stroke: currentColor; stroke-width: 1.5; fill: none; }
 .m-file-input { display: none; }

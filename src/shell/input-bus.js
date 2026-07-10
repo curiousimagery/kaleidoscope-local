@@ -166,7 +166,12 @@ export function createInputBus(env) {
     // same flip the desktop two-finger handler applies — Daniel felt the
     // inversion immediately). Canvas rotation reads correctly unflipped.
     const v2 = (overSrc && kind === 'rotate') ? -value : value;
-    writeParam(t, (state[t.key] ?? 0) + v2 * (t.max - t.min) * 0.25);
+    const d = v2 * (t.max - t.min) * 0.25;
+    // phone deltas GLIDE (the ~0.18s spring): WS delivery arrives in
+    // micro-bursts, and direct writes read as jerks in the staged panel.
+    // Local gestures (trackpad) stay direct — no network jitter to hide.
+    if (sig.startsWith('mob:')) glideBy(t, d);
+    else writeParam(t, (state[t.key] ?? 0) + d);
   }
 
   function flashDevice(dev) {
@@ -204,12 +209,10 @@ export function createInputBus(env) {
       // motion loop glides there with velocity continuity, so repeated presses
       // chain smoothly. Continuous rel sources (encoders, gestures) already
       // arrive as smooth event streams and write straight through.
-      if (meta.momentary) {
-        let g = glide.get(t.key);
-        if (!g) { g = { cur: state[t.key] ?? 0, vel: 0, goal: state[t.key] ?? 0 }; glide.set(t.key, g); }
-        g.goal += d;
-        if (!t.wrap) g.goal = Math.max(t.min, Math.min(t.max, g.goal));
-        startMotionLoop();
+      // phone gesture signals glide too — same network-jitter cover as the
+      // contextual path (a mapping must not feel worse than the default)
+      if (meta.momentary || m.sig.startsWith('mob:')) {
+        glideBy(t, d);
       } else {
         writeParam(t, (state[t.key] ?? 0) + d);
       }
@@ -229,6 +232,17 @@ export function createInputBus(env) {
     env.sourceOverlay?.scheduleDraw?.();
     const now = performance.now();
     if (now - lastSyncT > 250) { lastSyncT = now; env.syncControls?.(); }
+  }
+
+  // nudge a param through the critically damped spring instead of writing it
+  // directly — button steps and remote gesture deltas share this (velocity
+  // continuity across chained nudges; ~0.18s response)
+  function glideBy(t, d) {
+    let g = glide.get(t.key);
+    if (!g) { g = { cur: state[t.key] ?? 0, vel: 0, goal: state[t.key] ?? 0 }; glide.set(t.key, g); }
+    g.goal += d;
+    if (!t.wrap) g.goal = Math.max(t.min, Math.min(t.max, g.goal));
+    startMotionLoop();
   }
 
   // the MOTION LOOP: rate deflections (full deflection sweeps sens × range ×

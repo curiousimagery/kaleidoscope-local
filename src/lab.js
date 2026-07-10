@@ -214,7 +214,7 @@ function iconCard(name, svg) {
     // the glyph at design size on the control surface, plus in a real .ot-btn
     el('div', { class: 'lab-icon-previews' }, [
       el('span', { class: 'lab-icon-tile', html: svg }),
-      el('button', { class: 'ot-btn lab-icon-btn', html: svg }),
+      el('button', { class: 'ot-btn ot-icon lab-icon-btn', html: svg }),
     ]),
     el('code', { class: 'lab-name', text: name }),
     el('div', { class: 'lab-note lab-icon-usage', text: usage || 'not referenced in code' }),
@@ -441,6 +441,15 @@ function buttonMatrix() {
       ['.m-seg-btn', btnEl('m-seg-btn', 'seg')],
       ['.active', btnEl('m-seg-btn active', 'seg on')],
       [':disabled', btnEl('m-seg-btn', 'seg', { disabled: 1 })],
+    ]),
+    // mobile icon-only recipe (.m-icon-btn = the .ot-icon counterpart; the
+    // class centers, the chrome is per-consumer — shown with #m-flip's)
+    matrixRow('Mobile · .m-icon-btn', [
+      ['.m-icon-btn (#m-flip chrome)', (() => {
+        const b = el('button', { class: 'm-icon-btn', style: 'width:40px;height:40px;border-radius:var(--radius-lg);border:1px solid var(--border);background:rgba(20,20,20,0.85);color:var(--text)' });
+        b.innerHTML = ICONS.flip;
+        return b;
+      })()],
     ]),
   ]);
 }
@@ -926,7 +935,8 @@ labStyle.textContent = `
   .lab-icon-previews { display: flex; align-items: center; gap: 10px; min-height: 44px; }
   .lab-icon-tile { width: 24px; height: 24px; color: var(--text); display: inline-flex; }
   .lab-icon-tile svg, .lab-icon-btn svg { width: 24px; height: 24px; display: block; }
-  .lab-icon-btn { display: inline-flex; align-items: center; justify-content: center; }
+  /* (no centering shim here — the specimen rides the REAL .ot-icon variant, so
+     the Lab shows the truth; a shim was masking the off-center app buttons) */
   .lab-appicon { align-items: flex-end; }
   .lab-icon-usage { font-size: var(--text-xs); min-height: 2.6em; }
   .lab-flags { display: flex; flex-wrap: wrap; gap: 4px; }
