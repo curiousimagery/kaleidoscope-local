@@ -96,10 +96,16 @@ export function createRemoteInput(onSignal, onDevices, host, env) {
   function pushState() {
     const geo = slicePolysUV();
     const st = env.state;
+    // oa = the OUTPUT frame's aspect, so the phone can shape its canvas zone
+    // as an aspect-true proxy of the panel (finger positions then map 1:1 —
+    // a zone-shaped mapping compressed them whenever the device's zone didn't
+    // match the frame, Daniel's iPad-vs-iPhone datapoint)
+    const pc = env.previewCanvas;
     const msg = {
       t: 'st',
       rot: +(st.canvasRotation ?? 0).toFixed(2),
       zoom: +(st.canvasZoom ?? 1).toFixed(3),
+      oa: pc && pc.height ? +(pc.width / pc.height).toFixed(4) : 1,
       ...(geo || {}),
     };
     const sig = JSON.stringify(msg);

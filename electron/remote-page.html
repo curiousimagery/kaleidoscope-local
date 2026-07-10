@@ -115,6 +115,18 @@
     if (bw / bh >= sa) { h = bh; w = h * sa; } else { w = bw; h = w / sa; }
     return { x: b.x + (b.w - w) / 2, y: b.y + 30 + (b.h - 30 - h) / 2, w, h };
   }
+  // the canvas zone's OUTPUT proxy: the output frame (aspect oa) contained in
+  // the zone — same idea as the slice zone's source card. Finger positions are
+  // normalized to THIS rect, so they land 1:1 on the desktop's output panel
+  // whatever shape the device gives the zone.
+  function canvasRect() {
+    const b = zoneBox('canvas'), pad2 = 26;
+    const bw = b.w - pad2 * 2, bh = b.h - pad2 * 2 - 30;
+    const oa = st.oa || 1;
+    let w, h;
+    if (bw / bh >= oa) { h = bh; w = h * oa; } else { w = bw; h = w / oa; }
+    return { x: b.x + (b.w - w) / 2, y: b.y + 30 + (b.h - 30 - h) / 2, w, h };
+  }
 
   function draw() {
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -158,10 +170,16 @@
     const sb = zoneBox('slice');
     ctx.fillText('slice — touch works like the desktop overlay', sb.x + sb.w / 2, sb.y + 18);
 
-    // CANVAS zone: circles scale with zoom, crosshair rotates with rotation
+    // CANVAS zone: the output-frame card, circles scale with zoom, crosshair
+    // rotates with rotation. The card (not the zone) is the coordinate space.
     const cb = zoneBox('canvas');
-    const cx = cb.x + cb.w / 2, cy = cb.y + cb.h / 2;
-    const base = Math.min(cb.w, cb.h) * 0.36;
+    const cr = canvasRect();
+    ctx.fillStyle = 'rgba(255,255,255,0.05)';
+    ctx.fillRect(cr.x, cr.y, cr.w, cr.h);
+    ctx.strokeStyle = 'rgba(255,255,255,0.12)';
+    ctx.strokeRect(cr.x, cr.y, cr.w, cr.h);
+    const cx = cr.x + cr.w / 2, cy = cr.y + cr.h / 2;
+    const base = Math.min(cr.w, cr.h) * 0.42;
     const zf = Math.max(0.3, Math.min(1.8, st.zoom || 1));
     const R = base * (0.35 + 0.45 * zf);
     ctx.strokeStyle = 'rgba(255,255,255,0.12)';
@@ -213,10 +231,12 @@
       acc = freshAcc();
       if (pinch) send({ t: 'p', z: 'canvas', v: pinch });
       if (rot) send({ t: 'r', z: 'canvas', v: rot });
-      // canvas-zone finger echo (slice fingers echo via the raw relay); az =
-      // the zone's aspect so the desktop maps positions aspect-true
-      const cb = zoneBox('canvas');
-      send({ t: 'f', az: +(cb.w / cb.h).toFixed(3), p: [...canvasPts.values()].map((q) => [1, +((q.x - cb.x) / cb.w).toFixed(4), +((q.y - cb.y) / cb.h).toFixed(4)]) });
+      // canvas-zone finger echo (slice fingers echo via the raw relay):
+      // normalized to the FRAME CARD (aspect = the output frame), so the
+      // desktop's aspect-fit lands them 1:1 on the panel
+      const cr = canvasRect();
+      const clamp01 = (n) => Math.max(0, Math.min(1, n));
+      send({ t: 'f', az: +(cr.w / cr.h).toFixed(3), p: [...canvasPts.values()].map((q) => [1, +clamp01((q.x - cr.x) / cr.w).toFixed(4), +clamp01((q.y - cr.y) / cr.h).toFixed(4)]) });
     });
   }
 

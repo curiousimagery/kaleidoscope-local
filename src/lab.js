@@ -702,6 +702,8 @@ const CLI_COMMANDS = [
       'Run to test the Mac app + Syphon output to Arena. Launches Electron loading the ALREADY-BUILT dist/ — so run npm run build first if you changed web code. Opens a window; close it to stop. Fast iteration without making a DMG.'],
     ['cd electron && npm run dist', 'produce the installable DMG',
       'Run to make the shippable installer. Sequence: (1) rebuilds the web app (dist/), (2) packages it with electron-builder, (3) re-applies the leak-fixed node-syphon, (4) names the file from src/version.js. Output: electron/release/Fold Live-<version>-arm64.dmg. NOTE: arm64 (Apple Silicon) only + unsigned, so Gatekeeper warns on first open (right-click → Open). The app icon comes from electron/build/icon.png (electron-builder mac.icon) — a placeholder for now; drop a real 1024px PNG or .icns there to replace it.'],
+    ['xattr -cr "/Applications/Fold Live.app"', 'install on ANOTHER Mac: clear the quarantine flag',
+      'Run once in Terminal after copying the app out of the DMG on a different machine. The app is unsigned, so macOS quarantines a downloaded copy and may claim it is "damaged" — this strips the quarantine attribute so it launches. Not needed on the Mac that built the DMG. Also safe to delete everything in electron/release/ at any time: DMGs, .blockmap files (differential-update metadata we do not use), builder-debug.yml, and mac-arm64/ are ALL regenerable build artifacts — the installed app in /Applications and your rigs in userData are untouched.'],
   ] },
   { group: 'Open in the browser', items: [
     ['http://localhost:5173/', 'the app',
@@ -753,6 +755,88 @@ function usageBanner() {
   ]);
 }
 
+// ---- inputs & settings (the Arc 6 control-bus surface) ----------------------
+// STATIC specimens of the settings-sheet vocabulary; input-bus.js renders the
+// real thing. Kept in sync BY HAND with renderMaps/mapRow markup — if a class
+// or column changes there, update here (the Lab is the fragmentation detector,
+// so a drifted specimen is itself the signal).
+function inMapRowEl(kindChip, label, target, mode, opts = {}) {
+  const row = el('div', { class: 'in-map' + (opts.cls ? ' ' + opts.cls : '') });
+  row.innerHTML = `
+    <span class="in-grip" title="drag to reorder">≡</span>
+    <span class="in-kind">${kindChip}</span>
+    <input class="in-name in-label" value="${label}">
+    <select class="in-target"><option>${target}</option></select>
+    <select class="in-mode"${opts.noMode ? ' disabled' : ''}><option>${mode}</option></select>
+    <select class="in-sens"${opts.noMode ? ' disabled' : ''}><option>${opts.sens || '5%'}</option></select>
+    <button class="toggle in-inv${opts.inv ? ' active' : ''}">inv</button>
+    ${opts.led ? `<button class="in-led" style="background:${opts.led}"></button>` : '<span></span>'}
+    <button class="vid-x in-del">✕</button>`;
+  return row;
+}
+function inDevHeadEl(name, on, count, closed = false) {
+  const head = el('div', { class: 'in-devhead' });
+  head.innerHTML = `<button class="in-chev">${closed ? '▸' : '▾'}</button>
+    <i class="in-dot${on ? ' on' : ''}"></i>
+    <input class="in-name" value="${name}">
+    <span class="in-devcount">${count}</span>
+    <span class="in-devstate">${on ? 'connected' : 'offline'}</span>
+    <button class="vid-x in-devdel">✕</button>`;
+  return head;
+}
+function inLightsEl(n) {
+  const s = el('span', { class: 'in-lights' });
+  for (let i = 0; i < n; i++) s.appendChild(el('i'));
+  return s;
+}
+// the remote finger echo, drawn with the REAL styles (overlay.js
+// drawRemoteFingers / remote-input.js repaintFingers use these exact values)
+function fingerEchoCard() {
+  const c = el('canvas');
+  c.width = 240; c.height = 120;
+  c.style.cssText = 'width:240px;height:120px;background:var(--surface-control);border:1px solid var(--border);border-radius:6px';
+  const x = c.getContext('2d');
+  for (const [px, py, r] of [[70, 60, 13], [150, 48, 13]]) {
+    x.beginPath(); x.arc(px, py, r, 0, Math.PI * 2);
+    x.fillStyle = 'rgba(255,255,255,0.12)'; x.fill();
+    x.strokeStyle = 'rgba(255,255,255,0.35)'; x.lineWidth = 1.5; x.stroke();
+  }
+  return c;
+}
+function inputsSection() {
+  const tabs = el('div', { class: 'set-tabs' }, [
+    el('button', { class: 'toggle', text: 'about' }),
+    el('button', { class: 'toggle active', text: 'inputs' }),
+    el('button', { class: 'toggle', text: 'diagnostics' }),
+  ]);
+  const devices = el('div', { class: 'in-maps', style: 'max-height:none' }, [
+    inDevHeadEl('APC40 mkII', true, '2 mappings'),
+    inMapRowEl('cc', 'top knob 1', 'slice rotation', 'rel', { inv: 1 }),
+    inMapRowEl('pad', 'clip stop 3', '⏻ take', 'rel', { noMode: 1, led: '#3c3' }),
+    inDevHeadEl('DualSense', false, '1 mapping', true),
+  ]);
+  const dragging = el('div', { class: 'in-maps', style: 'max-height:none' }, [
+    inMapRowEl('stick', 'left stick x', 'slice position x', 'rate', { cls: 'in-dragging' }),
+    inMapRowEl('tp', 'trackpad rotate', 'slice rotation', 'rel', { cls: 'in-drop-before' }),
+  ]);
+  return section('inputs-surface', 'Inputs & settings (control bus)',
+    'The settings-sheet vocabulary from the Arc 6 input surface, as static specimens (input-bus.js renders the real, wired version — these are hand-synced copies, so drift here means the specimen needs updating). The mapping row is a 9-column grid: grip · kind chip · editable name · target · mode · sensitivity · invert · LED swatch (pads only) · remove. Device headers carry the presence dot (var(--ok), the same token as the output traffic light), the editable device name, and the collapse chevron. The presence lights beside the app-bar gear stack in pairs like the output LEDs. Finger echo circles are drawn by the overlay itself (slice zone) and a glued sibling canvas (output panel) with the styles shown. The rig persists to localStorage fold-inputs-v1 everywhere + fold-config.json in userData under Electron.', [
+    el('div', { class: 'lab-matrix' }, [
+      matrixRow('Sheet tabs · .set-tabs', [['.toggle / .active', tabs]]),
+      matrixRow('Presence lights · .in-lights', [
+        ['1 device', inLightsEl(1)],
+        ['2 devices', inLightsEl(2)],
+        ['5 devices', inLightsEl(5)],
+      ]),
+      matrixRow('Finger echo (remote)', [['rgba(255,255,255,.12) fill / .35 stroke', fingerEchoCard()]]),
+    ]),
+    el('div', { class: 'lab-note', text: 'Device groups + mapping rows (states: connected/offline header, pad row with LED swatch, action row with mode disabled):' }),
+    devices,
+    el('div', { class: 'lab-note', text: 'Drag-reorder states: .in-dragging dims the moving row; .in-drop-before/.in-drop-after paint the insertion line in the gap (a real line, not a box outline — Daniel):' }),
+    dragging,
+  ]);
+}
+
 // ---- compose the page -------------------------------------------------------
 function build() {
   buildUsageIndex();   // scan the loaded CSS so each token can show its consumers
@@ -770,6 +854,7 @@ function build() {
     cursorsSection(),
     affordancesSection(),
     componentsSection(),
+    inputsSection(),
     buildingBlocksSection(),
     compositesSection(),
     crossDeviceStatesSection(),

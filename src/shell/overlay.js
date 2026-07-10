@@ -848,8 +848,13 @@ function classifyPointer(env, x, y, isTouch = false) {
 
   // CASE A: cursor angle is INSIDE the polygon's angular range
   if (!outsideAngular) {
-    // radial: spoke proximity = scale-on-spoke (= segments).
-    if (form.spokeRule === 'radial') {
+    // radial: spoke proximity = scale-on-spoke (= segments) — but the outer
+    // arc's scale band OUTRANKS the spoke. A pointer within the arc band (where
+    // the scale arrow sits) must scale, never change segments: the touch-width
+    // spoke band otherwise claims the arc's ends (spoke tips) and, on narrow
+    // wedges, the whole arc including the arrow. Segments keep the spoke's
+    // interior length.
+    if (form.spokeRule === 'radial' && Math.abs(r - R) > (r <= R ? SCALE_IN : SCALE_OUT)) {
       const sp = nearestSpoke();
       if (sp && sp.absPerp <= Math.max(SPOKE_IN, SPOKE_OUT)) {
         const allowable = (r <= R) ? SPOKE_IN : SPOKE_OUT;

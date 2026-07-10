@@ -57,13 +57,13 @@
         <option value="perform">perform</option>
       </select>
       <!-- fallback glyphs were ← / → -->
-      <button class="ot-btn" id="undoBtn" disabled title="undo (⌘Z)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9h11a5 5 0 0 1 0 10H8"/><path d="M7 6 4 9l3 3"/></svg></button>
-      <button class="ot-btn" id="redoBtn" disabled title="redo (⌘⇧Z)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 9H9a5 5 0 0 0 0 10h7"/><path d="M17 6l3 3-3 3"/></svg></button>
+      <button class="ot-btn ot-icon" id="undoBtn" disabled title="undo (⌘Z)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9h11a5 5 0 0 1 0 10H8"/><path d="M7 6 4 9l3 3"/></svg></button>
+      <button class="ot-btn ot-icon" id="redoBtn" disabled title="redo (⌘⇧Z)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 9H9a5 5 0 0 0 0 10h7"/><path d="M17 6l3 3-3 3"/></svg></button>
     </div>
     <!-- right: workspace + actions -->
     <div class="ot-group ot-right">
       <!-- fallback glyph was ⇄ -->
-      <button class="ot-btn" id="swapBtn" disabled title="swap source / output"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h13"/><path d="M14 5l3 3-3 3"/><path d="M20 16H7"/><path d="M10 13l-3 3 3 3"/></svg></button>
+      <button class="ot-btn ot-icon" id="swapBtn" disabled title="swap source / output"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h13"/><path d="M14 5l3 3-3 3"/><path d="M20 16H7"/><path d="M10 13l-3 3 3 3"/></svg></button>
       <!-- still|motion mode selector (Arc 1) — radio semantics: the active segment is
            the current mode; save is still-only, output is motion-only (live camera +
            a running bus keep output reachable; see updateMotionUI) -->
@@ -172,7 +172,7 @@
         <div class="panel-ctl" id="srcCtl">
           <div class="form-row" data-tip-motion="form switching is locked while animating — the form stays fixed at keyframe 0 (it can't tween)">
             <div class="form-grid" id="formGrid"></div>
-            <button class="ot-btn panel-gear" id="sliceSettingsBtn" title="slice settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="4" y1="8" x2="20" y2="8"/><line x1="4" y1="16" x2="20" y2="16"/><circle cx="9" cy="8" r="2.4" fill="currentColor"/><circle cx="15" cy="16" r="2.4" fill="currentColor"/></svg></button>
+            <button class="ot-btn ot-icon panel-gear" id="sliceSettingsBtn" title="slice settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="4" y1="8" x2="20" y2="8"/><line x1="4" y1="16" x2="20" y2="16"/><circle cx="9" cy="8" r="2.4" fill="currentColor"/><circle cx="15" cy="16" r="2.4" fill="currentColor"/></svg></button>
           </div>
         </div>
       </div>
@@ -210,7 +210,7 @@
                 <button class="toggle" data-asp="1.7778" data-l="16:9" data-p="9:16">16:9</button>
               </div>
             </div>
-            <button class="ot-btn panel-gear" id="canvasSettingsBtn" title="canvas settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="4" y1="8" x2="20" y2="8"/><line x1="4" y1="16" x2="20" y2="16"/><circle cx="9" cy="8" r="2.4" fill="currentColor"/><circle cx="15" cy="16" r="2.4" fill="currentColor"/></svg></button>
+            <button class="ot-btn ot-icon panel-gear" id="canvasSettingsBtn" title="canvas settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="4" y1="8" x2="20" y2="8"/><line x1="4" y1="16" x2="20" y2="16"/><circle cx="9" cy="8" r="2.4" fill="currentColor"/><circle cx="15" cy="16" r="2.4" fill="currentColor"/></svg></button>
           </div>
         </div>
       </div>
@@ -336,7 +336,7 @@
          another pair of hands on the same stage (the follower chases as always) -->
     <span class="pf-auto-cell">
       <button class="mf-btn mf-toggle" id="pfAuto" title="autoplay — the look drifts on its own within the guardrails (A)">auto</button>
-      <button class="ot-btn panel-gear" id="pfAutoGear" title="autoplay settings — energy · range · variety"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="4" y1="8" x2="20" y2="8"/><line x1="4" y1="16" x2="20" y2="16"/><circle cx="9" cy="8" r="2.4" fill="currentColor"/><circle cx="15" cy="16" r="2.4" fill="currentColor"/></svg></button>
+      <button class="ot-btn ot-icon panel-gear" id="pfAutoGear" title="autoplay settings — energy · range · variety"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="4" y1="8" x2="20" y2="8"/><line x1="4" y1="16" x2="20" y2="16"/><circle cx="9" cy="8" r="2.4" fill="currentColor"/><circle cx="15" cy="16" r="2.4" fill="currentColor"/></svg></button>
     </span>
   </div>
   <div class="pf-center" id="pfCenter">
