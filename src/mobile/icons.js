@@ -23,6 +23,9 @@ export const ICONS = {
   // FALLBACK (old): two arcs `M6.36 9.95 A6 6 0 0 1 18 12` + `M16.2 10.2 L18 12 L19.8 10.2`
   //   + `M17.64 14.05 A6 6 0 0 1 6 12` + `M7.8 13.8 L6 12 L4.2 13.8`, stroke-width 2.
   flip: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><g transform="translate(12 12) scale(1.3) translate(-9.02 -7.03)"><path d="M6.48298 2.68826C7.24746 2.24113 8.11642 2.00373 9.00205 2.00004C9.88767 1.99636 10.7586 2.22652 11.5268 2.66727C12.2949 3.10803 12.9331 3.74375 13.3769 4.51019C13.8206 5.27663 14.0542 6.14663 14.054 7.03226V8.07126M11.397 11.4693C10.6304 11.8797 9.77043 12.0843 8.90112 12.0633C8.0318 12.0422 7.1828 11.7961 6.43695 11.3491C5.69111 10.902 5.0739 10.2692 4.64556 9.51246C4.21722 8.7557 3.99238 7.90083 3.99298 7.03126V5.79426"/><path d="M11.833 6.47727L14.055 8.69927L16.278 6.47727M6.21499 7.58627L3.99299 5.36427L1.76999 7.58627"/></g></svg>`,
+  // stop — ends a video RECORDING (record video mode); the record/pause toggle
+  // below stays the live-capture freeze pattern. Filled to pair with the dot.
+  stop: `<svg viewBox="0 0 24 24"><rect x="5.5" y="5.5" width="13" height="13" rx="2" fill="currentColor"/></svg>`,
   // pause / freeze — pairs with the filled record dot (filled shape, not line-art).
   // Replaced the stop square (Daniel 2026-07-06): live capture is a record/pause
   // TOGGLE (pause = frozen still, record = go live), the same pattern desktop adopts.

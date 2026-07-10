@@ -289,12 +289,16 @@ outputEl.addEventListener('click', (e) => {
   if (!engine.getSourceImage() && !e.target.closest('#m-flip')) showSourceMenu();
 });
 
-$('m-tab-export').addEventListener('click', () => { if (engine.getSourceImage()) openSaveSheet(); });
+$('m-tab-export').addEventListener('click', () => {
+  if (videoMode) { saveRecordedVideo(); return; }   // gated by :disabled until a take exists
+  if (engine.getSourceImage()) openSaveSheet();
+});
 
 // ----------------------------------------------------------------- source load
 let sourceFilename = '';
 let originalSource = null;   // { blob, name } — bundled into "save package"
 function loadImage(file, sourceType = 'file') {
+  leaveVideoMode();              // a new source replaces the take (guarded upstream)
   stopCameraStream();
   cameraMode = 'off';
   updateLiveUI();
@@ -318,6 +322,95 @@ function loadImage(file, sourceType = 'file') {
 let cameraMode = 'off';        // 'off' | 'live' | 'frozen'
 let lastFacing = 'environment';  // remembered so freeze → "go live" keeps the flipped (selfie) camera
 let liveActive = false, liveRaf = 0;
+
+// ------------------------------------------------------------- record video mode
+// "Record video" = live camera + recording the OUTPUT canvas (with mic audio).
+// NOT perform-on-mobile (Daniel's re-frame): a recorded video with symmetry
+// effects, inheriting the trailing auto-follow infrastructure later — no
+// staging/transport here. The far-right tab slot becomes record ● / stop ■.
+let videoMode = false;         // the "record video" source is active
+let recState = 'idle';         // 'idle' | 'recording'
+let recordedVideo = null;      // { blob, ext } — the finished take
+let recordingSaved = false;    // download tapped since the take finished
+let mediaRec = null, recChunks = [], micStream = null;
+
+// one guard for every path that would lose an unsaved take (re-record, source
+// switch, leaving the mode). Native confirm() is the interim treatment — the
+// systematic destructive-interrupt pattern (BACKLOG) replaces it app-wide.
+function confirmLoseRecording(msg) {
+  if (recState === 'recording') {
+    if (!window.confirm(msg || 'stop and discard the current recording?')) return false;
+    // discard THROUGH the recorder's stop path (onstop still runs its mic/state
+    // cleanup): mute the chunk sink and empty it, so onstop builds no take —
+    // nulling recordedVideo here would lose the race with the async onstop.
+    if (mediaRec) mediaRec.ondataavailable = null;
+    recChunks = [];
+    stopRecording();
+    return true;
+  }
+  if (recordedVideo && !recordingSaved) return window.confirm(msg || 'your recording has not been saved and will be lost — continue?');
+  return true;
+}
+
+async function startRecording() {
+  if (recState === 'recording') return;
+  if (recordedVideo && !recordingSaved &&
+      !window.confirm('start a new recording? it will replace this one — save first if you want to keep it.')) return;
+  let stream;
+  try { stream = outputCanvas.captureStream(30); } catch { return; }
+  // mic joins the canvas stream; denied permission degrades to video-only
+  try {
+    micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    for (const t of micStream.getAudioTracks()) stream.addTrack(t);
+  } catch { micStream = null; }
+  const mime = ['video/mp4;codecs=avc1', 'video/mp4', 'video/webm;codecs=vp9', 'video/webm']
+    .find((m) => window.MediaRecorder?.isTypeSupported?.(m)) || '';
+  try {
+    mediaRec = new MediaRecorder(stream, mime ? { mimeType: mime, videoBitsPerSecond: 12e6 } : undefined);
+  } catch {
+    micStream?.getTracks().forEach((t) => t.stop()); micStream = null;
+    return;
+  }
+  recChunks = [];
+  mediaRec.ondataavailable = (e) => { if (e.data?.size) recChunks.push(e.data); };
+  mediaRec.onstop = () => {
+    const type = mediaRec?.mimeType || mime || 'video/webm';
+    recordedVideo = recChunks.length ? { blob: new Blob(recChunks, { type }), ext: /mp4/.test(type) ? 'mp4' : 'webm' } : null;
+    recChunks = [];
+    recordingSaved = false;
+    micStream?.getTracks().forEach((t) => t.stop()); micStream = null;
+    recState = 'idle';
+    updateLiveUI();
+  };
+  mediaRec.start(1000);   // timeslice: chunks survive even if stop never fires cleanly
+  recordedVideo = null;
+  recordingSaved = false;
+  recState = 'recording';
+  updateLiveUI();
+}
+function stopRecording() {
+  try { mediaRec?.stop(); } catch { /* already inactive */ }
+}
+function saveRecordedVideo() {
+  if (!recordedVideo) return;
+  const d = new Date();
+  const ts = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}-${String(d.getHours()).padStart(2, '0')}${String(d.getMinutes()).padStart(2, '0')}`;
+  downloadBlob(recordedVideo.blob, `fold-video-${ts}.${recordedVideo.ext}`);
+  recordingSaved = true;
+}
+function leaveVideoMode() {
+  if (!videoMode) return;
+  videoMode = false;
+  recordedVideo = null;
+  recordingSaved = false;
+}
+
+async function startRecordVideo() {
+  if (videoMode && cameraMode === 'live') return;   // already there — don't restart the camera
+  videoMode = true;
+  await startCamera();
+  updateLiveUI();
+}
 
 function startLiveLoop() {
   if (liveActive) return;
@@ -344,7 +437,14 @@ function stopCameraStream() {
 
 function updateLiveUI() {
   const cap = $('m-tab-capture'), flip = $('m-flip');
-  if (cameraMode === 'live') {
+  if (videoMode && cameraMode === 'live') {
+    // record video: the slot is record ● (red) / stop ■ — the live-cam pattern
+    // with record semantics. Download stays but gates on a finished take.
+    cap.style.display = '';
+    if (recState === 'recording') { cap.innerHTML = ICONS.stop; cap.title = 'stop recording'; cap.style.color = ''; }
+    else { cap.innerHTML = ICONS.record; cap.title = 'start recording'; cap.style.color = '#e8504a'; }
+    flip.style.display = ''; setSourceIcon('video');
+  } else if (cameraMode === 'live') {
     cap.style.display = ''; cap.innerHTML = ICONS.pause; cap.title = 'pause'; cap.style.color = '';   /* record/pause toggle (was the stop square; before that the aperture) */
     flip.style.display = ''; setSourceIcon('live');
   } else if (cameraMode === 'frozen') {
@@ -355,6 +455,8 @@ function updateLiveUI() {
   } else {
     cap.style.display = 'none'; flip.style.display = 'none'; cap.style.color = '';
   }
+  // download: in record-video mode it saves the take, so it needs one to exist
+  $('m-tab-export').disabled = videoMode ? !recordedVideo : false;
 }
 
 function cameraErrorMessage(e) {
@@ -430,6 +532,11 @@ async function flipCamera() {
 }
 
 $('m-tab-capture').addEventListener('click', () => {
+  if (videoMode) {
+    if (recState === 'recording') stopRecording();
+    else startRecording();
+    return;
+  }
   if (cameraMode === 'live') captureFrame();
   else if (cameraMode === 'frozen') startCamera();   // "go live"
 });
@@ -488,11 +595,19 @@ function closeMenu() {
 // vs choose-file into the same system sheet, so they're one item). "take still"
 // uses the native camera (full-res) via the capture-attribute file input.
 function showSourceMenu() {
+  // dot semantics (Daniel): green = live, red = record
   showMenu([
-    { icon: ICONS.record, iconClass: 'm-icon-record', label: 'live camera', action: startCamera },
-    { icon: ICONS.camera, label: 'take still', action: () => $('m-file-still').click() },
-    { icon: ICONS.photo, label: 'choose photo / file', action: () => $('m-file').click() },
+    { icon: ICONS.record, iconClass: 'm-icon-live', label: 'live camera', action: enterLiveCamera },
+    { icon: ICONS.record, iconClass: 'm-icon-record', label: 'record video', action: startRecordVideo },
+    { icon: ICONS.camera, label: 'take still', action: () => { if (confirmLoseRecording()) $('m-file-still').click(); } },
+    { icon: ICONS.photo, label: 'choose photo / file', action: () => { if (confirmLoseRecording()) $('m-file').click(); } },
   ], 'm-tab-source');
+}
+async function enterLiveCamera() {
+  if (!confirmLoseRecording()) return;
+  leaveVideoMode();
+  await startCamera();
+  updateLiveUI();
 }
 
 function showFormMenu() {

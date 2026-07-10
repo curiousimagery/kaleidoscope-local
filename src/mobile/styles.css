@@ -123,7 +123,9 @@ html, body { margin: 0; padding: 0; height: 100%; background: var(--bg); color: 
 .m-menu-item:active, .m-menu-item.current { background: var(--c-neutral-700); }
 .m-menu-icon { display: inline-flex; align-items: center; justify-content: center; width: 24px; color: var(--text); }
 .m-menu-icon svg { width: 22px; height: 22px; display: block; }
-.m-icon-record { color: var(--danger); }   /* live camera = red in the menu (mono in the tab bar) */
+.m-icon-record { color: var(--danger); }   /* record video = red (record semantics) */
+.m-icon-live { color: var(--ok); }         /* live camera = green (live semantics) */
+#m-tabbar button:disabled { opacity: 0.35; }   /* e.g. download before a recording exists */
 
 /* --------------------------------------------------------------- landscape layout
    Same DOM, rotated. #m-root flips to a row so children read left→right:
