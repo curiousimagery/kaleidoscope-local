@@ -97,18 +97,22 @@ export function createRecorderSink({ filenamePrefix = 'fold-live' } = {}) {
 
     // begin a session at w×h. Sizes the canvas, draws nothing yet (the first
     // publish fills it), and starts MediaRecorder over its captureStream.
-    start(w, h) {
+    // `audioTrack` (optional) joins the stream — the output panel's audio
+    // picker acquires the chosen mic and hands its track here.
+    start(w, h, audioTrack = null) {
       if (recording) return;
       ensureCanvas(w, h);
       const mime = pickMime();
       if (mime === null) throw new Error('MediaRecorder is not available in this browser');
       chunks = [];
       stream = canvas.captureStream();   // tracks the canvas as it's drawn each frame
+      if (audioTrack) { try { stream.addTrack(audioTrack); } catch { /* video-only */ } }
       // Quality: MediaRecorder's default bitrate for a canvas stream is low → heavily
       // compressed footage. Target ~0.2 bits/pixel/frame at 30fps (≈ w·h·6), capped so
       // the real-time encoder can keep up. Much better fidelity than the default.
       const videoBitsPerSecond = Math.min(40_000_000, Math.round(w * h * 6));
       const opts = { videoBitsPerSecond };
+      if (audioTrack) opts.audioBitsPerSecond = 128_000;
       if (mime) opts.mimeType = mime;
       recorder = new MediaRecorder(stream, opts);
       const finalMime = recorder.mimeType || mime || 'video/webm';

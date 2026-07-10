@@ -446,7 +446,7 @@ outputEl.addEventListener('click', (e) => {
 });
 
 $('m-tab-export').addEventListener('click', () => {
-  if (videoMode) { saveRecordedVideo(); return; }   // gated by :disabled until a take exists
+  if (videoMode) { showSaveVideoMenu(); return; }   // gated by :disabled until a take exists
   if (engine.getSourceImage()) openSaveSheet();
 });
 
@@ -490,6 +490,38 @@ let recordedVideo = null;      // { blob, ext } — the finished take
 let recordingSaved = false;    // download tapped since the take finished
 let mediaRec = null, recChunks = [], micStream = null;
 let recordCanvas = null;       // full-res 2D canvas the recorder captures
+// SAVE PACKAGE: a second recorder on the RAW camera stream (no extra render
+// cost — the track comes straight from getUserMedia; mic cloned to both).
+// GATED: any failure just drops the raw take — two hardware encoders is
+// device-dependent, and the save menu offers video-only when raw is absent.
+let rawRec = null, rawChunks = [], rawVideo = null, rawStream = null;
+function dropRawRecorder() {
+  if (rawRec) { rawRec.ondataavailable = null; try { rawRec.stop(); } catch { /* inactive */ } }
+  rawRec = null; rawChunks = [];
+  rawStream?.getTracks().forEach((t) => t.stop()); rawStream = null;
+}
+function startRawRecorder(mime) {
+  rawVideo = null;
+  try {
+    const rawTrack = camera.getVideo()?.srcObject?.getVideoTracks?.()[0];
+    if (!rawTrack) return;
+    const tracks = [rawTrack.clone()];
+    const mic = micStream?.getAudioTracks()[0];
+    if (mic) tracks.push(mic.clone());
+    rawStream = new MediaStream(tracks);
+    rawRec = new MediaRecorder(rawStream, mime ? { mimeType: mime, videoBitsPerSecond: 16e6 } : undefined);
+    rawRec.ondataavailable = (e) => { if (e.data?.size) rawChunks.push(e.data); };
+    rawRec.onerror = () => dropRawRecorder();
+    rawRec.onstop = () => {
+      const type = rawRec?.mimeType || mime || 'video/webm';
+      rawVideo = rawChunks.length ? { blob: new Blob(rawChunks, { type }), ext: /mp4/.test(type) ? 'mp4' : 'webm' } : null;
+      rawChunks = [];
+      rawStream?.getTracks().forEach((t) => t.stop()); rawStream = null;
+      rawRec = null;
+    };
+    rawRec.start(1000);
+  } catch { dropRawRecorder(); }
+}
 function paintRecord() {
   if (recState !== 'recording' || !recordCanvas) return;
   const ctx = recordCanvas.getContext('2d');
@@ -511,6 +543,7 @@ function confirmLoseRecording(msg) {
     // nulling recordedVideo here would lose the race with the async onstop.
     if (mediaRec) mediaRec.ondataavailable = null;
     recChunks = [];
+    dropRawRecorder();
     stopRecording();
     return true;
   }
@@ -560,6 +593,7 @@ async function startRecording() {
     updateLiveUI();
   };
   mediaRec.start(1000);   // timeslice: chunks survive even if stop never fires cleanly
+  startRawRecorder(mime);  // the package's unedited source (gated, drop-on-failure)
   recordedVideo = null;
   recordingSaved = false;
   recState = 'recording';
@@ -568,18 +602,37 @@ async function startRecording() {
 }
 function stopRecording() {
   try { mediaRec?.stop(); } catch { /* already inactive */ }
+  try { rawRec?.stop(); } catch { /* already inactive */ }
 }
-function saveRecordedVideo() {
-  if (!recordedVideo) return;
+function recTimestamp() {
   const d = new Date();
-  const ts = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}-${String(d.getHours()).padStart(2, '0')}${String(d.getMinutes()).padStart(2, '0')}`;
-  downloadBlob(recordedVideo.blob, `fold-video-${ts}.${recordedVideo.ext}`);
-  recordingSaved = true;
+  return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}-${String(d.getHours()).padStart(2, '0')}${String(d.getMinutes()).padStart(2, '0')}`;
+}
+// download in record video: a mini menu — save the effected video, or the
+// package (video + the simultaneously-recorded UNEDITED source, mirroring the
+// stills package). Two files in one gesture, not an in-memory zip: two takes
+// of video zipped on a phone is a memory cliff; the browser may ask once to
+// allow multiple downloads.
+function showSaveVideoMenu() {
+  if (!recordedVideo) return;
+  const ts = recTimestamp();
+  const items = [
+    { icon: ICONS.download, label: 'save video', action: () => { downloadBlob(recordedVideo.blob, `fold-video-${ts}.${recordedVideo.ext}`); recordingSaved = true; } },
+  ];
+  if (rawVideo) {
+    items.push({ icon: ICONS.download, label: 'save package — video + source', action: () => {
+      downloadBlob(recordedVideo.blob, `fold-video-${ts}.${recordedVideo.ext}`);
+      downloadBlob(rawVideo.blob, `fold-source-${ts}.${rawVideo.ext}`);
+      recordingSaved = true;
+    } });
+  }
+  showMenu(items, 'm-tab-export');
 }
 function leaveVideoMode() {
   if (!videoMode) return;
   videoMode = false;
   recordedVideo = null;
+  rawVideo = null;
   recordingSaved = false;
   follower = null;
   autoOn = false;
@@ -805,6 +858,9 @@ function captureFrame() {
 
 async function flipCamera() {
   if (cameraMode !== 'live') return;
+  // a flip re-acquires the stream, which kills the raw recorder's cloned track
+  // — drop the package's source take (the effected canvas recording rolls on)
+  if (recState === 'recording') dropRawRecorder();
   try {
     const video = await camera.flip();
     liveVideo = video;

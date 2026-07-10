@@ -34,8 +34,28 @@ export function createOutputPanel(env, outputBus) {
   const statusEl = byId('outputStatus');
   const ledGreen = led ? led.querySelectorAll('i')[0] : null;   // broadcast
   const ledRed = led ? led.querySelectorAll('i')[1] : null;     // record
+  const recAudioEl = byId('recAudio');
 
   const recorder = outputBus.getSink('disk');
+
+  // audio-source picker: enumerate mics into the select (labels only appear
+  // once some permission has been granted — generic names until then), keep
+  // the choice in session, refresh on focus + device changes. "none" records
+  // video only (the long-standing behavior stays the default).
+  async function refreshMics() {
+    if (!recAudioEl || !navigator.mediaDevices?.enumerateDevices) return;
+    try {
+      const mics = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === 'audioinput');
+      const cur = (env.session && env.session.recordAudioDevice) || '';
+      recAudioEl.innerHTML = '<option value="">none</option>' +
+        mics.map((m, i) => `<option value="${m.deviceId}">${(m.label || `microphone ${i + 1}`).replace(/</g, '&lt;')}</option>`).join('');
+      recAudioEl.value = [...recAudioEl.options].some((o) => o.value === cur) ? cur : '';
+    } catch { /* keep "none" */ }
+  }
+  recAudioEl?.addEventListener('change', () => { if (env.session) env.session.recordAudioDevice = recAudioEl.value; });
+  recAudioEl?.addEventListener('focus', refreshMics);
+  try { navigator.mediaDevices?.addEventListener?.('devicechange', refreshMics); } catch { /* optional */ }
+  refreshMics();
 
   // Detected destinations, in display order. A sink is offered only if it's registered
   // (Syphon only on a native host) and reports supported.
@@ -108,24 +128,44 @@ export function createOutputPanel(env, outputBus) {
       : '';
   }
 
-  function toggleRecord() {
+  // the mic behind the audio picker, held for the recording session
+  let recMicStream = null;
+  function stopRecMic() {
+    recMicStream?.getTracks().forEach((t) => t.stop());
+    recMicStream = null;
+  }
+  async function toggleRecord() {
     if (!recorder) return;
     if (recorder.recording) {
       recorder.stop();
+      stopRecMic();
       wantRecord = false;
       syncBusRunning();
       if (!broadcasting) stopPolling();
     } else {
       if (!canArm()) return;
       if (!recorder.supported) { if (statusEl) statusEl.textContent = 'recording not supported in this browser'; return; }
+      // the audio picker: acquire the chosen mic first (async); denial or
+      // failure degrades to video-only rather than blocking the take
+      let micTrack = null;
+      const devId = recAudioEl?.value;
+      if (devId) {
+        try {
+          recMicStream = await navigator.mediaDevices.getUserMedia({ audio: devId === 'default' ? true : { deviceId: { exact: devId } } });
+          micTrack = recMicStream.getAudioTracks()[0] || null;
+        } catch {
+          recMicStream = null;
+          if (statusEl) statusEl.textContent = 'microphone unavailable — recording video only';
+        }
+      }
       try {
         applyResolution();
         wantRecord = true;
         syncBusRunning();
-        recorder.start(outputBus.width, outputBus.height);
+        recorder.start(outputBus.width, outputBus.height, micTrack);
         startPolling();
       } catch (e) {
-        wantRecord = false; syncBusRunning();
+        wantRecord = false; syncBusRunning(); stopRecMic();
         if (statusEl) statusEl.textContent = `could not start recording: ${e.message}`;
       }
     }
@@ -194,7 +234,11 @@ export function createOutputPanel(env, outputBus) {
     if (outputBtn) outputBtn.classList.toggle('active', rec || broadcasting);
 
     if (recordBtn) {
-      recordBtn.textContent = rec ? 'stop' : 'record';
+      // red dot beside "record" (Daniel's color-semantics parity with mobile:
+      // red = record, green = live); recording flips to a plain "stop"
+      recordBtn.innerHTML = rec
+        ? 'stop'
+        : '<svg viewBox="0 0 12 12" aria-hidden="true"><circle cx="6" cy="6" r="5" fill="var(--danger)"/></svg>record';
       recordBtn.classList.toggle('rec', rec);
       recordBtn.disabled = !armable && !rec;
     }
@@ -253,7 +297,7 @@ export function createOutputPanel(env, outputBus) {
   // its second GL context) — tear down our side cleanly and surface the reason, so the
   // broadcast/record doesn't just die silently with the controls still lit.
   function failOutput(message) {
-    if (recorder?.recording) recorder.stop();
+    if (recorder?.recording) { recorder.stop(); stopRecMic(); }
     if (broadcasting) selectedDest()?.sink.stop();
     wantRecord = false; broadcasting = false;
     syncBusRunning();
@@ -290,7 +334,7 @@ export function createOutputPanel(env, outputBus) {
   function updateOutputUI() {
     if (outputBtn) outputBtn.disabled = !(hasSource() || recorder?.supported || destinations.length);
     if (!canArm() && (recorder?.recording || broadcasting)) {
-      if (recorder?.recording) recorder.stop();
+      if (recorder?.recording) { recorder.stop(); stopRecMic(); }
       if (broadcasting) selectedDest()?.sink.stop();
       wantRecord = false; broadcasting = false;
       syncBusRunning();

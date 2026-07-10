@@ -866,6 +866,8 @@ button .btn-spinner {
 .or-status { color: var(--text-dim); margin-left: auto; font-variant-numeric: tabular-nums; }
 .or-status.live { color: var(--ok); }
 /* record = a red "take rolling"; broadcast = a green "armed/live" */
+#recordBtn { display: inline-flex; align-items: center; gap: 6px; }   /* red dot + label (color semantics: red = record) */
+#recordBtn svg { width: 12px; height: 12px; }
 #recordBtn.rec { background: var(--danger); border-color: var(--danger); color: var(--on-accent); }
 #broadcastBtn.armed { background: var(--ok); border-color: var(--ok); color: var(--on-accent); }
 
