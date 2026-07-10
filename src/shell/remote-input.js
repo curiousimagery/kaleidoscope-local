@@ -5,17 +5,30 @@
 //
 // Mobile gesture adapter for the control bus (Electron shell only — the main
 // process hosts the LAN page + WebSocket; see electron/remote-input.js and
-// remote-page.html). The phone surface is TWO ZONES (slice / canvas — Daniel's
-// spec) and emits DELTA gestures, so mappings are rel-only, scaled like the
-// native trackpad's:
-//   mob:mobile.<zone>.dragx/.dragy   one-finger drag, value = travel/minDim × 3
-//   mob:mobile.<zone>.pinch          two-finger pinch, value = scale delta × 2
-//   mob:mobile.<zone>.rotate         two-finger rotate, value = degrees / 90
-// The phone also streams its FINGER POSITIONS ('f'), painted here as
-// low-opacity circles over the DESKTOP app — the whole point is seeing where
-// your fingers are while your eyes stay on the desktop output.
+// remote-page.html). The phone surface is TWO ZONES (slice / canvas):
+//
+//   SIGNALS IN — delta gestures per zone, rel-only, trackpad-scaled:
+//     mob:mobile.<zone>.dragx/.dragy   drag, value = travel/minDim × 3
+//     mob:mobile.<zone>.pinch          pinch, value = scale delta × 2
+//     mob:mobile.<zone>.rotate         rotate, value = degrees / 90
+//   (unmapped, the bus applies them contextually: slice zone → the slice,
+//    canvas zone → the canvas — the phone works with zero setup)
+//
+//   STATE OUT — this adapter streams the desktop's ACTUAL slice geometry to
+//   the phone (~10Hz, on change): the active form's real outline polygons in
+//   source-UV space (rectangle for square, wedge for radial, annulus for
+//   droste — position/rotation/scale all true) plus canvas rotation/zoom so
+//   the phone's crosshair-and-circles affordance MOVES with the values.
+//
+//   FINGERS — the phone streams touch positions; they paint as low-opacity
+//   circles over the DESKTOP's corresponding panel (slice-zone touches over
+//   the source panel in true UV registration, canvas-zone touches over the
+//   output preview) — eyes stay on the desktop, per Daniel's spec.
 
-export function createRemoteInput(onSignal, onDevices, host) {
+import { getActiveForm } from '../engine/forms/index.js';
+import { sliceVecToSourceUV } from '../engine/geometry.js';
+
+export function createRemoteInput(onSignal, onDevices, host, env) {
   let running = false;
   let clientCount = 0;
   let name = 'iPhone / iPad';
@@ -23,12 +36,68 @@ export function createRemoteInput(onSignal, onDevices, host) {
 
   const meta = (label) => ({ device: 'mobile', deviceName: `${name} (gesture)`, kind: 'touch', label, momentary: false, relative: true });
 
-  // ---- the desktop finger overlay -------------------------------------------
-  // A fixed, non-interactive canvas over the whole window. Phone coordinates
-  // arrive normalized with the phone's aspect; they map into a centered,
-  // aspect-true rect so the geometry of your hand reads honestly.
+  // ---- state stream: the real slice outline + canvas pose --------------------
+  function slicePolysUV() {
+    const st = env.state;
+    const engine = env.engine;
+    if (!engine?.getSourceImage?.()) return null;
+    const sa = engine.getSourceAspect();
+    const form = getActiveForm(st);
+    const paths = form.ghostPaths ? form.ghostPaths(st)
+      : form.buildPolygon ? [form.buildPolygon(st)] : [];
+    const polys = paths.map((pts) => pts.map((p) => {
+      const { dx, dy } = sliceVecToSourceUV(p.vx, p.vy, st, sa);
+      return [+(st.sliceCx + dx).toFixed(4), +(st.sliceCy + dy).toFixed(4)];
+    }));
+    return { polys, sa: +sa.toFixed(4) };
+  }
+  let pushTimer = 0, lastPushSig = '';
+  function pushState() {
+    const geo = slicePolysUV();
+    const st = env.state;
+    const msg = {
+      t: 'st',
+      rot: +(st.canvasRotation ?? 0).toFixed(2),
+      zoom: +(st.canvasZoom ?? 1).toFixed(3),
+      ...(geo || {}),
+    };
+    const sig = JSON.stringify(msg);
+    if (sig === lastPushSig) return;
+    lastPushSig = sig;
+    host.remote.push(msg);
+  }
+  function setStreaming(on) {
+    if (on && !pushTimer) { lastPushSig = ''; pushTimer = setInterval(pushState, 100); }
+    else if (!on && pushTimer) { clearInterval(pushTimer); pushTimer = 0; }
+  }
+
+  // ---- finger echo into the DESKTOP panels ------------------------------------
+  // Phone finger positions arrive zone-tagged: slice-zone fingers in source-UV
+  // (registered to the same rect the polygons live in, so "just right of the
+  // wedge" lands just right of the wedge), canvas-zone fingers zone-normalized.
   let fingerCanvas = null, fingerFadeT = 0;
-  function paintFingers(pts, ar) {
+  function panelRect(which) {
+    if (which === 'slice') {
+      const view = env.sourceOverlay?.view;
+      const c = view?.sourceOverlayCanvas;
+      if (!c) return null;
+      const r = c.getBoundingClientRect();
+      if (!r.width) return null;
+      // the displayed IMAGE rect inside the wrap (overlay.js imageRect math)
+      const sa = env.engine?.getSourceAspect?.() || 1;
+      const cover = view.fit === 'cover';
+      const wrapAspect = r.width / r.height;
+      let w, h;
+      if ((sa > wrapAspect) !== cover) { w = r.width; h = r.width / sa; }
+      else { h = r.height; w = r.height * sa; }
+      return { x: r.left + (r.width - w) / 2, y: r.top + (r.height - h) / 2, w, h };
+    }
+    const c = env.previewCanvas;
+    if (!c) return null;
+    const r = c.getBoundingClientRect();
+    return r.width ? { x: r.left, y: r.top, w: r.width, h: r.height } : null;
+  }
+  function paintFingers(pts) {
     if (!fingerCanvas) {
       fingerCanvas = document.createElement('canvas');
       fingerCanvas.style.cssText = 'position:fixed;inset:0;z-index:420;pointer-events:none';
@@ -41,21 +110,17 @@ export function createRemoteInput(onSignal, onDevices, host) {
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, w, h);
     if (pts && pts.length) {
-      // centered aspect-fit rect for the phone's surface
-      const a = ar || 0.5;
-      let rw = w * 0.92, rh = rw / a;
-      if (rh > h * 0.92) { rh = h * 0.92; rw = rh * a; }
-      const rx = (w - rw) / 2, ry = (h - rh) / 2;
-      for (const [nx, ny] of pts) {
-        const x = rx + nx * rw, y = ry + ny * rh;
-        ctx.beginPath(); ctx.arc(x, y, 36, 0, Math.PI * 2);
-        ctx.fillStyle = 'rgba(255,255,255,0.09)'; ctx.fill();
-        ctx.strokeStyle = 'rgba(255,255,255,0.22)'; ctx.lineWidth = 1.5; ctx.stroke();
+      for (const [zone, nx, ny] of pts) {
+        const r = panelRect(zone === 0 ? 'slice' : 'canvas');
+        if (!r) continue;
+        const x = r.x + nx * r.w, y = r.y + ny * r.h;
+        ctx.beginPath(); ctx.arc(x, y, 20, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(255,255,255,0.10)'; ctx.fill();
+        ctx.strokeStyle = 'rgba(255,255,255,0.30)'; ctx.lineWidth = 1.5; ctx.stroke();
       }
     }
-    // stale-frame guard: if the stream stops mid-touch (wifi drop), clear
     clearTimeout(fingerFadeT);
-    if (pts && pts.length) fingerFadeT = setTimeout(() => paintFingers([], ar), 600);
+    if (pts && pts.length) fingerFadeT = setTimeout(() => paintFingers([]), 600);
   }
 
   return {
@@ -68,8 +133,8 @@ export function createRemoteInput(onSignal, onDevices, host) {
       running = true;
       host.remote.onSignal((msg) => {
         if (!msg) return;
-        if (msg.t === 'hi') { name = msg.name || name; onDevices?.(); return; }
-        if (msg.t === 'f') { paintFingers(msg.p, msg.ar); return; }
+        if (msg.t === 'hi') { name = msg.name || name; onDevices?.(); pushState(); return; }
+        if (msg.t === 'f') { paintFingers(msg.p); return; }
         const z = msg.z === 'slice' ? 'slice' : 'canvas';
         if (msg.t === 'd') {
           if (msg.x) onSignal(`mob:mobile.${z}.dragx`, msg.x * 3, meta(`${z} drag x`));
@@ -82,7 +147,8 @@ export function createRemoteInput(onSignal, onDevices, host) {
       });
       host.remote.onStatus((st) => {
         clientCount = st?.clients || 0;
-        if (!clientCount) paintFingers([], 1);   // phone gone — clear the overlay
+        setStreaming(clientCount > 0);
+        if (!clientCount) paintFingers([]);
         onDevices?.();
       });
       const res = await host.remote.start();

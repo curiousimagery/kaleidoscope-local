@@ -103,7 +103,7 @@ export function createInputBus(env) {
   const midi = createMidiInput(onSignal, refreshDevices);
   const pads = createGamepadInput(onSignal, refreshDevices);
   const tp = createTrackpadInput(onSignal, refreshDevices, env.host);   // Electron shell only
-  const rem = createRemoteInput(onSignal, refreshDevices, env.host);    // Electron shell only
+  const rem = createRemoteInput(onSignal, refreshDevices, env.host, env);   // Electron shell only
   const online = () => new Map([...midi.devices(), ...pads.devices(), ...tp.devices(), ...rem.devices()].map((d) => [d.key, d.name]));
 
   // ---- signal routing ------------------------------------------------------------
@@ -134,6 +134,40 @@ export function createInputBus(env) {
       applyMapping(m, value, meta);
     }
     if (hit) paintActivity(sig);
+    flashDevice(meta.device || (sig.split(':')[1] || '').split('.')[0]);
+    // UNMAPPED gesture signals work CONTEXTUALLY by default (Daniel's natural
+    // expectation): over the source panel they drive the slice, over the
+    // output/live panel the canvas. Mapping a gesture signal takes over.
+    if (!hit && (sig.startsWith('tp:') || sig.startsWith('mob:'))) contextualGesture(sig, value);
+  }
+
+  // last pointer position — the hover context for unmapped trackpad gestures
+  const mouse = { x: -1, y: -1 };
+  document.addEventListener('mousemove', (e) => { mouse.x = e.clientX; mouse.y = e.clientY; }, { passive: true });
+  function contextualGesture(sig, value) {
+    let overSrc = false, overOut = false;
+    if (sig.startsWith('mob:')) {
+      overSrc = sig.includes('.slice.');       // the phone's zones ARE the context
+      overOut = sig.includes('.canvas.');
+    } else {
+      const el = mouse.x >= 0 ? document.elementFromPoint(mouse.x, mouse.y) : null;
+      overSrc = !!el?.closest('#srcPanel');
+      overOut = !!el?.closest('#outPanel, #livePanel');
+    }
+    if (!overSrc && !overOut) return;
+    const kind = sig.slice(sig.lastIndexOf('.') + 1);   // rotate | pinch | dragx | dragy
+    const key = overSrc
+      ? { rotate: 'sliceRotation', pinch: 'sliceScale', dragx: 'sliceCx', dragy: 'sliceCy' }[kind]
+      : { rotate: 'canvasRotation', pinch: 'canvasZoom' }[kind];
+    const t = key && targetOf(key);
+    if (!t) return;
+    writeParam(t, (state[t.key] ?? 0) + value * (t.max - t.min) * 0.25);
+  }
+
+  function flashDevice(dev) {
+    if (!dev || byId('settingsSheet')?.hidden !== false) return;
+    const dot = document.querySelector(`.in-devhead[data-dev="${CSS.escape(dev)}"] .in-dot`);
+    if (dot) { dot.classList.add('hot'); setTimeout(() => dot.classList.remove('hot'), 160); }
   }
 
   const targetOf = (key) => PARAM_TARGETS.find((t) => t.key === key);
@@ -159,7 +193,21 @@ export function createInputBus(env) {
       // send signed fractions) — sens is the whole step-size story
       let d = (meta.momentary ? Math.sign(value) : value) * span * sens;
       if (m.invert) d = -d;
-      if (d) writeParam(t, (state[t.key] ?? 0) + d);
+      if (!d) return;
+      // a BUTTON nudge eases like a gentle joystick (Daniel: an abrupt jump
+      // reads wrong for scale steps) — the step becomes a spring GOAL; the
+      // motion loop glides there with velocity continuity, so repeated presses
+      // chain smoothly. Continuous rel sources (encoders, gestures) already
+      // arrive as smooth event streams and write straight through.
+      if (meta.momentary) {
+        let g = glide.get(t.key);
+        if (!g) { g = { cur: state[t.key] ?? 0, vel: 0, goal: state[t.key] ?? 0 }; glide.set(t.key, g); }
+        g.goal += d;
+        if (!t.wrap) g.goal = Math.max(t.min, Math.min(t.max, g.goal));
+        startMotionLoop();
+      } else {
+        writeParam(t, (state[t.key] ?? 0) + d);
+      }
       return;
     }
     // absolute: position IS the value across the target's full range
@@ -178,9 +226,11 @@ export function createInputBus(env) {
     if (now - lastSyncT > 250) { lastSyncT = now; env.syncControls?.(); }
   }
 
-  // rate-mode integration: alive only while something is deflected. Full
-  // deflection sweeps sens × range × 2.4 per second (sens 25% ≈ 60%/s).
-  function startRateLoop() {
+  // the MOTION LOOP: rate deflections (full deflection sweeps sens × range ×
+  // 2.4/s) and button-nudge glides (critically damped spring, ~0.18s response —
+  // the gentle-joystick ease) integrate here; alive only while something moves.
+  const glide = new Map();       // stateKey → { cur, vel, goal }
+  function startMotionLoop() {
     if (rateRaf) return;
     rateLastT = performance.now();
     const tick = (t) => {
@@ -193,10 +243,23 @@ export function createInputBus(env) {
         live = true;
         writeParam(targetOf(r.key), (state[r.key] ?? 0) + r.d * r.span * r.sens * 2.4 * dt);
       }
+      const omega = 2 / 0.18;
+      const decay = Math.exp(-omega * dt);
+      for (const [k, g] of glide) {
+        const t2 = targetOf(k);
+        const y = g.cur - g.goal;
+        if (Math.abs(y) < 1e-4 && Math.abs(g.vel) < 1e-3) { glide.delete(k); continue; }
+        live = true;
+        const tmp = (g.vel + omega * y) * dt;
+        g.cur = g.goal + (y + tmp) * decay;
+        g.vel = (g.vel - omega * tmp) * decay;
+        writeParam(t2, g.cur);
+      }
       if (live) rateRaf = requestAnimationFrame(tick);
     };
     rateRaf = requestAnimationFrame(tick);
   }
+  const startRateLoop = startMotionLoop;   // rate entries share the loop
 
   // transport actions press the same buttons the keyboard does, mode-aware
   function fireAction(a) {
@@ -264,16 +327,24 @@ export function createInputBus(env) {
       const d = store.devices[dev] || { name: dev };
       const head = document.createElement('div');
       head.className = 'in-devhead';
-      head.innerHTML = `<i class="in-dot${on.has(dev) ? ' on' : ''}" title="${on.has(dev) ? 'connected' : 'offline'}"></i>
+      const nMaps = store.maps.filter((m) => m.dev === dev).length;
+      const closed = !!d.closed;
+      head.dataset.dev = dev;
+      head.innerHTML = `<button class="in-chev" title="${closed ? 'expand' : 'collapse'}">${closed ? '▸' : '▾'}</button>
+        <i class="in-dot${on.has(dev) ? ' on' : ''}" title="${on.has(dev) ? 'connected' : 'offline'}"></i>
         <input class="in-name" value="${(d.friendly || d.name || dev).replace(/"/g, '&quot;')}" title="device name — click to rename">
+        <span class="in-devcount">${nMaps ? `${nMaps} mapping${nMaps === 1 ? '' : 's'}` : ''}</span>
         <span class="in-devstate">${on.has(dev) ? 'connected' : 'offline'}</span>
         <button class="vid-x in-devdel" title="remove this device and its mappings">✕</button>`;
+      head.querySelector('.in-chev').addEventListener('click', () => {
+        (store.devices[dev] ??= { name: dev }).closed = !closed;
+        save(); renderMaps();
+      });
       head.querySelector('.in-name').addEventListener('change', (e) => {
         (store.devices[dev] ??= { name: dev }).friendly = e.target.value.trim();
         save();
       });
       head.querySelector('.in-devdel').addEventListener('click', () => {
-        const nMaps = store.maps.filter((m) => m.dev === dev).length;
         if (nMaps && !window.confirm(`Remove ${d.friendly || d.name || dev} and its ${nMaps} mapping${nMaps === 1 ? '' : 's'}?`)) return;
         for (const m of store.maps) {   // unpaint any LEDs it owned
           if (m.dev === dev && m.led != null) { const pn = midi.parseNoteSig(m.sig); if (pn) midi.sendNote(pn.device, pn.ch, pn.note, 0); }
@@ -283,7 +354,7 @@ export function createInputBus(env) {
         save(); renderMaps(); renderLights();
       });
       wrap.appendChild(head);
-      store.maps.forEach((m, i) => { if (m.dev === dev) wrap.appendChild(mapRow(m, i)); });
+      if (!closed) store.maps.forEach((m, i) => { if (m.dev === dev) wrap.appendChild(mapRow(m, i)); });
     }
     renderPairing(wrap);
   }

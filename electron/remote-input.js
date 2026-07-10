@@ -126,5 +126,11 @@ module.exports = {
     notifyStatus();
   },
   setHandlers({ message, status }) { onMessage = message; onStatus = status; },
+  // desktop → phone push (the state stream: slice polygons, canvas rot/zoom)
+  broadcast(obj) {
+    if (!clients.size) return;
+    const data = JSON.stringify(obj);
+    for (const c of clients) sendFrame(c, data);
+  },
   get clients() { return clients.size; },
 };

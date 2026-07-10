@@ -406,7 +406,7 @@
         <button class="toggle" id="inLoadRig" title="load a rig JSON (replaces current mappings)">load rig</button>
         <input type="file" id="inRigFile" accept="application/json" hidden>
       </div>
-      <div class="in-hint"><b>abs</b> — the control's position IS the value (faders, knobs). <b>rel</b> — each event nudges by sensitivity × range (endless encoders, buttons). <b>rate</b> — deflection sets speed; release to stop (sticks, throttles). Hover a target for its low → high direction. Names are editable; drag ≡ to reorder; pad rows carry an LED swatch (tap to cycle the hardware color). Mappings write the parameter exactly like your hand — the live output follows at the transition speed and autoplay yields the field.</div>
+      <div class="in-hint"><b>abs</b> — the control's position IS the value (faders, knobs). <b>rel</b> — each event nudges by sensitivity × range (endless encoders; button nudges glide in smoothly). <b>rate</b> — deflection sets speed; release to stop (sticks, throttles). <b>Gestures work with zero setup:</b> unmapped trackpad gestures apply to whatever the cursor is over (source panel → slice, output → canvas) and the phone's zones do the same — mapping a gesture signal takes over from the default. Hover a target for its low → high direction. Names are editable; drag ≡ to reorder; ▾ collapses a device; pad rows carry an LED swatch (tap to cycle the hardware color). Mappings write the parameter exactly like your hand — the live output follows at the transition speed and autoplay yields the field.</div>
     </div>
     <div class="set-tab" id="tabDiag" hidden>
       <div class="status" id="diag"></div>

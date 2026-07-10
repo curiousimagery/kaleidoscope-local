@@ -1211,7 +1211,7 @@ body.motion #oobModes { pointer-events: none; opacity: var(--disabled-opacity); 
 .t-mono     { font-family: var(--font-mono); font-size: var(--text-sm); color: var(--text-dim); }
 
 /* settings sheet (the app-bar gear): about · inputs (control bus admin) · diagnostics */
-.in-card { width: 720px; max-width: 96vw; }
+.in-card { width: 880px; max-width: 96vw; }
 .set-tabs { display: flex; gap: 6px; margin-bottom: 4px; }
 .set-tabs .toggle { font-size: var(--text-xs); padding: 4px 10px; }
 .about-name { font-size: var(--text-lg); color: var(--text-bright); font-weight: 600; }
@@ -1224,7 +1224,7 @@ body.motion #oobModes { pointer-events: none; opacity: var(--disabled-opacity); 
 /* inputs tab: device headers + mapping rows */
 .in-dev { font-size: var(--text-sm); color: var(--text); }
 .in-dev.none { color: var(--text-dim); }
-.in-maps { display: flex; flex-direction: column; gap: 5px; max-height: 52vh; overflow-y: auto; }
+.in-maps { display: flex; flex-direction: column; gap: 5px; max-height: 62vh; overflow-y: auto; }
 .in-devhead { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
 .in-devhead:first-child { margin-top: 0; }
 .in-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--border); flex: none; }
@@ -1241,11 +1241,25 @@ body.motion #oobModes { pointer-events: none; opacity: var(--disabled-opacity); 
   transition: border-color 120ms;
 }
 .in-map.in-live { border-color: var(--accent); }
-/* drag-to-reorder: an insertion LINE — neighbors part to show where the row lands */
-.in-map { transition: border-color 120ms, margin 90ms; }
+/* drag-to-reorder: a REAL insertion line drawn in the gap between rows (a
+   box-shadow hugged the rounded corners and read as a merge — Daniel). */
+.in-map { position: relative; transition: border-color 120ms, margin 90ms; }
 .in-map.in-dragging { opacity: 0.45; }
-.in-map.in-drop-before { margin-top: 8px; box-shadow: 0 -6px 0 -2px var(--accent); }
-.in-map.in-drop-after { margin-bottom: 8px; box-shadow: 0 6px 0 -2px var(--accent); }
+.in-map.in-drop-before { margin-top: 13px; }
+.in-map.in-drop-after { margin-bottom: 13px; }
+.in-map.in-drop-before::before, .in-map.in-drop-after::after {
+  content: ''; position: absolute; left: 4px; right: 4px; height: 2px;
+  background: var(--accent); border-radius: 1px;
+  box-shadow: -1px 0 0 2px var(--accent);   /* a small cap so the line reads as a caret, not a border */
+}
+.in-map.in-drop-before::before { top: -9px; }
+.in-map.in-drop-after::after { bottom: -9px; }
+/* collapsible device groups */
+.in-devhead .in-chev { background: transparent; border: none; color: var(--text-dim);
+  cursor: pointer; font-size: 11px; padding: 2px 4px; width: 20px; flex: none; }
+.in-devhead .in-chev:hover { color: var(--text-bright); }
+.in-devcount { font-size: var(--text-xs); color: var(--text-dim); }
+.in-dot.hot { background: var(--accent); box-shadow: 0 0 6px var(--accent); }
 .in-grip { color: var(--text-dim); cursor: grab; user-select: none; text-align: center; }
 .in-kind { font-size: 9px; color: var(--text-muted); border: 1px solid var(--border);
   border-radius: var(--radius-sm); padding: 1px 3px; text-align: center; }

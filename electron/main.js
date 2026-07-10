@@ -130,6 +130,7 @@ remote.setHandlers({
 });
 ipcMain.handle('remote:start', () => remote.start());
 ipcMain.on('remote:stop', () => remote.stop());
+ipcMain.on('remote:push', (_e, obj) => remote.broadcast(obj));
 
 // Lightweight local config (user preferences — the input rig, etc.): one JSON
 // file in userData. No database, session discipline intact; the renderer keeps

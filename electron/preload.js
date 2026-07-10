@@ -89,6 +89,7 @@ const foldHost = {
     available: true,
     start() { return ipcRenderer.invoke('remote:start'); },
     stop() { ipcRenderer.send('remote:stop'); },
+    push(obj) { ipcRenderer.send('remote:push', obj); },
     onSignal(cb) {
       const h = (_e, msg) => cb(msg);
       ipcRenderer.on('remote:signal', h);

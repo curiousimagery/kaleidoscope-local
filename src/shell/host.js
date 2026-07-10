@@ -50,6 +50,7 @@ export const webHost = {
     available: false,
     async start() { return null; },   // → { url } when available
     stop() {},
+    push(/* obj */) {},               // desktop → phone state stream
     onSignal(/* handler */) { return () => {}; },
     onStatus(/* handler */) { return () => {}; },
   },
