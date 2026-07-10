@@ -114,13 +114,46 @@ export function createRemoteInput(onSignal, onDevices, host, env) {
         const r = panelRect(zone === 0 ? 'slice' : 'canvas');
         if (!r) continue;
         const x = r.x + nx * r.w, y = r.y + ny * r.h;
-        ctx.beginPath(); ctx.arc(x, y, 20, 0, Math.PI * 2);
-        ctx.fillStyle = 'rgba(255,255,255,0.10)'; ctx.fill();
-        ctx.strokeStyle = 'rgba(255,255,255,0.30)'; ctx.lineWidth = 1.5; ctx.stroke();
+        ctx.beginPath(); ctx.arc(x, y, 9, 0, Math.PI * 2);   // ~finger-pad size (Daniel: 140px read as a giant cursor)
+        ctx.fillStyle = 'rgba(255,255,255,0.12)'; ctx.fill();
+        ctx.strokeStyle = 'rgba(255,255,255,0.35)'; ctx.lineWidth = 1.5; ctx.stroke();
       }
     }
     clearTimeout(fingerFadeT);
     if (pts && pts.length) fingerFadeT = setTimeout(() => paintFingers([]), 600);
+  }
+
+  // ---- RAW slice-zone touches → synthetic TouchEvents on the desktop's own
+  // source overlay. The phone relays id + UV; we map into the displayed image
+  // rect and replay through setupSourceInteraction's real handlers — move,
+  // outside-drag rotate, the two-finger rigid-body (rotate+scale+reposition at
+  // once), every affordance — with EXACT desktop-touch parity and zero
+  // duplicated interaction code. No pointer capture in that path, so synthetic
+  // events are safe; identifiers offset so they can never collide with real
+  // touches on a touch-screen desktop.
+  function dispatchSliceTouch(kind, changed, all) {
+    const view = env.sourceOverlay?.view;
+    const wrap = view?.sourceOverlayCanvas?.parentElement;
+    const r = panelRect('slice');
+    if (!wrap || !r || typeof Touch !== 'function') return;
+    const toTouch = ([id, u, v]) => new Touch({
+      identifier: 9000 + id,
+      target: wrap,
+      clientX: r.x + u * r.w,
+      clientY: r.y + v * r.h,
+    });
+    let touches, changedT;
+    try { touches = (all || []).map(toTouch); changedT = (changed || []).map(toTouch); }
+    catch { return; }
+    const type = kind === 's' ? 'touchstart' : kind === 'm' ? 'touchmove' : 'touchend';
+    try {
+      wrap.dispatchEvent(new TouchEvent(type, {
+        bubbles: true, cancelable: true,
+        touches, targetTouches: touches, changedTouches: changedT,
+      }));
+    } catch { /* TouchEvent constructor unsupported — overlay stays view-only */ }
+    // the finger echo rides the same registration (slice fingers = zone 0 UV)
+    paintFingers((all || []).map(([, u, v]) => [0, u, v]));
   }
 
   return {
@@ -135,6 +168,7 @@ export function createRemoteInput(onSignal, onDevices, host, env) {
         if (!msg) return;
         if (msg.t === 'hi') { name = msg.name || name; onDevices?.(); pushState(); return; }
         if (msg.t === 'f') { paintFingers(msg.p); return; }
+        if (msg.t === 'tt') { dispatchSliceTouch(msg.k, msg.c, msg.a); return; }
         const z = msg.z === 'slice' ? 'slice' : 'canvas';
         if (msg.t === 'd') {
           if (msg.x) onSignal(`mob:mobile.${z}.dragx`, msg.x * 3, meta(`${z} drag x`));

@@ -161,7 +161,12 @@ export function createInputBus(env) {
       : { rotate: 'canvasRotation', pinch: 'canvasZoom' }[kind];
     const t = key && targetOf(key);
     if (!t) return;
-    writeParam(t, (state[t.key] ?? 0) + value * (t.max - t.min) * 0.25);
+    // slice rotation is negated: the overlay's Y-flip means screen-clockwise
+    // fingers must DECREASE sliceRotation to turn the wedge with them (the
+    // same flip the desktop two-finger handler applies — Daniel felt the
+    // inversion immediately). Canvas rotation reads correctly unflipped.
+    const v2 = (overSrc && kind === 'rotate') ? -value : value;
+    writeParam(t, (state[t.key] ?? 0) + v2 * (t.max - t.min) * 0.25);
   }
 
   function flashDevice(dev) {
