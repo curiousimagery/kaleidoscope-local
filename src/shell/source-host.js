@@ -163,14 +163,25 @@ export function createSourceHost(env) {
             const target = Math.abs(v.currentTime - 0.01) < 0.005 ? 0.03 : 0.01;
             await seekVideoTo(v, target);
           };
-          try { v.pause(); await parkSeek(); } catch { /* keep whatever frame presented */ }
+          // THE ACTUAL ROOT CAUSE (found instrumenting the DMG): the park was
+          // RACING buildSrcStrip — updateSrcScrub schedules the thumbnail pass
+          // at loadeddata, so two drivers seeked one <video> concurrently,
+          // resolving each other's 'seeked' waits; every paint landed mid-seek
+          // (blank), and the strip's final restore-to-start repainted nothing.
+          // Serialize: the park yields all seeking to a building strip — the
+          // strip's finally-block now restores AND re-presents as the last
+          // writer (see buildSrcStrip); the park seeks only when it's alone.
+          try {
+            v.pause();
+            if (!srcStrip.building) await parkSeek();
+          } catch { /* keep whatever frame presented */ }
           const present = () => {
             engine.updateSourceFrame();
             engine.render(state);
             env.sourceOverlay.paintSourceVideo();
           };
           present();
-          for (let i = 0; i < 3 && env.sourceOverlay.sourceVideoBlank?.(); i++) {
+          for (let i = 0; i < 3 && !srcStrip.building && env.sourceOverlay.sourceVideoBlank?.(); i++) {
             try { await seekVideoTo(v, 0.05 + i * 0.05); await parkSeek(); } catch { break; }
             present();
           }
@@ -707,6 +718,24 @@ export function createSourceHost(env) {
       srcStrip.building = false;
       if (gen === srcStrip.gen) {
         try { await seekVideoTo(v, saved); } catch { /* keep whatever frame presented */ }
+        // The strip is the LAST WRITER on the video's clock during a load — a
+        // parked still-mode source must be re-presented after the restore, or
+        // the panel keeps whatever mid-seek (blank) frame the racing park drew
+        // (the Brave/DMG first-load blank panel's true fix). Verify + one
+        // forced re-seek if the paint still reads blank.
+        if (!env.motionRT.active && v.paused && engine && engine.getSourceImage()) {
+          const present = () => {
+            engine.updateSourceFrame();
+            engine.render(state);
+            env.sourceOverlay.paintSourceVideo();
+            env.sourceOverlay.render();
+          };
+          present();
+          if (env.sourceOverlay.sourceVideoBlank?.()) {
+            try { await seekVideoTo(v, saved + 0.08); await seekVideoTo(v, Math.abs(saved - 0.01) < 0.005 ? 0.03 : 0.01); } catch { /* keep */ }
+            present();
+          }
+        }
       }
     }
   }
