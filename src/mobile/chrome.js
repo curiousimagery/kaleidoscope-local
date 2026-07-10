@@ -36,11 +36,16 @@ document.body.innerHTML = `
   <div id="m-root">
     <div id="m-output">
       <div id="m-empty">tap&nbsp;<b>+</b>&nbsp;to&nbsp;begin</div>
-      <button id="m-flip" class="m-icon-btn" title="flip camera" style="display:none">${ICONS.flip}</button>
+      <span id="m-stage-label" class="m-hidden">preview</span>
+      <div id="m-pip" class="m-hidden">
+        <canvas id="m-pip-canvas"></canvas>
+        <span class="m-pip-label"><i id="m-pip-dot"></i>output</span>
+      </div>
     </div>
     <div id="m-divider"></div>
     <div id="m-context">
       <button id="m-context-toggle" title="source / settings">${ICONS.sliders}</button>
+      <button id="m-flip" class="m-icon-btn" title="flip camera" style="display:none">${ICONS.flip}</button>
       <button id="m-fit-toggle" title="fill / fit">${ICONS.contract}</button>
       <div id="m-source"></div>
       <div id="m-settings" class="m-hidden"></div>
@@ -380,12 +385,14 @@ async function startRecording() {
     recordingSaved = false;
     micStream?.getTracks().forEach((t) => t.stop()); micStream = null;
     recState = 'idle';
+    releaseRecWakeLock();
     updateLiveUI();
   };
   mediaRec.start(1000);   // timeslice: chunks survive even if stop never fires cleanly
   recordedVideo = null;
   recordingSaved = false;
   recState = 'recording';
+  acquireRecWakeLock();
   updateLiveUI();
 }
 function stopRecording() {
@@ -412,6 +419,73 @@ async function startRecordVideo() {
   updateLiveUI();
 }
 
+// ---- the live-output PiP ("output" = what's being recorded; the big panel is
+// the "preview" stage). For now the PiP MIRRORS the output canvas — when the
+// trailing auto-follow lands (increment 3) the two diverge: preview renders
+// edits immediately, output eases toward them and is what records.
+const pipEl = $('m-pip'), pipCanvas = $('m-pip-canvas');
+let pipCorner = 'tr';          // 'tr' | 'br' | 'bl' — top-left is reserved for
+                               // the canvas-settings gizmo (spec: PiP refuses it)
+function placePip() {
+  const st = pipEl.style;
+  st.top = st.right = st.bottom = st.left = st.transform = '';
+  if (pipCorner.includes('t')) st.top = 'calc(8px + env(safe-area-inset-top))';
+  else st.bottom = 'calc(8px + env(safe-area-inset-bottom))';
+  if (pipCorner.includes('r')) st.right = 'calc(8px + env(safe-area-inset-right))';
+  else st.left = 'calc(8px + env(safe-area-inset-left))';
+}
+placePip();
+function paintPip() {
+  if (pipEl.classList.contains('m-hidden')) return;
+  const w = pipEl.clientWidth;
+  if (!w || !outputCanvas.width || !outputCanvas.height) return;
+  const ar = outputCanvas.width / outputCanvas.height;
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const pw = Math.round(w * dpr), ph = Math.max(1, Math.round((w / ar) * dpr));
+  if (pipCanvas.width !== pw || pipCanvas.height !== ph) { pipCanvas.width = pw; pipCanvas.height = ph; }
+  pipCanvas.getContext('2d').drawImage(outputCanvas, 0, 0, pw, ph);
+}
+// drag → snap to the nearest allowed corner (a small move is a tap: no-op)
+(function setupPipDrag() {
+  let sx = 0, sy = 0, ox = 0, oy = 0, moved = false, dragging = false;
+  pipEl.addEventListener('pointerdown', (e) => {
+    dragging = true; moved = false;
+    sx = e.clientX; sy = e.clientY; ox = 0; oy = 0;
+    pipEl.setPointerCapture(e.pointerId);
+    e.preventDefault();
+  });
+  pipEl.addEventListener('pointermove', (e) => {
+    if (!dragging) return;
+    ox = e.clientX - sx; oy = e.clientY - sy;
+    if (Math.hypot(ox, oy) > 6) moved = true;
+    if (moved) pipEl.style.transform = `translate(${ox}px, ${oy}px)`;
+  });
+  pipEl.addEventListener('pointerup', () => {
+    if (!dragging) return;
+    dragging = false;
+    if (!moved) { pipEl.style.transform = ''; return; }
+    const pr = pipEl.getBoundingClientRect();
+    const or2 = outputEl.getBoundingClientRect();
+    const cx = pr.left + pr.width / 2 - or2.left, cy = pr.top + pr.height / 2 - or2.top;
+    let c = (cy < or2.height / 2 ? 't' : 'b') + (cx < or2.width / 2 ? 'l' : 'r');
+    if (c === 'tl') c = (cy / or2.height < cx / or2.width) ? 'tr' : 'bl';   // reserved corner → nearest allowed
+    pipCorner = c;
+    placePip();
+    paintPip();
+  });
+  pipEl.addEventListener('pointercancel', () => { dragging = false; pipEl.style.transform = ''; placePip(); });
+})();
+
+// ---- screen wake lock while a take rolls (auto-lock would kill the recording)
+let recWakeLock = null;
+async function acquireRecWakeLock() {
+  try { recWakeLock = await navigator.wakeLock?.request('screen'); } catch { recWakeLock = null; }
+}
+function releaseRecWakeLock() {
+  try { recWakeLock?.release(); } catch { /* already released */ }
+  recWakeLock = null;
+}
+
 function startLiveLoop() {
   if (liveActive) return;
   liveActive = true;
@@ -421,6 +495,7 @@ function startLiveLoop() {
     engine.updateSourceFrame();
     engine.render(state);
     sourceOverlay.render();
+    if (videoMode) paintPip();
     liveRaf = requestAnimationFrame(tick);
   };
   liveRaf = requestAnimationFrame(tick);
@@ -457,6 +532,13 @@ function updateLiveUI() {
   }
   // download: in record-video mode it saves the take, so it needs one to exist
   $('m-tab-export').disabled = videoMode ? !recordedVideo : false;
+  // record-video chrome: the "preview" stage label + the output PiP (+ its
+  // recording dot) show only while the mode is live
+  const inVideo = videoMode && cameraMode === 'live';
+  $('m-stage-label').classList.toggle('m-hidden', !inVideo);
+  pipEl.classList.toggle('m-hidden', !inVideo);
+  $('m-pip-dot').classList.toggle('rec', recState === 'recording');
+  if (inVideo) paintPip();
 }
 
 function cameraErrorMessage(e) {
