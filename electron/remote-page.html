@@ -198,9 +198,10 @@
       acc = freshAcc();
       if (pinch) send({ t: 'p', z: 'canvas', v: pinch });
       if (rot) send({ t: 'r', z: 'canvas', v: rot });
-      // canvas-zone finger echo (slice fingers echo via the raw relay)
+      // canvas-zone finger echo (slice fingers echo via the raw relay); az =
+      // the zone's aspect so the desktop maps positions aspect-true
       const cb = zoneBox('canvas');
-      send({ t: 'f', p: [...canvasPts.values()].map((q) => [1, +((q.x - cb.x) / cb.w).toFixed(4), +((q.y - cb.y) / cb.h).toFixed(4)]) });
+      send({ t: 'f', az: +(cb.w / cb.h).toFixed(3), p: [...canvasPts.values()].map((q) => [1, +((q.x - cb.x) / cb.w).toFixed(4), +((q.y - cb.y) / cb.h).toFixed(4)]) });
     });
   }
 
