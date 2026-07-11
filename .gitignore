@@ -21,3 +21,13 @@ npm-debug.log*
 # env (just in case — no secrets currently but future-proof)
 .env
 .env.local
+
+# capacitor / iOS native build artifacts. The ios/ PROJECT is committed (the
+# generated Xcode project is source, like electron/); these regenerate on
+# `cap sync` / build and must NOT be:
+ios/App/App/public/
+ios/App/Pods/
+ios/App/build/
+ios/DerivedData/
+*.xcuserstate
+xcuserdata/

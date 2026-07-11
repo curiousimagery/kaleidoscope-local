@@ -1,0 +1,9 @@
+{
+  "appId": "art.curiousimagery.fold",
+  "appName": "Fold",
+  "webDir": "dist",
+  "ios": {
+    "contentInset": "never",
+    "backgroundColor": "#0a0a0a"
+  }
+}

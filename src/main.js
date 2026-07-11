@@ -27,7 +27,7 @@ import {
 } from './shell/controls.js';
 import { PARAMS, DECLARATIVE_PARAM_IDS } from './shell/params.js';
 import { snapSpiralValue as kitSnapSpiral, applyArmsSnap as kitApplyArmsSnap } from './kit/snaps.js';
-import { createCapabilities } from './kit/capabilities.js';
+import { createCapabilities, editionAllows } from './kit/capabilities.js';
 import { createOpRing } from './kit/op-ring.js';
 import { createApp } from './shell/app.js';
 import { createFoldAdapter } from './shell/fold-adapter.js';
@@ -1119,6 +1119,17 @@ if (engine) {
     // type-ahead → jumped to STILL; space toggled the dropdown open)
     e.target.blur();
   });
+
+  // Edition gate (the cross-shell seam): an edition may withhold whole feature
+  // families. A withheld mode drops from the picker AND its hidden wiring button,
+  // so nothing can reach it. Default edition allows all → the shipping build is
+  // untouched; `?edition=lite` exercises it (mobile reads the SAME seam).
+  for (const m of ['motion', 'perform']) {
+    if (!editionAllows(m)) {
+      document.querySelector(`#modeSelect option[value="${m}"]`)?.remove();
+      document.getElementById(m + 'Btn')?.setAttribute('hidden', '');
+    }
+  }
 
   // Stage layer: the engine-agnostic live-output bus + its first sink (record-to-
   // disk), wired through Fold's adapter. The bus renders one frame at the output

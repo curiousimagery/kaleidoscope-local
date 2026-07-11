@@ -372,7 +372,11 @@ Treat Fold output as tile / wallpaper content rather than standalone images. Lik
 
 ## Native wrapper & Syphon (distribution)
 
-### ▶ CAPACITOR ARC — native mobile (Daniel's NAMED NEXT ARC, 2026-07-11): full camera controls · higher-res capture · AirPlay/NDI
+### ▶ CAPACITOR ARC — native mobile (ACTIVE, opened B300 2026-07-11): full camera controls · higher-res capture · HDMI/AirPlay/NDI
+
+**Planned WITH Daniel → approved plan `~/.claude/plans/we-just-finished-a-piped-minsky.md`.** His refined decisions (supersede the raw priority list below where they conflict): camera controls are the **highest-impact lever** (above HDMI); broadcast priority is **HDMI → AirPlay → NDI** (standalone-activation / art-installation framing, a phone/iPad broadcasting out — not only VJ); structure = **ONE arc, native value front-loaded, shared infrastructure + hardening TAILED** (record-at-named-resolution engine + general hardening go last, so if context runs low the native value shipped first); gating = **cross-shell (web/Electron/Capacitor, not iOS-only), a lightweight seam decided early to prevent rework**. Pass order: 1 bootstrap+UI+gating-seam · 2 camera (cheap applyConstraints + high-res still-on-pause + the frame-bridge spike) · 3 HDMI out · 4 AirPlay+NDI+native-files · 5 (tail) record-resolution engine + hardening + distribution/gating plan.
+
+**PASS 1 PROGRESS (B300):** ✅ the cross-shell gating seam (`kit/capabilities.js`: `EDITION`/`detectRuntime`/`editionAllows`, default-everything-on) read by both chromes; ✅ the Capacitor bootstrap (`@capacitor/*` 8.4.1, `capacitor.config.json`, `npm run cap:sync`/`ios`, committed `ios/` SPM project, CocoaPods installed for pod SDKs) — VERIFIED build→boot→render in the iPhone 17 Pro simulator, zero UI fork. **REMAINING Pass 1:** the iOS safe-area / tab-bar polish (evidence-based off simulator landscape + iPad captures + Daniel's device — native portrait already reads single-counted, so the "doubling" bug looks PWA-specific; still to diagnose: the two iPad-landscape 34px-hack bugs + native-vs-PWA bottom inset).
 
 Everything known that the arc needs, consolidated. Daniel's stated priorities: leverage the camera's full controls, improve video-capture resolution, add AirPlay/NDI out.
 

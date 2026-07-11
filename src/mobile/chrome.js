@@ -30,8 +30,16 @@ import { createAutoDrift } from '../kit/drift.js';
 import { ICONS } from './icons.js';
 import { applyArmsSnap, snapSpiralValue } from '../kit/snaps.js';
 import { zipStore } from '../shell/zip.js';
+import { EDITION, editionAllows, detectRuntime } from '../kit/capabilities.js';
 
 // (The desktop stylesheet is dropped in boot.js before this module loads.)
+
+// Cross-shell gating: the phone chrome reads the SAME edition/native seam as the
+// desktop chrome (kit/capabilities.js), independent of createApp. Boot diagnostic
+// now; feature gates (e.g. editionAllows('recordVideo')) hook here as the gating
+// map fills in. `void editionAllows` keeps the import live until then.
+void editionAllows;
+console.info(`[fold] edition ${EDITION} · ${detectRuntime().isNative ? 'native' : 'web'}`);
 
 // ---------------------------------------------------------------- DOM scaffold
 document.body.innerHTML = `

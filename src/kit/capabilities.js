@@ -23,6 +23,56 @@
 // engine's diagnostics. DOM-agnostic (navigator/location/engine.diagnostics only),
 // so it sits in Kit.
 
+// ---------------------------------------------------------------------------
+// Edition + native-shell identity — the CROSS-SHELL gating seam.
+//
+// Two orthogonal axes decide what a build offers. NATIVE CAPABILITY (does the
+// host provide Syphon/NDI/HDMI/native-camera?) is answered by `env.host.*`. The
+// other axis is EDITION/TIER — is this a lite/pro/freemium build? — and it is
+// deliberately platform-independent: the SAME edition flag is honored by the web,
+// Electron, and Capacitor builds, so a future "Electron + iPad bundle without
+// motion" or a freemium mobile tier is one flag BOTH chromes read, not per-shell
+// special-casing. Kept engine-independent (navigator/globals/build-env only) so
+// the phone chrome — which does not mount createApp — can import it directly.
+//
+// The edition is a BUILD-TIME choice (Vite replaces `import.meta.env.VITE_FOLD_EDITION`
+// at `vite build`; a native shell sets it in its build env). `?edition=` overrides
+// at runtime so the gates can be exercised in a browser without a rebuild.
+
+export function resolveEdition() {
+  const q = (typeof location !== 'undefined' && new URLSearchParams(location.search).get('edition')) || '';
+  if (q) return q;
+  const built = (import.meta && import.meta.env && import.meta.env.VITE_FOLD_EDITION) || '';
+  return built || 'web';
+}
+
+export const EDITION = resolveEdition();
+
+// Native-shell identity, independent of the engine so BOTH chromes can read it.
+// Capacitor injects `window.Capacitor` (isNativePlatform() is true only in the
+// native runtime, so plain web stays false without bundling @capacitor/core); the
+// Electron preload injects `window.foldHost`.
+export function detectRuntime() {
+  const w = typeof window !== 'undefined' ? window : {};
+  const isCapacitor = !!(w.Capacitor && typeof w.Capacitor.isNativePlatform === 'function' && w.Capacitor.isNativePlatform());
+  const isElectron = !!w.foldHost;
+  return { isCapacitor, isElectron, isNative: isCapacitor || isElectron };
+}
+
+// Feature families an edition may WITHHOLD. Default (any edition not listed) =
+// everything on, so the shipping 'web'/'desktop' builds are unaffected — this is
+// the SEAM, not a paywall. The full gating map is a later, positioning-gated
+// decision; 'lite' is a documented example that also drives the cross-shell proof
+// (`?edition=lite` hides motion + perform in the mode picker).
+const EDITION_FEATURES = {
+  lite: { motion: false, perform: false },
+};
+
+export function editionAllows(feature) {
+  const cfg = EDITION_FEATURES[EDITION];
+  return !cfg || cfg[feature] !== false;
+}
+
 export function createCapabilities(engine) {
   const ua = navigator.userAgent;
   // WebKit = Safari / iPadOS proper — exclude the Chromium family and Firefox
@@ -56,5 +106,7 @@ export function createCapabilities(engine) {
     capturePath,
     maxFBOSize, maxTextureSize,
     firefoxTextureCapped,
+    edition: EDITION,
+    ...detectRuntime(),
   });
 }
