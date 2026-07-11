@@ -25,12 +25,21 @@ html, body { margin: 0; padding: 0; height: 100%; background: var(--bg); color: 
 
 /* record-video chrome on the output panel: the "preview" stage label and the
    live-output PiP (what's being recorded) — the desktop perform vocabulary. */
-#m-stage-label { position: absolute; bottom: 8px; left: 50%; transform: translateX(-50%); z-index: 5;
+#m-stage-label { position: absolute; top: calc(8px + env(safe-area-inset-top)); left: 50%; transform: translateX(-50%); z-index: 5;
+  display: inline-flex; align-items: center; gap: 5px;
   font-size: var(--text-xs); color: var(--text-bright); text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
   letter-spacing: 0.06em; text-transform: lowercase; pointer-events: none; }
-#m-pip { position: absolute; z-index: 6; width: 30%; min-width: 96px;
+#m-stage-dot { width: 7px; height: 7px; border-radius: var(--radius-full); background: var(--danger); display: none; }
+#m-stage-dot.rec { display: block; }   /* the rec dot follows wherever "output" lives (PiP swap) */
+#m-pip { --pip-t: calc(8px + env(safe-area-inset-top)); --pip-r: calc(8px + env(safe-area-inset-right));
+  --pip-b: 8px; --pip-l: calc(8px + env(safe-area-inset-left));
+  position: absolute; z-index: 6; width: 30%; min-width: 96px;
   border: 1px solid var(--border-strong); border-radius: var(--radius-lg); overflow: hidden;
   background: var(--c-black); box-shadow: 0 4px 16px rgba(0, 0, 0, 0.45); touch-action: none; }
+#m-pip.pip-t { top: var(--pip-t); }
+#m-pip.pip-b { bottom: var(--pip-b); }
+#m-pip.pip-r { right: var(--pip-r); }
+#m-pip.pip-l { left: var(--pip-l); }
 #m-pip canvas { display: block; width: 100%; }
 .m-pip-label { position: absolute; top: 4px; left: 6px; display: inline-flex; align-items: center; gap: 5px;
   font-size: var(--text-xs); color: var(--text-bright); text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
@@ -65,6 +74,7 @@ html, body { margin: 0; padding: 0; height: 100%; background: var(--bg); color: 
 #m-context-toggle { left: 8px; }
 #m-fit-toggle { right: 8px; }
 #m-flip { right: 56px; }   /* left of fit/fill (Daniel's record-video spec) */
+#m-flip:disabled { opacity: 0.35; }   /* recording: a flip would kill the package's source take */
 #m-source { position: absolute; inset: 0; }
 #m-settings { position: absolute; inset: 0; overflow-y: auto; -webkit-overflow-scrolling: touch;
   padding: 56px 16px 16px; }
@@ -79,6 +89,9 @@ html, body { margin: 0; padding: 0; height: 100%; background: var(--bg); color: 
    the coarse touch target (--touch-target, 44px). No mobile-specific height override
    (the old height:28px gave irregular, too-small touch targets). */
 #m-settings h2, #m-canvas-pop h2 { font-size: var(--text-sm); color: var(--text-dim); text-transform: lowercase; letter-spacing: 0.08em; margin: 4px 0 12px; }
+/* the motion block reads as a NEW section: space + a half-width rule above */
+#m-motion-sec { margin-top: 24px; padding-top: 16px; position: relative; }
+#m-motion-sec::before { content: ''; position: absolute; top: 0; left: 0; width: 50%; height: 1px; background: var(--border); }
 #m-reset { width: 100%; margin-top: 8px; padding: 12px; background: transparent; color: var(--text-dim);
   border: 1px solid var(--border); border-radius: var(--radius-lg); font-size: var(--text-md); }
 #m-version { margin-top: 14px; text-align: center; color: var(--text-faint); font-size: var(--text-sm); font-variant-numeric: tabular-nums; }
@@ -158,6 +171,10 @@ html, body { margin: 0; padding: 0; height: 100%; background: var(--bg); color: 
    rotation), so the tab bar pads itself off that edge then and not otherwise. */
 @media (orientation: landscape) {
   #m-root { flex-direction: row; }
+
+  /* landscape flips which PiP edges are SCREEN edges: the output panel's
+     RIGHT edge is the divider now (plain 8px) and its BOTTOM is the screen */
+  #m-pip { --pip-b: calc(8px + env(safe-area-inset-bottom)); --pip-r: 8px; }
 
   /* OUTPUT width is set inline by layout(); height stretches via flex (row cross-axis). */
 

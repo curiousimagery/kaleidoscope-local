@@ -131,6 +131,10 @@ export function createAutoDrift({ state, session }) {
         F.ownedUntil = now + AUTO_OWN_MS;
         F.cur = live; F.vel = 0; F.home = live; F.dest = live; F.dir = 0;
         F.pickT = now + 400;
+        // re-roll the variety subset right after the cooldown: a freshly-homed
+        // field could otherwise sit INACTIVE until the next 5-10s roll, which
+        // reads as "autoplay stopped" after a big manual gesture (Daniel)
+        roll = Math.min(roll, now + AUTO_OWN_MS + 200);
         continue;
       }
       if (!F.active || now < F.ownedUntil) { F.cur = live; F.vel = 0; F.home = live; F.dest = live; continue; }

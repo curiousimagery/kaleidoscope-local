@@ -20,27 +20,34 @@ const CRC_TABLE = (() => {
   return t;
 })();
 
-function crc32(bytes) {
+// Streamed CRC: read the blob in bounded slices so a multi-hundred-MB video
+// never sits in memory whole (the mobile save-package case; one pass per file).
+async function crc32OfBlob(blob) {
+  const CHUNK = 8 * 1024 * 1024;
   let crc = ~0;
-  for (let i = 0; i < bytes.length; i++) {
-    crc = (crc >>> 8) ^ CRC_TABLE[(crc ^ bytes[i]) & 0xff];
+  for (let off = 0; off < blob.size; off += CHUNK) {
+    const bytes = new Uint8Array(await blob.slice(off, Math.min(off + CHUNK, blob.size)).arrayBuffer());
+    for (let i = 0; i < bytes.length; i++) crc = (crc >>> 8) ^ CRC_TABLE[(crc ^ bytes[i]) & 0xff];
   }
   return (~crc) >>> 0;
 }
 
 // files: [{ name: string, blob: Blob }]  →  Promise<Blob> (application/zip)
+// The output Blob COMPOSES the input Blobs lazily (headers are small typed
+// arrays; the file bytes stay browser-managed Blob references), so zipping two
+// video takes costs one streamed CRC pass, not their combined size in memory.
+// STORE format, 32-bit sizes — fine below 4GB per file (no ZIP64).
 export async function zipStore(files) {
   const enc = new TextEncoder();
   const entries = [];
   for (const f of files) {
-    const data = new Uint8Array(await f.blob.arrayBuffer());
-    entries.push({ name: enc.encode(f.name), data, crc: crc32(data) });
+    entries.push({ name: enc.encode(f.name), blob: f.blob, size: f.blob.size, crc: await crc32OfBlob(f.blob) });
   }
 
   const chunks = [];
   let offset = 0;
 
-  // local file headers + data
+  // local file headers + data (the data chunk is the Blob itself — lazy)
   for (const e of entries) {
     const h = new DataView(new ArrayBuffer(30));
     h.setUint32(0, 0x04034b50, true);   // local file header signature
@@ -50,13 +57,13 @@ export async function zipStore(files) {
     h.setUint16(10, 0, true);           // mod time
     h.setUint16(12, 0x21, true);        // mod date: 1980-01-01
     h.setUint32(14, e.crc, true);
-    h.setUint32(18, e.data.length, true);   // compressed size (= uncompressed)
-    h.setUint32(22, e.data.length, true);   // uncompressed size
+    h.setUint32(18, e.size, true);      // compressed size (= uncompressed)
+    h.setUint32(22, e.size, true);      // uncompressed size
     h.setUint16(26, e.name.length, true);
     h.setUint16(28, 0, true);           // extra length
-    chunks.push(new Uint8Array(h.buffer), e.name, e.data);
+    chunks.push(new Uint8Array(h.buffer), e.name, e.blob);
     e.offset = offset;
-    offset += 30 + e.name.length + e.data.length;
+    offset += 30 + e.name.length + e.size;
   }
 
   // central directory
@@ -72,8 +79,8 @@ export async function zipStore(files) {
     c.setUint16(12, 0, true);           // time
     c.setUint16(14, 0x21, true);        // date
     c.setUint32(16, e.crc, true);
-    c.setUint32(20, e.data.length, true);
-    c.setUint32(24, e.data.length, true);
+    c.setUint32(20, e.size, true);
+    c.setUint32(24, e.size, true);
     c.setUint16(28, e.name.length, true);
     c.setUint16(30, 0, true);           // extra length
     c.setUint16(32, 0, true);           // comment length

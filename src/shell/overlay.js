@@ -944,6 +944,7 @@ export function setupSourceInteraction(env, wrap) {
     h.wrap.removeEventListener('wheel', h.onWheel);
     window.removeEventListener('mouseup', h.onUp);
     window.removeEventListener('touchend', h.onUp);
+    window.removeEventListener('touchcancel', h.onUp);
   }
 
   let drag = null;
@@ -1352,6 +1353,9 @@ export function setupSourceInteraction(env, wrap) {
   wrap.addEventListener('touchstart', onDown, { passive: false });
   wrap.addEventListener('touchmove', onMove, { passive: false });
   window.addEventListener('touchend', onUp);
+  // iOS ends two-finger gestures with touchcancel when a system gesture cuts
+  // in — without this the pinch drag STICKS (dimmed affordances, stale writes)
+  window.addEventListener('touchcancel', onUp);
   wrap.addEventListener('wheel', onWheel, { passive: false });
 
   _attachedHandlers = { wrap, onDown, onMove, onUp, onWheel };

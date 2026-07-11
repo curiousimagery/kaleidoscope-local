@@ -38,17 +38,17 @@ document.body.innerHTML = `
   <div id="m-root">
     <div id="m-output">
       <div id="m-empty">tap&nbsp;<b>+</b>&nbsp;to&nbsp;begin</div>
-      <span id="m-stage-label" class="m-hidden">preview</span>
+      <span id="m-stage-label" class="m-hidden"><i id="m-stage-dot"></i><span id="m-stage-label-text">preview</span></span>
       <div id="m-pip" class="m-hidden">
         <canvas id="m-pip-canvas"></canvas>
-        <span class="m-pip-label"><i id="m-pip-dot"></i>output</span>
+        <span class="m-pip-label"><i id="m-pip-dot"></i><span id="m-pip-label-text">output</span></span>
       </div>
       <button id="m-canvas-gear" class="m-hidden" title="canvas settings">${ICONS.sliders}</button>
       <div id="m-canvas-pop" class="m-hidden"></div>
     </div>
     <div id="m-divider"></div>
     <div id="m-context">
-      <button id="m-context-toggle" title="source / settings">${ICONS.sliders}</button>
+      <button id="m-context-toggle" class="m-hidden" title="source / settings">${ICONS.sliders}</button>
       <button id="m-flip" class="m-icon-btn" title="flip camera" style="display:none">${ICONS.flip}</button>
       <button id="m-fit-toggle" title="fill / fit">${ICONS.contract}</button>
       <div id="m-source"></div>
@@ -117,6 +117,48 @@ const drift = createAutoDrift({ state, session });
 let autoOn = false;
 let lastAutoSync = 0;
 let syncAutoUI = () => {};   // bound by the motion-section mount below
+// onion skin: the followed output's ghost trail behind the slice overlay —
+// desktop perform's exact constants and fade behavior (the shared drawer
+// paints view.performGhosts; nothing mobile-specific below the numbers)
+const GHOST_EVERY_MS = 80, GHOST_MAX = 28, GHOST_FADE_MS = 450, GHOST_MAX_A = 0.18;
+let ghostTrail = [], ghostLastT = 0, ghostSettleT = 0;
+function updateGhosts(now, eased, settled) {
+  if (!settled) {
+    ghostSettleT = 0;
+    if (now - ghostLastT >= GHOST_EVERY_MS) {
+      ghostTrail.push({ snap: eased });
+      if (ghostTrail.length > GHOST_MAX) ghostTrail.shift();
+      ghostLastT = now;
+    }
+  } else if (ghostTrail.length) {
+    if (!ghostSettleT) ghostSettleT = now;
+    if (now - ghostSettleT >= GHOST_FADE_MS) { ghostTrail = []; ghostSettleT = 0; }
+  }
+  const view = sourceOverlay.view;
+  if (ghostTrail.length) {
+    const fade = ghostSettleT ? Math.max(0, 1 - (now - ghostSettleT) / GHOST_FADE_MS) : 1;
+    const n = ghostTrail.length;
+    view.performGhosts = ghostTrail.map((g, i) => ({ snap: g.snap, alpha: fade * (0.03 + GHOST_MAX_A * ((i + 1) / n)) }));
+    sourceOverlay.scheduleDraw();
+  } else if (view.performGhosts) {
+    view.performGhosts = null;
+    sourceOverlay.scheduleDraw();   // one clean redraw after the trail clears
+  }
+}
+function clearGhosts() {
+  ghostTrail = []; ghostSettleT = 0;
+  if (sourceOverlay.view.performGhosts) { sourceOverlay.view.performGhosts = null; sourceOverlay.scheduleDraw(); }
+}
+// double-tap the PiP to SWAP which state shows big vs small (Daniel's ask):
+// swapped = the big panel is the OUTPUT (followed, recorded), the PiP is the
+// immediate preview. The recording ALWAYS captures the followed render.
+let pipSwapped = false;
+function togglePipSwap() {
+  pipSwapped = !pipSwapped;
+  $('m-stage-label-text').textContent = pipSwapped ? 'output' : 'preview';
+  $('m-pip-label-text').textContent = pipSwapped ? 'preview' : 'output';
+  updateLiveUI();
+}
 
 const sourceOverlay = createSourceOverlay({
   state, engine,
@@ -421,6 +463,7 @@ function setContext(settings) {
   // show the icon of the mode you'll switch TO: sliders (→ settings) / target (→ direct manip)
   $('m-context-toggle').innerHTML = settings ? ICONS.target : ICONS.sliders;
   $('m-canvas-gear').classList.toggle('m-hidden', !engine.getSourceImage());
+  $('m-context-toggle').classList.toggle('m-hidden', !engine.getSourceImage());
   if (!settings) sourceOverlay.render();      // re-draw overlay (it was zero-sized while hidden)
 }
 $('m-context-toggle').addEventListener('click', () => setContext(!showingSettings));
@@ -566,9 +609,12 @@ async function startRecording() {
     recordCanvas.getContext('2d').drawImage(outputCanvas, 0, 0);
     stream = recordCanvas.captureStream(30);
   } catch { recordCanvas = null; return; }
-  // mic joins the canvas stream; denied permission degrades to video-only
+  // mic joins the canvas stream — CLONED from the camera stream (granted in
+  // the combined prompt at mode entry; the recorder's stop must not kill the
+  // camera's own track). Fallback asks fresh; denial degrades to video-only.
   try {
-    micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const camMic = camera.getVideo()?.srcObject?.getAudioTracks?.()[0];
+    micStream = camMic ? new MediaStream([camMic.clone()]) : await navigator.mediaDevices.getUserMedia({ audio: true });
     for (const t of micStream.getAudioTracks()) stream.addTrack(t);
   } catch { micStream = null; }
   const mime = ['video/mp4;codecs=avc1', 'video/mp4', 'video/webm;codecs=vp9', 'video/webm']
@@ -609,10 +655,11 @@ function recTimestamp() {
   return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}-${String(d.getHours()).padStart(2, '0')}${String(d.getMinutes()).padStart(2, '0')}`;
 }
 // download in record video: a mini menu — save the effected video, or the
-// package (video + the simultaneously-recorded UNEDITED source, mirroring the
-// stills package). Two files in one gesture, not an in-memory zip: two takes
-// of video zipped on a phone is a memory cliff; the browser may ask once to
-// allow multiple downloads.
+// package as ONE .zip (video + the simultaneously-recorded UNEDITED source,
+// mirroring the stills package). One file because iOS won't deliver multiple
+// programmatic downloads from one gesture (Daniel's report — the same reason
+// the stills package zips); zipStore composes the blobs LAZILY, so the phone
+// never holds both takes in memory.
 function showSaveVideoMenu() {
   if (!recordedVideo) return;
   const ts = recTimestamp();
@@ -620,9 +667,12 @@ function showSaveVideoMenu() {
     { icon: ICONS.download, label: 'save video', action: () => { downloadBlob(recordedVideo.blob, `fold-video-${ts}.${recordedVideo.ext}`); recordingSaved = true; } },
   ];
   if (rawVideo) {
-    items.push({ icon: ICONS.download, label: 'save package — video + source', action: () => {
-      downloadBlob(recordedVideo.blob, `fold-video-${ts}.${recordedVideo.ext}`);
-      downloadBlob(rawVideo.blob, `fold-source-${ts}.${rawVideo.ext}`);
+    items.push({ icon: ICONS.download, label: 'save package (.zip — video + source)', action: async () => {
+      const zip = await zipStore([
+        { name: `fold-video-${ts}.${recordedVideo.ext}`, blob: recordedVideo.blob },
+        { name: `fold-source-${ts}.${rawVideo.ext}`, blob: rawVideo.blob },
+      ]);
+      downloadBlob(zip, `fold-take-${ts}.zip`);
       recordingSaved = true;
     } });
   }
@@ -637,6 +687,8 @@ function leaveVideoMode() {
   follower = null;
   autoOn = false;
   syncAutoUI();
+  clearGhosts();
+  if (pipSwapped) togglePipSwap();   // labels back to preview-big
 }
 
 async function startRecordVideo() {
@@ -654,12 +706,13 @@ const pipEl = $('m-pip'), pipCanvas = $('m-pip-canvas');
 let pipCorner = 'tr';          // 'tr' | 'br' | 'bl' — top-left is reserved for
                                // the canvas-settings gizmo (spec: PiP refuses it)
 function placePip() {
-  const st = pipEl.style;
-  st.top = st.right = st.bottom = st.left = st.transform = '';
-  if (pipCorner.includes('t')) st.top = 'calc(8px + env(safe-area-inset-top))';
-  else st.bottom = 'calc(8px + env(safe-area-inset-bottom))';
-  if (pipCorner.includes('r')) st.right = 'calc(8px + env(safe-area-inset-right))';
-  else st.left = 'calc(8px + env(safe-area-inset-left))';
+  // corner offsets live in CSS (pip-t/b/l/r classes): which panel edges are
+  // SCREEN edges (safe-area) vs the divider (plain 8px) flips with orientation
+  pipEl.style.transform = '';
+  pipEl.classList.toggle('pip-t', pipCorner.includes('t'));
+  pipEl.classList.toggle('pip-b', !pipCorner.includes('t'));
+  pipEl.classList.toggle('pip-r', pipCorner.includes('r'));
+  pipEl.classList.toggle('pip-l', !pipCorner.includes('r'));
 }
 placePip();
 function paintPip() {
@@ -676,11 +729,11 @@ function paintPip() {
 }
 // drag → snap to the nearest allowed corner (a small move is a tap: no-op)
 (function setupPipDrag() {
-  let sx = 0, sy = 0, ox = 0, oy = 0, moved = false, dragging = false;
+  let sx = 0, sy = 0, ox = 0, oy = 0, moved = false, dragging = false, lastTapT = 0;
   pipEl.addEventListener('pointerdown', (e) => {
     dragging = true; moved = false;
     sx = e.clientX; sy = e.clientY; ox = 0; oy = 0;
-    pipEl.setPointerCapture(e.pointerId);
+    try { pipEl.setPointerCapture(e.pointerId); } catch { /* synthetic events lack active pointers */ }
     e.preventDefault();
   });
   pipEl.addEventListener('pointermove', (e) => {
@@ -692,7 +745,13 @@ function paintPip() {
   pipEl.addEventListener('pointerup', () => {
     if (!dragging) return;
     dragging = false;
-    if (!moved) { pipEl.style.transform = ''; return; }
+    if (!moved) {
+      pipEl.style.transform = '';
+      const nowT = performance.now();
+      if (nowT - lastTapT < 350) { lastTapT = 0; togglePipSwap(); }   // double-tap = swap
+      else lastTapT = nowT;
+      return;
+    }
     const pr = pipEl.getBoundingClientRect();
     const or2 = outputEl.getBoundingClientRect();
     const cx = pr.left + pr.width / 2 - or2.left, cy = pr.top + pr.height / 2 - or2.top;
@@ -738,10 +797,22 @@ function startLiveLoop() {
       follower.setTarget(state);
       const eased = follower.step(dt);
       const diverged = !follower.isSettled(0.002);
-      engine.render(diverged ? eased : state);
-      paintRecord();
-      paintPip();
-      if (diverged) engine.render(state);      // restore the preview on screen
+      updateGhosts(now, eased, !diverged);
+      if (!diverged) {
+        engine.render(state);
+        paintRecord(); paintPip();
+      } else if (pipSwapped) {
+        // big panel = OUTPUT: preview renders first for the PiP copy, the
+        // followed render stays on screen and feeds the recording
+        engine.render(state);
+        paintPip();
+        engine.render(eased);
+        paintRecord();
+      } else {
+        engine.render(eased);
+        paintRecord(); paintPip();
+        engine.render(state);                  // restore the preview on screen
+      }
     } else {
       engine.render(state);
     }
@@ -769,14 +840,15 @@ function updateLiveUI() {
     cap.style.display = '';
     if (recState === 'recording') { cap.innerHTML = ICONS.stop; cap.title = 'stop recording'; cap.style.color = ''; }
     else { cap.innerHTML = ICONS.record; cap.title = 'start recording'; cap.style.color = '#e8504a'; }
-    flip.style.display = ''; setSourceIcon('video');
+    flip.style.display = ''; flip.disabled = recState === 'recording';   /* a flip kills the package's source take */
+    setSourceIcon('video');
   } else if (cameraMode === 'live') {
     cap.style.display = ''; cap.innerHTML = ICONS.pause; cap.title = 'pause'; cap.style.color = '';   /* record/pause toggle (was the stop square; before that the aperture) */
-    flip.style.display = ''; setSourceIcon('live');
+    flip.style.display = ''; flip.disabled = false; setSourceIcon('live');
   } else if (cameraMode === 'frozen') {
     // still "in" live capture, just paused: go-live record is RED (actionable),
     // and the SOURCE icon stays the live record (mental model: paused, not a new still).
-    cap.style.display = ''; cap.innerHTML = ICONS.record; cap.title = 'go live'; cap.style.color = '#e8504a';
+    cap.style.display = ''; cap.innerHTML = ICONS.record; cap.title = 'go live'; cap.style.color = 'var(--ok)';   /* green = live (red is reserved for record) */
     flip.style.display = 'none'; setSourceIcon('live');
   } else {
     cap.style.display = 'none'; flip.style.display = 'none'; cap.style.color = '';
@@ -789,9 +861,11 @@ function updateLiveUI() {
   const inVideo = videoMode && cameraMode === 'live';
   $('m-stage-label').classList.toggle('m-hidden', !inVideo);
   pipEl.classList.toggle('m-hidden', !inVideo);
-  $('m-pip-dot').classList.toggle('rec', recState === 'recording');
+  $('m-pip-dot').classList.toggle('rec', recState === 'recording' && !pipSwapped);
+  $('m-stage-dot').classList.toggle('rec', recState === 'recording' && pipSwapped);
   $('m-motion-sec').classList.toggle('m-hidden', !videoMode);
   $('m-canvas-gear').classList.toggle('m-hidden', !engine.getSourceImage());
+  $('m-context-toggle').classList.toggle('m-hidden', !engine.getSourceImage());
   if (inVideo) paintPip();
 }
 
@@ -808,7 +882,7 @@ async function startCamera() {
     return;
   }
   try {
-    const video = await camera.start(lastFacing);   // rear by default; remembers a flip across freeze→go-live
+    const video = await camera.start({ facingMode: lastFacing, audio: videoMode });   // record video asks cam+mic in ONE prompt; rear by default, remembers a flip across freeze→go-live
     liveVideo = video;
     console.log(`[camera] granted resolution ${video.videoWidth}×${video.videoHeight}`);
     engine.setSource(camera.frameSource());
@@ -862,7 +936,7 @@ async function flipCamera() {
   // — drop the package's source take (the effected canvas recording rolls on)
   if (recState === 'recording') dropRawRecorder();
   try {
-    const video = await camera.flip();
+    const video = await camera.flip({ audio: videoMode });
     liveVideo = video;
     lastFacing = camera.isFront() ? 'user' : 'environment';   // remember for go-live
     engine.setSource(camera.frameSource());

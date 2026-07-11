@@ -53,7 +53,9 @@ export function createCamera() {
     const video = wantDevice
       ? { deviceId: { exact: wantDevice }, width: { ideal: idealW }, height: { ideal: idealH } }
       : { facingMode: { ideal: facing }, width: { ideal: idealW }, height: { ideal: idealH } };
-    stream = await navigator.mediaDevices.getUserMedia({ video, audio: false });
+    // opts.audio: request the mic IN THE SAME CALL — one combined permission
+    // prompt instead of camera-then-mic-later (mobile record video's ask)
+    stream = await navigator.mediaDevices.getUserMedia({ video, audio: !!opts.audio });
     const track = stream.getVideoTracks()[0];
     const settings = track ? track.getSettings() : {};
     currentDeviceId = settings.deviceId || wantDevice || null;
@@ -127,8 +129,8 @@ export function createCamera() {
   }
 
   // flip front<->rear; re-acquires the stream. returns the (same) video element.
-  async function flip() {
-    return start(facing === 'environment' ? 'user' : 'environment');
+  async function flip(extra = {}) {
+    return start({ facingMode: facing === 'environment' ? 'user' : 'environment', ...extra });
   }
 
   return {

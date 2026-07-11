@@ -170,7 +170,7 @@ export function createInputBus(env) {
     // phone deltas GLIDE (the ~0.18s spring): WS delivery arrives in
     // micro-bursts, and direct writes read as jerks in the staged panel.
     // Local gestures (trackpad) stay direct — no network jitter to hide.
-    if (sig.startsWith('mob:')) glideBy(t, d);
+    if (sig.startsWith('mob:')) glideBy(t, d, REMOTE_GLIDE_TAU);
     else writeParam(t, (state[t.key] ?? 0) + d);
   }
 
@@ -212,7 +212,7 @@ export function createInputBus(env) {
       // phone gesture signals glide too — same network-jitter cover as the
       // contextual path (a mapping must not feel worse than the default)
       if (meta.momentary || m.sig.startsWith('mob:')) {
-        glideBy(t, d);
+        glideBy(t, d, m.sig.startsWith('mob:') ? REMOTE_GLIDE_TAU : 0.18);
       } else {
         writeParam(t, (state[t.key] ?? 0) + d);
       }
@@ -236,11 +236,15 @@ export function createInputBus(env) {
 
   // nudge a param through the critically damped spring instead of writing it
   // directly — button steps and remote gesture deltas share this (velocity
-  // continuity across chained nudges; ~0.18s response)
-  function glideBy(t, d) {
+  // continuity across chained nudges). tau is PER SOURCE: button nudges keep
+  // the snappy 0.18s; phone gestures get a longer response (Daniel's call —
+  // a touch of capture latency beats WS-burst choppiness in the staged panel).
+  const REMOTE_GLIDE_TAU = 0.35;
+  function glideBy(t, d, tau = 0.18) {
     let g = glide.get(t.key);
-    if (!g) { g = { cur: state[t.key] ?? 0, vel: 0, goal: state[t.key] ?? 0 }; glide.set(t.key, g); }
+    if (!g) { g = { cur: state[t.key] ?? 0, vel: 0, goal: state[t.key] ?? 0, tau }; glide.set(t.key, g); }
     g.goal += d;
+    g.tau = tau;
     if (!t.wrap) g.goal = Math.max(t.min, Math.min(t.max, g.goal));
     startMotionLoop();
   }
@@ -262,13 +266,13 @@ export function createInputBus(env) {
         live = true;
         writeParam(targetOf(r.key), (state[r.key] ?? 0) + r.d * r.span * r.sens * 2.4 * dt);
       }
-      const omega = 2 / 0.18;
-      const decay = Math.exp(-omega * dt);
       for (const [k, g] of glide) {
         const t2 = targetOf(k);
         const y = g.cur - g.goal;
         if (Math.abs(y) < 1e-4 && Math.abs(g.vel) < 1e-3) { glide.delete(k); continue; }
         live = true;
+        const omega = 2 / (g.tau || 0.18);   // per-entry response (buttons 0.18s, phone 0.35s)
+        const decay = Math.exp(-omega * dt);
         const tmp = (g.vel + omega * y) * dt;
         g.cur = g.goal + (y + tmp) * decay;
         g.vel = (g.vel - omega * tmp) * decay;
