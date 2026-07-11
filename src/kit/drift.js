@@ -8,9 +8,10 @@
 // ANOTHER PAIR OF HANDS ON THE SAME STAGE: a per-field wander writes
 // destinations into `state` exactly like user input, and whatever follower
 // chases that state (desktop perform's live view, mobile's recorded output)
-// needs zero special-casing. MANUAL WINS PER FIELD: auto tracks what it last
-// wrote, and a mismatch means a hand moved the field — it backs off (cooldown),
-// adopts the placement as the field's new HOME, and resumes breathing around it.
+// needs zero special-casing. MANUAL INPUT ACCUMULATES PER FIELD (B299, replacing
+// the original back-off-and-cooldown): a mismatch means a hand moved the field,
+// and the hand RELOCATES the wander — the spring frame shifts by the manual
+// delta and keeps breathing, so a gesture never reads as an interruption.
 //
 // Dials (all 0..1, read live from `session`): performAutoPace (time between
 // destination picks), performAutoRange (how far picks reach), performAutoVariety
@@ -35,7 +36,6 @@ const AUTO_BOUNDS = {   // guardrails: destinations never leave these (rotation 
   drosteZoom: [1.4, 9], drosteSpiral: [-3, 3],
   drosteOffsetX: [-0.55, 0.55], drosteOffsetY: [-0.55, 0.55],
 };
-const AUTO_OWN_MS = 2000;   // manual-input cooldown before auto touches a field again
 // FRAMING fields are tempered — they wander a fraction of the range and stay
 // anchored to their autoplay-start home; the slice is the show, the canvas is
 // the frame.
@@ -56,7 +56,7 @@ export function createAutoDrift({ state, session }) {
     let F = f[k];
     if (!F) {
       const v = state[k] ?? 0;
-      F = f[k] = { cur: v, vel: 0, home: v, dest: v, dir: 0, pickT: now + Math.random() * 800, ownedUntil: 0, active: false };
+      F = f[k] = { cur: v, vel: 0, home: v, dest: v, dir: 0, pickT: now + Math.random() * 800, active: false };
     }
     return F;
   }
@@ -122,22 +122,22 @@ export function createAutoDrift({ state, session }) {
     for (const k of flds) {
       const F = field(k, now);
       const live = state[k] ?? 0;
-      // ownership: auto writes exact values, so ANY external change means a
-      // hand (or system) moved the field — yield, adopt it as the new home
-      const moved = ANGULAR.has(k)
-        ? Math.abs(angDelta(wrap360(F.cur), wrap360(live))) > 1e-4
-        : Math.abs(live - F.cur) > (FOLLOW_SPANS[k] || 1) * 1e-6;
-      if (moved) {
-        F.ownedUntil = now + AUTO_OWN_MS;
-        F.cur = live; F.vel = 0; F.home = live; F.dest = live; F.dir = 0;
-        F.pickT = now + 400;
-        // re-roll the variety subset right after the cooldown: a freshly-homed
-        // field could otherwise sit INACTIVE until the next 5-10s roll, which
-        // reads as "autoplay stopped" after a big manual gesture (Daniel)
-        roll = Math.min(roll, now + AUTO_OWN_MS + 200);
-        continue;
+      // MANUAL INPUT ACCUMULATES (Daniel's arc-close re-frame of manual-wins):
+      // auto writes exact values, so any external change is a hand — and the
+      // hand RELOCATES the wander instead of interrupting it. Shift the whole
+      // spring frame (current, home, destination — velocity untouched) by the
+      // hand's delta and keep breathing: while a drag is live the hand is
+      // authoritative each frame (its write lands after ours and the next
+      // shift absorbs it), and on release the wander continues seamlessly from
+      // the new placement — no cooldown, no visible pause. The guardrails
+      // already stretch to include a home outside them (see pick()).
+      const delta = ANGULAR.has(k)
+        ? angDelta(wrap360(F.cur), wrap360(live))
+        : live - F.cur;
+      if (Math.abs(delta) > (ANGULAR.has(k) ? 1e-4 : (FOLLOW_SPANS[k] || 1) * 1e-6)) {
+        F.cur += delta; F.home += delta; F.dest += delta;
       }
-      if (!F.active || now < F.ownedUntil) { F.cur = live; F.vel = 0; F.home = live; F.dest = live; continue; }
+      if (!F.active) { F.cur = live; F.vel = 0; F.home = live; F.dest = live; continue; }
       if (now >= F.pickT) pick(k, F, now);
       const y = F.cur - F.dest;
       const tmp = (F.vel + omega * y) * dts;

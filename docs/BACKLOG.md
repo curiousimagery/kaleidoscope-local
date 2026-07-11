@@ -372,6 +372,26 @@ Treat Fold output as tile / wallpaper content rather than standalone images. Lik
 
 ## Native wrapper & Syphon (distribution)
 
+### ▶ CAPACITOR ARC — native mobile (Daniel's NAMED NEXT ARC, 2026-07-11): full camera controls · higher-res capture · AirPlay/NDI
+
+Everything known that the arc needs, consolidated. Daniel's stated priorities: leverage the camera's full controls, improve video-capture resolution, add AirPlay/NDI out.
+
+**Workflow (answers his earlier FUD, restated for the record):** Capacitor wraps the SAME `dist/` build; the generated iOS project is checked into the repo; `npx cap sync` copies the web build in; native plugins are Swift files written and maintained here like the Electron addons. Xcode is needed only for one-time signing setup (Apple Developer account required — no unsigned-DMG equivalent on iOS) and TestFlight/App Store submission clicks; `xcodebuild`/fastlane can drive builds from the CLI. Day-to-day stays in this repo.
+
+**The host-seam pattern carries:** the Capacitor bridge slots exactly where `foldHost`/`webHost` does for Electron — `host.nativeCamera` (already reserved in spec v2) and `host.ndi` are the two new seams. Permissions persist natively (fixes the per-session camera/mic prompts — B298's answer; no web API can). The wake lock and save paths go native for free (Capacitor Filesystem/Share) — **which likely also dissolves the parked context-loss-after-save bug on native** (the browser download round-trip that triggers the WebGL loss disappears; the web-PWA instance of the bug stays parked separately).
+
+**THE ARC'S FIRST SPIKE — camera control plane vs data plane (the real technical unknown):** WebKit owns the AVCaptureSession behind getUserMedia; a native plugin cannot reconfigure that session directly. Two paths, measure before promising:
+- (a) **Keep getUserMedia as the data path** (frames flow into WebGL exactly as today) and drive controls through `track.applyConstraints()` where iOS WebKit exposes them — zoom/torch/focusMode have landed in newer Safari releases; EV and WB are NOT exposed. Cheap, partial.
+- (b) **Full native AVFoundation capture** (lens selection incl. ultrawide/tele, EV, WB, tap-to-focus, 4K60) with frames BRIDGED into the webview. CAUTION: the common "camera-preview" plugins render UNDER the webview — useless here, our pipeline needs frames INTO WebGL; a real bridge means per-frame transfer (the readback problem in reverse) and is the expensive unknown to prototype first.
+The flip-button→camera-settings-GEAR plan (flip · tap-to-focus · EV · WB) rides whichever path wins.
+
+**Recording resolution (a WEB-side lever exists BEFORE Capacitor):** the record canvas currently copies the on-screen render, so takes are capped at screen size (≤2048, screen aspect). To record 1080p/4K independent of the display: render the eased state on a second offscreen engine at record resolution — the desktop output-bus hidden-engine pattern, already proven; cost = a second GL context + per-frame camera texture upload (the known dominant cost on phones — measure). Pair with WebCodecs `VideoEncoder` (iOS 16.4+) if MediaRecorder's quality ceiling binds (current bitrate 12Mbps). This belongs with the render-hardening lane but unblocks "resolution of video capture" without waiting for native.
+
+**AirPlay — a cheap WEB spike may already get there:** feed the output into a `<video>` element via `canvas.captureStream()` and use WebKit's remote-playback API (`video.webkitShowPlaybackTargetPicker`) to route it to an Apple TV. Latency and reliability unknown — spike it before building anything native. **NDI is native-only** (SDK over UDP/multicast; browsers can't) — the existing note stands (see "NDI out" under the perform-input FUTURE block): the native app publishes the program output as a network source Arena lists like a camera; USB-C ethernet for rig reliability.
+
+**Carry-along tails that touch this arc:** mobile record video is feature-complete (B293–B298) and is the surface these capabilities land on; the generalized user-config JSON (portable settings) should ride the native storage; the systematic destructive-interrupt pattern replaces the interim native confirm()s.
+
+
 ### node-syphon leak (RESOLVED — merged upstream but NOT RELEASED; keep the vendored binary)
 
 **Assessed 2026-07-10 (B290): stay on the vendored binary.** The fix is merged (issue #45 closed 2026-07-08) but upstream has published NOTHING since `1.5.0` (May 2025, still the leaking binary) — npm and GitHub releases both checked. "Merged into the package" on GitHub ≠ shipped on npm; installing today still gets the leak, so the postinstall patch stays. Re-check when npm shows a version above 1.5.0: bump the dependency, drop the hook + `electron/vendor/`, and verify with the memory profiler + an Arena hop that the released build behaves like the vendored one. Do it alongside the next Electron packaging round.
