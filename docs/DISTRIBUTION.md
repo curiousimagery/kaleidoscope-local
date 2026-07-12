@@ -78,10 +78,40 @@ Freemium mechanics (later, when D1 says so): a **`host.iap` seam** (StoreKit on 
 
 Built and verified-by-compile where possible; runtime needs Daniel's device. Each rides its `host.*` seam.
 
-- **HDMI out (`host.externalDisplay`)** — his top broadcast priority. A Capacitor Swift plugin watches `UIScreen.didConnectNotification`/`didDisconnect`, creates a second `UIWindow` on the external screen hosting a `WKWebView` that loads `output.html` (the existing chrome-free program view), and reports connect/disconnect to JS. The output bus already drives `output.html`; only the seam grows. Runtime verify: iPad + USB-C-HDMI + a display.
+- **HDMI out (`host.externalDisplay`)** — his top broadcast priority. A Capacitor Swift plugin watches `UIScreen.didConnectNotification`/`didDisconnect`, creates a second `UIWindow` on the external screen, and reports connect/disconnect to JS (the plugin *shell* is straightforward — the CAPBridgedPlugin + UIScreen notifications). **THE REAL DESIGN QUESTION (found B303, must be resolved on-device): how the external display gets the live program frames.** A second `UIWindow` hosting its own `WKWebView` that loads `output.html` will NOT work as-is: `output.html` receives program state via `BroadcastChannel`, which does **not** cross separate WKWebViews — the display would render blank. Options to weigh on device: (a) drive the external webview over the Capacitor bridge / a shared file / `localStorage`-poll instead of BroadcastChannel (state-sync, cheap — the output view re-renders from state, same as the popup window today); (b) mirror the main webview's canvas frames to the native layer and draw them on the external `UIWindow` (the frame-bridge, expensive). Option (a) reuses the existing "output view renders from a state stream" design (`src/output-view.js`) and is the likely answer — but the transport (bridge vs storage vs a tiny local socket) needs measuring on hardware. **This is the same frame-vs-state delivery question as NDI (out) and the camera (in) — i.e. the frame-bridge spike is the real gate for all three, exactly as the plan flagged.** Runtime verify: iPad + USB-C-HDMI + a display.
 - **Native camera (`host.nativeCamera`)** — his highest lever. Cheap path is already web (`camera.js` `applyControls` for zoom/torch/focus). The native plugin adds what getUserMedia can't: EV/WB/lens-select + a full-res still on pause (AVCapturePhotoOutput). THE SPIKE: measure the cost of bridging AVFoundation frames INTO WebGL before committing to full native capture (the readback problem in reverse). Runtime verify: a device with a camera.
 - **NDI (`host.ndi`)** — broadcast #3. Native-SDK-only (the NDI SDK is a third-party native dependency — NOT yet added; ASK before adding per the deps agreement). A Swift plugin publishes the program output as an NDI source Arena lists. Scaffold the seam + plugin skeleton first; add the SDK when greenlit.
 - **AirPlay** — broadcast #2. Try the pure web spike first (`canvas.captureStream()` → `<video>` → `video.webkitShowPlaybackTargetPicker()`); native fallback only if it disqualifies.
+
+## authoring a custom native plugin (the concrete pattern — researched B303)
+
+Reverse-engineered from the first-party plugins so the HDMI/camera/NDI plugins are fast to build + verify together on-device. **Why not build them blind:** `cap sync` MANAGES `ios/App/CapApp-SPM/Package.swift` (marked "DO NOT MODIFY") and the `packageClassList` in `ios/App/App/capacitor.config.json`, deriving both from the installed npm plugins. So a custom plugin must be a **local npm package** to survive `cap sync`, and whether it actually REGISTERS at runtime (the `packageClassList` entry) is precisely what can't be verified without a device — a plugin that *compiles* is not a plugin that *works*. Hence: co-implement on device, not blind.
+
+The pattern (mirror `@capacitor/preferences`):
+
+1. **A local npm package** `native-plugins/<name>/` referenced in `package.json` as a `file:` dependency, with a `package.json` carrying a `capacitor` field so `cap sync` treats it as a plugin.
+2. **`Package.swift`** (swift-tools 5.9): a library target depending on `.product(name: "Capacitor", package: "capacitor-swift-pm")`.
+3. **The plugin class** `ios/Sources/<Name>Plugin/<Name>Plugin.swift`:
+   ```swift
+   import Foundation
+   import Capacitor
+   @objc(ExternalDisplayPlugin)
+   public class ExternalDisplayPlugin: CAPPlugin, CAPBridgedPlugin {
+       public let identifier = "ExternalDisplayPlugin"
+       public let jsName = "ExternalDisplay"
+       public let pluginMethods: [CAPPluginMethod] = [
+           CAPPluginMethod(name: "present", returnType: CAPPluginReturnPromise),
+           CAPPluginMethod(name: "clear",   returnType: CAPPluginReturnPromise),
+       ]
+       @objc func present(_ call: CAPPluginCall) { /* UIScreen + 2nd UIWindow + WKWebView(output.html) */ call.resolve() }
+       @objc func clear(_ call: CAPPluginCall) { call.resolve() }
+       // notifyListeners("change", data:) for UIScreen didConnect/didDisconnect
+   }
+   ```
+4. **JS side:** `import { registerPlugin } from '@capacitor/core'; const ExternalDisplay = registerPlugin('ExternalDisplay');` inside `shell/capacitor-host.js`, wiring `host.externalDisplay.present/clear/onChange` to it. (No separate JS wrapper package needed — the app registers by name.)
+5. `npm install ./native-plugins/<name>` → `cap sync ios` (adds it to Package.swift + packageClassList) → build in Xcode → verify on device.
+
+The three custom plugins (`ExternalDisplay`/HDMI, `NativeCamera`, `NDI`) each follow this exactly; NDI additionally needs the NDI SDK (a native dependency — get the go-ahead first).
 
 ## device-verify-pending (built or ready, needs Daniel's hardware)
 
