@@ -4,12 +4,13 @@
 // FoldNativeCameraPlugin.swift
 //
 // Tier-2 frame-bridge SPIKE. Runs a native AVCaptureSession (so we OWN the
-// camera and can later apply real EV/WB/focus/lens), and streams biplanar YUV
-// frames to the webview over a localhost WebSocket, where WebGL uploads them as
-// textures and converts YUV->RGB. Purpose: measure fps / latency / thermals of
-// the copy-based bridge on device — including its MAX sustainable fps — before
-// committing to build the full native-camera feature. Controls (EV/zoom/etc.)
-// are intentionally NOT here yet; this proves the pipe first.
+// camera), streams biplanar YUV frames to the webview over a localhost WebSocket
+// (WebGL uploads + YUV->RGB), AND now exposes the native-only controls that
+// getUserMedia can't reach: exposure bias (EV), zoom across the physical lenses,
+// and locked white balance by temperature. Purpose: prove the whole Tier-2
+// thesis — native owns the sensor, so real controls preview live — before
+// wiring the bridge into the real kaleidoscope engine. Tap-to-focus is deferred
+// (needs on-device coordinate calibration).
 
 import Foundation
 import AVFoundation
@@ -22,7 +23,10 @@ public class FoldNativeCameraPlugin: CAPPlugin, CAPBridgedPlugin, AVCaptureVideo
     public let jsName = "FoldNativeCamera"
     public let pluginMethods: [CAPPluginMethod] = [
         CAPPluginMethod(name: "start", returnType: CAPPluginReturnPromise),
-        CAPPluginMethod(name: "stop", returnType: CAPPluginReturnPromise)
+        CAPPluginMethod(name: "stop", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "setExposureBias", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "setZoom", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "setWhiteBalance", returnType: CAPPluginReturnPromise)
     ]
 
     private let session = AVCaptureSession()
@@ -31,20 +35,29 @@ public class FoldNativeCameraPlugin: CAPPlugin, CAPBridgedPlugin, AVCaptureVideo
     private let output = AVCaptureVideoDataOutput()
     private let server = FrameSocketServer(port: 8899)
     private var running = false
+    private var device: AVCaptureDevice?
 
-    // `fps` of 0 means "run the chosen format at its maximum" (ceiling probe).
+    // Prefer the widest-spanning virtual device so `videoZoomFactor` crosses the
+    // physical lenses (ultrawide -> wide -> tele) and exposes real switchover points.
+    private func pickCamera() -> AVCaptureDevice? {
+        let types: [AVCaptureDevice.DeviceType] = [
+            .builtInTripleCamera, .builtInDualWideCamera, .builtInDualCamera, .builtInWideAngleCamera
+        ]
+        for t in types {
+            if let d = AVCaptureDevice.default(t, for: .video, position: .back) { return d }
+        }
+        return AVCaptureDevice.default(for: .video)
+    }
+
     @objc func start(_ call: CAPPluginCall) {
         let preset = call.getString("preset") ?? "hd1080"
         let fps = call.getDouble("fps") ?? 30
         AVCaptureDevice.requestAccess(for: .video) { [weak self] granted in
             guard let self = self else { return }
-            guard granted else {
-                call.reject("camera not authorized")
-                return
-            }
+            guard granted else { call.reject("camera not authorized"); return }
             self.sessionQueue.async {
                 if self.running {
-                    call.resolve(["port": self.server.port, "running": true])
+                    call.resolve(["port": self.server.port, "running": true, "controls": self.controlRanges()])
                     return
                 }
                 let info: SessionInfo
@@ -63,6 +76,7 @@ public class FoldNativeCameraPlugin: CAPPlugin, CAPBridgedPlugin, AVCaptureVideo
                     "height": info.height,
                     "requestedFps": info.requestedFps,
                     "cameraMaxFps": info.cameraMaxFps,
+                    "controls": self.controlRanges(),
                     "running": true
                 ])
             }
@@ -81,11 +95,83 @@ public class FoldNativeCameraPlugin: CAPPlugin, CAPBridgedPlugin, AVCaptureVideo
         }
     }
 
+    // MARK: - controls (native-only; each applies to the live session immediately)
+
+    @objc func setExposureBias(_ call: CAPPluginCall) {
+        guard let value = call.getDouble("value") else { call.reject("value required"); return }
+        sessionQueue.async { [weak self] in
+            guard let self = self, let device = self.device else { call.reject("no device"); return }
+            do {
+                try device.lockForConfiguration()
+                let clamped = max(device.minExposureTargetBias, min(device.maxExposureTargetBias, Float(value)))
+                device.setExposureTargetBias(clamped, completionHandler: nil)
+                device.unlockForConfiguration()
+                call.resolve(["value": Double(clamped)])
+            } catch { call.reject("ev failed: \(error.localizedDescription)") }
+        }
+    }
+
+    @objc func setZoom(_ call: CAPPluginCall) {
+        guard let factor = call.getDouble("factor") else { call.reject("factor required"); return }
+        sessionQueue.async { [weak self] in
+            guard let self = self, let device = self.device else { call.reject("no device"); return }
+            do {
+                try device.lockForConfiguration()
+                let clamped = max(device.minAvailableVideoZoomFactor,
+                                  min(device.maxAvailableVideoZoomFactor, CGFloat(factor)))
+                device.videoZoomFactor = clamped
+                device.unlockForConfiguration()
+                call.resolve(["factor": Double(clamped)])
+            } catch { call.reject("zoom failed: \(error.localizedDescription)") }
+        }
+    }
+
+    @objc func setWhiteBalance(_ call: CAPPluginCall) {
+        let mode = call.getString("mode")
+        let temperature = call.getDouble("temperature")
+        sessionQueue.async { [weak self] in
+            guard let self = self, let device = self.device else { call.reject("no device"); return }
+            do {
+                try device.lockForConfiguration()
+                if mode == "auto" {
+                    if device.isWhiteBalanceModeSupported(.continuousAutoWhiteBalance) {
+                        device.whiteBalanceMode = .continuousAutoWhiteBalance
+                    }
+                } else if let temp = temperature, device.isWhiteBalanceModeSupported(.locked) {
+                    let tnt = AVCaptureDevice.WhiteBalanceTemperatureAndTintValues(temperature: Float(temp), tint: 0)
+                    var gains = device.deviceWhiteBalanceGains(for: tnt)
+                    let maxG = device.maxWhiteBalanceGain
+                    gains.redGain = max(1.0, min(maxG, gains.redGain))
+                    gains.greenGain = max(1.0, min(maxG, gains.greenGain))
+                    gains.blueGain = max(1.0, min(maxG, gains.blueGain))
+                    device.setWhiteBalanceModeLocked(with: gains, completionHandler: nil)
+                }
+                device.unlockForConfiguration()
+                call.resolve()
+            } catch { call.reject("wb failed: \(error.localizedDescription)") }
+        }
+    }
+
+    private func controlRanges() -> [String: Any] {
+        guard let device = self.device else { return [:] }
+        let lensFactors = device.virtualDeviceSwitchOverVideoZoomFactors.map { $0.doubleValue }
+        return [
+            "exposureBias": ["min": Double(device.minExposureTargetBias),
+                             "max": Double(device.maxExposureTargetBias)],
+            "zoom": ["min": Double(device.minAvailableVideoZoomFactor),
+                     "max": Double(device.maxAvailableVideoZoomFactor),
+                     "lensFactors": lensFactors],
+            "whiteBalance": ["lockSupported": device.isWhiteBalanceModeSupported(.locked)]
+        ]
+    }
+
+    // MARK: - session config
+
     private struct SessionInfo {
         let width: Int
         let height: Int
         let requestedFps: Double
-        let cameraMaxFps: Double   // absolute max the device offers at this resolution
+        let cameraMaxFps: Double
     }
 
     private func configureSession(presetName: String, targetFps: Double) throws -> SessionInfo {
@@ -97,13 +183,11 @@ public class FoldNativeCameraPlugin: CAPPlugin, CAPBridgedPlugin, AVCaptureVideo
         default: target = (1920, 1080)
         }
 
-        guard let device = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back)
-            ?? AVCaptureDevice.default(for: .video) else {
+        guard let device = pickCamera() else {
             throw NSError(domain: "fold", code: 1, userInfo: [NSLocalizedDescriptionKey: "no camera device"])
         }
+        self.device = device
 
-        // All formats matching the requested resolution, and the absolute max fps
-        // across them (the device's ceiling at this resolution — reported to the HUD).
         let matches = device.formats.filter {
             let d = CMVideoFormatDescriptionGetDimensions($0.formatDescription)
             return Int(d.width) == target.w && Int(d.height) == target.h
@@ -113,9 +197,6 @@ public class FoldNativeCameraPlugin: CAPPlugin, CAPBridgedPlugin, AVCaptureVideo
             .map { $0.maxFrameRate }
             .max() ?? 0
 
-        // Pick a format: for a specific target, the TIGHTEST format that still meets
-        // it (avoids selecting a slo-mo/binned format); for the max probe (fps<=0),
-        // the highest-fps format.
         var chosen: AVCaptureDevice.Format?
         var chosenMax = 0.0
         for f in matches {
@@ -126,7 +207,7 @@ public class FoldNativeCameraPlugin: CAPPlugin, CAPBridgedPlugin, AVCaptureVideo
                 if chosen == nil || m < chosenMax { chosenMax = m; chosen = f }
             }
         }
-        if chosen == nil {   // target unmet by any format — fall back to the fastest one
+        if chosen == nil {
             for f in matches {
                 let m = f.videoSupportedFrameRateRanges.map { $0.maxFrameRate }.max() ?? 0
                 if m > chosenMax { chosenMax = m; chosen = f }
@@ -171,7 +252,6 @@ public class FoldNativeCameraPlugin: CAPPlugin, CAPBridgedPlugin, AVCaptureVideo
                 // keep the format's default frame duration on lock failure
             }
         } else {
-            // no exact-dims format — fall back to a session preset
             let preset: AVCaptureSession.Preset = presetName == "hd720" ? .hd1280x720
                 : presetName == "uhd" ? .hd4K3840x2160 : .hd1920x1080
             if session.canSetSessionPreset(preset) { session.sessionPreset = preset }
@@ -182,8 +262,7 @@ public class FoldNativeCameraPlugin: CAPPlugin, CAPBridgedPlugin, AVCaptureVideo
                            requestedFps: requestedFps, cameraMaxFps: cameraMaxFps)
     }
 
-    // MARK: - frame delivery (encode synchronously here; the pixel buffer is only
-    // valid for the duration of this call, and dropped frames skip the encode)
+    // MARK: - frame delivery (encode synchronously; drop before encode when busy)
     public func captureOutput(_ output: AVCaptureOutput,
                               didOutput sampleBuffer: CMSampleBuffer,
                               from connection: AVCaptureConnection) {

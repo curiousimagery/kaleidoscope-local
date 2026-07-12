@@ -35,7 +35,7 @@ You install onto your OWN devices with just your existing Apple ID. The only lim
 ### adding a NEW device (each device's first time — Xcode prompts most of this, but here's the full list, since you'll come to this cold when you add the smaller devices later)
 
 1. Plug in via USB; on the device tap **Trust This Computer** + enter the passcode.
-2. **Enable Developer Mode:** device → **Settings → Privacy & Security → Developer Mode → on → restart**, then confirm after restart. (The toggle only appears after the device has been connected to Xcode at least once — so connect first, then look.)
+2. **Enable Developer Mode:** device → **Settings → Privacy & Security → Developer Mode → on → restart**, then confirm after restart. (The toggle only appears after the device has been connected to Xcode at least once — so connect first, then look.) Note: you must first attempt to run on the device before dev mode even appears as an option on the iphone.
 3. In Xcode, **Window → Devices and Simulators** → the device appears and "prepares for development" (downloads a debug-symbols package the first time — wait for it to finish).
 4. Pick the device in Xcode's toolbar dropdown → **Run (⌘R)**.
 5. First launch is BLOCKED as an untrusted developer. On the device: **Settings → General → VPN & Device Management → Developer App → [your Apple ID] → Trust**. Then tap the Fold icon.
@@ -91,15 +91,16 @@ Two orthogonal axes decide what a build offers, both cross-shell (web / Electron
 
 The feature families that make natural gates, and the scenarios Daniel named. This is a *menu*, not a decision — the actual free/pro split waits on positioning (`FOLD.md` D1). Each row = one `editionAllows('<family>')` check at the noted seam.
 
-| family (`editionAllows` key) | seam | example gate |
-| --- | --- | --- |
-| `motion` | desktop mode picker (`main.js`) | "iPad+Electron lite" bundle without motion/animation |
-| `perform` | desktop mode picker | pro-only live-performance mode |
-| `inputs` / control bus | the `[input]` app-bar button | pro-only MIDI/gamepad/gesture mapping |
-| `recordVideo` | mobile `[+]` source menu | freemium: watermark or cap length on free |
-| `broadcast` (HDMI/NDI/Syphon) | output destination picker | pro-only external output |
-| `exportResolution` | save/record resolution picker | free capped at 1080p, pro to 4K |
-| `forms` (beyond radial/rect) | form picker | free = core forms, pro = full set |
+
+| family (`editionAllows` key)  | seam                            | example gate                                         |
+| ----------------------------- | ------------------------------- | ---------------------------------------------------- |
+| `motion`                      | desktop mode picker (`main.js`) | "iPad+Electron lite" bundle without motion/animation |
+| `perform`                     | desktop mode picker             | pro-only live-performance mode                       |
+| `inputs` / control bus        | the`[input]` app-bar button     | pro-only MIDI/gamepad/gesture mapping                |
+| `recordVideo`                 | mobile`[+]` source menu         | freemium: watermark or cap length on free            |
+| `broadcast` (HDMI/NDI/Syphon) | output destination picker       | pro-only external output                             |
+| `exportResolution`            | save/record resolution picker   | free capped at 1080p, pro to 4K                      |
+| `forms` (beyond radial/rect)  | form picker                     | free = core forms, pro = full set                    |
 
 Freemium mechanics (later, when D1 says so): a **`host.iap` seam** (StoreKit on iOS via a Capacitor IAP plugin; a web billing provider on the web) sets a runtime "entitled" flag that flips `EDITION` from `*-free` to `*-pro` after purchase. Design it the same way as the other host seams (available/degrade); do NOT build it until positioning is settled. No paywall exists today — only the seam.
 

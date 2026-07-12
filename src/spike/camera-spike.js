@@ -78,6 +78,7 @@ export function mount() {
   let jsMs = 0;
   let vw = 0, vh = 0;
   let camMax = 0;
+  let ctlPanel = null;
   let status = 'idle';
 
   function updateHud() {
@@ -102,6 +103,7 @@ export function mount() {
       return;
     }
     camMax = (res && res.cameraMaxFps) || 0;
+    mountControls((res && res.controls) || {});
     const port = (res && res.port) || 8899;
     status = `connecting ws://127.0.0.1:${port}…`;
     updateHud();
@@ -167,9 +169,51 @@ export function mount() {
 
   async function stop() {
     status = 'stopped';
+    unmountControls();
     if (ws) { try { ws.close(); } catch { /* ignore */ } ws = null; }
     try { await FoldNativeCamera.stop(); } catch { /* ignore */ }
     updateHud();
+  }
+
+  // Build the native-control sliders from the ranges the device reported. Purely
+  // capability-driven: a control only appears if the device advertises it.
+  function mountControls(controls) {
+    unmountControls();
+    ctlPanel = document.createElement('div');
+    ctlPanel.style.cssText = [
+      'position:fixed;right:12px;top:110px;width:210px;z-index:10;',
+      'display:flex;flex-direction:column;gap:12px;padding:12px;',
+      'border-radius:10px;background:rgba(0,0,0,0.55);color:#eee;',
+      'font-size:12px;text-shadow:0 1px 2px #000;'
+    ].join('');
+
+    const ev = controls.exposureBias;
+    if (ev && ev.max > ev.min) {
+      addSlider(ctlPanel, 'EV', ev.min, ev.max, 0.1, 0, (v) => v.toFixed(1),
+        throttle((v) => FoldNativeCamera.setExposureBias({ value: v }), 40));
+    }
+    const z = controls.zoom;
+    if (z && z.max > z.min) {
+      const lens = (z.lensFactors && z.lensFactors.length)
+        ? ' · lens@' + z.lensFactors.map((n) => n.toFixed(1)).join('/') : '';
+      addSlider(ctlPanel, 'zoom' + lens, z.min, z.max, 0.05, z.min, (v) => v.toFixed(2) + '×',
+        throttle((v) => FoldNativeCamera.setZoom({ factor: v }), 40));
+    }
+    const wb = controls.whiteBalance;
+    if (wb && wb.lockSupported) {
+      const auto = mkBtn('WB auto');
+      auto.style.padding = '8px 12px';
+      auto.style.fontSize = '13px';
+      auto.onclick = () => FoldNativeCamera.setWhiteBalance({ mode: 'auto' });
+      ctlPanel.appendChild(auto);
+      addSlider(ctlPanel, 'WB temp', 3000, 8000, 100, 5000, (v) => v.toFixed(0) + 'K',
+        throttle((v) => FoldNativeCamera.setWhiteBalance({ temperature: v }), 60));
+    }
+    document.body.appendChild(ctlPanel);
+  }
+
+  function unmountControls() {
+    if (ctlPanel) { ctlPanel.remove(); ctlPanel = null; }
   }
 
   startBtn.onclick = start;
@@ -185,6 +229,38 @@ function mkBtn(label) {
     'box-shadow:0 2px 8px rgba(0,0,0,0.5);'
   ].join('');
   return b;
+}
+
+// Coalesce rapid slider input to a max rate (each device-config call locks the
+// camera, so we don't want one per pointer event), always flushing the last value.
+function throttle(fn, ms) {
+  let last = 0, pending = null, timer = null;
+  return (...args) => {
+    const now = performance.now();
+    if (now - last >= ms) { last = now; fn(...args); }
+    else {
+      pending = args;
+      if (!timer) {
+        timer = setTimeout(() => { last = performance.now(); timer = null; fn(...pending); }, ms - (now - last));
+      }
+    }
+  };
+}
+
+function addSlider(parent, label, min, max, step, value, fmt, onInput) {
+  const wrap = document.createElement('label');
+  wrap.style.cssText = 'display:flex;flex-direction:column;gap:4px;';
+  const head = document.createElement('div');
+  head.style.cssText = 'display:flex;justify-content:space-between;gap:8px;';
+  const name = document.createElement('span'); name.textContent = label;
+  const val = document.createElement('span'); val.textContent = fmt(value);
+  head.append(name, val);
+  const input = document.createElement('input');
+  input.type = 'range'; input.min = min; input.max = max; input.step = step; input.value = value;
+  input.style.width = '100%';
+  input.oninput = () => { const v = parseFloat(input.value); val.textContent = fmt(v); onInput(v); };
+  wrap.append(head, input);
+  parent.appendChild(wrap);
 }
 
 // WebGL2 biplanar-YUV (420f, full range) -> RGB. Y as R8, CbCr as RG8; padded
