@@ -60,6 +60,14 @@ export function createCamera() {
     track = stream.getVideoTracks()[0];
     const settings = track ? track.getSettings() : {};
     currentDeviceId = settings.deviceId || wantDevice || null;
+    // CAMERA-CONTROL SPIKE diagnostic (native arc): log what THIS platform's track
+    // actually exposes, so on-device (Safari Web Inspector) we SEE the reachable
+    // zoom/torch/focus + their ranges instead of guessing before designing the gear.
+    // One info line per camera start; harmless on platforms that expose nothing.
+    try {
+      console.info('[fold camera] getCapabilities:', track?.getCapabilities?.() ?? {},
+        '· getSettings:', settings);
+    } catch { /* getCapabilities unsupported on this engine */ }
     // Picked by device → no facingMode intent; mirror only if the track itself
     // reports user-facing (external/USB cams report nothing → no mirror).
     if (wantDevice) facing = settings.facingMode === 'user' ? 'user' : 'environment';

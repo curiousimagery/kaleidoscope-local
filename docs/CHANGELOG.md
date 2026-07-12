@@ -4,6 +4,12 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.15.4 (Build 305) — 2026-07-12 — camera-capability spike diagnostic (map what iOS exposes before designing the gear)
+
+**The first concrete step of the camera lane: fact, not guesswork.** [shell/camera.js](../src/shell/camera.js) `start()` now logs the live track's `getCapabilities()` + `getSettings()` once per camera start. Viewed in Safari Web Inspector on-device, this reveals exactly what iOS WKWebView exposes to `applyConstraints` (zoom/torch/focus and their ranges) so the camera-settings gear UX is designed around what's actually reachable, not assumed — and separately clarifies where we'll need the native `host.nativeCamera` path (EV/WB/lens/full-res still, which getUserMedia never exposes). Additive, one info line, harmless where nothing is exposed. **On-device next:** Daniel runs the app, opens the camera, and reads the log for each device.
+
+---
+
 ## v0.15.3 (Build 304) — 2026-07-12 — the on-device dev workflow, documented (CLI cheat sheet + DISTRIBUTION.md)
 
 **Docs/tooling for Daniel's first Capacitor device testing** (both primary devices — iPad Pro 12.9" + iPhone 17 Pro — now run from Xcode with camera + native save confirmed). The UI Lab's CLI cheat sheet ([lab.js](../src/lab.js)) gains a **Capacitor / iOS** group — `npm install` / `cap:sync` / `ios` / `cap:open` with notes on what each does and how `cap:sync` (the every-time loop) differs from the one-time signing/trust setup — cross-referencing the detailed walkthrough. [docs/DISTRIBUTION.md](DISTRIBUTION.md) gains a **"running on a device"** section: the free-Apple-ID path (no $99 needed for your own devices), the first-time Mac/Xcode signing, the full per-new-device checklist (Developer Mode, trust computer, prepare-for-development, trust the Developer App), the cap:sync-vs-initial-build distinction, the cable-vs-wireless + TestFlight answer (over-the-air, no 7-day expiry, invite testers), and guidance on Xcode's recommended-settings prompt (accept all — **User Script Sandboxing tested safe here**, our build has no in-Xcode script phase for it to break). No behavior change; dev-workflow surface only.
