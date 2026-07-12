@@ -4,6 +4,18 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.15.0 (Build 301) — 2026-07-12 — NATIVE BUILDS milestone: camera-control foundations + the HDMI/NDI output seams
+
+**The minor bump marks the native-builds milestone (Daniel's call).** Two additive foundations that the native passes build on, both verified by build (the runtime behaviors are camera/device-gated and verify on Daniel's device).
+
+**Camera control foundations ([shell/camera.js](../src/shell/camera.js)).** The camera host gains a capability-gated control layer (his highest-impact lever): `capabilities()` (the live track's `getCapabilities()` — zoom range, torch, focusMode, whatever the platform exposes; recent WebKit adds zoom/torch/focus, older exposes nothing), `controls()` (current `getSettings()`), and `applyControls(obj)` (best-effort `applyConstraints({advanced:[obj]})` for zoom/torch/focus). Purely additive — no caller changes behavior yet; the camera-settings gear + the native plugin consume it. The layer keeps a reference to the live `track` (nulled on stop) so controls reach it. EV/WB/lens-select that getUserMedia never exposes come from the native shell via `host.nativeCamera`.
+
+**The output seams ([shell/host.js](../src/shell/host.js)).** Two new host services, same no-op-on-web shape as the rest: `externalDisplay` (Capacitor watches for a second UIScreen and presents the chrome-free program view — output.html — on an HDMI/USB-C or AirPlay display while the controls stay on the device; a phone/iPad becomes a standalone activation broadcasting out) and `ndi` (publish the program output as an NDI network source Arena lists like a camera; native-SDK-only, mirrors syphon's publish shape). Nothing reads them on web (webHost stubs); the native shell fills them in.
+
+**Verify:** default web build byte-clean (`vite build`); iOS build + boot unaffected. Camera controls + external-display/NDI behavior verify on device as their native plugins land.
+
+---
+
 ## v0.14.22 (Build 300) — 2026-07-11 — CAPACITOR ARC opens: the iOS wrapper boots (build → boot → render → reuse, proven in the simulator) + the cross-shell EDITION gating seam
 
 **Pass 1, part 1 of the Capacitor arc: the native pipeline is stood up and the forkability seam is in.** Two independent pieces.
