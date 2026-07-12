@@ -25,7 +25,10 @@
   },
   "dependencies": {
     "@capacitor/core": "^8.4.1",
+    "@capacitor/filesystem": "^8.1.2",
     "@capacitor/ios": "^8.4.1",
+    "@capacitor/preferences": "^8.0.1",
+    "@capacitor/share": "^8.0.1",
     "mp4-muxer": "^5.2.2",
     "qrcode-generator": "^2.0.4"
   }

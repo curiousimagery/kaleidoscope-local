@@ -4,6 +4,16 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.15.1 (Build 302) — 2026-07-12 — the Capacitor host substrate: native file save/share + preferences (iPad save now goes to the iOS share sheet)
+
+**The iOS sibling of Electron's `window.foldHost`.** New [shell/capacitor-host.js](../src/shell/capacitor-host.js) implements the `shell/host.js` shape on top of first-party Capacitor plugins, so the app programs against `env.host.*` and never learns it's native — it just finds more services `available`. Plugins are **dynamic-imported inside the methods**, so the plain web bundle never loads them (they chunk into async modules that only resolve in the native runtime; verified the main bundle is untouched). Wired: `fileSystem.save` (writes the blob to app cache, then opens the iOS **share sheet** → Save to Files / Save to Photos / AirDrop — via @capacitor/filesystem + @capacitor/share) and `config.read/write` (native key-value persistence via @capacitor/preferences, the portable-config store's native backing). `externalDisplay`/`nativeCamera`/`ndi` inherit the webHost no-op until their Swift plugins land.
+
+**Host resolution now covers Capacitor** ([main.js](../src/main.js)): `?mocksyphon` → mock; else `window.foldHost` (Electron); else the Capacitor host when `detectRuntime().isCapacitor`; else the web no-op. And the desktop/iPad save path ([source-host.js](../src/shell/source-host.js) `downloadBlob`) now asks `host.fileSystem` first, degrading to the browser download on web — so on iPad a save opens the native share sheet, and on native it **sidesteps the download-navigation that blacks out the WebGL context** (the parked mobile-save bug). Additive: on web `host.fileSystem.available` is false, so nothing changes.
+
+**Verified:** `vite build` clean (async plugin chunks, main bundle unchanged); `cap sync` integrates all three plugins into Package.swift; `xcodebuild` BUILD SUCCEEDED; the app boots on the iPad simulator showing v0.15.1 with the plugins linked (no init crash). **Device-pending:** the actual share-sheet save + Photos write (needs a device / a save action, which the sim + no-camera can't fully exercise). The iPhone (mobile chrome) save path still uses its own `downloadBlob` — routing it needs a host wired into the mobile chrome (next).
+
+---
+
 ## v0.15.0 (Build 301) — 2026-07-12 — NATIVE BUILDS milestone: camera-control foundations + the HDMI/NDI output seams
 
 **The minor bump marks the native-builds milestone (Daniel's call).** Two additive foundations that the native passes build on, both verified by build (the runtime behaviors are camera/device-gated and verify on Daniel's device).
