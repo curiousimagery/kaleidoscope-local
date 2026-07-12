@@ -31,6 +31,8 @@ import { ICONS } from './icons.js';
 import { applyArmsSnap, snapSpiralValue } from '../kit/snaps.js';
 import { zipStore } from '../shell/zip.js';
 import { EDITION, editionAllows, detectRuntime } from '../kit/capabilities.js';
+import { webHost } from '../shell/host.js';
+import { createCapacitorHost } from '../shell/capacitor-host.js';
 
 // (The desktop stylesheet is dropped in boot.js before this module loads.)
 
@@ -40,6 +42,11 @@ import { EDITION, editionAllows, detectRuntime } from '../kit/capabilities.js';
 // map fills in. `void editionAllows` keeps the import live until then.
 void editionAllows;
 console.info(`[fold] edition ${EDITION} · ${detectRuntime().isNative ? 'native' : 'web'}`);
+
+// The phone chrome doesn't mount createApp, so it resolves its own host — the
+// native-services seam every native feature (save/share, later camera/HDMI/NDI)
+// programs against. Capacitor host in the native runtime, else the web no-op.
+const host = detectRuntime().isCapacitor ? createCapacitorHost() : webHost;
 
 // ---------------------------------------------------------------- DOM scaffold
 document.body.innerHTML = `
@@ -1125,6 +1132,12 @@ requestAnimationFrame(layout);
 
 // ------------------------------------------------------------------ save sheet
 function downloadBlob(blob, name) {
+  // Native shell (Capacitor iOS) → the share sheet (Save to Files/Photos), which
+  // also avoids the download-navigation that blacks out the WebGL context on the
+  // mobile save handoff (the parked bug). Web → the browser download. Additive:
+  // on web host.fileSystem.available is false, so the path below is unchanged.
+  const fs = host.fileSystem;
+  if (fs?.available) { fs.save(blob, name); return; }
   const u = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = u; a.download = name; a.click();

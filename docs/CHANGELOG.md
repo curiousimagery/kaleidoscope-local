@@ -4,6 +4,14 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.15.2 (Build 303) — 2026-07-12 — native save reaches the phone: a host in the mobile chrome
+
+**The iPhone chrome now has a native-services host too.** The mobile chrome doesn't mount `createApp` (it has its own lighter wiring), so it never had an `env.host`. [mobile/chrome.js](../src/mobile/chrome.js) now resolves one directly — the Capacitor host in the native runtime, else the web no-op — and routes its `downloadBlob` (the save-sheet's writer) through `host.fileSystem` when available. So a save on the phone (still export, record-video take, package) opens the iOS **share sheet** instead of a browser download, which also dodges the WebGL-context-loss-on-save bug on the phone. Additive: on web `host.fileSystem.available` is false, so the browser download path is unchanged. **This host reference is the substrate for every future iPhone-native feature — camera controls, HDMI, NDI all read it.**
+
+**Verified:** `vite build` clean, `cap sync`, `xcodebuild` BUILD SUCCEEDED, and the mobile chrome boots on the iPhone 17 Pro simulator (the capacitor-host import loads without crashing at init — its plugin imports are lazy). Runtime save is device-pending.
+
+---
+
 ## v0.15.1 (Build 302) — 2026-07-12 — the Capacitor host substrate: native file save/share + preferences (iPad save now goes to the iOS share sheet)
 
 **The iOS sibling of Electron's `window.foldHost`.** New [shell/capacitor-host.js](../src/shell/capacitor-host.js) implements the `shell/host.js` shape on top of first-party Capacitor plugins, so the app programs against `env.host.*` and never learns it's native — it just finds more services `available`. Plugins are **dynamic-imported inside the methods**, so the plain web bundle never loads them (they chunk into async modules that only resolve in the native runtime; verified the main bundle is untouched). Wired: `fileSystem.save` (writes the blob to app cache, then opens the iOS **share sheet** → Save to Files / Save to Photos / AirDrop — via @capacitor/filesystem + @capacitor/share) and `config.read/write` (native key-value persistence via @capacitor/preferences, the portable-config store's native backing). `externalDisplay`/`nativeCamera`/`ndi` inherit the webHost no-op until their Swift plugins land.
