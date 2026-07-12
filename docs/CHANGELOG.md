@@ -4,6 +4,12 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.15.5 (Build 306) — 2026-07-12 — spike diagnostic readable straight from the Xcode console (stringify + console.log)
+
+**Same spike, no Web Inspector required to read it.** The camera-capability diagnostic added in B305 logged bare objects via `console.info`, which the Capacitor→Xcode console bridge renders as `[object Object]`. [shell/camera.js](../src/shell/camera.js) now `JSON.stringify`s the `getCapabilities()`/`getSettings()` payloads and emits them via `console.log`, so the full object prints as plain text in the same `⚡️ [log]` stream Daniel is already reading in Xcode — Safari Web Inspector becomes optional, not required, for the spike. **On-device next (unchanged):** rebuild so the device carries the diagnostic, open the camera, and read the two `[fold camera]` lines for each device.
+
+---
+
 ## v0.15.4 (Build 305) — 2026-07-12 — camera-capability spike diagnostic (map what iOS exposes before designing the gear)
 
 **The first concrete step of the camera lane: fact, not guesswork.** [shell/camera.js](../src/shell/camera.js) `start()` now logs the live track's `getCapabilities()` + `getSettings()` once per camera start. Viewed in Safari Web Inspector on-device, this reveals exactly what iOS WKWebView exposes to `applyConstraints` (zoom/torch/focus and their ranges) so the camera-settings gear UX is designed around what's actually reachable, not assumed — and separately clarifies where we'll need the native `host.nativeCamera` path (EV/WB/lens/full-res still, which getUserMedia never exposes). Additive, one info line, harmless where nothing is exposed. **On-device next:** Daniel runs the app, opens the camera, and reads the log for each device.
