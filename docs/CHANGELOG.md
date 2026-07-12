@@ -4,6 +4,12 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.15.3 (Build 304) — 2026-07-12 — the on-device dev workflow, documented (CLI cheat sheet + DISTRIBUTION.md)
+
+**Docs/tooling for Daniel's first Capacitor device testing** (both primary devices — iPad Pro 12.9" + iPhone 17 Pro — now run from Xcode with camera + native save confirmed). The UI Lab's CLI cheat sheet ([lab.js](../src/lab.js)) gains a **Capacitor / iOS** group — `npm install` / `cap:sync` / `ios` / `cap:open` with notes on what each does and how `cap:sync` (the every-time loop) differs from the one-time signing/trust setup — cross-referencing the detailed walkthrough. [docs/DISTRIBUTION.md](DISTRIBUTION.md) gains a **"running on a device"** section: the free-Apple-ID path (no $99 needed for your own devices), the first-time Mac/Xcode signing, the full per-new-device checklist (Developer Mode, trust computer, prepare-for-development, trust the Developer App), the cap:sync-vs-initial-build distinction, the cable-vs-wireless + TestFlight answer (over-the-air, no 7-day expiry, invite testers), and guidance on Xcode's recommended-settings prompt (accept all — **User Script Sandboxing tested safe here**, our build has no in-Xcode script phase for it to break). No behavior change; dev-workflow surface only.
+
+---
+
 ## v0.15.2 (Build 303) — 2026-07-12 — native save reaches the phone: a host in the mobile chrome
 
 **The iPhone chrome now has a native-services host too.** The mobile chrome doesn't mount `createApp` (it has its own lighter wiring), so it never had an `env.host`. [mobile/chrome.js](../src/mobile/chrome.js) now resolves one directly — the Capacitor host in the native runtime, else the web no-op — and routes its `downloadBlob` (the save-sheet's writer) through `host.fileSystem` when available. So a save on the phone (still export, record-video take, package) opens the iOS **share sheet** instead of a browser download, which also dodges the WebGL-context-loss-on-save bug on the phone. Additive: on web `host.fileSystem.available` is false, so the browser download path is unchanged. **This host reference is the substrate for every future iPhone-native feature — camera controls, HDMI, NDI all read it.**

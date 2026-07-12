@@ -21,6 +21,39 @@ The shell never forks the UI; it injects a `host` (native services) + `capabilit
 
 Verified through B303: `xcodebuild` BUILD SUCCEEDED for the simulator, app boots and reuses the mobile/desktop chrome, first-party plugins (Filesystem/Share/Preferences) linked.
 
+## running on a device (development, free Apple ID — no $99 account needed)
+
+You install onto your OWN devices with just your existing Apple ID. The only limits vs the paid account: a free-signed app stops launching after ~7 days (re-run from Xcode to refresh), and there's no over-the-air distribution (that's TestFlight, below). All devices use the identical process; one universal `.app`.
+
+### first-time Mac + Xcode signing (once per Mac)
+
+1. `npm install` (pulls `node_modules`, incl. the Capacitor deps).
+2. `npm run ios` — builds the web app, copies it into the native project, opens Xcode. First open resolves the Swift Package deps over the network (~1 min).
+3. Xcode → **Settings → Accounts → +** → sign in with your Apple ID (creates a free "Personal Team").
+4. Select the blue **App** project → **App** target → **Signing & Capabilities** → check **Automatically manage signing** → **Team** = your Personal Team. If it says the bundle id `art.curiousimagery.fold` is unavailable, append `.dev` locally (device-testing only — don't commit that).
+
+### adding a NEW device (each device's first time — Xcode prompts most of this, but here's the full list, since you'll come to this cold when you add the smaller devices later)
+
+1. Plug in via USB; on the device tap **Trust This Computer** + enter the passcode.
+2. **Enable Developer Mode:** device → **Settings → Privacy & Security → Developer Mode → on → restart**, then confirm after restart. (The toggle only appears after the device has been connected to Xcode at least once — so connect first, then look.)
+3. In Xcode, **Window → Devices and Simulators** → the device appears and "prepares for development" (downloads a debug-symbols package the first time — wait for it to finish).
+4. Pick the device in Xcode's toolbar dropdown → **Run (⌘R)**.
+5. First launch is BLOCKED as an untrusted developer. On the device: **Settings → General → VPN & Device Management → Developer App → [your Apple ID] → Trust**. Then tap the Fold icon.
+6. (Optional) In Devices and Simulators, tick **Connect via network** to run wirelessly from then on.
+
+### the every-time loop, and cap:sync vs the initial build
+
+After signing/trust is set up (once), the whole loop is: change web code → **`npm run cap:sync`** → back in Xcode press **Run**. The INITIAL build is the one-time signing + device-trust setup above. `npm run cap:sync` (= `vite build` + `cap sync ios`) is the REPEAT step: it recompiles the web app and copies it into `ios/App/App/public` and refreshes the plugin list. It does NOT touch signing, open Xcode, or build the native app — Xcode does the native compile + install when you press Run. Mental model: **signing/trust is one-time per device; `cap sync` + Run is every code change.**
+
+### cable vs wireless, and what TestFlight buys you
+
+- **Now (development):** the first connection needs the cable; after ticking "Connect via network" you can run wirelessly from Xcode on the same network. But it still needs YOUR Mac + Xcode open, and the 7-day re-sign applies.
+- **TestFlight (needs the $99 account):** yes to all three of your guesses. It distributes builds **over-the-air** (testers install from the TestFlight app — no cable, no Xcode, not even your Mac), it **removes the 7-day expiry** (TestFlight builds last ~90 days), and it lets you **invite other people as testers** (up to 100 internal + up to 10,000 external by email/link) — the right path for alpha testing. You upload one archived build to App Store Connect and testers pull it themselves.
+
+### Xcode's "recommended settings" prompt (the yellow ⚠)
+
+Safe to **Accept all** for this project — they're modernization nudges, low-risk here: Enable Recommended Warnings / String Catalog Symbol Generation / Parallelization (cosmetic/quality/speed, no behavior change), and Inherit Development Team from Project Settings (convenience). The only one that ever breaks web-wrapper builds is **Enable User Script Sandboxing** (it can block build scripts from reaching files) — **tested B304: our build SUCCEEDS with it on** (Capacitor copies web assets via `cap sync` outside Xcode, so there's no in-Xcode script phase for it to break). Accepting edits the committed `ios/App/App.xcodeproj/project.pbxproj`, so **commit that change** after accepting (or hand it to Claude to fold in) to keep the repo consistent.
+
 ## what needs the $99 Apple Developer account (the gate)
 
 Nothing below can happen until the account exists. None of it blocks development (the simulator needs no account; a free personal team allows 7-day device installs).
