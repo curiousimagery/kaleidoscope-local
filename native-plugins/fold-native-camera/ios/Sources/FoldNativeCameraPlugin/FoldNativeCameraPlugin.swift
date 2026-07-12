@@ -3,14 +3,14 @@
 //
 // FoldNativeCameraPlugin.swift
 //
-// Tier-2 frame-bridge SPIKE. Runs a native AVCaptureSession (so we OWN the
-// camera), streams biplanar YUV frames to the webview over a localhost WebSocket
-// (WebGL uploads + YUV->RGB), AND now exposes the native-only controls that
-// getUserMedia can't reach: exposure bias (EV), zoom across the physical lenses,
-// and locked white balance by temperature. Purpose: prove the whole Tier-2
-// thesis — native owns the sensor, so real controls preview live — before
-// wiring the bridge into the real kaleidoscope engine. Tap-to-focus is deferred
-// (needs on-device coordinate calibration).
+// Tier-2 frame-bridge SPIKE. Native AVCaptureSession (we OWN the camera), streams
+// biplanar YUV to the webview over a localhost WebSocket, and exposes native-only
+// controls (EV, zoom, white balance). Supports selecting a specific physical lens
+// vs the auto-switching virtual device — the fork that decides whether custom
+// (Kelvin) white balance and per-lens 48MP capture are available (a single sensor
+// allows sensor-absolute controls; the composite virtual device does not). Also
+// reports each device's still-photo resolution ceiling. Tap-to-focus and actual
+// high-res still capture are the next increments.
 
 import Foundation
 import AVFoundation
@@ -37,32 +37,56 @@ public class FoldNativeCameraPlugin: CAPPlugin, CAPBridgedPlugin, AVCaptureVideo
     private var running = false
     private var device: AVCaptureDevice?
 
-    // Prefer the widest-spanning virtual device so `videoZoomFactor` crosses the
-    // physical lenses (ultrawide -> wide -> tele) and exposes real switchover points.
-    private func pickCamera() -> AVCaptureDevice? {
-        let types: [AVCaptureDevice.DeviceType] = [
-            .builtInTripleCamera, .builtInDualWideCamera, .builtInDualCamera, .builtInWideAngleCamera
-        ]
-        for t in types {
-            if let d = AVCaptureDevice.default(t, for: .video, position: .back) { return d }
+    // `lens`: "auto" = best virtual multi-lens device (seamless zoom, no custom WB);
+    // "ultraWide"/"wide"/"tele" = a single physical lens (full manual control).
+    private func pickCamera(_ lens: String) -> AVCaptureDevice? {
+        switch lens {
+        case "ultraWide": return AVCaptureDevice.default(.builtInUltraWideCamera, for: .video, position: .back)
+        case "wide": return AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back)
+        case "tele": return AVCaptureDevice.default(.builtInTelephotoCamera, for: .video, position: .back)
+        default:
+            let types: [AVCaptureDevice.DeviceType] = [
+                .builtInTripleCamera, .builtInDualWideCamera, .builtInDualCamera, .builtInWideAngleCamera
+            ]
+            for t in types {
+                if let d = AVCaptureDevice.default(t, for: .video, position: .back) { return d }
+            }
+            return AVCaptureDevice.default(for: .video)
         }
-        return AVCaptureDevice.default(for: .video)
+    }
+
+    private func availableLenses() -> [String] {
+        let ds = AVCaptureDevice.DiscoverySession(
+            deviceTypes: [.builtInUltraWideCamera, .builtInWideAngleCamera, .builtInTelephotoCamera],
+            mediaType: .video, position: .back)
+        var out = ["auto"]
+        for d in ds.devices {
+            switch d.deviceType {
+            case .builtInUltraWideCamera: out.append("ultraWide")
+            case .builtInWideAngleCamera: out.append("wide")
+            case .builtInTelephotoCamera: out.append("tele")
+            default: break
+            }
+        }
+        return out
     }
 
     @objc func start(_ call: CAPPluginCall) {
         let preset = call.getString("preset") ?? "hd1080"
         let fps = call.getDouble("fps") ?? 30
+        let lens = call.getString("lens") ?? "auto"
         AVCaptureDevice.requestAccess(for: .video) { [weak self] granted in
             guard let self = self else { return }
             guard granted else { call.reject("camera not authorized"); return }
             self.sessionQueue.async {
                 if self.running {
-                    call.resolve(["port": self.server.port, "running": true, "controls": self.controlRanges()])
-                    return
+                    self.session.stopRunning()
+                    self.server.stop()
+                    self.running = false
                 }
                 let info: SessionInfo
                 do {
-                    info = try self.configureSession(presetName: preset, targetFps: fps)
+                    info = try self.configureSession(presetName: preset, targetFps: fps, lens: lens)
                 } catch {
                     call.reject("configure failed: \(error.localizedDescription)")
                     return
@@ -76,6 +100,7 @@ public class FoldNativeCameraPlugin: CAPPlugin, CAPBridgedPlugin, AVCaptureVideo
                     "height": info.height,
                     "requestedFps": info.requestedFps,
                     "cameraMaxFps": info.cameraMaxFps,
+                    "availableLenses": self.availableLenses(),
                     "controls": self.controlRanges(),
                     "running": true
                 ])
@@ -138,15 +163,12 @@ public class FoldNativeCameraPlugin: CAPPlugin, CAPBridgedPlugin, AVCaptureVideo
                         device.whiteBalanceMode = .continuousAutoWhiteBalance
                     }
                 } else if mode == "lock" {
-                    // freeze the current auto-computed gains (supported broadly, incl.
-                    // the multi-lens camera) — no specific Kelvin
                     if device.isWhiteBalanceModeSupported(.locked) {
                         device.whiteBalanceMode = .locked
                     }
                 } else if let temp = temperature, device.isLockingWhiteBalanceWithCustomDeviceGainsSupported {
-                    // specific Kelvin — MUST be gated on the custom-gains capability, or
-                    // AVFoundation throws an NSException that crashes the app (Swift
-                    // try/catch can't catch it; the support check is the only guard)
+                    // MUST be gated on the custom-gains capability, or AVFoundation
+                    // throws an NSException (uncatchable in Swift) that crashes the app
                     let tnt = AVCaptureDevice.WhiteBalanceTemperatureAndTintValues(temperature: Float(temp), tint: 0)
                     var gains = device.deviceWhiteBalanceGains(for: tnt)
                     let maxG = device.maxWhiteBalanceGain
@@ -164,9 +186,6 @@ public class FoldNativeCameraPlugin: CAPPlugin, CAPBridgedPlugin, AVCaptureVideo
     private func controlRanges() -> [String: Any] {
         guard let device = self.device else { return [:] }
         let lensFactors = device.virtualDeviceSwitchOverVideoZoomFactors.map { $0.doubleValue }
-        // Probe whether the plain single WIDE lens would allow custom-Kelvin WB even
-        // when the active (multi-lens) device does not — answers the lens-vs-manual-WB
-        // tradeoff in one device run.
         let wideCustomWB = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back)?
             .isLockingWhiteBalanceWithCustomDeviceGainsSupported ?? false
         return [
@@ -177,8 +196,26 @@ public class FoldNativeCameraPlugin: CAPPlugin, CAPBridgedPlugin, AVCaptureVideo
                      "lensFactors": lensFactors],
             "whiteBalance": ["lockSupported": device.isWhiteBalanceModeSupported(.locked),
                              "customGainsSupported": device.isLockingWhiteBalanceWithCustomDeviceGainsSupported,
-                             "customGainsSupportedWideLens": wideCustomWB]
+                             "customGainsSupportedWideLens": wideCustomWB],
+            "photo": photoInfo(device)
         ]
+    }
+
+    // Still-photo resolution ceiling for this device/lens (read from the formats;
+    // no photo output needed just to report it). `sensorMax` = the biggest the
+    // sensor offers across formats; `activeMax` = what the current streaming format
+    // allows. Actual capture is a later increment.
+    private func photoInfo(_ device: AVCaptureDevice) -> [String: Int] {
+        if #available(iOS 16.0, *) {
+            let area: (CMVideoDimensions) -> Int = { Int($0.width) * Int($0.height) }
+            let sensorMax = device.formats.flatMap { $0.supportedMaxPhotoDimensions }.max(by: { area($0) < area($1) })
+            let activeMax = device.activeFormat.supportedMaxPhotoDimensions.max(by: { area($0) < area($1) })
+            return [
+                "sensorMaxW": Int(sensorMax?.width ?? 0), "sensorMaxH": Int(sensorMax?.height ?? 0),
+                "activeMaxW": Int(activeMax?.width ?? 0), "activeMaxH": Int(activeMax?.height ?? 0)
+            ]
+        }
+        return ["sensorMaxW": 0, "sensorMaxH": 0, "activeMaxW": 0, "activeMaxH": 0]
     }
 
     // MARK: - session config
@@ -190,7 +227,7 @@ public class FoldNativeCameraPlugin: CAPPlugin, CAPBridgedPlugin, AVCaptureVideo
         let cameraMaxFps: Double
     }
 
-    private func configureSession(presetName: String, targetFps: Double) throws -> SessionInfo {
+    private func configureSession(presetName: String, targetFps: Double, lens: String) throws -> SessionInfo {
         let target: (w: Int, h: Int)
         switch presetName {
         case "hd720": target = (1280, 720)
@@ -199,7 +236,7 @@ public class FoldNativeCameraPlugin: CAPPlugin, CAPBridgedPlugin, AVCaptureVideo
         default: target = (1920, 1080)
         }
 
-        guard let device = pickCamera() else {
+        guard let device = pickCamera(lens) else {
             throw NSError(domain: "fold", code: 1, userInfo: [NSLocalizedDescriptionKey: "no camera device"])
         }
         self.device = device

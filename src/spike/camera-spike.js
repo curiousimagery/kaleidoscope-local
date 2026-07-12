@@ -79,6 +79,8 @@ export function mount() {
   let vw = 0, vh = 0;
   let camMax = 0;
   let ctlPanel = null;
+  let currentLens = 'auto';
+  let availLenses = ['auto'];
   let status = 'idle';
 
   function updateHud() {
@@ -96,13 +98,14 @@ export function mount() {
     updateHud();
     let res;
     try {
-      res = await FoldNativeCamera.start({ preset: presets[presetIdx], fps: fpsTargets[fpsIdx] });
+      res = await FoldNativeCamera.start({ preset: presets[presetIdx], fps: fpsTargets[fpsIdx], lens: currentLens });
     } catch (e) {
       status = 'plugin.start rejected: ' + (e && e.message ? e.message : e);
       updateHud();
       return;
     }
     camMax = (res && res.cameraMaxFps) || 0;
+    availLenses = (res && res.availableLenses) || ['auto'];
     mountControls((res && res.controls) || {});
     const port = (res && res.port) || 8899;
     status = `connecting ws://127.0.0.1:${port}…`;
@@ -175,6 +178,13 @@ export function mount() {
     updateHud();
   }
 
+  // Re-acquire with a changed lens (the socket rebinds, so drop + pause + re-open).
+  async function restart() {
+    await stop();
+    await new Promise((r) => setTimeout(r, 250));
+    await start();
+  }
+
   // Build the native-control sliders from the ranges the device reported. Purely
   // capability-driven: a control only appears if the device advertises it.
   function mountControls(controls) {
@@ -187,6 +197,29 @@ export function mount() {
       'font-size:12px;text-shadow:0 1px 2px #000;'
     ].join('');
 
+    // lens selector — a physical lens gives full manual control (incl. Kelvin WB);
+    // "auto" is the seamless multi-lens composite (no custom WB).
+    if (availLenses.length > 1) {
+      const lensRow = document.createElement('div');
+      lensRow.style.cssText = 'display:flex;flex-wrap:wrap;gap:6px;';
+      const labels = { auto: 'auto', ultraWide: 'UW', wide: 'wide', tele: 'tele' };
+      availLenses.forEach((ln) => {
+        const b = wbBtn(labels[ln] || ln, async () => { currentLens = ln; await restart(); });
+        if (ln === currentLens) b.style.background = '#0a84ff';
+        lensRow.appendChild(b);
+      });
+      ctlPanel.appendChild(lensRow);
+    }
+
+    // still-photo resolution ceiling for the current lens
+    const ph = controls.photo;
+    if (ph && ph.sensorMaxW) {
+      const note = document.createElement('div');
+      note.style.cssText = 'opacity:0.8;font-size:11px;';
+      note.textContent = `still: ${(ph.sensorMaxW * ph.sensorMaxH / 1e6).toFixed(0)}MP  (${ph.sensorMaxW}×${ph.sensorMaxH})`;
+      ctlPanel.appendChild(note);
+    }
+
     const ev = controls.exposureBias;
     if (ev && ev.max > ev.min) {
       addSlider(ctlPanel, 'EV', ev.min, ev.max, 0.1, 0, (v) => v.toFixed(1),
@@ -194,9 +227,12 @@ export function mount() {
     }
     const z = controls.zoom;
     if (z && z.max > z.min) {
+      // cap the slider to the usable optical range (past the last lens is digital crop)
+      const lensMax = (z.lensFactors && z.lensFactors.length) ? Math.max(...z.lensFactors) : 8;
+      const cap = Math.min(z.max, Math.max(lensMax * 1.5, 4));
       const lens = (z.lensFactors && z.lensFactors.length)
         ? ' · lens@' + z.lensFactors.map((n) => n.toFixed(1)).join('/') : '';
-      addSlider(ctlPanel, 'zoom' + lens, z.min, z.max, 0.05, z.min, (v) => v.toFixed(2) + '×',
+      addSlider(ctlPanel, 'zoom' + lens, z.min, cap, 0.05, z.min, (v) => v.toFixed(2) + '×',
         throttle((v) => FoldNativeCamera.setZoom({ factor: v }), 40));
     }
     const wb = controls.whiteBalance || {};
