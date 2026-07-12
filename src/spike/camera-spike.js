@@ -199,15 +199,28 @@ export function mount() {
       addSlider(ctlPanel, 'zoom' + lens, z.min, z.max, 0.05, z.min, (v) => v.toFixed(2) + '×',
         throttle((v) => FoldNativeCamera.setZoom({ factor: v }), 40));
     }
-    const wb = controls.whiteBalance;
-    if (wb && wb.lockSupported) {
-      const auto = mkBtn('WB auto');
-      auto.style.padding = '8px 12px';
-      auto.style.fontSize = '13px';
-      auto.onclick = () => FoldNativeCamera.setWhiteBalance({ mode: 'auto' });
+    const wb = controls.whiteBalance || {};
+    // diagnostic: does THIS (multi-lens) camera allow Kelvin WB, and would the wide lens?
+    const wbNote = document.createElement('div');
+    wbNote.style.cssText = 'opacity:0.75;font-size:11px;line-height:1.4;';
+    wbNote.textContent =
+      `WB kelvin: this cam ${wb.customGainsSupported ? '✓' : '✗'} · wide lens ${wb.customGainsSupportedWideLens ? '✓' : '✗'}`;
+    ctlPanel.appendChild(wbNote);
+
+    if (wb.customGainsSupported) {
+      const auto = wbBtn('WB auto', () => FoldNativeCamera.setWhiteBalance({ mode: 'auto' }));
       ctlPanel.appendChild(auto);
       addSlider(ctlPanel, 'WB temp', 3000, 8000, 100, 5000, (v) => v.toFixed(0) + 'K',
         throttle((v) => FoldNativeCamera.setWhiteBalance({ temperature: v }), 60));
+    } else if (wb.lockSupported) {
+      // no Kelvin on this camera — offer auto vs lock-current only
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;gap:8px;';
+      row.append(
+        wbBtn('WB auto', () => FoldNativeCamera.setWhiteBalance({ mode: 'auto' })),
+        wbBtn('WB lock', () => FoldNativeCamera.setWhiteBalance({ mode: 'lock' }))
+      );
+      ctlPanel.appendChild(row);
     }
     document.body.appendChild(ctlPanel);
   }
@@ -228,6 +241,15 @@ function mkBtn(label) {
     'background:#2a2a2a;color:#fff;font-size:15px;font-weight:600;',
     'box-shadow:0 2px 8px rgba(0,0,0,0.5);'
   ].join('');
+  return b;
+}
+
+// A small labelled button wired to a click handler (WB auto/lock).
+function wbBtn(label, onClick) {
+  const b = mkBtn(label);
+  b.style.padding = '8px 12px';
+  b.style.fontSize = '13px';
+  b.onclick = onClick;
   return b;
 }
 

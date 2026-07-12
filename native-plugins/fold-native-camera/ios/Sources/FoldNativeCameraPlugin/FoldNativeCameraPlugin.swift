@@ -137,7 +137,16 @@ public class FoldNativeCameraPlugin: CAPPlugin, CAPBridgedPlugin, AVCaptureVideo
                     if device.isWhiteBalanceModeSupported(.continuousAutoWhiteBalance) {
                         device.whiteBalanceMode = .continuousAutoWhiteBalance
                     }
-                } else if let temp = temperature, device.isWhiteBalanceModeSupported(.locked) {
+                } else if mode == "lock" {
+                    // freeze the current auto-computed gains (supported broadly, incl.
+                    // the multi-lens camera) — no specific Kelvin
+                    if device.isWhiteBalanceModeSupported(.locked) {
+                        device.whiteBalanceMode = .locked
+                    }
+                } else if let temp = temperature, device.isLockingWhiteBalanceWithCustomDeviceGainsSupported {
+                    // specific Kelvin — MUST be gated on the custom-gains capability, or
+                    // AVFoundation throws an NSException that crashes the app (Swift
+                    // try/catch can't catch it; the support check is the only guard)
                     let tnt = AVCaptureDevice.WhiteBalanceTemperatureAndTintValues(temperature: Float(temp), tint: 0)
                     var gains = device.deviceWhiteBalanceGains(for: tnt)
                     let maxG = device.maxWhiteBalanceGain
@@ -155,13 +164,20 @@ public class FoldNativeCameraPlugin: CAPPlugin, CAPBridgedPlugin, AVCaptureVideo
     private func controlRanges() -> [String: Any] {
         guard let device = self.device else { return [:] }
         let lensFactors = device.virtualDeviceSwitchOverVideoZoomFactors.map { $0.doubleValue }
+        // Probe whether the plain single WIDE lens would allow custom-Kelvin WB even
+        // when the active (multi-lens) device does not — answers the lens-vs-manual-WB
+        // tradeoff in one device run.
+        let wideCustomWB = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back)?
+            .isLockingWhiteBalanceWithCustomDeviceGainsSupported ?? false
         return [
             "exposureBias": ["min": Double(device.minExposureTargetBias),
                              "max": Double(device.maxExposureTargetBias)],
             "zoom": ["min": Double(device.minAvailableVideoZoomFactor),
                      "max": Double(device.maxAvailableVideoZoomFactor),
                      "lensFactors": lensFactors],
-            "whiteBalance": ["lockSupported": device.isWhiteBalanceModeSupported(.locked)]
+            "whiteBalance": ["lockSupported": device.isWhiteBalanceModeSupported(.locked),
+                             "customGainsSupported": device.isLockingWhiteBalanceWithCustomDeviceGainsSupported,
+                             "customGainsSupportedWideLens": wideCustomWB]
         ]
     }
 
