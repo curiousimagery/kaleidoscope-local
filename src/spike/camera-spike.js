@@ -46,7 +46,8 @@ export function mount() {
   const startBtn = mkBtn('Start');
   const stopBtn = mkBtn('Stop');
   const presetBtn = mkBtn('1080p');
-  controls.append(presetBtn, startBtn, stopBtn);
+  const fpsBtn = mkBtn('30fps');
+  controls.append(presetBtn, fpsBtn, startBtn, stopBtn);
   document.body.appendChild(controls);
 
   const presets = ['hd720', 'hd1080', 'uhd'];
@@ -55,6 +56,15 @@ export function mount() {
   presetBtn.onclick = () => {
     presetIdx = (presetIdx + 1) % presets.length;
     presetBtn.textContent = presetLabels[presets[presetIdx]];
+  };
+
+  // fps target: 30, 60, or 0 = run the camera as fast as the format allows (ceiling).
+  const fpsTargets = [30, 60, 0];
+  const fpsLabels = { 30: '30fps', 60: '60fps', 0: 'max fps' };
+  let fpsIdx = 0;
+  fpsBtn.onclick = () => {
+    fpsIdx = (fpsIdx + 1) % fpsTargets.length;
+    fpsBtn.textContent = fpsLabels[fpsTargets[fpsIdx]];
   };
 
   const gl = canvas.getContext('webgl2', { antialias: false, alpha: false, desynchronized: true });
@@ -67,12 +77,15 @@ export function mount() {
   let fps = 0;
   let jsMs = 0;
   let vw = 0, vh = 0;
+  let camMax = 0;
   let status = 'idle';
 
   function updateHud() {
     hud.textContent =
       `${status}\n` +
-      `${vw}×${vh}  ·  ${fps.toFixed(0)} fps  ·  ${jsMs.toFixed(1)} ms/frame js  ·  preset ${presetLabels[presets[presetIdx]]}`;
+      `${vw}×${vh}  ·  ${fps.toFixed(0)} fps sustained  ·  ${jsMs.toFixed(1)} ms/frame js\n` +
+      `${presetLabels[presets[presetIdx]]} @ ${fpsLabels[fpsTargets[fpsIdx]]}` +
+      (camMax ? `  ·  camera max ${camMax.toFixed(0)} fps at this res` : '');
   }
   updateHud();
 
@@ -82,12 +95,13 @@ export function mount() {
     updateHud();
     let res;
     try {
-      res = await FoldNativeCamera.start({ preset: presets[presetIdx] });
+      res = await FoldNativeCamera.start({ preset: presets[presetIdx], fps: fpsTargets[fpsIdx] });
     } catch (e) {
       status = 'plugin.start rejected: ' + (e && e.message ? e.message : e);
       updateHud();
       return;
     }
+    camMax = (res && res.cameraMaxFps) || 0;
     const port = (res && res.port) || 8899;
     status = `connecting ws://127.0.0.1:${port}…`;
     updateHud();

@@ -5,9 +5,15 @@
 //
 // Minimal localhost WebSocket PUSH server built on Network.framework's native
 // NWProtocolWebSocket (no third-party dependency, no hand-rolled framing). One
-// direction only: it streams binary biplanar-YUV frames to connected webview
-// clients. Control commands ride the normal Capacitor bridge, not this socket,
-// so the real-time path stays simple.
+// direction, one client (the webview): it streams binary biplanar-YUV frames.
+// Control commands ride the normal Capacitor bridge, not this socket.
+//
+// Realtime discipline: the capture callback calls wantsFrame() FIRST and skips
+// the (expensive) encode when a send is still in flight — so a slow link drops
+// frames instead of building a queue, and the measured fps reflects the true
+// sustainable rate. Encoding happens synchronously on the capture thread (the
+// pixel buffer is only valid there); only the finished Data is handed to the
+// socket queue.
 //
 // Frame wire format (little-endian header, then two raw planes):
 //   [0..4)   magic "FYUV"
@@ -27,13 +33,10 @@ final class FrameSocketServer {
     let port: Int
     private var listener: NWListener?
     private let queue = DispatchQueue(label: "fold.camera.socket")
-    private var clients: [ObjectIdentifier: Client] = [:]
-
-    private final class Client {
-        let conn: NWConnection
-        var sending = false
-        init(_ c: NWConnection) { conn = c }
-    }
+    private let lock = NSLock()
+    private var conn: NWConnection?
+    private var hasClient = false
+    private var sending = false
 
     init(port: Int) { self.port = port }
 
@@ -46,7 +49,7 @@ final class FrameSocketServer {
             params.defaultProtocolStack.applicationProtocols.insert(ws, at: 0)
             guard let nwPort = NWEndpoint.Port(rawValue: UInt16(self.port)),
                   let listener = try? NWListener(using: params, on: nwPort) else { return }
-            listener.newConnectionHandler = { [weak self] conn in self?.accept(conn) }
+            listener.newConnectionHandler = { [weak self] c in self?.accept(c) }
             listener.start(queue: self.queue)
             self.listener = listener
         }
@@ -55,57 +58,70 @@ final class FrameSocketServer {
     func stop() {
         queue.async { [weak self] in
             guard let self = self else { return }
-            for (_, client) in self.clients { client.conn.cancel() }
-            self.clients.removeAll()
+            self.lock.lock()
+            self.conn?.cancel()
+            self.conn = nil
+            self.hasClient = false
+            self.sending = false
+            self.lock.unlock()
             self.listener?.cancel()
             self.listener = nil
         }
     }
 
-    private func accept(_ conn: NWConnection) {
-        let client = Client(conn)
-        clients[ObjectIdentifier(conn)] = client
-        conn.stateUpdateHandler = { [weak self] state in
+    private func accept(_ c: NWConnection) {
+        lock.lock()
+        conn?.cancel()          // single client — a new connection replaces any prior
+        conn = c
+        hasClient = true
+        sending = false
+        lock.unlock()
+        c.stateUpdateHandler = { [weak self] state in
+            guard let self = self else { return }
             switch state {
             case .failed, .cancelled:
-                self?.queue.async { self?.clients[ObjectIdentifier(conn)] = nil }
+                self.lock.lock()
+                if self.conn === c {
+                    self.conn = nil
+                    self.hasClient = false
+                    self.sending = false
+                }
+                self.lock.unlock()
             default:
                 break
             }
         }
-        // We don't consume client messages, but keep receiving so the connection
-        // stays open and close is observed.
-        drain(conn)
-        conn.start(queue: queue)
+        drain(c)
+        c.start(queue: queue)
     }
 
-    private func drain(_ conn: NWConnection) {
-        conn.receiveMessage { [weak self] _, _, _, error in
-            if error == nil { self?.drain(conn) }
+    private func drain(_ c: NWConnection) {
+        c.receiveMessage { [weak self] _, _, _, error in
+            if error == nil { self?.drain(c) }
         }
     }
 
-    // Encode a biplanar-YUV pixel buffer and push it to every ready client. A
-    // client that still has a send in flight is skipped (dropped frame) so latency
-    // reflects true real-time capability instead of a growing queue.
-    func sendFrame(_ pixelBuffer: CVPixelBuffer) {
-        queue.async { [weak self] in
-            guard let self = self, !self.clients.isEmpty else { return }
-            guard let data = FrameSocketServer.encode(pixelBuffer) else { return }
-            let meta = NWProtocolWebSocket.Metadata(opcode: .binary)
-            let ctx = NWConnection.ContentContext(identifier: "frame", metadata: [meta])
-            for (_, client) in self.clients {
-                if client.sending { continue }
-                client.sending = true
-                client.conn.send(content: data, contentContext: ctx, isComplete: true,
-                                 completion: .contentProcessed { [weak self] _ in
-                    self?.queue.async { client.sending = false }
-                })
-            }
-        }
+    // Called on the capture thread BEFORE encoding, so a dropped frame costs nothing.
+    func wantsFrame() -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        return hasClient && !sending
     }
 
-    private static func encode(_ pb: CVPixelBuffer) -> Data? {
+    func send(_ data: Data) {
+        lock.lock()
+        guard hasClient, !sending, let c = conn else { lock.unlock(); return }
+        sending = true
+        lock.unlock()
+        let meta = NWProtocolWebSocket.Metadata(opcode: .binary)
+        let ctx = NWConnection.ContentContext(identifier: "frame", metadata: [meta])
+        c.send(content: data, contentContext: ctx, isComplete: true,
+               completion: .contentProcessed { [weak self] _ in
+            guard let self = self else { return }
+            self.lock.lock(); self.sending = false; self.lock.unlock()
+        })
+    }
+
+    static func encode(_ pb: CVPixelBuffer) -> Data? {
         CVPixelBufferLockBaseAddress(pb, .readOnly)
         defer { CVPixelBufferUnlockBaseAddress(pb, .readOnly) }
 
