@@ -413,6 +413,8 @@ Daniel's output-menu spec lists **HDMI out** beside output-window/Syphon as a de
 
 ### Distribution gating (needs the $99 Apple Developer account)
 
+**Full technical reference: `docs/DISTRIBUTION.md`** (signing/TestFlight/App-Store mechanics, the edition-flag gating map, per-platform codec locking, the remaining native-plugin specs) — written B303 during the Capacitor arc.
+
 Code-signing + notarization (so the DMG runs on another machine without right-click→Open) and a **universal (x86_64+arm64) binary** (gated on a universal node-syphon build too — currently arm64-only). Revisit when distribution to other machines is the goal.
 
 ---
