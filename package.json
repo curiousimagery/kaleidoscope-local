@@ -13,7 +13,8 @@
     "check": "for f in src/version.js src/main.js src/shell/*.js src/engine/*.js src/engine/forms/*.js; do node --check \"$f\" || exit 1; done && echo all syntax checks pass",
     "cap:sync": "vite build && cap sync ios",
     "cap:open": "cap open ios",
-    "ios": "vite build && cap sync ios && cap open ios"
+    "ios": "vite build && cap sync ios && cap open ios",
+    "spike:camera": "VITE_FOLD_SPIKE=camera vite build && cap sync ios && cap open ios"
   },
   "devDependencies": {
     "@capacitor/cli": "^8.4.1",
@@ -29,6 +30,7 @@
     "@capacitor/ios": "^8.4.1",
     "@capacitor/preferences": "^8.0.1",
     "@capacitor/share": "^8.0.1",
+    "fold-native-camera": "file:native-plugins/fold-native-camera",
     "mp4-muxer": "^5.2.2",
     "qrcode-generator": "^2.0.4"
   }
