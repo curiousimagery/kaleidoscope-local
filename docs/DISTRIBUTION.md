@@ -35,7 +35,7 @@ Nothing below can happen until the account exists. None of it blocks development
 
 **Version mapping:** `src/version.js` `VERSION`/`BUILD` should map to `CFBundleShortVersionString` (e.g. `0.15.2`) and `CFBundleVersion` (the monotonic `BUILD`, e.g. `303`) in `ios/App/App/Info.plist` at archive time. Wire this into the archive script so the store build number always tracks `BUILD`.
 
-**Before first submission (checklist):** confirm the bundle id; drop the real app icon (`ios/App/App/Assets.xcassets/AppIcon` — currently the default Capacitor mark, tracked in BACKLOG "drop the real assets") + launch screen; set usage-description strings in `Info.plist` (`NSCameraUsageDescription`, `NSMicrophoneUsageDescription`, `NSPhotoLibraryAddUsageDescription` for saving to Photos); pick a minimum iOS version (WebCodecs needs 16.4+ if we lean on it).
+**Before first submission (checklist):** confirm the bundle id; drop the real app icon (`ios/App/App/Assets.xcassets/AppIcon` — currently the default Capacitor mark, tracked in BACKLOG "drop the real assets") + launch screen; ~~set usage-description strings in `Info.plist`~~ **(DONE B303 — `NSCameraUsageDescription`/`NSMicrophoneUsageDescription`/`NSPhotoLibraryAddUsageDescription` added; required or camera/mic/Photos-save crash on device)**; pick a minimum iOS version (WebCodecs needs 16.4+ if we lean on it).
 
 ## feature-gating: the edition flag (built B301, seam only)
 
