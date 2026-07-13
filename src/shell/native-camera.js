@@ -27,10 +27,17 @@ export function createNativeCamera() {
   let active = false;
 
   async function plugin() {
-    if (!pluginRef) {
-      const { registerPlugin } = await import('@capacitor/core');
-      pluginRef = registerPlugin('FoldNativeCamera');
+    if (pluginRef) return pluginRef;
+    // Prefer the natively-injected global (always present on Capacitor — detectRuntime
+    // already depends on it). The dynamic import is a fallback; an on-demand chunk load
+    // inside capacitor:// can stall, which would hang start() before any plugin call.
+    const cap = (typeof window !== 'undefined') ? window.Capacitor : null;
+    if (cap && typeof cap.registerPlugin === 'function') {
+      pluginRef = cap.registerPlugin('FoldNativeCamera');
+      return pluginRef;
     }
+    const { registerPlugin } = await import('@capacitor/core');
+    pluginRef = registerPlugin('FoldNativeCamera');
     return pluginRef;
   }
 
@@ -89,14 +96,18 @@ export function createNativeCamera() {
   async function start(opts = {}) {
     if (typeof opts === 'string') opts = { facingMode: opts };
     if (opts.facingMode) facing = opts.facingMode;
+    console.info('[native-camera] start', JSON.stringify(opts));
     await stop();
     ensureCanvas();
     const p = await plugin();
+    console.info('[native-camera] plugin ready, calling start');
     const res = await p.start({ preset: 'hd1080', lens: 'auto', preferPhoto: false });
+    console.info('[native-camera] plugin.start resolved', JSON.stringify(res));
     port = res.port || 8899;
     controlRanges = res.controls || {};
     active = true;
     await openSocket();     // resolves once the first frame is painted (canvas sized)
+    console.info('[native-camera] socket connected — first frame in');
     return canvas;
   }
 
