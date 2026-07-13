@@ -15,8 +15,14 @@
 // First slice: REAR live preview + the control methods for the coming UI. Front/flip,
 // 48MP-still-on-pause, and native record-audio are follow-on slices.
 
+import { registerPlugin } from '@capacitor/core';
+
+// Registered at module scope (the spike proved this static path works on device; a
+// dynamic import('@capacitor/core') stalls inside the capacitor:// webview). On web
+// this returns a harmless no-op proxy — the module is only exercised on native.
+const FoldNativeCamera = registerPlugin('FoldNativeCamera');
+
 export function createNativeCamera() {
-  let pluginRef = null;
   let ws = null;
   let port = 0;
   let canvas = null;          // RGB output canvas — the frameSource the engine samples
@@ -25,21 +31,6 @@ export function createNativeCamera() {
   let controlRanges = {};     // EV/zoom/WB ranges the device reported (for the UI)
   let facing = 'environment';
   let active = false;
-
-  async function plugin() {
-    if (pluginRef) return pluginRef;
-    // Prefer the natively-injected global (always present on Capacitor — detectRuntime
-    // already depends on it). The dynamic import is a fallback; an on-demand chunk load
-    // inside capacitor:// can stall, which would hang start() before any plugin call.
-    const cap = (typeof window !== 'undefined') ? window.Capacitor : null;
-    if (cap && typeof cap.registerPlugin === 'function') {
-      pluginRef = cap.registerPlugin('FoldNativeCamera');
-      return pluginRef;
-    }
-    const { registerPlugin } = await import('@capacitor/core');
-    pluginRef = registerPlugin('FoldNativeCamera');
-    return pluginRef;
-  }
 
   function ensureCanvas() {
     if (canvas) return;
@@ -99,9 +90,8 @@ export function createNativeCamera() {
     console.info('[native-camera] start', JSON.stringify(opts));
     await stop();
     ensureCanvas();
-    const p = await plugin();
-    console.info('[native-camera] plugin ready, calling start');
-    const res = await p.start({ preset: 'hd1080', lens: 'auto', preferPhoto: false });
+    console.info('[native-camera] calling plugin.start');
+    const res = await FoldNativeCamera.start({ preset: 'hd1080', lens: 'auto', preferPhoto: false });
     console.info('[native-camera] plugin.start resolved', JSON.stringify(res));
     port = res.port || 8899;
     controlRanges = res.controls || {};
@@ -114,7 +104,7 @@ export function createNativeCamera() {
   async function stop() {
     active = false;
     if (ws) { try { ws.close(); } catch { /* already closed */ } ws = null; }
-    try { const p = await plugin(); await p.stop(); } catch { /* not running */ }
+    try { await FoldNativeCamera.stop(); } catch { /* not running */ }
     latest = null;
   }
 
@@ -125,10 +115,10 @@ export function createNativeCamera() {
   function frameSource() { return canvas; }
 
   // --- native controls (consumed by the coming camera UI) ---------------------
-  async function setExposureBias(value) { return (await plugin()).setExposureBias({ value }); }
-  async function setZoom(factor) { return (await plugin()).setZoom({ factor }); }
-  async function setWhiteBalance(opts) { return (await plugin()).setWhiteBalance(opts); }
-  async function capturePhoto() { return (await plugin()).capturePhoto(); }
+  async function setExposureBias(value) { return FoldNativeCamera.setExposureBias({ value }); }
+  async function setZoom(factor) { return FoldNativeCamera.setZoom({ factor }); }
+  async function setWhiteBalance(opts) { return FoldNativeCamera.setWhiteBalance(opts); }
+  async function capturePhoto() { return FoldNativeCamera.capturePhoto(); }
   function capabilities() { return controlRanges; }
 
   return {
