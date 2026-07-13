@@ -15,6 +15,7 @@
 import Foundation
 import AVFoundation
 import CoreMedia
+import Photos
 import Capacitor
 
 @objc(FoldNativeCameraPlugin)
@@ -26,7 +27,8 @@ public class FoldNativeCameraPlugin: CAPPlugin, CAPBridgedPlugin, AVCaptureVideo
         CAPPluginMethod(name: "stop", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "setExposureBias", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "setZoom", returnType: CAPPluginReturnPromise),
-        CAPPluginMethod(name: "setWhiteBalance", returnType: CAPPluginReturnPromise)
+        CAPPluginMethod(name: "setWhiteBalance", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "capturePhoto", returnType: CAPPluginReturnPromise)
     ]
 
     private let session = AVCaptureSession()
@@ -34,8 +36,10 @@ public class FoldNativeCameraPlugin: CAPPlugin, CAPBridgedPlugin, AVCaptureVideo
     private let videoQueue = DispatchQueue(label: "fold.camera.video")
     private let output = AVCaptureVideoDataOutput()
     private let server = FrameSocketServer(port: 8899)
+    private let photoOutput = AVCapturePhotoOutput()
     private var running = false
     private var device: AVCaptureDevice?
+    private var captureDelegates = Set<PhotoCaptureDelegate>()   // retained until each capture completes
 
     // `lens`: "auto" = best virtual multi-lens device (seamless zoom, no custom WB);
     // "ultraWide"/"wide"/"tele" = a single physical lens (full manual control).
@@ -183,6 +187,29 @@ public class FoldNativeCameraPlugin: CAPPlugin, CAPBridgedPlugin, AVCaptureVideo
         }
     }
 
+    // Full-resolution still with the live EV/WB/zoom baked in, saved to Photos. The
+    // "high-res still on pause" win — up to the lens's native res (e.g. 48MP), which
+    // the video stream (4K max) can't reach.
+    @objc func capturePhoto(_ call: CAPPluginCall) {
+        sessionQueue.async { [weak self] in
+            guard let self = self, self.running else { call.reject("camera not running"); return }
+            let settings: AVCapturePhotoSettings
+            if self.photoOutput.availablePhotoCodecTypes.contains(.hevc) {
+                settings = AVCapturePhotoSettings(format: [AVVideoCodecKey: AVVideoCodecType.hevc])
+            } else {
+                settings = AVCapturePhotoSettings()
+            }
+            if #available(iOS 16.0, *) {
+                settings.maxPhotoDimensions = self.photoOutput.maxPhotoDimensions
+            }
+            let delegate = PhotoCaptureDelegate(call: call) { [weak self] done in
+                self?.sessionQueue.async { self?.captureDelegates.remove(done) }
+            }
+            self.captureDelegates.insert(delegate)
+            self.photoOutput.capturePhoto(with: settings, delegate: delegate)
+        }
+    }
+
     private func controlRanges() -> [String: Any] {
         guard let device = self.device else { return [:] }
         let lensFactors = device.virtualDeviceSwitchOverVideoZoomFactors.map { $0.doubleValue }
@@ -282,6 +309,8 @@ public class FoldNativeCameraPlugin: CAPPlugin, CAPBridgedPlugin, AVCaptureVideo
         output.setSampleBufferDelegate(self, queue: videoQueue)
         if session.canAddOutput(output) { session.addOutput(output) }
 
+        if session.canAddOutput(photoOutput) { session.addOutput(photoOutput) }
+
         if let conn = output.connection(with: .video) {
             if #available(iOS 17.0, *) {
                 if conn.isVideoRotationAngleSupported(90) { conn.videoRotationAngle = 90 }
@@ -310,6 +339,14 @@ public class FoldNativeCameraPlugin: CAPPlugin, CAPBridgedPlugin, AVCaptureVideo
             if session.canSetSessionPreset(preset) { session.sessionPreset = preset }
         }
 
+        // enable full-resolution still capture for this format/lens (up to 48MP)
+        if #available(iOS 16.0, *) {
+            let area: (CMVideoDimensions) -> Int = { Int($0.width) * Int($0.height) }
+            if let maxDim = device.activeFormat.supportedMaxPhotoDimensions.max(by: { area($0) < area($1) }) {
+                photoOutput.maxPhotoDimensions = maxDim
+            }
+        }
+
         session.commitConfiguration()
         return SessionInfo(width: target.w, height: target.h,
                            requestedFps: requestedFps, cameraMaxFps: cameraMaxFps)
@@ -323,5 +360,49 @@ public class FoldNativeCameraPlugin: CAPPlugin, CAPBridgedPlugin, AVCaptureVideo
         guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
         guard let data = FrameSocketServer.encode(pixelBuffer) else { return }
         server.send(data)
+    }
+}
+
+// Receives one still, saves it to the Photos library (add-only), and resolves the
+// JS call with the actual captured dimensions + file size. Retained by the plugin's
+// captureDelegates set until `onDone` fires (AVCapturePhotoOutput holds it weakly).
+final class PhotoCaptureDelegate: NSObject, AVCapturePhotoCaptureDelegate {
+    private let call: CAPPluginCall
+    private let onDone: (PhotoCaptureDelegate) -> Void
+
+    init(call: CAPPluginCall, onDone: @escaping (PhotoCaptureDelegate) -> Void) {
+        self.call = call
+        self.onDone = onDone
+    }
+
+    func photoOutput(_ output: AVCapturePhotoOutput,
+                     didFinishProcessingPhoto photo: AVCapturePhoto, error: Error?) {
+        if let error = error {
+            call.reject("capture failed: \(error.localizedDescription)")
+            onDone(self)
+            return
+        }
+        guard let data = photo.fileDataRepresentation() else {
+            call.reject("no photo data")
+            onDone(self)
+            return
+        }
+        let dims = photo.resolvedSettings.photoDimensions
+        let w = Int(dims.width), h = Int(dims.height), bytes = data.count
+        PHPhotoLibrary.requestAuthorization(for: .addOnly) { [weak self] authStatus in
+            guard let self = self else { return }
+            guard authStatus == .authorized || authStatus == .limited else {
+                self.call.resolve(["width": w, "height": h, "bytes": bytes, "savedToPhotos": false])
+                self.onDone(self)
+                return
+            }
+            PHPhotoLibrary.shared().performChanges({
+                let req = PHAssetCreationRequest.forAsset()
+                req.addResource(with: .photo, data: data, options: nil)
+            }, completionHandler: { ok, _ in
+                self.call.resolve(["width": w, "height": h, "bytes": bytes, "savedToPhotos": ok])
+                self.onDone(self)
+            })
+        }
     }
 }

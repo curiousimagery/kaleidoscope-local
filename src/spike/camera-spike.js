@@ -47,7 +47,8 @@ export function mount() {
   const stopBtn = mkBtn('Stop');
   const presetBtn = mkBtn('1080p');
   const fpsBtn = mkBtn('30fps');
-  controls.append(presetBtn, fpsBtn, startBtn, stopBtn);
+  const captureBtn = mkBtn('📷');
+  controls.append(presetBtn, fpsBtn, startBtn, stopBtn, captureBtn);
   document.body.appendChild(controls);
 
   const presets = ['hd720', 'hd1080', 'uhd'];
@@ -265,8 +266,23 @@ export function mount() {
     if (ctlPanel) { ctlPanel.remove(); ctlPanel = null; }
   }
 
+  // Capture a full-res still (EV/WB/zoom baked in) and save to Photos.
+  async function capture() {
+    if (!ws) { status = 'start the camera first'; updateHud(); return; }
+    status = 'capturing…'; updateHud();
+    try {
+      const r = await FoldNativeCamera.capturePhoto();
+      const mp = (r.width * r.height / 1e6).toFixed(1);
+      status = `captured ${r.width}×${r.height} · ${mp}MP · ${(r.bytes / 1e6).toFixed(1)}MB · Photos ${r.savedToPhotos ? '✓' : '✗'}`;
+    } catch (e) {
+      status = 'capture failed: ' + (e && e.message ? e.message : e);
+    }
+    updateHud();
+  }
+
   startBtn.onclick = start;
   stopBtn.onclick = stop;
+  captureBtn.onclick = capture;
 }
 
 function mkBtn(label) {
