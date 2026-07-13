@@ -25,12 +25,15 @@ import { mountRangeControl } from '../components/param-control.js';
 import { PARAMS, DECLARATIVE_PARAM_IDS } from '../shell/params.js';
 import { formatVersion } from '../version.js';
 import { createCamera } from '../shell/camera.js';
+import { createNativeCamera } from '../shell/native-camera.js';
 import { createFollower } from '../kit/follow.js';
 import { createAutoDrift } from '../kit/drift.js';
 import { ICONS } from './icons.js';
 import { applyArmsSnap, snapSpiralValue } from '../kit/snaps.js';
 import { zipStore } from '../shell/zip.js';
 import { EDITION, editionAllows, detectRuntime } from '../kit/capabilities.js';
+import { webHost } from '../shell/host.js';
+import { createCapacitorHost } from '../shell/capacitor-host.js';
 
 // (The desktop stylesheet is dropped in boot.js before this module loads.)
 
@@ -40,6 +43,11 @@ import { EDITION, editionAllows, detectRuntime } from '../kit/capabilities.js';
 // map fills in. `void editionAllows` keeps the import live until then.
 void editionAllows;
 console.info(`[fold] edition ${EDITION} · ${detectRuntime().isNative ? 'native' : 'web'}`);
+
+// The phone chrome doesn't mount createApp, so it resolves its own host — the
+// native-services seam every native feature (save/share, later camera/HDMI/NDI)
+// programs against. Capacitor host in the native runtime, else the web no-op.
+const host = detectRuntime().isCapacitor ? createCapacitorHost() : webHost;
 
 // ---------------------------------------------------------------- DOM scaffold
 document.body.innerHTML = `
@@ -53,14 +61,17 @@ document.body.innerHTML = `
       </div>
       <button id="m-canvas-gear" class="m-hidden" title="canvas settings">${ICONS.sliders}</button>
       <div id="m-canvas-pop" class="m-hidden"></div>
+      <div id="m-cam-pad-hud" class="m-hidden"></div>
     </div>
     <div id="m-divider"></div>
     <div id="m-context">
       <button id="m-context-toggle" class="m-hidden" title="source / settings">${ICONS.sliders}</button>
       <button id="m-flip" class="m-icon-btn" title="flip camera" style="display:none">${ICONS.flip}</button>
+      <button id="m-cam-menu" class="m-icon-btn" title="camera settings" style="display:none">${ICONS.camera}</button>
       <button id="m-fit-toggle" title="fill / fit">${ICONS.contract}</button>
       <div id="m-source"></div>
       <div id="m-settings" class="m-hidden"></div>
+      <div id="m-cam-pop" class="m-hidden"></div>
     </div>
     <div id="m-tabbar">
       <button id="m-tab-source" class="m-tab" title="source">${ICONS.plus}</button>
@@ -76,6 +87,7 @@ const $ = (id) => document.getElementById(id);
 const rootEl = $('m-root'), outputEl = $('m-output'), dividerEl = $('m-divider');
 const contextEl = $('m-context'), sourceEl = $('m-source'), settingsEl = $('m-settings');
 const emptyEl = $('m-empty'), tabbarEl = $('m-tabbar');
+const camMenuBtn = $('m-cam-menu'), camPopEl = $('m-cam-pop');
 
 // ---------------------------------------------------------------- engine + env
 const outputCanvas = document.createElement('canvas');
@@ -112,7 +124,12 @@ function scheduleRender() {
 env.scheduleRender = scheduleRender;
 
 // ----------------------------------------------------------------- components
-const camera = createCamera();
+// Native camera (real AVCaptureSession + EV/WB/lens/48MP) when the host offers it and
+// the native-cam build flag is set; else the getUserMedia camera. Flag-gated for now so
+// the proven web path stays default until the native path is device-verified.
+const useNativeCam = !!(host.nativeCamera?.available && import.meta.env.VITE_FOLD_NATIVE_CAM === '1');
+const camera = useNativeCam ? createNativeCamera() : createCamera();
+if (useNativeCam) console.info('[fold] native camera path active');
 let liveVideo = null;          // the camera <video> while live; null otherwise
 // the record-video FOLLOWER (declared early — the transition-speed control
 // binds to it at mount time): the recorded output eases toward edits at
@@ -540,6 +557,12 @@ let recState = 'idle';         // 'idle' | 'recording'
 let recordedVideo = null;      // { blob, ext } — the finished take
 let recordingSaved = false;    // download tapped since the take finished
 let mediaRec = null, recChunks = [], micStream = null;
+// the native camera provides no audio track (it's native video-only), so record-video
+// acquires the mic itself via getUserMedia — ONE clean prompt at mode entry, held for
+// the session and cloned per take. (Native plugin-captured audio can't join a JS canvas
+// recording, so getUserMedia IS the native-app audio path; the web camera bundles its
+// own mic track and doesn't use this.)
+let videoMicStream = null;
 let recordCanvas = null;       // full-res 2D canvas the recorder captures
 // SAVE PACKAGE: a second recorder on the RAW camera stream (no extra render
 // cost — the track comes straight from getUserMedia; mic cloned to both).
@@ -621,7 +644,9 @@ async function startRecording() {
   // the combined prompt at mode entry; the recorder's stop must not kill the
   // camera's own track). Fallback asks fresh; denial degrades to video-only.
   try {
-    const camMic = camera.getVideo()?.srcObject?.getAudioTracks?.()[0];
+    // prefer the web camera's own mic track, else the native-path mic acquired at entry,
+    // else a fresh request. CLONE it so the recorder's stop doesn't kill the held track.
+    const camMic = camera.getVideo()?.srcObject?.getAudioTracks?.()[0] || videoMicStream?.getAudioTracks?.()[0];
     micStream = camMic ? new MediaStream([camMic.clone()]) : await navigator.mediaDevices.getUserMedia({ audio: true });
     for (const t of micStream.getAudioTracks()) stream.addTrack(t);
   } catch { micStream = null; }
@@ -671,8 +696,12 @@ function recTimestamp() {
 function showSaveVideoMenu() {
   if (!recordedVideo) return;
   const ts = recTimestamp();
+  const saveOut = async (blob, name) => {
+    try { await downloadBlob(blob, name); recordingSaved = true; }
+    catch (e) { console.error('[save-video] failed', e); emptyEl.textContent = 'save failed — try again'; emptyEl.classList.remove('m-hidden'); }
+  };
   const items = [
-    { icon: ICONS.download, label: 'save video', action: () => { downloadBlob(recordedVideo.blob, `fold-video-${ts}.${recordedVideo.ext}`); recordingSaved = true; } },
+    { icon: ICONS.download, label: 'save video', action: () => saveOut(recordedVideo.blob, `fold-video-${ts}.${recordedVideo.ext}`) },
   ];
   if (rawVideo) {
     items.push({ icon: ICONS.download, label: 'save package (.zip — video + source)', action: async () => {
@@ -680,8 +709,7 @@ function showSaveVideoMenu() {
         { name: `fold-video-${ts}.${recordedVideo.ext}`, blob: recordedVideo.blob },
         { name: `fold-source-${ts}.${rawVideo.ext}`, blob: rawVideo.blob },
       ]);
-      downloadBlob(zip, `fold-take-${ts}.zip`);
-      recordingSaved = true;
+      await saveOut(zip, `fold-take-${ts}.zip`);
     } });
   }
   showMenu(items, 'm-tab-export');
@@ -689,6 +717,7 @@ function showSaveVideoMenu() {
 function leaveVideoMode() {
   if (!videoMode) return;
   videoMode = false;
+  if (videoMicStream) { videoMicStream.getTracks().forEach((t) => t.stop()); videoMicStream = null; }
   recordedVideo = null;
   rawVideo = null;
   recordingSaved = false;
@@ -703,6 +732,13 @@ async function startRecordVideo() {
   if (videoMode && cameraMode === 'live') return;   // already there — don't restart the camera
   videoMode = true;
   await startCamera();
+  // native camera has no audio track — acquire the mic here (one prompt at entry, not
+  // mid-record). Held for the session; each take clones a track so a recorder's stop
+  // doesn't kill it. Denial degrades to video-only.
+  if (useNativeCam && !videoMicStream) {
+    try { videoMicStream = await navigator.mediaDevices.getUserMedia({ audio: true }); }
+    catch { videoMicStream = null; }
+  }
   updateLiveUI();
 }
 
@@ -841,25 +877,29 @@ function stopCameraStream() {
 }
 
 function updateLiveUI() {
-  const cap = $('m-tab-capture'), flip = $('m-flip');
+  const cap = $('m-tab-capture');
+  // the top-row camera control: the camera-settings menu on the native path (flip +
+  // lens live inside it), or the one-tap flip icon on the web path (unchanged).
+  const camCtl = useNativeCam ? camMenuBtn : $('m-flip');
   if (videoMode && cameraMode === 'live') {
     // record video: the slot is record ● (red) / stop ■ — the live-cam pattern
     // with record semantics. Download stays but gates on a finished take.
     cap.style.display = '';
     if (recState === 'recording') { cap.innerHTML = ICONS.stop; cap.title = 'stop recording'; cap.style.color = ''; }
     else { cap.innerHTML = ICONS.record; cap.title = 'start recording'; cap.style.color = '#e8504a'; }
-    flip.style.display = ''; flip.disabled = recState === 'recording';   /* a flip kills the package's source take */
+    camCtl.style.display = ''; camCtl.disabled = recState === 'recording';   /* flip / lens re-acquire kills the package's source take */
+    if (camCtl.disabled) camPopEl.classList.add('m-hidden');
     setSourceIcon('video');
   } else if (cameraMode === 'live') {
     cap.style.display = ''; cap.innerHTML = ICONS.pause; cap.title = 'pause'; cap.style.color = '';   /* record/pause toggle (was the stop square; before that the aperture) */
-    flip.style.display = ''; flip.disabled = false; setSourceIcon('live');
+    camCtl.style.display = ''; camCtl.disabled = false; setSourceIcon('live');
   } else if (cameraMode === 'frozen') {
     // still "in" live capture, just paused: go-live record is RED (actionable),
     // and the SOURCE icon stays the live record (mental model: paused, not a new still).
     cap.style.display = ''; cap.innerHTML = ICONS.record; cap.title = 'go live'; cap.style.color = 'var(--ok)';   /* green = live (red is reserved for record) */
-    flip.style.display = 'none'; setSourceIcon('live');
+    camCtl.style.display = 'none'; camPopEl.classList.add('m-hidden'); setSourceIcon('live');
   } else {
-    cap.style.display = 'none'; flip.style.display = 'none'; cap.style.color = '';
+    cap.style.display = 'none'; camCtl.style.display = 'none'; camPopEl.classList.add('m-hidden'); cap.style.color = '';
   }
   // download: in record-video mode it saves the take, so it needs one to exist
   $('m-tab-export').disabled = videoMode ? !recordedVideo : false;
@@ -890,9 +930,12 @@ async function startCamera() {
     return;
   }
   try {
+    // still mode uses a photo-optimized format (48MP capture on pause); record video
+    // uses a video format. Set before start so the native session picks the right one.
+    if (useNativeCam && camera.setStillMode) camera.setStillMode(!videoMode);
     const video = await camera.start({ facingMode: lastFacing, audio: videoMode });   // record video asks cam+mic in ONE prompt; rear by default, remembers a flip across freeze→go-live
     liveVideo = video;
-    console.log(`[camera] granted resolution ${video.videoWidth}×${video.videoHeight}`);
+    console.log(`[camera] granted resolution ${video.videoWidth || video.width}×${video.videoHeight || video.height}`);
     engine.setSource(camera.frameSource());
   } catch (e) {
     liveVideo = null;
@@ -907,19 +950,38 @@ async function startCamera() {
   sourceOverlay.mount(sourceEl);
   sizeOutput();
   updateLiveUI();
+  refreshCamMenu();          // populate the lens picker for this facing
   startLiveLoop();
 }
 
-// capture: freeze the current frame as the editable still (mirrored to match the
-// front-camera preview). Camera stops; the same control becomes "go live".
-function captureFrame() {
+// capture: freeze the current frame as the editable still. In native still mode this
+// grabs the FULL-resolution photo (12/24/48MP) via capturePhoto; otherwise (record
+// video, web camera, or any failure) it freezes the preview frame. The same control
+// then becomes "go live".
+async function captureFrame() {
+  if (useNativeCam && !videoMode && camera.capturePhoto) {
+    stopLiveLoop();          // freeze the preview (last light frame) — nothing renders
+    flashCapture();          // while the native side briefly switches to the heavy format
+    try {
+      const shot = await camera.capturePhoto();
+      if (shot?.url) { await freezeFromUrl(shot.url); return; }
+    } catch (e) { console.error('[camera] still capture failed; using preview frame', e); }
+  }
+  freezeFromPreview();
+}
+
+// freeze the live preview frame (mirrored to match the front-camera selfie preview).
+function freezeFromPreview() {
   const video = camera.getVideo();
-  if (!video || !video.videoWidth) return;
-  const w = video.videoWidth, h = video.videoHeight;
+  // native camera's frameSource is a canvas (.width/.height); the web camera is a
+  // <video> (.videoWidth/.videoHeight) — accept either.
+  const w = video && (video.videoWidth || video.width);
+  const h = video && (video.videoHeight || video.height);
+  if (!w || !h) return;
   const c = document.createElement('canvas');
   c.width = w; c.height = h;
   const cx = c.getContext('2d');
-  if (camera.isFront()) { cx.translate(w, 0); cx.scale(-1, 1); }
+  if (camera.isFront() && !camera.mirrorsInSource) { cx.translate(w, 0); cx.scale(-1, 1); }
   cx.drawImage(video, 0, 0, w, h);
   stopCameraStream();
   cameraMode = 'frozen';
@@ -938,6 +1000,50 @@ function captureFrame() {
   }, 'image/jpeg', 0.95);
 }
 
+// freeze a native high-res still (a captured photo file). The photo pipeline bakes
+// orientation to match the preview; the front camera's selfie mirror is OUR shader's,
+// so it's applied here in JS. The engine samples the FULL-resolution still — that's the
+// point of choosing 48MP (crop hard into it and still get sharp output) — so we DON'T
+// downsample; instead the still-resolution picker is gated by the GPU's max texture
+// size (see refreshCamMenu), so we only ever offer a size the device can actually hold.
+async function freezeFromUrl(url) {
+  stopCameraStream();
+  cameraMode = 'frozen';
+  updateLiveUI();
+  await new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      let src = img;
+      if (camera.isFront()) {                      // the selfie mirror is OUR shader's
+        const c = document.createElement('canvas');
+        c.width = img.naturalWidth; c.height = img.naturalHeight;
+        const cx = c.getContext('2d');
+        cx.translate(c.width, 0); cx.scale(-1, 1);
+        cx.drawImage(img, 0, 0);
+        src = c;
+      }
+      engine.setSource(src);
+      setContext(false);
+      sourceOverlay.mount(sourceEl);
+      scheduleRender();
+      resolve();
+    };
+    img.onerror = resolve;
+    img.src = url;
+  });
+  try { originalSource = { blob: await (await fetch(url)).blob(), name: `${sourceFilename}-original.jpg` }; }
+  catch { originalSource = null; }
+}
+
+// brief white flash over the output — the shutter feedback for a still capture.
+function flashCapture() {
+  const f = document.createElement('div');
+  f.style.cssText = 'position:absolute;inset:0;background:#fff;opacity:0.85;z-index:8;pointer-events:none;transition:opacity 0.4s';
+  outputEl.appendChild(f);
+  requestAnimationFrame(() => { f.style.opacity = '0'; });
+  setTimeout(() => f.remove(), 450);
+}
+
 async function flipCamera() {
   if (cameraMode !== 'live') return;
   // a flip re-acquires the stream, which kills the raw recorder's cloned track
@@ -949,6 +1055,7 @@ async function flipCamera() {
     lastFacing = camera.isFront() ? 'user' : 'environment';   // remember for go-live
     engine.setSource(camera.frameSource());
     sourceOverlay.mount(sourceEl);             // remount picks up the mirror transform
+    refreshCamMenu();                          // front/rear have different lens sets
   } catch (e) { console.error(e); }
 }
 
@@ -962,6 +1069,298 @@ $('m-tab-capture').addEventListener('click', () => {
   else if (cameraMode === 'frozen') startCamera();   // "go live"
 });
 $('m-flip').addEventListener('click', flipCamera);
+
+// ---- the CAMERA settings menu (native camera path only) --------------------
+// A persistent popover (the canvas-gear pattern) opened by the top-row camera icon
+// that replaces the flip icon when the native camera is active. Holds flip + the
+// lens / resolution / frame-rate pickers; EV/WB sliders slot in below in a later
+// slice. Gated on useNativeCam so the proven web camera keeps its one-tap flip.
+const camLensWrap = document.createElement('div');
+const camResWrap = document.createElement('div');
+const camFpsWrap = document.createElement('div');
+const camEvWrap = document.createElement('div');
+const camWbWrap = document.createElement('div');
+if (useNativeCam) {
+  const flipRow = document.createElement('button');
+  flipRow.id = 'm-cam-flip';
+  flipRow.className = 'm-cam-row';
+  flipRow.innerHTML = `<span class="m-menu-icon">${ICONS.flip}</span><span>flip camera</span>`;
+  flipRow.addEventListener('click', () => flipCamera());
+  camPopEl.appendChild(flipRow);
+  camLensWrap.className = 'm-control'; camLensWrap.id = 'm-cam-lens';
+  camResWrap.className = 'm-control'; camResWrap.id = 'm-cam-res';
+  camFpsWrap.className = 'm-control'; camFpsWrap.id = 'm-cam-fps';
+  camEvWrap.className = 'm-control'; camEvWrap.id = 'm-cam-ev';
+  camWbWrap.className = 'm-control'; camWbWrap.id = 'm-cam-wb';
+  camPopEl.append(camLensWrap, camResWrap, camFpsWrap, camEvWrap, camWbWrap);
+
+  camMenuBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const opening = camPopEl.classList.contains('m-hidden');
+    camPopEl.classList.toggle('m-hidden');
+    if (opening) refreshCamMenu();   // fresh values + (re)start the WB auto-temp poll
+    else stopWbPoll();
+  });
+  document.addEventListener('pointerdown', (e) => {
+    if (camPopEl.classList.contains('m-hidden')) return;
+    if (!e.target.closest('#m-cam-pop') && !e.target.closest('#m-cam-menu')) { camPopEl.classList.add('m-hidden'); stopWbPoll(); }
+  });
+}
+
+// render a titled segmented control into `wrap`: items [{id,label}], current active.
+function buildCamSeg(wrap, title, items, currentId, onPick) {
+  wrap.innerHTML = `<div class="m-control-row"><span>${title}</span></div>`;
+  const seg = document.createElement('div');
+  seg.className = 'm-seg';
+  items.forEach(({ id, label }) => {
+    const b = document.createElement('button');
+    b.className = 'm-seg-btn' + (id === currentId ? ' active' : '');
+    b.textContent = label;
+    b.addEventListener('click', () => { if (id !== currentId) onPick(id); });
+    seg.appendChild(b);
+  });
+  wrap.appendChild(seg);
+}
+
+// (re)build the lens / resolution / frame-rate pickers for the current facing + mode.
+function refreshCamMenu() {
+  if (!useNativeCam) return;
+  // lens — hidden on the front camera or a single-lens rear (e.g. the Air)
+  const lenses = camera.getLenses?.() || [];
+  const showLens = !camera.isFront?.() && lenses.length > 1;
+  camLensWrap.classList.toggle('m-hidden', !showLens);
+  if (showLens) buildCamSeg(camLensWrap, 'lens', lenses, camera.getLens(), switchLens);
+  else camLensWrap.innerHTML = '';
+  // resolution — MODE-AWARE: record-video shows video sizes (1080p/QHD/4K) that
+  // re-acquire; still mode shows the sensor's photo sizes (12/24/48MP), which just
+  // set the next capture's dimensions (no re-acquire — the preview keeps streaming).
+  if (videoMode) {
+    const resList = camera.getResolutions?.() || [];
+    camResWrap.classList.toggle('m-hidden', resList.length < 1);
+    if (resList.length) buildCamSeg(camResWrap, 'resolution', resList, camera.getResolution(), switchResolution);
+    else camResWrap.innerHTML = '';
+  } else {
+    // gate the offered still sizes by what the GPU can actually hold as a source
+    // texture (honest: don't offer 48MP if the device can't sample it). The engine
+    // samples the still at FULL res, so the ceiling is the real GL max texture size.
+    const maxTex = engine.diagnostics?.maxTextureSize || 4096;
+    const stillList = (camera.getStillResolutions?.() || []).filter((r) => r.width <= maxTex && r.height <= maxTex);
+    if (stillList.length && !stillList.some((r) => r.id === camera.getStillResolution())) {
+      camera.setStillResolution(stillList[stillList.length - 1].id);   // drop to the largest allowed
+    }
+    camResWrap.classList.toggle('m-hidden', stillList.length < 1);
+    if (stillList.length) buildCamSeg(camResWrap, 'resolution', stillList, camera.getStillResolution(),
+      (id) => { camera.setStillResolution(id); refreshCamMenu(); });   // no re-acquire; just the capture size
+    else camResWrap.innerHTML = '';
+  }
+  // frame rate — record-video (motion) mode only; PIPELINE-SAFE options for the current
+  // resolution (excludes the device's peak combo, e.g. 4K60 on the 14 Pro — it crashes).
+  const fpsOpts = (camera.getSafeFps?.() || [30]).map((f) => ({ id: String(f), label: `${f}fps` }));
+  const showFps = videoMode && fpsOpts.length > 1;
+  camFpsWrap.classList.toggle('m-hidden', !showFps);
+  if (showFps) buildCamSeg(camFpsWrap, 'frame rate', fpsOpts, String(camera.getFrameRate()), (id) => switchFrameRate(+id));
+  else camFpsWrap.innerHTML = '';
+  // exposure (EV) — a live bias slider; white balance — auto/manual + a Kelvin slider
+  // when manual (only where the physical lens supports custom gains, which ours do).
+  // Both reset on a lens/flip change (native-camera resets + refreshCamMenu re-reads).
+  const caps = camera.capabilities?.() || {};
+  const ev = caps.exposureBias;
+  const showEv = !!ev && ev.max > ev.min;
+  camEvWrap.classList.toggle('m-hidden', !showEv);
+  if (showEv) buildCamSlider(camEvWrap, 'exposure', ev.min, ev.max, 0.1, camera.getExposureBias(),
+    (v) => (v > 0 ? '+' : '') + v.toFixed(1), (v) => camera.setExposureBias(v));
+  else camEvWrap.innerHTML = '';
+  const wb = caps.whiteBalance;
+  const showWb = !!wb && wb.customGainsSupported;
+  camWbWrap.classList.toggle('m-hidden', !showWb);
+  if (showWb) buildCamWb(camWbWrap, wb);
+  else camWbWrap.innerHTML = '';
+}
+
+// a titled range slider into `wrap`: fmt(value)->label; onInput(number) live.
+function buildCamSlider(wrap, title, min, max, step, value, fmt, onInput) {
+  wrap.innerHTML = '';
+  const row = document.createElement('div'); row.className = 'm-control-row';
+  const lab = document.createElement('span'); lab.textContent = title;
+  const val = document.createElement('span'); val.className = 'm-control-val'; val.textContent = fmt(value);
+  row.append(lab, val);
+  const input = document.createElement('input');
+  input.type = 'range'; input.min = min; input.max = max; input.step = step; input.value = value;
+  input.addEventListener('input', () => { const v = +input.value; val.textContent = fmt(v); onInput(v); });
+  wrap.append(row, input);
+}
+
+// white balance: ONE always-visible Kelvin slider. In auto it tracks the live settled
+// temperature (polled); dragging it commits to manual; tapping the value returns to
+// auto. (Replaces the crude auto/manual segmented toggle.)
+let wbPollTimer = null;
+function stopWbPoll() { if (wbPollTimer) { clearInterval(wbPollTimer); wbPollTimer = null; } }
+function buildCamWb(wrap, wb) {
+  stopWbPoll();
+  const mode = camera.getWhiteBalanceMode();            // 'auto' | 'manual'
+  const tmin = wb.temperatureMin || 2500, tmax = wb.temperatureMax || 8000;
+  const start = camera.getWhiteBalanceTemp() || 5000;
+  wrap.innerHTML = '';
+  const row = document.createElement('div'); row.className = 'm-control-row';
+  const lab = document.createElement('span'); lab.textContent = 'white balance';
+  const val = document.createElement('button'); val.className = 'm-wb-auto' + (mode === 'auto' ? ' active' : '');
+  const setVal = (t, auto) => { val.textContent = `${Math.round(t)}K${auto ? ' · auto' : ''}`; };
+  setVal(start, mode === 'auto');
+  val.addEventListener('click', () => {
+    if (camera.getWhiteBalanceMode() === 'auto') return;
+    camera.setWhiteBalance({ mode: 'auto' }); refreshCamMenu();   // back to auto (restarts the poll)
+  });
+  row.append(lab, val);
+  const input = document.createElement('input');
+  input.type = 'range'; input.min = tmin; input.max = tmax; input.step = 50; input.value = start;
+  input.addEventListener('input', () => {
+    stopWbPoll();                                       // a drag commits to manual
+    camera.setWhiteBalance({ temperature: +input.value });
+    val.classList.remove('active'); setVal(+input.value, false);
+  });
+  wrap.append(row, input);
+  if (mode === 'auto') {
+    const tick = async () => {
+      if (camera.getWhiteBalanceMode() !== 'auto' || camPopEl.classList.contains('m-hidden')) { stopWbPoll(); return; }
+      const t = await camera.readWhiteBalanceTemp?.();
+      if (t && camera.getWhiteBalanceMode() === 'auto') { input.value = t; setVal(t, true); }
+    };
+    tick();
+    wbPollTimer = setInterval(tick, 600);
+  }
+}
+
+// lens / resolution / fps changes all RE-ACQUIRE the session (a format change, like
+// flip): drop any raw record take, run the op, then re-point the engine + refresh the
+// menu. A lens change also resets EV/WB to auto by construction (per-sensor gains).
+async function reacquireCamera(op) {
+  if (cameraMode !== 'live') return;
+  if (recState === 'recording') dropRawRecorder();
+  try {
+    await op();
+    liveVideo = camera.getVideo();
+    engine.setSource(camera.frameSource());
+    sourceOverlay.mount(sourceEl);   // remount picks up the (unchanged) transform
+    refreshCamMenu();                // re-highlight + re-read per-lens resolutions
+  } catch (e) { console.error(e); }
+}
+const switchLens = (id) => reacquireCamera(() => camera.setLens(id));
+const switchResolution = (id) => reacquireCamera(() => camera.setResolution(id));
+const switchFrameRate = (fps) => reacquireCamera(() => camera.setFrameRate(fps));
+
+// ---- the EV/WB press-hold PAD (native live camera; FIRST CUT for hands-on feel) ---
+// Press-hold anywhere in the source (still for HOLD_MS) engages a pad: drag Y = EV
+// (up brighter), X = WB (warm right) — Daniel's axes. A quick move stays a slice drag
+// (the overlay handles it, untouched); a quick tap is reserved for tap-to-focus (wired
+// once the new orientation is confirmed — its screen→sensor map depends on it).
+// Additive + fenced: a capture-phase listener on #m-source, active only on the native
+// live camera, that stops propagation to the overlay ONLY once the hold engages — so
+// slice manipulation is untouched otherwise (no overlay.js change).
+const HOLD_MS = 450, MOVE_TOL = 10, PAD_AXIS_TOL = 8;
+let padActive = false, padTimer = 0, padStartX = 0, padStartY = 0;
+let padEvStart = 0, padWbStart = 0, padEvRange = null, padWbRange = null;
+let padAxis = null;   // 'ev' (vertical) | 'wb' (horizontal) — locked on first real move
+const padHud = $('m-cam-pad-hud');
+
+function padEnabled() { return useNativeCam && cameraMode === 'live'; }
+function padPoint(e) { const t = e.touches ? e.touches[0] : e; return { x: t.clientX, y: t.clientY, n: e.touches ? e.touches.length : 1 }; }
+
+function padDown(e) {
+  if (!padEnabled()) return;
+  const p = padPoint(e);
+  clearTimeout(padTimer); padTimer = 0;
+  if (p.n > 1) return;                 // two fingers → a pinch, not the pad
+  padStartX = p.x; padStartY = p.y;
+  padTimer = setTimeout(engagePad, HOLD_MS);
+}
+
+function engagePad() {
+  padTimer = 0;
+  if (!padEnabled()) return;
+  padActive = true;
+  padAxis = null;
+  const caps = camera.capabilities?.() || {};
+  padEvRange = caps.exposureBias && caps.exposureBias.max > caps.exposureBias.min ? caps.exposureBias : null;
+  padWbRange = caps.whiteBalance?.customGainsSupported
+    ? { min: caps.whiteBalance.temperatureMin || 2000, max: caps.whiteBalance.temperatureMax || 9000 } : null;
+  padEvStart = camera.getExposureBias?.() || 0;
+  padWbStart = camera.getWhiteBalanceTemp?.() || 5000;
+  showPadHud(padEvStart, padWbStart);
+}
+
+function padMove(e) {
+  if (padTimer) {                      // still waiting for the hold: a move = slice drag
+    const p = padPoint(e);
+    if (Math.hypot(p.x - padStartX, p.y - padStartY) > MOVE_TOL) { clearTimeout(padTimer); padTimer = 0; }
+    return;
+  }
+  if (!padActive) return;
+  e.preventDefault(); e.stopPropagation();   // ours now — keep it off the slice overlay
+  const p = padPoint(e);
+  const rect = sourceEl.getBoundingClientRect();
+  const dy = p.y - padStartY, dx = p.x - padStartX;
+  // lock to the dominant axis on the first real move — adjust EITHER EV or WB, not both
+  // diagonally (Daniel: he subconsciously avoids diagonals and wants one at a time).
+  if (!padAxis && Math.hypot(dx, dy) > PAD_AXIS_TOL) padAxis = Math.abs(dy) >= Math.abs(dx) ? 'ev' : 'wb';
+  let ev = padEvStart, wb = padWbStart;
+  if (padAxis === 'ev' && padEvRange) {
+    ev = padEvStart + (-dy / (rect.height * 0.7)) * (padEvRange.max - padEvRange.min);   // up = brighter
+    ev = Math.max(padEvRange.min, Math.min(padEvRange.max, ev));
+    camera.setExposureBias(ev);
+  } else if (padAxis === 'wb' && padWbRange) {
+    wb = padWbStart + (dx / (rect.width * 0.7)) * (padWbRange.max - padWbRange.min);      // right = warmer
+    wb = Math.max(padWbRange.min, Math.min(padWbRange.max, wb));
+    camera.setWhiteBalance({ temperature: wb });
+  }
+  showPadHud(ev, wb, padAxis);
+}
+
+function padUp(e) {
+  const wasTap = !!padTimer && !padActive;   // released before the hold, no drag
+  clearTimeout(padTimer); padTimer = 0;
+  if (padActive) { padActive = false; padHud.classList.add('m-hidden'); return; }
+  if (wasTap && padEnabled() && e?.type !== 'touchcancel') tapFocus(padStartX, padStartY);
+}
+
+// tap-to-focus: a quick tap in the source focuses (+ re-meters) at that point on the
+// native live camera, and flashes a focus ring. (The screen→sensor coordinate map in
+// the plugin is a first cut — expect one on-device calibration pass.)
+function tapFocus(clientX, clientY) {
+  if (!camera.setFocusPoint) return;
+  const rect = sourceEl.getBoundingClientRect();
+  const nx = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+  const ny = Math.max(0, Math.min(1, (clientY - rect.top) / rect.height));
+  camera.setFocusPoint(nx, ny).catch(() => {});
+  showFocusRing(clientX - rect.left, clientY - rect.top);
+}
+function showFocusRing(x, y) {
+  let ring = document.getElementById('m-focus-ring');
+  if (!ring || ring.parentElement !== sourceEl) {
+    ring = document.createElement('div'); ring.id = 'm-focus-ring'; sourceEl.appendChild(ring);
+  }
+  ring.style.left = `${x}px`; ring.style.top = `${y}px`;
+  ring.classList.remove('show'); void ring.offsetWidth; ring.classList.add('show');
+}
+
+function showPadHud(ev, wb, axis) {
+  const evTxt = padEvRange ? `EV ${ev > 0 ? '+' : ''}${ev.toFixed(1)}` : '';
+  const wbTxt = padWbRange ? `${Math.round(wb)}K` : '';
+  // once an axis is locked, show only that value; before lock, show both (engaged cue)
+  if (axis === 'ev') padHud.textContent = evTxt;
+  else if (axis === 'wb') padHud.textContent = wbTxt;
+  else padHud.textContent = [evTxt, wbTxt].filter(Boolean).join('  ·  ');
+  padHud.classList.remove('m-hidden');
+}
+
+// capture phase so we see the gesture before the overlay's own (bubble) handlers;
+// attached once to #m-source (mount() only replaces its children, not its listeners).
+sourceEl.addEventListener('touchstart', padDown, { capture: true, passive: false });
+sourceEl.addEventListener('touchmove', padMove, { capture: true, passive: false });
+sourceEl.addEventListener('touchend', padUp, { capture: true });
+sourceEl.addEventListener('touchcancel', padUp, { capture: true });
+sourceEl.addEventListener('mousedown', padDown, { capture: true });
+sourceEl.addEventListener('mousemove', padMove, { capture: true });
+window.addEventListener('mouseup', padUp, { capture: true });
 
 // ----------------------------------------------------------------- tab popovers
 // items: { icon, iconClass?, label, action, current? }
@@ -1125,10 +1524,18 @@ requestAnimationFrame(layout);
 
 // ------------------------------------------------------------------ save sheet
 function downloadBlob(blob, name) {
+  // Native shell (Capacitor iOS) → the share sheet (Save to Files/Photos), which
+  // also avoids the download-navigation that blacks out the WebGL context on the
+  // mobile save handoff (the parked bug). Web → the browser download. Additive:
+  // on web host.fileSystem.available is false, so the path below is unchanged.
+  // Returns a promise so callers (e.g. the video save) can await + surface failures.
+  const fs = host.fileSystem;
+  if (fs?.available) return fs.save(blob, name);
   const u = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = u; a.download = name; a.click();
   URL.revokeObjectURL(u);
+  return Promise.resolve();
 }
 let refreshSaveLimits = () => {};   // assigned in buildSaveSheet
 let probedExport = false;
@@ -1198,7 +1605,8 @@ function buildSaveSheet() {
 
   const diag = sheet.querySelector('#m-diag'), diagToggle = sheet.querySelector('#m-diag-toggle');
   const renderDiag = () => {
-    diag.innerHTML = `WebGL2 • ${engine.diagnostics.renderer}<br>max texture ${engine.diagnostics.maxTextureSize}px • max export ${engine.diagnostics.maxFBOSize}px • DPR ${window.devicePixelRatio || 1}`;
+    const src = engine.getSourceSize?.() || { w: 0, h: 0 };
+    diag.innerHTML = `WebGL2 • ${engine.diagnostics.renderer}<br>source ${src.w}×${src.h}px • max texture ${engine.diagnostics.maxTextureSize}px • max export ${engine.diagnostics.maxFBOSize}px • DPR ${window.devicePixelRatio || 1}`;
   };
   diagToggle.addEventListener('click', () => {
     const hidden = diag.classList.toggle('m-hidden');
@@ -1221,11 +1629,13 @@ async function doSave(pkg) {
   status.textContent = 'rendering…';
   await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
   let res;
-  try { res = await engine.exportAt(state, session.exportSize, session.exportFormat || 'jpg'); }
+  // pass the frame aspect — without it exportAt defaults to 1 (square), which is why
+  // the canvas aspect showed in preview but saved square (a mobile-save omission).
+  try { res = await engine.exportAt(state, session.exportSize, session.exportFormat || 'jpg', 0.95, session.frameAspect || 1); }
   catch (e) { status.textContent = e.message; return; }
   const ext = session.exportFormat === 'png' ? 'png' : 'jpg';
   const base = sourceFilename || 'fold';
-  const compName = `${base}-${state.form}-${res.size}.${ext}`;
+  const compName = `${base}-${state.form}-${res.w}x${res.h}.${ext}`;
   if (pkg) {
     const files = [{ name: compName, blob: res.blob }];
     if (originalSource) files.push(originalSource);
@@ -1234,7 +1644,7 @@ async function doSave(pkg) {
     status.textContent = `saved package • ${files.length} files • ${(zip.size / 1048576).toFixed(1)}MB`;
   } else {
     downloadBlob(res.blob, compName);
-    status.textContent = `saved ${res.size}×${res.size} • ${(res.blob.size / 1048576).toFixed(1)}MB`;
+    status.textContent = `saved ${res.w}×${res.h} • ${(res.blob.size / 1048576).toFixed(1)}MB`;
   }
   engine.render(state);
 }

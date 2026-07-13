@@ -22,6 +22,12 @@
 	<string>$(MARKETING_VERSION)</string>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Fold uses the camera as a live kaleidoscope source and to record video with symmetry effects.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Fold records audio together with your video when you capture a take.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Fold saves the images and videos you create to your photo library.</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>UILaunchStoryboardName</key>

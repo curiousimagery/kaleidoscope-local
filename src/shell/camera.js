@@ -17,6 +17,7 @@ export function createCamera() {
   let facing = 'environment';  // 'environment' (rear) | 'user' (front)
   let mirrorCanvas = null;     // front-camera frames flipped horizontally
   let currentDeviceId = null;  // the deviceId of the live track (for the picker)
+  let track = null;            // the live video track (for capability-gated controls)
 
   function ensureVideo() {
     if (video) return video;
@@ -56,9 +57,19 @@ export function createCamera() {
     // opts.audio: request the mic IN THE SAME CALL — one combined permission
     // prompt instead of camera-then-mic-later (mobile record video's ask)
     stream = await navigator.mediaDevices.getUserMedia({ video, audio: !!opts.audio });
-    const track = stream.getVideoTracks()[0];
+    track = stream.getVideoTracks()[0];
     const settings = track ? track.getSettings() : {};
     currentDeviceId = settings.deviceId || wantDevice || null;
+    // CAMERA-CONTROL SPIKE diagnostic (native arc): log what THIS platform's track
+    // actually exposes, so on-device we SEE the reachable zoom/torch/focus + their
+    // ranges instead of guessing before designing the gear. JSON.stringify because
+    // the Capacitor→Xcode console bridge renders bare objects as "[object Object]";
+    // console.log so it rides the same stream as the other on-device logs.
+    try {
+      const caps = track?.getCapabilities?.() ?? {};
+      console.log('[fold camera] getCapabilities:', JSON.stringify(caps));
+      console.log('[fold camera] getSettings:', JSON.stringify(settings));
+    } catch { /* getCapabilities unsupported on this engine */ }
     // Picked by device → no facingMode intent; mirror only if the track itself
     // reports user-facing (external/USB cams report nothing → no mirror).
     if (wantDevice) facing = settings.facingMode === 'user' ? 'user' : 'environment';
@@ -121,6 +132,32 @@ export function createCamera() {
       stream.getTracks().forEach(t => t.stop());
       stream = null;
     }
+    track = null;
+  }
+
+  // --- camera controls (capability-gated, best-effort) ------------------------
+  // What the CURRENT track can adjust: zoom {min,max,step}, torch (bool), focusMode
+  // (list), etc. Empty object when the platform exposes nothing (iOS Safari long
+  // exposed little; recent WebKit adds zoom/torch/focus). The camera-settings gear
+  // reads this and only shows controls that actually exist here — so nothing appears
+  // where the platform can't honor it. EV/WB/lens-select that getUserMedia never
+  // exposes come from the native shell via host.nativeCamera (the Capacitor path).
+  function capabilities() {
+    try { return (track && track.getCapabilities) ? track.getCapabilities() : {}; }
+    catch { return {}; }
+  }
+  // Current values for the adjustable fields (getSettings()).
+  function controls() {
+    try { return (track && track.getSettings) ? track.getSettings() : {}; }
+    catch { return {}; }
+  }
+  // Apply advanced constraints (e.g. { zoom: 2 }, { torch: true }, { focusMode:
+  // 'continuous' }). Advanced constraints are best-effort per spec — a field the
+  // track can't honor is ignored rather than throwing. Returns true on success.
+  async function applyControls(obj) {
+    if (!track || !track.applyConstraints) return false;
+    try { await track.applyConstraints({ advanced: [obj] }); return true; }
+    catch { return false; }
   }
 
   function stop() {
@@ -140,6 +177,10 @@ export function createCamera() {
     listDevices,
     refreshFrame,
     frameSource,
+    capabilities,
+    controls,
+    applyControls,
+    getTrack: () => track,
     getVideo: () => video,
     getFacing: () => facing,
     getDeviceId: () => currentDeviceId,

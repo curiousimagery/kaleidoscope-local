@@ -58,6 +58,22 @@ html, body { margin: 0; padding: 0; height: 100%; background: var(--bg); color: 
   border-radius: var(--radius-lg); padding: 14px 16px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5); }
 #m-empty { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
   color: var(--text-dim); font-size: var(--text-lg); text-align: center; padding: 24px; }
+/* tap-to-focus ring — flashes at the tapped point on the live camera */
+#m-focus-ring { position: absolute; width: 64px; height: 64px; margin: -32px 0 0 -32px;
+  border: 1.5px solid var(--text-bright); border-radius: var(--radius-sm); box-shadow: 0 0 0 1px rgba(0,0,0,0.4);
+  pointer-events: none; opacity: 0; z-index: 7; }
+#m-focus-ring.show { animation: m-focus-flash 0.9s ease-out; }
+@keyframes m-focus-flash {
+  0% { opacity: 0; transform: scale(1.4); }
+  15% { opacity: 1; transform: scale(1); }
+  70% { opacity: 1; }
+  100% { opacity: 0; }
+}
+/* EV/WB press-hold pad readout — centered over the preview while the pad is engaged */
+#m-cam-pad-hud { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+  z-index: 8; padding: 10px 18px; background: rgba(20, 20, 20, 0.82); color: var(--text-bright);
+  border-radius: var(--radius-lg); font-size: var(--text-lg); font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em; pointer-events: none; }
 
 /* DIVIDER (fat grippy) */
 #m-divider { height: var(--m-divider); flex: 0 0 var(--m-divider); background: var(--surface-raised);
@@ -68,13 +84,29 @@ html, body { margin: 0; padding: 0; height: 100%; background: var(--bg); color: 
 
 /* CONTEXT region */
 #m-context { position: relative; flex: 1 1 auto; min-height: 0; background: var(--bg); overflow: hidden; }
-#m-context-toggle, #m-fit-toggle, #m-flip { position: absolute; top: 8px; z-index: 5; width: 40px; height: 40px;
+#m-context-toggle, #m-fit-toggle, #m-flip, #m-cam-menu { position: absolute; top: 8px; z-index: 5; width: 40px; height: 40px;
   border-radius: var(--radius-lg); border: 1px solid var(--border); background: rgba(20,20,20,0.85);
   color: var(--text); font-size: 16px; display: flex; align-items: center; justify-content: center; }
 #m-context-toggle { left: 8px; }
 #m-fit-toggle { right: 8px; }
-#m-flip { right: 56px; }   /* left of fit/fill (Daniel's record-video spec) */
-#m-flip:disabled { opacity: 0.35; }   /* recording: a flip would kill the package's source take */
+#m-flip, #m-cam-menu { right: 56px; }   /* left of fit/fill (Daniel's record-video spec); only one shows at a time */
+#m-flip:disabled, #m-cam-menu:disabled { opacity: 0.35; }   /* recording: a flip / lens switch would kill the package's source take */
+/* the CAMERA settings popover — drops from the camera icon; the canvas-gear recipe */
+#m-cam-pop { position: absolute; top: 56px; right: 8px; z-index: 7;
+  width: min(300px, calc(100% - 16px)); max-height: calc(100% - 64px); overflow-y: auto;
+  -webkit-overflow-scrolling: touch; background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius-lg); padding: 14px 16px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5); }
+/* mirrors .m-menu-item metrics (symmetric 12px vertical padding + the flex-centered
+   .m-menu-icon) so the flip glyph sits on the text center line, not high in the row */
+.m-cam-row { display: flex; align-items: center; gap: 14px; width: 100%; text-align: left;
+  background: transparent; color: var(--text); border: none; border-bottom: 1px solid var(--border);
+  padding: 4px 0 12px; margin-bottom: 12px; font-size: 15px; line-height: 1; }
+.m-cam-row .m-menu-icon { flex: 0 0 24px; }
+.m-cam-row:active { color: var(--text-bright); }
+/* white-balance value that doubles as the "back to auto" tap target; lit in auto */
+.m-wb-auto { background: transparent; border: none; padding: 0; font-size: var(--text-base);
+  font-variant-numeric: tabular-nums; color: var(--text-dim); }
+.m-wb-auto.active { color: var(--text-bright); }
 #m-source { position: absolute; inset: 0; }
 #m-settings { position: absolute; inset: 0; overflow-y: auto; -webkit-overflow-scrolling: touch;
   padding: 56px 16px 16px; }

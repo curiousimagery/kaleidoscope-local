@@ -27,7 +27,8 @@ import {
 } from './shell/controls.js';
 import { PARAMS, DECLARATIVE_PARAM_IDS } from './shell/params.js';
 import { snapSpiralValue as kitSnapSpiral, applyArmsSnap as kitApplyArmsSnap } from './kit/snaps.js';
-import { createCapabilities, editionAllows } from './kit/capabilities.js';
+import { createCapabilities, editionAllows, detectRuntime } from './kit/capabilities.js';
+import { createCapacitorHost } from './shell/capacitor-host.js';
 import { createOpRing } from './kit/op-ring.js';
 import { createApp } from './shell/app.js';
 import { createFoldAdapter } from './shell/fold-adapter.js';
@@ -1093,9 +1094,12 @@ if (engine) {
   // `window.foldHost` when an Electron/Capacitor shell injected one (Increment 4+),
   // else createApp defaults to the web no-op (shell/host.js). A native shell
   // injects its own host without touching the app.
+  // ?mocksyphon → the mock Syphon host (exercises broadcasting on web); else the
+  // Electron shell's injected window.foldHost; else the Capacitor host (native iOS)
+  // built from @capacitor plugins; else createApp defaults to the web no-op.
   const host = new URLSearchParams(window.location.search).has('mocksyphon')
     ? mockSyphonHost
-    : window.foldHost;
+    : (window.foldHost || (detectRuntime().isCapacitor ? createCapacitorHost() : undefined));
   createApp(env, { capabilities, host });
 
   // Perform mode (Arc 4) — wired AFTER createApp on purpose: its still/motion

@@ -35,6 +35,31 @@ export const webHost = {
     stop() {},
   },
 
+  // External display output (Capacitor iOS: an HDMI/USB-C-connected screen, or an
+  // AirPlay display). The native shell watches for a second UIScreen and presents
+  // the CHROME-FREE program view (output.html, driven by the output bus) on it,
+  // while the control UI stays on the device — a phone/iPad becomes a standalone
+  // activation broadcasting out. Only the host seam grows; the output-bus many-sinks
+  // model already accommodates the destination. (Capacitor plugin `ExternalDisplay`.)
+  externalDisplay: {
+    available: false,
+    connected: false,                 // is a second screen attached right now
+    async present(/* url */) { return false; },   // show the chrome-free output view on it
+    async clear() {},                              // stop presenting
+    onChange(/* handler(connected) */) { return () => {}; },   // attach/detach; returns unsubscribe
+  },
+
+  // NDI output (network video, the wireless sibling of Syphon) — the native app
+  // publishes the program output as an NDI source that Resolume Arena lists like a
+  // camera. NDI is a native SDK over UDP/multicast; browsers can't speak it, so this
+  // only lights up in the Capacitor/native shell. Mirrors syphon's publish shape.
+  ndi: {
+    available: false,
+    start(/* { name } */) {},
+    publish(/* frame */) {},          // push a rendered frame to the NDI source
+    stop() {},
+  },
+
   // Native macOS trackpad gestures (magnify + rotate via an NSEvent monitor in
   // the Electron shell — Chromium swallows rotate). Feeds the control bus as
   // the "trackpad" input device (shell/trackpad-input.js adapter).

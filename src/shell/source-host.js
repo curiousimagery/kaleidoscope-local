@@ -464,6 +464,13 @@ export function createSourceHost(env) {
   }
 
   function downloadBlob(blob, name) {
+    // A native shell offers a real save target (Capacitor's iOS share sheet →
+    // Save to Files/Photos; a future Electron save dialog) — ask host.fileSystem
+    // and degrade to the browser download on web (webHost reports unavailable).
+    // On native this also sidesteps the download-navigation that backgrounds the
+    // page and blacks out the WebGL context (the parked mobile-save bug).
+    const fs = env.host?.fileSystem;
+    if (fs?.available) { fs.save(blob, name); return; }
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url; a.download = name; a.click();

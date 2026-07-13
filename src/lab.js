@@ -714,6 +714,16 @@ const CLI_COMMANDS = [
     ['xattr -cr "/Applications/Fold Live.app"', 'install on ANOTHER Mac: clear the quarantine flag',
       'Run once in Terminal after copying the app out of the DMG on a different machine. The app is unsigned, so macOS quarantines a downloaded copy and may claim it is "damaged" — this strips the quarantine attribute so it launches. Not needed on the Mac that built the DMG. Also safe to delete everything in electron/release/ at any time: DMGs, .blockmap files (differential-update metadata we do not use), builder-debug.yml, and mac-arm64/ are ALL regenerable build artifacts — the installed app in /Applications and your rigs in userData are untouched.'],
   ] },
+  { group: 'Capacitor / iOS  ·  device + signing walkthrough in docs/DISTRIBUTION.md', items: [
+    ['npm install', 'first-time setup (also pulls the Capacitor deps)',
+      'Run once after cloning or when deps change. Installs node_modules (gitignored) including @capacitor/* + the native plugins. The iOS Swift Package deps resolve separately on the first Xcode build. The one-time signing + per-device setup (Developer Mode, trust, dev team) is in docs/DISTRIBUTION.md → "running on a device".'],
+    ['npm run cap:sync', 'rebuild the web app + copy it into the iOS project',
+      'THE every-time loop: run whenever you change web code (src/), then press Run (⌘R) in Xcode. It is `vite build` + `cap sync ios` — recompiles dist/, copies it into ios/App/App/public, refreshes the plugin list. It does NOT open Xcode, touch signing, or build the native app (Xcode does the native compile + install on Run). Contrast with the INITIAL build, which additionally does the one-time signing + device-trust setup (see DISTRIBUTION.md).'],
+    ['npm run ios', 'build + sync + open Xcode',
+      'Convenience = `vite build` + `cap sync ios` + opens ios/App/App.xcodeproj. Use it to start a session with the project open. Then pick your device in the toolbar and Run.'],
+    ['npm run cap:open', 'just open the iOS project in Xcode',
+      'Opens ios/App/App.xcodeproj without rebuilding — use when dist/ is already current.'],
+  ] },
   { group: 'Open in the browser', items: [
     ['http://localhost:5173/', 'the app',
       'Open while npm run dev is running to use Fold itself.'],
