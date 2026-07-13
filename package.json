@@ -14,7 +14,6 @@
     "cap:sync": "vite build && cap sync ios",
     "cap:open": "cap open ios",
     "ios": "vite build && cap sync ios && cap open ios",
-    "spike:camera": "VITE_FOLD_SPIKE=camera vite build && cap sync ios && cap open ios",
     "native:cam": "VITE_FOLD_NATIVE_CAM=1 vite build && cap sync ios && cap open ios"
   },
   "devDependencies": {

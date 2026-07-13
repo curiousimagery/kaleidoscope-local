@@ -4,7 +4,9 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
-## v0.16.11 (Build 327) — 2026-07-13 — record-video audio on the native camera (mic at entry)
+## v0.16.12 (Build 328) — 2026-07-13 — delete the camera frame-bridge spike (native path proven)
+
+**The throwaway harness is gone.** The Tier-2 frame-bridge spike (`src/spike/camera-spike.js` + the `VITE_FOLD_SPIKE=camera` boot gate + the `spike:camera` npm script) measured native-camera→WebSocket→WebGL feasibility on device; the real path graduated and is now feature-complete, so it's removed. [boot.js](../src/boot.js) drops the spike branch (the app boot is no longer wrapped in an else); the native camera plugin (`native-plugins/fold-native-camera`) — the keeper — stays. Verified: `vite build` (default + native) clean, no dangling references. No behavior change.
 
 **Record-video now captures audio on the native camera path.** The native camera is video-only (no audio track to clone, unlike the web camera's getUserMedia stream), so [mobile/chrome.js](../src/mobile/chrome.js) acquires the mic via `getUserMedia({audio})` **at record-video entry** — one clean permission prompt at mode entry rather than mid-record — holds it for the session, and clones a track into each take (so a recorder's stop doesn't kill the held mic). Released on leaving record-video. Denial degrades to video-only. **Architecture note:** native plugin-captured audio can't join a JS `<canvas>`-captured recording (the take is the WebGL output, recorded in JS), so getUserMedia IS the correct native-app audio path — WKWebView supports it, and the mic usage string is already in Info.plist. Verified: `node --check`, `vite build`, `cap sync`. Device-pending (confirm a recorded take has audio).
 

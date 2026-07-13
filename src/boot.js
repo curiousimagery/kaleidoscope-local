@@ -14,15 +14,6 @@ import { state, session } from './shell/state.js';
 const params = new URLSearchParams(location.search);
 const override = params.get('chrome');
 
-// Camera frame-bridge SPIKE (native arc, throwaway): built with VITE_FOLD_SPIKE=camera
-// it boots ONLY the spike harness instead of the app — measuring native-camera ->
-// localhost-WebSocket -> WebGL fps/latency on device. The native plugin exists only on
-// device, so there's no browser path; the normal build inlines the flag to undefined and
-// tree-shakes the harness out entirely.
-if (import.meta.env.VITE_FOLD_SPIKE === 'camera') {
-  import('./spike/camera-spike.js').then((m) => m.mount());
-} else {
-
 // Mobile when the window is narrow (< 700px — narrowed desktop windows) OR a
 // coarse-pointer device's short side is < 600px (phones in either orientation).
 // iPad (short side ≥ 768) stays desktop.
@@ -73,4 +64,3 @@ window.addEventListener('resize', () => {
     }
   }, 300);
 });
-}
