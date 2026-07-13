@@ -41,6 +41,10 @@ public class FoldNativeCameraPlugin: CAPPlugin, CAPBridgedPlugin, AVCaptureVideo
     private var running = false
     private var device: AVCaptureDevice?
     private var captureDelegates = Set<PhotoCaptureDelegate>()   // retained until each capture completes
+    // orientation: RotationCoordinator (iOS 17+) publishes the correct capture angle
+    // for the current device orientation + sensor; Any? because the type is 17-only.
+    private var rotationCoordinator: Any?
+    private var rotationObservation: NSKeyValueObservation?
 
     // `lens`: "auto" = best virtual multi-lens device (seamless zoom, no custom WB);
     // "ultraWide"/"wide"/"tele" = a single physical lens (full manual control).
@@ -188,6 +192,9 @@ public class FoldNativeCameraPlugin: CAPPlugin, CAPBridgedPlugin, AVCaptureVideo
     @objc func stop(_ call: CAPPluginCall) {
         sessionQueue.async { [weak self] in
             guard let self = self else { return }
+            self.rotationObservation?.invalidate()
+            self.rotationObservation = nil
+            self.rotationCoordinator = nil
             if self.running {
                 self.session.stopRunning()
                 self.server.stop()
@@ -439,21 +446,16 @@ public class FoldNativeCameraPlugin: CAPPlugin, CAPBridgedPlugin, AVCaptureVideo
 
         if session.canAddOutput(photoOutput) { session.addOutput(photoOutput) }
 
-        if let conn = output.connection(with: .video) {
-            if #available(iOS 17.0, *) {
-                if conn.isVideoRotationAngleSupported(90) { conn.videoRotationAngle = 90 }
-            } else if conn.isVideoOrientationSupported {
-                conn.videoOrientation = .portrait
-            }
-        }
-        // match the STILL connection's rotation to the preview so a captured photo is
-        // oriented the same as the live frame (both fixed portrait for now; the
-        // orientation-tracking slice will drive them together off device rotation).
-        if let pconn = photoOutput.connection(with: .video) {
-            if #available(iOS 17.0, *) {
-                if pconn.isVideoRotationAngleSupported(90) { pconn.videoRotationAngle = 90 }
-            } else if pconn.isVideoOrientationSupported {
-                pconn.videoOrientation = .portrait
+        // ORIENTATION: keep the delivered frame (and the still) horizon-level in every
+        // device rotation. iOS 17's RotationCoordinator computes the correct capture
+        // angle for the current device orientation AND sensor (front included, so it
+        // also fixes the front 90°-off-in-portrait case) and updates as the device
+        // turns — no manual per-orientation math. Pre-17 falls back to fixed portrait.
+        if #available(iOS 17.0, *) {
+            setupRotationCoordinator(device)
+        } else {
+            for conn in [output.connection(with: .video), photoOutput.connection(with: .video)] {
+                if let c = conn, c.isVideoOrientationSupported { c.videoOrientation = .portrait }
             }
         }
 
@@ -488,6 +490,28 @@ public class FoldNativeCameraPlugin: CAPPlugin, CAPBridgedPlugin, AVCaptureVideo
         session.commitConfiguration()
         return SessionInfo(width: target.w, height: target.h,
                            requestedFps: requestedFps, cameraMaxFps: cameraMaxFps)
+    }
+
+    // MARK: - orientation (iOS 17 RotationCoordinator)
+
+    @available(iOS 17.0, *)
+    private func setupRotationCoordinator(_ device: AVCaptureDevice) {
+        rotationObservation?.invalidate()
+        let coord = AVCaptureDevice.RotationCoordinator(device: device, previewLayer: nil)
+        rotationCoordinator = coord
+        applyRotation(coord.videoRotationAngleForHorizonLevelCapture)
+        // update as the device turns (the coordinator observes device orientation)
+        rotationObservation = coord.observe(\.videoRotationAngleForHorizonLevelCapture, options: [.new]) { [weak self] c, _ in
+            let angle = c.videoRotationAngleForHorizonLevelCapture
+            self?.sessionQueue.async { self?.applyRotation(angle) }
+        }
+    }
+
+    private func applyRotation(_ angle: CGFloat) {
+        if #available(iOS 17.0, *) {
+            if let v = output.connection(with: .video), v.isVideoRotationAngleSupported(angle) { v.videoRotationAngle = angle }
+            if let p = photoOutput.connection(with: .video), p.isVideoRotationAngleSupported(angle) { p.videoRotationAngle = angle }
+        }
     }
 
     // MARK: - frame delivery (encode synchronously; drop before encode when busy)
