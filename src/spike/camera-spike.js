@@ -48,7 +48,8 @@ export function mount() {
   const presetBtn = mkBtn('1080p');
   const fpsBtn = mkBtn('30fps');
   const captureBtn = mkBtn('📷');
-  controls.append(presetBtn, fpsBtn, startBtn, stopBtn, captureBtn);
+  const photoBtn = mkBtn('still: video-opt');
+  controls.append(presetBtn, fpsBtn, photoBtn, startBtn, stopBtn, captureBtn);
   document.body.appendChild(controls);
 
   const presets = ['hd720', 'hd1080', 'uhd'];
@@ -66,6 +67,13 @@ export function mount() {
   fpsBtn.onclick = () => {
     fpsIdx = (fpsIdx + 1) % fpsTargets.length;
     fpsBtn.textContent = fpsLabels[fpsTargets[fpsIdx]];
+  };
+
+  // still-optimized format (max-res photo, ~30fps) vs video-optimized (high fps, ~10MP stills)
+  let preferPhoto = false;
+  photoBtn.onclick = () => {
+    preferPhoto = !preferPhoto;
+    photoBtn.textContent = 'still: ' + (preferPhoto ? '48MP-opt' : 'video-opt');
   };
 
   const gl = canvas.getContext('webgl2', { antialias: false, alpha: false, desynchronized: true });
@@ -99,7 +107,7 @@ export function mount() {
     updateHud();
     let res;
     try {
-      res = await FoldNativeCamera.start({ preset: presets[presetIdx], fps: fpsTargets[fpsIdx], lens: currentLens });
+      res = await FoldNativeCamera.start({ preset: presets[presetIdx], fps: fpsTargets[fpsIdx], lens: currentLens, preferPhoto });
     } catch (e) {
       status = 'plugin.start rejected: ' + (e && e.message ? e.message : e);
       updateHud();
@@ -269,6 +277,7 @@ export function mount() {
   // Capture a full-res still (EV/WB/zoom baked in) and save to Photos.
   async function capture() {
     if (!ws) { status = 'start the camera first'; updateHud(); return; }
+    flash();
     status = 'capturing…'; updateHud();
     try {
       const r = await FoldNativeCamera.capturePhoto();
@@ -294,6 +303,15 @@ function mkBtn(label) {
     'box-shadow:0 2px 8px rgba(0,0,0,0.5);'
   ].join('');
   return b;
+}
+
+// Brief white screen flash so a still capture has visible feedback.
+function flash() {
+  const f = document.createElement('div');
+  f.style.cssText = 'position:fixed;inset:0;background:#fff;z-index:20;pointer-events:none;opacity:0.9;transition:opacity 0.35s ease-out;';
+  document.body.appendChild(f);
+  requestAnimationFrame(() => { f.style.opacity = '0'; });
+  setTimeout(() => f.remove(), 380);
 }
 
 // A small labelled button wired to a click handler (WB auto/lock).

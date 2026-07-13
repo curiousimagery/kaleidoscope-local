@@ -79,6 +79,7 @@ public class FoldNativeCameraPlugin: CAPPlugin, CAPBridgedPlugin, AVCaptureVideo
         let preset = call.getString("preset") ?? "hd1080"
         let fps = call.getDouble("fps") ?? 30
         let lens = call.getString("lens") ?? "auto"
+        let preferPhoto = call.getBool("preferPhoto") ?? false
         AVCaptureDevice.requestAccess(for: .video) { [weak self] granted in
             guard let self = self else { return }
             guard granted else { call.reject("camera not authorized"); return }
@@ -90,7 +91,7 @@ public class FoldNativeCameraPlugin: CAPPlugin, CAPBridgedPlugin, AVCaptureVideo
                 }
                 let info: SessionInfo
                 do {
-                    info = try self.configureSession(presetName: preset, targetFps: fps, lens: lens)
+                    info = try self.configureSession(presetName: preset, targetFps: fps, lens: lens, preferPhoto: preferPhoto)
                 } catch {
                     call.reject("configure failed: \(error.localizedDescription)")
                     return
@@ -254,7 +255,7 @@ public class FoldNativeCameraPlugin: CAPPlugin, CAPBridgedPlugin, AVCaptureVideo
         let cameraMaxFps: Double
     }
 
-    private func configureSession(presetName: String, targetFps: Double, lens: String) throws -> SessionInfo {
+    private func configureSession(presetName: String, targetFps: Double, lens: String, preferPhoto: Bool) throws -> SessionInfo {
         let target: (w: Int, h: Int)
         switch presetName {
         case "hd720": target = (1280, 720)
@@ -291,6 +292,30 @@ public class FoldNativeCameraPlugin: CAPPlugin, CAPBridgedPlugin, AVCaptureVideo
             for f in matches {
                 let m = f.videoSupportedFrameRateRanges.map { $0.maxFrameRate }.max() ?? 0
                 if m > chosenMax { chosenMax = m; chosen = f }
+            }
+        }
+
+        // Still tool: when photo resolution is prioritized, override with a format that
+        // reaches the sensor's max still dimensions. Video formats cap stills ~10-12MP;
+        // 48MP lives on dedicated photo formats — you get high-fps video OR max stills.
+        if preferPhoto, #available(iOS 16.0, *) {
+            let area: (CMVideoDimensions) -> Int = { Int($0.width) * Int($0.height) }
+            let sensorMaxPhoto = device.formats
+                .compactMap { $0.supportedMaxPhotoDimensions.map(area).max() }.max() ?? 0
+            let photoCands = device.formats.filter {
+                ($0.supportedMaxPhotoDimensions.map(area).max() ?? 0) == sensorMaxPhoto
+            }
+            let picked = photoCands.first(where: {
+                let d = CMVideoFormatDescriptionGetDimensions($0.formatDescription)
+                return Int(d.width) == target.w && Int(d.height) == target.h
+            }) ?? photoCands.max(by: {
+                let a = CMVideoFormatDescriptionGetDimensions($0.formatDescription)
+                let b = CMVideoFormatDescriptionGetDimensions($1.formatDescription)
+                return area(a) < area(b)
+            })
+            if let picked = picked {
+                chosen = picked
+                chosenMax = picked.videoSupportedFrameRateRanges.map { $0.maxFrameRate }.max() ?? 0
             }
         }
 
