@@ -278,7 +278,10 @@ public class FoldNativeCameraPlugin: CAPPlugin, CAPBridgedPlugin, AVCaptureVideo
                      "lensFactors": lensFactors],
             "whiteBalance": ["lockSupported": device.isWhiteBalanceModeSupported(.locked),
                              "customGainsSupported": device.isLockingWhiteBalanceWithCustomDeviceGainsSupported,
-                             "customGainsSupportedWideLens": wideCustomWB],
+                             "customGainsSupportedWideLens": wideCustomWB,
+                             // AVFoundation exposes no Kelvin min/max; use a sensible
+                             // tungsten→shade span (gains are clamped in setWhiteBalance)
+                             "temperatureMin": 2500, "temperatureMax": 8000],
             "photo": photoInfo(device)
         ]
     }

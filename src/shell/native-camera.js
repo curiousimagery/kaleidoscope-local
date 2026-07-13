@@ -35,8 +35,16 @@ export function createNativeCamera() {
   let resolutions = [];       // [{id,label,maxFps}] the current lens actually offers
   let preset = 'hd1080';      // the chosen streaming resolution
   let targetFps = 30;         // the requested frame rate (matters in record-video mode)
+  // EV / WB: reset on a lens or facing change (a different physical sensor — per-sensor
+  // gains don't carry), but KEPT across a resolution/fps change (same sensor). start()
+  // re-applies these after the session comes up, so a res/fps re-acquire preserves them.
+  let evBias = 0;
+  let wbMode = 'auto';        // 'auto' | 'manual'
+  let wbTemp = 5000;          // Kelvin, when manual
   let facing = 'environment';
   let active = false;
+
+  function resetControls() { evBias = 0; wbMode = 'auto'; wbTemp = 5000; }
 
   function ensureCanvas() {
     if (canvas) return;
@@ -107,6 +115,10 @@ export function createNativeCamera() {
     lenses = res.lenses || [];
     resolutions = res.resolutions || [];
     active = true;
+    // re-apply persisted EV/WB — they survive a resolution/fps re-acquire (same sensor);
+    // a lens/facing change calls resetControls() first, so this becomes a no-op (auto/0).
+    if (evBias !== 0) { try { await FoldNativeCamera.setExposureBias({ value: evBias }); } catch { /* unsupported */ } }
+    if (wbMode === 'manual') { try { await FoldNativeCamera.setWhiteBalance({ temperature: wbTemp }); } catch { /* unsupported */ } }
     await openSocket();     // resolves once the first frame is painted (canvas sized)
     console.info('[native-camera] socket connected — first frame in');
     return canvas;
@@ -121,14 +133,15 @@ export function createNativeCamera() {
 
   async function flip(extra = {}) {
     const next = facing === 'user' ? 'environment' : 'user';
+    resetControls();                 // different sensor → drop EV/WB
     return start({ ...extra, facingMode: next });
   }
 
-  // switch to a specific physical lens — re-acquires the session exactly like flip.
-  // Re-acquiring resets the sensor to auto EV/WB by construction, which is the desired
-  // behavior on a lens change (custom gains are per-sensor and don't carry across).
+  // switch to a specific physical lens — re-acquires the session exactly like flip,
+  // and resets EV/WB (custom gains are per-sensor and don't carry across).
   async function setLens(id) {
     lens = id;
+    resetControls();
     return start({ facingMode: facing });
   }
 
@@ -149,10 +162,14 @@ export function createNativeCamera() {
   function refreshFrame() { paintLatest(); }
   function frameSource() { return canvas; }
 
-  // --- native controls (consumed by the coming camera UI) ---------------------
-  async function setExposureBias(value) { return FoldNativeCamera.setExposureBias({ value }); }
+  // --- native controls (consumed by the camera UI) ----------------------------
+  async function setExposureBias(value) { evBias = value; return FoldNativeCamera.setExposureBias({ value }); }
   async function setZoom(factor) { return FoldNativeCamera.setZoom({ factor }); }
-  async function setWhiteBalance(opts) { return FoldNativeCamera.setWhiteBalance(opts); }
+  async function setWhiteBalance(opts) {
+    if (opts.mode === 'auto') wbMode = 'auto';
+    else if (opts.temperature != null) { wbMode = 'manual'; wbTemp = opts.temperature; }
+    return FoldNativeCamera.setWhiteBalance(opts);
+  }
   async function capturePhoto() { return FoldNativeCamera.capturePhoto(); }
   function capabilities() { return controlRanges; }
 
@@ -168,6 +185,9 @@ export function createNativeCamera() {
     getResolutions: () => resolutions,   // [{id,label,maxFps}] for the current lens
     getResolution: () => preset,
     getFrameRate: () => targetFps,
+    getExposureBias: () => evBias,
+    getWhiteBalanceMode: () => wbMode,   // 'auto' | 'manual'
+    getWhiteBalanceTemp: () => wbTemp,
     refreshFrame,
     frameSource,
     setExposureBias,

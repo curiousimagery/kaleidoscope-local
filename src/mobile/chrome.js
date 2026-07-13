@@ -996,6 +996,8 @@ $('m-flip').addEventListener('click', flipCamera);
 const camLensWrap = document.createElement('div');
 const camResWrap = document.createElement('div');
 const camFpsWrap = document.createElement('div');
+const camEvWrap = document.createElement('div');
+const camWbWrap = document.createElement('div');
 if (useNativeCam) {
   const flipRow = document.createElement('button');
   flipRow.id = 'm-cam-flip';
@@ -1006,7 +1008,9 @@ if (useNativeCam) {
   camLensWrap.className = 'm-control'; camLensWrap.id = 'm-cam-lens';
   camResWrap.className = 'm-control'; camResWrap.id = 'm-cam-res';
   camFpsWrap.className = 'm-control'; camFpsWrap.id = 'm-cam-fps';
-  camPopEl.append(camLensWrap, camResWrap, camFpsWrap);
+  camEvWrap.className = 'm-control'; camEvWrap.id = 'm-cam-ev';
+  camWbWrap.className = 'm-control'; camWbWrap.id = 'm-cam-wb';
+  camPopEl.append(camLensWrap, camResWrap, camFpsWrap, camEvWrap, camWbWrap);
 
   camMenuBtn.addEventListener('click', (e) => { e.stopPropagation(); camPopEl.classList.toggle('m-hidden'); });
   document.addEventListener('pointerdown', (e) => {
@@ -1052,6 +1056,65 @@ function refreshCamMenu() {
   camFpsWrap.classList.toggle('m-hidden', !showFps);
   if (showFps) buildCamSeg(camFpsWrap, 'frame rate', fpsOpts, String(camera.getFrameRate()), (id) => switchFrameRate(+id));
   else camFpsWrap.innerHTML = '';
+  // exposure (EV) — a live bias slider; white balance — auto/manual + a Kelvin slider
+  // when manual (only where the physical lens supports custom gains, which ours do).
+  // Both reset on a lens/flip change (native-camera resets + refreshCamMenu re-reads).
+  const caps = camera.capabilities?.() || {};
+  const ev = caps.exposureBias;
+  const showEv = !!ev && ev.max > ev.min;
+  camEvWrap.classList.toggle('m-hidden', !showEv);
+  if (showEv) buildCamSlider(camEvWrap, 'exposure', ev.min, ev.max, 0.1, camera.getExposureBias(),
+    (v) => (v > 0 ? '+' : '') + v.toFixed(1), (v) => camera.setExposureBias(v));
+  else camEvWrap.innerHTML = '';
+  const wb = caps.whiteBalance;
+  const showWb = !!wb && wb.customGainsSupported;
+  camWbWrap.classList.toggle('m-hidden', !showWb);
+  if (showWb) buildCamWb(camWbWrap, wb);
+  else camWbWrap.innerHTML = '';
+}
+
+// a titled range slider into `wrap`: fmt(value)->label; onInput(number) live.
+function buildCamSlider(wrap, title, min, max, step, value, fmt, onInput) {
+  wrap.innerHTML = '';
+  const row = document.createElement('div'); row.className = 'm-control-row';
+  const lab = document.createElement('span'); lab.textContent = title;
+  const val = document.createElement('span'); val.className = 'm-control-val'; val.textContent = fmt(value);
+  row.append(lab, val);
+  const input = document.createElement('input');
+  input.type = 'range'; input.min = min; input.max = max; input.step = step; input.value = value;
+  input.addEventListener('input', () => { const v = +input.value; val.textContent = fmt(v); onInput(v); });
+  wrap.append(row, input);
+}
+
+// white balance: auto/manual segmented + a Kelvin slider revealed in manual.
+function buildCamWb(wrap, wb) {
+  wrap.innerHTML = '<div class="m-control-row"><span>white balance</span></div>';
+  const mode = camera.getWhiteBalanceMode();
+  const seg = document.createElement('div'); seg.className = 'm-seg';
+  [['auto', 'auto'], ['manual', 'manual']].forEach(([id, label]) => {
+    const b = document.createElement('button');
+    b.className = 'm-seg-btn' + (id === mode ? ' active' : '');
+    b.textContent = label;
+    b.addEventListener('click', () => {
+      if (id === mode) return;
+      if (id === 'auto') camera.setWhiteBalance({ mode: 'auto' });
+      else camera.setWhiteBalance({ temperature: camera.getWhiteBalanceTemp() });   // enter manual at the remembered Kelvin
+      refreshCamMenu();   // reveal/hide the Kelvin slider
+    });
+    seg.appendChild(b);
+  });
+  wrap.appendChild(seg);
+  if (mode === 'manual') {
+    const tmin = wb.temperatureMin || 2500, tmax = wb.temperatureMax || 8000;
+    const row = document.createElement('div'); row.className = 'm-control-row'; row.style.marginTop = '12px';
+    const lab = document.createElement('span'); lab.textContent = 'temperature';
+    const val = document.createElement('span'); val.className = 'm-control-val'; val.textContent = `${Math.round(camera.getWhiteBalanceTemp())}K`;
+    row.append(lab, val);
+    const input = document.createElement('input');
+    input.type = 'range'; input.min = tmin; input.max = tmax; input.step = 50; input.value = camera.getWhiteBalanceTemp();
+    input.addEventListener('input', () => { val.textContent = `${Math.round(+input.value)}K`; camera.setWhiteBalance({ temperature: +input.value }); });
+    wrap.append(row, input);
+  }
 }
 
 // lens / resolution / fps changes all RE-ACQUIRE the session (a format change, like
