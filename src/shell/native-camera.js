@@ -15,7 +15,7 @@
 // First slice: REAR live preview + the control methods for the coming UI. Front/flip,
 // 48MP-still-on-pause, and native record-audio are follow-on slices.
 
-import { registerPlugin } from '@capacitor/core';
+import { registerPlugin, Capacitor } from '@capacitor/core';
 
 // Registered at module scope (the spike proved this static path works on device; a
 // dynamic import('@capacitor/core') stalls inside the capacitor:// webview). On web
@@ -33,8 +33,14 @@ export function createNativeCamera() {
   let lens = 'wide';          // the chosen physical lens (never 'auto' — the virtual
                               // device disables custom WB + 48MP; a single sensor allows both)
   let resolutions = [];       // [{id,label,maxFps}] the current lens actually offers
-  let preset = 'hd1080';      // the chosen streaming resolution
+  let preset = 'hd1080';      // the chosen streaming (video) resolution
   let targetFps = 30;         // the requested frame rate (matters in record-video mode)
+  // still capture: in still mode the session uses a photo-optimized format so a
+  // pause can grab the sensor's full still (up to 48MP) via capturePhoto, rather than
+  // the preview-res frame. The picker chooses among the sizes that format offers.
+  let stillMode = true;
+  let stillResolutions = [];  // [{id,label,width,height}] the current lens's photo sizes
+  let stillRes = null;        // chosen {id,width,height}; null → the sensor max
   // EV / WB: reset on a lens or facing change (a different physical sensor — per-sensor
   // gains don't carry), but KEPT across a resolution/fps change (same sensor). start()
   // re-applies these after the session comes up, so a res/fps re-acquire preserves them.
@@ -106,7 +112,7 @@ export function createNativeCamera() {
     ensureCanvas();
     console.info('[native-camera] calling plugin.start');
     const res = await FoldNativeCamera.start({
-      preset, fps: targetFps, lens, preferPhoto: false,
+      preset, fps: targetFps, lens, preferPhoto: stillMode,
       facing: facing === 'user' ? 'front' : 'back',
     });
     console.info('[native-camera] plugin.start resolved', JSON.stringify(res));
@@ -114,6 +120,12 @@ export function createNativeCamera() {
     controlRanges = res.controls || {};
     lenses = res.lenses || [];
     resolutions = res.resolutions || [];
+    stillResolutions = res.stillResolutions || [];
+    // keep the chosen still size valid for this lens (a tele may top out below 48MP);
+    // default to the largest the lens offers.
+    if (!stillResolutions.some((r) => r.id === stillRes?.id)) {
+      stillRes = stillResolutions[stillResolutions.length - 1] || null;
+    }
     active = true;
     // re-apply persisted EV/WB — they survive a resolution/fps re-acquire (same sensor);
     // a lens/facing change calls resetControls() first, so this becomes a no-op (auto/0).
@@ -159,6 +171,12 @@ export function createNativeCamera() {
     return start({ facingMode: facing });
   }
 
+  // still-capture mode (photo-optimized format) vs record-video mode. Set by the shell
+  // before start() from the source type; changing it takes effect on the next start.
+  function setStillMode(on) { stillMode = !!on; }
+  // pick a still capture size (no re-acquire — just the next capturePhoto's dimensions)
+  function setStillResolution(id) { stillRes = stillResolutions.find((r) => r.id === id) || stillRes; }
+
   function refreshFrame() { paintLatest(); }
   function frameSource() { return canvas; }
 
@@ -170,7 +188,13 @@ export function createNativeCamera() {
     else if (opts.temperature != null) { wbMode = 'manual'; wbTemp = opts.temperature; }
     return FoldNativeCamera.setWhiteBalance(opts);
   }
-  async function capturePhoto() { return FoldNativeCamera.capturePhoto(); }
+  // full-resolution still (up to the chosen size) written to a temp file; returns a
+  // webview-loadable URL for use as the editable source (the 48MP-still-on-pause path).
+  async function capturePhoto() {
+    const d = stillRes || {};
+    const res = await FoldNativeCamera.capturePhoto({ width: d.width || 0, height: d.height || 0 });
+    return { url: res.url ? Capacitor.convertFileSrc(res.url) : null, width: res.width, height: res.height };
+  }
   function capabilities() { return controlRanges; }
 
   return {
@@ -182,9 +206,13 @@ export function createNativeCamera() {
     getLens: () => lens,
     setResolution,
     setFrameRate,
+    setStillMode,
+    setStillResolution,
     getResolutions: () => resolutions,   // [{id,label,maxFps}] for the current lens
     getResolution: () => preset,
     getFrameRate: () => targetFps,
+    getStillResolutions: () => stillResolutions,   // [{id,label,width,height}]
+    getStillResolution: () => stillRes?.id,
     getExposureBias: () => evBias,
     getWhiteBalanceMode: () => wbMode,   // 'auto' | 'manual'
     getWhiteBalanceTemp: () => wbTemp,

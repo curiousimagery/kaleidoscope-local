@@ -910,6 +910,9 @@ async function startCamera() {
     return;
   }
   try {
+    // still mode uses a photo-optimized format (48MP capture on pause); record video
+    // uses a video format. Set before start so the native session picks the right one.
+    if (useNativeCam && camera.setStillMode) camera.setStillMode(!videoMode);
     const video = await camera.start({ facingMode: lastFacing, audio: videoMode });   // record video asks cam+mic in ONE prompt; rear by default, remembers a flip across freeze→go-live
     liveVideo = video;
     console.log(`[camera] granted resolution ${video.videoWidth || video.width}×${video.videoHeight || video.height}`);
@@ -931,9 +934,23 @@ async function startCamera() {
   startLiveLoop();
 }
 
-// capture: freeze the current frame as the editable still (mirrored to match the
-// front-camera preview). Camera stops; the same control becomes "go live".
-function captureFrame() {
+// capture: freeze the current frame as the editable still. In native still mode this
+// grabs the FULL-resolution photo (12/24/48MP) via capturePhoto; otherwise (record
+// video, web camera, or any failure) it freezes the preview frame. The same control
+// then becomes "go live".
+async function captureFrame() {
+  if (useNativeCam && !videoMode && camera.capturePhoto) {
+    flashCapture();
+    try {
+      const shot = await camera.capturePhoto();
+      if (shot?.url) { await freezeFromUrl(shot.url); return; }
+    } catch (e) { console.error('[camera] still capture failed; using preview frame', e); }
+  }
+  freezeFromPreview();
+}
+
+// freeze the live preview frame (mirrored to match the front-camera selfie preview).
+function freezeFromPreview() {
   const video = camera.getVideo();
   // native camera's frameSource is a canvas (.width/.height); the web camera is a
   // <video> (.videoWidth/.videoHeight) — accept either.
@@ -960,6 +977,48 @@ function captureFrame() {
     };
     img.src = URL.createObjectURL(blob);
   }, 'image/jpeg', 0.95);
+}
+
+// freeze a native high-res still (a captured photo file). The photo pipeline bakes
+// orientation to match the preview; the front camera's selfie mirror is OUR shader's,
+// so it's applied here in JS to keep the frozen still consistent with the preview.
+async function freezeFromUrl(url) {
+  stopCameraStream();
+  cameraMode = 'frozen';
+  updateLiveUI();
+  await new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      let src = img;
+      if (camera.isFront()) {
+        const c = document.createElement('canvas');
+        c.width = img.naturalWidth; c.height = img.naturalHeight;
+        const cx = c.getContext('2d');
+        cx.translate(c.width, 0); cx.scale(-1, 1);
+        cx.drawImage(img, 0, 0);
+        src = c;
+      }
+      engine.setSource(src);
+      setContext(false);
+      sourceOverlay.mount(sourceEl);
+      scheduleRender();
+      resolve();
+    };
+    img.onerror = resolve;
+    img.src = url;
+  });
+  // keep the captured file as the save-package "original"
+  try { originalSource = { blob: await (await fetch(url)).blob(), name: `${sourceFilename}-original.jpg` }; }
+  catch { originalSource = null; }
+}
+
+// brief white flash over the output — the shutter feedback for a still capture.
+function flashCapture() {
+  const f = document.createElement('div');
+  f.style.cssText = 'position:absolute;inset:0;background:#fff;opacity:0.85;z-index:8;pointer-events:none;transition:opacity 0.4s';
+  outputEl.appendChild(f);
+  requestAnimationFrame(() => { f.style.opacity = '0'; });
+  setTimeout(() => f.remove(), 450);
 }
 
 async function flipCamera() {
@@ -1043,13 +1102,24 @@ function refreshCamMenu() {
   camLensWrap.classList.toggle('m-hidden', !showLens);
   if (showLens) buildCamSeg(camLensWrap, 'lens', lenses, camera.getLens(), switchLens);
   else camLensWrap.innerHTML = '';
-  // resolution — the options the CURRENT lens offers (they change per lens)
-  const resList = camera.getResolutions?.() || [];
-  camResWrap.classList.toggle('m-hidden', resList.length < 1);
-  if (resList.length) buildCamSeg(camResWrap, 'resolution', resList, camera.getResolution(), switchResolution);
-  else camResWrap.innerHTML = '';
+  // resolution — MODE-AWARE: record-video shows video sizes (1080p/QHD/4K) that
+  // re-acquire; still mode shows the sensor's photo sizes (12/24/48MP), which just
+  // set the next capture's dimensions (no re-acquire — the preview keeps streaming).
+  if (videoMode) {
+    const resList = camera.getResolutions?.() || [];
+    camResWrap.classList.toggle('m-hidden', resList.length < 1);
+    if (resList.length) buildCamSeg(camResWrap, 'resolution', resList, camera.getResolution(), switchResolution);
+    else camResWrap.innerHTML = '';
+  } else {
+    const stillList = camera.getStillResolutions?.() || [];
+    camResWrap.classList.toggle('m-hidden', stillList.length < 1);
+    if (stillList.length) buildCamSeg(camResWrap, 'resolution', stillList, camera.getStillResolution(),
+      (id) => { camera.setStillResolution(id); refreshCamMenu(); });   // no re-acquire; just the capture size
+    else camResWrap.innerHTML = '';
+  }
   // frame rate — record-video (motion) mode only; 30 / 60 gated by the resolution's max
-  const curRes = resList.find((r) => r.id === camera.getResolution());
+  const vidList = camera.getResolutions?.() || [];
+  const curRes = vidList.find((r) => r.id === camera.getResolution());
   const maxFps = curRes ? Math.round(curRes.maxFps || 0) : 0;
   const fpsOpts = [30, 60].filter((f) => f <= maxFps).map((f) => ({ id: String(f), label: `${f}fps` }));
   const showFps = videoMode && fpsOpts.length > 1;

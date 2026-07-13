@@ -109,9 +109,11 @@ public class FoldNativeCameraPlugin: CAPPlugin, CAPBridgedPlugin, AVCaptureVideo
     // tele may not do 4K, so the picker changes per lens — Daniel's ask), each with
     // its max frame rate so the UI can gate the fps options.
     private func resolutionCatalog(_ device: AVCaptureDevice) -> [[String: Any]] {
+        // VIDEO resolutions only — never below 1080p (Daniel's rule); QHD self-hides
+        // on devices that don't offer a 1440p format (most iPhones don't).
         let targets: [(id: String, label: String, w: Int, h: Int)] = [
-            ("hd720", "720p", 1280, 720),
             ("hd1080", "1080p", 1920, 1080),
+            ("qhd", "QHD", 2560, 1440),
             ("uhd", "4K", 3840, 2160)
         ]
         var out: [[String: Any]] = []
@@ -125,6 +127,20 @@ public class FoldNativeCameraPlugin: CAPPlugin, CAPBridgedPlugin, AVCaptureVideo
             out.append(["id": t.id, "label": t.label, "maxFps": maxFps])
         }
         return out
+    }
+
+    // The STILL capture sizes the ACTIVE format can produce (in still mode this is the
+    // photo-optimized format, so it carries the sensor's full option set — e.g. 12MP +
+    // 48MP on the main lens). Discrete AVFoundation dimensions, not computed middles.
+    private func stillResolutionCatalog(_ device: AVCaptureDevice) -> [[String: Any]] {
+        guard #available(iOS 16.0, *) else { return [] }
+        let area: (CMVideoDimensions) -> Int = { Int($0.width) * Int($0.height) }
+        let dims = device.activeFormat.supportedMaxPhotoDimensions.sorted { area($0) < area($1) }
+        return dims.map { d in
+            let mp = Double(area(d)) / 1_000_000.0
+            let label = mp >= 1 ? "\(Int(mp.rounded()))MP" : String(format: "%.1fMP", mp)
+            return ["id": "\(d.width)x\(d.height)", "label": label, "width": Int(d.width), "height": Int(d.height)]
+        }
     }
 
     @objc func start(_ call: CAPPluginCall) {
@@ -160,6 +176,7 @@ public class FoldNativeCameraPlugin: CAPPlugin, CAPBridgedPlugin, AVCaptureVideo
                     "cameraMaxFps": info.cameraMaxFps,
                     "lenses": self.lensCatalog(facing),
                     "resolutions": self.device.map { self.resolutionCatalog($0) } ?? [],
+                    "stillResolutions": self.device.map { self.stillResolutionCatalog($0) } ?? [],
                     "controls": self.controlRanges(),
                     "running": true
                 ])
@@ -246,16 +263,25 @@ public class FoldNativeCameraPlugin: CAPPlugin, CAPBridgedPlugin, AVCaptureVideo
     // "high-res still on pause" win — up to the lens's native res (e.g. 48MP), which
     // the video stream (4K max) can't reach.
     @objc func capturePhoto(_ call: CAPPluginCall) {
+        let reqW = call.getInt("width") ?? 0
+        let reqH = call.getInt("height") ?? 0
         sessionQueue.async { [weak self] in
             guard let self = self, self.running else { call.reject("camera not running"); return }
+            // JPEG so the returned file loads cleanly into a webview <img> / canvas
+            // (HEIC decode in WKWebGL is unproven); fall back to the default codec.
             let settings: AVCapturePhotoSettings
-            if self.photoOutput.availablePhotoCodecTypes.contains(.hevc) {
-                settings = AVCapturePhotoSettings(format: [AVVideoCodecKey: AVVideoCodecType.hevc])
+            if self.photoOutput.availablePhotoCodecTypes.contains(.jpeg) {
+                settings = AVCapturePhotoSettings(format: [AVVideoCodecKey: AVVideoCodecType.jpeg])
             } else {
                 settings = AVCapturePhotoSettings()
             }
             if #available(iOS 16.0, *) {
-                settings.maxPhotoDimensions = self.photoOutput.maxPhotoDimensions
+                // per-shot dimensions (the chosen 12/24/48MP), clamped to the output's max
+                if reqW > 0, reqH > 0 {
+                    settings.maxPhotoDimensions = CMVideoDimensions(width: Int32(reqW), height: Int32(reqH))
+                } else {
+                    settings.maxPhotoDimensions = self.photoOutput.maxPhotoDimensions
+                }
             }
             let delegate = PhotoCaptureDelegate(call: call) { [weak self] done in
                 self?.sessionQueue.async { self?.captureDelegates.remove(done) }
@@ -317,6 +343,7 @@ public class FoldNativeCameraPlugin: CAPPlugin, CAPBridgedPlugin, AVCaptureVideo
         switch presetName {
         case "hd720": target = (1280, 720)
         case "hd1080": target = (1920, 1080)
+        case "qhd": target = (2560, 1440)
         case "uhd": target = (3840, 2160)
         default: target = (1920, 1080)
         }
@@ -400,6 +427,16 @@ public class FoldNativeCameraPlugin: CAPPlugin, CAPBridgedPlugin, AVCaptureVideo
                 conn.videoOrientation = .portrait
             }
         }
+        // match the STILL connection's rotation to the preview so a captured photo is
+        // oriented the same as the live frame (both fixed portrait for now; the
+        // orientation-tracking slice will drive them together off device rotation).
+        if let pconn = photoOutput.connection(with: .video) {
+            if #available(iOS 17.0, *) {
+                if pconn.isVideoRotationAngleSupported(90) { pconn.videoRotationAngle = 90 }
+            } else if pconn.isVideoOrientationSupported {
+                pconn.videoOrientation = .portrait
+            }
+        }
 
         var requestedFps = targetFps
         if let fmt = chosen {
@@ -445,9 +482,11 @@ public class FoldNativeCameraPlugin: CAPPlugin, CAPBridgedPlugin, AVCaptureVideo
     }
 }
 
-// Receives one still, saves it to the Photos library (add-only), and resolves the
-// JS call with the actual captured dimensions + file size. Retained by the plugin's
-// captureDelegates set until `onDone` fires (AVCapturePhotoOutput holds it weakly).
+// Receives one still, writes it to a temp file, and resolves the JS call with the
+// file URL (loaded into the webview as the editable high-res source via
+// Capacitor.convertFileSrc) + the actual dimensions. NOT saved to Photos — the raw
+// still becomes the source; the user saves the EDITED result through the export flow.
+// Retained by the plugin's captureDelegates set until `onDone` fires.
 final class PhotoCaptureDelegate: NSObject, AVCapturePhotoCaptureDelegate {
     private let call: CAPPluginCall
     private let onDone: (PhotoCaptureDelegate) -> Void
@@ -471,20 +510,14 @@ final class PhotoCaptureDelegate: NSObject, AVCapturePhotoCaptureDelegate {
         }
         let dims = photo.resolvedSettings.photoDimensions
         let w = Int(dims.width), h = Int(dims.height), bytes = data.count
-        PHPhotoLibrary.requestAuthorization(for: .addOnly) { [weak self] authStatus in
-            guard let self = self else { return }
-            guard authStatus == .authorized || authStatus == .limited else {
-                self.call.resolve(["width": w, "height": h, "bytes": bytes, "savedToPhotos": false])
-                self.onDone(self)
-                return
-            }
-            PHPhotoLibrary.shared().performChanges({
-                let req = PHAssetCreationRequest.forAsset()
-                req.addResource(with: .photo, data: data, options: nil)
-            }, completionHandler: { ok, _ in
-                self.call.resolve(["width": w, "height": h, "bytes": bytes, "savedToPhotos": ok])
-                self.onDone(self)
-            })
+        let name = "fold-still-\(Int(Date().timeIntervalSince1970 * 1000)).jpg"
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(name)
+        do {
+            try data.write(to: url)
+            call.resolve(["url": url.absoluteString, "path": url.path, "width": w, "height": h, "bytes": bytes])
+        } catch {
+            call.reject("write failed: \(error.localizedDescription)")
         }
+        onDone(self)
     }
 }

@@ -4,6 +4,18 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.16.0 (Build 316) — 2026-07-12 — 🎥 native camera milestone: mode-aware resolution + real still capture (12/24/48MP)
+
+**The minor bump marks the native iOS camera as a real feature** (Daniel's call) — flip, physical-lens picker, per-lens resolution, EV/WB, and now full-resolution still capture, all through a native AVCaptureSession streaming into the engine. This build makes the resolution picker **mode-aware and the still capture real:**
+
+- **Record-video mode:** the resolution row is video sizes — **1080p / QHD / 4K** (720p dropped: never record below 1080p; QHD self-hides on devices without a 1440p format).
+- **Still mode (live camera):** the resolution row now shows the sensor's actual **photo sizes (12MP / 48MP, etc.)** — read from the active photo format's `supportedMaxPhotoDimensions`, not the video sizes it wrongly showed before. Still mode configures a photo-optimized format so the sensor's full still is reachable; picking a size just sets the next capture's dimensions (no re-acquire — the preview keeps streaming).
+- **Pause = a real high-res capture:** on pause in still mode, `capturePhoto` fires at the chosen size, writes a JPEG to a temp file, and the engine loads it (via `Capacitor.convertFileSrc`) as the editable source — replacing the old preview-res freeze. The photo connection's rotation matches the preview; the front-camera selfie mirror is re-applied in JS; a shutter flash gives feedback. Falls back to the preview-frame freeze on record-video, the web camera, or any failure. The still is NOT auto-saved to Photos — it's the source; the user saves the edited result through the export flow.
+
+[plugin] reports `stillResolutions` + `capturePhoto` takes per-shot dimensions and returns a file URL. [shell/native-camera.js](../src/shell/native-camera.js) gains `setStillMode`/`setStillResolution`/`getStillResolutions` + the convertFileSrc round-trip. [mobile/chrome.js](../src/mobile/chrome.js) splits `captureFrame` into the native high-res path + the preview fallback. Flag-gated; device-pending Daniel's 14 Pro pass. Verified: `node --check`, `vite build`, `cap sync`, `xcodebuild` sim BUILD SUCCEEDED.
+
+---
+
 ## v0.15.14 (Build 315) — 2026-07-12 — camera slice 5: EV + white-balance sliders (capability-driven, reset on lens switch)
 
 **The manual controls the native camera exists for.** Under the resolution rows, the camera menu now has an **exposure** slider (EV bias across the device's reported `exposureBias` range, live) and a **white balance** control — an auto/manual toggle, and in manual a **Kelvin temperature** slider (2500–8000K, the plugin clamps the gains). Both drive the device-proven plugin methods (`setExposureBias`, `setWhiteBalance`). The WB manual row only appears where the physical lens supports custom gains — which it does now that production always drives a physical lens (the whole reason we dropped "auto"). **Reset semantics (Daniel's call):** EV/WB reset on a lens or facing change (a different physical sensor — per-sensor gains don't carry), but are **kept across a resolution/fps change** (same sensor) — [shell/native-camera.js](../src/shell/native-camera.js) resets on flip/`setLens` and re-applies the persisted values after any re-acquire, so a resolution switch doesn't wipe your exposure. [mobile/chrome.js](../src/mobile/chrome.js) gains `buildCamSlider` + `buildCamWb`; the plugin reports a Kelvin min/max. Flag-gated; device-pending. Verified: `node --check`, `vite build`, `cap sync`, `xcodebuild` sim BUILD SUCCEEDED.
