@@ -57,7 +57,7 @@ export function createNativeCamera() {
     if (canvas.width !== width || canvas.height !== height) {
       canvas.width = width; canvas.height = height;
     }
-    renderer.draw(width, height, yStride, cStride, yPlane, cPlane);
+    renderer.draw(width, height, yStride, cStride, yPlane, cPlane, facing === 'user');
   }
 
   function openSocket() {
@@ -91,7 +91,10 @@ export function createNativeCamera() {
     await stop();
     ensureCanvas();
     console.info('[native-camera] calling plugin.start');
-    const res = await FoldNativeCamera.start({ preset: 'hd1080', lens: 'auto', preferPhoto: false });
+    const res = await FoldNativeCamera.start({
+      preset: 'hd1080', lens: 'auto', preferPhoto: false,
+      facing: facing === 'user' ? 'front' : 'back',
+    });
     console.info('[native-camera] plugin.start resolved', JSON.stringify(res));
     port = res.port || 8899;
     controlRanges = res.controls || {};
@@ -108,8 +111,10 @@ export function createNativeCamera() {
     latest = null;
   }
 
-  // rear-only for now: re-acquire. front support lands with the plugin's position arg.
-  async function flip(extra = {}) { return start(extra); }
+  async function flip(extra = {}) {
+    const next = facing === 'user' ? 'environment' : 'user';
+    return start({ ...extra, facingMode: next });
+  }
 
   function refreshFrame() { paintLatest(); }
   function frameSource() { return canvas; }
@@ -133,6 +138,7 @@ export function createNativeCamera() {
     capturePhoto,
     capabilities,
     listDevices: async () => [],
+    mirrorsInSource: true,           // the front-camera selfie-flip is baked into the canvas
     getVideo: () => canvas,          // duck-types as a drawable; has no srcObject (audio paths degrade)
     getFacing: () => facing,
     getDeviceId: () => null,
@@ -150,8 +156,9 @@ function createYuvRenderer(canvasEl) {
   const gl = canvasEl.getContext('webgl2', { antialias: false, alpha: false, preserveDrawingBuffer: true });
   const vs = `#version 300 es
   const vec2 pos[4] = vec2[4](vec2(-1.,-1.),vec2(1.,-1.),vec2(-1.,1.),vec2(1.,1.));
+  uniform float uMirror;   // 1.0 = flip horizontally (front/selfie camera)
   out vec2 v_uv;
-  void main(){ vec2 p = pos[gl_VertexID]; v_uv = vec2((p.x+1.)*0.5, (1.-p.y)*0.5); gl_Position = vec4(p,0.,1.); }`;
+  void main(){ vec2 p = pos[gl_VertexID]; float u=(p.x+1.)*0.5; v_uv = vec2(mix(u,1.-u,uMirror), (1.-p.y)*0.5); gl_Position = vec4(p,0.,1.); }`;
   const fs = `#version 300 es
   precision mediump float;
   in vec2 v_uv;
@@ -168,11 +175,13 @@ function createYuvRenderer(canvasEl) {
   const yTex = makeTex(gl), cTex = makeTex(gl);
   gl.uniform1i(gl.getUniformLocation(prog, 'yTex'), 0);
   gl.uniform1i(gl.getUniformLocation(prog, 'cTex'), 1);
+  const uMirrorLoc = gl.getUniformLocation(prog, 'uMirror');
   gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
 
-  function draw(w, h, yStride, cStride, yPlane, cPlane) {
+  function draw(w, h, yStride, cStride, yPlane, cPlane, mirror) {
     gl.viewport(0, 0, w, h);
     gl.useProgram(prog);
+    gl.uniform1f(uMirrorLoc, mirror ? 1 : 0);
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, yTex);
     gl.pixelStorei(gl.UNPACK_ROW_LENGTH, yStride);

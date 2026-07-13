@@ -935,7 +935,7 @@ function captureFrame() {
   const c = document.createElement('canvas');
   c.width = w; c.height = h;
   const cx = c.getContext('2d');
-  if (camera.isFront()) { cx.translate(w, 0); cx.scale(-1, 1); }
+  if (camera.isFront() && !camera.mirrorsInSource) { cx.translate(w, 0); cx.scale(-1, 1); }
   cx.drawImage(video, 0, 0, w, h);
   stopCameraStream();
   cameraMode = 'frozen';

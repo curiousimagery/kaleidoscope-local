@@ -43,7 +43,12 @@ public class FoldNativeCameraPlugin: CAPPlugin, CAPBridgedPlugin, AVCaptureVideo
 
     // `lens`: "auto" = best virtual multi-lens device (seamless zoom, no custom WB);
     // "ultraWide"/"wide"/"tele" = a single physical lens (full manual control).
-    private func pickCamera(_ lens: String) -> AVCaptureDevice? {
+    private func pickCamera(_ lens: String, _ facing: String) -> AVCaptureDevice? {
+        if facing == "front" {
+            // front is a single sensor — no lens choice (TrueDepth is the fallback name)
+            return AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .front)
+                ?? AVCaptureDevice.default(.builtInTrueDepthCamera, for: .video, position: .front)
+        }
         switch lens {
         case "ultraWide": return AVCaptureDevice.default(.builtInUltraWideCamera, for: .video, position: .back)
         case "wide": return AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back)
@@ -59,10 +64,11 @@ public class FoldNativeCameraPlugin: CAPPlugin, CAPBridgedPlugin, AVCaptureVideo
         }
     }
 
-    private func availableLenses() -> [String] {
+    private func availableLenses(_ facing: String) -> [String] {
+        let position: AVCaptureDevice.Position = facing == "front" ? .front : .back
         let ds = AVCaptureDevice.DiscoverySession(
             deviceTypes: [.builtInUltraWideCamera, .builtInWideAngleCamera, .builtInTelephotoCamera],
-            mediaType: .video, position: .back)
+            mediaType: .video, position: position)
         var out = ["auto"]
         for d in ds.devices {
             switch d.deviceType {
@@ -80,6 +86,7 @@ public class FoldNativeCameraPlugin: CAPPlugin, CAPBridgedPlugin, AVCaptureVideo
         let fps = call.getDouble("fps") ?? 30
         let lens = call.getString("lens") ?? "auto"
         let preferPhoto = call.getBool("preferPhoto") ?? false
+        let facing = call.getString("facing") ?? "back"
         AVCaptureDevice.requestAccess(for: .video) { [weak self] granted in
             guard let self = self else { return }
             guard granted else { call.reject("camera not authorized"); return }
@@ -91,7 +98,7 @@ public class FoldNativeCameraPlugin: CAPPlugin, CAPBridgedPlugin, AVCaptureVideo
                 }
                 let info: SessionInfo
                 do {
-                    info = try self.configureSession(presetName: preset, targetFps: fps, lens: lens, preferPhoto: preferPhoto)
+                    info = try self.configureSession(presetName: preset, targetFps: fps, lens: lens, preferPhoto: preferPhoto, facing: facing)
                 } catch {
                     call.reject("configure failed: \(error.localizedDescription)")
                     return
@@ -105,7 +112,7 @@ public class FoldNativeCameraPlugin: CAPPlugin, CAPBridgedPlugin, AVCaptureVideo
                     "height": info.height,
                     "requestedFps": info.requestedFps,
                     "cameraMaxFps": info.cameraMaxFps,
-                    "availableLenses": self.availableLenses(),
+                    "availableLenses": self.availableLenses(facing),
                     "controls": self.controlRanges(),
                     "running": true
                 ])
@@ -255,7 +262,7 @@ public class FoldNativeCameraPlugin: CAPPlugin, CAPBridgedPlugin, AVCaptureVideo
         let cameraMaxFps: Double
     }
 
-    private func configureSession(presetName: String, targetFps: Double, lens: String, preferPhoto: Bool) throws -> SessionInfo {
+    private func configureSession(presetName: String, targetFps: Double, lens: String, preferPhoto: Bool, facing: String) throws -> SessionInfo {
         let target: (w: Int, h: Int)
         switch presetName {
         case "hd720": target = (1280, 720)
@@ -264,7 +271,7 @@ public class FoldNativeCameraPlugin: CAPPlugin, CAPBridgedPlugin, AVCaptureVideo
         default: target = (1920, 1080)
         }
 
-        guard let device = pickCamera(lens) else {
+        guard let device = pickCamera(lens, facing) else {
             throw NSError(domain: "fold", code: 1, userInfo: [NSLocalizedDescriptionKey: "no camera device"])
         }
         self.device = device
