@@ -61,6 +61,7 @@ document.body.innerHTML = `
       </div>
       <button id="m-canvas-gear" class="m-hidden" title="canvas settings">${ICONS.sliders}</button>
       <div id="m-canvas-pop" class="m-hidden"></div>
+      <div id="m-cam-pad-hud" class="m-hidden"></div>
     </div>
     <div id="m-divider"></div>
     <div id="m-context">
@@ -1219,6 +1220,93 @@ async function reacquireCamera(op) {
 const switchLens = (id) => reacquireCamera(() => camera.setLens(id));
 const switchResolution = (id) => reacquireCamera(() => camera.setResolution(id));
 const switchFrameRate = (fps) => reacquireCamera(() => camera.setFrameRate(fps));
+
+// ---- the EV/WB press-hold PAD (native live camera; FIRST CUT for hands-on feel) ---
+// Press-hold anywhere in the source (still for HOLD_MS) engages a pad: drag Y = EV
+// (up brighter), X = WB (warm right) — Daniel's axes. A quick move stays a slice drag
+// (the overlay handles it, untouched); a quick tap is reserved for tap-to-focus (wired
+// once the new orientation is confirmed — its screen→sensor map depends on it).
+// Additive + fenced: a capture-phase listener on #m-source, active only on the native
+// live camera, that stops propagation to the overlay ONLY once the hold engages — so
+// slice manipulation is untouched otherwise (no overlay.js change).
+const HOLD_MS = 450, MOVE_TOL = 10;
+let padActive = false, padTimer = 0, padStartX = 0, padStartY = 0;
+let padEvStart = 0, padWbStart = 0, padEvRange = null, padWbRange = null;
+const padHud = $('m-cam-pad-hud');
+
+function padEnabled() { return useNativeCam && cameraMode === 'live'; }
+function padPoint(e) { const t = e.touches ? e.touches[0] : e; return { x: t.clientX, y: t.clientY, n: e.touches ? e.touches.length : 1 }; }
+
+function padDown(e) {
+  if (!padEnabled()) return;
+  const p = padPoint(e);
+  clearTimeout(padTimer); padTimer = 0;
+  if (p.n > 1) return;                 // two fingers → a pinch, not the pad
+  padStartX = p.x; padStartY = p.y;
+  padTimer = setTimeout(engagePad, HOLD_MS);
+}
+
+function engagePad() {
+  padTimer = 0;
+  if (!padEnabled()) return;
+  padActive = true;
+  const caps = camera.capabilities?.() || {};
+  padEvRange = caps.exposureBias && caps.exposureBias.max > caps.exposureBias.min ? caps.exposureBias : null;
+  padWbRange = caps.whiteBalance?.customGainsSupported
+    ? { min: caps.whiteBalance.temperatureMin || 2500, max: caps.whiteBalance.temperatureMax || 8000 } : null;
+  padEvStart = camera.getExposureBias?.() || 0;
+  padWbStart = camera.getWhiteBalanceTemp?.() || 5000;
+  showPadHud(padEvStart, padWbStart);
+}
+
+function padMove(e) {
+  if (padTimer) {                      // still waiting for the hold: a move = slice drag
+    const p = padPoint(e);
+    if (Math.hypot(p.x - padStartX, p.y - padStartY) > MOVE_TOL) { clearTimeout(padTimer); padTimer = 0; }
+    return;
+  }
+  if (!padActive) return;
+  e.preventDefault(); e.stopPropagation();   // ours now — keep it off the slice overlay
+  const p = padPoint(e);
+  const rect = sourceEl.getBoundingClientRect();
+  const dy = p.y - padStartY, dx = p.x - padStartX;
+  let ev = padEvStart, wb = padWbStart;
+  if (padEvRange) {
+    ev = padEvStart + (-dy / (rect.height * 0.7)) * (padEvRange.max - padEvRange.min);   // up = brighter
+    ev = Math.max(padEvRange.min, Math.min(padEvRange.max, ev));
+    camera.setExposureBias(ev);
+  }
+  if (padWbRange) {
+    wb = padWbStart + (dx / (rect.width * 0.7)) * (padWbRange.max - padWbRange.min);      // right = warmer
+    wb = Math.max(padWbRange.min, Math.min(padWbRange.max, wb));
+    camera.setWhiteBalance({ temperature: wb });
+  }
+  showPadHud(ev, wb);
+}
+
+function padUp() {
+  clearTimeout(padTimer); padTimer = 0;
+  // (released before hold with no move = a tap → tap-to-focus, deferred: its
+  // coordinate map rides the just-changed orientation; wire after that's confirmed.)
+  if (padActive) { padActive = false; padHud.classList.add('m-hidden'); }
+}
+
+function showPadHud(ev, wb) {
+  const evTxt = padEvRange ? `EV ${ev > 0 ? '+' : ''}${ev.toFixed(1)}` : '';
+  const wbTxt = padWbRange ? `${Math.round(wb)}K` : '';
+  padHud.textContent = [evTxt, wbTxt].filter(Boolean).join('  ·  ');
+  padHud.classList.remove('m-hidden');
+}
+
+// capture phase so we see the gesture before the overlay's own (bubble) handlers;
+// attached once to #m-source (mount() only replaces its children, not its listeners).
+sourceEl.addEventListener('touchstart', padDown, { capture: true, passive: false });
+sourceEl.addEventListener('touchmove', padMove, { capture: true, passive: false });
+sourceEl.addEventListener('touchend', padUp, { capture: true });
+sourceEl.addEventListener('touchcancel', padUp, { capture: true });
+sourceEl.addEventListener('mousedown', padDown, { capture: true });
+sourceEl.addEventListener('mousemove', padMove, { capture: true });
+window.addEventListener('mouseup', padUp, { capture: true });
 
 // ----------------------------------------------------------------- tab popovers
 // items: { icon, iconClass?, label, action, current? }
