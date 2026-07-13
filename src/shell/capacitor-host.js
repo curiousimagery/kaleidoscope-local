@@ -48,12 +48,23 @@ export function createCapacitorHost() {
           import('@capacitor/share'),
         ]);
         const path = suggestedName || `fold-${Date.now()}`;
-        const data = await blobToBase64(blob);
-        const written = await Filesystem.writeFile({ path, data, directory: Directory.Cache });
+        // Write in chunks. A whole-blob base64 (readAsDataURL) builds a string ~1.33×
+        // the file, then ships it over the JS→native bridge in one call — fine for a
+        // small still, but a video blob (tens–hundreds of MB) silently fails there.
+        // 3MB slices are a multiple of 3 bytes, so each slice's base64 has no interior
+        // padding and the decoded chunks concatenate cleanly via appendFile.
+        const CHUNK = 3 * 1024 * 1024;
+        let uri = null;
+        for (let offset = 0, first = true; first || offset < blob.size; offset += CHUNK, first = false) {
+          const data = await blobToBase64(blob.slice(offset, offset + CHUNK));
+          if (first) { uri = (await Filesystem.writeFile({ path, data, directory: Directory.Cache })).uri; }
+          else if (data) { await Filesystem.appendFile({ path, data, directory: Directory.Cache }); }
+          if (blob.size === 0) break;
+        }
         try {
-          await Share.share({ title: suggestedName || 'Fold', url: written.uri });
+          await Share.share({ title: suggestedName || 'Fold', url: uri });
         } catch { /* user dismissed the sheet — the file still exists in cache */ }
-        return written.uri;
+        return uri;
       },
       // The browser <input type=file> works inside WKWebView, so open() stays the
       // webHost no-op (the app keeps using the file input); a native Photos/Files

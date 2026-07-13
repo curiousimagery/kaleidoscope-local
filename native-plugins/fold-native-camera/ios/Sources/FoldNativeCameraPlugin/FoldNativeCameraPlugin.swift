@@ -131,7 +131,7 @@ public class FoldNativeCameraPlugin: CAPPlugin, CAPBridgedPlugin, AVCaptureVideo
             }
             guard !matches.isEmpty else { continue }
             let maxFps = matches.flatMap { $0.videoSupportedFrameRateRanges }.map { $0.maxFrameRate }.max() ?? 0
-            out.append(["id": t.id, "label": t.label, "maxFps": maxFps])
+            out.append(["id": t.id, "label": t.label, "maxFps": maxFps, "width": t.w, "height": t.h])
         }
         return out
     }

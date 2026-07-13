@@ -163,17 +163,42 @@ export function createNativeCamera() {
     return start({ facingMode: facing });
   }
 
+  // The record fps options SAFE for our full pipeline (native capture + YUV→RGB +
+  // engine render + MediaRecorder encode). Rule (Daniel's): the device's PEAK
+  // resolution×fps combo is what it can do natively but WE can't sustain, so exclude
+  // it and offer everything below. 30 is always the floor. Scales per device off what
+  // the plugin reports — e.g. 14 Pro: 4K→30 only, 1080p→30/60 (4K60 is its peak).
+  function peakThroughput() {
+    let peak = 0;
+    for (const r of resolutions) {
+      for (const f of [30, 60]) {
+        if (f <= Math.round(r.maxFps || 0)) peak = Math.max(peak, (r.width || 0) * (r.height || 0) * f);
+      }
+    }
+    return peak;
+  }
+  function safeFps(id) {
+    const r = resolutions.find((x) => x.id === id);
+    if (!r) return [30];
+    const maxFps = Math.round(r.maxFps || 0);
+    const px = (r.width || 0) * (r.height || 0);
+    const peak = peakThroughput();
+    const out = [];
+    if (maxFps >= 30) out.push(30);
+    if (maxFps >= 60 && px * 60 < peak) out.push(60);   // 60 only if it's below the device peak combo
+    return out.length ? out : [30];
+  }
+
   // change streaming resolution / frame rate — both re-acquire (a format change).
   async function setResolution(id) {
     preset = id;
-    // clamp the requested fps to what this resolution offers (avoids asking 60 on a
-    // 4K format that only does 30 — the plugin clamps too, but keep the state honest)
-    const r = resolutions.find((x) => x.id === id);
-    if (r && r.maxFps) targetFps = Math.min(targetFps, Math.round(r.maxFps));
+    const maxSafe = Math.max(...safeFps(id));   // clamp fps to what's safe at this resolution
+    if (targetFps > maxSafe) targetFps = maxSafe;
     return start({ facingMode: facing });
   }
   async function setFrameRate(fps) {
-    targetFps = fps;
+    const safe = safeFps(preset);
+    targetFps = safe.includes(fps) ? fps : Math.max(...safe);
     return start({ facingMode: facing });
   }
 
@@ -220,9 +245,11 @@ export function createNativeCamera() {
     setFrameRate,
     setStillMode,
     setStillResolution,
-    getResolutions: () => resolutions,   // [{id,label,maxFps}] for the current lens
+    getResolutions: () => resolutions,   // [{id,label,maxFps,width,height}] for the current lens
     getResolution: () => preset,
     getFrameRate: () => targetFps,
+    getSafeFps: () => safeFps(preset),   // pipeline-safe fps options for the current resolution
+    safeFpsFor: (id) => safeFps(id),
     getStillResolutions: () => stillResolutions,   // [{id,label,width,height}]
     getStillResolution: () => stillRes?.id,
     getExposureBias: () => evBias,

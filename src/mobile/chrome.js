@@ -688,8 +688,12 @@ function recTimestamp() {
 function showSaveVideoMenu() {
   if (!recordedVideo) return;
   const ts = recTimestamp();
+  const saveOut = async (blob, name) => {
+    try { await downloadBlob(blob, name); recordingSaved = true; }
+    catch (e) { console.error('[save-video] failed', e); emptyEl.textContent = 'save failed — try again'; emptyEl.classList.remove('m-hidden'); }
+  };
   const items = [
-    { icon: ICONS.download, label: 'save video', action: () => { downloadBlob(recordedVideo.blob, `fold-video-${ts}.${recordedVideo.ext}`); recordingSaved = true; } },
+    { icon: ICONS.download, label: 'save video', action: () => saveOut(recordedVideo.blob, `fold-video-${ts}.${recordedVideo.ext}`) },
   ];
   if (rawVideo) {
     items.push({ icon: ICONS.download, label: 'save package (.zip — video + source)', action: async () => {
@@ -697,8 +701,7 @@ function showSaveVideoMenu() {
         { name: `fold-video-${ts}.${recordedVideo.ext}`, blob: recordedVideo.blob },
         { name: `fold-source-${ts}.${rawVideo.ext}`, blob: rawVideo.blob },
       ]);
-      downloadBlob(zip, `fold-take-${ts}.zip`);
-      recordingSaved = true;
+      await saveOut(zip, `fold-take-${ts}.zip`);
     } });
   }
   showMenu(items, 'm-tab-export');
@@ -1134,11 +1137,9 @@ function refreshCamMenu() {
       (id) => { camera.setStillResolution(id); refreshCamMenu(); });   // no re-acquire; just the capture size
     else camResWrap.innerHTML = '';
   }
-  // frame rate — record-video (motion) mode only; 30 / 60 gated by the resolution's max
-  const vidList = camera.getResolutions?.() || [];
-  const curRes = vidList.find((r) => r.id === camera.getResolution());
-  const maxFps = curRes ? Math.round(curRes.maxFps || 0) : 0;
-  const fpsOpts = [30, 60].filter((f) => f <= maxFps).map((f) => ({ id: String(f), label: `${f}fps` }));
+  // frame rate — record-video (motion) mode only; PIPELINE-SAFE options for the current
+  // resolution (excludes the device's peak combo, e.g. 4K60 on the 14 Pro — it crashes).
+  const fpsOpts = (camera.getSafeFps?.() || [30]).map((f) => ({ id: String(f), label: `${f}fps` }));
   const showFps = videoMode && fpsOpts.length > 1;
   camFpsWrap.classList.toggle('m-hidden', !showFps);
   if (showFps) buildCamSeg(camFpsWrap, 'frame rate', fpsOpts, String(camera.getFrameRate()), (id) => switchFrameRate(+id));
@@ -1491,12 +1492,14 @@ function downloadBlob(blob, name) {
   // also avoids the download-navigation that blacks out the WebGL context on the
   // mobile save handoff (the parked bug). Web → the browser download. Additive:
   // on web host.fileSystem.available is false, so the path below is unchanged.
+  // Returns a promise so callers (e.g. the video save) can await + surface failures.
   const fs = host.fileSystem;
-  if (fs?.available) { fs.save(blob, name); return; }
+  if (fs?.available) return fs.save(blob, name);
   const u = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = u; a.download = name; a.click();
   URL.revokeObjectURL(u);
+  return Promise.resolve();
 }
 let refreshSaveLimits = () => {};   // assigned in buildSaveSheet
 let probedExport = false;
