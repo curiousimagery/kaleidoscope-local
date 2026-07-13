@@ -983,10 +983,10 @@ function freezeFromPreview() {
 
 // freeze a native high-res still (a captured photo file). The photo pipeline bakes
 // orientation to match the preview; the front camera's selfie mirror is OUR shader's,
-// so it's applied here in JS. The ENGINE samples a size-capped working copy — the
-// mobile output is bounded (~4096) so a full 48MP texture (~195MB) is pure oversample
-// and would risk an OOM — while the full-resolution file is kept as the saved original.
-const ENGINE_SRC_CAP = 4096;
+// so it's applied here in JS. The engine samples the FULL-resolution still — that's the
+// point of choosing 48MP (crop hard into it and still get sharp output) — so we DON'T
+// downsample; instead the still-resolution picker is gated by the GPU's max texture
+// size (see refreshCamMenu), so we only ever offer a size the device can actually hold.
 async function freezeFromUrl(url) {
   stopCameraStream();
   cameraMode = 'frozen';
@@ -994,17 +994,13 @@ async function freezeFromUrl(url) {
   await new Promise((resolve) => {
     const img = new Image();
     img.onload = () => {
-      const longEdge = Math.max(img.naturalWidth, img.naturalHeight);
-      const scale = longEdge > ENGINE_SRC_CAP ? ENGINE_SRC_CAP / longEdge : 1;
-      const front = camera.isFront();
       let src = img;
-      if (scale < 1 || front) {
+      if (camera.isFront()) {                      // the selfie mirror is OUR shader's
         const c = document.createElement('canvas');
-        c.width = Math.round(img.naturalWidth * scale);
-        c.height = Math.round(img.naturalHeight * scale);
+        c.width = img.naturalWidth; c.height = img.naturalHeight;
         const cx = c.getContext('2d');
-        if (front) { cx.translate(c.width, 0); cx.scale(-1, 1); }   // selfie mirror
-        cx.drawImage(img, 0, 0, c.width, c.height);
+        cx.translate(c.width, 0); cx.scale(-1, 1);
+        cx.drawImage(img, 0, 0);
         src = c;
       }
       engine.setSource(src);
@@ -1016,7 +1012,6 @@ async function freezeFromUrl(url) {
     img.onerror = resolve;
     img.src = url;
   });
-  // keep the FULL-resolution captured file as the save-package "original"
   try { originalSource = { blob: await (await fetch(url)).blob(), name: `${sourceFilename}-original.jpg` }; }
   catch { originalSource = null; }
 }
@@ -1126,7 +1121,14 @@ function refreshCamMenu() {
     if (resList.length) buildCamSeg(camResWrap, 'resolution', resList, camera.getResolution(), switchResolution);
     else camResWrap.innerHTML = '';
   } else {
-    const stillList = camera.getStillResolutions?.() || [];
+    // gate the offered still sizes by what the GPU can actually hold as a source
+    // texture (honest: don't offer 48MP if the device can't sample it). The engine
+    // samples the still at FULL res, so the ceiling is the real GL max texture size.
+    const maxTex = engine.diagnostics?.maxTextureSize || 4096;
+    const stillList = (camera.getStillResolutions?.() || []).filter((r) => r.width <= maxTex && r.height <= maxTex);
+    if (stillList.length && !stillList.some((r) => r.id === camera.getStillResolution())) {
+      camera.setStillResolution(stillList[stillList.length - 1].id);   // drop to the largest allowed
+    }
     camResWrap.classList.toggle('m-hidden', stillList.length < 1);
     if (stillList.length) buildCamSeg(camResWrap, 'resolution', stillList, camera.getStillResolution(),
       (id) => { camera.setStillResolution(id); refreshCamMenu(); });   // no re-acquire; just the capture size
@@ -1587,11 +1589,13 @@ async function doSave(pkg) {
   status.textContent = 'rendering…';
   await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
   let res;
-  try { res = await engine.exportAt(state, session.exportSize, session.exportFormat || 'jpg'); }
+  // pass the frame aspect — without it exportAt defaults to 1 (square), which is why
+  // the canvas aspect showed in preview but saved square (a mobile-save omission).
+  try { res = await engine.exportAt(state, session.exportSize, session.exportFormat || 'jpg', 0.95, session.frameAspect || 1); }
   catch (e) { status.textContent = e.message; return; }
   const ext = session.exportFormat === 'png' ? 'png' : 'jpg';
   const base = sourceFilename || 'fold';
-  const compName = `${base}-${state.form}-${res.size}.${ext}`;
+  const compName = `${base}-${state.form}-${res.w}x${res.h}.${ext}`;
   if (pkg) {
     const files = [{ name: compName, blob: res.blob }];
     if (originalSource) files.push(originalSource);
@@ -1600,7 +1604,7 @@ async function doSave(pkg) {
     status.textContent = `saved package • ${files.length} files • ${(zip.size / 1048576).toFixed(1)}MB`;
   } else {
     downloadBlob(res.blob, compName);
-    status.textContent = `saved ${res.size}×${res.size} • ${(res.blob.size / 1048576).toFixed(1)}MB`;
+    status.textContent = `saved ${res.w}×${res.h} • ${(res.blob.size / 1048576).toFixed(1)}MB`;
   }
   engine.render(state);
 }

@@ -35,10 +35,10 @@ export function createNativeCamera() {
   let resolutions = [];       // [{id,label,maxFps}] the current lens actually offers
   let preset = 'hd1080';      // the chosen streaming (video) resolution
   let targetFps = 30;         // the requested frame rate (matters in record-video mode)
-  // still capture: on pause we grab a real still via capturePhoto (up to the light
-  // video format's photo cap, ~12MP) rather than the preview-res frame. (stillMode is
-  // retained for the picker's mode-awareness; it no longer forces the heavy photo
-  // format — see the preferPhoto note in start().)
+  // still capture: on pause we grab a real full-res still via capturePhoto (which
+  // switches to the photo format for the shot). `stillMode` tells the plugin to preview
+  // at the PHOTO aspect (4:3) so the composition doesn't shift on capture; video mode
+  // previews 16:9. Set by the shell from the source type before start().
   let stillMode = true;
   let stillResolutions = [];  // [{id,label,width,height}] the current lens's photo sizes
   let stillRes = null;        // chosen {id,width,height}; null → the sensor max
@@ -112,13 +112,13 @@ export function createNativeCamera() {
     await stop();
     ensureCanvas();
     console.info('[native-camera] calling plugin.start');
-    // preferPhoto:false ALWAYS — the photo-optimized format streams its huge native
-    // frames (e.g. 4032×3024 = 12MP) as the preview, which OOM-crashed the GPU/web
-    // process and tanked fps. A light 1080p VIDEO format previews smoothly and still
-    // captures ~12MP stills (video formats cap stills there). The full 48MP would need
-    // a capture-time format switch (a follow-up), not a permanently heavy preview.
+    // The preview always streams a LIGHT format (never the heavy photo format, which
+    // OOM-crashed the GPU). `stillMode` picks a light format matching the PHOTO aspect
+    // (4:3) so the composition doesn't shift when capture switches to the photo format;
+    // video mode uses the 16:9 record format. Full-res still comes from the capture-time
+    // format switch (in capturePhoto), not a heavy preview.
     const res = await FoldNativeCamera.start({
-      preset, fps: targetFps, lens, preferPhoto: false,
+      preset, fps: targetFps, lens, stillMode,
       facing: facing === 'user' ? 'front' : 'back',
     });
     console.info('[native-camera] plugin.start resolved', JSON.stringify(res));

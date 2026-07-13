@@ -170,7 +170,7 @@ public class FoldNativeCameraPlugin: CAPPlugin, CAPBridgedPlugin, AVCaptureVideo
         let preset = call.getString("preset") ?? "hd1080"
         let fps = call.getDouble("fps") ?? 30
         let lens = call.getString("lens") ?? "auto"
-        let preferPhoto = call.getBool("preferPhoto") ?? false
+        let stillMode = call.getBool("stillMode") ?? true
         let facing = call.getString("facing") ?? "back"
         AVCaptureDevice.requestAccess(for: .video) { [weak self] granted in
             guard let self = self else { return }
@@ -183,7 +183,7 @@ public class FoldNativeCameraPlugin: CAPPlugin, CAPBridgedPlugin, AVCaptureVideo
                 }
                 let info: SessionInfo
                 do {
-                    info = try self.configureSession(presetName: preset, targetFps: fps, lens: lens, preferPhoto: preferPhoto, facing: facing)
+                    info = try self.configureSession(presetName: preset, targetFps: fps, lens: lens, stillMode: stillMode, facing: facing)
                 } catch {
                     call.reject("configure failed: \(error.localizedDescription)")
                     return
@@ -404,8 +404,8 @@ public class FoldNativeCameraPlugin: CAPPlugin, CAPBridgedPlugin, AVCaptureVideo
         let cameraMaxFps: Double
     }
 
-    private func configureSession(presetName: String, targetFps: Double, lens: String, preferPhoto: Bool, facing: String) throws -> SessionInfo {
-        let target: (w: Int, h: Int)
+    private func configureSession(presetName: String, targetFps: Double, lens: String, stillMode: Bool, facing: String) throws -> SessionInfo {
+        var target: (w: Int, h: Int)
         switch presetName {
         case "hd720": target = (1280, 720)
         case "hd1080": target = (1920, 1080)
@@ -420,6 +420,29 @@ public class FoldNativeCameraPlugin: CAPPlugin, CAPBridgedPlugin, AVCaptureVideo
         self.device = device
         self.capturing = false   // fresh session on the light preview format
 
+        let area: (CMVideoDimensions) -> Int = { Int($0.width) * Int($0.height) }
+        var chosen: AVCaptureDevice.Format?
+        var chosenMax = 0.0
+
+        // STILL MODE: preview at the SAME field of view (aspect) as the still capture, so
+        // switching to the photo format on capture doesn't shift the composition. A LIGHT
+        // format matching the photo aspect (usually 4:3), not the 16:9 video target.
+        if stillMode, #available(iOS 16.0, *), let photoFmt = bestPhotoFormat(device) {
+            let pd = CMVideoFormatDescriptionGetDimensions(photoFmt.formatDescription)
+            let photoAspect = Double(pd.width) / Double(max(1, Int(pd.height)))
+            let cands = device.formats.filter {
+                let d = CMVideoFormatDescriptionGetDimensions($0.formatDescription)
+                let a = Double(d.width) / Double(max(1, Int(d.height)))
+                return abs(a - photoAspect) < 0.03 && Int(d.height) >= 720 && Int(d.height) <= 1440
+            }
+            if let c = cands.min(by: { area(CMVideoFormatDescriptionGetDimensions($0.formatDescription)) < area(CMVideoFormatDescriptionGetDimensions($1.formatDescription)) }) {
+                chosen = c
+                let d = CMVideoFormatDescriptionGetDimensions(c.formatDescription)
+                target = (Int(d.width), Int(d.height))
+                chosenMax = c.videoSupportedFrameRateRanges.map { $0.maxFrameRate }.max() ?? 30
+            }
+        }
+
         let matches = device.formats.filter {
             let d = CMVideoFormatDescriptionGetDimensions($0.formatDescription)
             return Int(d.width) == target.w && Int(d.height) == target.h
@@ -427,46 +450,24 @@ public class FoldNativeCameraPlugin: CAPPlugin, CAPBridgedPlugin, AVCaptureVideo
         let cameraMaxFps = matches
             .flatMap { $0.videoSupportedFrameRateRanges }
             .map { $0.maxFrameRate }
-            .max() ?? 0
+            .max() ?? chosenMax
 
-        var chosen: AVCaptureDevice.Format?
-        var chosenMax = 0.0
-        for f in matches {
-            let m = f.videoSupportedFrameRateRanges.map { $0.maxFrameRate }.max() ?? 0
-            if targetFps <= 0 {
-                if m > chosenMax { chosenMax = m; chosen = f }
-            } else if m >= targetFps {
-                if chosen == nil || m < chosenMax { chosenMax = m; chosen = f }
-            }
-        }
+        // fps-based pick among the target-dimension formats (video mode, or the still
+        // fallback if no aspect-matching light format was found above)
         if chosen == nil {
             for f in matches {
                 let m = f.videoSupportedFrameRateRanges.map { $0.maxFrameRate }.max() ?? 0
-                if m > chosenMax { chosenMax = m; chosen = f }
+                if targetFps <= 0 {
+                    if m > chosenMax { chosenMax = m; chosen = f }
+                } else if m >= targetFps {
+                    if chosen == nil || m < chosenMax { chosenMax = m; chosen = f }
+                }
             }
-        }
-
-        // Still tool: when photo resolution is prioritized, override with a format that
-        // reaches the sensor's max still dimensions. Video formats cap stills ~10-12MP;
-        // 48MP lives on dedicated photo formats — you get high-fps video OR max stills.
-        if preferPhoto, #available(iOS 16.0, *) {
-            let area: (CMVideoDimensions) -> Int = { Int($0.width) * Int($0.height) }
-            let sensorMaxPhoto = device.formats
-                .compactMap { $0.supportedMaxPhotoDimensions.map(area).max() }.max() ?? 0
-            let photoCands = device.formats.filter {
-                ($0.supportedMaxPhotoDimensions.map(area).max() ?? 0) == sensorMaxPhoto
-            }
-            let picked = photoCands.first(where: {
-                let d = CMVideoFormatDescriptionGetDimensions($0.formatDescription)
-                return Int(d.width) == target.w && Int(d.height) == target.h
-            }) ?? photoCands.max(by: {
-                let a = CMVideoFormatDescriptionGetDimensions($0.formatDescription)
-                let b = CMVideoFormatDescriptionGetDimensions($1.formatDescription)
-                return area(a) < area(b)
-            })
-            if let picked = picked {
-                chosen = picked
-                chosenMax = picked.videoSupportedFrameRateRanges.map { $0.maxFrameRate }.max() ?? 0
+            if chosen == nil {
+                for f in matches {
+                    let m = f.videoSupportedFrameRateRanges.map { $0.maxFrameRate }.max() ?? 0
+                    if m > chosenMax { chosenMax = m; chosen = f }
+                }
             }
         }
 
