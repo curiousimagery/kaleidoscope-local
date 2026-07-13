@@ -557,6 +557,12 @@ let recState = 'idle';         // 'idle' | 'recording'
 let recordedVideo = null;      // { blob, ext } — the finished take
 let recordingSaved = false;    // download tapped since the take finished
 let mediaRec = null, recChunks = [], micStream = null;
+// the native camera provides no audio track (it's native video-only), so record-video
+// acquires the mic itself via getUserMedia — ONE clean prompt at mode entry, held for
+// the session and cloned per take. (Native plugin-captured audio can't join a JS canvas
+// recording, so getUserMedia IS the native-app audio path; the web camera bundles its
+// own mic track and doesn't use this.)
+let videoMicStream = null;
 let recordCanvas = null;       // full-res 2D canvas the recorder captures
 // SAVE PACKAGE: a second recorder on the RAW camera stream (no extra render
 // cost — the track comes straight from getUserMedia; mic cloned to both).
@@ -638,7 +644,9 @@ async function startRecording() {
   // the combined prompt at mode entry; the recorder's stop must not kill the
   // camera's own track). Fallback asks fresh; denial degrades to video-only.
   try {
-    const camMic = camera.getVideo()?.srcObject?.getAudioTracks?.()[0];
+    // prefer the web camera's own mic track, else the native-path mic acquired at entry,
+    // else a fresh request. CLONE it so the recorder's stop doesn't kill the held track.
+    const camMic = camera.getVideo()?.srcObject?.getAudioTracks?.()[0] || videoMicStream?.getAudioTracks?.()[0];
     micStream = camMic ? new MediaStream([camMic.clone()]) : await navigator.mediaDevices.getUserMedia({ audio: true });
     for (const t of micStream.getAudioTracks()) stream.addTrack(t);
   } catch { micStream = null; }
@@ -709,6 +717,7 @@ function showSaveVideoMenu() {
 function leaveVideoMode() {
   if (!videoMode) return;
   videoMode = false;
+  if (videoMicStream) { videoMicStream.getTracks().forEach((t) => t.stop()); videoMicStream = null; }
   recordedVideo = null;
   rawVideo = null;
   recordingSaved = false;
@@ -723,6 +732,13 @@ async function startRecordVideo() {
   if (videoMode && cameraMode === 'live') return;   // already there — don't restart the camera
   videoMode = true;
   await startCamera();
+  // native camera has no audio track — acquire the mic here (one prompt at entry, not
+  // mid-record). Held for the session; each take clones a track so a recorder's stop
+  // doesn't kill it. Denial degrades to video-only.
+  if (useNativeCam && !videoMicStream) {
+    try { videoMicStream = await navigator.mediaDevices.getUserMedia({ audio: true }); }
+    catch { videoMicStream = null; }
+  }
   updateLiveUI();
 }
 
