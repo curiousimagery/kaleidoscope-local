@@ -40,6 +40,8 @@ public class FoldNativeCameraPlugin: CAPPlugin, CAPBridgedPlugin, AVCaptureVideo
     private let photoOutput = AVCapturePhotoOutput()
     private var running = false
     private var device: AVCaptureDevice?
+    private var capturing = false   // true during a still capture — drops preview frames so
+                                    // the brief switch to the heavy photo format streams nothing
     private var captureDelegates = Set<PhotoCaptureDelegate>()   // retained until each capture completes
     // orientation: RotationCoordinator (iOS 17+) publishes the correct capture angle
     // for the current device orientation + sensor; Any? because the type is 17-only.
@@ -134,13 +136,29 @@ public class FoldNativeCameraPlugin: CAPPlugin, CAPBridgedPlugin, AVCaptureVideo
         return out
     }
 
-    // The STILL capture sizes the ACTIVE format can produce (in still mode this is the
-    // photo-optimized format, so it carries the sensor's full option set — e.g. 12MP +
-    // 48MP on the main lens). Discrete AVFoundation dimensions, not computed middles.
+    // The format that reaches the sensor's MAX still dimensions (e.g. 48MP). We stream a
+    // light video format for the preview and switch to THIS only at capture time, so the
+    // menu can advertise the real still sizes without a heavy preview. Among formats that
+    // tie for the max photo size, prefer the smallest video dims (cheapest to switch to).
+    @available(iOS 16.0, *)
+    private func bestPhotoFormat(_ device: AVCaptureDevice) -> AVCaptureDevice.Format? {
+        let area: (CMVideoDimensions) -> Int = { Int($0.width) * Int($0.height) }
+        let sensorMaxPhoto = device.formats.compactMap { $0.supportedMaxPhotoDimensions.map(area).max() }.max() ?? 0
+        guard sensorMaxPhoto > 0 else { return nil }
+        let cands = device.formats.filter { ($0.supportedMaxPhotoDimensions.map(area).max() ?? 0) == sensorMaxPhoto }
+        return cands.min(by: {
+            area(CMVideoFormatDescriptionGetDimensions($0.formatDescription)) < area(CMVideoFormatDescriptionGetDimensions($1.formatDescription))
+        })
+    }
+
+    // The STILL capture sizes reported to the menu — read from the full PHOTO format
+    // (12MP + 48MP on the main lens), NOT the light preview format (which caps stills
+    // low). Capture switches to that format, so these sizes are all reachable.
     private func stillResolutionCatalog(_ device: AVCaptureDevice) -> [[String: Any]] {
         guard #available(iOS 16.0, *) else { return [] }
         let area: (CMVideoDimensions) -> Int = { Int($0.width) * Int($0.height) }
-        let dims = device.activeFormat.supportedMaxPhotoDimensions.sorted { area($0) < area($1) }
+        let fmt = bestPhotoFormat(device) ?? device.activeFormat
+        let dims = fmt.supportedMaxPhotoDimensions.sorted { area($0) < area($1) }
         return dims.map { d in
             let mp = Double(area(d)) / 1_000_000.0
             let label = mp >= 1 ? "\(Int(mp.rounded()))MP" : String(format: "%.1fMP", mp)
@@ -285,14 +303,34 @@ public class FoldNativeCameraPlugin: CAPPlugin, CAPBridgedPlugin, AVCaptureVideo
         }
     }
 
-    // Full-resolution still with the live EV/WB/zoom baked in, saved to Photos. The
-    // "high-res still on pause" win — up to the lens's native res (e.g. 48MP), which
-    // the video stream (4K max) can't reach.
+    // Full-resolution still with the live EV/WB/zoom baked in. The preview streams a
+    // LIGHT video format; here we switch the active format to the full photo format
+    // (up to 48MP) JUST for the capture, dropping preview frames meanwhile so the heavy
+    // format streams nothing. The shell stops the session right after, so there's no
+    // switch-back (the next go-live starts fresh on the light format).
     @objc func capturePhoto(_ call: CAPPluginCall) {
         let reqW = call.getInt("width") ?? 0
         let reqH = call.getInt("height") ?? 0
         sessionQueue.async { [weak self] in
-            guard let self = self, self.running else { call.reject("camera not running"); return }
+            guard let self = self, self.running, let device = self.device else { call.reject("camera not running"); return }
+            self.capturing = true   // drop preview frames during the switch + capture
+
+            // switch to the full photo format so the still reaches the sensor's max
+            if #available(iOS 16.0, *), let photoFmt = self.bestPhotoFormat(device), device.activeFormat != photoFmt {
+                self.session.beginConfiguration()
+                do { try device.lockForConfiguration(); device.activeFormat = photoFmt; device.unlockForConfiguration() }
+                catch { /* keep the current format on lock failure */ }
+                let area: (CMVideoDimensions) -> Int = { Int($0.width) * Int($0.height) }
+                if let maxDim = photoFmt.supportedMaxPhotoDimensions.max(by: { area($0) < area($1) }) {
+                    self.photoOutput.maxPhotoDimensions = maxDim
+                }
+                self.session.commitConfiguration()
+                // a format change can reset the connection rotation — re-apply it
+                if #available(iOS 17.0, *), let coord = self.rotationCoordinator as? AVCaptureDevice.RotationCoordinator {
+                    self.applyRotation(coord.videoRotationAngleForHorizonLevelCapture)
+                }
+            }
+
             // JPEG so the returned file loads cleanly into a webview <img> / canvas
             // (HEIC decode in WKWebGL is unproven); fall back to the default codec.
             let settings: AVCapturePhotoSettings
@@ -302,7 +340,7 @@ public class FoldNativeCameraPlugin: CAPPlugin, CAPBridgedPlugin, AVCaptureVideo
                 settings = AVCapturePhotoSettings()
             }
             if #available(iOS 16.0, *) {
-                // per-shot dimensions (the chosen 12/24/48MP), clamped to the output's max
+                // per-shot dimensions (the chosen 12/48MP), clamped to the output's max
                 if reqW > 0, reqH > 0 {
                     settings.maxPhotoDimensions = CMVideoDimensions(width: Int32(reqW), height: Int32(reqH))
                 } else {
@@ -380,6 +418,7 @@ public class FoldNativeCameraPlugin: CAPPlugin, CAPBridgedPlugin, AVCaptureVideo
             throw NSError(domain: "fold", code: 1, userInfo: [NSLocalizedDescriptionKey: "no camera device"])
         }
         self.device = device
+        self.capturing = false   // fresh session on the light preview format
 
         let matches = device.formats.filter {
             let d = CMVideoFormatDescriptionGetDimensions($0.formatDescription)
@@ -520,6 +559,7 @@ public class FoldNativeCameraPlugin: CAPPlugin, CAPBridgedPlugin, AVCaptureVideo
     public func captureOutput(_ output: AVCaptureOutput,
                               didOutput sampleBuffer: CMSampleBuffer,
                               from connection: AVCaptureConnection) {
+        guard !capturing else { return }               // suppress the heavy photo-format frames
         guard server.wantsFrame() else { return }
         guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
         guard let data = FrameSocketServer.encode(pixelBuffer) else { return }

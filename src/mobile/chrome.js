@@ -941,7 +941,8 @@ async function startCamera() {
 // then becomes "go live".
 async function captureFrame() {
   if (useNativeCam && !videoMode && camera.capturePhoto) {
-    flashCapture();
+    stopLiveLoop();          // freeze the preview (last light frame) — nothing renders
+    flashCapture();          // while the native side briefly switches to the heavy format
     try {
       const shot = await camera.capturePhoto();
       if (shot?.url) { await freezeFromUrl(shot.url); return; }
@@ -982,7 +983,10 @@ function freezeFromPreview() {
 
 // freeze a native high-res still (a captured photo file). The photo pipeline bakes
 // orientation to match the preview; the front camera's selfie mirror is OUR shader's,
-// so it's applied here in JS to keep the frozen still consistent with the preview.
+// so it's applied here in JS. The ENGINE samples a size-capped working copy — the
+// mobile output is bounded (~4096) so a full 48MP texture (~195MB) is pure oversample
+// and would risk an OOM — while the full-resolution file is kept as the saved original.
+const ENGINE_SRC_CAP = 4096;
 async function freezeFromUrl(url) {
   stopCameraStream();
   cameraMode = 'frozen';
@@ -990,13 +994,17 @@ async function freezeFromUrl(url) {
   await new Promise((resolve) => {
     const img = new Image();
     img.onload = () => {
+      const longEdge = Math.max(img.naturalWidth, img.naturalHeight);
+      const scale = longEdge > ENGINE_SRC_CAP ? ENGINE_SRC_CAP / longEdge : 1;
+      const front = camera.isFront();
       let src = img;
-      if (camera.isFront()) {
+      if (scale < 1 || front) {
         const c = document.createElement('canvas');
-        c.width = img.naturalWidth; c.height = img.naturalHeight;
+        c.width = Math.round(img.naturalWidth * scale);
+        c.height = Math.round(img.naturalHeight * scale);
         const cx = c.getContext('2d');
-        cx.translate(c.width, 0); cx.scale(-1, 1);
-        cx.drawImage(img, 0, 0);
+        if (front) { cx.translate(c.width, 0); cx.scale(-1, 1); }   // selfie mirror
+        cx.drawImage(img, 0, 0, c.width, c.height);
         src = c;
       }
       engine.setSource(src);
@@ -1008,7 +1016,7 @@ async function freezeFromUrl(url) {
     img.onerror = resolve;
     img.src = url;
   });
-  // keep the captured file as the save-package "original"
+  // keep the FULL-resolution captured file as the save-package "original"
   try { originalSource = { blob: await (await fetch(url)).blob(), name: `${sourceFilename}-original.jpg` }; }
   catch { originalSource = null; }
 }
