@@ -144,7 +144,10 @@ export function createNativeCamera() {
 // biplanar-YUV (420f, full range) -> RGB into the given canvas via WebGL2. Y as R8,
 // CbCr as RG8; padded row strides handled with UNPACK_ROW_LENGTH.
 function createYuvRenderer(canvasEl) {
-  const gl = canvasEl.getContext('webgl2', { antialias: false, alpha: false, desynchronized: true });
+  // preserveDrawingBuffer so the freeze-frame `drawImage(canvas)` (which runs OUTSIDE
+  // the render loop) reads real pixels instead of a cleared buffer. (desynchronized
+  // dropped — it can leave the canvas unreadable for out-of-loop drawImage.)
+  const gl = canvasEl.getContext('webgl2', { antialias: false, alpha: false, preserveDrawingBuffer: true });
   const vs = `#version 300 es
   const vec2 pos[4] = vec2[4](vec2(-1.,-1.),vec2(1.,-1.),vec2(-1.,1.),vec2(1.,1.));
   out vec2 v_uv;
