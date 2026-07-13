@@ -232,6 +232,11 @@ export function createNativeCamera() {
     try { const r = await FoldNativeCamera.getWhiteBalance(); return r?.temperature ?? null; }
     catch { return null; }
   }
+  // tap-to-focus: nx,ny are normalized (0–1) in the displayed preview. Front is
+  // mirrored in our shader, so flag it for the plugin to un-mirror before mapping.
+  async function setFocusPoint(nx, ny) {
+    return FoldNativeCamera.setFocusPoint({ x: nx, y: ny, mirrored: facing === 'user' });
+  }
   function capabilities() { return controlRanges; }
 
   return {
@@ -261,6 +266,7 @@ export function createNativeCamera() {
     setZoom,
     setWhiteBalance,
     readWhiteBalanceTemp,
+    setFocusPoint,
     capturePhoto,
     capabilities,
     listDevices: async () => [],

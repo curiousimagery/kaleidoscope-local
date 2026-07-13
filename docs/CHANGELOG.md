@@ -4,7 +4,9 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
-## v0.16.9 (Build 325) — 2026-07-13 — video save fix (chunked) + record-fps capability gate (no more 4K60 crash)
+## v0.16.10 (Build 326) — 2026-07-13 — tap-to-focus (camera arc close-out)
+
+**Tap the source on the native live camera to focus + re-meter at that point**, with a focus ring for feedback. A quick tap (distinct from the press-hold EV/WB pad and from a slice drag — same classifier) calls the plugin's new `setFocusPoint`, which sets `focusPointOfInterest` + `exposurePointOfInterest` and one-shot `autoFocus`, leaving the user's manual EV bias / WB untouched. The screen→sensor coordinate map is rotation-aware (uses the RotationCoordinator angle) and un-mirrors the front camera. [plugin] `setFocusPoint`; [shell/native-camera.js](../src/shell/native-camera.js) + [mobile/chrome.js](../src/mobile/chrome.js) (`tapFocus` wired into the pad's tap branch; `#m-focus-ring`). **The coordinate mapping is a first cut** — the focus ring shows where you tapped, but the exact sensor point may need one on-device calibration pass (the rotation transform is the uncertain part). Verified: `node --check`, `vite build`, `cap sync`, `xcodebuild` sim BUILD SUCCEEDED. Device-pending.
 
 Two fixes from Daniel's first video-record test this arc:
 

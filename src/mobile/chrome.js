@@ -1299,11 +1299,31 @@ function padMove(e) {
   showPadHud(ev, wb, padAxis);
 }
 
-function padUp() {
+function padUp(e) {
+  const wasTap = !!padTimer && !padActive;   // released before the hold, no drag
   clearTimeout(padTimer); padTimer = 0;
-  // (released before hold with no move = a tap → tap-to-focus, deferred: its
-  // coordinate map rides the just-changed orientation; wire after that's confirmed.)
-  if (padActive) { padActive = false; padHud.classList.add('m-hidden'); }
+  if (padActive) { padActive = false; padHud.classList.add('m-hidden'); return; }
+  if (wasTap && padEnabled() && e?.type !== 'touchcancel') tapFocus(padStartX, padStartY);
+}
+
+// tap-to-focus: a quick tap in the source focuses (+ re-meters) at that point on the
+// native live camera, and flashes a focus ring. (The screen→sensor coordinate map in
+// the plugin is a first cut — expect one on-device calibration pass.)
+function tapFocus(clientX, clientY) {
+  if (!camera.setFocusPoint) return;
+  const rect = sourceEl.getBoundingClientRect();
+  const nx = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+  const ny = Math.max(0, Math.min(1, (clientY - rect.top) / rect.height));
+  camera.setFocusPoint(nx, ny).catch(() => {});
+  showFocusRing(clientX - rect.left, clientY - rect.top);
+}
+function showFocusRing(x, y) {
+  let ring = document.getElementById('m-focus-ring');
+  if (!ring || ring.parentElement !== sourceEl) {
+    ring = document.createElement('div'); ring.id = 'm-focus-ring'; sourceEl.appendChild(ring);
+  }
+  ring.style.left = `${x}px`; ring.style.top = `${y}px`;
+  ring.classList.remove('show'); void ring.offsetWidth; ring.classList.add('show');
 }
 
 function showPadHud(ev, wb, axis) {

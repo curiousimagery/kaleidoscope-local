@@ -29,6 +29,7 @@ public class FoldNativeCameraPlugin: CAPPlugin, CAPBridgedPlugin, AVCaptureVideo
         CAPPluginMethod(name: "setZoom", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "setWhiteBalance", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "getWhiteBalance", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "setFocusPoint", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "capturePhoto", returnType: CAPPluginReturnPromise)
     ]
 
@@ -47,6 +48,7 @@ public class FoldNativeCameraPlugin: CAPPlugin, CAPBridgedPlugin, AVCaptureVideo
     // for the current device orientation + sensor; Any? because the type is 17-only.
     private var rotationCoordinator: Any?
     private var rotationObservation: NSKeyValueObservation?
+    private var currentRotationAngle: CGFloat = 90   // for the tap→focus coordinate map
 
     // `lens`: "auto" = best virtual multi-lens device (seamless zoom, no custom WB);
     // "ultraWide"/"wide"/"tele" = a single physical lens (full manual control).
@@ -582,9 +584,45 @@ public class FoldNativeCameraPlugin: CAPPlugin, CAPBridgedPlugin, AVCaptureVideo
     }
 
     private func applyRotation(_ angle: CGFloat) {
+        currentRotationAngle = angle
         if #available(iOS 17.0, *) {
             if let v = output.connection(with: .video), v.isVideoRotationAngleSupported(angle) { v.videoRotationAngle = angle }
             if let p = photoOutput.connection(with: .video), p.isVideoRotationAngleSupported(angle) { p.videoRotationAngle = angle }
+        }
+    }
+
+    // tap-to-focus. `x`,`y` are normalized (0–1) in the DISPLAYED preview; map them to
+    // the sensor's native focus coordinate space (the display is the sensor rotated CW
+    // by currentRotationAngle; front is also mirrored). Focus + meter at the point, but
+    // leave the user's manual EV bias / WB untouched. NOTE: the rotation mapping is a
+    // best-effort first cut — on-device calibration expected.
+    @objc func setFocusPoint(_ call: CAPPluginCall) {
+        guard var nx = call.getDouble("x"), let ny = call.getDouble("y") else { call.reject("x,y required"); return }
+        if call.getBool("mirrored") ?? false { nx = 1 - nx }
+        let p = sensorPoint(nx, ny)
+        sessionQueue.async { [weak self] in
+            guard let self = self, let device = self.device else { call.reject("no device"); return }
+            do {
+                try device.lockForConfiguration()
+                if device.isFocusPointOfInterestSupported {
+                    device.focusPointOfInterest = p
+                    if device.isFocusModeSupported(.autoFocus) { device.focusMode = .autoFocus }
+                }
+                if device.isExposurePointOfInterestSupported {
+                    device.exposurePointOfInterest = p   // re-meter here; the EV bias still applies on top
+                }
+                device.unlockForConfiguration()
+                call.resolve()
+            } catch { call.reject("focus failed: \(error.localizedDescription)") }
+        }
+    }
+
+    private func sensorPoint(_ nx: Double, _ ny: Double) -> CGPoint {
+        switch Int(currentRotationAngle) {
+        case 90:  return CGPoint(x: ny, y: 1 - nx)
+        case 180: return CGPoint(x: 1 - nx, y: 1 - ny)
+        case 270: return CGPoint(x: 1 - ny, y: nx)
+        default:  return CGPoint(x: nx, y: ny)
         }
     }
 
