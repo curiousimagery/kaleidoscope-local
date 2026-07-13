@@ -88,17 +88,20 @@ public class FoldNativeCameraPlugin: CAPPlugin, CAPBridgedPlugin, AVCaptureVideo
             if let w = lowerBound[.builtInWideAngleCamera], w > 0 { wideZoom = w }
         }
 
+        // U+00D7 MULTIPLICATION SIGN — safe end-to-end: Swift source is UTF-8, the
+        // Capacitor bridge serializes to UTF-8 JSON, and the DOM sets it via textContent.
+        // (It's display-only — never a filename/identifier — so no ASCII-context risk.)
         func label(_ type: AVCaptureDevice.DeviceType, _ fallback: String) -> String {
             guard let lb = lowerBound[type], wideZoom > 0 else { return fallback }
             let mult = lb / wideZoom
-            if abs(mult - mult.rounded()) < 0.05 { return "\(Int(mult.rounded()))x" }
-            return String(format: "%.1fx", mult)
+            if abs(mult - mult.rounded()) < 0.05 { return "\(Int(mult.rounded()))×" }
+            return String(format: "%.1f×", mult)
         }
 
         var out: [[String: Any]] = []
-        if present.contains(.builtInUltraWideCamera) { out.append(["id": "ultraWide", "label": label(.builtInUltraWideCamera, "0.5x")]) }
-        if present.contains(.builtInWideAngleCamera) { out.append(["id": "wide", "label": label(.builtInWideAngleCamera, "1x")]) }
-        if present.contains(.builtInTelephotoCamera) { out.append(["id": "tele", "label": label(.builtInTelephotoCamera, "2x")]) }
+        if present.contains(.builtInUltraWideCamera) { out.append(["id": "ultraWide", "label": label(.builtInUltraWideCamera, "0.5×")]) }
+        if present.contains(.builtInWideAngleCamera) { out.append(["id": "wide", "label": label(.builtInWideAngleCamera, "1×")]) }
+        if present.contains(.builtInTelephotoCamera) { out.append(["id": "tele", "label": label(.builtInTelephotoCamera, "2×")]) }
         return out
     }
 

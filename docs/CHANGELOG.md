@@ -4,6 +4,48 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.15.12 (Build 313) — 2026-07-12 — camera lens polish (× glyph, flip-row alignment) + build-counter reconciliation
+
+**Two small fixes on the lens slice, and the branch's build counter caught back up.** The lens labels now use the proper **× (U+00D7) glyph** (`0.5× · 1× · 3×`) instead of an ASCII `x` — safe end-to-end (Swift UTF-8 source → UTF-8 JSON bridge → DOM `textContent`; it's display-only, never an identifier). The **flip-camera row** in the camera-settings popover ([mobile/styles.css](../src/mobile/styles.css)) was misaligned — its asymmetric padding sat the glyph high in the row; it now mirrors the proven `.m-menu-item` metrics (symmetric padding, flex-centered `.m-menu-icon`) so the icon sits on the text center line. **Versioning reconciliation:** the graduated native-camera slices (Builds 307–312 below) shipped real branch code but missed their build/version bumps (they'd been treated like the throwaway spike, which was wrong — only the spike harness is exempt). The counter is corrected here; going forward every branch increment gets the four-part standing maintenance. Native camera stays flag-gated behind `VITE_FOLD_NATIVE_CAM`, invisible to the default build. Verified: `node --check`, `vite build`, `xcodebuild` sim BUILD SUCCEEDED.
+
+---
+
+## v0.15.11 (Build 312) — 2026-07-12 — camera slice 3: physical-lens picker (drop "auto") in a camera-settings popover
+
+**The discrete lens picker, and production now drives physical lenses only.** Dropped the auto-switching virtual composite entirely (it disables custom-Kelvin WB + 48MP; a single physical sensor allows both) — [shell/native-camera.js](../src/shell/native-camera.js) defaults to the physical `wide` (1×) lens and gained `getLenses`/`getLens`/`setLens` (setLens re-acquires the session like flip, resetting EV/WB to auto by construction on the sensor change). The plugin returns a `lenses` catalog `[{id,label}]` with **device-derived multiples** (0.5×/1×/tele) computed from the virtual device's `virtualDeviceSwitchOverVideoZoomFactors`. UI ([mobile/chrome.js](../src/mobile/chrome.js)): a persistent **camera-settings popover** (the canvas-gear pattern) opened by a camera icon that replaces the flip icon on the native path — row 1 the flip control (relocated), row 2 a segmented lens picker (hidden on the front camera or a single-lens rear like the Air); the whole menu disables while recording (a flip/lens re-acquire would kill the take). The web camera keeps its one-tap flip untouched. Flag-gated; device-pending Daniel's label/switch check.
+
+---
+
+## v0.15.10 (Build 311) — 2026-07-12 — camera slice 2: flip / front camera
+
+**Front camera + flip on the native path.** The plugin's `start` takes a `facing` (front = a single `.builtInWideAngleCamera`/`.builtInTrueDepthCamera` sensor, position `.front`); [shell/native-camera.js](../src/shell/native-camera.js) toggles facing and bakes the selfie mirror into the RGB canvas via a `uMirror` shader uniform, reporting `mirrorsInSource: true` so `captureFrame` doesn't double-mirror the already-mirrored native canvas; the lens catalog is position-aware. Flag-gated; device-pending.
+
+---
+
+## v0.15.9 (Build 310) — 2026-07-12 — native-camera: preserveDrawingBuffer (pause/freeze reads real pixels)
+
+**Pause stopped blacking out.** The native frame source is a WebGL2 canvas, and `captureFrame`'s freeze `drawImage(canvas)` runs outside the render loop — so the context needs `preserveDrawingBuffer: true` (and `desynchronized` dropped) or the out-of-loop read returns a cleared buffer. [shell/native-camera.js](../src/shell/native-camera.js). Confirmed on the 14 Pro.
+
+---
+
+## v0.15.8 (Build 309) — 2026-07-12 — native-camera: static registerPlugin import (fixes the hung start)
+
+**The native camera actually starts now.** A dynamic `import('@capacitor/core')` stalls inside the `capacitor://` webview, hanging `start()` before any plugin call — [shell/native-camera.js](../src/shell/native-camera.js) switched to a module-scope `import { registerPlugin } from '@capacitor/core'` (the spike had proven this static path works). Cost: `@capacitor/core` in a shared web chunk (~9.4KB gz), accepted for correctness. Confirmed live rear camera renders through the real engine on the 14 Pro.
+
+---
+
+## v0.15.7 (Build 308) — 2026-07-12 — native-camera: plugin-acquire via window.Capacitor (superseded)
+
+**A first (wrong) attempt at the hung-start fix**, recorded for the branch's continuity: reaching the plugin via `window.Capacitor.registerPlugin` didn't resolve it (that global isn't exposed the way assumed) — superseded by the static import in Build 309. Diagnostic `start()` logging added here stayed.
+
+---
+
+## v0.15.6 (Build 307) — 2026-07-12 — graduation slice 1: native rear camera renders through the engine
+
+**The spike's proven plugin graduated into the real app.** New [shell/native-camera.js](../src/shell/native-camera.js) is an interface-compatible sibling of [shell/camera.js](../src/shell/camera.js) that drives the `fold-native-camera` plugin, receives biplanar YUV over the localhost WebSocket, and paints an RGB canvas the engine samples via the SAME `setSource`/`updateSourceFrame` path (no engine surgery). `host.nativeCamera.available` is `true` on Capacitor; the mobile chrome swaps in the native camera when `host.nativeCamera.available && VITE_FOLD_NATIVE_CAM === '1'` — flag-gated so the proven web path stays default until device-verified. Rear live preview only in this slice.
+
+---
+
 ## v0.15.5 (Build 306) — 2026-07-12 — spike diagnostic readable straight from the Xcode console (stringify + console.log)
 
 **Same spike, no Web Inspector required to read it.** The camera-capability diagnostic added in B305 logged bare objects via `console.info`, which the Capacitor→Xcode console bridge renders as `[object Object]`. [shell/camera.js](../src/shell/camera.js) now `JSON.stringify`s the `getCapabilities()`/`getSettings()` payloads and emits them via `console.log`, so the full object prints as plain text in the same `⚡️ [log]` stream Daniel is already reading in Xcode — Safari Web Inspector becomes optional, not required, for the spike. **On-device next (unchanged):** rebuild so the device carries the diagnostic, open the camera, and read the two `[fold camera]` lines for each device.

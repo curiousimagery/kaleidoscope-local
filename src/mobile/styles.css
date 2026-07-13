@@ -80,11 +80,13 @@ html, body { margin: 0; padding: 0; height: 100%; background: var(--bg); color: 
   width: min(300px, calc(100% - 16px)); max-height: calc(100% - 64px); overflow-y: auto;
   -webkit-overflow-scrolling: touch; background: var(--surface); border: 1px solid var(--border);
   border-radius: var(--radius-lg); padding: 14px 16px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5); }
+/* mirrors .m-menu-item metrics (symmetric 12px vertical padding + the flex-centered
+   .m-menu-icon) so the flip glyph sits on the text center line, not high in the row */
 .m-cam-row { display: flex; align-items: center; gap: 14px; width: 100%; text-align: left;
   background: transparent; color: var(--text); border: none; border-bottom: 1px solid var(--border);
-  padding: 4px 0 14px; margin-bottom: 14px; font-size: var(--text-base); }
+  padding: 4px 0 12px; margin-bottom: 12px; font-size: 15px; line-height: 1; }
+.m-cam-row .m-menu-icon { flex: 0 0 24px; }
 .m-cam-row:active { color: var(--text-bright); }
-.m-cam-row .m-menu-icon svg { width: 22px; height: 22px; display: block; }
 #m-source { position: absolute; inset: 0; }
 #m-settings { position: absolute; inset: 0; overflow-y: auto; -webkit-overflow-scrolling: touch;
   padding: 56px 16px 16px; }
