@@ -64,20 +64,41 @@ public class FoldNativeCameraPlugin: CAPPlugin, CAPBridgedPlugin, AVCaptureVideo
         }
     }
 
-    private func availableLenses(_ facing: String) -> [String] {
+    // The physical lenses present, each with its UI zoom multiple relative to the 1x
+    // wide — the labels the picker shows (0.5x / 1x / 3x, per device). The multiples
+    // come from the virtual multi-cam device's switch-over factors (Apple's sanctioned
+    // source): its widest constituent is base zoomFactor 1.0, and each later
+    // constituent's lower bound is the preceding switch-over factor, so a lens's
+    // multiple = its lower-bound zoomFactor / the wide lens's lower-bound zoomFactor.
+    private func lensCatalog(_ facing: String) -> [[String: Any]] {
         let position: AVCaptureDevice.Position = facing == "front" ? .front : .back
         let ds = AVCaptureDevice.DiscoverySession(
             deviceTypes: [.builtInUltraWideCamera, .builtInWideAngleCamera, .builtInTelephotoCamera],
             mediaType: .video, position: position)
-        var out = ["auto"]
-        for d in ds.devices {
-            switch d.deviceType {
-            case .builtInUltraWideCamera: out.append("ultraWide")
-            case .builtInWideAngleCamera: out.append("wide")
-            case .builtInTelephotoCamera: out.append("tele")
-            default: break
+        let present = Set(ds.devices.map { $0.deviceType })
+
+        var lowerBound: [AVCaptureDevice.DeviceType: Double] = [:]
+        var wideZoom = 1.0
+        let virtualTypes: [AVCaptureDevice.DeviceType] = [.builtInTripleCamera, .builtInDualWideCamera, .builtInDualCamera]
+        if let virt = virtualTypes.compactMap({ AVCaptureDevice.default($0, for: .video, position: position) }).first {
+            let switches = virt.virtualDeviceSwitchOverVideoZoomFactors.map { $0.doubleValue }
+            for (i, c) in virt.constituentDevices.enumerated() {
+                lowerBound[c.deviceType] = i == 0 ? 1.0 : (i - 1 < switches.count ? switches[i - 1] : 1.0)
             }
+            if let w = lowerBound[.builtInWideAngleCamera], w > 0 { wideZoom = w }
         }
+
+        func label(_ type: AVCaptureDevice.DeviceType, _ fallback: String) -> String {
+            guard let lb = lowerBound[type], wideZoom > 0 else { return fallback }
+            let mult = lb / wideZoom
+            if abs(mult - mult.rounded()) < 0.05 { return "\(Int(mult.rounded()))x" }
+            return String(format: "%.1fx", mult)
+        }
+
+        var out: [[String: Any]] = []
+        if present.contains(.builtInUltraWideCamera) { out.append(["id": "ultraWide", "label": label(.builtInUltraWideCamera, "0.5x")]) }
+        if present.contains(.builtInWideAngleCamera) { out.append(["id": "wide", "label": label(.builtInWideAngleCamera, "1x")]) }
+        if present.contains(.builtInTelephotoCamera) { out.append(["id": "tele", "label": label(.builtInTelephotoCamera, "2x")]) }
         return out
     }
 
@@ -112,7 +133,7 @@ public class FoldNativeCameraPlugin: CAPPlugin, CAPBridgedPlugin, AVCaptureVideo
                     "height": info.height,
                     "requestedFps": info.requestedFps,
                     "cameraMaxFps": info.cameraMaxFps,
-                    "availableLenses": self.availableLenses(facing),
+                    "lenses": self.lensCatalog(facing),
                     "controls": self.controlRanges(),
                     "running": true
                 ])

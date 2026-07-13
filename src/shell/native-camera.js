@@ -29,6 +29,9 @@ export function createNativeCamera() {
   let renderer = null;        // YUV->RGB WebGL2 blitter that owns `canvas`
   let latest = null;          // most recent YUV ArrayBuffer (painted on the render tick)
   let controlRanges = {};     // EV/zoom/WB ranges the device reported (for the UI)
+  let lenses = [];            // [{id,label}] physical lenses on the current facing
+  let lens = 'wide';          // the chosen physical lens (never 'auto' — the virtual
+                              // device disables custom WB + 48MP; a single sensor allows both)
   let facing = 'environment';
   let active = false;
 
@@ -92,12 +95,13 @@ export function createNativeCamera() {
     ensureCanvas();
     console.info('[native-camera] calling plugin.start');
     const res = await FoldNativeCamera.start({
-      preset: 'hd1080', lens: 'auto', preferPhoto: false,
+      preset: 'hd1080', lens, preferPhoto: false,
       facing: facing === 'user' ? 'front' : 'back',
     });
     console.info('[native-camera] plugin.start resolved', JSON.stringify(res));
     port = res.port || 8899;
     controlRanges = res.controls || {};
+    lenses = res.lenses || [];
     active = true;
     await openSocket();     // resolves once the first frame is painted (canvas sized)
     console.info('[native-camera] socket connected — first frame in');
@@ -116,6 +120,14 @@ export function createNativeCamera() {
     return start({ ...extra, facingMode: next });
   }
 
+  // switch to a specific physical lens — re-acquires the session exactly like flip.
+  // Re-acquiring resets the sensor to auto EV/WB by construction, which is the desired
+  // behavior on a lens change (custom gains are per-sensor and don't carry across).
+  async function setLens(id) {
+    lens = id;
+    return start({ facingMode: facing });
+  }
+
   function refreshFrame() { paintLatest(); }
   function frameSource() { return canvas; }
 
@@ -130,6 +142,9 @@ export function createNativeCamera() {
     start,
     stop,
     flip,
+    setLens,
+    getLenses: () => lenses,       // [{id,label}] for the current facing (picker source)
+    getLens: () => lens,
     refreshFrame,
     frameSource,
     setExposureBias,

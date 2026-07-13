@@ -66,9 +66,11 @@ document.body.innerHTML = `
     <div id="m-context">
       <button id="m-context-toggle" class="m-hidden" title="source / settings">${ICONS.sliders}</button>
       <button id="m-flip" class="m-icon-btn" title="flip camera" style="display:none">${ICONS.flip}</button>
+      <button id="m-cam-menu" class="m-icon-btn" title="camera settings" style="display:none">${ICONS.camera}</button>
       <button id="m-fit-toggle" title="fill / fit">${ICONS.contract}</button>
       <div id="m-source"></div>
       <div id="m-settings" class="m-hidden"></div>
+      <div id="m-cam-pop" class="m-hidden"></div>
     </div>
     <div id="m-tabbar">
       <button id="m-tab-source" class="m-tab" title="source">${ICONS.plus}</button>
@@ -84,6 +86,7 @@ const $ = (id) => document.getElementById(id);
 const rootEl = $('m-root'), outputEl = $('m-output'), dividerEl = $('m-divider');
 const contextEl = $('m-context'), sourceEl = $('m-source'), settingsEl = $('m-settings');
 const emptyEl = $('m-empty'), tabbarEl = $('m-tabbar');
+const camMenuBtn = $('m-cam-menu'), camPopEl = $('m-cam-pop');
 
 // ---------------------------------------------------------------- engine + env
 const outputCanvas = document.createElement('canvas');
@@ -854,25 +857,29 @@ function stopCameraStream() {
 }
 
 function updateLiveUI() {
-  const cap = $('m-tab-capture'), flip = $('m-flip');
+  const cap = $('m-tab-capture');
+  // the top-row camera control: the camera-settings menu on the native path (flip +
+  // lens live inside it), or the one-tap flip icon on the web path (unchanged).
+  const camCtl = useNativeCam ? camMenuBtn : $('m-flip');
   if (videoMode && cameraMode === 'live') {
     // record video: the slot is record ● (red) / stop ■ — the live-cam pattern
     // with record semantics. Download stays but gates on a finished take.
     cap.style.display = '';
     if (recState === 'recording') { cap.innerHTML = ICONS.stop; cap.title = 'stop recording'; cap.style.color = ''; }
     else { cap.innerHTML = ICONS.record; cap.title = 'start recording'; cap.style.color = '#e8504a'; }
-    flip.style.display = ''; flip.disabled = recState === 'recording';   /* a flip kills the package's source take */
+    camCtl.style.display = ''; camCtl.disabled = recState === 'recording';   /* flip / lens re-acquire kills the package's source take */
+    if (camCtl.disabled) camPopEl.classList.add('m-hidden');
     setSourceIcon('video');
   } else if (cameraMode === 'live') {
     cap.style.display = ''; cap.innerHTML = ICONS.pause; cap.title = 'pause'; cap.style.color = '';   /* record/pause toggle (was the stop square; before that the aperture) */
-    flip.style.display = ''; flip.disabled = false; setSourceIcon('live');
+    camCtl.style.display = ''; camCtl.disabled = false; setSourceIcon('live');
   } else if (cameraMode === 'frozen') {
     // still "in" live capture, just paused: go-live record is RED (actionable),
     // and the SOURCE icon stays the live record (mental model: paused, not a new still).
     cap.style.display = ''; cap.innerHTML = ICONS.record; cap.title = 'go live'; cap.style.color = 'var(--ok)';   /* green = live (red is reserved for record) */
-    flip.style.display = 'none'; setSourceIcon('live');
+    camCtl.style.display = 'none'; camPopEl.classList.add('m-hidden'); setSourceIcon('live');
   } else {
-    cap.style.display = 'none'; flip.style.display = 'none'; cap.style.color = '';
+    cap.style.display = 'none'; camCtl.style.display = 'none'; camPopEl.classList.add('m-hidden'); cap.style.color = '';
   }
   // download: in record-video mode it saves the take, so it needs one to exist
   $('m-tab-export').disabled = videoMode ? !recordedVideo : false;
@@ -920,6 +927,7 @@ async function startCamera() {
   sourceOverlay.mount(sourceEl);
   sizeOutput();
   updateLiveUI();
+  refreshCamMenu();          // populate the lens picker for this facing
   startLiveLoop();
 }
 
@@ -965,6 +973,7 @@ async function flipCamera() {
     lastFacing = camera.isFront() ? 'user' : 'environment';   // remember for go-live
     engine.setSource(camera.frameSource());
     sourceOverlay.mount(sourceEl);             // remount picks up the mirror transform
+    refreshCamMenu();                          // front/rear have different lens sets
   } catch (e) { console.error(e); }
 }
 
@@ -978,6 +987,68 @@ $('m-tab-capture').addEventListener('click', () => {
   else if (cameraMode === 'frozen') startCamera();   // "go live"
 });
 $('m-flip').addEventListener('click', flipCamera);
+
+// ---- the CAMERA settings menu (native camera path only) --------------------
+// A persistent popover (the canvas-gear pattern) opened by the top-row camera icon
+// that replaces the flip icon when the native camera is active. Holds the flip
+// control + the lens picker now; resolution + EV/WB sliders slot in below in later
+// slices. Gated on useNativeCam so the proven web camera keeps its one-tap flip.
+const camLensWrap = document.createElement('div');
+if (useNativeCam) {
+  const flipRow = document.createElement('button');
+  flipRow.id = 'm-cam-flip';
+  flipRow.className = 'm-cam-row';
+  flipRow.innerHTML = `<span class="m-menu-icon">${ICONS.flip}</span><span>flip camera</span>`;
+  flipRow.addEventListener('click', () => flipCamera());
+  camPopEl.appendChild(flipRow);
+  camLensWrap.className = 'm-control';
+  camLensWrap.id = 'm-cam-lens';
+  camPopEl.appendChild(camLensWrap);
+
+  camMenuBtn.addEventListener('click', (e) => { e.stopPropagation(); camPopEl.classList.toggle('m-hidden'); });
+  document.addEventListener('pointerdown', (e) => {
+    if (camPopEl.classList.contains('m-hidden')) return;
+    if (!e.target.closest('#m-cam-pop') && !e.target.closest('#m-cam-menu')) camPopEl.classList.add('m-hidden');
+  });
+}
+
+// (re)build the lens picker for the current facing: hidden on the front camera or a
+// single-lens rear (e.g. the Air); a segmented 0.5x / 1x / tele row otherwise, the
+// current lens highlighted. On multi-lens devices the resolution options will
+// re-read per lens once the resolution slice lands under this.
+function refreshCamMenu() {
+  if (!useNativeCam) return;
+  const lenses = camera.getLenses?.() || [];
+  const cur = camera.getLens?.();
+  const show = !camera.isFront?.() && lenses.length > 1;
+  camLensWrap.classList.toggle('m-hidden', !show);
+  if (!show) { camLensWrap.innerHTML = ''; return; }
+  camLensWrap.innerHTML = '<div class="m-control-row"><span>lens</span></div>';
+  const seg = document.createElement('div');
+  seg.className = 'm-seg';
+  lenses.forEach(({ id, label }) => {
+    const b = document.createElement('button');
+    b.className = 'm-seg-btn' + (id === cur ? ' active' : '');
+    b.textContent = label;
+    b.addEventListener('click', () => { if (id !== camera.getLens()) switchLens(id); });
+    seg.appendChild(b);
+  });
+  camLensWrap.appendChild(seg);
+}
+
+// switch physical lens — re-acquires the session (like flip), so it drops any raw
+// record take in progress and resets EV/WB to auto by construction.
+async function switchLens(id) {
+  if (cameraMode !== 'live') return;
+  if (recState === 'recording') dropRawRecorder();
+  try {
+    await camera.setLens(id);
+    liveVideo = camera.getVideo();
+    engine.setSource(camera.frameSource());
+    sourceOverlay.mount(sourceEl);   // remount picks up the (unchanged) transform
+    refreshCamMenu();                // re-highlight the active lens
+  } catch (e) { console.error(e); }
+}
 
 // ----------------------------------------------------------------- tab popovers
 // items: { icon, iconClass?, label, action, current? }
