@@ -331,9 +331,11 @@ public class FoldNativeCameraPlugin: CAPPlugin, CAPBridgedPlugin, AVCaptureVideo
             "whiteBalance": ["lockSupported": device.isWhiteBalanceModeSupported(.locked),
                              "customGainsSupported": device.isLockingWhiteBalanceWithCustomDeviceGainsSupported,
                              "customGainsSupportedWideLens": wideCustomWB,
-                             // AVFoundation exposes no Kelvin min/max; use a sensible
-                             // tungsten→shade span (gains are clamped in setWhiteBalance)
-                             "temperatureMin": 2500, "temperatureMax": 8000],
+                             // AVFoundation exposes no Kelvin min/max; use a span WIDER
+                             // than auto's excursions (it settles below 2500 in warm
+                             // light — measured 2331 on the 14 Pro) so the manual slider
+                             // covers what auto shows. Gains are clamped in setWhiteBalance.
+                             "temperatureMin": 2000, "temperatureMax": 9000],
             "photo": photoInfo(device)
         ]
     }

@@ -1229,9 +1229,10 @@ const switchFrameRate = (fps) => reacquireCamera(() => camera.setFrameRate(fps))
 // Additive + fenced: a capture-phase listener on #m-source, active only on the native
 // live camera, that stops propagation to the overlay ONLY once the hold engages — so
 // slice manipulation is untouched otherwise (no overlay.js change).
-const HOLD_MS = 450, MOVE_TOL = 10;
+const HOLD_MS = 450, MOVE_TOL = 10, PAD_AXIS_TOL = 8;
 let padActive = false, padTimer = 0, padStartX = 0, padStartY = 0;
 let padEvStart = 0, padWbStart = 0, padEvRange = null, padWbRange = null;
+let padAxis = null;   // 'ev' (vertical) | 'wb' (horizontal) — locked on first real move
 const padHud = $('m-cam-pad-hud');
 
 function padEnabled() { return useNativeCam && cameraMode === 'live'; }
@@ -1250,10 +1251,11 @@ function engagePad() {
   padTimer = 0;
   if (!padEnabled()) return;
   padActive = true;
+  padAxis = null;
   const caps = camera.capabilities?.() || {};
   padEvRange = caps.exposureBias && caps.exposureBias.max > caps.exposureBias.min ? caps.exposureBias : null;
   padWbRange = caps.whiteBalance?.customGainsSupported
-    ? { min: caps.whiteBalance.temperatureMin || 2500, max: caps.whiteBalance.temperatureMax || 8000 } : null;
+    ? { min: caps.whiteBalance.temperatureMin || 2000, max: caps.whiteBalance.temperatureMax || 9000 } : null;
   padEvStart = camera.getExposureBias?.() || 0;
   padWbStart = camera.getWhiteBalanceTemp?.() || 5000;
   showPadHud(padEvStart, padWbStart);
@@ -1270,18 +1272,20 @@ function padMove(e) {
   const p = padPoint(e);
   const rect = sourceEl.getBoundingClientRect();
   const dy = p.y - padStartY, dx = p.x - padStartX;
+  // lock to the dominant axis on the first real move — adjust EITHER EV or WB, not both
+  // diagonally (Daniel: he subconsciously avoids diagonals and wants one at a time).
+  if (!padAxis && Math.hypot(dx, dy) > PAD_AXIS_TOL) padAxis = Math.abs(dy) >= Math.abs(dx) ? 'ev' : 'wb';
   let ev = padEvStart, wb = padWbStart;
-  if (padEvRange) {
+  if (padAxis === 'ev' && padEvRange) {
     ev = padEvStart + (-dy / (rect.height * 0.7)) * (padEvRange.max - padEvRange.min);   // up = brighter
     ev = Math.max(padEvRange.min, Math.min(padEvRange.max, ev));
     camera.setExposureBias(ev);
-  }
-  if (padWbRange) {
+  } else if (padAxis === 'wb' && padWbRange) {
     wb = padWbStart + (dx / (rect.width * 0.7)) * (padWbRange.max - padWbRange.min);      // right = warmer
     wb = Math.max(padWbRange.min, Math.min(padWbRange.max, wb));
     camera.setWhiteBalance({ temperature: wb });
   }
-  showPadHud(ev, wb);
+  showPadHud(ev, wb, padAxis);
 }
 
 function padUp() {
@@ -1291,10 +1295,13 @@ function padUp() {
   if (padActive) { padActive = false; padHud.classList.add('m-hidden'); }
 }
 
-function showPadHud(ev, wb) {
+function showPadHud(ev, wb, axis) {
   const evTxt = padEvRange ? `EV ${ev > 0 ? '+' : ''}${ev.toFixed(1)}` : '';
   const wbTxt = padWbRange ? `${Math.round(wb)}K` : '';
-  padHud.textContent = [evTxt, wbTxt].filter(Boolean).join('  ·  ');
+  // once an axis is locked, show only that value; before lock, show both (engaged cue)
+  if (axis === 'ev') padHud.textContent = evTxt;
+  else if (axis === 'wb') padHud.textContent = wbTxt;
+  else padHud.textContent = [evTxt, wbTxt].filter(Boolean).join('  ·  ');
   padHud.classList.remove('m-hidden');
 }
 
