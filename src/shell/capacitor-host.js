@@ -60,6 +60,14 @@ export function createCapacitorHost() {
       // picker can fill this in later if the web picker proves insufficient.
     },
 
+    // Native camera capability gate. The actual AVCaptureSession + controls live in
+    // shell/native-camera.js (which the mobile chrome instantiates in place of the
+    // getUserMedia camera when this is available); this just signals the seam is live.
+    nativeCamera: {
+      ...webHost.nativeCamera,
+      available: true,
+    },
+
     // Portable user config (the rig + preferences) — @capacitor/preferences is a
     // native key-value store surviving relaunch, the iOS sibling of Electron's
     // userData JSON. Same `fold-config` key shape as the web store, for clean

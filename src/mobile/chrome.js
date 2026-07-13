@@ -25,6 +25,7 @@ import { mountRangeControl } from '../components/param-control.js';
 import { PARAMS, DECLARATIVE_PARAM_IDS } from '../shell/params.js';
 import { formatVersion } from '../version.js';
 import { createCamera } from '../shell/camera.js';
+import { createNativeCamera } from '../shell/native-camera.js';
 import { createFollower } from '../kit/follow.js';
 import { createAutoDrift } from '../kit/drift.js';
 import { ICONS } from './icons.js';
@@ -119,7 +120,12 @@ function scheduleRender() {
 env.scheduleRender = scheduleRender;
 
 // ----------------------------------------------------------------- components
-const camera = createCamera();
+// Native camera (real AVCaptureSession + EV/WB/lens/48MP) when the host offers it and
+// the native-cam build flag is set; else the getUserMedia camera. Flag-gated for now so
+// the proven web path stays default until the native path is device-verified.
+const useNativeCam = !!(host.nativeCamera?.available && import.meta.env.VITE_FOLD_NATIVE_CAM === '1');
+const camera = useNativeCam ? createNativeCamera() : createCamera();
+if (useNativeCam) console.info('[fold] native camera path active');
 let liveVideo = null;          // the camera <video> while live; null otherwise
 // the record-video FOLLOWER (declared early — the transition-speed control
 // binds to it at mount time): the recorded output eases toward edits at
@@ -899,7 +905,7 @@ async function startCamera() {
   try {
     const video = await camera.start({ facingMode: lastFacing, audio: videoMode });   // record video asks cam+mic in ONE prompt; rear by default, remembers a flip across freeze→go-live
     liveVideo = video;
-    console.log(`[camera] granted resolution ${video.videoWidth}×${video.videoHeight}`);
+    console.log(`[camera] granted resolution ${video.videoWidth || video.width}×${video.videoHeight || video.height}`);
     engine.setSource(camera.frameSource());
   } catch (e) {
     liveVideo = null;
@@ -921,8 +927,11 @@ async function startCamera() {
 // front-camera preview). Camera stops; the same control becomes "go live".
 function captureFrame() {
   const video = camera.getVideo();
-  if (!video || !video.videoWidth) return;
-  const w = video.videoWidth, h = video.videoHeight;
+  // native camera's frameSource is a canvas (.width/.height); the web camera is a
+  // <video> (.videoWidth/.videoHeight) — accept either.
+  const w = video && (video.videoWidth || video.width);
+  const h = video && (video.videoHeight || video.height);
+  if (!w || !h) return;
   const c = document.createElement('canvas');
   c.width = w; c.height = h;
   const cx = c.getContext('2d');
