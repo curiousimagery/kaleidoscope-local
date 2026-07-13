@@ -1071,10 +1071,16 @@ if (useNativeCam) {
   camWbWrap.className = 'm-control'; camWbWrap.id = 'm-cam-wb';
   camPopEl.append(camLensWrap, camResWrap, camFpsWrap, camEvWrap, camWbWrap);
 
-  camMenuBtn.addEventListener('click', (e) => { e.stopPropagation(); camPopEl.classList.toggle('m-hidden'); });
+  camMenuBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const opening = camPopEl.classList.contains('m-hidden');
+    camPopEl.classList.toggle('m-hidden');
+    if (opening) refreshCamMenu();   // fresh values + (re)start the WB auto-temp poll
+    else stopWbPoll();
+  });
   document.addEventListener('pointerdown', (e) => {
     if (camPopEl.classList.contains('m-hidden')) return;
-    if (!e.target.closest('#m-cam-pop') && !e.target.closest('#m-cam-menu')) camPopEl.classList.add('m-hidden');
+    if (!e.target.closest('#m-cam-pop') && !e.target.closest('#m-cam-menu')) { camPopEl.classList.add('m-hidden'); stopWbPoll(); }
   });
 }
 
@@ -1156,34 +1162,43 @@ function buildCamSlider(wrap, title, min, max, step, value, fmt, onInput) {
   wrap.append(row, input);
 }
 
-// white balance: auto/manual segmented + a Kelvin slider revealed in manual.
+// white balance: ONE always-visible Kelvin slider. In auto it tracks the live settled
+// temperature (polled); dragging it commits to manual; tapping the value returns to
+// auto. (Replaces the crude auto/manual segmented toggle.)
+let wbPollTimer = null;
+function stopWbPoll() { if (wbPollTimer) { clearInterval(wbPollTimer); wbPollTimer = null; } }
 function buildCamWb(wrap, wb) {
-  wrap.innerHTML = '<div class="m-control-row"><span>white balance</span></div>';
-  const mode = camera.getWhiteBalanceMode();
-  const seg = document.createElement('div'); seg.className = 'm-seg';
-  [['auto', 'auto'], ['manual', 'manual']].forEach(([id, label]) => {
-    const b = document.createElement('button');
-    b.className = 'm-seg-btn' + (id === mode ? ' active' : '');
-    b.textContent = label;
-    b.addEventListener('click', () => {
-      if (id === mode) return;
-      if (id === 'auto') camera.setWhiteBalance({ mode: 'auto' });
-      else camera.setWhiteBalance({ temperature: camera.getWhiteBalanceTemp() });   // enter manual at the remembered Kelvin
-      refreshCamMenu();   // reveal/hide the Kelvin slider
-    });
-    seg.appendChild(b);
+  stopWbPoll();
+  const mode = camera.getWhiteBalanceMode();            // 'auto' | 'manual'
+  const tmin = wb.temperatureMin || 2500, tmax = wb.temperatureMax || 8000;
+  const start = camera.getWhiteBalanceTemp() || 5000;
+  wrap.innerHTML = '';
+  const row = document.createElement('div'); row.className = 'm-control-row';
+  const lab = document.createElement('span'); lab.textContent = 'white balance';
+  const val = document.createElement('button'); val.className = 'm-wb-auto' + (mode === 'auto' ? ' active' : '');
+  const setVal = (t, auto) => { val.textContent = `${Math.round(t)}K${auto ? ' · auto' : ''}`; };
+  setVal(start, mode === 'auto');
+  val.addEventListener('click', () => {
+    if (camera.getWhiteBalanceMode() === 'auto') return;
+    camera.setWhiteBalance({ mode: 'auto' }); refreshCamMenu();   // back to auto (restarts the poll)
   });
-  wrap.appendChild(seg);
-  if (mode === 'manual') {
-    const tmin = wb.temperatureMin || 2500, tmax = wb.temperatureMax || 8000;
-    const row = document.createElement('div'); row.className = 'm-control-row'; row.style.marginTop = '12px';
-    const lab = document.createElement('span'); lab.textContent = 'temperature';
-    const val = document.createElement('span'); val.className = 'm-control-val'; val.textContent = `${Math.round(camera.getWhiteBalanceTemp())}K`;
-    row.append(lab, val);
-    const input = document.createElement('input');
-    input.type = 'range'; input.min = tmin; input.max = tmax; input.step = 50; input.value = camera.getWhiteBalanceTemp();
-    input.addEventListener('input', () => { val.textContent = `${Math.round(+input.value)}K`; camera.setWhiteBalance({ temperature: +input.value }); });
-    wrap.append(row, input);
+  row.append(lab, val);
+  const input = document.createElement('input');
+  input.type = 'range'; input.min = tmin; input.max = tmax; input.step = 50; input.value = start;
+  input.addEventListener('input', () => {
+    stopWbPoll();                                       // a drag commits to manual
+    camera.setWhiteBalance({ temperature: +input.value });
+    val.classList.remove('active'); setVal(+input.value, false);
+  });
+  wrap.append(row, input);
+  if (mode === 'auto') {
+    const tick = async () => {
+      if (camera.getWhiteBalanceMode() !== 'auto' || camPopEl.classList.contains('m-hidden')) { stopWbPoll(); return; }
+      const t = await camera.readWhiteBalanceTemp?.();
+      if (t && camera.getWhiteBalanceMode() === 'auto') { input.value = t; setVal(t, true); }
+    };
+    tick();
+    wbPollTimer = setInterval(tick, 600);
   }
 }
 

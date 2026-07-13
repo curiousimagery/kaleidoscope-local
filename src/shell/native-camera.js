@@ -195,6 +195,12 @@ export function createNativeCamera() {
     const res = await FoldNativeCamera.capturePhoto({ width: d.width || 0, height: d.height || 0 });
     return { url: res.url ? Capacitor.convertFileSrc(res.url) : null, width: res.width, height: res.height };
   }
+  // the temperature auto WB has currently settled on — lets the UI show a live slider
+  // that tracks auto and drops to manual on a drag.
+  async function readWhiteBalanceTemp() {
+    try { const r = await FoldNativeCamera.getWhiteBalance(); return r?.temperature ?? null; }
+    catch { return null; }
+  }
   function capabilities() { return controlRanges; }
 
   return {
@@ -221,6 +227,7 @@ export function createNativeCamera() {
     setExposureBias,
     setZoom,
     setWhiteBalance,
+    readWhiteBalanceTemp,
     capturePhoto,
     capabilities,
     listDevices: async () => [],

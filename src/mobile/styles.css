@@ -87,6 +87,10 @@ html, body { margin: 0; padding: 0; height: 100%; background: var(--bg); color: 
   padding: 4px 0 12px; margin-bottom: 12px; font-size: 15px; line-height: 1; }
 .m-cam-row .m-menu-icon { flex: 0 0 24px; }
 .m-cam-row:active { color: var(--text-bright); }
+/* white-balance value that doubles as the "back to auto" tap target; lit in auto */
+.m-wb-auto { background: transparent; border: none; padding: 0; font-size: var(--text-base);
+  font-variant-numeric: tabular-nums; color: var(--text-dim); }
+.m-wb-auto.active { color: var(--text-bright); }
 #m-source { position: absolute; inset: 0; }
 #m-settings { position: absolute; inset: 0; overflow-y: auto; -webkit-overflow-scrolling: touch;
   padding: 56px 16px 16px; }

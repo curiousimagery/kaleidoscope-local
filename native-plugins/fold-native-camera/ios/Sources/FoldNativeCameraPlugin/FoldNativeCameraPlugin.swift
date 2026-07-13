@@ -28,6 +28,7 @@ public class FoldNativeCameraPlugin: CAPPlugin, CAPBridgedPlugin, AVCaptureVideo
         CAPPluginMethod(name: "setExposureBias", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "setZoom", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "setWhiteBalance", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "getWhiteBalance", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "capturePhoto", returnType: CAPPluginReturnPromise)
     ]
 
@@ -256,6 +257,24 @@ public class FoldNativeCameraPlugin: CAPPlugin, CAPBridgedPlugin, AVCaptureVideo
                 device.unlockForConfiguration()
                 call.resolve()
             } catch { call.reject("wb failed: \(error.localizedDescription)") }
+        }
+    }
+
+    // Read the CURRENT white balance temperature — the value auto WB has settled on —
+    // so the UI can show one always-visible slider that tracks auto and drops to manual
+    // on a drag (instead of a crude auto/manual toggle). Gains are clamped before the
+    // conversion (they drift past maxWhiteBalanceGain transiently, which would throw).
+    @objc func getWhiteBalance(_ call: CAPPluginCall) {
+        sessionQueue.async { [weak self] in
+            guard let self = self, let device = self.device else { call.reject("no device"); return }
+            var g = device.deviceWhiteBalanceGains
+            let maxG = device.maxWhiteBalanceGain
+            g.redGain = min(max(1.0, g.redGain), maxG)
+            g.greenGain = min(max(1.0, g.greenGain), maxG)
+            g.blueGain = min(max(1.0, g.blueGain), maxG)
+            let tnt = device.temperatureAndTintValues(for: g)
+            let mode = device.whiteBalanceMode == .locked ? "locked" : "auto"
+            call.resolve(["temperature": Double(tnt.temperature), "tint": Double(tnt.tint), "mode": mode])
         }
     }
 

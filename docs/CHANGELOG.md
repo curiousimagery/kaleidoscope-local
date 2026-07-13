@@ -4,7 +4,9 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
-## v0.16.0 (Build 316) — 2026-07-12 — 🎥 native camera milestone: mode-aware resolution + real still capture (12/24/48MP)
+## v0.16.1 (Build 317) — 2026-07-12 — white-balance control refinement: one live slider (tracks auto, drag = manual)
+
+**The crude auto/manual toggle is gone.** Per Daniel's 17 Pro feedback, white balance is now a single always-visible Kelvin slider: in **auto** it tracks the live temperature the camera has settled on (the plugin reads the current `deviceWhiteBalanceGains` → temperature, polled ~600ms while the menu is open); **dragging** it commits to manual; **tapping the value** (`5200K · auto`, which doubles as the affordance) returns to auto. New plugin `getWhiteBalance`; [shell/native-camera.js](../src/shell/native-camera.js) `readWhiteBalanceTemp`; [mobile/chrome.js](../src/mobile/chrome.js) `buildCamWb` rewritten with a self-terminating poll (stops on close / manual / hide) and the menu-open handler now refreshes to restart it. Flag-gated; device-pending. Verified: `node --check`, `vite build`, `cap sync`, `xcodebuild` sim BUILD SUCCEEDED.
 
 **The minor bump marks the native iOS camera as a real feature** (Daniel's call) — flip, physical-lens picker, per-lens resolution, EV/WB, and now full-resolution still capture, all through a native AVCaptureSession streaming into the engine. This build makes the resolution picker **mode-aware and the still capture real:**
 

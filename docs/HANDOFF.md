@@ -34,7 +34,7 @@ He prefers **no em dashes** in any prose Claude generates for him.
 
 **Daniel's 17 Pro feedback being worked (2026-07-12), remaining streams (his framing — three parallel, non-interfering):**
 - **Still resolution** — DONE above (B316); unblocks his 14 Pro pass.
-- **WB auto/manual disclosure feels crude** — NEXT: drop the auto/manual segmented toggle for a single always-visible Kelvin slider that tracks the live auto temperature (plugin reads current `deviceWhiteBalanceGains` → temperature); dragging it → manual, tapping the value → back to auto.
+- **WB auto/manual disclosure** — DONE (B317): one always-visible Kelvin slider that tracks the live auto temperature (polled ~600ms while the menu is open); drag → manual; tap the `5200K · auto` value → back to auto. Device-pending the feel.
 - **Orientation** — Daniel gave the systematic REAR rule: portrait correct; **rotate device left → image rotates right; rotate right → image rotates left** (classic "capture fixed, not tracking device"). Fix = drive `videoRotationAngle` off the interface orientation (webview rotates with the device — Info.plist allows all orientations — so JS `screen.orientation.angle` is the signal; a plugin `setRotation` applies it on start + `orientationchange`). Rear is a clean determinate fix; FRONT keeps its extra 90°-in-portrait offset + mirror interaction (tunable constant, will need one device round-trip to nail). Also re-point the still photo connection rotation the same way once this lands.
 - **Gesture pad + tap-to-focus** — design captured above; a first cut for hands-on feel is still queued (uses the `editLocked` seam).
 
