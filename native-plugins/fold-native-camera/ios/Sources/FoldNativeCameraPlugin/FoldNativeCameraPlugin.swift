@@ -314,9 +314,18 @@ public class FoldNativeCameraPlugin: CAPPlugin, CAPBridgedPlugin, AVCaptureVideo
         sessionQueue.async { [weak self] in
             guard let self = self, self.running, let device = self.device else { call.reject("camera not running"); return }
             self.capturing = true   // drop preview frames during the switch + capture
+            var didSwitch = false
 
             // switch to the full photo format so the still reaches the sensor's max
             if #available(iOS 16.0, *), let photoFmt = self.bestPhotoFormat(device), device.activeFormat != photoFmt {
+                didSwitch = true
+                // a format change resets the device to auto EV/WB — snapshot the user's
+                // current exposure bias + (locked) WB gains and re-apply them after, so
+                // the captured still carries the same look as the preview.
+                let savedBias = device.exposureTargetBias
+                let wbWasLocked = device.whiteBalanceMode == .locked
+                let savedGains = device.deviceWhiteBalanceGains
+
                 self.session.beginConfiguration()
                 do { try device.lockForConfiguration(); device.activeFormat = photoFmt; device.unlockForConfiguration() }
                 catch { /* keep the current format on lock failure */ }
@@ -325,33 +334,56 @@ public class FoldNativeCameraPlugin: CAPPlugin, CAPBridgedPlugin, AVCaptureVideo
                     self.photoOutput.maxPhotoDimensions = maxDim
                 }
                 self.session.commitConfiguration()
+
+                // re-apply EV/WB on the new format
+                do {
+                    try device.lockForConfiguration()
+                    device.setExposureTargetBias(max(device.minExposureTargetBias, min(device.maxExposureTargetBias, savedBias)), completionHandler: nil)
+                    if wbWasLocked, device.isLockingWhiteBalanceWithCustomDeviceGainsSupported {
+                        let maxG = device.maxWhiteBalanceGain
+                        var g = savedGains
+                        g.redGain = max(1.0, min(maxG, g.redGain))
+                        g.greenGain = max(1.0, min(maxG, g.greenGain))
+                        g.blueGain = max(1.0, min(maxG, g.blueGain))
+                        device.setWhiteBalanceModeLocked(with: g, completionHandler: nil)
+                    }
+                    device.unlockForConfiguration()
+                } catch { /* leave auto on lock failure */ }
+
                 // a format change can reset the connection rotation — re-apply it
                 if #available(iOS 17.0, *), let coord = self.rotationCoordinator as? AVCaptureDevice.RotationCoordinator {
                     self.applyRotation(coord.videoRotationAngleForHorizonLevelCapture)
                 }
             }
 
-            // JPEG so the returned file loads cleanly into a webview <img> / canvas
-            // (HEIC decode in WKWebGL is unproven); fall back to the default codec.
-            let settings: AVCapturePhotoSettings
-            if self.photoOutput.availablePhotoCodecTypes.contains(.jpeg) {
-                settings = AVCapturePhotoSettings(format: [AVVideoCodecKey: AVVideoCodecType.jpeg])
-            } else {
-                settings = AVCapturePhotoSettings()
-            }
-            if #available(iOS 16.0, *) {
-                // per-shot dimensions (the chosen 12/48MP), clamped to the output's max
-                if reqW > 0, reqH > 0 {
-                    settings.maxPhotoDimensions = CMVideoDimensions(width: Int32(reqW), height: Int32(reqH))
+            // fire the capture — after a short settle when we switched formats, so the
+            // re-applied EV/WB (and the new format) take effect before the shot.
+            let fire: () -> Void = { [weak self] in
+                guard let self = self else { return }
+                // JPEG so the returned file loads cleanly into a webview <img> / canvas
+                // (HEIC decode in WKWebGL is unproven); fall back to the default codec.
+                let settings: AVCapturePhotoSettings
+                if self.photoOutput.availablePhotoCodecTypes.contains(.jpeg) {
+                    settings = AVCapturePhotoSettings(format: [AVVideoCodecKey: AVVideoCodecType.jpeg])
                 } else {
-                    settings.maxPhotoDimensions = self.photoOutput.maxPhotoDimensions
+                    settings = AVCapturePhotoSettings()
                 }
+                if #available(iOS 16.0, *) {
+                    // per-shot dimensions (the chosen 12/48MP), clamped to the output's max
+                    if reqW > 0, reqH > 0 {
+                        settings.maxPhotoDimensions = CMVideoDimensions(width: Int32(reqW), height: Int32(reqH))
+                    } else {
+                        settings.maxPhotoDimensions = self.photoOutput.maxPhotoDimensions
+                    }
+                }
+                let delegate = PhotoCaptureDelegate(call: call) { [weak self] done in
+                    self?.sessionQueue.async { self?.captureDelegates.remove(done) }
+                }
+                self.captureDelegates.insert(delegate)
+                self.photoOutput.capturePhoto(with: settings, delegate: delegate)
             }
-            let delegate = PhotoCaptureDelegate(call: call) { [weak self] done in
-                self?.sessionQueue.async { self?.captureDelegates.remove(done) }
-            }
-            self.captureDelegates.insert(delegate)
-            self.photoOutput.capturePhoto(with: settings, delegate: delegate)
+            if didSwitch { self.sessionQueue.asyncAfter(deadline: .now() + 0.18, execute: fire) }
+            else { fire() }
         }
     }
 

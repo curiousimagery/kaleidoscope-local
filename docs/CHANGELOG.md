@@ -4,7 +4,9 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
-## v0.16.7 (Build 323) — 2026-07-13 — still-capture correctness: matched aspect, full-res source, non-square save
+## v0.16.8 (Build 324) — 2026-07-13 — still capture keeps EV/WB across the format switch (+ source dims in diagnostics)
+
+**Fix:** the full-res capture lost the user's exposure/white-balance adjustments. Switching `device.activeFormat` to the photo format (for the 48MP shot) resets the device to auto EV/WB, so the still came out with the default look, not the preview's. [plugin] `capturePhoto` now **snapshots the current exposure bias + (locked) WB gains before the switch and re-applies them after**, and — since exposure needs a beat to settle on the new format — fires the shot after a short (0.18s) delay when a switch happened. **Also:** the save-sheet diagnostics now show the **source resolution** ([mobile/chrome.js](../src/mobile/chrome.js)) — useful on its own, and the datum needed to calibrate the "sharp output up to ~XK" hint (which Daniel flagged as undercounting; the hint formula multiplies slice-source-detail × mirror-tiles × a 0.5 softening and currently ignores the canvas aspect — pending his form/settings to fix precisely). Verified: `node --check`, `vite build`, `cap sync`, `xcodebuild` sim BUILD SUCCEEDED. Device-pending.
 
 Three fixes from Daniel's 14 Pro pass on the full-res still path:
 

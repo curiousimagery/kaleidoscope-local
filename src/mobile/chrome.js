@@ -1566,7 +1566,8 @@ function buildSaveSheet() {
 
   const diag = sheet.querySelector('#m-diag'), diagToggle = sheet.querySelector('#m-diag-toggle');
   const renderDiag = () => {
-    diag.innerHTML = `WebGL2 • ${engine.diagnostics.renderer}<br>max texture ${engine.diagnostics.maxTextureSize}px • max export ${engine.diagnostics.maxFBOSize}px • DPR ${window.devicePixelRatio || 1}`;
+    const src = engine.getSourceSize?.() || { w: 0, h: 0 };
+    diag.innerHTML = `WebGL2 • ${engine.diagnostics.renderer}<br>source ${src.w}×${src.h}px • max texture ${engine.diagnostics.maxTextureSize}px • max export ${engine.diagnostics.maxFBOSize}px • DPR ${window.devicePixelRatio || 1}`;
   };
   diagToggle.addEventListener('click', () => {
     const hidden = diag.classList.toggle('m-hidden');
