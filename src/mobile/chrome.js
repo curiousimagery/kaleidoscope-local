@@ -990,10 +990,12 @@ $('m-flip').addEventListener('click', flipCamera);
 
 // ---- the CAMERA settings menu (native camera path only) --------------------
 // A persistent popover (the canvas-gear pattern) opened by the top-row camera icon
-// that replaces the flip icon when the native camera is active. Holds the flip
-// control + the lens picker now; resolution + EV/WB sliders slot in below in later
-// slices. Gated on useNativeCam so the proven web camera keeps its one-tap flip.
+// that replaces the flip icon when the native camera is active. Holds flip + the
+// lens / resolution / frame-rate pickers; EV/WB sliders slot in below in a later
+// slice. Gated on useNativeCam so the proven web camera keeps its one-tap flip.
 const camLensWrap = document.createElement('div');
+const camResWrap = document.createElement('div');
+const camFpsWrap = document.createElement('div');
 if (useNativeCam) {
   const flipRow = document.createElement('button');
   flipRow.id = 'm-cam-flip';
@@ -1001,9 +1003,10 @@ if (useNativeCam) {
   flipRow.innerHTML = `<span class="m-menu-icon">${ICONS.flip}</span><span>flip camera</span>`;
   flipRow.addEventListener('click', () => flipCamera());
   camPopEl.appendChild(flipRow);
-  camLensWrap.className = 'm-control';
-  camLensWrap.id = 'm-cam-lens';
-  camPopEl.appendChild(camLensWrap);
+  camLensWrap.className = 'm-control'; camLensWrap.id = 'm-cam-lens';
+  camResWrap.className = 'm-control'; camResWrap.id = 'm-cam-res';
+  camFpsWrap.className = 'm-control'; camFpsWrap.id = 'm-cam-fps';
+  camPopEl.append(camLensWrap, camResWrap, camFpsWrap);
 
   camMenuBtn.addEventListener('click', (e) => { e.stopPropagation(); camPopEl.classList.toggle('m-hidden'); });
   document.addEventListener('pointerdown', (e) => {
@@ -1012,43 +1015,62 @@ if (useNativeCam) {
   });
 }
 
-// (re)build the lens picker for the current facing: hidden on the front camera or a
-// single-lens rear (e.g. the Air); a segmented 0.5x / 1x / tele row otherwise, the
-// current lens highlighted. On multi-lens devices the resolution options will
-// re-read per lens once the resolution slice lands under this.
-function refreshCamMenu() {
-  if (!useNativeCam) return;
-  const lenses = camera.getLenses?.() || [];
-  const cur = camera.getLens?.();
-  const show = !camera.isFront?.() && lenses.length > 1;
-  camLensWrap.classList.toggle('m-hidden', !show);
-  if (!show) { camLensWrap.innerHTML = ''; return; }
-  camLensWrap.innerHTML = '<div class="m-control-row"><span>lens</span></div>';
+// render a titled segmented control into `wrap`: items [{id,label}], current active.
+function buildCamSeg(wrap, title, items, currentId, onPick) {
+  wrap.innerHTML = `<div class="m-control-row"><span>${title}</span></div>`;
   const seg = document.createElement('div');
   seg.className = 'm-seg';
-  lenses.forEach(({ id, label }) => {
+  items.forEach(({ id, label }) => {
     const b = document.createElement('button');
-    b.className = 'm-seg-btn' + (id === cur ? ' active' : '');
+    b.className = 'm-seg-btn' + (id === currentId ? ' active' : '');
     b.textContent = label;
-    b.addEventListener('click', () => { if (id !== camera.getLens()) switchLens(id); });
+    b.addEventListener('click', () => { if (id !== currentId) onPick(id); });
     seg.appendChild(b);
   });
-  camLensWrap.appendChild(seg);
+  wrap.appendChild(seg);
 }
 
-// switch physical lens — re-acquires the session (like flip), so it drops any raw
-// record take in progress and resets EV/WB to auto by construction.
-async function switchLens(id) {
+// (re)build the lens / resolution / frame-rate pickers for the current facing + mode.
+function refreshCamMenu() {
+  if (!useNativeCam) return;
+  // lens — hidden on the front camera or a single-lens rear (e.g. the Air)
+  const lenses = camera.getLenses?.() || [];
+  const showLens = !camera.isFront?.() && lenses.length > 1;
+  camLensWrap.classList.toggle('m-hidden', !showLens);
+  if (showLens) buildCamSeg(camLensWrap, 'lens', lenses, camera.getLens(), switchLens);
+  else camLensWrap.innerHTML = '';
+  // resolution — the options the CURRENT lens offers (they change per lens)
+  const resList = camera.getResolutions?.() || [];
+  camResWrap.classList.toggle('m-hidden', resList.length < 1);
+  if (resList.length) buildCamSeg(camResWrap, 'resolution', resList, camera.getResolution(), switchResolution);
+  else camResWrap.innerHTML = '';
+  // frame rate — record-video (motion) mode only; 30 / 60 gated by the resolution's max
+  const curRes = resList.find((r) => r.id === camera.getResolution());
+  const maxFps = curRes ? Math.round(curRes.maxFps || 0) : 0;
+  const fpsOpts = [30, 60].filter((f) => f <= maxFps).map((f) => ({ id: String(f), label: `${f}fps` }));
+  const showFps = videoMode && fpsOpts.length > 1;
+  camFpsWrap.classList.toggle('m-hidden', !showFps);
+  if (showFps) buildCamSeg(camFpsWrap, 'frame rate', fpsOpts, String(camera.getFrameRate()), (id) => switchFrameRate(+id));
+  else camFpsWrap.innerHTML = '';
+}
+
+// lens / resolution / fps changes all RE-ACQUIRE the session (a format change, like
+// flip): drop any raw record take, run the op, then re-point the engine + refresh the
+// menu. A lens change also resets EV/WB to auto by construction (per-sensor gains).
+async function reacquireCamera(op) {
   if (cameraMode !== 'live') return;
   if (recState === 'recording') dropRawRecorder();
   try {
-    await camera.setLens(id);
+    await op();
     liveVideo = camera.getVideo();
     engine.setSource(camera.frameSource());
     sourceOverlay.mount(sourceEl);   // remount picks up the (unchanged) transform
-    refreshCamMenu();                // re-highlight the active lens
+    refreshCamMenu();                // re-highlight + re-read per-lens resolutions
   } catch (e) { console.error(e); }
 }
+const switchLens = (id) => reacquireCamera(() => camera.setLens(id));
+const switchResolution = (id) => reacquireCamera(() => camera.setResolution(id));
+const switchFrameRate = (fps) => reacquireCamera(() => camera.setFrameRate(fps));
 
 // ----------------------------------------------------------------- tab popovers
 // items: { icon, iconClass?, label, action, current? }

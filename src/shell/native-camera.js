@@ -32,6 +32,9 @@ export function createNativeCamera() {
   let lenses = [];            // [{id,label}] physical lenses on the current facing
   let lens = 'wide';          // the chosen physical lens (never 'auto' — the virtual
                               // device disables custom WB + 48MP; a single sensor allows both)
+  let resolutions = [];       // [{id,label,maxFps}] the current lens actually offers
+  let preset = 'hd1080';      // the chosen streaming resolution
+  let targetFps = 30;         // the requested frame rate (matters in record-video mode)
   let facing = 'environment';
   let active = false;
 
@@ -95,13 +98,14 @@ export function createNativeCamera() {
     ensureCanvas();
     console.info('[native-camera] calling plugin.start');
     const res = await FoldNativeCamera.start({
-      preset: 'hd1080', lens, preferPhoto: false,
+      preset, fps: targetFps, lens, preferPhoto: false,
       facing: facing === 'user' ? 'front' : 'back',
     });
     console.info('[native-camera] plugin.start resolved', JSON.stringify(res));
     port = res.port || 8899;
     controlRanges = res.controls || {};
     lenses = res.lenses || [];
+    resolutions = res.resolutions || [];
     active = true;
     await openSocket();     // resolves once the first frame is painted (canvas sized)
     console.info('[native-camera] socket connected — first frame in');
@@ -128,6 +132,20 @@ export function createNativeCamera() {
     return start({ facingMode: facing });
   }
 
+  // change streaming resolution / frame rate — both re-acquire (a format change).
+  async function setResolution(id) {
+    preset = id;
+    // clamp the requested fps to what this resolution offers (avoids asking 60 on a
+    // 4K format that only does 30 — the plugin clamps too, but keep the state honest)
+    const r = resolutions.find((x) => x.id === id);
+    if (r && r.maxFps) targetFps = Math.min(targetFps, Math.round(r.maxFps));
+    return start({ facingMode: facing });
+  }
+  async function setFrameRate(fps) {
+    targetFps = fps;
+    return start({ facingMode: facing });
+  }
+
   function refreshFrame() { paintLatest(); }
   function frameSource() { return canvas; }
 
@@ -145,6 +163,11 @@ export function createNativeCamera() {
     setLens,
     getLenses: () => lenses,       // [{id,label}] for the current facing (picker source)
     getLens: () => lens,
+    setResolution,
+    setFrameRate,
+    getResolutions: () => resolutions,   // [{id,label,maxFps}] for the current lens
+    getResolution: () => preset,
+    getFrameRate: () => targetFps,
     refreshFrame,
     frameSource,
     setExposureBias,

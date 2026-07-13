@@ -105,6 +105,28 @@ public class FoldNativeCameraPlugin: CAPPlugin, CAPBridgedPlugin, AVCaptureVideo
         return out
     }
 
+    // Which of our named resolutions the CURRENT lens actually offers (a physical
+    // tele may not do 4K, so the picker changes per lens — Daniel's ask), each with
+    // its max frame rate so the UI can gate the fps options.
+    private func resolutionCatalog(_ device: AVCaptureDevice) -> [[String: Any]] {
+        let targets: [(id: String, label: String, w: Int, h: Int)] = [
+            ("hd720", "720p", 1280, 720),
+            ("hd1080", "1080p", 1920, 1080),
+            ("uhd", "4K", 3840, 2160)
+        ]
+        var out: [[String: Any]] = []
+        for t in targets {
+            let matches = device.formats.filter {
+                let d = CMVideoFormatDescriptionGetDimensions($0.formatDescription)
+                return Int(d.width) == t.w && Int(d.height) == t.h
+            }
+            guard !matches.isEmpty else { continue }
+            let maxFps = matches.flatMap { $0.videoSupportedFrameRateRanges }.map { $0.maxFrameRate }.max() ?? 0
+            out.append(["id": t.id, "label": t.label, "maxFps": maxFps])
+        }
+        return out
+    }
+
     @objc func start(_ call: CAPPluginCall) {
         let preset = call.getString("preset") ?? "hd1080"
         let fps = call.getDouble("fps") ?? 30
@@ -137,6 +159,7 @@ public class FoldNativeCameraPlugin: CAPPlugin, CAPBridgedPlugin, AVCaptureVideo
                     "requestedFps": info.requestedFps,
                     "cameraMaxFps": info.cameraMaxFps,
                     "lenses": self.lensCatalog(facing),
+                    "resolutions": self.device.map { self.resolutionCatalog($0) } ?? [],
                     "controls": self.controlRanges(),
                     "running": true
                 ])
