@@ -10,8 +10,10 @@
 // is where Fold meets the contract. A second tenant writes its own adapter and
 // reuses the whole stage layer unchanged.
 //
-// Universal tier: renderFrameAt reads the LIVE env.state each frame (so dragging
-// the wedge updates the live output for free). It delegates to the output engine
+// Universal tier: renderFrameAt reads the COMMITTED program frame each frame
+// (shell/program-frame.js — manual modes commit the live look on read, so dragging
+// the wedge still updates the output for free; in automation modes it's the look
+// the owning loop committed). It delegates to the output engine
 // (shell/output-engine.js) — a hidden second engine that renders to a real GL canvas
 // and pulls pixels with the fast drawImage→getImageData path (~9× faster than the
 // FBO readPixels it replaced). The returned Frame is TOP-DOWN (getImageData order);
@@ -32,7 +34,8 @@ export function createFoldAdapter(env) {
 
     // universal tier
     renderFrameAt(w, h) {
-      // reads env.state live → manipulating Fold updates the output with no extra wiring
+      // reads the committed program frame → manipulating Fold updates the output
+      // with no extra wiring, and automation transients never leak into it
       return outputEngine.renderFrameAt(w, h);
     },
 

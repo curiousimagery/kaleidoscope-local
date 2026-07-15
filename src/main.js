@@ -32,6 +32,7 @@ import { createCapacitorHost } from './shell/capacitor-host.js';
 import { createOpRing } from './kit/op-ring.js';
 import { createApp } from './shell/app.js';
 import { createFoldAdapter } from './shell/fold-adapter.js';
+import { createProgramFrame } from './shell/program-frame.js';
 import { createOutputBus } from './stage/output-bus.js';
 import { createRecorderSink } from './stage/recorder.js';
 import { createSyphonSink } from './stage/syphon-sink.js';
@@ -185,6 +186,11 @@ const env = {
   diag: { ops: createOpRing(120) },
 };
 
+// the program frame — the committed "what the audience sees" snapshot every
+// output consumer reads (defines env.programFrame / env.commitFrame /
+// env.programState; see shell/program-frame.js for the commit discipline)
+createProgramFrame(env);
+
 // ============================================================================
 // rendering scheduler
 // ============================================================================
@@ -197,6 +203,7 @@ function scheduleRender() {
     if (engine && engine.getSourceImage()) {
       engine.render(state);
     }
+    env.commitFrame();   // the render's look is the committed program frame
     sourceOverlay.render();
     updateResolutionHint();
     // motion: editing a selected keyframe writes through to it live (snap + thumb).

@@ -1,6 +1,18 @@
 # Proposal: the program-snapshot discipline (Capacitor arc, Lane 4A)
 
-**Status:** for Daniel's approval before any code. This is the "propose before implement" checkpoint the arc plan names for Lane 4A. Nothing here is built yet.
+**Status: APPROVED AND SHIPPED (B330, v0.16.14, 2026-07-15)** — after an independent API-architecture review Daniel requested before implementation. Kept as the design record. The review's outcome and his decisions:
+
+- **His five answers:** (1) commit every state-advance frame; (2) keep the motion edit lock, relax later once proven; (3) plain fresh copy, no freeze; (4) its own module; (5) `programFrame` kept, and the writer renamed **`commitFrame`** (his question "what does commit mean here" answered: the transactional "this look is now the program," matching motion staging's "committed copy" vocabulary — kept over "update," which undersells the meaning and collides with `updateSourceFrame`).
+- **Review refinement 1 — mechanism/payload split.** The shared-package contract is NOT Fold's frame shape. The generic piece is a **commit cell** (`stage/commit-cell.js`: single-writer latest-value `{ value, gen, t }`, value opaque) — the part Lane 4C extracts. `programFrame` is Fold's *instance* (`shell/program-frame.js`, value = the param snapshot). A future tenant commits its own payload; a signal-heavy tool can run a second cell. OSC-in enters upstream as a state writer (per-field arbitration, like the control bus); OSC/DMX-out subscribes downstream. Deliberately control-rate, not an audio-rate signal path.
+- **Review refinement 2 — `video` dropped from the frame.** The proposal below scopes the snapshot to "params only" and then contradicts itself by folding the video clock in. Fixed: the video clock stays a consumer-side source concern (`videoSync` unchanged).
+- **Review refinement 3 — the two commit regimes.** In manual modes, no automation owns the state, so **the live look IS the program by definition** (a slider drag must move the broadcast) — reads commit on demand, which also makes "missed commit point → frozen broadcast" structurally impossible. In automation modes (motion playback/scrub, perform, staging, take blend), the owning loop's tick is the commit point and reads never re-commit.
+- Pull-with-`gen` chosen over push subscriptions (no lifecycle to leak; an `onCommit` hook can be added later without breaking pull consumers).
+
+The original proposal follows unchanged, as reviewed.
+
+---
+
+**Original status line:** for Daniel's approval before any code. This is the "propose before implement" checkpoint the arc plan names for Lane 4A. Nothing here is built yet.
 
 **Scope:** a contained refactor of one existing seam (`env.programState()`). No intended behavior change for the shipping web or desktop app. It is the shared prerequisite that makes the HDMI state-stream (Lane 3) and the iOS native-capture path (Lane 4B) sound instead of racy.
 
