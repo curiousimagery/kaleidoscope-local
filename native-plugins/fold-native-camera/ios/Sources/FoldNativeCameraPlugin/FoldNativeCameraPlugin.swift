@@ -202,6 +202,7 @@ public class FoldNativeCameraPlugin: CAPPlugin, CAPBridgedPlugin, AVCaptureVideo
                     "lenses": self.lensCatalog(facing),
                     "resolutions": self.device.map { self.resolutionCatalog($0) } ?? [],
                     "stillResolutions": self.device.map { self.stillResolutionCatalog($0) } ?? [],
+                    "stabilization": info.stabilization,
                     "controls": self.controlRanges(),
                     "running": true
                 ])
@@ -436,6 +437,7 @@ public class FoldNativeCameraPlugin: CAPPlugin, CAPBridgedPlugin, AVCaptureVideo
         let height: Int
         let requestedFps: Double
         let cameraMaxFps: Double
+        let stabilization: String
     }
 
     private func configureSession(presetName: String, targetFps: Double, lens: String, stillMode: Bool, facing: String) throws -> SessionInfo {
@@ -555,6 +557,20 @@ public class FoldNativeCameraPlugin: CAPPlugin, CAPBridgedPlugin, AVCaptureVideo
             if session.canSetSessionPreset(preset) { session.sessionPreset = preset }
         }
 
+        // VIDEO STABILIZATION — WebKit/getUserMedia stabilized by default; low-level
+        // capture defaults to OFF, which is why the feed got shakier. `.standard` for
+        // still-compose (light crop), `.cinematicExtended` for video-record (max
+        // smoothing). It costs a sensor crop, so the shell crops the 48MP still to match
+        // (the photo output isn't video-stabilized). Gated on the active format.
+        var stabilization = "off"
+        if let conn = output.connection(with: .video), conn.isVideoStabilizationSupported {
+            let mode: AVCaptureVideoStabilizationMode = stillMode ? .standard : .cinematicExtended
+            if device.activeFormat.isVideoStabilizationModeSupported(mode) {
+                conn.preferredVideoStabilizationMode = mode
+                stabilization = stillMode ? "standard" : "cinematicExtended"
+            }
+        }
+
         // enable full-resolution still capture for this format/lens (up to 48MP)
         if #available(iOS 16.0, *) {
             let area: (CMVideoDimensions) -> Int = { Int($0.width) * Int($0.height) }
@@ -565,7 +581,8 @@ public class FoldNativeCameraPlugin: CAPPlugin, CAPBridgedPlugin, AVCaptureVideo
 
         session.commitConfiguration()
         return SessionInfo(width: target.w, height: target.h,
-                           requestedFps: requestedFps, cameraMaxFps: cameraMaxFps)
+                           requestedFps: requestedFps, cameraMaxFps: cameraMaxFps,
+                           stabilization: stabilization)
     }
 
     // MARK: - orientation (iOS 17 RotationCoordinator)

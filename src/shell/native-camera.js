@@ -42,6 +42,11 @@ export function createNativeCamera() {
   let stillMode = true;
   let stillResolutions = [];  // [{id,label,width,height}] the current lens's photo sizes
   let stillRes = null;        // chosen {id,width,height}; null → the sensor max
+  // video stabilization crops the sensor; the still capture (photo output, un-stabilized)
+  // must be cropped to match the composed preview. Per-mode factors are ESTIMATES (AVF
+  // doesn't expose the exact crop) — tunable here, calibrate on device.
+  let stabilization = 'off';
+  const STABILIZATION_CROP = { standard: 0.9, cinematic: 0.82, cinematicExtended: 0.76, off: 1 };
   // EV / WB: reset on a lens or facing change (a different physical sensor — per-sensor
   // gains don't carry), but KEPT across a resolution/fps change (same sensor). start()
   // re-applies these after the session comes up, so a res/fps re-acquire preserves them.
@@ -127,6 +132,7 @@ export function createNativeCamera() {
     lenses = res.lenses || [];
     resolutions = res.resolutions || [];
     stillResolutions = res.stillResolutions || [];
+    stabilization = res.stabilization || 'off';
     // keep the chosen still size valid for this lens (a tele may top out below 48MP);
     // default to the largest the lens offers.
     if (!stillResolutions.some((r) => r.id === stillRes?.id)) {
@@ -257,6 +263,8 @@ export function createNativeCamera() {
     safeFpsFor: (id) => safeFps(id),
     getStillResolutions: () => stillResolutions,   // [{id,label,width,height}]
     getStillResolution: () => stillRes?.id,
+    getStillCropFactor: () => STABILIZATION_CROP[stabilization] ?? 1,   // crop the 48MP still to the stabilized preview FOV
+    getStabilization: () => stabilization,
     getExposureBias: () => evBias,
     getWhiteBalanceMode: () => wbMode,   // 'auto' | 'manual'
     getWhiteBalanceTemp: () => wbTemp,

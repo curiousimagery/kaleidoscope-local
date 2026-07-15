@@ -1004,22 +1004,27 @@ function freezeFromPreview() {
 // orientation to match the preview; the front camera's selfie mirror is OUR shader's,
 // so it's applied here in JS. The engine samples the FULL-resolution still — that's the
 // point of choosing 48MP (crop hard into it and still get sharp output) — so we DON'T
-// downsample; instead the still-resolution picker is gated by the GPU's max texture
-// size (see refreshCamMenu), so we only ever offer a size the device can actually hold.
+// downsample; the still-resolution picker is GPU-gated (refreshCamMenu) instead. When
+// the preview is video-stabilized the still (photo output, un-stabilized) is the wider
+// full sensor, so we CENTER-CROP it to the stabilized FOV so the composition holds.
 async function freezeFromUrl(url) {
   stopCameraStream();
   cameraMode = 'frozen';
   updateLiveUI();
+  const crop = camera.getStillCropFactor?.() ?? 1;
   await new Promise((resolve) => {
     const img = new Image();
     img.onload = () => {
+      const front = camera.isFront();
       let src = img;
-      if (camera.isFront()) {                      // the selfie mirror is OUR shader's
+      if (crop < 1 || front) {
+        const cw = Math.round(img.naturalWidth * crop), ch = Math.round(img.naturalHeight * crop);
+        const ox = Math.round((img.naturalWidth - cw) / 2), oy = Math.round((img.naturalHeight - ch) / 2);
         const c = document.createElement('canvas');
-        c.width = img.naturalWidth; c.height = img.naturalHeight;
+        c.width = cw; c.height = ch;
         const cx = c.getContext('2d');
-        cx.translate(c.width, 0); cx.scale(-1, 1);
-        cx.drawImage(img, 0, 0);
+        if (front) { cx.translate(cw, 0); cx.scale(-1, 1); }   // selfie mirror
+        cx.drawImage(img, ox, oy, cw, ch, 0, 0, cw, ch);       // center-crop to the stabilized FOV
         src = c;
       }
       engine.setSource(src);
