@@ -4,6 +4,14 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.17.8 (Build 350) — 2026-07-15 — frame aspect can match the connected display
+
+From Daniel's AirPlay pass (a destination screen that isn't 16:9): the frame-aspect control in BOTH chromes gains a **'display' option that appears only while an external display is attached** and sets the composition to the display's exact native aspect — WYSIWYG all the way through (preview, recording, save, and the external output all agree), with the usual re-tap portrait/landscape flip. Desktop: a sixth button in the output panel's aspect row (tooltip shows the display's pixels); mobile: a sixth segment in the canvas pop. Plumbing: the external-display module now publishes the connected display's native dims (`env.externalDisplayDims` + a change hook on desktop; an `onDims` callback on the mobile autoconnect).
+
+Distinct from the B334 **fill-display toggle**, which still exists and reshapes ONLY the external render (edge-to-edge, installation mode) while the composition keeps its own aspect: 'display' commits the whole composition to the destination's shape; 'fill display' just uses all the destination's pixels. Both live-follow.
+
+Verified: `node --check` ×3, `vite build`, `cap sync`.
+
 ## v0.17.7 (Build 349) — 2026-07-15 — the package becomes `conduit`, with its own GitHub repo
 
 Daniel's naming direction (the package is generalized broadcast infrastructure a future audio-reactive processor or music visualizer uses as readily as Fold — not a Fold-branded tool): renamed **fold-stage → `conduit`**, picked from his candidates (signal-relay / conduit / output-bus) — signal-relay implies pass-through only, output-bus names one module; *conduit* is the whole idea: a channel that carries whatever signal flows through it to wherever it terminates. Directory → `packages/conduit`, dependency key + all nine import specifiers → `conduit/...`, README rewritten around the generalized framing. (If it's ever registry-published, scope it `@curiousimagery/conduit` — the bare npm name is squatted by an unrelated legacy package; irrelevant for git/file consumption.)

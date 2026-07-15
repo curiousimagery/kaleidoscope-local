@@ -916,18 +916,38 @@ function wireFrameAspect() {
   const group = document.getElementById('frameAspect');
   if (!group) return;
   const EPS = 0.001;
-  const buttons = [...group.querySelectorAll('button')];
+  const buttons = [...group.querySelectorAll('button')].filter((b) => b.dataset.asp);
   const landOf = (b) => parseFloat(b.dataset.asp) || 1;
   const isActive = (b) => {
     const land = landOf(b);
     return Math.abs(session.frameAspect - land) < EPS || Math.abs(session.frameAspect - 1 / land) < EPS;
   };
-  const syncActive = () => buttons.forEach((b) => {
-    const active = isActive(b);
-    const portrait = active && landOf(b) > 1 && session.frameAspect < 1;
-    b.classList.toggle('active', active);
-    b.textContent = portrait ? b.dataset.p : b.dataset.l;
-  });
+  // 'display' — match the CONNECTED external display's native aspect (Daniel's
+  // AirPlay-pass ask): WYSIWYG through preview/recording/save, unlike the fill
+  // toggle (which reshapes only the external render). Appears only while attached.
+  const dispBtn = document.getElementById('frameAspectDisplay');
+  const dispAspect = () => {
+    const d = env.externalDisplayDims;
+    return d && d.width && d.height ? d.width / d.height : 0;
+  };
+  const dispActive = () => {
+    const a = dispAspect();
+    return !!a && (Math.abs(session.frameAspect - a) < EPS || Math.abs(session.frameAspect - 1 / a) < EPS);
+  };
+  const syncActive = () => {
+    buttons.forEach((b) => {
+      const active = isActive(b);
+      const portrait = active && landOf(b) > 1 && session.frameAspect < 1;
+      b.classList.toggle('active', active);
+      b.textContent = portrait ? b.dataset.p : b.dataset.l;
+    });
+    if (dispBtn) {
+      const d = env.externalDisplayDims;
+      dispBtn.hidden = !d;
+      dispBtn.classList.toggle('active', dispActive());
+      if (d) dispBtn.title = `match the connected display (${d.width}×${d.height}) — click again to flip portrait/landscape`;
+    }
+  };
   const apply = () => {
     syncActive();
     resizePreviewCanvas();      // reshape the preview to the new frame (also re-renders)
@@ -943,6 +963,14 @@ function wireFrameAspect() {
     }
     apply();
   }));
+  dispBtn?.addEventListener('click', () => {
+    const a = dispAspect();
+    if (!a) return;
+    session.frameAspect = dispActive() && a !== 1 ? 1 / session.frameAspect : a;
+    apply();
+  });
+  // the sink publishes dims on plug/unplug (shell/external-display.js) — show/hide
+  env.externalDisplayDimsChanged = syncActive;
   syncActive();
 }
 

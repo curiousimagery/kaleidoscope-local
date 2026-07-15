@@ -270,6 +270,13 @@ export function createExternalDisplaySink(env) {
     },
   });
 
+  // publish the connected display's native dims on env — chrome that wants them
+  // (the frame-aspect 'display' option matches the composition to the destination)
+  poster.onDisplayChange((connected, s) => {
+    env.externalDisplayDims = connected && s?.width ? { width: s.width, height: s.height } : null;
+    env.externalDisplayDimsChanged?.();
+  });
+
   return {
     id: 'hdmi',
     supported: true,
@@ -294,9 +301,11 @@ export function createExternalDisplaySink(env) {
 // gets (connected, streaming) for any status chrome it wants to show.
 export function createExternalDisplayAutoconnect(opts) {
   const poster = createPoster(opts);
-  const sync = (connected) => {
+  const sync = (connected, s) => {
     if (connected && !poster.active) poster.start();
     opts.onStatus?.(connected, poster.active);
+    // the display's native dims, for the chrome's frame-aspect 'display' option
+    opts.onDims?.(connected && s?.width ? { width: s.width, height: s.height } : null);
   };
   poster.onDisplayChange(sync);
   return {

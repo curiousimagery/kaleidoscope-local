@@ -219,6 +219,10 @@
                 <button class="toggle" data-asp="1.3333" data-l="4:3" data-p="3:4">4:3</button>
                 <button class="toggle" data-asp="1.5" data-l="3:2" data-p="2:3">3:2</button>
                 <button class="toggle" data-asp="1.7778" data-l="16:9" data-p="9:16">16:9</button>
+                <!-- match the connected external display's native aspect (WYSIWYG:
+                     preview + recording + save all follow) — appears only while a
+                     display is attached (wireFrameAspect + env.externalDisplayDims) -->
+                <button class="toggle" id="frameAspectDisplay" hidden>display</button>
               </div>
             </div>
             <button class="ot-btn ot-icon panel-gear" id="canvasSettingsBtn" title="canvas settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="4" y1="8" x2="20" y2="8"/><line x1="4" y1="16" x2="20" y2="16"/><circle cx="9" cy="8" r="2.4" fill="currentColor"/><circle cx="15" cy="16" r="2.4" fill="currentColor"/></svg></button>
