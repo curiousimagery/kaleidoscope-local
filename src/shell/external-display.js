@@ -239,18 +239,13 @@ export function createExternalDisplaySink(env) {
     },
     async buildSourcePayload({ sourceCap = 4096 } = {}) {
       if (env.live?.isLive) {
-        const size = env.engine?.getSourceSize?.() || {};
-        // NO deviceId across the native transport: getUserMedia ids are salted
-        // PER ORIGIN, so the main webview's id can never match inside the
-        // external view (Daniel's iPad log: "no device found amongst 5
-        // devices"). The facing + negotiated dims select the camera instead.
-        const t = env.liveVideo?.srcObject?.getVideoTracks?.()[0];
-        return {
-          kind: 'camera',
-          facingMode: t?.getSettings?.().facingMode || 'environment',
-          width: size.w || undefined,
-          height: size.h || undefined,
-        };
+        // A second getUserMedia of the same camera is a DEAD END on iOS
+        // (device-proven, pass 5): the OS grants it but starves both captures —
+        // a frame every 5–15s on the external screen AND the main preview went
+        // dark. Don't attempt it; be honest. The iPad's live-camera answer is
+        // the native camera path (frame-socket relay) once it comes to the
+        // desktop chrome — BACKLOG carries the decision.
+        return { kind: 'unsupported', reason: 'live camera over HDMI needs the native camera path — coming; stills broadcast fine' };
       }
       if (env.sourceVideo && env.media?.sourceVideoUrl) {
         return { kind: 'unsupported', reason: 'video sources on the external display are coming — use a still or the live camera for now' };

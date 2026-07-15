@@ -28,7 +28,13 @@ const hint = document.getElementById('hint');
 
 let engine;
 try {
-  engine = createEngine({ canvas });
+  // maxProbeSize is REQUIRED here: the default boot probe walks FBO sizes up to
+  // maxTextureSize, deliberately committing the memory — on an iPhone that's a
+  // ~1GB 16384² attempt, which jetsam-killed the external-display webview before
+  // it ever said hello (the pass-5 crash loop; same reason mobile/chrome.js caps
+  // its probe). This view only renders to canvas — it never exports — so it
+  // needs no large FBO at all.
+  engine = createEngine({ canvas, maxProbeSize: 2048 });
 } catch (e) {
   if (hint) hint.textContent = 'could not start the output engine: ' + e.message;
   throw e;

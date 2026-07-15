@@ -1776,11 +1776,11 @@ if (host.externalDisplay?.available) {
             if (si) return { kind: 'native-camera', port: si.port, mirror: si.mirror };
             return { kind: 'none' };
           }
-          // no deviceId across webviews (per-origin salting — it can never
-          // match); facing + dims select the camera in the external view
-          const t = liveVideo?.srcObject?.getVideoTracks?.()[0];
-          const s = t?.getSettings?.() || {};
-          return { kind: 'camera', facingMode: s.facingMode || 'environment', width: s.width || undefined, height: s.height || undefined };
+          // the WEB camera path: a second getUserMedia of the same camera is a
+          // dead end on iOS (device-proven — it starves both captures and
+          // darkens the main preview). The native-cam build's frame socket is
+          // the phone's live-camera-over-HDMI answer.
+          return { kind: 'unsupported', reason: 'live camera over HDMI needs the native camera build — capture a still to project it' };
         }
         const src = engine.getSourceImage();
         if (src) {

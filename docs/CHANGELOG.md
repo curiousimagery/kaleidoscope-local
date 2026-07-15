@@ -4,6 +4,15 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.16.21 (Build 337) — 2026-07-15 — the iPhone crash's true root cause (the engine probe bomb) + the dual-capture verdict
+
+Pass 5 cracked both remaining problems, and the iPhone one was ours all along:
+
+- **The external view was jetsam-killed by the ENGINE'S BOOT PROBE, not the render size.** His log showed the web process dying between `loaded` and `hello` at every degradation step — size-independent, so B336's adaptive caps couldn't save it. Root cause: `createEngine` without `maxProbeSize` walks FBO probe sizes up to `maxTextureSize` and deliberately COMMITS the memory — on the iPhone that's a **~1GB 16384² attempt** inside a memory-tight webview. The mobile chrome has capped its probe (4096) since forever for exactly this reason; [output-view.js](../src/output-view.js) never passed a cap. It now probes at most **2048** (this view only renders to canvas — it never exports, so it needs no big FBO at all). This was very likely the root of the whole crash saga: pass-3's landscape loop, pass-4's instant deaths, and the marginal-memory GPU crashes around it. The B336 breaker + degradation stay as the safety net they were meant to be. Lesson banked in memory: every engine in an embedded/secondary iOS webview must cap its probe.
+- **The dual-getUserMedia verdict is in: dead end, and actively harmful.** On the iPad the facingMode fix got the second capture GRANTED — and iOS then starved both: ~1 frame per 5–15s on the external screen and the main source/preview panels went dark. So the web-camera-over-HDMI attempt is retired on the native transport (both chromes now send an honest hint instead — stills broadcast fine; the desktop popup path on macOS keeps its proven dual capture). **Live camera over HDMI = the frame-relay architecture only** (the native camera's multi-client socket — already shipped for the iPhone's native build, untested while the view was crash-looping; the probe fix unblocks that test). **For the iPad, live-camera-over-HDMI now waits on bringing the native camera to the iPad/desktop chrome — a decision item for Daniel in BACKLOG** (it would also bring EV/WB/48MP stills to the iPad).
+
+Verified: `node --check`, `vite build`, `cap sync` (JS-only build). Device-pending pass 6 (the probe fix should make it short): iPhone still in portrait AND landscape at full native res (no crash expected now), iPhone native-cam live camera over HDMI (the frame socket's first fair test), iPad still + the honest camera hint.
+
 ## v0.16.20 (Build 336) — 2026-07-15 — HDMI pass 4: crash-loop breaker, adaptive size degradation, the cross-origin camera fix
 
 Daniel's pass-4 logs (the iPad session + a 5868-line iPhone record) turned the remaining mysteries into three diagnosed bugs:
