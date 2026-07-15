@@ -274,6 +274,21 @@ function sendUp(msg) {
 // announce readiness so the driver (re)sends the current source even if it was
 // posted before this view finished loading.
 sendUp({ type: 'hello' });
+
+// GL context-loss recovery — this view runs unattended on an external display
+// (or an unfocused popup), so a loss must heal itself: reinitGL rebuilds the
+// GPU resources and re-uploads the held source; 'hello' asks the driver to
+// re-post the source payload too (belt and suspenders for live sources). The
+// loss is reported upstream so the device console shows it.
+canvas.addEventListener('webglcontextlost', (e) => {
+  e.preventDefault();
+  sendUp({ type: 'glLost' });
+});
+canvas.addEventListener('webglcontextrestored', () => {
+  try { engine.reinitGL(); } catch { /* the next hello-driven source post retries */ }
+  sendUp({ type: 'glRestored' });
+  sendUp({ type: 'hello' });
+});
 window.addEventListener('pagehide', () => { teardownSource(); try { channel.close(); } catch {} });
 
 // ---- zero chrome: click toggles fullscreen; hide the cursor while fullscreen ---

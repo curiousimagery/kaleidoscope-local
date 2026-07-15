@@ -239,6 +239,14 @@ public class FoldExternalDisplayPlugin: CAPPlugin, CAPBridgedPlugin, WKScriptMes
     public func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
         notifyListeners("externalMessage", data: ["type": "loadError", "error": error.localizedDescription])
     }
+    // The external view's web content process can be killed under memory/GPU
+    // pressure (a 4K render surface next to the main app + camera). Without
+    // this the external screen goes permanently dark — reload the view and
+    // report; the poster re-posts the source on the fresh view's 'hello'.
+    public func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        notifyListeners("externalMessage", data: ["type": "crashed"])
+        webView.load(URLRequest(url: URL(string: "fold-ext://localhost/output.html")!))
+    }
 
     // Per-frame state push: the payload is already a JSON string — a valid JS
     // expression — so it embeds directly. The __foldExternal guard makes calls

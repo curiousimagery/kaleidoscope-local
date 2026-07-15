@@ -4,6 +4,20 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.16.19 (Build 335) — 2026-07-15 — GL context-loss auto-recovery everywhere (the HDMI regression pass)
+
+Daniel's third device pass regressed hard: plugging into the 4K monitor **killed the MAIN window's WebGL** on iPad ("graphics context lost — reload to recover", staged + live panels gray; reproducible on relaunch), and the iPhone stopped outputting stills. The diagnosis: **iOS may drop an app's GL contexts when a display attaches** (GPU reconfiguration/memory pressure — the external view's web content process can also be killed outright), and our recovery coverage was asymmetric — the **mobile chrome** has had full `engine.reinitGL()` restore since the save-handoff bug, but the **desktop shell (which the iPad runs) had none**: main.js only logged and showed a "reload to recover" message that is meaningless in a native app (Daniel's exact point). Once the external webview died on the iPhone, nothing healed it either — every source after showed black.
+
+Recovery is now wired at every GL surface, using the engine's existing `reinitGL()` (rebuilds all GPU resources on the same context object and re-uploads the source):
+
+- **Desktop preview engine** ([main.js](../src/main.js)): status shows "recovering…" on loss; on restore → `reinitGL()` + re-render + the message clears.
+- **Live PiP engine** ([perform-runtime.js](../src/shell/perform-runtime.js)): restore → `reinitGL()` + source resync next tick.
+- **Output-bus hidden engine** ([output-engine.js](../src/shell/output-engine.js)): the restore handler reset the source but never rebuilt the GPU resources — now it does.
+- **The external/popup view** ([output-view.js](../src/output-view.js)): runs unattended, so it must self-heal — restore → `reinitGL()` + a fresh `hello` so the driver re-posts the source; losses are reported upstream (`glLost`/`glRestored` in the device console).
+- **External web-process death** (the permanent-black case): the plugin now implements `webViewWebContentProcessDidTerminate` → reloads output.html + reports `crashed`; the poster re-posts the source on the fresh view's hello.
+
+Verified: `node --check`, `vite build`, `cap sync`, `xcodebuild` sim **BUILD SUCCEEDED**. Device-pending: the console will now say exactly what happens at plug-in (expect `WebGL context LOST/RESTORED (preview canvas)` on iPad with the panels healing themselves; `crashed`/`glLost` lines from the external view on iPhone if pressure killed it). If losses prove chronic at attach time, the next lever is capping the external view's render size on phones — with data, not preemptively.
+
 ## v0.16.18 (Build 334) — 2026-07-15 — the live native camera reaches the external display + the fill-display toggle
 
 Daniel's second device pass: stills over HDMI work on BOTH devices (the scene-wait fix landed); the remaining gap was **live camera / record video never reaching the external screen** — and a stale still persisting there when the source switched to one the external view couldn't open. Three pieces this build:

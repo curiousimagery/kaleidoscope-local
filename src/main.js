@@ -122,10 +122,23 @@ if (engine) {
   previewCanvas.addEventListener('webglcontextlost', (ev) => {
     ev.preventDefault();
     console.warn('[fold] WebGL context LOST (preview canvas)');
-    if (statusEl) { statusEl.textContent = 'graphics context lost — reload to recover'; statusEl.classList.add('error'); }
+    if (statusEl) { statusEl.textContent = 'graphics context lost — recovering…'; statusEl.classList.add('error'); }
   });
+  // AUTO-RECOVER (the mobile chrome's proven engine.reinitGL pattern — Daniel hit
+  // an OS-initiated loss on the iPad when a 4K display attached, and "reload to
+  // recover" is meaningless in a native app). reinitGL rebuilds every GPU
+  // resource on the same context object and re-uploads the source; a render
+  // brings the panels back.
   previewCanvas.addEventListener('webglcontextrestored', () => {
     console.warn('[fold] WebGL context RESTORED (preview canvas)');
+    try {
+      engine.reinitGL();
+      if (statusEl) { statusEl.textContent = ''; statusEl.classList.remove('error'); }
+      scheduleRender();
+    } catch (e) {
+      console.warn('[fold] GL reinit failed', e);
+      if (statusEl) statusEl.textContent = 'graphics context lost — could not recover';
+    }
   });
 }
 

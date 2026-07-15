@@ -92,6 +92,12 @@ function createPoster(opts) {
       console.info('[fold] external view loaded output.html (attach:', msg.attach + ')');
     } else if (msg.type === 'loadError') {
       console.warn('[fold] external view FAILED to load output.html:', msg.error);
+    } else if (msg.type === 'crashed') {
+      console.warn('[fold] external view web process died — reloading it');
+    } else if (msg.type === 'glLost') {
+      console.warn('[fold] external view lost its GL context — recovering');
+    } else if (msg.type === 'glRestored') {
+      console.info('[fold] external view GL context restored');
     }
   });
   // seed the connection state (a display may already be attached at launch)
