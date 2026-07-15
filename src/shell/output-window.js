@@ -104,8 +104,11 @@ export function createOutputWindow(env) {
     if (channel) {
       // `test` rides the per-frame state message so the popup honors the bus's test
       // pattern (it self-renders and would otherwise ignore it — the old inert-button bug).
-      // The state posted is programState — what the audience sees (the perform
-      // follower's snapshot in perform mode, the working state otherwise).
+      // The state posted is programState — the COMMITTED program frame (shell/
+      // program-frame.js), what the audience sees. Posted unconditionally each tick
+      // (the popup uses message arrival as its render clock — see output-view.js);
+      // a gen-based skip for static looks is a possible follow-up, but it must keep
+      // posting for LIVE sources or the popup's camera drops to its 10fps fallback.
       try { channel.postMessage({ type: 'state', state: env.programState ? env.programState() : env.state, output: outputDims(), video: videoSync(), test: !!env.outputBus?.getStatus?.().testPattern }); } catch {}
     }
     raf = requestAnimationFrame(loop);

@@ -216,6 +216,7 @@ function renderSampled(p) {
   if (engine && engine.getSourceImage()) {
     engine.render(state);
   }
+  env.commitFrame?.();   // playback's commit point: the sampled look is the program
   env.sourceOverlay.render();
   setPlayhead(p);
 }
@@ -261,6 +262,7 @@ async function scrubVideo(p, { assignParams = true } = {}) {
       await advanceSourceToP(target);
       if (assign) Object.assign(state, sampleAt(target));
       if (engine && engine.getSourceImage()) engine.render(state);
+      env.commitFrame?.();   // the scrub's settled look is the program
       env.sourceOverlay.paintSourceVideo();
       env.sourceOverlay.render();
       setPlayhead(target);
@@ -321,6 +323,7 @@ function startVideoPlayback() {
     engine.updateSourceFrame();
     Object.assign(state, sampleAt(p));
     if (engine && engine.getSourceImage()) engine.render(state);
+    env.commitFrame?.();   // video playback's commit point (params locked to the presented frame)
     env.sourceOverlay.paintSourceVideo();
     env.sourceOverlay.render();
     setPlayhead(p);
@@ -649,6 +652,7 @@ function stgLoop(now) {
   if (!stg.on) return;
   const p = stgAdvance(now);
   stg.live = stgEval(stg.committed, p);
+  env.commitFrame?.();   // staging's commit point: the committed loop stays on-air
   env.liveView?.render(stg.live);
   const head = document.getElementById('mfLiveHead');
   if (head) head.style.left = tToPct(p) + '%';
@@ -752,6 +756,7 @@ function stgBlendLoop() {
     out[k] = GEST_ANGULAR.has(k) ? stgWrap360(av + angDelta(av, bv) * e) : av + (bv - av) * e;
   }
   B.live = out;
+  env.commitFrame?.();   // the take blend's commit point: the crossfade is on-air
   env.liveView?.render(out);                       // the live view shows the take landing
   if (b >= 1) { stg.blend = null; env.liveView?.set(false); return; }
   requestAnimationFrame(stgBlendLoop);

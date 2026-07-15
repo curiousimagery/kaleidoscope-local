@@ -52,14 +52,9 @@ export function createPerformRuntime(env) {
 
   const byId = (id) => document.getElementById(id);
 
-  // ---- the program-state seam (bus + output window read this) --------------
-  // perform's follower first; then motion's staging/blend (the committed loop
-  // stays on-air while keyframes are edited off-air); else the working state
-  env.programState = () => {
-    if (env.performRT.active && env.performRT.followed) return env.performRT.followed;
-    const staged = env.motionStageLive?.();
-    return staged || env.state;
-  };
+  // (the program-state seam moved to shell/program-frame.js — env.programState
+  //  keeps the same precedence, but now returns the COMMITTED snapshot; this
+  //  runtime's tick is perform mode's commit point.)
 
   // ---- the live PiP ---------------------------------------------------------
   function ensurePipEngine() {
@@ -436,6 +431,7 @@ export function createPerformRuntime(env) {
     // committed look and stage edits stay off-air (take/cut commit them)
     if (!env.performRT.hold) follower.setTarget(state);
     env.performRT.followed = follower.step(dt);
+    env.commitFrame();   // perform's commit point: the follower's look IS the program
     if (pipEngine && syncPipSource()) {
       sizePip();
       try { pipEngine.render(env.performRT.followed); } catch { /* keep the loop alive */ }
