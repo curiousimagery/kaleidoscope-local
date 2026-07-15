@@ -4,6 +4,19 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.17.6 (Build 348) — 2026-07-15 — Daniel's iPad camera pass, answered in one batch
+
+Every note from his device pass:
+
+- **The picker names the camera:** the native path now reads "iPad native" instead of the generic "camera" placeholder ([source-host.js](../src/shell/source-host.js)).
+- **Flip is an icon button** — the mobile camera glyph (his supplied arrows-around-arc shape), replacing the front/rear text toggle; the tooltip still names the camera it switches to.
+- **Still resolution shows only in still-capture context** ([camera-settings.js](../src/shell/camera-settings.js)): in perform (and motion) the camera is a live source, not a capture rig, so the row hides there. (Open follow-up, flagged: perform's live camera arguably wants the VIDEO-mode settings — fps/stabilization — which means mode-aware `stillMode` on the desktop native path; not built silently.)
+- **The bogus 0MP entries are gone at the source** ([plugin](../native-plugins/fold-native-camera/ios/Sources/FoldNativeCameraPlugin/FoldNativeCameraPlugin.swift)): some photo formats report sub-megapixel binned/thumbnail dimensions alongside the real ones; the catalog now drops anything under 1MP (keeping the largest if a format offers nothing else). His observed sets become: rear 1x → 12MP, rear UW → 10MP, front → 3MP/7MP.
+- **Tap-to-focus + the EV/WB press-hold pad reach the iPad** — new [shell/camera-touch.js](../src/shell/camera-touch.js), the mobile pad ported faithfully (450ms hold, axis lock, up = brighter / right = warmer, focus ring + HUD), TOUCH-only and native-camera-only so mouse/trackpad slice gestures are untouched. One improvement over the straight port: focus coordinates normalize against the DISPLAYED camera element, not the panel (the desktop source letterboxes, mobile covers).
+- **The destination is 'HDMI' again** (his call: more meaningful than 'display') **and gains a live resolution readout** while connected — `HDMI · 3840×2160` — since iOS exposes no display name and pixels are the identity that means something ([output-panel.js](../src/shell/output-panel.js) updates the row on displayChanged; AirPlay screens ride the same row).
+
+Verified: `node --check` ×4, `vite build`, `xcodebuild` sim **BUILD SUCCEEDED**, `cap sync`. Device-pending: the whole batch on the iPad (focus-map calibration expected, per the mobile pad's own history). ALSO CONFIRMED THIS ROUND (his smoke test): **the three-notch stabilization behaves exactly as intended** — middle default, notches as expected.
+
 ## v0.17.5 (Build 347) — 2026-07-15 — NDI out: everything except the SDK
 
 Broadcast #3's app side, complete up to the one line that legally can't ship without Daniel: **[fold-stage/ndi-sink](../packages/fold-stage/src/ndi-sink.js)** (the Syphon sink's structural twin — armed/disarmed around start/stop, frames stop at a boolean when idle, `publish(pixels, w, h, topDown)` over `host.ndi`), the **'NDI' destination row** in the output panel (with the source-name field now shared by both named destinations — what Arena/OBS list on the network), and registration in main.js. All of it is gated on `host.ndi.available` and **no host reports true yet**, so nothing appears anywhere — the honesty rule; the moment a shell embeds a real sender, the destination lights up with zero further app work.

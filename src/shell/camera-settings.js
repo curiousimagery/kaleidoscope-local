@@ -56,11 +56,15 @@ export function createCameraSettings(env, { getCamera, isNative, reacquire }) {
       rows.push(segRow('lens', lenses, camera.getLens(), (id) =>
         reacquire(() => camera.setLens(id)).then(rebuild)));
     }
-    // still resolution — GPU-gated like mobile (the engine samples the still at
-    // FULL res, so the ceiling is the real GL max texture size). no re-acquire:
-    // it only sizes the next capture.
+    // still resolution — STILL-CAPTURE context only (in perform the camera is a
+    // live source, not a capture rig — Daniel's iPad note); GPU-gated like mobile
+    // (the engine samples the still at FULL res, so the ceiling is the real GL
+    // max texture size). no re-acquire: it only sizes the next capture.
+    const stillContext = !env.performRT?.active && !env.motionRT?.active;
     const maxTex = env.engine?.diagnostics?.maxTextureSize || 4096;
-    const stills = (camera.getStillResolutions?.() || []).filter((r) => r.width <= maxTex && r.height <= maxTex);
+    const stills = stillContext
+      ? (camera.getStillResolutions?.() || []).filter((r) => r.width <= maxTex && r.height <= maxTex)
+      : [];
     if (stills.length) {
       if (!stills.some((r) => r.id === camera.getStillResolution())) {
         camera.setStillResolution(stills[stills.length - 1].id);   // drop to the largest allowed

@@ -18,6 +18,8 @@
 
 import { createCamera } from './camera.js';
 import { createCameraSettings } from './camera-settings.js';
+import { createCameraTouchControls } from './camera-touch.js';
+import { ICONS } from '../mobile/icons.js';   // shared glyph set (camera flip)
 import { seekVideoTo } from './video-source.js';
 import { zipStore } from './zip.js';
 import { getActiveForm } from '../engine/index.js';
@@ -293,8 +295,10 @@ export function createSourceHost(env) {
       select.appendChild(opt);
     }
     if (!labeled.length) {
+      // the native camera enumerates nothing (it drives lenses, not devices) —
+      // say what it IS instead of the generic placeholder (Daniel's note)
       const opt = document.createElement('option');
-      opt.value = ''; opt.textContent = 'camera'; opt.selected = true;
+      opt.value = ''; opt.textContent = cameraIsNative ? 'iPad native' : 'camera'; opt.selected = true;
       select.appendChild(opt);
     }
     const sep = document.createElement('option');
@@ -383,10 +387,12 @@ export function createSourceHost(env) {
         : '<svg viewBox="0 0 12 12" aria-hidden="true"><rect x="2" y="1.5" width="3" height="9" rx="1" fill="currentColor"/><rect x="7" y="1.5" width="3" height="9" rx="1" fill="currentColor"/></svg>capture';
       shutter.title = env.live.frozen ? 'live camera — resume the feed' : 'capture — freeze this frame';
     }
-    // flip button labels the camera it switches TO; nothing to flip while frozen.
+    // flip is an ICON button (the mobile camera-menu glyph — Daniel's note); the
+    // title still names the camera it switches TO. Nothing to flip while frozen.
     const flip = document.getElementById('flipBtn');
     if (flip) {
-      flip.textContent = camera.isFront() ? 'rear' : 'front';
+      if (!flip.dataset.icon) { flip.innerHTML = ICONS.flip; flip.classList.add('ot-icon'); flip.dataset.icon = '1'; }
+      flip.title = camera.isFront() ? 'switch to the rear camera' : 'switch to the front camera';
       flip.style.display = env.live.frozen ? 'none' : '';
     }
     camSettings.refresh();  // gear shows only while live + something is adjustable
@@ -491,6 +497,13 @@ export function createSourceHost(env) {
     getCamera: () => camera,
     isNative: () => cameraIsNative,
     reacquire: reacquireCamera,
+  });
+
+  // iPad hands-on layer: tap-to-focus + the EV/WB press-hold pad on the source
+  // panel (touch-only, native live camera only — the mobile pad ported verbatim).
+  createCameraTouchControls(env, {
+    getCamera: () => camera,
+    isNative: () => cameraIsNative,
   });
 
   // grab the current camera frame into a canvas at native resolution. mirrored

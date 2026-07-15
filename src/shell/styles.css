@@ -1289,3 +1289,22 @@ body.motion #oobModes { pointer-events: none; opacity: var(--disabled-opacity); 
 /* QR pairing row */
 .in-pair-row { display: flex; gap: 14px; align-items: center; }
 .in-qr { border-radius: var(--radius-sm); flex: none; }
+
+/* ---- iPad native-camera touch layer (shell/camera-touch.js — the mobile pad,
+   ported): tap-to-focus ring + the EV/WB press-hold readout, absolutely
+   positioned inside the (position:relative) source panel */
+#camFocusRing { position: absolute; width: 64px; height: 64px; margin: -32px 0 0 -32px;
+  border: 1.5px solid var(--text-bright); border-radius: var(--radius-sm); box-shadow: 0 0 0 1px rgba(0,0,0,0.4);
+  pointer-events: none; opacity: 0; z-index: 7; }
+#camFocusRing.show { animation: cam-focus-flash 0.9s ease-out; }
+@keyframes cam-focus-flash {
+  0% { opacity: 0; transform: scale(1.4); }
+  15% { opacity: 1; transform: scale(1); }
+  70% { opacity: 1; }
+  100% { opacity: 0; }
+}
+#camPadHud { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+  z-index: 8; padding: 10px 18px; background: rgba(20, 20, 20, 0.82); color: var(--text-bright);
+  border-radius: var(--radius-lg); font-size: var(--text-lg); font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em; pointer-events: none; }
+#camPadHud.ct-hidden { display: none; }

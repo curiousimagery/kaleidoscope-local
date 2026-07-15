@@ -242,7 +242,14 @@ export function createOutputPanel(env, outputBus) {
     try { saved = localStorage.getItem(DEST_KEY); } catch {}
     if (!destination || (saved === id && !broadcasting)) destination = id;
     if (typeof sink.onDisplayChange === 'function') {
-      sink.onDisplayChange((connected) => {
+      sink.onDisplayChange((connected, info) => {
+        // the row carries a live resolution readout while connected — iOS exposes
+        // no display NAME, so pixels are the meaningful identity (Daniel's call)
+        const d = destinations.find((x) => x.id === id);
+        if (d) {
+          d.label = connected && info?.width ? `${label} · ${info.width}×${info.height}` : label;
+          buildDestPicker();
+        }
         if (connected && !broadcasting) selectDestination(id);
         if (!connected && broadcasting && destination === id) {
           broadcasting = false;

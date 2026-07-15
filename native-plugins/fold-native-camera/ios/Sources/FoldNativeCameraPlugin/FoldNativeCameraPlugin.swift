@@ -160,7 +160,12 @@ public class FoldNativeCameraPlugin: CAPPlugin, CAPBridgedPlugin, AVCaptureVideo
         guard #available(iOS 16.0, *) else { return [] }
         let area: (CMVideoDimensions) -> Int = { Int($0.width) * Int($0.height) }
         let fmt = bestPhotoFormat(device) ?? device.activeFormat
-        let dims = fmt.supportedMaxPhotoDimensions.sorted { area($0) < area($1) }
+        var dims = fmt.supportedMaxPhotoDimensions.sorted { area($0) < area($1) }
+        // drop the sub-megapixel binned/thumbnail dimensions some formats report —
+        // they render as a bogus "0MP" choice (Daniel's iPad pass); keep at least
+        // the largest so the menu never goes empty on an odd format
+        let usable = dims.filter { area($0) >= 1_000_000 }
+        dims = usable.isEmpty ? Array(dims.suffix(1)) : usable
         return dims.map { d in
             let mp = Double(area(d)) / 1_000_000.0
             let label = mp >= 1 ? "\(Int(mp.rounded()))MP" : String(format: "%.1fMP", mp)
