@@ -44,6 +44,18 @@ if (!fs.existsSync(tpNode)) {
   console.log('[build-dmg] building the trackpad gesture addon…');
   execFileSync('npx', ['node-gyp', 'rebuild'], { stdio: 'inherit', cwd: path.join(electronDir, 'native', 'trackpad') });
 }
+// 0c) the NDI sender addon — needs the locally installed NDI SDK (the `sdk`
+//     symlink → /Library/NDI SDK for Apple). Skipped, not fatal, when the SDK
+//     isn't installed: the ndi bridge reports unavailable and the app simply
+//     doesn't offer the NDI destination. NOTE for real distribution: the DMG
+//     must BUNDLE the redistributable libndi (SDK redist/ + its terms) — today
+//     the addon's rpath points at the local SDK install (fine on this machine).
+const ndiNode = path.join(electronDir, 'native', 'ndi', 'build', 'Release', 'fold_ndi.node');
+const ndiSdk = path.join(electronDir, 'native', 'ndi', 'sdk', 'include');
+if (!fs.existsSync(ndiNode) && fs.existsSync(ndiSdk)) {
+  console.log('[build-dmg] building the NDI sender addon…');
+  execFileSync('npx', ['node-gyp', 'rebuild'], { stdio: 'inherit', cwd: path.join(electronDir, 'native', 'ndi') });
+}
 // 1) build the web app into ../dist
 sh('npm', ['run', 'build', '--prefix', '..']);
 // 2) package, injecting the real app version so the DMG name reflects the build

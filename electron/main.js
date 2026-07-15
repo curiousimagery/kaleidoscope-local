@@ -21,6 +21,7 @@ const { app, BrowserWindow, ipcMain, session } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const syphon = require('./syphon-bridge');
+const ndi = require('./ndi-bridge');
 const trackpad = require('./trackpad-bridge');
 const remote = require('./remote-input');
 
@@ -103,6 +104,15 @@ ipcMain.on('syphon:start', (_e, { name } = {}) => syphon.start(name));
 ipcMain.handle('syphon:frame', (_e, payload) => { syphon.publish(payload); });
 ipcMain.on('syphon:stop', () => syphon.stop());
 
+// NDI control — Syphon's network sibling (ndi-bridge.js → the fold_ndi addon →
+// the installed NDI SDK). Same arm/publish/stop shape, same invoke-backpressure
+// on the frame path; `ndi:available` gates the renderer's destination row on
+// whether the addon actually loaded (no SDK / no build → no NDI in the picker).
+ipcMain.on('ndi:available', (e) => { e.returnValue = ndi.available(); });
+ipcMain.on('ndi:start', (_e, { name } = {}) => ndi.start(name));
+ipcMain.handle('ndi:frame', (_e, payload) => { ndi.publish(payload); });
+ipcMain.on('ndi:stop', () => ndi.stop());
+
 // Native trackpad gestures (Arc 6): the NSEvent monitor streams magnify/rotate
 // deltas; forward them to the renderer where the control bus maps them like any
 // other input device. `sendSync` availability probe runs once from the preload.
@@ -150,4 +160,4 @@ app.on('window-all-closed', () => {
 });
 
 // Make sure the Syphon server is released even if quitting while live.
-app.on('will-quit', () => { syphon.stop(); trackpad.stop(); remote.stop(); });
+app.on('will-quit', () => { syphon.stop(); ndi.stop(); trackpad.stop(); remote.stop(); });

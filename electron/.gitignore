@@ -1,3 +1,5 @@
 node_modules/
 dist/
 release/
+# native addon build artifacts (node-gyp) — sources + binding.gyp are the repo truth
+native/*/build/

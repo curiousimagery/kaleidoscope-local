@@ -31,6 +31,10 @@ let syphonStarted = false;
 // while staying bounded so the heap can't blow up (the OOM we hit).
 let framesInFlight = 0;
 const MAX_FRAMES_IN_FLIGHT = 2;
+// NDI mirrors the same armed + in-flight discipline (independent counters — the
+// two outputs can run simultaneously without sharing a budget).
+let ndiStarted = false;
+let ndiFramesInFlight = 0;
 
 const foldHost = {
   name: 'electron',
@@ -66,6 +70,31 @@ const foldHost = {
       syphonStarted = false;
       framesInFlight = 0;
       ipcRenderer.send('syphon:stop');
+    },
+  },
+
+  // NDI network output — Syphon's wireless sibling, same IPC discipline: armed
+  // gate on this side too, and invoke-based backpressure so the renderer can
+  // never queue unbounded ~MB frames toward main (the Syphon OOM lesson).
+  // `available` reflects whether main actually loaded the addon + SDK.
+  ndi: {
+    available: ipcRenderer.sendSync('ndi:available') === true,
+    start(name) {
+      ndiStarted = true;
+      ndiFramesInFlight = 0;
+      ipcRenderer.send('ndi:start', { name: name || 'Fold' });
+    },
+    publish(pixels, width, height, flipped) {
+      if (!ndiStarted || ndiFramesInFlight >= MAX_FRAMES_IN_FLIGHT) return;
+      ndiFramesInFlight++;
+      ipcRenderer.invoke('ndi:frame', { width, height, pixels, flipped: !!flipped })
+        .catch(() => {})
+        .finally(() => { ndiFramesInFlight--; });
+    },
+    stop() {
+      ndiStarted = false;
+      ndiFramesInFlight = 0;
+      ipcRenderer.send('ndi:stop');
     },
   },
 
@@ -135,4 +164,4 @@ contextBridge.exposeInMainWorld('foldHost', foldHost);
 
 // Bring-up breadcrumb: confirms the preload ran and the host is the Electron one
 // (not the webHost fallback). Visible in the detached devtools console.
-console.log(`[fold-host] electron shell ready — syphon ${foldHost.syphon.available ? 'available' : 'stub'}`);
+console.log(`[fold-host] electron shell ready — syphon ${foldHost.syphon.available ? 'available' : 'stub'} · ndi ${foldHost.ndi.available ? 'available' : 'stub'}`);

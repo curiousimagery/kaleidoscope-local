@@ -4,6 +4,14 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.17.9 (Build 351) — 2026-07-15 — NDI OUT IS REAL: the Electron sender against Daniel's installed SDK
+
+Daniel accepted the Vizrt terms and installed the SDK (`/Library/NDI SDK for Apple`), which greenlit the one gated piece — and B347's app side means nothing else had to change: the destination row and sink light up on their own.
+
+The build: **[electron/native/ndi](../electron/native/ndi/)** — a raw N-API addon (the fold_trackpad discipline: no node-addon-api, ABI-stable across Node/Electron) binding `NDIlib_send_*`; RGBA frames pass straight through (NDI takes our FourCC natively, top-down; the legacy bottom-up case row-flips in C). The SDK links via a space-free `sdk` symlink → the standard install path. **[ndi-bridge.js](../electron/ndi-bridge.js)** mirrors syphon-bridge (armed lifecycle — the source exists on the network only while live; lazy addon load, `available:false` when the SDK/build is absent so the picker stays honest); main.js IPC (`ndi:available/start/frame/stop`, invoke-backpressure on the frame path — the Syphon OOM lesson, with an independent in-flight budget so Syphon + NDI can broadcast simultaneously); preload `ndi` host entry; build-dmg builds the addon when the SDK is present and packages it.
+
+**Smoke-tested for real, not just compiled:** the addon loaded in node, created a sender named "Fold Smoke Test", published 10 frames, and tore down clean — an actual NDI source existed on the network. Device-verify next: Electron output panel → destination NDI → start, and Arena/OBS on the LAN should list it by the editable name. Remaining in BACKLOG: the iOS `fold-ndi` plugin (frame-egress transport to measure) and DMG redistribution (bundle libndi per the SDK's redist terms).
+
 ## v0.17.8 (Build 350) — 2026-07-15 — frame aspect can match the connected display
 
 From Daniel's AirPlay pass (a destination screen that isn't 16:9): the frame-aspect control in BOTH chromes gains a **'display' option that appears only while an external display is attached** and sets the composition to the display's exact native aspect — WYSIWYG all the way through (preview, recording, save, and the external output all agree), with the usual re-tap portrait/landscape flip. Desktop: a sixth button in the output panel's aspect row (tooltip shows the display's pixels); mobile: a sixth segment in the canvas pop. Plumbing: the external-display module now publishes the connected display's native dims (`env.externalDisplayDims` + a change hook on desktop; an `onDims` callback on the mobile autoconnect).
