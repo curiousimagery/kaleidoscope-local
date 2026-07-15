@@ -4,6 +4,16 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.17.3 (Build 345) — 2026-07-15 — Lane 4C: the stage layer becomes the `fold-stage` package
+
+The extraction the arc plan gated on a second tenant (met: Tap). **`src/stage/` (all seven modules) + `shell/host.js` moved to [packages/fold-stage](../packages/fold-stage/)** — its own npm package (`name: fold-stage`, subpath exports + a barrel, `sideEffects: false`, own README documenting the contract and the split procedure), consumed by the app as `"fold-stage": "file:packages/fold-stage"` (the native-plugins pattern). All nine import sites now address the package BY NAME (`fold-stage/output-bus`, `fold-stage/commit-cell`, `fold-stage/host`, …) — so when Daniel picks the package's remote home, the repo split is mechanical: copy/`git subtree split` the directory out, push, and change one dependency line; no app code moves again.
+
+**Why in-repo rather than a sibling repo now:** a `file:../fold-stage` checkout dependency would break Vercel deploys and fresh clones outright, and publishing (private npm vs git URL) needs Daniel's accounts/remotes. The in-repo package gets the real boundary (own package.json, no reaching into app code — the stage was already import-clean: zero app-side imports) with none of that fragility.
+
+**What the package owns now:** the engine-adapter contract, output bus, recorder/Syphon sinks, test pattern, mock host, the B330 `commit-cell` (the program-snapshot mechanism, payload-opaque per the Lane 4A review), and the **host-services contract** (`fold-stage/host` — `webHost` baseline; `shell/capacitor-host.js` and Electron's `window.foldHost` implement it app-side). Fold-specific pieces stay app-side by design: `fold-adapter.js`, `program-frame.js` (Fold's commit-cell payload + commit points), `output-panel/engine/window`.
+
+Docs: ARCHITECTURE.md's Stage tier + mount-seam sections rewritten for the package; BACKLOG's "web track" extraction item closed (the lower-level-contract exploration stays open). Verified: `npm run check`, `vite build` (bundle unchanged in size), `cap sync`. **Two naming/home decisions flagged for Daniel in BACKLOG: the package name (`fold-stage` — rename is trivial until first publish) and its eventual remote.**
+
 ## v0.17.2 (Build 344) — 2026-07-15 — the camera-settings gear lands in the desktop/iPad chrome
 
 The gear Daniel spec'd, in the toolbar: a settings button (the B339 Material settings-photo-camera glyph) **right of the camera picker**, shown only while the camera is LIVE and the current camera actually reports something adjustable. The popover is **capability-driven** (the mobile cam-menu discipline — nothing appears where the platform can't honor it), rebuilt fresh on every open, with two capability sources behind one UI:

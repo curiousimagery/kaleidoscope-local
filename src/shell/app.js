@@ -23,7 +23,7 @@
 import { createClipEditor } from './clip-editor.js';
 import { createSourceHost } from './source-host.js';
 import { createMotionRuntime } from './motion-runtime.js';
-import { webHost } from './host.js';
+import { webHost } from 'fold-stage/host';
 
 export function createApp(env, { host = webHost, capabilities = null } = {}) {
   // Injectable runtime seams. The web build gets `webHost` (everything reports

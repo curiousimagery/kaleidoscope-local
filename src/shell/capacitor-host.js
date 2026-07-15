@@ -16,7 +16,7 @@
 // no-op here until their Swift plugins land, so the app degrades gracefully and this
 // file is where each one gets wired as it ships.
 
-import { webHost } from './host.js';
+import { webHost } from 'fold-stage/host';
 
 // Blob → base64 (Filesystem.writeFile wants base64 string data).
 function blobToBase64(blob) {

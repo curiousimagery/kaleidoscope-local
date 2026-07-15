@@ -1,0 +1,21 @@
+{
+  "name": "fold-stage",
+  "version": "0.1.0",
+  "description": "The engine-agnostic stage layer: committed program frames, the output bus + sinks (recorder, Syphon, external views), and the host-services contract. Shared by Fold, Tap, and future tenants — each supplies an engine adapter (see src/engine-adapter.js) and a host implementation (see src/host.js) and reuses the stage verbatim.",
+  "type": "module",
+  "license": "AGPL-3.0-or-later",
+  "author": "Daniel Nelson",
+  "sideEffects": false,
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./commit-cell": "./src/commit-cell.js",
+    "./engine-adapter": "./src/engine-adapter.js",
+    "./host": "./src/host.js",
+    "./mock-host": "./src/mock-host.js",
+    "./output-bus": "./src/output-bus.js",
+    "./recorder": "./src/recorder.js",
+    "./syphon-sink": "./src/syphon-sink.js",
+    "./test-pattern": "./src/test-pattern.js"
+  }
+}

@@ -34,7 +34,7 @@
 // read-side copy, never a second source of truth; restoring state simply
 // republishes on the next commit.
 
-import { createCommitCell } from '../stage/commit-cell.js';
+import { createCommitCell } from 'fold-stage/commit-cell';
 
 // param snapshots are flat (numbers / strings / booleans), so shallow equality
 // is exact — this is what keeps gen meaning "the look actually changed"
