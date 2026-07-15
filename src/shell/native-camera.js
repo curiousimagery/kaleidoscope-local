@@ -40,6 +40,8 @@ export function createNativeCamera() {
   let resolutions = [];       // [{id,label,maxFps}] the current lens actually offers
   let preset = 'hd1080';      // the chosen streaming (video) resolution
   let targetFps = 30;         // the requested frame rate (matters in record-video mode)
+  let videoStab = 'standard'; // record-video stabilization: 'standard' (responsive,
+                              // Daniel's default) | 'cinematic' (smoother, laggier)
   // still capture: on pause we grab a real full-res still via capturePhoto (which
   // switches to the photo format for the shot). `stillMode` tells the plugin to preview
   // at the PHOTO aspect (4:3) so the composition doesn't shift on capture; video mode
@@ -129,6 +131,7 @@ export function createNativeCamera() {
     // format switch (in capturePhoto), not a heavy preview.
     const res = await FoldNativeCamera.start({
       preset, fps: targetFps, lens, stillMode,
+      videoStabilization: videoStab,
       facing: facing === 'user' ? 'front' : 'back',
     });
     console.info('[native-camera] plugin.start resolved', JSON.stringify(res));
@@ -213,6 +216,14 @@ export function createNativeCamera() {
     targetFps = safe.includes(fps) ? fps : Math.max(...safe);
     return start({ facingMode: facing });
   }
+  // record-video stabilization (Daniel's daylight pass: cinematicExtended's
+  // smoothing lag made framing unpredictable — you move and can't tell if the
+  // camera will follow). STANDARD is the default; 'cinematic' (the middle mode,
+  // dialed back one notch from extended) is the opt-in "smooth". Re-acquires.
+  async function setVideoStabilization(mode) {
+    videoStab = mode === 'cinematic' ? 'cinematic' : 'standard';
+    return start({ facingMode: facing });
+  }
 
   // still-capture mode (photo-optimized format) vs record-video mode. Set by the shell
   // before start() from the source type; changing it takes effect on the next start.
@@ -265,6 +276,8 @@ export function createNativeCamera() {
     getResolutions: () => resolutions,   // [{id,label,maxFps,width,height}] for the current lens
     getResolution: () => preset,
     getFrameRate: () => targetFps,
+    getVideoStabilization: () => videoStab,
+    setVideoStabilization,
     getSafeFps: () => safeFps(preset),   // pipeline-safe fps options for the current resolution
     safeFpsFor: (id) => safeFps(id),
     getStillResolutions: () => stillResolutions,   // [{id,label,width,height}]

@@ -1123,6 +1123,7 @@ $('m-flip').addEventListener('click', flipCamera);
 const camLensWrap = document.createElement('div');
 const camResWrap = document.createElement('div');
 const camFpsWrap = document.createElement('div');
+const camStabWrap = document.createElement('div');
 const camEvWrap = document.createElement('div');
 const camWbWrap = document.createElement('div');
 if (useNativeCam) {
@@ -1135,9 +1136,10 @@ if (useNativeCam) {
   camLensWrap.className = 'm-control'; camLensWrap.id = 'm-cam-lens';
   camResWrap.className = 'm-control'; camResWrap.id = 'm-cam-res';
   camFpsWrap.className = 'm-control'; camFpsWrap.id = 'm-cam-fps';
+  camStabWrap.className = 'm-control'; camStabWrap.id = 'm-cam-stab';
   camEvWrap.className = 'm-control'; camEvWrap.id = 'm-cam-ev';
   camWbWrap.className = 'm-control'; camWbWrap.id = 'm-cam-wb';
-  camPopEl.append(camLensWrap, camResWrap, camFpsWrap, camEvWrap, camWbWrap);
+  camPopEl.append(camLensWrap, camResWrap, camFpsWrap, camStabWrap, camEvWrap, camWbWrap);
 
   camMenuBtn.addEventListener('click', (e) => {
     e.stopPropagation();
@@ -1205,6 +1207,17 @@ function refreshCamMenu() {
   camFpsWrap.classList.toggle('m-hidden', !showFps);
   if (showFps) buildCamSeg(camFpsWrap, 'frame rate', fpsOpts, String(camera.getFrameRate()), (id) => switchFrameRate(+id));
   else camFpsWrap.innerHTML = '';
+  // stabilization — record-video only (stills always run light .standard). Daniel's
+  // daylight pass: cinematicExtended's smoothing lag made framing unpredictable →
+  // STANDARD (responsive) is the default; "smooth" = .cinematic, one notch back
+  // from extended. Re-acquires like fps.
+  const showStab = videoMode && !!camera.getVideoStabilization;
+  camStabWrap.classList.toggle('m-hidden', !showStab);
+  if (showStab) {
+    buildCamSeg(camStabWrap, 'stabilization',
+      [{ id: 'standard', label: 'standard' }, { id: 'cinematic', label: 'smooth' }],
+      camera.getVideoStabilization(), switchStabilization);
+  } else camStabWrap.innerHTML = '';
   // exposure (EV) — a live bias slider; white balance — auto/manual + a Kelvin slider
   // when manual (only where the physical lens supports custom gains, which ours do).
   // Both reset on a lens/flip change (native-camera resets + refreshCamMenu re-reads).
@@ -1292,6 +1305,7 @@ async function reacquireCamera(op) {
 const switchLens = (id) => reacquireCamera(() => camera.setLens(id));
 const switchResolution = (id) => reacquireCamera(() => camera.setResolution(id));
 const switchFrameRate = (fps) => reacquireCamera(() => camera.setFrameRate(fps));
+const switchStabilization = (id) => reacquireCamera(() => camera.setVideoStabilization(id));
 
 // ---- the EV/WB press-hold PAD (native live camera; FIRST CUT for hands-on feel) ---
 // Press-hold anywhere in the source (still for HOLD_MS) engages a pad: drag Y = EV
