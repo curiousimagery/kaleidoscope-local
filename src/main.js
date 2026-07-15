@@ -1193,10 +1193,14 @@ if (engine) {
     import('./shell/external-display.js')
       .then((m) => {
         outputBus.registerSink(m.createExternalDisplaySink(env));
+        // the id stays 'hdmi' (persisted selections + the fill-toggle gate key on
+        // it); the LABEL says 'display' because the same UIScreen path covers BOTH
+        // HDMI and an AirPlay screen (Control Center → Screen Mirroring → the
+        // program presents extended, not mirrored — no new plumbing).
         env.addOutputDestination?.({
           id: 'hdmi',
-          label: 'HDMI',
-          title: 'present the program on the connected HDMI / external display (chrome-free, full screen)',
+          label: 'display',
+          title: 'present the program on the connected external display — HDMI or AirPlay screen mirroring (chrome-free, full screen)',
         });
       })
       .catch((e) => console.warn('[fold] external display unavailable:', e));

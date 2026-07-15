@@ -187,6 +187,13 @@ public class FoldExternalDisplayPlugin: CAPPlugin, CAPBridgedPlugin, WKScriptMes
         config.mediaTypesRequiringUserActionForPlayback = []
         config.userContentController.add(self, name: "foldExternal")
 
+        // TVs (HDMI adapters AND AirPlay screens — this same UIScreen path serves
+        // both) often overscan; scale into the safe area so the artwork's edges
+        // are never cropped. AirPlay = Control Center → Screen Mirroring: iOS
+        // raises the identical didConnect, and presenting a window switches the
+        // screen from mirroring to extended content.
+        screen.overscanCompensation = .scale
+
         let window = UIWindow(frame: screen.bounds)
         if let scene = scene {
             window.windowScene = scene

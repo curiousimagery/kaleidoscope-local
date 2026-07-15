@@ -4,6 +4,12 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.17.4 (Build 346) — 2026-07-15 — AirPlay out, riding the external-display path
+
+Broadcast #2 lands as a *discovery*, not a build: **an AirPlay screen raises the exact `UIScreen.didConnect` the HDMI plugin already handles** — the user starts Screen Mirroring in Control Center, iOS attaches the Apple TV as an external screen, and presenting our window switches it from mirroring to **extended program content** (chrome-free, the committed program frame — not a mirror of the phone UI). iPhone autoconnect and the iPad destination picker both inherit it with zero new plumbing. The arc plan's "web spike first" sequencing predated the HDMI stack existing; the native path is now the cheap one, and the web spike (`captureStream` → `webkitShowPlaybackTargetPicker`) is demoted to a someday-note in BACKLOG (WebKit's known refusal to AirPlay MediaStream-backed video made it disqualification-prone anyway).
+
+What B346 actually adds: **overscan compensation** in the plugin (`screen.overscanCompensation = .scale` — TVs over AirPlay/HDMI adapters often overscan; the artwork's edges are never cropped) and the destination copy — the picker row is now labeled **'display'** (id stays `hdmi` so persisted selections + the fill-toggle gate survive) with a title covering both transports. Verified: `xcodebuild` sim **BUILD SUCCEEDED**, `vite build`, `cap sync`. Device-pending: an Apple TV pass (expect a beat more latency than cable; fit/fill + adaptive degradation all apply unchanged).
+
 ## v0.17.3 (Build 345) — 2026-07-15 — Lane 4C: the stage layer becomes the `fold-stage` package
 
 The extraction the arc plan gated on a second tenant (met: Tap). **`src/stage/` (all seven modules) + `shell/host.js` moved to [packages/fold-stage](../packages/fold-stage/)** — its own npm package (`name: fold-stage`, subpath exports + a barrel, `sideEffects: false`, own README documenting the contract and the split procedure), consumed by the app as `"fold-stage": "file:packages/fold-stage"` (the native-plugins pattern). All nine import sites now address the package BY NAME (`fold-stage/output-bus`, `fold-stage/commit-cell`, `fold-stage/host`, …) — so when Daniel picks the package's remote home, the repo split is mechanical: copy/`git subtree split` the directory out, push, and change one dependency line; no app code moves again.
