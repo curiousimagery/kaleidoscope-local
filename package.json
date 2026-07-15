@@ -13,8 +13,7 @@
     "check": "for f in src/version.js src/main.js src/shell/*.js src/engine/*.js src/engine/forms/*.js; do node --check \"$f\" || exit 1; done && echo all syntax checks pass",
     "cap:sync": "vite build && cap sync ios",
     "cap:open": "cap open ios",
-    "ios": "vite build && cap sync ios && cap open ios",
-    "native:cam": "VITE_FOLD_NATIVE_CAM=1 vite build && cap sync ios && cap open ios"
+    "ios": "vite build && cap sync ios && cap open ios"
   },
   "devDependencies": {
     "@capacitor/cli": "^8.4.1",

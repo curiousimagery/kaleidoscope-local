@@ -4,6 +4,10 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.16.22 (Build 338) — 2026-07-15 — the native camera is now the Capacitor DEFAULT (the lost-camera-menu regression)
+
+Daniel's high-pri report: recent device builds lost the native camera controls (the camera menu with lens/EV/WB reverted to the bare flip icon). Root cause was procedural, not code: the native camera was still gated behind the `VITE_FOLD_NATIVE_CAM` build flag, and **every plain `vite build && cap sync` run during the HDMI lane silently overwrote the iOS bundle with the web-camera build** — his Xcode runs then shipped it. (This also means the iPhone live-camera-over-HDMI tests never exercised the native path — the frame-socket relay is still untested.) The fix removes the failure mode instead of patching it: **`useNativeCam` is now simply `host.nativeCamera.available`** — a capability the host reports should never depend on a build flag. This is the "flip the default" decision parked at the camera close-out, now made (his call). Web builds are unaffected (`host.nativeCamera.available` is false off-device). The `native:cam` npm script is gone — **`npm run ios` is THE build**. [mobile/chrome.js](../src/mobile/chrome.js), [package.json](../package.json).
+
 ## v0.16.21 (Build 337) — 2026-07-15 — the iPhone crash's true root cause (the engine probe bomb) + the dual-capture verdict
 
 Pass 5 cracked both remaining problems, and the iPhone one was ours all along:

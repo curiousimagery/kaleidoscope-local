@@ -124,10 +124,13 @@ function scheduleRender() {
 env.scheduleRender = scheduleRender;
 
 // ----------------------------------------------------------------- components
-// Native camera (real AVCaptureSession + EV/WB/lens/48MP) when the host offers it and
-// the native-cam build flag is set; else the getUserMedia camera. Flag-gated for now so
-// the proven web path stays default until the native path is device-verified.
-const useNativeCam = !!(host.nativeCamera?.available && import.meta.env.VITE_FOLD_NATIVE_CAM === '1');
+// Native camera (real AVCaptureSession + EV/WB/lens/48MP) whenever the host offers
+// it; else the getUserMedia camera. The VITE_FOLD_NATIVE_CAM build flag is GONE
+// (B338): it silently reverted Daniel's device builds to the web path whenever a
+// plain `vite build && cap sync` ran between his Xcode runs (the lost-camera-menu
+// regression) — a capability the host reports should never depend on a build
+// flag. Web builds are unaffected: host.nativeCamera.available is false there.
+const useNativeCam = !!host.nativeCamera?.available;
 const camera = useNativeCam ? createNativeCamera() : createCamera();
 if (useNativeCam) console.info('[fold] native camera path active');
 let liveVideo = null;          // the camera <video> while live; null otherwise
