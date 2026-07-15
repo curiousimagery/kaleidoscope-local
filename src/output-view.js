@@ -28,7 +28,13 @@ const hint = document.getElementById('hint');
 
 let engine;
 try {
-  engine = createEngine({ canvas });
+  // maxProbeSize is REQUIRED here: the default boot probe walks FBO sizes up to
+  // maxTextureSize, deliberately committing the memory — on an iPhone that's a
+  // ~1GB 16384² attempt, which jetsam-killed the external-display webview before
+  // it ever said hello (the pass-5 crash loop; same reason mobile/chrome.js caps
+  // its probe). This view only renders to canvas — it never exports — so it
+  // needs no large FBO at all.
+  engine = createEngine({ canvas, maxProbeSize: 2048 });
 } catch (e) {
   if (hint) hint.textContent = 'could not start the output engine: ' + e.message;
   throw e;
@@ -39,6 +45,7 @@ let latestVideo = null;          // {t,paused,rate} of the main app's video cloc
 let liveSource = false;          // camera/video re-upload the texture each frame; a still does not
 let haveSource = false;
 let camera = null;               // createCamera() when the source is the live camera
+let receiver = null;             // native-camera frame-socket receiver (external display)
 let videoEl = null;              // the popup's own <video> for a loaded-video source
 let sourceToken = 0;             // guards against a stale async source setup winning a race
 
@@ -57,7 +64,17 @@ async function teardownSource() {
   liveSource = false;
   haveSource = false;
   if (camera) { try { camera.stop(); } catch {} camera = null; }
+  if (receiver) { try { receiver.stop(); } catch {} receiver = null; }
   if (videoEl) { try { videoEl.pause(); } catch {} videoEl.src = ''; videoEl = null; }
+  // clear the canvas — otherwise the LAST RENDERED FRAME persists while the new
+  // source loads or when it fails (Daniel saw a stale still stay on the external
+  // display after switching to a source that couldn't open). Black + the hint
+  // is the honest in-between.
+  try {
+    const gl = engine.glContext;
+    gl.clearColor(0, 0, 0, 1);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+  } catch { /* engine may not expose its context */ }
 }
 
 async function setupSource(payload) {
@@ -65,26 +82,76 @@ async function setupSource(payload) {
   await teardownSource();
   if (!payload || payload.kind === 'none') return;
 
-  if (payload.kind === 'image' && payload.bitmap) {
-    engine.setSource(payload.bitmap);
+  if (payload.kind === 'image' && (payload.bitmap || payload.dataUrl)) {
+    let src = payload.bitmap;
+    if (!src) {
+      // the native external-display transport can't structured-clone an
+      // ImageBitmap — the still arrives as a data URL instead
+      src = new Image();
+      src.src = payload.dataUrl;
+      await new Promise((res) => { src.onload = res; src.onerror = res; });
+      if (!src.naturalWidth) return;
+    }
     if (token !== sourceToken) return;
+    engine.setSource(src);
     liveSource = false; haveSource = true;
+    return;
+  }
+
+  if (payload.kind === 'native-camera' && payload.port) {
+    // the NATIVE camera (Capacitor): join its frame socket as a second client —
+    // no second capture session (iOS wouldn't allow one), same frames the phone
+    // previews. Receiver is lazy-loaded (never needed by the web popup).
+    let recv = null;
+    try {
+      const mod = await import('./shell/native-camera-receiver.js');
+      recv = mod.createNativeCameraReceiver({ port: payload.port, mirror: !!payload.mirror });
+      await recv.start();
+    } catch (e) {
+      if (hint) hint.textContent = 'could not join the camera stream: ' + (e.message || e);
+      try { recv?.stop(); } catch { /* not started */ }
+      return;
+    }
+    if (token !== sourceToken) { recv.stop(); return; }
+    receiver = recv;
+    engine.setSource(receiver.frameSource());
+    liveSource = true; haveSource = true;
+    return;
+  }
+
+  if (payload.kind === 'unsupported') {
+    // an honest hint instead of a stale frame (e.g. video sources over the
+    // native bridge — a follow-up)
+    if (hint) hint.textContent = payload.reason || 'this source is not yet supported here';
+    document.body.classList.remove('live');
     return;
   }
 
   if (payload.kind === 'camera') {
     camera = createCamera();
+    // match the MAIN app's negotiated capture mode (width/height ride the
+    // payload) — a second consumer of the same device can otherwise land on a
+    // different aspect and skew every slice coordinate in this window.
+    // deviceId only works on the SAME-origin popup path (getUserMedia ids are
+    // salted per origin — a foreign id matches nothing); the native transport
+    // sends facingMode instead, and a failed deviceId retries by facing.
+    const dims = payload.width ? { width: payload.width, height: payload.height } : {};
     try {
-      // match the MAIN app's negotiated capture mode (width/height ride the
-      // payload) — a second consumer of the same device can otherwise land on a
-      // different aspect and skew every slice coordinate in this window
       await camera.start({
         ...(payload.deviceId ? { deviceId: payload.deviceId } : {}),
-        ...(payload.width ? { width: payload.width, height: payload.height } : {}),
+        ...(payload.facingMode && !payload.deviceId ? { facingMode: payload.facingMode } : {}),
+        ...dims,
       });
     } catch (e) {
-      if (hint) hint.textContent = 'output window could not open the camera: ' + (e.message || e.name);
-      camera = null; return;
+      let recovered = false;
+      if (payload.deviceId && payload.facingMode) {
+        try { await camera.start({ facingMode: payload.facingMode, ...dims }); recovered = true; }
+        catch { /* fall through to the hint */ }
+      }
+      if (!recovered) {
+        if (hint) hint.textContent = 'output window could not open the camera: ' + (e.message || e.name);
+        camera = null; return;
+      }
     }
     if (token !== sourceToken) { try { camera.stop(); } catch {} camera = null; return; }
     engine.setSource(camera.frameSource());
@@ -170,6 +237,7 @@ let lastRenderT = 0;
 function renderFrame() {
   if (!(haveSource && latestState)) return;
   if (camera) camera.refreshFrame();        // front-camera: redraw the mirrored frame
+  if (receiver) receiver.refreshFrame();     // native camera: blit the latest socket frame
   if (videoEl) reconcileVideo();             // keep the video copy in sync with the main clock
   if (liveSource) engine.updateSourceFrame(); // re-upload camera/video texture
   engine.render(latestState);
@@ -179,7 +247,7 @@ function renderFrame() {
   if (lastRenderT - fpsT >= 1000) {
     measuredFps = Math.round((frames * 1000) / (lastRenderT - fpsT));
     frames = 0; fpsT = lastRenderT;
-    try { channel.postMessage({ type: 'fps', fps: measuredFps }); } catch {}
+    sendUp({ type: 'fps', fps: measuredFps });
   }
 }
 
@@ -190,10 +258,12 @@ function tick() {
 }
 requestAnimationFrame(tick);
 
-// ---- channel: receive state + source from the main app ------------------------
-const channel = new BroadcastChannel(CHANNEL);
-channel.onmessage = (e) => {
-  const msg = e.data;
+// ---- transport: receive state + source from the main app ----------------------
+// Two ingress paths, one handler: the same-origin BroadcastChannel (the popup
+// output window) and window.__foldExternal (the Capacitor external-display
+// plugin evaluates messages into this webview — BroadcastChannel can't cross
+// WKWebViews, so the committed state-stream arrives over the bridge instead).
+function handleMessage(msg) {
   if (!msg) return;
   if (msg.type === 'state') {
     latestState = msg.state;
@@ -208,10 +278,35 @@ channel.onmessage = (e) => {
   } else if (msg.type === 'close') {
     window.close();
   }
-};
-// announce readiness so the main app (re)sends the current source even if it was
-// posted before this window finished loading.
-try { channel.postMessage({ type: 'hello' }); } catch {}
+}
+const channel = new BroadcastChannel(CHANNEL);
+channel.onmessage = (e) => handleMessage(e.data);
+window.__foldExternal = handleMessage;
+
+// messages UP to whoever drives us: the BroadcastChannel peer (main window) or
+// the native bridge (the external-display plugin's script message handler).
+function sendUp(msg) {
+  try { channel.postMessage(msg); } catch { /* channel closed */ }
+  try { window.webkit?.messageHandlers?.foldExternal?.postMessage(msg); } catch { /* not native */ }
+}
+// announce readiness so the driver (re)sends the current source even if it was
+// posted before this view finished loading.
+sendUp({ type: 'hello' });
+
+// GL context-loss recovery — this view runs unattended on an external display
+// (or an unfocused popup), so a loss must heal itself: reinitGL rebuilds the
+// GPU resources and re-uploads the held source; 'hello' asks the driver to
+// re-post the source payload too (belt and suspenders for live sources). The
+// loss is reported upstream so the device console shows it.
+canvas.addEventListener('webglcontextlost', (e) => {
+  e.preventDefault();
+  sendUp({ type: 'glLost' });
+});
+canvas.addEventListener('webglcontextrestored', () => {
+  try { engine.reinitGL(); } catch { /* the next hello-driven source post retries */ }
+  sendUp({ type: 'glRestored' });
+  sendUp({ type: 'hello' });
+});
 window.addEventListener('pagehide', () => { teardownSource(); try { channel.close(); } catch {} });
 
 // ---- zero chrome: click toggles fullscreen; hide the cursor while fullscreen ---

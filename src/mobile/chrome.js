@@ -67,7 +67,7 @@ document.body.innerHTML = `
     <div id="m-context">
       <button id="m-context-toggle" class="m-hidden" title="source / settings">${ICONS.sliders}</button>
       <button id="m-flip" class="m-icon-btn" title="flip camera" style="display:none">${ICONS.flip}</button>
-      <button id="m-cam-menu" class="m-icon-btn" title="camera settings" style="display:none">${ICONS.camera}</button>
+      <button id="m-cam-menu" class="m-icon-btn" title="camera settings" style="display:none">${ICONS.cameraSettings}</button>
       <button id="m-fit-toggle" title="fill / fit">${ICONS.contract}</button>
       <div id="m-source"></div>
       <div id="m-settings" class="m-hidden"></div>
@@ -124,10 +124,13 @@ function scheduleRender() {
 env.scheduleRender = scheduleRender;
 
 // ----------------------------------------------------------------- components
-// Native camera (real AVCaptureSession + EV/WB/lens/48MP) when the host offers it and
-// the native-cam build flag is set; else the getUserMedia camera. Flag-gated for now so
-// the proven web path stays default until the native path is device-verified.
-const useNativeCam = !!(host.nativeCamera?.available && import.meta.env.VITE_FOLD_NATIVE_CAM === '1');
+// Native camera (real AVCaptureSession + EV/WB/lens/48MP) whenever the host offers
+// it; else the getUserMedia camera. The VITE_FOLD_NATIVE_CAM build flag is GONE
+// (B338): it silently reverted Daniel's device builds to the web path whenever a
+// plain `vite build && cap sync` ran between his Xcode runs (the lost-camera-menu
+// regression) — a capability the host reports should never depend on a build
+// flag. Web builds are unaffected: host.nativeCamera.available is false there.
+const useNativeCam = !!host.nativeCamera?.available;
 const camera = useNativeCam ? createNativeCamera() : createCamera();
 if (useNativeCam) console.info('[fold] native camera path active');
 let liveVideo = null;          // the camera <video> while live; null otherwise
@@ -135,6 +138,10 @@ let liveVideo = null;          // the camera <video> while live; null otherwise
 // binds to it at mount time): the recorded output eases toward edits at
 // session.performResponse, the same primitive as desktop perform.
 let follower = null;
+// the last followed (eased) snapshot while it diverges from the edit state —
+// mobile's "what the audience sees": the recording captures it, and the HDMI
+// external view (below) streams it. null = the working state IS the program.
+let lastEased = null;
 // AUTOPLAY: the same kit drift desktop perform runs — another pair of hands
 // writing state; the preview shows it immediately, the follower eases the
 // recorded output through it. Manual edits win per field (kit contract).
@@ -341,6 +348,30 @@ canvasPopEl.innerHTML = '<h2>canvas</h2>';
       b.textContent = active && land > 1 && a < 1 ? p : l;
     }
   }
+  wrap.appendChild(seg);
+  canvasPopEl.appendChild(wrap);
+  controlsSync.register(sync);
+  sync();
+})();
+// External display (HDMI) fit/fill — only where the host can present one. Fit =
+// the canvas frame aspect out there (WYSIWYG with recording/save, letterboxed);
+// fill = edge-to-edge at the display's native aspect (installation mode).
+// Live-toggleable: the poster recomputes output dims per tick.
+if (host.externalDisplay?.available) (function mountHdmiFillControl() {
+  const wrap = document.createElement('div');
+  wrap.className = 'm-control';
+  wrap.innerHTML = '<div class="m-control-row"><span>external display</span></div>';
+  const seg = document.createElement('div');
+  seg.className = 'm-seg';
+  const btns = [['fit canvas', false], ['fill display', true]].map(([label, val]) => {
+    const b = document.createElement('button');
+    b.className = 'm-seg-btn';
+    b.textContent = label;
+    b.addEventListener('click', () => { session.hdmiFill = val; sync(); });
+    seg.appendChild(b);
+    return [b, val];
+  });
+  function sync() { btns.forEach(([b, v]) => b.classList.toggle('active', !!session.hdmiFill === v)); }
   wrap.appendChild(seg);
   canvasPopEl.appendChild(wrap);
   controlsSync.register(sync);
@@ -722,6 +753,7 @@ function leaveVideoMode() {
   rawVideo = null;
   recordingSaved = false;
   follower = null;
+  lastEased = null;
   autoOn = false;
   syncAutoUI();
   clearGhosts();
@@ -841,6 +873,7 @@ function startLiveLoop() {
       follower.setTarget(state);
       const eased = follower.step(dt);
       const diverged = !follower.isSettled(0.002);
+      lastEased = diverged ? eased : null;   // the program = the followed look while it chases
       updateGhosts(now, eased, !diverged);
       if (!diverged) {
         engine.render(state);
@@ -881,6 +914,13 @@ function updateLiveUI() {
   // the top-row camera control: the camera-settings menu on the native path (flip +
   // lens live inside it), or the one-tap flip icon on the web path (unchanged).
   const camCtl = useNativeCam ? camMenuBtn : $('m-flip');
+  // the settings glyph follows the mode: photo-camera settings in still capture,
+  // video-camera settings in record video (Daniel's icon direction)
+  const camIcon = videoMode ? 'video' : 'photo';
+  if (useNativeCam && camMenuBtn.dataset.icon !== camIcon) {
+    camMenuBtn.dataset.icon = camIcon;
+    camMenuBtn.innerHTML = videoMode ? ICONS.videoCameraSettings : ICONS.cameraSettings;
+  }
   if (videoMode && cameraMode === 'live') {
     // record video: the slot is record ● (red) / stop ■ — the live-cam pattern
     // with record semantics. Download stays but gates on a finished take.
@@ -1083,6 +1123,7 @@ $('m-flip').addEventListener('click', flipCamera);
 const camLensWrap = document.createElement('div');
 const camResWrap = document.createElement('div');
 const camFpsWrap = document.createElement('div');
+const camStabWrap = document.createElement('div');
 const camEvWrap = document.createElement('div');
 const camWbWrap = document.createElement('div');
 if (useNativeCam) {
@@ -1095,9 +1136,10 @@ if (useNativeCam) {
   camLensWrap.className = 'm-control'; camLensWrap.id = 'm-cam-lens';
   camResWrap.className = 'm-control'; camResWrap.id = 'm-cam-res';
   camFpsWrap.className = 'm-control'; camFpsWrap.id = 'm-cam-fps';
+  camStabWrap.className = 'm-control'; camStabWrap.id = 'm-cam-stab';
   camEvWrap.className = 'm-control'; camEvWrap.id = 'm-cam-ev';
   camWbWrap.className = 'm-control'; camWbWrap.id = 'm-cam-wb';
-  camPopEl.append(camLensWrap, camResWrap, camFpsWrap, camEvWrap, camWbWrap);
+  camPopEl.append(camLensWrap, camResWrap, camFpsWrap, camStabWrap, camEvWrap, camWbWrap);
 
   camMenuBtn.addEventListener('click', (e) => {
     e.stopPropagation();
@@ -1165,6 +1207,19 @@ function refreshCamMenu() {
   camFpsWrap.classList.toggle('m-hidden', !showFps);
   if (showFps) buildCamSeg(camFpsWrap, 'frame rate', fpsOpts, String(camera.getFrameRate()), (id) => switchFrameRate(+id));
   else camFpsWrap.innerHTML = '';
+  // stabilization — record-video only (stills always run light .standard). Three
+  // notches, DEFAULT IN THE MIDDLE (Daniel): nudge down for responsiveness,
+  // up for max glide — the extremes are chosen, so their tradeoffs are expected.
+  // Re-acquires like fps.
+  const showStab = videoMode && !!camera.getVideoStabilization;
+  camStabWrap.classList.toggle('m-hidden', !showStab);
+  if (showStab) {
+    buildCamSeg(camStabWrap, 'stabilization',
+      [{ id: 'standard', label: 'standard' },
+       { id: 'cinematic', label: 'smooth' },
+       { id: 'cinematicExtended', label: 'smooth+' }],
+      camera.getVideoStabilization(), switchStabilization);
+  } else camStabWrap.innerHTML = '';
   // exposure (EV) — a live bias slider; white balance — auto/manual + a Kelvin slider
   // when manual (only where the physical lens supports custom gains, which ours do).
   // Both reset on a lens/flip change (native-camera resets + refreshCamMenu re-reads).
@@ -1252,6 +1307,7 @@ async function reacquireCamera(op) {
 const switchLens = (id) => reacquireCamera(() => camera.setLens(id));
 const switchResolution = (id) => reacquireCamera(() => camera.setResolution(id));
 const switchFrameRate = (fps) => reacquireCamera(() => camera.setFrameRate(fps));
+const switchStabilization = (id) => reacquireCamera(() => camera.setVideoStabilization(id));
 
 // ---- the EV/WB press-hold PAD (native live camera; FIRST CUT for hands-on feel) ---
 // Press-hold anywhere in the source (still for HOLD_MS) engages a pad: drag Y = EV
@@ -1703,3 +1759,69 @@ function onVisible() {
 }
 document.addEventListener('visibilitychange', onVisible);
 window.addEventListener('pageshow', onVisible);
+
+// ---------------------------------------------- HDMI / external display (native)
+// AUTOCONNECT on the phone (Daniel's call): one display, one intent — plug in →
+// the chrome-free program view presents on the external screen and follows the
+// phone live; unplug → it stops. No destinations UI here (that's the desktop
+// chrome's picker). The external view renders from STATE at the display's
+// native resolution; while record-video's follower eases the output, the
+// external screen shows the FOLLOWED look — what the recording captures — not
+// the raw edit preview. Lazy import (the module carries @capacitor/core).
+// Source support this pass: stills (data URL) + the web-path live camera (the
+// external view opens its own capture — device-pending whether iOS allows the
+// second concurrent capture); the NATIVE camera feed can't cross webviews yet
+// (follow-up: a second client on its frame socket), so it shows an honest hint
+// until you pause to a captured still.
+if (host.externalDisplay?.available) {
+  import('../shell/external-display.js').then((m) => {
+    let srcRef = null, srcGen = 0;
+    m.createExternalDisplayAutoconnect({
+      getState: () => lastEased || state,
+      getFrameAspect: () => session.frameAspect || 1,
+      getFill: () => !!session.hdmiFill,
+      getOutputDims: () => ({ width: outputCanvas.width || 1080, height: outputCanvas.height || 1080 }),
+      sourceSignature: () => {
+        if (cameraMode === 'live') {
+          // native: the facing AND the acquisition gen ride the signature — any
+          // re-acquire (flip, still/video mode, res/fps) restarts the frame
+          // socket, so the external view must rebuild its receiver (the
+          // record-video freeze: the stream died under an unchanged signature)
+          if (useNativeCam) return 'cam:native:' + (camera.getFacing?.() || '') + ':' + (camera.streamInfo?.()?.gen ?? 0);
+          const t = liveVideo?.srcObject?.getVideoTracks?.()[0];
+          return 'cam:' + (t?.getSettings?.().deviceId || 'web');
+        }
+        const src = engine.getSourceImage();
+        if (src !== srcRef) { srcRef = src; srcGen++; }
+        return src ? 'img:' + srcGen : 'none';
+      },
+      async buildSourcePayload({ sourceCap = 4096 } = {}) {
+        if (cameraMode === 'live') {
+          if (useNativeCam) {
+            // the external view joins the native camera's frame socket as a
+            // SECOND client (the server broadcasts) — no second capture session
+            const si = camera.streamInfo?.();
+            if (si) return { kind: 'native-camera', port: si.port, mirror: si.mirror };
+            return { kind: 'none' };
+          }
+          // the WEB camera path: a second getUserMedia of the same camera is a
+          // dead end on iOS (device-proven — it starves both captures and
+          // darkens the main preview). The native-cam build's frame socket is
+          // the phone's live-camera-over-HDMI answer.
+          return { kind: 'unsupported', reason: 'live camera over HDMI needs the native camera build — capture a still to project it' };
+        }
+        const src = engine.getSourceImage();
+        if (src) {
+          try {
+            const dataUrl = m.sourceToDataUrl(src, sourceCap);
+            if (dataUrl) return { kind: 'image', dataUrl };
+          } catch { /* fall through */ }
+        }
+        return { kind: 'none' };
+      },
+      onStatus: (connected, streaming) => {
+        console.info('[fold] external display', connected ? (streaming ? 'streaming' : 'connected') : 'disconnected');
+      },
+    });
+  }).catch((e) => console.warn('[fold] external display unavailable:', e));
+}

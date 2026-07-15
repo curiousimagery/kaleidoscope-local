@@ -122,10 +122,23 @@ if (engine) {
   previewCanvas.addEventListener('webglcontextlost', (ev) => {
     ev.preventDefault();
     console.warn('[fold] WebGL context LOST (preview canvas)');
-    if (statusEl) { statusEl.textContent = 'graphics context lost — reload to recover'; statusEl.classList.add('error'); }
+    if (statusEl) { statusEl.textContent = 'graphics context lost — recovering…'; statusEl.classList.add('error'); }
   });
+  // AUTO-RECOVER (the mobile chrome's proven engine.reinitGL pattern — Daniel hit
+  // an OS-initiated loss on the iPad when a 4K display attached, and "reload to
+  // recover" is meaningless in a native app). reinitGL rebuilds every GPU
+  // resource on the same context object and re-uploads the source; a render
+  // brings the panels back.
   previewCanvas.addEventListener('webglcontextrestored', () => {
     console.warn('[fold] WebGL context RESTORED (preview canvas)');
+    try {
+      engine.reinitGL();
+      if (statusEl) { statusEl.textContent = ''; statusEl.classList.remove('error'); }
+      scheduleRender();
+    } catch (e) {
+      console.warn('[fold] GL reinit failed', e);
+      if (statusEl) statusEl.textContent = 'graphics context lost — could not recover';
+    }
   });
 }
 
@@ -1163,6 +1176,24 @@ if (engine) {
   if (env.host?.syphon?.available) outputBus.registerSink(createSyphonSink(env.host));
   env.outputBus = outputBus;
   createOutputPanel(env, outputBus);
+
+  // HDMI / external display (Capacitor iOS/iPadOS): the sink module — and with it
+  // @capacitor/core — loads lazily so the web bundle stays clean (the
+  // native-camera pattern); the destination row appears once it's ready via
+  // env.addOutputDestination (the panel handles late registration + the
+  // auto-select-on-plug-in behavior).
+  if (detectRuntime().isCapacitor) {
+    import('./shell/external-display.js')
+      .then((m) => {
+        outputBus.registerSink(m.createExternalDisplaySink(env));
+        env.addOutputDestination?.({
+          id: 'hdmi',
+          label: 'HDMI',
+          title: 'present the program on the connected HDMI / external display (chrome-free, full screen)',
+        });
+      })
+      .catch((e) => console.warn('[fold] external display unavailable:', e));
+  }
 
   buildFormGrid(env);
   applyFormControls(env);

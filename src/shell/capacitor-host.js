@@ -33,6 +33,15 @@ export function createCapacitorHost() {
     ...webHost,
     name: 'capacitor',
 
+    // HDMI / external display: the fold-external-display plugin presents the
+    // chrome-free output view on a second UIScreen. The seam only flags
+    // availability — the sink module (shell/external-display.js, lazy-loaded by
+    // each chrome) drives the plugin directly, per the native-camera precedent.
+    externalDisplay: {
+      ...webHost.externalDisplay,
+      available: true,
+    },
+
     // Native file round-trip. save() writes the blob into the app cache, then opens
     // the iOS SHARE SHEET (Save to Files / Save to Photos / AirDrop / share apps) —
     // the native equivalent of the browser download. This also SIDESTEPS the parked

@@ -16,6 +16,7 @@
 // 48MP-still-on-pause, and native record-audio are follow-on slices.
 
 import { registerPlugin, Capacitor } from '@capacitor/core';
+import { createYuvRenderer } from './yuv-renderer.js';
 
 // Registered at module scope (the spike proved this static path works on device; a
 // dynamic import('@capacitor/core') stalls inside the capacitor:// webview). On web
@@ -25,6 +26,10 @@ const FoldNativeCamera = registerPlugin('FoldNativeCamera');
 export function createNativeCamera() {
   let ws = null;
   let port = 0;
+  let streamGen = 0;          // bumps per acquisition — every re-acquire (flip, lens,
+                              // still/video mode, res/fps) restarts the frame socket,
+                              // so downstream consumers (the HDMI external view's
+                              // receiver) must rebuild; the gen rides streamInfo
   let canvas = null;          // RGB output canvas — the frameSource the engine samples
   let renderer = null;        // YUV->RGB WebGL2 blitter that owns `canvas`
   let latest = null;          // most recent YUV ArrayBuffer (painted on the render tick)
@@ -35,6 +40,11 @@ export function createNativeCamera() {
   let resolutions = [];       // [{id,label,maxFps}] the current lens actually offers
   let preset = 'hd1080';      // the chosen streaming (video) resolution
   let targetFps = 30;         // the requested frame rate (matters in record-video mode)
+  let videoStab = 'cinematic'; // record-video stabilization — three notches, START IN
+                               // THE MIDDLE (Daniel: opting toward either end is a
+                               // choice; the old cinematicExtended default surprised
+                               // as "why isn't my camera following"): 'standard' |
+                               // 'cinematic' (default) | 'cinematicExtended'
   // still capture: on pause we grab a real full-res still via capturePhoto (which
   // switches to the photo format for the shot). `stillMode` tells the plugin to preview
   // at the PHOTO aspect (4:3) so the composition doesn't shift on capture; video mode
@@ -124,6 +134,7 @@ export function createNativeCamera() {
     // format switch (in capturePhoto), not a heavy preview.
     const res = await FoldNativeCamera.start({
       preset, fps: targetFps, lens, stillMode,
+      videoStabilization: videoStab,
       facing: facing === 'user' ? 'front' : 'back',
     });
     console.info('[native-camera] plugin.start resolved', JSON.stringify(res));
@@ -139,6 +150,7 @@ export function createNativeCamera() {
       stillRes = stillResolutions[stillResolutions.length - 1] || null;
     }
     active = true;
+    streamGen++;   // a fresh acquisition = a fresh socket stream
     // re-apply persisted EV/WB — they survive a resolution/fps re-acquire (same sensor);
     // a lens/facing change calls resetControls() first, so this becomes a no-op (auto/0).
     if (evBias !== 0) { try { await FoldNativeCamera.setExposureBias({ value: evBias }); } catch { /* unsupported */ } }
@@ -207,6 +219,13 @@ export function createNativeCamera() {
     targetFps = safe.includes(fps) ? fps : Math.max(...safe);
     return start({ facingMode: facing });
   }
+  // record-video stabilization: three notches, default middle. The extremes are
+  // opt-in (extended's smoothing lag surprised as the default — Daniel's daylight
+  // pass — but is expected behavior once chosen). Re-acquires.
+  async function setVideoStabilization(mode) {
+    videoStab = ['standard', 'cinematic', 'cinematicExtended'].includes(mode) ? mode : 'cinematic';
+    return start({ facingMode: facing });
+  }
 
   // still-capture mode (photo-optimized format) vs record-video mode. Set by the shell
   // before start() from the source type; changing it takes effect on the next start.
@@ -259,6 +278,8 @@ export function createNativeCamera() {
     getResolutions: () => resolutions,   // [{id,label,maxFps,width,height}] for the current lens
     getResolution: () => preset,
     getFrameRate: () => targetFps,
+    getVideoStabilization: () => videoStab,
+    setVideoStabilization,
     getSafeFps: () => safeFps(preset),   // pipeline-safe fps options for the current resolution
     safeFpsFor: (id) => safeFps(id),
     getStillResolutions: () => stillResolutions,   // [{id,label,width,height}]
@@ -284,80 +305,14 @@ export function createNativeCamera() {
     getDeviceId: () => null,
     isFront: () => facing === 'user',
     isActive: () => active,
+    // interface parity with shell/camera.js (the desktop chrome's flip button)
+    flip: () => start({ facingMode: facing === 'user' ? 'environment' : 'user' }),
+    // for the external-display view: where to join the frame stream as a second
+    // socket client, whether to bake the selfie mirror (we bake ours the same
+    // way), and the acquisition generation (a changed gen = a NEW socket stream —
+    // the old connection died with the re-acquire; rebuild the receiver)
+    streamInfo: () => (active && port ? { port, mirror: facing === 'user', gen: streamGen } : null),
   };
 }
-
-// biplanar-YUV (420f, full range) -> RGB into the given canvas via WebGL2. Y as R8,
-// CbCr as RG8; padded row strides handled with UNPACK_ROW_LENGTH.
-function createYuvRenderer(canvasEl) {
-  // preserveDrawingBuffer so the freeze-frame `drawImage(canvas)` (which runs OUTSIDE
-  // the render loop) reads real pixels instead of a cleared buffer. (desynchronized
-  // dropped — it can leave the canvas unreadable for out-of-loop drawImage.)
-  const gl = canvasEl.getContext('webgl2', { antialias: false, alpha: false, preserveDrawingBuffer: true });
-  const vs = `#version 300 es
-  const vec2 pos[4] = vec2[4](vec2(-1.,-1.),vec2(1.,-1.),vec2(-1.,1.),vec2(1.,1.));
-  uniform float uMirror;   // 1.0 = flip horizontally (front/selfie camera)
-  out vec2 v_uv;
-  void main(){ vec2 p = pos[gl_VertexID]; float u=(p.x+1.)*0.5; v_uv = vec2(mix(u,1.-u,uMirror), (1.-p.y)*0.5); gl_Position = vec4(p,0.,1.); }`;
-  const fs = `#version 300 es
-  precision mediump float;
-  in vec2 v_uv;
-  uniform sampler2D yTex;
-  uniform sampler2D cTex;
-  out vec4 frag;
-  void main(){
-    float y = texture(yTex, v_uv).r;
-    vec2 c = texture(cTex, v_uv).rg - 0.5;
-    frag = vec4(y + 1.402*c.g, y - 0.344136*c.r - 0.714136*c.g, y + 1.772*c.r, 1.);
-  }`;
-  const prog = linkProgram(gl, vs, fs);
-  gl.useProgram(prog);
-  const yTex = makeTex(gl), cTex = makeTex(gl);
-  gl.uniform1i(gl.getUniformLocation(prog, 'yTex'), 0);
-  gl.uniform1i(gl.getUniformLocation(prog, 'cTex'), 1);
-  const uMirrorLoc = gl.getUniformLocation(prog, 'uMirror');
-  gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
-
-  function draw(w, h, yStride, cStride, yPlane, cPlane, mirror) {
-    gl.viewport(0, 0, w, h);
-    gl.useProgram(prog);
-    gl.uniform1f(uMirrorLoc, mirror ? 1 : 0);
-    gl.activeTexture(gl.TEXTURE0);
-    gl.bindTexture(gl.TEXTURE_2D, yTex);
-    gl.pixelStorei(gl.UNPACK_ROW_LENGTH, yStride);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, w, h, 0, gl.RED, gl.UNSIGNED_BYTE, yPlane);
-    gl.activeTexture(gl.TEXTURE1);
-    gl.bindTexture(gl.TEXTURE_2D, cTex);
-    gl.pixelStorei(gl.UNPACK_ROW_LENGTH, cStride >> 1);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RG8, w >> 1, h >> 1, 0, gl.RG, gl.UNSIGNED_BYTE, cPlane);
-    gl.pixelStorei(gl.UNPACK_ROW_LENGTH, 0);
-    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
-  }
-  return { draw };
-}
-
-function makeTex(gl) {
-  const t = gl.createTexture();
-  gl.bindTexture(gl.TEXTURE_2D, t);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-  return t;
-}
-
-function linkProgram(gl, vsSrc, fsSrc) {
-  const vs = compileShader(gl, gl.VERTEX_SHADER, vsSrc);
-  const fs = compileShader(gl, gl.FRAGMENT_SHADER, fsSrc);
-  const p = gl.createProgram();
-  gl.attachShader(p, vs); gl.attachShader(p, fs); gl.linkProgram(p);
-  if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p) || 'link failed');
-  return p;
-}
-
-function compileShader(gl, type, src) {
-  const s = gl.createShader(type);
-  gl.shaderSource(s, src); gl.compileShader(s);
-  if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s) || 'compile failed');
-  return s;
-}
+// (the YUV->RGB blitter moved verbatim to shell/yuv-renderer.js — shared with
+//  the external-display receiver, shell/native-camera-receiver.js)

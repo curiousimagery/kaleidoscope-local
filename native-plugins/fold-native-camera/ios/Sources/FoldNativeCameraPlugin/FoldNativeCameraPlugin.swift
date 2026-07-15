@@ -174,6 +174,7 @@ public class FoldNativeCameraPlugin: CAPPlugin, CAPBridgedPlugin, AVCaptureVideo
         let lens = call.getString("lens") ?? "auto"
         let stillMode = call.getBool("stillMode") ?? true
         let facing = call.getString("facing") ?? "back"
+        let videoStabilization = call.getString("videoStabilization") ?? "standard"
         AVCaptureDevice.requestAccess(for: .video) { [weak self] granted in
             guard let self = self else { return }
             guard granted else { call.reject("camera not authorized"); return }
@@ -185,7 +186,7 @@ public class FoldNativeCameraPlugin: CAPPlugin, CAPBridgedPlugin, AVCaptureVideo
                 }
                 let info: SessionInfo
                 do {
-                    info = try self.configureSession(presetName: preset, targetFps: fps, lens: lens, stillMode: stillMode, facing: facing)
+                    info = try self.configureSession(presetName: preset, targetFps: fps, lens: lens, stillMode: stillMode, facing: facing, videoStabilization: videoStabilization)
                 } catch {
                     call.reject("configure failed: \(error.localizedDescription)")
                     return
@@ -440,7 +441,7 @@ public class FoldNativeCameraPlugin: CAPPlugin, CAPBridgedPlugin, AVCaptureVideo
         let stabilization: String
     }
 
-    private func configureSession(presetName: String, targetFps: Double, lens: String, stillMode: Bool, facing: String) throws -> SessionInfo {
+    private func configureSession(presetName: String, targetFps: Double, lens: String, stillMode: Bool, facing: String, videoStabilization: String = "standard") throws -> SessionInfo {
         var target: (w: Int, h: Int)
         switch presetName {
         case "hd720": target = (1280, 720)
@@ -559,15 +560,23 @@ public class FoldNativeCameraPlugin: CAPPlugin, CAPBridgedPlugin, AVCaptureVideo
 
         // VIDEO STABILIZATION — WebKit/getUserMedia stabilized by default; low-level
         // capture defaults to OFF, which is why the feed got shakier. `.standard` for
-        // still-compose (light crop), `.cinematicExtended` for video-record (max
-        // smoothing). It costs a sensor crop, so the shell crops the 48MP still to match
-        // (the photo output isn't video-stabilized). Gated on the active format.
+        // still-compose (light crop). Record-video takes the JS-selected mode:
+        // "standard" (responsive — Daniel's daylight pass found cinematicExtended's
+        // smoothing lag made framing unpredictable, so this is now the DEFAULT) or
+        // "cinematic" (smoother, the middle mode; "cinematicExtended" still accepted
+        // by value). It costs a sensor crop, so the shell crops the 48MP still to
+        // match (the photo output isn't video-stabilized). Gated on the active format.
         var stabilization = "off"
         if let conn = output.connection(with: .video), conn.isVideoStabilizationSupported {
-            let mode: AVCaptureVideoStabilizationMode = stillMode ? .standard : .cinematicExtended
-            if device.activeFormat.isVideoStabilizationModeSupported(mode) {
-                conn.preferredVideoStabilizationMode = mode
-                stabilization = stillMode ? "standard" : "cinematicExtended"
+            let wantedName = stillMode ? "standard" : videoStabilization
+            let wanted: AVCaptureVideoStabilizationMode =
+                wantedName == "cinematicExtended" ? .cinematicExtended
+                : wantedName == "cinematic" ? .cinematic
+                : .standard
+            if device.activeFormat.isVideoStabilizationModeSupported(wanted) {
+                conn.preferredVideoStabilizationMode = wanted
+                stabilization = (wantedName == "cinematicExtended" || wantedName == "cinematic")
+                    ? wantedName : "standard"
             }
         }
 

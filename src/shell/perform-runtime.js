@@ -63,6 +63,18 @@ export function createPerformRuntime(env) {
     if (!canvas) { pipFailed = true; return; }
     try {
       pipEngine = createEngine({ canvas });
+      // auto-recover from an OS-initiated context loss (e.g. a 4K display
+      // attaching on iPad dropped every GL context in the app — the preview
+      // engine heals in main.js; this is the live PiP's half)
+      canvas.addEventListener('webglcontextlost', (e) => {
+        e.preventDefault();
+        console.warn('[fold] WebGL context LOST (live PiP)');
+      });
+      canvas.addEventListener('webglcontextrestored', () => {
+        console.warn('[fold] WebGL context RESTORED (live PiP)');
+        try { pipEngine.reinitGL(); pipLastSource = null; }   // resync the source next tick
+        catch (err) { console.warn('[fold] PiP GL reinit failed', err); }
+      });
     } catch (e) {
       // couldn't get another GL context — perform still works (broadcasts follow
       // via programState); only the in-app live view is unavailable.

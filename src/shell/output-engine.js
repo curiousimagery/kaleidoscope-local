@@ -56,6 +56,8 @@ export function createOutputEngine(env) {
     });
     glCanvas.addEventListener('webglcontextrestored', () => {
       console.warn('[fold] WebGL context RESTORED (output engine)');
+      try { hidden.reinitGL(); }   // rebuild the GPU resources, not just the source
+      catch (e) { console.warn('[fold] output engine GL reinit failed', e); }
       lastSource = null;   // force a re-upload onto the restored context
     });
   }

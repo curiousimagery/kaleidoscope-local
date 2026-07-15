@@ -73,6 +73,9 @@ export const session = {
                       // (defaults = Daniel's 2026-07-09 calibration, remapped to mid-slider)
   stageLivePct: 32,   // the live panel's share of the stage split in the three-panel
                       // layout (percent; the live divider drags it).
+  hdmiFill: false,    // external display (HDMI): false = fit the canvas frame aspect
+                      // (WYSIWYG with recording/save, letterboxed), true = fill the
+                      // display edge-to-edge at its native aspect (installation mode).
 };
 
 // motion-mode authoring data (Phase 3 — multi-keyframe still-animation;
