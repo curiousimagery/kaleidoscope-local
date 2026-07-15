@@ -294,6 +294,13 @@ export function createOutputPanel(env, outputBus) {
     // server name only when Syphon is the selected destination
     if (syphonNameField) syphonNameField.hidden = !(hasSyphon && destination === 'syphon');
 
+    // fill-display toggle only when the external display is the destination
+    const fillField = byId('hdmiFillField');
+    if (fillField) {
+      fillField.hidden = destination !== 'hdmi';
+      byId('hdmiFillBtn')?.classList.toggle('active', !!env.session?.hdmiFill);
+    }
+
     // resolution + frame aspect both set the output size, which is fixed for the
     // session once output starts (the bus locks it; the window reads it at open) —
     // disable them while live so a mid-session change can't silently do nothing.
@@ -403,6 +410,13 @@ export function createOutputPanel(env, outputBus) {
   });
 
   nameInput?.addEventListener('input', () => outputBus.setServerName(nameInput.value));
+
+  // fill-display: live-toggleable even mid-broadcast (the poster recomputes the
+  // output dims per tick and the external view resizes on the next message)
+  byId('hdmiFillBtn')?.addEventListener('click', () => {
+    if (env.session) env.session.hdmiFill = !env.session.hdmiFill;
+    reflect();
+  });
 
   env.updateOutputUI = updateOutputUI;
 

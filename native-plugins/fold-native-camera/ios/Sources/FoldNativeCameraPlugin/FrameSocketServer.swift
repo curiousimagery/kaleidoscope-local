@@ -5,15 +5,18 @@
 //
 // Minimal localhost WebSocket PUSH server built on Network.framework's native
 // NWProtocolWebSocket (no third-party dependency, no hand-rolled framing). One
-// direction, one client (the webview): it streams binary biplanar-YUV frames.
-// Control commands ride the normal Capacitor bridge, not this socket.
+// direction, MULTIPLE clients: the main webview renders the preview, and the
+// external-display webview (HDMI out) joins as a SECOND consumer of the same
+// frames — that's how the live native camera reaches the external screen
+// (frames can't cross WKWebViews any other way without readback). Control
+// commands ride the normal Capacitor bridge, not this socket.
 //
-// Realtime discipline: the capture callback calls wantsFrame() FIRST and skips
-// the (expensive) encode when a send is still in flight — so a slow link drops
-// frames instead of building a queue, and the measured fps reflects the true
-// sustainable rate. Encoding happens synchronously on the capture thread (the
-// pixel buffer is only valid there); only the finished Data is handed to the
-// socket queue.
+// Realtime discipline (per client): the capture callback calls wantsFrame()
+// FIRST and skips the (expensive) encode when NO client is ready — and send()
+// skips any client whose previous send is still in flight, so a slow client
+// drops frames instead of building a queue (and can't stall a fast one).
+// Encoding happens synchronously on the capture thread (the pixel buffer is
+// only valid there); only the finished Data is handed to the socket queue.
 //
 // Frame wire format (little-endian header, then two raw planes):
 //   [0..4)   magic "FYUV"
@@ -34,9 +37,14 @@ final class FrameSocketServer {
     private var listener: NWListener?
     private let queue = DispatchQueue(label: "fold.camera.socket")
     private let lock = NSLock()
-    private var conn: NWConnection?
-    private var hasClient = false
-    private var sending = false
+
+    // one entry per connected consumer (main webview, external-display webview)
+    private final class Client {
+        let conn: NWConnection
+        var sending = false
+        init(_ c: NWConnection) { conn = c }
+    }
+    private var clients: [Client] = []
 
     init(port: Int) { self.port = port }
 
@@ -59,10 +67,8 @@ final class FrameSocketServer {
         queue.async { [weak self] in
             guard let self = self else { return }
             self.lock.lock()
-            self.conn?.cancel()
-            self.conn = nil
-            self.hasClient = false
-            self.sending = false
+            for client in self.clients { client.conn.cancel() }
+            self.clients.removeAll()
             self.lock.unlock()
             self.listener?.cancel()
             self.listener = nil
@@ -70,22 +76,16 @@ final class FrameSocketServer {
     }
 
     private func accept(_ c: NWConnection) {
+        let client = Client(c)
         lock.lock()
-        conn?.cancel()          // single client — a new connection replaces any prior
-        conn = c
-        hasClient = true
-        sending = false
+        clients.append(client)
         lock.unlock()
         c.stateUpdateHandler = { [weak self] state in
             guard let self = self else { return }
             switch state {
             case .failed, .cancelled:
                 self.lock.lock()
-                if self.conn === c {
-                    self.conn = nil
-                    self.hasClient = false
-                    self.sending = false
-                }
+                self.clients.removeAll { $0 === client }
                 self.lock.unlock()
             default:
                 break
@@ -101,24 +101,28 @@ final class FrameSocketServer {
         }
     }
 
-    // Called on the capture thread BEFORE encoding, so a dropped frame costs nothing.
+    // Called on the capture thread BEFORE encoding, so a dropped frame costs
+    // nothing when no client is ready to take one.
     func wantsFrame() -> Bool {
         lock.lock(); defer { lock.unlock() }
-        return hasClient && !sending
+        return clients.contains { !$0.sending }
     }
 
     func send(_ data: Data) {
         lock.lock()
-        guard hasClient, !sending, let c = conn else { lock.unlock(); return }
-        sending = true
+        let ready = clients.filter { !$0.sending }
+        for client in ready { client.sending = true }
         lock.unlock()
+        guard !ready.isEmpty else { return }
         let meta = NWProtocolWebSocket.Metadata(opcode: .binary)
         let ctx = NWConnection.ContentContext(identifier: "frame", metadata: [meta])
-        c.send(content: data, contentContext: ctx, isComplete: true,
-               completion: .contentProcessed { [weak self] _ in
-            guard let self = self else { return }
-            self.lock.lock(); self.sending = false; self.lock.unlock()
-        })
+        for client in ready {
+            client.conn.send(content: data, contentContext: ctx, isComplete: true,
+                             completion: .contentProcessed { [weak self] _ in
+                guard let self = self else { return }
+                self.lock.lock(); client.sending = false; self.lock.unlock()
+            })
+        }
     }
 
     static func encode(_ pb: CVPixelBuffer) -> Data? {

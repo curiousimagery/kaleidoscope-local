@@ -350,6 +350,30 @@ canvasPopEl.innerHTML = '<h2>canvas</h2>';
   controlsSync.register(sync);
   sync();
 })();
+// External display (HDMI) fit/fill — only where the host can present one. Fit =
+// the canvas frame aspect out there (WYSIWYG with recording/save, letterboxed);
+// fill = edge-to-edge at the display's native aspect (installation mode).
+// Live-toggleable: the poster recomputes output dims per tick.
+if (host.externalDisplay?.available) (function mountHdmiFillControl() {
+  const wrap = document.createElement('div');
+  wrap.className = 'm-control';
+  wrap.innerHTML = '<div class="m-control-row"><span>external display</span></div>';
+  const seg = document.createElement('div');
+  seg.className = 'm-seg';
+  const btns = [['fit canvas', false], ['fill display', true]].map(([label, val]) => {
+    const b = document.createElement('button');
+    b.className = 'm-seg-btn';
+    b.textContent = label;
+    b.addEventListener('click', () => { session.hdmiFill = val; sync(); });
+    seg.appendChild(b);
+    return [b, val];
+  });
+  function sync() { btns.forEach(([b, v]) => b.classList.toggle('active', !!session.hdmiFill === v)); }
+  wrap.appendChild(seg);
+  canvasPopEl.appendChild(wrap);
+  controlsSync.register(sync);
+  sync();
+})();
 for (const id of DECLARATIVE_PARAM_IDS) {
   if (PARAMS[id].scope === 'canvas') mountRangeControl(canvasPopEl, PARAMS[id], env);
 }
@@ -1729,10 +1753,13 @@ if (host.externalDisplay?.available) {
     m.createExternalDisplayAutoconnect({
       getState: () => lastEased || state,
       getFrameAspect: () => session.frameAspect || 1,
+      getFill: () => !!session.hdmiFill,
       getOutputDims: () => ({ width: outputCanvas.width || 1080, height: outputCanvas.height || 1080 }),
       sourceSignature: () => {
         if (cameraMode === 'live') {
-          if (useNativeCam) return 'cam:native';
+          // native: the facing rides the signature so a flip re-posts (mirror +
+          // a fresh stream); web: the deviceId changes on flip
+          if (useNativeCam) return 'cam:native:' + (camera.getFacing?.() || '');
           const t = liveVideo?.srcObject?.getVideoTracks?.()[0];
           return 'cam:' + (t?.getSettings?.().deviceId || 'web');
         }
@@ -1743,7 +1770,11 @@ if (host.externalDisplay?.available) {
       async buildSourcePayload() {
         if (cameraMode === 'live') {
           if (useNativeCam) {
-            return { kind: 'unsupported', reason: 'the live native camera on HDMI is coming — capture a still to project it' };
+            // the external view joins the native camera's frame socket as a
+            // SECOND client (the server broadcasts) — no second capture session
+            const si = camera.streamInfo?.();
+            if (si) return { kind: 'native-camera', port: si.port, mirror: si.mirror };
+            return { kind: 'none' };
           }
           const t = liveVideo?.srcObject?.getVideoTracks?.()[0];
           const s = t?.getSettings?.() || {};

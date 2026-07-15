@@ -104,11 +104,14 @@ function createPoster(opts) {
     const native = (dims?.width && dims?.height)
       ? dims
       : (opts.getOutputDims?.() || { width: 1920, height: 1080 });
-    // honor the composition's FRAME ASPECT (Daniel's iPad note: a 4:5 canvas
-    // was rendering as 16:9 out there — inconsistent with the canvas/recording/
-    // save, which all honor it). Fit the frame aspect inside the native pixels:
-    // full sharpness at that aspect, letterboxed by the view's object-fit.
-    // A "fill the display" option is a cheap follow-up if wanted.
+    // FILL mode (the installation case): render edge-to-edge at the display's
+    // native aspect instead of honoring the canvas frame aspect.
+    if (opts.getFill?.()) return native;
+    // default: honor the composition's FRAME ASPECT (Daniel's iPad note: a 4:5
+    // canvas was rendering as 16:9 out there — inconsistent with the canvas/
+    // recording/save, which all honor it). Fit the frame aspect inside the
+    // native pixels: full sharpness at that aspect, letterboxed by the view's
+    // object-fit.
     const a = opts.getFrameAspect?.() || 0;
     if (!a) return native;
     let w = native.width, h = Math.round(native.width / a);
@@ -188,6 +191,7 @@ export function createExternalDisplaySink(env) {
   const poster = createPoster({
     getState: () => (env.programState ? env.programState() : env.state),
     getFrameAspect: () => env.session?.frameAspect || 1,
+    getFill: () => !!env.session?.hdmiFill,
     getOutputDims: () => {
       const bus = env.outputBus;
       return { width: bus?.width || 1920, height: bus?.height || 1080 };

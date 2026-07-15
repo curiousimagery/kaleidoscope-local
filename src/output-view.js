@@ -39,6 +39,7 @@ let latestVideo = null;          // {t,paused,rate} of the main app's video cloc
 let liveSource = false;          // camera/video re-upload the texture each frame; a still does not
 let haveSource = false;
 let camera = null;               // createCamera() when the source is the live camera
+let receiver = null;             // native-camera frame-socket receiver (external display)
 let videoEl = null;              // the popup's own <video> for a loaded-video source
 let sourceToken = 0;             // guards against a stale async source setup winning a race
 
@@ -57,7 +58,17 @@ async function teardownSource() {
   liveSource = false;
   haveSource = false;
   if (camera) { try { camera.stop(); } catch {} camera = null; }
+  if (receiver) { try { receiver.stop(); } catch {} receiver = null; }
   if (videoEl) { try { videoEl.pause(); } catch {} videoEl.src = ''; videoEl = null; }
+  // clear the canvas — otherwise the LAST RENDERED FRAME persists while the new
+  // source loads or when it fails (Daniel saw a stale still stay on the external
+  // display after switching to a source that couldn't open). Black + the hint
+  // is the honest in-between.
+  try {
+    const gl = engine.glContext;
+    gl.clearColor(0, 0, 0, 1);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+  } catch { /* engine may not expose its context */ }
 }
 
 async function setupSource(payload) {
@@ -78,6 +89,27 @@ async function setupSource(payload) {
     if (token !== sourceToken) return;
     engine.setSource(src);
     liveSource = false; haveSource = true;
+    return;
+  }
+
+  if (payload.kind === 'native-camera' && payload.port) {
+    // the NATIVE camera (Capacitor): join its frame socket as a second client —
+    // no second capture session (iOS wouldn't allow one), same frames the phone
+    // previews. Receiver is lazy-loaded (never needed by the web popup).
+    let recv = null;
+    try {
+      const mod = await import('./shell/native-camera-receiver.js');
+      recv = mod.createNativeCameraReceiver({ port: payload.port, mirror: !!payload.mirror });
+      await recv.start();
+    } catch (e) {
+      if (hint) hint.textContent = 'could not join the camera stream: ' + (e.message || e);
+      try { recv?.stop(); } catch { /* not started */ }
+      return;
+    }
+    if (token !== sourceToken) { recv.stop(); return; }
+    receiver = recv;
+    engine.setSource(receiver.frameSource());
+    liveSource = true; haveSource = true;
     return;
   }
 
@@ -187,6 +219,7 @@ let lastRenderT = 0;
 function renderFrame() {
   if (!(haveSource && latestState)) return;
   if (camera) camera.refreshFrame();        // front-camera: redraw the mirrored frame
+  if (receiver) receiver.refreshFrame();     // native camera: blit the latest socket frame
   if (videoEl) reconcileVideo();             // keep the video copy in sync with the main clock
   if (liveSource) engine.updateSourceFrame(); // re-upload camera/video texture
   engine.render(latestState);
