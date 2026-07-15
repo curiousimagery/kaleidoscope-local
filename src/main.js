@@ -1053,19 +1053,26 @@ function wirePanelPopovers() {
     { btn: document.getElementById('sliceSettingsBtn'), pop: document.getElementById('slicePopover') },
     { btn: document.getElementById('canvasSettingsBtn'), pop: document.getElementById('canvasPopover') },
     { btn: document.getElementById('pfAutoGear'), pop: document.getElementById('autoPopover') },
+    // modules created during createApp queue theirs here (the camera-settings
+    // gear): onOpen rebuilds dynamic content, onClose stops any live polling.
+    ...(env.pendingPopovers || []),
   ].filter((p) => p.btn && p.pop);
-  const closeAll = () => pairs.forEach(({ btn, pop }) => { pop.hidden = true; btn.classList.remove('open'); });
+  const closeAll = () => pairs.forEach(({ btn, pop, onClose }) => {
+    if (!pop.hidden) onClose?.();
+    pop.hidden = true; btn.classList.remove('open');
+  });
   document.addEventListener('pointerdown', (e) => {
     // drags that START inside a popover (sliders, scrub fields) never re-enter here
     if (e.target.closest('.panel-popover') || e.target.closest('.panel-gear')) return;
     closeAll();
   });
   window.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeAll(); });
-  for (const { btn, pop } of pairs) {
+  for (const { btn, pop, onOpen } of pairs) {
     btn.addEventListener('click', () => {
       const wasOpen = !pop.hidden;
       closeAll();
       if (wasOpen) return;
+      onOpen?.();          // build dynamic content BEFORE unhiding so the measure is real
       pop.hidden = false;
       btn.classList.add('open');
       // anchor ABOVE the trigger (it sits near the panel's bottom edge), centered on

@@ -4,6 +4,17 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.17.2 (Build 344) — 2026-07-15 — the camera-settings gear lands in the desktop/iPad chrome
+
+The gear Daniel spec'd, in the toolbar: a settings button (the B339 Material settings-photo-camera glyph) **right of the camera picker**, shown only while the camera is LIVE and the current camera actually reports something adjustable. The popover is **capability-driven** (the mobile cam-menu discipline — nothing appears where the platform can't honor it), rebuilt fresh on every open, with two capability sources behind one UI:
+
+- **Native camera (Capacitor iPad):** lens picker (rear, multi-lens only; re-acquires + resets EV/WB per-sensor), still resolution (GPU-gated by real max texture size, like mobile; sizes the next capture without re-acquiring), EV bias slider, and the auto-tracking Kelvin white-balance slider (polls the settled temperature while open; a drag commits to manual; clicking the value returns to auto).
+- **Web camera (desktop browser / Electron):** resolution presets filtered by the track's reported ceiling (active segment = what the negotiated mode actually landed on — asking 4K of a 1080p webcam highlights 1080p), 30/60fps where the track reports 60 reachable, plus zoom/torch when the platform exposes them (iPad Safari does; macOS doesn't). Resolution/fps re-acquire with the WHOLE session intent (an fps change never silently resets a chosen resolution).
+
+Plumbing: new [shell/camera-settings.js](../src/shell/camera-settings.js) (rows + lifecycle; ~200 lines); [source-host.js](../src/shell/source-host.js) gains `reacquireCamera(op)` (the mobile pattern — run the switch, re-point the engine, remount) and swaps the module in; [camera.js](../src/shell/camera.js) `start()` accepts an `fps` ask (`ideal`, never rejects); `wirePanelPopovers` ([main.js](../src/main.js)) now merges module-queued popovers (`env.pendingPopovers`) and supports `onOpen`/`onClose` hooks (content builds before the anchor measure; WB polling stops on close).
+
+Verified: `node --check` ×4, `vite build`, `cap sync`. Device-pending: the native rows on the iPad, and a macOS webcam's honest res/fps set.
+
 ## v0.17.1 (Build 343) — 2026-07-15 — stabilization: three notches, default in the middle
 
 Clarified against B329's history: the pre-B342 default WAS `.cinematicExtended`, so Daniel's sense that "smooth" now applies less smoothing was accurate ("smooth" = `.cinematic`, one notch down). His refined call, shipped: **three notches — standard / smooth / smooth+** (`.standard` / `.cinematic` / `.cinematicExtended`) — **defaulting to the middle**. The insight driving it: the smoothing itself was never the problem, the *unexpectedness* was — a user who CHOOSES smooth+ expects the glide-lag; the same behavior as an unchosen default reads as "why isn't my camera following." Nudge down for responsiveness, up for max glide. [native-camera.js](../src/shell/native-camera.js), [mobile/chrome.js](../src/mobile/chrome.js); the plugin already accepted all three by value.

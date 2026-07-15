@@ -54,6 +54,9 @@ export function createCamera() {
     const video = wantDevice
       ? { deviceId: { exact: wantDevice }, width: { ideal: idealW }, height: { ideal: idealH } }
       : { facingMode: { ideal: facing }, width: { ideal: idealW }, height: { ideal: idealH } };
+    // an fps ask (the camera-settings gear) — `ideal` so a camera that can't hit
+    // it still opens at its best rate instead of rejecting
+    if (opts.fps) video.frameRate = { ideal: opts.fps };
     // opts.audio: request the mic IN THE SAME CALL — one combined permission
     // prompt instead of camera-then-mic-later (mobile record video's ask)
     stream = await navigator.mediaDevices.getUserMedia({ video, audio: !!opts.audio });

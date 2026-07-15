@@ -17,6 +17,7 @@
 // hung back on env for the chrome's control/upload wiring.
 
 import { createCamera } from './camera.js';
+import { createCameraSettings } from './camera-settings.js';
 import { seekVideoTo } from './video-source.js';
 import { zipStore } from './zip.js';
 import { getActiveForm } from '../engine/index.js';
@@ -388,6 +389,7 @@ export function createSourceHost(env) {
       flip.textContent = camera.isFront() ? 'rear' : 'front';
       flip.style.display = env.live.frozen ? 'none' : '';
     }
+    camSettings.refresh();  // gear shows only while live + something is adjustable
     env.updateMotionUI();   // motion mode is disabled while the camera is live
   }
 
@@ -464,6 +466,32 @@ export function createSourceHost(env) {
     refreshCameraDevices();          // keep the picker selection in sync after a flip
     env.arrangeSlots();              // remount picks up the mirror transform + aspect
   }
+
+  // A settings change that RESTARTS the stream (lens / resolution / frame rate —
+  // a format change, like flip): run the op, then re-point the engine at the
+  // (possibly new) frame source. The camera-settings gear drives this.
+  async function reacquireCamera(op) {
+    if (!env.live.isLive) return;
+    try {
+      const video = await op();
+      if (video) env.liveVideo = video;
+      engine.setSource(camera.frameSource());
+    } catch (e) {
+      if (uploadErrorEl) uploadErrorEl.textContent = cameraErrorMessage(e);
+      return;
+    }
+    setCameraMeta('live camera');
+    updateCameraUI();
+    env.arrangeSlots();              // remount picks up any changed mirror/aspect
+  }
+
+  // the camera-settings gear (desktop/iPad chrome) — capability-driven rows;
+  // lifecycle ownership stays here (reacquireCamera above re-points the engine).
+  const camSettings = createCameraSettings(env, {
+    getCamera: () => camera,
+    isNative: () => cameraIsNative,
+    reacquire: reacquireCamera,
+  });
 
   // grab the current camera frame into a canvas at native resolution. mirrored
   // to match the front-camera preview so the saved frame is what the user saw.
