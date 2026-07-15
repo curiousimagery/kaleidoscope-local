@@ -231,7 +231,14 @@ export function createExternalDisplaySink(env) {
     },
     getTest: () => !!env.outputBus?.getStatus?.().testPattern,
     sourceSignature: () => {
-      if (env.live?.isLive) return 'cam:' + (env.liveCameraInfo?.()?.deviceId || '');
+      if (env.live?.isLive) {
+        // native: the acquisition gen rides the signature (a re-acquire restarts
+        // the frame socket — the external receiver must rebuild); web: static
+        const info = env.liveCameraInfo?.();
+        return info?.stream
+          ? `cam:native:${info.facing || ''}:${info.stream.gen ?? 0}`
+          : 'cam:web';
+      }
       if (env.sourceVideo && env.media?.sourceVideoUrl) return 'vid:' + env.media.sourceVideoUrl;
       const src = env.engine?.getSourceImage?.();
       if (src) return 'img:' + (src.src || src.currentSrc || env.media?.sourceFilename || '1');
@@ -239,13 +246,15 @@ export function createExternalDisplaySink(env) {
     },
     async buildSourcePayload({ sourceCap = 4096 } = {}) {
       if (env.live?.isLive) {
-        // A second getUserMedia of the same camera is a DEAD END on iOS
-        // (device-proven, pass 5): the OS grants it but starves both captures —
-        // a frame every 5–15s on the external screen AND the main preview went
-        // dark. Don't attempt it; be honest. The iPad's live-camera answer is
-        // the native camera path (frame-socket relay) once it comes to the
-        // desktop chrome — BACKLOG carries the decision.
-        return { kind: 'unsupported', reason: 'live camera over HDMI needs the native camera path — coming; stills broadcast fine' };
+        // NATIVE camera (Capacitor iPad): the external view joins the frame
+        // socket as a second client — the same frames the iPad previews, no
+        // second capture. (A second getUserMedia of one camera is a device-
+        // proven dead end on iOS: granted, then both captures starve.)
+        const info = env.liveCameraInfo?.();
+        if (info?.stream) {
+          return { kind: 'native-camera', port: info.stream.port, mirror: info.stream.mirror };
+        }
+        return { kind: 'unsupported', reason: 'live camera over HDMI needs the native camera — stills broadcast fine' };
       }
       if (env.sourceVideo && env.media?.sourceVideoUrl) {
         return { kind: 'unsupported', reason: 'video sources on the external display are coming — use a still or the live camera for now' };

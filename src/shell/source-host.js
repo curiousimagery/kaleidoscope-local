@@ -228,7 +228,20 @@ export function createSourceHost(env) {
   // as a normal editable still; nothing is saved automatically — the original is
   // saved alongside the kaleidoscope on the first export (see doExport).
 
-  const camera = createCamera();
+  // The web camera by default; swapped for the NATIVE camera (AVCaptureSession —
+  // EV/WB/lens/48MP + the HDMI frame relay) on first camera entry when the host
+  // offers it (Capacitor iPad). Lazy import so the desktop web bundle never
+  // carries @capacitor/core; interface-compatible by design, so every call site
+  // below works on either. `let` because the swap replaces the instance.
+  let camera = createCamera();
+  let cameraIsNative = false;
+  async function ensureNativeCamera() {
+    if (cameraIsNative || !env.host?.nativeCamera?.available) return;
+    const m = await import('./native-camera.js');
+    camera = m.createNativeCamera();
+    cameraIsNative = true;
+    console.info('[fold] native camera path active (desktop chrome)');
+  }
   const CAMERA_DEVICE_KEY = 'fold.cameraDeviceId';   // last-picked camera, persisted across sessions
 
   // Default facing by device. Touch devices (iPad) default to the rear camera
@@ -241,7 +254,10 @@ export function createSourceHost(env) {
   // A stale/blocked deviceId (the cam was unplugged, or is in use) throws
   // OverconstrainedError/NotReadableError → fall back to the default facing.
   async function startWithPreferredDevice() {
-    const savedId = localStorage.getItem(CAMERA_DEVICE_KEY);
+    await ensureNativeCamera();
+    // saved web deviceIds mean nothing to the native camera (it drives lenses,
+    // not enumerated devices) — skip straight to the facing default there
+    const savedId = cameraIsNative ? null : localStorage.getItem(CAMERA_DEVICE_KEY);
     if (savedId) {
       try { return await camera.start({ deviceId: savedId }); }
       catch { /* device gone or busy — fall through to default */ }
@@ -452,13 +468,18 @@ export function createSourceHost(env) {
   // grab the current camera frame into a canvas at native resolution. mirrored
   // to match the front-camera preview so the saved frame is what the user saw.
   function captureLiveFrame() {
+    // the web camera hands a <video> (videoWidth); the native camera hands its
+    // RGB canvas (width) — accept either
     const video = camera.getVideo();
-    if (!video || !video.videoWidth) return null;
-    const w = video.videoWidth, h = video.videoHeight;
+    const w = video ? (video.videoWidth || video.width || 0) : 0;
+    const h = video ? (video.videoHeight || video.height || 0) : 0;
+    if (!w || !h) return null;
     const c = document.createElement('canvas');
     c.width = w; c.height = h;
     const cx = c.getContext('2d');
-    if (camera.isFront()) { cx.translate(w, 0); cx.scale(-1, 1); }
+    // the native camera bakes the selfie mirror into its canvas (mirrorsInSource)
+    // — mirroring again here would double-flip the freeze
+    if (camera.isFront() && !camera.mirrorsInSource) { cx.translate(w, 0); cx.scale(-1, 1); }
     cx.drawImage(video, 0, 0, w, h);
     return c;
   }
@@ -801,9 +822,15 @@ export function createSourceHost(env) {
 
   // The live camera's current device + facing, for the output window to open its OWN
   // capture of the same physical camera (in-sync, zero per-frame transfer). Null when
-  // the camera isn't live.
+  // the camera isn't live. `stream` (the native camera's frame-socket info: port,
+  // mirror, acquisition gen) is how the HDMI external view joins the SAME frames as
+  // a second socket client — the only live-camera path that works across webviews.
   env.liveCameraInfo = () => env.live.isLive
-    ? { deviceId: camera.getDeviceId(), facing: camera.getFacing() }
+    ? {
+        deviceId: camera.getDeviceId(),
+        facing: camera.getFacing(),
+        stream: camera.streamInfo?.() || null,
+      }
     : null;
 
   // Public surface used by the chrome's control/upload wiring + collaborators.

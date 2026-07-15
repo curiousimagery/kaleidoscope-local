@@ -290,6 +290,8 @@ export function createNativeCamera() {
     getDeviceId: () => null,
     isFront: () => facing === 'user',
     isActive: () => active,
+    // interface parity with shell/camera.js (the desktop chrome's flip button)
+    flip: () => start({ facingMode: facing === 'user' ? 'environment' : 'user' }),
     // for the external-display view: where to join the frame stream as a second
     // socket client, whether to bake the selfie mirror (we bake ours the same
     // way), and the acquisition generation (a changed gen = a NEW socket stream —
