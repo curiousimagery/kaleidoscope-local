@@ -26,6 +26,10 @@ const FoldNativeCamera = registerPlugin('FoldNativeCamera');
 export function createNativeCamera() {
   let ws = null;
   let port = 0;
+  let streamGen = 0;          // bumps per acquisition — every re-acquire (flip, lens,
+                              // still/video mode, res/fps) restarts the frame socket,
+                              // so downstream consumers (the HDMI external view's
+                              // receiver) must rebuild; the gen rides streamInfo
   let canvas = null;          // RGB output canvas — the frameSource the engine samples
   let renderer = null;        // YUV->RGB WebGL2 blitter that owns `canvas`
   let latest = null;          // most recent YUV ArrayBuffer (painted on the render tick)
@@ -140,6 +144,7 @@ export function createNativeCamera() {
       stillRes = stillResolutions[stillResolutions.length - 1] || null;
     }
     active = true;
+    streamGen++;   // a fresh acquisition = a fresh socket stream
     // re-apply persisted EV/WB — they survive a resolution/fps re-acquire (same sensor);
     // a lens/facing change calls resetControls() first, so this becomes a no-op (auto/0).
     if (evBias !== 0) { try { await FoldNativeCamera.setExposureBias({ value: evBias }); } catch { /* unsupported */ } }
@@ -286,8 +291,10 @@ export function createNativeCamera() {
     isFront: () => facing === 'user',
     isActive: () => active,
     // for the external-display view: where to join the frame stream as a second
-    // socket client + whether to bake the selfie mirror (we bake ours the same way)
-    streamInfo: () => (active && port ? { port, mirror: facing === 'user' } : null),
+    // socket client, whether to bake the selfie mirror (we bake ours the same
+    // way), and the acquisition generation (a changed gen = a NEW socket stream —
+    // the old connection died with the re-acquire; rebuild the receiver)
+    streamInfo: () => (active && port ? { port, mirror: facing === 'user', gen: streamGen } : null),
   };
 }
 // (the YUV->RGB blitter moved verbatim to shell/yuv-renderer.js — shared with

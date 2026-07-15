@@ -4,6 +4,10 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.16.24 (Build 340) — 2026-07-15 — record video no longer freezes the HDMI output (the stream-generation fix)
+
+**Live camera over HDMI on the iPhone is CONFIRMED WORKING** (pass 7, the frame relay's first valid test) — and it exposed the last transition bug: switching to **record video froze the external display on the last live frame** (state still streamed — his slice gestures moved out there — but the source didn't follow), unrecovered by switching back to live camera, recovered by going still-then-live. Root cause: record video **re-acquires the camera** (video format/fps), which restarts the frame socket and kills the external receiver's connection — but the source SIGNATURE (`cam:native:<facing>`) didn't change, so the external view never rebuilt its receiver (and the receiver deliberately doesn't auto-reconnect: the still→live dance worked because the signature changed twice). Fix: [native-camera.js](../src/shell/native-camera.js) tracks a **stream generation** (bumps per acquisition) and reports it in `streamInfo()`; the mobile source signature includes it, so ANY re-acquire (flip, still/video mode, resolution, fps) re-posts the source and the external view rebuilds its receiver on the fresh stream. During the transition the external view honestly shows black + hint (streamInfo is null mid-acquire), then the new stream lands.
+
 ## v0.16.23 (Build 339) — 2026-07-15 — camera UX cleanup: capture/live-camera copy + the settings-camera icons
 
 Daniel's non-functional cleanup ahead of the iPad/desktop camera lane:

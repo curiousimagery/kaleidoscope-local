@@ -1767,9 +1767,11 @@ if (host.externalDisplay?.available) {
       getOutputDims: () => ({ width: outputCanvas.width || 1080, height: outputCanvas.height || 1080 }),
       sourceSignature: () => {
         if (cameraMode === 'live') {
-          // native: the facing rides the signature so a flip re-posts (mirror +
-          // a fresh stream); web: the deviceId changes on flip
-          if (useNativeCam) return 'cam:native:' + (camera.getFacing?.() || '');
+          // native: the facing AND the acquisition gen ride the signature — any
+          // re-acquire (flip, still/video mode, res/fps) restarts the frame
+          // socket, so the external view must rebuild its receiver (the
+          // record-video freeze: the stream died under an unchanged signature)
+          if (useNativeCam) return 'cam:native:' + (camera.getFacing?.() || '') + ':' + (camera.streamInfo?.()?.gen ?? 0);
           const t = liveVideo?.srcObject?.getVideoTracks?.()[0];
           return 'cam:' + (t?.getSettings?.().deviceId || 'web');
         }
