@@ -123,17 +123,29 @@ async function setupSource(payload) {
 
   if (payload.kind === 'camera') {
     camera = createCamera();
+    // match the MAIN app's negotiated capture mode (width/height ride the
+    // payload) — a second consumer of the same device can otherwise land on a
+    // different aspect and skew every slice coordinate in this window.
+    // deviceId only works on the SAME-origin popup path (getUserMedia ids are
+    // salted per origin — a foreign id matches nothing); the native transport
+    // sends facingMode instead, and a failed deviceId retries by facing.
+    const dims = payload.width ? { width: payload.width, height: payload.height } : {};
     try {
-      // match the MAIN app's negotiated capture mode (width/height ride the
-      // payload) — a second consumer of the same device can otherwise land on a
-      // different aspect and skew every slice coordinate in this window
       await camera.start({
         ...(payload.deviceId ? { deviceId: payload.deviceId } : {}),
-        ...(payload.width ? { width: payload.width, height: payload.height } : {}),
+        ...(payload.facingMode && !payload.deviceId ? { facingMode: payload.facingMode } : {}),
+        ...dims,
       });
     } catch (e) {
-      if (hint) hint.textContent = 'output window could not open the camera: ' + (e.message || e.name);
-      camera = null; return;
+      let recovered = false;
+      if (payload.deviceId && payload.facingMode) {
+        try { await camera.start({ facingMode: payload.facingMode, ...dims }); recovered = true; }
+        catch { /* fall through to the hint */ }
+      }
+      if (!recovered) {
+        if (hint) hint.textContent = 'output window could not open the camera: ' + (e.message || e.name);
+        camera = null; return;
+      }
     }
     if (token !== sourceToken) { try { camera.stop(); } catch {} camera = null; return; }
     engine.setSource(camera.frameSource());

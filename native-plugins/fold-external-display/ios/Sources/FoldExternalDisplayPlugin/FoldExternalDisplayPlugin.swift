@@ -81,6 +81,7 @@ public class FoldExternalDisplayPlugin: CAPPlugin, CAPBridgedPlugin, WKScriptMes
     private var externalWebView: WKWebView?
     private var observers: [Any] = []
     private var attachPath: String?   // "scene" | "classic" — which window attachment presented
+    private var crashTimes: [Date] = []   // recent web-process deaths (the crash-loop breaker)
 
     override public func load() {
         let nc = NotificationCenter.default
@@ -130,6 +131,7 @@ public class FoldExternalDisplayPlugin: CAPPlugin, CAPBridgedPlugin, WKScriptMes
                 return
             }
             if self.externalWindow != nil { call.resolve(self.statusData()); return }
+            self.crashTimes = []   // a fresh presentation gets a fresh crash budget
             // WAIT for the system's UIWindowScene for this screen before attaching.
             // The scene arrives slightly AFTER UIScreen.didConnectNotification, so an
             // instant attach (the iPhone's autoconnect) found no scene and fell into
@@ -240,11 +242,23 @@ public class FoldExternalDisplayPlugin: CAPPlugin, CAPBridgedPlugin, WKScriptMes
         notifyListeners("externalMessage", data: ["type": "loadError", "error": error.localizedDescription])
     }
     // The external view's web content process can be killed under memory/GPU
-    // pressure (a 4K render surface next to the main app + camera). Without
-    // this the external screen goes permanently dark — reload the view and
-    // report; the poster re-posts the source on the fresh view's 'hello'.
+    // pressure (a 4K render surface next to the main app + camera). Reload it —
+    // the poster degrades its render size per crash and re-posts the source on
+    // the fresh view's 'hello' — but with a BREAKER: Daniel's landscape pass
+    // crash-looped 113 times (each reload re-allocated into the same memory
+    // wall). Past 3 deaths in a minute, give the memory budget back and tear
+    // the window down entirely — iOS falls back to MIRRORING the device, so
+    // the projector still shows something. Unplug/replug (or a manual start)
+    // resets the budget and tries fresh.
     public func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
-        notifyListeners("externalMessage", data: ["type": "crashed"])
+        let now = Date()
+        crashTimes = crashTimes.filter { now.timeIntervalSince($0) < 60 } + [now]
+        if crashTimes.count > 3 {
+            notifyListeners("externalMessage", data: ["type": "crashLoop"])
+            teardown()
+            return
+        }
+        notifyListeners("externalMessage", data: ["type": "crashed", "count": crashTimes.count])
         webView.load(URLRequest(url: URL(string: "fold-ext://localhost/output.html")!))
     }
 

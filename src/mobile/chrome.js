@@ -1767,7 +1767,7 @@ if (host.externalDisplay?.available) {
         if (src !== srcRef) { srcRef = src; srcGen++; }
         return src ? 'img:' + srcGen : 'none';
       },
-      async buildSourcePayload() {
+      async buildSourcePayload({ sourceCap = 4096 } = {}) {
         if (cameraMode === 'live') {
           if (useNativeCam) {
             // the external view joins the native camera's frame socket as a
@@ -1776,14 +1776,16 @@ if (host.externalDisplay?.available) {
             if (si) return { kind: 'native-camera', port: si.port, mirror: si.mirror };
             return { kind: 'none' };
           }
+          // no deviceId across webviews (per-origin salting — it can never
+          // match); facing + dims select the camera in the external view
           const t = liveVideo?.srcObject?.getVideoTracks?.()[0];
           const s = t?.getSettings?.() || {};
-          return { kind: 'camera', deviceId: s.deviceId || null, width: s.width || undefined, height: s.height || undefined };
+          return { kind: 'camera', facingMode: s.facingMode || 'environment', width: s.width || undefined, height: s.height || undefined };
         }
         const src = engine.getSourceImage();
         if (src) {
           try {
-            const dataUrl = m.sourceToDataUrl(src);
+            const dataUrl = m.sourceToDataUrl(src, sourceCap);
             if (dataUrl) return { kind: 'image', dataUrl };
           } catch { /* fall through */ }
         }

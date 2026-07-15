@@ -70,6 +70,21 @@ function createPoster(opts) {
   let dims = null;                    // display-native { width, height }, when known
   const changeHandlers = new Set();
 
+  // ADAPTIVE DEGRADATION: each external web-process death steps the render +
+  // source sizes down (Daniel's landscape pass: the view crash-looped under
+  // memory pressure, each reload re-allocating into the same wall). Reset per
+  // plug session. Gen 0 = display-native / 4096 stills; then 1920/2048; then
+  // 1280/1280.
+  let crashGen = 0;
+  const RENDER_CAPS = [Infinity, 1920, 1280];
+  const SOURCE_CAPS = [4096, 2048, 1280];
+  const capDims = (d, cap) => {
+    const mx = Math.max(d.width, d.height);
+    if (!(mx > cap)) return d;
+    const s = cap / mx;
+    return { width: Math.round(d.width * s), height: Math.round(d.height * s) };
+  };
+
   function emitChange(s) {
     for (const h of changeHandlers) { try { h(connected, s); } catch { /* keep others alive */ } }
   }
@@ -77,6 +92,7 @@ function createPoster(opts) {
   FoldExternalDisplay.addListener('displayChanged', (s) => {
     connected = !!s?.connected;
     dims = connected ? { width: s.width, height: s.height } : null;
+    if (!connected) crashGen = 0;       // a fresh plug gets a fresh size budget
     if (!connected && active) stop();   // display yanked mid-stream: stop cleanly
     emitChange(s);
   });
@@ -93,7 +109,12 @@ function createPoster(opts) {
     } else if (msg.type === 'loadError') {
       console.warn('[fold] external view FAILED to load output.html:', msg.error);
     } else if (msg.type === 'crashed') {
-      console.warn('[fold] external view web process died — reloading it');
+      crashGen = Math.min(crashGen + 1, RENDER_CAPS.length - 1);
+      lastSourceSig = '';   // repost the (now smaller) source to the fresh view
+      console.warn(`[fold] external view web process died (${msg.count ?? '?'} recent) — reloading at reduced size (gen ${crashGen})`);
+    } else if (msg.type === 'crashLoop') {
+      console.warn('[fold] external view crash-looped — presentation stopped; iOS mirroring takes over (unplug/replug to retry)');
+      stop();
     } else if (msg.type === 'glLost') {
       console.warn('[fold] external view lost its GL context — recovering');
     } else if (msg.type === 'glRestored') {
@@ -106,10 +127,11 @@ function createPoster(opts) {
     .catch(() => {});
 
   function outputDims() {
-    // the display's native resolution when known — the point of HDMI
-    const native = (dims?.width && dims?.height)
-      ? dims
-      : (opts.getOutputDims?.() || { width: 1920, height: 1080 });
+    // the display's native resolution when known — the point of HDMI — stepped
+    // down by the crash generation when memory pressure killed the view
+    const native = capDims(
+      (dims?.width && dims?.height) ? dims : (opts.getOutputDims?.() || { width: 1920, height: 1080 }),
+      RENDER_CAPS[crashGen]);
     // FILL mode (the installation case): render edge-to-edge at the display's
     // native aspect instead of honoring the canvas frame aspect.
     if (opts.getFill?.()) return native;
@@ -133,7 +155,7 @@ function createPoster(opts) {
     if (sourcePending) return;
     sourcePending = true;
     try {
-      const payload = await opts.buildSourcePayload();
+      const payload = await opts.buildSourcePayload({ sourceCap: SOURCE_CAPS[crashGen] });
       await post({ type: 'source', payload, output: outputDims() });
     } catch (e) {
       console.warn('[fold] external display source post failed:', e);
@@ -215,12 +237,17 @@ export function createExternalDisplaySink(env) {
       if (src) return 'img:' + (src.src || src.currentSrc || env.media?.sourceFilename || '1');
       return 'none';
     },
-    async buildSourcePayload() {
+    async buildSourcePayload({ sourceCap = 4096 } = {}) {
       if (env.live?.isLive) {
         const size = env.engine?.getSourceSize?.() || {};
+        // NO deviceId across the native transport: getUserMedia ids are salted
+        // PER ORIGIN, so the main webview's id can never match inside the
+        // external view (Daniel's iPad log: "no device found amongst 5
+        // devices"). The facing + negotiated dims select the camera instead.
+        const t = env.liveVideo?.srcObject?.getVideoTracks?.()[0];
         return {
           kind: 'camera',
-          deviceId: env.liveCameraInfo?.()?.deviceId || null,
+          facingMode: t?.getSettings?.().facingMode || 'environment',
           width: size.w || undefined,
           height: size.h || undefined,
         };
@@ -231,7 +258,7 @@ export function createExternalDisplaySink(env) {
       const src = env.engine?.getSourceImage?.();
       if (src) {
         try {
-          const dataUrl = sourceToDataUrl(src);
+          const dataUrl = sourceToDataUrl(src, sourceCap);
           if (dataUrl) return { kind: 'image', dataUrl };
         } catch { /* fall through */ }
       }

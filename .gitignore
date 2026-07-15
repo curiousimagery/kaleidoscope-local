@@ -31,3 +31,6 @@ ios/App/build/
 ios/DerivedData/
 *.xcuserstate
 xcuserdata/
+
+# scratch space for device logs / session records (not project docs)
+docs/temp/
