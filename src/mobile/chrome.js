@@ -135,6 +135,10 @@ let liveVideo = null;          // the camera <video> while live; null otherwise
 // binds to it at mount time): the recorded output eases toward edits at
 // session.performResponse, the same primitive as desktop perform.
 let follower = null;
+// the last followed (eased) snapshot while it diverges from the edit state —
+// mobile's "what the audience sees": the recording captures it, and the HDMI
+// external view (below) streams it. null = the working state IS the program.
+let lastEased = null;
 // AUTOPLAY: the same kit drift desktop perform runs — another pair of hands
 // writing state; the preview shows it immediately, the follower eases the
 // recorded output through it. Manual edits win per field (kit contract).
@@ -722,6 +726,7 @@ function leaveVideoMode() {
   rawVideo = null;
   recordingSaved = false;
   follower = null;
+  lastEased = null;
   autoOn = false;
   syncAutoUI();
   clearGhosts();
@@ -841,6 +846,7 @@ function startLiveLoop() {
       follower.setTarget(state);
       const eased = follower.step(dt);
       const diverged = !follower.isSettled(0.002);
+      lastEased = diverged ? eased : null;   // the program = the followed look while it chases
       updateGhosts(now, eased, !diverged);
       if (!diverged) {
         engine.render(state);
@@ -1703,3 +1709,57 @@ function onVisible() {
 }
 document.addEventListener('visibilitychange', onVisible);
 window.addEventListener('pageshow', onVisible);
+
+// ---------------------------------------------- HDMI / external display (native)
+// AUTOCONNECT on the phone (Daniel's call): one display, one intent — plug in →
+// the chrome-free program view presents on the external screen and follows the
+// phone live; unplug → it stops. No destinations UI here (that's the desktop
+// chrome's picker). The external view renders from STATE at the display's
+// native resolution; while record-video's follower eases the output, the
+// external screen shows the FOLLOWED look — what the recording captures — not
+// the raw edit preview. Lazy import (the module carries @capacitor/core).
+// Source support this pass: stills (data URL) + the web-path live camera (the
+// external view opens its own capture — device-pending whether iOS allows the
+// second concurrent capture); the NATIVE camera feed can't cross webviews yet
+// (follow-up: a second client on its frame socket), so it shows an honest hint
+// until you pause to a captured still.
+if (host.externalDisplay?.available) {
+  import('../shell/external-display.js').then((m) => {
+    let srcRef = null, srcGen = 0;
+    m.createExternalDisplayAutoconnect({
+      getState: () => lastEased || state,
+      getOutputDims: () => ({ width: outputCanvas.width || 1080, height: outputCanvas.height || 1080 }),
+      sourceSignature: () => {
+        if (cameraMode === 'live') {
+          if (useNativeCam) return 'cam:native';
+          const t = liveVideo?.srcObject?.getVideoTracks?.()[0];
+          return 'cam:' + (t?.getSettings?.().deviceId || 'web');
+        }
+        const src = engine.getSourceImage();
+        if (src !== srcRef) { srcRef = src; srcGen++; }
+        return src ? 'img:' + srcGen : 'none';
+      },
+      async buildSourcePayload() {
+        if (cameraMode === 'live') {
+          if (useNativeCam) {
+            return { kind: 'unsupported', reason: 'the live native camera on HDMI is coming — capture a still to project it' };
+          }
+          const t = liveVideo?.srcObject?.getVideoTracks?.()[0];
+          const s = t?.getSettings?.() || {};
+          return { kind: 'camera', deviceId: s.deviceId || null, width: s.width || undefined, height: s.height || undefined };
+        }
+        const src = engine.getSourceImage();
+        if (src) {
+          try {
+            const dataUrl = m.sourceToDataUrl(src);
+            if (dataUrl) return { kind: 'image', dataUrl };
+          } catch { /* fall through */ }
+        }
+        return { kind: 'none' };
+      },
+      onStatus: (connected, streaming) => {
+        console.info('[fold] external display', connected ? (streaming ? 'streaming' : 'connected') : 'disconnected');
+      },
+    });
+  }).catch((e) => console.warn('[fold] external display unavailable:', e));
+}

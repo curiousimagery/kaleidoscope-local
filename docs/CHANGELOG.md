@@ -4,6 +4,12 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.16.16 (Build 332) — 2026-07-15 — HDMI autoconnect on the iPhone (mobile chrome)
+
+**Plug the phone into HDMI and the program presents on the external screen automatically** — no picker, no arm step (Daniel's call: one display, one intent; the mobile chrome has no destinations UI). Unplug and it stops. [shell/external-display.js](../src/shell/external-display.js) refactored into a shared **poster core** (plugin lifecycle + the per-frame state stream + source sync) with two thin consumers: `createExternalDisplaySink` (the desktop-chrome destination, unchanged behavior) and `createExternalDisplayAutoconnect` (the mobile behavior). [mobile/chrome.js](../src/mobile/chrome.js) wires autoconnect at boot (lazy import, `host.externalDisplay.available`-gated) and supplies the program accessor: **the external screen shows the FOLLOWED look while record-video's follower chases** (`lastEased` — what the recording captures), the working state otherwise — so what goes out over HDMI is always what the audience/recording sees, never the raw edit preview mid-ease.
+
+Source support on the phone this pass: stills (frozen captures + uploads, as data URLs — fresh objects per freeze, so reference-identity re-posts work) and the web-path live camera (deviceId from the live track; the external view opens its own capture — device-pending). The **native camera feed can't cross webviews yet** (its frames ride a single-client socket); the external view shows an honest hint until you capture a still — the follow-up is a second client on the frame socket. Verified: `node --check`, `vite build` (the shared module is a 4.1 kB lazy chunk), `cap sync`; no native code changed this build. Runtime device-pending.
+
 ## v0.16.15 (Build 331) — 2026-07-15 — HDMI out (Capacitor iPad/desktop chrome): the external display joins the destination picker
 
 **Plug an iPad (or any Capacitor build running the full app) into HDMI and the chrome-free program view presents on the external screen** — the arc's "standalone activation broadcasting out." This is Lane 3's HDMI lane riding directly on Lane 4A: the external view renders **from the committed program state-stream** (`env.programState`, now the committed frame), not captured pixels — zero readback, the display's native resolution, works from every mode (still edits live, motion's committed loop while staging, perform's follower-eased output while the device screen keeps the stage).
