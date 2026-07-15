@@ -4,6 +4,21 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.16.15 (Build 331) — 2026-07-15 — HDMI out (Capacitor iPad/desktop chrome): the external display joins the destination picker
+
+**Plug an iPad (or any Capacitor build running the full app) into HDMI and the chrome-free program view presents on the external screen** — the arc's "standalone activation broadcasting out." This is Lane 3's HDMI lane riding directly on Lane 4A: the external view renders **from the committed program state-stream** (`env.programState`, now the committed frame), not captured pixels — zero readback, the display's native resolution, works from every mode (still edits live, motion's committed loop while staging, perform's follower-eased output while the device screen keeps the stage).
+
+The pieces:
+
+- **`native-plugins/fold-external-display`** (new local plugin, the DISTRIBUTION.md pattern): watches `UIScreen` connect/disconnect (one external display at a time on iOS — no picker needed), presents a second `UIWindow` + WKWebView loading `output.html`, and bridges per-frame state via `evaluateJavaScript` into `window.__foldExternal` (BroadcastChannel can't cross WKWebViews). A tiny **`fold-ext://` scheme handler** serves the bundled web assets — the bridge's `capacitor://` handler belongs to the main webview's configuration, and `file://` breaks ES modules (null origin). Messages travel up (hello/fps) via a script message handler → plugin events. A `WKUIDelegate` grants the external view's getUserMedia (our own content; the app holds the camera permission — the prompt can't present on a screen without input). **iOS exposes no product name for the display** — status reports resolution; JS labels it.
+- **[shell/external-display.js](../src/shell/external-display.js)** — the sink (sibling of output-window.js, transport swapped): posts the committed program frame per tick + the source payload on change; registered as `{ id:'hdmi', needsBus:false }` (self-rendering — never starts the bus readback loop). Lazy chunk (the native-camera pattern) so the web bundle stays clean. Renders at the **display's native resolution** when known.
+- **[output-view.js](../src/output-view.js)** — dual ingress (BroadcastChannel + `__foldExternal`), `sendUp` up-channel, stills as **data URLs** (ImageBitmap can't cross the bridge; capped at 4096 long edge), and an honest `unsupported` hint payload.
+- **[output-panel.js](../src/shell/output-panel.js)** — `env.addOutputDestination` (late registration: native modules load async), **auto-select on plug-in** (connecting a display IS the intent — Daniel's call), and clean state recovery when the display is yanked mid-broadcast.
+
+**Source support this build:** stills (data URL) + live camera (the external view opens its own capture of the same device — the proven desktop-popup pattern; whether iOS allows the second concurrent capture is DEVICE-PENDING, fallback = a second client on the native camera's frame socket). **Video sources deferred** (blob URLs are per-context; follow-up = serve the clip through the asset scheme). **iPhone mobile-chrome autoconnect is the next increment** (no destinations UI there — plug in and it streams).
+
+Verified: `node --check` all touched files; `vite build` clean (external-display is a 3.3 kB lazy chunk); `cap sync` integrates the plugin (5 plugins, `packageClassList` + Package.swift); `xcodebuild` sim **BUILD SUCCEEDED**. Runtime is device-pending (Daniel's iPad + a USB-C/HDMI adapter).
+
 ## v0.16.14 (Build 330) — 2026-07-15 — the program-snapshot discipline (Lane 4A)
 
 **Every output destination now reads a COMMITTED program snapshot instead of the live mutable `state`.** This is the Capacitor arc's Lane 4A — the architectural prerequisite for HDMI broadcast (the external WKWebView needs a committed state-stream; BroadcastChannel can't cross web views) and iOS native capture. It replaces the "two-loop shared-state" bug class (BACKLOG: a slice drag during playback once leaked a transient uncommitted edit into the Syphon broadcast — Build 201 — and each new real-time writer like the control bus multiplied the ways that could recur) with one rule: **a single writer commits an immutable param snapshot at a defined point per frame; consumers read committed frames only.**

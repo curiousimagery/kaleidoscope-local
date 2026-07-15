@@ -1,0 +1,18 @@
+{
+  "name": "fold-external-display",
+  "version": "0.0.1",
+  "description": "Fold external display (HDMI/USB-C/AirPlay screen) plugin: presents the chrome-free output view on a second UIScreen and bridges the committed program state-stream into it.",
+  "type": "module",
+  "main": "src/index.js",
+  "module": "src/index.js",
+  "files": [
+    "ios/Sources",
+    "Package.swift",
+    "src"
+  ],
+  "capacitor": {
+    "ios": {
+      "src": "ios"
+    }
+  }
+}

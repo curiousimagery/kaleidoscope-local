@@ -1164,6 +1164,24 @@ if (engine) {
   env.outputBus = outputBus;
   createOutputPanel(env, outputBus);
 
+  // HDMI / external display (Capacitor iOS/iPadOS): the sink module — and with it
+  // @capacitor/core — loads lazily so the web bundle stays clean (the
+  // native-camera pattern); the destination row appears once it's ready via
+  // env.addOutputDestination (the panel handles late registration + the
+  // auto-select-on-plug-in behavior).
+  if (detectRuntime().isCapacitor) {
+    import('./shell/external-display.js')
+      .then((m) => {
+        outputBus.registerSink(m.createExternalDisplaySink(env));
+        env.addOutputDestination?.({
+          id: 'hdmi',
+          label: 'HDMI',
+          title: 'present the program on the connected HDMI / external display (chrome-free, full screen)',
+        });
+      })
+      .catch((e) => console.warn('[fold] external display unavailable:', e));
+  }
+
   buildFormGrid(env);
   applyFormControls(env);
   wireControls();

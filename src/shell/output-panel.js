@@ -217,13 +217,45 @@ export function createOutputPanel(env, outputBus) {
       b.className = 'toggle';
       b.dataset.dest = d.id;
       b.textContent = d.label;
-      b.title = d.id === 'window'
+      b.title = d.title || (d.id === 'window'
         ? 'a clean output window you can drag to a second display and fullscreen'
-        : 'broadcast to Syphon (Resolume Arena, VDMX, …)';
+        : 'broadcast to Syphon (Resolume Arena, VDMX, …)');
       b.addEventListener('click', () => selectDestination(d.id));
       destEl.appendChild(b);
     }
   }
+
+  // Late destination registration — native destination modules load async (the
+  // HDMI / external-display sink on Capacitor), after this panel has already
+  // built its picker. Adds the destination, restores a saved selection that
+  // pointed at it, and — when the sink reports display changes — auto-selects on
+  // plug-in (connecting a display IS the intent to output there; Daniel's call)
+  // and cleans up the broadcasting state on disconnect (the sink already stopped
+  // itself; without this the panel would still read "live").
+  env.addOutputDestination = ({ id, label, title }) => {
+    const sink = outputBus.getSink(id);
+    if (!sink || sink.supported === false || destinations.some((d) => d.id === id)) return;
+    destinations.push({ id, label, title, sink });
+    let saved = null;
+    try { saved = localStorage.getItem(DEST_KEY); } catch {}
+    if (!destination || (saved === id && !broadcasting)) destination = id;
+    if (typeof sink.onDisplayChange === 'function') {
+      sink.onDisplayChange((connected) => {
+        if (connected && !broadcasting) selectDestination(id);
+        if (!connected && broadcasting && destination === id) {
+          broadcasting = false;
+          syncBusRunning();
+          if (!recorder?.recording) stopPolling();
+          if (statusEl) statusEl.textContent = 'external display disconnected';
+        }
+        reflect();
+        renderStatus();
+      });
+    }
+    buildDestPicker();
+    reflect();
+    renderStatus();
+  };
 
   // ---- status surfaces ----------------------------------------------------------
   function reflect() {

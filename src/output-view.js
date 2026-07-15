@@ -65,10 +65,27 @@ async function setupSource(payload) {
   await teardownSource();
   if (!payload || payload.kind === 'none') return;
 
-  if (payload.kind === 'image' && payload.bitmap) {
-    engine.setSource(payload.bitmap);
+  if (payload.kind === 'image' && (payload.bitmap || payload.dataUrl)) {
+    let src = payload.bitmap;
+    if (!src) {
+      // the native external-display transport can't structured-clone an
+      // ImageBitmap — the still arrives as a data URL instead
+      src = new Image();
+      src.src = payload.dataUrl;
+      await new Promise((res) => { src.onload = res; src.onerror = res; });
+      if (!src.naturalWidth) return;
+    }
     if (token !== sourceToken) return;
+    engine.setSource(src);
     liveSource = false; haveSource = true;
+    return;
+  }
+
+  if (payload.kind === 'unsupported') {
+    // an honest hint instead of a stale frame (e.g. video sources over the
+    // native bridge — a follow-up)
+    if (hint) hint.textContent = payload.reason || 'this source is not yet supported here';
+    document.body.classList.remove('live');
     return;
   }
 
@@ -179,7 +196,7 @@ function renderFrame() {
   if (lastRenderT - fpsT >= 1000) {
     measuredFps = Math.round((frames * 1000) / (lastRenderT - fpsT));
     frames = 0; fpsT = lastRenderT;
-    try { channel.postMessage({ type: 'fps', fps: measuredFps }); } catch {}
+    sendUp({ type: 'fps', fps: measuredFps });
   }
 }
 
@@ -190,10 +207,12 @@ function tick() {
 }
 requestAnimationFrame(tick);
 
-// ---- channel: receive state + source from the main app ------------------------
-const channel = new BroadcastChannel(CHANNEL);
-channel.onmessage = (e) => {
-  const msg = e.data;
+// ---- transport: receive state + source from the main app ----------------------
+// Two ingress paths, one handler: the same-origin BroadcastChannel (the popup
+// output window) and window.__foldExternal (the Capacitor external-display
+// plugin evaluates messages into this webview — BroadcastChannel can't cross
+// WKWebViews, so the committed state-stream arrives over the bridge instead).
+function handleMessage(msg) {
   if (!msg) return;
   if (msg.type === 'state') {
     latestState = msg.state;
@@ -208,10 +227,20 @@ channel.onmessage = (e) => {
   } else if (msg.type === 'close') {
     window.close();
   }
-};
-// announce readiness so the main app (re)sends the current source even if it was
-// posted before this window finished loading.
-try { channel.postMessage({ type: 'hello' }); } catch {}
+}
+const channel = new BroadcastChannel(CHANNEL);
+channel.onmessage = (e) => handleMessage(e.data);
+window.__foldExternal = handleMessage;
+
+// messages UP to whoever drives us: the BroadcastChannel peer (main window) or
+// the native bridge (the external-display plugin's script message handler).
+function sendUp(msg) {
+  try { channel.postMessage(msg); } catch { /* channel closed */ }
+  try { window.webkit?.messageHandlers?.foldExternal?.postMessage(msg); } catch { /* not native */ }
+}
+// announce readiness so the driver (re)sends the current source even if it was
+// posted before this view finished loading.
+sendUp({ type: 'hello' });
 window.addEventListener('pagehide', () => { teardownSource(); try { channel.close(); } catch {} });
 
 // ---- zero chrome: click toggles fullscreen; hide the cursor while fullscreen ---

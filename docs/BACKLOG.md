@@ -408,9 +408,9 @@ The flip-button→camera-settings-GEAR plan (flip · tap-to-focus · EV · WB) r
 
 **REVERT when #46 merges + releases:** bump `node-syphon` in `electron/package.json`, delete the hook line + `electron/vendor/`.
 
-### HDMI out as a broadcast destination (future, native)
+### HDMI out as a broadcast destination — CORE SHIPPED B331 (iPad/desktop chrome); follow-ups open
 
-Daniel's output-menu spec lists **HDMI out** beside output-window/Syphon as a destination — a clean extension of the destination picker once a native shell exposes a second display as a sink (Capacitor iPad HDMI is the primary case; FOLD.md Phase 3). The output bus's many-sinks model already accommodates it; only the host seam grows.
+Core shipped (B331): the `fold-external-display` plugin presents output.html on the external UIScreen and bridges the committed program state-stream (Lane 4A's `programFrame`) into it; "HDMI" joins the destination picker with auto-select on plug-in. **Follow-ups:** (1) **iPhone mobile-chrome autoconnect** (no destinations UI there — plug in and it streams); (2) **video sources across webviews** (blob URLs are per-context — write the clip to cache and serve it through the plugin's `fold-ext://` asset scheme); (3) **live-camera-on-external device test** — the external view opens its own getUserMedia of the same device (the proven desktop popup pattern); if iOS refuses the second concurrent capture, the fix is a second client on the native camera's frame socket; (4) desktop web/Electron screen enumeration (Window Management API labels — Chromium only) for placing the output window on a named display.
 
 ### Distribution gating (needs the $99 Apple Developer account)
 

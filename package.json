@@ -30,6 +30,7 @@
     "@capacitor/ios": "^8.4.1",
     "@capacitor/preferences": "^8.0.1",
     "@capacitor/share": "^8.0.1",
+    "fold-external-display": "file:native-plugins/fold-external-display",
     "fold-native-camera": "file:native-plugins/fold-native-camera",
     "mp4-muxer": "^5.2.2",
     "qrcode-generator": "^2.0.4"
