@@ -4,6 +4,10 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.17.1 (Build 343) — 2026-07-15 — stabilization: three notches, default in the middle
+
+Clarified against B329's history: the pre-B342 default WAS `.cinematicExtended`, so Daniel's sense that "smooth" now applies less smoothing was accurate ("smooth" = `.cinematic`, one notch down). His refined call, shipped: **three notches — standard / smooth / smooth+** (`.standard` / `.cinematic` / `.cinematicExtended`) — **defaulting to the middle**. The insight driving it: the smoothing itself was never the problem, the *unexpectedness* was — a user who CHOOSES smooth+ expects the glide-lag; the same behavior as an unchosen default reads as "why isn't my camera following." Nudge down for responsiveness, up for max glide. [native-camera.js](../src/shell/native-camera.js), [mobile/chrome.js](../src/mobile/chrome.js); the plugin already accepted all three by value.
+
 ## 🖥 v0.17.0 (Build 342) — 2026-07-15 — THE HDMI-OUT MILESTONE (Daniel's call) + the stabilization control
 
 **Live program output over HDMI works on both devices — iPhone (autoconnect, incl. record video's followed look) and iPad (destination picker), stills and the live native camera alike.** Daniel: "we're over the 'can we get it to work' hurdle and now we refine." The minor bump marks it. The stack underneath: the committed program state-stream (Lane 4A) into a second WKWebView via a scheme-served output view, the native camera's multi-client frame socket as the only cross-webview live-camera path, scene-wait presentation, GL/process crash recovery with adaptive degradation, and the canvas-aspect / fill-display contract.

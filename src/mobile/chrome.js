@@ -1207,15 +1207,17 @@ function refreshCamMenu() {
   camFpsWrap.classList.toggle('m-hidden', !showFps);
   if (showFps) buildCamSeg(camFpsWrap, 'frame rate', fpsOpts, String(camera.getFrameRate()), (id) => switchFrameRate(+id));
   else camFpsWrap.innerHTML = '';
-  // stabilization — record-video only (stills always run light .standard). Daniel's
-  // daylight pass: cinematicExtended's smoothing lag made framing unpredictable →
-  // STANDARD (responsive) is the default; "smooth" = .cinematic, one notch back
-  // from extended. Re-acquires like fps.
+  // stabilization — record-video only (stills always run light .standard). Three
+  // notches, DEFAULT IN THE MIDDLE (Daniel): nudge down for responsiveness,
+  // up for max glide — the extremes are chosen, so their tradeoffs are expected.
+  // Re-acquires like fps.
   const showStab = videoMode && !!camera.getVideoStabilization;
   camStabWrap.classList.toggle('m-hidden', !showStab);
   if (showStab) {
     buildCamSeg(camStabWrap, 'stabilization',
-      [{ id: 'standard', label: 'standard' }, { id: 'cinematic', label: 'smooth' }],
+      [{ id: 'standard', label: 'standard' },
+       { id: 'cinematic', label: 'smooth' },
+       { id: 'cinematicExtended', label: 'smooth+' }],
       camera.getVideoStabilization(), switchStabilization);
   } else camStabWrap.innerHTML = '';
   // exposure (EV) — a live bias slider; white balance — auto/manual + a Kelvin slider
