@@ -1728,6 +1728,7 @@ if (host.externalDisplay?.available) {
     let srcRef = null, srcGen = 0;
     m.createExternalDisplayAutoconnect({
       getState: () => lastEased || state,
+      getFrameAspect: () => session.frameAspect || 1,
       getOutputDims: () => ({ width: outputCanvas.width || 1080, height: outputCanvas.height || 1080 }),
       sourceSignature: () => {
         if (cameraMode === 'live') {

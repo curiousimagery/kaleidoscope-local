@@ -67,7 +67,7 @@ class ExternalAssetHandler: NSObject, WKURLSchemeHandler {
 }
 
 @objc(FoldExternalDisplayPlugin)
-public class FoldExternalDisplayPlugin: CAPPlugin, CAPBridgedPlugin, WKScriptMessageHandler, WKUIDelegate {
+public class FoldExternalDisplayPlugin: CAPPlugin, CAPBridgedPlugin, WKScriptMessageHandler, WKUIDelegate, WKNavigationDelegate {
     public let identifier = "FoldExternalDisplayPlugin"
     public let jsName = "FoldExternalDisplay"
     public let pluginMethods: [CAPPluginMethod] = [
@@ -80,6 +80,7 @@ public class FoldExternalDisplayPlugin: CAPPlugin, CAPBridgedPlugin, WKScriptMes
     private var externalWindow: UIWindow?
     private var externalWebView: WKWebView?
     private var observers: [Any] = []
+    private var attachPath: String?   // "scene" | "classic" — which window attachment presented
 
     override public func load() {
         let nc = NotificationCenter.default
@@ -110,6 +111,7 @@ public class FoldExternalDisplayPlugin: CAPPlugin, CAPBridgedPlugin, WKScriptMes
             data["width"] = Int(s.bounds.width * s.scale)
             data["height"] = Int(s.bounds.height * s.scale)
         }
+        if let attach = attachPath { data["attach"] = attach }
         return data
     }
 
@@ -128,46 +130,86 @@ public class FoldExternalDisplayPlugin: CAPPlugin, CAPBridgedPlugin, WKScriptMes
                 return
             }
             if self.externalWindow != nil { call.resolve(self.statusData()); return }
-
-            // the same dist the main webview serves (App/App/public in the bundle)
-            guard let root = Bundle.main.url(forResource: "public", withExtension: nil) else {
-                call.reject("bundled web assets not found")
-                return
-            }
-
-            let config = WKWebViewConfiguration()
-            config.setURLSchemeHandler(ExternalAssetHandler(root: root), forURLScheme: "fold-ext")
-            config.allowsInlineMediaPlayback = true
-            config.mediaTypesRequiringUserActionForPlayback = []
-            config.userContentController.add(self, name: "foldExternal")
-
-            let window = UIWindow(frame: screen.bounds)
-            // Prefer the window scene the system created for this screen (scene-
-            // based apps); fall back to the classic screen assignment otherwise.
-            if let scene = UIApplication.shared.connectedScenes
-                .compactMap({ $0 as? UIWindowScene })
-                .first(where: { $0.screen == screen }) {
-                window.windowScene = scene
-            } else {
-                window.screen = screen
-            }
-
-            let webView = WKWebView(frame: window.bounds, configuration: config)
-            webView.uiDelegate = self          // grant getUserMedia (the camera-source path)
-            webView.isOpaque = false
-            webView.backgroundColor = .black
-            webView.scrollView.isScrollEnabled = false
-            let vc = UIViewController()
-            vc.view = webView
-            window.rootViewController = vc
-            window.isHidden = false
-
-            webView.load(URLRequest(url: URL(string: "fold-ext://localhost/output.html")!))
-
-            self.externalWindow = window
-            self.externalWebView = webView
-            call.resolve(self.statusData())
+            // WAIT for the system's UIWindowScene for this screen before attaching.
+            // The scene arrives slightly AFTER UIScreen.didConnectNotification, so an
+            // instant attach (the iPhone's autoconnect) found no scene and fell into
+            // the deprecated `window.screen` path — which on a modern iPhone drives
+            // the display (backlight on) but composites NOTHING: the black-screen
+            // bug from Daniel's first device pass. The iPad only worked because a
+            // human pressed start seconds later, when the scene already existed.
+            self.attachWhenSceneReady(screen: screen,
+                                      deadline: Date().addingTimeInterval(3.0),
+                                      call: call)
         }
+    }
+
+    private func matchingScene(for screen: UIScreen) -> UIWindowScene? {
+        UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .first { $0.screen == screen }
+    }
+
+    // Poll for the scene (250ms cadence; notification delivery for scene connects
+    // is not guaranteed in AppDelegate compatibility mode, so polling is the
+    // reliable path). Past the deadline, fall back to the classic screen
+    // assignment and REPORT it — status carries attach: "scene" | "classic" so a
+    // console run tells us which path presented.
+    private func attachWhenSceneReady(screen: UIScreen, deadline: Date, call: CAPPluginCall) {
+        guard UIScreen.screens.contains(screen) else {
+            call.reject("external display disconnected while presenting")
+            return
+        }
+        if let scene = matchingScene(for: screen) {
+            present(on: screen, scene: scene, call: call)
+        } else if Date() > deadline {
+            present(on: screen, scene: nil, call: call)
+        } else {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
+                self?.attachWhenSceneReady(screen: screen, deadline: deadline, call: call)
+            }
+        }
+    }
+
+    private func present(on screen: UIScreen, scene: UIWindowScene?, call: CAPPluginCall) {
+        if externalWindow != nil { call.resolve(statusData()); return }
+
+        // the same dist the main webview serves (App/App/public in the bundle)
+        guard let root = Bundle.main.url(forResource: "public", withExtension: nil) else {
+            call.reject("bundled web assets not found")
+            return
+        }
+
+        let config = WKWebViewConfiguration()
+        config.setURLSchemeHandler(ExternalAssetHandler(root: root), forURLScheme: "fold-ext")
+        config.allowsInlineMediaPlayback = true
+        config.mediaTypesRequiringUserActionForPlayback = []
+        config.userContentController.add(self, name: "foldExternal")
+
+        let window = UIWindow(frame: screen.bounds)
+        if let scene = scene {
+            window.windowScene = scene
+            attachPath = "scene"
+        } else {
+            window.screen = screen
+            attachPath = "classic"
+        }
+
+        let webView = WKWebView(frame: window.bounds, configuration: config)
+        webView.uiDelegate = self              // grant getUserMedia (the camera-source path)
+        webView.navigationDelegate = self      // report load success/failure as events
+        webView.isOpaque = false
+        webView.backgroundColor = .black
+        webView.scrollView.isScrollEnabled = false
+        let vc = UIViewController()
+        vc.view = webView
+        window.rootViewController = vc
+        window.isHidden = false
+
+        webView.load(URLRequest(url: URL(string: "fold-ext://localhost/output.html")!))
+
+        externalWindow = window
+        externalWebView = webView
+        call.resolve(statusData())
     }
 
     @objc func stop(_ call: CAPPluginCall) {
@@ -183,6 +225,19 @@ public class FoldExternalDisplayPlugin: CAPPlugin, CAPBridgedPlugin, WKScriptMes
         externalWindow?.isHidden = true
         externalWindow = nil
         externalWebView = nil
+        attachPath = nil
+    }
+
+    // ---- load diagnostics: surfaced as externalMessage events so a device
+    // console run shows exactly how far the external view got -------------------
+    public func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        notifyListeners("externalMessage", data: ["type": "loaded", "attach": attachPath ?? "?"])
+    }
+    public func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+        notifyListeners("externalMessage", data: ["type": "loadError", "error": error.localizedDescription])
+    }
+    public func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+        notifyListeners("externalMessage", data: ["type": "loadError", "error": error.localizedDescription])
     }
 
     // Per-frame state push: the payload is already a JSON string — a valid JS

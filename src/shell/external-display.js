@@ -82,8 +82,17 @@ function createPoster(opts) {
   });
   FoldExternalDisplay.addListener('externalMessage', (msg) => {
     if (!msg) return;
-    if (msg.type === 'hello') lastSourceSig = '';   // view (re)loaded — repost the source next tick
-    else if (msg.type === 'fps') fps = msg.fps || 0;
+    if (msg.type === 'hello') {
+      lastSourceSig = '';   // view (re)loaded — repost the source next tick
+      console.info('[fold] external view ready (hello)');
+    } else if (msg.type === 'fps') {
+      fps = msg.fps || 0;
+    } else if (msg.type === 'loaded') {
+      // navigation finished — attach names which window path presented
+      console.info('[fold] external view loaded output.html (attach:', msg.attach + ')');
+    } else if (msg.type === 'loadError') {
+      console.warn('[fold] external view FAILED to load output.html:', msg.error);
+    }
   });
   // seed the connection state (a display may already be attached at launch)
   FoldExternalDisplay.getStatus()
@@ -91,9 +100,20 @@ function createPoster(opts) {
     .catch(() => {});
 
   function outputDims() {
-    // render at the DISPLAY's native resolution when known — the point of HDMI
-    if (dims?.width && dims?.height) return dims;
-    return opts.getOutputDims?.() || { width: 1920, height: 1080 };
+    // the display's native resolution when known — the point of HDMI
+    const native = (dims?.width && dims?.height)
+      ? dims
+      : (opts.getOutputDims?.() || { width: 1920, height: 1080 });
+    // honor the composition's FRAME ASPECT (Daniel's iPad note: a 4:5 canvas
+    // was rendering as 16:9 out there — inconsistent with the canvas/recording/
+    // save, which all honor it). Fit the frame aspect inside the native pixels:
+    // full sharpness at that aspect, letterboxed by the view's object-fit.
+    // A "fill the display" option is a cheap follow-up if wanted.
+    const a = opts.getFrameAspect?.() || 0;
+    if (!a) return native;
+    let w = native.width, h = Math.round(native.width / a);
+    if (h > native.height) { h = native.height; w = Math.round(native.height * a); }
+    return { width: w, height: h };
   }
 
   function post(msg) {
@@ -135,7 +155,11 @@ function createPoster(opts) {
     lastSourceSig = '';
     fps = 0;
     FoldExternalDisplay.start()
-      .then(() => { if (active) loop(); })
+      .then((s) => {
+        console.info('[fold] external display presenting (attach:', (s?.attach || '?') + ',',
+          (s?.width || '?') + 'x' + (s?.height || '?') + ')');
+        if (active) loop();
+      })
       .catch((e) => {
         console.warn('[fold] external display start failed:', e);
         stop();
@@ -163,6 +187,7 @@ function createPoster(opts) {
 export function createExternalDisplaySink(env) {
   const poster = createPoster({
     getState: () => (env.programState ? env.programState() : env.state),
+    getFrameAspect: () => env.session?.frameAspect || 1,
     getOutputDims: () => {
       const bus = env.outputBus;
       return { width: bus?.width || 1920, height: bus?.height || 1080 };
