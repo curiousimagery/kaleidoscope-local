@@ -67,7 +67,7 @@ document.body.innerHTML = `
     <div id="m-context">
       <button id="m-context-toggle" class="m-hidden" title="source / settings">${ICONS.sliders}</button>
       <button id="m-flip" class="m-icon-btn" title="flip camera" style="display:none">${ICONS.flip}</button>
-      <button id="m-cam-menu" class="m-icon-btn" title="camera settings" style="display:none">${ICONS.camera}</button>
+      <button id="m-cam-menu" class="m-icon-btn" title="camera settings" style="display:none">${ICONS.cameraSettings}</button>
       <button id="m-fit-toggle" title="fill / fit">${ICONS.contract}</button>
       <div id="m-source"></div>
       <div id="m-settings" class="m-hidden"></div>
@@ -914,6 +914,13 @@ function updateLiveUI() {
   // the top-row camera control: the camera-settings menu on the native path (flip +
   // lens live inside it), or the one-tap flip icon on the web path (unchanged).
   const camCtl = useNativeCam ? camMenuBtn : $('m-flip');
+  // the settings glyph follows the mode: photo-camera settings in still capture,
+  // video-camera settings in record video (Daniel's icon direction)
+  const camIcon = videoMode ? 'video' : 'photo';
+  if (useNativeCam && camMenuBtn.dataset.icon !== camIcon) {
+    camMenuBtn.dataset.icon = camIcon;
+    camMenuBtn.innerHTML = videoMode ? ICONS.videoCameraSettings : ICONS.cameraSettings;
+  }
   if (videoMode && cameraMode === 'live') {
     // record video: the slot is record ● (red) / stop ■ — the live-cam pattern
     // with record semantics. Download stays but gates on a finished take.

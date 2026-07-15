@@ -354,17 +354,17 @@ export function createSourceHost(env) {
     document.getElementById('cameraBtn').style.display = inCamera ? 'none' : '';
     document.getElementById('uploadBtn').style.display = '';
     document.getElementById('cameraLive').style.display = inCamera ? 'flex' : 'none';
-    // shutter = record/pause toggle (the mobile pattern) as an icon+text button:
-    // frozen shows a RED DOT + "record" (go live); live shows PAUSE BARS + "pause".
+    // shutter = the capture/live toggle (the mobile pattern) as an icon+text
+    // button. Daniel's copy (2026-07-15): live shows PAUSE BARS + "capture"
+    // (pressing it captures this frame), frozen shows the GREEN DOT + "live
+    // camera" (pressing it goes back live; green = live, red = record-to-disk).
     // The glyph carries the state color; the text stays the button's normal color.
     const shutter = document.getElementById('shutterBtn');
     if (shutter) {
-      // "live", not "record" — record is reserved for recording to disk (output).
-      // The dot is GREEN (Daniel's color semantics: green = live, red = record)
       shutter.innerHTML = env.live.frozen
-        ? '<svg viewBox="0 0 12 12" aria-hidden="true"><circle cx="6" cy="6" r="5" fill="var(--ok)"/></svg>live'
-        : '<svg viewBox="0 0 12 12" aria-hidden="true"><rect x="2" y="1.5" width="3" height="9" rx="1" fill="currentColor"/><rect x="7" y="1.5" width="3" height="9" rx="1" fill="currentColor"/></svg>pause';
-      shutter.title = env.live.frozen ? 'live — resume the camera' : 'pause — freeze the frame';
+        ? '<svg viewBox="0 0 12 12" aria-hidden="true"><circle cx="6" cy="6" r="5" fill="var(--ok)"/></svg>live camera'
+        : '<svg viewBox="0 0 12 12" aria-hidden="true"><rect x="2" y="1.5" width="3" height="9" rx="1" fill="currentColor"/><rect x="7" y="1.5" width="3" height="9" rx="1" fill="currentColor"/></svg>capture';
+      shutter.title = env.live.frozen ? 'live camera — resume the feed' : 'capture — freeze this frame';
     }
     // flip button labels the camera it switches TO; nothing to flip while frozen.
     const flip = document.getElementById('flipBtn');
