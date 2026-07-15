@@ -32,7 +32,7 @@ import { ICONS } from './icons.js';
 import { applyArmsSnap, snapSpiralValue } from '../kit/snaps.js';
 import { zipStore } from '../shell/zip.js';
 import { EDITION, editionAllows, detectRuntime } from '../kit/capabilities.js';
-import { webHost } from 'fold-stage/host';
+import { webHost } from 'conduit/host';
 import { createCapacitorHost } from '../shell/capacitor-host.js';
 
 // (The desktop stylesheet is dropped in boot.js before this module loads.)

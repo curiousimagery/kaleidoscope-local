@@ -1,7 +1,7 @@
 {
-  "name": "fold-stage",
+  "name": "conduit",
   "version": "0.1.0",
-  "description": "The engine-agnostic stage layer: committed program frames, the output bus + sinks (recorder, Syphon, external views), and the host-services contract. Shared by Fold, Tap, and future tenants — each supplies an engine adapter (see src/engine-adapter.js) and a host implementation (see src/host.js) and reuses the stage verbatim.",
+  "description": "Generalized broadcast infrastructure: committed program frames from ANY signal-producing engine (visual, audio-reactive, generative) fanned out to every destination \u2014 HDMI/external displays, output windows, Syphon, NDI, record-to-disk. An app supplies an engine adapter and a host implementation (both contracts live here) and reuses the conduit verbatim. First tenants: Fold, Tap.",
   "type": "module",
   "license": "AGPL-3.0-or-later",
   "author": "Daniel Nelson",

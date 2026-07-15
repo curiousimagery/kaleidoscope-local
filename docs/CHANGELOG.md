@@ -4,6 +4,14 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.17.7 (Build 349) — 2026-07-15 — the package becomes `conduit`, with its own GitHub repo
+
+Daniel's naming direction (the package is generalized broadcast infrastructure a future audio-reactive processor or music visualizer uses as readily as Fold — not a Fold-branded tool): renamed **fold-stage → `conduit`**, picked from his candidates (signal-relay / conduit / output-bus) — signal-relay implies pass-through only, output-bus names one module; *conduit* is the whole idea: a channel that carries whatever signal flows through it to wherever it terminates. Directory → `packages/conduit`, dependency key + all nine import specifiers → `conduit/...`, README rewritten around the generalized framing. (If it's ever registry-published, scope it `@curiousimagery/conduit` — the bare npm name is squatted by an unrelated legacy package; irrelevant for git/file consumption.)
+
+**And the standalone repo exists now: `github.com/curiousimagery/conduit` (private, created via `gh`)** — no Vercel project needed, it's a consumed library, not a deployed site. The model: the canonical repo is what second tenants consume; Fold keeps the embedded copy (`file:packages/conduit`) so its Vercel deploys and fresh clones never need auth for a private git dependency. Sync = `git subtree push --prefix packages/conduit … main` (documented in the package README). ARCHITECTURE's directory map + Stage-tier section updated (the map had gone stale on B345's move — fixed).
+
+Verified: `npm run check`, `vite build`, `cap sync`; repo pushed with full subtree history.
+
 ## v0.17.6 (Build 348) — 2026-07-15 — Daniel's iPad camera pass, answered in one batch
 
 Every note from his device pass:

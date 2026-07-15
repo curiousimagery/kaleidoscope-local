@@ -32,13 +32,6 @@ src/
 │   ├── op-ring.js           createOpRing — fixed-capacity ring buffer for runtime op-perf records (env.diag.ops)
 │   └── snaps.js             droste arm/spiral snap points
 │
-├── stage/                   ENGINE-AGNOSTIC live-output layer (first tenant Fold) — zero kaleidoscope assumptions
-│   ├── engine-adapter.js    THE CONTRACT: universal renderFrameAt(w,h); perform-tier getState/applyState/tween
-│   ├── output-bus.js        createOutputBus — paced loop renders one frame, fans it to registered sinks; owns
-│   │                        output resolution + fps + server name; pushes op:'live-output' records to diag.ops
-│   ├── recorder.js          createRecorderSink — record-to-disk sink (2D canvas + MediaRecorder), the first sink
-│   └── mock-host.js         mockSyphonHost — fake native host for ?mocksyphon (exercises the broadcasting path on web)
-│
 ├── components/              mountable UI mounted by BOTH chromes, parameterized not forked
 │   ├── source-overlay.js    createSourceOverlay — draw + hit-test + proportionality/mirroring gesture math
 │   ├── output-gestures.js   createOutputGestures — pinch/twist on the output
@@ -53,8 +46,7 @@ src/
 │   ├── camera.js            live-camera host module (getUserMedia, continuous render loop)
 │   ├── video-source.js      pToMediaSec / seekVideoTo — the seek-based frame seam for video timeline binding
 │   ├── video-export.js      exportVideo (WebCodecs VideoEncoder → mp4-muxer), pickVideoCodec (H.264/HEVC)
-│   ├── host.js              host-services interface + webHost no-op (syphon/midi/nativeCamera/fileSystem)
-│   ├── fold-adapter.js      createFoldAdapter — Fold's implementation of the stage engine-adapter contract
+│   ├── fold-adapter.js      createFoldAdapter — Fold's implementation of the conduit engine-adapter contract
 │   ├── output-panel.js      createOutputPanel — the #outputBtn + #outputSheet chrome over the output bus
 │   ├── diagnostics.js       FBO/encode probes, e2e render check
 │   ├── zip.js               dependency-free store-only zip (export package)
@@ -69,6 +61,13 @@ src/
     └── styles.css           mobile styles (token-driven; shares shell/tokens.css)
 
 docs/                        all the long-form context lives here (HANDOFF is the rolling source of truth)
+
+packages/
+└── conduit/                 THE GENERALIZED BROADCAST-INFRASTRUCTURE PACKAGE (extracted B345 as fold-stage,
+                             renamed B349) — engine-adapter contract, output bus, recorder/Syphon/NDI sinks,
+                             commit-cell, host contract + webHost. Zero app assumptions; canonical repo
+                             github.com/curiousimagery/conduit (subtree-synced); Fold consumes the embedded
+                             copy via `file:packages/conduit` so Vercel/clones never need remote auth.
 ```
 
 ## key principles
@@ -88,7 +87,7 @@ The codebase is organized in reuse tiers, deliberately (this is the model the mu
 - **Engine** (`src/engine/`) — forms, shader, gl, geometry. Pure pixels, zero DOM, source-agnostic (`setSource` accepts an HTMLImageElement, HTMLVideoElement, or canvas; `updateSourceFrame` re-uploads the current frame). Never rebuilt per device.
 - **Kit** (`src/kit/`, plus `shell/state.js`, `params.js`, `history.js`) — DOM-agnostic primitives shared by every front-end: the single state schema, undo/redo, the parameter registry, droste snaps, the **tween/keyframe model** (`kit/tween.js`), and the **capability profile** (`kit/capabilities.js` — probe-once per-engine table: capture path, texture caps, Firefox cap; the home for per-platform feature locking). Plus host services (`shell/camera.js`, `shell/video-source.js`, `shell/video-export.js`, `shell/zip.js`). Grows over time; never rebuilt.
 - **Components** (`src/components/`) — UI mounted by BOTH chromes, parameterized (touch-target size, etc.) not forked: `createSourceOverlay` (the expensive draw + hit-test + proportionality/mirroring gesture math — never reimplement per chrome), `createOutputGestures`, `mountRangeControl`.
-- **Stage** (the `fold-stage` PACKAGE, `packages/fold-stage/` — EXTRACTED Build 345, Lane 4C; was `src/stage/` since Build 175) — the ENGINE-AGNOSTIC live-output layer. "One program frame, many sinks": `createOutputBus` runs a paced loop that renders ONE frame at the chosen output resolution through an **engine adapter** and fans it to registered sinks (record-to-disk, Syphon, the external/output views). The only coupling to an engine is the two-tier **engine-adapter contract** (`fold-stage/engine-adapter`): universal `renderFrameAt(w,h) → Frame` (every engine), perform-tier `getState/applyState/tween` (engines with addressable state). The stage knows NOTHING about kaleidoscopes — a second tenant (Tap, a zoetrope builder, an audio-viz) supplies its own adapter and reuses the stage verbatim; the second-tenant gate that justified extraction is met (Tap). The package also owns `commit-cell` (the program-snapshot mechanism, payload-opaque) and the **host-services contract** (`fold-stage/host`, with the `webHost` no-op baseline). It lives in-repo as a `file:packages/fold-stage` dependency until Daniel picks its remote home (see the package README — a sibling-checkout dep would break Vercel/fresh clones); imports already address it by name, so the repo split changes only the dependency URL. Fold's adapter is `shell/fold-adapter.js` (app-side, so the package stays Fold-free), and Fold's chrome over the bus is `shell/output-panel.js` (the `#outputBtn` + `#outputSheet`).
+- **Stage** (the `conduit` PACKAGE, `packages/conduit/` — EXTRACTED Build 345, RENAMED Build 349 (Daniel: the name communicates generalized broadcast infrastructure, not a Fold-branded tool); was `src/stage/` since Build 175) — the ENGINE-AGNOSTIC live-output layer. "One program frame, many sinks": `createOutputBus` runs a paced loop that renders ONE frame at the chosen output resolution through an **engine adapter** and fans it to registered sinks (record-to-disk, Syphon, the external/output views). The only coupling to an engine is the two-tier **engine-adapter contract** (`conduit/engine-adapter`): universal `renderFrameAt(w,h) → Frame` (every engine), perform-tier `getState/applyState/tween` (engines with addressable state). The stage knows NOTHING about kaleidoscopes — a second tenant (Tap, a zoetrope builder, an audio-viz) supplies its own adapter and reuses the stage verbatim; the second-tenant gate that justified extraction is met (Tap). The package also owns `commit-cell` (the program-snapshot mechanism, payload-opaque) and the **host-services contract** (`conduit/host`, with the `webHost` no-op baseline). It lives in-repo as a `file:packages/conduit` dependency (Vercel-safe, offline-safe); its CANONICAL standalone repo is github.com/curiousimagery/conduit (private), synced via `git subtree push --prefix packages/conduit conduit main` — second tenants consume the repo, Fold keeps the embedded copy. Fold's adapter is `shell/fold-adapter.js` (app-side, so the package stays Fold-free), and Fold's chrome over the bus is `shell/output-panel.js` (the `#outputBtn` + `#outputSheet`).
 - **App wiring** (`src/shell/app.js` + `clip-editor.js` + `source-host.js` + `motion-runtime.js`) — the device-agnostic application logic that sits *beneath* the chrome: `createSourceHost` (media load + live camera + still export), `createClipEditor` (the trim/bounce/slice sheet + bake), `createMotionRuntime` (sampling/playback/keyframes/timeline/filmstrip/scrub/retime/video-export sheet). Each is a `createX(env)` that mounts onto `env`; `createApp(env, { host, capabilities })` mounts all three in one call and threads the injectable native seams. A chrome builds `env` (engine + DOM + schedulers + layout handles) then calls `createApp` — so a future Electron/live shell mounts the SAME wiring without forking it. (Extracted from `main.js` in Build 164–168; before that it was one ~2,600-line file.)
 - **Chrome** (`src/main.js` = desktop/iPad; `src/mobile/chrome.js` = phone) — *only* layout/divider/tab-bar/slots/control-wiring/undo + the engine+env+overlay construction; the app wiring above is mounted via `createApp`. The only layer genuinely rebuilt per device. `src/boot.js` picks the chrome (phone → mobile, else desktop; `?chrome=` override). **iPad stays on the desktop chrome** (it hosts the keyframe/timeline editor, which is desktop/iPad-only). (The phone chrome `mobile/chrome.js` has its own lighter wiring and does not yet mount `createApp` — a future convergence.)
 
@@ -96,7 +95,7 @@ The codebase is organized in reuse tiers, deliberately (this is the model the mu
 
 **Why this matters for native (a recurring question):** because the Engine + Kit + Components are the bulk of the app and are device-agnostic, a NATIVE wrapper (Electron on macOS, Capacitor/WKWebView on iOS) reuses 100% of this code — it adds only a thin native shell + native modules (Syphon, camera). A wrapper does NOT fork the UI/IxD; only a full SwiftUI+Metal rewrite would, and that is not required for Syphon/camera. So the single web codebase stays the source of truth; native is a shell. (See HANDOFF + BACKLOG for the Electron-Syphon-spike plan.)
 
-**The mount seam is in place (Builds 164–170).** A wrapper reuses the web app and calls `createApp(env, { host, capabilities })`, injecting its own **host services** (the `fold-stage/host` interface — `syphon`/`midi`/`nativeCamera`/`fileSystem`/`externalDisplay`/`ndi`; the web build passes `webHost`, a no-op that reports everything unavailable; moved into the fold-stage package in Build 345) and **capability profile** (`kit/capabilities.js`). The app queries (`env.host.syphon.available`, `env.capabilities.capturePath`) and degrades — it never assumes a native capability or re-sniffs the engine inline. So native-capability work implements the host interface per shell (`shell/capacitor-host.js`, Electron's injected `window.foldHost`) instead of editing back into the app.
+**The mount seam is in place (Builds 164–170).** A wrapper reuses the web app and calls `createApp(env, { host, capabilities })`, injecting its own **host services** (the `conduit/host` interface — `syphon`/`midi`/`nativeCamera`/`fileSystem`/`externalDisplay`/`ndi`; the web build passes `webHost`, a no-op that reports everything unavailable; moved into the conduit package in Build 345) and **capability profile** (`kit/capabilities.js`). The app queries (`env.host.syphon.available`, `env.capabilities.capturePath`) and degrades — it never assumes a native capability or re-sniffs the engine inline. So native-capability work implements the host interface per shell (`shell/capacitor-host.js`, Electron's injected `window.foldHost`) instead of editing back into the app.
 
 ## motion: keyframes, tween, the timeline
 

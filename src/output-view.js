@@ -19,7 +19,7 @@
 
 import { createEngine } from './engine/index.js';
 import { createCamera } from './shell/camera.js';
-import { createTestFrame } from 'fold-stage/test-pattern';
+import { createTestFrame } from 'conduit/test-pattern';
 
 const CHANNEL = 'fold-output';
 

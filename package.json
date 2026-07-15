@@ -31,7 +31,7 @@
     "@capacitor/share": "^8.0.1",
     "fold-external-display": "file:native-plugins/fold-external-display",
     "fold-native-camera": "file:native-plugins/fold-native-camera",
-    "fold-stage": "file:packages/fold-stage",
+    "conduit": "file:packages/conduit",
     "mp4-muxer": "^5.2.2",
     "qrcode-generator": "^2.0.4"
   }

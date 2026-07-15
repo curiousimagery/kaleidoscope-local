@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Daniel Nelson
 //
-// fold-stage — barrel entry. Consumers normally import the subpath modules
-// directly (e.g. `fold-stage/output-bus`) so each app's bundle stays lean by
+// conduit — barrel entry. Consumers normally import the subpath modules
+// directly (e.g. `conduit/output-bus`) so each app's bundle stays lean by
 // construction; this barrel exists for quick spikes and REPL/harness use.
 
 export { createCommitCell } from './src/commit-cell.js';
