@@ -36,6 +36,7 @@ import { createProgramFrame } from './shell/program-frame.js';
 import { createOutputBus } from 'fold-stage/output-bus';
 import { createRecorderSink } from 'fold-stage/recorder';
 import { createSyphonSink } from 'fold-stage/syphon-sink';
+import { createNdiSink } from 'fold-stage/ndi-sink';
 import { createOutputWindow } from './shell/output-window.js';
 import { mockSyphonHost } from 'fold-stage/mock-host';
 import { createOutputPanel } from './shell/output-panel.js';
@@ -1181,6 +1182,9 @@ if (engine) {
   // on plain web it's never registered, so the destination picker simply won't list it.
   outputBus.registerSink(createOutputWindow(env));
   if (env.host?.syphon?.available) outputBus.registerSink(createSyphonSink(env.host));
+  // NDI mirrors Syphon: registered only where a host embeds a real NDI sender
+  // (none yet — the sink + picker row light up the moment host.ndi.available flips).
+  if (env.host?.ndi?.available) outputBus.registerSink(createNdiSink(env.host));
   env.outputBus = outputBus;
   createOutputPanel(env, outputBus);
 

@@ -9,6 +9,7 @@ export { createCommitCell } from './src/commit-cell.js';
 export { hasPerformTier } from './src/engine-adapter.js';
 export { webHost } from './src/host.js';
 export { mockSyphonHost } from './src/mock-host.js';
+export { createNdiSink } from './src/ndi-sink.js';
 export { createOutputBus } from './src/output-bus.js';
 export { createRecorderSink } from './src/recorder.js';
 export { createSyphonSink } from './src/syphon-sink.js';

@@ -53,10 +53,14 @@ export const webHost = {
   // publishes the program output as an NDI source that Resolume Arena lists like a
   // camera. NDI is a native SDK over UDP/multicast; browsers can't speak it, so this
   // only lights up in the Capacitor/native shell. Mirrors syphon's publish shape.
+  // Bridge shape mirrors syphon exactly (the ndi-sink calls publish(pixels, w, h,
+  // topDown)); `available` stays false until a shell embeds a REAL sender — the
+  // Vizrt NDI SDK is proprietary (registration + license), so wiring it is an
+  // explicit per-shell decision, never a silent dependency.
   ndi: {
     available: false,
-    start(/* { name } */) {},
-    publish(/* frame */) {},          // push a rendered frame to the NDI source
+    start(/* name */) {},
+    publish(/* pixels, w, h, topDown */) {},   // push a rendered frame to the NDI source
     stop() {},
   },
 

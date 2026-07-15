@@ -13,6 +13,7 @@ The engine-agnostic **stage layer** shared by the Fold family of apps (Fold — 
 | `fold-stage/engine-adapter` | the adapter contract (doc + `hasPerformTier`) |
 | `fold-stage/host` | the host-services contract + `webHost` no-op baseline |
 | `fold-stage/mock-host` | `mockSyphonHost` — exercises the broadcast path on plain web (`?mocksyphon`) |
+| `fold-stage/ndi-sink` | NDI publish sink (via `host.ndi` — lights up when a shell embeds a real NDI sender) |
 | `fold-stage/output-bus` | the live-output fan-out: renders committed frames through the engine adapter and feeds every registered sink at the negotiated cadence |
 | `fold-stage/recorder` | record-to-disk sink (canvas/MediaRecorder + mp4 mux path lives app-side; this is the raw-frame sink) |
 | `fold-stage/syphon-sink` | Syphon publish sink (via `host.syphon`) |

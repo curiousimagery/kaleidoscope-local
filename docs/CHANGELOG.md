@@ -4,6 +4,14 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.17.5 (Build 347) — 2026-07-15 — NDI out: everything except the SDK
+
+Broadcast #3's app side, complete up to the one line that legally can't ship without Daniel: **[fold-stage/ndi-sink](../packages/fold-stage/src/ndi-sink.js)** (the Syphon sink's structural twin — armed/disarmed around start/stop, frames stop at a boolean when idle, `publish(pixels, w, h, topDown)` over `host.ndi`), the **'NDI' destination row** in the output panel (with the source-name field now shared by both named destinations — what Arena/OBS list on the network), and registration in main.js. All of it is gated on `host.ndi.available` and **no host reports true yet**, so nothing appears anywhere — the honesty rule; the moment a shell embeds a real sender, the destination lights up with zero further app work.
+
+**The gate is the Vizrt NDI SDK itself** (proprietary; free registration + license acceptance; redistribution terms) — a Daniel decision and a Daniel download, per the no-dependencies-without-asking rule. The integration plan is spec'd in BACKLOG: Electron first (frames already reach sinks on desktop; vendored SDK addon à la node-syphon, or the `grandiose` binding — evaluate then), Capacitor iOS second (a `fold-ndi` plugin + the SDK's static lib; frame egress starts with the existing bus readback posted over the bridge, measured, with the native-camera frame socket REVERSED as the known-bandwidth fallback).
+
+Verified: `node --check`, `vite build`, `cap sync`. Runtime-inert by construction (no available host).
+
 ## v0.17.4 (Build 346) — 2026-07-15 — AirPlay out, riding the external-display path
 
 Broadcast #2 lands as a *discovery*, not a build: **an AirPlay screen raises the exact `UIScreen.didConnect` the HDMI plugin already handles** — the user starts Screen Mirroring in Control Center, iOS attaches the Apple TV as an external screen, and presenting our window switches it from mirroring to **extended program content** (chrome-free, the committed program frame — not a mirror of the phone UI). iPhone autoconnect and the iPad destination picker both inherit it with zero new plumbing. The arc plan's "web spike first" sequencing predated the HDMI stack existing; the native path is now the cheap one, and the web spike (`captureStream` → `webkitShowPlaybackTargetPicker`) is demoted to a someday-note in BACKLOG (WebKit's known refusal to AirPlay MediaStream-backed video made it disqualification-prone anyway).

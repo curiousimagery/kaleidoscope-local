@@ -13,6 +13,7 @@
     "./engine-adapter": "./src/engine-adapter.js",
     "./host": "./src/host.js",
     "./mock-host": "./src/mock-host.js",
+    "./ndi-sink": "./src/ndi-sink.js",
     "./output-bus": "./src/output-bus.js",
     "./recorder": "./src/recorder.js",
     "./syphon-sink": "./src/syphon-sink.js",

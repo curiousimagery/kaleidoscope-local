@@ -62,11 +62,11 @@ export function createOutputPanel(env, outputBus) {
   const DEST_DEFS = [
     { id: 'window', label: 'output window' },
     { id: 'syphon', label: 'Syphon' },
+    { id: 'ndi', label: 'NDI', title: 'publish the program as an NDI source on the network (Arena/OBS list it like a camera)' },
   ];
   const destinations = DEST_DEFS
     .map((d) => ({ ...d, sink: outputBus.getSink(d.id) }))
     .filter((d) => d.sink && d.sink.supported !== false);
-  const hasSyphon = destinations.some((d) => d.id === 'syphon');
 
   let tier = TIER_DEFAULT;
   let wantRecord = false;
@@ -187,7 +187,9 @@ export function createOutputPanel(env, outputBus) {
         applyResolution();
         const name = nameInput ? nameInput.value : 'Fold';
         if (dest.id === 'syphon') outputBus.setServerName(name);
-        dest.sink.start(dest.id === 'syphon' ? name : undefined);   // may throw (e.g. popup blocked)
+        // Syphon AND NDI are named sources (what Arena/OBS list); others ignore it
+        const named = dest.id === 'syphon' || dest.id === 'ndi';
+        dest.sink.start(named ? name : undefined);   // may throw (e.g. popup blocked)
         broadcasting = true;
         syncBusRunning();
         startPolling();
@@ -292,7 +294,8 @@ export function createOutputPanel(env, outputBus) {
     }
 
     // server name only when Syphon is the selected destination
-    if (syphonNameField) syphonNameField.hidden = !(hasSyphon && destination === 'syphon');
+    // the editable source name applies to both network/IPC destinations (Syphon + NDI)
+    if (syphonNameField) syphonNameField.hidden = !(destination === 'syphon' || destination === 'ndi');
 
     // fill-display toggle only when the external display is the destination
     const fillField = byId('hdmiFillField');
