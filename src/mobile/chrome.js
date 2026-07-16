@@ -1120,6 +1120,7 @@ $('m-flip').addEventListener('click', flipCamera);
 // that replaces the flip icon when the native camera is active. Holds flip + the
 // lens / resolution / frame-rate pickers; EV/WB sliders slot in below in a later
 // slice. Gated on useNativeCam so the proven web camera keeps its one-tap flip.
+const camFacingWrap = document.createElement('div');
 const camLensWrap = document.createElement('div');
 const camResWrap = document.createElement('div');
 const camFpsWrap = document.createElement('div');
@@ -1127,12 +1128,10 @@ const camStabWrap = document.createElement('div');
 const camEvWrap = document.createElement('div');
 const camWbWrap = document.createElement('div');
 if (useNativeCam) {
-  const flipRow = document.createElement('button');
-  flipRow.id = 'm-cam-flip';
-  flipRow.className = 'm-cam-row';
-  flipRow.innerHTML = `<span class="m-menu-icon">${ICONS.flip}</span><span>flip camera</span>`;
-  flipRow.addEventListener('click', () => flipCamera());
-  camPopEl.appendChild(flipRow);
+  // facing lives as a rear/front SEGMENT at the top (matches the iPad gear —
+  // Daniel: the full-width "flip camera" row read as UI weirdness next to it)
+  camFacingWrap.className = 'm-control'; camFacingWrap.id = 'm-cam-facing';
+  camPopEl.appendChild(camFacingWrap);
   camLensWrap.className = 'm-control'; camLensWrap.id = 'm-cam-lens';
   camResWrap.className = 'm-control'; camResWrap.id = 'm-cam-res';
   camFpsWrap.className = 'm-control'; camFpsWrap.id = 'm-cam-fps';
@@ -1172,6 +1171,11 @@ function buildCamSeg(wrap, title, items, currentId, onPick) {
 // (re)build the lens / resolution / frame-rate pickers for the current facing + mode.
 function refreshCamMenu() {
   if (!useNativeCam) return;
+  // camera (facing) — rear/front side-by-side, the menu's top row
+  buildCamSeg(camFacingWrap, 'camera',
+    [{ id: 'environment', label: 'rear' }, { id: 'user', label: 'front' }],
+    camera.isFront?.() ? 'user' : 'environment',
+    () => flipCamera());
   // lens — hidden on the front camera or a single-lens rear (e.g. the Air)
   const lenses = camera.getLenses?.() || [];
   const showLens = !camera.isFront?.() && lenses.length > 1;

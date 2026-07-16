@@ -4,6 +4,10 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.17.12 (Build 354) — 2026-07-15 — iPhone flip matches the iPad (rear/front segment)
+
+The mobile camera menu's full-width "flip camera" row (icon + text — the UI weirdness Daniel flagged) becomes the same **rear / front side-by-side segment** the iPad gear ships, as the menu's top row. Same `buildCamSeg` machinery, current facing highlighted, picking the other side flips ([mobile/chrome.js](../src/mobile/chrome.js)).
+
 ## v0.17.11 (Build 353) — 2026-07-15 — the output menu becomes a dropdown (Daniel's redesign, plus every wart he flagged)
 
 The horizontal bar-row band is gone; **live output is a vertical DROPDOWN** anchored under the toolbar's output button (outside-click/Escape close; opening never reflows the stage). Sections top-to-bottom are exactly his spec: **record + audio → destinations → resolution (+ pixel readout) → broadcast server name → fill display → live status → start/stop** (+ test pattern beside start).
