@@ -125,8 +125,20 @@ export function createCapacitorHost() {
           dv.setUint32(0, 0x464E4449, false);   // "FNDI"
           dv.setUint32(4, width, true);
           dv.setUint32(8, height, true);
-          dv.setUint32(12, topDown ? 1 : 0, true);
-          new Uint8Array(buf, HEADER).set(pixels);
+          dv.setUint32(12, 1, true);   // always top-down on the wire (flip below)
+          const out = new Uint8Array(buf, HEADER);
+          if (topDown) {
+            out.set(pixels);
+          } else {
+            // Bottom-up frames (the readPixels capture path Tier 1 selects on the
+            // iPad) are flipped HERE, folded into the copy this path already pays —
+            // never on the native side, where a second full-frame pass sits on the
+            // socket's DRAIN and every ms costs delivered fps.
+            const stride = width * 4;
+            for (let y = 0; y < height; y++) {
+              out.set(pixels.subarray((height - 1 - y) * stride, (height - y) * stride), y * stride);
+            }
+          }
           try { ws.send(buf); } catch { /* socket died mid-send; onclose flips wsReady */ }
         },
         stop() {
