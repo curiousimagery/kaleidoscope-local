@@ -56,13 +56,37 @@ export function createOutputPanel(env, outputBus) {
     if (!recAudioEl || !navigator.mediaDevices?.enumerateDevices) return;
     try {
       const mics = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === 'audioinput');
+      // BEFORE mic permission, browsers enumerate audioinputs with EMPTY deviceId
+      // AND label — rendering those as pickable entries made a phantom mic whose
+      // value ('') was indistinguishable from "none": no meter, no audio at record
+      // (Daniel's Brave + iPad sessions). Offer an explicit arming option instead;
+      // picking it prompts for permission, then this re-runs with real ids + names
+      // (Electron shows full names because its shell auto-grants the permission).
+      const usable = mics.filter((m) => m.deviceId);
+      if (!usable.length) {
+        recAudioEl.innerHTML = '<option value="">none</option>' +
+          (mics.length ? '<option value="__enable">enable microphone…</option>' : '');
+        recAudioEl.value = '';
+        return;
+      }
       const cur = (env.session && env.session.recordAudioDevice) || '';
       recAudioEl.innerHTML = '<option value="">none</option>' +
-        mics.map((m, i) => `<option value="${m.deviceId}">${micLabel(m.label, i, mics.length).replace(/</g, '&lt;')}</option>`).join('');
+        usable.map((m, i) => `<option value="${m.deviceId}">${micLabel(m.label, i, usable.length).replace(/</g, '&lt;')}</option>`).join('');
       recAudioEl.value = [...recAudioEl.options].some((o) => o.value === cur) ? cur : '';
     } catch { /* keep "none" */ }
   }
-  recAudioEl?.addEventListener('change', () => {
+  recAudioEl?.addEventListener('change', async () => {
+    if (recAudioEl.value === '__enable') {
+      // one-time grant: ask for the default mic, release it immediately (the
+      // permission persists), then rebuild the picker with real devices
+      try {
+        const s = await navigator.mediaDevices.getUserMedia({ audio: true });
+        s.getTracks().forEach((t) => t.stop());
+      } catch { recAudioEl.value = ''; return; }
+      await refreshMics();
+      const first = [...recAudioEl.options].find((o) => o.value && o.value !== '__enable');
+      recAudioEl.value = first ? first.value : '';
+    }
     if (env.session) env.session.recordAudioDevice = recAudioEl.value;
     syncMicMeter();
   });

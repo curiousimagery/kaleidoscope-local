@@ -4,6 +4,14 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.18.2 (Build 358) — 2026-07-15 — the web mic picker actually arms the mic
+
+Daniel proved the desktop-web audio failure was real (Brave, "built-in mic" selected, no levels, no audio — while Electron lists "MacBook Pro Microphone (Built-in)" and records fine). Root cause: **before mic permission, browsers enumerate audio inputs with EMPTY deviceId and label.** The picker rendered that phantom as a selectable "built-in mic" whose value was the empty string — indistinguishable from "none", so nothing ever attached; Electron only worked because its shell auto-grants the permission (hence the real names). The iPad's dead meters were the same phantom.
+
+Fix ([output-panel.js](../src/shell/output-panel.js)): permissionless entries are never pickable — the picker offers **"enable microphone…"** instead; choosing it prompts once, releases the probe stream (the permission persists), rebuilds the picker with REAL device ids + names (so desktop web now shows the same "MacBook Pro Microphone (Built-in)"-style names as Electron), lands on the default mic, and starts the meters.
+
+Device-verify: Brave + iPad — pick "enable microphone…", accept, expect real names + moving meters + recorded audio.
+
 ## v0.18.1 (Build 357) — 2026-07-15 — NDI becomes VISIBLE: the iOS local-network declarations
 
 Daniel's first iPad NDI pass: broadcasting reported FHD ~25.5fps but Arena (same WiFi) never listed the source — while the identical Electron sender IS seen. Root cause: **iOS silently blocks local-network traffic and mDNS/Bonjour advertising for apps that don't declare it.** NDI discovery is mDNS (`_ndi._tcp.`), so the sender ran, frames flowed to it over loopback, and the advertisement never left the device. [Info.plist](../ios/App/App/Info.plist) now declares `NSLocalNetworkUsageDescription` + `NSBonjourServices` (`_ndi._tcp.`, `_ndi-discovery._tcp.`).
