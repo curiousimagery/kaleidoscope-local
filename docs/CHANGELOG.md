@@ -4,6 +4,12 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## ⚡ v0.19.3 (Build 363) — 2026-07-15 — 4B Tier 1: the bus readback picks its fastest path at runtime
+
+Daniel's bench data (recorded in [PROPOSAL-4B-native-capture.md](PROPOSAL-4B-native-capture.md)) overturned both pieces of folklore — readPixels no longer corrupts on WebKit, VideoFrame(GL) no longer hangs iPadOS — and showed the winner differs per DEVICE: iPad wants readPixels (5.7ms vs 19.4), Safari desktop wants VideoFrame+copyTo (2.7ms vs 45.5!), Blink already had the right path (readPixels is 45ms THERE). So [output-engine.js](../src/shell/output-engine.js) now runs a **probe-once adaptive readback**: first bus frame, all candidates run against the just-rendered buffer, checksum-validated against getImageData (a fast-but-wrong path can never win), fastest valid path carries the session. BGRA VideoFrames convert natively where copyTo supports it, else an in-place swizzle; the GL→2D blit stays on every path (the recorder's frame.canvas fast lane + the probe's reference); `?buscapture=getimagedata|readpixels|videoframe` overrides for debugging. Sinks needed ZERO changes — the Frame contract's topDown flag was built for exactly this.
+
+Expected on device: iPad record/NDI readback 19.4→~5.7ms (fps should roughly double), Safari desktop 45.5→~3ms. **Device-verify: watch the `[fold] bus capture probe` console line, then record + NDI fps at FHD.** Tier 2 (the WebCodecs recorder) is next after compact.
+
 ## v0.19.2 (Build 362) — 2026-07-15 — Lane 4B opens: the capture benchmark + the decision framework
 
 The readback ceiling is now THE bottleneck everywhere that matters (iPad record ~15fps / NDI ~25fps / Safari ~5fps vs Brave's 50fps+ — WebKit-specific, not architectural). 4B starts the way the camera lane did: measure on device before building. The diagnostics **"benchmark readback"** button ([diagnostics.js](../src/shell/diagnostics.js)) now runs every candidate path with CHECKSUM validation (a fast-but-corrupt path can never win): A `readPixels` (re-validates the WebKit-corruption folklore on current iOS), B `getImageData` (today's baseline), D `createImageBitmap` (transport), C1/C2 `VideoFrame`→`copyTo` (the WebCodecs candidates; GL-direct runs LAST with console breadcrumbs — it froze iPadOS once at Build 115, and if it hangs again that's a confirmed answer too). Pixel FORMAT is reported (BGRA vs RGBA decides sink handling).

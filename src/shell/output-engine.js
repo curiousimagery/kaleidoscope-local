@@ -30,6 +30,118 @@ export function createOutputEngine(env) {
   let capCanvas = null, capCtx = null;   // 2D blit target → getImageData
   let lastSource = null;    // identity of the source currently uploaded to the hidden engine
 
+  // ---- LANE 4B TIER 1: probe-once ADAPTIVE READBACK -------------------------
+  // Daniel's B362 bench (2026-07-15) overturned the folklore per-DEVICE, not
+  // per-engine: iPad WebKit → readPixels 5.7ms vs getImageData 19.4ms (the old
+  // corruption is gone); Safari desktop → VideoFrame(GL)+copyTo 2.7ms vs 45.5ms
+  // (readPixels no help there at 42.8ms); Blink (Brave/Electron) → getImageData
+  // already wins (readPixels 45ms!). So the capture path is chosen AT RUNTIME:
+  // on the first bus frame, each candidate runs against the just-rendered buffer,
+  // CHECKSUM-validated against getImageData (a fast-but-wrong path can never
+  // win), and the fastest valid one carries the session. `?buscapture=
+  // getimagedata|readpixels|videoframe` overrides for device debugging.
+  // The GL→2D blit ALWAYS happens (~0.3–1ms, GPU): frame.canvas keeps feeding
+  // the recorder's drawImage fast path regardless of where `pixels` came from.
+  let capMode = null;        // 'getimagedata' | 'readpixels' | 'videoframe'
+  let vfConvert = false;     // VideoFrame.copyTo({format:'RGBA'}) supported here
+  let rpBuf = null, vfBuf = null;
+
+  const sampleSum = (px, w, h, flip) => {   // sampled RGB checksum (row-flip-aware)
+    let s = 0;
+    for (let i = 0; i < 997; i++) {
+      const x = (i * 7919) % w, y = (i * 6007) % h;
+      const o = ((flip ? h - 1 - y : y) * w + x) * 4;
+      s = (s + px[o] + px[o + 1] + px[o + 2]) % 1000000007;
+    }
+    return s;
+  };
+  const swizzleBgra = (buf, len) => {   // BGRA→RGBA in place (little-endian u32)
+    const u = new Uint32Array(buf.buffer, buf.byteOffset, len >> 2);
+    for (let i = 0; i < u.length; i++) {
+      const v = u[i];
+      u[i] = (v & 0xFF00FF00) | ((v & 0x00FF0000) >>> 16) | ((v & 0x000000FF) << 16);
+    }
+  };
+
+  function readGetImageData(w, h) {
+    const t = performance.now();
+    const img = capCtx.getImageData(0, 0, w, h);
+    return { pixels: new Uint8Array(img.data.buffer), topDown: true, readMs: performance.now() - t };
+  }
+  function readReadPixels(w, h) {
+    const gl = hidden.glContext;
+    const need = w * h * 4;
+    if (!rpBuf || rpBuf.length < need) rpBuf = new Uint8Array(need);
+    const t = performance.now();
+    gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, rpBuf);
+    return { pixels: rpBuf.subarray(0, need), topDown: false, readMs: performance.now() - t };
+  }
+  async function readVideoFrame(w, h) {
+    const need = w * h * 4;
+    if (!vfBuf || vfBuf.length < need) vfBuf = new Uint8Array(need);
+    const t = performance.now();
+    const vf = new VideoFrame(glCanvas, { timestamp: 0 });
+    try {
+      if (vfConvert) {
+        await vf.copyTo(vfBuf, { format: 'RGBA' });
+      } else {
+        await vf.copyTo(vfBuf);
+        if (/^BGR/.test(vf.format || '')) swizzleBgra(vfBuf, need);   // sinks speak RGBA
+      }
+    } finally { vf.close(); }
+    return { pixels: vfBuf.subarray(0, need), topDown: true, readMs: performance.now() - t };
+  }
+
+  // Runs against the CURRENT rendered buffer (renderFrameAt just rendered it).
+  async function probeCapture(w, h) {
+    const override = new URLSearchParams(window.location.search).get('buscapture');
+    if (override === 'getimagedata' || override === 'readpixels' || override === 'videoframe') {
+      if (override === 'videoframe') {
+        try { const vf = new VideoFrame(glCanvas, { timestamp: 0 }); try { await vf.copyTo(new Uint8Array(w * h * 4), { format: 'RGBA' }); vfConvert = true; } finally { vf.close(); } } catch { vfConvert = false; }
+      }
+      capMode = override;
+      console.info(`[fold] bus capture path OVERRIDDEN: ${capMode}`);
+      return;
+    }
+    const ref = readGetImageData(w, h);
+    const refSum = sampleSum(ref.pixels, w, h, false);
+    let best = { mode: 'getimagedata', ms: ref.readMs };
+    const report = [`getimagedata ${ref.readMs.toFixed(1)}ms`];
+    try {
+      let ms = 0, ok = true;
+      for (let i = 0; i < 3; i++) {
+        const r = readReadPixels(w, h);
+        ms += r.readMs;
+        if (i === 0) ok = sampleSum(r.pixels, w, h, true) === refSum;
+      }
+      ms /= 3;
+      report.push(`readpixels ${ms.toFixed(1)}ms${ok ? '' : ' INVALID'}`);
+      if (ok && ms < best.ms) best = { mode: 'readpixels', ms };
+    } catch (e) { report.push(`readpixels failed (${e.message})`); }
+    if (typeof VideoFrame !== 'undefined') {
+      try {
+        // conversion support feeds readVideoFrame's fast branch
+        const vf0 = new VideoFrame(glCanvas, { timestamp: 0 });
+        try {
+          if (!vfBuf || vfBuf.length < w * h * 4) vfBuf = new Uint8Array(w * h * 4);
+          await vf0.copyTo(vfBuf, { format: 'RGBA' });
+          vfConvert = true;
+        } catch { vfConvert = false; } finally { vf0.close(); }
+        let ms = 0, ok = true;
+        for (let i = 0; i < 3; i++) {
+          const r = await readVideoFrame(w, h);
+          ms += r.readMs;
+          if (i === 0) ok = sampleSum(r.pixels, w, h, false) === refSum;
+        }
+        ms /= 3;
+        report.push(`videoframe ${ms.toFixed(1)}ms${vfConvert ? ' (native RGBA)' : ' (swizzled)'}${ok ? '' : ' INVALID'}`);
+        if (ok && ms < best.ms) best = { mode: 'videoframe', ms };
+      } catch (e) { report.push(`videoframe failed (${e.message})`); }
+    }
+    capMode = best.mode;
+    console.info(`[fold] bus capture probe @ ${w}×${h}: ${report.join(' · ')} → ${capMode.toUpperCase()}`);
+  }
+
   // Lazy: created on the first frame the bus actually renders. The bus only runs for
   // record/Syphon (output-panel.js syncBusRunning), so a session that never outputs
   // pays nothing — no second GL context, no offscreen canvases.
@@ -105,7 +217,7 @@ export function createOutputEngine(env) {
     // Universal-tier render for the bus. Renders the live program to the hidden GL
     // canvas at w×h, then drawImage→getImageData (TOP-DOWN). Throws when there is no
     // source so the bus stops quietly (its frame() catch).
-    renderFrameAt(w, h) {
+    async renderFrameAt(w, h) {
       ensure();
       // programVideo = the footage the AUDIENCE sees (motion staging's committed
       // copy, on its own clock); otherwise the shared source element as always
@@ -116,9 +228,9 @@ export function createOutputEngine(env) {
       if (glCanvas.width !== w || glCanvas.height !== h) { glCanvas.width = w; glCanvas.height = h; }
       if (capCanvas.width !== w || capCanvas.height !== h) { capCanvas.width = w; capCanvas.height = h; }
 
-      // render + GPU blit GL→2D. drawImage handles the Y-flip (GL bottom-up →
-      // canvas top-down) and the colorspace, just like the engine's video-capture
-      // fast path (engine.captureFrame). Cheap (~0.3ms in the benchmark).
+      // render + GPU blit GL→2D. The blit stays on EVERY path (~0.3–1ms): it
+      // hands the recorder its frame.canvas fast path and is the reference the
+      // probe validates against.
       // programState = the COMMITTED program frame (shell/program-frame.js): what
       // the audience sees, published by the single writer at the frame's commit
       // point — never a live reference an automation loop is about to clobber.
@@ -127,19 +239,22 @@ export function createOutputEngine(env) {
       capCtx.drawImage(glCanvas, 0, 0);
       const renderMs = performance.now() - t0;
 
-      // the actual readback — getImageData, the ~9× win over readPixels.
-      const t1 = performance.now();
-      const img = capCtx.getImageData(0, 0, w, h);
-      const readMs = performance.now() - t1;
+      // the readback — the probe-selected path (see the 4B block above): iPad
+      // WebKit lands readpixels (3.4× today's), Safari desktop videoframe (17×),
+      // Blink keeps getimagedata. Same rendered buffer either way.
+      if (!capMode) await probeCapture(w, h);
+      const r = capMode === 'readpixels' ? readReadPixels(w, h)
+        : capMode === 'videoframe' ? await readVideoFrame(w, h)
+        : readGetImageData(w, h);
 
-      // pixels: a Uint8Array view over the getImageData buffer (no copy). TOP-DOWN,
-      // so sinks flip via the topDown flag. capCanvas is handed through too so the
-      // recorder can drawImage it straight in (skipping a putImageData copy).
+      // pixels: RGBA; orientation declared by topDown (readpixels is bottom-up —
+      // every sink already honors the flag). canvas: the blitted top-down copy
+      // for the recorder's drawImage path, valid regardless of pixel source.
       return {
-        pixels: new Uint8Array(img.data.buffer),
+        pixels: r.pixels,
         w, h,
-        topDown: true,
-        renderMs, readMs,
+        topDown: r.topDown,
+        renderMs, readMs: r.readMs,
         canvas: capCanvas,
       };
     },

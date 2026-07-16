@@ -11,7 +11,16 @@ The diagnostics sheet's **"benchmark readback"** button now measures every candi
 - **D `createImageBitmap`** — transport-only number (worker hand-off candidate).
 - **C1/C2 `VideoFrame` → `copyTo`** — the WebCodecs candidates (2D-canvas source = "Safari-safe"; GL-canvas direct = fastest historically but froze iPadOS once at Build 115; run last, console-breadcrumbed). Note the reported pixel FORMAT: BGRA means sinks need either copyTo-conversion or format-tagged frames (NDI accepts BGRA natively; Syphon/recorder assume RGBA).
 
-**Run it on: iPad Capacitor, Safari desktop, Brave, Electron** (bench lives in the desktop chrome's diag area; load a source first). If C2 wins with a matching checksum and no hang, the bus's capture swaps to it behind a runtime-validated fallback (first frames checksum-compared against B; mismatch or exception → legacy path for the session).
+**RESULTS ARE IN (Daniel, 2026-07-15, FHD avg-15):**
+
+| path | iPad (native+web) | Safari desktop | Brave | Electron |
+| --- | --- | --- | --- | --- |
+| B getImageData (shipping) | 19.4ms | 45.5ms | 6.6ms | 4.1ms |
+| A readPixels | **5.7ms ✓checksum** | 42.8ms | 47ms | 45ms |
+| C2 VideoFrame(GL)+copyTo | 5.3ms (BGRA) | **2.7ms** | 3.7ms | 3.4ms |
+| D createImageBitmap | 0.4ms | 0.3ms | 0.2ms | 0.0ms |
+
+Folklore overturned: readPixels **no longer corrupts** (checksums match everywhere) and VideoFrame(GL) **no longer hangs iPadOS**. The winner differs per DEVICE, not per engine family (readPixels: 5.7ms on iPad, 43–47ms everywhere else!) — so **Tier 1 shipped (B363) as a probe-once RUNTIME selection**: on the first bus frame, each candidate runs against the just-rendered buffer, checksum-validated against getImageData, fastest valid path carries the session (console-logged; `?buscapture=` override). BGRA VideoFrames convert via copyTo({format:'RGBA'}) where supported, else an in-place u32 swizzle. The GL→2D blit stays on every path so the recorder keeps its frame.canvas fast lane. Expected: iPad readback 19.4→~5.7ms (record/NDI fps roughly doubles), Safari 45.5→~3ms.
 
 ## Tier 2 — the WebCodecs recorder (independent of Tier 1, fixes the freezes)
 
