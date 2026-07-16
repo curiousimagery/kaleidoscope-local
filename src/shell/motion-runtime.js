@@ -23,6 +23,7 @@ import { FOLLOW_SPANS } from '../kit/follow.js';
 import { ICONS } from '../mobile/icons.js';
 import { pToMediaSec, seekVideoTo } from './video-source.js';
 import { exportVideo, videoExportSupported, pickVideoCodec } from './video-export.js';
+import { createSequentialFrameReader } from './video-decode.js';
 import { drawSourceOverlay } from './overlay.js';
 import { makeScrubField } from './controls.js';
 import { zipStore } from './zip.js';
@@ -236,10 +237,65 @@ function loadPlayheadIntoState() {
 
 // ---- video-time binding (a video source's frame follows the timeline) -----
 // Put the source video's frame for timeline position p onto the texture.
+//
+// Two ways to get there. Normally: seek the <video> element (universal, but the
+// browser re-decodes from the previous keyframe on EVERY step — the export-speed
+// wall). During a render, setupExportReader() may arm the FAST path: an mp4box +
+// VideoDecoder sequential reader (shell/video-decode.js) that decodes the stream
+// once, painting each frame into a canvas the engine was re-pointed at. Any
+// mid-render failure tears the reader down and the rest of the render continues
+// on the seek path — the fast path can only ever cost nothing.
+let exportReader = null, exportReaderCtx = null;
+
+async function setupExportReader() {
+  const v = env.sourceVideo;
+  if (!v || exportReader) return;
+  let reader = null;
+  try {
+    reader = await createSequentialFrameReader(v.currentSrc || v.src);
+    if (!reader) return;
+    const cv = document.createElement('canvas');
+    cv.width = v.videoWidth || reader.width;
+    cv.height = v.videoHeight || reader.height;
+    const ctx = cv.getContext('2d');
+    try { ctx.drawImage(v, 0, 0, cv.width, cv.height); } catch { /* seed only */ }
+    engine.setSource(cv);                          // render loop is paused during a render session
+    exportReader = reader;
+    exportReaderCtx = ctx;
+    console.info('[fold] render uses the fast decode path (sequential VideoDecoder)');
+  } catch (e) {
+    try { reader?.close(); } catch { /* never opened */ }
+    console.warn('[fold] fast decode unavailable — rendering via element seeks:', e);
+  }
+}
+
+function teardownExportReader() {
+  if (!exportReader) return;
+  try { exportReader.close(); } catch { /* already closed */ }
+  exportReader = null;
+  exportReaderCtx = null;
+  const v = env.sourceVideo;
+  if (v) {
+    try { engine.setSource(v); engine.updateSourceFrame(); } catch { /* not ready */ }
+  }
+}
+
 async function advanceSourceToP(p) {
   const v = env.sourceVideo;
   if (!v) return;
-  await seekVideoTo(v, pToMediaSec(v, p, env.clip.trim));
+  const sec = pToMediaSec(v, p, env.clip.trim);
+  if (exportReader) {
+    try {
+      const frame = await exportReader.frameAt(sec);
+      exportReaderCtx.drawImage(frame, 0, 0, exportReaderCtx.canvas.width, exportReaderCtx.canvas.height);
+      engine.updateSourceFrame();
+      return;
+    } catch (e) {
+      console.warn('[fold] fast decode failed mid-render — falling back to element seeks:', e);
+      teardownExportReader();   // re-points the engine at the video element
+    }
+  }
+  await seekVideoTo(v, sec);
   engine.updateSourceFrame();
 }
 // Scrub the footage to p, coalescing seeks (latest target wins) so dragging the
@@ -1967,6 +2023,9 @@ function setupVideoExport() {
     const wantSource = byId('vidSourcePreview')?.checked;
     const base = env.media.sourceFilename || 'animation';
     try {
+      // arm the fast decode path (falls back silently; the source-preview pass
+      // restarts at p=0, which the reader handles as a keyframe reset)
+      if (env.sourceVideo) { status.textContent = 'preparing footage…'; await setupExportReader(); status.textContent = 'rendering…'; }
       // main kaleidoscope video (GL capture path)
       const { blob, frames, timing } = await exportVideo({
         width: w, height: h, fps: selFps, durationMs: motion.durationMs, captureMode: selCap,
@@ -2023,6 +2082,7 @@ function setupVideoExport() {
       if (e.code === 'cancelled') { status.textContent = 'cancelled'; status.className = 'status'; }
       else { status.textContent = e.message || 'render failed'; status.className = 'status error'; console.error(e); }
     } finally {
+      teardownExportReader();      // re-points the engine at the video element (no-op on the seek path)
       rendering = false; btn.disabled = false; prog.hidden = true;
       if (cancelRender) sheet.hidden = true;
       env.resizePreviewCanvas();   // the capture session resized the GL canvas — restore + repaint the preview
