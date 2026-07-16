@@ -10,6 +10,7 @@
   "exports": {
     ".": "./index.js",
     "./commit-cell": "./src/commit-cell.js",
+    "./encode": "./src/encode.js",
     "./engine-adapter": "./src/engine-adapter.js",
     "./host": "./src/host.js",
     "./mock-host": "./src/mock-host.js",
@@ -18,5 +19,8 @@
     "./recorder": "./src/recorder.js",
     "./syphon-sink": "./src/syphon-sink.js",
     "./test-pattern": "./src/test-pattern.js"
+  },
+  "dependencies": {
+    "mp4-muxer": "^5.2.2"
   }
 }

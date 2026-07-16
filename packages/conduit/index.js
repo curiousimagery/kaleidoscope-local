@@ -11,6 +11,7 @@ export { webHost } from './src/host.js';
 export { mockSyphonHost } from './src/mock-host.js';
 export { createNdiSink } from './src/ndi-sink.js';
 export { createOutputBus } from './src/output-bus.js';
-export { createRecorderSink } from './src/recorder.js';
+export { createRecorderSink, webCodecsRecordingSupported } from './src/recorder.js';
+export { pickVideoCodec, pickAudioCodec, videoBitrateFor } from './src/encode.js';
 export { createSyphonSink } from './src/syphon-sink.js';
 export { createTestFrame } from './src/test-pattern.js';

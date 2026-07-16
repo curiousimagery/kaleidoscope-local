@@ -150,9 +150,9 @@ The mobile expression of realtime perform, after the desktop core (Arcs 4–5). 
 
 The `test pattern` toggle publishes a known reference frame (corners/orientation/border/circle/color bars), runs without a source (pre-show pipe check). **Possible follow-up:** a moving/animated element (sweep or counter) so a frozen pipe doesn't look identical to a working one.
 
-### Live record-to-disk sink — fast capture path
+### Live record-to-disk sink — fast capture path [SHIPPED, in stages through B365]
 
-NOT urgent (the recorder is a UX stand-in for Syphon, not the live output path). It runs ~11–12fps and lags motion playback because it uses the slow path (`exportFrameRaw`→`renderToFBO`→CPU Y-flip→`putImageData`→MediaRecorder, while the preview renders a 2nd pass). Fix: give the sink the engine's fast render-to-canvas + `drawImage` path (the video exporter's `beginCapture/captureFrame`). Tension with the bus's one-frame-many-sinks model: Syphon needs the raw CPU buffer, the recorder wants a canvas — so the bus offers both representations from one render, or the recorder renders its own pass. Smaller/aspect-correct output resolution already raises record fps. (Long-render memory → OPFS streaming is under Export & rendering hardening.)
+The bus already offers both representations from one render (raw pixels + the blitted `frame.canvas`, the resolution this item asked for), and **B365 (4B Tier 2) replaced the recorder's MediaRecorder capture with the WebCodecs pipeline** (VideoFrame → hardware VideoEncoder → mp4-muxer, the offline exporter's path run live; MediaRecorder kept only as the fallback engine). Remaining tail here: long-render memory → OPFS streaming (under Export & rendering hardening) now applies to live takes too (the mp4 assembles in memory).
 
 ---
 

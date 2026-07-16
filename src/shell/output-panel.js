@@ -264,7 +264,7 @@ export function createOutputPanel(env, outputBus) {
         applyResolution();
         wantRecord = true;
         syncBusRunning();
-        recorder.start(outputBus.width, outputBus.height, micTrack);
+        await recorder.start(outputBus.width, outputBus.height, micTrack);
         startPolling();
       } catch (e) {
         wantRecord = false; syncBusRunning(); stopRecMic();
