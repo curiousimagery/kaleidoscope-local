@@ -4,6 +4,12 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.18.1 (Build 357) — 2026-07-15 — NDI becomes VISIBLE: the iOS local-network declarations
+
+Daniel's first iPad NDI pass: broadcasting reported FHD ~25.5fps but Arena (same WiFi) never listed the source — while the identical Electron sender IS seen. Root cause: **iOS silently blocks local-network traffic and mDNS/Bonjour advertising for apps that don't declare it.** NDI discovery is mDNS (`_ndi._tcp.`), so the sender ran, frames flowed to it over loopback, and the advertisement never left the device. [Info.plist](../ios/App/App/Info.plist) now declares `NSLocalNetworkUsageDescription` + `NSBonjourServices` (`_ndi._tcp.`, `_ndi-discovery._tcp.`).
+
+**Device-verify: on the first NDI start after this build, iOS shows the "find and connect to devices on your local network" prompt — ACCEPT it** (if it was previously denied silently, check Settings → Privacy & Security → Local Network → Fold). Then Arena should list "[iPad name] - [server name]".
+
 ## 📡 v0.18.0 (Build 356) — 2026-07-15 — iPad NDI: the tablet broadcasts straight into Arena
 
 The core use case Daniel named ("sharing from iPad to Resolume Arena"), built end-to-end as **the new `fold-ndi` plugin**:

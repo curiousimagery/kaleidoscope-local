@@ -28,6 +28,16 @@
 	<string>Fold records audio together with your video when you capture a take.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>Fold saves the images and videos you create to your photo library.</string>
+	<!-- NDI out (fold-ndi): iOS silently blocks local-network traffic and mDNS/Bonjour
+	     advertising without these — the sender ran fine but Arena never saw the source
+	     (Daniel's first iPad NDI pass). The prompt appears on first broadcast. -->
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Fold broadcasts your live output as an NDI source that apps on your network, like Resolume Arena, can receive.</string>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_ndi._tcp.</string>
+		<string>_ndi-discovery._tcp.</string>
+	</array>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>UILaunchStoryboardName</key>
