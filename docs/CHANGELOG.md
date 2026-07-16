@@ -4,6 +4,17 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 📱 v0.19.0 (Build 360) — 2026-07-15 — iPhone NDI: broadcast video, and the source menu Daniel spec'd
+
+**The phone becomes a standalone symmetry camera feeding Arena directly** — his framing, built to his UX spec:
+
+- **The source menu consolidates** (dot semantics: GREEN = live/broadcast, RED = record, plain glyph = still). Native: *broadcast video* (green ●, new) · *record video* (red ●) · *take still* (camera glyph → the native live camera, formerly the green-dot "live camera" entry) · *choose photo/file*. Web: the same minus broadcast. The old capture-attribute file-input entry is gone on both — iOS's own photo sheet still offers "Take Photo", so the capability survives via choose photo/file.
+- **Frozen state**: "go live" is now the GREEN CAMERA icon (the green dot belongs to broadcast now).
+- **Broadcast video mode** rides the record-video chrome (live camera, follower, PiP): the far-right tab control is the green ● to start / ■ to stop; frames publish through `host.ndi` (the B356 fold-ndi plugin — already universal, the phone just needed the chrome) from a dedicated broadcast canvas painted at the same "followed look" moments as the recorder — additive beside the delicate record path, never inside it. ~30fps publish cap; wake lock held while live.
+- **One combined camera + broadcast menu** (his spec): in broadcast mode the resolution row becomes the NDI output tier (HD/FHD, honoring the frame aspect), fps hides (the publish loop paces itself), stabilization/EV/WB/lens/facing stay, and two new rows appear — the **broadcast server name** (persisted; a rename live re-creates the source, committed on blur so Arena's list doesn't flicker) and the **test pattern** toggle (the conduit's reference frame).
+
+The minor bump marks the family: v0.19 = the phone broadcasts. Verified: `node --check`, `vite build`, `cap sync`. **Device-verify (iPhone): source menu → broadcast video → green ● → Arena lists "[iPhone name] - [server name]"; flip/lens mid-broadcast; the test pattern; the tier switch; and record video's own flow unchanged.**
+
 ## v0.18.3 (Build 359) — 2026-07-15 — iPhone capture no longer blacks out the source panel
 
 Daniel's new bug (capture a still on the phone → wedge overlay over BLACK, output still manipulable): the engine was fine — the captured still WAS the texture, which is why the output kept responding. The black was the source panel's DISPLAY layer: a native captured photo that needs the stabilization center-crop or the selfie mirror reaches the engine as a CANVAS, and `mountSourceView`'s still path painted `background-image: url(sourceImage.src)` — undefined for a canvas → black. It regressed at B342/B343 because still-mode stabilization now always reports `standard` (crop 0.9), so EVERY capture started taking the canvas path (before, un-stabilized rear stills passed the crop==1 fast path as an `<img>`).

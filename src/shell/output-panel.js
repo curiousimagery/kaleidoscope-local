@@ -383,7 +383,12 @@ export function createOutputPanel(env, outputBus) {
         ? 'stop'
         : '<svg viewBox="0 0 12 12" aria-hidden="true"><circle cx="6" cy="6" r="5" fill="var(--danger)"/></svg>record';
       recordBtn.classList.toggle('rec', rec);
-      recordBtn.disabled = !armable && !rec;
+      // Gecko: record is DISABLED with an honest hint (Daniel's field pass — the
+      // button silently did nothing on Firefox, and even a working take would be
+      // WebM; endless engine-specific debugging isn't worth it there)
+      const gecko = env.capabilities?.isGecko;
+      recordBtn.disabled = gecko || (!armable && !rec);
+      if (gecko) recordBtn.title = 'recording is unreliable in Firefox — use Safari, Chrome, or the desktop app';
     }
 
     // destination picker: reflect selection; lock while broadcasting (stop to change)

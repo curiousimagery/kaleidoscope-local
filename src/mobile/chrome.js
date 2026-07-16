@@ -31,6 +31,7 @@ import { createAutoDrift } from '../kit/drift.js';
 import { ICONS } from './icons.js';
 import { applyArmsSnap, snapSpiralValue } from '../kit/snaps.js';
 import { zipStore } from '../shell/zip.js';
+import { createTestFrame } from 'conduit/test-pattern';
 import { EDITION, editionAllows, detectRuntime } from '../kit/capabilities.js';
 import { webHost } from 'conduit/host';
 import { createCapacitorHost } from '../shell/capacitor-host.js';
@@ -600,6 +601,18 @@ let recordCanvas = null;       // full-res 2D canvas the recorder captures
 // GATED: any failure just drops the raw take — two hardware encoders is
 // device-dependent, and the save menu offers video-only when raw is absent.
 let rawRec = null, rawChunks = [], rawVideo = null, rawStream = null;
+// BROADCAST VIDEO (native + NDI — Daniel's UX): record video's sibling mode.
+// Same live camera + follower chrome; the far-right control ARMS the NDI
+// broadcast (green = live/broadcast semantics; red stays record-to-disk)
+// instead of recording. Frames publish through host.ndi (the fold-ndi plugin)
+// from a dedicated broadcast canvas at the chosen tier — additive beside the
+// delicate record path, never inside it.
+let broadcastMode = false;     // the "broadcast video" source is active
+let bcState = 'idle';          // 'idle' | 'live'
+let bcCanvas = null, bcCtx = null, bcLastT = 0;
+let bcTier = 1920;             // broadcast long side (HD 1280 / FHD 1920)
+let bcTest = false;            // publish the reference test pattern instead of the program
+let bcName = (() => { try { return localStorage.getItem('fold.ndiName') || 'Fold'; } catch { return 'Fold'; } })();
 function dropRawRecorder() {
   if (rawRec) { rawRec.ondataavailable = null; try { rawRec.stop(); } catch { /* inactive */ } }
   rawRec = null; rawChunks = [];
@@ -627,6 +640,56 @@ function startRawRecorder(mime) {
     rawRec.start(1000);
   } catch { dropRawRecorder(); }
 }
+// broadcast sibling of paintRecord: called at the same "the followed output is
+// on the canvas NOW" moments; ~30fps publish cap (the render loop may tick faster).
+function paintBroadcast() {
+  if (bcState !== 'live' || !bcCanvas) return;
+  const now = performance.now();
+  if (now - bcLastT < 28) return;
+  bcLastT = now;
+  if (bcTest) {
+    const tf = createTestFrame(bcCanvas.width, bcCanvas.height);
+    host.ndi.publish(tf.pixels, tf.w, tf.h, tf.topDown !== false);
+    return;
+  }
+  bcCtx.drawImage(outputCanvas, 0, 0, bcCanvas.width, bcCanvas.height);
+  const img = bcCtx.getImageData(0, 0, bcCanvas.width, bcCanvas.height);
+  host.ndi.publish(new Uint8Array(img.data.buffer, 0, img.data.byteLength), bcCanvas.width, bcCanvas.height, true);
+}
+function startBroadcast() {
+  if (bcState === 'live' || !host.ndi?.available) return;
+  // the broadcast frame honors the composition's frame aspect at the chosen tier
+  const a = session.frameAspect || 1;
+  let w, h;
+  if (a >= 1) { w = bcTier; h = Math.round(bcTier / a); }
+  else { h = bcTier; w = Math.round(bcTier * a); }
+  bcCanvas = document.createElement('canvas');
+  bcCanvas.width = w; bcCanvas.height = h;
+  bcCtx = bcCanvas.getContext('2d', { willReadFrequently: true });
+  host.ndi.start(bcName);
+  bcState = 'live';
+  bcLastT = 0;
+  acquireRecWakeLock();          // a broadcast must survive the screen dimming too
+  updateLiveUI();
+}
+function stopBroadcast() {
+  if (bcState !== 'live') return;
+  host.ndi.stop();               // the source leaves the network
+  bcState = 'idle';
+  bcCanvas = null; bcCtx = null;
+  if (recState !== 'recording') releaseRecWakeLock();
+  updateLiveUI();
+}
+async function startBroadcastVideo() {
+  if (videoMode && broadcastMode && cameraMode === 'live') return;   // already there
+  if (!confirmLoseRecording()) return;
+  leaveVideoMode();
+  broadcastMode = true;
+  videoMode = true;              // rides the record-video chrome (follower, PiP, video format)
+  await startCamera();
+  updateLiveUI();
+}
+
 function paintRecord() {
   if (recState !== 'recording' || !recordCanvas) return;
   const ctx = recordCanvas.getContext('2d');
@@ -747,6 +810,8 @@ function showSaveVideoMenu() {
 }
 function leaveVideoMode() {
   if (!videoMode) return;
+  stopBroadcast();               // leaving the mode takes the NDI source down
+  broadcastMode = false;
   videoMode = false;
   if (videoMicStream) { videoMicStream.getTracks().forEach((t) => t.stop()); videoMicStream = null; }
   recordedVideo = null;
@@ -761,7 +826,9 @@ function leaveVideoMode() {
 }
 
 async function startRecordVideo() {
-  if (videoMode && cameraMode === 'live') return;   // already there — don't restart the camera
+  if (videoMode && !broadcastMode && cameraMode === 'live') return;   // already there — don't restart the camera
+  stopBroadcast();               // switching from broadcast video: the source goes down
+  broadcastMode = false;
   videoMode = true;
   await startCamera();
   // native camera has no audio track — acquire the mic here (one prompt at entry, not
@@ -877,17 +944,17 @@ function startLiveLoop() {
       updateGhosts(now, eased, !diverged);
       if (!diverged) {
         engine.render(state);
-        paintRecord(); paintPip();
+        paintRecord(); paintBroadcast(); paintPip();
       } else if (pipSwapped) {
         // big panel = OUTPUT: preview renders first for the PiP copy, the
         // followed render stays on screen and feeds the recording
         engine.render(state);
         paintPip();
         engine.render(eased);
-        paintRecord();
+        paintRecord(); paintBroadcast();
       } else {
         engine.render(eased);
-        paintRecord(); paintPip();
+        paintRecord(); paintBroadcast(); paintPip();
         engine.render(state);                  // restore the preview on screen
       }
     } else {
@@ -921,7 +988,16 @@ function updateLiveUI() {
     camMenuBtn.dataset.icon = camIcon;
     camMenuBtn.innerHTML = videoMode ? ICONS.videoCameraSettings : ICONS.cameraSettings;
   }
-  if (videoMode && cameraMode === 'live') {
+  if (videoMode && broadcastMode && cameraMode === 'live') {
+    // broadcast video: the slot is the GREEN ● (green = live/broadcast — Daniel's
+    // dot semantics) / stop ■. Camera settings stay reachable mid-broadcast (a
+    // flip re-acquires; the frame relay + publish loop just keep going).
+    cap.style.display = '';
+    if (bcState === 'live') { cap.innerHTML = ICONS.stop; cap.title = 'stop broadcasting'; cap.style.color = ''; }
+    else { cap.innerHTML = ICONS.record; cap.title = 'start broadcasting'; cap.style.color = 'var(--ok)'; }
+    camCtl.style.display = ''; camCtl.disabled = false;
+    setSourceIcon('video');
+  } else if (videoMode && cameraMode === 'live') {
     // record video: the slot is record ● (red) / stop ■ — the live-cam pattern
     // with record semantics. Download stays but gates on a finished take.
     cap.style.display = '';
@@ -934,9 +1010,10 @@ function updateLiveUI() {
     cap.style.display = ''; cap.innerHTML = ICONS.pause; cap.title = 'pause'; cap.style.color = '';   /* record/pause toggle (was the stop square; before that the aperture) */
     camCtl.style.display = ''; camCtl.disabled = false; setSourceIcon('live');
   } else if (cameraMode === 'frozen') {
-    // still "in" live capture, just paused: go-live record is RED (actionable),
-    // and the SOURCE icon stays the live record (mental model: paused, not a new still).
-    cap.style.display = ''; cap.innerHTML = ICONS.record; cap.title = 'go live'; cap.style.color = 'var(--ok)';   /* green = live (red is reserved for record) */
+    // still "in" live capture, just paused: go-live is the GREEN CAMERA icon
+    // (Daniel: the green DOT now belongs to broadcast; the camera glyph says
+    // "back to the camera", green says "goes live").
+    cap.style.display = ''; cap.innerHTML = ICONS.camera; cap.title = 'go live'; cap.style.color = 'var(--ok)';
     camCtl.style.display = 'none'; camPopEl.classList.add('m-hidden'); setSourceIcon('live');
   } else {
     cap.style.display = 'none'; camCtl.style.display = 'none'; camPopEl.classList.add('m-hidden'); cap.style.color = '';
@@ -1106,6 +1183,12 @@ async function flipCamera() {
 
 $('m-tab-capture').addEventListener('click', () => {
   if (videoMode) {
+    if (broadcastMode) {
+      // broadcast video: the slot is the green ● (arm the NDI source) / stop ■
+      if (bcState === 'live') stopBroadcast();
+      else startBroadcast();
+      return;
+    }
     if (recState === 'recording') stopRecording();
     else startRecording();
     return;
@@ -1127,6 +1210,9 @@ const camFpsWrap = document.createElement('div');
 const camStabWrap = document.createElement('div');
 const camEvWrap = document.createElement('div');
 const camWbWrap = document.createElement('div');
+// broadcast-mode rows (Daniel: ONE menu combines camera + broadcast settings)
+const camBcNameWrap = document.createElement('div');
+const camBcTestWrap = document.createElement('div');
 if (useNativeCam) {
   // facing lives as a rear/front SEGMENT at the top (matches the iPad gear —
   // Daniel: the full-width "flip camera" row read as UI weirdness next to it)
@@ -1138,7 +1224,9 @@ if (useNativeCam) {
   camStabWrap.className = 'm-control'; camStabWrap.id = 'm-cam-stab';
   camEvWrap.className = 'm-control'; camEvWrap.id = 'm-cam-ev';
   camWbWrap.className = 'm-control'; camWbWrap.id = 'm-cam-wb';
-  camPopEl.append(camLensWrap, camResWrap, camFpsWrap, camStabWrap, camEvWrap, camWbWrap);
+  camBcNameWrap.className = 'm-control'; camBcNameWrap.id = 'm-cam-bcname';
+  camBcTestWrap.className = 'm-control'; camBcTestWrap.id = 'm-cam-bctest';
+  camPopEl.append(camLensWrap, camResWrap, camFpsWrap, camStabWrap, camEvWrap, camWbWrap, camBcNameWrap, camBcTestWrap);
 
   camMenuBtn.addEventListener('click', (e) => {
     e.stopPropagation();
@@ -1182,10 +1270,21 @@ function refreshCamMenu() {
   camLensWrap.classList.toggle('m-hidden', !showLens);
   if (showLens) buildCamSeg(camLensWrap, 'lens', lenses, camera.getLens(), switchLens);
   else camLensWrap.innerHTML = '';
-  // resolution — MODE-AWARE: record-video shows video sizes (1080p/QHD/4K) that
-  // re-acquire; still mode shows the sensor's photo sizes (12/24/48MP), which just
-  // set the next capture's dimensions (no re-acquire — the preview keeps streaming).
-  if (videoMode) {
+  // resolution — MODE-AWARE: broadcast shows the NDI output tiers (what goes on
+  // the wire — the camera keeps its own streaming format); record-video shows
+  // video sizes (1080p/QHD/4K) that re-acquire; still mode shows the sensor's
+  // photo sizes (12/24/48MP), which just set the next capture's dimensions.
+  if (broadcastMode) {
+    camResWrap.classList.remove('m-hidden');
+    buildCamSeg(camResWrap, 'broadcast resolution',
+      [{ id: '1280', label: 'HD' }, { id: '1920', label: 'FHD' }],
+      String(bcTier),
+      (id) => {
+        bcTier = +id;
+        if (bcState === 'live') { stopBroadcast(); startBroadcast(); }   // resize = a fresh frame size on the wire
+        refreshCamMenu();
+      });
+  } else if (videoMode) {
     const resList = camera.getResolutions?.() || [];
     camResWrap.classList.toggle('m-hidden', resList.length < 1);
     if (resList.length) buildCamSeg(camResWrap, 'resolution', resList, camera.getResolution(), switchResolution);
@@ -1204,10 +1303,11 @@ function refreshCamMenu() {
       (id) => { camera.setStillResolution(id); refreshCamMenu(); });   // no re-acquire; just the capture size
     else camResWrap.innerHTML = '';
   }
-  // frame rate — record-video (motion) mode only; PIPELINE-SAFE options for the current
+  // frame rate — record-video (motion) mode only (hidden in broadcast, Daniel's
+  // spec — the publish loop paces itself); PIPELINE-SAFE options for the current
   // resolution (excludes the device's peak combo, e.g. 4K60 on the 14 Pro — it crashes).
   const fpsOpts = (camera.getSafeFps?.() || [30]).map((f) => ({ id: String(f), label: `${f}fps` }));
-  const showFps = videoMode && fpsOpts.length > 1;
+  const showFps = videoMode && !broadcastMode && fpsOpts.length > 1;
   camFpsWrap.classList.toggle('m-hidden', !showFps);
   if (showFps) buildCamSeg(camFpsWrap, 'frame rate', fpsOpts, String(camera.getFrameRate()), (id) => switchFrameRate(+id));
   else camFpsWrap.innerHTML = '';
@@ -1239,6 +1339,33 @@ function refreshCamMenu() {
   camWbWrap.classList.toggle('m-hidden', !showWb);
   if (showWb) buildCamWb(camWbWrap, wb);
   else camWbWrap.innerHTML = '';
+  // broadcast settings ride the SAME menu (Daniel: one combined camera +
+  // broadcast menu): the NDI source name Arena lists, and the reference test
+  // pattern (verify orientation/scale/color at the receiver).
+  camBcNameWrap.classList.toggle('m-hidden', !broadcastMode);
+  camBcTestWrap.classList.toggle('m-hidden', !broadcastMode);
+  if (broadcastMode) {
+    camBcNameWrap.innerHTML = '<div class="m-control-row"><span>broadcast server</span></div>';
+    const inp = document.createElement('input');
+    inp.type = 'text'; inp.value = bcName; inp.maxLength = 32; inp.spellcheck = false;
+    inp.style.cssText = 'width:100%; box-sizing:border-box;';
+    inp.className = 'm-text-input';
+    inp.addEventListener('input', () => {
+      bcName = inp.value.trim() || 'Fold';
+      try { localStorage.setItem('fold.ndiName', bcName); } catch { /* private mode */ }
+    });
+    // a live rename recreates the sender under the new name (commit on blur/enter,
+    // not per keystroke — the source would flicker in Arena's list otherwise)
+    inp.addEventListener('change', () => { if (bcState === 'live') { stopBroadcast(); startBroadcast(); } });
+    camBcNameWrap.appendChild(inp);
+    buildCamSeg(camBcTestWrap, 'test pattern',
+      [{ id: 'off', label: 'off' }, { id: 'on', label: 'on' }],
+      bcTest ? 'on' : 'off',
+      (id) => { bcTest = id === 'on'; refreshCamMenu(); });
+  } else {
+    camBcNameWrap.innerHTML = '';
+    camBcTestWrap.innerHTML = '';
+  }
 }
 
 // a titled range slider into `wrap`: fmt(value)->label; onInput(number) live.
@@ -1476,17 +1603,25 @@ function closeMenu() {
   document.removeEventListener('pointerdown', onMenuOutside);
 }
 
-// source menu — three capability-distinct entries (iOS collapses photo-library
-// vs choose-file into the same system sheet, so they're one item). "take still"
-// uses the native camera (full-res) via the capture-attribute file input.
+// source menu (Daniel's 2026-07-15 consolidation) — dot semantics: GREEN =
+// live/broadcast, RED = record, plain glyphs = still capture.
+//   native: broadcast video (green ●, NDI) · record video (red ●) · take still
+//           (camera glyph → the native live camera) · choose photo/file
+//   web:    record video · take still (camera glyph → the webkit live camera) ·
+//           choose photo/file
+// The old capture-attribute file-input entry is GONE on both — iOS's own photo
+// sheet (choose photo/file) still offers "Take Photo", so nothing is lost.
 function showSourceMenu() {
-  // dot semantics (Daniel): green = live, red = record
-  showMenu([
-    { icon: ICONS.record, iconClass: 'm-icon-live', label: 'live camera', action: enterLiveCamera },
+  const items = [];
+  if (useNativeCam && host.ndi?.available) {
+    items.push({ icon: ICONS.record, iconClass: 'm-icon-live', label: 'broadcast video', action: startBroadcastVideo });
+  }
+  items.push(
     { icon: ICONS.record, iconClass: 'm-icon-record', label: 'record video', action: startRecordVideo },
-    { icon: ICONS.camera, label: 'take still', action: () => { if (confirmLoseRecording()) $('m-file-still').click(); } },
+    { icon: ICONS.camera, label: 'take still', action: enterLiveCamera },
     { icon: ICONS.photo, label: 'choose photo / file', action: () => { if (confirmLoseRecording()) $('m-file').click(); } },
-  ], 'm-tab-source');
+  );
+  showMenu(items, 'm-tab-source');
 }
 async function enterLiveCamera() {
   if (!confirmLoseRecording()) return;
