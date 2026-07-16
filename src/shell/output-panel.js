@@ -93,11 +93,18 @@ export function createOutputPanel(env, outputBus) {
     let stream;
     try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: devId === 'default' ? true : { deviceId: { exact: devId } } });
-    } catch { stopMicMeter(); return; }
+    } catch {
+      // an enumerated id can be stale/foreign on WKWebView — fall back to the default mic
+      try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }); }
+      catch { stopMicMeter(); return; }
+    }
     // the menu may have closed (or the pick changed) while the permission was pending
     if (row.hidden || recAudioEl.value !== devId) { stream.getTracks().forEach((t) => t.stop()); return; }
     meterStream = stream;
     meterCtx = new (window.AudioContext || window.webkitAudioContext)();
+    // WKWebView creates AudioContexts SUSPENDED — without the resume the analysers
+    // read flat zero and the bars never move (Daniel's iPad pass)
+    try { meterCtx.resume?.(); } catch { /* already running */ }
     const src = meterCtx.createMediaStreamSource(stream);
     const stereo = (stream.getAudioTracks()[0]?.getSettings?.().channelCount || 1) >= 2;
     const anL = meterCtx.createAnalyser(); anL.fftSize = 512;

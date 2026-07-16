@@ -1202,7 +1202,11 @@ if (engine) {
     host: env.host,
     diag: env.diag,
   });
-  outputBus.registerSink(createRecorderSink());
+  // host-aware save: the recorder's own <a download> is a silent no-op inside
+  // Capacitor's webview (Daniel's iPad takes vanished) — env.downloadBlob routes
+  // through host.fileSystem (share sheet / native dialog) and falls back to the
+  // browser download on plain web.
+  outputBus.registerSink(createRecorderSink({ save: (blob, name) => env.downloadBlob(blob, name) }));
   // The external-window destination is universal (plain web APIs), so always available.
   // It's a self-rendering GPU engine view (shell/output-window.js, needsBus:false), not
   // a bus pixel sink — the bus's read-back loop never runs for a window-only session.

@@ -53,7 +53,11 @@ function downloadBlob(blob, filename) {
   setTimeout(() => URL.revokeObjectURL(url), 10_000);
 }
 
-export function createRecorderSink({ filenamePrefix = 'fold-live' } = {}) {
+// `save(blob, filename)` (optional) replaces the <a download> click — REQUIRED on
+// hosts where download-navigation is a silent no-op (Capacitor WKWebView: Daniel's
+// iPad takes vanished without a trace); the app passes its host-aware saver (the
+// iOS share sheet / Electron dialog / browser download fallback).
+export function createRecorderSink({ filenamePrefix = 'fold-live', save = null } = {}) {
   let canvas = null, ctx = null, imgData = null;
   let recorder = null, stream = null, chunks = [];
   let recording = false;
@@ -116,23 +120,30 @@ export function createRecorderSink({ filenamePrefix = 'fold-live' } = {}) {
       if (mime) opts.mimeType = mime;
       recorder = new MediaRecorder(stream, opts);
       const finalMime = recorder.mimeType || mime || 'video/webm';
+      // the session's own stream, captured for teardown INSIDE onstop — killing
+      // the tracks synchronously in stop() raced the encoder on WebKit and the
+      // final chunks (sometimes the whole take) never arrived
+      const sess = stream;
       recorder.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
       recorder.onstop = () => {
         const blob = new Blob(chunks, { type: finalMime });
         chunks = [];
+        sess.getTracks().forEach((t) => t.stop());
+        if (stream === sess) stream = null;
         const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-        downloadBlob(blob, `${filenamePrefix}-${stamp}.${extFor(finalMime)}`);
+        (save || downloadBlob)(blob, `${filenamePrefix}-${stamp}.${extFor(finalMime)}`);
       };
       recorder.start();
       recording = true;
     },
 
-    // end the session → onstop fires → file downloads.
+    // end the session → onstop fires (delivering the final chunks) → the stream
+    // tears down there → the file saves through the host-aware path.
     stop() {
       recording = false;
       if (recorder && recorder.state !== 'inactive') recorder.stop();
+      else if (stream) { stream.getTracks().forEach((t) => t.stop()); stream = null; }
       recorder = null;
-      if (stream) { stream.getTracks().forEach((t) => t.stop()); stream = null; }
     },
   };
 }

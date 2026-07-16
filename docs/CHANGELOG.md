@@ -4,6 +4,19 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.17.13 (Build 355) — 2026-07-15 — iPad record-to-disk actually saves (and the mic meters actually move)
+
+Daniel's report ("stopped the recording and nothing happened, repeatedly") was TWO stacked failures in the recorder sink, both fixed at the root ([conduit/recorder.js](../packages/conduit/src/recorder.js)):
+
+1. **The save path was a dead end on iOS**: the sink saved via an `<a download>` click, which is a silent no-op inside Capacitor's webview. The sink now accepts an injected `save(blob, name)` and the app passes its host-aware saver — so an iPad take goes out through the SHARE SHEET (the same proven path as stills), Electron through its native flow, plain web keeps the browser download.
+2. **The teardown raced the encoder on WebKit**: `stop()` killed the stream tracks synchronously after `recorder.stop()`, and WebKit could drop the final chunks — or the whole take. The stream now tears down INSIDE `onstop`, after the last data has arrived (session-captured so a fast stop→start can't kill the next take's stream).
+
+**The flat mic meters** were a third WebKit-ism: WKWebView creates AudioContexts SUSPENDED, so the analysers read zero forever — an explicit `resume()` fixes it, plus a default-mic fallback when an enumerated deviceId is stale ([output-panel.js](../src/shell/output-panel.js)).
+
+On his desktop notes: the sink already prefers `video/mp4` wherever MediaRecorder supports it (Safari, and the iPad — his take will be .mp4 there); Chromium/Electron's MediaRecorder ceiling is WebM — the honest upgrade is routing recording through the WebCodecs+mp4-muxer path that motion export already uses (filed thought, not built). "No audio on desktop" is most likely the audio picker's default: it starts on **none** by design — the new meters now make the selected mic's live state visible.
+
+Verified: `node --check` ×3, `vite build`, `cap sync`. Device-verify: an iPad take lands in the share sheet with audio; meters move.
+
 ## v0.17.12 (Build 354) — 2026-07-15 — iPhone flip matches the iPad (rear/front segment)
 
 The mobile camera menu's full-width "flip camera" row (icon + text — the UI weirdness Daniel flagged) becomes the same **rear / front side-by-side segment** the iPad gear ships, as the menu's top row. Same `buildCamSeg` machinery, current facing highlighted, picking the other side flips ([mobile/chrome.js](../src/mobile/chrome.js)).
