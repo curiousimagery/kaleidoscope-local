@@ -49,6 +49,14 @@ export function createCameraSettings(env, { getCamera, isNative, reacquire }) {
 
   function buildNativeRows(camera) {
     const rows = [];
+    // camera (facing) — the flip toggle lives at the TOP of this menu (Daniel:
+    // the iPhone camera-menu position), replacing the toolbar flip button on
+    // the native path. flip() resets EV/WB by construction (per-sensor gains).
+    if (camera.flip) {
+      rows.push(segRow('camera', [{ id: 'environment', label: 'rear' }, { id: 'user', label: 'front' }],
+        camera.isFront?.() ? 'user' : 'environment',
+        () => reacquire(() => camera.flip()).then(rebuild)));
+    }
     // lens — rear only, and only when the device has more than one. a lens
     // change re-acquires AND resets EV/WB (per-sensor gains don't carry).
     const lenses = camera.getLenses?.() || [];

@@ -359,9 +359,14 @@ export function createSourceHost(env) {
   }
 
   function setCameraMeta(label) {
+    // web camera hands a <video> (videoWidth); the native camera hands its RGB
+    // canvas (width) — without the fallback the dims cell stayed "—" and the
+    // meta read as a dangling "— live camera" (Daniel's iPad note)
     const v = camera.getVideo();
+    const w = v ? (v.videoWidth || v.width || 0) : 0;
+    const h = v ? (v.videoHeight || v.height || 0) : 0;
     const meta = document.getElementById('sourceMeta');
-    if (v && v.videoWidth) meta.children[0].textContent = `${v.videoWidth} × ${v.videoHeight}`;
+    if (w) meta.children[0].textContent = `${w} × ${h}`;
     meta.children[1].textContent = label;
   }
 
@@ -387,13 +392,15 @@ export function createSourceHost(env) {
         : '<svg viewBox="0 0 12 12" aria-hidden="true"><rect x="2" y="1.5" width="3" height="9" rx="1" fill="currentColor"/><rect x="7" y="1.5" width="3" height="9" rx="1" fill="currentColor"/></svg>capture';
       shutter.title = env.live.frozen ? 'live camera — resume the feed' : 'capture — freeze this frame';
     }
-    // flip is an ICON button (the mobile camera-menu glyph — Daniel's note); the
-    // title still names the camera it switches TO. Nothing to flip while frozen.
+    // flip is an ICON button (the mobile camera-menu glyph); on the NATIVE path
+    // it moves INTO the camera-settings menu (top row — Daniel: the iPhone
+    // camera-menu position), so the toolbar button hides there. Nothing to flip
+    // while frozen either.
     const flip = document.getElementById('flipBtn');
     if (flip) {
       if (!flip.dataset.icon) { flip.innerHTML = ICONS.flip; flip.classList.add('ot-icon'); flip.dataset.icon = '1'; }
       flip.title = camera.isFront() ? 'switch to the rear camera' : 'switch to the front camera';
-      flip.style.display = env.live.frozen ? 'none' : '';
+      flip.style.display = (env.live.frozen || cameraIsNative) ? 'none' : '';
     }
     camSettings.refresh();  // gear shows only while live + something is adjustable
     env.updateMotionUI();   // motion mode is disabled while the camera is live

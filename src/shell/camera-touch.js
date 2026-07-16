@@ -36,6 +36,11 @@ export function createCameraTouchControls(env, { getCamera, isNative }) {
     const p = point(e);
     clearTimeout(padTimer); padTimer = 0;
     if (p.n > 1) return;                 // two fingers → a pinch, not the pad
+    // only WITHIN the displayed camera frame — the panel also hosts the form
+    // picker and controls below the preview (Daniel set a focus point reaching
+    // for the droste form); touches outside the frame are never ours
+    const r = camRect();
+    if (p.x < r.left || p.x > r.right || p.y < r.top || p.y > r.bottom) return;
     padStartX = p.x; padStartY = p.y;
     padTimer = setTimeout(engage, HOLD_MS);
   }

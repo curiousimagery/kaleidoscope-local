@@ -4,6 +4,12 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.17.10 (Build 352) — 2026-07-15 — camera trio from Daniel's second iPad pass
+
+- **Flip moves INTO the camera-settings menu** as its top row (a rear/front segment — his expected iPhone-menu position); the toolbar flip button hides on the native path (web keeps it, since a single-camera web machine may show no gear at all).
+- **Tap-to-focus/pad respect the camera frame**: touches are claimed only inside the DISPLAYED camera element's bounds — the source panel also hosts the form picker and controls, and a reach for the droste form was setting a focus point ([camera-touch.js](../src/shell/camera-touch.js)).
+- **The dangling "— live camera" meta is fixed**: `setCameraMeta` now reads the native camera's canvas dims (`width`, not `videoWidth`) so the resolution cell fills in on the native path ([source-host.js](../src/shell/source-host.js)).
+
 ## v0.17.9 (Build 351) — 2026-07-15 — NDI OUT IS REAL: the Electron sender against Daniel's installed SDK
 
 Daniel accepted the Vizrt terms and installed the SDK (`/Library/NDI SDK for Apple`), which greenlit the one gated piece — and B347's app side means nothing else had to change: the destination row and sink light up on their own.
