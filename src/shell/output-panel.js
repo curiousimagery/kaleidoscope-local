@@ -42,20 +42,91 @@ export function createOutputPanel(env, outputBus) {
   // once some permission has been granted — generic names until then), keep
   // the choice in session, refresh on focus + device changes. "none" records
   // video only (the long-standing behavior stays the default).
+  // a generic/absent OS label gets a DEVICE-AWARE name ("iPad mic" beats
+  // "microphone 1" — Daniel's note); real labels (USB interfaces, etc.) pass through
+  const builtinMicName = /iPhone/.test(navigator.userAgent) ? 'iPhone mic'
+    : (/iPad/.test(navigator.userAgent) || (navigator.maxTouchPoints > 1 && /Mac/.test(navigator.platform))) ? 'iPad mic'
+    : 'built-in mic';
+  function micLabel(raw, i, count) {
+    const generic = !raw || /^(microphone|default)(\s*\d+)?$/i.test(raw.trim());
+    if (!generic) return raw;
+    return count > 1 ? `${builtinMicName} ${i + 1}` : builtinMicName;
+  }
   async function refreshMics() {
     if (!recAudioEl || !navigator.mediaDevices?.enumerateDevices) return;
     try {
       const mics = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === 'audioinput');
       const cur = (env.session && env.session.recordAudioDevice) || '';
       recAudioEl.innerHTML = '<option value="">none</option>' +
-        mics.map((m, i) => `<option value="${m.deviceId}">${(m.label || `microphone ${i + 1}`).replace(/</g, '&lt;')}</option>`).join('');
+        mics.map((m, i) => `<option value="${m.deviceId}">${micLabel(m.label, i, mics.length).replace(/</g, '&lt;')}</option>`).join('');
       recAudioEl.value = [...recAudioEl.options].some((o) => o.value === cur) ? cur : '';
     } catch { /* keep "none" */ }
   }
-  recAudioEl?.addEventListener('change', () => { if (env.session) env.session.recordAudioDevice = recAudioEl.value; });
+  recAudioEl?.addEventListener('change', () => {
+    if (env.session) env.session.recordAudioDevice = recAudioEl.value;
+    syncMicMeter();
+  });
   recAudioEl?.addEventListener('focus', refreshMics);
   try { navigator.mediaDevices?.addEventListener?.('devicechange', refreshMics); } catch { /* optional */ }
   refreshMics();
+
+  // ---- mic level meters: live L/R feedback while a mic is selected AND the menu
+  // is open (Daniel: proof the chosen mic is working). The capture exists only
+  // while the menu is visible — no lingering mic indicator once it closes; the
+  // meter's own rAF tears everything down when the menu hides or 'none' is picked.
+  let meterStream = null, meterCtx = null, meterRaf = 0;
+  function stopMicMeter() {
+    if (meterRaf) { cancelAnimationFrame(meterRaf); meterRaf = 0; }
+    meterStream?.getTracks().forEach((t) => t.stop());
+    meterStream = null;
+    try { meterCtx?.close(); } catch { /* already closed */ }
+    meterCtx = null;
+    const wrap = byId('micMeter');
+    if (wrap) wrap.hidden = true;
+  }
+  async function syncMicMeter() {
+    const row = byId('outputRow');
+    const wrap = byId('micMeter');
+    const devId = recAudioEl?.value;
+    if (!devId || !row || row.hidden || !navigator.mediaDevices?.getUserMedia) { stopMicMeter(); return; }
+    if (meterStream) return;   // already metering
+    let stream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: devId === 'default' ? true : { deviceId: { exact: devId } } });
+    } catch { stopMicMeter(); return; }
+    // the menu may have closed (or the pick changed) while the permission was pending
+    if (row.hidden || recAudioEl.value !== devId) { stream.getTracks().forEach((t) => t.stop()); return; }
+    meterStream = stream;
+    meterCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const src = meterCtx.createMediaStreamSource(stream);
+    const stereo = (stream.getAudioTracks()[0]?.getSettings?.().channelCount || 1) >= 2;
+    const anL = meterCtx.createAnalyser(); anL.fftSize = 512;
+    const anR = meterCtx.createAnalyser(); anR.fftSize = 512;
+    if (stereo) {
+      const split = meterCtx.createChannelSplitter(2);
+      src.connect(split);
+      split.connect(anL, 0); split.connect(anR, 1);
+    } else {
+      src.connect(anL); src.connect(anR);   // mono: both bars show the one channel
+    }
+    if (wrap) wrap.hidden = false;
+    const buf = new Uint8Array(anL.fftSize);
+    const lEl = byId('micMeterL'), rEl = byId('micMeterR');
+    const peak = (an) => {
+      an.getByteTimeDomainData(buf);
+      let m = 0;
+      for (let i = 0; i < buf.length; i++) { const v = Math.abs(buf[i] - 128); if (v > m) m = v; }
+      return Math.min(1, m / 110);   // slight headroom so speech reads visibly
+    };
+    const tick = () => {
+      if (!meterStream) return;
+      if (!row || row.hidden || recAudioEl.value !== devId) { stopMicMeter(); return; }
+      if (lEl) lEl.style.width = Math.round(peak(anL) * 100) + '%';
+      if (rEl) rEl.style.width = Math.round(peak(anR) * 100) + '%';
+      meterRaf = requestAnimationFrame(tick);
+    };
+    meterRaf = requestAnimationFrame(tick);
+  }
 
   // Detected destinations, in display order. A sink is offered only if it's registered
   // (Syphon only on a native host) and reports supported.
@@ -65,7 +136,7 @@ export function createOutputPanel(env, outputBus) {
     { id: 'ndi', label: 'NDI', title: 'publish the program as an NDI source on the network (Arena/OBS list it like a camera)' },
   ];
   const destinations = DEST_DEFS
-    .map((d) => ({ ...d, sink: outputBus.getSink(d.id) }))
+    .map((d) => ({ ...d, baseLabel: d.label, sink: outputBus.getSink(d.id) }))
     .filter((d) => d.sink && d.sink.supported !== false);
 
   let tier = TIER_DEFAULT;
@@ -237,7 +308,7 @@ export function createOutputPanel(env, outputBus) {
   env.addOutputDestination = ({ id, label, title }) => {
     const sink = outputBus.getSink(id);
     if (!sink || sink.supported === false || destinations.some((d) => d.id === id)) return;
-    destinations.push({ id, label, title, sink });
+    destinations.push({ id, label, baseLabel: label, title, sink });
     let saved = null;
     try { saved = localStorage.getItem(DEST_KEY); } catch {}
     if (!destination || (saved === id && !broadcasting)) destination = id;
@@ -324,20 +395,28 @@ export function createOutputPanel(env, outputBus) {
     if (!canArm()) { statusEl.textContent = 'load a source (or use the test pattern) to output'; statusEl.classList.remove('live'); return; }
     const s = outputBus.getStatus();
     const parts = [];
+    const d = selectedDest();
     if (broadcasting) {
-      const d = selectedDest();
-      parts.push(`◉ ${d ? d.label : 'output'}${d && d.id === 'syphon' ? ` (${s.serverName})` : ''}`);
+      // the BASE name (the destination row already carries the display's pixel
+      // readout — repeating it here made "HDMI · 3840×2160 3840×3840", Daniel's
+      // double-resolution confusion); named network sources append their name
+      const named = d && (d.id === 'syphon' || d.id === 'ndi');
+      parts.push(`◉ ${d ? d.baseLabel : 'output'}${named ? ` (${nameInput?.value || s.serverName})` : ''}`);
     }
     if (recorder?.recording) parts.push('● rec');
     if (s.testPattern) parts.push('▦ test pattern');
     if (parts.length) {
-      // the self-rendering window measures its own GPU fps; the bus measures the
-      // read-back fps for Syphon/record. Prefer the live destination's own number.
-      const fps = (broadcasting && selectedDest()?.sink.fps) || s.fps;
-      statusEl.textContent = `${parts.join(' · ')} · ${s.width}×${s.height} · ${fps || '…'} fps`;
+      // a self-rendering destination (the external display, the output window)
+      // reports its OWN render size + GPU fps — the bus numbers describe the
+      // read-back pipeline, which isn't what's on the wall
+      const dims = (broadcasting && d?.sink.renderDims) || s;
+      const fps = (broadcasting && d?.sink.fps) || s.fps;
+      statusEl.textContent = `${parts.join(' · ')} · ${dims.width}×${dims.height} · ${fps || '…'} fps`;
       statusEl.classList.add('live');
     } else {
-      statusEl.textContent = `output ${s.width}×${s.height}`;
+      // idle: no dims echo — the resolution hint two rows up already says it
+      // (the "resolution shown twice" BACKLOG item)
+      statusEl.textContent = '';
       statusEl.classList.remove('live');
     }
   }
@@ -397,7 +476,7 @@ export function createOutputPanel(env, outputBus) {
   // ---- wiring -------------------------------------------------------------------
   // The #outputRow band's open/close is owned by the chrome's wireBarBands; this
   // module owns the band's CONTENT; the chrome calls env.refreshOutputBand on open.
-  env.refreshOutputBand = () => { applyResolution(); renderStatus(); };
+  env.refreshOutputBand = () => { applyResolution(); renderStatus(); syncMicMeter(); };
 
   buildDestPicker();
   recordBtn?.addEventListener('click', toggleRecord);

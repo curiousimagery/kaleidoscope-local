@@ -318,10 +318,6 @@ canvasPopEl.innerHTML = '<h2>canvas</h2>';
 // frame aspect — the desktop row's exact behavior (1:1 · 5:4 · 4:3 · 3:2 · 16:9,
 // landscape default, tapping the SELECTED ratio flips portrait ↔ landscape);
 // mobile output honored only square before this.
-// the connected external display's native dims (set by the autoconnect below) —
-// drives the aspect segment's 'display' option (match the destination, WYSIWYG)
-let extDisplayDims = null;
-let syncAspectSeg = () => {};
 (function mountAspectControl() {
   const wrap = document.createElement('div');
   wrap.className = 'm-control';
@@ -344,22 +340,6 @@ let syncAspectSeg = () => {};
     seg.appendChild(b);
     return { b, land, l, p };
   });
-  // 'display' — match the plugged display's native aspect (appears only while
-  // one is attached; re-tap flips like the fixed ratios)
-  const dispBtn = document.createElement('button');
-  dispBtn.className = 'm-seg-btn';
-  dispBtn.textContent = 'display';
-  dispBtn.style.display = 'none';
-  const dispAspect = () => (extDisplayDims && extDisplayDims.height ? extDisplayDims.width / extDisplayDims.height : 0);
-  dispBtn.addEventListener('click', () => {
-    const da = dispAspect();
-    if (!da) return;
-    const a = session.frameAspect || 1;
-    const active = Math.abs(a - da) < EPS || Math.abs(a - 1 / da) < EPS;
-    session.frameAspect = active && da !== 1 ? 1 / a : da;
-    sync(); sizeOutput(); scheduleRender();
-  });
-  seg.appendChild(dispBtn);
   function sync() {
     const a = session.frameAspect || 1;
     for (const { b, land, l, p } of btns) {
@@ -367,14 +347,10 @@ let syncAspectSeg = () => {};
       b.classList.toggle('active', active);
       b.textContent = active && land > 1 && a < 1 ? p : l;
     }
-    const da = dispAspect();
-    dispBtn.style.display = da ? '' : 'none';
-    dispBtn.classList.toggle('active', !!da && (Math.abs(a - da) < EPS || Math.abs(a - 1 / da) < EPS));
   }
   wrap.appendChild(seg);
   canvasPopEl.appendChild(wrap);
   controlsSync.register(sync);
-  syncAspectSeg = sync;
   sync();
 })();
 // External display (HDMI) fit/fill — only where the host can present one. Fit =
@@ -1846,7 +1822,6 @@ if (host.externalDisplay?.available) {
       onStatus: (connected, streaming) => {
         console.info('[fold] external display', connected ? (streaming ? 'streaming' : 'connected') : 'disconnected');
       },
-      onDims: (d) => { extDisplayDims = d; syncAspectSeg(); },   // the aspect segment's 'display' option
     });
   }).catch((e) => console.warn('[fold] external display unavailable:', e));
 }

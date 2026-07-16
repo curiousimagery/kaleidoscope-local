@@ -916,38 +916,18 @@ function wireFrameAspect() {
   const group = document.getElementById('frameAspect');
   if (!group) return;
   const EPS = 0.001;
-  const buttons = [...group.querySelectorAll('button')].filter((b) => b.dataset.asp);
+  const buttons = [...group.querySelectorAll('button')];
   const landOf = (b) => parseFloat(b.dataset.asp) || 1;
   const isActive = (b) => {
     const land = landOf(b);
     return Math.abs(session.frameAspect - land) < EPS || Math.abs(session.frameAspect - 1 / land) < EPS;
   };
-  // 'display' — match the CONNECTED external display's native aspect (Daniel's
-  // AirPlay-pass ask): WYSIWYG through preview/recording/save, unlike the fill
-  // toggle (which reshapes only the external render). Appears only while attached.
-  const dispBtn = document.getElementById('frameAspectDisplay');
-  const dispAspect = () => {
-    const d = env.externalDisplayDims;
-    return d && d.width && d.height ? d.width / d.height : 0;
-  };
-  const dispActive = () => {
-    const a = dispAspect();
-    return !!a && (Math.abs(session.frameAspect - a) < EPS || Math.abs(session.frameAspect - 1 / a) < EPS);
-  };
-  const syncActive = () => {
-    buttons.forEach((b) => {
-      const active = isActive(b);
-      const portrait = active && landOf(b) > 1 && session.frameAspect < 1;
-      b.classList.toggle('active', active);
-      b.textContent = portrait ? b.dataset.p : b.dataset.l;
-    });
-    if (dispBtn) {
-      const d = env.externalDisplayDims;
-      dispBtn.hidden = !d;
-      dispBtn.classList.toggle('active', dispActive());
-      if (d) dispBtn.title = `match the connected display (${d.width}×${d.height}) — click again to flip portrait/landscape`;
-    }
-  };
+  const syncActive = () => buttons.forEach((b) => {
+    const active = isActive(b);
+    const portrait = active && landOf(b) > 1 && session.frameAspect < 1;
+    b.classList.toggle('active', active);
+    b.textContent = portrait ? b.dataset.p : b.dataset.l;
+  });
   const apply = () => {
     syncActive();
     resizePreviewCanvas();      // reshape the preview to the new frame (also re-renders)
@@ -963,14 +943,6 @@ function wireFrameAspect() {
     }
     apply();
   }));
-  dispBtn?.addEventListener('click', () => {
-    const a = dispAspect();
-    if (!a) return;
-    session.frameAspect = dispActive() && a !== 1 ? 1 / session.frameAspect : a;
-    apply();
-  });
-  // the sink publishes dims on plug/unplug (shell/external-display.js) — show/hide
-  env.externalDisplayDimsChanged = syncActive;
   syncActive();
 }
 
@@ -1007,6 +979,9 @@ function wireGlobalSheets() {
 // (The canvas band is gone — Arc 2b moved the canvas controls into the output
 // panel's control stack.)
 function wireBarBands() {
+  // #outputRow is a vertical DROPDOWN now (Daniel's output-menu redesign) — a
+  // fixed-position popover anchored under its toolbar button, so opening it
+  // never reflows the stage the way the old in-flow bar-row did.
   const bands = { output: 'outputRow' };
   const btns = { output: 'outputBtn' };
 
@@ -1016,8 +991,19 @@ function wireBarBands() {
       if (band) band.hidden = (k !== which);
       document.getElementById(btns[k])?.classList.toggle('band-open', k === which);
     }
-    if (which === 'output') env.refreshOutputBand?.();
-    requestAnimationFrame(() => { resizePreviewCanvas(); sourceOverlay.render(); });
+    if (which === 'output') {
+      env.refreshOutputBand?.();
+      // anchor under the trigger, clamped to the viewport (measured after unhide)
+      const btn = document.getElementById('outputBtn');
+      const pop = document.getElementById('outputRow');
+      if (btn && pop && !pop.hidden) {
+        const r = btn.getBoundingClientRect();
+        const pw = pop.offsetWidth;
+        const left = Math.min(Math.max(8, r.left + r.width / 2 - pw / 2), window.innerWidth - pw - 8);
+        pop.style.left = Math.round(left) + 'px';
+        pop.style.top = Math.round(r.bottom + 8) + 'px';
+      }
+    }
   }
   env.setBand = setBand;
 
@@ -1027,6 +1013,20 @@ function wireBarBands() {
       setBand(band && band.hidden ? k : null);
     });
   }
+  // dropdown manners: outside pointerdown or Escape closes (drags that start
+  // INSIDE the menu — the mic select, sliders — never re-enter here)
+  document.addEventListener('pointerdown', (e) => {
+    const band = document.getElementById('outputRow');
+    if (!band || band.hidden) return;
+    if (e.target.closest('#outputRow') || e.target.closest('#outputBtn')) return;
+    setBand(null);
+  });
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      const band = document.getElementById('outputRow');
+      if (band && !band.hidden) setBand(null);
+    }
+  });
 }
 
 // Progressive disclosure (Daniel's round-5 direction; replaces the below/flank
@@ -1225,14 +1225,13 @@ if (engine) {
     import('./shell/external-display.js')
       .then((m) => {
         outputBus.registerSink(m.createExternalDisplaySink(env));
-        // labeled 'HDMI' (Daniel: more meaningful than the generic 'display');
-        // the same UIScreen path also serves an AirPlay screen (Control Center →
-        // Screen Mirroring), and the picker row gains a live RESOLUTION readout
-        // while a display is connected (iOS exposes no display name).
+        // one UIScreen path serves BOTH transports and iOS can't tell us which,
+        // so the row says so honestly ('HDMI · 3840×2160' alone misled Daniel's
+        // AirPlay session); the connected readout appends the display's pixels.
         env.addOutputDestination?.({
           id: 'hdmi',
-          label: 'HDMI',
-          title: 'present the program on the connected external display — HDMI or AirPlay screen mirroring (chrome-free, full screen)',
+          label: 'HDMI / AirPlay',
+          title: 'present the program on the connected external display — HDMI cable or AirPlay screen mirroring (chrome-free, full screen)',
         });
       })
       .catch((e) => console.warn('[fold] external display unavailable:', e));

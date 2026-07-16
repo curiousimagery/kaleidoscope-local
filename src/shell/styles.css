@@ -1308,3 +1308,28 @@ body.motion #oobModes { pointer-events: none; opacity: var(--disabled-opacity); 
   border-radius: var(--radius-lg); font-size: var(--text-lg); font-variant-numeric: tabular-nums;
   letter-spacing: 0.02em; pointer-events: none; }
 #camPadHud.ct-hidden { display: none; }
+
+/* ---- live-output DROPDOWN (#outputRow — Daniel's 2026-07-15 redesign): the
+   old horizontal bar-row is now a vertical panel-popover anchored under the
+   toolbar's output button. Sections top-to-bottom per his spec. */
+.output-pop { width: 300px; }
+.output-pop .op-title { font-size: 11px; font-weight: 500; color: var(--text-dim); text-transform: lowercase; letter-spacing: 0.08em; margin-bottom: 10px; }
+.output-pop .op-section { margin-bottom: 14px; }
+.output-pop .op-section:last-child { margin-bottom: 0; }
+.output-pop .op-section[hidden] { display: none; }
+.output-pop .op-row { display: flex; align-items: center; gap: 8px; }
+.output-pop .op-row .text-input { flex: 1; min-width: 0; }
+.output-pop #serverNameInput { width: 100%; }
+/* destinations: a vertical single-select list */
+.output-pop .op-dest { display: flex; flex-direction: column; gap: 6px; }
+.output-pop .op-dest .toggle { width: 100%; text-align: left; }
+.output-pop .res-hint { display: block; margin-top: 6px; }
+/* the status line reads full-width here (the bar-row floated it right) */
+.output-pop .or-status { margin-left: 0; display: block; }
+/* start/stop is the primary action — let it carry the row */
+.output-pop .op-actions #broadcastBtn { flex: 1; }
+/* mic level meters — two thin bars under the audio picker */
+.output-pop .op-meter { margin-top: 8px; }
+.output-pop .op-meter-lab { font-size: var(--text-xs); color: var(--text-dim); width: 10px; }
+.output-pop .op-meter-track { flex: 1; height: 6px; background: var(--surface-control); border: 1px solid var(--border); border-radius: 3px; overflow: hidden; }
+.output-pop .op-meter-track i { display: block; height: 100%; width: 0%; background: var(--ok); transition: width 60ms linear; }

@@ -4,6 +4,23 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.17.11 (Build 353) — 2026-07-15 — the output menu becomes a dropdown (Daniel's redesign, plus every wart he flagged)
+
+The horizontal bar-row band is gone; **live output is a vertical DROPDOWN** anchored under the toolbar's output button (outside-click/Escape close; opening never reflows the stage). Sections top-to-bottom are exactly his spec: **record + audio → destinations → resolution (+ pixel readout) → broadcast server name → fill display → live status → start/stop** (+ test pattern beside start).
+
+The flagged warts, individually:
+
+- **Mic names are device-aware**: a generic/absent OS label renders as "iPad mic" / "iPhone mic" / "built-in mic" instead of "microphone 1"; real labels (USB interfaces) pass through.
+- **Live L/R mic meters** under the audio picker while a mic is selected and the menu is open — proof the mic hears something. The capture exists ONLY while the menu is visible (no lingering mic indicator); mono mics drive both bars.
+- **The status line is honest now**: it shows the destination's BASE name + the sink's OWN render size + fps — his AirPlay session's `HDMI · 3840×2160 3840×3840 · 38 fps` was the row's display readout colliding with the BUS resolution (3840×3840 = the 4K tier at 1:1), neither of which is what the wall shows. Now: `◉ HDMI / AirPlay · 3840×2160 · 38 fps` (the poster reports what it actually renders).
+- **The external-display row says `HDMI / AirPlay`** — one UIScreen path serves both and iOS cannot tell us which, so claiming "HDMI" during an AirPlay session was wrong; the connected readout still appends the display's pixels.
+- **"syphon server name" → "broadcast server name"** (it names Syphon AND NDI sources; note Arena shows NDI as `computerName - serverName`, Syphon as `appName - serverName`). Clarified: destinations remain SINGLE-select by design; the plumbing tolerates simultaneous Syphon+NDI but the UI intentionally doesn't offer it.
+- **"output window" no longer appears where it can't work** (Capacitor and iPadOS Safari — grouped tabs, no real popup; Daniel confirmed dead UI). It stays on desktop web/Electron.
+- **The 'display' frame-aspect button is REMOVED** (both chromes, his call) — it also un-wraps the aspect row back to its stable five buttons. The fill-display toggle (loop-toggle pattern, active = on) remains the destination-aspect control.
+- **The idle resolution echo is gone** (the old "resolution shown twice" BACKLOG item — the hint by the tiers is the one home; the status line speaks only while live).
+
+Verified: `node --check` ×5, `vite build`, `cap sync`. Device-pending: the dropdown on iPad, meters with the iPad mic, the AirPlay status line.
+
 ## v0.17.10 (Build 352) — 2026-07-15 — camera trio from Daniel's second iPad pass
 
 - **Flip moves INTO the camera-settings menu** as its top row (a rear/front segment — his expected iPhone-menu position); the toolbar flip button hides on the native path (web keeps it, since a single-camera web machine may show no gear at all).

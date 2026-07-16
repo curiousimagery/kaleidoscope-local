@@ -142,8 +142,14 @@ export function createOutputWindow(env) {
 
   return {
     id: 'window',
+    // needs a real popup: Capacitor has no second window at all, and iPadOS
+    // Safari only opens grouped TABS (Daniel confirmed the destination was
+    // dead UI there) — with HDMI/AirPlay/NDI on the iPad, a "window" adds
+    // nothing anyway. Touch = maxTouchPoints (iPadOS reports platform "MacIntel").
     supported: typeof window !== 'undefined' && typeof window.open === 'function'
-      && typeof BroadcastChannel !== 'undefined',
+      && typeof BroadcastChannel !== 'undefined'
+      && !window.Capacitor?.isNativePlatform?.()
+      && !(navigator.maxTouchPoints > 1),
     needsBus: false,            // self-rendering — a window-only session never runs the bus
     get active() { return active && !!win && !win.closed; },
     get fps() { return fps; },

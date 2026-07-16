@@ -98,22 +98,32 @@
 
   <!-- expand-band: live-output controls (revealed by #outputBtn). Mutually exclusive
        with the canvas band. The at-a-glance output state lives in the #outputBtn LED. -->
-  <div class="bar-row output-row" id="outputRow" hidden>
-    <span class="or-label">live output</span>
-    <button id="recordBtn" title="record the live output to disk">record</button>
-    <div class="or-group">
-      <span class="setting-label">audio</span>
-      <select id="recAudio" class="text-input" style="width: 140px;" title="microphone recorded with the output video — none records video only"><option value="">none</option></select>
+  <!-- live output menu — a vertical DROPDOWN anchored to the toolbar's #outputBtn
+       (Daniel's 2026-07-15 redesign; replaces the horizontal bar-row band).
+       Top-to-bottom order is his spec: record + audio (with live mic meters) ·
+       destinations · resolution + pixel readout · broadcast server name ·
+       fill display · live status · start/stop + test pattern. -->
+  <div class="panel-popover output-pop" id="outputRow" hidden>
+    <h2 class="op-title">live output</h2>
+    <div class="op-section">
+      <div class="op-row">
+        <button id="recordBtn" title="record the live output to disk">record</button>
+        <select id="recAudio" class="text-input" title="microphone recorded with the output video — none records video only"><option value="">none</option></select>
+      </div>
+      <!-- mic level meters — live L/R feedback while a mic is selected and this
+           menu is open: proof the chosen mic is actually hearing something -->
+      <div class="op-row op-meter" id="micMeter" hidden>
+        <span class="op-meter-lab">L</span><div class="op-meter-track"><i id="micMeterL"></i></div>
+        <span class="op-meter-lab">R</span><div class="op-meter-track"><i id="micMeterR"></i></div>
+      </div>
     </div>
-    <div class="or-group">
-      <span class="setting-label">destination</span>
-      <div class="or-group" id="outputDest"></div>
+    <div class="op-section">
+      <div class="field-label">destination</div>
+      <div class="op-dest" id="outputDest"></div>
     </div>
-    <button id="broadcastBtn" title="start / stop output to the selected destination">start</button>
-    <button id="testPatternBtn" class="toggle" title="publish a reference test pattern instead of the program — verify orientation, scale, crop and color in Arena or a recording">test pattern</button>
-    <div class="or-group">
-      <span class="setting-label">resolution</span>
-      <div class="or-group" id="outputResTiers">
+    <div class="op-section">
+      <div class="field-label">resolution</div>
+      <div class="row-buttons" id="outputResTiers">
         <button class="toggle" data-tier="1280">HD</button>
         <button class="toggle active" data-tier="1920">FHD</button>
         <button class="toggle" data-tier="2560">QHD</button>
@@ -121,14 +131,19 @@
       </div>
       <span class="res-hint" id="outputResHint"></span>
     </div>
-    <div class="or-group" id="syphonNameField" hidden>
-      <span class="setting-label">syphon server name</span>
-      <input type="text" id="serverNameInput" class="text-input" value="Fold" maxlength="32" spellcheck="false" style="width: 120px;">
+    <div class="op-section" id="syphonNameField" hidden>
+      <div class="field-label">broadcast server name</div>
+      <input type="text" id="serverNameInput" class="text-input" value="Fold" maxlength="32" spellcheck="false">
     </div>
-    <div class="or-group" id="hdmiFillField" hidden>
+    <!-- fill display: the loop-toggle pattern (one labeled button, active = on) -->
+    <div class="op-section" id="hdmiFillField" hidden>
       <button id="hdmiFillBtn" class="toggle" title="fill the external display edge-to-edge at its native aspect — off keeps the canvas frame aspect (letterboxed, matches recording/save)">fill display</button>
     </div>
-    <span class="or-status" id="outputStatus"></span>
+    <div class="op-section"><span class="or-status" id="outputStatus"></span></div>
+    <div class="op-section op-row op-actions">
+      <button id="broadcastBtn" title="start / stop output to the selected destination">start</button>
+      <button id="testPatternBtn" class="toggle" title="publish a reference test pattern instead of the program — verify orientation, scale, crop and color in Arena or a recording">test pattern</button>
+    </div>
   </div>
 
   <!-- (the canvas expand-band is GONE — the canvas controls live in the output
@@ -219,10 +234,6 @@
                 <button class="toggle" data-asp="1.3333" data-l="4:3" data-p="3:4">4:3</button>
                 <button class="toggle" data-asp="1.5" data-l="3:2" data-p="2:3">3:2</button>
                 <button class="toggle" data-asp="1.7778" data-l="16:9" data-p="9:16">16:9</button>
-                <!-- match the connected external display's native aspect (WYSIWYG:
-                     preview + recording + save all follow) — appears only while a
-                     display is attached (wireFrameAspect + env.externalDisplayDims) -->
-                <button class="toggle" id="frameAspectDisplay" hidden>display</button>
               </div>
             </div>
             <button class="ot-btn ot-icon panel-gear" id="canvasSettingsBtn" title="canvas settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="4" y1="8" x2="20" y2="8"/><line x1="4" y1="16" x2="20" y2="16"/><circle cx="9" cy="8" r="2.4" fill="currentColor"/><circle cx="15" cy="16" r="2.4" fill="currentColor"/></svg></button>

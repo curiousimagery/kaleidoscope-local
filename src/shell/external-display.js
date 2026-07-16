@@ -64,6 +64,7 @@ function createPoster(opts) {
   let active = false;
   let raf = 0;
   let lastSourceSig = '';
+  let lastOut = null;                 // last render dims sent (the status readout's truth)
   let sourcePending = false;
   let fps = 0;
   let connected = false;
@@ -170,10 +171,11 @@ function createPoster(opts) {
     if (!active) return;
     const sig = opts.sourceSignature();
     if (sig !== lastSourceSig) { lastSourceSig = sig; postSource(); }
+    lastOut = outputDims();               // what's actually on the wall (status readout)
     post({
       type: 'state',
       state: opts.getState(),
-      output: outputDims(),
+      output: lastOut,
       video: opts.getVideoSync?.() || null,
       test: !!opts.getTest?.(),
     }).catch(() => {});
@@ -210,6 +212,7 @@ function createPoster(opts) {
     get active() { return active; },
     get connected() { return connected; },
     get fps() { return fps; },
+    get renderDims() { return lastOut; },
     onDisplayChange(h) { changeHandlers.add(h); return () => changeHandlers.delete(h); },
   };
 }
