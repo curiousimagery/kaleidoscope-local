@@ -150,3 +150,7 @@ The three custom plugins (`ExternalDisplay`/HDMI, `NativeCamera`, `NDI`) each fo
 ## device-verify-pending (built or ready, needs Daniel's hardware)
 
 Things the autonomous run could not verify (no headless browser + no camera in the simulator): camera controls runtime (`camera.js` layer is ready), the mobile camera-settings **gear popover** (consumes the layer), the **record-at-named-resolution** mobile integration (the delicate record path — desktop already records at the output-bus resolution via `output-engine.renderFrameAt`; mobile copies the on-screen canvas, so its offscreen-render integration is the real work and must be verified on device), and the native save actually landing in Files/Photos. The iOS safe-area/tab-bar landscape polish is also device-gated (the simulator can't be rotated headlessly here).
+
+## fold-ndi setup (per machine)
+
+The NDI plugin links the **licensed Vizrt NDI SDK** (install from ndi.video → `/Library/NDI SDK for Apple`). Its binaries never enter the repo: run `native-plugins/fold-ndi/scripts/make-xcframework.sh` once per machine (and after SDK updates) to build the .gitignored `ios/ndi.xcframework` before the first iOS build. Notes: the SDK ships no arm64-simulator slice, so the app excludes arm64 for SIMULATOR builds (they run x86_64 under Rosetta); device builds are native arm64. Distribution builds (TestFlight/App Store, and the Electron DMG) must bundle the SDK's redistributable per its license — an open item tracked in BACKLOG "NDI out".

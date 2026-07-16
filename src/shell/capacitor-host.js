@@ -88,6 +88,57 @@ export function createCapacitorHost() {
       available: true,
     },
 
+    // NDI network output — the fold-ndi plugin owns the Vizrt sender; frames
+    // stream to it over a localhost frame socket (the native-camera transport
+    // REVERSED: the webview produces, native consumes). publish() is the hot
+    // path: one header+pixels copy per frame, and bufferedAmount is the
+    // backpressure gate — a stalled socket drops frames instead of queueing
+    // (Arena only ever wants the freshest frame; a backlog is just latency).
+    ndi: (() => {
+      let plugin = null;         // lazily registered (keeps @capacitor/core lazy-loadable)
+      let ws = null, wsReady = false, gen = 0;
+      const HEADER = 16;
+      return {
+        ...webHost.ndi,
+        available: true,
+        start(name) {
+          const myGen = ++gen;
+          wsReady = false;
+          import('@capacitor/core').then(({ registerPlugin }) => {
+            if (myGen !== gen) return;
+            if (!plugin) plugin = registerPlugin('FoldNdi');
+            return plugin.start({ name: name || 'Fold' });
+          }).then((res) => {
+            if (!res || myGen !== gen) return;
+            ws = new WebSocket(`ws://127.0.0.1:${res.port}`);
+            ws.binaryType = 'arraybuffer';
+            ws.onopen = () => { if (myGen === gen) wsReady = true; };
+            ws.onclose = () => { if (myGen === gen) wsReady = false; };
+            console.info('[fold] NDI sender up (frame socket :' + res.port + ')');
+          }).catch((e) => console.warn('[fold] NDI start failed:', e));
+        },
+        publish(pixels, width, height, topDown) {
+          if (!wsReady || !ws) return;
+          if (ws.bufferedAmount > width * height * 8) return;   // ~2 frames on the wire max
+          const buf = new ArrayBuffer(HEADER + pixels.byteLength);
+          const dv = new DataView(buf);
+          dv.setUint32(0, 0x464E4449, false);   // "FNDI"
+          dv.setUint32(4, width, true);
+          dv.setUint32(8, height, true);
+          dv.setUint32(12, topDown ? 1 : 0, true);
+          new Uint8Array(buf, HEADER).set(pixels);
+          try { ws.send(buf); } catch { /* socket died mid-send; onclose flips wsReady */ }
+        },
+        stop() {
+          gen++;
+          wsReady = false;
+          try { ws?.close(); } catch { /* already closed */ }
+          ws = null;
+          if (plugin) plugin.stop().catch(() => {});   // the source leaves the network
+        },
+      };
+    })(),
+
     // Portable user config (the rig + preferences) — @capacitor/preferences is a
     // native key-value store surviving relaunch, the iOS sibling of Electron's
     // userData JSON. Same `fold-config` key shape as the web store, for clean

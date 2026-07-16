@@ -4,6 +4,17 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 📡 v0.18.0 (Build 356) — 2026-07-15 — iPad NDI: the tablet broadcasts straight into Arena
+
+The core use case Daniel named ("sharing from iPad to Resolume Arena"), built end-to-end as **the new `fold-ndi` plugin**:
+
+- **The SDK, packaged honestly:** `scripts/make-xcframework.sh` builds `ios/ndi.xcframework` from the LICENSED local SDK install (device arm64 + x86_64-simulator slices split from the fat lib, headers + a modulemap so Swift can `import NDIlib`). The framework is .gitignored — licensed binaries never enter the repo; run the script once per machine. SPM `binaryTarget` + `-lc++` (libndi is C++ inside).
+- **Frames over the loopback, not the bridge:** the plugin's `start(name)` creates the named NDI sender AND a localhost WebSocket RECEIVE server (the native-camera frame socket REVERSED — the webview produces, native consumes); the app's `host.ndi.publish` streams `FNDI`-framed raw RGBA per bus tick with `bufferedAmount` backpressure (a stalled socket drops frames — Arena wants the freshest frame, never a backlog). Each message feeds `NDIlib_send_send_video_v2` (synchronous — the SDK copies, so the message lifetime is safe); bottom-up frames row-flip natively.
+- **Zero new UI:** B347's app side lights up on its own — `capacitor-host.js` now implements `host.ndi`, so the iPad's output menu grows the NDI destination, named by the broadcast-server field, fed by the output bus at the chosen tier.
+- **Simulator caveat (documented):** the SDK ships no arm64-simulator slice, so the app project now excludes arm64 for simulator builds (x86_64 under Rosetta); device builds — Daniel's workflow — are native and unaffected.
+
+The MINOR bump marks the milestone family: v0.18 = Fold devices broadcasting NDI (Electron B351, iPad B356). Verified: `xcodebuild` DEVICE build **BUILD SUCCEEDED** (+ simulator after the arch exclusion), `vite build`, `cap sync`, `node --check`. **Device-verify: output menu → NDI → start → Arena should list "[iPad name] - [server name]"; watch sustained fps per resolution tier.** Filed lanes from Daniel's round: iPhone NDI-from-record-video (his standalone-symmetry-camera idea) and Electron HDMI/AirPlay display parity — both spec'd in BACKLOG.
+
 ## v0.17.13 (Build 355) — 2026-07-15 — iPad record-to-disk actually saves (and the mic meters actually move)
 
 Daniel's report ("stopped the recording and nothing happened, repeatedly") was TWO stacked failures in the recorder sink, both fixed at the root ([conduit/recorder.js](../packages/conduit/src/recorder.js)):

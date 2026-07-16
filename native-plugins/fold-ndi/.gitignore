@@ -1,0 +1,3 @@
+# built locally from the licensed NDI SDK install (scripts/make-xcframework.sh) —
+# the SDK's binaries are licensed content and never committed
+ios/ndi.xcframework/
