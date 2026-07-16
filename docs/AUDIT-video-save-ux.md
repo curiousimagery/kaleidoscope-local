@@ -31,6 +31,13 @@ Stills, for contrast, already do this well: `exportStatus` shows "rendering N×N
 - **Format honesty stays**: .mp4 wherever MediaRecorder supports it (WebKit), WebM as the Chromium/Firefox/Electron ceiling; the upgrade for mp4-everywhere is routing recording through the WebCodecs + mp4-muxer path motion export already uses (BACKLOG).
 - **Sequencing:** (1) device-verify the iPhone package path as-is; (2) merge the two downloadBlob twins; (3) build the save-flow service + toasts; (4) then decide desktop parallel-source recording.
 
+## Open bugs (Daniel's 2026-07-15 cross-browser pass)
+
+- **iPad Capacitor: mid-record video freeze.** ~13s into a take (possibly at a pinch canvas-zoom), the recorded VIDEO sticks on one frame for the remaining minute while AUDIO records fine throughout. Since audio rides a separate track, the video side stalled: either the output bus's readback loop stopped publishing (GPU pressure during the pinch?) or WebKit's `canvas.captureStream` stopped ticking. Probably not new — first take long enough to catch it. **Next diagnostic: repro with the console attached + read the `live-output` diag ops records during the freeze window** (they show whether the bus kept rendering). If the bus kept publishing, the suspect is WebKit captureStream; if it stopped, the readback loop.
+- **Safari desktop web: ~5–6fps recording + a freeze ~10s in** (audio fine). Same family as the iPad freeze — WebKit readback + captureStream. Both strengthen the case that the durable fix is Lane 4B / the WebCodecs recorder rather than per-engine MediaRecorder debugging.
+- **Firefox: record button dead with no error** → RESOLVED B361 by Daniel's call: record is disabled on Gecko with an honest hint ("recording is unreliable in Firefox — use Safari, Chrome, or the desktop app"). Not worth engine-specific debugging for a WebM-ceiling browser.
+- **Brave/Chromium: flawless at 50fps+** — the readback loop is NOT the bottleneck on Blink; the slow paths are WebKit-specific.
+
 ## Related but separate: iPad record fps
 
 ~15fps at FHD recording on the M1 iPad Pro vs smooth 4K over AirPlay the same day is expected with the current architecture: recording runs the output bus's READBACK loop (render → drawImage → getImageData per frame — the WebKit-safe but slow path), while AirPlay/HDMI/output-window render themselves from state with zero readback. The real fix is Lane 4B (native frame capture on iOS); until then the honest lever is the resolution tier. Filed in BACKLOG.

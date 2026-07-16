@@ -4,6 +4,10 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.19.1 (Build 361) — 2026-07-15 — record is honest on Firefox; the cross-browser bugs are filed
+
+Daniel's call after his pass (dead record button, no error, and Gecko's ceiling is WebM anyway): **record is disabled on Gecko with a hint** — "recording is unreliable in Firefox — use Safari, Chrome, or the desktop app" ([output-panel.js](../src/shell/output-panel.js), keyed off the existing capabilities engine detection). The other findings are filed in [AUDIT-video-save-ux.md](AUDIT-video-save-ux.md) with hypotheses and the next diagnostic: the iPad mid-record video freeze (audio fine → the video side stalled: bus readback vs WebKit captureStream — the live-output diag ops during a repro will say which) and Safari desktop's ~5fps + freeze (same WebKit family). Brave records flawlessly at 50fps+, confirming the slow paths are WebKit-specific. All of it strengthens Lane 4B as the durable fix.
+
 ## 📱 v0.19.0 (Build 360) — 2026-07-15 — iPhone NDI: broadcast video, and the source menu Daniel spec'd
 
 **The phone becomes a standalone symmetry camera feeding Arena directly** — his framing, built to his UX spec:
