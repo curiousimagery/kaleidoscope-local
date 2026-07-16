@@ -6,12 +6,21 @@
 //
 // Frame path (the native-camera frame socket REVERSED): start() creates the
 // named NDI sender AND a localhost WebSocket RECEIVE server; the webview's
-// output bus connects as the one client and streams raw RGBA frames; each
-// message feeds NDIlib_send_send_video_v2 (the synchronous variant — the SDK
-// copies before returning, so the message Data's lifetime is safe). Control
+// output bus connects as the one client and streams raw RGBA frames. Control
 // rides the normal Capacitor bridge; pixels never do (base64-over-bridge
 // can't sustain 1080p30 — the loopback socket demonstrably can, it already
 // carries the native camera's preview the other direction).
+//
+// Sends are ASYNC (NDIlib_send_send_video_async_v2) with two alternating
+// native buffers: the SDK compresses/transmits frame N on its own thread
+// while this queue receives frame N+1 — the async call only waits if N is
+// still in flight, so the drain side stops paying compression serially (the
+// wall Daniel measured: JS production ~60fps-capable, delivered 21fps). The
+// copy into our buffer is the price of async lifetime (the SDK reads it
+// until the NEXT send), ~1–2ms for FHD against the ~10ms+ compression it
+// takes off this queue. A 5s drain profile prints to the Xcode console:
+// frame gap (production+socket), copy, and send-wait (backpressure from the
+// in-flight frame) — the numbers that decide the next drain lever.
 //
 // Frame wire format (16-byte header, little-endian after the magic):
 //   [0..4)   magic "FNDI" (big-endian constant)
@@ -42,9 +51,20 @@ public class FoldNdiPlugin: CAPPlugin, CAPBridgedPlugin {
     private var sender: NDIlib_send_instance_t?
     private var listener: NWListener?
     private var client: NWConnection?
-    private var flipScratch = Data()
     private let queue = DispatchQueue(label: "fold.ndi.socket")
     private static var ndiInitialized = false
+
+    // double buffer for async sends — the SDK reads a frame's memory until the
+    // NEXT async send, so the buffer two sends back is always free to reuse
+    private var buf: [UnsafeMutableRawPointer?] = [nil, nil]
+    private var bufCap: [Int] = [0, 0]
+    private var bufIdx = 0
+
+    // drain profile, 5s windows → Xcode console
+    private var statFrames = 0
+    private var statCopyMs = 0.0, statWaitMs = 0.0, statGapMs = 0.0
+    private var statLastArrive: CFAbsoluteTime = 0
+    private var statWindowStart: CFAbsoluteTime = 0
 
     @objc func start(_ call: CAPPluginCall) {
         let name = call.getString("name") ?? "Fold"
@@ -107,7 +127,12 @@ public class FoldNdiPlugin: CAPPlugin, CAPBridgedPlugin {
     private func teardown() {
         client?.cancel(); client = nil
         listener?.cancel(); listener = nil
+        // destroy FIRST — it synchronizes any in-flight async send, releasing
+        // the buffer it references; only then is freeing the buffers safe
         if let s = sender { NDIlib_send_destroy(s); sender = nil }   // the source leaves the network
+        for i in 0..<2 { buf[i]?.deallocate(); buf[i] = nil; bufCap[i] = 0 }
+        statFrames = 0; statCopyMs = 0; statWaitMs = 0; statGapMs = 0
+        statLastArrive = 0; statWindowStart = 0
     }
 
     private func accept(_ c: NWConnection) {
@@ -131,6 +156,7 @@ public class FoldNdiPlugin: CAPPlugin, CAPBridgedPlugin {
     }
 
     private func handleFrame(_ data: Data) {
+        let tArrive = CFAbsoluteTimeGetCurrent()
         guard let send = sender, data.count >= 16 else { return }
         let magic = data.withUnsafeBytes { $0.load(fromByteOffset: 0, as: UInt32.self) }
         guard magic.bigEndian == 0x464E_4449 else { return }   // "FNDI"
@@ -140,6 +166,31 @@ public class FoldNdiPlugin: CAPPlugin, CAPBridgedPlugin {
         let stride = Int(w) * 4
         guard w > 0, h > 0, data.count >= 16 + stride * Int(h) else { return }
         let topDown = (flags & 1) != 0
+        let total = stride * Int(h)
+
+        // this buffer was last sent TWO async calls ago — already released by
+        // the intervening send's synchronization, so resizing/writing is safe
+        let i = bufIdx
+        if bufCap[i] < total {
+            buf[i]?.deallocate()
+            buf[i] = UnsafeMutableRawPointer.allocate(byteCount: total, alignment: 16)
+            bufCap[i] = total
+        }
+        let dst = buf[i]!
+
+        let tCopy = CFAbsoluteTimeGetCurrent()
+        data.withUnsafeBytes { (raw: UnsafeRawBufferPointer) in
+            let src = raw.baseAddress!.advanced(by: 16)
+            if topDown {
+                memcpy(dst, src, total)
+            } else {
+                // bottom-up producer (the wire is top-down since B364; kept for the contract)
+                for y in 0..<Int(h) {
+                    memcpy(dst.advanced(by: y * stride),
+                           src.advanced(by: (Int(h) - 1 - y) * stride), stride)
+                }
+            }
+        }
 
         var frame = NDIlib_video_frame_v2_t()
         frame.xres = Int32(w)
@@ -151,28 +202,28 @@ public class FoldNdiPlugin: CAPPlugin, CAPBridgedPlugin {
         frame.frame_format_type = NDIlib_frame_format_type_progressive
         frame.timecode = NDIlib_send_timecode_synthesize
         frame.line_stride_in_bytes = Int32(stride)
+        frame.p_data = dst.assumingMemoryBound(to: UInt8.self)
 
-        if topDown {
-            data.withUnsafeBytes { (raw: UnsafeRawBufferPointer) in
-                let base = raw.baseAddress!.advanced(by: 16)
-                frame.p_data = UnsafeMutablePointer(mutating: base.assumingMemoryBound(to: UInt8.self))
-                NDIlib_send_send_video_v2(send, &frame)   // synchronous: copied before return
-            }
-        } else {
-            // bottom-up (the legacy FBO path) — NDI wants top-down; flip rows
-            let total = stride * Int(h)
-            if flipScratch.count < total { flipScratch = Data(count: total) }
-            flipScratch.withUnsafeMutableBytes { (dst: UnsafeMutableRawBufferPointer) in
-                data.withUnsafeBytes { (raw: UnsafeRawBufferPointer) in
-                    let src = raw.baseAddress!.advanced(by: 16)
-                    for y in 0..<Int(h) {
-                        memcpy(dst.baseAddress!.advanced(by: y * stride),
-                               src.advanced(by: (Int(h) - 1 - y) * stride), stride)
-                    }
-                }
-                frame.p_data = dst.baseAddress!.assumingMemoryBound(to: UInt8.self)
-                NDIlib_send_send_video_v2(send, &frame)
-            }
+        let tSend = CFAbsoluteTimeGetCurrent()
+        NDIlib_send_send_video_async_v2(send, &frame)   // waits only while the PREVIOUS frame is in flight
+        let tEnd = CFAbsoluteTimeGetCurrent()
+        bufIdx = 1 - i
+
+        statFrames += 1
+        statCopyMs += (tSend - tCopy) * 1000
+        statWaitMs += (tEnd - tSend) * 1000
+        if statLastArrive > 0 { statGapMs += (tArrive - statLastArrive) * 1000 }
+        statLastArrive = tArrive
+        if statWindowStart == 0 { statWindowStart = tArrive }
+        let win = tArrive - statWindowStart
+        if win >= 5 {
+            let fps = Double(statFrames) / win
+            print(String(format: "[FoldNdi] %.1f fps · frame gap %.1fms · copy %.1fms · send-wait %.1fms (%d frames / %.1fs)",
+                         fps, statGapMs / Double(max(1, statFrames - 1)),
+                         statCopyMs / Double(statFrames), statWaitMs / Double(statFrames),
+                         statFrames, win))
+            statFrames = 0; statCopyMs = 0; statWaitMs = 0; statGapMs = 0
+            statWindowStart = tArrive
         }
     }
 }
