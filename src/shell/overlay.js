@@ -1401,6 +1401,21 @@ export function mountSourceView(env, slotEl) {
     slotEl.appendChild(c);
     env.sourceVideoCanvas = c;
     env.sourceVideoCtx = c.getContext('2d');
+  } else if (sourceImage && !sourceImage.src) {
+    // CANVAS still source (the native camera's captured photo after its
+    // stabilization center-crop / selfie mirror — freezeFromUrl hands the engine
+    // a canvas, which has no .src): background-image: url(undefined) painted
+    // BLACK under the wedge (Daniel's iPhone capture bug — the engine still had
+    // the real texture, so the output kept working). Paint a downscaled 2D copy
+    // instead (the source-video thumbnail pattern; never the full 48MP as a
+    // data URL).
+    const c = document.createElement('canvas');
+    const s = Math.min(1, 1280 / Math.max(sourceImage.width || 1, sourceImage.height || 1));
+    c.width = Math.max(16, Math.round((sourceImage.width || 16) * s));
+    c.height = Math.max(16, Math.round((sourceImage.height || 16) * s));
+    c.getContext('2d').drawImage(sourceImage, 0, 0, c.width, c.height);
+    c.style.cssText = `position:absolute; top:0; left:0; width:100%; height:100%; object-fit:${env.fit === 'cover' ? 'cover' : 'contain'}; pointer-events:none;`;
+    slotEl.appendChild(c);
   } else {
     // div with background-image (vs <img>) avoids load-event race conditions on
     // remount (cache state varies across browsers).

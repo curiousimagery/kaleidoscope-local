@@ -4,6 +4,14 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.18.3 (Build 359) — 2026-07-15 — iPhone capture no longer blacks out the source panel
+
+Daniel's new bug (capture a still on the phone → wedge overlay over BLACK, output still manipulable): the engine was fine — the captured still WAS the texture, which is why the output kept responding. The black was the source panel's DISPLAY layer: a native captured photo that needs the stabilization center-crop or the selfie mirror reaches the engine as a CANVAS, and `mountSourceView`'s still path painted `background-image: url(sourceImage.src)` — undefined for a canvas → black. It regressed at B342/B343 because still-mode stabilization now always reports `standard` (crop 0.9), so EVERY capture started taking the canvas path (before, un-stabilized rear stills passed the crop==1 fast path as an `<img>`).
+
+Fix ([overlay.js](../src/shell/overlay.js)): the still renderer handles canvas sources — a downscaled 2D copy painted with the source-video thumbnail pattern (never the 48MP frame as a data URL). Shared by both chromes, so the desktop native path is covered by construction.
+
+Adjacent (NOT this build): the capture-feedback honesty item (flash timing) remains filed in BACKLOG — this was the display bug next to it.
+
 ## v0.18.2 (Build 358) — 2026-07-15 — the web mic picker actually arms the mic
 
 Daniel proved the desktop-web audio failure was real (Brave, "built-in mic" selected, no levels, no audio — while Electron lists "MacBook Pro Microphone (Built-in)" and records fine). Root cause: **before mic permission, browsers enumerate audio inputs with EMPTY deviceId and label.** The picker rendered that phantom as a selectable "built-in mic" whose value was the empty string — indistinguishable from "none", so nothing ever attached; Electron only worked because its shell auto-grants the permission (hence the real names). The iPad's dead meters were the same phantom.
