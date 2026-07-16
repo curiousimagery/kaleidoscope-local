@@ -260,15 +260,51 @@ function escapeHTML(s) {
 // engine's fast capture path, ~20× faster than readPixels on WebKit — Blink unknown).
 // If B wins big, an offscreen-canvas refactor of the bus is worth it; if not, the
 // readback wall is real and we accept the resolution constraint / go native.
+// LANE 4B CAPTURE BENCHMARK — measures every candidate live-output readback path
+// on the RUNNING device so the capture decision is made from data, not folklore
+// (the folklore being device-real but dated: readPixels corrupts on WebKit,
+// VideoFrame(GL canvas) hung iPadOS at Build 115). Paths, in run order:
+//   A  readPixels from the FBO (the legacy export path) + a checksum vs B —
+//      re-validates the corruption story on current iOS
+//   B  drawImage GL→2D + getImageData — TODAY'S live-output path (the baseline
+//      the bus, recorder, NDI and Syphon all pay per frame)
+//   D  createImageBitmap(GL canvas) — transport-only timing (no pixel access)
+//   C1 VideoFrame(2D capture canvas) → copyTo — the "Safari-safe" WebCodecs source
+//   C2 VideoFrame(GL canvas direct) → copyTo — the fast candidate, LAST + console
+//      breadcrumbed (it froze iPadOS once; if the app hangs here, that's confirmed)
+// Checksums sample RGB across the frame (row-flip-aware for bottom-up A) so a
+// fast-but-corrupt path can never win.
 export async function benchmarkReadback(engine, getState, w = 1920, h = 1080, iters = 15) {
   const state = getState();
   if (!engine || !engine.getSourceImage()) return 'load a source first, then benchmark';
-  await engine.exportFrameRaw(state, w, h);   // warm
-  let aRead = 0;
-  for (let i = 0; i < iters; i++) aRead += (await engine.exportFrameRaw(state, w, h)).readMs;
-  aRead /= iters;
+  const lines = [`capture bench @ ${w}×${h} (avg ${iters}):`];
+  const sum = (px, flip) => {   // sampled RGB checksum; flip=true reads bottom-up rows
+    let s = 0;
+    for (let i = 0; i < 997; i++) {
+      const x = (i * 7919) % w, y = (i * 6007) % h;
+      const row = flip ? (h - 1 - y) : y;
+      const o = (row * w + x) * 4;
+      s = (s + px[o] + px[o + 1] + px[o + 2]) % 1000000007;
+    }
+    return s;
+  };
 
-  let bDraw = 0, bRead = 0;
+  // A — readPixels (FBO)
+  console.log('[bench] A readPixels…');
+  let aRead = 0, aSum = null;
+  try {
+    await engine.exportFrameRaw(state, w, h);   // warm
+    for (let i = 0; i < iters; i++) {
+      const r = await engine.exportFrameRaw(state, w, h);
+      aRead += r.readMs;
+      if (i === 0 && r.pixels) aSum = sum(r.pixels, true);   // bottom-up
+    }
+    aRead /= iters;
+  } catch (e) { aRead = -1; lines.push(`A readPixels FAILED: ${e.message}`); }
+
+  // B — drawImage + getImageData (the shipping path)
+  console.log('[bench] B getImageData…');
+  let bDraw = 0, bRead = 0, bSum = null;
   engine.beginCapture(w, h);
   try {
     engine.captureFrame(state);   // warm
@@ -276,18 +312,65 @@ export async function benchmarkReadback(engine, getState, w = 1920, h = 1080, it
       const t0 = performance.now();
       const cv = engine.captureFrame(state);            // render + drawImage GL→2D
       const t1 = performance.now();
-      cv.getContext('2d').getImageData(0, 0, w, h);     // the readback under test
+      const img = cv.getContext('2d').getImageData(0, 0, w, h);
       bDraw += t1 - t0; bRead += performance.now() - t1;
+      if (i === 0) bSum = sum(img.data, false);
+    }
+    bDraw /= iters; bRead /= iters;
+    lines.push(`B getImageData = ${bRead.toFixed(1)}ms (+ render/blit ${bDraw.toFixed(1)}ms) — TODAY'S PATH`);
+    if (aRead >= 0) {
+      lines.push(`A readPixels   = ${aRead.toFixed(1)}ms — checksum ${aSum === bSum ? 'MATCHES (corruption gone?)' : 'MISMATCH (corruption confirmed)'}`);
+    }
+
+    // D — createImageBitmap (transport timing only)
+    console.log('[bench] D createImageBitmap…');
+    try {
+      const gl = engine.glContext.canvas;
+      let dMs = 0;
+      for (let i = 0; i < iters; i++) {
+        engine.captureFrameGL(state);
+        const t0 = performance.now();
+        (await createImageBitmap(gl)).close();
+        dMs += performance.now() - t0;
+      }
+      lines.push(`D createImageBitmap = ${(dMs / iters).toFixed(1)}ms (transport only, no pixels)`);
+    } catch (e) { lines.push(`D createImageBitmap FAILED: ${e.message}`); }
+
+    // C1 / C2 — VideoFrame → copyTo (the WebCodecs candidates)
+    const copyBench = async (label, srcFor) => {
+      console.log(`[bench] ${label} — if the app FREEZES here, the WebKit VideoFrame hang is confirmed for this source`);
+      try {
+        let ms = 0, fmt = '?', cSum = null, buf = null;
+        for (let i = 0; i < iters; i++) {
+          const src = srcFor();
+          const t0 = performance.now();
+          const vf = new VideoFrame(src, { timestamp: 0 });
+          fmt = vf.format;
+          try {
+            const size = vf.allocationSize();
+            if (!buf || buf.byteLength < size) buf = new Uint8Array(size);
+            await vf.copyTo(buf);
+            ms += performance.now() - t0;
+            // RGBA/RGBX layouts checksum-compare directly; BGRA reports format only
+            if (i === 0 && /^RGB/.test(fmt || '')) cSum = sum(buf, false);
+          } finally { vf.close(); }
+        }
+        const chk = cSum == null ? `format ${fmt} (no RGB checksum)` : (cSum === bSum ? 'checksum MATCHES' : 'checksum MISMATCH');
+        lines.push(`${label} = ${(ms / iters).toFixed(1)}ms — ${chk} · format ${fmt}`);
+      } catch (e) { lines.push(`${label} FAILED: ${e.message}`); }
+    };
+    if (typeof VideoFrame !== 'undefined') {
+      await copyBench('C1 VideoFrame(2D canvas)+copyTo', () => engine.captureFrame(state));
+      await copyBench('C2 VideoFrame(GL canvas)+copyTo', () => engine.captureFrameGL(state));
+    } else {
+      lines.push('C VideoFrame unsupported on this engine');
     }
   } finally {
     engine.endCapture();
   }
-  bDraw /= iters; bRead /= iters;
-  const ratio = bRead > 0 ? aRead / bRead : 0;
-  return `readback @ ${w}×${h} (avg ${iters}):\n` +
-    `A readPixels = ${aRead.toFixed(1)}ms\n` +
-    `B getImageData = ${bRead.toFixed(1)}ms (+ render/drawImage ${bDraw.toFixed(1)}ms)\n` +
-    `→ getImageData ${ratio >= 1 ? `${ratio.toFixed(1)}× FASTER` : `${(1 / ratio).toFixed(1)}× slower`}`;
+  const out = lines.join('\n');
+  console.log('[bench]\n' + out);
+  return out;
 }
 
 export function wireDiagnosticButton(engine, getState) {

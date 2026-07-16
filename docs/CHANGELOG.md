@@ -4,6 +4,14 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.19.2 (Build 362) — 2026-07-15 — Lane 4B opens: the capture benchmark + the decision framework
+
+The readback ceiling is now THE bottleneck everywhere that matters (iPad record ~15fps / NDI ~25fps / Safari ~5fps vs Brave's 50fps+ — WebKit-specific, not architectural). 4B starts the way the camera lane did: measure on device before building. The diagnostics **"benchmark readback"** button ([diagnostics.js](../src/shell/diagnostics.js)) now runs every candidate path with CHECKSUM validation (a fast-but-corrupt path can never win): A `readPixels` (re-validates the WebKit-corruption folklore on current iOS), B `getImageData` (today's baseline), D `createImageBitmap` (transport), C1/C2 `VideoFrame`→`copyTo` (the WebCodecs candidates; GL-direct runs LAST with console breadcrumbs — it froze iPadOS once at Build 115, and if it hangs again that's a confirmed answer too). Pixel FORMAT is reported (BGRA vs RGBA decides sink handling).
+
+**[docs/PROPOSAL-4B-native-capture.md](PROPOSAL-4B-native-capture.md)** is the decision doc: Tier 1 = swap the bus capture to the bench winner behind runtime checksum-validated fallback; Tier 2 = the WebCodecs recorder (VideoFrame→VideoEncoder→mp4-muxer, the motion-export pipeline live — also resolves the Safari/iPad freeze bugs and Chromium's WebM ceiling; audio path = the open question); Tier 3 = true native capture, honestly framed (no public WKWebView surface capture on iOS — parked unless 1–2 disappoint).
+
+**Daniel: run "benchmark readback" (diag area, source loaded) on iPad Capacitor, Safari, Brave, Electron and paste the outputs.** Post-compact sequencing recorded in the proposal: bench → Tier 1 → Tier 2 → Lane 5 + video-save UX convergence.
+
 ## v0.19.1 (Build 361) — 2026-07-15 — record is honest on Firefox; the cross-browser bugs are filed
 
 Daniel's call after his pass (dead record button, no error, and Gecko's ceiling is WebM anyway): **record is disabled on Gecko with a hint** — "recording is unreliable in Firefox — use Safari, Chrome, or the desktop app" ([output-panel.js](../src/shell/output-panel.js), keyed off the existing capabilities engine detection). The other findings are filed in [AUDIT-video-save-ux.md](AUDIT-video-save-ux.md) with hypotheses and the next diagnostic: the iPad mid-record video freeze (audio fine → the video side stalled: bus readback vs WebKit captureStream — the live-output diag ops during a repro will say which) and Safari desktop's ~5fps + freeze (same WebKit family). Brave records flawlessly at 50fps+, confirming the slow paths are WebKit-specific. All of it strengthens Lane 4B as the durable fix.
