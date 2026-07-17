@@ -22,6 +22,7 @@ import { createCameraTouchControls } from './camera-touch.js';
 import { ICONS } from '../mobile/icons.js';   // shared glyph set (camera flip)
 import { seekVideoTo } from './video-source.js';
 import { zipStore } from './zip.js';
+import { createSaveFlow } from './save-flow.js';
 import { getActiveForm } from '../engine/index.js';
 
 export function createSourceHost(env) {
@@ -532,18 +533,13 @@ export function createSourceHost(env) {
     return c;
   }
 
+  // The merged save path (transport + saving/saved/failed status) lives in
+  // save-flow.js — both chromes consume the same service, so every file the
+  // app writes speaks one language. Kept as a named function so env.downloadBlob
+  // and the local call sites read unchanged.
+  const saveFlow = createSaveFlow({ host: env.host });
   function downloadBlob(blob, name) {
-    // A native shell offers a real save target (Capacitor's iOS share sheet →
-    // Save to Files/Photos; a future Electron save dialog) — ask host.fileSystem
-    // and degrade to the browser download on web (webHost reports unavailable).
-    // On native this also sidesteps the download-navigation that backgrounds the
-    // page and blacks out the WebGL context (the parked mobile-save bug).
-    const fs = env.host?.fileSystem;
-    if (fs?.available) { fs.save(blob, name); return; }
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url; a.download = name; a.click();
-    URL.revokeObjectURL(url);
+    return saveFlow.save(blob, name);
   }
 
   // pause (the shutter's freeze half): freeze the current frame as the new editable

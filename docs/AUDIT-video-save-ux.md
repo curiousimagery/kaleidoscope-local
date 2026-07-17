@@ -1,5 +1,7 @@
 # Video save UX audit (2026-07-15, analysis only — no behavior changed)
 
+> **UPDATE 2026-07-16 (B370):** the proposed convergence SHIPPED — `shell/save-flow.js` merges the downloadBlob twins and gives every save on every surface the saving → saved-✓-destination → failed-with-retry flow (sequencing items 2+3). Still open from the sequencing: (1) device-verify the iPhone package path, (4) the desktop parallel-source-recording product decision. The B365 WebCodecs recorder separately resolved this audit's freeze bugs + the WebM gripe (format-honesty section).
+
 Daniel's ask: map how saving a recorded video actually behaves across every surface, check the health of the .zip package path, and identify where UX + code should converge. Written after B355 (host-aware recorder save) and B359; device claims marked where untested.
 
 ## The matrix — what happens when you stop a recording

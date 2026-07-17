@@ -26,6 +26,7 @@ import { PARAMS, DECLARATIVE_PARAM_IDS } from '../shell/params.js';
 import { formatVersion } from '../version.js';
 import { createCamera } from '../shell/camera.js';
 import { createNativeCamera } from '../shell/native-camera.js';
+import { createSaveFlow } from '../shell/save-flow.js';
 import { createFollower } from '../kit/follow.js';
 import { createAutoDrift } from '../kit/drift.js';
 import { ICONS } from './icons.js';
@@ -1723,19 +1724,13 @@ mqlLandscape.addEventListener('change', layout);
 requestAnimationFrame(layout);
 
 // ------------------------------------------------------------------ save sheet
+// The merged save path (host-aware transport + saving/saved/failed toast) —
+// shared with the desktop chrome via shell/save-flow.js. Lazy so the module
+// initializes after `host` is ready.
+let saveFlowInst = null;
 function downloadBlob(blob, name) {
-  // Native shell (Capacitor iOS) → the share sheet (Save to Files/Photos), which
-  // also avoids the download-navigation that blacks out the WebGL context on the
-  // mobile save handoff (the parked bug). Web → the browser download. Additive:
-  // on web host.fileSystem.available is false, so the path below is unchanged.
-  // Returns a promise so callers (e.g. the video save) can await + surface failures.
-  const fs = host.fileSystem;
-  if (fs?.available) return fs.save(blob, name);
-  const u = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = u; a.download = name; a.click();
-  URL.revokeObjectURL(u);
-  return Promise.resolve();
+  if (!saveFlowInst) saveFlowInst = createSaveFlow({ host });
+  return saveFlowInst.save(blob, name);
 }
 let refreshSaveLimits = () => {};   // assigned in buildSaveSheet
 let probedExport = false;
