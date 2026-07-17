@@ -102,9 +102,11 @@ export function createCapacitorHost() {
       // send path is the fps wall (~165MB/s effective → 8.3MB RGBA frames cap
       // FHD at ~20fps). Packing to NDI's native UYVY 4:2:2 HALVES the wire
       // bytes (→ ~40fps headroom) and skips the SDK's own RGBA conversion.
-      // BT.709 limited range (both broadcast tiers are ≥720p). ?ndiwire=rgba
-      // reverts for A/B if Arena's colors ever look off.
-      const uyvyWire = new URLSearchParams(window.location.search).get('ndiwire') !== 'rgba';
+      // BT.709 limited range (both broadcast tiers are ≥720p). OPT-IN for now
+      // (?ndiwire=uyvy): Daniel's first Arena pass showed a BLUE color shift +
+      // no fps gain + worse flicker — the matrix/interpretation needs a
+      // device-paired test-pattern loop before it can be the default.
+      const uyvyWire = new URLSearchParams(window.location.search).get('ndiwire') === 'uyvy';
       const packUyvy = (out, src, width, height, topDown) => {
         const srcStride = width * 4, outStride = width * 2;
         for (let y = 0; y < height; y++) {

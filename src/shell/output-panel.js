@@ -454,6 +454,7 @@ export function createOutputPanel(env, outputBus) {
 
   function renderStatus() {
     if (!statusEl) return;
+    statusEl.classList.remove('status', 'error', 'success', 'busy');   // takeNote styling never leaks into other states
     if (!canArm()) { statusEl.textContent = 'load a source (or use the test pattern) to output'; statusEl.classList.remove('live'); return; }
     const s = outputBus.getStatus();
     const parts = [];
@@ -477,9 +478,11 @@ export function createOutputPanel(env, outputBus) {
       statusEl.classList.add('live');
     } else if (takeNote) {
       // the last take's fate outlives the poll loop's rewrites until something
-      // real replaces it (recording again, broadcasting)
+      // real replaces it (recording again, broadcasting) — styled like every
+      // other status readout (small + verdict-colored), not the big gray line
       statusEl.textContent = takeNote;
       statusEl.classList.remove('live');
+      statusEl.classList.add('status', /FAILED/.test(takeNote) ? 'error' : /saved/.test(takeNote) ? 'success' : 'busy');
     } else {
       // idle: no dims echo — the resolution hint two rows up already says it
       // (the "resolution shown twice" BACKLOG item)

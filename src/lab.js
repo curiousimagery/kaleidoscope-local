@@ -24,6 +24,7 @@ import { FORMS } from './engine/forms/index.js';
 import { rotateCursorForAngle, scaleCursorForAngle } from './shell/cursors.js';
 import { afScaleArrow, afRotationArc } from './shell/overlay.js';
 import { discoverTokens, groupTokens } from './lab-tokens.js';
+import { SAVE_TOAST_CSS } from './shell/save-flow.js';
 
 const root = getComputedStyle(document.documentElement);
 const val = (name) => root.getPropertyValue(name).trim();
@@ -471,6 +472,33 @@ function menusPair() {
   ]);
 }
 
+// The save-flow toast (shell/save-flow.js) — every file the app writes speaks
+// through it, both chromes. Rendered here from the REAL exported CSS, statically
+// pinned (in the app it's fixed above the tab bar / bottom edge). States per
+// Daniel's field notes: quiet under 400ms; busy while a real write runs; ✓
+// success (neutral border, glyph carries the verdict); ✕ failure with RETRY.
+function saveToastSection() {
+  if (!document.getElementById('lab-save-toast-css')) {
+    const s = document.createElement('style');
+    s.id = 'lab-save-toast-css';
+    s.textContent = SAVE_TOAST_CSS;
+    document.head.appendChild(s);
+  }
+  const pin = 'position:static;transform:none;display:flex;pointer-events:auto';
+  const sample = (kind, glyph, text, retry) => el('div', { class: `save-toast on ${kind}`, style: pin }, [
+    ...(glyph ? [el('span', { class: 'save-toast-glyph', text: glyph })] : []),
+    el('span', { class: 'save-toast-label', text }),
+    ...(retry ? [el('button', { text: 'retry' })] : []),
+  ]);
+  return section('save-toast', 'Save toast', 'The one save-status surface (shell/save-flow.js, exported CSS — these are the real classes). Silent for instant saves (400ms grace); "saving…" only during real waits (the iPad chunked share-sheet write, zip composition); success names the destination; failure is persistent with RETRY. Positions fixed bottom-center, above the mobile tab bar.', [
+    el('div', { class: 'lab-stack' }, [
+      labeled('busy (saving…)', sample('', null, 'saving fold-take-20260717.mp4…', false)),
+      labeled('success', sample('ok', '✓', 'saved to Downloads ✓ fold-take-20260717.mp4', false)),
+      labeled('failure + retry', sample('fail', '✕', 'save failed — fold-take-20260717.mp4', true)),
+    ]),
+  ]);
+}
+
 function componentsSection() {
   const sliders = el('div', { class: 'lab-stack' }, [
     labeled('input[type=range]', el('label', { class: 'slider' }, [slider()])),
@@ -873,6 +901,7 @@ function build() {
     cursorsSection(),
     affordancesSection(),
     componentsSection(),
+    saveToastSection(),
     inputsSection(),
     buildingBlocksSection(),
     compositesSection(),

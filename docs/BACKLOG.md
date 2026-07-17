@@ -437,6 +437,10 @@ Prioritized in [PLAN.md](PLAN.md) P1. Filed here with detail:
 
 **The B366 profiler settled it** (Daniel's line: `[FoldNdi] 20.2 fps · frame gap 50.0ms · copy 0.4ms · send-wait 0.0ms`): the native drain is IDLE — frames simply ARRIVE 50ms apart. The bus renders 29fps but WebKit's WebSocket send path moves 8.3MB/frame at ~165MB/s effective (masking + copies on the socket thread), so the wire delivers ~20fps and the bufferedAmount gate drops the rest. B371 made the STATUS honest (ndi-sink counts DELIVERED frames via publish's return value — the panel now shows ~20, not 29). History: 25.5 (pre-4B) → 19.5 (B363 flip regression) → 21 (B364) → 29 produced / 20 delivered (B366). **Levers, in recommendation order:** (a) **GPU RGBA→UYVY** — halve the wire bytes (→ ~40fps headroom) AND skip the SDK's own conversion; a shader pass + 4:2:2 chroma, fine for NDI. (b) fetch-POST unmasked transport (saves two XOR passes; gain uncertain — the copies remain). (c) meanwhile: FHD ≈ 20fps vs HD tier ≈ 30fps+, performer's choice. A raw TCP socket is NOT an option (a webview cannot open one). WiFi bandwidth itself remains a ceiling; USB-C ethernet is the rig answer.
 
+### AirPlay OLED tearing/stutter — WATCH (Daniel, filed 2026-07-17)
+
+A while back: Apple TV → OLED showed slight tearing/stutter in playback even with the app reporting 30fps+. May predate the B363–372 perf work; not re-reproduced since. Validate on the next AirPlay session; if it persists, suspects are the external view's render pacing vs the TV's refresh (the state-stream renderer runs its own loop) rather than throughput.
+
 ### Camera polish follow-ups (Daniel, 2026-07-15 — post-stability, not critical path)
 
 - **Stabilization crop vs the SVG overlay package.** The stabilized preview is a crop of the sensor but the saved full-res original is UNcropped — fine today, but the planned package addition (source + mirrored output + an overlay .SVG positioned over the original source) must map correctly: the SVG needs scaling/positioning against the true source aspect (the larger uncropped image is harmless if the overlay math accounts for it).

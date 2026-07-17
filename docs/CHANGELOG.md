@@ -4,6 +4,12 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.19.13 (Build 373) — 2026-07-17 — round-3 findings: the REAL record-quality bug (screen-sized takes), UYVY pulled back, the toast grows up
+
+Daniel's round-3 console line `webcodecs @ 804×452` was the smoking gun: **the phone records the SCREEN-sized canvas** (Lane 5's known record-at-resolution gap, now proven by data — 804×452 → w·h·6 ≈ 2.2Mbps → his "38s = 9.9MB" compression artifacts). Fix: while a take rolls, `sizeOutput` renders the backing store at RECORD resolution (short side ≥1080; CSS size unchanged — the preview is just supersampled; flag reset on every stop/discard/failure path). Takes now encode ~1920×1080 @ ~12.4Mbps. Also: **the package option returns to the native path** (the raw source-take recorder bailed on the socket-fed canvas preview — no `srcObject`; it now captureStreams the canvas, best-effort as designed), and encoder-error logs extract the DOMException message (his `{}` warnings will name themselves).
+
+**UYVY reverted to opt-in** (`?ndiwire=uyvy`): his Arena pass showed a blue shift, no fps gain, and worse flicker — the format needs a device-paired test-pattern loop, not a default. (The flicker itself smells like WiFi under-delivery: NDI never touches the internet, but it rides the same WiFi AP — a DSL-era router's WiFi is a real FHD ceiling; wired ethernet is the rig answer.) **The save toast** per his notes: neutral border in every state, a small ✓/✕ glyph carries the verdict, positioned ABOVE the mobile tab bar, **and it's in the UI Lab** (new "Save toast" section rendering the real exported CSS in all three states). Take status in the output panel now uses the small verdict-colored `.status` styling. Package zips are timestamped (no more name collisions). **Phone still-export caps at 6144** — the field 8K crash was a webview jetsam (49MP source + 268MB FBO + encode copies; the probe's FBO test passes but the real export dies), an honest ceiling until a tiled export exists; a start-of-export log survives any future process death. Capture-lag profile from his paste: **native 1651ms + JS 511ms** — the native half (photo-format switch + settle + write) is the target, filed for the device-paired session.
+
 ## 🎬 v0.19.12 (Build 372) — 2026-07-17 — the autonomous P1 batch: iPhone WebCodecs recording, NDI UYVY wire, field diagnostics
 
 The biggest buildable slice of PLAN P1, batched for Daniel's systematic round:

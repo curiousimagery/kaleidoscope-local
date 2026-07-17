@@ -597,12 +597,14 @@ let mediaRec = null, recChunks = [], micStream = null;
 // stop-that-never-stops class). Any start failure falls through to the proven
 // MediaRecorder machinery below, which stays byte-for-byte intact.
 let wcRec = null, wcDiscard = false;
+let recordUpscale = false;   // sizeOutput renders at record res while a take rolls
 function wcFinish(take, errMsg = null) {
   if (take && !wcDiscard) { recordedVideo = take; recordingSaved = false; }
   wcDiscard = false;
   wcRec = null;
   micStream?.getTracks().forEach((t) => t.stop()); micStream = null;
   recordCanvas = null;
+  recordUpscale = false; sizeOutput();
   recState = 'idle';
   releaseRecWakeLock();
   updateLiveUI();
@@ -643,9 +645,16 @@ function dropRawRecorder() {
 function startRawRecorder(mime) {
   rawVideo = null;
   try {
-    const rawTrack = camera.getVideo()?.srcObject?.getVideoTracks?.()[0];
+    // web path: clone the camera stream's track. NATIVE path: the preview is a
+    // socket-fed CANVAS (no srcObject) — captureStream it so the package's
+    // source take exists there too (Daniel's field pass: no package entry on
+    // the phone, because this bailed). Best-effort either way (drop-on-failure).
+    const el = camera.getVideo?.();
+    const srcTrack = el?.srcObject?.getVideoTracks?.()[0];
+    const rawTrack = srcTrack ? srcTrack.clone()
+      : (el && el.captureStream ? el.captureStream(30).getVideoTracks()[0] : null);
     if (!rawTrack) return;
-    const tracks = [rawTrack.clone()];
+    const tracks = [rawTrack];
     const mic = micStream?.getAudioTracks()[0];
     if (mic) tracks.push(mic.clone());
     rawStream = new MediaStream(tracks);
@@ -752,13 +761,15 @@ async function startRecording() {
   // FOLLOWED output each tick (not the on-screen preview) — size locked at
   // record start so a mid-take divider drag can't change the file's resolution
   let stream;
+  recordUpscale = true;
+  sizeOutput();   // raise the backing store BEFORE the take's size locks below
   try {
     recordCanvas = document.createElement('canvas');
     recordCanvas.width = outputCanvas.width || 1080;
     recordCanvas.height = outputCanvas.height || 1080;
     recordCanvas.getContext('2d').drawImage(outputCanvas, 0, 0);
     stream = recordCanvas.captureStream(30);
-  } catch { recordCanvas = null; return; }
+  } catch { recordCanvas = null; recordUpscale = false; sizeOutput(); return; }
   // mic joins the canvas stream — CLONED from the camera stream (granted in
   // the combined prompt at mode entry; the recorder's stop must not kill the
   // camera's own track). Fallback asks fresh; denial degrades to video-only.
@@ -801,6 +812,7 @@ async function startRecording() {
     mediaRec = new MediaRecorder(stream, mime ? { mimeType: mime, videoBitsPerSecond: 12e6 } : undefined);
   } catch {
     micStream?.getTracks().forEach((t) => t.stop()); micStream = null;
+    recordCanvas = null; recordUpscale = false; sizeOutput();
     return;
   }
   recChunks = [];
@@ -812,6 +824,7 @@ async function startRecording() {
     recordingSaved = false;
     micStream?.getTracks().forEach((t) => t.stop()); micStream = null;
     recordCanvas = null;
+    recordUpscale = false; sizeOutput();
     recState = 'idle';
     releaseRecWakeLock();
     updateLiveUI();
@@ -1742,6 +1755,17 @@ function sizeOutput() {
   let cw = Math.min(w, h * a), ch = cw / a;
   cw = Math.max(1, cw); ch = Math.max(1, ch);
   let pw = Math.floor(cw * dpr), ph = Math.floor(ch * dpr);
+  // while a take rolls, render at RECORD resolution (short side ≥1080, CSS size
+  // unchanged — the preview is just supersampled). The field pass proved takes
+  // were encoding the SCREEN-sized canvas (804×452 → ~2Mbps → the "compression
+  // artifacts" that read as bitrate starvation).
+  if (recordUpscale) {
+    const short = Math.min(pw, ph);
+    if (short > 0 && short < 1080) {
+      const k = 1080 / short;
+      pw = Math.floor(pw * k); ph = Math.floor(ph * k);
+    }
+  }
   const cap = 2048 / Math.max(pw, ph);
   if (cap < 1) { pw = Math.floor(pw * cap); ph = Math.floor(ph * cap); }
   if (outputCanvas.width !== pw || outputCanvas.height !== ph) { outputCanvas.width = pw; outputCanvas.height = Math.max(1, ph); }
@@ -1802,7 +1826,11 @@ function openSaveSheet() {
     // first open: lazily probe a higher FBO cap (8192) so capable phones can pick
     // a >4096 export. Init keeps a low cap to avoid the load-time memory crash.
     probedExport = true;
-    try { engine.probeExportMax(8192); } catch { /* stay at the init cap */ }
+    // 6144, not 8192: the probe's FBO test passes at 8K but the REAL export
+    // (49MP source texture + 268MB FBO + encode copies) jetsams the webview
+    // (Daniel's field crash — the app "reboots"). Honest ceiling until a tiled
+    // export exists; iPad (desktop chrome) keeps its own limits.
+    try { engine.probeExportMax(6144); } catch { /* stay at the init cap */ }
     refreshSaveLimits();
   }
   const hint = $('m-res-hint');
@@ -1890,6 +1918,7 @@ async function doSave(pkg) {
   // pass the frame aspect — without it exportAt defaults to 1 (square), which is why
   // the canvas aspect showed in preview but saved square (a mobile-save omission).
   const tExport = performance.now();
+  console.info(`[fold] exportAt starting @ ${session.exportSize}px`);   // survives a mid-export process death
   try { res = await engine.exportAt(state, session.exportSize, session.exportFormat || 'jpg', 0.95, session.frameAspect || 1); }
   catch (e) {
     // the 8K field failure: name the wall in the console (size + stage + reason)
@@ -1905,7 +1934,7 @@ async function doSave(pkg) {
     const files = [{ name: compName, blob: res.blob }];
     if (originalSource) files.push(originalSource);
     const zip = await zipStore(files);
-    downloadBlob(zip, `${base}-package.zip`);
+    downloadBlob(zip, `${base}-package-${recTimestamp()}.zip`);   // stamped: repeat saves stopped colliding
     status.textContent = `saved package • ${files.length} files • ${(zip.size / 1048576).toFixed(1)}MB`;
   } else {
     downloadBlob(res.blob, compName);

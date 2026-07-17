@@ -292,7 +292,8 @@ async function startWebCodecsSession({ w, h, audioTrack, onDone, onError }) {
     try {
       muxer.finalize();
       onDone(new Blob([muxer.target.buffer], { type: 'video/mp4' }), 'mp4');
-      if (sessionError) console.warn('[conduit] recording had encoder errors (take saved up to the failure):', sessionError);
+      // DOMExceptions stringify to {} — extract the message so the console names it
+      if (sessionError) console.warn(`[conduit] recording had encoder errors (take saved up to the failure): ${sessionError.name || ''} ${sessionError.message || sessionError}`);
     } catch (e) {
       onError(sessionError || e);
     }

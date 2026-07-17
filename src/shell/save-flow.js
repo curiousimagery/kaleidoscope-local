@@ -23,44 +23,52 @@
 // downloadBlob — every existing caller (stills, packages, video takes, rig
 // export) inherits the flow with no signature change.
 
+// Exported for the UI Lab (lab.js renders the toast's state matrix statically).
+// Daniel's field notes shaped it: NEUTRAL border in every state (the green
+// outline read too loud), a small ✓/✕ glyph carries the verdict, and the pill
+// sits ABOVE the mobile tab bar (offset measured at show time).
+export const SAVE_TOAST_CSS = `
+  .save-toast {
+    position: fixed; left: 50%; transform: translateX(-50%);
+    bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+    z-index: 2600; display: none; align-items: center; gap: 8px;
+    max-width: min(86vw, 480px); padding: 7px 13px; border-radius: 999px;
+    background: var(--panel-bg, rgba(28, 28, 30, 0.92));
+    color: var(--text-dim, #bbb); border: 1px solid var(--panel-border, rgba(255,255,255,0.14));
+    font: 11px/1.35 var(--font-ui, system-ui, sans-serif);
+    box-shadow: 0 6px 24px rgba(0,0,0,0.35); backdrop-filter: blur(10px);
+    pointer-events: none;
+  }
+  .save-toast.on { display: flex; }
+  .save-toast .save-toast-glyph { font-weight: 700; }
+  .save-toast.ok .save-toast-glyph { color: var(--ok, #34c759); }
+  .save-toast.fail .save-toast-glyph { color: var(--danger-text, #ff453a); }
+  .save-toast .save-toast-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .save-toast.fail { pointer-events: auto; }
+  .save-toast button {
+    all: unset; cursor: pointer; padding: 2px 10px; border-radius: 999px;
+    background: var(--danger-text, #ff453a); color: #fff; font-weight: 600;
+  }
+  .save-toast button[hidden] { display: none; }
+`;
+
 export function createSaveFlow({ host = null } = {}) {
-  let toast = null, label = null, retryBtn = null, hideTimer = 0;
+  let toast = null, glyph = null, label = null, retryBtn = null, hideTimer = 0;
 
   function ensureToast() {
     if (toast) return;
     const style = document.createElement('style');
-    style.textContent = `
-      .save-toast {
-        position: fixed; left: 50%; transform: translateX(-50%);
-        bottom: calc(16px + env(safe-area-inset-bottom, 0px));
-        z-index: 2600; display: none; align-items: center; gap: 10px;
-        max-width: min(86vw, 480px); padding: 9px 14px; border-radius: 999px;
-        background: var(--panel-bg, rgba(28, 28, 30, 0.92));
-        color: var(--text, #eee); border: 1px solid var(--panel-border, rgba(255,255,255,0.14));
-        font: 12px/1.35 var(--font-ui, system-ui, sans-serif);
-        box-shadow: 0 6px 24px rgba(0,0,0,0.35); backdrop-filter: blur(10px);
-        pointer-events: none;
-      }
-      .save-toast.on { display: flex; }
-      .save-toast .save-toast-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-      .save-toast.ok { border-color: var(--ok, #34c759); }
-      .save-toast.fail { border-color: var(--error, #ff453a); pointer-events: auto; }
-      .save-toast button {
-        all: unset; cursor: pointer; padding: 2px 10px; border-radius: 999px;
-        background: var(--error, #ff453a); color: #fff; font-weight: 600;
-      }
-      /* all:unset strips the UA's [hidden]{display:none} — restore it, or the
-         retry button haunts SUCCESS toasts (Daniel's iPhone confusion) */
-      .save-toast button[hidden] { display: none; }
-    `;
+    style.textContent = SAVE_TOAST_CSS;
     document.head.appendChild(style);
     toast = document.createElement('div');
     toast.className = 'save-toast';
+    glyph = document.createElement('span');
+    glyph.className = 'save-toast-glyph';
     label = document.createElement('span');
     label.className = 'save-toast-label';
     retryBtn = document.createElement('button');
     retryBtn.textContent = 'retry';
-    toast.append(label, retryBtn);
+    toast.append(glyph, label, retryBtn);
     document.body.appendChild(toast);
   }
 
@@ -69,9 +77,16 @@ export function createSaveFlow({ host = null } = {}) {
     ensureToast();
     clearTimeout(hideTimer);
     toast.className = `save-toast on ${kind === 'busy' ? '' : kind}`;
+    glyph.textContent = kind === 'ok' ? '✓' : kind === 'fail' ? '✕' : '';
+    glyph.hidden = kind === 'busy';
     label.textContent = text;
     retryBtn.hidden = !onRetry;
     retryBtn.onclick = onRetry;
+    // clear the mobile tab bar when one exists (the toast must sit ABOVE it)
+    const tb = document.getElementById('m-tabbar');
+    toast.style.bottom = tb && tb.offsetHeight
+      ? `calc(${tb.offsetHeight + 12}px + env(safe-area-inset-bottom, 0px))`
+      : '';
     if (ttl) hideTimer = setTimeout(hide, ttl);
   }
   function hide() {

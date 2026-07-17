@@ -697,7 +697,7 @@ export function createSourceHost(env) {
     const files = [{ name: buildFilename(result.size), blob: result.blob }];
     if (env.media.originalSource) files.push({ name: env.media.originalSource.name, blob: env.media.originalSource.blob });
     const zipBlob = await zipStore(files);
-    downloadBlob(zipBlob, `${env.media.sourceFilename}-package.zip`);
+    downloadBlob(zipBlob, `${env.media.sourceFilename}-package-${new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)}.zip`);
 
     engine.render(state);
     exportStatusEl.textContent = `saved package • ${files.length} files • ${(zipBlob.size / 1024 / 1024).toFixed(1)}MB`;
