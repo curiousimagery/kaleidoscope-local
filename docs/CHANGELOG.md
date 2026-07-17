@@ -4,6 +4,12 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.19.9 (Build 369) — 2026-07-16 — the iPad take crash, root-caused by B368's error surface and fixed
+
+B368's failure reporting did its job on the first try: Daniel's iPad take failed with `null is not an object (evaluating 'e.info.decoderConfig.colorSpace')` — mp4-muxer's finalize dying because the encoder NEVER attached `decoderConfig` metadata to its chunks. That's WebKit's behavior under `latencyMode:'realtime'` (motion export, which never passes it, muxes fine on the same iPad), and `isConfigSupported` says yes anyway — the config is "supported", the metadata just quietly changes shape. So the recorder now **proves the config with a real one-frame encode at record start** ([conduit/recorder.js](../packages/conduit/src/recorder.js) `encoderYieldsConfig`): a throwaway encoder encodes one frame at the session's exact config and the output is checked for a usable decoderConfig — realtime mode is used only where the probe passes (Blink), the plain export-proven config where it doesn't (WebKit), and MediaRecorder wholesale if neither proves out. Verdicts are cached per config. Belt over braces: muxer calls are wrapped (a muxer throw becomes a reported session error, never an uncaught callback death) and metadata without decoderConfig is not passed through.
+
+**Device-verify (iPad): a take should now save — status line says so either way.**
+
 ## v0.19.8 (Build 368) — 2026-07-16 — the iPad no-file take: prime suspect gated, and a failed take can never be silent again
 
 Daniel's device pass on B365-367: Electron 4K takes "scream" (~50fps), iPad NDI up to a steady **29fps** FHD — but the iPad recorder counted 25fps and then **saved nothing, silently**. Motion export runs this exact encoder+muxer on the iPad, so the suspect list is what the live session does differently. Top suspect now fixed: `latencyMode: 'realtime'` was passed to `VideoEncoder.configure()` WITHOUT probing it — if WebKit rejects it, the failure arrives through the error callback and the session records nothing while the fps counter ticks happily. It's now included only when `isConfigSupported` confirms it ([conduit/recorder.js](../packages/conduit/src/recorder.js)).

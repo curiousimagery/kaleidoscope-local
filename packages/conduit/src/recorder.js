@@ -130,6 +130,45 @@ async function startMicTap(track, onData) {
 }
 
 // ---------------------------------------------------------------------------
+// Encode ONE frame through a throwaway encoder and report whether its output
+// carried `meta.decoderConfig` with a description. isConfigSupported is NOT
+// enough: WebKit accepts `latencyMode:'realtime'` but then emits chunks with
+// no decoderConfig at all — the muxer can't build the avcC box and finalize
+// dies ("null is not an object … decoderConfig.colorSpace", Daniel's iPad
+// no-file take). Only an actual encode tells the truth. ~one encoder init at
+// record start; the verdict is cached per config for the session.
+const probeCache = new Map();
+async function encoderYieldsConfig(cfg) {
+  const key = `${cfg.codec}|${cfg.width}x${cfg.height}|${cfg.latencyMode || ''}`;
+  if (probeCache.has(key)) return probeCache.get(key);
+  const verdict = await new Promise((resolve) => {
+    let enc = null, done = false;
+    const settle = (v) => {
+      if (done) return;
+      done = true;
+      try { enc?.close(); } catch { /* closed */ }
+      resolve(v);
+    };
+    try {
+      enc = new VideoEncoder({
+        output: (chunk, meta) => settle(!!(meta && meta.decoderConfig && meta.decoderConfig.description)),
+        error: () => settle(false),
+      });
+      enc.configure(cfg);
+      const cv = document.createElement('canvas');
+      cv.width = cfg.width; cv.height = cfg.height;
+      cv.getContext('2d').fillRect(0, 0, 2, 2);
+      const vf = new VideoFrame(cv, { timestamp: 0 });
+      enc.encode(vf, { keyFrame: true });
+      vf.close();
+      enc.flush().catch(() => settle(false));
+      setTimeout(() => settle(false), 3000);
+    } catch { settle(false); }
+  });
+  probeCache.set(key, verdict);
+  return verdict;
+}
+
 // The WebCodecs session. Returns { publish, stop } or null when this browser /
 // this take can't ride WebCodecs (caller falls back to MediaRecorder).
 // onDone(blob, ext) on a finalized take; onError(e) when the take is lost.
@@ -139,15 +178,18 @@ async function startWebCodecsSession({ w, h, audioTrack, onDone, onError }) {
   const vcfg = await pickVideoCodec(w, h, 30);
   if (!vcfg) return null;
   const bitrate = Math.min(40_000_000, Math.round(w * h * 6));
+  const baseCfg = { codec: vcfg.codec, width: w, height: h, bitrate, framerate: 30 };
 
-  // realtime latency mode paces the encoder for a live feed — but ONLY where
-  // isConfigSupported confirms it. Passing it blind risks a NotSupportedError
-  // through the error callback: a take that silently records nothing.
+  // realtime latency mode paces the encoder for a live feed — used only where
+  // a PROVING encode shows the metadata survives it (Blink: yes; WebKit: no).
+  // If even the plain config can't prove itself, this browser's WebCodecs
+  // can't feed the muxer — fall back to MediaRecorder wholesale.
   let latency = {};
-  try {
-    const s = await VideoEncoder.isConfigSupported({ codec: vcfg.codec, width: w, height: h, bitrate, framerate: 30, latencyMode: 'realtime' });
-    if (s && s.supported) latency = { latencyMode: 'realtime' };
-  } catch { /* configure without it */ }
+  if (await encoderYieldsConfig({ ...baseCfg, latencyMode: 'realtime' })) {
+    latency = { latencyMode: 'realtime' };
+  } else if (!(await encoderYieldsConfig(baseCfg))) {
+    return null;
+  }
 
   // Audio is decided BEFORE the muxer exists (tracks are declared at
   // construction). Any audio failure rejects the whole WebCodecs session —
@@ -179,20 +221,28 @@ async function startWebCodecsSession({ w, h, audioTrack, onDone, onError }) {
   });
 
   let sessionError = null;
+  // belt over the probe's braces: only hand the muxer metadata that actually
+  // carries a decoderConfig, and never let a muxer throw escape the callback
   const venc = new VideoEncoder({
-    output: (chunk, meta) => muxer.addVideoChunk(chunk, meta),
+    output: (chunk, meta) => {
+      try { muxer.addVideoChunk(chunk, meta && meta.decoderConfig ? meta : undefined); }
+      catch (e) { sessionError = sessionError || e; }
+    },
     error: (e) => { sessionError = e; },
   });
   // explicit bitrate (~0.2 bits/px/frame at 30fps, the fallback path's
   // long-standing target) keeps fidelity up in realtime mode
-  venc.configure({ codec: vcfg.codec, width: w, height: h, bitrate, framerate: 30, ...latency });
+  venc.configure({ ...baseCfg, ...latency });
 
   let aenc = null;
   const t0 = performance.now();
   let audioClockUs = null;   // sample-accurate once anchored to the session clock
   if (acfg) {
     aenc = new AudioEncoder({
-      output: (chunk, meta) => muxer.addAudioChunk(chunk, meta),
+      output: (chunk, meta) => {
+        try { muxer.addAudioChunk(chunk, meta && meta.decoderConfig ? meta : undefined); }
+        catch (e) { sessionError = sessionError || e; }
+      },
       error: (e) => { sessionError = e; },
     });
     aenc.configure({ codec: acfg.codec, sampleRate: mic.sampleRate, numberOfChannels: channels, bitrate: acfg.bitrate });
