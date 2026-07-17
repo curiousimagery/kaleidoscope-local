@@ -98,6 +98,30 @@ export function createCapacitorHost() {
       let plugin = null;         // lazily registered (keeps @capacitor/core lazy-loadable)
       let ws = null, wsReady = false, gen = 0;
       const HEADER = 16;
+      // UYVY wire (default): the [FoldNdi] profile proved the WebKit WebSocket
+      // send path is the fps wall (~165MB/s effective → 8.3MB RGBA frames cap
+      // FHD at ~20fps). Packing to NDI's native UYVY 4:2:2 HALVES the wire
+      // bytes (→ ~40fps headroom) and skips the SDK's own RGBA conversion.
+      // BT.709 limited range (both broadcast tiers are ≥720p). ?ndiwire=rgba
+      // reverts for A/B if Arena's colors ever look off.
+      const uyvyWire = new URLSearchParams(window.location.search).get('ndiwire') !== 'rgba';
+      const packUyvy = (out, src, width, height, topDown) => {
+        const srcStride = width * 4, outStride = width * 2;
+        for (let y = 0; y < height; y++) {
+          let si = (topDown ? y : height - 1 - y) * srcStride;
+          let oi = y * outStride;
+          for (let x = 0; x < width; x += 2) {
+            const r0 = src[si], g0 = src[si + 1], b0 = src[si + 2];
+            const r1 = src[si + 4], g1 = src[si + 5], b1 = src[si + 6];
+            const ra = (r0 + r1) >> 1, ga = (g0 + g1) >> 1, ba = (b0 + b1) >> 1;
+            out[oi] = 128 + ((-26 * ra - 87 * ga + 112 * ba) >> 8);        // U (shared)
+            out[oi + 1] = 16 + ((47 * r0 + 157 * g0 + 16 * b0) >> 8);      // Y0
+            out[oi + 2] = 128 + ((112 * ra - 102 * ga - 10 * ba) >> 8);    // V (shared)
+            out[oi + 3] = 16 + ((47 * r1 + 157 * g1 + 16 * b1) >> 8);      // Y1
+            si += 8; oi += 4;
+          }
+        }
+      };
       return {
         ...webHost.ndi,
         available: true,
@@ -121,15 +145,18 @@ export function createCapacitorHost() {
         //   true when it went to the wire — the ndi-sink counts delivered fps from this
         publish(pixels, width, height, topDown) {
           if (!wsReady || !ws) return false;
-          if (ws.bufferedAmount > width * height * 8) return false;   // ~2 frames on the wire max
-          const buf = new ArrayBuffer(HEADER + pixels.byteLength);
+          const wireBytes = width * height * (uyvyWire ? 2 : 4);
+          if (ws.bufferedAmount > wireBytes * 2) return false;   // ~2 frames on the wire max
+          const buf = new ArrayBuffer(HEADER + wireBytes);
           const dv = new DataView(buf);
           dv.setUint32(0, 0x464E4449, false);   // "FNDI"
           dv.setUint32(4, width, true);
           dv.setUint32(8, height, true);
-          dv.setUint32(12, 1, true);   // always top-down on the wire (flip below)
+          dv.setUint32(12, 1 | (uyvyWire ? 2 : 0), true);   // bit0 top-down (always, flip folded below) · bit1 UYVY
           const out = new Uint8Array(buf, HEADER);
-          if (topDown) {
+          if (uyvyWire) {
+            packUyvy(out, pixels, width, height, topDown);
+          } else if (topDown) {
             out.set(pixels);
           } else {
             // Bottom-up frames (the readPixels capture path Tier 1 selects on the

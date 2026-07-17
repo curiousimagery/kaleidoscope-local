@@ -405,8 +405,10 @@ function startMediaRecorderSession({ w, h, audioTrack, onDone, onError }) {
 // hosts where download-navigation is a silent no-op (Capacitor WKWebView: Daniel's
 // iPad takes vanished without a trace); the app passes its host-aware saver (the
 // iOS share sheet / Electron dialog / browser download fallback).
-// `engine: 'mediarecorder'` forces the fallback engine (device A/B debugging);
-// anything else auto-selects. `lastResult` reports how the LAST take ended —
+// `engine`: 'auto' (default) tries WebCodecs then falls back to MediaRecorder;
+// 'mediarecorder' forces the fallback (device A/B debugging); 'webcodecs'
+// throws instead of falling back (for callers with their own MediaRecorder
+// integration — the mobile record path). `lastResult` reports how the LAST take ended —
 // `{ ok:true, name, bytes }` after the save resolved, `{ ok:false, error }`
 // when the take was lost — so the UI can stop pretending silence is success.
 export function createRecorderSink({ filenamePrefix = 'fold-live', save = null, engine = 'auto' } = {}) {
@@ -455,6 +457,11 @@ export function createRecorderSink({ filenamePrefix = 'fold-live', save = null, 
         } catch (e) {
           console.warn('[conduit] WebCodecs recorder failed to start, falling back to MediaRecorder:', e);
         }
+      }
+      if (!s && engine === 'webcodecs') {
+        // webcodecs-or-nothing mode: the caller has its own (better-integrated)
+        // MediaRecorder machinery and only wants this sink for the upgrade path
+        throw new Error('WebCodecs recording unavailable on this browser');
       }
       if (!s) s = startMediaRecorderSession({ w, h, audioTrack, onDone: saveTake, onError: failTake });
       console.info(`[conduit] recorder engine: ${s.engine} @ ${w}×${h}${audioTrack ? ' + mic' : ''}`);

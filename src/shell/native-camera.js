@@ -248,7 +248,12 @@ export function createNativeCamera() {
   // webview-loadable URL for use as the editable source (the 48MP-still-on-pause path).
   async function capturePhoto() {
     const d = stillRes || {};
+    const t0 = performance.now();
     const res = await FoldNativeCamera.capturePhoto({ width: d.width || 0, height: d.height || 0 });
+    // field diagnostic (the ~2s capture-lag complaint): how much of the wait is
+    // the NATIVE half (format switch + settle + shot + file write) vs the JS
+    // load/crop half, which logs separately at the freeze site
+    console.info(`[fold] capturePhoto native half: ${(performance.now() - t0).toFixed(0)}ms → ${res.width}×${res.height}`);
     return { url: res.url ? Capacitor.convertFileSrc(res.url) : null, width: res.width, height: res.height };
   }
   // the temperature auto WB has currently settled on — lets the UI show a live slider

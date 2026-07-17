@@ -28,7 +28,9 @@
 //   [8..12)  height (u32)
 //   [12..16) flags  (u32)  bit0 = topDown (NDI wants top-down; a bottom-up
 //                          frame is row-flipped here before the send)
-//   then RGBA pixels (width * height * 4 bytes)
+//                          bit1 = UYVY 4:2:2 (2 bytes/px — HALF the wire bytes
+//                          of RGBA; the WebKit WS send path is the fps wall)
+//   then pixels: width * height * (4 RGBA | 2 UYVY) bytes
 //
 // The NDI SDK links via the locally built ios/ndi.xcframework (a LICENSED
 // install — see scripts/make-xcframework.sh); libndi is why the package links c++.
@@ -163,9 +165,10 @@ public class FoldNdiPlugin: CAPPlugin, CAPBridgedPlugin {
         let w = data.withUnsafeBytes { $0.load(fromByteOffset: 4, as: UInt32.self) }.littleEndian
         let h = data.withUnsafeBytes { $0.load(fromByteOffset: 8, as: UInt32.self) }.littleEndian
         let flags = data.withUnsafeBytes { $0.load(fromByteOffset: 12, as: UInt32.self) }.littleEndian
-        let stride = Int(w) * 4
-        guard w > 0, h > 0, data.count >= 16 + stride * Int(h) else { return }
         let topDown = (flags & 1) != 0
+        let uyvy = (flags & 2) != 0
+        let stride = Int(w) * (uyvy ? 2 : 4)
+        guard w > 0, h > 0, data.count >= 16 + stride * Int(h) else { return }
         let total = stride * Int(h)
 
         // this buffer was last sent TWO async calls ago — already released by
@@ -195,7 +198,7 @@ public class FoldNdiPlugin: CAPPlugin, CAPBridgedPlugin {
         var frame = NDIlib_video_frame_v2_t()
         frame.xres = Int32(w)
         frame.yres = Int32(h)
-        frame.FourCC = NDIlib_FourCC_video_type_RGBA
+        frame.FourCC = uyvy ? NDIlib_FourCC_video_type_UYVY : NDIlib_FourCC_video_type_RGBA
         frame.frame_rate_N = 30000            // nominal; receivers pace on arrival
         frame.frame_rate_D = 1000
         frame.picture_aspect_ratio = Float(w) / Float(h)

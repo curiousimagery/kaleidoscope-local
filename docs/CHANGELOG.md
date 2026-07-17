@@ -4,6 +4,16 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🎬 v0.19.12 (Build 372) — 2026-07-17 — the autonomous P1 batch: iPhone WebCodecs recording, NDI UYVY wire, field diagnostics
+
+The biggest buildable slice of PLAN P1, batched for Daniel's systematic round:
+
+- **iPhone record rides WebCodecs** ([mobile/chrome.js](../src/mobile/chrome.js) + the conduit sink's new `engine:'webcodecs'` mode): the phone's record path was the LAST MediaRecorder consumer, and all three field complaints are its pathologies — 1080p pixelation (WebKit ignores the bitrate ask; the WebCodecs encoder HONORS ~12.4Mbps), stop-that-never-stops (captureStream is gone), and save failures (finalize errors now land in the download tab + console). Additive: the sink stashes the take for the existing download menu (video vs package choice untouched), the raw source take stays MediaRecorder, discard/wake-lock/state machine untouched, and ANY WebCodecs start failure falls through to the proven MediaRecorder machinery byte-for-byte.
+- **NDI wire goes UYVY 4:2:2** ([capacitor-host.js](../src/shell/capacitor-host.js) packs BT.709 limited-range, flip folded in; the plugin maps flag bit1 → the UYVY FourCC): the measured wall was the WebKit WebSocket send path (~165MB/s), so HALVING the bytes (8.3→4.15MB per FHD frame) roughly doubles the delivered-fps headroom AND skips the SDK's own RGBA conversion. `?ndiwire=rgba` reverts for A/B if Arena's colors look off — **verify with the test pattern** (its color bars make a matrix error obvious).
+- **Field diagnostics:** still-capture lag now profiles itself (`capturePhoto native half: N ms` + `capture JS half (load+crop+set): N ms` — the two halves of the ~2s complaint), and a failed export names its wall (`exportAt FAILED @ 8192px after N ms: reason`) for the 8K mystery.
+
+Verified: `node --check`, `vite build`, `cap sync`, device `xcodebuild` BUILD SUCCEEDED. Deliberately NOT in this batch (per PLAN's own gates): clip-bake two-reader (export path field-proven first), conduit tier-A extraction (post-gauntlet), thermal governors (needs the native seam design).
+
 ## v0.19.11 (Build 371) — 2026-07-17 — gauntlet round-2 fixes (take duration, phantom retry, honest NDI fps) + THE consolidated plan
 
 Daniel's round-2 results processed, three fixes in one batch:

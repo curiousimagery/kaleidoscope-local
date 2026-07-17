@@ -27,6 +27,7 @@ import { formatVersion } from '../version.js';
 import { createCamera } from '../shell/camera.js';
 import { createNativeCamera } from '../shell/native-camera.js';
 import { createSaveFlow } from '../shell/save-flow.js';
+import { createRecorderSink } from 'conduit/recorder';
 import { createFollower } from '../kit/follow.js';
 import { createAutoDrift } from '../kit/drift.js';
 import { ICONS } from './icons.js';
@@ -590,6 +591,26 @@ let recState = 'idle';         // 'idle' | 'recording'
 let recordedVideo = null;      // { blob, ext } — the finished take
 let recordingSaved = false;    // download tapped since the take finished
 let mediaRec = null, recChunks = [], micStream = null;
+// The WebCodecs record session (the conduit sink, engine:'webcodecs') — the
+// field-pass fix: an explicit bitrate the encoder HONORS (the 1080p pixelation
+// was WebKit's MediaRecorder ignoring ours) and no captureStream (the
+// stop-that-never-stops class). Any start failure falls through to the proven
+// MediaRecorder machinery below, which stays byte-for-byte intact.
+let wcRec = null, wcDiscard = false;
+function wcFinish(take, errMsg = null) {
+  if (take && !wcDiscard) { recordedVideo = take; recordingSaved = false; }
+  wcDiscard = false;
+  wcRec = null;
+  micStream?.getTracks().forEach((t) => t.stop()); micStream = null;
+  recordCanvas = null;
+  recState = 'idle';
+  releaseRecWakeLock();
+  updateLiveUI();
+  if (errMsg) {
+    console.warn('[fold] recording failed:', errMsg);
+    if (emptyEl) { emptyEl.textContent = `recording failed — ${errMsg}`; emptyEl.classList.remove('m-hidden'); }
+  }
+}
 // the native camera provides no audio track (it's native video-only), so record-video
 // acquires the mic itself via getUserMedia — ONE clean prompt at mode entry, held for
 // the session and cloned per take. (Native plugin-captured audio can't join a JS canvas
@@ -699,6 +720,8 @@ function paintRecord() {
   // drawImage from a WebGL canvas that re-renders later in the SAME task would
   // otherwise capture the LATER render (the preview, not the followed output)
   ctx.getImageData(0, 0, 1, 1);
+  // the WebCodecs session encodes straight off this canvas (captureStream never sees it)
+  wcRec?.publish({ canvas: recordCanvas, w: recordCanvas.width, h: recordCanvas.height, topDown: true });
 }
 
 // one guard for every path that would lose an unsaved take (re-record, source
@@ -712,6 +735,7 @@ function confirmLoseRecording(msg) {
     // nulling recordedVideo here would lose the race with the async onstop.
     if (mediaRec) mediaRec.ondataavailable = null;
     recChunks = [];
+    if (wcRec) wcDiscard = true;   // the WC stash callback skips the take, cleanup still runs
     dropRawRecorder();
     stopRecording();
     return true;
@@ -747,6 +771,32 @@ async function startRecording() {
   } catch { micStream = null; }
   const mime = ['video/mp4;codecs=avc1', 'video/mp4', 'video/webm;codecs=vp9', 'video/webm']
     .find((m) => window.MediaRecorder?.isTypeSupported?.(m)) || '';
+
+  // WebCodecs first. `save` here STASHES the take for the download menu (the
+  // phone's flow — the user chooses video vs package later); the real save +
+  // toast happen in downloadBlob when they pick. paintRecord feeds frames.
+  try {
+    wcDiscard = false;
+    const sink = createRecorderSink({
+      engine: 'webcodecs',
+      save: (blob, name) => { wcFinish({ blob, ext: name.split('.').pop() || 'mp4' }); },
+    });
+    await sink.start(recordCanvas.width, recordCanvas.height, micStream?.getAudioTracks?.()[0] || null);
+    wcRec = sink;
+  } catch (e) {
+    wcRec = null;
+    console.info('[fold] WebCodecs record unavailable — MediaRecorder path:', e?.message || e);
+  }
+  if (wcRec) {
+    startRawRecorder(mime);   // the package's unedited source rides MediaRecorder either way
+    recordedVideo = null;
+    recordingSaved = false;
+    recState = 'recording';
+    acquireRecWakeLock();
+    updateLiveUI();
+    return;
+  }
+
   try {
     mediaRec = new MediaRecorder(stream, mime ? { mimeType: mime, videoBitsPerSecond: 12e6 } : undefined);
   } catch {
@@ -775,6 +825,17 @@ async function startRecording() {
   updateLiveUI();
 }
 function stopRecording() {
+  if (wcRec) {
+    const sink = wcRec;
+    sink.stop();   // async finalize → the stash callback runs wcFinish on success
+    const t0 = Date.now();
+    const iv = setInterval(() => {
+      if (!wcRec) { clearInterval(iv); return; }                  // stash path completed
+      const r = sink.lastResult;
+      if (r && !r.ok) { clearInterval(iv); wcFinish(null, r.error); }
+      else if (Date.now() - t0 > 30_000) { clearInterval(iv); wcFinish(null, 'finalize timed out'); }
+    }, 300);
+  }
   try { mediaRec?.stop(); } catch { /* already inactive */ }
   try { rawRec?.stop(); } catch { /* already inactive */ }
 }
@@ -1126,6 +1187,7 @@ function freezeFromPreview() {
 // the preview is video-stabilized the still (photo output, un-stabilized) is the wider
 // full sensor, so we CENTER-CROP it to the stabilized FOV so the composition holds.
 async function freezeFromUrl(url) {
+  const tFreeze = performance.now();   // the JS half of the capture-lag profile
   stopCameraStream();
   cameraMode = 'frozen';
   updateLiveUI();
@@ -1149,6 +1211,7 @@ async function freezeFromUrl(url) {
       setContext(false);
       sourceOverlay.mount(sourceEl);
       scheduleRender();
+      console.info(`[fold] capture JS half (load+crop+set): ${(performance.now() - tFreeze).toFixed(0)}ms`);
       resolve();
     };
     img.onerror = resolve;
@@ -1826,8 +1889,15 @@ async function doSave(pkg) {
   let res;
   // pass the frame aspect — without it exportAt defaults to 1 (square), which is why
   // the canvas aspect showed in preview but saved square (a mobile-save omission).
+  const tExport = performance.now();
   try { res = await engine.exportAt(state, session.exportSize, session.exportFormat || 'jpg', 0.95, session.frameAspect || 1); }
-  catch (e) { status.textContent = e.message; return; }
+  catch (e) {
+    // the 8K field failure: name the wall in the console (size + stage + reason)
+    console.warn(`[fold] exportAt FAILED @ ${session.exportSize}px after ${(performance.now() - tExport).toFixed(0)}ms:`, e);
+    status.textContent = e.message;
+    return;
+  }
+  console.info(`[fold] exportAt ${res.w}×${res.h}: ${(performance.now() - tExport).toFixed(0)}ms`);
   const ext = session.exportFormat === 'png' ? 'png' : 'jpg';
   const base = sourceFilename || 'fold';
   const compName = `${base}-${state.form}-${res.w}x${res.h}.${ext}`;
