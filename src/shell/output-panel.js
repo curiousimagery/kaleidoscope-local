@@ -236,6 +236,29 @@ export function createOutputPanel(env, outputBus) {
     recMicStream?.getTracks().forEach((t) => t.stop());
     recMicStream = null;
   }
+  // After stop, the take finalizes/saves asynchronously — watch the sink's
+  // lastResult so a failed take is never silent (the pre-B368 failure mode:
+  // fps counted fine, stop produced nothing, nobody said a word).
+  let takeWatch = 0;
+  let takeNote = '';
+  function watchTakeResult() {
+    clearInterval(takeWatch);
+    const t0 = Date.now();
+    takeNote = 'saving take…';
+    renderStatus();
+    takeWatch = setInterval(() => {
+      const r = recorder.lastResult;
+      if (r) {
+        clearInterval(takeWatch);
+        takeNote = r.ok ? `take saved ✓ ${r.name}` : `take FAILED: ${r.error}`;
+      } else if (Date.now() - t0 > 30_000) {
+        clearInterval(takeWatch);
+        takeNote = 'take still saving… (check the console if nothing arrives)';
+      }
+      renderStatus();
+    }, 400);
+  }
+
   async function toggleRecord() {
     if (!recorder) return;
     if (recorder.recording) {
@@ -244,6 +267,7 @@ export function createOutputPanel(env, outputBus) {
       wantRecord = false;
       syncBusRunning();
       if (!broadcasting) stopPolling();
+      watchTakeResult();
     } else {
       if (!canArm()) return;
       if (!recorder.supported) { if (statusEl) statusEl.textContent = 'recording not supported in this browser'; return; }
@@ -265,6 +289,8 @@ export function createOutputPanel(env, outputBus) {
         wantRecord = true;
         syncBusRunning();
         await recorder.start(outputBus.width, outputBus.height, micTrack);
+        clearInterval(takeWatch);
+        takeNote = '';
         startPolling();
       } catch (e) {
         wantRecord = false; syncBusRunning(); stopRecMic();
@@ -449,6 +475,11 @@ export function createOutputPanel(env, outputBus) {
       const fps = (broadcasting && d?.sink.fps) || s.fps;
       statusEl.textContent = `${parts.join(' · ')} · ${dims.width}×${dims.height} · ${fps || '…'} fps`;
       statusEl.classList.add('live');
+    } else if (takeNote) {
+      // the last take's fate outlives the poll loop's rewrites until something
+      // real replaces it (recording again, broadcasting)
+      statusEl.textContent = takeNote;
+      statusEl.classList.remove('live');
     } else {
       // idle: no dims echo — the resolution hint two rows up already says it
       // (the "resolution shown twice" BACKLOG item)

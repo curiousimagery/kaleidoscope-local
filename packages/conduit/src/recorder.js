@@ -132,11 +132,22 @@ async function startMicTap(track, onData) {
 // ---------------------------------------------------------------------------
 // The WebCodecs session. Returns { publish, stop } or null when this browser /
 // this take can't ride WebCodecs (caller falls back to MediaRecorder).
-async function startWebCodecsSession({ w, h, audioTrack, onDone }) {
+// onDone(blob, ext) on a finalized take; onError(e) when the take is lost.
+async function startWebCodecsSession({ w, h, audioTrack, onDone, onError }) {
   if (!webCodecsRecordingSupported()) return null;
 
   const vcfg = await pickVideoCodec(w, h, 30);
   if (!vcfg) return null;
+  const bitrate = Math.min(40_000_000, Math.round(w * h * 6));
+
+  // realtime latency mode paces the encoder for a live feed — but ONLY where
+  // isConfigSupported confirms it. Passing it blind risks a NotSupportedError
+  // through the error callback: a take that silently records nothing.
+  let latency = {};
+  try {
+    const s = await VideoEncoder.isConfigSupported({ codec: vcfg.codec, width: w, height: h, bitrate, framerate: 30, latencyMode: 'realtime' });
+    if (s && s.supported) latency = { latencyMode: 'realtime' };
+  } catch { /* configure without it */ }
 
   // Audio is decided BEFORE the muxer exists (tracks are declared at
   // construction). Any audio failure rejects the whole WebCodecs session —
@@ -172,14 +183,9 @@ async function startWebCodecsSession({ w, h, audioTrack, onDone }) {
     output: (chunk, meta) => muxer.addVideoChunk(chunk, meta),
     error: (e) => { sessionError = e; },
   });
-  // realtime latency mode: the encoder paces itself for a live feed instead of
-  // buffering for quality; the explicit bitrate (~0.2 bits/px/frame at 30fps,
-  // the fallback path's long-standing target) keeps fidelity up.
-  venc.configure({
-    codec: vcfg.codec, width: w, height: h,
-    bitrate: Math.min(40_000_000, Math.round(w * h * 6)),
-    framerate: 30, latencyMode: 'realtime',
-  });
+  // explicit bitrate (~0.2 bits/px/frame at 30fps, the fallback path's
+  // long-standing target) keeps fidelity up in realtime mode
+  venc.configure({ codec: vcfg.codec, width: w, height: h, bitrate, framerate: 30, ...latency });
 
   let aenc = null;
   const t0 = performance.now();
@@ -238,7 +244,7 @@ async function startWebCodecsSession({ w, h, audioTrack, onDone }) {
       onDone(new Blob([muxer.target.buffer], { type: 'video/mp4' }), 'mp4');
       if (sessionError) console.warn('[conduit] recording had encoder errors (take saved up to the failure):', sessionError);
     } catch (e) {
-      console.warn('[conduit] recording finalize failed — the take is lost:', e);
+      onError(sessionError || e);
     }
     try { venc.close(); } catch { /* closed */ }
     try { aenc?.close(); } catch { /* closed */ }
@@ -246,6 +252,7 @@ async function startWebCodecsSession({ w, h, audioTrack, onDone }) {
   }
 
   return {
+    engine: 'webcodecs',
     publish(frame) {
       if (sessionError || venc.state !== 'configured') return;
       if (frame.w !== w || frame.h !== h) return;          // bus resized mid-take: skip
@@ -278,7 +285,7 @@ async function startWebCodecsSession({ w, h, audioTrack, onDone }) {
 // ---------------------------------------------------------------------------
 // The MediaRecorder session — the original sink, kept intact as the fallback.
 // Draws each frame into a hidden canvas and records its captureStream.
-function startMediaRecorderSession({ w, h, audioTrack, onDone }) {
+function startMediaRecorderSession({ w, h, audioTrack, onDone, onError }) {
   const mime = pickMime();
   if (mime === null) throw new Error('recording is not supported in this browser (no WebCodecs, no MediaRecorder)');
 
@@ -299,6 +306,7 @@ function startMediaRecorderSession({ w, h, audioTrack, onDone }) {
   const finalMime = recorder.mimeType || mime || 'video/webm';
   const chunks = [];
   recorder.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
+  recorder.onerror = (e) => { if (onError) onError((e && e.error) || new Error('MediaRecorder error')); };
   // stream teardown happens INSIDE onstop — killing the tracks synchronously in
   // stop() raced the encoder on WebKit and the final chunks never arrived
   recorder.onstop = () => {
@@ -308,6 +316,7 @@ function startMediaRecorderSession({ w, h, audioTrack, onDone }) {
   recorder.start();
 
   return {
+    engine: 'mediarecorder',
     publish(frame) {
       const { pixels, w: fw, h: fh, topDown, canvas: src } = frame;
       if (canvas.width !== fw || canvas.height !== fh) {
@@ -341,19 +350,37 @@ function startMediaRecorderSession({ w, h, audioTrack, onDone }) {
 // hosts where download-navigation is a silent no-op (Capacitor WKWebView: Daniel's
 // iPad takes vanished without a trace); the app passes its host-aware saver (the
 // iOS share sheet / Electron dialog / browser download fallback).
-export function createRecorderSink({ filenamePrefix = 'fold-live', save = null } = {}) {
+// `engine: 'mediarecorder'` forces the fallback engine (device A/B debugging);
+// anything else auto-selects. `lastResult` reports how the LAST take ended —
+// `{ ok:true, name, bytes }` after the save resolved, `{ ok:false, error }`
+// when the take was lost — so the UI can stop pretending silence is success.
+export function createRecorderSink({ filenamePrefix = 'fold-live', save = null, engine = 'auto' } = {}) {
   let session = null;
   let recording = false;
+  let lastResult = null;
 
   const saveTake = (blob, ext) => {
     const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-    (save || downloadBlob)(blob, `${filenamePrefix}-${stamp}.${ext}`);
+    const name = `${filenamePrefix}-${stamp}.${ext}`;
+    console.info(`[conduit] take finalized: ${(blob.size / 1e6).toFixed(1)} MB → ${name}`);
+    Promise.resolve((save || downloadBlob)(blob, name)).then(
+      () => { lastResult = { ok: true, name, bytes: blob.size }; },
+      (e) => {
+        lastResult = { ok: false, error: 'save failed: ' + ((e && e.message) || e) };
+        console.warn('[conduit] take save failed:', e);
+      },
+    );
+  };
+  const failTake = (e) => {
+    lastResult = { ok: false, error: (e && e.message) || String(e) };
+    console.warn('[conduit] recording failed — the take is lost:', e);
   };
 
   return {
     id: 'disk',
     get recording() { return recording; },
     get supported() { return webCodecsRecordingSupported() || pickMime() !== null; },
+    get lastResult() { return lastResult; },
 
     // bus calls this every frame; a no-op until a recording session is started.
     publish(frame) {
@@ -365,13 +392,17 @@ export function createRecorderSink({ filenamePrefix = 'fold-live', save = null }
     // discovery + the mic tap are awaited before the first frame is accepted.
     async start(w, h, audioTrack = null) {
       if (recording) return;
+      lastResult = null;
       let s = null;
-      try {
-        s = await startWebCodecsSession({ w, h, audioTrack, onDone: saveTake });
-      } catch (e) {
-        console.warn('[conduit] WebCodecs recorder failed to start, falling back to MediaRecorder:', e);
+      if (engine !== 'mediarecorder') {
+        try {
+          s = await startWebCodecsSession({ w, h, audioTrack, onDone: saveTake, onError: failTake });
+        } catch (e) {
+          console.warn('[conduit] WebCodecs recorder failed to start, falling back to MediaRecorder:', e);
+        }
       }
-      if (!s) s = startMediaRecorderSession({ w, h, audioTrack, onDone: saveTake });
+      if (!s) s = startMediaRecorderSession({ w, h, audioTrack, onDone: saveTake, onError: failTake });
+      console.info(`[conduit] recorder engine: ${s.engine} @ ${w}×${h}${audioTrack ? ' + mic' : ''}`);
       session = s;
       recording = true;
     },
