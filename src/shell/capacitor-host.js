@@ -117,9 +117,11 @@ export function createCapacitorHost() {
             console.info('[fold] NDI sender up (frame socket :' + res.port + ')');
           }).catch((e) => console.warn('[fold] NDI start failed:', e));
         },
+        // → false when the frame was DROPPED (socket down / backpressure gate),
+        //   true when it went to the wire — the ndi-sink counts delivered fps from this
         publish(pixels, width, height, topDown) {
-          if (!wsReady || !ws) return;
-          if (ws.bufferedAmount > width * height * 8) return;   // ~2 frames on the wire max
+          if (!wsReady || !ws) return false;
+          if (ws.bufferedAmount > width * height * 8) return false;   // ~2 frames on the wire max
           const buf = new ArrayBuffer(HEADER + pixels.byteLength);
           const dv = new DataView(buf);
           dv.setUint32(0, 0x464E4449, false);   // "FNDI"
@@ -139,7 +141,8 @@ export function createCapacitorHost() {
               out.set(pixels.subarray((height - 1 - y) * stride, (height - y) * stride), y * stride);
             }
           }
-          try { ws.send(buf); } catch { /* socket died mid-send; onclose flips wsReady */ }
+          try { ws.send(buf); } catch { return false; /* socket died mid-send; onclose flips wsReady */ }
+          return true;
         },
         stop() {
           gen++;

@@ -308,9 +308,14 @@ async function startWebCodecsSession({ w, h, audioTrack, onDone, onError }) {
       if (frame.w !== w || frame.h !== h) return;          // bus resized mid-take: skip
       if (venc.encodeQueueSize > 4) { dropped++; return; } // freshness over completeness, live
       const ts = Math.round((performance.now() - t0) * 1000);
+      // duration is NOMINAL but must exist: mp4-muxer requires a non-negative
+      // duration per chunk (WebKit passes a missing VideoFrame duration through
+      // as null → "addVideoChunkRaw's fourth argument…", Daniel's iPad take),
+      // while actual timing comes from timestamp deltas (timescaleUnitsToNextSample)
+      const dur = 33_333;
       let vf;
       if (frame.canvas) {
-        vf = new VideoFrame(frame.canvas, { timestamp: ts });
+        vf = new VideoFrame(frame.canvas, { timestamp: ts, duration: dur });
       } else {
         // raw-pixel producer (no capture canvas): VideoFrame wants top-down rows
         let px = frame.pixels;
@@ -322,7 +327,7 @@ async function startWebCodecsSession({ w, h, audioTrack, onDone, onError }) {
           }
           px = flipBuf;
         }
-        vf = new VideoFrame(px, { format: 'RGBA', codedWidth: w, codedHeight: h, timestamp: ts });
+        vf = new VideoFrame(px, { format: 'RGBA', codedWidth: w, codedHeight: h, timestamp: ts, duration: dur });
       }
       const key = ts - lastKeyUs >= 2_000_000;
       if (key) lastKeyUs = ts;

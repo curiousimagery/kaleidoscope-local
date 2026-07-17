@@ -49,6 +49,9 @@ export function createSaveFlow({ host = null } = {}) {
         all: unset; cursor: pointer; padding: 2px 10px; border-radius: 999px;
         background: var(--error, #ff453a); color: #fff; font-weight: 600;
       }
+      /* all:unset strips the UA's [hidden]{display:none} — restore it, or the
+         retry button haunts SUCCESS toasts (Daniel's iPhone confusion) */
+      .save-toast button[hidden] { display: none; }
     `;
     document.head.appendChild(style);
     toast = document.createElement('div');

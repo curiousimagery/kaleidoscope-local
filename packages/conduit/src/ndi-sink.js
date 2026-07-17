@@ -19,16 +19,24 @@ export function createNdiSink(host) {
   const ndi = host && host.ndi;
   let active = false;
 
+  // DELIVERED fps — the honest number. The bus's fps counts rendered frames,
+  // but a host may drop at its backpressure gate (the iPad's frame socket:
+  // bus 29fps, wire 20fps — Daniel's [FoldNdi] profile). A host that returns
+  // `false` from publish() declares the drop; anything else counts as sent.
+  let sent = 0, winStart = 0, fps = 0;
+
   return {
     id: 'ndi',
     supported: !!(ndi && ndi.available),
     get active() { return active; },
+    get fps() { return fps; },
 
     // Arm: bring up the native NDI sender (carrying the editable source name from
     // the output row — what receivers list on the network) and begin forwarding.
     start(name) {
       if (!ndi) return;
       ndi.start(name);
+      sent = 0; winStart = 0; fps = 0;
       active = true;
     },
 
@@ -45,7 +53,14 @@ export function createNdiSink(host) {
     // it to NDI's line stride / flipped semantics).
     publish(frame) {
       if (!active || !ndi) return;
-      ndi.publish(frame.pixels, frame.w, frame.h, !!frame.topDown);
+      const ok = ndi.publish(frame.pixels, frame.w, frame.h, !!frame.topDown);
+      const now = performance.now();
+      if (!winStart) winStart = now;
+      if (ok !== false) sent++;
+      if (now - winStart >= 1000) {
+        fps = Math.round((sent * 10000) / (now - winStart)) / 10;
+        sent = 0; winStart = now;
+      }
     },
   };
 }
