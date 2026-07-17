@@ -38,6 +38,13 @@ Two specific rules worth flagging because violating them costs hours:
 - **Don't put backticks inside a form's `glsl` string.** It's a JS template literal and a backtick inside breaks parsing silently. If a future form's GLSL needs a backtick, escape it carefully or restructure the surrounding string.
 - **Single state object means undo/redo is cheap.** If you're touching state mutations, consider whether the change should integrate with the history stack rather than bypass it.
 
+## UI Lab discipline
+
+The UI Lab (`lab.html` / `src/lab.js`) is the living inventory of the app's UI surface. Two standing rules so it never becomes whack-a-mole:
+
+- **Before adding any new component, style, or visual pattern, check the Lab first** for an existing component/token/text-style that already covers it. Reuse beats invention; the Lab exists to surface exactly this.
+- **Every new component or style that ships in app code lands in the Lab in the same increment** — with its state matrix (hover/active/disabled/error variants), rendered from the real classes/CSS, not a copy. A component that isn't in the Lab doesn't exist as far as the design system is concerned.
+
 ## prose style
 
 - Code comments explain *why*, not *what*. The code shows what.

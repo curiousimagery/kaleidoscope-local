@@ -437,6 +437,18 @@ Prioritized in [PLAN.md](PLAN.md) P1. Filed here with detail:
 
 **The B366 profiler settled it** (Daniel's line: `[FoldNdi] 20.2 fps · frame gap 50.0ms · copy 0.4ms · send-wait 0.0ms`): the native drain is IDLE — frames simply ARRIVE 50ms apart. The bus renders 29fps but WebKit's WebSocket send path moves 8.3MB/frame at ~165MB/s effective (masking + copies on the socket thread), so the wire delivers ~20fps and the bufferedAmount gate drops the rest. B371 made the STATUS honest (ndi-sink counts DELIVERED frames via publish's return value — the panel now shows ~20, not 29). History: 25.5 (pre-4B) → 19.5 (B363 flip regression) → 21 (B364) → 29 produced / 20 delivered (B366). **Levers, in recommendation order:** (a) **GPU RGBA→UYVY** — halve the wire bytes (→ ~40fps headroom) AND skip the SDK's own conversion; a shader pass + 4:2:2 chroma, fine for NDI. (b) fetch-POST unmasked transport (saves two XOR passes; gain uncertain — the copies remain). (c) meanwhile: FHD ≈ 20fps vs HD tier ≈ 30fps+, performer's choice. A raw TCP socket is NOT an option (a webview cannot open one). WiFi bandwidth itself remains a ceiling; USB-C ethernet is the rig answer.
 
+### Per-device-category SAFE export ceilings (Daniel, 2026-07-17)
+
+The 8K jetsam proved the FBO probe over-promises (allocation succeeds, the full export pipeline dies). Build a conservative per-device-category table (phone / iPad / desktop × memory class) of what each can SAVE safely — seed from real crashes (iPhone 17 Pro: 8K dies, 6K assumed ok pending verify), refine with field testing. Longer term the honest fix is a TILED export (render in strips, memory-bounded, no ceiling).
+
+### NDI blue cast + flicker on the RGBA wire — INVESTIGATE (Daniel round-4, 2026-07-17)
+
+Blue cast persists with UYVY reverted (IF the device build was current — B373 logs `wire: RGBA` at sender start; confirm that line first). If truly RGBA-blue: suspects are readPixels vs getImageData color management (Tier 1 picks readpixels on iPad — raw backbuffer values, possibly P3 vs sRGB) or the SDK's RGBA→YUV. A/B: `?buscapture=getimagedata` (web build) or the test pattern's known colors. Flicker: NDI rides the WiFi AP, not the internet — Daniel's DSL-era router is the prime suspect; A/B on a hotspot or wired ethernet.
+
+### ProRes in Electron (Daniel's question, 2026-07-17)
+
+Chromium cannot decode ProRes (no <video>, no WebCodecs support) — Safari/WebKit is the only browser path. BUT the Electron shell CAN: macOS ships the ProRes codecs, and a small native addon (AVAssetReader / VideoToolbox → RGBA or YUV frames) can decode any .mov ProRes and feed the engine — same architecture as the native-camera frame path (native produces, JS consumes). This is a natural conduit tier-B host capability ("host.mediaDecoder"): the app asks the host to decode what the browser can't. Sized as its own increment; makes the desktop app strictly stronger than Brave for pro footage.
+
 ### AirPlay OLED tearing/stutter — WATCH (Daniel, filed 2026-07-17)
 
 A while back: Apple TV → OLED showed slight tearing/stutter in playback even with the app reporting 30fps+. May predate the B363–372 perf work; not re-reproduced since. Validate on the next AirPlay session; if it persists, suspects are the external view's render pacing vs the TV's refresh (the state-stream renderer runs its own loop) rather than throughput.

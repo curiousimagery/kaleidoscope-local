@@ -4,6 +4,14 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.19.14 (Build 374) — 2026-07-17 — round-4: iPad record throttle probed away, 6K shown not 8K-disabled, the Lab discipline lands in CLAUDE.md
+
+- **iPad record fps** (still ~17 while the bus renders 29): the suspect is `VideoFrame(2D canvas)` — ~15ms on WebKit (a hidden readback), cheap on Blink. The recorder now probes its real cost on the first frames and switches the session to the **pixel-buffer path** (plain copy + flip) when the canvas path is the slow one; console logs the switch. Blink/Electron keep the canvas fast lane.
+- **Export tiers**: sizes above the device ceiling are HIDDEN, not disabled (Daniel's call — show the 6K a 17 Pro can do); **6144 joins the ladder**; `max` labels its actual K. BACKLOG: per-device-category safe ceilings, seeded from real crashes; tiled export as the true fix.
+- **NDI**: sender start logs `wire: RGBA|UYVY` (disambiguates a stale device build from a real color bug before chasing the blue cast); investigation filed with the A/B path (test pattern + hotspot-vs-DSL-router for the flicker).
+- **CLAUDE.md gains the UI Lab discipline** (Daniel's ask): check the Lab before adding components/styles; every new component ships WITH its Lab entry in the same increment.
+- **ProRes in Electron** answered + filed: Chromium can't decode ProRes in any browser API, but the Electron shell can via a native macOS decoder addon (AVAssetReader → frames over the native-produce/JS-consume pattern) — a natural conduit tier-B host capability (`host.mediaDecoder`), sized as its own increment.
+
 ## v0.19.13 (Build 373) — 2026-07-17 — round-3 findings: the REAL record-quality bug (screen-sized takes), UYVY pulled back, the toast grows up
 
 Daniel's round-3 console line `webcodecs @ 804×452` was the smoking gun: **the phone records the SCREEN-sized canvas** (Lane 5's known record-at-resolution gap, now proven by data — 804×452 → w·h·6 ≈ 2.2Mbps → his "38s = 9.9MB" compression artifacts). Fix: while a take rolls, `sizeOutput` renders the backing store at RECORD resolution (short side ≥1080; CSS size unchanged — the preview is just supersampled; flag reset on every stop/discard/failure path). Takes now encode ~1920×1080 @ ~12.4Mbps. Also: **the package option returns to the native path** (the raw source-take recorder bailed on the socket-fed canvas preview — no `srcObject`; it now captureStreams the canvas, best-effort as designed), and encoder-error logs extract the DOMException message (his `{}` warnings will name themselves).

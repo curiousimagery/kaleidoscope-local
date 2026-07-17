@@ -1877,13 +1877,14 @@ function buildSaveSheet() {
     }
     szEl.innerHTML = '';
     const capK = (cap / 1024).toFixed(0);
-    ['1024', '2048', '4096', '8192', 'max'].forEach(s => {
+    // tiers ABOVE the device's safe ceiling are HIDDEN, not disabled (Daniel's
+    // call: show the 6K a 17 Pro can do, don't dangle a dead 8K). 6144 joins
+    // the ladder since the phone ceiling moved off 8192 (the jetsam cap).
+    ['1024', '2048', '4096', '6144', '8192', 'max'].forEach(s => {
+      if (s !== 'max' && parseInt(s, 10) > cap) return;
       const b = document.createElement('button'); b.className = 'm-seg-btn'; b.dataset.v = s;
-      b.textContent = s === 'max' ? 'max' : (parseInt(s, 10) / 1024) + 'K';
-      const unsupported = s !== 'max' && parseInt(s, 10) > cap;
-      b.disabled = unsupported;
-      if (unsupported) b.title = `max ~${capK}K on this device`;
-      b.addEventListener('click', () => { if (b.disabled) return; session.exportSize = s; syncSize(); });
+      b.textContent = s === 'max' ? `max (~${capK}K)` : (parseInt(s, 10) / 1024) + 'K';
+      b.addEventListener('click', () => { session.exportSize = s; syncSize(); });
       szEl.appendChild(b);
     });
     syncSize();

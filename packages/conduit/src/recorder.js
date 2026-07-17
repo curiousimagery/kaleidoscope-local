@@ -284,6 +284,12 @@ async function startWebCodecsSession({ w, h, audioTrack, onDone, onError }) {
   let lastKeyUs = -Infinity;
   let flipBuf = null;
   let dropped = 0;
+  // VideoFrame(2D canvas) is ~15ms on WebKit (a hidden readback) but cheap on
+  // Blink; VideoFrame(pixel buffer) is a plain copy everywhere. Probe the
+  // canvas path's real cost on the first frames and switch to the pixels path
+  // for the session if it's the slow one (Daniel's iPad: 17fps recording while
+  // the bus rendered 29 — the construction cost was throttling the loop).
+  let vfMode = null, vfProbeN = 0, vfProbeMs = 0;
 
   async function finish() {
     if (mic) await mic.stop();   // posts the tail flush → onAudioData → encode
@@ -315,8 +321,18 @@ async function startWebCodecsSession({ w, h, audioTrack, onDone, onError }) {
       // while actual timing comes from timestamp deltas (timescaleUnitsToNextSample)
       const dur = 33_333;
       let vf;
-      if (frame.canvas) {
+      const useCanvas = frame.canvas && vfMode !== 'pixels';
+      if (useCanvas && !(vfMode === null && frame.pixels)) {
         vf = new VideoFrame(frame.canvas, { timestamp: ts, duration: dur });
+      } else if (frame.canvas && vfMode === null) {
+        // probe: time three canvas-constructions before committing
+        const t = performance.now();
+        vf = new VideoFrame(frame.canvas, { timestamp: ts, duration: dur });
+        vfProbeMs += performance.now() - t;
+        if (++vfProbeN >= 3) {
+          vfMode = vfProbeMs / vfProbeN > 5 ? 'pixels' : 'canvas';
+          if (vfMode === 'pixels') console.info(`[conduit] recorder: VideoFrame(canvas) ${(vfProbeMs / vfProbeN).toFixed(1)}ms — switching to the pixel path`);
+        }
       } else {
         // raw-pixel producer (no capture canvas): VideoFrame wants top-down rows
         let px = frame.pixels;

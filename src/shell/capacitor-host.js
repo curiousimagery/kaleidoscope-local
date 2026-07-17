@@ -140,7 +140,9 @@ export function createCapacitorHost() {
             ws.binaryType = 'arraybuffer';
             ws.onopen = () => { if (myGen === gen) wsReady = true; };
             ws.onclose = () => { if (myGen === gen) wsReady = false; };
-            console.info('[fold] NDI sender up (frame socket :' + res.port + ')');
+            // wire breadcrumb: disambiguates a stale device build from a real
+            // color bug (the blue-cast investigation — RGBA should not shift)
+            console.info(`[fold] NDI sender up (frame socket :${res.port}) · wire: ${uyvyWire ? 'UYVY' : 'RGBA'}`);
           }).catch((e) => console.warn('[fold] NDI start failed:', e));
         },
         // → false when the frame was DROPPED (socket down / backpressure gate),
