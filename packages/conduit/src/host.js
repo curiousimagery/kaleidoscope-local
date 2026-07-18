@@ -118,4 +118,17 @@ export const webHost = {
     async save(/* blob, suggestedName */) { return null; },
     async open(/* { accept } */) { return null; },
   },
+
+  // Native media decode/transcode — the host handles footage the browser
+  // engine can't (ProRes in Chromium is THE case: macOS ships the codecs and
+  // AVFoundation reads them, no browser API does). pathForFile maps a picked
+  // File to a real filesystem path (Electron webUtils); transcode() converts
+  // to something the engine plays (hardware HEVC on the Electron host) and
+  // returns { url } for a plain <video>. Web: unavailable — the app shows its
+  // honest codec message instead.
+  mediaDecoder: {
+    available: false,
+    pathForFile(/* file */) { return null; },
+    async transcode(/* path */) { throw new Error('no native media decoder on this host'); },
+  },
 };

@@ -20,7 +20,7 @@
 
 'use strict';
 
-const { contextBridge, ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
 // Tracks the armed state on this side too: a belt-and-suspenders gate so a stray
 // publish can't send a frame when no server is up (the sink is the primary gate).
@@ -77,6 +77,19 @@ const foldHost = {
   // gate on this side too, and invoke-based backpressure so the renderer can
   // never queue unbounded ~MB frames toward main (the Syphon OOM lesson).
   // `available` reflects whether main actually loaded the addon + SDK.
+  // Native media transcode (main runs macOS's avconvert): ProRes and anything
+  // else AVFoundation reads but Chromium can't decode. pathForFile maps the
+  // picked File to its real path (webUtils — File.path was removed); transcode
+  // resolves { url } for a plain <video> (the app loads from file://, so a
+  // file:// temp movie is same-scheme and loads directly).
+  mediaDecoder: {
+    available: process.platform === 'darwin',
+    pathForFile(file) {
+      try { return webUtils.getPathForFile(file) || null; } catch { return null; }
+    },
+    transcode(srcPath) { return ipcRenderer.invoke('media:transcode', srcPath); },
+  },
+
   ndi: {
     available: ipcRenderer.sendSync('ndi:available') === true,
     start(name) {

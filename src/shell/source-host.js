@@ -99,7 +99,10 @@ export function createSourceHost(env) {
   // video and kaleidoscopes its FIRST frame as a static source (full slice/canvas
   // editing works on it like a still). Binding it to the motion timeline (scrub +
   // keyframes over the moving footage) is the next increment.
-  function loadVideo(file) {
+  // opts.srcUrl: play from this URL instead of an object URL of `file` — the
+  // native-transcode retry path (the ORIGINAL file stays the package's
+  // originalSource; the transcoded temp movie is just what the engine plays).
+  function loadVideo(file, opts = {}) {
     if (!engine) return;
     if (env.live.isLive || env.live.frozen) stopCameraMode({ keepSource: true });   // uploading exits the camera workflow
     stopSourceVideoPlayback();                           // stop any previously loaded video's loop
@@ -107,7 +110,7 @@ export function createSourceHost(env) {
     env.filmstrip.lastSig = '';                          // any existing keyframe thumbs are from the old source
     env.clip.trim.inT = 0; env.clip.trim.outT = 1; env.clip.trim.mode = 'forward';  // a new clip starts untrimmed
     if (env.media.sourceVideoUrl) { URL.revokeObjectURL(env.media.sourceVideoUrl); env.media.sourceVideoUrl = null; }
-    const url = URL.createObjectURL(file);
+    const url = opts.srcUrl || URL.createObjectURL(file);   // revoke on a file:// URL is a harmless no-op
     env.media.sourceVideoUrl = url;
     env.media.sourceFilename = (file.name || 'video').replace(/\.[^.]+$/, '');
     env.media.originalSource = { blob: file, name: file.name || 'original' };   // for export package
@@ -198,7 +201,7 @@ export function createSourceHost(env) {
       }
     }, { once: true });
 
-    v.addEventListener('error', () => {
+    v.addEventListener('error', async () => {
       if (loaded) {
         // a decode hiccup AFTER the clip already loaded (seen on some Firefox .mov) —
         // not a codec-support problem, so don't blame ProRes. (Firefox .mov decode
@@ -206,7 +209,31 @@ export function createSourceHost(env) {
         console.warn('source video decode error after load', v.error);
         return;
       }
-      if (uploadErrorEl) uploadErrorEl.textContent = 'could not load this video — the browser may not support its codec (ProRes works only in Safari). Try an H.264 or HEVC .mp4/.mov.';
+      // Chromium can't decode this codec — but the HOST may (Electron: macOS's
+      // avconvert reads anything AVFoundation does, ProRes above all, and
+      // hands back hardware HEVC the engine plays). One-time per import; the
+      // original file stays the export package's originalSource.
+      const md = env.host?.mediaDecoder;
+      if (md?.available && !opts.srcUrl) {
+        const srcPath = md.pathForFile?.(file);
+        if (srcPath) {
+          statusEl.textContent = 'converting with the native decoder…';
+          statusEl.classList.add('busy');
+          try {
+            const out = await md.transcode(srcPath);
+            statusEl.textContent = '';
+            statusEl.classList.remove('busy');
+            console.info(`[fold] native transcode: ${file.name} → ${out.url}`);
+            loadVideo(file, { srcUrl: out.url });
+            return;
+          } catch (e) {
+            statusEl.textContent = '';
+            statusEl.classList.remove('busy');
+            console.warn('[fold] native transcode failed:', e);
+          }
+        }
+      }
+      if (uploadErrorEl) uploadErrorEl.textContent = 'could not load this video — the browser may not support its codec (ProRes works only in Safari and the desktop app). Try an H.264 or HEVC .mp4/.mov.';
       statusEl.textContent = '';
       statusEl.classList.remove('error', 'busy', 'success');
     });

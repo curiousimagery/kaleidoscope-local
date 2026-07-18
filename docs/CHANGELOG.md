@@ -4,6 +4,14 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🎞 v0.19.18 (Build 378) — 2026-07-18 — ProRes plays in the desktop app (host.mediaDecoder, zero new native code)
+
+The headline desktop win, shipped simpler than designed: **no native addon needed** — macOS ships `/usr/bin/avconvert` (Apple's AVFoundation transcoder CLI), so the Electron main process transcodes anything Chromium can't decode into **hardware HEVC at source resolution**, once per import, and the app plays a plain `<video>` (Chromium hardware-decodes HEVC on macOS). Measured in-session on real footage: 5s of FHD ProRes 422 (57MB) → 3.7MB `hvc1` @ 1920×1080 in **2.0 seconds** (2.5× realtime), output demux-validated.
+
+The wiring: **`host.mediaDecoder`** joins the conduit host contract (`available` / `pathForFile` / `transcode` — the "host decodes what the browser can't" seam); Electron implements it ([main.js](../electron/main.js) IPC → avconvert, [preload.js](../electron/preload.js) with `webUtils.getPathForFile`); [source-host.js](../src/shell/source-host.js)'s existing codec-error branch now retries through the transcoder with a "converting with the native decoder…" status before ever showing the codec message (which now says "Safari **and the desktop app**"). The ORIGINAL ProRes file stays the export package's `originalSource`; the temp movie is just what the engine plays. Web/Capacitor: seam reports unavailable, behavior unchanged.
+
+**Verify: drop `docs/temp/prores-test.mov` (a real ProRes 422 file, generated in-session) into the Electron app — expect the converting status, then normal playback/loop/scrub.** Filed: temp-file cleanup polish (OS temp self-cleans).
+
 ## 📦 v0.19.17 (Build 377) — 2026-07-17 — conduit tier B: the native NDI hosts live in the package, verified on BOTH shells in-session
 
 The gap Daniel called out is crossed: the native transports are conduit infrastructure now, at `packages/conduit/hosts/`:

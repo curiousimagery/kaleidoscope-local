@@ -20,6 +20,7 @@
 const { app, BrowserWindow, ipcMain, session } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const { execFile } = require('child_process');
 const syphon = require('./syphon-bridge');
 const ndi = require('conduit/hosts/electron-ndi/bridge');   // the conduit host package (file: dep)
 const trackpad = require('./trackpad-bridge');
@@ -112,6 +113,24 @@ ipcMain.on('ndi:available', (e) => { e.returnValue = ndi.available(); });
 ipcMain.on('ndi:start', (_e, { name } = {}) => ndi.start(name));
 ipcMain.handle('ndi:frame', (_e, payload) => { ndi.publish(payload); });
 ipcMain.on('ndi:stop', () => ndi.stop());
+
+// Native media transcode — footage Chromium can't decode (ProRes above all)
+// goes through macOS's OWN transcoder: /usr/bin/avconvert (AVFoundation, ships
+// with the OS — zero new native code). Hardware HEVC at highest quality keeps
+// the source resolution; Chromium on macOS hardware-decodes HEVC, so the
+// output loads as a plain <video>. One-time per import; the temp file lives
+// in the OS temp dir (system-cleaned).
+ipcMain.handle('media:transcode', (_e, src) => new Promise((resolve, reject) => {
+  if (typeof src !== 'string' || !src) { reject(new Error('no source path')); return; }
+  const out = path.join(app.getPath('temp'), `fold-transcode-${Date.now()}.mov`);
+  execFile('/usr/bin/avconvert',
+    ['--preset', 'PresetHEVCHighestQuality', '--source', src, '--output', out, '--replace'],
+    { timeout: 15 * 60_000 },
+    (err) => {
+      if (err) reject(new Error('avconvert failed: ' + (err.message || err)));
+      else resolve({ url: 'file://' + out, path: out });
+    });
+}));
 
 // Native trackpad gestures (Arc 6): the NSEvent monitor streams magnify/rotate
 // deltas; forward them to the renderer where the control bus maps them like any

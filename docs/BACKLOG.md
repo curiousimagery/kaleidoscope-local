@@ -457,9 +457,9 @@ Both are contained (no cascade risk: the record ceiling is WebKit-encode-path-sp
 
 Blue cast persists with UYVY reverted (IF the device build was current — B373 logs `wire: RGBA` at sender start; confirm that line first). If truly RGBA-blue: suspects are readPixels vs getImageData color management (Tier 1 picks readpixels on iPad — raw backbuffer values, possibly P3 vs sRGB) or the SDK's RGBA→YUV. A/B: `?buscapture=getimagedata` (web build) or the test pattern's known colors. Flicker: NDI rides the WiFi AP, not the internet — Daniel's DSL-era router is the prime suspect; A/B on a hotspot or wired ethernet.
 
-### ProRes in Electron (Daniel's question, 2026-07-17)
+### ProRes in Electron — SHIPPED B378 (host.mediaDecoder, zero new native code)
 
-Chromium cannot decode ProRes (no <video>, no WebCodecs support) — Safari/WebKit is the only browser path. BUT the Electron shell CAN: macOS ships the ProRes codecs, and a small native addon (AVAssetReader / VideoToolbox → RGBA or YUV frames) can decode any .mov ProRes and feed the engine — same architecture as the native-camera frame path (native produces, JS consumes). This is a natural conduit tier-B host capability ("host.mediaDecoder"): the app asks the host to decode what the browser can't. Sized as its own increment; makes the desktop app strictly stronger than Brave for pro footage.
+Shipped better than planned: no addon at all — macOS ships `/usr/bin/avconvert` (AVFoundation transcoder), so the Electron main process transcodes ProRes → hardware HEVC once on import (2.5× realtime measured) and the app plays a plain `<video>`. `host.mediaDecoder` seam in conduit; wired into loadVideo's codec-error branch. Device-verify: drop `docs/temp/prores-test.mov` into the desktop app. Remaining tail: a cleanup pass for temp transcode files (OS temp dir self-cleans; explicit delete-on-source-switch is polish).
 
 ### AirPlay OLED tearing/stutter — WATCH (Daniel, filed 2026-07-17)
 
