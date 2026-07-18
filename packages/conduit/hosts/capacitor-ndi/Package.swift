@@ -5,12 +5,15 @@ import PackageDescription
 // (scripts/make-xcframework.sh → ios/ndi.xcframework, .gitignored). Run the
 // script once per machine before the first iOS build. libndi is C++ inside,
 // hence the c++ linker setting.
+// Package/product names follow the npm package name (Capacitor's generated
+// CapApp-SPM requires product "ConduitNdiCapacitor"); the Swift plugin class
+// and its jsName stay FoldNdi… — renaming those is app-facing churn for later.
 let package = Package(
-    name: "FoldNdi",
+    name: "ConduitNdiCapacitor",
     platforms: [.iOS(.v15)],
     products: [
         .library(
-            name: "FoldNdi",
+            name: "ConduitNdiCapacitor",
             targets: ["FoldNdiPlugin"])
     ],
     dependencies: [

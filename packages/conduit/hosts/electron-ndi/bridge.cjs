@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Daniel Nelson
 //
-// electron/ndi-bridge.js — the NDI sender, main-process side.
+// conduit/hosts/electron-ndi/bridge.cjs — the NDI sender, Electron main-process side.
 //
 // The network sibling of syphon-bridge.js: the output bus (renderer) fans each
 // program frame to the NDI sink (conduit/ndi-sink), which sends the raw RGBA
@@ -9,7 +9,7 @@
 // source any receiver on the LAN (Resolume Arena, OBS, another Fold node) lists
 // like a camera.
 //
-// The native addon (native/ndi, raw N-API) links the locally installed Vizrt
+// The native addon (ndi.c beside this file, raw N-API) links the locally installed Vizrt
 // NDI SDK (/Library/NDI SDK for Apple — a licensed install, Daniel's download).
 // Loaded lazily and guarded: if the addon isn't built or the SDK is absent,
 // `available` reports false and the app never shows the NDI destination —
@@ -23,9 +23,9 @@
 
 let ndi = null;
 try {
-  ndi = require('./native/ndi/build/Release/fold_ndi.node');
+  ndi = require('./build/Release/fold_ndi.node');
 } catch (e) {
-  console.log('[ndi] addon not available (build native/ndi against the installed NDI SDK):', e.message);
+  console.log('[ndi] addon not available (node-gyp rebuild in conduit/hosts/electron-ndi against the installed NDI SDK):', e.message);
 }
 
 let started = false;

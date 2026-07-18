@@ -4,6 +4,15 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 📦 v0.19.17 (Build 377) — 2026-07-17 — conduit tier B: the native NDI hosts live in the package, verified on BOTH shells in-session
+
+The gap Daniel called out is crossed: the native transports are conduit infrastructure now, at `packages/conduit/hosts/`:
+
+- **`capacitor-ndi`** (was `native-plugins/fold-ndi`): the whole iOS plugin — Swift sender (async double-buffered, drain profiler), frame-socket receiver, the licensed-SDK xcframework build script. npm-renamed `conduit-ndi-capacitor`; Package.swift product renamed to match (Capacitor's generated CapApp-SPM requires the npm-derived product name — the one wiring trap of the move); the Swift class/jsName stay `FoldNdi…` (app-facing churn deferred). **Verified: `cap sync` + device `xcodebuild` BUILD SUCCEEDED.**
+- **`electron-ndi`** (was `electron/native/ndi` + `ndi-bridge.js`): addon source + `bridge.cjs`, consumed by the Electron app as a `file:` dependency (`require('conduit/hosts/electron-ndi/bridge')`; exports-map subpath added). **Verified end-to-end in-session per Daniel's greenlight: `node-gyp rebuild` in the new home, a live sender smoke (source up → frame published → clean teardown), and a FULL DMG BUILD** — which surfaced and fixed the real packaging traps: the space-free `sdk` symlink is now BUILD-TIME-ONLY (created for gyp, removed before electron-builder packs — the asar walker follows symlinks into /Library and refuses; it's untracked now), and conduit's mp4-muxer dep needed installing in electron's npm root. The packaged app carries the addon in `app.asar.unpacked`; a cosmetic 452K of inert capacitor-ndi source rides along in the asar (electron-builder's node_modules walker ignores files-excludes; xcframework binaries stay out; filed, not fought).
+
+Roadmap tier B marked shipped. What ships in a consumer now: add conduit + wire the host entries (Fold's `capacitor-host.js` / electron `main.js`+`preload.js` are the reference wiring). Remaining Fold-side: the trackpad addon (input, deliberately NOT conduit) and node-syphon (already a package).
+
 ## 📦 v0.19.16 (Build 376) — 2026-07-17 — conduit tier A: the capture probe and the frame-wire protocol are package infrastructure
 
 The extraction lane opens (PLAN priority 1, Daniel's greenlight). Two moves, both behavior-neutral for Fold:

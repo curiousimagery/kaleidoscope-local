@@ -50,12 +50,21 @@ if (!fs.existsSync(tpNode)) {
 //     doesn't offer the NDI destination. NOTE for real distribution: the DMG
 //     must BUNDLE the redistributable libndi (SDK redist/ + its terms) — today
 //     the addon's rpath points at the local SDK install (fine on this machine).
-const ndiNode = path.join(electronDir, 'native', 'ndi', 'build', 'Release', 'fold_ndi.node');
-const ndiSdk = path.join(electronDir, 'native', 'ndi', 'sdk', 'include');
-if (!fs.existsSync(ndiNode) && fs.existsSync(ndiSdk)) {
+const ndiHost = path.join(electronDir, 'node_modules', 'conduit', 'hosts', 'electron-ndi');
+const ndiNode = path.join(ndiHost, 'build', 'Release', 'fold_ndi.node');
+const ndiSdkLink = path.join(ndiHost, 'sdk');
+const NDI_SDK = '/Library/NDI SDK for Apple';
+if (!fs.existsSync(ndiNode) && fs.existsSync(NDI_SDK)) {
   console.log('[build-dmg] building the NDI sender addon…');
-  execFileSync('npx', ['node-gyp', 'rebuild'], { stdio: 'inherit', cwd: path.join(electronDir, 'native', 'ndi') });
+  // the space-free `sdk` symlink is BUILD-TIME-ONLY tooling (gyp can't take the
+  // spaced /Library path): created here, removed below — it must never exist
+  // while electron-builder packs node_modules (the asar walker follows it into
+  // /Library and refuses the "unsafe path")
+  fs.rmSync(ndiSdkLink, { force: true });
+  fs.symlinkSync(NDI_SDK, ndiSdkLink);
+  execFileSync('npx', ['node-gyp', 'rebuild'], { stdio: 'inherit', cwd: ndiHost });
 }
+fs.rmSync(ndiSdkLink, { force: true });
 // 1) build the web app into ../dist
 sh('npm', ['run', 'build', '--prefix', '..']);
 // 2) package, injecting the real app version so the DMG name reflects the build

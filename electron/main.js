@@ -21,7 +21,7 @@ const { app, BrowserWindow, ipcMain, session } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const syphon = require('./syphon-bridge');
-const ndi = require('./ndi-bridge');
+const ndi = require('conduit/hosts/electron-ndi/bridge');   // the conduit host package (file: dep)
 const trackpad = require('./trackpad-bridge');
 const remote = require('./remote-input');
 
@@ -104,7 +104,7 @@ ipcMain.on('syphon:start', (_e, { name } = {}) => syphon.start(name));
 ipcMain.handle('syphon:frame', (_e, payload) => { syphon.publish(payload); });
 ipcMain.on('syphon:stop', () => syphon.stop());
 
-// NDI control — Syphon's network sibling (ndi-bridge.js → the fold_ndi addon →
+// NDI control — Syphon's network sibling (conduit's electron-ndi bridge → addon →
 // the installed NDI SDK). Same arm/publish/stop shape, same invoke-backpressure
 // on the frame path; `ndi:available` gates the renderer's destination row on
 // whether the addon actually loaded (no SDK / no build → no NDI in the picker).

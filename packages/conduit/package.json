@@ -13,6 +13,7 @@
     "./commit-cell": "./src/commit-cell.js",
     "./encode": "./src/encode.js",
     "./frame-wire": "./src/frame-wire.js",
+    "./hosts/electron-ndi/bridge": "./hosts/electron-ndi/bridge.cjs",
     "./engine-adapter": "./src/engine-adapter.js",
     "./host": "./src/host.js",
     "./mock-host": "./src/mock-host.js",

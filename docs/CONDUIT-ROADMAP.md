@@ -19,7 +19,7 @@ The handshake for a new consumer is already real: implement the adapter, pick/pr
 2. **Save transport** — the host-aware saver half of `shell/save-flow.js` (the toast/status UI stays app-side or becomes an optional component later). The `host.fileSystem` contract already lives in conduit; the transport helper belongs beside it.
 3. **The FNDI frame-socket protocol** (header layout, backpressure discipline, JS-side flip) as a documented conduit module the host implementations share.
 
-## tier B — native host packages (the real "cross the gap" work)
+## tier B — native host packages — SHIPPED B377 (conduit/hosts/{capacitor-ndi, electron-ndi}, both shells build-verified)
 
 Fold's native transports are written app-agnostically; they move to the conduit repo as optional host packages a consumer adds per shell:
 

@@ -32,7 +32,7 @@
     "conduit": "file:packages/conduit",
     "fold-external-display": "file:native-plugins/fold-external-display",
     "fold-native-camera": "file:native-plugins/fold-native-camera",
-    "fold-ndi": "file:native-plugins/fold-ndi",
+    "conduit-ndi-capacitor": "file:packages/conduit/hosts/capacitor-ndi",
     "mp4-muxer": "^5.2.2",
     "mp4box": "^2.4.1",
     "qrcode-generator": "^2.0.4"

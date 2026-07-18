@@ -628,7 +628,7 @@ let rawRec = null, rawChunks = [], rawVideo = null, rawStream = null;
 // BROADCAST VIDEO (native + NDI — Daniel's UX): record video's sibling mode.
 // Same live camera + follower chrome; the far-right control ARMS the NDI
 // broadcast (green = live/broadcast semantics; red stays record-to-disk)
-// instead of recording. Frames publish through host.ndi (the fold-ndi plugin)
+// instead of recording. Frames publish through host.ndi (the conduit-ndi-capacitor plugin)
 // from a dedicated broadcast canvas at the chosen tier — additive beside the
 // delicate record path, never inside it.
 let broadcastMode = false;     // the "broadcast video" source is active

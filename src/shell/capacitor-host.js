@@ -89,7 +89,7 @@ export function createCapacitorHost() {
       available: true,
     },
 
-    // NDI network output — the fold-ndi plugin owns the Vizrt sender; frames
+    // NDI network output — the conduit-ndi-capacitor plugin owns the Vizrt sender; frames
     // stream to it over a localhost frame socket (the native-camera transport
     // REVERSED: the webview produces, native consumes). publish() is the hot
     // path: one header+pixels copy per frame, and bufferedAmount is the
