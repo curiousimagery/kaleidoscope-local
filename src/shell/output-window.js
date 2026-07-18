@@ -5,31 +5,35 @@
 //
 // Drives the chrome-free GPU output window (output.html / src/output-view.js): a
 // SECOND engine view that renders the live program itself on the GPU at the output
-// resolution. This SUPERSEDES the old CPU-paint window sink (stage/window-sink.js,
-// ~5fps@4K) — instead of fanning read-back pixels to the popup, we push only the
+// resolution. Instead of fanning read-back pixels to the popup, we push only the
 // small `state` JSON over a same-origin BroadcastChannel and let the popup's own
 // engine render it. Zero readback, smooth to 4K, pure web (works in Electron too).
 //
-// It presents the SAME shape the output bus's sinks do, so the destination picker
-// (output-panel.js) drives it identically — but `needsBus:false`, so a window-only
-// session never starts the bus's read-back loop (the popup is self-rendering). The
-// bus still serves Syphon + record, which need CPU pixels.
+// This is now a thin ADAPTER over conduit's transport-neutral poster core
+// (conduit/external-surface.js) — the SAME spine the iOS external display uses,
+// with the transport swapped: a BroadcastChannel + popup here, the native bridge
+// there. This module supplies the transport (popup + channel) and the Fold-specific
+// content (what state/source to post). It presents the output-bus sink shape so the
+// destination picker drives it identically — but `needsBus:false`, so a window-only
+// session never runs the bus's readback loop (the popup is self-rendering).
 //
-// Source sync is Fold-aware (so it lives in shell/, not the engine-agnostic stage/):
+// Source sync is Fold-aware (so it lives in shell/, not engine-agnostic conduit):
 //   - still image  → an ImageBitmap of the current source (set once)
-//   - loaded video → the blob URL (the popup plays its own copy; loose sync, deferred)
-//   - live camera  → the deviceId (the popup opens its OWN capture of that exact device)
+//   - loaded video → the blob URL (the popup plays its own copy; loose sync)
+//   - live camera  → the deviceId (the popup opens its OWN capture of that device)
+
+import { createSurfacePoster } from 'conduit/external-surface';
 
 const CHANNEL = 'fold-output';
 
 export function createOutputWindow(env) {
   let win = null;
   let channel = null;
-  let active = false;
-  let raf = 0;
-  let lastSourceSig = '';
-  let sourcePending = false;
-  let fps = 0;
+
+  function outputDims() {
+    const bus = env.outputBus;
+    return { width: bus?.width || 1920, height: bus?.height || 1080 };
+  }
 
   // A stable identity for the current source, so we only rebuild + re-post the
   // (potentially heavy) source payload when it actually changes.
@@ -43,10 +47,9 @@ export function createOutputWindow(env) {
 
   async function buildSourcePayload() {
     if (env.live?.isLive) {
-      // include the MAIN capture's negotiated dimensions so the popup's own
-      // capture of the same device lands on the same mode — a second consumer
-      // can otherwise negotiate a different aspect (seen on Firefox), which
-      // skews every normalized slice coordinate horizontally in the window
+      // include the MAIN capture's negotiated dimensions so the popup's own capture
+      // of the same device lands on the same mode — a second consumer can otherwise
+      // negotiate a different aspect (seen on Firefox), skewing every slice coordinate
       const size = env.engine?.getSourceSize?.() || {};
       return {
         kind: 'camera',
@@ -66,93 +69,70 @@ export function createOutputWindow(env) {
     return { kind: 'none' };
   }
 
-  function outputDims() {
-    const bus = env.outputBus;
-    return { width: bus?.width || 1920, height: bus?.height || 1080 };
-  }
-
-  // For a loaded-video source, slave the popup's own copy to the PROGRAM's clock:
-  // current time, paused state (motion mode pauses the main video), and retime
-  // rate. The popup plays smoothly and nudges toward this on drift (see output-view).
-  // While motion staging runs, the program clock is the committed copy
-  // (env.programVideo) — the popup follows the on-air loop, not the edit scrubs.
+  // For a loaded-video source, slave the popup's own copy to the PROGRAM's clock.
+  // While motion staging runs, the program clock is the committed copy (the popup
+  // follows the on-air loop, not the edit scrubs).
   function videoSync() {
     const v = env.programVideo?.() || env.sourceVideo;
     if (!v) return null;
     return { t: v.currentTime || 0, paused: !!v.paused, rate: v.playbackRate || 1 };
   }
 
-  async function postSource() {
-    if (!channel || sourcePending) return;
-    sourcePending = true;
-    try {
-      const payload = await buildSourcePayload();
-      if (channel) channel.postMessage({ type: 'source', payload, output: outputDims() });
-    } finally {
-      sourcePending = false;
-    }
-  }
+  const poster = createSurfacePoster({
+    transport: {
+      post: (msg) => { if (channel) channel.postMessage(msg); },
+      isClosed: () => !!(win && win.closed),
+    },
+    content: {
+      // programState = the COMMITTED program frame (shell/program-frame.js) — what the audience sees
+      getState: () => (env.programState ? env.programState() : env.state),
+      getOutputDims: () => outputDims(),   // the window has no degradation ladder — cap ignored
+      getVideoSync: () => videoSync(),
+      getTest: () => !!env.outputBus?.getStatus?.().testPattern,
+      sourceSignature,
+      buildSourcePayload,
+    },
+    onClosed: () => teardownTransport(),   // the user closed the popup → clean up channel + handle
+  });
 
-  // Push the small state JSON every frame (params + the locked output dims). This
-  // covers static editing, live camera, and motion playback uniformly without
-  // hooking any of their render loops. Re-posts the source only when it changes.
-  function loop() {
-    if (!active) return;
-    if (win && win.closed) { stop(); return; }
-    const sig = sourceSignature();
-    if (sig !== lastSourceSig) { lastSourceSig = sig; postSource(); }
-    if (channel) {
-      // `test` rides the per-frame state message so the popup honors the bus's test
-      // pattern (it self-renders and would otherwise ignore it — the old inert-button bug).
-      // The state posted is programState — the COMMITTED program frame (shell/
-      // program-frame.js), what the audience sees. Posted unconditionally each tick
-      // (the popup uses message arrival as its render clock — see output-view.js);
-      // a gen-based skip for static looks is a possible follow-up, but it must keep
-      // posting for LIVE sources or the popup's camera drops to its 10fps fallback.
-      try { channel.postMessage({ type: 'state', state: env.programState ? env.programState() : env.state, output: outputDims(), video: videoSync(), test: !!env.outputBus?.getStatus?.().testPattern }); } catch {}
-    }
-    raf = requestAnimationFrame(loop);
+  function teardownTransport() {
+    if (channel) { try { channel.close(); } catch { /* already closed */ } channel = null; }
+    if (win && !win.closed) { try { win.close(); } catch { /* already gone */ } }
+    win = null;
   }
 
   function start() {
-    if (active) return;
+    if (poster.active) return;
     win = window.open('output.html', 'fold-output', 'width=1280,height=720');
     if (!win) throw new Error('output window blocked — allow pop-ups for this site');
     channel = new BroadcastChannel(CHANNEL);
     channel.onmessage = (e) => {
       const msg = e.data;
       if (!msg) return;
-      if (msg.type === 'hello') { lastSourceSig = sourceSignature(); postSource(); }
-      else if (msg.type === 'fps') fps = msg.fps || 0;
+      if (msg.type === 'hello') poster.noteHello();
+      else if (msg.type === 'fps') poster.noteFps(msg.fps);
     };
-    active = true;
-    lastSourceSig = '';   // force an initial source post on the first loop tick
-    fps = 0;
-    loop();
+    poster.arm();
+    poster.begin();
   }
 
   function stop() {
-    active = false;
-    if (raf) { cancelAnimationFrame(raf); raf = 0; }
-    if (channel) { try { channel.close(); } catch {} channel = null; }
-    if (win && !win.closed) { try { win.close(); } catch {} }
-    win = null;
-    fps = 0;
+    poster.end();
+    teardownTransport();
   }
 
   return {
     id: 'window',
-    // needs a real popup: Capacitor has no second window at all, and iPadOS
-    // Safari only opens grouped TABS (Daniel confirmed the destination was
-    // dead UI there) — with HDMI/AirPlay/NDI on the iPad, a "window" adds
-    // nothing anyway. Touch = maxTouchPoints (iPadOS reports platform "MacIntel").
+    // needs a real popup: Capacitor has no second window at all, and iPadOS Safari
+    // only opens grouped TABS (dead UI there) — with HDMI/AirPlay/NDI on the iPad a
+    // "window" adds nothing anyway. Touch = maxTouchPoints (iPadOS reports "MacIntel").
     supported: typeof window !== 'undefined' && typeof window.open === 'function'
       && typeof BroadcastChannel !== 'undefined'
       && !window.Capacitor?.isNativePlatform?.()
       && !(navigator.maxTouchPoints > 1),
     needsBus: false,            // self-rendering — a window-only session never runs the bus
-    get active() { return active && !!win && !win.closed; },
-    get fps() { return fps; },
+    get active() { return poster.active && !!win && !win.closed; },
+    get fps() { return poster.fps; },
     start,
     stop,
     publish() { /* no-op: the popup renders itself from state, not from bus frames */ },

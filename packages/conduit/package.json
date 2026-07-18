@@ -12,6 +12,7 @@
     "./capture": "./src/capture.js",
     "./commit-cell": "./src/commit-cell.js",
     "./encode": "./src/encode.js",
+    "./external-surface": "./src/external-surface.js",
     "./frame-wire": "./src/frame-wire.js",
     "./hosts/electron-ndi/bridge": "./hosts/electron-ndi/bridge.cjs",
     "./engine-adapter": "./src/engine-adapter.js",

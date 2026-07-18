@@ -244,6 +244,10 @@ Once loop builder is a mode, the modes need opinionated "if this, then that" rou
 
 These are a coherent lane: make moving between Still / Motion / Perform / Loop-builder opinionated and safe, with the destructive-interrupt pattern (the systematic version of today's `window.confirm`) as the mechanism for the warnings.
 
+### Conduit vNext — capture-domain detection (deferred by decision 2026-07-18)
+
+DEFERRED until a camera-consuming conduit app exists (our immediate consumers — zoetrope, tap, visualizers — don't take camera input; designing a capability catalog with zero camera-consumers is guessing at the contract). Full scope in [CONDUIT-TIER-C.md](CONDUIT-TIER-C.md) "vNext" + [CONDUIT-ROADMAP.md](CONDUIT-ROADMAP.md) tier C. In brief, a **sibling package (the input/capture side of conduit)** lifted from Fold's `native-camera.js` + `FoldNativeCameraPlugin.swift` + `yuv-renderer.js`: the per-device **camera capability catalog** (lenses incl. virtual, per-lens resolution/fps, still sizes, EV/WB/zoom/stabilization/focus, deep-fusion), the **pipeline-safe fps governor** (`peakThroughput`/`safeFps`), the **still-vs-video format selection**, and the **YUV frame-socket ingest** (biplanar YUV → WebGL RGB blit). Mirror image of the broadcast domain: get frames IN from a device's cameras vs composed frames OUT. Named + scoped when the first camera-consumer is real.
+
 ---
 
 ## Export & rendering hardening  ·  parallel lane (lower priority)

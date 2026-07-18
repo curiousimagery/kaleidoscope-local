@@ -55,10 +55,10 @@ From Fold today:
 
 ## migration plan (contained increment, after the design lands)
 
-1. Add `conduit/external-surface.js` (the lifecycle + handshake + transport-select), parameterized on `{ host }`.
-2. Repoint Fold's `output-window.js` + `external-display.js` at it; delete the duplicated lifecycle/handshake code, keeping only Fold-specific glue.
-3. Document the view contract in the conduit README; mark `output-view.js` the reference implementation.
-4. Verify: desktop output window + iPad external display + AirPlay all still render-from-state at tier resolution with zero readback (the existing behavior — this is a refactor, not a feature).
+1. ✅ **B382** — Added `conduit/external-surface.js` → `createSurfacePoster({ transport, content, renderCaps, sourceCaps, onClosed })`: the per-frame state stream + source-on-change + hello/fps handshake + arm/begin/end lifecycle + the degradation ladder. Transport-neutral (the caller injects `post`/`isClosed`); no `host` coupling — the transport IS the host-specific piece.
+2. ✅ **B382** — Repointed Fold's `output-window.js` (BroadcastChannel + popup transport) and `external-display.js` (Capacitor plugin transport + crash-degradation + fill/frame-aspect dims) at it; both are thin adapters now. Public exports unchanged; behavior preserved move-for-move.
+3. ⏳ Document the view contract in the conduit README; mark `output-view.js` the reference implementation. (Next.)
+4. ⏳ **Device-verify** (regression, not new behavior): desktop output window + iPad external display + AirPlay all still render-from-state at tier resolution with zero readback.
 
 No rendering changes; behavior-neutral for Fold, capability-additive for the next consumer.
 

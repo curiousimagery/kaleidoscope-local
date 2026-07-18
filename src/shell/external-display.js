@@ -38,6 +38,7 @@
 // static registerPlugin inside a lazy module is the proven-on-device shape).
 
 import { registerPlugin } from '@capacitor/core';
+import { createSurfacePoster } from 'conduit/external-surface';
 
 const FoldExternalDisplay = registerPlugin('FoldExternalDisplay');
 
@@ -57,26 +58,22 @@ export function sourceToDataUrl(src, cap = 4096) {
 }
 
 // ---- the poster core --------------------------------------------------------
-// Owns the plugin lifecycle + the per-frame state stream; the chrome supplies
-// WHAT to post: getState (the committed program look), sourceSignature/
-// buildSourcePayload (source sync), getOutputDims/getVideoSync/getTest.
+// A thin ADAPTER over conduit's transport-neutral poster (conduit/external-surface.js):
+// this owns the iOS-specific plugin lifecycle (displayChanged/externalMessage/status
+// + the crash-degradation triggers + the fill/frame-aspect output-dims math); the
+// conduit core owns the per-frame state stream + source-on-change + the hello/fps
+// handshake. The chrome supplies WHAT to post via `opts` (getState, sourceSignature/
+// buildSourcePayload, getOutputDims/getFill/getFrameAspect/getVideoSync/getTest).
 function createPoster(opts) {
-  let active = false;
-  let raf = 0;
-  let lastSourceSig = '';
-  let lastOut = null;                 // last render dims sent (the status readout's truth)
-  let sourcePending = false;
-  let fps = 0;
   let connected = false;
   let dims = null;                    // display-native { width, height }, when known
   const changeHandlers = new Set();
 
-  // ADAPTIVE DEGRADATION: each external web-process death steps the render +
-  // source sizes down (Daniel's landscape pass: the view crash-looped under
-  // memory pressure, each reload re-allocating into the same wall). Reset per
-  // plug session. Gen 0 = display-native / 4096 stills; then 1920/2048; then
-  // 1280/1280.
-  let crashGen = 0;
+  // ADAPTIVE DEGRADATION ladder: each external web-process death steps the render +
+  // source sizes down (Daniel's landscape pass: the view crash-looped under memory
+  // pressure, each reload re-allocating into the same wall). The conduit poster tracks
+  // the generation (poster.gen) — degrade() on 'crashed', resetGen() on a fresh plug.
+  // Gen 0 = display-native / 4096 stills; then 1920/2048; then 1280/1280.
   const RENDER_CAPS = [Infinity, 1920, 1280];
   const SOURCE_CAPS = [4096, 2048, 1280];
   const capDims = (d, cap) => {
@@ -86,6 +83,43 @@ function createPoster(opts) {
     return { width: Math.round(d.width * s), height: Math.round(d.height * s) };
   };
 
+  // the render dims to post, given the current degradation cap (from the poster)
+  function computeOutputDims(cap) {
+    // the display's native resolution when known — the point of HDMI — stepped down
+    // by the crash generation when memory pressure killed the view
+    const native = capDims(
+      (dims?.width && dims?.height) ? dims : (opts.getOutputDims?.() || { width: 1920, height: 1080 }),
+      cap);
+    // FILL mode (the installation case): render edge-to-edge at the display's native
+    // aspect instead of honoring the canvas frame aspect.
+    if (opts.getFill?.()) return native;
+    // default: honor the composition's FRAME ASPECT (Daniel's iPad note: a 4:5 canvas
+    // was rendering as 16:9 out there — inconsistent with the canvas/recording/save,
+    // which all honor it). Fit the frame aspect inside the native pixels: full sharpness
+    // at that aspect, letterboxed by the view's object-fit.
+    const a = opts.getFrameAspect?.() || 0;
+    if (!a) return native;
+    let w = native.width, h = Math.round(native.width / a);
+    if (h > native.height) { h = native.height; w = Math.round(native.height * a); }
+    return { width: w, height: h };
+  }
+
+  const poster = createSurfacePoster({
+    transport: {
+      post: (msg) => FoldExternalDisplay.postState({ json: JSON.stringify(msg) }),
+    },
+    content: {
+      getState: opts.getState,
+      getOutputDims: ({ cap }) => computeOutputDims(cap),
+      getVideoSync: opts.getVideoSync,
+      getTest: opts.getTest,
+      sourceSignature: opts.sourceSignature,
+      buildSourcePayload: opts.buildSourcePayload,
+    },
+    renderCaps: RENDER_CAPS,
+    sourceCaps: SOURCE_CAPS,
+  });
+
   function emitChange(s) {
     for (const h of changeHandlers) { try { h(connected, s); } catch { /* keep others alive */ } }
   }
@@ -93,26 +127,25 @@ function createPoster(opts) {
   FoldExternalDisplay.addListener('displayChanged', (s) => {
     connected = !!s?.connected;
     dims = connected ? { width: s.width, height: s.height } : null;
-    if (!connected) crashGen = 0;       // a fresh plug gets a fresh size budget
-    if (!connected && active) stop();   // display yanked mid-stream: stop cleanly
+    if (!connected) poster.resetGen();        // a fresh plug gets a fresh size budget
+    if (!connected && poster.active) stop();   // display yanked mid-stream: stop cleanly
     emitChange(s);
   });
   FoldExternalDisplay.addListener('externalMessage', (msg) => {
     if (!msg) return;
     if (msg.type === 'hello') {
-      lastSourceSig = '';   // view (re)loaded — repost the source next tick
+      poster.noteHello();   // view (re)loaded — repost the source next tick
       console.info('[fold] external view ready (hello)');
     } else if (msg.type === 'fps') {
-      fps = msg.fps || 0;
+      poster.noteFps(msg.fps);
     } else if (msg.type === 'loaded') {
       // navigation finished — attach names which window path presented
       console.info('[fold] external view loaded output.html (attach:', msg.attach + ')');
     } else if (msg.type === 'loadError') {
       console.warn('[fold] external view FAILED to load output.html:', msg.error);
     } else if (msg.type === 'crashed') {
-      crashGen = Math.min(crashGen + 1, RENDER_CAPS.length - 1);
-      lastSourceSig = '';   // repost the (now smaller) source to the fresh view
-      console.warn(`[fold] external view web process died (${msg.count ?? '?'} recent) — reloading at reduced size (gen ${crashGen})`);
+      poster.degrade();     // step render + source sizes down; repost to the fresh view
+      console.warn(`[fold] external view web process died (${msg.count ?? '?'} recent) — reloading at reduced size (gen ${poster.gen})`);
     } else if (msg.type === 'crashLoop') {
       console.warn('[fold] external view crash-looped — presentation stopped; iOS mirroring takes over (unplug/replug to retry)');
       stop();
@@ -127,71 +160,14 @@ function createPoster(opts) {
     .then((s) => { connected = !!s?.connected; dims = connected ? { width: s.width, height: s.height } : null; emitChange(s); })
     .catch(() => {});
 
-  function outputDims() {
-    // the display's native resolution when known — the point of HDMI — stepped
-    // down by the crash generation when memory pressure killed the view
-    const native = capDims(
-      (dims?.width && dims?.height) ? dims : (opts.getOutputDims?.() || { width: 1920, height: 1080 }),
-      RENDER_CAPS[crashGen]);
-    // FILL mode (the installation case): render edge-to-edge at the display's
-    // native aspect instead of honoring the canvas frame aspect.
-    if (opts.getFill?.()) return native;
-    // default: honor the composition's FRAME ASPECT (Daniel's iPad note: a 4:5
-    // canvas was rendering as 16:9 out there — inconsistent with the canvas/
-    // recording/save, which all honor it). Fit the frame aspect inside the
-    // native pixels: full sharpness at that aspect, letterboxed by the view's
-    // object-fit.
-    const a = opts.getFrameAspect?.() || 0;
-    if (!a) return native;
-    let w = native.width, h = Math.round(native.width / a);
-    if (h > native.height) { h = native.height; w = Math.round(native.height * a); }
-    return { width: w, height: h };
-  }
-
-  function post(msg) {
-    return FoldExternalDisplay.postState({ json: JSON.stringify(msg) });
-  }
-
-  async function postSource() {
-    if (sourcePending) return;
-    sourcePending = true;
-    try {
-      const payload = await opts.buildSourcePayload({ sourceCap: SOURCE_CAPS[crashGen] });
-      await post({ type: 'source', payload, output: outputDims() });
-    } catch (e) {
-      console.warn('[fold] external display source post failed:', e);
-    } finally {
-      sourcePending = false;
-    }
-  }
-
-  // the per-frame state stream: the committed program look + the video clock +
-  // the test-pattern flag — the message shape output-view already consumes
-  function loop() {
-    if (!active) return;
-    const sig = opts.sourceSignature();
-    if (sig !== lastSourceSig) { lastSourceSig = sig; postSource(); }
-    lastOut = outputDims();               // what's actually on the wall (status readout)
-    post({
-      type: 'state',
-      state: opts.getState(),
-      output: lastOut,
-      video: opts.getVideoSync?.() || null,
-      test: !!opts.getTest?.(),
-    }).catch(() => {});
-    raf = requestAnimationFrame(loop);
-  }
-
   function start() {
-    if (active) return;
-    active = true;
-    lastSourceSig = '';
-    fps = 0;
+    if (poster.active) return;
+    poster.arm();   // armed before the async plugin start, so a stop() mid-open cancels
     FoldExternalDisplay.start()
       .then((s) => {
         console.info('[fold] external display presenting (attach:', (s?.attach || '?') + ',',
           (s?.width || '?') + 'x' + (s?.height || '?') + ')');
-        if (active) loop();
+        poster.begin();
       })
       .catch((e) => {
         console.warn('[fold] external display start failed:', e);
@@ -200,19 +176,17 @@ function createPoster(opts) {
   }
 
   function stop() {
-    if (!active) return;
-    active = false;
-    if (raf) { cancelAnimationFrame(raf); raf = 0; }
-    fps = 0;
+    if (!poster.active) return;
+    poster.end();
     FoldExternalDisplay.stop().catch(() => {});
   }
 
   return {
     start, stop,
-    get active() { return active; },
+    get active() { return poster.active; },
     get connected() { return connected; },
-    get fps() { return fps; },
-    get renderDims() { return lastOut; },
+    get fps() { return poster.fps; },
+    get renderDims() { return poster.renderDims; },
     onDisplayChange(h) { changeHandlers.add(h); return () => changeHandlers.delete(h); },
   };
 }

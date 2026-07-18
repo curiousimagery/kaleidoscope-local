@@ -4,6 +4,15 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🔌 v0.19.22 (Build 382) — 2026-07-18 — conduit Tier C, part 1: the external-surface poster extracted (transport-neutral, both surfaces unified)
+
+The first Tier C move, per the approved design (`docs/CONDUIT-TIER-C.md`, transport-neutral framing greenlit by Daniel). Fold's output window and iOS external display / AirPlay were the same abstraction wearing two code coats — a per-frame loop streaming committed program STATE to a self-rendering view, plus source-on-change repost and a hello/fps handshake. That spine is now **`conduit/external-surface.js` → `createSurfacePoster({ transport, content })`**:
+
+- **conduit owns the pipe** — the per-frame state stream, the source-repost-on-signature-change, the hello/fps handshake, the arm/begin/end lifecycle (two-phase so a stop during an async surface-open cancels cleanly), and an optional degradation ladder (`degrade()`/`resetGen()`/`gen`).
+- **the consumer owns transport + content** — `output-window.js` supplies a BroadcastChannel + popup transport; `external-display.js` supplies the Capacitor plugin bridge transport plus the iOS-specific crash-degradation triggers and the fill/frame-aspect output-dims math. Both are now thin adapters.
+
+Behavior-neutral by construction: all public exports (`createOutputWindow`, `createExternalDisplaySink`, `createExternalDisplayAutoconnect`, `sourceToDataUrl`) keep identical signatures; the crash-gen ladder, the stop-during-open guard, and the source-signature logic are preserved move-for-move. Render-from-state stays the only shipped pattern; frame-push remains a consumer choice over the same transport with no conduit fallback. Verified: `node --check` ×3, vite build (new external-surface chunk bundles), cap sync. **Device-verify (regression check, not new behavior): desktop output window + iPad external display + AirPlay all still render-from-state at tier resolution.** Remaining Tier C: fold the module's README/contract docs into the conduit repo; capture-domain detection stays deferred (vNext).
+
 ## 📸 v0.19.21 (Build 381) — 2026-07-18 — still-capture resolution flattened: one honest toggle, no impossible combos
 
 Daniel's follow-up to B380: the separate resolution picker + Deep Fusion toggle let a user pick 49MP with Deep Fusion off — a combination iOS can't actually produce (`.speed` bins a 48MP sensor to 12MP). Collapsed into **one two-way resolution toggle** where each option shows the resolution it truly delivers plus a descriptor:
