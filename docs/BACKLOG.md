@@ -437,9 +437,21 @@ Prioritized in [PLAN.md](PLAN.md) P1. Filed here with detail:
 
 **The B366 profiler settled it** (Daniel's line: `[FoldNdi] 20.2 fps · frame gap 50.0ms · copy 0.4ms · send-wait 0.0ms`): the native drain is IDLE — frames simply ARRIVE 50ms apart. The bus renders 29fps but WebKit's WebSocket send path moves 8.3MB/frame at ~165MB/s effective (masking + copies on the socket thread), so the wire delivers ~20fps and the bufferedAmount gate drops the rest. B371 made the STATUS honest (ndi-sink counts DELIVERED frames via publish's return value — the panel now shows ~20, not 29). History: 25.5 (pre-4B) → 19.5 (B363 flip regression) → 21 (B364) → 29 produced / 20 delivered (B366). **Levers, in recommendation order:** (a) **GPU RGBA→UYVY** — halve the wire bytes (→ ~40fps headroom) AND skip the SDK's own conversion; a shader pass + 4:2:2 chroma, fine for NDI. (b) fetch-POST unmasked transport (saves two XOR passes; gain uncertain — the copies remain). (c) meanwhile: FHD ≈ 20fps vs HD tier ≈ 30fps+, performer's choice. A raw TCP socket is NOT an option (a webview cannot open one). WiFi bandwidth itself remains a ceiling; USB-C ethernet is the rig answer.
 
+### iPhone record follow-ups (round-5, 2026-07-17)
+
+- **Composition at the selected 4K tier**: the camera-menu 4K applies to the SOURCE capture (and the package's source take saves 4K ✓); the composition records at the B373 upscale target (1080 short side). Honoring 4K for the composition = render the output canvas at 2160 short side during the take — an honest fps tradeoff on-device to measure before offering.
+- **A "finishing…" state for stop**: stop feels laggy because finalize runs async with no state change until the save lands. Design: recState 'finishing' immediately on tap (record button swaps to a spinner/label, paint loop stops). May be mostly cured by the even-width fix (B375) — re-evaluate after.
+
 ### Per-device-category SAFE export ceilings (Daniel, 2026-07-17)
 
 The 8K jetsam proved the FBO probe over-promises (allocation succeeds, the full export pipeline dies). Build a conservative per-device-category table (phone / iPad / desktop × memory class) of what each can SAVE safely — seed from real crashes (iPhone 17 Pro: 8K dies, 6K assumed ok pending verify), refine with field testing. Longer term the honest fix is a TILED export (render in strips, memory-bounded, no ceiling).
+
+### ⏸ PARKED GNARLY PAIR (Daniel's call, 2026-07-17): iPad record fps + iOS NDI color/flicker — documented, not chased
+
+Both are contained (no cascade risk: the record ceiling is WebKit-encode-path-specific; the color cast touches only the raw-pixels NDI consumers — takes, stills, exports, HDMI/AirPlay, Electron are all unaffected). Full device logs in `docs/temp/` (iPad + iPhone + NDI, Jul 17).
+
+- **iPad record ~19fps**: B374's probe WORKED (`VideoFrame(canvas) 18.7ms — switching to the pixel path` in the log) and fps still held ~19 — the remaining cost is deeper in WebKit's encode/copy path. Long-term answer is the Tier-3 native-capture class; not worth speculative surgery now.
+- **iOS NDI blue cast**: `wire: RGBA` CONFIRMED in the log — the cast is real on RGBA. **Key lead: colors were Arena-confirmed through B360, and B363 switched capture from getImageData (color-managed) to raw readPixels** — raw backbuffer reads bypass color management (P3 vs sRGB / premultiply). A/B when picked up: a persisted capture-mode override (localStorage, since the Capacitor webview can't take URL params) or the test pattern's known colors. **Flicker**: NDI rides the WiFi AP (never the internet) — Daniel's DSL-era router is prime suspect; A/B on hotspot/ethernet.
 
 ### NDI blue cast + flicker on the RGBA wire — INVESTIGATE (Daniel round-4, 2026-07-17)
 

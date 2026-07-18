@@ -4,6 +4,12 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.19.15 (Build 375) — 2026-07-17 — round-5: the odd-width encoder wedge fixed; the gnarly pair parked with its evidence; priorities reset
+
+Daniel's round-5 logs (saved in `docs/temp/`) landed three findings. The fixable one shipped: **the iPhone recorded at 1921×1080 — an ODD width** (the B373 upscale's rounding), and H.264's 4:2:0 chroma requires even dimensions — a hardware encoder choking on odd width is the likely culprit behind both the laggy stops and the "finalize timed out" failure. `sizeOutput`'s record branch now forces even dimensions. Re-verify: stop responsiveness + no finalize timeout on the next take.
+
+The two gnarly residuals are **PARKED with their evidence** (his call — no cascade risk, both contained to their own paths): **iPad record ~19fps** (the B374 probe WORKED — `VideoFrame(canvas) 18.7ms — switching to the pixel path` is in the log — and fps held anyway; the remaining cost is deeper in WebKit's encode path; Tier-3-class work) and **iOS NDI blue cast + flicker** (`wire: RGBA` confirmed current build, so the cast is real on RGBA — key lead recorded: colors were Arena-correct through B360 and B363 switched capture to raw readPixels, which bypasses color management; flicker prime suspect stays the DSL-era WiFi AP). BACKLOG "⏸ PARKED GNARLY PAIR" carries logs + leads. Also filed: composition-at-4K (the 4K tier applies to the source capture; the composition records at the 1080 upscale target — honoring 4K is an fps tradeoff to measure) and the stop-"finishing…" state design. **PLAN reprioritized (his step-back): conduit extraction (Electron build in-session, greenlit) → ProRes-in-Electron → iPhone capture latency → stop UX → clip-editor hardening/UX → the formats gauntlet.**
+
 ## v0.19.14 (Build 374) — 2026-07-17 — round-4: iPad record throttle probed away, 6K shown not 8K-disabled, the Lab discipline lands in CLAUDE.md
 
 - **iPad record fps** (still ~17 while the bus renders 29): the suspect is `VideoFrame(2D canvas)` — ~15ms on WebKit (a hidden readback), cheap on Blink. The recorder now probes its real cost on the first frames and switches the session to the **pixel-buffer path** (plain copy + flip) when the canvas path is the slow one; console logs the switch. Blink/Electron keep the canvas fast lane.

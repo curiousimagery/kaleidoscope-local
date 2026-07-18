@@ -1765,6 +1765,9 @@ function sizeOutput() {
       const k = 1080 / short;
       pw = Math.floor(pw * k); ph = Math.floor(ph * k);
     }
+    // H.264 needs EVEN dimensions (4:2:0) — the 1921×1080 take wedged the
+    // hardware encoder (Daniel's "finalize timed out" + laggy stops)
+    pw &= ~1; ph &= ~1;
   }
   const cap = 2048 / Math.max(pw, ph);
   if (cap < 1) { pw = Math.floor(pw * cap); ph = Math.floor(ph * cap); }

@@ -6,6 +6,10 @@ This is the one place priority lives. `HANDOFF.md` = rolling current state; `BAC
 
 The **Capacitor arc** delivered its outcome: Fold runs native on iPhone + iPad with the native camera (lens/EV/WB/48MP/stabilization/tap-to-focus), record video, HDMI + AirPlay out, NDI out on ALL THREE shells (device-confirmed in Arena), native save, and the conduit package extracted with its own repo. The **4B perf sequence** (Daniel-approved, 2026-07-16) shipped end to end: probe-once adaptive readback (B363), the WebCodecs live recorder (B365), async NDI sends + drain profiler (B366), the fast decode path for renders (B367, mp4box dependency approved), and the save-flow convergence (B370). Measured wins: Electron 4K takes ~50fps; **Brave 1080p renders 364fps, Firefox 72fps** (was ~90/18 pre-sequence); iPad NDI 25.5→29fps produced.
 
+## REPRIORITIZED 2026-07-17 (Daniel's step-back, round 5)
+
+The two gnarly residuals — **iPad record ~19fps** and **iOS NDI color/flicker** — are **PARKED** (BACKLOG "⏸ PARKED GNARLY PAIR": full logs in docs/temp, leads recorded, no cascade risk — both are contained to their own paths). Active priority order now: **(1) conduit extraction, tier A + tier B with the Electron build run in-session (Daniel's greenlight), (2) ProRes-in-Electron (`host.mediaDecoder` — a headline desktop win), (3) iPhone capture latency (native 1651ms half, device-paired), (4) reliable stop-recording UX ('finishing' state; may be cured by B375's even-width fix), (5) clip-editor hardening + UX (two-reader fast decode + the loop-builder rework), (6) the formats/browsers/resolutions pressure gauntlet.**
+
 ## P0 — the gauntlet loop (fix ↔ device-verify until green)
 
 Daniel tests in batches; each round's failures get fixed in one batch build. Round-3 fixes shipped (B371): take duration crash, success-toast phantom retry button, NDI status honesty (delivered fps, not rendered). **Round 3 checks:**
