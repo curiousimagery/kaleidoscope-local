@@ -8,7 +8,16 @@ The **Capacitor arc** delivered its outcome: Fold runs native on iPhone + iPad w
 
 ## REPRIORITIZED 2026-07-17 (Daniel's step-back, round 5)
 
-The two gnarly residuals — **iPad record ~19fps** and **iOS NDI color/flicker** — are **PARKED** (BACKLOG "⏸ PARKED GNARLY PAIR": full logs in docs/temp, leads recorded, no cascade risk — both are contained to their own paths). Active priority order now: **(1) ✅ B376/B377 conduit extraction tiers A+B, (2) ✅ B378 ProRes-in-Electron, (3) ✅ B379 iPhone capture latency (instant freeze + background develop + `.speed` prioritization; device-verify), (4) ✅ B379 stop-recording 'finishing' state (device-verify), (5) clip-editor hardening + UX (two-reader fast decode + the loop-builder rework) ← NEXT, (6) the formats/browsers/resolutions pressure gauntlet.** Device-paired remainders from (3): crop/exposure calibration, composition-at-4K measure.
+The two gnarly residuals — **iPad record ~19fps** and **iOS NDI color/flicker** — are **PARKED** (BACKLOG "⏸ PARKED GNARLY PAIR": full logs in docs/temp, leads recorded, no cascade risk — both are contained to their own paths).
+
+**Confirmed sequence (Daniel, 2026-07-18):**
+1. ✅ **Camera capture UX close-out** — B379 stop-recording 'finishing' (confirmed excellent on device); B380 still capture-then-freeze + Deep Fusion toggle; B381 flattened resolution toggle. Device-verify remainders (paired): capture crop/exposure calibration, composition-at-4K measure.
+2. **Conduit Tier C close-out** ← NEXT — the unified external-surface plumbing (design doc `docs/CONDUIT-TIER-C.md`, then extraction). Capture-domain detection deferred to vNext (see roadmap).
+3. **Clip-editor INFRASTRUCTURE** — the slice two-reader (crossfade correctness + speed; fixes Daniel's frame-pop). Bounce accel deferred (BACKLOG).
+4. **Clip-editor UX** — the "loop builder" mode (5-step flow, step panel + timeline reuse; Daniel pairs on layout).
+5. **App-wide mode-transition guardrails** — opinionated Still/Motion/Perform/Loop-builder routing (keyframe-shift warning first; then file-open routing, simplified non-loop motion editor, bounce PLAYBACK mode). See BACKLOG.
+
+Earlier shipped: conduit tiers A+B (B376/B377), ProRes-in-Electron (B378).
 
 ## P0 — the gauntlet loop (fix ↔ device-verify until green)
 

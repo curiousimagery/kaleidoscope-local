@@ -8,7 +8,7 @@ This file does not duplicate `docs/ARCHITECTURE.md` or `docs/HANDOFF.md`. Read t
 
 Daniel is a product designer, not an engineer. He thinks fluently in interaction patterns, system design, and product tradeoffs. He doesn't write code himself and doesn't want to debug yours. When you describe work, frame it in product terms first (what changes for the user, what tradeoff is involved, what the scope is) and only drop into implementation detail when he asks or when the implementation choice itself has a product consequence he should weigh in on.
 
-He works across three related apps that will share an engine: this one (kaleidoscope, the still tool), a planned motion shell, and a planned live shell. Decisions here cascade. When something is worth doing once-and-shared rather than twice-and-divergent, flag it.
+Fold is ONE app with three modes — Still (this kaleidoscope), Motion, and Perform. (Early notes called Motion and Perform the "motion shell" and "live shell" and imagined them as separate apps; they're now modes that exist inside Fold. If you see that archaic language anywhere, it means the modes.) The forward-looking multi-app story is **conduit**: a shared infrastructure package (device/browser capability detection, rendering, and broadcast — recording, Syphon, NDI, AirPlay/HDMI, external-window) that OTHER consumer apps piggyback on so we never rebuild that plumbing per app. Those consumers are real and coming (zoetrope, tap, music visualizers, mini-games, mobile cameras). Decisions here cascade to them. When something is worth doing once-and-shared in conduit rather than twice-and-divergent, flag it.
 
 ## standing maintenance after any code change
 

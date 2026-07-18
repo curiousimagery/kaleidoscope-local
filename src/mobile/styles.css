@@ -134,6 +134,11 @@ html, body { margin: 0; padding: 0; height: 100%; background: var(--bg); color: 
   border: 1px solid var(--border); border-radius: var(--radius-lg); font-size: var(--text-base); }
 .m-seg-btn.active { border-color: var(--focus); }
 .m-seg-btn:disabled { opacity: var(--disabled-opacity-strong); }
+/* two-line variant: a primary label with a small descriptor beneath (e.g. the
+   still-capture "12MP / fast capture" vs "49MP / deep fusion" resolution toggle) */
+.m-seg-btn.two-line { display: flex; flex-direction: column; justify-content: center; gap: 2px; padding: 6px 4px; line-height: 1.15; }
+.m-seg-btn .m-seg-sub { font-size: var(--text-xs); color: var(--text-secondary); }
+.m-seg-btn.active .m-seg-sub { color: var(--text); }
 
 /* TAB BAR — relative + z-index so the context overlay can't paint over it.
    We honor the OS-reported safe-area insets verbatim rather than nudging the bar

@@ -1341,7 +1341,6 @@ const camLensWrap = document.createElement('div');
 const camResWrap = document.createElement('div');
 const camFpsWrap = document.createElement('div');
 const camStabWrap = document.createElement('div');
-const camDeepFusionWrap = document.createElement('div');
 const camEvWrap = document.createElement('div');
 const camWbWrap = document.createElement('div');
 // broadcast-mode rows (Daniel: ONE menu combines camera + broadcast settings)
@@ -1356,12 +1355,11 @@ if (useNativeCam) {
   camResWrap.className = 'm-control'; camResWrap.id = 'm-cam-res';
   camFpsWrap.className = 'm-control'; camFpsWrap.id = 'm-cam-fps';
   camStabWrap.className = 'm-control'; camStabWrap.id = 'm-cam-stab';
-  camDeepFusionWrap.className = 'm-control'; camDeepFusionWrap.id = 'm-cam-deepfusion';
   camEvWrap.className = 'm-control'; camEvWrap.id = 'm-cam-ev';
   camWbWrap.className = 'm-control'; camWbWrap.id = 'm-cam-wb';
   camBcNameWrap.className = 'm-control'; camBcNameWrap.id = 'm-cam-bcname';
   camBcTestWrap.className = 'm-control'; camBcTestWrap.id = 'm-cam-bctest';
-  camPopEl.append(camLensWrap, camResWrap, camFpsWrap, camStabWrap, camDeepFusionWrap, camEvWrap, camWbWrap, camBcNameWrap, camBcTestWrap);
+  camPopEl.append(camLensWrap, camResWrap, camFpsWrap, camStabWrap, camEvWrap, camWbWrap, camBcNameWrap, camBcTestWrap);
 
   camMenuBtn.addEventListener('click', (e) => {
     e.stopPropagation();
@@ -1376,15 +1374,21 @@ if (useNativeCam) {
   });
 }
 
-// render a titled segmented control into `wrap`: items [{id,label}], current active.
+// render a titled segmented control into `wrap`: items [{id,label,sub?}], current
+// active. An optional `sub` renders a small descriptor line beneath the label (the
+// two-line variant, e.g. the still-capture resolution/quality toggle).
 function buildCamSeg(wrap, title, items, currentId, onPick) {
   wrap.innerHTML = `<div class="m-control-row"><span>${title}</span></div>`;
   const seg = document.createElement('div');
   seg.className = 'm-seg';
-  items.forEach(({ id, label }) => {
+  items.forEach(({ id, label, sub }) => {
     const b = document.createElement('button');
-    b.className = 'm-seg-btn' + (id === currentId ? ' active' : '');
-    b.textContent = label;
+    b.className = 'm-seg-btn' + (sub ? ' two-line' : '') + (id === currentId ? ' active' : '');
+    if (sub) {
+      b.innerHTML = `<span class="m-seg-main">${label}</span><span class="m-seg-sub">${sub}</span>`;
+    } else {
+      b.textContent = label;
+    }
     b.addEventListener('click', () => { if (id !== currentId) onPick(id); });
     seg.appendChild(b);
   });
@@ -1425,18 +1429,35 @@ function refreshCamMenu() {
     if (resList.length) buildCamSeg(camResWrap, 'resolution', resList, camera.getResolution(), switchResolution);
     else camResWrap.innerHTML = '';
   } else {
-    // gate the offered still sizes by what the GPU can actually hold as a source
-    // texture (honest: don't offer 48MP if the device can't sample it). The engine
-    // samples the still at FULL res, so the ceiling is the real GL max texture size.
+    // still mode: ONE two-way toggle collapses resolution × quality into the only real
+    // choices (Daniel) — FAST CAPTURE (base/binned res, .speed) vs DEEP FUSION (the
+    // sensor's max res, .quality / full computational photography). The impossible combo
+    // (48MP under .speed can't exist — iOS bins it to 12MP) and the low-value one
+    // (12MP-deep-fusion) are dropped. On a single-resolution lens (14 Pro ultrawide/tele
+    // = 12MP only) both sides read 12MP; deep fusion just means the slower fused process.
+    // Sizes are GPU-gated to the GL max texture (the engine samples the still at full res).
     const maxTex = engine.diagnostics?.maxTextureSize || 4096;
-    const stillList = (camera.getStillResolutions?.() || []).filter((r) => r.width <= maxTex && r.height <= maxTex);
-    if (stillList.length && !stillList.some((r) => r.id === camera.getStillResolution())) {
-      camera.setStillResolution(stillList[stillList.length - 1].id);   // drop to the largest allowed
-    }
-    camResWrap.classList.toggle('m-hidden', stillList.length < 1);
-    if (stillList.length) buildCamSeg(camResWrap, 'resolution', stillList, camera.getStillResolution(),
-      (id) => { camera.setStillResolution(id); refreshCamMenu(); });   // no re-acquire; just the capture size
-    else camResWrap.innerHTML = '';
+    const stillList = (camera.getStillResolutions?.() || [])
+      .filter((r) => r.width <= maxTex && r.height <= maxTex)
+      .slice().sort((a, b) => (a.width * a.height) - (b.width * b.height));
+    if (stillList.length && camera.setPhotoQuality) {
+      const fast = stillList[0], df = stillList[stillList.length - 1];
+      const mpOf = (r) => Math.round((r.width * r.height) / 1e6) + 'MP';
+      const isDeep = camera.getPhotoQuality?.() === 'quality';
+      // keep the plugin's next-shot size in lockstep with the toggle
+      const want = isDeep ? df : fast;
+      if (camera.getStillResolution() !== want.id) camera.setStillResolution(want.id);
+      camResWrap.classList.remove('m-hidden');
+      buildCamSeg(camResWrap, 'resolution',
+        [{ id: 'speed', label: mpOf(fast), sub: 'fast capture' },
+         { id: 'quality', label: mpOf(df), sub: 'deep fusion' }],
+        isDeep ? 'quality' : 'speed',
+        (id) => {
+          camera.setPhotoQuality(id);
+          camera.setStillResolution(id === 'quality' ? df.id : fast.id);
+          refreshCamMenu();
+        });
+    } else { camResWrap.classList.add('m-hidden'); camResWrap.innerHTML = ''; }
   }
   // frame rate — record-video (motion) mode only (hidden in broadcast, Daniel's
   // spec — the publish loop paces itself); PIPELINE-SAFE options for the current
@@ -1459,18 +1480,6 @@ function refreshCamMenu() {
        { id: 'cinematicExtended', label: 'smooth+' }],
       camera.getVideoStabilization(), switchStabilization);
   } else camStabWrap.innerHTML = '';
-  // Deep Fusion (photo quality prioritization) — STILL mode only. Off = fast single
-  // shot (but iOS caps a 48MP sensor at 12MP under .speed); on = full computational
-  // photography, the only path to true 48MP, at a latency cost. Default off; Daniel is
-  // A/Bing the tradeoff. Sits under resolution because it gates what resolution is real.
-  const showDeepFusion = !broadcastMode && !videoMode && !!camera.setPhotoQuality;
-  camDeepFusionWrap.classList.toggle('m-hidden', !showDeepFusion);
-  if (showDeepFusion) {
-    buildCamSeg(camDeepFusionWrap, 'deep fusion',
-      [{ id: 'speed', label: 'off' }, { id: 'quality', label: 'on' }],
-      camera.getPhotoQuality?.() === 'quality' ? 'quality' : 'speed',
-      (id) => { camera.setPhotoQuality(id); refreshCamMenu(); });
-  } else camDeepFusionWrap.innerHTML = '';
   // exposure (EV) — a live bias slider; white balance — auto/manual + a Kelvin slider
   // when manual (only where the physical lens supports custom gains, which ours do).
   // Both reset on a lens/flip change (native-camera resets + refreshCamMenu re-reads).

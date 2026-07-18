@@ -224,7 +224,25 @@ Forward design reference for the motion editor + perform-mode controls. North st
 
 Trim/bounce/slice are feature-complete. Remaining: seek-based decode slow on long clips — **the WebCodecs reader shipped B367 for motion export (`shell/video-decode.js`, supports the bake's segment jumps via keyframe reset); wiring the BAKE through it is the open tail**; 30fps bake (source-fps estimation); no mid-bake cancel; live preview shows a hard seam cut vs the baked blend (the two-video crossfade preview is in for dial-in); bounce preview forward-only.
 
-**Loop-builder rework (usability finding, Daniel 2026-07-06): the clip editor confuses users.** Be opinionated about the sequence of operations, with visual feedback at the slice step: **1)** trim edges → **2)** set bounce or loop behavior → **3)** if loop, set the slice point — SHOW what's happening: `[ab]` → `[a]·slice·[b]` becomes `[b]·slice·[a]` → **4)** if loop, set the crossfade duration at the slice → **5)** bake. Conceptually this may become a **loop builder MODE** (fits the Arc 1 mode discipline) rather than today's ad-hoc dialog; decide when touched.
+**Loop-builder rework (usability finding, Daniel 2026-07-06; UX direction expanded 2026-07-18): the clip editor confuses users.** Be opinionated about the sequence of operations, with visual feedback at the slice step: **1)** trim edges → **2)** set bounce or loop behavior → **3)** if loop, set the slice point — SHOW what's happening: `[ab]` → `[a]·slice·[b]` becomes `[b]·slice·[a]` → **4)** if loop, set the crossfade duration at the slice → **5)** bake. This becomes a **"loop builder" MODE alongside Still / Motion / Perform** (mode discipline), not today's ad-hoc modal.
+
+**Layout direction (Daniel, 2026-07-18; he'll pair on the details when we build the UX):**
+- Turn the modal into a full-page mode. A **step panel on the LEFT** shows where you are in the 5-step process (progressive disclosure — later steps reveal as earlier ones resolve).
+- **Reuse the motion editor's timeline area** for the trim + crossfade controls (don't invent a second timeline).
+- Claude to bring layout + progressive-disclosure thinking to that session (Daniel explicitly wants the back-and-forth on it).
+- **Keyframe-shift guardrail:** if the user enters loop builder AFTER adding keyframes, detect it and WARN — editing the source footage shifts keyframe positions. (Part of the app-wide mode-transition guardrails item below.)
+
+**Two-layer build (confirmed sequencing):** the invisible **decode infrastructure** (the slice two-reader — crossfade correctness + speed) ships FIRST, then the **mode UX** on top of the now-reliable bake.
+
+### App-wide mode-transition guardrails + opinionated flows (Daniel, 2026-07-18) — follows the loop-builder UX
+
+Once loop builder is a mode, the modes need opinionated "if this, then that" routing so users land in the right place instead of hitting silent traps. Directed items:
+- **Keyframe-shift warning** (near-term, ships WITH loop builder): entering loop builder with existing keyframes must warn that editing the source will shift keyframe positions.
+- **Open-a-motion-file routing** (future): on opening a motion file, detect whether it's already a loop and ask the user whether they want it to be one — route them to the right mode (loop builder vs plain motion) accordingly.
+- **A simplified NON-LOOP variation of the motion editor** (future): a motion-editing path that isn't optimized for looped content and does NOT use the split first/last keyframe. Pairs with the routing above (looped content → loop builder + the split-keyframe motion editor; non-looped → the simplified one).
+- **Bounce PLAYBACK mode** (future, needed in BOTH Perform and non-looped Motion): let users choose bounce (ping-pong) playback instead of loop playback. Distinct from the clip-bake bounce (that bakes a file); this is a playback behavior on the timeline. 
+
+These are a coherent lane: make moving between Still / Motion / Perform / Loop-builder opinionated and safe, with the destructive-interrupt pattern (the systematic version of today's `window.confirm`) as the mechanism for the warnings.
 
 ---
 
@@ -316,7 +334,7 @@ Each is one new file in `src/engine/forms/` plus one registry line. Order is rou
 
 **Design constraint for all new forms:** No visible seams. Pinwheel-only groups (p3/p6/p4) are excluded (cell seams break the illusion); glide-reflection groups (pmg/pgg) excluded (glide-axis discontinuities); rectangular mirror groups (pmm/cmm) excluded (redundant with the square form). With p3m1 shipped, p31m is the only remaining wallpaper group adding distinct vocabulary while satisfying the seam constraint. For each new form, fill in `tilesPerDim(state)` so the resolution hint is accurate.
 
-### Droste math directions (future, pair with motion shell)
+### Droste math directions (future, pair with Motion mode)
 
 - **True vanishing-point offset (per-tier rigid translation).** The current `drosteOffset` uses Möbius pre-composition (preserves circles but introduces in-tier non-conformal stretch Daniel reads as "rotation forced onto a 2D plane"). Clean math: per-tier rigid translation — each tier k has center `c_k = offset·(1 − 1/zoom^k)`; per pixel determine tier, translate, apply standard warp. Undistorted off-center concentric circles, visible tier seams. (Daniel's mental model: moving the vanishing point should be like looking down a TUNNEL, not rotating a sphere.)
 - **Dimensional rotation / volumetric tilt.** Each concentric tier projected at a different angle (looking at a tube off-axis). More complex; per-tier perspective.
@@ -430,7 +448,7 @@ Core shipped (B331): the `fold-external-display` plugin presents output.html on 
 Prioritized in [PLAN.md](PLAN.md) P1. Filed here with detail:
 
 - **Record quality + reliability (1080p!):** always-present pixelation/compression artifacts (droste interior circles blocky — bitrate starvation, not sensor resolution), stop sometimes NOT stopping after ~2min takes, save sometimes failing. All WebKit-MediaRecorder pathologies; the phone chrome is the LAST MediaRecorder consumer. **Fix = port the conduit WebCodecs recorder session into the mobile record path** (explicit bitrate → quality; no captureStream → reliability), gated on the iPad take device-proving the session first, and done as a careful device-paired increment (delicate-path rule).
-- **Still capture latency + fidelity:** ~~the ~2s capture lag~~ **feedback + flow REWORKED B380** (B379's instant-freeze was dishonest — it froze the preview BEFORE the shot; B380 is capture-then-freeze: "capturing… hold still" → real shot → freeze, with Deep Fusion as an on/off toggle default-off). The 49MP→12MP report was `.speed` capping the sensor, now solved by the toggle. REMAINING fidelity work (device-paired): brightness DARKENS meaningfully on capture; alignment shifts slightly on camera switch (stabilization-crop estimate vs the un-stabilized still — the `STABILIZATION_CROP` calibration). Crop + exposure-consistency calibration still open. Also OPEN as an idea: a "3·2·1" countdown before the shot (Daniel's note — avoids camera shake from the button press; would delay every capture, so make it opt-in if built).
+- **Still capture latency + fidelity:** ~~the ~2s capture lag~~ **feedback + flow REWORKED B380** (B379's instant-freeze was dishonest — it froze the preview BEFORE the shot; B380 is capture-then-freeze: "capturing… hold still" → real shot → freeze, with Deep Fusion as an on/off toggle default-off). The 49MP→12MP report was `.speed` capping the sensor; **B381 flattened resolution × quality into ONE two-way toggle** ("12MP · fast capture" / "49MP · deep fusion", labels derived from the actual sensor dims per lens) so the impossible 48MP-fast combo is unrepresentable. REMAINING fidelity work (device-paired): brightness DARKENS meaningfully on capture; alignment shifts slightly on camera switch (stabilization-crop estimate vs the un-stabilized still — the `STABILIZATION_CROP` calibration). Crop + exposure-consistency calibration still open. Also OPEN as an idea: a "3·2·1" countdown before the shot (Daniel's note — avoids camera shake from the button press; would delay every capture, so make it opt-in if built).
 - **8K still save consistently fails (iPhone):** next device round, capture the save-flow toast reason. Likely the FBO/memory ceiling: `probeExportMax(8192)` passes but the real 8K export path dies. Fix shape: a REAL allocation test before offering the size, or an honest per-device cap.
 - **Thermal/power:** devices run hot; sustained load is the real constraint. Lane 5 expands beyond old-device degradation to SUSTAINED performance on modern hardware: a `thermalState` host seam, frame governors under pressure, idle-render elision, honest sustained-fps tiers.
 

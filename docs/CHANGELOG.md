@@ -4,6 +4,17 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 📸 v0.19.21 (Build 381) — 2026-07-18 — still-capture resolution flattened: one honest toggle, no impossible combos
+
+Daniel's follow-up to B380: the separate resolution picker + Deep Fusion toggle let a user pick 49MP with Deep Fusion off — a combination iOS can't actually produce (`.speed` bins a 48MP sensor to 12MP). Collapsed into **one two-way resolution toggle** where each option shows the resolution it truly delivers plus a descriptor:
+
+- **"12MP · fast capture"** — base/binned res, `.speed`.
+- **"49MP · deep fusion"** — the sensor's max res, `.quality` / full computational photography.
+
+The MP label is derived from the actual sensor dimensions (8064×6048 → 49MP, 4032×3024 → 12MP), so it self-adjusts per lens: on the iPhone 14 Pro's ultrawide/tele (12MP-only sensors) both options read "12MP" and Deep Fusion just means the slower fused process; on the 1x lens, deep fusion unlocks the full 49MP. Dropped the impossible 48MP-fast and the low-value 12MP-deep-fusion combos. Picking an option sets both the quality prioritization and the still size in lockstep. New `.m-seg-btn.two-line` style (primary label + small descriptor) shipped to the UI Lab in the same increment.
+
+Verified: vite build + cap sync ✓ (no native change — the plugin already takes the quality param). **Device-verify: the toggle reads correctly per lens, and "49MP · deep fusion" returns a true 49MP still.**
+
 ## 📸 v0.19.20 (Build 380) — 2026-07-18 — still-capture honesty pass: capture-then-freeze, the 12MP mystery solved, Deep Fusion as a toggle
 
 Daniel's device feedback corrected the B379 still flow and caught a real resolution bug — both fixed here.

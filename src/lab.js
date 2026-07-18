@@ -383,6 +383,13 @@ function btnEl(cls, text, opts = {}) {
   if (opts.id) p.id = opts.id;
   return el('button', p);
 }
+// two-line segmented button specimen (.m-seg-btn.two-line), matching buildCamSeg's
+// stacked variant: a primary label over a small descriptor line.
+function twoLineSeg(label, sub, active) {
+  const b = el('button', { class: 'm-seg-btn two-line' + (active ? ' active' : '') });
+  b.innerHTML = `<span class="m-seg-main">${label}</span><span class="m-seg-sub">${sub}</span>`;
+  return b;
+}
 // icon+text specimen (.ot-icontext): glyph svg string + label, matching how
 // updateCameraUI composes the real record/pause toggle.
 function iconTextBtn(glyphSvg, label) {
@@ -442,6 +449,12 @@ function buttonMatrix() {
       ['.m-seg-btn', btnEl('m-seg-btn', 'seg')],
       ['.active', btnEl('m-seg-btn active', 'seg on')],
       [':disabled', btnEl('m-seg-btn', 'seg', { disabled: 1 })],
+    ]),
+    // two-line variant: a primary label + a small descriptor (the still-capture
+    // resolution/quality toggle — "12MP / fast capture" vs "49MP / deep fusion")
+    matrixRow('Mobile · .m-seg-btn.two-line', [
+      ['.two-line', twoLineSeg('12MP', 'fast capture', false)],
+      ['.two-line.active', twoLineSeg('49MP', 'deep fusion', true)],
     ]),
     // mobile icon-only recipe (.m-icon-btn = the .ot-icon counterpart; the
     // class centers, the chrome is per-consumer — shown with #m-flip's)
