@@ -4,6 +4,16 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🎬 v0.19.24 (Build 384) — 2026-07-18 — clip-editor infrastructure: the slice crossfade two-reader (correctness + speed)
+
+The invisible infrastructure under the coming loop-builder mode. The slice-bake crossfade now decodes through **two monotonic frame readers over the same file** (one per segment) instead of seeking a single occluded `<video>` back and forth every frame:
+
+- **Fixes Daniel's crossfade drop-frame** (a fading-OUT frame popping back at full opacity). The old path seeked one element B-tail → A-head → B-tail each frame — a big backward jump every time — and an occluded decoder that hasn't caught up presents a STALE frame while `seeked` still fires, so the alpha-1 base layer sometimes drew an already-shown frame at full opacity. Two readers each advance FORWARD ONLY within their own segment (B covers `[cut,outA]`, A covers `[inA,cut]`), returning deterministically-correct frames.
+- **Speed**: no keyframe re-decode thrash from the per-frame backward seeks (the WebCodecs decode-once path, same one the motion export uses since B367). Correctness and speed from the same change.
+- **Safe fallback**: when the readers can't arm (no WebCodecs/mp4box, or an oversized file), it falls back to the proven single-element seek path — correct, just slower. Bounce is untouched (its reverse pass is inherently backward — deferred per Daniel; the accel is a filed BACKLOG perf item).
+
+Behind the existing bake flow + "baking…" cover; `captureMode` stays `'2d'` (the readers' `VideoFrame`s draw straight onto the bake canvas). Verified: node --check, vite build, cap sync. **Desktop-verify: bake a slice loop with a crossfade and confirm the seam no longer drops/pops frames.** Filed: two readers currently fetch the file twice (2× compressed memory) — a shared-demux/one-fetch optimization is a follow-up if it bites on large clips. **NEXT: the loop-builder mode UX (pairs with Daniel on layout).**
+
 ## 🔌 v0.19.23 (Build 383) — 2026-07-18 — Tier C close-out: consumer README + output-window closes with the app
 
 Two things close out Tier C:

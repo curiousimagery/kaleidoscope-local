@@ -17,6 +17,7 @@
 
 import { exportVideo } from './video-export.js';
 import { seekVideoTo } from './video-source.js';
+import { createSequentialFrameReader } from './video-decode.js';
 
 export function createClipEditor(env) {
   // Stable refs (set before this runs, never reassigned) can be captured; cross-
@@ -315,6 +316,9 @@ export function createClipEditor(env) {
     const fps = 30;                                 // bake fps (source-fps estimation = backlog item)
     const range = trim.outT - trim.inT, trimmedSec = range * dur;
     let durationMs, frameAt;
+    // slice crossfade uses TWO monotonic readers over the same file (below); declared
+    // here so the finally can close them.
+    let sliceReaderA = null, sliceReaderB = null;
     if (trim.mode === 'bounce') {
       durationMs = Math.max(200, trimmedSec * 2 * 1000);   // forward + reverse
       frameAt = async (p) => {
@@ -335,23 +339,58 @@ export function createClipEditor(env) {
       const outDur = (outA - inA) - cfSec;
       const bEnd = Bdur - cfSec;                     // pure-B until here (output seconds)
       durationMs = Math.max(200, outDur * 1000);
-      frameAt = async (p) => {
-        const t = p * outDur;
-        if (t < bEnd) {                              // pure B
-          await seekVideoTo(decodeV, cut + t);
-          cctx.globalAlpha = 1; cctx.drawImage(decodeV, 0, 0, w, h);
-        } else if (t < Bdur) {                       // crossfade: B tail dissolves into A head
-          const alpha = cfSec > 0 ? (t - bEnd) / cfSec : 1;
-          await seekVideoTo(decodeV, cut + t);       // B tail (outA-cfSec → outA)
-          cctx.globalAlpha = 1; cctx.drawImage(decodeV, 0, 0, w, h);
-          await seekVideoTo(decodeV, inA + (t - bEnd));   // A head (inA → inA+cfSec)
-          cctx.globalAlpha = alpha; cctx.drawImage(decodeV, 0, 0, w, h); cctx.globalAlpha = 1;
-        } else {                                     // pure A
-          await seekVideoTo(decodeV, inA + (t - bEnd));
-          cctx.globalAlpha = 1; cctx.drawImage(decodeV, 0, 0, w, h);
-        }
-        return cap;
-      };
+
+      // TWO monotonic readers over the same file — one per segment. B covers [cut,outA]
+      // as output time t goes 0→Bdur; A covers [inA,cut] as t goes bEnd→outDur — each
+      // advances FORWARD ONLY within its own segment. This fixes the crossfade drop-frame
+      // (a fading-OUT frame popping back at full opacity): the single-reader path seeks one
+      // occluded <video> B-tail→A-head→B-tail every frame, and an occluded decoder that
+      // hasn't caught up presents a STALE frame at full alpha. Monotonic readers return
+      // deterministically-correct frames with no keyframe re-decode thrash — correctness
+      // AND speed. Falls back to the single-element seek path when the readers can't arm.
+      const url = decodeV.currentSrc || decodeV.src || env.media.sourceVideoUrl;
+      try {
+        sliceReaderB = await createSequentialFrameReader(url);
+        sliceReaderA = sliceReaderB ? await createSequentialFrameReader(url) : null;
+      } catch { sliceReaderA = sliceReaderB = null; }
+      if (sliceReaderB && !sliceReaderA) { sliceReaderB.close(); sliceReaderB = null; }
+
+      if (sliceReaderA && sliceReaderB) {
+        frameAt = async (p) => {
+          const t = p * outDur;
+          if (t < bEnd) {                            // pure B
+            cctx.globalAlpha = 1; cctx.drawImage(await sliceReaderB.frameAt(cut + t), 0, 0, w, h);
+          } else if (t < Bdur) {                     // crossfade: B tail dissolves into A head
+            const alpha = cfSec > 0 ? (t - bEnd) / cfSec : 1;
+            cctx.globalAlpha = 1; cctx.drawImage(await sliceReaderB.frameAt(cut + t), 0, 0, w, h);
+            cctx.globalAlpha = alpha; cctx.drawImage(await sliceReaderA.frameAt(inA + (t - bEnd)), 0, 0, w, h);
+            cctx.globalAlpha = 1;
+          } else {                                   // pure A
+            cctx.globalAlpha = 1; cctx.drawImage(await sliceReaderA.frameAt(inA + (t - bEnd)), 0, 0, w, h);
+          }
+          return cap;
+        };
+      } else {
+        // fallback: the proven single-element seek path (backward jumps re-decode per
+        // frame, correct but slower and prone to the stale-frame pop above)
+        frameAt = async (p) => {
+          const t = p * outDur;
+          if (t < bEnd) {                            // pure B
+            await seekVideoTo(decodeV, cut + t);
+            cctx.globalAlpha = 1; cctx.drawImage(decodeV, 0, 0, w, h);
+          } else if (t < Bdur) {                     // crossfade: B tail dissolves into A head
+            const alpha = cfSec > 0 ? (t - bEnd) / cfSec : 1;
+            await seekVideoTo(decodeV, cut + t);       // B tail (outA-cfSec → outA)
+            cctx.globalAlpha = 1; cctx.drawImage(decodeV, 0, 0, w, h);
+            await seekVideoTo(decodeV, inA + (t - bEnd));   // A head (inA → inA+cfSec)
+            cctx.globalAlpha = alpha; cctx.drawImage(decodeV, 0, 0, w, h); cctx.globalAlpha = 1;
+          } else {                                   // pure A
+            await seekVideoTo(decodeV, inA + (t - bEnd));
+            cctx.globalAlpha = 1; cctx.drawImage(decodeV, 0, 0, w, h);
+          }
+          return cap;
+        };
+      }
     } else { env.clip.baking = false; return; }
 
     const prog = document.getElementById('clipProgress'), fill = document.getElementById('clipBarFill');
@@ -372,6 +411,8 @@ export function createClipEditor(env) {
       console.error('clip bake failed', e);
       alert('Could not bake the clip: ' + (e && e.message ? e.message : e));
     } finally {
+      if (sliceReaderA) { try { sliceReaderA.close(); } catch { /* already closed */ } sliceReaderA = null; }
+      if (sliceReaderB) { try { sliceReaderB.close(); } catch { /* already closed */ } sliceReaderB = null; }
       if (prog) prog.hidden = true;
       if (fill) fill.style.width = '0%';
       if (cover) cover.hidden = true;
