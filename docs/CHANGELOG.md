@@ -4,6 +4,15 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 📱 v0.19.19 (Build 379) — 2026-07-18 — iPhone responsiveness: capture answers instantly, stop answers instantly (Daniel's priority pass)
+
+Both long waits the user triggers directly now respond in one frame, with honest status while the real work runs (PLAN P3 + the stop-UX item, done together per his direction: feedback and real perf improvements complementing each other):
+
+- **Still capture — instant freeze, background develop.** The tap now freezes the PREVIEW frame as the editable source immediately (flash → frozen → editable, ~0ms perceived); the full-resolution photo develops behind it ("developing full-resolution still…" toast) and hot-swaps in seamlessly when ready ("still ready 48MP ✓" — no context yank, source panel remounts to show the real still). If the full-res shot fails, the preview freeze stays and the toast says so. Real latency also cut: the Swift plugin now captures with `photoQualityPrioritization = .speed` (skips Deep Fusion/multi-frame fusion — for a symmetry source, latency costs more than fused micro-detail; one line to revert if the quality tradeoff reads wrong on device). Go-live is held (disabled, honest title) until the still lands; a source switch mid-develop cleanly abandons the swap.
+- **Stop recording — a real `finishing` state.** Stop flips `recState` to `'finishing'` synchronously: the record dot stops, the button stands down (disabled stop glyph), taps are absorbed, and paintRecord stops feeding frames — which also frees the main thread for the encoder flush (a real finalize speedup, not just perception). The save toast narrates: "finishing take…" → "take ready ✓" / "recording failed — reason" (failure moved off the empty-state overlay onto the toast). Discards skip the ceremony; leaving mid-finalize gets its own confirm. MediaRecorder fallback path gets the same treatment.
+
+One surface for all of it: `save-flow.js` now exposes `status()`/`dismiss()` so the existing save toast (already in the UI Lab with its busy/ok/fail matrix) carries these states — no new components. Verified: `vite build` + `cap sync` + device-target `xcodebuild` BUILD SUCCEEDED. **Device-verify: capture feel + the still hot-swap + low-light quality at `.speed`; stop feel on a long take.**
+
 ## 🎞 v0.19.18 (Build 378) — 2026-07-18 — ProRes plays in the desktop app (host.mediaDecoder, zero new native code)
 
 The headline desktop win, shipped simpler than designed: **no native addon needed** — macOS ships `/usr/bin/avconvert` (Apple's AVFoundation transcoder CLI), so the Electron main process transcodes anything Chromium can't decode into **hardware HEVC at source resolution**, once per import, and the app plays a plain `<video>` (Chromium hardware-decodes HEVC on macOS). Measured in-session on real footage: 5s of FHD ProRes 422 (57MB) → 3.7MB `hvc1` @ 1920×1080 in **2.0 seconds** (2.5× realtime), output demux-validated.

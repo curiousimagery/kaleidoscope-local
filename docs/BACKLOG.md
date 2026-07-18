@@ -429,7 +429,7 @@ Core shipped (B331): the `fold-external-display` plugin presents output.html on 
 Prioritized in [PLAN.md](PLAN.md) P1. Filed here with detail:
 
 - **Record quality + reliability (1080p!):** always-present pixelation/compression artifacts (droste interior circles blocky — bitrate starvation, not sensor resolution), stop sometimes NOT stopping after ~2min takes, save sometimes failing. All WebKit-MediaRecorder pathologies; the phone chrome is the LAST MediaRecorder consumer. **Fix = port the conduit WebCodecs recorder session into the mobile record path** (explicit bitrate → quality; no captureStream → reliability), gated on the iPad take device-proving the session first, and done as a careful device-paired increment (delicate-path rule).
-- **Still capture latency + fidelity:** the ~2s capture lag is disruptive in practice (existing capture-feedback-honesty item, priority RAISED); brightness DARKENS meaningfully on capture; alignment shifts slightly on camera switch (stabilization-crop estimate vs the un-stabilized still — the `STABILIZATION_CROP` calibration). Device-paired session: profile the 2s, honest feedback, then crop + exposure-consistency calibration.
+- **Still capture latency + fidelity:** ~~the ~2s capture lag~~ **latency + feedback SHIPPED B379** (instant preview freeze + background full-res develop with status toast + `.speed` photo prioritization — device-verify feel and low-light quality). REMAINING fidelity work (device-paired): brightness DARKENS meaningfully on capture; alignment shifts slightly on camera switch (stabilization-crop estimate vs the un-stabilized still — the `STABILIZATION_CROP` calibration). Crop + exposure-consistency calibration still open.
 - **8K still save consistently fails (iPhone):** next device round, capture the save-flow toast reason. Likely the FBO/memory ceiling: `probeExportMax(8192)` passes but the real 8K export path dies. Fix shape: a REAL allocation test before offering the size, or an honest per-device cap.
 - **Thermal/power:** devices run hot; sustained load is the real constraint. Lane 5 expands beyond old-device degradation to SUSTAINED performance on modern hardware: a `thermalState` host seam, frame governors under pressure, idle-render elision, honest sustained-fps tiers.
 
@@ -440,7 +440,7 @@ Prioritized in [PLAN.md](PLAN.md) P1. Filed here with detail:
 ### iPhone record follow-ups (round-5, 2026-07-17)
 
 - **Composition at the selected 4K tier**: the camera-menu 4K applies to the SOURCE capture (and the package's source take saves 4K ✓); the composition records at the B373 upscale target (1080 short side). Honoring 4K for the composition = render the output canvas at 2160 short side during the take — an honest fps tradeoff on-device to measure before offering.
-- **A "finishing…" state for stop**: stop feels laggy because finalize runs async with no state change until the save lands. Design: recState 'finishing' immediately on tap (record button swaps to a spinner/label, paint loop stops). May be mostly cured by the even-width fix (B375) — re-evaluate after.
+- ~~**A "finishing…" state for stop**~~ **SHIPPED B379**: recState `'finishing'` flips synchronously on tap (dot stops, button stands down, paint loop stops feeding — also a real finalize speedup), status toast narrates finishing/ready/failed. Rides on top of the B375 even-width fix; device-verify stop feel on a long take.
 
 ### Per-device-category SAFE export ceilings (Daniel, 2026-07-17)
 

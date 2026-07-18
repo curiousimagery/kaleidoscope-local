@@ -587,7 +587,7 @@ let liveActive = false, liveRaf = 0;
 // effects, inheriting the trailing auto-follow infrastructure later — no
 // staging/transport here. The far-right tab slot becomes record ● / stop ■.
 let videoMode = false;         // the "record video" source is active
-let recState = 'idle';         // 'idle' | 'recording'
+let recState = 'idle';         // 'idle' | 'recording' | 'finishing' (stop tapped, finalize in flight)
 let recordedVideo = null;      // { blob, ext } — the finished take
 let recordingSaved = false;    // download tapped since the take finished
 let mediaRec = null, recChunks = [], micStream = null;
@@ -599,7 +599,8 @@ let mediaRec = null, recChunks = [], micStream = null;
 let wcRec = null, wcDiscard = false;
 let recordUpscale = false;   // sizeOutput renders at record res while a take rolls
 function wcFinish(take, errMsg = null) {
-  if (take && !wcDiscard) { recordedVideo = take; recordingSaved = false; }
+  const discarded = wcDiscard;
+  if (take && !discarded) { recordedVideo = take; recordingSaved = false; }
   wcDiscard = false;
   wcRec = null;
   micStream?.getTracks().forEach((t) => t.stop()); micStream = null;
@@ -608,9 +609,14 @@ function wcFinish(take, errMsg = null) {
   recState = 'idle';
   releaseRecWakeLock();
   updateLiveUI();
+  // resolve the "finishing take…" status honestly: ready / failed / (discard: just clear)
   if (errMsg) {
     console.warn('[fold] recording failed:', errMsg);
-    if (emptyEl) { emptyEl.textContent = `recording failed — ${errMsg}`; emptyEl.classList.remove('m-hidden'); }
+    statusToast('fail', `recording failed — ${errMsg}`, { ttl: 6000 });
+  } else if (take && !discarded) {
+    statusToast('ok', 'take ready', { ttl: 2500 });
+  } else {
+    statusDismiss();
   }
 }
 // the native camera provides no audio track (it's native video-only), so record-video
@@ -749,12 +755,18 @@ function confirmLoseRecording(msg) {
     stopRecording();
     return true;
   }
+  if (recState === 'finishing') {
+    // stop was tapped and the finalize is in flight — leaving now drops the take
+    if (!window.confirm(msg || 'your take is still finishing and will be lost — continue?')) return false;
+    wcDiscard = true;
+    return true;
+  }
   if (recordedVideo && !recordingSaved) return window.confirm(msg || 'your recording has not been saved and will be lost — continue?');
   return true;
 }
 
 async function startRecording() {
-  if (recState === 'recording') return;
+  if (recState !== 'idle') return;   // recording or still finalizing the last take
   if (recordedVideo && !recordingSaved &&
       !window.confirm('start a new recording? it will replace this one — save first if you want to keep it.')) return;
   // the recording captures a dedicated full-res canvas painted with the
@@ -828,6 +840,9 @@ async function startRecording() {
     recState = 'idle';
     releaseRecWakeLock();
     updateLiveUI();
+    // resolve the "finishing take…" status (a discard built no take: just clear)
+    if (recordedVideo) statusToast('ok', 'take ready', { ttl: 2500 });
+    else statusDismiss();
   };
   mediaRec.start(1000);   // timeslice: chunks survive even if stop never fires cleanly
   startRawRecorder(mime);  // the package's unedited source (gated, drop-on-failure)
@@ -838,6 +853,14 @@ async function startRecording() {
   updateLiveUI();
 }
 function stopRecording() {
+  if (recState !== 'recording') return;   // a second tap mid-finalize must not double-stop
+  // the tap answers INSTANTLY: state flips to 'finishing' (the dot stops, the
+  // button disables, paintRecord stops feeding — which also frees the main
+  // thread for the encoder flush) and the status toast says what's happening.
+  const discard = wcDiscard || (mediaRec ? !mediaRec.ondataavailable : false);
+  recState = 'finishing';
+  updateLiveUI();
+  if (!discard) statusToast('busy', 'finishing take…');
   if (wcRec) {
     const sink = wcRec;
     sink.stop();   // async finalize → the stash callback runs wcFinish on success
@@ -1053,6 +1076,7 @@ function stopCameraStream() {
 
 function updateLiveUI() {
   const cap = $('m-tab-capture');
+  cap.disabled = false;   // the busy states below re-disable as needed
   // the top-row camera control: the camera-settings menu on the native path (flip +
   // lens live inside it), or the one-tap flip icon on the web path (unchanged).
   const camCtl = useNativeCam ? camMenuBtn : $('m-flip');
@@ -1077,8 +1101,12 @@ function updateLiveUI() {
     // with record semantics. Download stays but gates on a finished take.
     cap.style.display = '';
     if (recState === 'recording') { cap.innerHTML = ICONS.stop; cap.title = 'stop recording'; cap.style.color = ''; }
-    else { cap.innerHTML = ICONS.record; cap.title = 'start recording'; cap.style.color = '#e8504a'; }
-    camCtl.style.display = ''; camCtl.disabled = recState === 'recording';   /* flip / lens re-acquire kills the package's source take */
+    else if (recState === 'finishing') {
+      // stop acknowledged, finalize in flight: the button visibly stands down
+      // (disabled stop glyph) while the status toast narrates the wait
+      cap.innerHTML = ICONS.stop; cap.title = 'finishing…'; cap.style.color = ''; cap.disabled = true;
+    } else { cap.innerHTML = ICONS.record; cap.title = 'start recording'; cap.style.color = '#e8504a'; }
+    camCtl.style.display = ''; camCtl.disabled = recState !== 'idle';   /* flip / lens re-acquire kills the package's source take */
     if (camCtl.disabled) camPopEl.classList.add('m-hidden');
     setSourceIcon('video');
   } else if (cameraMode === 'live') {
@@ -1088,7 +1116,10 @@ function updateLiveUI() {
     // still "in" live capture, just paused: go-live is the GREEN CAMERA icon
     // (Daniel: the green DOT now belongs to broadcast; the camera glyph says
     // "back to the camera", green says "goes live").
-    cap.style.display = ''; cap.innerHTML = ICONS.camera; cap.title = 'go live'; cap.style.color = 'var(--ok)';
+    cap.style.display = ''; cap.innerHTML = ICONS.camera; cap.style.color = 'var(--ok)';
+    // go-live waits for the developing still (a re-acquire would kill the capture)
+    cap.disabled = stillPending;
+    cap.title = stillPending ? 'developing the still…' : 'go live';
     camCtl.style.display = 'none'; camPopEl.classList.add('m-hidden'); setSourceIcon('live');
   } else {
     cap.style.display = 'none'; camCtl.style.display = 'none'; camPopEl.classList.add('m-hidden'); cap.style.color = '';
@@ -1146,18 +1177,73 @@ async function startCamera() {
   startLiveLoop();
 }
 
-// capture: freeze the current frame as the editable still. In native still mode this
-// grabs the FULL-resolution photo (12/24/48MP) via capturePhoto; otherwise (record
-// video, web camera, or any failure) it freezes the preview frame. The same control
-// then becomes "go live".
+// capture: freeze the current frame as the editable still. In native still mode the
+// PREVIEW frame freezes instantly (the tap answers in one frame) and the FULL-
+// resolution photo (12/24/48MP) develops in the background, hot-swapping in when
+// ready — the ~2s native capture (format switch + shot + 48MP decode) no longer
+// blocks the moment of capture. Record video, the web camera, or any failure keep
+// the plain preview freeze. The same control then becomes "go live".
+let stillPending = false;    // a full-res still is developing behind the frozen preview
+let stillGen = 0;            // bumps per capture — a stale develop must not swap in
+
+// copy the current preview frame WITHOUT stopping the camera session (capturePhoto
+// needs it running). Native frameSource bakes the selfie mirror already.
+function snapshotPreview() {
+  const video = camera.getVideo();
+  const w = video && (video.videoWidth || video.width);
+  const h = video && (video.videoHeight || video.height);
+  if (!w || !h) return null;
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  const cx = c.getContext('2d');
+  if (camera.isFront() && !camera.mirrorsInSource) { cx.translate(w, 0); cx.scale(-1, 1); }
+  cx.drawImage(video, 0, 0, w, h);
+  return c;
+}
+
 async function captureFrame() {
   if (useNativeCam && !videoMode && camera.capturePhoto) {
     stopLiveLoop();          // freeze the preview (last light frame) — nothing renders
     flashCapture();          // while the native side briefly switches to the heavy format
+    const gen = ++stillGen;
+    const snap = snapshotPreview();
+    if (snap) {
+      // the perceived capture happens NOW: the frozen preview is editable
+      // immediately; the toast says the real photo is still developing
+      cameraMode = 'frozen';
+      stillPending = true;
+      engine.setSource(snap);
+      setContext(false);
+      sourceOverlay.mount(sourceEl);
+      scheduleRender();
+      updateLiveUI();
+      statusToast('busy', 'developing full-resolution still…');
+    }
     try {
       const shot = await camera.capturePhoto();
-      if (shot?.url) { await freezeFromUrl(shot.url); return; }
+      if (gen !== stillGen) return;                    // a newer capture owns the status
+      if (snap && cameraMode !== 'frozen') {           // user moved to another source meanwhile
+        stillPending = false; statusDismiss(); return;
+      }
+      if (shot?.url) {
+        await freezeFromUrl(shot.url, { upgrade: !!snap });   // stops the session, swaps in the full-res still
+        stillPending = false;
+        updateLiveUI();
+        const mp = shot.width && shot.height ? ` ${Math.round((shot.width * shot.height) / 1e6)}MP` : '';
+        statusToast('ok', `still ready${mp}`, { ttl: 2500 });
+        return;
+      }
     } catch (e) { console.error('[camera] still capture failed; using preview frame', e); }
+    if (gen !== stillGen) return;
+    stillPending = false;
+    if (snap) {
+      // full-res failed: the frozen preview stays the source — say so honestly
+      snap.toBlob((blob) => { if (blob) originalSource = { blob, name: `${sourceFilename}-original.jpg` }; }, 'image/jpeg', 0.95);
+      stopCameraStream();
+      updateLiveUI();
+      statusToast('fail', 'full-res capture failed — using the preview frame', { ttl: 5000 });
+      return;
+    }
   }
   freezeFromPreview();
 }
@@ -1199,7 +1285,7 @@ function freezeFromPreview() {
 // downsample; the still-resolution picker is GPU-gated (refreshCamMenu) instead. When
 // the preview is video-stabilized the still (photo output, un-stabilized) is the wider
 // full sensor, so we CENTER-CROP it to the stabilized FOV so the composition holds.
-async function freezeFromUrl(url) {
+async function freezeFromUrl(url, { upgrade = false } = {}) {
   const tFreeze = performance.now();   // the JS half of the capture-lag profile
   stopCameraStream();
   cameraMode = 'frozen';
@@ -1221,8 +1307,8 @@ async function freezeFromUrl(url) {
         src = c;
       }
       engine.setSource(src);
-      setContext(false);
-      sourceOverlay.mount(sourceEl);
+      if (!upgrade) setContext(false);   // an upgrade swaps the pixels under whatever the user is already doing
+      sourceOverlay.mount(sourceEl);     // the source panel must show the new element either way
       scheduleRender();
       console.info(`[fold] capture JS half (load+crop+set): ${(performance.now() - tFreeze).toFixed(0)}ms`);
       resolve();
@@ -1267,7 +1353,7 @@ $('m-tab-capture').addEventListener('click', () => {
       return;
     }
     if (recState === 'recording') stopRecording();
-    else startRecording();
+    else if (recState === 'idle') startRecording();   // taps during 'finishing' are absorbed
     return;
   }
   if (cameraMode === 'live') captureFrame();
@@ -1822,6 +1908,14 @@ function downloadBlob(blob, name) {
   if (!saveFlowInst) saveFlowInst = createSaveFlow({ host });
   return saveFlowInst.save(blob, name);
 }
+// the same toast carries honest status for the two long waits the user triggers
+// directly (stop-recording finalize, full-res still develop) — one surface,
+// one state language (busy/ok/fail), already in the UI Lab.
+function statusToast(kind, text, opts) {
+  if (!saveFlowInst) saveFlowInst = createSaveFlow({ host });
+  saveFlowInst.status(kind, text, opts);
+}
+function statusDismiss() { saveFlowInst?.dismiss(); }
 let refreshSaveLimits = () => {};   // assigned in buildSaveSheet
 let probedExport = false;
 function openSaveSheet() {

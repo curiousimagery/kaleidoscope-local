@@ -385,6 +385,12 @@ public class FoldNativeCameraPlugin: CAPPlugin, CAPBridgedPlugin, AVCaptureVideo
                         settings.maxPhotoDimensions = self.photoOutput.maxPhotoDimensions
                     }
                 }
+                // speed over computational photography: skip Deep Fusion / multi-frame
+                // processing so the shot returns in a fraction of the time. Our still is
+                // a symmetry SOURCE (cropped, folded, transformed), where capture latency
+                // costs more than fused micro-detail. (.speed is the floor value, always
+                // within the output's max prioritization.)
+                settings.photoQualityPrioritization = .speed
                 let delegate = PhotoCaptureDelegate(call: call) { [weak self] done in
                     self?.sessionQueue.async { self?.captureDelegates.remove(done) }
                 }

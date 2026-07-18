@@ -8,7 +8,7 @@ The **Capacitor arc** delivered its outcome: Fold runs native on iPhone + iPad w
 
 ## REPRIORITIZED 2026-07-17 (Daniel's step-back, round 5)
 
-The two gnarly residuals — **iPad record ~19fps** and **iOS NDI color/flicker** — are **PARKED** (BACKLOG "⏸ PARKED GNARLY PAIR": full logs in docs/temp, leads recorded, no cascade risk — both are contained to their own paths). Active priority order now: **(1) conduit extraction, tier A + tier B with the Electron build run in-session (Daniel's greenlight), (2) ProRes-in-Electron (`host.mediaDecoder` — a headline desktop win), (3) iPhone capture latency (native 1651ms half, device-paired), (4) reliable stop-recording UX ('finishing' state; may be cured by B375's even-width fix), (5) clip-editor hardening + UX (two-reader fast decode + the loop-builder rework), (6) the formats/browsers/resolutions pressure gauntlet.**
+The two gnarly residuals — **iPad record ~19fps** and **iOS NDI color/flicker** — are **PARKED** (BACKLOG "⏸ PARKED GNARLY PAIR": full logs in docs/temp, leads recorded, no cascade risk — both are contained to their own paths). Active priority order now: **(1) ✅ B376/B377 conduit extraction tiers A+B, (2) ✅ B378 ProRes-in-Electron, (3) ✅ B379 iPhone capture latency (instant freeze + background develop + `.speed` prioritization; device-verify), (4) ✅ B379 stop-recording 'finishing' state (device-verify), (5) clip-editor hardening + UX (two-reader fast decode + the loop-builder rework) ← NEXT, (6) the formats/browsers/resolutions pressure gauntlet.** Device-paired remainders from (3): crop/exposure calibration, composition-at-4K measure.
 
 ## P0 — the gauntlet loop (fix ↔ device-verify until green)
 

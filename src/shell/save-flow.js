@@ -129,5 +129,8 @@ export function createSaveFlow({ host = null } = {}) {
     }
   }
 
-  return { save };
+  // `status` opens the same toast for non-save waits the user should see honestly
+  // (finalizing a take, developing a full-res still). Same states, same surface —
+  // one status language app-wide. `dismiss` clears a busy status once the wait ends.
+  return { save, status: show, dismiss: hide };
 }
