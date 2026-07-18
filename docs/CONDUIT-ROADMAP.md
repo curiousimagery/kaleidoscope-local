@@ -13,7 +13,7 @@ Daniel's mandate: multiple app projects are ready to consume conduit, so the pac
 
 The handshake for a new consumer is already real: implement the adapter, pick/provide a host, `createOutputBus` + register sinks + `start()`. On plain web that's recording with zero native code.
 
-## tier A — pure-JS moves (low risk, high reuse; first after the gauntlet)
+## tier A — pure-JS moves — SHIPPED B376 (items 1 + 3; the save-transport stays app-side with the toast for now)
 
 1. **The capture strategy** (`probe-once adaptive readback`, today in Fold's `shell/output-engine.js`): extract the probe + the three read paths + checksum validation as `conduit/capture.js`, parameterized on `{ gl, glCanvas, capCanvas }`. Fold's output-engine keeps its engine-specific render and delegates the readback. This is exactly the "detection logic no consumer should re-solve" class — the folklore-proof answer to "fastest pixels off a GL canvas on THIS device."
 2. **Save transport** — the host-aware saver half of `shell/save-flow.js` (the toast/status UI stays app-side or becomes an optional component later). The `host.fileSystem` contract already lives in conduit; the transport helper belongs beside it.

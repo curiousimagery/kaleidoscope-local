@@ -9,8 +9,10 @@
   "main": "index.js",
   "exports": {
     ".": "./index.js",
+    "./capture": "./src/capture.js",
     "./commit-cell": "./src/commit-cell.js",
     "./encode": "./src/encode.js",
+    "./frame-wire": "./src/frame-wire.js",
     "./engine-adapter": "./src/engine-adapter.js",
     "./host": "./src/host.js",
     "./mock-host": "./src/mock-host.js",

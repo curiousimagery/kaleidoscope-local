@@ -4,6 +4,15 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 📦 v0.19.16 (Build 376) — 2026-07-17 — conduit tier A: the capture probe and the frame-wire protocol are package infrastructure
+
+The extraction lane opens (PLAN priority 1, Daniel's greenlight). Two moves, both behavior-neutral for Fold:
+
+- **`conduit/capture.js`** — the probe-once adaptive readback (checksum-gated runtime selection of getImageData / readPixels / VideoFrame+copyTo, the whole 4B Tier 1 strategy plus its bench history) extracted from [output-engine.js](../src/shell/output-engine.js), parameterized on `{ gl, glCanvas, capCtx, override, tag }`. Fold's output engine now just renders, blits, and asks; `?buscapture=` still overrides. Any conduit consumer inherits the per-DEVICE answer instead of re-deriving folklore.
+- **`conduit/frame-wire.js`** — the FNDI frame-socket protocol (16-byte header, always-top-down discipline with the flip folded into the copy, the BT.709 UYVY packer, `frameWireBytes` for backpressure gates) extracted from [capacitor-host.js](../src/shell/capacitor-host.js), which now builds messages through the package. The wire format any future native consumer (the tier-B Capacitor NDI package, a Syphon-style socket) shares by import instead of copy.
+
+Roadmap updated (tier A items 1+3 shipped; the save transport stays app-side with its toast for now). Verified: `node --check` across the moved modules, `vite build`, `cap sync`. **Next: tier B — the native host packages (conduit-electron, conduit-ndi-capacitor) with the Electron build run in-session.**
+
 ## v0.19.15 (Build 375) — 2026-07-17 — round-5: the odd-width encoder wedge fixed; the gnarly pair parked with its evidence; priorities reset
 
 Daniel's round-5 logs (saved in `docs/temp/`) landed three findings. The fixable one shipped: **the iPhone recorded at 1921×1080 — an ODD width** (the B373 upscale's rounding), and H.264's 4:2:0 chroma requires even dimensions — a hardware encoder choking on odd width is the likely culprit behind both the laggy stops and the "finalize timed out" failure. `sizeOutput`'s record branch now forces even dimensions. Re-verify: stop responsiveness + no finalize timeout on the next take.

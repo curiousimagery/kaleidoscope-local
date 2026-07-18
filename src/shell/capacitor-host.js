@@ -17,6 +17,7 @@
 // file is where each one gets wired as it ships.
 
 import { webHost } from 'conduit/host';
+import { buildFrameMessage, frameWireBytes } from 'conduit/frame-wire';
 
 // Blob → base64 (Filesystem.writeFile wants base64 string data).
 function blobToBase64(blob) {
@@ -97,33 +98,11 @@ export function createCapacitorHost() {
     ndi: (() => {
       let plugin = null;         // lazily registered (keeps @capacitor/core lazy-loadable)
       let ws = null, wsReady = false, gen = 0;
-      const HEADER = 16;
-      // UYVY wire (default): the [FoldNdi] profile proved the WebKit WebSocket
-      // send path is the fps wall (~165MB/s effective → 8.3MB RGBA frames cap
-      // FHD at ~20fps). Packing to NDI's native UYVY 4:2:2 HALVES the wire
-      // bytes (→ ~40fps headroom) and skips the SDK's own RGBA conversion.
-      // BT.709 limited range (both broadcast tiers are ≥720p). OPT-IN for now
-      // (?ndiwire=uyvy): Daniel's first Arena pass showed a BLUE color shift +
-      // no fps gain + worse flicker — the matrix/interpretation needs a
-      // device-paired test-pattern loop before it can be the default.
+      // Wire format + packing live in conduit/frame-wire.js (the FNDI protocol
+      // is package infrastructure now). UYVY stays OPT-IN (?ndiwire=uyvy):
+      // Daniel's Arena pass showed a blue shift — parked investigation in
+      // BACKLOG; the wire logs itself at sender start either way.
       const uyvyWire = new URLSearchParams(window.location.search).get('ndiwire') === 'uyvy';
-      const packUyvy = (out, src, width, height, topDown) => {
-        const srcStride = width * 4, outStride = width * 2;
-        for (let y = 0; y < height; y++) {
-          let si = (topDown ? y : height - 1 - y) * srcStride;
-          let oi = y * outStride;
-          for (let x = 0; x < width; x += 2) {
-            const r0 = src[si], g0 = src[si + 1], b0 = src[si + 2];
-            const r1 = src[si + 4], g1 = src[si + 5], b1 = src[si + 6];
-            const ra = (r0 + r1) >> 1, ga = (g0 + g1) >> 1, ba = (b0 + b1) >> 1;
-            out[oi] = 128 + ((-26 * ra - 87 * ga + 112 * ba) >> 8);        // U (shared)
-            out[oi + 1] = 16 + ((47 * r0 + 157 * g0 + 16 * b0) >> 8);      // Y0
-            out[oi + 2] = 128 + ((112 * ra - 102 * ga - 10 * ba) >> 8);    // V (shared)
-            out[oi + 3] = 16 + ((47 * r1 + 157 * g1 + 16 * b1) >> 8);      // Y1
-            si += 8; oi += 4;
-          }
-        }
-      };
       return {
         ...webHost.ndi,
         available: true,
@@ -149,29 +128,8 @@ export function createCapacitorHost() {
         //   true when it went to the wire — the ndi-sink counts delivered fps from this
         publish(pixels, width, height, topDown) {
           if (!wsReady || !ws) return false;
-          const wireBytes = width * height * (uyvyWire ? 2 : 4);
-          if (ws.bufferedAmount > wireBytes * 2) return false;   // ~2 frames on the wire max
-          const buf = new ArrayBuffer(HEADER + wireBytes);
-          const dv = new DataView(buf);
-          dv.setUint32(0, 0x464E4449, false);   // "FNDI"
-          dv.setUint32(4, width, true);
-          dv.setUint32(8, height, true);
-          dv.setUint32(12, 1 | (uyvyWire ? 2 : 0), true);   // bit0 top-down (always, flip folded below) · bit1 UYVY
-          const out = new Uint8Array(buf, HEADER);
-          if (uyvyWire) {
-            packUyvy(out, pixels, width, height, topDown);
-          } else if (topDown) {
-            out.set(pixels);
-          } else {
-            // Bottom-up frames (the readPixels capture path Tier 1 selects on the
-            // iPad) are flipped HERE, folded into the copy this path already pays —
-            // never on the native side, where a second full-frame pass sits on the
-            // socket's DRAIN and every ms costs delivered fps.
-            const stride = width * 4;
-            for (let y = 0; y < height; y++) {
-              out.set(pixels.subarray((height - 1 - y) * stride, (height - y) * stride), y * stride);
-            }
-          }
+          if (ws.bufferedAmount > frameWireBytes(width, height, { uyvy: uyvyWire }) * 2) return false;   // ~2 frames on the wire max
+          const buf = buildFrameMessage(pixels, width, height, topDown, { uyvy: uyvyWire });
           try { ws.send(buf); } catch { return false; /* socket died mid-send; onclose flips wsReady */ }
           return true;
         },

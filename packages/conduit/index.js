@@ -13,5 +13,7 @@ export { createNdiSink } from './src/ndi-sink.js';
 export { createOutputBus } from './src/output-bus.js';
 export { createRecorderSink, webCodecsRecordingSupported } from './src/recorder.js';
 export { pickVideoCodec, pickAudioCodec, videoBitrateFor } from './src/encode.js';
+export { createAdaptiveCapture } from './src/capture.js';
+export { buildFrameMessage, frameWireBytes, FNDI_HEADER, FNDI_MAGIC } from './src/frame-wire.js';
 export { createSyphonSink } from './src/syphon-sink.js';
 export { createTestFrame } from './src/test-pattern.js';
