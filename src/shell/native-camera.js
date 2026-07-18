@@ -52,6 +52,11 @@ export function createNativeCamera() {
   let stillMode = true;
   let stillResolutions = [];  // [{id,label,width,height}] the current lens's photo sizes
   let stillRes = null;        // chosen {id,width,height}; null → the sensor max
+  // photo quality prioritization: 'speed' (fast single shot — but iOS caps a 48MP
+  // sensor at ~12MP binned under .speed) or 'quality' (Deep Fusion / full computational
+  // photography — slower, and the ONLY way to actually get 48MP). Default 'speed';
+  // the camera-menu Deep Fusion toggle flips it. Persisted across sessions.
+  let photoQuality = (() => { try { return localStorage.getItem('fold.photoQuality') || 'speed'; } catch { return 'speed'; } })();
   // video stabilization crops the sensor; the still capture (photo output, un-stabilized)
   // must be cropped to match the composed preview. Per-mode factors are ESTIMATES (AVF
   // doesn't expose the exact crop) — tunable here, calibrate on device.
@@ -232,6 +237,11 @@ export function createNativeCamera() {
   function setStillMode(on) { stillMode = !!on; }
   // pick a still capture size (no re-acquire — just the next capturePhoto's dimensions)
   function setStillResolution(id) { stillRes = stillResolutions.find((r) => r.id === id) || stillRes; }
+  // Deep Fusion on/off = 'quality' | 'speed' (affects the next capturePhoto only)
+  function setPhotoQuality(mode) {
+    photoQuality = mode === 'quality' ? 'quality' : 'speed';
+    try { localStorage.setItem('fold.photoQuality', photoQuality); } catch { /* private mode */ }
+  }
 
   function refreshFrame() { paintLatest(); }
   function frameSource() { return canvas; }
@@ -249,7 +259,7 @@ export function createNativeCamera() {
   async function capturePhoto() {
     const d = stillRes || {};
     const t0 = performance.now();
-    const res = await FoldNativeCamera.capturePhoto({ width: d.width || 0, height: d.height || 0 });
+    const res = await FoldNativeCamera.capturePhoto({ width: d.width || 0, height: d.height || 0, quality: photoQuality });
     // field diagnostic (the ~2s capture-lag complaint): how much of the wait is
     // the NATIVE half (format switch + settle + shot + file write) vs the JS
     // load/crop half, which logs separately at the freeze site
@@ -280,6 +290,8 @@ export function createNativeCamera() {
     setFrameRate,
     setStillMode,
     setStillResolution,
+    setPhotoQuality,
+    getPhotoQuality: () => photoQuality,      // 'speed' | 'quality' (Deep Fusion off/on)
     getResolutions: () => resolutions,   // [{id,label,maxFps,width,height}] for the current lens
     getResolution: () => preset,
     getFrameRate: () => targetFps,

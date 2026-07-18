@@ -4,6 +4,15 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 📸 v0.19.20 (Build 380) — 2026-07-18 — still-capture honesty pass: capture-then-freeze, the 12MP mystery solved, Deep Fusion as a toggle
+
+Daniel's device feedback corrected the B379 still flow and caught a real resolution bug — both fixed here.
+
+- **The 49MP→12MP "bug" was `.speed`.** B379 hard-set `photoQualityPrioritization = .speed`, and on a 48MP sensor iOS caps `.speed` at ~12MP binned. So the toast was honest — `.speed` genuinely delivered 12MP. **Deep Fusion is now an on/off toggle** at the bottom of the still-mode camera menu (default OFF = `.speed` = fast/12MP; ON = `.quality` = full computational photography, the only path to true 48MP, at a latency cost). Prioritization is clamped to the photo output's max on the native side. The choice persists (localStorage) and flows JS → plugin per shot. This gives Daniel the A/B he asked for and makes the resolution honest.
+- **Capture-then-freeze (the honest ordering).** B379 froze the PREVIEW instantly and developed the real photo behind it — which told the user "safe to move" at exactly the moment they must hold still (the shot hadn't been taken yet). Now the tap gives immediate feedback WITHOUT lying: button disables, camera menu locks, toast reads "capturing… hold the phone still", the preview naturally holds on its last frame while the native format-switch + shot run, and the still freezes in **only after the real photo is recorded** (shutter flash = "captured", then "still ready 48MP ✓"). Failure falls back honestly to the preview frame. The perceived-instant illusion is gone on purpose — for a still, the capture latency IS the hold-still window, so communicating it beats hiding it.
+
+Verified: vite build + cap sync + device-target xcodebuild ✓. **Device-verify: capture feel (does "hold still" land at the right moment?), and flip Deep Fusion ON to confirm 48MP returns.**
+
 ## 📱 v0.19.19 (Build 379) — 2026-07-18 — iPhone responsiveness: capture answers instantly, stop answers instantly (Daniel's priority pass)
 
 Both long waits the user triggers directly now respond in one frame, with honest status while the real work runs (PLAN P3 + the stop-UX item, done together per his direction: feedback and real perf improvements complementing each other):

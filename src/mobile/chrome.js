@@ -1110,16 +1110,19 @@ function updateLiveUI() {
     if (camCtl.disabled) camPopEl.classList.add('m-hidden');
     setSourceIcon('video');
   } else if (cameraMode === 'live') {
-    cap.style.display = ''; cap.innerHTML = ICONS.pause; cap.title = 'pause'; cap.style.color = '';   /* record/pause toggle (was the stop square; before that the aperture) */
-    camCtl.style.display = ''; camCtl.disabled = false; setSourceIcon('live');
+    cap.style.display = ''; cap.innerHTML = ICONS.pause; cap.style.color = '';   /* record/pause toggle (was the stop square; before that the aperture) */
+    // during a native full-res capture the button stands down and says so; the
+    // camera menu is locked too (a flip/lens re-acquire would abort the shot)
+    cap.disabled = stillCapturing;
+    cap.title = stillCapturing ? 'capturing…' : 'pause';
+    camCtl.style.display = ''; camCtl.disabled = stillCapturing;
+    if (stillCapturing) camPopEl.classList.add('m-hidden');
+    setSourceIcon('live');
   } else if (cameraMode === 'frozen') {
     // still "in" live capture, just paused: go-live is the GREEN CAMERA icon
     // (Daniel: the green DOT now belongs to broadcast; the camera glyph says
     // "back to the camera", green says "goes live").
-    cap.style.display = ''; cap.innerHTML = ICONS.camera; cap.style.color = 'var(--ok)';
-    // go-live waits for the developing still (a re-acquire would kill the capture)
-    cap.disabled = stillPending;
-    cap.title = stillPending ? 'developing the still…' : 'go live';
+    cap.style.display = ''; cap.innerHTML = ICONS.camera; cap.title = 'go live'; cap.style.color = 'var(--ok)';
     camCtl.style.display = 'none'; camPopEl.classList.add('m-hidden'); setSourceIcon('live');
   } else {
     cap.style.display = 'none'; camCtl.style.display = 'none'; camPopEl.classList.add('m-hidden'); cap.style.color = '';
@@ -1178,72 +1181,39 @@ async function startCamera() {
 }
 
 // capture: freeze the current frame as the editable still. In native still mode the
-// PREVIEW frame freezes instantly (the tap answers in one frame) and the FULL-
-// resolution photo (12/24/48MP) develops in the background, hot-swapping in when
-// ready — the ~2s native capture (format switch + shot + 48MP decode) no longer
-// blocks the moment of capture. Record video, the web camera, or any failure keep
-// the plain preview freeze. The same control then becomes "go live".
-let stillPending = false;    // a full-res still is developing behind the frozen preview
-let stillGen = 0;            // bumps per capture — a stale develop must not swap in
-
-// copy the current preview frame WITHOUT stopping the camera session (capturePhoto
-// needs it running). Native frameSource bakes the selfie mirror already.
-function snapshotPreview() {
-  const video = camera.getVideo();
-  const w = video && (video.videoWidth || video.width);
-  const h = video && (video.videoHeight || video.height);
-  if (!w || !h) return null;
-  const c = document.createElement('canvas');
-  c.width = w; c.height = h;
-  const cx = c.getContext('2d');
-  if (camera.isFront() && !camera.mirrorsInSource) { cx.translate(w, 0); cx.scale(-1, 1); }
-  cx.drawImage(video, 0, 0, w, h);
-  return c;
-}
+// REAL full-resolution photo is captured first — the moment the user must hold still
+// — with honest "capturing…" feedback and the button disabled; only when the shot is
+// actually recorded does the still freeze in (Daniel's field note: freezing the
+// preview BEFORE the shot lies about when to hold the phone). Record video, the web
+// camera, or any failure keep the plain preview freeze. The control then becomes
+// "go live".
+let stillCapturing = false;   // a native full-res capture is in flight (button disabled, preview held)
 
 async function captureFrame() {
   if (useNativeCam && !videoMode && camera.capturePhoto) {
-    stopLiveLoop();          // freeze the preview (last light frame) — nothing renders
-    flashCapture();          // while the native side briefly switches to the heavy format
-    const gen = ++stillGen;
-    const snap = snapshotPreview();
-    if (snap) {
-      // the perceived capture happens NOW: the frozen preview is editable
-      // immediately; the toast says the real photo is still developing
-      cameraMode = 'frozen';
-      stillPending = true;
-      engine.setSource(snap);
-      setContext(false);
-      sourceOverlay.mount(sourceEl);
-      scheduleRender();
-      updateLiveUI();
-      statusToast('busy', 'developing full-resolution still…');
-    }
+    if (stillCapturing) return;                         // ignore taps while a shot is being taken
+    stillCapturing = true;
+    updateLiveUI();                                     // disable the button, show "capturing…"
+    // hold still — the native side is switching to the photo format and taking the
+    // real shot; the preview naturally holds on its last frame while it does
+    statusToast('busy', 'capturing… hold the phone still');
     try {
       const shot = await camera.capturePhoto();
-      if (gen !== stillGen) return;                    // a newer capture owns the status
-      if (snap && cameraMode !== 'frozen') {           // user moved to another source meanwhile
-        stillPending = false; statusDismiss(); return;
-      }
       if (shot?.url) {
-        await freezeFromUrl(shot.url, { upgrade: !!snap });   // stops the session, swaps in the full-res still
-        stillPending = false;
+        flashCapture();                                 // the shot is IN — the shutter flash means "captured"
+        stillCapturing = false;
+        await freezeFromUrl(shot.url);                  // stops the session, swaps in the real still
         updateLiveUI();
         const mp = shot.width && shot.height ? ` ${Math.round((shot.width * shot.height) / 1e6)}MP` : '';
         statusToast('ok', `still ready${mp}`, { ttl: 2500 });
         return;
       }
     } catch (e) { console.error('[camera] still capture failed; using preview frame', e); }
-    if (gen !== stillGen) return;
-    stillPending = false;
-    if (snap) {
-      // full-res failed: the frozen preview stays the source — say so honestly
-      snap.toBlob((blob) => { if (blob) originalSource = { blob, name: `${sourceFilename}-original.jpg` }; }, 'image/jpeg', 0.95);
-      stopCameraStream();
-      updateLiveUI();
-      statusToast('fail', 'full-res capture failed — using the preview frame', { ttl: 5000 });
-      return;
-    }
+    // failure → honest fallback to the (still-live) preview frame
+    stillCapturing = false;
+    statusToast('fail', 'capture failed — using the preview frame', { ttl: 5000 });
+    freezeFromPreview();
+    return;
   }
   freezeFromPreview();
 }
@@ -1285,7 +1255,7 @@ function freezeFromPreview() {
 // downsample; the still-resolution picker is GPU-gated (refreshCamMenu) instead. When
 // the preview is video-stabilized the still (photo output, un-stabilized) is the wider
 // full sensor, so we CENTER-CROP it to the stabilized FOV so the composition holds.
-async function freezeFromUrl(url, { upgrade = false } = {}) {
+async function freezeFromUrl(url) {
   const tFreeze = performance.now();   // the JS half of the capture-lag profile
   stopCameraStream();
   cameraMode = 'frozen';
@@ -1307,8 +1277,8 @@ async function freezeFromUrl(url, { upgrade = false } = {}) {
         src = c;
       }
       engine.setSource(src);
-      if (!upgrade) setContext(false);   // an upgrade swaps the pixels under whatever the user is already doing
-      sourceOverlay.mount(sourceEl);     // the source panel must show the new element either way
+      setContext(false);
+      sourceOverlay.mount(sourceEl);
       scheduleRender();
       console.info(`[fold] capture JS half (load+crop+set): ${(performance.now() - tFreeze).toFixed(0)}ms`);
       resolve();
@@ -1371,6 +1341,7 @@ const camLensWrap = document.createElement('div');
 const camResWrap = document.createElement('div');
 const camFpsWrap = document.createElement('div');
 const camStabWrap = document.createElement('div');
+const camDeepFusionWrap = document.createElement('div');
 const camEvWrap = document.createElement('div');
 const camWbWrap = document.createElement('div');
 // broadcast-mode rows (Daniel: ONE menu combines camera + broadcast settings)
@@ -1385,11 +1356,12 @@ if (useNativeCam) {
   camResWrap.className = 'm-control'; camResWrap.id = 'm-cam-res';
   camFpsWrap.className = 'm-control'; camFpsWrap.id = 'm-cam-fps';
   camStabWrap.className = 'm-control'; camStabWrap.id = 'm-cam-stab';
+  camDeepFusionWrap.className = 'm-control'; camDeepFusionWrap.id = 'm-cam-deepfusion';
   camEvWrap.className = 'm-control'; camEvWrap.id = 'm-cam-ev';
   camWbWrap.className = 'm-control'; camWbWrap.id = 'm-cam-wb';
   camBcNameWrap.className = 'm-control'; camBcNameWrap.id = 'm-cam-bcname';
   camBcTestWrap.className = 'm-control'; camBcTestWrap.id = 'm-cam-bctest';
-  camPopEl.append(camLensWrap, camResWrap, camFpsWrap, camStabWrap, camEvWrap, camWbWrap, camBcNameWrap, camBcTestWrap);
+  camPopEl.append(camLensWrap, camResWrap, camFpsWrap, camStabWrap, camDeepFusionWrap, camEvWrap, camWbWrap, camBcNameWrap, camBcTestWrap);
 
   camMenuBtn.addEventListener('click', (e) => {
     e.stopPropagation();
@@ -1487,6 +1459,18 @@ function refreshCamMenu() {
        { id: 'cinematicExtended', label: 'smooth+' }],
       camera.getVideoStabilization(), switchStabilization);
   } else camStabWrap.innerHTML = '';
+  // Deep Fusion (photo quality prioritization) — STILL mode only. Off = fast single
+  // shot (but iOS caps a 48MP sensor at 12MP under .speed); on = full computational
+  // photography, the only path to true 48MP, at a latency cost. Default off; Daniel is
+  // A/Bing the tradeoff. Sits under resolution because it gates what resolution is real.
+  const showDeepFusion = !broadcastMode && !videoMode && !!camera.setPhotoQuality;
+  camDeepFusionWrap.classList.toggle('m-hidden', !showDeepFusion);
+  if (showDeepFusion) {
+    buildCamSeg(camDeepFusionWrap, 'deep fusion',
+      [{ id: 'speed', label: 'off' }, { id: 'quality', label: 'on' }],
+      camera.getPhotoQuality?.() === 'quality' ? 'quality' : 'speed',
+      (id) => { camera.setPhotoQuality(id); refreshCamMenu(); });
+  } else camDeepFusionWrap.innerHTML = '';
   // exposure (EV) — a live bias slider; white balance — auto/manual + a Kelvin slider
   // when manual (only where the physical lens supports custom gains, which ours do).
   // Both reset on a lens/flip change (native-camera resets + refreshCamMenu re-reads).

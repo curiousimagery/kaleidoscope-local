@@ -320,6 +320,7 @@ public class FoldNativeCameraPlugin: CAPPlugin, CAPBridgedPlugin, AVCaptureVideo
     @objc func capturePhoto(_ call: CAPPluginCall) {
         let reqW = call.getInt("width") ?? 0
         let reqH = call.getInt("height") ?? 0
+        let reqQuality = call.getString("quality") ?? "speed"
         sessionQueue.async { [weak self] in
             guard let self = self, self.running, let device = self.device else { call.reject("camera not running"); return }
             self.capturing = true   // drop preview frames during the switch + capture
@@ -385,12 +386,16 @@ public class FoldNativeCameraPlugin: CAPPlugin, CAPBridgedPlugin, AVCaptureVideo
                         settings.maxPhotoDimensions = self.photoOutput.maxPhotoDimensions
                     }
                 }
-                // speed over computational photography: skip Deep Fusion / multi-frame
-                // processing so the shot returns in a fraction of the time. Our still is
-                // a symmetry SOURCE (cropped, folded, transformed), where capture latency
-                // costs more than fused micro-detail. (.speed is the floor value, always
-                // within the output's max prioritization.)
-                settings.photoQualityPrioritization = .speed
+                // photo quality prioritization, chosen by the shell's Deep Fusion toggle:
+                //   'speed'   — fast single shot, no Deep Fusion. NOTE: on a 48MP sensor
+                //               iOS caps .speed at ~12MP binned (this is why a 49MP pick
+                //               returns 12MP when Deep Fusion is off — expected, not a bug).
+                //   'quality' — full computational photography / Deep Fusion; the only way
+                //               to actually reach 48MP, at a latency cost.
+                // Clamped to what this photo output allows (can't exceed its max).
+                let want: AVCapturePhotoOutput.QualityPrioritization = reqQuality == "quality" ? .quality : .speed
+                let maxQ = self.photoOutput.maxPhotoQualityPrioritization
+                settings.photoQualityPrioritization = want.rawValue <= maxQ.rawValue ? want : maxQ
                 let delegate = PhotoCaptureDelegate(call: call) { [weak self] done in
                     self?.sessionQueue.async { self?.captureDelegates.remove(done) }
                 }
