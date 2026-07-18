@@ -101,6 +101,15 @@ export function createOutputWindow(env) {
     win = null;
   }
 
+  // the driving app is closing / navigating away — take the self-rendering popup with
+  // it (it would otherwise persist starved of the state stream, replaying its last few
+  // frames). win.close() is synchronous and reliable during unload — the opener may
+  // always close a window it opened — where a BroadcastChannel 'close' post might not
+  // deliver before teardown. Registered only while a window session is live.
+  function onMainUnload() {
+    if (win && !win.closed) { try { win.close(); } catch { /* already gone */ } }
+  }
+
   function start() {
     if (poster.active) return;
     win = window.open('output.html', 'fold-output', 'width=1280,height=720');
@@ -112,11 +121,13 @@ export function createOutputWindow(env) {
       if (msg.type === 'hello') poster.noteHello();
       else if (msg.type === 'fps') poster.noteFps(msg.fps);
     };
+    window.addEventListener('pagehide', onMainUnload);
     poster.arm();
     poster.begin();
   }
 
   function stop() {
+    window.removeEventListener('pagehide', onMainUnload);
     poster.end();
     teardownTransport();
   }

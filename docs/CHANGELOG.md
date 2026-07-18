@@ -4,6 +4,15 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🔌 v0.19.23 (Build 383) — 2026-07-18 — Tier C close-out: consumer README + output-window closes with the app
+
+Two things close out Tier C:
+
+- **The conduit README is now a consumer's first read.** Added the four-step handshake (implement the engine adapter → pick a host → create the bus + register sinks → start), the **resolution/aspect/bitrate/fps ownership split** (conduit owns the mechanism + policy; the consumer owns the choice + UI — bus-driven resolution, derived aspect, `encode.js` bitrate policy, measured fps), and the **external-surface render-from-state contract** (transport + content, `output-view.js` named the reference view). Filled out the modules table (capture, encode, frame-wire, external-surface, hosts). This is what zoetrope/Tap read first to make the handshake and optimize their render.
+- **The output window now closes when the main app window does** (Daniel's Brave smoke test: closing the main window left the popup persisting, starved of the state stream, replaying its last few frames). `output-window.js` registers a `pagehide` handler while a window session is live and calls `win.close()` directly — synchronous and reliable during unload, where a BroadcastChannel 'close' post might not deliver in time. (The rarer main-crash orphan can't be cleanly distinguished from a legitimately backgrounded main window without a heartbeat, so no silence-based "app inactive" state — it would false-positive when the main is just minimized while the broadcast runs on a projector.)
+
+Verified: node --check, vite build, cap sync. Tier C is functionally closed pending Daniel's device regression pass (external display / AirPlay — he's away from that setup). **NEXT: clip-editor two-reader infrastructure (the slice crossfade correctness + speed fix).**
+
 ## 🔌 v0.19.22 (Build 382) — 2026-07-18 — conduit Tier C, part 1: the external-surface poster extracted (transport-neutral, both surfaces unified)
 
 The first Tier C move, per the approved design (`docs/CONDUIT-TIER-C.md`, transport-neutral framing greenlit by Daniel). Fold's output window and iOS external display / AirPlay were the same abstraction wearing two code coats — a per-frame loop streaming committed program STATE to a self-rendering view, plus source-on-change repost and a hello/fps handshake. That spine is now **`conduit/external-surface.js` → `createSurfacePoster({ transport, content })`**:

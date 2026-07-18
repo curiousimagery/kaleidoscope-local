@@ -57,8 +57,10 @@ From Fold today:
 
 1. ✅ **B382** — Added `conduit/external-surface.js` → `createSurfacePoster({ transport, content, renderCaps, sourceCaps, onClosed })`: the per-frame state stream + source-on-change + hello/fps handshake + arm/begin/end lifecycle + the degradation ladder. Transport-neutral (the caller injects `post`/`isClosed`); no `host` coupling — the transport IS the host-specific piece.
 2. ✅ **B382** — Repointed Fold's `output-window.js` (BroadcastChannel + popup transport) and `external-display.js` (Capacitor plugin transport + crash-degradation + fill/frame-aspect dims) at it; both are thin adapters now. Public exports unchanged; behavior preserved move-for-move.
-3. ⏳ Document the view contract in the conduit README; mark `output-view.js` the reference implementation. (Next.)
-4. ⏳ **Device-verify** (regression, not new behavior): desktop output window + iPad external display + AirPlay all still render-from-state at tier resolution with zero readback.
+3. ✅ **B383** — Documented the full consumer contract in the conduit README (the handshake, the resolution/aspect/bitrate/fps ownership split, the external-surface render-from-state contract); `output-view.js` named the reference view. The README is now a new consumer's first read.
+4. ⏳ **Device-verify** (regression, not new behavior): desktop output window + iPad external display + AirPlay all still render-from-state at tier resolution with zero readback. (Output-window smoke-tested in Brave by Daniel — works; external display/AirPlay pending his workstation.)
+
+Tier C is **functionally closed** pending the device regression pass. Capture-domain detection remains deferred (vNext, below). Archive `CONDUIT-ROADMAP.md` + this doc once the device regression pass confirms.
 
 No rendering changes; behavior-neutral for Fold, capability-additive for the next consumer.
 
