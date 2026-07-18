@@ -1162,8 +1162,17 @@ body.motion #oobModes { pointer-events: none; opacity: var(--disabled-opacity); 
 .vid-x:hover { color: var(--text-bright); }
 .vid-meta { font-size: var(--text-sm); color: var(--text-dim); font-variant-numeric: tabular-nums; min-height: 14px; margin-top: 2px; }
 
-/* clip editor (pre-animation video prep) */
-.clip-card { width: 640px; max-width: 92vw; }
+/* clip editor / Loop Builder (pre-animation video prep) */
+.clip-card { width: 640px; max-width: 92vw; position: relative; }
+/* post-bake next-step nudge — an overlay over the whole card */
+.clip-nudge { position: absolute; inset: 0; z-index: 2; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
+  background: var(--surface-raised); border-radius: var(--radius-xl); padding: 24px; text-align: center; }
+.clip-nudge[hidden] { display: none; }
+.clip-nudge-title { font-size: var(--text-lg); color: var(--text-bright); font-weight: 600; }
+.clip-nudge-sub { font-size: var(--text-md); color: var(--text-dim); margin-bottom: 10px; }
+.clip-nudge-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
+.clip-nudge-dismiss { margin-top: 14px; background: transparent; border: none; color: var(--text-dim); font-size: var(--text-base); cursor: pointer; text-decoration: underline; }
+.clip-nudge-dismiss:hover { color: var(--text-bright); }
 .clip-stage { position: relative; }
 .clip-video { width: 100%; max-height: 52vh; background: var(--c-black); border-radius: var(--radius-md); display: block; object-fit: contain; }
 .clip-blend { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; display: block; pointer-events: none; }

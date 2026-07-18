@@ -151,6 +151,14 @@ export function createSourceHost(env) {
       // the mini scrubber under the source picks the frame to work with. One catch —
       // a paused, NEVER-PLAYED video does not paint on Blink/Gecko — so nudge it:
       // play muted, pause after the first frames present, land parked at t=0.
+      // motion content lands in the Loop Builder first (Daniel's flow): a fresh video
+      // load auto-opens it so trimming/looping is the natural first step. Desktop only
+      // (env.openClipEditor is undefined on mobile), and not while an animation is
+      // already running (don't yank a mid-motion source swap into a modal), and not
+      // when the caller opts out.
+      if (env.openClipEditor && !env.motionRT.active && !opts.noLoopBuilder) {
+        env.openClipEditor();
+      }
       if (env.motionRT.active) {
         env.rebindMotionToSource();    // already animating → re-bind keyframes to the new clip (timeline-driven, no free-run)
       } else {

@@ -57,6 +57,7 @@
     <div class="ot-group ot-center">
       <select class="ot-btn ot-select" id="modeSelect" title="mode">
         <option value="still">still</option>
+        <option value="loop">loop builder</option>
         <option value="motion">motion</option>
         <option value="perform">perform</option>
       </select>
@@ -326,7 +327,7 @@
         <button class="mf-btn mf-toggle" data-spd="2">200%</button>
       </span>
     </div>
-    <button id="mfClip" hidden title="edit clip — trim front/back, bounce/slice loop">edit clip…</button>
+    <button id="mfClip" hidden title="Loop Builder — trim front/back, bounce/slice loop">loop builder…</button>
     <div class="mf-menu-sep"></div>
     <button id="mfSaveData">download motion data</button>
     <button id="mfLoadData">load motion data</button>
@@ -475,7 +476,7 @@
 <!-- clip editor sheet (pre-animation video prep: trim; bounce/slice coming) -->
 <div class="vid-sheet" id="clipSheet" hidden>
   <div class="vid-card clip-card">
-    <div class="vid-head"><span>clip editor</span><button class="vid-x" id="clipClose" title="close">✕</button></div>
+    <div class="vid-head"><span>Loop Builder</span><button class="vid-x" id="clipClose" title="close">✕</button></div>
     <div class="clip-stage">
       <video id="clipVideo" class="clip-video" muted playsinline disablepictureinpicture></video>
       <canvas id="clipBlend" class="clip-blend" hidden></canvas>
@@ -500,6 +501,17 @@
     <div class="clip-actions">
       <button class="mf-btn" id="clipCancel">cancel</button>
       <button class="mf-btn mf-add" id="clipApply">apply trim</button>
+    </div>
+    <!-- post-bake next-step nudge (overlay; shown after a successful bake) -->
+    <div class="clip-nudge" id="clipNudge" hidden>
+      <div class="clip-nudge-title">Loop baked ✓</div>
+      <div class="clip-nudge-sub">what would you like to do next?</div>
+      <div class="clip-nudge-actions">
+        <button class="mf-btn mf-add" id="clipNudgeSave">render &amp; save</button>
+        <button class="mf-btn" id="clipNudgeMotion">edit in motion</button>
+        <button class="mf-btn" id="clipNudgePerform">perform</button>
+      </div>
+      <button class="clip-nudge-dismiss" id="clipNudgeDismiss">done for now</button>
     </div>
   </div>
 </div>

@@ -14,7 +14,7 @@ The two gnarly residuals — **iPad record ~19fps** and **iOS NDI color/flicker*
 1. ✅ **Camera capture UX close-out** — B379 stop-recording 'finishing' (confirmed excellent on device); B380 still capture-then-freeze + Deep Fusion toggle; B381 flattened resolution toggle. Device-verify remainders (paired): capture crop/exposure calibration, composition-at-4K measure.
 2. **Conduit Tier C close-out** ← IN PROGRESS — ✅ B382 extracted the external-surface poster (`createSurfacePoster`, transport-neutral; output-window + external-display are thin adapters now). Remaining: conduit-repo README/contract docs + device regression-verify. Capture-domain detection deferred to vNext (see roadmap + BACKLOG).
 3. ✅ **Clip-editor INFRASTRUCTURE (B384)** — the slice two-reader (crossfade correctness + speed; fixes Daniel's frame-pop). Bounce accel deferred (BACKLOG). Desktop-verify pending.
-4. **Clip-editor UX** ← NEXT — the "loop builder" mode (5-step flow, step panel + timeline reuse; **Daniel pairs on layout** — he wants the back-and-forth on progressive disclosure).
+4. **Clip-editor UX** ← IN PROGRESS — the "Loop Builder" mode. ✅ Iteration 1 (B385): integration (rename + mode menu + auto-open + post-bake nudge). ⏳ Iteration 2 (NEXT, **Daniel pairs on layout**): stepped progressive disclosure (back-nav until bake) + FCP-style crossfade editing (drag endpoints w/ head/tail preview, click-select + contextual menu) + perform access point.
 5. **App-wide mode-transition guardrails** — opinionated Still/Motion/Perform/Loop-builder routing (keyframe-shift warning first; then file-open routing, simplified non-loop motion editor, bounce PLAYBACK mode). See BACKLOG.
 
 Earlier shipped: conduit tiers A+B (B376/B377), ProRes-in-Electron (B378).

@@ -1172,6 +1172,18 @@ if (engine) {
   // (which keep the ordered mode-switch wiring); updateMotionUI re-syncs the
   // select afterward, so a refused switch snaps back
   document.getElementById('modeSelect')?.addEventListener('change', (e) => {
+    if (e.target.value === 'loop') {
+      // Loop Builder is a focused SHEET, not a persistent mode — open it over the
+      // current mode and snap the picker back to whatever mode is really active
+      // (openClipEditor no-ops without a video source).
+      const active = document.querySelector('#stillBtn.active') ? 'still'
+        : document.querySelector('#motionBtn.active') ? 'motion'
+        : document.querySelector('#performBtn.active') ? 'perform' : 'still';
+      e.target.value = active;
+      e.target.blur();
+      env.openClipEditor?.();
+      return;
+    }
     const id = { still: 'stillBtn', motion: 'motionBtn', perform: 'performBtn' }[e.target.value];
     document.getElementById(id)?.click();
     env.updateMotionUI?.();

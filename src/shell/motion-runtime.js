@@ -1606,6 +1606,12 @@ function wireMotion() {
   byId('clipClose')?.addEventListener('click', () => env.closeClipEditor(false));
   byId('clipCancel')?.addEventListener('click', () => env.closeClipEditor(false));
   byId('clipApply')?.addEventListener('click', () => env.applyClip());
+  // post-bake next-step nudge → render/save, motion, perform, or dismiss. Each closes
+  // the Loop Builder sheet first, then routes (the baked loop is already the source).
+  byId('clipNudgeSave')?.addEventListener('click', () => { env.closeLoopBuilderNudge(); byId('openExportBtn')?.click(); });
+  byId('clipNudgeMotion')?.addEventListener('click', () => { env.closeLoopBuilderNudge(); byId('motionBtn')?.click(); });
+  byId('clipNudgePerform')?.addEventListener('click', () => { env.closeLoopBuilderNudge(); byId('performBtn')?.click(); });
+  byId('clipNudgeDismiss')?.addEventListener('click', () => env.closeLoopBuilderNudge());
   byId('clipSheet')?.querySelectorAll('[data-mode]').forEach(b =>
     b.addEventListener('click', () => { if (!b.disabled) env.setClipMode(b.dataset.mode); }));
   env.makeClipHandle(byId('clipIn'), 'in');

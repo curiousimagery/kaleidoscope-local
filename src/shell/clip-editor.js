@@ -47,6 +47,7 @@ export function createClipEditor(env) {
     vB.src = env.media.sourceVideoUrl;
     (document.querySelector('.clip-stage') || sheet).appendChild(vB);
     env.clip.prevVideoB = vB;
+    const nudge = document.getElementById('clipNudge'); if (nudge) nudge.hidden = true;   // clear any prior post-bake nudge
     sheet.hidden = false;
     const init = () => { setClipMode(env.clip.trim.mode); renderClipTrim(); startClipPreview(); };
     if (pv.readyState >= 1) init(); else pv.addEventListener('loadedmetadata', init, { once: true });
@@ -405,8 +406,10 @@ export function createClipEditor(env) {
       });
       await applyBakedClip(blob);                   // swaps the source + re-binds the timeline
       disposeClipPreview();
-      const sheet = document.getElementById('clipSheet'); if (sheet) sheet.hidden = true;
       env.clip.backup = null;
+      // keep the sheet up with the next-step nudge (render/save · motion · perform)
+      // instead of just vanishing — the friendly "you baked a loop, now what" moment
+      const nudge = document.getElementById('clipNudge'); if (nudge) nudge.hidden = false;
     } catch (e) {
       console.error('clip bake failed', e);
       alert('Could not bake the clip: ' + (e && e.message ? e.message : e));
@@ -448,8 +451,16 @@ export function createClipEditor(env) {
     rebindClipToTimeline();
   }
 
+  // dismiss the post-bake nudge and close the sheet (the nudge actions call this
+  // before switching modes / opening the export sheet).
+  function closeLoopBuilderNudge() {
+    const nudge = document.getElementById('clipNudge'); if (nudge) nudge.hidden = true;
+    const sheet = document.getElementById('clipSheet'); if (sheet) sheet.hidden = true;
+  }
+
   // Public surface used by the chrome's motion-footer wiring.
   env.openClipEditor = openClipEditor;
+  env.closeLoopBuilderNudge = closeLoopBuilderNudge;
   env.closeClipEditor = closeClipEditor;
   env.applyClip = applyClip;
   env.setClipMode = setClipMode;

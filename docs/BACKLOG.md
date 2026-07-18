@@ -232,7 +232,16 @@ Trim/bounce/slice are feature-complete. Remaining: seek-based decode slow on lon
 - Claude to bring layout + progressive-disclosure thinking to that session (Daniel explicitly wants the back-and-forth on it).
 - **Keyframe-shift guardrail:** if the user enters loop builder AFTER adding keyframes, detect it and WARN — editing the source footage shifts keyframe positions. (Part of the app-wide mode-transition guardrails item below.)
 
-**Two-layer build (confirmed sequencing):** the invisible **decode infrastructure** (the slice two-reader — crossfade correctness + speed) ships FIRST, then the **mode UX** on top of the now-reliable bake.
+**Two-layer build (confirmed sequencing):** the invisible **decode infrastructure** (the slice two-reader — crossfade correctness + speed) ships FIRST (✅ B384), then the **mode UX** on top of the now-reliable bake.
+
+**MODE UX PROGRESS:**
+- ✅ **Iteration 1 (B385) — integration layer:** renamed to Loop Builder; added to the mode menu (focused sheet, picker snaps back); motion content auto-opens it; post-bake next-step nudge (render & save · edit in motion · perform · done). Did NOT touch the panel internals.
+- ⏳ **Iteration 2 (NEXT, hands-on with Daniel) — the panel redesign:**
+  - **Stepped progressive disclosure** — trim → behavior (trim-only/bounce/loop) → [slice point → crossfade] → bake, as a full-page-feeling flow with a left step panel; **back-nav to change choices until bake** (Daniel: stepped disclosure lets you go back up until bake).
+  - **FCP/Premiere-style crossfade editing** — drag the crossfade endpoints left/right to adjust placement, previewing the frame shown at the END of the outgoing and START of the incoming segment so you can see the exact diff the crossfade must traverse and pick a smooth blend point.
+  - **Crossfade interaction** — click-to-select + a contextual menu (like selecting a keyframe to adjust spacing/delete), plus a generic input to set the initial duration. Flexible, not drag-only.
+  - **Perform-mode access point** — mirror the motion overflow's Loop Builder entry in perform.
+  - Reuse the motion editor's timeline area for trim + crossfade controls; Claude brings layout/progressive-disclosure thinking, Daniel pairs on it.
 
 ### App-wide mode-transition guardrails + opinionated flows (Daniel, 2026-07-18) — follows the loop-builder UX
 

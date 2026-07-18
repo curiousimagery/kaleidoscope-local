@@ -4,6 +4,17 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🔁 v0.19.25 (Build 385) — 2026-07-18 — Loop Builder, iteration 1: the mode integration (rename + auto-open + post-bake nudge)
+
+The clip editor becomes **Loop Builder**, framed as part of the workflow instead of a buried modal. Iteration 1 is the safe integration layer — it does NOT touch the intricate preview/handle/crossfade mechanics (those get the stepped-disclosure + FCP-crossfade redesign in iteration 2, which is the interaction-heavy work Daniel flagged as better built hands-on):
+
+- **Renamed** "clip editor" → "Loop Builder" (sheet header, overflow-menu entry, titles).
+- **In the mode menu** — "loop builder" joins the mode picker. It's a focused sheet, not a persistent mode, so it opens over the current mode and the picker snaps back to whatever mode is really active (no-ops gracefully without a video source).
+- **Motion content auto-opens it** — loading a video in still mode now lands in Loop Builder as the natural first step (desktop only; suppressed mid-motion and via `opts.noLoopBuilder`).
+- **Post-bake next-step nudge** — after a successful bake, the sheet stays up with a friendly "Loop baked ✓ — what next?" overlay: **render & save** (opens the export sheet), **edit in motion**, **perform**, or **done for now**. No more silent vanish.
+
+The existing overflow-menu access point stays. Verified: node --check ×4, vite build, cap sync. **Desktop-verify (see VERIFY-QUEUE.md): mode-menu open, video auto-open, and the post-bake nudge routing.** **NEXT — iteration 2 (hands-on with Daniel): the stepped progressive-disclosure panel (trim → behavior → slice → crossfade → bake, back-nav until bake) + FCP-style crossfade editing (drag endpoints with head/tail frame preview, click-select + contextual menu) + a perform-mode access point.**
+
 ## 🎬 v0.19.24 (Build 384) — 2026-07-18 — clip-editor infrastructure: the slice crossfade two-reader (correctness + speed)
 
 The invisible infrastructure under the coming loop-builder mode. The slice-bake crossfade now decodes through **two monotonic frame readers over the same file** (one per segment) instead of seeking a single occluded `<video>` back and forth every frame:
