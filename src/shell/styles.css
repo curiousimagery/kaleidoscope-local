@@ -1271,6 +1271,19 @@ body.loop-active #outputToolbar select:not(#modeSelect) {
 .clip-baking { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: var(--surface); color: var(--text-dim); font-size: var(--text-md); border-radius: var(--radius-md); }
 .clip-baking[hidden] { display: none; }
 .clip-bar { position: relative; height: 40px; margin: 12px 0 2px; background: var(--surface-control); border: 1px solid var(--border); border-radius: var(--radius-md); touch-action: none; cursor: pointer; }
+/* Loop Builder timeline: a taller, motion-style track with a footage thumbnail strip + ruler */
+.loop-timeline { margin: 10px 0 4px; }
+.loop-ruler { position: relative; height: 15px; margin-bottom: 3px; }
+.loop-ruler .loop-tick { position: absolute; top: 4px; bottom: 0; width: 1px; background: var(--border); }
+.loop-ruler .loop-tick-label { position: absolute; top: 0; font-size: var(--text-xs); color: var(--text-dim); transform: translateX(3px); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.clip-bar.loop-track { height: 76px; margin: 0; }
+.loop-thumbs { position: absolute; inset: 0; display: flex; overflow: hidden; border-radius: var(--radius-md); pointer-events: none; background: var(--c-black); }
+.loop-thumbs canvas { height: 100%; flex: 0 0 auto; display: block; object-fit: cover; }
+.loop-thumbs .loop-seam-gap { flex: 0 0 auto; align-self: stretch; background: repeating-linear-gradient(45deg, var(--surface-control), var(--surface-control) 4px, var(--surface) 4px, var(--surface) 8px); }
+.clip-slice-end { position: absolute; top: -3px; bottom: -3px; width: 3px; background: var(--info); box-shadow: 0 0 0 1px rgba(0,0,0,.35); pointer-events: none; z-index: 2; }
+.clip-slice-end[hidden] { display: none; }
+.clip-slice-end.left { left: 0; }
+.clip-slice-end.right { right: 0; }
 .clip-region { position: absolute; top: 0; bottom: 0; background: rgba(255, 210, 63, 0.14); border-left: 2px solid var(--accent); border-right: 2px solid var(--accent); pointer-events: none; }
 .clip-handle { position: absolute; top: -3px; bottom: -3px; width: 12px; transform: translateX(-50%); background: var(--accent); border-radius: var(--radius); cursor: ew-resize; touch-action: none; }
 .clip-handle::after { content: ''; position: absolute; left: 50%; top: 50%; width: 2px; height: 16px; margin: -8px 0 0 -1px; background: rgba(0, 0, 0, 0.4); border-radius: var(--radius-2xs); }

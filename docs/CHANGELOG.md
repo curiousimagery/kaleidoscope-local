@@ -4,6 +4,17 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🔁 v0.19.28 (Build 388) — 2026-07-19 — Loop Builder: the timeline rework (footage thumbnails + ruler + B→slice→A resequence)
+
+The last structural piece before spit-and-polish. The plain clip bar becomes a motion-style timeline:
+
+- **Footage thumbnail strip + time ruler.** The timeline now shows actual preview frames of the source clip (seeked + drawn into cells), taller and full-width like motion mode, with a time ruler on top. Built once per clip (cancellable, single-flight), restored + preview resumed after; the trim region overlays the strip.
+- **Resequenced crossfade step (B→slice→A).** On the crossfade step the strip **reorders** to show B (`[cut→out]`) then a seam gap then A (`[in→cut]`) — so the loop reads left→right with the **crossfade in the MIDDLE, not at the end**. The blue slice point becomes **non-editable markers at both ends** (the loop boundary); the crossfade region sits at the seam, selectable, with the featured duration control. The split-stage's two seam frames (last-before | first-after) are populated in the same seek pass (fixing a would-be concurrent-seek race).
+
+**One interaction held for Daniel's eyes:** realtime *drag-to-adjust the seam* directly on the resequenced step-4 timeline. The linear handle drag maps to source time; on the reordered B|A view that mapping is non-linear, and getting it right blind is exactly where I'd regress feel — so on step 4 the trim/slice handles hide and seam adjustment is via back-nav (to the trim/slice steps) while the split-stage + resequenced strip show the result. The realtime-drag-on-resequence is the natural first refinement once you're looking at it.
+
+Verified: node --check, vite build, cap sync. **Untested by Claude — geometry (seam at ~50%, crossfade-region width heuristic, thumbnail cell sizing) will want your eye; see VERIFY-QUEUE.md.** With this, the structural Loop Builder work is done — next is spit-and-polish.
+
 ## 🔁 v0.19.27 (Build 387) — 2026-07-18 — Loop Builder iteration 2b: it's a real editing MODE now (Daniel's review pass)
 
 Daniel validated the core (outputs clean; crossfade loop bakes fast). This pass turns it from a full-screen dialog into a true in-app editing mode:

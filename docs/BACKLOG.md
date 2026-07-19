@@ -132,10 +132,8 @@ Procreate Dreams / latest iMovie — uncluttered, precise, powerful. Priority st
 - **Smoothed translation-PATH capture** (+gesture tail, lower pri) — record the take's spatial path, shape the tween as one smooth arc honoring the destination; pairs with per-keyframe ease.
 
 ### Loop Builder (was clip editor)
-- ▶ **TIMELINE REWORK (next focused pass, Daniel 2026-07-18) — the two coupled pieces held from 2b:**
-  1. **Motion-style thumbnail timeline + time ruler** — the clip timeline should show actual footage preview thumbnails, full size, with the ruler on top, like motion mode (reuse the filmstrip machinery). Currently a plain bar.
-  2. **Resequence the timeline to B→slice→A** after the slice point is set — the crossfade in the MIDDLE (not at the end), the blue slice point becoming a NON-editable marker at both the left and right ends. Makes the crossfade legible as the middle seam (pairs with the split-stage preview).
-  These two reshape the timeline substantially and are coupled (the resequenced view wants thumbnails); do them together, carefully (not blind).
+- **Timeline rework SHIPPED B388** (footage thumbnails + ruler + B→slice→A resequence with non-editable slice markers). **Held for Daniel: realtime drag-to-adjust the seam ON the resequenced step-4 timeline** — the non-linear drag mapping (reordered B|A view) needs his eyes; handles hide on step 4 for now, seam adjust is via back-nav. Also expect geometry tuning (seam ~50%, crossfade-region width heuristic, thumbnail cell sizing).
+- ▶ **Spit-and-polish UI refinement** (Daniel's stated next phase now that the structural work is done) — interaction-feel tuning across the stepped flow, split-stage crossfade, and the new thumbnail timeline.
 - **A dedicated perform-mode access point** (the mode menu reaches Loop Builder from anywhere; perform has no overflow menu — deferred).
 - **[verify FIXED by B384/B386]** Two old iPad bugs: right-edge trim not updating the preview; crossfade preview flickering the outgoing source to full opacity. Two-reader bake (B384) + the split-stage rework (B386) should have closed both — re-check on desktop.
 - **Spit-and-polish UI refinement** (Daniel's stated next phase after the timeline rework). Interaction-feel tuning across the stepped flow + split-stage crossfade.

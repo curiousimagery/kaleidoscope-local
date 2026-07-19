@@ -1653,6 +1653,7 @@ function wireMotion() {
     };
     clipBar.addEventListener('pointerdown', (e) => {
       if (e.target.closest('.clip-handle') || e.target.closest('.clip-xfade-region')) return;   // handles + the crossfade region own their interactions
+      if (env.clip.step === 4) return;   // resequenced crossfade step: no linear scrub (it'd fight the split-stage)
       barScrub = true;
       env.stopClipPreview();
       clipBar.setPointerCapture?.(e.pointerId);
