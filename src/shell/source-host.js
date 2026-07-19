@@ -104,6 +104,9 @@ export function createSourceHost(env) {
   // originalSource; the transcoded temp movie is just what the engine plays).
   function loadVideo(file, opts = {}) {
     if (!engine) return;
+    // uploading a new clip while in Loop Builder resets the process — warn on unsaved
+    // first (exitLoopBuilder); if the user backs out, abort the load
+    if (env.loopIsActive?.() && !opts.srcUrl && !env.exitLoopBuilder?.()) return;
     if (env.live.isLive || env.live.frozen) stopCameraMode({ keepSource: true });   // uploading exits the camera workflow
     stopSourceVideoPlayback();                           // stop any previously loaded video's loop
     env.haltPlayback();                                  // stop motion playback before swapping the source

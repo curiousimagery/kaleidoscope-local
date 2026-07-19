@@ -1626,6 +1626,8 @@ function wireMotion() {
   // crossfade region on the bar → click to select (contextual menu); outside click dismisses
   byId('clipXfadeRegion')?.addEventListener('click', (e) => { e.stopPropagation(); env.showXfadeMenu(); });
   byId('clipXfadeClear')?.addEventListener('click', () => { env.setCrossfadeSec(0); env.hideXfadeMenu(); });
+  byId('clipXfadeMinus')?.addEventListener('click', () => env.setCrossfadeSec(env.getCrossfadeSec() - 0.1));
+  byId('clipXfadePlus')?.addEventListener('click', () => env.setCrossfadeSec(env.getCrossfadeSec() + 0.1));
   document.addEventListener('pointerdown', (e) => {
     if (byId('clipXfadeMenu')?.hidden) return;
     if (!e.target.closest('#clipXfadeMenu') && !e.target.closest('#clipXfadeRegion')) env.hideXfadeMenu();

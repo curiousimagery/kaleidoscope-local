@@ -479,7 +479,6 @@
   <div class="loop-topbar">
     <span class="loop-title">Loop Builder</span>
     <span class="loop-sub" id="clipDur">—</span>
-    <button class="vid-x" id="clipClose" title="exit Loop Builder">✕</button>
   </div>
   <div class="loop-main">
     <!-- left step rail (progressive disclosure) -->
@@ -532,8 +531,13 @@
           <p class="loop-hint">Drag the blue slice marker to choose where the clip cuts. The head segment moves to the back, so the loop point becomes seamless.</p>
         </div>
         <div class="loop-panel" data-panel="4" hidden>
-          <p class="loop-hint">Set the crossfade that dissolves the seam. Drag the trim or slice handles to move the seam and preview the two frames it must blend between — pick a smooth match.</p>
-          <label class="mf-field clip-xfade">crossfade <span class="val scrub" id="clipXfade">0.50s</span></label>
+          <p class="loop-hint">Set the crossfade that dissolves the seam. Drag the trim handles to move the seam and preview the two frames it must blend between — pick a smooth match.</p>
+          <div class="loop-xfade-feature">
+            <span class="loop-xfade-label">crossfade</span>
+            <button class="loop-xfade-step" id="clipXfadeMinus" title="shorter">−</button>
+            <span class="val scrub" id="clipXfade">0.50s</span>
+            <button class="loop-xfade-step" id="clipXfadePlus" title="longer">+</button>
+          </div>
         </div>
         <div class="loop-panel" data-panel="5" hidden>
           <p class="loop-hint" id="loopBakeHint">Ready to bake your loop and swap it in as the working source.</p>
@@ -541,7 +545,6 @@
       </div>
       <div class="clip-progress" id="clipProgress" hidden><div class="clip-bar-fill" id="clipBarFill"></div></div>
       <div class="loop-nav">
-        <button class="mf-btn" id="clipCancel">cancel</button>
         <span class="loop-nav-spacer"></span>
         <button class="mf-btn" id="loopBack" hidden>‹ back</button>
         <button class="mf-btn mf-add" id="clipApply">next ›</button>

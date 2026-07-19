@@ -4,6 +4,17 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🔁 v0.19.27 (Build 387) — 2026-07-18 — Loop Builder iteration 2b: it's a real editing MODE now (Daniel's review pass)
+
+Daniel validated the core (outputs clean; crossfade loop bakes fast). This pass turns it from a full-screen dialog into a true in-app editing mode:
+
+- **The global app bar stays visible + gated.** The Loop Builder surface now sits BELOW the app bar (JS sets its `top` to the bar's bottom). While in the mode, only **upload · mode picker · undo/redo · settings** stay active; everything else greys out (`body.loop-active` CSS). You can change the clip, switch modes, undo, or open settings freely.
+- **The mode picker is the exit** (no more cancel/close buttons — removed). Switching modes, or uploading a different clip, **warns on unsaved changes** first (dirty = trim/behavior/slice/crossfade changed since open) and backs out if you cancel. Uploading a new clip resets the process on the new footage.
+- **Space plays/pauses the preview** (capture-phase, so it no longer triggers "commit to bake" from the focused primary button). No-op on the crossfade step (static seam frames).
+- **The crossfade is a featured control** — a prominent duration display with −/+ steppers on step 4 (plus the timeline region's click-to-select context menu), replacing the small reused scrub.
+
+**Still to do (flagged as the next focused pass — the timeline rework):** (1) the timeline should use **actual preview thumbnails + the time ruler**, full-size like motion mode; (2) after the slice point is set, **resequence the timeline to B→slice→A** with the crossfade in the MIDDLE (the blue slice point becomes non-editable at both ends). These two are coupled (the resequenced timeline wants thumbnails) and reshape the timeline substantially — held for a focused pass rather than blind-rushed. Verified: node --check ×4, vite build. **Untested by Claude — Daniel reviews.**
+
 ## 🔁 v0.19.26 (Build 386) — 2026-07-18 — Loop Builder, iteration 2: the full-screen stepped mode (Daniel's full UX vision)
 
 The clip editor becomes a **full-screen mode surface** (not a popover modal) — the same full-screen class as motion/perform — built autonomously per Daniel's "proceed with the full UX vision." Implemented as a self-contained full-screen surface rather than a 4th entry threaded through the intricate still/motion/perform switch coordination (lower risk; reads and feels like a mode). **Untested by Claude (desktop UI) — Daniel reviews; some interaction feel will want his hands-on tuning.**

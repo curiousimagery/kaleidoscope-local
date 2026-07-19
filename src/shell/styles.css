@@ -1162,20 +1162,26 @@ body.motion #oobModes { pointer-events: none; opacity: var(--disabled-opacity); 
 .vid-x:hover { color: var(--text-bright); }
 .vid-meta { font-size: var(--text-sm); color: var(--text-dim); font-variant-numeric: tabular-nums; min-height: 14px; margin-top: 2px; }
 
-/* ===== Loop Builder — full-screen mode surface ===== */
+/* ===== Loop Builder — an in-app editing MODE (sits BELOW the global app bar) ===== */
 .loop-mode {
-  position: fixed; inset: 0; z-index: 200;
+  position: fixed; top: 0; left: 0; right: 0; bottom: 0; z-index: 150;   /* JS sets `top` to the app bar's bottom so the bar stays visible */
   display: flex; flex-direction: column;
   background: var(--surface); color: var(--text);
 }
 .loop-mode[hidden] { display: none; }
+/* while in Loop Builder the app bar stays visible but only upload / mode picker /
+   undo-redo / settings work — everything else greys out (it's an opinionated wizard,
+   but a real mode: change the clip, switch modes, undo, or open settings freely) */
+body.loop-active #outputToolbar button:not(#uploadBtn):not(#undoBtn):not(#redoBtn):not(#settingsBtn),
+body.loop-active #outputToolbar select:not(#modeSelect) {
+  opacity: .3; pointer-events: none;
+}
 .loop-topbar {
   flex: 0 0 auto; display: flex; align-items: center; gap: 12px;
-  padding: 12px 18px; border-bottom: 1px solid var(--border);
+  padding: 10px 18px; border-bottom: 1px solid var(--border);
 }
-.loop-title { font-size: var(--text-lg); font-weight: 600; color: var(--text-bright); }
+.loop-title { font-size: var(--text-md); font-weight: 600; color: var(--text-bright); }
 .loop-sub { font-size: var(--text-sm); color: var(--text-dim); font-variant-numeric: tabular-nums; }
-.loop-topbar .vid-x { margin-left: auto; }
 .loop-main { flex: 1 1 auto; display: flex; min-height: 0; }
 /* left step rail */
 .loop-rail {
@@ -1238,6 +1244,14 @@ body.motion #oobModes { pointer-events: none; opacity: var(--disabled-opacity); 
 .loop-ctx-field { font-size: var(--text-base); color: var(--text-secondary); display: flex; justify-content: space-between; gap: 10px; }
 .loop-ctx-btn { background: transparent; border: none; color: var(--danger-text, #ff453a); font-size: var(--text-base); text-align: left; cursor: pointer; padding: 2px 0; }
 .loop-ctx-btn:hover { text-decoration: underline; }
+/* prominent crossfade duration control (step 4) — the featured input, not a small scrub */
+.loop-xfade-feature { display: inline-flex; align-items: center; gap: 10px; margin-top: 4px; padding: 10px 14px;
+  background: var(--surface-raised); border: 1px solid var(--border); border-radius: var(--radius-lg); }
+.loop-xfade-feature .loop-xfade-label { font-size: var(--text-md); color: var(--text); font-weight: 500; }
+.loop-xfade-feature .val { font-size: var(--text-lg); color: var(--text-bright); font-variant-numeric: tabular-nums; font-weight: 600; min-width: 62px; text-align: center; }
+.loop-xfade-step { width: 34px; height: 34px; border-radius: var(--radius-md); background: var(--surface-control);
+  border: 1px solid var(--border); color: var(--text); font-size: var(--text-lg); line-height: 1; cursor: pointer; }
+.loop-xfade-step:hover { border-color: var(--text-dim); color: var(--text-bright); }
 
 /* clip editor / Loop Builder (pre-animation video prep) */
 .clip-card { width: 640px; max-width: 92vw; position: relative; }

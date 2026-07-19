@@ -132,8 +132,13 @@ Procreate Dreams / latest iMovie — uncluttered, precise, powerful. Priority st
 - **Smoothed translation-PATH capture** (+gesture tail, lower pri) — record the take's spatial path, shape the tween as one smooth arc honoring the destination; pairs with per-keyframe ease.
 
 ### Loop Builder (was clip editor)
-- **[verify FIXED by B384/B386]** Two old iPad bugs: right-edge trim not updating the preview; crossfade preview flickering the outgoing source to full opacity. The two-reader bake (B384) fixes the bake-side pop by construction and the split-stage/step-4 rework (B386) changes the preview path — re-check both on Daniel's next desktop pass.
-- **Loop Builder iteration 2 remainder:** a dedicated **perform-mode access point** (the mode menu already reaches it; perform has no overflow menu to hang an entry on — deferred). Interaction feel tuning across the stepped flow + split-stage crossfade (built untested — see VERIFY-QUEUE.md).
+- ▶ **TIMELINE REWORK (next focused pass, Daniel 2026-07-18) — the two coupled pieces held from 2b:**
+  1. **Motion-style thumbnail timeline + time ruler** — the clip timeline should show actual footage preview thumbnails, full size, with the ruler on top, like motion mode (reuse the filmstrip machinery). Currently a plain bar.
+  2. **Resequence the timeline to B→slice→A** after the slice point is set — the crossfade in the MIDDLE (not at the end), the blue slice point becoming a NON-editable marker at both the left and right ends. Makes the crossfade legible as the middle seam (pairs with the split-stage preview).
+  These two reshape the timeline substantially and are coupled (the resequenced view wants thumbnails); do them together, carefully (not blind).
+- **A dedicated perform-mode access point** (the mode menu reaches Loop Builder from anywhere; perform has no overflow menu — deferred).
+- **[verify FIXED by B384/B386]** Two old iPad bugs: right-edge trim not updating the preview; crossfade preview flickering the outgoing source to full opacity. Two-reader bake (B384) + the split-stage rework (B386) should have closed both — re-check on desktop.
+- **Spit-and-polish UI refinement** (Daniel's stated next phase after the timeline rework). Interaction-feel tuning across the stepped flow + split-stage crossfade.
 - **Bake tails:** 30fps bake (source-fps estimation); no mid-bake cancel; bounce preview forward-only; shared-demux memory optimization (see Export lane).
 
 ### App-wide mode-transition guardrails + opinionated flows

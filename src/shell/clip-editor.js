@@ -54,6 +54,12 @@ export function createClipEditor(env) {
     (document.querySelector('.clip-stage') || sheet).appendChild(vB);
     env.clip.prevVideoB = vB;
     const nudge = document.getElementById('clipNudge'); if (nudge) nudge.hidden = true;   // clear any prior post-bake nudge
+    // enter the mode: the surface sits BELOW the global app bar (which stays visible +
+    // gated), and the mode picker reflects "loop builder" as the active mode
+    document.body.classList.add('loop-active');
+    const bar = document.getElementById('outputToolbar');
+    sheet.style.top = bar ? Math.round(bar.getBoundingClientRect().bottom) + 'px' : '0px';
+    const ms = document.getElementById('modeSelect'); if (ms) ms.value = 'loop';
     sheet.hidden = false;
     const init = () => { env.clip.step = 1; setClipMode(env.clip.trim.mode); setLoopStep(1); };
     if (pv.readyState >= 1) init(); else pv.addEventListener('loadedmetadata', init, { once: true });
@@ -77,14 +83,34 @@ export function createClipEditor(env) {
     env.updateMotionUI();
     env.scrubVideo(0);
   }
+  function hideLoopSurface() {
+    document.body.classList.remove('loop-active');
+    const sheet = document.getElementById('clipSheet');
+    if (sheet) { sheet.hidden = true; sheet.style.top = ''; }
+    const nudge = document.getElementById('clipNudge'); if (nudge) nudge.hidden = true;
+  }
   function closeClipEditor(apply) {
     if (env.clip.baking) return;                      // don't tear down mid-bake (the decode video is in use)
     disposeClipPreview();
-    const sheet = document.getElementById('clipSheet');
-    if (sheet) sheet.hidden = true;
+    hideLoopSurface();
     if (!apply && env.clip.backup) Object.assign(env.clip.trim, env.clip.backup);   // revert the trim/mode
     env.clip.backup = null;
     rebindClipToTimeline();
+  }
+  // has the user changed anything from the state at open (drives the leave-warning)?
+  function loopIsDirty() {
+    const b = env.clip.backup, t = env.clip.trim;
+    if (!b) return false;
+    return t.inT !== b.inT || t.outT !== b.outT || t.mode !== b.mode || t.slicePoint !== b.slicePoint || t.crossfadeMs !== b.crossfadeMs;
+  }
+  // the ONLY exit (no cancel/close buttons) — the app-bar mode picker + uploading a new
+  // clip both route here. Returns true if it's OK to leave, false if the user backed out.
+  function exitLoopBuilder() {
+    if (env.clip.baking) return false;                               // never leave mid-bake
+    if (!document.body.classList.contains('loop-active')) return true;
+    if (loopIsDirty() && !window.confirm('Leave Loop Builder? Your unsaved trim / loop settings will be discarded.')) return false;
+    closeClipEditor(false);
+    return true;
   }
   function renderClipTrim() {
     const trim = env.clip.trim;
@@ -588,17 +614,31 @@ export function createClipEditor(env) {
     rebindClipToTimeline();
   }
 
-  // dismiss the post-bake nudge and close the sheet (the nudge actions call this
+  // dismiss the post-bake nudge and close the mode (the nudge actions call this
   // before switching modes / opening the export sheet).
-  function closeLoopBuilderNudge() {
-    const nudge = document.getElementById('clipNudge'); if (nudge) nudge.hidden = true;
-    const sheet = document.getElementById('clipSheet'); if (sheet) sheet.hidden = true;
-  }
+  function closeLoopBuilderNudge() { hideLoopSurface(); }
 
-  // set the crossfade (contextual menu / step-4 scrub), keeping the region live
+  // SPACE = play/pause the preview (not "commit to bake"). Capture-phase so it beats the
+  // focused primary button's default space-activation. No-op on the crossfade step (the
+  // split-stage shows static seam frames, nothing to play).
+  document.addEventListener('keydown', (e) => {
+    if (!document.body.classList.contains('loop-active')) return;
+    if (e.code !== 'Space' && e.key !== ' ') return;
+    const t = e.target;
+    if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+    e.preventDefault(); e.stopPropagation();
+    if (env.clip.raf) stopClipPreview();
+    else if (env.clip.step !== 4 && env.clip.prevVideo) startClipPreview(false);
+  }, true);
+
+  // set the crossfade (steppers / contextual menu / step-4 scrub), keeping the region
+  // + both value displays live
   function setCrossfadeSec(sec) {
     env.clip.trim.crossfadeMs = Math.max(0, Math.min(3, sec)) * 1000;
     renderXfadeRegion();
+    const v = (env.clip.trim.crossfadeMs / 1000).toFixed(2) + 's';
+    const a = document.getElementById('clipXfade'); if (a) a.textContent = v;
+    const b = document.getElementById('clipXfadeCtx'); if (b) b.textContent = v;
   }
 
   // Public surface used by the chrome's motion-footer wiring.
@@ -620,4 +660,6 @@ export function createClipEditor(env) {
   env.hideXfadeMenu = hideXfadeMenu;
   env.setCrossfadeSec = setCrossfadeSec;
   env.getCrossfadeSec = () => env.clip.trim.crossfadeMs / 1000;
+  env.exitLoopBuilder = exitLoopBuilder;   // the mode picker + upload route here
+  env.loopIsActive = () => document.body.classList.contains('loop-active');
 }
