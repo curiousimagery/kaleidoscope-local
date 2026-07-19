@@ -507,6 +507,10 @@ export function createClipEditor(env) {
       for (let i = 0; i < cells; i++) { const c = await cell(cut + (outA - cut) * (i + 0.5) / cells, cellW); if (gen !== thumbGen) return; if (c) out.push(c); }
       const gap = document.createElement('div'); gap.className = 'loop-seam-gap'; gap.style.width = gapPx + 'px'; out.push(gap);
       for (let i = 0; i < cells; i++) { const c = await cell(inA + (cut - inA) * (i + 0.5) / cells, cellW); if (gen !== thumbGen) return; if (c) out.push(c); }
+      // keep the split-stage seam pair current (shown WHILE dragging a crossfade seam edge):
+      // last frame before the seam (@outA, B tail) | first frame after (@inA, A head)
+      await seekVideoTo(vt, Math.max(0, Math.min(d, outA))); if (gen !== thumbGen) return; drawFrameTo(vt, byId('loopSplitA'));
+      await seekVideoTo(vt, Math.max(0, Math.min(d, inA))); if (gen !== thumbGen) return; drawFrameTo(vt, byId('loopSplitB'));
     } else {
       // linear over the shown range: full clip for the trim steps; the TRIMMED range on the
       // bake-preview step (step 5) so it shows only what bakes, not the cut-off head/tail.
@@ -573,6 +577,44 @@ export function createClipEditor(env) {
     return mediaT / d;
   }
   const setPlayheadFrac = (frac) => { const ph = byId('clipPlayhead'); if (ph) ph.style.left = (frac * 100) + '%'; };
+
+  // Scrub to a track fraction, showing the REAL frame under the cursor. On the resequenced
+  // steps, when the cursor is inside the dissolve zone we blend B's tail into A's head at the
+  // crossfade alpha (so scrubbing the crossfade previews the actual dissolve, not just A or B);
+  // elsewhere it's a single coalesced seek. Coalesced (latest target wins) so a fast drag
+  // never floods the two decoders.
+  let scrubBusy = false, scrubTgt = null;
+  function clipScrubToFrac(frac) {
+    scrubTgt = frac;
+    if (scrubBusy) return;
+    scrubBusy = true;
+    (async () => {
+      try { while (scrubTgt != null) { const f = scrubTgt; scrubTgt = null; await doScrub(f); } }
+      finally { scrubBusy = false; }
+    })();
+  }
+  async function doScrub(frac) {
+    const v = env.clip.prevVideo, vB = env.clip.prevVideoB, blend = byId('clipBlend');
+    if (!v) return;
+    const trim = env.clip.trim, d = v.duration || 1, range = trim.outT - trim.inT;
+    if (isResequenced() && range > 0) {
+      const { Bdur, Adur } = seamDurations();
+      const cfSec = Math.max(0, Math.min(trim.crossfadeMs / 1000, Bdur * 0.9, Adur * 0.9));
+      const leftFrac = 0.5 - Math.min(1, cfSec / Bdur) * 0.5, rightFrac = 0.5 + Math.min(1, cfSec / Adur) * 0.5;
+      if (cfSec > 0 && frac >= leftFrac && frac <= rightFrac && vB) {
+        const cf = rightFrac > leftFrac ? (frac - leftFrac) / (rightFrac - leftFrac) : 1;   // 0→1 across the dissolve
+        const inA = trim.inT * d, outA = trim.outT * d;
+        const bT = outA - cfSec * (1 - cf), aT = inA + cfSec * cf;   // B tail time | A head time
+        try { vB.pause(); } catch { /* ignore */ }   // in case a prior crossfade preview left it playing
+        await Promise.all([seekVideoTo(v, Math.max(0, Math.min(d, bT))), seekVideoTo(vB, Math.max(0, Math.min(d, aT)))]);
+        if (blend) blend.hidden = false;
+        drawTwoVideoBlend(cf);
+        return;
+      }
+    }
+    if (blend) blend.hidden = true;
+    await seekVideoTo(v, Math.max(0, Math.min(d, barFracToMedia(frac))));
+  }
   // step 4 overlays: crossfade region straddling the seam, non-editable slice markers
   // at both ends. (Linear handles hide on step 4 — see setLoopStep.) The strip lays B and
   // A in exactly-equal halves (buildLoopThumbs), so the seam sits at a true 50%. The
@@ -818,13 +860,14 @@ export function createClipEditor(env) {
   // value maps honestly to how far each side of the dissolve reaches into its segment.
   function makeXfadeSeamHandle(el, side) {
     if (!el) return;
-    let dragging = false, pushed = false;
+    let dragging = false, pushed = false, wasPlaying = false;
     el.addEventListener('click', (e) => e.stopPropagation());   // never let a drag fall through to "select region"
     el.addEventListener('pointerdown', (e) => {
       if (!(env.clip.step === 4 && env.clip.trim.mode === 'slice')) return;
       e.preventDefault(); e.stopPropagation();
       el.setPointerCapture?.(e.pointerId);
-      dragging = true; pushed = false;
+      dragging = true; pushed = false; wasPlaying = !!env.clip.raf;
+      enterSplitStage();   // show the seam-match pair WHILE adjusting the crossfade edge
     });
     el.addEventListener('pointermove', (e) => {
       if (!dragging) return;
@@ -839,6 +882,8 @@ export function createClipEditor(env) {
     const up = (e) => {
       if (!dragging) return;
       dragging = false; el.releasePointerCapture?.(e.pointerId);
+      exitSplitStage();                          // back to the live preview
+      if (wasPlaying) startClipPreview(false);
       env.updateUndoUI?.();
     };
     el.addEventListener('pointerup', up);
@@ -882,6 +927,7 @@ export function createClipEditor(env) {
   env.makeXfadeSeamHandle = makeXfadeSeamHandle;
   env.refreshLoopBuilder = refreshLoopBuilder;
   env.barFracToMedia = barFracToMedia;   // scrub mapping (view-aware: full / trimmed / resequenced)
+  env.clipScrubToFrac = clipScrubToFrac; // scrub that previews the dissolve inside the crossfade zone
   env.exitLoopBuilder = exitLoopBuilder;   // the mode picker + upload route here
   env.loopIsActive = () => document.body.classList.contains('loop-active');
 }

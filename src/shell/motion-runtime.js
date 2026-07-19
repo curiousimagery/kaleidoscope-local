@@ -1654,8 +1654,10 @@ function wireMotion() {
     const seekToEvt = (e) => {
       const r = clipBar.getBoundingClientRect();
       const frac = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width));
-      const dur = env.clip.prevVideo?.duration || 1;
-      env.clipSeekTo((env.barFracToMedia?.(frac) ?? frac * dur) / dur);
+      // clipScrubToFrac shows the real frame — and the live dissolve when the cursor is inside
+      // the crossfade zone; falls back to a plain coalesced seek if unavailable.
+      if (env.clipScrubToFrac) env.clipScrubToFrac(frac);
+      else { const dur = env.clip.prevVideo?.duration || 1; env.clipSeekTo((env.barFracToMedia?.(frac) ?? frac * dur) / dur); }
       const ph = byId('clipPlayhead');
       if (ph) ph.style.left = (frac * 100) + '%';
     };

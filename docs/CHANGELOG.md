@@ -4,6 +4,15 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🔁 v0.19.31 (Build 391) — 2026-07-19 — Loop Builder: seam-match on crossfade-edge drag + scrub previews the dissolve
+
+Two refinements from Daniel's pass (undo confirmed working):
+
+- **The two-frame split-stage returns — as an on-demand seam reference.** It shows WHILE you actively drag a crossfade seam edge (last frame before the seam @outA | first frame after @inA), then hides on release back to the live preview. The pair is kept current on the dedicated thumb video.
+- **Scrubbing the crossfade previews the actual dissolve.** Dragging the scrubber into the crossfade zone now blends B's tail into A's head at the crossfade alpha (coalesced two-video seek + draw), instead of showing only clip A or clip B. Outside the zone it's a single-frame seek as before.
+
+Verified: node --check, vite build. **Untested by Claude — desktop verify (VERIFY-QUEUE.md).**
+
 ## 🔁 v0.19.30 (Build 390) — 2026-07-19 — Loop Builder: Daniel's review pass (thumbnail tell, button labels, yellow crossfade, scrub + space in crossfade, bake preview)
 
 Six issues from Daniel's Brave desktop pass:
