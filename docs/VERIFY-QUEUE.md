@@ -8,6 +8,13 @@ Legend: 🖥️ desktop browser · 📺 external display / AirPlay (workstation)
 
 - **📺 External display + AirPlay render-from-state regression (B382).** The external-surface poster was refactored (`createSurfacePoster`, transport-neutral). Behavior-neutral by intent. Verify: iPad external display (HDMI) and Apple TV AirPlay still present the program render-from-state at tier resolution, exactly as before. (Daniel away from that setup as of 2026-07-18.)
 - **🖥️ Two-reader slice crossfade (B384).** Bake a **slice** loop with a crossfade and confirm the seam no longer drops/pops frames (a fading-out frame snapping back to full opacity). Also just confirm slice + bounce bakes still produce correct loops (regression). Desktop browser (needs WebCodecs — Brave/Chrome/Electron).
+- **🖥️ Loop Builder iteration 2 — the full-screen stepped mode (B386). UNTESTED by Claude; this is the big review.**
+  - Full-screen surface (not a popover), left step rail, progressive disclosure: Trim → Behavior → [Slice → Crossfade] → Bake; slice-only steps appear only for seamless loop; back-nav until bake; rail jumps between reached steps.
+  - Split-stage crossfade seam match on step 4: LEFT = last frame before seam, RIGHT = first after; dragging OUT updates left, IN updates right, in realtime.
+  - Crossfade region on the bar → click to select → contextual menu (duration + remove); inline duration scrub on the step panel.
+  - Keyframe-shift warning when entering with existing keyframes (explicit entry only).
+  - All four behaviors bake correctly (trim only / bounce / seamless loop) and the post-bake nudge still routes.
+  - Feel/polish feedback expected — this was built without runtime testing.
 - **🖥️ Loop Builder integration, iteration 1 (B385).**
   - Selecting **"loop builder"** in the mode menu opens the Loop Builder sheet (and the picker snaps back to the real mode).
   - Loading a **video** in still mode auto-opens Loop Builder.

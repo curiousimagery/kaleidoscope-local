@@ -1162,6 +1162,83 @@ body.motion #oobModes { pointer-events: none; opacity: var(--disabled-opacity); 
 .vid-x:hover { color: var(--text-bright); }
 .vid-meta { font-size: var(--text-sm); color: var(--text-dim); font-variant-numeric: tabular-nums; min-height: 14px; margin-top: 2px; }
 
+/* ===== Loop Builder — full-screen mode surface ===== */
+.loop-mode {
+  position: fixed; inset: 0; z-index: 200;
+  display: flex; flex-direction: column;
+  background: var(--surface); color: var(--text);
+}
+.loop-mode[hidden] { display: none; }
+.loop-topbar {
+  flex: 0 0 auto; display: flex; align-items: center; gap: 12px;
+  padding: 12px 18px; border-bottom: 1px solid var(--border);
+}
+.loop-title { font-size: var(--text-lg); font-weight: 600; color: var(--text-bright); }
+.loop-sub { font-size: var(--text-sm); color: var(--text-dim); font-variant-numeric: tabular-nums; }
+.loop-topbar .vid-x { margin-left: auto; }
+.loop-main { flex: 1 1 auto; display: flex; min-height: 0; }
+/* left step rail */
+.loop-rail {
+  flex: 0 0 190px; display: flex; flex-direction: column; gap: 4px;
+  padding: 16px 12px; border-right: 1px solid var(--border); background: var(--surface-sunken, var(--surface));
+}
+.loop-step {
+  display: flex; align-items: center; gap: 10px; text-align: left;
+  padding: 10px 12px; border: 1px solid transparent; border-radius: var(--radius-md);
+  background: transparent; color: var(--text-dim); font-size: var(--text-md); cursor: pointer;
+}
+.loop-step b {
+  flex: 0 0 22px; height: 22px; display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 50%; background: var(--surface-control); color: var(--text-dim); font-size: var(--text-sm); font-weight: 600;
+}
+.loop-step:hover { color: var(--text); background: var(--surface-control); }
+.loop-step.active { color: var(--text-bright); background: var(--surface-control); border-color: var(--focus); }
+.loop-step.active b { background: var(--accent); color: var(--c-black); }
+.loop-step.done b { background: var(--ok, #34c759); color: var(--c-black); }
+.loop-step:disabled { opacity: var(--disabled-opacity-strong); cursor: default; }
+.loop-step[hidden] { display: none; }   /* the flex display above would otherwise beat UA [hidden] */
+/* main content column */
+.loop-content { flex: 1 1 auto; display: flex; flex-direction: column; min-width: 0; padding: 16px 18px; gap: 8px; overflow: auto; }
+.loop-stage { flex: 0 1 auto; display: flex; align-items: center; justify-content: center; min-height: 0; }
+.loop-stage .clip-video { max-height: 56vh; width: auto; max-width: 100%; }
+/* split-stage crossfade preview */
+.loop-split { position: absolute; inset: 0; display: flex; gap: 2px; background: var(--c-black); }
+.loop-split[hidden] { display: none; }
+.loop-split-half { position: relative; flex: 1 1 50%; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+.loop-split-canvas { max-width: 100%; max-height: 100%; object-fit: contain; display: block; }
+.loop-split-cap { position: absolute; bottom: 6px; left: 6px; font-size: var(--text-xs); color: var(--text-bright);
+  background: rgba(0,0,0,0.55); padding: 2px 6px; border-radius: var(--radius-xs); }
+.loop-split-half:first-child .loop-split-cap { left: auto; right: 6px; }
+/* step body panels */
+.loop-step-body { flex: 0 0 auto; }
+.loop-panel[hidden] { display: none; }
+.loop-hint { font-size: var(--text-md); color: var(--text-secondary); margin: 4px 0 10px; max-width: 640px; }
+.loop-behaviors { display: flex; gap: 10px; flex-wrap: wrap; }
+.loop-behavior {
+  display: flex; flex-direction: column; gap: 3px; align-items: flex-start; text-align: left;
+  min-width: 150px; padding: 12px 14px; border: 1px solid var(--border); border-radius: var(--radius-lg);
+  background: var(--surface-control); color: var(--text); cursor: pointer;
+}
+.loop-behavior b { font-size: var(--text-md); color: var(--text-bright); font-weight: 600; }
+.loop-behavior small { font-size: var(--text-sm); color: var(--text-dim); }
+.loop-behavior:hover { border-color: var(--text-dim); }
+.loop-behavior.active { border-color: var(--focus); background: var(--surface-raised); }
+/* nav row */
+.loop-nav { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+.loop-nav-spacer { flex: 1 1 auto; }
+/* crossfade overlap region on the timeline bar */
+.clip-xfade-region { position: absolute; top: 0; bottom: 0; background: rgba(90, 170, 255, 0.28);
+  border-left: 1px solid var(--info); border-right: 1px solid var(--info); pointer-events: auto; cursor: pointer; z-index: 1; }
+.clip-xfade-region[hidden] { display: none; }
+.clip-xfade-region.selected { background: rgba(90, 170, 255, 0.45); box-shadow: 0 0 0 1px var(--info) inset; }
+/* crossfade contextual menu */
+.loop-ctx { position: fixed; z-index: 210; display: flex; flex-direction: column; gap: 6px;
+  background: var(--surface-raised); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 10px 12px; min-width: 160px; }
+.loop-ctx[hidden] { display: none; }
+.loop-ctx-field { font-size: var(--text-base); color: var(--text-secondary); display: flex; justify-content: space-between; gap: 10px; }
+.loop-ctx-btn { background: transparent; border: none; color: var(--danger-text, #ff453a); font-size: var(--text-base); text-align: left; cursor: pointer; padding: 2px 0; }
+.loop-ctx-btn:hover { text-decoration: underline; }
+
 /* clip editor / Loop Builder (pre-animation video prep) */
 .clip-card { width: 640px; max-width: 92vw; position: relative; }
 /* post-bake next-step nudge — an overlay over the whole card */

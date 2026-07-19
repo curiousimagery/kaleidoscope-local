@@ -1605,18 +1605,38 @@ function wireMotion() {
   // (mfClip is wired with the ⋯ menu below — it closes the menu before opening the sheet)
   byId('clipClose')?.addEventListener('click', () => env.closeClipEditor(false));
   byId('clipCancel')?.addEventListener('click', () => env.closeClipEditor(false));
-  byId('clipApply')?.addEventListener('click', () => env.applyClip());
+  // the primary button is context-aware: "next" through the steps, then apply/bake
+  byId('clipApply')?.addEventListener('click', () => env.loopPrimaryAction());
+  byId('loopBack')?.addEventListener('click', () => env.loopBack());
+  // the left step rail — jump to any reached step
+  byId('clipSheet')?.querySelectorAll('.loop-step').forEach(b =>
+    b.addEventListener('click', () => { if (!b.disabled) env.jumpToStep(+b.dataset.step); }));
   // post-bake next-step nudge → render/save, motion, perform, or dismiss. Each closes
   // the Loop Builder sheet first, then routes (the baked loop is already the source).
   byId('clipNudgeSave')?.addEventListener('click', () => { env.closeLoopBuilderNudge(); byId('openExportBtn')?.click(); });
   byId('clipNudgeMotion')?.addEventListener('click', () => { env.closeLoopBuilderNudge(); byId('motionBtn')?.click(); });
   byId('clipNudgePerform')?.addEventListener('click', () => { env.closeLoopBuilderNudge(); byId('performBtn')?.click(); });
   byId('clipNudgeDismiss')?.addEventListener('click', () => env.closeLoopBuilderNudge());
+  // behavior choice (step 2) — changes which later steps exist
   byId('clipSheet')?.querySelectorAll('[data-mode]').forEach(b =>
-    b.addEventListener('click', () => { if (!b.disabled) env.setClipMode(b.dataset.mode); }));
+    b.addEventListener('click', () => { if (!b.disabled) env.chooseBehavior(b.dataset.mode); }));
   env.makeClipHandle(byId('clipIn'), 'in');
   env.makeClipHandle(byId('clipOut'), 'out');
   env.makeClipHandle(byId('clipCut'), 'cut');
+  // crossfade region on the bar → click to select (contextual menu); outside click dismisses
+  byId('clipXfadeRegion')?.addEventListener('click', (e) => { e.stopPropagation(); env.showXfadeMenu(); });
+  byId('clipXfadeClear')?.addEventListener('click', () => { env.setCrossfadeSec(0); env.hideXfadeMenu(); });
+  document.addEventListener('pointerdown', (e) => {
+    if (byId('clipXfadeMenu')?.hidden) return;
+    if (!e.target.closest('#clipXfadeMenu') && !e.target.closest('#clipXfadeRegion')) env.hideXfadeMenu();
+  });
+  if (byId('clipXfadeCtx')) makeScrubField(byId('clipXfadeCtx'), {
+    get: () => env.getCrossfadeSec(),
+    set: (v) => env.setCrossfadeSec(v),
+    step: 0.1, fineStep: 0.05, min: 0, max: 3,
+    format: (v) => v.toFixed(2) + 's',
+    parse: (s) => { const n = parseFloat(String(s).replace(/[s\s]/g, '')); return isNaN(n) ? null : n; },
+  });
   // scrub the clip bar (off the handles) to inspect any moment — pauses the auto-loop,
   // coalesced seek, resumes on release.
   const clipBar = byId('clipBar');
@@ -1630,7 +1650,7 @@ function wireMotion() {
       if (ph) ph.style.left = (frac * 100) + '%';
     };
     clipBar.addEventListener('pointerdown', (e) => {
-      if (e.target.closest('.clip-handle')) return;   // handles own their drags
+      if (e.target.closest('.clip-handle') || e.target.closest('.clip-xfade-region')) return;   // handles + the crossfade region own their interactions
       barScrub = true;
       env.stopClipPreview();
       clipBar.setPointerCapture?.(e.pointerId);
@@ -1648,8 +1668,8 @@ function wireMotion() {
     clipBar.addEventListener('pointercancel', barUp);
   }
   if (byId('clipXfade')) makeScrubField(byId('clipXfade'), {
-    get: () => env.clip.trim.crossfadeMs / 1000,
-    set: (v) => { env.clip.trim.crossfadeMs = Math.max(0, Math.min(3, v)) * 1000; },
+    get: () => env.getCrossfadeSec(),
+    set: (v) => env.setCrossfadeSec(v),                // keeps the bar's crossfade region in sync
     step: 0.1, fineStep: 0.05, min: 0, max: 3,
     format: (v) => v.toFixed(2) + 's',
     parse: (s) => { const n = parseFloat(String(s).replace(/[s\s]/g, '')); return isNaN(n) ? null : n; },

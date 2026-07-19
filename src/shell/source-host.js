@@ -157,7 +157,7 @@ export function createSourceHost(env) {
       // already running (don't yank a mid-motion source swap into a modal), and not
       // when the caller opts out.
       if (env.openClipEditor && !env.motionRT.active && !opts.noLoopBuilder) {
-        env.openClipEditor();
+        env.openClipEditor({ fromLoad: true });   // fresh clip → skip the keyframe-shift warning
       }
       if (env.motionRT.active) {
         env.rebindMotionToSource();    // already animating → re-bind keyframes to the new clip (timeline-driven, no free-run)

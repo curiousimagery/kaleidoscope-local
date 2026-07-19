@@ -4,6 +4,17 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🔁 v0.19.26 (Build 386) — 2026-07-18 — Loop Builder, iteration 2: the full-screen stepped mode (Daniel's full UX vision)
+
+The clip editor becomes a **full-screen mode surface** (not a popover modal) — the same full-screen class as motion/perform — built autonomously per Daniel's "proceed with the full UX vision." Implemented as a self-contained full-screen surface rather than a 4th entry threaded through the intricate still/motion/perform switch coordination (lower risk; reads and feels like a mode). **Untested by Claude (desktop UI) — Daniel reviews; some interaction feel will want his hands-on tuning.**
+
+- **Stepped progressive disclosure** — a left step rail walks **Trim → Behavior → [Slice point → Crossfade] → Bake**. The slice-only steps (3, 4) appear only for the seamless-loop behavior; the Bake step drops for trim-only. The primary button is context-aware (**next ›** through the steps, then **apply trim** / **bake loop ✦**), with **back-nav live until bake** and a clickable rail to jump between reached steps.
+- **Split-stage crossfade seam match** (Daniel's nuance) — on the Crossfade step the stage splits: LEFT = the last frame before the seam (frame @ out), RIGHT = the first frame after (frame @ in) — the two frames the crossfade must dissolve between. Dragging the OUT handle updates the left, the IN handle the right, so you hunt a smooth match in realtime (the FCP technique).
+- **Crossfade interaction** — a crossfade overlap region on the timeline bar; **click to select** → a contextual menu (duration scrub + remove), plus the inline duration scrub on the step panel. Flexible, not drag-only.
+- **Keyframe-shift entry warning** — opening Loop Builder with existing keyframes (explicit entry, not the fresh-load auto-open) warns that baking reshuffles the source and shifts keyframe positions.
+
+Behavior choices, trim/slice/bounce/crossfade **mechanics are the proven ones** (preview loop, two-video blend, the B384 two-reader bake) — every element ID preserved, only the container and flow restructured. Verified: node --check, vite build, cap sync. **DEFERRED (noted): a dedicated perform-mode access point** (the mode menu already reaches Loop Builder from any mode; perform has no overflow menu to hang an entry on). See VERIFY-QUEUE.md.
+
 ## 🔁 v0.19.25 (Build 385) — 2026-07-18 — Loop Builder, iteration 1: the mode integration (rename + auto-open + post-bake nudge)
 
 The clip editor becomes **Loop Builder**, framed as part of the workflow instead of a buried modal. Iteration 1 is the safe integration layer — it does NOT touch the intricate preview/handle/crossfade mechanics (those get the stepped-disclosure + FCP-crossfade redesign in iteration 2, which is the interaction-heavy work Daniel flagged as better built hands-on):

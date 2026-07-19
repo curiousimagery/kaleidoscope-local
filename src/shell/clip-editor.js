@@ -28,10 +28,16 @@ export function createClipEditor(env) {
   // Uses its OWN preview <video> (the same blob URL) so it never disturbs the
   // texture-source element. Applying commits the trim to `env.clip.trim`; the
   // motion timeline re-binds to the trimmed range.
-  function openClipEditor() {
+  function openClipEditor(opts = {}) {
     if (!env.sourceVideo || !env.media.sourceVideoUrl) return;
     const sheet = document.getElementById('clipSheet');
     if (!sheet) return;
+    // entering with existing keyframes: baking reshuffles the source, which shifts
+    // keyframe positions. Warn on an EXPLICIT open (mode menu / overflow), not on the
+    // auto-open after a fresh video load (a new clip carries only the seeded kf0).
+    if (!opts.fromLoad && motion.keyframes && motion.keyframes.length > 1) {
+      if (!window.confirm('Editing this clip in Loop Builder will shift your existing keyframe positions (baking reshuffles the source footage). Continue?')) return;
+    }
     if (motion.playing) env.stopPlayback();
     env.clip.backup = { ...env.clip.trim };          // for Cancel
     const pv = document.getElementById('clipVideo');
@@ -49,11 +55,12 @@ export function createClipEditor(env) {
     env.clip.prevVideoB = vB;
     const nudge = document.getElementById('clipNudge'); if (nudge) nudge.hidden = true;   // clear any prior post-bake nudge
     sheet.hidden = false;
-    const init = () => { setClipMode(env.clip.trim.mode); renderClipTrim(); startClipPreview(); };
+    const init = () => { env.clip.step = 1; setClipMode(env.clip.trim.mode); setLoopStep(1); };
     if (pv.readyState >= 1) init(); else pv.addEventListener('loadedmetadata', init, { once: true });
   }
   function disposeClipPreview() {
     stopClipPreview();
+    exitSplitStage();   // restore the stage video's visibility if we tore down on the crossfade step
     const blend = document.getElementById('clipBlend'); if (blend) blend.hidden = true;
     if (env.clip.prevVideo) { try { env.clip.prevVideo.pause(); } catch { /* ignore */ } env.clip.prevVideo.removeAttribute('src'); try { env.clip.prevVideo.load(); } catch { /* ignore */ } env.clip.prevVideo = null; }
     if (env.clip.prevVideoB) { try { env.clip.prevVideoB.pause(); } catch { /* ignore */ } env.clip.prevVideoB.removeAttribute('src'); try { env.clip.prevVideoB.load(); } catch { /* ignore */ } env.clip.prevVideoB.remove(); env.clip.prevVideoB = null; }
@@ -90,6 +97,7 @@ export function createClipEditor(env) {
     if (cutEl) cutEl.style.left = ((trim.inT + trim.slicePoint * (trim.outT - trim.inT)) * 100) + '%';
     const lab = document.getElementById('clipDur');
     if (lab && d) lab.textContent = `${env.fmtClock((trim.outT - trim.inT) * d)} of ${env.fmtClock(d)}`;
+    renderXfadeRegion();
   }
   // preview segments to play in order (looping). slice previews the REARRANGEMENT — B
   // (=[cut,out]) then A (=[in,cut]) — so the seam is visible in context (a hard cut here;
@@ -265,27 +273,156 @@ export function createClipEditor(env) {
       else { const rng = (trim.outT - trim.inT) || 1; trim.slicePoint = Math.max(0.05, Math.min(0.95, (t - trim.inT) / rng)); }
       renderClipTrim();
       const handleT = which === 'in' ? trim.inT : which === 'out' ? trim.outT : (trim.inT + trim.slicePoint * (trim.outT - trim.inT));
-      clipSeekTo(handleT);                            // coalesced seek (no decoder flood) — shows the frame under the handle
-      const ph = document.getElementById('clipPlayhead');
-      if (ph) ph.style.left = (handleT * 100) + '%';
+      if (env.clip.step === 4 && env.clip.trim.mode === 'slice') {
+        // split-stage (crossfade seam match): the OUT handle drives the last-before
+        // frame, the IN handle the first-after frame; cut just reshapes the region
+        if (which === 'out') updateSplitLeft();
+        else if (which === 'in') updateSplitRight();
+      } else {
+        clipSeekTo(handleT);                          // coalesced seek (no decoder flood) — shows the frame under the handle
+        const ph = document.getElementById('clipPlayhead');
+        if (ph) ph.style.left = (handleT * 100) + '%';
+      }
     });
-    const up = (e) => { if (env.clip.drag !== which) return; env.clip.drag = null; el.releasePointerCapture?.(e.pointerId); startClipPreview(); };
+    const up = (e) => {
+      if (env.clip.drag !== which) return;
+      env.clip.drag = null; el.releasePointerCapture?.(e.pointerId);
+      if (!(env.clip.step === 4 && env.clip.trim.mode === 'slice')) startClipPreview();   // step 4 stays on the split-stage
+    };
     el.addEventListener('pointerup', up);
     el.addEventListener('pointercancel', up);
   }
-  // loop strategy: forward (trim only, non-destructive) | bounce (baked) | slice (baked, B2)
+  const byId = (id) => document.getElementById(id);
+  // loop strategy: forward (trim only, non-destructive) | bounce (baked) | slice (baked seamless loop).
+  // Sets the mode + behavior-button active + restarts the preview. Step-driven VISIBILITY
+  // (cut handle, crossfade region, split-stage) is owned by setLoopStep, not here.
   function setClipMode(mode) {
     env.clip.trim.mode = mode;
-    const sheet = document.getElementById('clipSheet');
-    sheet?.querySelectorAll('[data-mode]').forEach(b => b.classList.toggle('active', b.dataset.mode === mode));
-    const apply = document.getElementById('clipApply');
-    if (apply) apply.textContent = mode === 'forward' ? 'apply trim' : `bake ${mode} ▸`;
-    const slice = mode === 'slice';
-    const cutEl = document.getElementById('clipCut'); if (cutEl) cutEl.hidden = !slice;
-    const xfade = document.getElementById('clipXfadeRow'); if (xfade) xfade.hidden = !slice;
-    const blend = document.getElementById('clipBlend'); if (blend && !slice) blend.hidden = true;
+    byId('clipSheet')?.querySelectorAll('[data-mode]').forEach(b => b.classList.toggle('active', b.dataset.mode === mode));
+    const blend = byId('clipBlend'); if (blend && mode !== 'slice') blend.hidden = true;
     renderClipTrim();
     if (env.clip.raf && env.clip.prevVideo && !env.clip.drag) { stopClipPreview(); startClipPreview(); }   // re-segment a RUNNING preview for the new mode
+  }
+
+  // ---- the STEPPED FLOW (progressive disclosure) ------------------------------
+  // The Loop Builder walks Trim → Behavior → [Slice point → Crossfade] → Bake. The
+  // slice-only steps (3,4) drop out for trim-only/bounce; back-nav is live until bake.
+  function stepSeq() {
+    const m = env.clip.trim.mode;
+    if (m === 'slice') return [1, 2, 3, 4, 5];
+    if (m === 'bounce') return [1, 2, 5];
+    return [1, 2];   // forward (trim only) — step 2 applies the trim
+  }
+  function loopModeLabel() { return env.clip.trim.mode === 'slice' ? 'loop' : env.clip.trim.mode; }
+  function updateRail() {
+    const seq = stepSeq(), step = env.clip.step;
+    byId('clipSheet')?.querySelectorAll('.loop-step').forEach((b) => {
+      const s = +b.dataset.step, inSeq = seq.includes(s);
+      b.hidden = !inSeq;                        // slice steps drop for non-slice; step 5 drops for forward
+      b.disabled = !inSeq;
+      b.classList.toggle('active', s === step);
+      b.classList.toggle('done', inSeq && seq.indexOf(s) < seq.indexOf(step));
+    });
+  }
+  function loopPrimary() {
+    const seq = stepSeq(), isLast = env.clip.step === seq[seq.length - 1];
+    const apply = byId('clipApply'); if (!apply) return;
+    apply.textContent = isLast
+      ? (env.clip.trim.mode === 'forward' ? 'apply trim' : `bake ${loopModeLabel()} ✦`)
+      : 'next ›';
+    apply.dataset.terminal = isLast ? '1' : '';
+  }
+  function setLoopStep(n) {
+    env.clip.step = n;
+    const sheet = byId('clipSheet');
+    sheet?.querySelectorAll('.loop-panel').forEach((p) => { p.hidden = +p.dataset.panel !== n; });
+    const slice = env.clip.trim.mode === 'slice';
+    const cutEl = byId('clipCut'); if (cutEl) cutEl.hidden = !(slice && n >= 3);
+    const region = byId('clipXfadeRegion'); if (region) region.hidden = !(slice && n >= 4);
+    // step 4 shows the split-stage (the seam-match preview); every other step plays normally
+    if (slice && n === 4) enterSplitStage();
+    else { exitSplitStage(); if (env.clip.prevVideo && !env.clip.raf && !env.clip.drag) startClipPreview(); }
+    const seq = stepSeq();
+    const back = byId('loopBack'); if (back) back.hidden = seq.indexOf(n) <= 0;
+    hideXfadeMenu();
+    updateRail(); loopPrimary(); renderClipTrim();
+  }
+  function goNext() { const seq = stepSeq(), i = seq.indexOf(env.clip.step); if (i >= 0 && i < seq.length - 1) setLoopStep(seq[i + 1]); }
+  function goBack() { const seq = stepSeq(), i = seq.indexOf(env.clip.step); if (i > 0) setLoopStep(seq[i - 1]); }
+  // the primary button: advance, or apply/bake on the terminal step
+  function loopPrimaryAction() {
+    const seq = stepSeq();
+    if (env.clip.step === seq[seq.length - 1]) applyClip(); else goNext();
+  }
+  // jump straight to a rail step (only within the reached range — no skipping ahead)
+  function jumpToStep(n) {
+    const seq = stepSeq(); if (!seq.includes(n)) return;
+    setLoopStep(n);
+  }
+  // a behavior choice at step 2 (changes which later steps exist)
+  function chooseBehavior(mode) { setClipMode(mode); updateRail(); loopPrimary(); }
+
+  // ---- split-stage: the crossfade seam match (last-before | first-after) ------
+  // On the crossfade step, the stage splits: LEFT = the last frame before the seam
+  // (frame @ outT, B's tail), RIGHT = the first frame after (frame @ inT, A's head) —
+  // the two frames the crossfade must dissolve between. Dragging the OUT handle updates
+  // the left, the IN handle the right, so you can hunt a smooth match (the FCP technique).
+  function drawFrameTo(video, canvas) {
+    if (!video || !canvas || !video.videoWidth) return;
+    const W = Math.min(960, video.videoWidth), sc = W / video.videoWidth, H = Math.max(1, Math.round(video.videoHeight * sc));
+    if (canvas.width !== W || canvas.height !== H) { canvas.width = W; canvas.height = H; }
+    canvas.getContext('2d').drawImage(video, 0, 0, W, H);
+  }
+  let splitSeekA = false, splitTgtA = null, splitSeekB = false, splitTgtB = null;
+  function updateSplitLeft() {   // last frame before the seam = frame @ outT (B tail end)
+    const v = env.clip.prevVideo; if (!v) return;
+    splitTgtA = env.clip.trim.outT * (v.duration || 1);
+    if (splitSeekA) return; splitSeekA = true;
+    (async () => { try { while (splitTgtA != null) { const t = splitTgtA; splitTgtA = null; await seekVideoTo(v, t); drawFrameTo(v, byId('loopSplitA')); } } finally { splitSeekA = false; } })();
+  }
+  function updateSplitRight() {   // first frame after the seam = frame @ inT (A head start)
+    const v = env.clip.prevVideoB; if (!v) return;
+    splitTgtB = env.clip.trim.inT * (v.duration || 1);
+    if (splitSeekB) return; splitSeekB = true;
+    (async () => { try { while (splitTgtB != null) { const t = splitTgtB; splitTgtB = null; await seekVideoTo(v, t); drawFrameTo(v, byId('loopSplitB')); } } finally { splitSeekB = false; } })();
+  }
+  function enterSplitStage() {
+    const split = byId('loopSplit'); if (!split) return;
+    stopClipPreview();
+    const video = byId('clipVideo'); if (video) video.style.visibility = 'hidden';
+    const blend = byId('clipBlend'); if (blend) blend.hidden = true;
+    split.hidden = false;
+    updateSplitLeft(); updateSplitRight();
+  }
+  function exitSplitStage() {
+    const split = byId('loopSplit'); if (split) split.hidden = true;
+    const video = byId('clipVideo'); if (video) video.style.visibility = '';
+  }
+
+  // ---- crossfade region on the bar + its contextual menu ----------------------
+  function renderXfadeRegion() {
+    const region = byId('clipXfadeRegion'); if (!region) return;
+    const trim = env.clip.trim;
+    const d = (env.clip.prevVideo && env.clip.prevVideo.duration) || 1;
+    const range = trim.outT - trim.inT;
+    const outA = trim.outT * d, inA = trim.inT * d, cut = (trim.inT + trim.slicePoint * range) * d;
+    const cfSec = Math.max(0, Math.min(trim.crossfadeMs / 1000, (outA - cut) * 0.9, (cut - inA) * 0.9));
+    const cfFrac = d ? cfSec / d : 0;
+    region.style.left = ((trim.outT - cfFrac) * 100) + '%';
+    region.style.width = (cfFrac * 100) + '%';
+  }
+  function showXfadeMenu() {
+    const menu = byId('clipXfadeMenu'), region = byId('clipXfadeRegion');
+    if (!menu || !region) return;
+    region.classList.add('selected');
+    const r = region.getBoundingClientRect();
+    menu.hidden = false;
+    menu.style.left = Math.max(8, Math.min(r.left, window.innerWidth - menu.offsetWidth - 8)) + 'px';
+    menu.style.top = Math.max(8, r.top - menu.offsetHeight - 8) + 'px';
+  }
+  function hideXfadeMenu() {
+    const menu = byId('clipXfadeMenu'); if (menu) menu.hidden = true;
+    byId('clipXfadeRegion')?.classList.remove('selected');
   }
   const _even = (n) => Math.max(2, Math.round(n / 2) * 2);
   // Apply: trim-only modes commit directly (non-destructive); bounce/slice BAKE a new
@@ -458,6 +595,12 @@ export function createClipEditor(env) {
     const sheet = document.getElementById('clipSheet'); if (sheet) sheet.hidden = true;
   }
 
+  // set the crossfade (contextual menu / step-4 scrub), keeping the region live
+  function setCrossfadeSec(sec) {
+    env.clip.trim.crossfadeMs = Math.max(0, Math.min(3, sec)) * 1000;
+    renderXfadeRegion();
+  }
+
   // Public surface used by the chrome's motion-footer wiring.
   env.openClipEditor = openClipEditor;
   env.closeLoopBuilderNudge = closeLoopBuilderNudge;
@@ -468,4 +611,13 @@ export function createClipEditor(env) {
   env.clipSeekTo = clipSeekTo;
   env.startClipPreview = startClipPreview;
   env.stopClipPreview = stopClipPreview;
+  // stepped Loop Builder flow
+  env.loopPrimaryAction = loopPrimaryAction;
+  env.loopBack = goBack;
+  env.chooseBehavior = chooseBehavior;
+  env.jumpToStep = jumpToStep;
+  env.showXfadeMenu = showXfadeMenu;
+  env.hideXfadeMenu = hideXfadeMenu;
+  env.setCrossfadeSec = setCrossfadeSec;
+  env.getCrossfadeSec = () => env.clip.trim.crossfadeMs / 1000;
 }
