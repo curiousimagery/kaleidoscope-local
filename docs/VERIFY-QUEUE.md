@@ -8,12 +8,15 @@ Legend: 🖥️ desktop browser · 📺 external display / AirPlay (workstation)
 
 - **📺 External display + AirPlay render-from-state regression (B382).** The external-surface poster was refactored (`createSurfacePoster`, transport-neutral). Behavior-neutral by intent. Verify: iPad external display (HDMI) and Apple TV AirPlay still present the program render-from-state at tier resolution, exactly as before. (Daniel away from that setup as of 2026-07-18.)
 - **🖥️ Two-reader slice crossfade (B384).** Bake a **slice** loop with a crossfade and confirm the seam no longer drops/pops frames (a fading-out frame snapping back to full opacity). Also just confirm slice + bounce bakes still produce correct loops (regression). Desktop browser (needs WebCodecs — Brave/Chrome/Electron).
+- **🖥️ Loop Builder undo/redo + the seam drag (B389). UNTESTED.**
+  - **Undo/redo in Loop Builder.** Drag a trim endpoint, the slice marker, or the crossfade (steppers / inline scrub / context menu / the new seam handles), or pick a different behavior — then the app-bar undo button (and ⌘Z) should walk each edit back, redo forward. Confirm undoing a *behavior* change also restores the step sequence (e.g. undo back from bounce→slice re-shows the slice/crossfade steps). Confirm a bare tap on a handle (no drag) does NOT create an undo step.
+  - **Seam drag (step 4).** On the resequenced crossfade step, the seam should sit at a true 50%; the blue crossfade region should straddle it **asymmetrically** when B and A differ in length (it reaches into each segment at that segment's time-scale). Two edge handles on the region should drag the crossfade longer/shorter live, and the −/+ / inline value should track. Clamp: it can't exceed 90% of the shorter segment.
+  - Regression: the linear (trim/slice-point) thumbnail strip + ruler still read right; the split-stage seam frames still populate.
 - **🖥️ Loop Builder timeline rework (B388). UNTESTED — geometry will want tuning.**
   - Footage thumbnails render across the timeline (source clip frames, not the folded output); the time ruler reads right.
   - On the crossfade step the strip resequences to B→gap→A (crossfade in the middle); non-editable blue slice markers at both ends; crossfade region at the seam is selectable.
   - The split-stage's two seam frames still populate correctly (now via the thumbnail seek pass).
-  - Known-approximate: seam sits at ~50%, crossfade-region width is a heuristic, thumbnail cell sizing may over/underflow the track — all expected to need your eye.
-  - HELD: realtime drag-to-adjust the seam on the resequenced step-4 timeline (handles hide there for now).
+  - (B389 made the resequenced halves exactly-equal so the seam is a true 50%, and replaced the crossfade-region width heuristic with real per-segment geometry — verify alongside the seam-drag item above.)
 - **🖥️ Loop Builder 2b — the editing-mode conversion (B387). UNTESTED.**
   - App bar stays visible + only upload/mode/undo-redo/settings work; surface sits below the bar (check the `top` offset lands right — it's measured from the toolbar height).
   - Mode picker is the exit; switching modes or uploading a new clip warns on unsaved changes and backs out on cancel; uploading resets the process.

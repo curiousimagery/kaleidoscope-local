@@ -132,11 +132,10 @@ Procreate Dreams / latest iMovie — uncluttered, precise, powerful. Priority st
 - **Smoothed translation-PATH capture** (+gesture tail, lower pri) — record the take's spatial path, shape the tween as one smooth arc honoring the destination; pairs with per-keyframe ease.
 
 ### Loop Builder (was clip editor)
-- **Timeline rework SHIPPED B388** (footage thumbnails + ruler + B→slice→A resequence with non-editable slice markers). **Held for Daniel: realtime drag-to-adjust the seam ON the resequenced step-4 timeline** — the non-linear drag mapping (reordered B|A view) needs his eyes; handles hide on step 4 for now, seam adjust is via back-nav. Also expect geometry tuning (seam ~50%, crossfade-region width heuristic, thumbnail cell sizing).
-- ▶ **Spit-and-polish UI refinement** (Daniel's stated next phase now that the structural work is done) — interaction-feel tuning across the stepped flow, split-stage crossfade, and the new thumbnail timeline.
+- **Timeline rework SHIPPED B388** (footage thumbnails + ruler + B→slice→A resequence with non-editable slice markers). **Seam drag + honest geometry SHIPPED B389** (equal-half resequence so the seam is a true 50%; asymmetric crossfade region reaching each segment at its own time-scale; two edge handles drag the crossfade live). **Undo/redo in Loop Builder SHIPPED B389** (trim / slice / crossfade / behavior edits ride the global history stack). All three untested by Claude — desktop-verify (VERIFY-QUEUE.md).
+- ▶ **Spit-and-polish UI refinement** (Daniel's stated next phase now that the structural work is done) — interaction-feel tuning across the stepped flow, split-stage crossfade, and the new thumbnail timeline + seam drag.
 - **A dedicated perform-mode access point** (the mode menu reaches Loop Builder from anywhere; perform has no overflow menu — deferred).
 - **[verify FIXED by B384/B386]** Two old iPad bugs: right-edge trim not updating the preview; crossfade preview flickering the outgoing source to full opacity. Two-reader bake (B384) + the split-stage rework (B386) should have closed both — re-check on desktop.
-- **Spit-and-polish UI refinement** (Daniel's stated next phase after the timeline rework). Interaction-feel tuning across the stepped flow + split-stage crossfade.
 - **Bake tails:** 30fps bake (source-fps estimation); no mid-bake cancel; bounce preview forward-only; shared-demux memory optimization (see Export lane).
 
 ### App-wide mode-transition guardrails + opinionated flows

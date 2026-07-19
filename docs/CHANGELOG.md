@@ -4,6 +4,15 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🔁 v0.19.29 (Build 389) — 2026-07-19 — Loop Builder: undo/redo for trim edits + the held seam drag (honest step-4 geometry)
+
+Two things Daniel called out: undo/redo wasn't active in Loop Builder, and the step-4 seam drag was still held.
+
+- **Undo/redo now records Loop Builder edits.** The existing global history stack (the codebase's single-writer undo mechanism) now also snapshots `env.clip.trim`, restored in place so the many refs stay valid. Every Loop Builder edit pushes one undo step at the start of the interaction: **trim-endpoint drags, slice-location drag, crossfade changes** (steppers, the context-menu + inline scrub fields, and the new seam drag), and **behavior choice** (which changes the step sequence). After an undo/redo, the surface re-derives from the restored trim — re-clamping the step if a behavior change was undone. The app-bar undo/redo buttons + ⌘Z already stay enabled in the mode, so they light up the moment there's an edit to undo. (Pushes fire on the first actual move, so a bare tap isn't a no-op undo step.)
+- **The held seam drag — with honest geometry.** The step-4 resequenced strip now lays B and A in **exactly-equal halves**, so the seam sits at a true 50%. The crossfade region is placed **asymmetrically** around it: it reaches `cfSec` into B's tail at B's time-scale on the left, and `cfSec` into A's head at A's scale on the right (the "non-linear mapping" that was the reason it was held). Two edge handles on the region let you **drag the crossfade longer/shorter live**, each mapped from its own side's segment duration and clamped to the bake's 90%-of-shorter-segment limit.
+
+Verified: node --check ×4, vite build. **Untested by Claude — desktop verify: the seam sits at 50%, the region straddles it asymmetrically when B≠A, the edge handles drag cleanly, and undo/redo walks trim/slice/crossfade/behavior edits (buttons + ⌘Z). See VERIFY-QUEUE.md.**
+
 ## 🔁 v0.19.28 (Build 388) — 2026-07-19 — Loop Builder: the timeline rework (footage thumbnails + ruler + B→slice→A resequence)
 
 The last structural piece before spit-and-polish. The plain clip bar becomes a motion-style timeline:

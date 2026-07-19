@@ -171,7 +171,7 @@ const env = {
   applyFormControls: () => applyFormControls(env),
   resizePreviewCanvas: null,
   arrangeSlots: null,
-  pushHistory: () => historyPush(state, motion),
+  pushHistory: () => historyPush(state, motion, env.clip.trim),
   updateUndoUI: null,  // assigned after setupUndoBar
 
   // ---- runtime state ------------------------------------------------------
@@ -881,12 +881,13 @@ function updateUndoUI() {
 // (the tick would clobber the restored state) and rebuild the timeline surfaces.
 function performHistoryStep(step) {
   if (motion.playing) env.stopPlayback?.();
-  if (!step(state, motion)) return;
+  if (!step(state, motion, env.clip.trim)) return;
   env.syncControls();
   env.scheduleRender();
   env.scheduleOverlayDraw();
   env.renderTimeline?.();
   env.updateMotionUI?.();
+  env.refreshLoopBuilder?.();   // re-derive the Loop Builder surface from the restored trim (no-op unless active)
   updateUndoUI();
 }
 

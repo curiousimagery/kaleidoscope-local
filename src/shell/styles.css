@@ -1237,6 +1237,13 @@ body.loop-active #outputToolbar select:not(#modeSelect) {
   border-left: 1px solid var(--info); border-right: 1px solid var(--info); pointer-events: auto; cursor: pointer; z-index: 1; }
 .clip-xfade-region[hidden] { display: none; }
 .clip-xfade-region.selected { background: rgba(90, 170, 255, 0.45); box-shadow: 0 0 0 1px var(--info) inset; }
+/* draggable edges of the crossfade region (step 4 seam adjust) — a wide-ish hit area with a visible grip */
+.clip-xfade-handle { position: absolute; top: 0; bottom: 0; width: 14px; cursor: ew-resize; z-index: 3; touch-action: none; }
+.clip-xfade-handle.left { left: -7px; }
+.clip-xfade-handle.right { right: -7px; }
+.clip-xfade-handle::after { content: ''; position: absolute; left: 50%; top: 3px; bottom: 3px; width: 2px; transform: translateX(-50%);
+  background: var(--info); border-radius: 1px; box-shadow: 0 0 0 1px rgba(0,0,0,.35); }
+.clip-xfade-handle:hover::after { width: 3px; }
 /* crossfade contextual menu */
 .loop-ctx { position: fixed; z-index: 210; display: flex; flex-direction: column; gap: 6px;
   background: var(--surface-raised); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 10px 12px; min-width: 160px; }

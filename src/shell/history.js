@@ -33,39 +33,44 @@ function snapshotMotion(motion) {
   };
 }
 
-function capture(state, motion) {
-  return { state: { ...state }, motion: snapshotMotion(motion) };
+// The Loop Builder's trim/slice/crossfade settings (all primitives) ride history
+// too, so trim-endpoint / slice-location / crossfade / behavior edits are undoable.
+// Restored in place (Object.assign) so the many refs to env.clip.trim stay valid.
+function capture(state, motion, clip) {
+  return { state: { ...state }, motion: snapshotMotion(motion), clip: clip ? { ...clip } : null };
 }
 
-function apply(entry, state, motion) {
+function apply(entry, state, motion, clip) {
   Object.assign(state, entry.state);
   // fresh per-kf objects so later live edits can't reach back into a stack entry
   motion.keyframes = entry.motion.keyframes.map(k => ({ ...k, snap: { ...k.snap } }));
   motion.selected = entry.motion.selected;
   motion.playhead = entry.motion.playhead;
+  if (entry.clip && clip) Object.assign(clip, entry.clip);
 }
 
-// Capture the current state + motion. Call this at the START of any user
-// interaction that mutates either (drag, scrub, form switch, keyframe op…).
-export function push(state, motion) {
-  undoStack.push(capture(state, motion));
+// Capture the current state + motion (+ clip trim). Call this at the START of any
+// user interaction that mutates any of them (drag, scrub, form switch, keyframe op,
+// trim/slice/crossfade/behavior edit…).
+export function push(state, motion, clip) {
+  undoStack.push(capture(state, motion, clip));
   if (undoStack.length > MAX) undoStack.shift();
   redoStack.length = 0;
 }
 
 // Restore the most recent pre-action snapshot. Returns true if applied.
-export function undo(state, motion) {
+export function undo(state, motion, clip) {
   if (undoStack.length === 0) return false;
-  redoStack.push(capture(state, motion));
-  apply(undoStack.pop(), state, motion);
+  redoStack.push(capture(state, motion, clip));
+  apply(undoStack.pop(), state, motion, clip);
   return true;
 }
 
 // Re-apply the most recently undone action. Returns true if applied.
-export function redo(state, motion) {
+export function redo(state, motion, clip) {
   if (redoStack.length === 0) return false;
-  undoStack.push(capture(state, motion));
-  apply(redoStack.pop(), state, motion);
+  undoStack.push(capture(state, motion, clip));
+  apply(redoStack.pop(), state, motion, clip);
   return true;
 }
 

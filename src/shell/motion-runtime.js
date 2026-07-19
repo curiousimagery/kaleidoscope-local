@@ -1625,9 +1625,12 @@ function wireMotion() {
   env.makeClipHandle(byId('clipCut'), 'cut');
   // crossfade region on the bar → click to select (contextual menu); outside click dismisses
   byId('clipXfadeRegion')?.addEventListener('click', (e) => { e.stopPropagation(); env.showXfadeMenu(); });
-  byId('clipXfadeClear')?.addEventListener('click', () => { env.setCrossfadeSec(0); env.hideXfadeMenu(); });
-  byId('clipXfadeMinus')?.addEventListener('click', () => env.setCrossfadeSec(env.getCrossfadeSec() - 0.1));
-  byId('clipXfadePlus')?.addEventListener('click', () => env.setCrossfadeSec(env.getCrossfadeSec() + 0.1));
+  // drag either edge of the crossfade region (step 4) to adjust the crossfade in place
+  env.makeXfadeSeamHandle?.(byId('clipXfadeHL'), 'left');
+  env.makeXfadeSeamHandle?.(byId('clipXfadeHR'), 'right');
+  byId('clipXfadeClear')?.addEventListener('click', () => { env.pushHistory?.(); env.setCrossfadeSec(0); env.updateUndoUI?.(); env.hideXfadeMenu(); });
+  byId('clipXfadeMinus')?.addEventListener('click', () => { env.pushHistory?.(); env.setCrossfadeSec(env.getCrossfadeSec() - 0.1); env.updateUndoUI?.(); });
+  byId('clipXfadePlus')?.addEventListener('click', () => { env.pushHistory?.(); env.setCrossfadeSec(env.getCrossfadeSec() + 0.1); env.updateUndoUI?.(); });
   document.addEventListener('pointerdown', (e) => {
     if (byId('clipXfadeMenu')?.hidden) return;
     if (!e.target.closest('#clipXfadeMenu') && !e.target.closest('#clipXfadeRegion')) env.hideXfadeMenu();
@@ -1638,6 +1641,8 @@ function wireMotion() {
     step: 0.1, fineStep: 0.05, min: 0, max: 3,
     format: (v) => v.toFixed(2) + 's',
     parse: (s) => { const n = parseFloat(String(s).replace(/[s\s]/g, '')); return isNaN(n) ? null : n; },
+    onStart: () => env.pushHistory?.(),
+    onEnd: () => env.updateUndoUI?.(),
   });
   // scrub the clip bar (off the handles) to inspect any moment — pauses the auto-loop,
   // coalesced seek, resumes on release.
@@ -1676,6 +1681,8 @@ function wireMotion() {
     step: 0.1, fineStep: 0.05, min: 0, max: 3,
     format: (v) => v.toFixed(2) + 's',
     parse: (s) => { const n = parseFloat(String(s).replace(/[s\s]/g, '')); return isNaN(n) ? null : n; },
+    onStart: () => env.pushHistory?.(),
+    onEnd: () => env.updateUndoUI?.(),
     // the live two-video blend reads the crossfade duration each frame — no recapture needed
   });
 

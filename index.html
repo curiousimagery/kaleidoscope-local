@@ -512,7 +512,10 @@
         <div class="clip-bar loop-track" id="clipBar">
           <div class="loop-thumbs" id="loopThumbs"></div>
           <div class="clip-region" id="clipRegion"></div>
-          <div class="clip-xfade-region" id="clipXfadeRegion" hidden title="crossfade — click to select"></div>
+          <div class="clip-xfade-region" id="clipXfadeRegion" hidden title="crossfade — click to select, drag the edges to adjust">
+            <div class="clip-xfade-handle left" id="clipXfadeHL" title="drag to adjust crossfade"></div>
+            <div class="clip-xfade-handle right" id="clipXfadeHR" title="drag to adjust crossfade"></div>
+          </div>
           <!-- non-editable slice markers (the loop boundary at both ends, shown on the resequenced crossfade step) -->
           <div class="clip-slice-end left" id="clipSliceL" hidden title="slice point (loop boundary)"></div>
           <div class="clip-slice-end right" id="clipSliceR" hidden title="slice point (loop boundary)"></div>
