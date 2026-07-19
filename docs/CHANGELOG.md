@@ -4,6 +4,19 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🔁 v0.19.30 (Build 390) — 2026-07-19 — Loop Builder: Daniel's review pass (thumbnail tell, button labels, yellow crossfade, scrub + space in crossfade, bake preview)
+
+Six issues from Daniel's Brave desktop pass:
+
+- **No more visible playthrough on load.** The thumbnail strip now builds off a THIRD dedicated hidden video, so seeking to sample frames never scrubs the visible stage preview (and never fights the scrubber's own seeks on the shared element — which was also the scrub-reliability bug).
+- **The primary button names the action.** Instead of a generic "next ›", it reads what advancing does — "choose loop type ›", "set slice point ›", "set crossfade ›", "preview & bake ›", then "apply trim" / "bake loop ✦" on the last step.
+- **The crossfade band is yellow.** It carries the yellow "selected region" identity forward from the trim view (the accent color, the main interactive thing), now that the blue slice point has split to the two ends.
+- **The scrubber works on every step, crossfade included.** The track fraction maps to a source time through the current view (full clip / trimmed range / resequenced B→A), so scrubbing lands the right frame everywhere; it only resumes playback on release if it was playing when you grabbed it (so you can park on a frame).
+- **Space plays the preview on the crossfade step.** That step is now a LIVE preview (play + scrub the resequenced loop with the live crossfade), not a static two-frame split. (The split-stage seam-match is retired from step 4 — it can't coexist with play/scrub — pending Daniel's call on relocating it to the slice-point step.)
+- **"Preview & bake" step.** The bake step is renamed and now shows the TRIMMED, resequenced loop (only what bakes — no cut-off head/tail), playable via space.
+
+Undo/redo of trim/slice/crossfade/behavior (B389) is verified correct in isolation; if a specific edit still doesn't revert for Daniel, need the exact edit + step to repro. Verified: node --check ×3, vite build. **Untested by Claude — desktop verify (VERIFY-QUEUE.md).**
+
 ## 🔁 v0.19.29 (Build 389) — 2026-07-19 — Loop Builder: undo/redo for trim edits + the held seam drag (honest step-4 geometry)
 
 Two things Daniel called out: undo/redo wasn't active in Loop Builder, and the step-4 seam drag was still held.

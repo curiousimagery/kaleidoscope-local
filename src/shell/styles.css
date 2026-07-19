@@ -1233,16 +1233,22 @@ body.loop-active #outputToolbar select:not(#modeSelect) {
 .loop-nav { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; margin-top: 8px; }
 .loop-nav-spacer { flex: 1 1 auto; }
 /* crossfade overlap region on the timeline bar */
-.clip-xfade-region { position: absolute; top: 0; bottom: 0; background: rgba(90, 170, 255, 0.28);
-  border-left: 1px solid var(--info); border-right: 1px solid var(--info); pointer-events: auto; cursor: pointer; z-index: 1; }
+/* the crossfade band is YELLOW (accent) — it's the main interactive thing on the crossfade
+   step, and it carries the yellow "selected region" identity forward from the trim view now
+   that the ends have become the loop boundary */
+.clip-xfade-region { position: absolute; top: 0; bottom: 0; background: rgba(255, 210, 63, 0.30);
+  border-left: 1px solid var(--accent); border-right: 1px solid var(--accent); pointer-events: auto; cursor: pointer; z-index: 1; }
 .clip-xfade-region[hidden] { display: none; }
-.clip-xfade-region.selected { background: rgba(90, 170, 255, 0.45); box-shadow: 0 0 0 1px var(--info) inset; }
+.clip-xfade-region.selected { background: rgba(255, 210, 63, 0.48); box-shadow: 0 0 0 1px var(--accent) inset; }
+/* the bake-preview step shows the band for context only — no dragging, no menu */
+.clip-xfade-region.static { pointer-events: none; cursor: default; opacity: .8; }
+.clip-xfade-region.static .clip-xfade-handle { display: none; }
 /* draggable edges of the crossfade region (step 4 seam adjust) — a wide-ish hit area with a visible grip */
 .clip-xfade-handle { position: absolute; top: 0; bottom: 0; width: 14px; cursor: ew-resize; z-index: 3; touch-action: none; }
 .clip-xfade-handle.left { left: -7px; }
 .clip-xfade-handle.right { right: -7px; }
 .clip-xfade-handle::after { content: ''; position: absolute; left: 50%; top: 3px; bottom: 3px; width: 2px; transform: translateX(-50%);
-  background: var(--info); border-radius: 1px; box-shadow: 0 0 0 1px rgba(0,0,0,.35); }
+  background: var(--accent); border-radius: 1px; box-shadow: 0 0 0 1px rgba(0,0,0,.35); }
 .clip-xfade-handle:hover::after { width: 3px; }
 /* crossfade contextual menu */
 .loop-ctx { position: fixed; z-index: 210; display: flex; flex-direction: column; gap: 6px;

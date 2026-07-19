@@ -1624,7 +1624,7 @@ function wireMotion() {
   env.makeClipHandle(byId('clipOut'), 'out');
   env.makeClipHandle(byId('clipCut'), 'cut');
   // crossfade region on the bar → click to select (contextual menu); outside click dismisses
-  byId('clipXfadeRegion')?.addEventListener('click', (e) => { e.stopPropagation(); env.showXfadeMenu(); });
+  byId('clipXfadeRegion')?.addEventListener('click', (e) => { e.stopPropagation(); if (env.clip.step === 4) env.showXfadeMenu(); });
   // drag either edge of the crossfade region (step 4) to adjust the crossfade in place
   env.makeXfadeSeamHandle?.(byId('clipXfadeHL'), 'left');
   env.makeXfadeSeamHandle?.(byId('clipXfadeHR'), 'right');
@@ -1648,18 +1648,21 @@ function wireMotion() {
   // coalesced seek, resumes on release.
   const clipBar = byId('clipBar');
   if (clipBar) {
-    let barScrub = false;
+    let barScrub = false, resumeAfter = false;
+    // the fraction along the track maps to a SOURCE time through the current view (full clip /
+    // trimmed range / resequenced B→A) — so scrubbing works on every step, crossfade included.
     const seekToEvt = (e) => {
       const r = clipBar.getBoundingClientRect();
       const frac = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width));
-      env.clipSeekTo(frac);
+      const dur = env.clip.prevVideo?.duration || 1;
+      env.clipSeekTo((env.barFracToMedia?.(frac) ?? frac * dur) / dur);
       const ph = byId('clipPlayhead');
       if (ph) ph.style.left = (frac * 100) + '%';
     };
     clipBar.addEventListener('pointerdown', (e) => {
       if (e.target.closest('.clip-handle') || e.target.closest('.clip-xfade-region')) return;   // handles + the crossfade region own their interactions
-      if (env.clip.step === 4) return;   // resequenced crossfade step: no linear scrub (it'd fight the split-stage)
       barScrub = true;
+      resumeAfter = !!env.clip.raf;                   // only resume playback on release if it was playing
       env.stopClipPreview();
       clipBar.setPointerCapture?.(e.pointerId);
       seekToEvt(e);
@@ -1670,7 +1673,7 @@ function wireMotion() {
       if (!barScrub) return;
       barScrub = false;
       clipBar.releasePointerCapture?.(e.pointerId);
-      env.startClipPreview(false);                    // resume playing FROM the scrubbed position
+      if (resumeAfter) env.startClipPreview(false);   // resume only if it was playing before the scrub
     };
     clipBar.addEventListener('pointerup', barUp);
     clipBar.addEventListener('pointercancel', barUp);

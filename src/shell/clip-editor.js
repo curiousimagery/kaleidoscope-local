@@ -53,6 +53,16 @@ export function createClipEditor(env) {
     vB.src = env.media.sourceVideoUrl;
     (document.querySelector('.clip-stage') || sheet).appendChild(vB);
     env.clip.prevVideoB = vB;
+    // a THIRD hidden video used only for building the thumbnail strip — seeking it never
+    // disturbs the visible stage preview (fixes the "plays through the clip on load" tell)
+    // and never fights the scrubber's seeks on the shared element (the scrub reliability bug).
+    const vT = document.createElement('video');
+    vT.muted = true; vT.playsInline = true; vT.loop = false; vT.preload = 'auto';
+    vT.setAttribute('playsinline', ''); vT.setAttribute('muted', '');
+    vT.style.cssText = 'position:absolute;left:0;top:0;width:1px;height:1px;opacity:0;pointer-events:none';
+    vT.src = env.media.sourceVideoUrl;
+    (document.querySelector('.clip-stage') || sheet).appendChild(vT);
+    env.clip.thumbVideo = vT;
     const nudge = document.getElementById('clipNudge'); if (nudge) nudge.hidden = true;   // clear any prior post-bake nudge
     // enter the mode: the surface sits BELOW the global app bar (which stays visible +
     // gated), and the mode picker reflects "loop builder" as the active mode
@@ -71,6 +81,7 @@ export function createClipEditor(env) {
     const blend = document.getElementById('clipBlend'); if (blend) blend.hidden = true;
     if (env.clip.prevVideo) { try { env.clip.prevVideo.pause(); } catch { /* ignore */ } env.clip.prevVideo.removeAttribute('src'); try { env.clip.prevVideo.load(); } catch { /* ignore */ } env.clip.prevVideo = null; }
     if (env.clip.prevVideoB) { try { env.clip.prevVideoB.pause(); } catch { /* ignore */ } env.clip.prevVideoB.removeAttribute('src'); try { env.clip.prevVideoB.load(); } catch { /* ignore */ } env.clip.prevVideoB.remove(); env.clip.prevVideoB = null; }
+    if (env.clip.thumbVideo) { try { env.clip.thumbVideo.pause(); } catch { /* ignore */ } env.clip.thumbVideo.removeAttribute('src'); try { env.clip.thumbVideo.load(); } catch { /* ignore */ } env.clip.thumbVideo.remove(); env.clip.thumbVideo = null; }
   }
   // re-bind the motion timeline to the current (trimmed / baked) clip + show frame 0.
   function rebindClipToTimeline() {
@@ -166,8 +177,7 @@ export function createClipEditor(env) {
         const p = ((performance.now() - env.clip.bounceStart) % loopMs) / loopMs;
         const q = 1 - Math.abs(1 - 2 * p);                 // 0→1→0
         clipSeekTo(trim.inT + q * range);
-        const ph = document.getElementById('clipPlayhead');
-        if (ph) ph.style.left = ((v.currentTime / d) * 100) + '%';
+        setPlayheadFrac(mediaToBarFrac(v.currentTime));
         env.clip.raf = requestAnimationFrame(tickB);
       };
       env.clip.raf = requestAnimationFrame(tickB);
@@ -190,8 +200,7 @@ export function createClipEditor(env) {
         env.clip.seg = (env.clip.seg + 1) % segs.length;
         try { v.currentTime = segs[env.clip.seg][0]; } catch { /* ignore */ }
       }
-      const ph = document.getElementById('clipPlayhead');
-      if (ph) ph.style.left = ((v.currentTime / (v.duration || 1)) * 100) + '%';
+      setPlayheadFrac(mediaToBarFrac(v.currentTime));
       env.clip.raf = requestAnimationFrame(tick);
     };
     env.clip.raf = requestAnimationFrame(tick);
@@ -253,8 +262,7 @@ export function createClipEditor(env) {
           env.clip.phase = 'B'; try { v.currentTime = cut; v.play().catch(() => {}); } catch { /* ignore */ }
         }
       }
-      const ph = document.getElementById('clipPlayhead');
-      if (ph) ph.style.left = ((v.currentTime / d) * 100) + '%';
+      setPlayheadFrac(mediaToBarFrac(v.currentTime));
       env.clip.raf = requestAnimationFrame(tick);
     };
     env.clip.raf = requestAnimationFrame(tick);
@@ -302,22 +310,14 @@ export function createClipEditor(env) {
       else { const rng = (trim.outT - trim.inT) || 1; trim.slicePoint = Math.max(0.05, Math.min(0.95, (t - trim.inT) / rng)); }
       renderClipTrim();
       const handleT = which === 'in' ? trim.inT : which === 'out' ? trim.outT : (trim.inT + trim.slicePoint * (trim.outT - trim.inT));
-      if (env.clip.step === 4 && env.clip.trim.mode === 'slice') {
-        // split-stage (crossfade seam match): the OUT handle drives the last-before
-        // frame, the IN handle the first-after frame; cut just reshapes the region
-        if (which === 'out') updateSplitLeft();
-        else if (which === 'in') updateSplitRight();
-      } else {
-        clipSeekTo(handleT);                          // coalesced seek (no decoder flood) — shows the frame under the handle
-        const ph = document.getElementById('clipPlayhead');
-        if (ph) ph.style.left = (handleT * 100) + '%';
-      }
+      clipSeekTo(handleT);                            // coalesced seek (no decoder flood) — shows the frame under the handle
+      setPlayheadFrac(handleT);
     });
     const up = (e) => {
       if (env.clip.drag !== which) return;
       env.clip.drag = null; el.releasePointerCapture?.(e.pointerId);
       env.updateUndoUI?.();
-      if (!(env.clip.step === 4 && env.clip.trim.mode === 'slice')) startClipPreview();   // step 4 stays on the split-stage
+      startClipPreview();
     };
     el.addEventListener('pointerup', up);
     el.addEventListener('pointercancel', up);
@@ -344,6 +344,17 @@ export function createClipEditor(env) {
     return [1, 2];   // forward (trim only) — step 2 applies the trim
   }
   function loopModeLabel() { return env.clip.trim.mode === 'slice' ? 'loop' : env.clip.trim.mode; }
+  // the primary button names the ACTION of advancing, not a generic "next" — labelled by
+  // the destination step's purpose (Daniel's ask).
+  function stepActionLabel(step) {
+    switch (step) {
+      case 2: return 'choose loop type';
+      case 3: return 'set slice point';
+      case 4: return 'set crossfade';
+      case 5: return 'preview & bake';
+      default: return 'next';
+    }
+  }
   function updateRail() {
     const seq = stepSeq(), step = env.clip.step;
     byId('clipSheet')?.querySelectorAll('.loop-step').forEach((b) => {
@@ -355,11 +366,11 @@ export function createClipEditor(env) {
     });
   }
   function loopPrimary() {
-    const seq = stepSeq(), isLast = env.clip.step === seq[seq.length - 1];
+    const seq = stepSeq(), i = seq.indexOf(env.clip.step), isLast = i === seq.length - 1;
     const apply = byId('clipApply'); if (!apply) return;
     apply.textContent = isLast
       ? (env.clip.trim.mode === 'forward' ? 'apply trim' : `bake ${loopModeLabel()} ✦`)
-      : 'next ›';
+      : stepActionLabel(seq[i + 1]) + ' ›';
     apply.dataset.terminal = isLast ? '1' : '';
   }
   let lastThumbMode = null;
@@ -368,24 +379,27 @@ export function createClipEditor(env) {
     const sheet = byId('clipSheet');
     sheet?.querySelectorAll('.loop-panel').forEach((p) => { p.hidden = +p.dataset.panel !== n; });
     const slice = env.clip.trim.mode === 'slice';
-    const resequence = slice && n === 4;
-    // linear handles: cut ONLY on the slice-point step (3); in/out on every step EXCEPT the
-    // resequenced crossfade step (4), where the slice point becomes non-editable end markers
+    const resequence = slice && (n === 4 || n === 5);   // crossfade AND bake preview show the reordered loop
+    const preview = n === 5;                             // bake step is preview-only (no editing handles)
+    // linear handles: cut ONLY on the slice-point step (3); in/out on the trim steps, hidden on
+    // the resequenced steps (slice point becomes non-editable end markers) and the preview step
     const inEl = byId('clipIn'), outEl = byId('clipOut'), cutEl = byId('clipCut');
-    if (inEl) inEl.hidden = resequence;
-    if (outEl) outEl.hidden = resequence;
+    if (inEl) inEl.hidden = resequence || preview;
+    if (outEl) outEl.hidden = resequence || preview;
     if (cutEl) cutEl.hidden = !(slice && n === 3);
     const L = byId('clipSliceL'), R = byId('clipSliceR');
     if (L) L.hidden = !resequence;
     if (R) R.hidden = !resequence;
-    const linRegion = byId('clipRegion'); if (linRegion) linRegion.style.display = resequence ? 'none' : '';
-    const xregion = byId('clipXfadeRegion'); if (xregion) xregion.hidden = !resequence;
-    // split-stage (the seam-match frame preview) on the crossfade step; else play normally
-    if (resequence) enterSplitStage();
-    else { exitSplitStage(); if (env.clip.prevVideo && !env.clip.raf && !env.clip.drag) startClipPreview(); }
-    // rebuild the thumbnail strip only when the mode flips (linear ↔ resequenced) — a
-    // seek-heavy build shouldn't run on every next/back
-    const thumbMode = resequence ? 'reseq' : 'linear';
+    const linRegion = byId('clipRegion'); if (linRegion) linRegion.style.display = (resequence || preview) ? 'none' : '';
+    const xregion = byId('clipXfadeRegion');
+    if (xregion) { xregion.hidden = !resequence; xregion.classList.toggle('static', preview); }   // draggable only on the crossfade step
+    // the crossfade step is now a LIVE preview (play/scrub), not a static split-stage —
+    // start the mode-appropriate preview on every step
+    exitSplitStage();
+    if (env.clip.prevVideo && !env.clip.raf && !env.clip.drag) startClipPreview();
+    // rebuild the strip only when the shown VIEW changes (full clip ↔ resequenced ↔ trimmed) —
+    // a seek-heavy build shouldn't run on every next/back
+    const thumbMode = resequence ? 'reseq' : (preview ? 'trimmed' : 'full');
     if (thumbMode !== lastThumbMode) { lastThumbMode = thumbMode; buildLoopThumbs(); }
     if (resequence) renderResequenceOverlays();
     renderLoopRuler();
@@ -460,25 +474,30 @@ export function createClipEditor(env) {
   // middle. Single-flight + cancellable (thumbGen); footage restored + preview resumed.
   let thumbGen = 0;
   async function buildLoopThumbs() {
-    const strip = byId('loopThumbs'), track = byId('clipBar'), v = env.clip.prevVideo;
-    if (!strip || !track || !v || !v.videoWidth || !v.duration) return;
+    const strip = byId('loopThumbs'), track = byId('clipBar');
+    // Seeks the DEDICATED hidden thumb video — never the visible stage preview — so the
+    // strip builds silently (no visible playthrough) and never fights the scrubber's seeks.
+    const vt = env.clip.thumbVideo, vp = env.clip.prevVideo;
+    if (!strip || !track || !vt || !vp) return;
+    if (!vt.videoWidth || !vt.duration) {   // thumb video not ready yet — retry when it is
+      vt.addEventListener('loadeddata', () => buildLoopThumbs(), { once: true });
+      return;
+    }
     const gen = ++thumbGen;
-    const resequence = env.clip.step === 4 && env.clip.trim.mode === 'slice';
+    const resequence = isResequenced();
     const trackH = track.clientHeight || 76, trackW = track.clientWidth || 600;
-    const aspect = v.videoWidth / v.videoHeight;
+    const aspect = vt.videoWidth / vt.videoHeight;
     const approxCell = Math.max(28, Math.round(trackH * aspect));
-    const drawW = Math.min(200, v.videoWidth), drawH = Math.max(1, Math.round(drawW / aspect));
-    const resume = !!env.clip.raf, saved = v.currentTime;
-    stopClipPreview();
+    const drawW = Math.min(200, vt.videoWidth), drawH = Math.max(1, Math.round(drawW / aspect));
     const cell = async (mediaT, w) => {
-      await seekVideoTo(v, Math.max(0, Math.min(v.duration, mediaT)));
+      await seekVideoTo(vt, Math.max(0, Math.min(vt.duration, mediaT)));
       if (gen !== thumbGen) return null;
       const c = document.createElement('canvas'); c.width = drawW; c.height = drawH;
-      c.getContext('2d').drawImage(v, 0, 0, drawW, drawH);
+      c.getContext('2d').drawImage(vt, 0, 0, drawW, drawH);
       c.style.width = w + 'px';
       return c;
     };
-    const out = [], d = v.duration, trim = env.clip.trim, range = trim.outT - trim.inT;
+    const out = [], d = vt.duration, trim = env.clip.trim, range = trim.outT - trim.inT;
     if (resequence) {
       // B and A fill EXACTLY-EQUAL halves so the seam sits at a true 50% (the seam
       // geometry + drag depend on this). cellW is derived to fill each half precisely.
@@ -488,17 +507,15 @@ export function createClipEditor(env) {
       for (let i = 0; i < cells; i++) { const c = await cell(cut + (outA - cut) * (i + 0.5) / cells, cellW); if (gen !== thumbGen) return; if (c) out.push(c); }
       const gap = document.createElement('div'); gap.className = 'loop-seam-gap'; gap.style.width = gapPx + 'px'; out.push(gap);
       for (let i = 0; i < cells; i++) { const c = await cell(inA + (cut - inA) * (i + 0.5) / cells, cellW); if (gen !== thumbGen) return; if (c) out.push(c); }
-      // populate the split-stage seam frames in this SAME seek pass: last-before (@out) | first-after (@in)
-      await seekVideoTo(v, Math.max(0, Math.min(d, outA))); if (gen !== thumbGen) return; drawFrameTo(v, byId('loopSplitA'));
-      await seekVideoTo(v, Math.max(0, Math.min(d, inA))); if (gen !== thumbGen) return; drawFrameTo(v, byId('loopSplitB'));
     } else {
+      // linear over the shown range: full clip for the trim steps; the TRIMMED range on the
+      // bake-preview step (step 5) so it shows only what bakes, not the cut-off head/tail.
+      const a = env.clip.step === 5 ? trim.inT * d : 0, b = env.clip.step === 5 ? trim.outT * d : d;
       const n = Math.max(4, Math.ceil(trackW / approxCell) + 1);
-      for (let i = 0; i < n; i++) { const c = await cell(d * (i + 0.5) / n, approxCell); if (gen !== thumbGen) return; if (c) out.push(c); }
+      for (let i = 0; i < n; i++) { const c = await cell(a + (b - a) * (i + 0.5) / n, approxCell); if (gen !== thumbGen) return; if (c) out.push(c); }
     }
     if (gen !== thumbGen) return;
     strip.replaceChildren(...out);
-    await seekVideoTo(v, saved);
-    if (gen === thumbGen && resume && env.clip.step !== 4) startClipPreview(false);
   }
   function renderLoopRuler() {
     const ruler = byId('loopRuler'), v = env.clip.prevVideo;
@@ -529,6 +546,33 @@ export function createClipEditor(env) {
     const Bdur = Math.max(1e-4, outA - cut), Adur = Math.max(1e-4, cut - inA);
     return { Bdur, Adur, maxCf: Math.min(Bdur * 0.9, Adur * 0.9, 3) };
   }
+  // Does the timeline show the RESEQUENCED loop (B→A) at this step? (crossfade + bake steps, slice mode)
+  function isResequenced() { return env.clip.trim.mode === 'slice' && (env.clip.step === 4 || env.clip.step === 5); }
+  // Map a track fraction [0,1] → a SOURCE media time, honoring what the strip currently shows:
+  // full clip (trim steps) · trimmed range (bake preview of a non-slice loop) · resequenced B→A.
+  function barFracToMedia(frac) {
+    const v = env.clip.prevVideo, d = (v && v.duration) || 1, trim = env.clip.trim, range = trim.outT - trim.inT;
+    frac = Math.max(0, Math.min(1, frac));
+    if (isResequenced()) {
+      const inA = trim.inT * d, cut = (trim.inT + trim.slicePoint * range) * d, outA = trim.outT * d;
+      return frac < 0.5 ? cut + (outA - cut) * (frac / 0.5) : inA + (cut - inA) * ((frac - 0.5) / 0.5);
+    }
+    if (env.clip.step === 5) return (trim.inT + frac * range) * d;   // trimmed-range preview
+    return frac * d;                                                 // full clip
+  }
+  // Inverse: a source media time → the track fraction for the current view (drives the playhead
+  // during playback, where currentTime advances in source time but the strip is reordered).
+  function mediaToBarFrac(mediaT) {
+    const v = env.clip.prevVideo, d = (v && v.duration) || 1, trim = env.clip.trim, range = trim.outT - trim.inT;
+    if (isResequenced()) {
+      const inA = trim.inT * d, cut = (trim.inT + trim.slicePoint * range) * d, outA = trim.outT * d;
+      if (mediaT >= cut - 1e-3) return Math.min(0.5, 0.5 * (mediaT - cut) / Math.max(1e-4, outA - cut));   // B → left half
+      return 0.5 + Math.min(0.5, 0.5 * (mediaT - inA) / Math.max(1e-4, cut - inA));                        // A → right half
+    }
+    if (env.clip.step === 5) return range ? Math.max(0, Math.min(1, (mediaT / d - trim.inT) / range)) : 0;
+    return mediaT / d;
+  }
+  const setPlayheadFrac = (frac) => { const ph = byId('clipPlayhead'); if (ph) ph.style.left = (frac * 100) + '%'; };
   // step 4 overlays: crossfade region straddling the seam, non-editable slice markers
   // at both ends. (Linear handles hide on step 4 — see setLoopStep.) The strip lays B and
   // A in exactly-equal halves (buildLoopThumbs), so the seam sits at a true 50%. The
@@ -552,7 +596,7 @@ export function createClipEditor(env) {
   // ---- crossfade region on the bar + its contextual menu ----------------------
   function renderXfadeRegion() {
     const region = byId('clipXfadeRegion'); if (!region) return;
-    if (env.clip.step === 4 && env.clip.trim.mode === 'slice') { renderResequenceOverlays(); return; }   // resequenced step owns the region
+    if (isResequenced()) { renderResequenceOverlays(); return; }   // resequenced steps own the region
     const trim = env.clip.trim;
     const d = (env.clip.prevVideo && env.clip.prevVideo.duration) || 1;
     const range = trim.outT - trim.inT;
@@ -753,7 +797,7 @@ export function createClipEditor(env) {
     if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
     e.preventDefault(); e.stopPropagation();
     if (env.clip.raf) stopClipPreview();
-    else if (env.clip.step !== 4 && env.clip.prevVideo) startClipPreview(false);
+    else if (env.clip.prevVideo) startClipPreview(false);
   }, true);
 
   function syncCrossfadeDisplays() {
@@ -837,6 +881,7 @@ export function createClipEditor(env) {
   env.getCrossfadeSec = () => env.clip.trim.crossfadeMs / 1000;
   env.makeXfadeSeamHandle = makeXfadeSeamHandle;
   env.refreshLoopBuilder = refreshLoopBuilder;
+  env.barFracToMedia = barFracToMedia;   // scrub mapping (view-aware: full / trimmed / resequenced)
   env.exitLoopBuilder = exitLoopBuilder;   // the mode picker + upload route here
   env.loopIsActive = () => document.body.classList.contains('loop-active');
 }
