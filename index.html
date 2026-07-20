@@ -517,11 +517,10 @@
           <!-- non-editable slice markers (the loop boundary at both ends, shown on the resequenced crossfade step) -->
           <div class="clip-slice-end left" id="clipSliceL" hidden title="slice point (loop boundary)"></div>
           <div class="clip-slice-end right" id="clipSliceR" hidden title="slice point (loop boundary)"></div>
-          <!-- highlight over the selected clip (bottom half, crossfade step) -->
+          <!-- highlight under the timeline over the selected clip (crossfade step) -->
           <div class="clip-sel-hi" id="clipSelHi" hidden></div>
-          <!-- endpoint handles at the seam (crossfade step): left clip's END (outT) | right clip's START (inT), shown when that clip is selected -->
-          <div class="clip-seam-handle left" id="clipSeamB" hidden title="drag the left clip's end"></div>
-          <div class="clip-seam-handle right" id="clipSeamA" hidden title="drag the right clip's start"></div>
+          <!-- endpoint bar at the seam, extends below the timeline; drags the selected clip's edge -->
+          <div class="clip-seam-bar" id="clipSeamBar" hidden title="drag to adjust the selected clip's edge"></div>
           <div class="clip-playhead" id="clipPlayhead"></div>
           <div class="clip-handle in" id="clipIn"></div>
           <div class="clip-handle out" id="clipOut"></div>
@@ -553,7 +552,33 @@
           </div>
         </div>
         <div class="loop-panel" data-panel="5" hidden>
-          <p class="loop-hint" id="loopBakeHint">This is your finished loop — press space to play it back. Bake it to swap it in as the working source.</p>
+          <p class="loop-hint" id="loopBakeHint">This is your finished loop — press space to play it back. Set the output format, then bake it in as the working source.</p>
+          <div class="loop-format">
+            <label class="loop-format-field">resolution
+              <select id="fmtRes">
+                <option value="source">match source</option>
+                <option value="3840">up to 4K</option>
+                <option value="1920">1080p</option>
+                <option value="1280">720p</option>
+              </select>
+            </label>
+            <label class="loop-format-field">frame rate
+              <select id="fmtFps">
+                <option value="source">match source</option>
+                <option value="24">24</option>
+                <option value="30">30</option>
+                <option value="60">60</option>
+              </select>
+            </label>
+            <label class="loop-format-field">speed
+              <select id="fmtSpeed">
+                <option value="1">100%</option>
+                <option value="0.5">50% slomo</option>
+                <option value="0.25">25% slomo</option>
+              </select>
+            </label>
+            <div class="loop-format-spec" id="fmtSpec">—</div>
+          </div>
         </div>
       </div>
       <div class="clip-progress" id="clipProgress" hidden><div class="clip-bar-fill" id="clipBarFill"></div></div>

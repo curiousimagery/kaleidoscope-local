@@ -64,11 +64,23 @@ docs/                        all the long-form context lives here (HANDOFF is th
 
 packages/
 └── conduit/                 THE GENERALIZED BROADCAST-INFRASTRUCTURE PACKAGE (extracted B345 as fold-stage,
-                             renamed B349) — engine-adapter contract, output bus, recorder/Syphon/NDI sinks,
-                             commit-cell, host contract + webHost. Zero app assumptions; canonical repo
+                             renamed B349). Zero app assumptions; canonical repo
                              github.com/curiousimagery/conduit (subtree-synced); Fold consumes the embedded
                              copy via `file:packages/conduit` so Vercel/clones never need remote auth.
+    src/
+    ├── engine-adapter.js     the two-tier contract (renderFrameAt everywhere; getState/applyState/tween perform-tier)
+    ├── output-bus.js         "one program frame, many sinks" — paced render at output res, fanned to sinks
+    ├── commit-cell.js        single-writer immutable program-snapshot cell (payload-opaque)
+    ├── recorder.js · syphon-sink.js · ndi-sink.js    the sinks (record-to-disk · Syphon · NDI)
+    ├── capture.js            TIER A — the probe-once ADAPTIVE READBACK (render→try paths→checksum→cache winner)
+    ├── encode.js             TIER A — codec discovery (exporter + resolution UI + recorder agree by construction)
+    ├── frame-wire.js         TIER A — the FNDI frame protocol (header, top-down discipline, UYVY packer)
+    ├── external-surface.js   TIER C — createSurfacePoster: transport-neutral external-display/output-window spine
+    ├── host.js               the host-services contract (syphon/midi/nativeCamera/fileSystem/externalDisplay/ndi/
+    │                         mediaDecoder) + `webHost` no-op baseline; mock-host.js for tests; test-pattern.js
+    hosts/                    TIER B — native host packages (at the package root): capacitor-ndi, electron-ndi
 ```
+Tiers: **A** = pure-JS moves (capture probe, codec discovery, FNDI protocol); **B** = native host packages per shell; **C** = design-first external-surface plumbing. Fold's adapter is `shell/fold-adapter.js` (app-side, so the package stays Fold-free).
 
 ## key principles
 
@@ -111,12 +123,12 @@ The engine is already video-capable (the live camera uses `setSource(<video>)`).
 
 - `shell/video-source.js`: `pToMediaSec(video, p, clip)` maps `p` → media seconds, scaled into the trim range `[clip.inT, clip.outT]`; `seekVideoTo(video, sec)` resolves on the `'seeked'` event + a safety timeout (deliberately NOT `requestVideoFrameCallback` — the occluded source `<video>` may never present to the compositor, so rVFC can hang).
 - `main.js`: `advanceSourceToP(p)` = `seekVideoTo` + `updateSourceFrame`; `scrubVideo(p)` coalesces seeks (latest-wins) so dragging never floods the decoder; `startVideoPlayback` uses the `<video>` as the master clock (plays within the trim range, derives `p` from `currentTime`, samples params, renders). Params (`sampleAt`) and source-time are independent functions of `p`.
-- **Browser-engine gotchas (hard-won):** desktop Safari's FBO `readPixels` returns corrupt "blue cells" → the filmstrip/thumbnails use the readback-free capture path (`beginCapture`/`captureFrame`, GL→2D `drawImage`). Per-frame `VideoFrame`-from-canvas is ~177ms on Safari (the export bottleneck) vs ~5ms elsewhere → export wraps the WebGL canvas directly on WebKit (`captureFrameGL`), 2D-canvas elsewhere (`defaultCaptureMode`). Firefox lacks rVFC, applies a 90° rotation to all videos, and is slow at seeks. Blink is still under-tested for the video path.
+- **Browser-specific rendering paths — now RUNTIME-PROBED, not hardcoded (revised by the 2026-07 device bench).** The old model here hardcoded per-browser readback paths (Safari `captureFrameGL`, "blue-cell readPixels corruption," "VideoFrame ~177ms on Safari"). The device bench overturned those assumptions: on current WebKit the readPixels corruption and the VideoFrame(GL) hang are **gone**, and the fastest readback path is **per-DEVICE, not per-browser** (iPad favors `readPixels`, desktop Safari favors `VideoFrame`, Blink favors `getImageData`). So the live-output bus now **probes once at runtime** (conduit `capture.js`, extracted from the old `output-engine`): it renders → tries each readback path → checksum-validates → caches the winner for the session (`?buscapture=` overrides). `kit/capabilities.js` still holds the static per-engine profile (texture caps, the Firefox cap); the *capture-path* choice moved to the runtime probe. Residual real quirks: Firefox lacks rVFC and is slow at seeks; **container rotation is not applied by WebCodecs** — a decoded frame from an iPhone portrait clip is landscape + a 90° flag, so any consumer drawing decoded frames must rotate them itself (the reader exposes `.rotation`; `<video>`/`drawImage` does this for free, the decoder does not).
 
 ## video export + the clip bake
 
 - `shell/video-export.js`: `exportVideo({ frameAt, ... })` renders frame-by-frame through WebCodecs `VideoEncoder` → mp4-muxer. `pickVideoCodec` gates resolution per codec (H.264 ≤4K, HEVC >4K where the device can encode) so the UI only offers what works. For a video source, `frameAt` is async and `await`s `advanceSourceToP` per output frame (frame-accurate). Companion "how it was made" source-preview video + motion-JSON bundle into a `.zip` (`shell/zip.js`).
-- **The clip editor** (pre-animation, in `main.js`, a sheet `#clipSheet`): trim + a seamless-loop mode (trim / bounce / slice). Bounce/slice **bake** a processed clip (the seek-based `frameAt` decodes + assembles source frames → `exportVideo` → swap the baked blob in as the source). The in-editor previews are smooth: scrubber, seek-driven bounce, and a **two-video live crossfade** (a second hidden preview `<video>` plays the A-head alongside the main B-tail, alpha-blended on `#clipBlend`). Bake is seek-based (fine for short loops; a WebCodecs `VideoDecoder` + demuxer is the deferred fast path — needs a new dependency). The bake/render share the in-memory muxer → OPFS streaming is the deferred fix for 10-min/4K.
+- **Loop Builder** (the former "clip editor," now a full editing MODE — `shell/clip-editor.js`, surface `#clipSheet` sitting below the app bar): a stepped wizard (Trim → Behavior → [Slice point → Crossfade] → Preview & bake) that turns raw footage into a seamless loop and drops into motion mode on bake. Behaviors: trim-only (non-destructive), bounce, and slice (cut + crossfade). Bounce/slice **bake** a processed clip and swap it in as the source. **The bake now runs on WebCodecs** (`shell/video-decode.js` `createSequentialFrameReader`, mp4box demux → `VideoDecoder`): slice uses TWO monotonic readers (one per segment) so the crossfade never re-decodes/pops; bounce uses one (forward-fast; reverse still re-decodes per keyframe — GOP-reverse buffering is the filed deeper win); both fall back to `<video>` seeks if the reader can't arm. The reader exposes measured **fps** (bake matches source rate, clamped 12–60) and **rotation** (applied when drawing decoded frames — the portrait-bake fix). The **Preview & bake** step carries the output-format controls (resolution downscale · fps · playback-speed/slomo, applied at bake); frame interpolation (backlogged) is what will make sub-source-fps slomo smooth. In-editor previews are live (scrubber that blends across the crossfade zone; a two-video crossfade on `#clipBlend`; a split-stage seam-match shown while dragging a clip endpoint). Bake/render still share the in-memory muxer → OPFS streaming is the deferred fix for 10-min/4K.
 
 ## adding a new form
 

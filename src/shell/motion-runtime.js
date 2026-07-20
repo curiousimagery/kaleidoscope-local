@@ -1626,10 +1626,13 @@ function wireMotion() {
   // crossfade step: drag the band edges (crossfade duration) + the clip endpoints (trim)
   env.makeXfadeSeamHandle?.(byId('clipXfadeHL'), 'left');
   env.makeXfadeSeamHandle?.(byId('clipXfadeHR'), 'right');
-  env.makeSeamEndpointHandle?.(byId('clipSeamB'), 'B');   // left clip's end (outT)
-  env.makeSeamEndpointHandle?.(byId('clipSeamA'), 'A');   // right clip's start (inT)
+  env.makeSeamEndpointHandle?.(byId('clipSeamBar'));   // drags the selected clip's edge (outT or inT)
   byId('clipXfadeMinus')?.addEventListener('click', () => { env.pushHistory?.(); env.setCrossfadeSec(env.getCrossfadeSec() - 0.1); env.updateUndoUI?.(); });
   byId('clipXfadePlus')?.addEventListener('click', () => { env.pushHistory?.(); env.setCrossfadeSec(env.getCrossfadeSec() + 0.1); env.updateUndoUI?.(); });
+  // output format (preview & bake step) — resolution / fps / playback speed
+  byId('fmtRes')?.addEventListener('change', (e) => { env.clip.fmt.res = e.target.value; env.renderFormatSpec?.(); });
+  byId('fmtFps')?.addEventListener('change', (e) => { env.clip.fmt.fps = e.target.value; env.renderFormatSpec?.(); });
+  byId('fmtSpeed')?.addEventListener('change', (e) => { env.clip.fmt.speed = +e.target.value; env.renderFormatSpec?.(); });
   // scrub the clip bar (off the handles) to inspect any moment — pauses the auto-loop,
   // coalesced seek, resumes on release.
   const clipBar = byId('clipBar');
@@ -1649,16 +1652,16 @@ function wireMotion() {
     };
     // On the crossfade step a bare TAP selects an entity (left clip / crossfade / right clip)
     // and a DRAG scrubs; on the other steps a press scrubs immediately (as before).
-    let tap = null;   // { frac, topHalf, moved } while a potential crossfade-step tap is pending
+    let tap = null;   // { x, frac, moved } while a potential crossfade-step tap is pending
     clipBar.addEventListener('pointerdown', (e) => {
-      if (e.target.closest('.clip-handle') || e.target.closest('.clip-seam-handle') || e.target.closest('.clip-xfade-handle')) return;   // draggable handles own their interactions
+      if (e.target.closest('.clip-handle') || e.target.closest('.clip-seam-bar') || e.target.closest('.clip-xfade-handle')) return;   // draggable handles own their interactions
       const step4 = env.clip.step === 4 && env.clip.trim.mode === 'slice';
       clipBar.setPointerCapture?.(e.pointerId);
       e.preventDefault();
       resumeAfter = !!env.clip.raf;
       if (step4) {
         const r = clipBar.getBoundingClientRect();
-        tap = { x: e.clientX, frac: Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)), topHalf: (e.clientY - r.top) < r.height / 2, moved: false };
+        tap = { x: e.clientX, frac: Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)), moved: false };
         return;   // wait to see if it's a tap (select) or a drag (scrub)
       }
       barScrub = true; env.stopClipPreview(); seekToEvt(e);
@@ -1672,7 +1675,7 @@ function wireMotion() {
     });
     const barUp = (e) => {
       clipBar.releasePointerCapture?.(e.pointerId);
-      if (tap && !tap.moved) { env.selectLoopEntity?.(tap.frac, tap.topHalf); tap = null; return; }   // a real tap → select
+      if (tap && !tap.moved) { env.selectLoopEntity?.(tap.frac); tap = null; return; }   // a real tap → select/deselect
       tap = null;
       if (!barScrub) return;
       barScrub = false;

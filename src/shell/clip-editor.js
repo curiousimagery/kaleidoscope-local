@@ -40,6 +40,7 @@ export function createClipEditor(env) {
     }
     if (motion.playing) env.stopPlayback();
     env.clip.backup = { ...env.clip.trim };          // for Cancel
+    env.clip.fmt = { res: 'source', fps: 'source', speed: 1 };   // fresh output format per clip
     const pv = document.getElementById('clipVideo');
     pv.muted = true; pv.playsInline = true; pv.loop = false;
     pv.src = env.media.sourceVideoUrl;
@@ -403,9 +404,10 @@ export function createClipEditor(env) {
     // a seek-heavy build shouldn't run on every next/back
     const thumbMode = resequence ? 'reseq' : (preview ? 'trimmed' : 'full');
     if (thumbMode !== lastThumbMode) { lastThumbMode = thumbMode; buildLoopThumbs(); }
-    if (n === 4 && slice) env.clip.sel = 'xfade';   // fresh selection each time you enter the crossfade step
+    if (n === 4 && slice) env.clip.sel = null;   // start unselected (crossfade is the focus) each time you enter
     if (resequence) renderResequenceOverlays();
-    renderLoopSelection();   // hides the seam handles / highlight when off the crossfade step
+    renderLoopSelection();   // hides the seam bar / highlight when off the crossfade step or unselected
+    if (n === 5) syncFormatControls();           // populate the output-format spec on the bake step
     renderLoopRuler();
     const seq = stepSeq();
     const back = byId('loopBack'); if (back) back.hidden = seq.indexOf(n) <= 0;
@@ -638,23 +640,20 @@ export function createClipEditor(env) {
     region.style.left = ((g.seam - g.cfFrac) * 100) + '%';
     region.style.width = (2 * g.cfFrac * 100) + '%';
     region.hidden = false;
-    // endpoint handles sit at the seam (left clip's END | right clip's START)
-    const seamB = byId('clipSeamB'), seamA = byId('clipSeamA');
-    if (seamB) seamB.style.left = (g.seam * 100) + '%';
-    if (seamA) seamA.style.left = (g.seam * 100) + '%';
+    const bar = byId('clipSeamBar'); if (bar) bar.style.left = (g.seam * 100) + '%';   // endpoint bar at the seam
     renderLoopSelection();
   }
-  // Show only the selected entity's handles (+ a highlight over the selected clip). The
-  // crossfade band is in the top half, so the clip bodies stay reachable in the bottom half.
+  // The crossfade band is always the prominent, directly-draggable control. A clip can also
+  // be SELECTED (sel = 'B' | 'A' | null) — its endpoint bar (at the seam, extending below the
+  // track) + a highlight under the timeline appear so you can drag its edge.
   function renderLoopSelection() {
     const step4 = env.clip.step === 4 && env.clip.trim.mode === 'slice';
-    const sel = env.clip.sel || 'xfade';
-    const region = byId('clipXfadeRegion'), seamB = byId('clipSeamB'), seamA = byId('clipSeamA'), hi = byId('clipSelHi');
-    if (region) region.classList.toggle('sel', step4 && sel === 'xfade');
-    if (seamB) seamB.hidden = !(step4 && sel === 'B');
-    if (seamA) seamA.hidden = !(step4 && sel === 'A');
+    const sel = env.clip.sel;   // 'B' | 'A' | null
+    const active = step4 && (sel === 'B' || sel === 'A');
+    const bar = byId('clipSeamBar'), hi = byId('clipSelHi');
+    if (bar) { bar.hidden = !active; if (active) bar.style.left = (reseqGeom().seam * 100) + '%'; }
     if (hi) {
-      if (step4 && (sel === 'B' || sel === 'A')) {
+      if (active) {
         const g = reseqGeom();
         hi.hidden = false;
         hi.style.left = (sel === 'B' ? 0 : g.seam * 100) + '%';
@@ -662,13 +661,15 @@ export function createClipEditor(env) {
       } else hi.hidden = true;
     }
   }
-  // Click on the crossfade timeline selects an entity: the band (top half) → crossfade;
-  // the left clip body → 'B' (its end = outT); the right clip body → 'A' (its start = inT).
-  function selectLoopEntity(frac, topHalf) {
+  // A TAP on the crossfade timeline: tapping the left/right clip body selects it (or toggles
+  // it off if already selected); tapping the crossfade band deselects. (The endpoint bar +
+  // crossfade edges are their own drag targets, excluded from the tap handler.)
+  function selectLoopEntity(frac) {
     if (!(env.clip.step === 4 && env.clip.trim.mode === 'slice')) return;
     const g = reseqGeom();
-    const inBandX = frac >= g.seam - g.cfFrac && frac <= g.seam + g.cfFrac;
-    env.clip.sel = (inBandX && topHalf) ? 'xfade' : (frac < g.seam ? 'B' : 'A');
+    const inBand = frac >= g.seam - g.cfFrac && frac <= g.seam + g.cfFrac;
+    if (inBand) env.clip.sel = null;                                    // tap the crossfade → deselect
+    else { const clicked = frac < g.seam ? 'B' : 'A'; env.clip.sel = env.clip.sel === clicked ? null : clicked; }
     renderLoopSelection();
   }
 
@@ -709,10 +710,19 @@ export function createClipEditor(env) {
     env.clip.baking = true;
     stopClipPreview();
     const dur = decodeV.duration || src.duration || 1;
-    const w = _even(src.videoWidth), h = _even(src.videoHeight);
+    const { w, h } = bakeDims();                     // output resolution (source, or downscaled per the format control)
     const cap = document.createElement('canvas'); cap.width = w; cap.height = h;
     const cctx = cap.getContext('2d');
     let fps = 30;                                   // bake fps — refined from the measured source fps below
+    let bakeRot = 0;                                // rotation to apply to DECODED (reader) frames — see below
+    // Draw a WebCodecs frame into the output canvas, applying the container rotation the
+    // decoder didn't (portrait iPhone clips decode landscape + 90°). Preserves globalAlpha.
+    const drawRF = (frame) => {
+      if (!bakeRot) { cctx.drawImage(frame, 0, 0, w, h); return; }
+      const fw = frame.displayWidth || frame.codedWidth || w, fh = frame.displayHeight || frame.codedHeight || h;
+      cctx.save(); cctx.translate(w / 2, h / 2); cctx.rotate(bakeRot * Math.PI / 180);
+      cctx.drawImage(frame, -fw / 2, -fh / 2, fw, fh); cctx.restore();
+    };
     const range = trim.outT - trim.inT, trimmedSec = range * dur;
     const url = decodeV.currentSrc || decodeV.src || env.media.sourceVideoUrl;
     let durationMs, frameAt;
@@ -725,10 +735,11 @@ export function createClipEditor(env) {
       // filed), but through WebCodecs rather than <video> seeks. Falls back to element seeks.
       try { bounceReader = await createSequentialFrameReader(url); } catch { bounceReader = null; }
       if (bounceReader && bounceReader.fps) fps = bounceReader.fps;
+      if (bounceReader) bakeRot = bounceReader.rotation || 0;
       if (bounceReader) {
         frameAt = async (p) => {
           const q = 1 - Math.abs(1 - 2 * p);        // 0→1→0 ping-pong over the trimmed range
-          cctx.drawImage(await bounceReader.frameAt((trim.inT + q * range) * dur), 0, 0, w, h);
+          drawRF(await bounceReader.frameAt((trim.inT + q * range) * dur));
           return cap;
         };
       } else {
@@ -766,19 +777,20 @@ export function createClipEditor(env) {
       } catch { sliceReaderA = sliceReaderB = null; }
       if (sliceReaderB && !sliceReaderA) { sliceReaderB.close(); sliceReaderB = null; }
       if (sliceReaderB && sliceReaderB.fps) fps = sliceReaderB.fps;
+      if (sliceReaderB) bakeRot = sliceReaderB.rotation || 0;
 
       if (sliceReaderA && sliceReaderB) {
         frameAt = async (p) => {
           const t = p * outDur;
           if (t < bEnd) {                            // pure B
-            cctx.globalAlpha = 1; cctx.drawImage(await sliceReaderB.frameAt(cut + t), 0, 0, w, h);
+            cctx.globalAlpha = 1; drawRF(await sliceReaderB.frameAt(cut + t));
           } else if (t < Bdur) {                     // crossfade: B tail dissolves into A head
             const alpha = cfSec > 0 ? (t - bEnd) / cfSec : 1;
-            cctx.globalAlpha = 1; cctx.drawImage(await sliceReaderB.frameAt(cut + t), 0, 0, w, h);
-            cctx.globalAlpha = alpha; cctx.drawImage(await sliceReaderA.frameAt(inA + (t - bEnd)), 0, 0, w, h);
+            cctx.globalAlpha = 1; drawRF(await sliceReaderB.frameAt(cut + t));
+            cctx.globalAlpha = alpha; drawRF(await sliceReaderA.frameAt(inA + (t - bEnd)));
             cctx.globalAlpha = 1;
           } else {                                   // pure A
-            cctx.globalAlpha = 1; cctx.drawImage(await sliceReaderA.frameAt(inA + (t - bEnd)), 0, 0, w, h);
+            cctx.globalAlpha = 1; drawRF(await sliceReaderA.frameAt(inA + (t - bEnd)));
           }
           return cap;
         };
@@ -804,7 +816,9 @@ export function createClipEditor(env) {
         };
       }
     } else { env.clip.baking = false; return; }
-    fps = Math.max(12, Math.min(60, Math.round(fps || 30)));   // bake at the measured source rate (24/30/60…), clamped
+    if (env.clip.fmt.fps !== 'source') fps = +env.clip.fmt.fps;   // fps: measured source rate, or the chosen override
+    fps = Math.max(12, Math.min(60, Math.round(fps || 30)));
+    durationMs = Math.max(200, durationMs / (env.clip.fmt.speed || 1));   // playback speed stretches the loop (slomo)
 
     const prog = document.getElementById('clipProgress'), fill = document.getElementById('clipBarFill');
     const apply = document.getElementById('clipApply'), cover = document.getElementById('clipBaking');
@@ -823,6 +837,9 @@ export function createClipEditor(env) {
       // the "what next?" interstitial is gone; motion is where you go from here)
       hideLoopSurface();
       document.getElementById('motionBtn')?.click();
+      // the baked clip may change aspect (e.g. portrait) — relayout after the mode switch
+      // settles so the source panel doesn't overlap the controls (Daniel's post-bake glitch)
+      requestAnimationFrame(() => { env.arrangeSlots?.(); env.resizePreviewCanvas?.(); });
     } catch (e) {
       console.error('clip bake failed', e);
       alert('Could not bake the clip: ' + (e && e.message ? e.message : e));
@@ -937,16 +954,17 @@ export function createClipEditor(env) {
     el.addEventListener('pointercancel', up);
   }
 
-  // Drag a clip's seam endpoint (crossfade step): which='B' drags the LEFT clip's end (outT,
-  // the last-frame-before-seam), which='A' drags the RIGHT clip's start (inT, first-after).
-  // FREEZE-THEN-REFLOW: the strip layout is frozen during the drag (the handle follows the
-  // cursor via the frozen scale) and only reflows to the new proportions on release — so the
-  // handle never chases a moving seam. The split-stage shows the two seam frames live.
-  function makeSeamEndpointHandle(el, which) {
+  // Drag the selected clip's endpoint bar: sel='B' drags the LEFT clip's end (outT, the
+  // last-frame-before-seam), sel='A' drags the RIGHT clip's start (inT, first-after).
+  // FREEZE-THEN-REFLOW: the layout is frozen during the drag (the bar follows the cursor via
+  // the frozen scale) and only reflows on release — so the bar never chases a moving seam.
+  // The split-stage shows the two seam frames live.
+  function makeSeamEndpointHandle(el) {
     if (!el) return;
-    let dragging = false, pushed = false, g0 = null, wasPlaying = false;
+    let dragging = false, pushed = false, g0 = null, which = null, wasPlaying = false;
     el.addEventListener('pointerdown', (e) => {
       if (!(env.clip.step === 4 && env.clip.trim.mode === 'slice')) return;
+      which = env.clip.sel; if (which !== 'B' && which !== 'A') return;   // nothing selected → nothing to drag
       e.preventDefault(); e.stopPropagation();
       el.setPointerCapture?.(e.pointerId);
       dragging = true; pushed = false; g0 = reseqGeom(); wasPlaying = !!env.clip.raf;
@@ -958,7 +976,7 @@ export function createClipEditor(env) {
       const bar = byId('clipBar'); if (!bar) return;
       const r = bar.getBoundingClientRect();
       const f = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width));
-      el.style.left = (f * 100) + '%';                                 // handle follows the cursor (frozen strip)
+      el.style.left = (f * 100) + '%';                                 // bar follows the cursor (frozen strip)
       const deltaSec = (f - g0.seam) * g0.total, d = g0.d, trim = env.clip.trim, minSeg = 0.15;
       if (which === 'B') {                                             // left clip's end = outA
         const newOutA = Math.max(g0.cut + minSeg, Math.min(d, g0.outA + deltaSec));
@@ -980,6 +998,38 @@ export function createClipEditor(env) {
     };
     el.addEventListener('pointerup', up);
     el.addEventListener('pointercancel', up);
+  }
+
+  // ---- output format (preview & bake step): resolution / fps / playback speed ----------
+  // The loop's own duration (pre-speed) for the current mode — drives the spec + bake length.
+  function bakedLoopSeconds() {
+    const trim = env.clip.trim, d = (env.clip.prevVideo && env.clip.prevVideo.duration) || 1, trimmedSec = (trim.outT - trim.inT) * d;
+    if (trim.mode === 'bounce') return trimmedSec * 2;
+    if (trim.mode === 'slice') { const g = reseqGeom(); return (g.outA - g.inA) - g.cfSec; }
+    return trimmedSec;
+  }
+  // Output dimensions: source dims, optionally downscaled (never up) to a target long edge.
+  function bakeDims() {
+    const src = env.sourceVideo; if (!src) return { w: 2, h: 2 };
+    let w = _even(src.videoWidth), h = _even(src.videoHeight);
+    if (env.clip.fmt.res !== 'source') {
+      const target = +env.clip.fmt.res, scale = Math.min(1, target / Math.max(w, h));
+      w = _even(w * scale); h = _even(h * scale);
+    }
+    return { w, h };
+  }
+  function renderFormatSpec() {
+    const el = byId('fmtSpec'); if (!el) return;
+    const { w, h } = bakeDims(), fmt = env.clip.fmt;
+    const fpsTxt = fmt.fps === 'source' ? 'source fps' : fmt.fps + ' fps';
+    const sec = bakedLoopSeconds() / (fmt.speed || 1);
+    const speedTxt = fmt.speed === 1 ? '' : ` · ${Math.round(fmt.speed * 100)}% slomo`;
+    el.textContent = `${w} × ${h} · ${fpsTxt} · ${sec.toFixed(1)}s loop${speedTxt}`;
+  }
+  function syncFormatControls() {
+    const r = byId('fmtRes'), f = byId('fmtFps'), s = byId('fmtSpeed');
+    if (r) r.value = env.clip.fmt.res; if (f) f.value = env.clip.fmt.fps; if (s) s.value = String(env.clip.fmt.speed);
+    renderFormatSpec();
   }
 
   // Re-derive the whole Loop Builder surface from env.clip.trim — called after an
@@ -1029,6 +1079,7 @@ export function createClipEditor(env) {
   env.makeXfadeSeamHandle = makeXfadeSeamHandle;
   env.makeSeamEndpointHandle = makeSeamEndpointHandle;
   env.selectLoopEntity = selectLoopEntity;
+  env.renderFormatSpec = renderFormatSpec;
   env.refreshLoopBuilder = refreshLoopBuilder;
   env.barFracToMedia = barFracToMedia;   // scrub mapping (view-aware: full / trimmed / resequenced)
   env.clipScrubToFrac = clipScrubToFrac; // scrub that previews the dissolve inside the crossfade zone

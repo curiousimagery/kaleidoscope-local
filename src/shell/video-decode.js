@@ -55,8 +55,12 @@ function demux(buf) {
   if (!track || !samples.length) return null;
 
   // decoder config description (avcC/hvcC/…): serialize the sample-entry box,
-  // minus its own 8-byte box header — the shape VideoDecoder wants
-  let description = null;
+  // minus its own 8-byte box header — the shape VideoDecoder wants.
+  // ALSO read the track rotation from the tkhd matrix: WebCodecs decodes RAW frames and does
+  // NOT apply the container rotation (an iPhone portrait clip decodes landscape + 90°), so a
+  // consumer drawing decoded frames must rotate them itself. (`<video>`/drawImage does this
+  // for us; the decoder does not.)
+  let description = null, rotation = 0;
   try {
     const trak = mp4.getTrackById(track.id);
     const entry = trak.mdia.minf.stbl.stsd.entries.find((e) => e.avcC || e.hvcC || e.vpcC || e.av1C);
@@ -66,8 +70,17 @@ function demux(buf) {
       box.write(ds);
       description = new Uint8Array(ds.buffer, 8);
     }
+    rotation = rotationFromMatrix(trak && trak.tkhd && trak.tkhd.matrix);
   } catch { /* some codecs carry their config in-band */ }
-  return { track, samples, description };
+  return { track, samples, description, rotation };
+}
+
+// ISO track matrix → clockwise rotation in degrees (0/90/180/270). a=m[0], b=m[1] in 16.16.
+function rotationFromMatrix(m) {
+  if (!m || m.length < 2) return 0;
+  const a = m[0] / 65536, b = m[1] / 65536;
+  const deg = Math.round(Math.atan2(b, a) * 180 / Math.PI / 90) * 90;
+  return ((deg % 360) + 360) % 360;
 }
 
 // createSequentialFrameReader(url) → reader | null (null = use the seek fallback)
@@ -83,7 +96,7 @@ export async function createSequentialFrameReader(url, { maxBytes = 1_500_000_00
 
   const parsed = demux(buf);
   if (!parsed) return null;
-  const { track, samples, description } = parsed;
+  const { track, samples, description, rotation } = parsed;
 
   const config = {
     codec: track.codec,
@@ -154,6 +167,7 @@ export async function createSequentialFrameReader(url, { maxBytes = 1_500_000_00
   return {
     width: config.codedWidth,
     height: config.codedHeight,
+    rotation,   // clockwise degrees the consumer must apply when drawing decoded frames
     // measured source frame rate (0 = unknown) — nb_samples over the track's duration
     fps: (() => {
       const durSec = track.duration && track.timescale ? track.duration / track.timescale : 0;
