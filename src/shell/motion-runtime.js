@@ -1623,9 +1623,11 @@ function wireMotion() {
   env.makeClipHandle(byId('clipIn'), 'in');
   env.makeClipHandle(byId('clipOut'), 'out');
   env.makeClipHandle(byId('clipCut'), 'cut');
-  // drag either edge of the crossfade region (step 4) to adjust the crossfade in place
+  // crossfade step: drag the band edges (crossfade duration) + the clip endpoints (trim)
   env.makeXfadeSeamHandle?.(byId('clipXfadeHL'), 'left');
   env.makeXfadeSeamHandle?.(byId('clipXfadeHR'), 'right');
+  env.makeSeamEndpointHandle?.(byId('clipSeamB'), 'B');   // left clip's end (outT)
+  env.makeSeamEndpointHandle?.(byId('clipSeamA'), 'A');   // right clip's start (inT)
   byId('clipXfadeMinus')?.addEventListener('click', () => { env.pushHistory?.(); env.setCrossfadeSec(env.getCrossfadeSec() - 0.1); env.updateUndoUI?.(); });
   byId('clipXfadePlus')?.addEventListener('click', () => { env.pushHistory?.(); env.setCrossfadeSec(env.getCrossfadeSec() + 0.1); env.updateUndoUI?.(); });
   // scrub the clip bar (off the handles) to inspect any moment — pauses the auto-loop,
@@ -1645,20 +1647,35 @@ function wireMotion() {
       const ph = byId('clipPlayhead');
       if (ph) ph.style.left = (frac * 100) + '%';
     };
+    // On the crossfade step a bare TAP selects an entity (left clip / crossfade / right clip)
+    // and a DRAG scrubs; on the other steps a press scrubs immediately (as before).
+    let tap = null;   // { frac, topHalf, moved } while a potential crossfade-step tap is pending
     clipBar.addEventListener('pointerdown', (e) => {
-      if (e.target.closest('.clip-handle') || e.target.closest('.clip-xfade-region')) return;   // handles + the crossfade region own their interactions
-      barScrub = true;
-      resumeAfter = !!env.clip.raf;                   // only resume playback on release if it was playing
-      env.stopClipPreview();
+      if (e.target.closest('.clip-handle') || e.target.closest('.clip-seam-handle') || e.target.closest('.clip-xfade-handle')) return;   // draggable handles own their interactions
+      const step4 = env.clip.step === 4 && env.clip.trim.mode === 'slice';
       clipBar.setPointerCapture?.(e.pointerId);
-      seekToEvt(e);
       e.preventDefault();
+      resumeAfter = !!env.clip.raf;
+      if (step4) {
+        const r = clipBar.getBoundingClientRect();
+        tap = { x: e.clientX, frac: Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)), topHalf: (e.clientY - r.top) < r.height / 2, moved: false };
+        return;   // wait to see if it's a tap (select) or a drag (scrub)
+      }
+      barScrub = true; env.stopClipPreview(); seekToEvt(e);
     });
-    clipBar.addEventListener('pointermove', (e) => { if (barScrub) seekToEvt(e); });
+    clipBar.addEventListener('pointermove', (e) => {
+      if (tap) {
+        if (!tap.moved) { if (Math.abs(e.clientX - tap.x) < 4) return; tap.moved = true; barScrub = true; env.stopClipPreview(); }   // past threshold → it's a scrub
+        seekToEvt(e); return;
+      }
+      if (barScrub) seekToEvt(e);
+    });
     const barUp = (e) => {
+      clipBar.releasePointerCapture?.(e.pointerId);
+      if (tap && !tap.moved) { env.selectLoopEntity?.(tap.frac, tap.topHalf); tap = null; return; }   // a real tap → select
+      tap = null;
       if (!barScrub) return;
       barScrub = false;
-      clipBar.releasePointerCapture?.(e.pointerId);
       if (resumeAfter) env.startClipPreview(false);   // resume only if it was playing before the scrub
     };
     clipBar.addEventListener('pointerup', barUp);

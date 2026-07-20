@@ -4,6 +4,14 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🔁 v0.19.33 (Build 393) — 2026-07-20 — Loop Builder: selectable crossfade timeline (point 5) + bounce fast-decode + bake fps estimation
+
+- **Point 5 — the 3-entity crossfade timeline (Daniel's model, freeze-then-reflow).** On the crossfade step you now select and edit three things: **tap the left clip** → its **end** handle appears at the seam (drags `outT`, the last-frame-before-seam); **tap the right clip** → its **start** handle (drags `inT`, first-after); **tap the crossfade band** (top half of the track) → its edge handles (drag duration). The band lives in the top half so the clip bodies stay reachable below no matter how wide it gets. Dragging an endpoint **freezes the strip and reflows on release** (the handle follows the cursor via the frozen scale, never chasing a moving seam), and the **split-stage shows the two seam frames LIVE** while you drag — which is what finally makes it useful. Tap = select, drag = scrub (unchanged elsewhere). Value overlay on every drag.
+- **Bounce bakes on the fast decoder.** Bounce now runs through a WebCodecs `createSequentialFrameReader` (like slice): the forward half is fast; the reverse half still pays a keyframe re-decode per frame (GOP-reverse buffering filed as the deeper win) but through WebCodecs, not `<video>` seeks. Falls back to element seeks if the reader can't arm.
+- **Bake fps estimation.** The reader now exposes the measured source fps (nb_samples over track duration); the bake uses it (24/30/60…, clamped 12–60) instead of a hard 30 — better fidelity and no needless frame doubling. Applies to slice and bounce.
+
+Verified: node --check ×3, vite build. **Untested by Claude — desktop verify (VERIFY-QUEUE.md).**
+
 ## 🔁 v0.19.32 (Build 392) — 2026-07-20 — Loop Builder: Daniel's review pass (mode label, sub-header, CTA verbs, honest proportions, lighter crossfade chrome, auto-motion)
 
 Six of Daniel's seven notes (the seventh — a selectable 3-entity crossfade timeline — is a new interaction pattern, checkpointed before building):

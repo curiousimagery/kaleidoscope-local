@@ -403,7 +403,9 @@ export function createClipEditor(env) {
     // a seek-heavy build shouldn't run on every next/back
     const thumbMode = resequence ? 'reseq' : (preview ? 'trimmed' : 'full');
     if (thumbMode !== lastThumbMode) { lastThumbMode = thumbMode; buildLoopThumbs(); }
+    if (n === 4 && slice) env.clip.sel = 'xfade';   // fresh selection each time you enter the crossfade step
     if (resequence) renderResequenceOverlays();
+    renderLoopSelection();   // hides the seam handles / highlight when off the crossfade step
     renderLoopRuler();
     const seq = stepSeq();
     const back = byId('loopBack'); if (back) back.hidden = seq.indexOf(n) <= 0;
@@ -636,6 +638,38 @@ export function createClipEditor(env) {
     region.style.left = ((g.seam - g.cfFrac) * 100) + '%';
     region.style.width = (2 * g.cfFrac * 100) + '%';
     region.hidden = false;
+    // endpoint handles sit at the seam (left clip's END | right clip's START)
+    const seamB = byId('clipSeamB'), seamA = byId('clipSeamA');
+    if (seamB) seamB.style.left = (g.seam * 100) + '%';
+    if (seamA) seamA.style.left = (g.seam * 100) + '%';
+    renderLoopSelection();
+  }
+  // Show only the selected entity's handles (+ a highlight over the selected clip). The
+  // crossfade band is in the top half, so the clip bodies stay reachable in the bottom half.
+  function renderLoopSelection() {
+    const step4 = env.clip.step === 4 && env.clip.trim.mode === 'slice';
+    const sel = env.clip.sel || 'xfade';
+    const region = byId('clipXfadeRegion'), seamB = byId('clipSeamB'), seamA = byId('clipSeamA'), hi = byId('clipSelHi');
+    if (region) region.classList.toggle('sel', step4 && sel === 'xfade');
+    if (seamB) seamB.hidden = !(step4 && sel === 'B');
+    if (seamA) seamA.hidden = !(step4 && sel === 'A');
+    if (hi) {
+      if (step4 && (sel === 'B' || sel === 'A')) {
+        const g = reseqGeom();
+        hi.hidden = false;
+        hi.style.left = (sel === 'B' ? 0 : g.seam * 100) + '%';
+        hi.style.width = ((sel === 'B' ? g.seam : 1 - g.seam) * 100) + '%';
+      } else hi.hidden = true;
+    }
+  }
+  // Click on the crossfade timeline selects an entity: the band (top half) → crossfade;
+  // the left clip body → 'B' (its end = outT); the right clip body → 'A' (its start = inT).
+  function selectLoopEntity(frac, topHalf) {
+    if (!(env.clip.step === 4 && env.clip.trim.mode === 'slice')) return;
+    const g = reseqGeom();
+    const inBandX = frac >= g.seam - g.cfFrac && frac <= g.seam + g.cfFrac;
+    env.clip.sel = (inBandX && topHalf) ? 'xfade' : (frac < g.seam ? 'B' : 'A');
+    renderLoopSelection();
   }
 
   // ---- crossfade region on the bar + its contextual menu ----------------------
@@ -678,20 +712,33 @@ export function createClipEditor(env) {
     const w = _even(src.videoWidth), h = _even(src.videoHeight);
     const cap = document.createElement('canvas'); cap.width = w; cap.height = h;
     const cctx = cap.getContext('2d');
-    const fps = 30;                                 // bake fps (source-fps estimation = backlog item)
+    let fps = 30;                                   // bake fps — refined from the measured source fps below
     const range = trim.outT - trim.inT, trimmedSec = range * dur;
+    const url = decodeV.currentSrc || decodeV.src || env.media.sourceVideoUrl;
     let durationMs, frameAt;
-    // slice crossfade uses TWO monotonic readers over the same file (below); declared
-    // here so the finally can close them.
-    let sliceReaderA = null, sliceReaderB = null;
+    // WebCodecs readers over the same file (below); declared here so the finally can close them.
+    let sliceReaderA = null, sliceReaderB = null, bounceReader = null;
     if (trim.mode === 'bounce') {
       durationMs = Math.max(200, trimmedSec * 2 * 1000);   // forward + reverse
-      frameAt = async (p) => {
-        const q = 1 - Math.abs(1 - 2 * p);          // 0→1→0 ping-pong over the trimmed range
-        await seekVideoTo(decodeV, (trim.inT + q * range) * dur);
-        cctx.drawImage(decodeV, 0, 0, w, h);
-        return cap;
-      };
+      // Fast decode: a monotonic reader serves the forward half at speed; the reverse half
+      // still pays a keyframe re-decode per frame (GOP-reverse buffering is the deeper win,
+      // filed), but through WebCodecs rather than <video> seeks. Falls back to element seeks.
+      try { bounceReader = await createSequentialFrameReader(url); } catch { bounceReader = null; }
+      if (bounceReader && bounceReader.fps) fps = bounceReader.fps;
+      if (bounceReader) {
+        frameAt = async (p) => {
+          const q = 1 - Math.abs(1 - 2 * p);        // 0→1→0 ping-pong over the trimmed range
+          cctx.drawImage(await bounceReader.frameAt((trim.inT + q * range) * dur), 0, 0, w, h);
+          return cap;
+        };
+      } else {
+        frameAt = async (p) => {
+          const q = 1 - Math.abs(1 - 2 * p);
+          await seekVideoTo(decodeV, (trim.inT + q * range) * dur);
+          cctx.drawImage(decodeV, 0, 0, w, h);
+          return cap;
+        };
+      }
     } else if (trim.mode === 'slice') {
       // Slice: rearrange the trimmed clip [inA,outA] as B(=[cut,outA]) then A(=[inA,cut])
       // — the loop point (A end = B start = cut) is continuous; the B→A SEAM is crossfaded
@@ -713,12 +760,12 @@ export function createClipEditor(env) {
       // hasn't caught up presents a STALE frame at full alpha. Monotonic readers return
       // deterministically-correct frames with no keyframe re-decode thrash — correctness
       // AND speed. Falls back to the single-element seek path when the readers can't arm.
-      const url = decodeV.currentSrc || decodeV.src || env.media.sourceVideoUrl;
       try {
         sliceReaderB = await createSequentialFrameReader(url);
         sliceReaderA = sliceReaderB ? await createSequentialFrameReader(url) : null;
       } catch { sliceReaderA = sliceReaderB = null; }
       if (sliceReaderB && !sliceReaderA) { sliceReaderB.close(); sliceReaderB = null; }
+      if (sliceReaderB && sliceReaderB.fps) fps = sliceReaderB.fps;
 
       if (sliceReaderA && sliceReaderB) {
         frameAt = async (p) => {
@@ -757,6 +804,7 @@ export function createClipEditor(env) {
         };
       }
     } else { env.clip.baking = false; return; }
+    fps = Math.max(12, Math.min(60, Math.round(fps || 30)));   // bake at the measured source rate (24/30/60…), clamped
 
     const prog = document.getElementById('clipProgress'), fill = document.getElementById('clipBarFill');
     const apply = document.getElementById('clipApply'), cover = document.getElementById('clipBaking');
@@ -781,6 +829,7 @@ export function createClipEditor(env) {
     } finally {
       if (sliceReaderA) { try { sliceReaderA.close(); } catch { /* already closed */ } sliceReaderA = null; }
       if (sliceReaderB) { try { sliceReaderB.close(); } catch { /* already closed */ } sliceReaderB = null; }
+      if (bounceReader) { try { bounceReader.close(); } catch { /* already closed */ } bounceReader = null; }
       if (prog) prog.hidden = true;
       if (fill) fill.style.width = '0%';
       if (cover) cover.hidden = true;
@@ -888,6 +937,51 @@ export function createClipEditor(env) {
     el.addEventListener('pointercancel', up);
   }
 
+  // Drag a clip's seam endpoint (crossfade step): which='B' drags the LEFT clip's end (outT,
+  // the last-frame-before-seam), which='A' drags the RIGHT clip's start (inT, first-after).
+  // FREEZE-THEN-REFLOW: the strip layout is frozen during the drag (the handle follows the
+  // cursor via the frozen scale) and only reflows to the new proportions on release — so the
+  // handle never chases a moving seam. The split-stage shows the two seam frames live.
+  function makeSeamEndpointHandle(el, which) {
+    if (!el) return;
+    let dragging = false, pushed = false, g0 = null, wasPlaying = false;
+    el.addEventListener('pointerdown', (e) => {
+      if (!(env.clip.step === 4 && env.clip.trim.mode === 'slice')) return;
+      e.preventDefault(); e.stopPropagation();
+      el.setPointerCapture?.(e.pointerId);
+      dragging = true; pushed = false; g0 = reseqGeom(); wasPlaying = !!env.clip.raf;
+      enterSplitStage();   // show the seam pair live while adjusting the endpoint
+    });
+    el.addEventListener('pointermove', (e) => {
+      if (!dragging || !g0) return;
+      if (!pushed) { env.pushHistory?.(); env.updateUndoUI?.(); pushed = true; }
+      const bar = byId('clipBar'); if (!bar) return;
+      const r = bar.getBoundingClientRect();
+      const f = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width));
+      el.style.left = (f * 100) + '%';                                 // handle follows the cursor (frozen strip)
+      const deltaSec = (f - g0.seam) * g0.total, d = g0.d, trim = env.clip.trim, minSeg = 0.15;
+      if (which === 'B') {                                             // left clip's end = outA
+        const newOutA = Math.max(g0.cut + minSeg, Math.min(d, g0.outA + deltaSec));
+        trim.outT = newOutA / d; updateSplitLeft();
+        showDragVal('clip end · ' + env.fmtClock(newOutA), e.clientX, r.top);
+      } else {                                                         // right clip's start = inA
+        const newInA = Math.max(0, Math.min(g0.cut - minSeg, g0.inA + deltaSec));
+        trim.inT = newInA / d; updateSplitRight();
+        showDragVal('clip start · ' + env.fmtClock(newInA), e.clientX, r.top);
+      }
+    });
+    const up = (e) => {
+      if (!dragging) return;
+      dragging = false; el.releasePointerCapture?.(e.pointerId);
+      hideDragVal(); exitSplitStage();
+      lastThumbMode = null; buildLoopThumbs(); renderResequenceOverlays();   // REFLOW to the new proportions
+      if (wasPlaying) startClipPreview(false);
+      env.updateUndoUI?.();
+    };
+    el.addEventListener('pointerup', up);
+    el.addEventListener('pointercancel', up);
+  }
+
   // Re-derive the whole Loop Builder surface from env.clip.trim — called after an
   // undo/redo restores the trim. No-op unless the mode is active. Re-runs setLoopStep so
   // handle/region/thumbnail geometry rebuilds; if a behavior change was undone, the step
@@ -933,6 +1027,8 @@ export function createClipEditor(env) {
   env.setCrossfadeSec = setCrossfadeSec;
   env.getCrossfadeSec = () => env.clip.trim.crossfadeMs / 1000;
   env.makeXfadeSeamHandle = makeXfadeSeamHandle;
+  env.makeSeamEndpointHandle = makeSeamEndpointHandle;
+  env.selectLoopEntity = selectLoopEntity;
   env.refreshLoopBuilder = refreshLoopBuilder;
   env.barFracToMedia = barFracToMedia;   // scrub mapping (view-aware: full / trimmed / resequenced)
   env.clipScrubToFrac = clipScrubToFrac; // scrub that previews the dissolve inside the crossfade zone

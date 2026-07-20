@@ -517,6 +517,11 @@
           <!-- non-editable slice markers (the loop boundary at both ends, shown on the resequenced crossfade step) -->
           <div class="clip-slice-end left" id="clipSliceL" hidden title="slice point (loop boundary)"></div>
           <div class="clip-slice-end right" id="clipSliceR" hidden title="slice point (loop boundary)"></div>
+          <!-- highlight over the selected clip (bottom half, crossfade step) -->
+          <div class="clip-sel-hi" id="clipSelHi" hidden></div>
+          <!-- endpoint handles at the seam (crossfade step): left clip's END (outT) | right clip's START (inT), shown when that clip is selected -->
+          <div class="clip-seam-handle left" id="clipSeamB" hidden title="drag the left clip's end"></div>
+          <div class="clip-seam-handle right" id="clipSeamA" hidden title="drag the right clip's start"></div>
           <div class="clip-playhead" id="clipPlayhead"></div>
           <div class="clip-handle in" id="clipIn"></div>
           <div class="clip-handle out" id="clipOut"></div>

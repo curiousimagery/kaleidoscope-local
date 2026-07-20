@@ -154,6 +154,12 @@ export async function createSequentialFrameReader(url, { maxBytes = 1_500_000_00
   return {
     width: config.codedWidth,
     height: config.codedHeight,
+    // measured source frame rate (0 = unknown) — nb_samples over the track's duration
+    fps: (() => {
+      const durSec = track.duration && track.timescale ? track.duration / track.timescale : 0;
+      const n = track.nb_samples || samples.length;
+      return durSec > 0 && n > 1 ? n / durSec : 0;
+    })(),
 
     // Resolve the decoded frame covering `sec` (monotonic-friendly; backward
     // jumps pay a keyframe re-decode). The frame stays owned by the reader.

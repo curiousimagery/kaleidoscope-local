@@ -187,7 +187,7 @@ const env = {
   clip: {
     trim: { inT: 0, outT: 1, mode: 'forward', slicePoint: 1 / 3, crossfadeMs: 500 },
     prevVideo: null, prevVideoB: null, thumbVideo: null, backup: null, drag: null, raf: 0,
-    seg: 0, bounceStart: 0, phase: 'B', seekT: null, seeking: false, baking: false,
+    seg: 0, bounceStart: 0, phase: 'B', seekT: null, seeking: false, baking: false, sel: 'xfade',
   },
   filmstrip: { timer: 0, lastSig: '', gen: 0, busy: false, freezeEl: null },
   scrub: { seekP: null, seeking: false, assign: true },

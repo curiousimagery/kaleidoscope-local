@@ -8,6 +8,11 @@ Legend: 🖥️ desktop browser · 📺 external display / AirPlay (workstation)
 
 - **📺 External display + AirPlay render-from-state regression (B382).** The external-surface poster was refactored (`createSurfacePoster`, transport-neutral). Behavior-neutral by intent. Verify: iPad external display (HDMI) and Apple TV AirPlay still present the program render-from-state at tier resolution, exactly as before. (Daniel away from that setup as of 2026-07-18.)
 - **🖥️ Two-reader slice crossfade (B384).** Bake a **slice** loop with a crossfade and confirm the seam no longer drops/pops frames (a fading-out frame snapping back to full opacity). Also just confirm slice + bounce bakes still produce correct loops (regression). Desktop browser (needs WebCodecs — Brave/Chrome/Electron).
+- **🖥️ Loop Builder point 5 + bounce/fps (B393). UNTESTED — interaction-feel will want tuning.**
+  - Crossfade step: **tap the left clip** → an end handle at the seam drags the left clip's end; **tap the right clip** → a start handle drags the right clip's start; **tap the crossfade band** (top half) → drag its edges for duration. Tap = select, drag = scrub still works.
+  - Dragging an endpoint: the handle follows the cursor, the split-stage shows both seam frames live, and the strip **reflows on release** (freeze-then-reflow). Value overlay shows on every drag.
+  - Confirm the top/bottom split feels right (band on top, clips selectable below); confirm a 90/10 slice's tiny right clip is still grabbable (else revisit the zoom idea).
+  - **Bounce bake speed**: a bounce should bake faster than before (forward half fast); confirm the loop is still correct. **fps**: baked loop should match the source rate (a 24/60fps source bakes at 24/60, not 30).
 - **🖥️ Loop Builder review pass 2 (B392). UNTESTED.**
   - Mode picker shows "loop" while in Loop Builder (not "still"). Sub-header gone; "XXs of XXs" reads UNDER the clip while trimming.
   - Resize the window on any step — the thumbnail strip + ruler rebuild (no black/clipped cells).

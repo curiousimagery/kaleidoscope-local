@@ -1239,20 +1239,33 @@ body.loop-active #outputToolbar select:not(#modeSelect) {
 /* the crossfade band is YELLOW (accent) — it's the main interactive thing on the crossfade
    step, and it carries the yellow "selected region" identity forward from the trim view now
    that the ends have become the loop boundary */
-.clip-xfade-region { position: absolute; top: 0; bottom: 0; background: rgba(255, 210, 63, 0.30);
+/* the crossfade band lives in the TOP HALF of the track, so no matter how wide it gets the
+   clip bodies stay reachable in the bottom half (Daniel's selection model) */
+.clip-xfade-region { position: absolute; top: 0; bottom: 50%; background: rgba(255, 210, 63, 0.30);
   border-left: 1px solid var(--accent); border-right: 1px solid var(--accent); pointer-events: auto; cursor: pointer; z-index: 1; }
 .clip-xfade-region[hidden] { display: none; }
-.clip-xfade-region.selected { background: rgba(255, 210, 63, 0.48); box-shadow: 0 0 0 1px var(--accent) inset; }
-/* the bake-preview step shows the band for context only — no dragging, no menu */
+.clip-xfade-region.sel { background: rgba(255, 210, 63, 0.5); box-shadow: 0 0 0 1px var(--accent) inset; }
+/* the bake-preview step shows the band for context only — no dragging */
 .clip-xfade-region.static { pointer-events: none; cursor: default; opacity: .8; }
+/* draggable edges — shown only while the crossfade is the selected entity */
+.clip-xfade-handle { position: absolute; top: 0; bottom: 0; width: 14px; cursor: ew-resize; z-index: 3; touch-action: none; display: none; }
+.clip-xfade-region.sel .clip-xfade-handle { display: block; }
 .clip-xfade-region.static .clip-xfade-handle { display: none; }
-/* draggable edges of the crossfade region (step 4 seam adjust) — a wide-ish hit area with a visible grip */
-.clip-xfade-handle { position: absolute; top: 0; bottom: 0; width: 14px; cursor: ew-resize; z-index: 3; touch-action: none; }
 .clip-xfade-handle.left { left: -7px; }
 .clip-xfade-handle.right { right: -7px; }
 .clip-xfade-handle::after { content: ''; position: absolute; left: 50%; top: 3px; bottom: 3px; width: 2px; transform: translateX(-50%);
   background: var(--accent); border-radius: 1px; box-shadow: 0 0 0 1px rgba(0,0,0,.35); }
 .clip-xfade-handle:hover::after { width: 3px; }
+/* endpoint handles at the seam (bottom half) — the left clip's END / right clip's START */
+.clip-seam-handle { position: absolute; top: 50%; bottom: -3px; width: 12px; transform: translateX(-50%);
+  background: var(--accent); border-radius: var(--radius); cursor: ew-resize; touch-action: none; z-index: 3; box-shadow: 0 0 0 1px rgba(0,0,0,.4); }
+.clip-seam-handle[hidden] { display: none; }
+.clip-seam-handle::after { content: ''; position: absolute; left: 50%; top: 50%; width: 2px; height: 12px; margin: -6px 0 0 -1px;
+  background: rgba(0, 0, 0, 0.45); border-radius: 1px; }
+/* highlight over the selected clip (bottom half) */
+.clip-sel-hi { position: absolute; top: 50%; bottom: 0; background: rgba(255, 210, 63, 0.12);
+  border: 1px solid rgba(255, 210, 63, 0.4); pointer-events: none; z-index: 0; }
+.clip-sel-hi[hidden] { display: none; }
 /* prominent crossfade duration control (step 4) — the featured input, not a small scrub */
 .loop-xfade-feature { display: inline-flex; align-items: center; gap: 10px; margin-top: 4px; padding: 10px 14px;
   background: var(--surface-raised); border: 1px solid var(--border); border-radius: var(--radius-lg); }
