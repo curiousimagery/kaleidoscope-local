@@ -476,10 +476,6 @@
 <!-- Loop Builder — a FULL-SCREEN mode surface (not a popover) for prepping a video
      into a seamless loop: trim → behavior → slice → crossfade → bake, stepped. -->
 <div class="loop-mode" id="clipSheet" hidden>
-  <div class="loop-topbar">
-    <span class="loop-title">Loop Builder</span>
-    <span class="loop-sub" id="clipDur">—</span>
-  </div>
   <div class="loop-main">
     <!-- left step rail (progressive disclosure) -->
     <aside class="loop-rail" id="loopRail">
@@ -507,6 +503,8 @@
         </div>
         <div class="clip-baking" id="clipBaking" hidden>baking…</div>
       </div>
+      <!-- trim readout, shown under the clip while it's being trimmed -->
+      <div class="loop-trim-readout" id="clipDur" hidden>—</div>
       <div class="loop-timeline">
         <div class="loop-ruler" id="loopRuler"></div>
         <div class="clip-bar loop-track" id="clipBar">
@@ -572,11 +570,8 @@
     </div>
     <button class="clip-nudge-dismiss" id="clipNudgeDismiss">done for now</button>
   </div>
-  <!-- crossfade contextual menu (click the crossfade region to select) -->
-  <div class="loop-ctx" id="clipXfadeMenu" hidden>
-    <label class="loop-ctx-field">duration <span class="val scrub" id="clipXfadeCtx">0.50s</span></label>
-    <button class="loop-ctx-btn" id="clipXfadeClear">remove crossfade</button>
-  </div>
+  <!-- transient value readout shown WHILE dragging the crossfade (white on black) -->
+  <div class="loop-drag-val" id="clipDragVal" hidden></div>
 </div>
 
 <!-- export sheet (global save) — controls relocated from the right sidebar -->

@@ -4,6 +4,19 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🔁 v0.19.32 (Build 392) — 2026-07-20 — Loop Builder: Daniel's review pass (mode label, sub-header, CTA verbs, honest proportions, lighter crossfade chrome, auto-motion)
+
+Six of Daniel's seven notes (the seventh — a selectable 3-entity crossfade timeline — is a new interaction pattern, checkpointed before building):
+
+- **Mode picker reads "loop"** in Loop Builder (updateMotionUI was resetting it to "still"). **Sub-header removed** ("Loop Builder" title + trim readout); the **"XXs of XXs" trim readout moved UNDER the clip**, shown while trimming (steps 1/3).
+- **Timeline regenerates on resize.** A ResizeObserver on the track rebuilds thumbnails + ruler + overlays (debounced) so cells no longer stretch to black or clip when the window changes size.
+- **CTA names the CURRENT step's action**, not the next: "set trim ›" / "set behavior ›" / "set slice point ›" / "set crossfade ›", then "bake loop" / "apply trim" on the last step. **Removed the ✦ glyph.**
+- **Honest proportions.** The resequenced strip lays B and A PROPORTIONALLY to their real durations (a 90/10 slice reads 90/10, not 50/50), so the seam sits at its true position and the whole strip is one uniform time-scale — which also makes the yellow crossfade band symmetric around the seam.
+- **Lighter crossfade chrome.** The contextual popover (duration + remove) is GONE; drag the crossfade edges and a **white-on-black value overlay** shows the duration while dragging. (Sliding to 0 replaces "remove".)
+- **Auto-motion after bake.** The "what would you like to do next?" interstitial is gone — baking drops you straight into motion mode with the loop (Daniel's call).
+
+Verified: node --check ×2, vite build. **Untested by Claude — desktop verify (VERIFY-QUEUE.md).** DEFERRED for a checkpoint: the selectable left-clip / crossfade / right-clip timeline with draggable trim endpoints on the crossfade step (point 5), which re-enables the split-stage as a live seam-match.
+
 ## 🔁 v0.19.31 (Build 391) — 2026-07-19 — Loop Builder: seam-match on crossfade-edge drag + scrub previews the dissolve
 
 Two refinements from Daniel's pass (undo confirmed working):

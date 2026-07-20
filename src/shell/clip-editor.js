@@ -344,14 +344,14 @@ export function createClipEditor(env) {
     return [1, 2];   // forward (trim only) — step 2 applies the trim
   }
   function loopModeLabel() { return env.clip.trim.mode === 'slice' ? 'loop' : env.clip.trim.mode; }
-  // the primary button names the ACTION of advancing, not a generic "next" — labelled by
-  // the destination step's purpose (Daniel's ask).
+  // the primary button names the CURRENT step's action (what clicking applies), not the next
+  // step — e.g. on the slice-point step it reads "set slice point" (Daniel's ask).
   function stepActionLabel(step) {
     switch (step) {
-      case 2: return 'choose loop type';
+      case 1: return 'set trim';
+      case 2: return 'set behavior';
       case 3: return 'set slice point';
       case 4: return 'set crossfade';
-      case 5: return 'preview & bake';
       default: return 'next';
     }
   }
@@ -369,8 +369,8 @@ export function createClipEditor(env) {
     const seq = stepSeq(), i = seq.indexOf(env.clip.step), isLast = i === seq.length - 1;
     const apply = byId('clipApply'); if (!apply) return;
     apply.textContent = isLast
-      ? (env.clip.trim.mode === 'forward' ? 'apply trim' : `bake ${loopModeLabel()} ✦`)
-      : stepActionLabel(seq[i + 1]) + ' ›';
+      ? (env.clip.trim.mode === 'forward' ? 'apply trim' : `bake ${loopModeLabel()}`)
+      : stepActionLabel(env.clip.step) + ' ›';
     apply.dataset.terminal = isLast ? '1' : '';
   }
   let lastThumbMode = null;
@@ -393,6 +393,8 @@ export function createClipEditor(env) {
     const linRegion = byId('clipRegion'); if (linRegion) linRegion.style.display = (resequence || preview) ? 'none' : '';
     const xregion = byId('clipXfadeRegion');
     if (xregion) { xregion.hidden = !resequence; xregion.classList.toggle('static', preview); }   // draggable only on the crossfade step
+    // the trim duration readout sits under the clip while trimming (steps 1–3), hidden on the resequenced / preview steps
+    const dur = byId('clipDur'); if (dur) dur.hidden = resequence || preview || n === 2;
     // the crossfade step is now a LIVE preview (play/scrub), not a static split-stage —
     // start the mode-appropriate preview on every step
     exitSplitStage();
@@ -405,7 +407,6 @@ export function createClipEditor(env) {
     renderLoopRuler();
     const seq = stepSeq();
     const back = byId('loopBack'); if (back) back.hidden = seq.indexOf(n) <= 0;
-    hideXfadeMenu();
     updateRail(); loopPrimary(); renderClipTrim();
   }
   function goNext() { const seq = stepSeq(), i = seq.indexOf(env.clip.step); if (i >= 0 && i < seq.length - 1) setLoopStep(seq[i + 1]); }
@@ -499,18 +500,19 @@ export function createClipEditor(env) {
     };
     const out = [], d = vt.duration, trim = env.clip.trim, range = trim.outT - trim.inT;
     if (resequence) {
-      // B and A fill EXACTLY-EQUAL halves so the seam sits at a true 50% (the seam
-      // geometry + drag depend on this). cellW is derived to fill each half precisely.
-      const inA = trim.inT * d, outA = trim.outT * d, cut = (trim.inT + trim.slicePoint * range) * d;
-      const gapPx = 10, halfPx = Math.max(1, (trackW - gapPx) / 2);
-      const cells = Math.max(2, Math.round(halfPx / approxCell)), cellW = halfPx / cells;
-      for (let i = 0; i < cells; i++) { const c = await cell(cut + (outA - cut) * (i + 0.5) / cells, cellW); if (gen !== thumbGen) return; if (c) out.push(c); }
-      const gap = document.createElement('div'); gap.className = 'loop-seam-gap'; gap.style.width = gapPx + 'px'; out.push(gap);
-      for (let i = 0; i < cells; i++) { const c = await cell(inA + (cut - inA) * (i + 0.5) / cells, cellW); if (gen !== thumbGen) return; if (c) out.push(c); }
+      // B [cut,outA] and A [inA,cut] fill the track PROPORTIONALLY to their real durations,
+      // so the seam sits at its true position (a 90/10 slice reads 90/10, not 50/50) and the
+      // whole strip is one uniform time-scale.
+      const g = reseqGeom();
+      const bW = g.seam * trackW, aW = (1 - g.seam) * trackW;
+      const bCells = Math.max(1, Math.round(bW / approxCell)), aCells = Math.max(1, Math.round(aW / approxCell));
+      const bCellW = bW / bCells, aCellW = aW / aCells;
+      for (let i = 0; i < bCells; i++) { const c = await cell(g.cut + (g.outA - g.cut) * (i + 0.5) / bCells, bCellW); if (gen !== thumbGen) return; if (c) out.push(c); }
+      for (let i = 0; i < aCells; i++) { const c = await cell(g.inA + (g.cut - g.inA) * (i + 0.5) / aCells, aCellW); if (gen !== thumbGen) return; if (c) out.push(c); }
       // keep the split-stage seam pair current (shown WHILE dragging a crossfade seam edge):
       // last frame before the seam (@outA, B tail) | first frame after (@inA, A head)
-      await seekVideoTo(vt, Math.max(0, Math.min(d, outA))); if (gen !== thumbGen) return; drawFrameTo(vt, byId('loopSplitA'));
-      await seekVideoTo(vt, Math.max(0, Math.min(d, inA))); if (gen !== thumbGen) return; drawFrameTo(vt, byId('loopSplitB'));
+      await seekVideoTo(vt, Math.max(0, Math.min(d, g.outA))); if (gen !== thumbGen) return; drawFrameTo(vt, byId('loopSplitA'));
+      await seekVideoTo(vt, Math.max(0, Math.min(d, g.inA))); if (gen !== thumbGen) return; drawFrameTo(vt, byId('loopSplitB'));
     } else {
       // linear over the shown range: full clip for the trim steps; the TRIMMED range on the
       // bake-preview step (step 5) so it shows only what bakes, not the cut-off head/tail.
@@ -541,14 +543,19 @@ export function createClipEditor(env) {
     }
     ruler.appendChild(frag);
   }
-  // The two segment durations at the seam: B = [cut,outA] (left of the seam on the
-  // resequenced strip), A = [inA,cut] (right of it). maxCf caps the crossfade so it
-  // can't eat more than 90% of the shorter segment (matches the bake clamp).
-  function seamDurations() {
+  // Resequenced-view geometry (slice, steps 4/5). B = [cut,outA] and A = [inA,cut] are laid
+  // out PROPORTIONALLY to their real durations (honest — a 90/10 slice reads 90/10, not 50/50),
+  // so the whole strip is a single uniform time-scale and the seam sits at its true position.
+  // The crossfade overlaps cfSec of B's tail + cfSec of A's head, so it's a symmetric band of
+  // half-width cfFrac centered on the seam. maxCf caps it at 90% of the shorter segment.
+  function reseqGeom() {
     const v = env.clip.prevVideo, d = (v && v.duration) || 1, trim = env.clip.trim, range = trim.outT - trim.inT;
     const inA = trim.inT * d, outA = trim.outT * d, cut = (trim.inT + trim.slicePoint * range) * d;
-    const Bdur = Math.max(1e-4, outA - cut), Adur = Math.max(1e-4, cut - inA);
-    return { Bdur, Adur, maxCf: Math.min(Bdur * 0.9, Adur * 0.9, 3) };
+    const Bdur = Math.max(1e-4, outA - cut), Adur = Math.max(1e-4, cut - inA), total = Bdur + Adur;
+    const seam = Bdur / total;
+    const maxCf = Math.min(Bdur * 0.9, Adur * 0.9, 3);
+    const cfSec = Math.max(0, Math.min(trim.crossfadeMs / 1000, maxCf));
+    return { d, inA, outA, cut, Bdur, Adur, total, seam, cfSec, cfFrac: cfSec / total, maxCf };
   }
   // Does the timeline show the RESEQUENCED loop (B→A) at this step? (crossfade + bake steps, slice mode)
   function isResequenced() { return env.clip.trim.mode === 'slice' && (env.clip.step === 4 || env.clip.step === 5); }
@@ -558,8 +565,9 @@ export function createClipEditor(env) {
     const v = env.clip.prevVideo, d = (v && v.duration) || 1, trim = env.clip.trim, range = trim.outT - trim.inT;
     frac = Math.max(0, Math.min(1, frac));
     if (isResequenced()) {
-      const inA = trim.inT * d, cut = (trim.inT + trim.slicePoint * range) * d, outA = trim.outT * d;
-      return frac < 0.5 ? cut + (outA - cut) * (frac / 0.5) : inA + (cut - inA) * ((frac - 0.5) / 0.5);
+      const g = reseqGeom();
+      return frac < g.seam ? g.cut + (g.outA - g.cut) * (frac / g.seam)
+                           : g.inA + (g.cut - g.inA) * ((frac - g.seam) / (1 - g.seam));
     }
     if (env.clip.step === 5) return (trim.inT + frac * range) * d;   // trimmed-range preview
     return frac * d;                                                 // full clip
@@ -569,9 +577,9 @@ export function createClipEditor(env) {
   function mediaToBarFrac(mediaT) {
     const v = env.clip.prevVideo, d = (v && v.duration) || 1, trim = env.clip.trim, range = trim.outT - trim.inT;
     if (isResequenced()) {
-      const inA = trim.inT * d, cut = (trim.inT + trim.slicePoint * range) * d, outA = trim.outT * d;
-      if (mediaT >= cut - 1e-3) return Math.min(0.5, 0.5 * (mediaT - cut) / Math.max(1e-4, outA - cut));   // B → left half
-      return 0.5 + Math.min(0.5, 0.5 * (mediaT - inA) / Math.max(1e-4, cut - inA));                        // A → right half
+      const g = reseqGeom();
+      if (mediaT >= g.cut - 1e-3) return Math.min(g.seam, g.seam * (mediaT - g.cut) / g.Bdur);       // B → [0,seam]
+      return g.seam + Math.min(1 - g.seam, (1 - g.seam) * (mediaT - g.inA) / g.Adur);                 // A → [seam,1]
     }
     if (env.clip.step === 5) return range ? Math.max(0, Math.min(1, (mediaT / d - trim.inT) / range)) : 0;
     return mediaT / d;
@@ -596,15 +604,13 @@ export function createClipEditor(env) {
   async function doScrub(frac) {
     const v = env.clip.prevVideo, vB = env.clip.prevVideoB, blend = byId('clipBlend');
     if (!v) return;
-    const trim = env.clip.trim, d = v.duration || 1, range = trim.outT - trim.inT;
+    const d = v.duration || 1, range = env.clip.trim.outT - env.clip.trim.inT;
     if (isResequenced() && range > 0) {
-      const { Bdur, Adur } = seamDurations();
-      const cfSec = Math.max(0, Math.min(trim.crossfadeMs / 1000, Bdur * 0.9, Adur * 0.9));
-      const leftFrac = 0.5 - Math.min(1, cfSec / Bdur) * 0.5, rightFrac = 0.5 + Math.min(1, cfSec / Adur) * 0.5;
-      if (cfSec > 0 && frac >= leftFrac && frac <= rightFrac && vB) {
+      const g = reseqGeom();
+      const leftFrac = g.seam - g.cfFrac, rightFrac = g.seam + g.cfFrac;   // symmetric band around the true seam
+      if (g.cfSec > 0 && frac >= leftFrac && frac <= rightFrac && vB) {
         const cf = rightFrac > leftFrac ? (frac - leftFrac) / (rightFrac - leftFrac) : 1;   // 0→1 across the dissolve
-        const inA = trim.inT * d, outA = trim.outT * d;
-        const bT = outA - cfSec * (1 - cf), aT = inA + cfSec * cf;   // B tail time | A head time
+        const bT = g.outA - g.cfSec * (1 - cf), aT = g.inA + g.cfSec * cf;   // B tail time | A head time
         try { vB.pause(); } catch { /* ignore */ }   // in case a prior crossfade preview left it playing
         await Promise.all([seekVideoTo(v, Math.max(0, Math.min(d, bT))), seekVideoTo(vB, Math.max(0, Math.min(d, aT)))]);
         if (blend) blend.hidden = false;
@@ -626,12 +632,9 @@ export function createClipEditor(env) {
     if (L) L.hidden = false;
     if (R) R.hidden = false;
     if (!region) return;
-    const { Bdur, Adur } = seamDurations();
-    const cfSec = env.clip.trim.crossfadeMs / 1000;
-    const leftPct = 50 - Math.min(1, cfSec / Bdur) * 50;
-    const rightPct = 50 + Math.min(1, cfSec / Adur) * 50;
-    region.style.left = leftPct + '%';
-    region.style.width = Math.max(0, rightPct - leftPct) + '%';
+    const g = reseqGeom();   // uniform scale → the band is symmetric around the true seam
+    region.style.left = ((g.seam - g.cfFrac) * 100) + '%';
+    region.style.width = (2 * g.cfFrac * 100) + '%';
     region.hidden = false;
   }
 
@@ -647,19 +650,6 @@ export function createClipEditor(env) {
     const cfFrac = d ? cfSec / d : 0;
     region.style.left = ((trim.outT - cfFrac) * 100) + '%';
     region.style.width = (cfFrac * 100) + '%';
-  }
-  function showXfadeMenu() {
-    const menu = byId('clipXfadeMenu'), region = byId('clipXfadeRegion');
-    if (!menu || !region) return;
-    region.classList.add('selected');
-    const r = region.getBoundingClientRect();
-    menu.hidden = false;
-    menu.style.left = Math.max(8, Math.min(r.left, window.innerWidth - menu.offsetWidth - 8)) + 'px';
-    menu.style.top = Math.max(8, r.top - menu.offsetHeight - 8) + 'px';
-  }
-  function hideXfadeMenu() {
-    const menu = byId('clipXfadeMenu'); if (menu) menu.hidden = true;
-    byId('clipXfadeRegion')?.classList.remove('selected');
   }
   const _even = (n) => Math.max(2, Math.round(n / 2) * 2);
   // Apply: trim-only modes commit directly (non-destructive); bounce/slice BAKE a new
@@ -781,9 +771,10 @@ export function createClipEditor(env) {
       await applyBakedClip(blob);                   // swaps the source + re-binds the timeline
       disposeClipPreview();
       env.clip.backup = null;
-      // keep the sheet up with the next-step nudge (render/save · motion · perform)
-      // instead of just vanishing — the friendly "you baked a loop, now what" moment
-      const nudge = document.getElementById('clipNudge'); if (nudge) nudge.hidden = false;
+      // opinionated: drop straight into motion mode with the baked loop (Daniel's call —
+      // the "what next?" interstitial is gone; motion is where you go from here)
+      hideLoopSurface();
+      document.getElementById('motionBtn')?.click();
     } catch (e) {
       console.error('clip bake failed', e);
       alert('Could not bake the clip: ' + (e && e.message ? e.message : e));
@@ -855,35 +846,42 @@ export function createClipEditor(env) {
     syncCrossfadeDisplays();
   }
 
+  // transient white-on-black value readout, shown WHILE dragging the crossfade
+  function showDragVal(text, clientX, clientY) {
+    const el = byId('clipDragVal'); if (!el) return;
+    el.textContent = text; el.hidden = false;
+    el.style.left = clientX + 'px'; el.style.top = (clientY - 14) + 'px';
+  }
+  function hideDragVal() { const el = byId('clipDragVal'); if (el) el.hidden = true; }
+
   // Drag either edge of the crossfade region (step 4) to lengthen/shorten the crossfade.
-  // The left edge reads B's time-scale, the right edge A's (the seam is at 50%) — so the
-  // value maps honestly to how far each side of the dissolve reaches into its segment.
+  // The strip is a uniform time-scale (proportional B/A), so each edge maps its distance
+  // from the seam directly to seconds; the two sides stay symmetric around the seam.
   function makeXfadeSeamHandle(el, side) {
     if (!el) return;
-    let dragging = false, pushed = false, wasPlaying = false;
+    let dragging = false, pushed = false;
     el.addEventListener('click', (e) => e.stopPropagation());   // never let a drag fall through to "select region"
     el.addEventListener('pointerdown', (e) => {
       if (!(env.clip.step === 4 && env.clip.trim.mode === 'slice')) return;
       e.preventDefault(); e.stopPropagation();
       el.setPointerCapture?.(e.pointerId);
-      dragging = true; pushed = false; wasPlaying = !!env.clip.raf;
-      enterSplitStage();   // show the seam-match pair WHILE adjusting the crossfade edge
+      dragging = true; pushed = false;
     });
     el.addEventListener('pointermove', (e) => {
       if (!dragging) return;
       if (!pushed) { env.pushHistory?.(); env.updateUndoUI?.(); pushed = true; }   // history on first move (pre-drag crossfade)
       const bar = byId('clipBar'); if (!bar) return;
       const r = bar.getBoundingClientRect();
-      const xPct = Math.max(0, Math.min(100, ((e.clientX - r.left) / r.width) * 100));
-      const { Bdur, Adur, maxCf } = seamDurations();
-      const cf = side === 'left' ? (50 - xPct) / 50 * Bdur : (xPct - 50) / 50 * Adur;
-      setCrossfadeSec(Math.max(0, Math.min(maxCf, cf)));
+      const frac = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width));
+      const g = reseqGeom();
+      const cf = (side === 'left' ? (g.seam - frac) : (frac - g.seam)) * g.total;   // distance from seam → seconds
+      setCrossfadeSec(Math.max(0, Math.min(g.maxCf, cf)));
+      showDragVal(env.getCrossfadeSec().toFixed(2) + 's crossfade', e.clientX, r.top);
     });
     const up = (e) => {
       if (!dragging) return;
       dragging = false; el.releasePointerCapture?.(e.pointerId);
-      exitSplitStage();                          // back to the live preview
-      if (wasPlaying) startClipPreview(false);
+      hideDragVal();
       env.updateUndoUI?.();
     };
     el.addEventListener('pointerup', up);
@@ -905,6 +903,18 @@ export function createClipEditor(env) {
     setLoopStep(step);
   }
 
+  // Regenerate the timeline when the track resizes (window resize / layout change) so cells
+  // never stretch into black or get clipped — debounced, only while the mode is active.
+  if (typeof ResizeObserver !== 'undefined') {
+    let rzTimer = 0;
+    const ro = new ResizeObserver(() => {
+      if (!document.body.classList.contains('loop-active')) return;
+      clearTimeout(rzTimer);
+      rzTimer = setTimeout(() => { lastThumbMode = null; buildLoopThumbs(); renderLoopRuler(); renderClipTrim(); }, 150);
+    });
+    const bar = document.getElementById('clipBar'); if (bar) ro.observe(bar);
+  }
+
   // Public surface used by the chrome's motion-footer wiring.
   env.openClipEditor = openClipEditor;
   env.closeLoopBuilderNudge = closeLoopBuilderNudge;
@@ -920,8 +930,6 @@ export function createClipEditor(env) {
   env.loopBack = goBack;
   env.chooseBehavior = chooseBehavior;
   env.jumpToStep = jumpToStep;
-  env.showXfadeMenu = showXfadeMenu;
-  env.hideXfadeMenu = hideXfadeMenu;
   env.setCrossfadeSec = setCrossfadeSec;
   env.getCrossfadeSec = () => env.clip.trim.crossfadeMs / 1000;
   env.makeXfadeSeamHandle = makeXfadeSeamHandle;

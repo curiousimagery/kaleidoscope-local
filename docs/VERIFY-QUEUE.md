@@ -8,6 +8,12 @@ Legend: 🖥️ desktop browser · 📺 external display / AirPlay (workstation)
 
 - **📺 External display + AirPlay render-from-state regression (B382).** The external-surface poster was refactored (`createSurfacePoster`, transport-neutral). Behavior-neutral by intent. Verify: iPad external display (HDMI) and Apple TV AirPlay still present the program render-from-state at tier resolution, exactly as before. (Daniel away from that setup as of 2026-07-18.)
 - **🖥️ Two-reader slice crossfade (B384).** Bake a **slice** loop with a crossfade and confirm the seam no longer drops/pops frames (a fading-out frame snapping back to full opacity). Also just confirm slice + bounce bakes still produce correct loops (regression). Desktop browser (needs WebCodecs — Brave/Chrome/Electron).
+- **🖥️ Loop Builder review pass 2 (B392). UNTESTED.**
+  - Mode picker shows "loop" while in Loop Builder (not "still"). Sub-header gone; "XXs of XXs" reads UNDER the clip while trimming.
+  - Resize the window on any step — the thumbnail strip + ruler rebuild (no black/clipped cells).
+  - Primary button names the current step ("set slice point ›" on the slice step, etc.); last step "bake loop" (no ✦).
+  - Crossfade step: B and A are proportional to their real durations (90/10 slice looks 90/10); the yellow band is centered on the true seam; dragging its edges shows a white-on-black duration overlay (no popover).
+  - Baking drops straight into motion mode (no "what next?" screen).
 - **🖥️ Loop Builder seam-match + dissolve scrub (B391). UNTESTED.**
   - Dragging a crossfade seam edge (step 4) pops the two-frame split (before/after seam) while dragging, then returns to the live preview on release.
   - Scrubbing the timeline THROUGH the crossfade zone shows the blended dissolve (B fading into A), not just one clip; outside the zone it's a clean single frame.

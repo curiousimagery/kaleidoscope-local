@@ -1176,13 +1176,16 @@ body.loop-active #outputToolbar button:not(#uploadBtn):not(#undoBtn):not(#redoBt
 body.loop-active #outputToolbar select:not(#modeSelect) {
   opacity: .3; pointer-events: none;
 }
-.loop-topbar {
-  flex: 0 0 auto; display: flex; align-items: center; gap: 12px;
-  padding: 10px 18px; border-bottom: 1px solid var(--border);
-}
-.loop-title { font-size: var(--text-md); font-weight: 600; color: var(--text-bright); }
-.loop-sub { font-size: var(--text-sm); color: var(--text-dim); font-variant-numeric: tabular-nums; }
 .loop-main { flex: 1 1 auto; display: flex; min-height: 0; }
+/* trim duration readout, shown under the clip while trimming */
+.loop-trim-readout { flex: 0 0 auto; align-self: center; font-size: var(--text-sm); color: var(--text-dim);
+  font-variant-numeric: tabular-nums; padding: 2px 0; }
+.loop-trim-readout[hidden] { display: none; }
+/* transient value overlay shown WHILE dragging the crossfade — white on black, near the cursor */
+.loop-drag-val { position: fixed; z-index: 220; pointer-events: none; transform: translate(-50%, -100%);
+  background: rgba(0, 0, 0, .82); color: #fff; font-size: var(--text-sm); font-variant-numeric: tabular-nums;
+  padding: 3px 8px; border-radius: var(--radius); white-space: nowrap; }
+.loop-drag-val[hidden] { display: none; }
 /* left step rail */
 .loop-rail {
   flex: 0 0 190px; display: flex; flex-direction: column; gap: 4px;
@@ -1250,13 +1253,6 @@ body.loop-active #outputToolbar select:not(#modeSelect) {
 .clip-xfade-handle::after { content: ''; position: absolute; left: 50%; top: 3px; bottom: 3px; width: 2px; transform: translateX(-50%);
   background: var(--accent); border-radius: 1px; box-shadow: 0 0 0 1px rgba(0,0,0,.35); }
 .clip-xfade-handle:hover::after { width: 3px; }
-/* crossfade contextual menu */
-.loop-ctx { position: fixed; z-index: 210; display: flex; flex-direction: column; gap: 6px;
-  background: var(--surface-raised); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 10px 12px; min-width: 160px; }
-.loop-ctx[hidden] { display: none; }
-.loop-ctx-field { font-size: var(--text-base); color: var(--text-secondary); display: flex; justify-content: space-between; gap: 10px; }
-.loop-ctx-btn { background: transparent; border: none; color: var(--danger-text, #ff453a); font-size: var(--text-base); text-align: left; cursor: pointer; padding: 2px 0; }
-.loop-ctx-btn:hover { text-decoration: underline; }
 /* prominent crossfade duration control (step 4) — the featured input, not a small scrub */
 .loop-xfade-feature { display: inline-flex; align-items: center; gap: 10px; margin-top: 4px; padding: 10px 14px;
   background: var(--surface-raised); border: 1px solid var(--border); border-radius: var(--radius-lg); }
