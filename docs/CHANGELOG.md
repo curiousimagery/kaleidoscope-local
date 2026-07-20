@@ -4,6 +4,15 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🔁 v0.19.36 (Build 396) — 2026-07-20 — Loop Builder: mode-as-next, touch transport, baking-mask fix (+ docs archive)
+
+- **The loop-mode choice IS the "next" button now.** On step 1, picking trim-only / bounce / seamless loop (bottom-right) both sets the mode and advances — no way to click forward without consciously choosing (Daniel's UX-trap fix).
+- **Touch transport controls** (for iPad web / no keyboard): a play/pause button left of the timeline, with **prev/next jump** buttons above it. Prev/next jump to the meaningful markers on the current view — loop start/end + trim handles + slice cut on the linear steps; loop ends + seam + crossfade edges on the resequenced step.
+- **Fixed the "baking…" mask.** It didn't reliably cover the source footage (especially portrait, sometimes landscape) — the stage now clips overflow and the cover sits opaque on top (z-index).
+- **Docs housekeeping:** archived the arc's closed planning docs (PLAN, PROPOSAL-4B-native-capture, CONDUIT-ROADMAP, CONDUIT-TIER-C, PROPOSAL-program-snapshot, AUDIT-video-save-ux) to `docs/archive/` with an index of where each one's residuals now live in BACKLOG; pruned shipped Loop-Builder items out of BACKLOG so it's forward-facing only. Capacitor synced (iOS project has the latest web code).
+
+Verified: node --check, vite build, cap sync. **Untested by Claude — desktop + iPad verify (VERIFY-QUEUE.md).**
+
 ## 🔁 v0.19.35 (Build 395) — 2026-07-20 — Loop Builder: arc-closing UX pass (merged step, tap-to-seek, ruler scrub, real source fps)
 
 Daniel's testing round, closing out the Loop Builder:

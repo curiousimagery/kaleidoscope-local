@@ -421,7 +421,11 @@ export function createClipEditor(env) {
     renderLoopRuler();
     const seq = stepSeq();
     const back = byId('loopBack'); if (back) back.hidden = seq.indexOf(n) <= 0;
-    updateRail(); loopPrimary(); renderClipTrim();
+    // step 1 uses the loop-mode buttons AS the advance action; other steps use the primary button
+    const modeChoice = byId('loopModeChoice'), applyBtn = byId('clipApply');
+    if (modeChoice) modeChoice.hidden = n !== 1;
+    if (applyBtn) applyBtn.hidden = n === 1;
+    updateRail(); loopPrimary(); renderClipTrim(); updatePlayButton();
   }
   function goNext() { const seq = stepSeq(), i = seq.indexOf(env.clip.step); if (i >= 0 && i < seq.length - 1) setLoopStep(seq[i + 1]); }
   function goBack() { const seq = stepSeq(), i = seq.indexOf(env.clip.step); if (i > 0) setLoopStep(seq[i - 1]); }
@@ -441,6 +445,12 @@ export function createClipEditor(env) {
     env.pushHistory?.();                        // undoable: behavior changes which later steps exist
     setClipMode(mode); updateRail(); loopPrimary();
     env.updateUndoUI?.();
+  }
+  // step 1: picking a loop mode IS the advance action — set the mode, then apply (trim-only) or
+  // advance into that mode's next step. Removes the "click next without choosing" trap.
+  function chooseAndAdvance(mode) {
+    if (mode !== env.clip.trim.mode) { env.pushHistory?.(); setClipMode(mode); updateRail(); loopPrimary(); env.updateUndoUI?.(); }
+    loopPrimaryAction();
   }
 
   // ---- split-stage: the crossfade seam match (last-before | first-after) ------
@@ -896,17 +906,45 @@ export function createClipEditor(env) {
   // before switching modes / opening the export sheet).
   function closeLoopBuilderNudge() { hideLoopSurface(); }
 
+  // ---- transport (play/pause + jump), for touch (no keyboard) and space --------
+  function updatePlayButton() { const b = byId('loopPlay'); if (b) b.textContent = env.clip.raf ? 'pause' : 'play'; }
+  function toggleLoopPlayback() {
+    if (env.clip.raf) stopClipPreview();
+    else if (env.clip.prevVideo) startClipPreview(false);
+    updatePlayButton();
+  }
+  // meaningful markers on the CURRENT timeline view (as track fractions): loop ends + trim
+  // handles + slice cut on the linear steps; loop ends + seam + crossfade edges on the reseq.
+  function loopEventFracs() {
+    const trim = env.clip.trim, evs = [0, 1];
+    if (isResequenced()) {
+      const g = reseqGeom();
+      evs.push(g.seam, g.seam - g.cfFrac, g.seam + g.cfFrac);
+    } else {
+      evs.push(trim.inT, trim.outT);
+      if (trim.mode === 'slice') evs.push(trim.inT + trim.slicePoint * (trim.outT - trim.inT));
+    }
+    return [...new Set(evs.map((f) => Math.max(0, Math.min(1, f))))].sort((a, b) => a - b);
+  }
+  function loopJump(dir) {
+    const v = env.clip.prevVideo; if (!v) return;
+    stopClipPreview(); updatePlayButton();
+    const cur = mediaToBarFrac(v.currentTime), evs = loopEventFracs();
+    let target = dir > 0 ? evs.find((f) => f > cur + 0.004) : evs.filter((f) => f < cur - 0.004).pop();
+    if (target == null) target = dir > 0 ? evs[evs.length - 1] : evs[0];
+    clipScrubToFrac(target);
+    setPlayheadFrac(target);
+  }
+
   // SPACE = play/pause the preview (not "commit to bake"). Capture-phase so it beats the
-  // focused primary button's default space-activation. No-op on the crossfade step (the
-  // split-stage shows static seam frames, nothing to play).
+  // focused primary button's default space-activation.
   document.addEventListener('keydown', (e) => {
     if (!document.body.classList.contains('loop-active')) return;
     if (e.code !== 'Space' && e.key !== ' ') return;
     const t = e.target;
     if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
     e.preventDefault(); e.stopPropagation();
-    if (env.clip.raf) stopClipPreview();
-    else if (env.clip.prevVideo) startClipPreview(false);
+    toggleLoopPlayback();
   }, true);
 
   function syncCrossfadeDisplays() {
@@ -1110,6 +1148,7 @@ export function createClipEditor(env) {
   env.loopPrimaryAction = loopPrimaryAction;
   env.loopBack = goBack;
   env.chooseBehavior = chooseBehavior;
+  env.chooseAndAdvance = chooseAndAdvance;
   env.jumpToStep = jumpToStep;
   env.setCrossfadeSec = setCrossfadeSec;
   env.getCrossfadeSec = () => env.clip.trim.crossfadeMs / 1000;
@@ -1117,6 +1156,8 @@ export function createClipEditor(env) {
   env.makeSeamEndpointHandle = makeSeamEndpointHandle;
   env.selectLoopEntity = selectLoopEntity;
   env.renderFormatSpec = renderFormatSpec;
+  env.toggleLoopPlayback = toggleLoopPlayback;
+  env.loopJump = loopJump;
   env.refreshLoopBuilder = refreshLoopBuilder;
   env.barFracToMedia = barFracToMedia;   // scrub mapping (view-aware: full / trimmed / resequenced)
   env.clipScrubToFrac = clipScrubToFrac; // scrub that previews the dissolve inside the crossfade zone

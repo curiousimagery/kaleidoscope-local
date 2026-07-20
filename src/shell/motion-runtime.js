@@ -1617,9 +1617,13 @@ function wireMotion() {
   byId('clipNudgeMotion')?.addEventListener('click', () => { env.closeLoopBuilderNudge(); byId('motionBtn')?.click(); });
   byId('clipNudgePerform')?.addEventListener('click', () => { env.closeLoopBuilderNudge(); byId('performBtn')?.click(); });
   byId('clipNudgeDismiss')?.addEventListener('click', () => env.closeLoopBuilderNudge());
-  // behavior choice (step 2) — changes which later steps exist
-  byId('clipSheet')?.querySelectorAll('[data-mode]').forEach(b =>
-    b.addEventListener('click', () => { if (!b.disabled) env.chooseBehavior(b.dataset.mode); }));
+  // step 1: the loop-mode buttons are the advance action (pick a mode → apply/continue)
+  byId('loopModeChoice')?.querySelectorAll('[data-mode]').forEach(b =>
+    b.addEventListener('click', () => { if (!b.disabled) env.chooseAndAdvance(b.dataset.mode); }));
+  // transport (touch-friendly, no keyboard needed): play/pause + jump to prev/next marker
+  byId('loopPlay')?.addEventListener('click', () => env.toggleLoopPlayback?.());
+  byId('loopPrev')?.addEventListener('click', () => env.loopJump?.(-1));
+  byId('loopNext')?.addEventListener('click', () => env.loopJump?.(1));
   env.makeClipHandle(byId('clipIn'), 'in');
   env.makeClipHandle(byId('clipOut'), 'out');
   env.makeClipHandle(byId('clipCut'), 'cut');

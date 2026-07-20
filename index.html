@@ -505,6 +505,15 @@
       <!-- trim readout, shown under the clip while it's being trimmed -->
       <div class="loop-trim-readout" id="clipDur" hidden>—</div>
       <div class="loop-timeline">
+        <!-- transport cluster (left of the timeline) — play/pause + jump to prev/next event -->
+        <div class="loop-transport">
+          <div class="loop-transport-jumps">
+            <button class="mf-btn loop-jump" id="loopPrev" title="jump to previous marker">‹‹</button>
+            <button class="mf-btn loop-jump" id="loopNext" title="jump to next marker">››</button>
+          </div>
+          <button class="mf-btn mf-play loop-play" id="loopPlay" title="play / pause (space)">play</button>
+        </div>
+        <div class="loop-timeline-body">
         <div class="loop-ruler" id="loopRuler"></div>
         <div class="clip-bar loop-track" id="clipBar">
           <div class="loop-thumbs" id="loopThumbs"></div>
@@ -525,15 +534,11 @@
           <div class="clip-handle out" id="clipOut"></div>
           <div class="clip-handle cut" id="clipCut" hidden title="slice point — the head segment moves to the back here"></div>
         </div>
+        </div>
       </div>
       <div class="loop-step-body">
         <div class="loop-panel" data-panel="1">
-          <p class="loop-hint">Drag the handles to trim the front &amp; back, then choose how it should loop.</p>
-          <div class="loop-behaviors">
-            <button class="loop-behavior" data-mode="forward"><b>trim only</b><small>no seamless processing — just the trim</small></button>
-            <button class="loop-behavior" data-mode="bounce"><b>bounce</b><small>play forward, then reverse</small></button>
-            <button class="loop-behavior" data-mode="slice"><b>seamless loop</b><small>cut &amp; crossfade the seam</small></button>
-          </div>
+          <p class="loop-hint">Drag the handles to trim the front &amp; back, then choose how it should loop — your pick continues to the next step.</p>
         </div>
         <div class="loop-panel" data-panel="3" hidden>
           <p class="loop-hint">Drag the blue slice marker to choose where the clip cuts. The head segment moves to the back, so the loop point becomes seamless.</p>
@@ -582,6 +587,12 @@
       <div class="loop-nav">
         <span class="loop-nav-spacer"></span>
         <button class="mf-btn" id="loopBack" hidden>‹ back</button>
+        <!-- step 1: the loop-mode choice IS the advance action (no "next" without choosing) -->
+        <div class="loop-mode-choice" id="loopModeChoice" hidden>
+          <button class="mf-btn loop-mode-btn" data-mode="forward">trim only</button>
+          <button class="mf-btn loop-mode-btn" data-mode="bounce">bounce ›</button>
+          <button class="mf-btn mf-add loop-mode-btn" data-mode="slice">seamless loop ›</button>
+        </div>
         <button class="mf-btn mf-add" id="clipApply">next ›</button>
       </div>
     </section>

@@ -8,6 +8,10 @@ Legend: 🖥️ desktop browser · 📺 external display / AirPlay (workstation)
 
 - **📺 External display + AirPlay render-from-state regression (B382).** The external-surface poster was refactored (`createSurfacePoster`, transport-neutral). Behavior-neutral by intent. Verify: iPad external display (HDMI) and Apple TV AirPlay still present the program render-from-state at tier resolution, exactly as before. (Daniel away from that setup as of 2026-07-18.)
 - **🖥️ Two-reader slice crossfade (B384).** Bake a **slice** loop with a crossfade and confirm the seam no longer drops/pops frames (a fading-out frame snapping back to full opacity). Also just confirm slice + bounce bakes still produce correct loops (regression). Desktop browser (needs WebCodecs — Brave/Chrome/Electron).
+- **📱🖥️ Loop Builder mode-as-next + touch transport (B396). UNTESTED.**
+  - Step 1: picking a loop mode (trim only / bounce / seamless loop, bottom-right) advances — no separate "next"; back-nav to step 1 shows the previously-picked mode highlighted.
+  - **iPad web:** play/pause button + prev/next (left of the timeline) work without a keyboard; prev/next jump to markers (loop ends, trim handles, slice cut on linear steps; ends + seam + crossfade edges on the crossfade step); the play label toggles play↔pause.
+  - **Baking mask:** while baking, the black cover fully hides the source (test PORTRAIT + landscape — no footage peeking).
 - **🖥️ Loop Builder arc-closing UX (B395). UNTESTED.**
   - **Trim & behavior merged** into step 1 (trim handles + behavior buttons on one step); rail numbers read sequentially; slice = 4 steps, bounce = 2, trim-only = 1.
   - **Tap on the crossfade step moves the playback point** (and selects); the **time ruler scrubs** (click/drag). Space no longer jumps to the start after scrubbing into the A segment.
