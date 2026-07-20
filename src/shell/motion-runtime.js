@@ -1636,22 +1636,23 @@ function wireMotion() {
   // scrub the clip bar (off the handles) to inspect any moment — pauses the auto-loop,
   // coalesced seek, resumes on release.
   const clipBar = byId('clipBar');
+  const loopRuler = byId('loopRuler');
+  // the fraction along the track maps to a SOURCE time through the current view (full clip /
+  // trimmed range / resequenced B→A) — so scrubbing works on every step, crossfade included.
+  const seekToFrac = (frac) => {
+    frac = Math.max(0, Math.min(1, frac));
+    // clipScrubToFrac shows the real frame — and the live dissolve when the cursor is inside
+    // the crossfade zone; falls back to a plain coalesced seek if unavailable.
+    if (env.clipScrubToFrac) env.clipScrubToFrac(frac);
+    else { const dur = env.clip.prevVideo?.duration || 1; env.clipSeekTo((env.barFracToMedia?.(frac) ?? frac * dur) / dur); }
+    const ph = byId('clipPlayhead');
+    if (ph) ph.style.left = (frac * 100) + '%';
+  };
   if (clipBar) {
     let barScrub = false, resumeAfter = false;
-    // the fraction along the track maps to a SOURCE time through the current view (full clip /
-    // trimmed range / resequenced B→A) — so scrubbing works on every step, crossfade included.
-    const seekToEvt = (e) => {
-      const r = clipBar.getBoundingClientRect();
-      const frac = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width));
-      // clipScrubToFrac shows the real frame — and the live dissolve when the cursor is inside
-      // the crossfade zone; falls back to a plain coalesced seek if unavailable.
-      if (env.clipScrubToFrac) env.clipScrubToFrac(frac);
-      else { const dur = env.clip.prevVideo?.duration || 1; env.clipSeekTo((env.barFracToMedia?.(frac) ?? frac * dur) / dur); }
-      const ph = byId('clipPlayhead');
-      if (ph) ph.style.left = (frac * 100) + '%';
-    };
-    // On the crossfade step a bare TAP selects an entity (left clip / crossfade / right clip)
-    // and a DRAG scrubs; on the other steps a press scrubs immediately (as before).
+    const fracOf = (e, el) => { const r = el.getBoundingClientRect(); return Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)); };
+    // On the crossfade step a bare TAP selects a clip (or the crossfade) AND moves the playback
+    // point; a DRAG scrubs. On the other steps a press scrubs immediately (as before).
     let tap = null;   // { x, frac, moved } while a potential crossfade-step tap is pending
     clipBar.addEventListener('pointerdown', (e) => {
       if (e.target.closest('.clip-handle') || e.target.closest('.clip-seam-bar') || e.target.closest('.clip-xfade-handle')) return;   // draggable handles own their interactions
@@ -1659,23 +1660,23 @@ function wireMotion() {
       clipBar.setPointerCapture?.(e.pointerId);
       e.preventDefault();
       resumeAfter = !!env.clip.raf;
-      if (step4) {
-        const r = clipBar.getBoundingClientRect();
-        tap = { x: e.clientX, frac: Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)), moved: false };
-        return;   // wait to see if it's a tap (select) or a drag (scrub)
-      }
-      barScrub = true; env.stopClipPreview(); seekToEvt(e);
+      if (step4) { tap = { x: e.clientX, frac: fracOf(e, clipBar), moved: false }; return; }   // wait: tap (select+seek) vs drag (scrub)
+      barScrub = true; env.stopClipPreview(); seekToFrac(fracOf(e, clipBar));
     });
     clipBar.addEventListener('pointermove', (e) => {
       if (tap) {
         if (!tap.moved) { if (Math.abs(e.clientX - tap.x) < 4) return; tap.moved = true; barScrub = true; env.stopClipPreview(); }   // past threshold → it's a scrub
-        seekToEvt(e); return;
+        seekToFrac(fracOf(e, clipBar)); return;
       }
-      if (barScrub) seekToEvt(e);
+      if (barScrub) seekToFrac(fracOf(e, clipBar));
     });
     const barUp = (e) => {
       clipBar.releasePointerCapture?.(e.pointerId);
-      if (tap && !tap.moved) { env.selectLoopEntity?.(tap.frac); tap = null; return; }   // a real tap → select/deselect
+      if (tap && !tap.moved) {                          // a real tap → select AND move the playback point
+        env.selectLoopEntity?.(tap.frac);
+        env.stopClipPreview?.(); seekToFrac(tap.frac);
+        tap = null; return;
+      }
       tap = null;
       if (!barScrub) return;
       barScrub = false;
@@ -1683,6 +1684,20 @@ function wireMotion() {
     };
     clipBar.addEventListener('pointerup', barUp);
     clipBar.addEventListener('pointercancel', barUp);
+
+    // the time ruler scrubs too (same coalesced seek as the track) — click or drag anywhere on it
+    if (loopRuler) {
+      let rulerScrub = false, rulerResume = false;
+      const rFrac = (e) => { const r = loopRuler.getBoundingClientRect(); return Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)); };
+      loopRuler.addEventListener('pointerdown', (e) => {
+        rulerScrub = true; rulerResume = !!env.clip.raf; env.stopClipPreview?.();
+        loopRuler.setPointerCapture?.(e.pointerId); e.preventDefault(); seekToFrac(rFrac(e));
+      });
+      loopRuler.addEventListener('pointermove', (e) => { if (rulerScrub) seekToFrac(rFrac(e)); });
+      const rUp = (e) => { if (!rulerScrub) return; rulerScrub = false; loopRuler.releasePointerCapture?.(e.pointerId); if (rulerResume) env.startClipPreview(false); };
+      loopRuler.addEventListener('pointerup', rUp);
+      loopRuler.addEventListener('pointercancel', rUp);
+    }
   }
   if (byId('clipXfade')) makeScrubField(byId('clipXfade'), {
     get: () => env.getCrossfadeSec(),

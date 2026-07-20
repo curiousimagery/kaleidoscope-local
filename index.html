@@ -479,8 +479,7 @@
   <div class="loop-main">
     <!-- left step rail (progressive disclosure) -->
     <aside class="loop-rail" id="loopRail">
-      <button class="loop-step" data-step="1"><b>1</b><span>Trim</span></button>
-      <button class="loop-step" data-step="2"><b>2</b><span>Behavior</span></button>
+      <button class="loop-step" data-step="1"><b>1</b><span>Trim &amp; loop</span></button>
       <button class="loop-step loop-step-slice" data-step="3"><b>3</b><span>Slice point</span></button>
       <button class="loop-step loop-step-slice" data-step="4"><b>4</b><span>Crossfade</span></button>
       <button class="loop-step" data-step="5"><b>5</b><span>Preview &amp; bake</span></button>
@@ -529,10 +528,7 @@
       </div>
       <div class="loop-step-body">
         <div class="loop-panel" data-panel="1">
-          <p class="loop-hint">Drag the handles to trim the front &amp; back of your clip.</p>
-        </div>
-        <div class="loop-panel" data-panel="2" hidden>
-          <p class="loop-hint">How should the clip loop?</p>
+          <p class="loop-hint">Drag the handles to trim the front &amp; back, then choose how it should loop.</p>
           <div class="loop-behaviors">
             <button class="loop-behavior" data-mode="forward"><b>trim only</b><small>no seamless processing — just the trim</small></button>
             <button class="loop-behavior" data-mode="bounce"><b>bounce</b><small>play forward, then reverse</small></button>
@@ -578,6 +574,7 @@
               </select>
             </label>
             <div class="loop-format-spec" id="fmtSpec">—</div>
+            <div class="loop-format-warn" id="fmtWarn" hidden></div>
           </div>
         </div>
       </div>

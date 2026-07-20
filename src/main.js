@@ -189,6 +189,7 @@ const env = {
     prevVideo: null, prevVideoB: null, thumbVideo: null, backup: null, drag: null, raf: 0,
     seg: 0, bounceStart: 0, phase: 'B', seekT: null, seeking: false, baking: false, sel: null,
     fmt: { res: 'source', fps: 'source', speed: 1 },   // output format at bake (resolution / fps / playback speed)
+    srcFps: 0,   // measured source frame rate (probed on the bake step; 0 = unknown)
   },
   filmstrip: { timer: 0, lastSig: '', gen: 0, busy: false, freezeEl: null },
   scrub: { seekP: null, seeking: false, assign: true },

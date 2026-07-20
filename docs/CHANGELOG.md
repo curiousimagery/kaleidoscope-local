@@ -4,6 +4,18 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🔁 v0.19.35 (Build 395) — 2026-07-20 — Loop Builder: arc-closing UX pass (merged step, tap-to-seek, ruler scrub, real source fps)
+
+Daniel's testing round, closing out the Loop Builder:
+
+- **Trim + Behavior merged into one step.** Step 1 is now "Trim & loop" — trim handles on the timeline + the behavior choice in the panel. Sequences dropped a step (slice = 4 steps, bounce = 2, trim-only = 1); the rail relabels its numbers sequentially. (Internal step ids stay 1/3/4/5 so the resequence/preview semantics are untouched.)
+- **Tap on the crossfade step now moves the playback point too** (not just selects) — clicking to reposition the scrubber works, as expected.
+- **The time ruler scrubs.** Click or drag anywhere on the ruler to seek, same as the track.
+- **Fixed: space sometimes jumped playback to the start.** After scrubbing into the A segment, the slice preview resumed under a stale 'B' phase and snapped to the loop start; it now derives the phase from the actual position.
+- **Real source fps + "making up data" warnings.** The bake step probes and shows the actual source rate ("match source (60 fps)"), and warns when a setting would fabricate frames: slowing below what the source supports ("⚠ needs frame interpolation — source is 30 fps, so 25% supports ~8 fps") or asking for a resolution above source ("won't upscale past source").
+
+Known Safari-only: the in-editor crossfade *preview* can stall for a moment at the seam (the seek-based two-video handoff — Safari seek latency); the BAKE is unaffected. Filed. Verified: node --check ×3, vite build. **Untested by Claude — desktop verify (VERIFY-QUEUE.md).**
+
 ## 🔁 v0.19.34 (Build 394) — 2026-07-20 — Loop Builder: portrait-bake fix + crossfade-timeline UX rework + output-format settings
 
 - **BUG FIX — portrait video bakes rotated/stretched.** The WebCodecs bake path decodes RAW frames, which for an iPhone portrait clip are landscape + a 90° rotation flag the decoder doesn't apply — so we were squashing landscape frames into a portrait canvas. The reader now exposes the container `rotation` (from the tkhd matrix) and the bake applies it when drawing every decoded frame (bounce + slice + crossfade). Also: after baking, a relayout is nudged on the mode switch so the source panel doesn't overlap the controls (Daniel's post-bake glitch).

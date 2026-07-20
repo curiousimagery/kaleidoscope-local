@@ -8,6 +8,11 @@ Legend: 🖥️ desktop browser · 📺 external display / AirPlay (workstation)
 
 - **📺 External display + AirPlay render-from-state regression (B382).** The external-surface poster was refactored (`createSurfacePoster`, transport-neutral). Behavior-neutral by intent. Verify: iPad external display (HDMI) and Apple TV AirPlay still present the program render-from-state at tier resolution, exactly as before. (Daniel away from that setup as of 2026-07-18.)
 - **🖥️ Two-reader slice crossfade (B384).** Bake a **slice** loop with a crossfade and confirm the seam no longer drops/pops frames (a fading-out frame snapping back to full opacity). Also just confirm slice + bounce bakes still produce correct loops (regression). Desktop browser (needs WebCodecs — Brave/Chrome/Electron).
+- **🖥️ Loop Builder arc-closing UX (B395). UNTESTED.**
+  - **Trim & behavior merged** into step 1 (trim handles + behavior buttons on one step); rail numbers read sequentially; slice = 4 steps, bounce = 2, trim-only = 1.
+  - **Tap on the crossfade step moves the playback point** (and selects); the **time ruler scrubs** (click/drag). Space no longer jumps to the start after scrubbing into the A segment.
+  - **Bake step shows the real source fps** ("match source (60 fps)") and warns when a setting fabricates data (slowing below source-fps support → "needs frame interpolation"; resolution above source → "won't upscale").
+  - Regression check: the merged step 1 still applies trim (trim-only) / advances (bounce, slice); behavior change still reshapes the sequence + undo still walks it.
 - **📱🖥️ Loop Builder portrait fix + UX rework + format settings (B394). UNTESTED.**
   - **Portrait bake (iPhone):** load a PORTRAIT iPhone clip → bake a seamless loop → the baked source should be upright + correct aspect (was rotated 90° + stretched). Test slice AND bounce. Also confirm the source panel doesn't overlap the form controls right after the bake→motion drop (no divider nudge needed).
   - **Crossfade timeline:** the band is full-height/prominent, edges drag the duration. Tap a clip → highlight under the timeline + a seam bar through/below the track; drag it (from the seam or underneath) to move that clip's edge. Tap the same clip / tap the band → deselect. Scrubbing still works while a clip is selected.

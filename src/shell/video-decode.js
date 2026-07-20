@@ -83,6 +83,26 @@ function rotationFromMatrix(m) {
   return ((deg % 360) + 360) % 360;
 }
 
+// probeVideoInfo(url) → { fps, rotation, width, height } | null — demux only (no decoder), so
+// it's a cheap way to learn the source frame rate + rotation without arming a full reader.
+export async function probeVideoInfo(url) {
+  try {
+    const res = await fetch(url);
+    const buf = await res.arrayBuffer();
+    const parsed = demux(buf);
+    if (!parsed) return null;
+    const { track, samples, rotation } = parsed;
+    const durSec = track.duration && track.timescale ? track.duration / track.timescale : 0;
+    const n = track.nb_samples || samples.length;
+    return {
+      fps: durSec > 0 && n > 1 ? n / durSec : 0,
+      rotation,
+      width: (track.video && track.video.width) || track.track_width || 0,
+      height: (track.video && track.video.height) || track.track_height || 0,
+    };
+  } catch { return null; }
+}
+
 // createSequentialFrameReader(url) → reader | null (null = use the seek fallback)
 export async function createSequentialFrameReader(url, { maxBytes = 1_500_000_000 } = {}) {
   if (typeof VideoDecoder === 'undefined' || !MP4Box.createFile) return null;

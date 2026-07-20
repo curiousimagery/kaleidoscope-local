@@ -1274,6 +1274,8 @@ body.loop-active #outputToolbar select:not(#modeSelect) {
   border-radius: var(--radius-md); color: var(--text-bright); font-size: var(--text-base); }
 .loop-format-spec { flex: 1 1 100%; margin-top: 2px; font-size: var(--text-sm); color: var(--text-secondary);
   font-variant-numeric: tabular-nums; }
+.loop-format-warn { flex: 1 1 100%; font-size: var(--text-sm); color: var(--warning-text, #ffb84d); }
+.loop-format-warn[hidden] { display: none; }
 /* prominent crossfade duration control (step 4) — the featured input, not a small scrub */
 .loop-xfade-feature { display: inline-flex; align-items: center; gap: 10px; margin-top: 4px; padding: 10px 14px;
   background: var(--surface-raised); border: 1px solid var(--border); border-radius: var(--radius-lg); }
@@ -1303,9 +1305,9 @@ body.loop-active #outputToolbar select:not(#modeSelect) {
 .clip-bar { position: relative; height: 40px; margin: 12px 0 2px; background: var(--surface-control); border: 1px solid var(--border); border-radius: var(--radius-md); touch-action: none; cursor: pointer; }
 /* Loop Builder timeline: a taller, motion-style track with a footage thumbnail strip + ruler */
 .loop-timeline { margin: 10px 0 4px; }
-.loop-ruler { position: relative; height: 15px; margin-bottom: 3px; }
-.loop-ruler .loop-tick { position: absolute; top: 4px; bottom: 0; width: 1px; background: var(--border); }
-.loop-ruler .loop-tick-label { position: absolute; top: 0; font-size: var(--text-xs); color: var(--text-dim); transform: translateX(3px); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.loop-ruler { position: relative; height: 15px; margin-bottom: 3px; cursor: pointer; touch-action: none; }
+.loop-ruler .loop-tick { position: absolute; top: 4px; bottom: 0; width: 1px; background: var(--border); pointer-events: none; }
+.loop-ruler .loop-tick-label { position: absolute; top: 0; font-size: var(--text-xs); color: var(--text-dim); transform: translateX(3px); font-variant-numeric: tabular-nums; white-space: nowrap; pointer-events: none; }
 .clip-bar.loop-track { height: 76px; margin: 0; }
 .loop-thumbs { position: absolute; inset: 0; display: flex; overflow: hidden; border-radius: var(--radius-md); pointer-events: none; background: var(--c-black); }
 .loop-thumbs canvas { height: 100%; flex: 0 0 auto; display: block; object-fit: cover; }

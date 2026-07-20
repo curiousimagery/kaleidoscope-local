@@ -17,7 +17,7 @@
 
 import { exportVideo } from './video-export.js';
 import { seekVideoTo } from './video-source.js';
-import { createSequentialFrameReader } from './video-decode.js';
+import { createSequentialFrameReader, probeVideoInfo } from './video-decode.js';
 
 export function createClipEditor(env) {
   // Stable refs (set before this runs, never reassigned) can be captured; cross-
@@ -41,6 +41,7 @@ export function createClipEditor(env) {
     if (motion.playing) env.stopPlayback();
     env.clip.backup = { ...env.clip.trim };          // for Cancel
     env.clip.fmt = { res: 'source', fps: 'source', speed: 1 };   // fresh output format per clip
+    env.clip.srcFps = 0;                                          // re-probe the source fps for this clip
     const pv = document.getElementById('clipVideo');
     pv.muted = true; pv.playsInline = true; pv.loop = false;
     pv.src = env.media.sourceVideoUrl;
@@ -236,6 +237,14 @@ export function createClipEditor(env) {
     if (!v) return;
     const blend = document.getElementById('clipBlend');
     if (reset) { env.clip.phase = 'B'; try { v.currentTime = sliceTimes().cut; } catch { /* ignore */ } if (blend) blend.hidden = true; }
+    else {
+      // resuming (e.g. space after a scrub): derive the phase from where the video actually is,
+      // so a currentTime that landed in the A segment doesn't play back under a stale 'B' phase
+      // (which snapped the loop back to the start). B = [cut,outA], A = [inA,cut].
+      const { inA, cut } = sliceTimes();
+      env.clip.phase = (v.currentTime >= cut - 0.01) ? 'B' : (v.currentTime >= inA - 0.01 ? 'A' : 'B');
+      if (blend) blend.hidden = true;
+    }
     v.play().catch(() => {});
     if (vB) { try { vB.pause(); vB.currentTime = sliceTimes().inA; } catch { /* ignore */ } }   // pre-roll A-head
     const tick = () => {
@@ -336,21 +345,21 @@ export function createClipEditor(env) {
   }
 
   // ---- the STEPPED FLOW (progressive disclosure) ------------------------------
-  // The Loop Builder walks Trim → Behavior → [Slice point → Crossfade] → Bake. The
-  // slice-only steps (3,4) drop out for trim-only/bounce; back-nav is live until bake.
+  // The Loop Builder walks Trim & behavior → [Slice point → Crossfade] → Bake. Step 1 combines
+  // trimming and the loop-behavior choice; the slice-only steps (3,4) drop out for the others.
+  // (Internal step ids stay 1/3/4/5 — step 2 was merged into step 1 — so the resequence/preview
+  //  semantics at 4/5 are untouched; the rail relabels display numbers sequentially.)
   function stepSeq() {
     const m = env.clip.trim.mode;
-    if (m === 'slice') return [1, 2, 3, 4, 5];
-    if (m === 'bounce') return [1, 2, 5];
-    return [1, 2];   // forward (trim only) — step 2 applies the trim
+    if (m === 'slice') return [1, 3, 4, 5];
+    if (m === 'bounce') return [1, 5];
+    return [1];   // forward (trim only) — step 1 applies the trim
   }
   function loopModeLabel() { return env.clip.trim.mode === 'slice' ? 'loop' : env.clip.trim.mode; }
-  // the primary button names the CURRENT step's action (what clicking applies), not the next
-  // step — e.g. on the slice-point step it reads "set slice point" (Daniel's ask).
+  // the primary button names the CURRENT step's action (what clicking applies), not the next.
   function stepActionLabel(step) {
     switch (step) {
-      case 1: return 'set trim';
-      case 2: return 'set behavior';
+      case 1: return 'trim & loop';
       case 3: return 'set slice point';
       case 4: return 'set crossfade';
       default: return 'next';
@@ -364,6 +373,7 @@ export function createClipEditor(env) {
       b.disabled = !inSeq;
       b.classList.toggle('active', s === step);
       b.classList.toggle('done', inSeq && seq.indexOf(s) < seq.indexOf(step));
+      if (inSeq) { const num = b.querySelector('b'); if (num) num.textContent = seq.indexOf(s) + 1; }   // sequential display number
     });
   }
   function loopPrimary() {
@@ -394,8 +404,8 @@ export function createClipEditor(env) {
     const linRegion = byId('clipRegion'); if (linRegion) linRegion.style.display = (resequence || preview) ? 'none' : '';
     const xregion = byId('clipXfadeRegion');
     if (xregion) { xregion.hidden = !resequence; xregion.classList.toggle('static', preview); }   // draggable only on the crossfade step
-    // the trim duration readout sits under the clip while trimming (steps 1–3), hidden on the resequenced / preview steps
-    const dur = byId('clipDur'); if (dur) dur.hidden = resequence || preview || n === 2;
+    // the trim duration readout sits under the clip while trimming (step 1 + slice-point), hidden on the resequenced / preview steps
+    const dur = byId('clipDur'); if (dur) dur.hidden = resequence || preview;
     // the crossfade step is now a LIVE preview (play/scrub), not a static split-stage —
     // start the mode-appropriate preview on every step
     exitSplitStage();
@@ -1018,18 +1028,45 @@ export function createClipEditor(env) {
     }
     return { w, h };
   }
+  // the effective OUTPUT fps: the chosen override, or the measured source rate (clamped 12–60)
+  function outputFps() {
+    const fmt = env.clip.fmt;
+    if (fmt.fps !== 'source') return +fmt.fps;
+    return env.clip.srcFps ? Math.max(12, Math.min(60, Math.round(env.clip.srcFps))) : 0;
+  }
   function renderFormatSpec() {
-    const el = byId('fmtSpec'); if (!el) return;
-    const { w, h } = bakeDims(), fmt = env.clip.fmt;
-    const fpsTxt = fmt.fps === 'source' ? 'source fps' : fmt.fps + ' fps';
+    const el = byId('fmtSpec'), warnEl = byId('fmtWarn'); if (!el) return;
+    const { w, h } = bakeDims(), fmt = env.clip.fmt, src = env.sourceVideo;
+    const outFps = outputFps();
+    const fpsTxt = outFps ? outFps + ' fps' : 'source fps';
     const sec = bakedLoopSeconds() / (fmt.speed || 1);
     const speedTxt = fmt.speed === 1 ? '' : ` · ${Math.round(fmt.speed * 100)}% slomo`;
     el.textContent = `${w} × ${h} · ${fpsTxt} · ${sec.toFixed(1)}s loop${speedTxt}`;
+    // ⚠ warnings — any setting where we'd have to invent data we don't have
+    const warns = [];
+    if (src && fmt.res !== 'source' && +fmt.res > Math.max(src.videoWidth, src.videoHeight)) {
+      warns.push(`won't upscale past source (${src.videoWidth}×${src.videoHeight})`);
+    }
+    const srcFps = env.clip.srcFps || 0;
+    if (srcFps && outFps > srcFps * fmt.speed + 0.5) {
+      warns.push(`⚠ needs frame interpolation — source is ${Math.round(srcFps)} fps, so ${Math.round(fmt.speed * 100)}% supports ~${Math.round(srcFps * fmt.speed)} fps`);
+    }
+    if (warnEl) { warnEl.hidden = !warns.length; warnEl.textContent = warns.join(' · '); }
+  }
+  // Reflect the measured source fps in the "match source" fps option so the number is visible.
+  function updateFpsLabels() {
+    const opt = byId('fmtFps')?.querySelector('option[value="source"]');
+    if (opt) opt.textContent = env.clip.srcFps ? `match source (${Math.round(env.clip.srcFps)} fps)` : 'match source';
   }
   function syncFormatControls() {
     const r = byId('fmtRes'), f = byId('fmtFps'), s = byId('fmtSpeed');
     if (r) r.value = env.clip.fmt.res; if (f) f.value = env.clip.fmt.fps; if (s) s.value = String(env.clip.fmt.speed);
-    renderFormatSpec();
+    updateFpsLabels(); renderFormatSpec();
+    if (!env.clip.srcFps && env.media.sourceVideoUrl) {   // probe the real source fps once, then refresh
+      probeVideoInfo(env.media.sourceVideoUrl).then((info) => {
+        if (info && info.fps) { env.clip.srcFps = info.fps; updateFpsLabels(); renderFormatSpec(); }
+      });
+    }
   }
 
   // Re-derive the whole Loop Builder surface from env.clip.trim — called after an

@@ -140,9 +140,10 @@ Procreate Dreams / latest iMovie — uncluttered, precise, powerful. Priority st
 - **Bounce bake acceleration** (two-reader / fast-decode; slice already uses it) + bake fps estimation (currently hard 30fps). Deferred from B384.
 - **A dedicated perform-mode access point** (the mode menu reaches Loop Builder from anywhere; perform has no overflow menu — deferred).
 - **[verify FIXED by B384/B386]** Two old iPad bugs: right-edge trim not updating the preview; crossfade preview flickering the outgoing source to full opacity. Two-reader bake (B384) + the split-stage rework (B386) should have closed both — re-check on desktop.
+- **Safari crossfade-PREVIEW stall (Daniel, B394 testing).** Playing through the seam in the in-editor slice preview stalls for a moment on Safari — the seek-based two-video handoff (`startSlicePreview`: pause + backward-seek `v` to `inA+cfSec` after the crossfade) hits Safari's seek latency. The BAKE is unaffected (it decodes via WebCodecs). Fix direction: swap the primary/secondary `<video>` roles at the seam instead of seeking (vB is already playing A), or drive the preview off the WebCodecs reader. Preview-only, Safari-only.
 - **Bake tails:** ~~source-fps estimation~~ (SHIPPED B393 — bake uses measured source fps); no mid-bake cancel; bounce preview forward-only; shared-demux memory optimization (two readers fetch the same file twice — see Export lane).
 
-### App-wide mode-transition guardrails + opinionated flows
+### App-wide mode-transition guardrails + opinionated flows  ·  ▶ DEFERRED — its own arc after Loop Builder closes (PLAN item 5, moved here 2026-07-20)
 Once Loop Builder is a mode, make moving between Still / Motion / Perform / Loop-builder opinionated + safe (destructive-interrupt pattern as the mechanism):
 - **Keyframe-shift warning** — SHIPPED B386 (entering Loop Builder with existing keyframes warns). Extend the pattern to the other transitions.
 - **Open-a-motion-file routing** — on opening a motion file, detect whether it's a loop and ask; route to Loop Builder vs plain motion.
