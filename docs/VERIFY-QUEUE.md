@@ -6,6 +6,7 @@ Legend: 🖥️ desktop browser · 📺 external display / AirPlay (workstation)
 
 ## open
 
+- **🖥️📱 Trim-only → motion editor (B397).** In the Loop Builder, load a video, choose trim-only, adjust the trim handles, apply. Confirm you land in the MOTION editor (timeline + keyframes) with the trimmed range, not back in the still frame-picker. Regression: bounce + slice bakes still drop into motion as before. Desktop + iPad.
 - **📺 External display + AirPlay render-from-state regression (B382).** The external-surface poster was refactored (`createSurfacePoster`, transport-neutral). Behavior-neutral by intent. Verify: iPad external display (HDMI) and Apple TV AirPlay still present the program render-from-state at tier resolution, exactly as before. (Daniel away from that setup as of 2026-07-18.)
 - **🖥️ Two-reader slice crossfade (B384).** Bake a **slice** loop with a crossfade and confirm the seam no longer drops/pops frames (a fading-out frame snapping back to full opacity). Also just confirm slice + bounce bakes still produce correct loops (regression). Desktop browser (needs WebCodecs — Brave/Chrome/Electron).
 - **📱🖥️ Loop Builder mode-as-next + touch transport (B396). UNTESTED.**

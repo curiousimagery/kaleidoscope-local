@@ -711,7 +711,16 @@ export function createClipEditor(env) {
   // processed clip (destructive — confirmed first).
   async function applyClip() {
     if (env.clip.baking) return;
-    if (env.clip.trim.mode === 'forward') { closeClipEditor(true); return; }
+    if (env.clip.trim.mode === 'forward') {
+      // trim-only is non-destructive, but it still produces MOTION content — land in the
+      // motion editor (not the still we opened the Loop Builder over), consistent with the
+      // bounce/slice bake paths below. closeClipEditor(true) keeps the trim + rebinds the
+      // timeline; then we switch modes + relayout exactly like the bake tail.
+      closeClipEditor(true);
+      document.getElementById('motionBtn')?.click();
+      requestAnimationFrame(() => { env.arrangeSlots?.(); env.resizePreviewCanvas?.(); });
+      return;
+    }
     const ok = window.confirm(
       `“${env.clip.trim.mode}” bakes a new processed clip and replaces the working source. This is destructive ` +
       `(your original file on disk is untouched, and you can re-upload it). Continue?`);

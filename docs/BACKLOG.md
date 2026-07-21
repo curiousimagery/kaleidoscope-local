@@ -57,6 +57,9 @@ Living list of **incomplete / pending work**, grouped by **surface / family**. *
 - **Auto keeps drifting a STAGED look** (deferred variant).
 - Remaining dial-in constants (momentum probabilities, sweep floor, coverage exponent, pace curve, smoothing tau) in `perform-runtime.js` `autoPick`/`autoTick`.
 
+### Multi-clip source staging (perform) — DEFERRED (strong next-arc candidate)
+Seamlessly move from one clip to another LIVE, using only the gesture controls — **retain the current slice overlay while crossfading the SOURCE underneath**. Not a full clip-blend engine; a source A↔B dissolve. ~3–7 clip slots. Least-invasive path: alpha-blend two source `<video>`s into an offscreen canvas (reuse `drawTwoVideoBlend`/`#clipBlend`, `clip-editor.js`) → `engine.setSource(canvas)` per frame (the engine is source-agnostic — no engine change). Pairs with edit-during-staged-playback / per-field ownership (Motion editor § Open animation threads).
+
 ### Control bus — open tails (Arc 6)
 - ▶ **APC40 MK2 default profile** — allocate the physical zone WITH Daniel + full-zone LED painting as the connected cue (he held his APC mapping until rig-save existed — now unblocked).
 - **Additive 'pulse' mapping mode** — physical inputs SET the base value, audio/onset signals ADD decaying offsets (Resolume value+animator model); the bus already allows multiple signals per field, pulse is one more mode + a per-field offset ledger.
@@ -140,12 +143,14 @@ The full stepped mode shipped + iterated B385–B396 (see CHANGELOG); device/des
 - **A dedicated perform-mode access point** (the mode menu reaches Loop Builder from anywhere; perform has no overflow menu).
 - **Bake tails:** no mid-bake cancel; bounce preview is forward-only; shared-demux memory optimization (two readers fetch the same file twice — see Export lane).
 
-### App-wide mode-transition guardrails + opinionated flows  ·  ▶ DEFERRED — its own arc after Loop Builder closes (PLAN item 5, moved here 2026-07-20)
-Once Loop Builder is a mode, make moving between Still / Motion / Perform / Loop-builder opinionated + safe (destructive-interrupt pattern as the mechanism):
+### App-wide mode-transition guardrails + opinionated flows  ·  ▶ ACTIVE ARC (2026-07-20) — "Flows, Guardrails & Tiling" (plan in ~/.claude/plans)
+Now the SPINE of the active arc — these guardrails plus slice/gesture parameter locks, geometry-truth (honest overlay), Droste infinite zoom, SVG export overlays, and the tile builder. Make moving between Still / Motion / Perform / Loop-builder opinionated + safe (destructive-interrupt pattern as the mechanism):
+- **▶ UX-strategy checkpoint FIRST (undecided — gates the rest).** How/when do we capture "is this a loop already?" / "loop or bounce playback?" WITHOUT becoming wizard-heavy — infer-and-override vs. one interstitial question vs. skippable step; land a principle. AND decide whether the Loop Builder stays a top-level mode or becomes an interstitial/modal contextual surface (Daniel's lean), for consistency with the tile-builder-as-surface direction.
 - **Keyframe-shift warning** — SHIPPED B386 (entering Loop Builder with existing keyframes warns). Extend the pattern to the other transitions.
 - **Open-a-motion-file routing** — on opening a motion file, detect whether it's a loop and ask; route to Loop Builder vs plain motion.
 - **A simplified NON-LOOP variation of the motion editor** — no split first/last keyframe. Pairs with the routing (looped → loop builder + split-keyframe editor; non-looped → the simplified one).
-- **Bounce PLAYBACK mode** — see Open animation threads (needed in both perform + non-looped motion).
+- **Bounce PLAYBACK mode** — see Open animation threads (needed in both perform + non-looped motion). Non-loop clips default to bounce in perform (user-overridable).
+- **Sensible defaults pass** — motion content defaults to a 16:9 canvas (only if the user hasn't explicitly chosen an aspect); apply other low-complexity defaults as discovered.
 
 ### Conduit vNext — capture-domain detection (DEFERRED by decision)
 Until a camera-consuming conduit app exists (zoetrope/tap/visualizers don't take camera input). Full scope in [archive/CONDUIT-TIER-C.md](archive/CONDUIT-TIER-C.md) "vNext" + [archive/CONDUIT-ROADMAP.md](archive/CONDUIT-ROADMAP.md). A sibling package (the input/capture side) lifted from `native-camera.js` + `FoldNativeCameraPlugin.swift` + `yuv-renderer.js`: per-device camera capability catalog, pipeline-safe fps governor, still-vs-video format selection, YUV frame-socket ingest. Named + scoped when the first camera-consumer is real.
@@ -220,6 +225,7 @@ Design-system layer (tokens → components → compositions → interaction patt
 **Constraint for all new forms:** no visible seams (pinwheel/glide-reflection/rectangular-mirror groups excluded). Fill `tilesPerDim(state)` for an accurate resolution hint.
 
 ### Droste math directions (pair with Motion mode)
+- **Infinite zoom (seamless loop) — ▶ THIS ARC (Flows/Guardrails/Tiling ride-along).** Animate composition zoom across exactly one factor-of-`drosteZoom` interval: `foldDroste` reduces log-radius mod `log(drosteZoom)`, so the field is periodic under radial scaling by `drosteZoom` — full-zoom-in ↔ full-zoom-out loops with no visual change. Cleanest with the center offset centered (the default-locked offset gives us that). Shares the snap-point idea with tile snap-to-zoom.
 - **True vanishing-point offset (per-tier rigid translation)** — replace the Möbius pre-composition (which introduces in-tier stretch) with per-tier rigid translation (`c_k = offset·(1 − 1/zoom^k)`). Daniel's model: moving the vanishing point should feel like a TUNNEL, not rotating a sphere.
 - **Dimensional rotation / volumetric tilt** — each tier projected at a different angle (tube off-axis). Per-tier perspective; more complex.
 - **"True rotation" / pole rotation** (lower pri) — post-composition Möbius; strong motion pairing (flowing-water effect).
@@ -250,6 +256,7 @@ Design-system layer (tokens → components → compositions → interaction patt
 - **Proper opening / first-run screen** (mobile + desktop).
 - **Audio sync (wishlist)** — load a track, animate playback in time with it.
 - **iOS file-picker redundancy** — "choose photo/file" always offers "Take Photo" (redundant); native-wrapper-only to suppress.
+- **Shader / generative + other live-source input (explore, DEFERRED).** Beyond camera/video/Syphon-in: accept a live shader or an external live-video feed as the fold source (à la iPhone Continuity Camera as an input). Cross-ref Syphon INPUT (Fold Live) + iPhone-as-capture-device (Native wrapper). Speculative; capture for the input-architecture arc.
 
 ---
 
@@ -364,6 +371,7 @@ Curatorial frame in `FOLD.md`.
 - **Cloud folder I/O handshake** — read source images from a configured cloud folder, write outputs to another. Upload UI/moderation/rotation belong to a sibling app, not Fold.
 - **Guided Access kiosk verification** — PWA on iPad Pro 12.9" in Guided Access fullscreen (gesture behavior, no external-link escapes, survives extended use). Shared with the Drift kiosk backlog.
 - **Document-camera source mode** — overhead camera at a table of objects; architecturally identical to the live-camera shell (a different default form / framing).
+- **Companion "honeycomb" app (builds on tile-aware output) — DEFERRED; informs mode sequencing NOW.** Two use-cases: (a) **gallery show** — a visitor uploads an image (e.g. via Dropbox), builds a folded composition within set parameters (e.g. hexagon/triangle only), then manually places their tile on a shared tiled composition alongside others' hexagons; (b) **personal meditation** — each day, make a kaleidoscopic hexagon of something you noticed (e.g. on your commute) and add it to a personal honeycomb grid; over time, share with friends to co-create a collaborative mosaic. Short-term relevance: it needs opinionated build→place sequencing, which is WHY the tile builder is a contextual surface (see the Flows/Guardrails/Tiling arc). Depends on tileable-cell + non-square/vector tile export.
 
 ## developer tooling backlog
 

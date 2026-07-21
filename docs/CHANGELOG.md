@@ -4,6 +4,14 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🔁 v0.19.37 (Build 397) — 2026-07-21 — Trim-only clips open in the motion editor (not a still)
+
+First build of the "Flows, Guardrails & Tiling" arc (Movement 2, motion-flow guardrails).
+
+- **BUG FIX: applying a trim-only in the Loop Builder now lands you in the motion editor.** The bounce and slice bake paths already dropped into motion, but the trim-only ("forward") path just closed the surface and returned you to the still you had open. It now commits the trim, switches to motion mode, and re-lays-out the panels, mirroring the bake tail. Trim-only produces motion content, so it is now treated consistently with the baked paths.
+
+Verified: node --check, vite build. **Untested by Claude — desktop + iPad verify (VERIFY-QUEUE.md).**
+
 ## 🔁 v0.19.36 (Build 396) — 2026-07-20 — Loop Builder: mode-as-next, touch transport, baking-mask fix (+ docs archive)
 
 - **The loop-mode choice IS the "next" button now.** On step 1, picking trim-only / bounce / seamless loop (bottom-right) both sets the mode and advances — no way to click forward without consciously choosing (Daniel's UX-trap fix).
