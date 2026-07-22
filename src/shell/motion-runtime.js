@@ -1111,7 +1111,11 @@ function makeMarkerDraggable(m, i) {
     if (!down.pushed) { env.pushHistory?.(); env.updateUndoUI?.(); down.pushed = true; }
     const list = kfList();
     const lo = list[i - 1].t + 0.01;
-    const hi = (i < list.length - 1 ? list[i + 1].t : 1) - 0.01;
+    // the last keyframe can sit AT the very end (t=1) in LINEAR mode; in loop mode we keep a
+    // margin so it doesn't collide with the t=1 return-to-kf0 (the bookend / loop point, which
+    // would also degenerate the tween). middle keyframes stay a hair left of their right
+    // neighbor so a drag can't reorder.
+    const hi = (i < list.length - 1) ? (list[i + 1].t - 0.01) : (motion.loop ? 0.99 : 1);
     const t = Math.max(lo, Math.min(hi, pctToT((e.clientX - down.rect.left) / down.rect.width)));
     list[i].t = t;
     list[i].anchored = true;                        // a moved keyframe becomes a fixed anchor

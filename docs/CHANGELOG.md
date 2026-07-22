@@ -4,6 +4,12 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🔁 v0.19.40 (Build 400) — 2026-07-21 — Fix: drag a keyframe to the very end in linear mode (no more end-stall)
+
+- **A keyframe can now be dragged to the true end (t=1) of a LINEAR clip.** The retime-drag clamp always held the last keyframe ~0.01 short of the end (≈0.3s on a 30s clip), leaving a gap where the animation froze on the last value for the final moment — very visible now that motion always loops. Linear clips (loop off) let the last keyframe reach t=1; loop clips still keep the margin so the last keyframe doesn't collide with the t=1 return-to-kf0 (the loop point / bookend, which would also degenerate the tween). Adding via K at a scrubbed position already worked; this brings the drag path in line.
+
+Verified: node --check, vite build. **Untested by Claude — desktop + iPad verify (VERIFY-QUEUE.md).**
+
 ## 🔁 v0.19.39 (Build 399) — 2026-07-21 — Motion always loops playback; the loop toggle now means "is this a loop"
 
 - **Motion playback always loops now** (main + staging). Previously "loop off" halted at the end (play-once); playback now always wraps in `startPlayback`, `startVideoPlayback`, and the staging advance/blend loops. Whether a clip repeats is no longer a playback choice.
