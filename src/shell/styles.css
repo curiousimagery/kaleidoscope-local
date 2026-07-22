@@ -7,6 +7,14 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
    the motion timeline below the visible area (overflow:hidden hid it). 100vh fallback
    for browsers without dvh. */
 body { display: flex; flex-direction: column; height: 100vh; height: 100dvh; overflow: hidden; }
+/* Desktop chrome no longer hands off to the mobile chrome when a window is dragged
+   narrow (that reload dropped the loaded source — boot.js). Below this floor we let the
+   viewport scroll HORIZONTALLY rather than let the split layout collapse. 600 lines up
+   with the phone-class short-side threshold in boot.js — below 600px you're either a
+   phone (mobile chrome) or a desktop window that scrolls. (The mobile chrome removes this
+   stylesheet at boot, so this only governs the desktop layout.) */
+html { overflow-x: auto; }
+body { min-width: 600px; }
 
 /* work row — the horizontal split (main | divider | panel). when the motion
    footer is hidden this fills the viewport, so the layout matches the pre-motion

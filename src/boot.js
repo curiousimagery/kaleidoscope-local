@@ -14,17 +14,17 @@ import { state, session } from './shell/state.js';
 const params = new URLSearchParams(location.search);
 const override = params.get('chrome');
 
-// Mobile when the window is narrow (< 700px — narrowed desktop windows) OR a
-// coarse-pointer device's short side is < 600px (phones in either orientation).
-// iPad (short side ≥ 768) stays desktop.
+// Mobile ONLY for a genuine phone-class device: a coarse-pointer device whose short
+// side is < 600px (phones in either orientation). iPad (short side ≥ 768) stays desktop.
+// A fine-pointer desktop window dragged narrow NO LONGER swaps — that reload dropped the
+// loaded source (boot.js can't cheaply carry the footage across; see the min-width floor
+// in styles.css, which lets the desktop layout scroll horizontally instead of collapsing).
+// Use ?chrome=mobile to preview the mobile chrome on desktop.
 function computeUseMobile() {
   if (override === 'mobile') return true;
   if (override === 'desktop') return false;
-  const narrow = window.innerWidth < 700;
-  const phoneClass =
-    matchMedia('(pointer: coarse)').matches &&
+  return matchMedia('(pointer: coarse)').matches &&
     Math.min(window.innerWidth, window.innerHeight) < 600;
-  return narrow || phoneClass;
 }
 
 // Restore params carried across a responsive chrome switch (one-shot — a normal

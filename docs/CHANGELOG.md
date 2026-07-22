@@ -4,6 +4,31 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🛟 v0.19.48 (Build 408) — 2026-07-22 — More wiggle room: desktop layout floor 700 → 600
+
+Follow-up to B407 (Daniel): lowered the desktop min-width floor from 700px to 600px so the layout has more usable range before the horizontal scrollbar appears. 600 now lines up with the phone-class short-side threshold in `boot.js` — below 600px you're either a phone (mobile chrome) or a desktop window that scrolls. Tablets stay on desktop chrome as before (confirmed direction).
+
+Verified: vite build. **Untested by Claude — sanity-check the desktop layout still reads well down to ~600px.**
+
+## 🛟 v0.19.47 (Build 407) — 2026-07-22 — Fix: resizing a desktop window narrow no longer wipes the source
+
+Data-loss guardrail (Daniel-raised; lane B of two, chosen over the heavier IndexedDB carry).
+
+- **Decoupled the two chrome-switch triggers** (`boot.js`): the mobile chrome is now chosen ONLY for a genuine phone-class device (coarse pointer + short side < 600px). A fine-pointer desktop window dragged below 700px no longer reloads into the mobile chrome — that reload silently dropped the loaded source (the footage can't be serialized cheaply across a `location.reload()`). iPad still stays desktop as before; `?chrome=mobile` still previews the mobile chrome on demand.
+- **Desktop layout holds a 700px min-width floor** (`styles.css`): below it the viewport scrolls horizontally instead of the split layout collapsing. 700 matches the old switch breakpoint. The mobile chrome drops this stylesheet at boot, so only the desktop layout is affected.
+- The complete fix (carry the source blob through IndexedDB so narrow-desktop genuinely becomes the mobile app) stays on the backlog under "Preserve source across a chrome switch".
+
+Verified: node --check, vite build. **Untested by Claude — drag a desktop window narrower than 700px with a source loaded: it should stay in the desktop chrome (horizontal scrollbar appears) and keep the footage, not reset. Confirm a real phone still boots the mobile chrome.**
+
+## 🧪 v0.19.46 (Build 406) — 2026-07-22 — UI Lab: Loop Builder interstitial specimens (D2 follow-up)
+
+Closes the deferred D2 Lab debt — the net-new Loop Builder chrome now lands in the Lab in the same movement, per UI Lab discipline.
+
+- **New composites specimens** for the Loop Builder interstitial: the `.loop-header` (`.loop-title` + `.loop-close` X, hover live), the `.loop-rail` step rail (`.loop-step` across done / active / plain / disabled), and the `.ot-btn` access button (shown for context — it reuses the existing class, so nothing net-new there). Rendered from the real classes, not copies.
+- **Flagged the three-way modal divergence** in the section note: the interstitial is a THIRD modal treatment alongside the desktop `.vid-card` and the mobile `.m-sheet-panel`, sharing none of their vocabulary — a consolidation target for the tail.
+
+Verified: node --check, vite build. **Untested by Claude — open /lab.html and confirm the Loop Builder specimens render (header X hover, step-rail states).**
+
 ## 🔁 v0.19.45 (Build 405) — 2026-07-21 — Loop Builder: fullscreen interstitial (app bar hidden) + lowercase copy
 
 Refinements to D2 (Daniel's review):

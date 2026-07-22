@@ -694,7 +694,26 @@ function compositesSection() {
     el('div', { class: 'm-sheet-cap', text: 'save' }),
     el('div', { class: 'm-sheet-status', text: 'saved ✓' }),
   ]);
-  return section('composites', 'Composites', 'Higher-order assemblies. Keyframe markers shown across their states (auto/hollow-pin · anchored/filled-pin · selected/amber · ghost), the clip-editor range (amber trim region + handles + the blue slice-point + white playhead), and the modals. The desktop modal is shown with its FULL treatment — the .vid-sheet backdrop (dim rgba(10,10,10,0.6) + blur(3px)) over faux content, the centered .vid-card (radius 10, border, no drop-shadow — it relies on the backdrop for separation). Mobile differs: a bottom-ish centered .m-sheet-panel (radius 16, grip handle, lighter dim .5). This desktop↔mobile modal divergence (corner radius, backdrop, shadow approach) is a consolidation candidate.', [
+  // Loop Builder interstitial chrome (Build 404–405 · fullscreen, app bar hidden).
+  // NET-NEW in D2: the header (.loop-header/.loop-title/.loop-close) + the step rail
+  // (.loop-rail/.loop-step across done/active/plain/disabled). The access button that
+  // opens it reuses the existing .ot-btn (shown for context, not a new class).
+  const loopAccessBtn = el('button', { class: 'ot-btn', text: 'loop builder' });
+  const loopHeader = el('header', { class: 'loop-header', style: 'width:min(420px,100%)' }, [
+    el('span', { class: 'loop-title', text: 'loop builder' }),
+    el('button', { class: 'loop-close', title: 'close',
+      html: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>' }),
+  ]);
+  const loopStep = (n, label, kind) => el('button',
+    { class: 'loop-step' + (kind && kind !== 'disabled' ? ' ' + kind : ''), ...(kind === 'disabled' ? { disabled: '' } : {}) },
+    [el('b', { text: n }), el('span', { text: label })]);
+  const loopRail = el('aside', { class: 'loop-rail', style: 'width:max-content' }, [
+    loopStep('1', 'trim & loop', 'done'),
+    loopStep('3', 'slice point', 'active'),
+    loopStep('4', 'crossfade', ''),
+    loopStep('5', 'preview & bake', 'disabled'),
+  ]);
+  return section('composites', 'Composites', 'Higher-order assemblies. Keyframe markers shown across their states (auto/hollow-pin · anchored/filled-pin · selected/amber · ghost), the clip-editor range (amber trim region + handles + the blue slice-point + white playhead), and the modals. The desktop modal is shown with its FULL treatment — the .vid-sheet backdrop (dim rgba(10,10,10,0.6) + blur(3px)) over faux content, the centered .vid-card (radius 10, border, no drop-shadow — it relies on the backdrop for separation). Mobile differs: a bottom-ish centered .m-sheet-panel (radius 16, grip handle, lighter dim .5). This desktop↔mobile modal divergence (corner radius, backdrop, shadow approach) is a consolidation candidate. The Loop Builder interstitial (D2) is a THIRD modal treatment — a fullscreen surface (app bar hidden) with its own header/close/step-rail chrome that shares none of the .vid-card or .m-sheet vocabulary; its .loop-close X and .loop-step numbered rail are net-new here, and the three-way modal divergence is itself a flag.', [
     el('h3', { class: 'lab-h3', text: 'Timeline · .mf-track + keyframe marker states + .mf-playhead' }),
     el('div', { class: 'lab-bar-wrap' }, [timeline]),
     el('h3', { class: 'lab-h3', text: 'Clip-editor range · .clip-bar (region / handles / blue cut / playhead)' }),
@@ -703,6 +722,12 @@ function compositesSection() {
     el('div', { class: 'lab-cols' }, [
       el('div', {}, [el('div', { class: 'lab-name', style: 'margin-bottom:8px', text: '.vid-sheet + .vid-card · radius 10 · blur 3px · dim .6' }), desktopModal]),
       el('div', {}, [el('div', { class: 'lab-name', style: 'margin-bottom:8px', text: '.m-sheet-panel · radius 16 · grip · dim .5' }), mSheet]),
+    ]),
+    el('h3', { class: 'lab-h3', text: 'Loop Builder interstitial · header + step rail (fullscreen surface, app bar hidden)' }),
+    el('div', { class: 'lab-cols' }, [
+      el('div', {}, [el('div', { class: 'lab-name', style: 'margin-bottom:8px', text: 'access · .ot-btn (reused, opens the surface)' }), loopAccessBtn]),
+      el('div', {}, [el('div', { class: 'lab-name', style: 'margin-bottom:8px', text: '.loop-header · .loop-title + .loop-close (X hover live)' }), loopHeader]),
+      el('div', {}, [el('div', { class: 'lab-name', style: 'margin-bottom:8px', text: '.loop-rail · .loop-step done/active/plain/disabled' }), loopRail]),
     ]),
   ]);
 }
