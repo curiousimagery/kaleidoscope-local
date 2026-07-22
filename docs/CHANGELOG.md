@@ -4,6 +4,16 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🔁 v0.19.41 (Build 401) — 2026-07-21 — Loop detection + open-into-motion routing (no more forced Loop Builder on load)
+
+Movement 2 (D1) of the Flows/Guardrails/Tiling arc. **Desktop/iPad path; mobile load flow unchanged for now.**
+
+- **A fresh video no longer force-opens the Loop Builder.** It opens straight into the motion editor with an inferred loop/linear default. The Loop Builder is now opt-in (reach it from the mode dropdown; a dedicated button + modal chrome lands in D2).
+- **Auto loop-detection (first vs last frame).** On load we decode the first and last frames on a throwaway hidden `<video>`, compare a 32×32 downscale, and seed the "is this a loop" toggle: near-identical → loop clip; clearly different → linear clip. Falls back to the current default if detection can't run. `LOOP_MATCH_THRESHOLD` (per-channel mean abs diff, 0..255) starts at 10 and WANTS real-clip calibration.
+- New seams: `env.setLoopClip(bool)` and `env.enterMotion()`.
+
+Verified: node --check, vite build. **Untested by Claude — needs desktop verify + threshold calibration on real clips, and a cross-browser load-path check (Safari / Firefox / Brave). See VERIFY-QUEUE.md.**
+
 ## 🔁 v0.19.40 (Build 400) — 2026-07-21 — Fix: drag a keyframe to the very end in linear mode (no more end-stall)
 
 - **A keyframe can now be dragged to the true end (t=1) of a LINEAR clip.** The retime-drag clamp always held the last keyframe ~0.01 short of the end (≈0.3s on a 30s clip), leaving a gap where the animation froze on the last value for the final moment — very visible now that motion always loops. Linear clips (loop off) let the last keyframe reach t=1; loop clips still keep the margin so the last keyframe doesn't collide with the t=1 return-to-kf0 (the loop point / bookend, which would also degenerate the tween). Adding via K at a scrubbed position already worked; this brings the drag path in line.

@@ -102,6 +102,44 @@ export function createSourceHost(env) {
   // opts.srcUrl: play from this URL instead of an object URL of `file` — the
   // native-transcode retry path (the ORIGINAL file stays the package's
   // originalSource; the transcoded temp movie is just what the engine plays).
+  // A clip "reads as a loop" when its first and last frames are nearly identical (Daniel's
+  // heuristic). Decode both on a throwaway hidden <video> and compare a 32×32 downscale;
+  // below the match threshold we call it a loop. Returns true/false, or null if detection
+  // could not run (the caller keeps the current default). THRESHOLD is a per-channel mean
+  // absolute difference (0..255) and wants real-clip calibration.
+  const LOOP_MATCH_THRESHOLD = 10;
+  async function detectLoopFromFrames(srcUrl, inT, outT) {
+    const dv = document.createElement('video');
+    dv.muted = true; dv.playsInline = true; dv.preload = 'auto';
+    dv.setAttribute('muted', ''); dv.setAttribute('playsinline', '');
+    dv.style.cssText = 'position:absolute;left:0;top:0;width:1px;height:1px;opacity:0;pointer-events:none';
+    dv.src = srcUrl;
+    document.body.appendChild(dv);
+    try {
+      await new Promise((res, rej) => {
+        const to = setTimeout(() => rej(new Error('timeout')), 5000);
+        dv.addEventListener('loadeddata', () => { clearTimeout(to); res(); }, { once: true });
+        dv.addEventListener('error', () => { clearTimeout(to); rej(new Error('load')); }, { once: true });
+      });
+      const dur = (isFinite(dv.duration) && dv.duration) ? dv.duration : 0;
+      if (!dur) return null;
+      const cvs = document.createElement('canvas'); cvs.width = 32; cvs.height = 32;
+      const ctx = cvs.getContext('2d', { willReadFrequently: true });
+      const grab = async (sec) => {
+        await seekVideoTo(dv, Math.max(0, Math.min(dur - 0.01, sec)));
+        ctx.drawImage(dv, 0, 0, 32, 32);
+        return ctx.getImageData(0, 0, 32, 32).data;
+      };
+      const first = await grab(inT * dur + 0.03);
+      const last = await grab(outT * dur - 0.05);
+      let sum = 0;
+      for (let i = 0; i < first.length; i += 4) {
+        sum += Math.abs(first[i] - last[i]) + Math.abs(first[i + 1] - last[i + 1]) + Math.abs(first[i + 2] - last[i + 2]);
+      }
+      return (sum / (first.length / 4 * 3)) < LOOP_MATCH_THRESHOLD;
+    } catch { return null; }
+    finally { try { dv.pause(); } catch { /* ignore */ } dv.removeAttribute('src'); try { dv.load(); } catch { /* ignore */ } dv.remove(); }
+  }
   function loadVideo(file, opts = {}) {
     if (!engine) return;
     // uploading a new clip while in Loop Builder resets the process — warn on unsaved
@@ -159,9 +197,6 @@ export function createSourceHost(env) {
       // (env.openClipEditor is undefined on mobile), and not while an animation is
       // already running (don't yank a mid-motion source swap into a modal), and not
       // when the caller opts out.
-      if (env.openClipEditor && !env.motionRT.active && !opts.noLoopBuilder) {
-        env.openClipEditor({ fromLoad: true });   // fresh clip → skip the keyframe-shift warning
-      }
       if (env.motionRT.active) {
         env.rebindMotionToSource();    // already animating → re-bind keyframes to the new clip (timeline-driven, no free-run)
       } else {
@@ -206,6 +241,14 @@ export function createSourceHost(env) {
           env.sourceOverlay.render();
           env.updateSrcScrub?.();
           requestAnimationFrame(() => buildSrcStrip());   // footage thumbs into the frame picker (layout is ready)
+          // D1 routing: fresh motion content opens STRAIGHT into the motion editor with an
+          // inferred loop/linear default (first-vs-last-frame detection). The Loop Builder is
+          // opt-in now — no longer force-opened on load. Desktop/iPad only (env.openClipEditor).
+          if (env.openClipEditor && !opts.noLoopBuilder) {
+            const isLoop = await detectLoopFromFrames(url, env.clip.trim.inT, env.clip.trim.outT);
+            if (isLoop != null) env.setLoopClip?.(isLoop);
+            env.enterMotion?.();
+          }
         };
         v.play().then(() => setTimeout(park, 80))
           .catch(() => { park(); });   // autoplay refused: loadeddata decoded frame 0 — park directly

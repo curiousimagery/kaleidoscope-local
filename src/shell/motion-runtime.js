@@ -1576,6 +1576,7 @@ function wireMotion() {
   const byId = (id) => document.getElementById(id);
   // segments select a mode; clicking the current mode's segment is a no-op
   byId('motionBtn')?.addEventListener('click', () => { if (!env.motionRT.active) toggleMotionMode(); });
+  env.enterMotion = () => { if (!env.motionRT.active) toggleMotionMode(); };   // programmatic enter (D1 load routing)
   byId('stillBtn')?.addEventListener('click', () => { if (env.motionRT.active) toggleMotionMode(); });
   byId('mfAdd')?.addEventListener('click', addKeyframe);
   byId('mfGesture')?.addEventListener('click', toggleGesture);
@@ -1605,7 +1606,8 @@ function wireMotion() {
       updateMotionUI();
     });
   }
-  byId('mfLoop')?.addEventListener('click', () => { motion.loop = !motion.loop; renderTimeline(); updateMotionUI(); });
+  env.setLoopClip = (v) => { motion.loop = !!v; renderTimeline(); updateMotionUI(); };   // "is this a loop" (repurposed)
+  byId('mfLoop')?.addEventListener('click', () => env.setLoopClip(!motion.loop));
   byId('mfFit')?.addEventListener('click', fitTimeline);
   byId('mfZoomIn')?.addEventListener('click', () => zoomTimelineAt(0.5, 1.6));
   byId('mfZoomOut')?.addEventListener('click', () => zoomTimelineAt(0.5, 1 / 1.6));
