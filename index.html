@@ -60,8 +60,8 @@
         <option value="motion">motion</option>
         <option value="perform">perform</option>
       </select>
-      <!-- Loop Builder is a contextual surface (not a mode): opens over motion / perform -->
-      <button class="ot-btn ot-label" id="loopBuilderBtn" hidden disabled title="Loop Builder — trim, bounce, or slice a seamless loop"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12a8 8 0 0 1 13.7-5.7L20 8"/><path d="M20 4v4h-4"/><path d="M20 12a8 8 0 0 1-13.7 5.7L4 16"/><path d="M4 20v-4h4"/></svg>Loop Builder</button>
+      <!-- Loop Builder is a contextual interstitial (not a mode): opens over motion / perform -->
+      <button class="ot-btn" id="loopBuilderBtn" hidden disabled title="loop builder: trim, bounce, or slice a seamless loop">loop builder</button>
       <!-- fallback glyphs were ← / → -->
       <button class="ot-btn ot-icon" id="undoBtn" disabled title="undo (⌘Z)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9h11a5 5 0 0 1 0 10H8"/><path d="M7 6 4 9l3 3"/></svg></button>
       <button class="ot-btn ot-icon" id="redoBtn" disabled title="redo (⌘⇧Z)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 9H9a5 5 0 0 0 0 10h7"/><path d="M17 6l3 3-3 3"/></svg></button>
@@ -478,16 +478,16 @@
      into a seamless loop: trim → behavior → slice → crossfade → bake, stepped. -->
 <div class="loop-mode" id="clipSheet" hidden>
   <header class="loop-header">
-    <span class="loop-title">Loop Builder</span>
+    <span class="loop-title">loop builder</span>
     <button class="loop-close" id="clipClose" title="close" aria-label="close Loop Builder"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
   </header>
   <div class="loop-main">
     <!-- left step rail (progressive disclosure) -->
     <aside class="loop-rail" id="loopRail">
-      <button class="loop-step" data-step="1"><b>1</b><span>Trim &amp; loop</span></button>
-      <button class="loop-step loop-step-slice" data-step="3"><b>3</b><span>Slice point</span></button>
-      <button class="loop-step loop-step-slice" data-step="4"><b>4</b><span>Crossfade</span></button>
-      <button class="loop-step" data-step="5"><b>5</b><span>Preview &amp; bake</span></button>
+      <button class="loop-step" data-step="1"><b>1</b><span>trim &amp; loop</span></button>
+      <button class="loop-step loop-step-slice" data-step="3"><b>3</b><span>slice point</span></button>
+      <button class="loop-step loop-step-slice" data-step="4"><b>4</b><span>crossfade</span></button>
+      <button class="loop-step" data-step="5"><b>5</b><span>preview &amp; bake</span></button>
     </aside>
     <section class="loop-content">
       <div class="clip-stage loop-stage">
@@ -605,7 +605,7 @@
   </div>
   <!-- post-bake next-step nudge (overlay; shown after a successful bake) -->
   <div class="clip-nudge" id="clipNudge" hidden>
-    <div class="clip-nudge-title">Loop baked ✓</div>
+    <div class="clip-nudge-title">loop baked ✓</div>
     <div class="clip-nudge-sub">what would you like to do next?</div>
     <div class="clip-nudge-actions">
       <button class="mf-btn mf-add" id="clipNudgeSave">render &amp; save</button>

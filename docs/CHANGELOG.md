@@ -4,6 +4,15 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🔁 v0.19.45 (Build 405) — 2026-07-21 — Loop Builder: fullscreen interstitial (app bar hidden) + lowercase copy
+
+Refinements to D2 (Daniel's review):
+
+- **The Loop Builder is now a true fullscreen interstitial.** The app bar is hidden entirely while it's open (`body.loop-active #outputToolbar { display: none }`) and the surface fills the viewport, so there's no mode-switching or new-source-uploading mid-edit; the header X / cancel are the only way out. Removed the residual from its brief life as a "mode": the app-bar grey-out rule, the exit-on-mode-change branch (main.js), and the top-offset that kept the bar visible (clip-editor.js). It began as a dialog; this returns to that model.
+- **Lowercase copy** to match the rest of the product: the app-bar button is a plain "loop builder" (icon dropped), the header reads "loop builder", and the step rail is lowercased (trim & loop / slice point / crossfade / preview & bake).
+
+Verified: node --check, vite build. **Untested by Claude — confirm the app bar disappears while the builder is open and returns on close; check the fullscreen layout. More copy/UI polish inside the editor is queued for the arc's tail (Daniel flagged it).**
+
 ## 🔁 v0.19.44 (Build 404) — 2026-07-21 — D2: Loop Builder becomes a contextual modal (out of the mode menu; X / cancel / header; app-bar access button)
 
 Movement 2 (D2) — the Loop Builder is no longer a top-level "mode"; it's a modal surface you open over motion / perform.

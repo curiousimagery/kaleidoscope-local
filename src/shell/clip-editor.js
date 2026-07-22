@@ -66,12 +66,10 @@ export function createClipEditor(env) {
     (document.querySelector('.clip-stage') || sheet).appendChild(vT);
     env.clip.thumbVideo = vT;
     const nudge = document.getElementById('clipNudge'); if (nudge) nudge.hidden = true;   // clear any prior post-bake nudge
-    // open the surface as a contextual MODAL over the current mode: it sits BELOW the global
-    // app bar (which stays visible + gated). The mode picker keeps its underlying value (the
-    // Loop Builder is no longer a mode); the header X / cancel button close it.
+    // open the surface as a fullscreen INTERSTITIAL: the app bar is hidden while it's open
+    // (body.loop-active), so there's no mode-switching or new uploads mid-edit. The header
+    // X / cancel are the only way out. (It began as a dialog; this returns to that model.)
     document.body.classList.add('loop-active');
-    const bar = document.getElementById('outputToolbar');
-    sheet.style.top = bar ? Math.round(bar.getBoundingClientRect().bottom) + 'px' : '0px';
     sheet.hidden = false;
     lastThumbMode = null;   // force a fresh thumbnail build for this clip
     const init = () => { env.clip.step = 1; setClipMode(env.clip.trim.mode); setLoopStep(1); };

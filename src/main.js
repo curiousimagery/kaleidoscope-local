@@ -1178,12 +1178,8 @@ if (engine) {
   // (which keep the ordered mode-switch wiring); updateMotionUI re-syncs the
   // select afterward, so a refused switch snaps back
   document.getElementById('modeSelect')?.addEventListener('change', (e) => {
-    // Loop Builder is a real MODE now; the picker is also its EXIT. Leaving warns on
-    // unsaved changes (exitLoopBuilder), and a backed-out warning keeps us in loop.
-    if (env.loopIsActive?.() && e.target.value !== 'loop') {
-      if (!env.exitLoopBuilder?.()) { e.target.value = 'loop'; e.target.blur(); return; }
-      // fall through to switch into the chosen mode
-    }
+    // (Loop Builder is a fullscreen interstitial now — the app bar + this picker are hidden
+    // while it's open, so mode-switching mid-edit can't happen from here.)
     const id = { still: 'stillBtn', motion: 'motionBtn', perform: 'performBtn' }[e.target.value];
     document.getElementById(id)?.click();
     env.updateMotionUI?.();

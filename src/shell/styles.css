@@ -1169,19 +1169,14 @@ body.motion #oobModes { pointer-events: none; opacity: var(--disabled-opacity); 
   background: var(--surface); color: var(--text);
 }
 .loop-mode[hidden] { display: none; }
-/* while in Loop Builder the app bar stays visible but only upload / mode picker /
-   undo-redo / settings work — everything else greys out (it's an opinionated wizard,
-   but a real mode: change the clip, switch modes, undo, or open settings freely) */
-body.loop-active #outputToolbar button:not(#uploadBtn):not(#undoBtn):not(#redoBtn):not(#settingsBtn),
-body.loop-active #outputToolbar select:not(#modeSelect) {
-  opacity: .3; pointer-events: none;
-}
+/* the Loop Builder is a fullscreen interstitial: hide the app bar entirely while it's open
+   (no mode-switching or new uploads mid-edit — the header X / cancel are the only way out) */
+body.loop-active #outputToolbar { display: none; }
 .loop-header { flex: 0 0 auto; display: flex; align-items: center; justify-content: space-between; padding: 10px 18px; border-bottom: 1px solid var(--border); }
 .loop-title { font-size: var(--text-lg); font-weight: 600; color: var(--text-bright); }
 .loop-close { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; padding: 0; background: transparent; border: none; border-radius: var(--radius-sm); color: var(--text-dim); cursor: pointer; }
 .loop-close svg { width: 20px; height: 20px; display: block; }
 .loop-close:hover { color: var(--text-bright); background: var(--border); }
-.ot-label { display: inline-flex; align-items: center; gap: 6px; width: auto; padding: 0 12px; }
 .loop-main { flex: 1 1 auto; display: flex; min-height: 0; }
 /* trim duration readout, shown under the clip while trimming */
 .loop-trim-readout { flex: 0 0 auto; align-self: center; font-size: var(--text-sm); color: var(--text-dim);
