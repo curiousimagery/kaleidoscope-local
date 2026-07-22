@@ -947,6 +947,9 @@ function wireFrameAspect() {
     apply();
   }));
   syncActive();
+  // let other modes reprogram the frame aspect through the same path (e.g. motion's
+  // one-time 16:9 default) so the button highlight + preview + filmstrip all re-sync.
+  env.applyFrameAspect = apply;
 }
 
 // Global output-toolbar sheets (save / diagnostics) — relocated from the right

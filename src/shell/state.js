@@ -58,6 +58,10 @@ export const session = {
   frameAspect: 1,     // output frame aspect (width/height): 1 = square, 0.8 = 4:5, 16/9 = 16:9.
                       // a global output-framing choice (not animated); reshapes the preview
                       // canvas (WYSIWYG) and is inherited by still + video export.
+  motionAspectDefaulted: false,  // one-shot: the FIRST time motion is entered this session we
+                      // default frameAspect to 16:9 (motion content suits a wide canvas
+                      // regardless of source aspect); after that we never re-apply, so a
+                      // user's aspect choice always sticks.
   stageSrcPct: 32,    // source panel's share of the stage split (percent). Output-dominant
                       // by default (the artwork is the show); the stage divider drags it.
   performResponse: 0.35,  // perform-mode transition speed (the follower's response, seconds):

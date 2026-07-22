@@ -344,8 +344,7 @@ function startPlayback() {
   const tick = () => {
     if (!motion.playing) return;
     let p = (performance.now() - env.motionRT.start) / motion.durationMs;
-    if (motion.loop) { p -= Math.floor(p); }
-    else if (p >= 1) { renderSampled(1); haltPlayback(); loadPlayheadIntoState(); renderTimeline(); updateMotionUI(); return; }
+    p -= Math.floor(p);   // motion ALWAYS loops playback; motion.loop now only ties endpoints (loop clip) vs leaves them free (linear clip)
     renderSampled(p);
     followPlayhead(p);
     env.motionRT.raf = requestAnimationFrame(tick);
@@ -371,9 +370,8 @@ function startVideoPlayback() {
   v.play().catch(() => {});
   const tick = () => {
     if (!motion.playing) return;
-    if (v.currentTime >= outSec - 0.03 || v.currentTime < inSec - 0.03) {   // reached the trimmed end
-      if (motion.loop) { try { v.currentTime = inSec; } catch { /* ignore */ } }
-      else { haltPlayback(); loadPlayheadIntoState(); renderTimeline(); updateMotionUI(); return; }
+    if (v.currentTime >= outSec - 0.03 || v.currentTime < inSec - 0.03) {   // reached the trimmed end — always rewind (motion always loops; a linear clip just cuts back to the start)
+      try { v.currentTime = inSec; } catch { /* ignore */ }
     }
     let p = Math.max(0, Math.min(1, (v.currentTime - inSec) / span));
     engine.updateSourceFrame();
@@ -676,9 +674,8 @@ function stgAdvance(now) {
     const span = Math.max(0.001, outSec - inSec);
     if (stg.playing) {
       if (v2.paused && !v2.seeking) v2.play().catch(() => {});
-      if (v2.currentTime >= outSec - 0.03 || v2.currentTime < inSec - 0.03) {   // trimmed end
-        if (motion.loop) { try { v2.currentTime = inSec; } catch { /* ignore */ } }
-        else { stg.playing = false; try { v2.pause(); } catch { /* ignore */ } }
+      if (v2.currentTime >= outSec - 0.03 || v2.currentTime < inSec - 0.03) {   // trimmed end — always rewind (staging loops too)
+        try { v2.currentTime = inSec; } catch { /* ignore */ }
       }
     } else if (!v2.paused) { try { v2.pause(); } catch { /* ignore */ } }
     stg.p = Math.max(0, Math.min(1, (v2.currentTime - inSec) / span));
@@ -686,8 +683,7 @@ function stgAdvance(now) {
   }
   if (stg.playing) {
     let p = (now - stg.t0) / motion.durationMs;
-    if (motion.loop) p -= Math.floor(p);
-    else if (p >= 1) { p = 1; stg.playing = false; }
+    p -= Math.floor(p);   // staging playback always loops too
     stg.p = p;
   }
   return stg.p;
@@ -801,8 +797,7 @@ function stgBlendLoop() {
   let pOld = B.p;
   if (B.playing) {
     pOld = (now - B.clock0) / motion.durationMs;
-    if (motion.loop) pOld -= Math.floor(pOld);
-    else pOld = Math.min(1, pOld);
+    pOld -= Math.floor(pOld);   // always loops
   }
   const from = stgEval(B.from, pOld);
   const to = state;                              // resumed playback IS the new committed eval
@@ -1382,6 +1377,16 @@ function toggleMotionMode() {
   motion.selected = -1;          // never carry a stale selection across the toggle
                                  // (otherwise post-exit edits could write through to it)
   if (env.motionRT.active) { session.timelineZoom = 1; session.timelinePan = 0; }   // enter fit-to-view
+  if (env.motionRT.active && !session.motionAspectDefaulted) {
+    // motion content defaults to a 16:9 canvas the first time you open it this session
+    // (Daniel): wider suits motion regardless of the source aspect. One-time only — after
+    // this the user's aspect choice always sticks.
+    session.motionAspectDefaulted = true;
+    if (Math.abs(session.frameAspect - 16 / 9) > 0.001) {
+      session.frameAspect = 16 / 9;
+      env.applyFrameAspect?.();   // re-sync the aspect buttons + reshape the preview (no-op on mobile)
+    }
+  }
   if (env.motionRT.active && env.sourceVideo) {
     // video: the timeline drives the footage — stop the free-run loop + pause, and
     // lock the loop duration to the clip length (the duration field is read-only then).

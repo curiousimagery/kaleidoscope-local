@@ -4,6 +4,20 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🔁 v0.19.39 (Build 399) — 2026-07-21 — Motion always loops playback; the loop toggle now means "is this a loop"
+
+- **Motion playback always loops now** (main + staging). Previously "loop off" halted at the end (play-once); playback now always wraps in `startPlayback`, `startVideoPlayback`, and the staging advance/blend loops. Whether a clip repeats is no longer a playback choice.
+- **`motion.loop` is repurposed to "is this a loop."** It no longer controls whether playback repeats (it always does); it now only ties the endpoints. ON = a loop clip: first & last keyframes tie into a seamless loop (kf0 returns at t=1, the bookend marker shows). OFF = a linear clip: independent endpoints, so a non-loop animation can have a genuinely different end. A linear clip still repeats, but with an honest visible cut on the wrap. The toggle tooltip is reworded to match.
+- Bounce / seamless playback for linear content comes from BAKING (loop builder), not realtime, per the locked arc architecture. Auto-detection that seeds this toggle from the source's first/last frame is the next build.
+
+Verified: node --check, vite build. **Untested by Claude — desktop + iPad verify (VERIFY-QUEUE.md).**
+
+## 🔁 v0.19.38 (Build 398) — 2026-07-21 — Motion content defaults to a 16:9 canvas
+
+- **Entering motion for the first time in a session sets the output frame to 16:9.** Motion content suits a wide canvas regardless of the source aspect, so the first `toggleMotionMode` this session defaults `session.frameAspect` to 16:9 (via a one-shot `session.motionAspectDefaulted`). It applies once: a later explicit aspect choice always sticks, and re-entering motion never re-clobbers it. `wireFrameAspect` now exposes `env.applyFrameAspect` so the aspect buttons + preview re-sync through the same path (no-op on mobile, where the preview still reshapes via the existing resize).
+
+Verified: node --check, vite build. **Untested by Claude — desktop + mobile verify (VERIFY-QUEUE.md).**
+
 ## 🔁 v0.19.37 (Build 397) — 2026-07-21 — Trim-only clips open in the motion editor (not a still)
 
 First build of the "Flows, Guardrails & Tiling" arc (Movement 2, motion-flow guardrails).
