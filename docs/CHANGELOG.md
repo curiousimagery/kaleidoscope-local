@@ -4,6 +4,13 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🔁 v0.19.43 (Build 403) — 2026-07-21 — Loop detection: re-detect on source swap + calibration confirmed (log removed)
+
+- **Detection re-runs on every new upload / source swap**, including swaps made WHILE already in motion. The previous build only detected on the fresh-load path, so a second upload kept the first clip's loop/linear default (Daniel's bug). The swap-in-motion path now re-detects and updates the "is this a loop" toggle.
+- **Calibrated + cleaned up.** Confirmed on real clips (loops read ~2, non-loops ~80 mean abs diff); `LOOP_MATCH_THRESHOLD` stays 28 with wide margin either side. The temporary console diagnostic is removed; the black-frame abstain guard stays.
+
+Verified: node --check, vite build. **Untested by Claude — confirm a second upload re-detects (loop clip → loop ON, non-loop → OFF) (VERIFY-QUEUE.md).**
+
 ## 🔁 v0.19.42 (Build 402) — 2026-07-21 — Loop detection: reliable frame capture + looser threshold + calibration log
 
 Follow-up to B401 (detection was reading every clip as "not a loop").

@@ -109,8 +109,7 @@ export function createSourceHost(env) {
   // blank on the first drawImage on Blink → every clip would read black-vs-real = "not a loop")
   // and wait for each seeked frame to actually PRESENT (requestVideoFrameCallback). Returns
   // true/false, or null if the capture looked unreliable (caller keeps the current default).
-  // Logs the numbers to the console so the threshold can be calibrated on real clips.
-  const LOOP_MATCH_THRESHOLD = 28;   // TEMP diagnostic log below — remove both once calibrated
+  const LOOP_MATCH_THRESHOLD = 28;   // calibrated on real clips: loops read ~2, non-loops ~80 (2026-07-21)
   async function detectLoopFromFrames(srcUrl, inT, outT) {
     const dv = document.createElement('video');
     dv.muted = true; dv.playsInline = true; dv.preload = 'auto';
@@ -148,10 +147,8 @@ export function createSourceHost(env) {
       for (let i = 0; i < first.length; i += 4) {
         sum += Math.abs(first[i] - last[i]) + Math.abs(first[i + 1] - last[i + 1]) + Math.abs(first[i + 2] - last[i + 2]);
       }
-      const meanDiff = sum / (first.length / 4 * 3), lumF = lum(first), lumL = lum(last);
-      console.log(`[loop-detect] meanDiff=${meanDiff.toFixed(1)} (threshold ${LOOP_MATCH_THRESHOLD}) lumFirst=${lumF.toFixed(1)} lumLast=${lumL.toFixed(1)} → ${meanDiff < LOOP_MATCH_THRESHOLD ? 'LOOP' : 'linear'}`);
-      if (lumF < 2 && lumL < 2) return null;   // both frames black → capture unreliable, abstain
-      return meanDiff < LOOP_MATCH_THRESHOLD;
+      if (lum(first) < 2 && lum(last) < 2) return null;   // both frames black → capture unreliable, abstain
+      return (sum / (first.length / 4 * 3)) < LOOP_MATCH_THRESHOLD;
     } catch { return null; }
     finally { try { dv.pause(); } catch { /* ignore */ } dv.removeAttribute('src'); try { dv.load(); } catch { /* ignore */ } dv.remove(); }
   }
@@ -214,6 +211,13 @@ export function createSourceHost(env) {
       // when the caller opts out.
       if (env.motionRT.active) {
         env.rebindMotionToSource();    // already animating → re-bind keyframes to the new clip (timeline-driven, no free-run)
+        // a source SWAP while already in motion still re-detects loop-ness for the new clip and
+        // updates the "is this a loop" toggle (no enterMotion — we're already in motion).
+        if (env.openClipEditor && !opts.noLoopBuilder) {
+          detectLoopFromFrames(url, env.clip.trim.inT, env.clip.trim.outT).then((isLoop) => {
+            if (isLoop != null) env.setLoopClip?.(isLoop);
+          });
+        }
       } else {
         const park = async () => {
           // Blink only rasterizes a frame for drawImage/texImage2D after a seek
