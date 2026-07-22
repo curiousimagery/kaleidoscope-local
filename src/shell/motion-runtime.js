@@ -1449,7 +1449,7 @@ function updateMotionUI() {
   // switch snaps the select back)
   const sel = q('modeSelect');
   if (sel) {
-    sel.value = env.loopIsActive?.() ? 'loop' : performing ? 'perform' : env.motionRT.active ? 'motion' : 'still';
+    sel.value = performing ? 'perform' : env.motionRT.active ? 'motion' : 'still';   // Loop Builder is a modal now, not a mode — the picker reflects the underlying mode
     const optM = sel.querySelector('option[value="motion"]');
     if (optM) optM.disabled = !available;
     const optP = sel.querySelector('option[value="perform"]');
@@ -1518,6 +1518,12 @@ function updateMotionUI() {
     // would shift the committed loop on-air, so the editor waits for the take
     q('mfClip').disabled = stg.on;
     q('mfClip').title = stg.on ? 'the clip editor edits the on-air loop’s trim — take or discard the staged changes first' : '';
+  }
+  if (q('loopBuilderBtn')) {
+    // the app-bar Loop Builder button: a contextual surface over MOTION or PERFORM (video
+    // sources only); hidden in still, disabled while a staged change is pending.
+    q('loopBuilderBtn').hidden = !(env.sourceVideo && (env.motionRT.active || env.performRT?.active));
+    q('loopBuilderBtn').disabled = stg.on;
   }
   // duration is READ-ONLY for a video source (locked to clip length ÷ speed) — show
   // it as locked instead of an editable-looking scrub field that ignores input
@@ -1614,8 +1620,8 @@ function wireMotion() {
   byId('mfSpeed')?.querySelectorAll('[data-spd]').forEach(b =>
     b.addEventListener('click', () => setVideoSpeed(parseFloat(b.dataset.spd))));
   // (mfClip is wired with the ⋯ menu below — it closes the menu before opening the sheet)
-  byId('clipClose')?.addEventListener('click', () => env.closeClipEditor(false));
-  byId('clipCancel')?.addEventListener('click', () => env.closeClipEditor(false));
+  byId('clipClose')?.addEventListener('click', () => env.exitLoopBuilder?.());   // X / cancel warn on unsaved trims, then close
+  byId('clipCancel')?.addEventListener('click', () => env.exitLoopBuilder?.());
   // the primary button is context-aware: "next" through the steps, then apply/bake
   byId('clipApply')?.addEventListener('click', () => env.loopPrimaryAction());
   byId('loopBack')?.addEventListener('click', () => env.loopBack());
@@ -1743,6 +1749,7 @@ function wireMotion() {
     setTimeout(() => document.addEventListener('pointerdown', onMoreOutside), 0);
   });
   byId('mfClip')?.addEventListener('click', () => { closeMore(); env.openClipEditor(); });
+  byId('loopBuilderBtn')?.addEventListener('click', () => env.openClipEditor());   // app-bar access (D2)
   byId('mfSaveData')?.addEventListener('click', () => { downloadMotionJSON(); closeMore(); });
   byId('mfLoadData')?.addEventListener('click', () => { byId('mfDataFile')?.click(); closeMore(); });
   byId('mfDataFile')?.addEventListener('change', async (e) => {

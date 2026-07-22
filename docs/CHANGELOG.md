@@ -4,6 +4,16 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🔁 v0.19.44 (Build 404) — 2026-07-21 — D2: Loop Builder becomes a contextual modal (out of the mode menu; X / cancel / header; app-bar access button)
+
+Movement 2 (D2) — the Loop Builder is no longer a top-level "mode"; it's a modal surface you open over motion / perform.
+
+- **Removed from the mode dropdown.** `#modeSelect` no longer lists "loop builder"; the picker sync (motion-runtime.js:1452) and the mode-change handler drop the loop branch, so the picker reflects the underlying mode while the builder is open.
+- **Modal chrome.** `#clipSheet` gains a header (title "Loop Builder" + an X-close top-right) and a **cancel** button in the nav. Both route through `exitLoopBuilder`, so they warn on unsaved trims before closing.
+- **App-bar access button.** A new Loop Builder button (loop glyph + label) sits between the mode switcher and undo/redo, shown for video sources in motion + perform, disabled while a staged change is pending. Opens the builder via `openClipEditor`.
+
+Verified: node --check, vite build. **Untested by Claude — needs visual verification (header / close / button look + placement) and the flow (open from motion/perform; X + cancel close with the unsaved-warning; picker shows the underlying mode). UI Lab specimens for the header + button are the immediate follow-up.**
+
 ## 🔁 v0.19.43 (Build 403) — 2026-07-21 — Loop detection: re-detect on source swap + calibration confirmed (log removed)
 
 - **Detection re-runs on every new upload / source swap**, including swaps made WHILE already in motion. The previous build only detected on the fresh-load path, so a second upload kept the first clip's loop/linear default (Daniel's bug). The swap-in-motion path now re-detects and updates the "is this a loop" toggle.

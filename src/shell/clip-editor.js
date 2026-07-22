@@ -66,12 +66,12 @@ export function createClipEditor(env) {
     (document.querySelector('.clip-stage') || sheet).appendChild(vT);
     env.clip.thumbVideo = vT;
     const nudge = document.getElementById('clipNudge'); if (nudge) nudge.hidden = true;   // clear any prior post-bake nudge
-    // enter the mode: the surface sits BELOW the global app bar (which stays visible +
-    // gated), and the mode picker reflects "loop builder" as the active mode
+    // open the surface as a contextual MODAL over the current mode: it sits BELOW the global
+    // app bar (which stays visible + gated). The mode picker keeps its underlying value (the
+    // Loop Builder is no longer a mode); the header X / cancel button close it.
     document.body.classList.add('loop-active');
     const bar = document.getElementById('outputToolbar');
     sheet.style.top = bar ? Math.round(bar.getBoundingClientRect().bottom) + 'px' : '0px';
-    const ms = document.getElementById('modeSelect'); if (ms) ms.value = 'loop';
     sheet.hidden = false;
     lastThumbMode = null;   // force a fresh thumbnail build for this clip
     const init = () => { env.clip.step = 1; setClipMode(env.clip.trim.mode); setLoopStep(1); };
