@@ -4,6 +4,16 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🔁 v0.19.42 (Build 402) — 2026-07-21 — Loop detection: reliable frame capture + looser threshold + calibration log
+
+Follow-up to B401 (detection was reading every clip as "not a loop").
+
+- **Reliable frame capture.** The hidden detection `<video>` now primes its decoder (brief play/pause — a never-played video paints blank on the first `drawImage` on Blink, which made the first-frame grab black and every clip read as different) and waits for each seeked frame to actually present (`requestVideoFrameCallback`, with a timeout fallback).
+- **Looser threshold.** `LOOP_MATCH_THRESHOLD` 10 → 28 (loops sliced between frames aren't pixel-identical). Abstains (keeps the default) if both frames read black.
+- **Temporary calibration log.** Logs `[loop-detect] meanDiff=… lumFirst=… lumLast=… → LOOP/linear` to the console so the threshold can be dialed in on real clips. The log and the constant come out once calibrated.
+
+Verified: node --check, vite build. **Untested by Claude — reload a few loop + non-loop clips, read the console, report the numbers so the threshold can be set precisely.**
+
 ## 🔁 v0.19.41 (Build 401) — 2026-07-21 — Loop detection + open-into-motion routing (no more forced Loop Builder on load)
 
 Movement 2 (D1) of the Flows/Guardrails/Tiling arc. **Desktop/iPad path; mobile load flow unchanged for now.**

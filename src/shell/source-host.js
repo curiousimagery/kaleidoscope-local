@@ -102,12 +102,15 @@ export function createSourceHost(env) {
   // opts.srcUrl: play from this URL instead of an object URL of `file` — the
   // native-transcode retry path (the ORIGINAL file stays the package's
   // originalSource; the transcoded temp movie is just what the engine plays).
-  // A clip "reads as a loop" when its first and last frames are nearly identical (Daniel's
-  // heuristic). Decode both on a throwaway hidden <video> and compare a 32×32 downscale;
-  // below the match threshold we call it a loop. Returns true/false, or null if detection
-  // could not run (the caller keeps the current default). THRESHOLD is a per-channel mean
-  // absolute difference (0..255) and wants real-clip calibration.
-  const LOOP_MATCH_THRESHOLD = 10;
+  // A clip "reads as a loop" when its first and last frames are nearly identical. Loops built
+  // by slicing between frames are NOT pixel-identical, so we compare a 32×32 downscale and
+  // allow a tolerance (LOOP_MATCH_THRESHOLD = a per-channel mean abs difference, 0..255).
+  // Decode on a throwaway hidden <video>: PRIME the decoder first (a never-played video paints
+  // blank on the first drawImage on Blink → every clip would read black-vs-real = "not a loop")
+  // and wait for each seeked frame to actually PRESENT (requestVideoFrameCallback). Returns
+  // true/false, or null if the capture looked unreliable (caller keeps the current default).
+  // Logs the numbers to the console so the threshold can be calibrated on real clips.
+  const LOOP_MATCH_THRESHOLD = 28;   // TEMP diagnostic log below — remove both once calibrated
   async function detectLoopFromFrames(srcUrl, inT, outT) {
     const dv = document.createElement('video');
     dv.muted = true; dv.playsInline = true; dv.preload = 'auto';
@@ -115,6 +118,12 @@ export function createSourceHost(env) {
     dv.style.cssText = 'position:absolute;left:0;top:0;width:1px;height:1px;opacity:0;pointer-events:none';
     dv.src = srcUrl;
     document.body.appendChild(dv);
+    // resolve on the next PRESENTED frame (rVFC is exact; a timeout is the fallback)
+    const nextFrame = () => new Promise((res) => {
+      let done = false;
+      if (dv.requestVideoFrameCallback) dv.requestVideoFrameCallback(() => { done = true; res(); });
+      setTimeout(() => { if (!done) res(); }, dv.requestVideoFrameCallback ? 150 : 90);
+    });
     try {
       await new Promise((res, rej) => {
         const to = setTimeout(() => rej(new Error('timeout')), 5000);
@@ -123,20 +132,26 @@ export function createSourceHost(env) {
       });
       const dur = (isFinite(dv.duration) && dv.duration) ? dv.duration : 0;
       if (!dur) return null;
+      try { await dv.play(); await nextFrame(); dv.pause(); } catch { /* muted autoplay is usually allowed */ }
       const cvs = document.createElement('canvas'); cvs.width = 32; cvs.height = 32;
       const ctx = cvs.getContext('2d', { willReadFrequently: true });
       const grab = async (sec) => {
         await seekVideoTo(dv, Math.max(0, Math.min(dur - 0.01, sec)));
+        await nextFrame();                     // wait for the seeked frame to actually present
         ctx.drawImage(dv, 0, 0, 32, 32);
         return ctx.getImageData(0, 0, 32, 32).data;
       };
       const first = await grab(inT * dur + 0.03);
       const last = await grab(outT * dur - 0.05);
+      const lum = (d) => { let s = 0; for (let i = 0; i < d.length; i += 4) s += d[i] + d[i + 1] + d[i + 2]; return s / (d.length / 4 * 3); };
       let sum = 0;
       for (let i = 0; i < first.length; i += 4) {
         sum += Math.abs(first[i] - last[i]) + Math.abs(first[i + 1] - last[i + 1]) + Math.abs(first[i + 2] - last[i + 2]);
       }
-      return (sum / (first.length / 4 * 3)) < LOOP_MATCH_THRESHOLD;
+      const meanDiff = sum / (first.length / 4 * 3), lumF = lum(first), lumL = lum(last);
+      console.log(`[loop-detect] meanDiff=${meanDiff.toFixed(1)} (threshold ${LOOP_MATCH_THRESHOLD}) lumFirst=${lumF.toFixed(1)} lumLast=${lumL.toFixed(1)} → ${meanDiff < LOOP_MATCH_THRESHOLD ? 'LOOP' : 'linear'}`);
+      if (lumF < 2 && lumL < 2) return null;   // both frames black → capture unreliable, abstain
+      return meanDiff < LOOP_MATCH_THRESHOLD;
     } catch { return null; }
     finally { try { dv.pause(); } catch { /* ignore */ } dv.removeAttribute('src'); try { dv.load(); } catch { /* ignore */ } dv.remove(); }
   }
