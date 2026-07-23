@@ -4,6 +4,13 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🔧 v0.19.50 (Build 410) — 2026-07-23 — Two hardening fixes: iPhone record audio + motion opens at 16:9
+
+- **iPhone record-video was saving SILENT takes — likely root cause fixed (native, needs cap:sync + device test).** The native camera runs a video-only `AVCaptureSession`; by default it auto-configures the app's shared `AVAudioSession`, which stomps the audio session WebKit set up for the record path's `getUserMedia` mic track — so the muxed take had no audio. Set `session.automaticallyConfiguresApplicationAudioSession = false` (the session has no audio input, so it has no reason to touch the audio session). Added a JS diagnostic at record start (`[fold] record mic: …enabled/muted/state` or `NONE`) so if a take is still silent we can tell track-absent vs muted vs encoder in one device read. **Ships to the phone only after `npm run cap:sync` + an Xcode rebuild.**
+- **Motion now opens directly at 16:9 (no square-first transition).** B409 hid the preview across the reshape, but the reveal fired before the 16:9 render actually painted, so the stale pre-reshape (source/square) frame showed for a beat. Now the 16:9 frame is rendered SYNCHRONOUSLY (`engine.render(state)`) before revealing, so the first motion frame the user sees is already 16:9 landscape.
+
+Verified: node --check, vite build. **Untested by Claude — device: (1) an iPhone record-video take now has audio (check the `[fold] record mic:` line if not); (2) entering motion shows 16:9 immediately, no square-then-landscape.**
+
 ## 🎛 v0.19.49 (Build 409) — 2026-07-22 — Aspect flicker fix + radial wedge refinement (M3 opening)
 
 First hands-on pass of Movement 3 (guardrails), plus the aspect nit.

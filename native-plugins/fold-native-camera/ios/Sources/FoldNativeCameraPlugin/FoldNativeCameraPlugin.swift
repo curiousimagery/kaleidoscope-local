@@ -524,6 +524,13 @@ public class FoldNativeCameraPlugin: CAPPlugin, CAPBridgedPlugin, AVCaptureVideo
             }
         }
 
+        // Don't let the VIDEO capture session reconfigure the app's shared AVAudioSession.
+        // record-video's audio comes from WKWebView's getUserMedia (the JS mic track), which
+        // owns the audio session; the capture session's automatic audio-session management was
+        // stomping it, so takes came back SILENT. This session has no audio input, so it has no
+        // reason to touch the audio session. (iOS WKWebView + AVCaptureSession coexistence.)
+        session.automaticallyConfiguresApplicationAudioSession = false
+
         session.beginConfiguration()
 
         for input in session.inputs { session.removeInput(input) }

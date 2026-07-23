@@ -1421,9 +1421,13 @@ function toggleMotionMode() {
     env.sourceOverlay.render();
     renderRuler();                       // footer is visible now → the ruler has a real width
     if (env.motionRT.active && env.sourceVideo) scrubVideo(motion.playhead);   // show the playhead frame
-    // reveal one frame later, once the 16:9 preview has actually painted (avoids
-    // unhiding onto a half-laid-out frame).
-    if (aspectWillChange) requestAnimationFrame(() => document.body.classList.remove('motion-aspect-settling'));
+    if (aspectWillChange) {
+      // paint the 16:9 frame SYNCHRONOUSLY now (resizePreviewCanvas only schedules a
+      // render, so revealing on the next frame could unhide onto the stale pre-reshape
+      // frame — the "square first" Daniel saw). Then reveal a frame later, on the 16:9 paint.
+      if (engine && engine.getSourceImage()) engine.render(state);
+      requestAnimationFrame(() => document.body.classList.remove('motion-aspect-settling'));
+    }
   });
 }
 

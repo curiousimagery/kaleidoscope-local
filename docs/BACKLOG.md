@@ -99,6 +99,7 @@ Output-live always a PiP on mobile. Core: record video with the live camera + AU
 
 ### Live record-to-disk — open tail
 Long-render memory → OPFS streaming (under Export & rendering) now applies to live takes too (the mp4 assembles in memory).
+- **[HIGH · candidate fix shipped, needs device verify] iPhone record-video takes were SILENT (Daniel, 2026-07-23).** Root cause (most likely): the native video-only `AVCaptureSession` auto-configures the app `AVAudioSession`, stomping WebKit's getUserMedia mic session so the muxed take has no audio. B410 sets `automaticallyConfiguresApplicationAudioSession = false` in `FoldNativeCameraPlugin.swift` + adds a `[fold] record mic:` JS diagnostic. Needs `cap:sync` + device test to confirm; if still silent, the diagnostic line localizes track-absent vs muted vs encoder (iPad record + mic was already confirmed, so this is iPhone-specific).
 
 ---
 

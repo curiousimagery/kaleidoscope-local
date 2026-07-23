@@ -792,6 +792,10 @@ async function startRecording() {
     micStream = camMic ? new MediaStream([camMic.clone()]) : await navigator.mediaDevices.getUserMedia({ audio: true });
     for (const t of micStream.getAudioTracks()) stream.addTrack(t);
   } catch { micStream = null; }
+  // diag: pin down silent-take reports (track ABSENT vs present-but-muted vs encoder).
+  // paired with the native AVAudioSession coexistence fix — read this on device.
+  { const at = micStream?.getAudioTracks?.()[0];
+    console.info('[fold] record mic:', at ? `label="${at.label}" enabled=${at.enabled} muted=${at.muted} state=${at.readyState}` : 'NONE (take will be silent)'); }
   const mime = ['video/mp4;codecs=avc1', 'video/mp4', 'video/webm;codecs=vp9', 'video/webm']
     .find((m) => window.MediaRecorder?.isTypeSupported?.(m)) || '';
 
