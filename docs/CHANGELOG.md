@@ -4,6 +4,32 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🔒 v0.19.60 (Build 420) — 2026-07-23 — M3 lock model correction (Daniel's iPad/desktop review)
+
+Fixed the lock *defaults* to match the plan — the previous "locked in motion, flat" model was wrong in several ways Daniel caught. `lockState` is now keyframe- and output-aware:
+
+- **Structural controls** (segments, spiral, mirror, wedge-mirror, out-of-bounds, form, frame-aspect) lock only when in a **motion authoring context with ≥1 manual keyframe** (`keyframeCount ≥ 2`, matching `canEditDiscrete`) OR when **output is live** (broadcast/record), in ANY mode. So they're UNLOCKED in still, in motion before your first manual keyframe, and in idle perform — you can set up defaults freely. Unlock (with warning) applies everywhere.
+- **The gesture now honors the lock:** `canEditDiscrete` is redefined as `!isLocked('segments')`, and `isLocked` is passed into the source-overlay ctx (it was missing, so the segment-spoke drag silently ignored the lock — the "setting locked but manipulation still active" bug). The offset diamond honors `isLocked('drosteOffset')` for the same reason.
+- **Perform + broadcast:** structural controls now lock while broadcasting/recording (`env.syncLocks` fires on output start/stop) — form, segments, etc. were freely changeable mid-broadcast.
+- **Aspect ↔ OOB consistency:** frame-aspect is now structural like OOB (locks after a manual keyframe; hard-locked, non-unlockable while output is live since it's encoder-tied). Resolution stays a broadcast-only contextual lock. Contextual locks now DISABLE the control, not just badge it.
+- **Center offset** default is now UNLOCKED (fat-finger opt-in; it doesn't seam) — the padlock's there to lock it if you want.
+
+Still open from the review (next): a locked control should show its why-tooltip on tap (not appear tap-to-unlock); segments row shows for non-segment forms + scrubs while disabled (pre-existing); window.confirm → shared interrupt; offset diamond visual.
+
+Verified: node --check, vite build. **Untested by Claude — re-run the VERIFY-QUEUE lock checklist; the keyframe-gated + broadcast-gated behavior is the big change.**
+
+## 🔒 v0.19.59 (Build 419) — 2026-07-23 — M3 lock system: form-picker overlay + contextual re-skin (pass COMPLETE)
+
+The last two pieces — the lock pass is now end-to-end and ready for review.
+
+- **Form-picker lock overlay.** Replaced the old blanket `body.motion` dimming (which hard-blocked the form grid + segments/mirror/wedge/oob in motion) with the per-control locks as the single authority — so unlocking a control now actually re-enables it. The form picker locks as a whole: a padlock overlays the thumbs (`.form-locked` + `.form-lock-overlay`), and UNLOCKING **warns** first (`window.confirm` — switching form mid-animation restructures everything and applies to every keyframe). Default locked in motion, no lock in still.
+- **Contextual re-skin.** The resolution and frame-aspect controls now show the SAME padlock (non-clickable) when the context locks them — resolution while broadcasting, aspect while broadcasting or during playback. `env.isOutputLive()` exposed from the output panel; `env.syncLocks()` fires on output start/stop and motion play/pause so the padlock appears/clears with the context.
+- Added a `confirmUnlock` hook to `makeLockToggle` (the form uses it).
+
+Interim notes for review: the unlock warning is a plain `window.confirm` (should migrate to the shared destructive-interrupt pattern, which also serves the pending source-swap dialog); the on-canvas offset diamond has no locked visual yet (functional lock is in).
+
+Verified: node --check, vite build. **Ready for Daniel's full review — see the consolidated checklist in VERIFY-QUEUE.**
+
 ## 🔒 v0.19.58 (Build 418) — 2026-07-23 — M3 lock system: droste center-offset lock + autoplay opt-in (part 5)
 
 - **Center-offset lock** (the fat-finger case; the offset does NOT seam). The offset is a canvas gesture (the diamond) with no slider, so a Droste-only "center offset" row now carries its padlock + its autoplay toggle. Locking is enforced in the overlay — a locked diamond is inert (`env.isLocked('drosteOffset')`). Lockable in both modes (default unlocked in still, locked in motion), per the matrix.

@@ -17,46 +17,56 @@
 
 import { ICONS } from '../mobile/icons.js';
 
-// Toggleable lock defaults per mode. `still: null` = not lockable in still (freely editable
-// there — the change is harmless off the timeline); a boolean = lockable, with that default
-// state. Everything is lockable + locked-by-default in motion.
-export const TOGGLEABLE_LOCKS = {
-  segments:     { still: false, motion: true },   // fat-finger (still, once tuned) + structural (motion)
-  drosteOffset: { still: false, motion: true },   // fat-finger only — does NOT seam
-  spiral:       { still: null,  motion: true },   // structural: seams if animated, applies everywhere
-  mirror:       { still: null,  motion: true },
-  wedgeMirror:  { still: null,  motion: true },
-  oobMode:      { still: null,  motion: true },
-  form:         { still: null,  motion: true },   // most disruptive — restructures the whole animation
-};
+// STRUCTURAL controls apply to the whole animation (they're pinned to keyframe 0 / are global
+// output framing), so they lock in a MOTION authoring context once there's ≥1 manual keyframe
+// (keyframeCount ≥ 2, matching canEditDiscrete) OR whenever output is live — in ANY mode. They
+// are UNLOCKED in still, in motion before the first manual keyframe, and in idle perform, so
+// setting up defaults stays friction-free. Unlock (with a warning) applies the change everywhere.
+const STRUCTURAL = new Set(['segments', 'spiral', 'mirror', 'wedgeMirror', 'oobMode', 'form', 'frameAspect']);
+// These can't change while output is LIVE (they're tied to the encoder's dimensions), so during
+// broadcast/record they're a contextual lock — not user-unlockable (stop output to change).
+const ENCODER_TIED = new Set(['frameAspect']);
 
 const WHY = {
   structural: 'locked — this applies to the whole animation. unlock to change it across every keyframe.',
   offset:     'locked — easy to nudge by accident. unlock to adjust.',
-  resolution: 'locked while broadcasting. stop the broadcast to change resolution.',
-  aspect:     'locked during playback. pause to change the canvas aspect.',
+  resolution: 'locked while broadcasting. stop the output to change resolution.',
+  aspect:     'locked while broadcasting. stop the output to change the frame aspect.',
 };
-
-function toggleableWhy(key) {
-  return key === 'drosteOffset' ? WHY.offset : WHY.structural;
-}
+function toggleableWhy(key) { return key === 'drosteOffset' ? WHY.offset : WHY.structural; }
 
 // The current lock state of a control.
-//   ctx = { session, motionActive, playing, broadcasting }
-//   returns { locked, lockable, unlockable, why }. `lockable:false` = the padlock should be
-//   HIDDEN here (the control isn't lockable in this mode — e.g. spiral/oob in still).
+//   ctx = { session, motionActive, keyframeCount, outputLive }
+//   returns { locked, lockable, unlockable, why }. `lockable:false` = padlock HIDDEN (the
+//   control is freely editable in this context — keep the surface clean).
 export function lockState(ctx, key) {
-  // contextual auto-locks first (can't be toggled — clear the context instead)
-  if (key === 'outputRes' && ctx.broadcasting) return { locked: true, lockable: true, unlockable: false, why: WHY.resolution };
-  if (key === 'frameAspect' && ctx.playing)    return { locked: true, lockable: true, unlockable: false, why: WHY.aspect };
+  const { session, motionActive, keyframeCount = 0, outputLive = false } = ctx;
 
-  const def = TOGGLEABLE_LOCKS[key];
-  if (!def) return { locked: false, lockable: false };
-  const modeDefault = ctx.motionActive ? def.motion : def.still;
-  if (modeDefault === null) return { locked: false, lockable: false };   // not lockable in this mode → hide padlock
-  const override = ctx.session.locks && ctx.session.locks[key];
-  const locked = override !== undefined ? override : modeDefault;
-  return { locked, lockable: true, unlockable: true, why: locked ? toggleableWhy(key) : 'unlocked — click to lock' };
+  // resolution: only ever a broadcast-contextual lock (not structural, not user-unlockable)
+  if (key === 'outputRes') {
+    return outputLive ? { locked: true, lockable: true, unlockable: false, why: WHY.resolution }
+                      : { locked: false, lockable: false };
+  }
+
+  if (STRUCTURAL.has(key)) {
+    const motionLock = motionActive && keyframeCount >= 2;   // after the first MANUAL keyframe
+    if (!(motionLock || outputLive)) return { locked: false, lockable: false };   // editable → no padlock
+    if (ENCODER_TIED.has(key) && outputLive) {
+      return { locked: true, lockable: true, unlockable: false, why: WHY.aspect };   // hard-locked during output
+    }
+    const override = session.locks && session.locks[key];
+    const locked = override !== undefined ? override : true;   // default locked in the locking context
+    return { locked, lockable: true, unlockable: true, why: locked ? toggleableWhy(key) : 'unlocked — click to lock' };
+  }
+
+  // center offset: fat-finger opt-in (does NOT seam) — always available in Droste, default UNLOCKED.
+  if (key === 'drosteOffset') {
+    const override = session.locks && session.locks[key];
+    const locked = override !== undefined ? override : false;
+    return { locked, lockable: true, unlockable: true, why: locked ? WHY.offset : 'unlocked — click to lock' };
+  }
+
+  return { locked: false, lockable: false };
 }
 
 // Flip a toggleable lock for the session (writes the explicit override).
@@ -72,7 +82,7 @@ export const LOCK_ICON = { locked: ICONS.lock, unlocked: ICONS.lockOpen };
 // Build a padlock toggle button bound to `key`. Reads env.isLocked(key), renders the right
 // glyph + state class + tooltip, and on click flips the lock (only when unlockable) then
 // calls onChange so the host can re-sync the affected control's disabled state.
-export function makeLockToggle(env, key, onChange) {
+export function makeLockToggle(env, key, onChange, confirmUnlock) {
   const btn = document.createElement('button');
   btn.className = 'lock-toggle';
   btn.dataset.lockKey = key;
@@ -90,6 +100,7 @@ export function makeLockToggle(env, key, onChange) {
   btn.addEventListener('click', () => {
     const st = env.isLocked ? env.isLocked(key) : { locked: false };
     if (!st.unlockable) return;                 // contextual — no-op
+    if (st.locked && confirmUnlock && !confirmUnlock()) return;   // unlocking a disruptive control → confirm first
     env.setLock?.(key, !st.locked);
     sync();
     onChange && onChange();

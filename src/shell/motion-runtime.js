@@ -333,6 +333,7 @@ function haltPlayback() {
   motion.playing = false;
   if (env.motionRT.raf) { cancelAnimationFrame(env.motionRT.raf); env.motionRT.raf = 0; }
   if (env.sourceVideo) { try { env.sourceVideo.pause(); } catch { /* ignore */ } }
+  env.syncLocks?.();   // playing → paused: clear the aspect contextual padlock
 }
 function startPlayback() {
   if (motion.playing || kfList().length < (env.sourceVideo ? 1 : 2)) return;   // video: 1 kf is playable (footage moves)

@@ -1176,15 +1176,21 @@ button .btn-spinner {
   .mf-right .mf-btn { width: 32px; height: 32px; }
 }
 
-/* motion mode pins discrete fields to keyframe 0: hide the form picker and
-   dim/disable the controls that can't be animated. a CSS class is used (not
-   inline styles) so it doesn't fight applyFormControls' per-form display toggles
-   — opacity/pointer-events are orthogonal to display. */
-body.motion .form-grid { pointer-events: none; opacity: var(--disabled-opacity); }   /* disabled like the other multi-keyframe-scoped settings, not hidden */
-body.motion #segmentsLabel,
-body.motion #mirrorLabel,
-body.motion #wedgeMirrorLabel,
-body.motion #oobModes { pointer-events: none; opacity: var(--disabled-opacity); }
+/* motion mode pins discrete fields to keyframe 0. Each such control now carries its OWN lock
+   (shell/locks.js) which dims + disables it when locked (default locked in motion) — so the
+   old blanket `body.motion` dimming is gone; the per-control padlock is the single authority
+   (that's what lets unlocking actually re-enable a control). The form picker locks as a whole
+   via `.form-locked` + a padlock overlay (form is one logical control). */
+.form-grid { position: relative; }
+.form-grid.form-locked { pointer-events: none; }
+.form-lock-overlay {
+  position: absolute; inset: 0; display: none; z-index: 2;
+  align-items: center; justify-content: center;
+  background: rgba(10, 10, 10, 0.55); border-radius: var(--radius-sm);
+}
+.form-grid.form-locked .form-lock-overlay { display: flex; }
+.form-lock-overlay .lock-toggle { width: 28px; height: 28px; color: var(--text-bright); }
+.form-lock-overlay .lock-toggle svg { width: 18px; height: 18px; }
 
 /* video export sheet */
 .vid-sheet {

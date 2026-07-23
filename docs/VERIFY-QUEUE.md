@@ -8,6 +8,15 @@ Legend: 🖥️ desktop browser · 📺 external display / AirPlay (workstation)
 
 - **📱 Mobile width regression — ✅ CONFIRMED FIXED by Daniel (B411).** (Left here as a record; can drop next edit. iPhone fills 100% width, no horizontal scroll.)
 - (Deferred to BACKLOG, no longer verify-queue items: iPhone record AUDIO + the capture bitrate/perf failures → "Video capture hardening session"; motion 16:9 square-first → polish item.)
+- **🖥️ M3 LOCK PASS — full review (B414–B419).** Review across `/lab.html` (Composites → the padlock states + the icon inventory) and the running app:
+  1. **Still (Droste):** segments + center-offset rows show a padlock (default UNLOCKED); spiral / mirror / wedge-mirror / out-of-bounds show NO padlock (freely editable). Form picker editable, no overlay.
+  2. **Motion (Droste):** every one of the above shows a LOCKED padlock; each control is dimmed/disabled while locked; click a padlock → the control + its on-canvas gesture re-enable. Form picker shows the padlock OVERLAY over the thumbs; clicking it warns before unlocking.
+  3. **Gestures:** locked segments → dragging a radial spoke scales instead of changing count; locked droste-arms drag is inert; locked center-offset diamond won't drag.
+  4. **Autoplay (perform, Droste):** spiral + center offset hold steady; the offset row's "hold/autoplay" toggle switches whether the pole wanders (separate from the lock).
+  5. **Structural:** a Droste animation no longer tweens the spiral (held to kf0).
+  6. **Contextual:** start broadcasting → the resolution padlock appears (non-clickable, "stop to change"); play a motion clip → the frame-aspect padlock appears; stop/pause → they clear.
+  7. **Copy + glyph:** tooltips read right; the padlock shape/states feel right (net-new to the design system).
+  - Interim to refine: unlock warning is a bare `window.confirm`; offset diamond has no on-canvas locked visual.
 - **🖥️📱 Radial wedge segment drag — direction + targets (B409).** (1) Grab either spoke and pull it AWAY from the wedge's middle → the wedge gets fatter (fewer segments); pull toward the middle → skinnier (more segments). Both spokes should feel the same; no inversion. (2) The segment-grab band is tighter now (mouse 20→12, touch 32→20) — confirm you can still grab a spoke intentionally on touch, but accidental segment changes while scaling/rotating are reduced. iPad + iPhone especially.
 - **🖥️📱 Droste zoom does NOT seam when animated (Daniel's re-check).** Daniel's earlier "zoom seams" was likely mis-attributed to spiral. Build a Droste animation with different `drosteZoom` values across keyframes and confirm the tween stays seamless (no tier-thickness seam). If confirmed, drosteZoom stays freely animatable (no gate); if it does seam, it joins spiral as non-animatable. Settles the last open parameter in the M3 model.
 - **🖥️ Desktop layout reads well down to ~600px (B408).** With the floor lowered 700 → 600, drag the desktop window toward 600px and confirm the split layout still looks right (panels tight but usable) before the horizontal scrollbar kicks in. (Folds into the B407 check below.)

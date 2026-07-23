@@ -215,8 +215,8 @@ createProgramFrame(env);
 env.isLocked = (key) => lockState({
   session,
   motionActive: env.motionRT.active,
-  playing: motion.playing,
-  broadcasting: env.isOutputLive ? env.isOutputLive() : false,
+  keyframeCount: motion.keyframes.length,   // ≥2 = at least one MANUAL keyframe past the seed
+  outputLive: env.isOutputLive ? env.isOutputLive() : false,
 }, key);
 env.setLock = (key, locked) => {
   setLock(session, key, locked);
@@ -285,10 +285,12 @@ const sourceOverlay = createSourceOverlay({
   scheduleRender,
   onCommitStart: () => env.pushHistory(),
   onCommitEnd: () => env.updateUndoUI?.(),
-  // discrete edits (segment-spoke drag, droste-arms drag) are blocked once motion
-  // mode has TWO keyframes (discrete is pinned to keyframe 0 from then on); with a
-  // single seeded keyframe they stay editable to set up the starting look.
-  canEditDiscrete: () => !(env.motionRT.active && motion.keyframes.length >= 2),
+  // discrete edits (segment-spoke drag, droste-arms drag) follow the SEGMENTS lock — which
+  // encodes the keyframe rule (locks at ≥2 keyframes), output-live, and any manual override.
+  // So the on-canvas gesture and the padlock always agree (fixes: locked setting but live gesture).
+  canEditDiscrete: () => !env.isLocked('segments').locked,
+  // per-control lock lookup for the overlay's own gesture checks (e.g. the offset diamond)
+  isLocked: (key) => env.isLocked(key),
   // hide the touch affordance arrows during playback/scrub (they're not useful while
   // the animation runs).
   hideAffordances: () => env.motionRT.active && (motion.playing || env.motionRT.scrubbing),
@@ -665,6 +667,33 @@ function wireLocks() {
     const sync = () => { btn.sync(); spec.disable(env.isLocked(t.key).locked); };
     syncers.push(sync);
   }
+
+  // FORM picker — a whole-picker lock (form is one logical control). Locked by default in
+  // motion; a padlock overlays the thumbs, and UNLOCKING warns (switching form mid-animation
+  // restructures everything and applies to every keyframe). Replaces the old body.motion block.
+  const formGrid = byId('formGrid');
+  if (formGrid) {
+    const overlay = document.createElement('div');
+    overlay.className = 'form-lock-overlay';
+    const pad = makeLockToggle(env, 'form', null,
+      () => window.confirm('switch form? this restructures the whole animation and applies to every keyframe.'));
+    overlay.appendChild(pad);
+    formGrid.appendChild(overlay);
+    syncers.push(() => { pad.sync(); formGrid.classList.toggle('form-locked', env.isLocked('form').locked); });
+  }
+
+  // CONTEXTUAL locks (resolution while broadcasting, aspect while broadcasting/playing) — the
+  // SAME padlock, not clickable; it appears only when the context is active and clears when it
+  // ends. Hosted on each control's field-label.
+  for (const [key, ctrlId] of [['outputRes', 'outputResTiers'], ['frameAspect', 'frameAspect']]) {
+    const ctrl = byId(ctrlId), host = ctrl && ctrl.previousElementSibling;
+    if (!host || host.querySelector?.('.lock-toggle')) continue;
+    host.classList.add('has-lock');
+    const btn = makeLockToggle(env, key, null);   // contextual → makeLockToggle renders it non-clickable
+    host.appendChild(btn);
+    syncers.push(() => { btn.sync(); ctrl.classList.toggle('lock-dimmed', env.isLocked(key).locked); });
+  }
+
   env.syncLocks = () => syncers.forEach((s) => s());
   env.syncLocks();
 

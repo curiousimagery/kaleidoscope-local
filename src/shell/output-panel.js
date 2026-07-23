@@ -207,6 +207,10 @@ export function createOutputPanel(env, outputBus) {
   }
 
   // ---- bus lifecycle: run while recording OR a bus-consuming destination is live --
+  // is the program output live (broadcasting or recording)? drives the M3 contextual locks
+  // on resolution + aspect (they can't change while output is live).
+  env.isOutputLive = () => broadcasting || wantRecord;
+
   function syncBusRunning() {
     // the output-window destination self-renders (needsBus:false), so a window-only
     // session never starts the bus's read-back loop. Recording or Syphon do need it.
@@ -214,6 +218,7 @@ export function createOutputPanel(env, outputBus) {
     const need = wantRecord || destNeedsBus;
     if (need && !outputBus.running) outputBus.start();
     else if (!need && outputBus.running) outputBus.stop();
+    env.syncLocks?.();   // output-live changed → refresh the resolution/aspect contextual padlocks
   }
 
   function hasSource() { return !!(env.engine && env.engine.getSourceImage()); }
