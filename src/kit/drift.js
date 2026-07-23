@@ -40,6 +40,9 @@ const AUTO_BOUNDS = {   // guardrails: destinations never leave these (rotation 
 // anchored to their autoplay-start home; the slice is the show, the canvas is
 // the frame.
 const AUTO_TEMPER = { canvasZoom: 0.3, canvasRotation: 0.25 };
+// Droste params that seam or misbehave when auto-wandered, so autoplay skips them by
+// default (drosteZoom is NOT here — it tweens seamlessly and carries the infinite-zoom look).
+const AUTOPLAY_EXCLUDED = new Set(['drosteSpiral', 'drosteOffsetX', 'drosteOffsetY']);
 
 export function createAutoDrift({ state, session }) {
   let f = {};
@@ -47,6 +50,11 @@ export function createAutoDrift({ state, session }) {
 
   function fields() {
     return CONTINUOUS_KEYS.filter((k) => {
+      // Seam-prone / finicky Droste params never auto-wander (Daniel, M3): the SPIRAL
+      // seams when it changes, and the CENTER OFFSET breaks the tiling + is easy to nudge.
+      // This is "exclude from autoplay" (distinct from the gesture LOCK) — default excluded;
+      // a per-key include override (session.autoplayInclude) lands with the lock/toggle UI.
+      if (AUTOPLAY_EXCLUDED.has(k) && !session.autoplayInclude?.[k]) return false;
       if (k.startsWith('droste')) return state.form === 'droste';
       if (k === 'squareAspect') return state.form === 'square';
       return true;

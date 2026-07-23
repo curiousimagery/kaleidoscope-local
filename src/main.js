@@ -13,6 +13,7 @@
 // into each other for globals.
 
 import { state, session, motion } from './shell/state.js';
+import { lockState, setLock } from './shell/locks.js';
 import { createEngine } from './engine/index.js';
 import { createSourceOverlay } from './components/source-overlay.js';
 import { createOutputGestures } from './components/output-gestures.js';
@@ -206,6 +207,22 @@ const env = {
 // output consumer reads (defines env.programFrame / env.commitFrame /
 // env.programState; see shell/program-frame.js for the commit discipline)
 createProgramFrame(env);
+
+// ---- per-control locks (M3 guardrails, shell/locks.js) ---------------------
+// isLocked(key) → { locked, unlockable, why }. Reads the current mode + context. The
+// `broadcasting` signal (for the resolution/aspect contextual locks) is wired later by the
+// output panel via env.isOutputLive; until then it resolves false (toggleable locks work now).
+env.isLocked = (key) => lockState({
+  session,
+  motionActive: env.motionRT.active,
+  playing: motion.playing,
+  broadcasting: env.isOutputLive ? env.isOutputLive() : false,
+}, key);
+env.setLock = (key, locked) => {
+  setLock(session, key, locked);
+  env.syncControls?.();          // re-sync affected control disabled-states + lock glyphs
+  env.scheduleOverlayDraw?.();   // gesture locks (segments / offset) change the overlay feel
+};
 
 // ============================================================================
 // rendering scheduler

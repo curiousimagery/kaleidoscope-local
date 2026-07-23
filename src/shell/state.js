@@ -80,6 +80,12 @@ export const session = {
   hdmiFill: false,    // external display (HDMI): false = fit the canvas frame aspect
                       // (WYSIWYG with recording/save, letterboxed), true = fill the
                       // display edge-to-edge at its native aspect (installation mode).
+  locks: {},          // M3 per-control lock overrides (see shell/locks.js). Keyed by logical
+                      // control ('segments','drosteOffset','spiral','mirror','wedgeMirror',
+                      // 'oobMode','form'); session-ephemeral. Empty = each control uses its
+                      // per-mode default. Flat map so it can lift to persisted prefs later.
+  autoplayInclude: {},// M3: per-key opt-IN to autoplay for the auto-excluded params (drosteOffsetX/Y,
+                      // drosteSpiral). Separate from the lock (Daniel). Empty = defaults (excluded).
 };
 
 // motion-mode authoring data (Phase 3 — multi-keyframe still-animation;

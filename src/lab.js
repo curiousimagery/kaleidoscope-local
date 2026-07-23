@@ -25,6 +25,7 @@ import { rotateCursorForAngle, scaleCursorForAngle } from './shell/cursors.js';
 import { afScaleArrow, afRotationArc } from './shell/overlay.js';
 import { discoverTokens, groupTokens } from './lab-tokens.js';
 import { SAVE_TOAST_CSS } from './shell/save-flow.js';
+import { LOCK_ICON } from './shell/locks.js';
 
 const root = getComputedStyle(document.documentElement);
 const val = (name) => root.getPropertyValue(name).trim();
@@ -713,6 +714,19 @@ function compositesSection() {
     loopStep('4', 'crossfade', ''),
     loopStep('5', 'preview & bake', 'disabled'),
   ]);
+  // Per-control LOCK (M3) — the net-new padlock affordance, from the REAL .lock-toggle
+  // classes + LOCK_ICON glyphs. Two behaviors under one visual: toggleable (unlocked ↔
+  // locked, click to flip) and contextual (auto, not clickable). Shown standalone + in a row.
+  const lockBtn = (kind) => {
+    const cls = 'lock-toggle' + (kind === 'unlocked' ? '' : kind === 'contextual' ? ' locked contextual' : ' locked');
+    const b = el('button', { class: cls, title: kind, html: kind === 'unlocked' ? LOCK_ICON.unlocked : LOCK_ICON.locked });
+    if (kind === 'contextual') b.disabled = true;
+    return b;
+  };
+  const lockRow = (locked) => el('div', { class: 'row has-lock' + (locked ? ' locked-row' : '') }, [
+    el('span', { text: 'segments' }), el('span', { class: 'val', text: '12' }), lockBtn(locked ? 'locked' : 'unlocked'),
+  ]);
+  const lockRowsBox = el('div', { class: 'panel-popover', style: 'position:static;display:block;width:220px;padding:10px 12px' }, [lockRow(false), lockRow(true)]);
   return section('composites', 'Composites', 'Higher-order assemblies. Keyframe markers shown across their states (auto/hollow-pin · anchored/filled-pin · selected/amber · ghost), the clip-editor range (amber trim region + handles + the blue slice-point + white playhead), and the modals. The desktop modal is shown with its FULL treatment — the .vid-sheet backdrop (dim rgba(10,10,10,0.6) + blur(3px)) over faux content, the centered .vid-card (radius 10, border, no drop-shadow — it relies on the backdrop for separation). Mobile differs: a bottom-ish centered .m-sheet-panel (radius 16, grip handle, lighter dim .5). This desktop↔mobile modal divergence (corner radius, backdrop, shadow approach) is a consolidation candidate. The Loop Builder interstitial (D2) is a THIRD modal treatment — a fullscreen surface (app bar hidden) with its own header/close/step-rail chrome that shares none of the .vid-card or .m-sheet vocabulary; its .loop-close X and .loop-step numbered rail are net-new here, and the three-way modal divergence is itself a flag.', [
     el('h3', { class: 'lab-h3', text: 'Timeline · .mf-track + keyframe marker states + .mf-playhead' }),
     el('div', { class: 'lab-bar-wrap' }, [timeline]),
@@ -728,6 +742,13 @@ function compositesSection() {
       el('div', {}, [el('div', { class: 'lab-name', style: 'margin-bottom:8px', text: 'access · .ot-btn (reused, opens the surface)' }), loopAccessBtn]),
       el('div', {}, [el('div', { class: 'lab-name', style: 'margin-bottom:8px', text: '.loop-header · .loop-title + .loop-close (X hover live)' }), loopHeader]),
       el('div', {}, [el('div', { class: 'lab-name', style: 'margin-bottom:8px', text: '.loop-rail · .loop-step done/active/plain/disabled' }), loopRail]),
+    ]),
+    el('h3', { class: 'lab-h3', text: 'Per-control lock · .lock-toggle (M3 guardrails) — toggleable + contextual + locked row' }),
+    el('div', { class: 'lab-row', style: 'gap:24px;align-items:flex-end;flex-wrap:wrap' }, [
+      el('div', {}, [el('div', { class: 'lab-name', style: 'margin-bottom:6px', text: 'unlocked (hover)' }), lockBtn('unlocked')]),
+      el('div', {}, [el('div', { class: 'lab-name', style: 'margin-bottom:6px', text: '.locked' }), lockBtn('locked')]),
+      el('div', {}, [el('div', { class: 'lab-name', style: 'margin-bottom:6px', text: '.contextual (auto, not clickable)' }), lockBtn('contextual')]),
+      el('div', {}, [el('div', { class: 'lab-name', style: 'margin-bottom:6px', text: 'in .row.has-lock (unlocked / .locked-row)' }), lockRowsBox]),
     ]),
   ]);
 }

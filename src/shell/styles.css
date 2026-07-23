@@ -528,6 +528,25 @@ input[type="range"]:disabled::-webkit-slider-thumb { background: var(--c-neutral
 input[type="range"]:disabled::-moz-range-thumb { background: var(--c-neutral-550); cursor: not-allowed; }
 label.slider.disabled { opacity: var(--disabled-opacity); }
 
+/* per-control LOCK (M3, shell/locks.js): a small padlock at the right of a control row.
+   locked = full-strength glyph; unlocked = faint until hover; contextual (auto, not
+   clickable — e.g. resolution while broadcasting) = dim + default cursor. A locked row
+   dims its own control; the padlock stays legible. */
+.lock-toggle {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 22px; height: 22px; padding: 0; flex: 0 0 auto;
+  background: transparent; border: none; border-radius: var(--radius-sm);
+  color: var(--text-faint); cursor: pointer;
+}
+.lock-toggle svg { width: 15px; height: 15px; display: block; }
+.lock-toggle:hover:not(:disabled) { color: var(--text-bright); background: var(--surface-hover); }
+.lock-toggle.locked { color: var(--text-secondary); }
+.lock-toggle.contextual { color: var(--text-dim); cursor: default; }
+.lock-toggle[hidden] { display: none; }
+.row.has-lock { gap: 8px; }
+.row.has-lock .val { margin-left: auto; }               /* val + lock group right; label stays left */
+.row.locked-row .val { opacity: var(--disabled-opacity); }   /* dim the value while locked */
+
 /* coarse pointer (touch): the ONE token-driven touch-target style, shared by the
    desktop-touch surface AND the mobile chrome (mobile no longer overrides the slider
    height — it inherits these rules; see mobile/styles.css). Edit --touch-target once

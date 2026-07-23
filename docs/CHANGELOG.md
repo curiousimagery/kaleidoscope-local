@@ -4,6 +4,34 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🔒 v0.19.54 (Build 414) — 2026-07-23 — M3 lock system: foundation + padlock component (part 1 of the pass)
+
+First build of the per-control lock pass (Daniel reviews the whole thing when it's wired). Foundation only — no control is wired yet, so behavior is unchanged; the padlock is visible in the Lab.
+
+- **`shell/locks.js`** — the lock model. Two kinds under one padlock visual: TOGGLEABLE session locks (click to unlock; default per mode via `TOGGLEABLE_LOCKS` — segments/offset lockable in still + motion, spiral/mirror/wedgeMirror/oob/form lockable in motion only) and CONTEXTUAL auto-locks (resolution-while-broadcasting, aspect-while-playing; not clickable). `lockState(ctx, key)` returns `{ locked, unlockable, why }`; `makeLockToggle(env, key, onChange)` builds the padlock button; `LOCK_ICON` is the net-new open/closed padlock glyph.
+- **`session.locks` + `session.autoplayInclude`** — session-ephemeral maps, structured to lift to persisted prefs later (not yet).
+- **`env.isLocked(key)` / `env.setLock(key, locked)`** wired in main.js (the broadcast signal for contextual locks lands with the re-skin build).
+- **CSS + Lab specimen** — `.lock-toggle` (unlocked/locked/contextual) + `.row.has-lock` / `.locked-row`, rendered in the Lab's Composites from the real classes.
+
+Verified: node --check, vite build. **Untested by Claude — open /lab.html → Composites → the padlock states render (unlocked faint/hover, locked full, contextual dim). No app behavior yet.**
+
+## 🎚 v0.19.53 (Build 413) — 2026-07-23 — M3: autoplay excludes seam-prone Droste params
+
+Movement 3 (guardrails) resumes after the wedge targets were validated on device.
+
+- **Perform autoplay no longer wanders the Droste spiral or center offset.** Both seam or misbehave when auto-animated (the spiral seams when it changes; the offset breaks the tiling and is easy to nudge off-center), so `drift.js` `fields()` now filters them out of the auto-wander set. `drosteZoom` stays IN (it tweens seamlessly and carries the infinite-zoom look). This is the "exclude from autoplay" default and is deliberately SEPARATE from the gesture lock (Daniel); a per-key include override (`session.autoplayInclude`) hook is in place for the toggle UI that lands with the lock work.
+
+Verified: node --check, vite build. **Untested by Claude — in perform with the Droste form, autoplay should animate zoom/slice/canvas but leave the spiral and center offset steady (no wandering seams).**
+
+## 🗂 v0.19.52 (Build 412) — 2026-07-23 — Defer video-capture hardening + motion aspect square-first (removed diag)
+
+Housekeeping to keep the Flows/Guardrails/Tiling arc in focus (Daniel's call).
+
+- **Video capture deferred to a dedicated hardening session.** The iPhone silent-audio bug (B410's native fix didn't resolve it, and it fails on mobile web too), plus adjacent bitrate/perf failures Daniel hit — runs hot while recording, 4K takes time out / save at ~3fps on iPhone 17 Pro, 60fps short clips time out — are consolidated into one HIGH backlog item calling for a device-degradation framework + hardware capability matrix, tied to the existing parked capture-ceiling notes. Not fixed piecemeal mid-arc.
+- **Motion 16:9 square-first deferred to a polish item.** The B411 diagnostic confirmed the hide path runs (`willChange=true`) yet the square persists, and the code reads correct on paper, so it needs hands-on element inspection rather than more blind attempts. Removed the temp `[fold] motion-enter aspect:` log; kept the `body.motion-aspect-settling` hide (it reduced the flicker).
+
+Verified: node --check, vite build. Docs/deferral build — no behavior change beyond removing the diagnostic log.
+
 ## 🩹 v0.19.51 (Build 411) — 2026-07-23 — Fix: mobile no longer horizontally scrolls (min-width regression) + aspect diagnostic
 
 - **Mobile web horizontal-scroll regression fixed (Daniel, iPhone 17 Pro).** The 600px desktop floor from B407/B408 was reaching the phone and forcing horizontal scroll + major UI breakage (it was the first *global* rule the desktop sheet ever put on `body`, so earlier desktop-only rules stayed inert on mobile). Scoped the floor to `@media (pointer: fine)` so it applies only to desktop mouse/trackpad chromes and can NEVER affect a coarse-pointer phone/tablet (which must fill 100% width). Verified in the built CSS.
