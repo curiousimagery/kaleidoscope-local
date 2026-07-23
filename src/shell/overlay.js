@@ -32,12 +32,12 @@ const HIT = {
   SCALE_BAND_IN_MOUSE:  20,
   SCALE_BAND_OUT_MOUSE: 20,
   SPOKE_BAND_IN_MOUSE:   4,
-  SPOKE_BAND_OUT_MOUSE: 20,
+  SPOKE_BAND_OUT_MOUSE: 12,   // was 20 — tightened (M3): the segment-grab band was fat enough to catch scale/rotate intents
   CENTER_DOT_TOUCH:     30,
   SCALE_BAND_IN_TOUCH:  28,
   SCALE_BAND_OUT_TOUCH: 28,
   SPOKE_BAND_IN_TOUCH:  10,
-  SPOKE_BAND_OUT_TOUCH: 32,
+  SPOKE_BAND_OUT_TOUCH: 20,   // was 32 — tightened (M3) to cut accidental segment-count grabs on touch (still a wide along-spoke target)
   // Rhombus (triangle) scale band — dedicated so the interior stays mostly a
   // MOVE target. Thin interior band, slightly larger exterior. (The shared
   // SCALE_BAND_* above ate ~16-28px of the interior, leaving small rhombi with
@@ -665,6 +665,32 @@ export function afRotationArc(ctx, cx, cy, cAngle, arcR, op, lw) {
 // hit testing
 // ===========================================================================
 
+// The bisector ("middle line") of a radial wedge in SCREEN space, derived from the two
+// drawn center-incident spoke edges. Convention-independent (reads the actual geometry,
+// not sliceRotation's sign). Antiparallel spokes (the 2-segment half-plane) fall back to a
+// perpendicular of one spoke — either is acceptable there by the wedge's symmetry.
+function wedgeBisectorRad(g) {
+  if (!g || !g.screenPts) return 0;
+  const { cx, cy, screenPts: pts } = g;
+  const EPS = 1.0;
+  const dirs = [];
+  for (let i = 0; i < pts.length; i++) {
+    const a = pts[i], b = pts[(i + 1) % pts.length];
+    const aC = Math.hypot(a.x - cx, a.y - cy) < EPS;
+    const bC = Math.hypot(b.x - cx, b.y - cy) < EPS;
+    if (!aC && !bC) continue;
+    const tip = aC ? b : a;
+    const dx = tip.x - cx, dy = tip.y - cy, L = Math.hypot(dx, dy) || 1;
+    dirs.push({ x: dx / L, y: dy / L });
+  }
+  if (dirs.length === 0) return 0;
+  if (dirs.length === 1) return Math.atan2(dirs[0].y, dirs[0].x);
+  let sx = 0, sy = 0;
+  for (const d of dirs) { sx += d.x; sy += d.y; }
+  if (Math.hypot(sx, sy) < 1e-3) return Math.atan2(dirs[0].x, -dirs[0].y);   // antiparallel → ⟂ to a spoke
+  return Math.atan2(sy, sx);
+}
+
 // classify pointer position into 'move' | 'scale' | 'rotate' | form-specific | null.
 // consults the active form's spokeRule for behavior switching, OR defers to a
 // form-supplied classifyPointer override when the form's sample region doesn't
@@ -1078,14 +1104,14 @@ export function setupSourceInteraction(env, wrap) {
         }
       } else if (drag.mode === 'segments') {
         if (!g) return;
-        const spx = x - g.cx, spy = y - g.cy;
-        const perpNow = spx * (-drag.spoke.uy) + spy * drag.spoke.ux;
-        const ang0 = Math.atan2(drag.spoke.perp, drag.spoke.slen);
-        const angNow = Math.atan2(perpNow, drag.spoke.slen);
-        const startWedge = (Math.PI * 2) / drag.startSegments;
-        const newWedge = startWedge + 2 * Math.sign(drag.spoke.perp || 1) * (angNow - ang0);
-        const targetWedge = Math.max((Math.PI * 2) / 48, Math.min(Math.PI, newWedge));
-        let newSegs = Math.round((Math.PI * 2) / targetWedge);
+        // half-wedge = the pointer's angular distance from the wedge bisector. Pull the
+        // spoke AWAY from the middle → wider half-wedge → fatter wedge → fewer segments;
+        // pull it toward the middle → skinnier → more segments. Symmetric for either spoke.
+        let rel = Math.atan2(y - g.cy, x - g.cx) - drag.bisectorRad;
+        while (rel > Math.PI)  rel -= 2 * Math.PI;
+        while (rel < -Math.PI) rel += 2 * Math.PI;
+        const halfWedge = Math.min(Math.PI / 2, Math.max(Math.PI / 48, Math.abs(rel)));
+        let newSegs = Math.round(Math.PI / halfWedge);   // segments = π / halfWedge (full wedge = 2·halfWedge)
         if (newSegs % 2 !== 0) newSegs += 1;
         newSegs = Math.max(2, Math.min(48, newSegs));
         if (newSegs !== state.segments) {
@@ -1223,6 +1249,10 @@ export function setupSourceInteraction(env, wrap) {
         mode: 'segments',
         startSegments: state.segments,
         spoke: cls.spoke,
+        // the wedge bisector (its "middle line") in screen space, from the two drawn
+        // spoke directions. Measuring the pointer's angle from THIS makes widen/narrow
+        // symmetric no matter which spoke you grabbed — fixes the inverted-direction feel.
+        bisectorRad: wedgeBisectorRad(g),
       };
       setCursor(scaleCursorForAngle(cls.cursorTheta));
     } else if (cls.mode === 'scale' && form.id === 'square' && cls.square && cls.square.kind === 'edge') {

@@ -434,6 +434,12 @@ body { min-width: 600px; }
 body.resizing-divider .overlay-canvas,
 body.resizing-divider .preview-canvas { visibility: hidden; }
 
+/* motion-enter one-time 16:9 reshape: hide the output preview across the ~2-frame
+   transition so the source/1:1 aspect never flashes before 16:9 lands (motion-runtime
+   sets/clears the class). Kept as a plain hide — at ~2 frames it's imperceptible, and a
+   skeleton box would flash more than it helps; layer one in later if a blank blink shows. */
+body.motion-aspect-settling .preview-canvas { visibility: hidden; }
+
 /* (the right panel is gone — Arc 2b dissolved it into the per-panel control stacks) */
 /* Safari's compact tab bar in landscape adds ~44px that env(safe-area-inset-top)
    doesn't cover — it only accounts for the system status bar and rounded corners,

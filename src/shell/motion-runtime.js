@@ -1381,6 +1381,12 @@ function toggleMotionMode() {
   motion.selected = -1;          // never carry a stale selection across the toggle
                                  // (otherwise post-exit edits could write through to it)
   if (env.motionRT.active) { session.timelineZoom = 1; session.timelinePan = 0; }   // enter fit-to-view
+  // Will the one-time 16:9 default reshape the canvas on THIS enter? If so, hide the
+  // output preview through the transition so the source/1:1 aspect doesn't flash before
+  // 16:9 lands (Daniel: the aspect used to visibly pop in). Revealed after relayout+paint.
+  const aspectWillChange = env.motionRT.active && !session.motionAspectDefaulted &&
+    Math.abs(session.frameAspect - 16 / 9) > 0.001;
+  if (aspectWillChange) document.body.classList.add('motion-aspect-settling');
   if (env.motionRT.active && !session.motionAspectDefaulted) {
     // motion content defaults to a 16:9 canvas the first time you open it this session
     // (Daniel): wider suits motion regardless of the source aspect. One-time only — after
@@ -1415,6 +1421,9 @@ function toggleMotionMode() {
     env.sourceOverlay.render();
     renderRuler();                       // footer is visible now → the ruler has a real width
     if (env.motionRT.active && env.sourceVideo) scrubVideo(motion.playhead);   // show the playhead frame
+    // reveal one frame later, once the 16:9 preview has actually painted (avoids
+    // unhiding onto a half-laid-out frame).
+    if (aspectWillChange) requestAnimationFrame(() => document.body.classList.remove('motion-aspect-settling'));
   });
 }
 

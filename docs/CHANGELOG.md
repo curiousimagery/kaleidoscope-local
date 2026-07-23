@@ -4,6 +4,16 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🎛 v0.19.49 (Build 409) — 2026-07-22 — Aspect flicker fix + radial wedge refinement (M3 opening)
+
+First hands-on pass of Movement 3 (guardrails), plus the aspect nit.
+
+- **Motion 16:9 no longer flickers in.** Entering motion used to paint the source/1:1 aspect for a frame, then jump to 16:9. The output preview is now hidden across the ~2-frame reshape (`body.motion-aspect-settling`, set/cleared in `toggleMotionMode`) and revealed once 16:9 has painted — no visible jump. Kept as a plain hide rather than a skeleton box; at ~2 frames a skeleton would flash more than it helps (easy to add later if a blank blink shows on device).
+- **Radial wedge: inverse-direction fix.** The segment-count drag measured perpendicular distance from *whichever spoke you grabbed*, with a noisy sign, so grabbing the left vs right spoke inverted the feel. It now measures the pointer's angle from the wedge **bisector** (the middle line, derived from the drawn spokes so it's convention-independent): pull a spoke away from the middle → fatter wedge → fewer segments; toward the middle → more. Symmetric for either spoke. Mirrors the proven droste-arms drag.
+- **Radial wedge: tighter grab targets.** `SPOKE_BAND_OUT` lowered (mouse 20 → 12, touch 32 → 20) so the segment-grab band stops catching scale/rotate intents. Still a wide along-spoke target; the perpendicular band is what tightened.
+
+Verified: node --check, vite build. **Untested by Claude — device pass: (1) entering motion shows 16:9 with no 1:1 flash; (2) dragging either spoke widens the wedge when pulled outward, narrows when pulled in (no inversion); (3) segment grabs are harder to trigger by accident but still reachable on touch.**
+
 ## 🛟 v0.19.48 (Build 408) — 2026-07-22 — More wiggle room: desktop layout floor 700 → 600
 
 Follow-up to B407 (Daniel): lowered the desktop min-width floor from 700px to 600px so the layout has more usable range before the horizontal scrollbar appears. 600 now lines up with the phone-class short-side threshold in `boot.js` — below 600px you're either a phone (mobile chrome) or a desktop window that scrolls. Tablets stay on desktop chrome as before (confirmed direction).
