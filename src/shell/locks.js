@@ -15,6 +15,8 @@
 // Locks are SESSION-EPHEMERAL: `session.locks` holds user overrides and resets each session.
 // It's a flat map so it can later be lifted to persisted user prefs unchanged (not yet).
 
+import { ICONS } from '../mobile/icons.js';
+
 // Toggleable lock defaults per mode. `still: null` = not lockable in still (freely editable
 // there — the change is harmless off the timeline); a boolean = lockable, with that default
 // state. Everything is lockable + locked-by-default in motion.
@@ -41,19 +43,20 @@ function toggleableWhy(key) {
 
 // The current lock state of a control.
 //   ctx = { session, motionActive, playing, broadcasting }
-//   returns { locked, unlockable, why } — or { locked:false } when not lockable here.
+//   returns { locked, lockable, unlockable, why }. `lockable:false` = the padlock should be
+//   HIDDEN here (the control isn't lockable in this mode — e.g. spiral/oob in still).
 export function lockState(ctx, key) {
   // contextual auto-locks first (can't be toggled — clear the context instead)
-  if (key === 'outputRes' && ctx.broadcasting) return { locked: true, unlockable: false, why: WHY.resolution };
-  if (key === 'frameAspect' && ctx.playing)    return { locked: true, unlockable: false, why: WHY.aspect };
+  if (key === 'outputRes' && ctx.broadcasting) return { locked: true, lockable: true, unlockable: false, why: WHY.resolution };
+  if (key === 'frameAspect' && ctx.playing)    return { locked: true, lockable: true, unlockable: false, why: WHY.aspect };
 
   const def = TOGGLEABLE_LOCKS[key];
-  if (!def) return { locked: false };
+  if (!def) return { locked: false, lockable: false };
   const modeDefault = ctx.motionActive ? def.motion : def.still;
-  if (modeDefault === null) return { locked: false };   // not lockable in this mode
+  if (modeDefault === null) return { locked: false, lockable: false };   // not lockable in this mode → hide padlock
   const override = ctx.session.locks && ctx.session.locks[key];
   const locked = override !== undefined ? override : modeDefault;
-  return { locked, unlockable: true, why: locked ? toggleableWhy(key) : 'unlocked — click to lock' };
+  return { locked, lockable: true, unlockable: true, why: locked ? toggleableWhy(key) : 'unlocked — click to lock' };
 }
 
 // Flip a toggleable lock for the session (writes the explicit override).
@@ -62,11 +65,9 @@ export function setLock(session, key, locked) {
   session.locks[key] = locked;
 }
 
-// ---- the padlock glyph (net-new; no existing lock icon in the app) --------------------
-export const LOCK_ICON = {
-  locked:   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>',
-  unlocked: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V7a4 4 0 0 1 7.5-1.3"/></svg>',
-};
+// ---- the padlock glyph — sourced from the canonical ICONS set (so it lives in the icon
+// inventory, not as a one-off here). lock = closed, lockOpen = open shackle. --------------
+export const LOCK_ICON = { locked: ICONS.lock, unlocked: ICONS.lockOpen };
 
 // Build a padlock toggle button bound to `key`. Reads env.isLocked(key), renders the right
 // glyph + state class + tooltip, and on click flips the lock (only when unlockable) then
@@ -76,10 +77,11 @@ export function makeLockToggle(env, key, onChange) {
   btn.className = 'lock-toggle';
   btn.dataset.lockKey = key;
   const sync = () => {
-    const st = env.isLocked ? env.isLocked(key) : { locked: false };
+    const st = env.isLocked ? env.isLocked(key) : { locked: false, lockable: false };
+    btn.hidden = st.lockable === false;   // not lockable in this mode → no padlock at all
+    if (btn.hidden) return;
     btn.classList.toggle('locked', !!st.locked);
     btn.classList.toggle('contextual', st.locked && !st.unlockable);
-    btn.hidden = false;
     btn.innerHTML = st.locked ? LOCK_ICON.locked : LOCK_ICON.unlocked;
     btn.title = st.why || (st.locked ? 'locked' : 'unlocked — click to lock');
     // a contextual lock isn't clickable (clear the context instead)

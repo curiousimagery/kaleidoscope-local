@@ -1230,7 +1230,8 @@ export function setupSourceInteraction(env, wrap) {
     // discrete edits are blocked when the host says so (motion mode after a keyframe):
     // droste-arms drag becomes a no-op; the radial spoke falls through to a scale drag.
     const allowDiscrete = env.canEditDiscrete ? env.canEditDiscrete() : true;
-    if (!allowDiscrete && cls.mode === 'droste-arms') return;
+    // droste-arms IS the droste segment count → honor the 'segments' lock (no-op when locked)
+    if ((!allowDiscrete || env.isLocked?.('segments')?.locked) && cls.mode === 'droste-arms') return;
 
     env.overlayDragging = true;
     const g = env.sourceOverlayCanvas._geom;
@@ -1244,7 +1245,8 @@ export function setupSourceInteraction(env, wrap) {
         dragOffsetY: g.cy - y,
       };
       setCursor('grabbing');
-    } else if (cls.mode === 'scale' && cls.onSpoke && form.spokeRule === 'radial' && allowDiscrete) {
+    } else if (cls.mode === 'scale' && cls.onSpoke && form.spokeRule === 'radial' && allowDiscrete && !env.isLocked?.('segments')?.locked) {
+      // locked → this falls through to the scale drag below (same as the !allowDiscrete path)
       drag = {
         mode: 'segments',
         startSegments: state.segments,

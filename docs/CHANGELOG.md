@@ -4,6 +4,21 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🔒 v0.19.56 (Build 416) — 2026-07-23 — M3 lock system: spiral lock + spiral is now structural (part 3)
+
+- **Spiral lock wired** (droste-only). Same slider-row padlock as segments, via a shared `sliderTarget()` builder in `wireLocks`. Lockable in motion only — the padlock is HIDDEN in still (new `lockable` flag on `lockState`; `makeLockToggle` hides the button where a control isn't lockable in the current mode, so spiral/oob/mirror show no padlock in still).
+- **Spiral is now STRUCTURAL** — moved `drosteSpiral` from `CONTINUOUS_KEYS` to `DISCRETE_KEYS` (tween.js), so it no longer tweens between keyframes; it's held to keyframe 0 like segment count (it seams if animated — Daniel). Autoplay already excluded it.
+
+Verified: node --check, vite build. **Untested by Claude — in motion on Droste, the spiral padlock shows locked (hidden in still); a Droste animation no longer tweens the spiral (it holds steady across keyframes).**
+
+## 🔒 v0.19.55 (Build 415) — 2026-07-23 — M3 lock system: segment-count lock wired + lock glyph in the icon set (part 2)
+
+- **Segment-count lock wired end to end** (the flagship). A padlock sits at the right of the segments row (`wireLocks()` in main.js); locking dims the row + disables the slider/scrub, and the on-canvas gesture falls through: a locked radial spoke becomes a scale drag (reusing the existing `!allowDiscrete` fall-through), a locked droste-arms drag is a no-op. Default per the matrix — unlocked in still, locked in motion — and it re-syncs across still↔motion (`updateMotionUI`) and form switches (`env.syncLocks`).
+- **Lock padlock added to the canonical `ICONS` set** (`lock` / `lockOpen`) — the first glyph shared across chromes; `shell/locks.js` now sources `LOCK_ICON` from it, so it shows in the Lab's icon inventory (Daniel's request).
+- **Fixed the B413 autoplay comment** — the center offset does NOT seam (it's auto-excluded because we don't want autoplay wandering the pole by default, not because of seams).
+
+Verified: node --check, vite build. **Untested by Claude — in motion, the segments padlock shows locked; click to unlock → the slider + spoke drag work again; in still it's unlocked by default. Lab icon inventory now lists the padlock.**
+
 ## 🔒 v0.19.54 (Build 414) — 2026-07-23 — M3 lock system: foundation + padlock component (part 1 of the pass)
 
 First build of the per-control lock pass (Daniel reviews the whole thing when it's wired). Foundation only — no control is wired yet, so behavior is unchanged; the padlock is visible in the Lab.

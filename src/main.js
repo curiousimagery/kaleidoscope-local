@@ -13,7 +13,7 @@
 // into each other for globals.
 
 import { state, session, motion } from './shell/state.js';
-import { lockState, setLock } from './shell/locks.js';
+import { lockState, setLock, makeLockToggle } from './shell/locks.js';
 import { createEngine } from './engine/index.js';
 import { createSourceOverlay } from './components/source-overlay.js';
 import { createOutputGestures } from './components/output-gestures.js';
@@ -614,6 +614,43 @@ function setupSegmentsSlider() {
 // Exposed for overlay.js's seam-drag + boundary-drag handlers.
 env.snapDrosteSpiral = snapSpiralValue;
 env.applyArmsSnap = applyArmsSnap;
+
+// ============================================================================
+// per-control LOCKS (M3 guardrails) — inject the padlock into each lockable control's row
+// and enforce the lock (dim the row + disable its control). One config entry per control;
+// env.syncLocks() re-runs them on mode change / toggle. Gesture-level enforcement (a locked
+// segment spoke / offset diamond falling through) lives in the overlay via env.isLocked.
+// ============================================================================
+function wireLocks() {
+  const byId = (id) => document.getElementById(id);
+  // key → build() returning { row, disable(locked) }. Extended as controls are wired.
+  // shared builder for a slider row (input + scrub value in one .row)
+  const sliderTarget = (inputId, valId) => () => {
+    const inp = byId(inputId), val = byId(valId), row = val && val.parentElement;
+    if (!row) return null;
+    return { row, disable(locked) {
+      row.classList.toggle('locked-row', locked);
+      if (inp) inp.disabled = locked;
+      if (val) val.style.pointerEvents = locked ? 'none' : '';   // block the scrub-on-value
+    } };
+  };
+  const TARGETS = [
+    { key: 'segments', build: sliderTarget('segments', 'segVal') },
+    { key: 'spiral',   build: sliderTarget('spiral', 'spiralVal') },   // droste-only; lockable in motion (hidden in still)
+  ];
+  const syncers = [];
+  for (const t of TARGETS) {
+    const spec = t.build();
+    if (!spec) continue;
+    spec.row.classList.add('has-lock');
+    const btn = makeLockToggle(env, t.key, () => spec.disable(env.isLocked(t.key).locked));
+    spec.row.appendChild(btn);
+    const sync = () => { btn.sync(); spec.disable(env.isLocked(t.key).locked); };
+    syncers.push(sync);
+  }
+  env.syncLocks = () => syncers.forEach((s) => s());
+  env.syncLocks();
+}
 
 // ============================================================================
 // wire all controls
@@ -1273,6 +1310,7 @@ if (engine) {
   buildFormGrid(env);
   applyFormControls(env);
   wireControls();
+  wireLocks();          // padlocks on lockable controls (M3) — after the controls exist
   setupStageDivider(env);
   setupLiveDivider(env);
   wirePanelPopovers();

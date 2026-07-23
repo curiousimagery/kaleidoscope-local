@@ -313,6 +313,7 @@ export function buildFormGrid(env) {
       // form-aware sliders (segments routes to drosteArms vs state.segments)
       // need to refresh their displayed value + range after a form switch.
       env.syncControls?.();
+      env.syncLocks?.();   // applyFormControls may re-enable a locked control — re-apply the lock
       env.scheduleRender();
       env.updateUndoUI?.();
     };

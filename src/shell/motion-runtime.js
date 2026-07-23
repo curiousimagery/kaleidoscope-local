@@ -1452,6 +1452,7 @@ function updateMotionUI() {
   const performing = !!env.performRT?.active;
   const btn = q('motionBtn');
   if (btn) { btn.disabled = !available; btn.classList.toggle('active', env.motionRT.active); }
+  env.syncLocks?.();   // per-control lock defaults differ still↔motion — re-sync padlocks + disabled states
   // still|motion|perform segments are radio semantics: exactly one active. still
   // is the resting mode, so it's active whenever neither of the others is.
   // Perform accepts LIVE sources (unlike motion) — any source enables it.

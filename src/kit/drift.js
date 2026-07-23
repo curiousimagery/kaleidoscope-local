@@ -50,10 +50,11 @@ export function createAutoDrift({ state, session }) {
 
   function fields() {
     return CONTINUOUS_KEYS.filter((k) => {
-      // Seam-prone / finicky Droste params never auto-wander (Daniel, M3): the SPIRAL
-      // seams when it changes, and the CENTER OFFSET breaks the tiling + is easy to nudge.
+      // Droste params that don't auto-wander by default (Daniel, M3): the SPIRAL seams when
+      // it changes; the CENTER OFFSET does NOT seam but we don't want autoplay wandering the
+      // pole by default (it's a deliberate compositional choice, and it's easy to nudge).
       // This is "exclude from autoplay" (distinct from the gesture LOCK) — default excluded;
-      // a per-key include override (session.autoplayInclude) lands with the lock/toggle UI.
+      // a per-key include override (session.autoplayInclude) drives the include-in-autoplay toggle.
       if (AUTOPLAY_EXCLUDED.has(k) && !session.autoplayInclude?.[k]) return false;
       if (k.startsWith('droste')) return state.form === 'droste';
       if (k === 'squareAspect') return state.form === 'square';

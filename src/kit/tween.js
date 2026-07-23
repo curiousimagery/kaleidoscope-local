@@ -18,9 +18,11 @@
 // Continuous fields — linearly interpolated between snapshots.
 export const CONTINUOUS_KEYS = [
   'sliceScale', 'sliceCx', 'sliceCy', 'sliceRotation',
-  'squareAspect', 'drosteZoom', 'drosteSpiral', 'drosteOffsetX', 'drosteOffsetY',
+  'squareAspect', 'drosteZoom', 'drosteOffsetX', 'drosteOffsetY',
   'canvasZoom', 'canvasRotation',
 ];
+// NOTE: drosteSpiral is DISCRETE (structural), not continuous — it seams when it changes
+// between keyframes, so it's held to keyframe 0 like segment count (Daniel, M3).
 
 // Angular fields (a subset of continuous) — interpolated along the SHORTEST path
 // around the 360° circle, so 350°→10° crosses 0° rather than unwinding 340° the
@@ -31,7 +33,7 @@ export const ANGULAR_KEYS = ['sliceRotation', 'canvasRotation'];
 // the whole loop, so in practice they're identical in both keyframes; holding
 // from `a` is what keeps the loop continuous (no hard cut mid-tween).
 export const DISCRETE_KEYS = [
-  'form', 'segments', 'drosteArms', 'oobMode', 'drosteMirror', 'drosteWedgeMirror',
+  'form', 'segments', 'drosteArms', 'oobMode', 'drosteMirror', 'drosteWedgeMirror', 'drosteSpiral',
 ];
 
 // Easing functions, t in [0,1] → eased [0,1]. easeInOut is the default: zero
