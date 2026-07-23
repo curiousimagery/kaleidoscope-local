@@ -1320,6 +1320,7 @@ export function setupSourceInteraction(env, wrap) {
       };
       setCursor(scaleCursorForAngle(cls.cursorTheta != null ? cls.cursorTheta : cls.theta));
     } else if (cls.mode === 'droste-offset') {
+      if (env.isLocked?.('drosteOffset')?.locked) return;   // locked → the pole can't be dragged (M3)
       drag = { mode: 'droste-offset' };
       setCursor('grabbing');
     } else if (cls.mode === 'rotate') {

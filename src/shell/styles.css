@@ -546,6 +546,11 @@ label.slider.disabled { opacity: var(--disabled-opacity); }
 .row.has-lock { gap: 8px; }
 .row.has-lock .val { margin-left: auto; }               /* val + lock group right; label stays left */
 .row.locked-row .val { opacity: var(--disabled-opacity); }   /* dim the value while locked */
+/* enum/toggle controls host the padlock in a field-label instead of a slider .row */
+.field-label.has-lock { display: flex; align-items: center; gap: 8px; }
+.field-label.has-lock .lock-toggle { margin-left: auto; }
+/* a locked toggle/enum control (mirror / wedge-mirror / out-of-bounds button group) */
+.lock-dimmed { opacity: var(--disabled-opacity); pointer-events: none; }
 
 /* coarse pointer (touch): the ONE token-driven touch-target style, shared by the
    desktop-touch surface AND the mobile chrome (mobile no longer overrides the slider

@@ -352,6 +352,9 @@ export function applyFormControls(env) {
     const el = document.getElementById(labelId);
     if (el) el.style.display = form.controls.includes(key) ? '' : 'none';
   }
+  // center-offset lock/autoplay row is Droste-only (the offset is a canvas gesture, no slider)
+  const offsetRow = document.getElementById('drosteOffsetLabel');
+  if (offsetRow) offsetRow.style.display = form.id === 'droste' ? '' : 'none';
 }
 
 // ===========================================================================

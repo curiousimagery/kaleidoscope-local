@@ -4,6 +4,20 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🔒 v0.19.58 (Build 418) — 2026-07-23 — M3 lock system: droste center-offset lock + autoplay opt-in (part 5)
+
+- **Center-offset lock** (the fat-finger case; the offset does NOT seam). The offset is a canvas gesture (the diamond) with no slider, so a Droste-only "center offset" row now carries its padlock + its autoplay toggle. Locking is enforced in the overlay — a locked diamond is inert (`env.isLocked('drosteOffset')`). Lockable in both modes (default unlocked in still, locked in motion), per the matrix.
+- **Include-in-autoplay toggle** ("hold / autoplay") — the opt-in that's SEPARATE from the lock (Daniel): default HOLD (the pole doesn't auto-wander), switch to autoplay to include it; writes `session.autoplayInclude` which `drift.js` reads. The row shows only on Droste (`applyFormControls`).
+- Deferred (small polish): an on-canvas locked visual on the diamond itself — the functional lock (gesture no-op + menu padlock) is in; the diamond dim/glyph is a follow-up.
+
+Verified: node --check, vite build. **Untested by Claude — on Droste in motion, the center-offset row shows a locked padlock + the diamond won't drag; unlock → it drags again; "autoplay" opt-in makes perform wander the offset.**
+
+## 🔒 v0.19.57 (Build 417) — 2026-07-23 — M3 lock system: mirror / wedge-mirror / out-of-bounds locks (part 4)
+
+Extended `wireLocks` to the toggle + enum structural controls via a shared `toggleTarget()` builder. The padlock hosts in the control's label row (mirror / wedge-mirror) or its field-label (out-of-bounds); locking dims + disables the button group (`.lock-dimmed`). All three are motion-only locks (padlock hidden in still), and all are already `DISCRETE_KEYS` (held to keyframe 0), so the lock guards editing while they stay structurally non-animatable. CSS: `.field-label.has-lock`, `.lock-dimmed`.
+
+Verified: node --check, vite build. **Untested by Claude — in motion, mirror / wedge-mirror / out-of-bounds each show a locked padlock (hidden in still); unlock to change, and the change applies across the animation.**
+
 ## 🔒 v0.19.56 (Build 416) — 2026-07-23 — M3 lock system: spiral lock + spiral is now structural (part 3)
 
 - **Spiral lock wired** (droste-only). Same slider-row padlock as segments, via a shared `sliderTarget()` builder in `wireLocks`. Lockable in motion only — the padlock is HIDDEN in still (new `lockable` flag on `lockState`; `makeLockToggle` hides the button where a control isn't lockable in the current mode, so spiral/oob/mirror show no padlock in still).

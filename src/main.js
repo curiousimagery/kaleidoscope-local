@@ -634,9 +634,26 @@ function wireLocks() {
       if (val) val.style.pointerEvents = locked ? 'none' : '';   // block the scrub-on-value
     } };
   };
+  // shared builder for a toggle/enum control: padlock goes in `rowFn()` (a label row or a
+  // field-label); locking dims + disables the control element `ctrlId` (its button group).
+  const toggleTarget = (rowFn, ctrlId) => () => {
+    const row = rowFn(), ctrl = byId(ctrlId);
+    if (!row || !ctrl) return null;
+    return { row, disable(locked) { ctrl.classList.toggle('lock-dimmed', locked); } };
+  };
   const TARGETS = [
-    { key: 'segments', build: sliderTarget('segments', 'segVal') },
-    { key: 'spiral',   build: sliderTarget('spiral', 'spiralVal') },   // droste-only; lockable in motion (hidden in still)
+    { key: 'segments',    build: sliderTarget('segments', 'segVal') },
+    { key: 'spiral',      build: sliderTarget('spiral', 'spiralVal') },                       // droste-only; motion-only lock
+    { key: 'mirror',      build: toggleTarget(() => byId('mirrorLabel')?.querySelector('.row'), 'mirrorToggle') },
+    { key: 'wedgeMirror', build: toggleTarget(() => byId('wedgeMirrorLabel')?.querySelector('.row'), 'wedgeMirrorToggle') },
+    { key: 'oobMode',     build: toggleTarget(() => byId('oobModes')?.previousElementSibling, 'oobModes') },
+    // center offset: canvas-only gesture (the diamond), so the lock is enforced in the overlay
+    // (a locked diamond is inert); this row just carries the padlock + the locked-row dim.
+    { key: 'drosteOffset', build() {
+      const row = byId('drosteOffsetLabel')?.querySelector('.row');
+      if (!row) return null;
+      return { row, disable(locked) { row.classList.toggle('locked-row', locked); } };
+    } },
   ];
   const syncers = [];
   for (const t of TARGETS) {
@@ -650,6 +667,23 @@ function wireLocks() {
   }
   env.syncLocks = () => syncers.forEach((s) => s());
   env.syncLocks();
+
+  // center-offset "hold / autoplay" toggle — the include-in-autoplay opt-in, SEPARATE from
+  // the lock (Daniel). Default = hold (the pole doesn't auto-wander); writes session.autoplayInclude
+  // for both offset axes, which drift.js reads (see AUTOPLAY_EXCLUDED).
+  const offAuto = [...document.querySelectorAll('#offsetAutoplay button')];
+  const syncOffAuto = () => {
+    const inc = !!(session.autoplayInclude && session.autoplayInclude.drosteOffsetX);
+    offAuto.forEach((b) => b.classList.toggle('active', (b.dataset.autoplay === '1') === inc));
+  };
+  offAuto.forEach((b) => b.addEventListener('click', () => {
+    const inc = b.dataset.autoplay === '1';
+    if (!session.autoplayInclude) session.autoplayInclude = {};
+    session.autoplayInclude.drosteOffsetX = inc;
+    session.autoplayInclude.drosteOffsetY = inc;
+    syncOffAuto();
+  }));
+  syncOffAuto();
 }
 
 // ============================================================================
