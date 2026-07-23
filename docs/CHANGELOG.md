@@ -4,6 +4,17 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🔒 v0.19.61 (Build 421) — 2026-07-23 — lock toggle wiring fix (desktop unlock was inert on form + aspect)
+
+Daniel's desktop spot check: unlocking **out-of-bounds** worked, but unlocking **frame aspect** flipped the padlock glyph without freeing the control, and the **form-picker** padlock (and, reportedly, segments) was unresponsive. Two root causes, one shared:
+
+- **`env.setLock` never re-ran the lock syncers.** It called `env.syncControls()` (which re-syncs slider *disabled* states — why segments/OOB, wired with an `onChange` that re-runs their own `disable()`, appeared to work) but NOT `env.syncLocks()`, which owns the *container* states: the form grid's `form-locked` class and the aspect/resolution `lock-dimmed` class. So toggling those locks flipped the glyph but left the control's disabled visual stale (aspect stayed dimmed/inert; the form overlay stayed up). Fix: `env.setLock` now calls `env.syncLocks()` too.
+- **The form padlock was physically unclickable.** `.form-grid.form-locked` is `pointer-events: none` (so its thumbs are inert while locked) — but the unlock padlock lives *inside* that grid as a child overlay, so it inherited `pointer-events: none` and could never receive the click. Fix: `.form-lock-overlay` is `pointer-events: auto`.
+
+Segments: a headless DOM test confirmed a `<button>` inside `label.slider > .row` receives its own click (the `<label>` does not swallow it, per spec), and segments already re-enables via its `onChange` — so no code-level failure was reproducible. The `syncLocks` fix hardens its re-sync path regardless. **Re-verify segments specifically on desktop** (and note the exact mode — motion-with-keyframes vs. broadcasting — if it's still inert).
+
+Verified: node --check, vite build. **Untested by Claude on-device — desktop lock toggles (form / aspect / segments / OOB) are the thing to re-check.**
+
 ## 🔒 v0.19.60 (Build 420) — 2026-07-23 — M3 lock model correction (Daniel's iPad/desktop review)
 
 Fixed the lock *defaults* to match the plan — the previous "locked in motion, flat" model was wrong in several ways Daniel caught. `lockState` is now keyframe- and output-aware:

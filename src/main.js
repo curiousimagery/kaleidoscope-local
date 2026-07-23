@@ -220,7 +220,11 @@ env.isLocked = (key) => lockState({
 }, key);
 env.setLock = (key, locked) => {
   setLock(session, key, locked);
-  env.syncControls?.();          // re-sync affected control disabled-states + lock glyphs
+  env.syncLocks?.();             // re-run the lock syncers: padlock glyphs + the container
+                                 // states they own (form-grid `form-locked`, aspect/res
+                                 // `lock-dimmed`) — without this a toggle flips the glyph but
+                                 // leaves the control's disabled visual stale.
+  env.syncControls?.();          // re-sync affected control disabled-states
   env.scheduleOverlayDraw?.();   // gesture locks (segments / offset) change the overlay feel
 };
 

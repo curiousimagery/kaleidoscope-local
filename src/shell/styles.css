@@ -1188,7 +1188,9 @@ button .btn-spinner {
   align-items: center; justify-content: center;
   background: rgba(10, 10, 10, 0.55); border-radius: var(--radius-sm);
 }
-.form-grid.form-locked .form-lock-overlay { display: flex; }
+/* the grid is pointer-events:none while locked (so its thumbs are inert), but the overlay
+   padlock must stay clickable to UNLOCK — re-enable pointer events on the overlay itself. */
+.form-grid.form-locked .form-lock-overlay { display: flex; pointer-events: auto; }
 .form-lock-overlay .lock-toggle { width: 28px; height: 28px; color: var(--text-bright); }
 .form-lock-overlay .lock-toggle svg { width: 18px; height: 18px; }
 
