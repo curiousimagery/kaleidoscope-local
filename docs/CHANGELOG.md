@@ -4,6 +4,13 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🩹 v0.19.51 (Build 411) — 2026-07-23 — Fix: mobile no longer horizontally scrolls (min-width regression) + aspect diagnostic
+
+- **Mobile web horizontal-scroll regression fixed (Daniel, iPhone 17 Pro).** The 600px desktop floor from B407/B408 was reaching the phone and forcing horizontal scroll + major UI breakage (it was the first *global* rule the desktop sheet ever put on `body`, so earlier desktop-only rules stayed inert on mobile). Scoped the floor to `@media (pointer: fine)` so it applies only to desktop mouse/trackpad chromes and can NEVER affect a coarse-pointer phone/tablet (which must fill 100% width). Verified in the built CSS.
+- **Aspect square-first: added a temp diagnostic (not yet fixed).** B409/B410's hide + synchronous-render didn't resolve the square-then-landscape on motion entry, and the code path *looks* correct (hide selector matches `.preview-canvas`, engine renders straight to it), so a `[fold] motion-enter aspect: willChange=… defaulted=… frameAspect=…` log now prints on motion entry to reveal whether the hide path even runs. Remove once diagnosed.
+
+Verified: node --check, vite build. **Untested by Claude — (1) mobile fills 100% width again, no horizontal scroll; (2) on desktop Firefox, enter motion and read the `[fold] motion-enter aspect:` console line, report it back.**
+
 ## 🔧 v0.19.50 (Build 410) — 2026-07-23 — Two hardening fixes: iPhone record audio + motion opens at 16:9
 
 - **iPhone record-video was saving SILENT takes — likely root cause fixed (native, needs cap:sync + device test).** The native camera runs a video-only `AVCaptureSession`; by default it auto-configures the app's shared `AVAudioSession`, which stomps the audio session WebKit set up for the record path's `getUserMedia` mic track — so the muxed take had no audio. Set `session.automaticallyConfiguresApplicationAudioSession = false` (the session has no audio input, so it has no reason to touch the audio session). Added a JS diagnostic at record start (`[fold] record mic: …enabled/muted/state` or `NONE`) so if a take is still silent we can tell track-absent vs muted vs encoder in one device read. **Ships to the phone only after `npm run cap:sync` + an Xcode rebuild.**

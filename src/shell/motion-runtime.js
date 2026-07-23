@@ -1386,6 +1386,10 @@ function toggleMotionMode() {
   // 16:9 lands (Daniel: the aspect used to visibly pop in). Revealed after relayout+paint.
   const aspectWillChange = env.motionRT.active && !session.motionAspectDefaulted &&
     Math.abs(session.frameAspect - 16 / 9) > 0.001;
+  // TEMP diag (B411): the square-first-then-16:9 persists — this tells us whether the
+  // hide path even runs. If willChange=false on entry (defaulted already true, or aspect
+  // already ~16:9) then no hide fires and the reshape is unmasked. Remove once resolved.
+  if (env.motionRT.active) console.info(`[fold] motion-enter aspect: willChange=${aspectWillChange} defaulted=${session.motionAspectDefaulted} frameAspect=${session.frameAspect.toFixed(3)}`);
   if (aspectWillChange) document.body.classList.add('motion-aspect-settling');
   if (env.motionRT.active && !session.motionAspectDefaulted) {
     // motion content defaults to a 16:9 canvas the first time you open it this session

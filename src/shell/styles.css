@@ -10,11 +10,15 @@ body { display: flex; flex-direction: column; height: 100vh; height: 100dvh; ove
 /* Desktop chrome no longer hands off to the mobile chrome when a window is dragged
    narrow (that reload dropped the loaded source — boot.js). Below this floor we let the
    viewport scroll HORIZONTALLY rather than let the split layout collapse. 600 lines up
-   with the phone-class short-side threshold in boot.js — below 600px you're either a
-   phone (mobile chrome) or a desktop window that scrolls. (The mobile chrome removes this
-   stylesheet at boot, so this only governs the desktop layout.) */
-html { overflow-x: auto; }
-body { min-width: 600px; }
+   with the phone-class short-side threshold in boot.js.
+   SCOPED TO FINE POINTER (desktop mouse/trackpad) so it can NEVER apply on a phone/tablet
+   — coarse-pointer devices run the mobile chrome's fluid layout and must fill 100% width,
+   never scroll horizontally. (B411 fix: on mobile the floor was forcing horizontal scroll
+   + major UI breakage on iPhone.) */
+@media (pointer: fine) {
+  html { overflow-x: auto; }
+  body { min-width: 600px; }
+}
 
 /* work row — the horizontal split (main | divider | panel). when the motion
    footer is hidden this fills the viewport, so the layout matches the pre-motion
