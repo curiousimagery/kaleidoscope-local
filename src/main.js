@@ -233,6 +233,16 @@ env.setLock = (key, locked) => {
   env.scheduleOverlayDraw?.();   // gesture locks (segments / offset) change the overlay feel
 };
 
+// In motion, DISCRETE settings are held to keyframe 0 (global). A discrete edit via a CONTROL must
+// write into EVERY keyframe or the kf0-hold reverts it on playback — the render-loop write-through
+// only propagates when a keyframe is SELECTED, so editing (e.g.) out-of-bounds while the playhead
+// sits between keyframes updated live state but not kf0 → playback read the stale kf0 value (Daniel:
+// "OOB reads clamp though the UI says mirror"). This is ungated on selection.
+env.commitDiscreteToKeyframes = () => {
+  if (!env.motionRT.active) return;
+  for (const kf of motion.keyframes) if (kf?.snap) for (const dk of DISCRETE_KEYS) kf.snap[dk] = state[dk];
+};
+
 // ============================================================================
 // rendering scheduler
 // ============================================================================
@@ -578,6 +588,7 @@ function setupSegmentsSlider() {
     state[segmentsKey()] = segmentsSnap(v);
     // changing drosteArms cascades into the twist snap step.
     if (state.form === 'droste') applyArmsSnap();
+    env.commitDiscreteToKeyframes();   // discrete → all keyframes (else playback reverts to kf0)
   }
   function applyRange() {
     const r = segmentsRange();
@@ -854,6 +865,7 @@ function wireControls() {
       // so any currently-odd snap value would land in a misaligned tier.
       // re-snap and refresh the slider display.
       applyArmsSnap();
+      env.commitDiscreteToKeyframes();   // discrete → all keyframes (else playback reverts to kf0)
       env.controlsSync.syncAll();
       syncMirrorToggle();
       scheduleRender();
@@ -884,6 +896,7 @@ function wireControls() {
     btn.addEventListener('click', () => {
       env.pushHistory();
       state.drosteWedgeMirror = btn.dataset.wedgemirror === '1';
+      env.commitDiscreteToKeyframes();   // discrete → all keyframes (else playback reverts to kf0)
       syncWedgeMirrorToggle();
       scheduleRender();
       updateUndoUI();
@@ -938,6 +951,7 @@ function wireControls() {
     btn.addEventListener('click', () => {
       env.pushHistory();
       state.oobMode = parseInt(btn.dataset.oob);
+      env.commitDiscreteToKeyframes();   // discrete → all keyframes (else playback reverts to kf0)
       document.querySelectorAll('#oobModes button').forEach(b => b.classList.toggle('active', b === btn));
       scheduleRender();
       updateUndoUI();

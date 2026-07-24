@@ -119,10 +119,14 @@ const env = {
 // motion authoring, so the ONLY locking context here is OUTPUT-LIVE: while recording, broadcasting
 // over NDI, or presenting to an external display (HDMI/AirPlay), structural edits default LOCKED
 // (Daniel's intent — native output should restrict edits mid-broadcast). `extStreaming` is set by
-// the external-display autoconnect's onStatus; recState/bcState are declared further below.
+// the external-display autoconnect's onStatus.
 let extStreaming = false;
-let locksReady = false;   // gate: recState/bcState are declared further down; don't read them (TDZ)
-                          // until module init has run past those declarations (set true at file end)
+// recState/bcState are the record + NDI signals isOutputLive reads. Declared HERE (top) so
+// wireMobileLocks — which builds padlocks that immediately read isOutputLive via makeLockToggle's
+// sync — doesn't hit a TDZ (they were declared far below; that halted mobile init entirely).
+let recState = 'idle';    // 'idle' | 'recording' | 'finishing' (stop tapped, finalize in flight)
+let bcState = 'idle';     // 'idle' | 'live'
+let locksReady = false;   // syncers no-op until controls + state exist (set true at file end)
 env.isOutputLive = () => recState === 'recording' || bcState === 'live' || extStreaming;
 env.isLocked = (key) => lockState({
   session, motionActive: false, keyframeCount: 0,
@@ -652,7 +656,7 @@ let liveActive = false, liveRaf = 0;
 // effects, inheriting the trailing auto-follow infrastructure later — no
 // staging/transport here. The far-right tab slot becomes record ● / stop ■.
 let videoMode = false;         // the "record video" source is active
-let recState = 'idle';         // 'idle' | 'recording' | 'finishing' (stop tapped, finalize in flight)
+// recState declared at top (isOutputLive/TDZ)
 let recordedVideo = null;      // { blob, ext } — the finished take
 let recordingSaved = false;    // download tapped since the take finished
 let mediaRec = null, recChunks = [], micStream = null;
@@ -703,7 +707,7 @@ let rawRec = null, rawChunks = [], rawVideo = null, rawStream = null;
 // from a dedicated broadcast canvas at the chosen tier — additive beside the
 // delicate record path, never inside it.
 let broadcastMode = false;     // the "broadcast video" source is active
-let bcState = 'idle';          // 'idle' | 'live'
+// bcState declared at top (isOutputLive/TDZ)
 let bcCanvas = null, bcCtx = null, bcLastT = 0;
 let bcTier = 1920;             // broadcast long side (HD 1280 / FHD 1920)
 let bcTest = false;            // publish the reference test pattern instead of the program

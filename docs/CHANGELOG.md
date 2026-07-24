@@ -4,6 +4,15 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🩹 v0.19.68 (Build 428) — 2026-07-24 — FIX: B427 crashed mobile init (TDZ) + OOB reads clamp in motion
+
+Two fixes, one of them urgent (B427 regression that blocked all mobile testing):
+
+- **B427 crashed the mobile chrome on load (TDZ).** `wireMobileLocks` builds padlocks with `makeLockToggle`, which calls `sync()` immediately → `env.isLocked` → `env.isOutputLive` → reads `recState`/`bcState`, which were `let`-declared *far below* `wireMobileLocks`. That's a temporal-dead-zone throw at init, halting everything after it (tab-bar handlers, layout, divider) — exactly Daniel's symptoms: source panel stuck ~80%, divider + "＋" + buttons all dead. (The `locksReady` guard only covered the syncers, not `makeLockToggle`'s own sync.) Fix: `recState`/`bcState` are declared at the top of the module now. **Daniel's mobile build was fine — this was the bug, not a missed build step.**
+- **Out-of-bounds read as clamp during motion though the UI said mirror.** `oobMode` is a DISCRETE key held to keyframe 0. The render-loop write-through (B424) only propagates discrete → all keyframes when a keyframe is SELECTED, so changing OOB (or segments/mirror/wedge) while the playhead sits *between* keyframes updated live state but not kf0 → playback re-read the stale kf0 value (UI stayed on the un-synced live value → the mismatch). Fix: a new `env.commitDiscreteToKeyframes()` wired into the discrete CONTROL handlers (oob, segments, tier/wedge mirror), ungated on selection — a control edit is global immediately. (Spiral's slider path is a known remaining gap; filed.)
+
+Verified: node --check, vite build. **Untested by Claude on-device — the mobile-init fix is the one to confirm first (buttons/divider live again), then re-attempt the B427 lock verification.**
+
 ## 🔒 v0.19.67 (Build 427) — 2026-07-24 — mobile lock parity (A): structural edits lock while output is live
 
 Closes the last lock gap — the mobile chrome (iPhone + iPad Capacitor) now restricts structural edits while output is LIVE, per Daniel's intent. **Reuses the desktop model** (`shell/locks.js`), not a reimplementation:
