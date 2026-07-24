@@ -4,6 +4,17 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🔒 v0.19.65 (Build 425) — 2026-07-24 — lock override scoping + segment-grab affordance goes inert when locked
+
+Daniel's Safari session — two edge cases:
+
+- **Context-scoped lock overrides.** Manually locking-then-unlocking segments in Still and *then* adding a keyframe left it unlocked — the Still fat-finger override (`session.locks.segments = false`) leaked into the structural context and defeated the auto-lock. Overrides are now scoped to the context they were set in: the structural lock lives under `<key>:structural`, so a Still unlock and a structural unlock are independent. `lockState` returns the `scopeKey`; `env.setLock` writes under it.
+- **Locked segment/arms grab no longer looks interactable.** Even with segments locked, the on-canvas spoke/arms grab still showed a resize cursor, a highlighted spoke, and (touch) the grippy — the drag was already blocked, but it *looked* live. Now while segments is locked: the hover branch presents the grab as non-interactive (default cursor, no highlight), the radial touch spoke double-line is suppressed, and droste's seam "grab & pull" grippy is suppressed (the structural seam line / rotation tell stays).
+
+Mobile audit (Daniel asked): the lock system is **desktop-chrome only** — mobile doesn't wire it, builds its own controls, and already hides segments per-form via `applyFormVisibility`. The shared overlay/droste changes no-op on mobile through the `isLocked` fallback (`() => ({ locked: false })`), so gestures/affordances behave normally there. No mobile-web or Capacitor regression from the lock work; both consume the same passing vite bundle.
+
+Verified: node --check, vite build. **Untested by Claude on-device.**
+
 ## 🔒 v0.19.64 (Build 424) — 2026-07-24 — lock fixes: the `<label>` root cause + form-lock placement + segments hide + discrete write-through
 
 Daniel's Firefox/Brave test session. Four fixes, two of them sharing ONE root cause:

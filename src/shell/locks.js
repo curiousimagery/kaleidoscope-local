@@ -74,10 +74,15 @@ export function lockState(ctx, key) {
     return { locked: true, lockable: true, unlockable: false, why: WHY.aspect };
   }
 
-  const override = session.locks && session.locks[key];
+  // Overrides are SCOPED to the context they were set in. A control that's both fat-finger and
+  // structural (segments) has two independent locks under one padlock: a Still fat-finger unlock
+  // must NOT leak into the structural context and defeat the auto-lock when you add a keyframe
+  // (Daniel's fragility case). So the structural override lives under a separate key.
+  const scopeKey = structuralLock ? key + ':structural' : key;
+  const override = session.locks && session.locks[scopeKey];
   const locked = override !== undefined ? override : structuralLock;   // default: locked iff structural context
   const why = structuralLock ? WHY.structural : WHY.fatFinger;
-  return { locked, lockable: true, unlockable: true, why: locked ? why : 'unlocked — click to lock' };
+  return { locked, lockable: true, unlockable: true, scopeKey, why: locked ? why : 'unlocked — click to lock' };
 }
 
 // Flip a toggleable lock for the session (writes the explicit override).

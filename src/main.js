@@ -220,7 +220,10 @@ env.isLocked = (key) => lockState({
   outputLive: env.isOutputLive ? env.isOutputLive() : false,
 }, key);
 env.setLock = (key, locked) => {
-  setLock(session, key, locked);
+  // write the override under the SAME context-scoped key lockState reads (see scopeKey there), so
+  // a Still fat-finger unlock and a structural unlock don't clobber each other.
+  const scopeKey = env.isLocked(key).scopeKey || key;
+  setLock(session, scopeKey, locked);
   env.syncLocks?.();             // re-run the lock syncers: padlock glyphs + the container
                                  // states they own (form-grid `form-locked`, aspect/res
                                  // `lock-dimmed`) — without this a toggle flips the glyph but

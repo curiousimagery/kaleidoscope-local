@@ -276,6 +276,9 @@ export default {
   drawOverlay(env, ctx, geom) {
     const { state } = env;
     const { w, h, imgX, imgY, imgW, imgH, cx, cy, sourceAspect, IS_TOUCH, strokeScale = 1 } = geom;
+    // segments (arm count) locked → suppress the "grab & pull" grippy so the seam doesn't read as
+    // draggable (the structural seam LINE / rotation tell stays). Matches the overlay's spoke gate.
+    const segLocked = !!env.isLocked?.('segments')?.locked;
 
     // annulus radii in source-UV space, then mapped to screen pixels.
     // mirrors the engine's toSourceUV aspect correction (the smaller image
@@ -500,18 +503,20 @@ export default {
         ctx.lineTo(cx + rOut * Math.cos(seamPhaseRad), cy + rOut * Math.sin(seamPhaseRad));
         ctx.stroke();
       }
-      const ux = Math.cos(seamPhaseRad), uy = Math.sin(seamPhaseRad);
-      const perpX = -uy, perpY = ux;
-      const GAP = 2.5;
-      const t0 = rIn + (rOut - rIn) * 0.25;
-      const t1 = rIn + (rOut - rIn) * 0.75;
-      ctx.lineWidth = (seamHL ? 2 : 1) * strokeScale;
-      ctx.strokeStyle = `rgba(255, 255, 255, ${seamHL ? 0.9 : 0.4})`;
-      for (const sign of [-1, 1]) {
-        ctx.beginPath();
-        ctx.moveTo(cx + ux * t0 + perpX * GAP * sign, cy + uy * t0 + perpY * GAP * sign);
-        ctx.lineTo(cx + ux * t1 + perpX * GAP * sign, cy + uy * t1 + perpY * GAP * sign);
-        ctx.stroke();
+      if (!segLocked) {
+        const ux = Math.cos(seamPhaseRad), uy = Math.sin(seamPhaseRad);
+        const perpX = -uy, perpY = ux;
+        const GAP = 2.5;
+        const t0 = rIn + (rOut - rIn) * 0.25;
+        const t1 = rIn + (rOut - rIn) * 0.75;
+        ctx.lineWidth = (seamHL ? 2 : 1) * strokeScale;
+        ctx.strokeStyle = `rgba(255, 255, 255, ${seamHL ? 0.9 : 0.4})`;
+        for (const sign of [-1, 1]) {
+          ctx.beginPath();
+          ctx.moveTo(cx + ux * t0 + perpX * GAP * sign, cy + uy * t0 + perpY * GAP * sign);
+          ctx.lineTo(cx + ux * t1 + perpX * GAP * sign, cy + uy * t1 + perpY * GAP * sign);
+          ctx.stroke();
+        }
       }
     }
 

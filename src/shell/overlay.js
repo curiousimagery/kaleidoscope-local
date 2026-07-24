@@ -408,8 +408,11 @@ export function drawSourceOverlay(env) {
   // Touch-only persistent affordances — drawn at ~60% opacity, fading to ~25%
   // during active drag so they don't compete with the active-state stroke highlights.
   if ((IS_TOUCH || env.forceTouchAffordances) && !(env.hideAffordances && env.hideAffordances())) {
+    // when segments is locked the spoke/arms grab is inert — suppress its affordance so it doesn't
+    // read as draggable (Daniel). Scale/rotate affordances still draw.
+    const spokesLocked = !!env.isLocked?.('segments')?.locked;
     drawTouchAffordances(ctx, screenPts, cxPx, cyPx, outerEdges, spokeEdges, form,
-      !!env.overlayDragging, env.overlayDragMode ?? null);
+      !!env.overlayDragging, env.overlayDragMode ?? null, spokesLocked);
   }
 
   // store geometry for hit testing
@@ -434,7 +437,7 @@ export function drawSourceOverlay(env) {
 //
 // Pinch gestures dim all affordances — the form outline highlight (via dragHL
 // in strokeEdges) provides the gesture feedback instead.
-function drawTouchAffordances(ctx, screenPts, cx, cy, outerEdges, spokeEdges, form, isDragging, dragMode) {
+function drawTouchAffordances(ctx, screenPts, cx, cy, outerEdges, spokeEdges, form, isDragging, dragMode, spokesLocked = false) {
   const SPOKE_EPS = 2;
 
   function afStyle(isActive) {
@@ -580,7 +583,7 @@ function drawTouchAffordances(ctx, screenPts, cx, cy, outerEdges, spokeEdges, fo
     // visible regardless of which side the user looks at. Pre-Build 61 only
     // the first spoke got the marker; after the Y-flip changed which spoke
     // appears at the screen-top, the single marker felt inconsistent.
-    if (form.spokeRule === 'radial' && spokeEdges.length > 0) {
+    if (form.spokeRule === 'radial' && spokeEdges.length > 0 && !spokesLocked) {
       const { op: spop, lw: splw } = afStyle(spokesActive);
       ctx.lineWidth = spokesActive ? splw : 1;
       ctx.strokeStyle = `rgba(255,255,255,${spop * 0.7})`;
@@ -1178,17 +1181,29 @@ export function setupSourceInteraction(env, wrap) {
     } else {
       // hover — set cursor based on what mode this position would activate.
       const cls = classifyPointer(env, x, y, isTouch);
-      const cursorAngle = cls.cursorTheta != null ? cls.cursorTheta : cls.theta;
-      setCursor(cursorForMode(cls.mode, cursorAngle));
-      // discoverability: redraw if hover mode changed for stroke highlighting.
-      const newHandle = cls.handle || null;
-      if (cls.mode !== env.hoverMode
-          || (cls.onSpoke || false) !== env.hoverOnSpoke
-          || newHandle !== env.hoverHandle) {
-        env.hoverMode = cls.mode;
-        env.hoverOnSpoke = cls.onSpoke || false;
-        env.hoverHandle = newHandle;
-        env.scheduleOverlayDraw();
+      // the segment/arms grab (droste-arms, or a radial spoke) is inert while segments is locked,
+      // so present it as NON-interactive — default cursor, no spoke highlight — instead of a resize
+      // cursor over a control that won't move (Daniel: it "appears interactable" while locked).
+      const discreteGrab = cls.mode === 'droste-arms' || (cls.mode === 'scale' && cls.onSpoke);
+      if (discreteGrab && env.isLocked?.('segments')?.locked) {
+        setCursor('default');
+        if (env.hoverMode !== null || env.hoverOnSpoke || env.hoverHandle !== null) {
+          env.hoverMode = null; env.hoverOnSpoke = false; env.hoverHandle = null;
+          env.scheduleOverlayDraw();
+        }
+      } else {
+        const cursorAngle = cls.cursorTheta != null ? cls.cursorTheta : cls.theta;
+        setCursor(cursorForMode(cls.mode, cursorAngle));
+        // discoverability: redraw if hover mode changed for stroke highlighting.
+        const newHandle = cls.handle || null;
+        if (cls.mode !== env.hoverMode
+            || (cls.onSpoke || false) !== env.hoverOnSpoke
+            || newHandle !== env.hoverHandle) {
+          env.hoverMode = cls.mode;
+          env.hoverOnSpoke = cls.onSpoke || false;
+          env.hoverHandle = newHandle;
+          env.scheduleOverlayDraw();
+        }
       }
     }
   }
