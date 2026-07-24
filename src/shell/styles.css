@@ -1215,6 +1215,20 @@ button .btn-spinner {
 .vid-x:hover { color: var(--text-bright); }
 .vid-meta { font-size: var(--text-sm); color: var(--text-dim); font-variant-numeric: tabular-nums; min-height: 14px; margin-top: 2px; }
 
+/* shared destructive-interrupt confirm (shell/interrupt.js) — reuses .vid-sheet + .vid-card */
+.interrupt-card { width: 300px; gap: 12px; }
+.interrupt-body { font-size: var(--text-md); color: var(--text-secondary); line-height: 1.45; }
+.interrupt-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 2px; }
+.interrupt-btn {
+  font-size: var(--text-md); padding: 7px 14px; border-radius: var(--radius-md); cursor: pointer;
+  background: var(--surface-control); border: 1px solid var(--border); color: var(--text-secondary);
+}
+.interrupt-btn:hover { background: var(--surface-hover); color: var(--text-bright); }
+.interrupt-confirm { background: var(--fill-bright); border-color: var(--fill-bright); color: var(--c-black); font-weight: 500; }
+.interrupt-confirm:hover { background: var(--fill-bright); color: var(--c-black); filter: brightness(1.08); }
+.interrupt-confirm.danger { background: var(--danger, #e0533d); border-color: var(--danger, #e0533d); color: #fff; }
+.interrupt-confirm.danger:hover { filter: brightness(1.08); color: #fff; }
+
 /* ===== Loop Builder — an in-app editing MODE (sits BELOW the global app bar) ===== */
 .loop-mode {
   position: fixed; top: 0; left: 0; right: 0; bottom: 0; z-index: 150;   /* JS sets `top` to the app bar's bottom so the bar stays visible */

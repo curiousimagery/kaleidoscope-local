@@ -690,6 +690,20 @@ function compositesSection() {
     ]),
     el('div', { class: 'vid-sheet', style: 'position:absolute' }, [vidCard]),
   ]);
+  // destructive-interrupt confirm (shell/interrupt.js) — NON-blocking; replaced window.confirm
+  // (which froze the rAF/broadcast loop on iOS). Reuses .vid-card on the .vid-sheet backdrop.
+  const interruptCard = el('div', { class: 'vid-card interrupt-card' }, [
+    el('div', { class: 'vid-head' }, [el('span', { text: 'switch form?' }), el('button', { class: 'vid-x', text: '✕' })]),
+    el('div', { class: 'interrupt-body', text: 'This restructures the whole animation and applies to every keyframe.' }),
+    el('div', { class: 'interrupt-actions' }, [
+      el('button', { class: 'interrupt-btn', text: 'cancel' }),
+      el('button', { class: 'interrupt-btn interrupt-confirm danger', text: 'unlock' }),
+    ]),
+  ]);
+  const interruptDemo = el('div', { class: 'lab-modal-demo' }, [
+    el('div', { class: 'lab-modal-behind' }, [el('div', { class: 't-heading', text: 'form' })]),
+    el('div', { class: 'vid-sheet', style: 'position:absolute' }, [interruptCard]),
+  ]);
   const mSheet = el('div', { class: 'm-sheet-panel', style: 'position:static;transform:none;max-height:none' }, [
     el('div', { class: 'm-sheet-grip' }),
     el('div', { class: 'm-sheet-cap', text: 'save' }),
@@ -757,6 +771,8 @@ function compositesSection() {
     el('div', { class: 'lab-bar-wrap' }, [timeline]),
     el('h3', { class: 'lab-h3', text: 'Clip-editor range · .clip-bar (region / handles / blue cut / playhead)' }),
     el('div', { class: 'lab-bar-wrap' }, [clip]),
+    el('h3', { class: 'lab-h3', text: 'Destructive-interrupt confirm · .interrupt-card (non-blocking; replaced window.confirm — it froze the broadcast loop on iOS)' }),
+    el('div', { class: 'lab-row' }, [interruptDemo]),
     el('h3', { class: 'lab-h3', text: 'Modal · desktop full treatment (backdrop dim + blur) ↔ mobile panel' }),
     el('div', { class: 'lab-cols' }, [
       el('div', {}, [el('div', { class: 'lab-name', style: 'margin-bottom:8px', text: '.vid-sheet + .vid-card · radius 10 · blur 3px · dim .6' }), desktopModal]),

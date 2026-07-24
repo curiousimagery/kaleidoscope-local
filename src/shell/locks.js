@@ -116,10 +116,12 @@ export function makeLockToggle(env, key, onChange, confirmUnlock) {
   btn.addEventListener('click', () => {
     const st = env.isLocked ? env.isLocked(key) : { locked: false };
     if (!st.unlockable) return;                 // contextual — no-op
-    if (st.locked && confirmUnlock && !confirmUnlock()) return;   // unlocking a disruptive control → confirm first
-    env.setLock?.(key, !st.locked);
-    sync();
-    onChange && onChange();
+    const doToggle = () => { env.setLock?.(key, !st.locked); sync(); onChange && onChange(); };
+    // unlocking a disruptive control → confirm first. confirmUnlock is a NON-BLOCKING gate: it
+    // gets a `proceed` callback and calls it if the user confirms (see shell/interrupt.js). Must
+    // not be a blocking window.confirm — that freezes the rAF/broadcast loop on iOS (Daniel).
+    if (st.locked && confirmUnlock) { confirmUnlock(doToggle); return; }
+    doToggle();
   });
   btn.sync = sync;
   sync();

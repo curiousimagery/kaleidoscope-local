@@ -593,8 +593,9 @@ export default {
       // segment-drag affordance — two faint parallel lines along the UPPER
       // wedge boundary (the one with the smaller midpoint y on screen), same
       // visual idiom as radial's spoke double-line. only drawn when arms ≥ 2
-      // (no boundary exists at arms=1).
-      if (!isFullCircle) {
+      // (no boundary exists at arms=1). Suppressed when segments is locked
+      // (the arms grab is inert — matches the arms=1 seam grippy gate above).
+      if (!isFullCircle && !segLocked) {
         const midR = (rIn + rOut) / 2;
         const startMidY = cy + midR * Math.sin(wedgeStart);
         const endMidY   = cy + midR * Math.sin(wedgeEnd);

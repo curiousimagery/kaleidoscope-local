@@ -15,6 +15,7 @@
 import { state, session, motion } from './shell/state.js';
 import { lockState, setLock, makeLockToggle } from './shell/locks.js';
 import { DISCRETE_KEYS } from './kit/tween.js';   // discrete settings are global (held to kf0)
+import { confirmInterrupt } from './shell/interrupt.js';   // non-blocking destructive-interrupt (M3)
 import { createEngine } from './engine/index.js';
 import { createSourceOverlay } from './components/source-overlay.js';
 import { createOutputGestures } from './components/output-gestures.js';
@@ -705,8 +706,11 @@ function wireLocks() {
   const formHead = byId('formLockHead');
   if (formGrid && formHead) {
     formHead.classList.add('has-lock');
-    const pad = makeLockToggle(env, 'form', null,
-      () => window.confirm('switch form? this restructures the whole animation and applies to every keyframe.'));
+    const pad = makeLockToggle(env, 'form', null, (proceed) => confirmInterrupt({
+      title: 'switch form?',
+      body: 'This restructures the whole animation and applies to every keyframe.',
+      confirmLabel: 'unlock', onConfirm: proceed,
+    }));
     formHead.appendChild(pad);
     syncers.push(() => {
       const st = env.isLocked('form');

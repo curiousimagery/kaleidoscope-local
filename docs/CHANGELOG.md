@@ -4,6 +4,15 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🔒 v0.19.66 (Build 426) — 2026-07-24 — non-blocking unlock confirm (unfreezes broadcast) + droste arms≥2 affordance gate
+
+From Daniel's native-device (iPad/iPhone Capacitor) session — two lock-related fixes here; the larger mobile-lock gap and two non-lock native bugs are scoped separately (see HANDOFF).
+
+- **Form-unlock no longer pauses the broadcast.** The unlock warning was `window.confirm`, which BLOCKS the JS main thread — and on iOS WKWebView that freezes the rAF render + live-output loop, so confirming an unlock mid-broadcast stalled/desynced the output (play/pause showed the wrong state). Replaced with a **non-blocking** modal, `confirmInterrupt` (`shell/interrupt.js`) — the shared destructive-interrupt pattern (reuses `.vid-sheet`/`.vid-card`; also the future home of the source-swap dialog). `makeLockToggle`'s `confirmUnlock` is now a callback gate (`confirmUnlock(proceed)`), not a sync boolean. Landed in the Lab.
+- **Droste arms≥2 grab affordance now hides when locked.** B425 only gated the arms=1 seam grippy; the arms≥2 segment-drag double-line (a separate block in droste's touch affordances) still showed. Now gated on the same `segLocked`.
+
+Verified: node --check, vite build. **Untested by Claude on-device.**
+
 ## 🔒 v0.19.65 (Build 425) — 2026-07-24 — lock override scoping + segment-grab affordance goes inert when locked
 
 Daniel's Safari session — two edge cases:
