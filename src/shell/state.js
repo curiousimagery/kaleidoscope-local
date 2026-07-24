@@ -86,6 +86,9 @@ export const session = {
                       // per-mode default. Flat map so it can lift to persisted prefs later.
   autoplayInclude: {},// M3: per-key opt-IN to autoplay for the auto-excluded params (drosteOffsetX/Y,
                       // drosteSpiral). Separate from the lock (Daniel). Empty = defaults (excluded).
+  offsetManual: false,// M3: droste center-offset "manual gesture" toggle (default OFF). The offset
+                      // is fat-finger-prone, so the on-canvas diamond is inert until you opt in.
+                      // Replaces the offset padlock; the overlay reads it via isLocked('drosteOffset').
 };
 
 // motion-mode authoring data (Phase 3 — multi-keyframe still-animation;

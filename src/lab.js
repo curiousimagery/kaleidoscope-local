@@ -727,6 +727,30 @@ function compositesSection() {
     el('span', { text: 'segments' }), el('span', { class: 'val', text: '12' }), lockBtn(locked ? 'locked' : 'unlocked'),
   ]);
   const lockRowsBox = el('div', { class: 'panel-popover', style: 'position:static;display:block;width:220px;padding:10px 12px' }, [lockRow(false), lockRow(true)]);
+  // form-picker lock — persistent corner padlock ALWAYS (so you can re-lock), dark scrim only while
+  // locked (B423 re-lock fix; the old overlay hid the padlock on unlock with no way back).
+  const formLockDemo = (locked) => {
+    const grid = el('div', { class: 'form-grid' + (locked ? ' form-locked' : ''),
+      style: 'position:relative;display:grid;grid-template-columns:repeat(3,1fr);gap:6px;width:150px' });
+    for (let i = 0; i < 3; i++) grid.appendChild(el('div', { class: 'form-thumb' + (i === 0 ? ' active' : ''),
+      style: 'aspect-ratio:1;background:var(--surface-control);border:1px solid var(--border-subtle);border-radius:var(--radius-sm)' }));
+    grid.appendChild(el('div', { class: 'form-lock-overlay' }, [
+      el('button', { class: 'lock-toggle' + (locked ? ' locked' : ''),
+        title: locked ? 'locked — applies to the whole animation' : 'unlocked — click to lock',
+        html: locked ? LOCK_ICON.locked : LOCK_ICON.unlocked }),
+    ]));
+    return grid;
+  };
+  // droste center-offset TWO-TOGGLE (manual + autoplay, both default off) — replaced the padlock (B423).
+  const offsetToggleDemo = el('div', { class: 'panel-popover', style: 'position:static;display:block;width:220px;padding:10px 12px' }, [
+    el('label', { class: 'slider' }, [
+      el('div', { class: 'row' }, [el('span', { text: 'center offset' })]),
+      el('div', { class: 'row offset-sub-row' }, [el('span', { class: 'offset-sub', text: 'manual' }),
+        el('div', { class: 'row-buttons' }, [el('button', { class: 'toggle active', text: 'off' }), el('button', { class: 'toggle', text: 'on' })])]),
+      el('div', { class: 'row offset-sub-row' }, [el('span', { class: 'offset-sub', text: 'autoplay' }),
+        el('div', { class: 'row-buttons' }, [el('button', { class: 'toggle active', text: 'off' }), el('button', { class: 'toggle', text: 'on' })])]),
+    ]),
+  ]);
   return section('composites', 'Composites', 'Higher-order assemblies. Keyframe markers shown across their states (auto/hollow-pin · anchored/filled-pin · selected/amber · ghost), the clip-editor range (amber trim region + handles + the blue slice-point + white playhead), and the modals. The desktop modal is shown with its FULL treatment — the .vid-sheet backdrop (dim rgba(10,10,10,0.6) + blur(3px)) over faux content, the centered .vid-card (radius 10, border, no drop-shadow — it relies on the backdrop for separation). Mobile differs: a bottom-ish centered .m-sheet-panel (radius 16, grip handle, lighter dim .5). This desktop↔mobile modal divergence (corner radius, backdrop, shadow approach) is a consolidation candidate. The Loop Builder interstitial (D2) is a THIRD modal treatment — a fullscreen surface (app bar hidden) with its own header/close/step-rail chrome that shares none of the .vid-card or .m-sheet vocabulary; its .loop-close X and .loop-step numbered rail are net-new here, and the three-way modal divergence is itself a flag.', [
     el('h3', { class: 'lab-h3', text: 'Timeline · .mf-track + keyframe marker states + .mf-playhead' }),
     el('div', { class: 'lab-bar-wrap' }, [timeline]),
@@ -743,13 +767,20 @@ function compositesSection() {
       el('div', {}, [el('div', { class: 'lab-name', style: 'margin-bottom:8px', text: '.loop-header · .loop-title + .loop-close (X hover live)' }), loopHeader]),
       el('div', {}, [el('div', { class: 'lab-name', style: 'margin-bottom:8px', text: '.loop-rail · .loop-step done/active/plain/disabled' }), loopRail]),
     ]),
-    el('h3', { class: 'lab-h3', text: 'Per-control lock · .lock-toggle (M3 guardrails) — toggleable + contextual + locked row' }),
+    el('h3', { class: 'lab-h3', text: 'Per-control lock · .lock-toggle (M3 guardrails) — fat-finger (default off, always) + structural (default locked in context) + contextual (auto, not clickable)' }),
     el('div', { class: 'lab-row', style: 'gap:24px;align-items:flex-end;flex-wrap:wrap' }, [
       el('div', {}, [el('div', { class: 'lab-name', style: 'margin-bottom:6px', text: 'unlocked (hover)' }), lockBtn('unlocked')]),
       el('div', {}, [el('div', { class: 'lab-name', style: 'margin-bottom:6px', text: '.locked' }), lockBtn('locked')]),
       el('div', {}, [el('div', { class: 'lab-name', style: 'margin-bottom:6px', text: '.contextual (auto, not clickable)' }), lockBtn('contextual')]),
       el('div', {}, [el('div', { class: 'lab-name', style: 'margin-bottom:6px', text: 'in .row.has-lock (unlocked / .locked-row)' }), lockRowsBox]),
     ]),
+    el('h3', { class: 'lab-h3', text: 'Form-picker lock · persistent corner padlock (always, to re-lock) + scrim only while locked' }),
+    el('div', { class: 'lab-row', style: 'gap:24px;align-items:flex-end;flex-wrap:wrap' }, [
+      el('div', {}, [el('div', { class: 'lab-name', style: 'margin-bottom:6px', text: 'unlocked (faint corner padlock)' }), formLockDemo(false)]),
+      el('div', {}, [el('div', { class: 'lab-name', style: 'margin-bottom:6px', text: '.form-locked (scrim + bright padlock)' }), formLockDemo(true)]),
+    ]),
+    el('h3', { class: 'lab-h3', text: 'Droste center-offset · two toggles (manual + autoplay, both default off) — replaced its padlock' }),
+    el('div', { class: 'lab-row', style: 'gap:24px;align-items:flex-start;flex-wrap:wrap' }, [offsetToggleDemo]),
   ]);
 }
 
@@ -989,6 +1020,10 @@ function build() {
 // ---- lab-only layout (NOT part of the design system) ------------------------
 const labStyle = document.createElement('style');
 labStyle.textContent = `
+  /* the app's desktop min-width floor sets html{overflow-x:auto} (styles.css @media pointer:fine),
+     which makes html a scroll container (overflow-y computes to auto) and swallows wheel/trackpad
+     scroll in the Lab. Return html to normal document flow so the viewport scrolls natively. */
+  html { overflow: visible !important; height: auto !important; min-width: 0 !important; }
   body { overflow: auto !important; height: auto !important; display: block !important; user-select: text; }
   .lab { display: flex; align-items: flex-start; gap: 24px; max-width: 1180px; margin: 0 auto; padding: 0 24px; color: var(--text); }
   .lab-nav { position: sticky; top: 0; align-self: flex-start; max-height: 100vh; overflow: auto; width: 150px; flex: none; padding: 24px 0; display: flex; flex-direction: column; gap: 2px; }

@@ -54,6 +54,10 @@ export function createSourceOverlay(ctx) {
     pushHistory: ctx.onCommitStart || undefined,
     updateUndoUI: ctx.onCommitEnd || undefined,
     canEditDiscrete: ctx.canEditDiscrete || (() => true),
+    // per-control lock lookup for the overlay's own gesture gates (e.g. the droste offset
+    // diamond). MUST be forwarded from the ctx — without it the offset gate at overlay.js
+    // read `undefined?.locked` and never blocked, so a locked pole still dragged (Daniel).
+    isLocked: ctx.isLocked || (() => ({ locked: false })),
     hideAffordances: ctx.hideAffordances || (() => false),
     // when true, the overlay is read-only (an animation is driving the state — see
     // main.js isMotionDriven); onDown/onWheel bail so a drag can't write transient

@@ -629,6 +629,16 @@ env.applyArmsSnap = applyArmsSnap;
 // ============================================================================
 function wireLocks() {
   const byId = (id) => document.getElementById(id);
+  // A locked control is inert (pointer-events:none / disabled), so a tap/hover on it falls through
+  // to its container — carry the "why" there so the control EXPLAINS itself instead of silently
+  // doing nothing (Daniel: "tapping a locked state should just show the tooltip about why"). Native
+  // title covers desktop hover; data-tip-lock feeds the touch tap-tip (wireDisabledTips).
+  const applyLockTip = (hostEl, st) => {
+    if (!hostEl) return;
+    if (st.locked && st.why) { hostEl.title = st.why; hostEl.dataset.tipLock = st.why; }
+    else { hostEl.removeAttribute('title'); delete hostEl.dataset.tipLock; }
+  };
+  const tipHost = (row) => (row.closest && row.closest('label.slider')) || row;
   // key → build() returning { row, disable(locked) }. Extended as controls are wired.
   // shared builder for a slider row (input + scrub value in one .row)
   const sliderTarget = (inputId, valId) => () => {
@@ -653,13 +663,8 @@ function wireLocks() {
     { key: 'mirror',      build: toggleTarget(() => byId('mirrorLabel')?.querySelector('.row'), 'mirrorToggle') },
     { key: 'wedgeMirror', build: toggleTarget(() => byId('wedgeMirrorLabel')?.querySelector('.row'), 'wedgeMirrorToggle') },
     { key: 'oobMode',     build: toggleTarget(() => byId('oobModes')?.previousElementSibling, 'oobModes') },
-    // center offset: canvas-only gesture (the diamond), so the lock is enforced in the overlay
-    // (a locked diamond is inert); this row just carries the padlock + the locked-row dim.
-    { key: 'drosteOffset', build() {
-      const row = byId('drosteOffsetLabel')?.querySelector('.row');
-      if (!row) return null;
-      return { row, disable(locked) { row.classList.toggle('locked-row', locked); } };
-    } },
+    // NOTE: center offset is NOT here — it has no padlock. Its manual gesture is governed by the
+    // two-toggle on its row (wired below); the overlay enforces via isLocked('drosteOffset').
   ];
   const syncers = [];
   for (const t of TARGETS) {
@@ -668,7 +673,12 @@ function wireLocks() {
     spec.row.classList.add('has-lock');
     const btn = makeLockToggle(env, t.key, () => spec.disable(env.isLocked(t.key).locked));
     spec.row.appendChild(btn);
-    const sync = () => { btn.sync(); spec.disable(env.isLocked(t.key).locked); };
+    const sync = () => {
+      const st = env.isLocked(t.key);
+      btn.sync();
+      spec.disable(st.locked);
+      applyLockTip(tipHost(spec.row), st);
+    };
     syncers.push(sync);
   }
 
@@ -695,15 +705,32 @@ function wireLocks() {
     host.classList.add('has-lock');
     const btn = makeLockToggle(env, key, null);   // contextual → makeLockToggle renders it non-clickable
     host.appendChild(btn);
-    syncers.push(() => { btn.sync(); ctrl.classList.toggle('lock-dimmed', env.isLocked(key).locked); });
+    syncers.push(() => {
+      const st = env.isLocked(key);
+      btn.sync();
+      ctrl.classList.toggle('lock-dimmed', st.locked);
+      applyLockTip(host, st);
+    });
   }
 
   env.syncLocks = () => syncers.forEach((s) => s());
   env.syncLocks();
 
-  // center-offset "hold / autoplay" toggle — the include-in-autoplay opt-in, SEPARATE from
-  // the lock (Daniel). Default = hold (the pole doesn't auto-wander); writes session.autoplayInclude
-  // for both offset axes, which drift.js reads (see AUTOPLAY_EXCLUDED).
+  // center-offset TWO-TOGGLE (Daniel) — both default OFF. `manual` gates the on-canvas diamond
+  // drag (fat-finger guard; the overlay reads it via isLocked('drosteOffset')); `autoplay` opts
+  // the offset into drift (drift.js reads session.autoplayInclude). Independent — set each alone.
+  const offManual = [...document.querySelectorAll('#offsetManual button')];
+  const syncOffManual = () => {
+    const on = !!session.offsetManual;
+    offManual.forEach((b) => b.classList.toggle('active', (b.dataset.manual === '1') === on));
+  };
+  offManual.forEach((b) => b.addEventListener('click', () => {
+    session.offsetManual = b.dataset.manual === '1';
+    syncOffManual();
+    env.scheduleOverlayDraw?.();   // the diamond's grabbability changed
+  }));
+  syncOffManual();
+
   const offAuto = [...document.querySelectorAll('#offsetAutoplay button')];
   const syncOffAuto = () => {
     const inc = !!(session.autoplayInclude && session.autoplayInclude.drosteOffsetX);
@@ -1192,6 +1219,10 @@ function wireDisabledTips() {
       show(r.left + r.width / 2, r.top - 8, dis.title || dis.getAttribute('aria-label'));
       return;
     }
+    // a locked control is inert, so the tap lands on its container (which carries data-tip-lock):
+    // explain WHY it's locked instead of doing nothing (unlock is only via the padlock).
+    const locked = el.closest?.('[data-tip-lock]');
+    if (locked) { show(t.clientX, t.clientY - 14, locked.dataset.tipLock); return; }
     // CSS-gated clusters (pointer-events: none — motion locks the form grid /
     // discrete rows this way) never hit-test, so the tap lands on an ancestor:
     // it carries data-tip-motion, honored only while the motion gate is on.

@@ -715,14 +715,22 @@
         <button class="toggle active" data-wedgemirror="1">on</button>
       </div>
     </label>
-    <!-- center offset (Droste): the offset is a CANVAS gesture (the diamond), so it has no
-         slider — this row carries its lock (padlock, injected by wireLocks) + its autoplay
-         opt-in (hold by default; the pole doesn't auto-wander unless you switch to autoplay) -->
+    <!-- center offset (Droste): the offset is a CANVAS gesture (the diamond), no slider. Two
+         peer toggles, BOTH default off (Daniel): `manual` allows the on-canvas drag (fat-finger
+         guard — replaces the old padlock); `autoplay` lets drift wander the offset over time. -->
     <label class="slider" id="drosteOffsetLabel" style="margin-bottom: 10px; display: none;">
       <div class="row"><span>center offset</span></div>
-      <div class="row-buttons" id="offsetAutoplay">
-        <button class="toggle active" data-autoplay="0">hold</button>
-        <button class="toggle" data-autoplay="1">autoplay</button>
+      <div class="row offset-sub-row"><span class="offset-sub">manual</span>
+        <div class="row-buttons" id="offsetManual">
+          <button class="toggle active" data-manual="0">off</button>
+          <button class="toggle" data-manual="1">on</button>
+        </div>
+      </div>
+      <div class="row offset-sub-row"><span class="offset-sub">autoplay</span>
+        <div class="row-buttons" id="offsetAutoplay">
+          <button class="toggle active" data-autoplay="0">off</button>
+          <button class="toggle" data-autoplay="1">on</button>
+        </div>
       </div>
     </label>
     <button type="button" id="sliceReset" class="reset" title="reset slice and form-specific controls to defaults">reset slice</button>

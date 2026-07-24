@@ -4,6 +4,29 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🔒 v0.19.63 (Build 423) — 2026-07-23 — lock model v2 (fat-finger category, offset two-toggle, form re-lock, locked=inert+tooltip, form write-through)
+
+The cohesive model correction from Daniel's scattershot round — approved as one pass. Five threads:
+
+- **Fat-finger locks are now a real category.** `lockState` distinguishes FAT-FINGER controls (`segments` — direct-manipulation gestures easy to hit by accident: **always** lockable, in every mode, default UNLOCKED) from STRUCTURAL controls (form/aspect/oob/mirror/wedge/spiral + segment count: lockable only in a locking context — motion post-first-manual-keyframe OR output-live — default LOCKED). A control that's both (segments) shows the padlock everywhere: opt-in guard in Still/idle-perform, auto-locked once animating/broadcasting. This gives radial-wedge segments a padlock before the first keyframe (Daniel: it "didn't even have the ability to lock").
+- **Droste center-offset → two toggles, no padlock.** Replaced the offset padlock + the old hold/autoplay toggle with two peer toggles, **both default off**: `manual` (allow the on-canvas diamond drag — the fat-finger guard) and `autoplay` (allow drift to wander it). `session.offsetManual` (new) drives the overlay gate via `isLocked('drosteOffset')`; `autoplay` keeps writing `session.autoplayInclude`. The offset diamond is now inert by default (was draggable-while-"locked" because the lock was never a real gate here).
+- **Form padlock is persistent, so you can re-lock.** The padlock used to live *inside* the scrim overlay that only rendered while locked, so unlocking hid the padlock with no way back. Now the overlay is always present (a faint padlock in the top-right corner, clickable); the dark scrim + thumb-blocking apply only while locked.
+- **Locked = inert + why-tooltip on tap, always.** A locked control is inert (pointer-events:none / disabled), so a tap/hover falls through to its container, which now carries the "why" (native `title` for desktop hover + `data-tip-lock` for the touch tap-tip). Tapping a locked control explains itself instead of doing nothing; unlock is only via the padlock.
+- **Form switch writes through to all keyframes.** `form` is a DISCRETE key pinned to keyframe 0, so switching form in motion only changed live state and was re-asserted (old form) on the next tick — the keyframes kept their original geometry. Switching form (only reachable when unlocked) now writes the new form into **every** keyframe snapshot — the destructive "apply to all keyframes" we speced.
+
+Lab: added specimens for the persistent form-lock overlay (unlocked/locked) and the offset two-toggle; updated the lock caption to the fat-finger/structural/contextual taxonomy.
+
+Verified: node --check, vite build. **Untested by Claude on-device — this is the batch Daniel will review in one pass; the verification table (controls × conditions × platform) is the close-out gate.**
+
+## 🔒 v0.19.62 (Build 422) — 2026-07-23 — droste-offset lock now enforced + Lab wheel-scroll fix
+
+Two root-caused fixes from Daniel's scattershot round (the model/design items in that round are being scoped separately, not in this build):
+
+- **Droste center-offset lock was never enforced.** `overlay.js`'s offset-diamond gate reads `env.isLocked('drosteOffset')`, but the overlay's internal `view` object (built in `source-overlay.js`) forwarded `canEditDiscrete` and NOT `isLocked` — so the gate read `undefined?.locked` → falsy → the pole dragged even when locked. (Segments was unaffected because its gesture rides `canEditDiscrete`, which *was* forwarded.) Fix: `view.isLocked = ctx.isLocked || (() => ({ locked: false }))`. Desktop ctx already supplies it; mobile ctx doesn't wire locks yet, so the fallback keeps it inert there.
+- **UI Lab lost wheel/trackpad scroll.** The desktop min-width floor (`@media (pointer: fine) { html { overflow-x: auto } }`, B411) makes `html` a scroll container (overflow-y computes to `auto`), which swallowed wheel scroll in the Lab (only the native scrollbar still worked). Fix: the Lab's own reset now returns `html` to normal document flow (`overflow: visible; height: auto; min-width: 0`).
+
+Verified: node --check, vite build. **Untested by Claude on-device.**
+
 ## 🔒 v0.19.61 (Build 421) — 2026-07-23 — lock toggle wiring fix (desktop unlock was inert on form + aspect)
 
 Daniel's desktop spot check: unlocking **out-of-bounds** worked, but unlocking **frame aspect** flipped the padlock glyph without freeing the control, and the **form-picker** padlock (and, reportedly, segments) was unresponsive. Two root causes, one shared:

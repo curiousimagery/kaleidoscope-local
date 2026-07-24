@@ -306,6 +306,13 @@ export function buildFormGrid(env) {
     div.onclick = () => {
       env.pushHistory?.();
       env.state.form = form.id;
+      // In motion, `form` is a DISCRETE key pinned to keyframe 0, so setting live state alone is
+      // re-asserted (old form) on the next tick and the keyframes keep their original geometry.
+      // Switching form (only reachable when unlocked) is the destructive "apply to ALL keyframes":
+      // write the new form into every snapshot so the whole animation actually changes form.
+      if (env.motionRT?.active && env.motion?.keyframes?.length) {
+        for (const kf of env.motion.keyframes) if (kf.snap) kf.snap.form = form.id;
+      }
       grid.querySelectorAll('.form-thumb').forEach(el => {
         el.classList.toggle('active', el.dataset.formId === form.id);
       });

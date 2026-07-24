@@ -543,6 +543,9 @@ label.slider.disabled { opacity: var(--disabled-opacity); }
 .lock-toggle.locked { color: var(--text-secondary); }
 .lock-toggle.contextual { color: var(--text-dim); cursor: default; }
 .lock-toggle[hidden] { display: none; }
+/* droste center-offset sub-toggles (manual / autoplay) — indented, dim sub-labels under the row */
+.offset-sub-row { margin-top: 6px; padding-left: 10px; }
+.offset-sub { color: var(--text-dim); font-size: var(--text-sm); }
 .row.has-lock { gap: 8px; }
 .row.has-lock .val { margin-left: auto; }               /* val + lock group right; label stays left */
 .row.locked-row .val { opacity: var(--disabled-opacity); }   /* dim the value while locked */
@@ -1183,16 +1186,20 @@ button .btn-spinner {
    via `.form-locked` + a padlock overlay (form is one logical control). */
 .form-grid { position: relative; }
 .form-grid.form-locked { pointer-events: none; }
+/* the overlay is ALWAYS present (a faint padlock in the top-right corner) so you can RE-LOCK
+   after unlocking — the old "only rendered while locked" overlay hid the padlock on unlock, with
+   no way back. It never blocks the grid (pointer-events live only on the padlock); the dark scrim
+   + thumb-blocking apply ONLY while locked. */
 .form-lock-overlay {
-  position: absolute; inset: 0; display: none; z-index: 2;
-  align-items: center; justify-content: center;
-  background: rgba(10, 10, 10, 0.55); border-radius: var(--radius-sm);
+  position: absolute; inset: 0; display: flex; z-index: 2;
+  align-items: flex-start; justify-content: flex-end; padding: 5px;
+  pointer-events: none; border-radius: var(--radius-sm);
+  transition: background 0.12s ease;
 }
-/* the grid is pointer-events:none while locked (so its thumbs are inert), but the overlay
-   padlock must stay clickable to UNLOCK — re-enable pointer events on the overlay itself. */
-.form-grid.form-locked .form-lock-overlay { display: flex; pointer-events: auto; }
-.form-lock-overlay .lock-toggle { width: 28px; height: 28px; color: var(--text-bright); }
-.form-lock-overlay .lock-toggle svg { width: 18px; height: 18px; }
+.form-grid.form-locked .form-lock-overlay { background: rgba(10, 10, 10, 0.55); }
+.form-lock-overlay .lock-toggle { pointer-events: auto; width: 26px; height: 26px; }
+.form-lock-overlay .lock-toggle svg { width: 16px; height: 16px; }
+.form-grid.form-locked .form-lock-overlay .lock-toggle { color: var(--text-bright); }
 
 /* video export sheet */
 .vid-sheet {
