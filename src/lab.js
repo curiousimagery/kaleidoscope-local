@@ -727,19 +727,20 @@ function compositesSection() {
     el('span', { text: 'segments' }), el('span', { class: 'val', text: '12' }), lockBtn(locked ? 'locked' : 'unlocked'),
   ]);
   const lockRowsBox = el('div', { class: 'panel-popover', style: 'position:static;display:block;width:220px;padding:10px 12px' }, [lockRow(false), lockRow(true)]);
-  // form-picker lock — persistent corner padlock ALWAYS (so you can re-lock), dark scrim only while
-  // locked (B423 re-lock fix; the old overlay hid the padlock on unlock with no way back).
+  // form-picker lock — padlock in a header ABOVE the thumbs (never overlaps a form); scrim +
+  // inert grid only while locked (B424: moved off the thumbs, was covering droste). Persistent so
+  // you can re-lock: the header padlock shows whenever the form is lockable, locked or not.
   const formLockDemo = (locked) => {
+    const head = el('div', { class: 'form-lock-head has-lock', style: 'width:150px' }, [
+      el('button', { class: 'lock-toggle' + (locked ? ' locked' : ''),
+        title: locked ? 'locked — applies to the whole animation' : 'unlocked — click to lock',
+        html: locked ? LOCK_ICON.locked : LOCK_ICON.unlocked }),
+    ]);
     const grid = el('div', { class: 'form-grid' + (locked ? ' form-locked' : ''),
       style: 'position:relative;display:grid;grid-template-columns:repeat(3,1fr);gap:6px;width:150px' });
     for (let i = 0; i < 3; i++) grid.appendChild(el('div', { class: 'form-thumb' + (i === 0 ? ' active' : ''),
       style: 'aspect-ratio:1;background:var(--surface-control);border:1px solid var(--border-subtle);border-radius:var(--radius-sm)' }));
-    grid.appendChild(el('div', { class: 'form-lock-overlay' }, [
-      el('button', { class: 'lock-toggle' + (locked ? ' locked' : ''),
-        title: locked ? 'locked — applies to the whole animation' : 'unlocked — click to lock',
-        html: locked ? LOCK_ICON.locked : LOCK_ICON.unlocked }),
-    ]));
-    return grid;
+    return el('div', {}, [head, grid]);
   };
   // droste center-offset TWO-TOGGLE (manual + autoplay, both default off) — replaced the padlock (B423).
   const offsetToggleDemo = el('div', { class: 'panel-popover', style: 'position:static;display:block;width:220px;padding:10px 12px' }, [

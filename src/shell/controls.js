@@ -339,13 +339,10 @@ export function applyFormControls(env) {
   const segLabel = document.getElementById('segmentsLabel');
   const segInput = document.getElementById('segments');
   const usesSegments = form.controls.includes('segments');
-  if (usesSegments) {
-    segLabel.classList.remove('disabled');
-    segInput.disabled = false;
-  } else {
-    segLabel.classList.add('disabled');
-    segInput.disabled = true;
-  }
+  // HIDE the segments row for forms that don't use it (rectangle / hexagon / triangle) — not just
+  // dim it (Daniel: clutter, and the disabled scrub still adjusted the hidden-meaning value).
+  segLabel.style.display = usesSegments ? '' : 'none';
+  segInput.disabled = !usesSegments;
 
   // per-form conditional sliders: [controlKey, labelElementId]
   const conditionalLabels = [

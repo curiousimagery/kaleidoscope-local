@@ -14,6 +14,7 @@
 
 import { state, session, motion } from './shell/state.js';
 import { lockState, setLock, makeLockToggle } from './shell/locks.js';
+import { DISCRETE_KEYS } from './kit/tween.js';   // discrete settings are global (held to kf0)
 import { createEngine } from './engine/index.js';
 import { createSourceOverlay } from './components/source-overlay.js';
 import { createOutputGestures } from './components/output-gestures.js';
@@ -249,7 +250,18 @@ function scheduleRender() {
       // commit the edit live (cheap); the thumbnail refreshes on the debounced,
       // readback-free filmstrip rebuild — NOT per frame (a per-frame exportFrame →
       // readPixels here was the severe Firefox lag while editing a selected keyframe).
-      if (kf) { kf.snap = { ...state }; env.scheduleFilmstrip(); }
+      if (kf) {
+        kf.snap = { ...state };
+        // DISCRETE settings are global — playback holds them to keyframe 0. So editing a discrete
+        // control (segment count, mirror, oob…) on a NON-kf0 keyframe writes only that snap, and the
+        // hold re-reads kf0 → the edit "forgets" (Daniel). Propagate discrete → every keyframe so a
+        // discrete edit is global by construction. (Continuous fields stay per-keyframe.)
+        for (const other of motion.keyframes) {
+          if (other === kf || !other.snap) continue;
+          for (const dk of DISCRETE_KEYS) other.snap[dk] = state[dk];
+        }
+        env.scheduleFilmstrip();
+      }
     }
   });
 }
@@ -638,7 +650,7 @@ function wireLocks() {
     if (st.locked && st.why) { hostEl.title = st.why; hostEl.dataset.tipLock = st.why; }
     else { hostEl.removeAttribute('title'); delete hostEl.dataset.tipLock; }
   };
-  const tipHost = (row) => (row.closest && row.closest('label.slider')) || row;
+  const tipHost = (row) => (row.closest && row.closest('.slider')) || row;
   // key → build() returning { row, disable(locked) }. Extended as controls are wired.
   // shared builder for a slider row (input + scrub value in one .row)
   const sliderTarget = (inputId, valId) => () => {
@@ -682,18 +694,23 @@ function wireLocks() {
     syncers.push(sync);
   }
 
-  // FORM picker — a whole-picker lock (form is one logical control). Locked by default in
-  // motion; a padlock overlays the thumbs, and UNLOCKING warns (switching form mid-animation
-  // restructures everything and applies to every keyframe). Replaces the old body.motion block.
+  // FORM picker — a whole-picker lock (form is one logical control). The padlock lives in a header
+  // ABOVE the thumbs (#formLockHead) so it never overlaps a form thumb (the old corner overlay
+  // covered droste). While locked the grid gets a scrim + goes inert (CSS .form-locked::after);
+  // UNLOCKING warns (switching form mid-animation restructures everything, applies to every kf).
   const formGrid = byId('formGrid');
-  if (formGrid) {
-    const overlay = document.createElement('div');
-    overlay.className = 'form-lock-overlay';
+  const formHead = byId('formLockHead');
+  if (formGrid && formHead) {
+    formHead.classList.add('has-lock');
     const pad = makeLockToggle(env, 'form', null,
       () => window.confirm('switch form? this restructures the whole animation and applies to every keyframe.'));
-    overlay.appendChild(pad);
-    formGrid.appendChild(overlay);
-    syncers.push(() => { pad.sync(); formGrid.classList.toggle('form-locked', env.isLocked('form').locked); });
+    formHead.appendChild(pad);
+    syncers.push(() => {
+      const st = env.isLocked('form');
+      pad.sync();
+      formGrid.classList.toggle('form-locked', st.locked);
+      applyLockTip(formHead, st);
+    });
   }
 
   // CONTEXTUAL locks (resolution while broadcasting, aspect while broadcasting/playing) — the

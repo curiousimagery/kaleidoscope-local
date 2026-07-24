@@ -492,19 +492,19 @@ body.motion-aspect-settling .preview-canvas { visibility: hidden; }
 }
 
 /* sliders */
-label.slider {
+.slider {
   display: flex;
   flex-direction: column;
   gap: 4px;
   font-size: var(--text-base);
   color: var(--text-dim);
 }
-label.slider .row {
+.slider .row {
   display: flex;
   justify-content: space-between;
   align-items: center;
 }
-label.slider .val { color: var(--text-secondary); font-variant-numeric: tabular-nums; font-size: var(--text-sm); }
+.slider .val { color: var(--text-secondary); font-variant-numeric: tabular-nums; font-size: var(--text-sm); }
 
 input[type="range"] {
   width: 100%;
@@ -526,7 +526,7 @@ input[type="range"]::-moz-range-thumb {
 }
 input[type="range"]:disabled::-webkit-slider-thumb { background: var(--c-neutral-550); cursor: not-allowed; }
 input[type="range"]:disabled::-moz-range-thumb { background: var(--c-neutral-550); cursor: not-allowed; }
-label.slider.disabled { opacity: var(--disabled-opacity); }
+.slider.disabled { opacity: var(--disabled-opacity); }
 
 /* per-control LOCK (M3, shell/locks.js): a small padlock at the right of a control row.
    locked = full-strength glyph; unlocked = faint until hover; contextual (auto, not
@@ -1186,20 +1186,16 @@ button .btn-spinner {
    via `.form-locked` + a padlock overlay (form is one logical control). */
 .form-grid { position: relative; }
 .form-grid.form-locked { pointer-events: none; }
-/* the overlay is ALWAYS present (a faint padlock in the top-right corner) so you can RE-LOCK
-   after unlocking — the old "only rendered while locked" overlay hid the padlock on unlock, with
-   no way back. It never blocks the grid (pointer-events live only on the padlock); the dark scrim
-   + thumb-blocking apply ONLY while locked. */
-.form-lock-overlay {
-  position: absolute; inset: 0; display: flex; z-index: 2;
-  align-items: flex-start; justify-content: flex-end; padding: 5px;
-  pointer-events: none; border-radius: var(--radius-sm);
-  transition: background 0.12s ease;
+/* the padlock lives in #formLockHead ABOVE the thumbs (so it never overlaps a form). While locked,
+   a scrim covers the picker as the inert cue; the grid itself is pointer-events:none. */
+.form-grid.form-locked::after {
+  content: ''; position: absolute; inset: 0; z-index: 2; pointer-events: none;
+  background: rgba(10, 10, 10, 0.55); border-radius: var(--radius-sm);
 }
-.form-grid.form-locked .form-lock-overlay { background: rgba(10, 10, 10, 0.55); }
-.form-lock-overlay .lock-toggle { pointer-events: auto; width: 26px; height: 26px; }
-.form-lock-overlay .lock-toggle svg { width: 16px; height: 16px; }
-.form-grid.form-locked .form-lock-overlay .lock-toggle { color: var(--text-bright); }
+/* form-lock header — a right-aligned padlock row above the picker. Collapses to 0 height when the
+   padlock is hidden (form not lockable in this context), so it adds no chrome in Still/idle. */
+.form-lock-head { display: flex; justify-content: flex-end; align-items: center; }
+.form-lock-head:not(:has(.lock-toggle:not([hidden]))) { display: none; }
 
 /* video export sheet */
 .vid-sheet {

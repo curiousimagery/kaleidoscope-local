@@ -198,6 +198,9 @@
              it decides which popover rows show) + the slice-settings popover trigger.
              (reset slice lives at the BOTTOM of the popover — Daniel demoted both resets.) -->
         <div class="panel-ctl" id="srcCtl">
+          <!-- form lock lives ABOVE the thumbs (like the aspect lock above its buttons) so it never
+               overlaps a form (the corner padlock covered droste). Empty/0-height until lockable. -->
+          <div class="form-lock-head" id="formLockHead"></div>
           <div class="form-row" data-tip-motion="form switching is locked while animating — the form stays fixed at keyframe 0 (it can't tween)">
             <div class="form-grid" id="formGrid"></div>
             <button class="ot-btn ot-icon panel-gear" id="sliceSettingsBtn" title="slice settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="4" y1="8" x2="20" y2="8"/><line x1="4" y1="16" x2="20" y2="16"/><circle cx="9" cy="8" r="2.4" fill="currentColor"/><circle cx="15" cy="16" r="2.4" fill="currentColor"/></svg></button>
@@ -677,10 +680,13 @@
   <!-- form / slice settings (rows show only when they apply to the form) -->
   <div id="sliceGroup">
     <h2 style="font-size: 11px; font-weight: 500; color: #888; text-transform: lowercase; letter-spacing: 0.08em; margin-bottom: 8px;">slice</h2>
-    <label class="slider" id="segmentsLabel" style="margin-bottom: 10px;">
+    <!-- div, NOT label: a <label> activates its first labelable descendant on any click in its
+         dead space or over a pointer-events:none child — which redirected padlock clicks to the
+         range (Firefox: padlock did nothing) and toggle-button clicks to the padlock (tap-unlock). -->
+    <div class="slider" id="segmentsLabel" style="margin-bottom: 10px;">
       <div class="row"><span>segments</span><span class="val scrub" id="segVal" data-key="segments">12</span></div>
       <input type="range" id="segments" min="2" max="48" step="2" value="12">
-    </label>
+    </div>
     <label class="slider" style="margin-bottom: 10px;">
       <div class="row"><span>scale</span><span class="val scrub" id="scaleVal" data-key="sliceScale">1.00×</span></div>
       <input type="range" id="scale" min="0.05" max="3" step="0.005" value="1">
@@ -697,28 +703,28 @@
       <div class="row"><span>thickness</span><span class="val scrub" id="zoomVal" data-key="drosteZoom">2.00×</span></div>
       <input type="range" id="zoom" min="1.1" max="16" step="0.05" value="2">
     </label>
-    <label class="slider" id="spiralLabel" style="margin-bottom: 10px; display: none;">
+    <div class="slider" id="spiralLabel" style="margin-bottom: 10px; display: none;">
       <div class="row"><span>spiral</span><span class="val scrub" id="spiralVal" data-key="drosteSpiral">0</span></div>
       <input type="range" id="spiral" min="0" max="6" step="0.001" value="0">
-    </label>
-    <label class="slider" id="mirrorLabel" style="margin-bottom: 10px; display: none;">
+    </div>
+    <div class="slider" id="mirrorLabel" style="margin-bottom: 10px; display: none;">
       <div class="row"><span>tier mirror</span></div>
       <div class="row-buttons" id="mirrorToggle">
         <button class="toggle" data-mirror="0">off</button>
         <button class="toggle active" data-mirror="1">on</button>
       </div>
-    </label>
-    <label class="slider" id="wedgeMirrorLabel" style="margin-bottom: 10px; display: none;">
+    </div>
+    <div class="slider" id="wedgeMirrorLabel" style="margin-bottom: 10px; display: none;">
       <div class="row"><span>wedge mirror</span></div>
       <div class="row-buttons" id="wedgeMirrorToggle">
         <button class="toggle" data-wedgemirror="0">off</button>
         <button class="toggle active" data-wedgemirror="1">on</button>
       </div>
-    </label>
+    </div>
     <!-- center offset (Droste): the offset is a CANVAS gesture (the diamond), no slider. Two
          peer toggles, BOTH default off (Daniel): `manual` allows the on-canvas drag (fat-finger
          guard — replaces the old padlock); `autoplay` lets drift wander the offset over time. -->
-    <label class="slider" id="drosteOffsetLabel" style="margin-bottom: 10px; display: none;">
+    <div class="slider" id="drosteOffsetLabel" style="margin-bottom: 10px; display: none;">
       <div class="row"><span>center offset</span></div>
       <div class="row offset-sub-row"><span class="offset-sub">manual</span>
         <div class="row-buttons" id="offsetManual">
@@ -732,7 +738,7 @@
           <button class="toggle" data-autoplay="1">on</button>
         </div>
       </div>
-    </label>
+    </div>
     <button type="button" id="sliceReset" class="reset" title="reset slice and form-specific controls to defaults">reset slice</button>
   </div>
 </div>

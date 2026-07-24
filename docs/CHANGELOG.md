@@ -4,6 +4,19 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🔒 v0.19.64 (Build 424) — 2026-07-24 — lock fixes: the `<label>` root cause + form-lock placement + segments hide + discrete write-through
+
+Daniel's Firefox/Brave test session. Four fixes, two of them sharing ONE root cause:
+
+- **The `<label>` was the culprit behind both the dead Firefox padlock and the mirror/wedge "tap-unlocks".** The lockable rows (segments, spiral, tier/wedge mirror, center-offset) were `<label class="slider">`. A `<label>` activates its **first labelable descendant** whenever you click its dead space or a `pointer-events:none` child — so a click meant for the padlock got redirected to the range input (Firefox: padlock did nothing), and a click on a lock-dimmed mirror button fell through and activated the padlock (→ unlocked on the first click, edited on the second — the bug Daniel named three times). Fix: those five rows are now `<div class="slider">` (CSS selectors broadened `label.slider` → `.slider`). No label, no redirect: the padlock fires directly and a locked toggle is truly inert.
+- **Form lock moved ABOVE the thumbs.** The padlock was a corner overlay *on* the grid, sitting over the droste thumbnail so you could never pick droste. It now lives in a header row (`#formLockHead`) above the picker (like the aspect lock above its buttons); while locked the grid gets a scrim (`::after`) and goes inert. The header collapses to 0 height when the form isn't lockable.
+- **Segments row hidden for rectangle/hexagon/triangle.** Those forms don't use segments, so the row is now `display:none` (was merely dimmed-but-visible — clutter, and the disabled scrub still nudged the value). 
+- **Discrete edits now stick across keyframes.** Segment count / mirror / oob etc. are DISCRETE — playback holds them to keyframe 0. Editing one on a non-kf0 keyframe wrote only that snapshot, so the hold re-read kf0 and the edit "forgot" (Daniel). The per-frame keyframe commit now propagates every discrete key to **all** keyframes, so a discrete edit is global by construction.
+
+Lab: the form-lock specimen updated to the header+scrim structure.
+
+Verified: node --check, vite build. **Untested by Claude on-device.**
+
 ## 🔒 v0.19.63 (Build 423) — 2026-07-23 — lock model v2 (fat-finger category, offset two-toggle, form re-lock, locked=inert+tooltip, form write-through)
 
 The cohesive model correction from Daniel's scattershot round — approved as one pass. Five threads:
