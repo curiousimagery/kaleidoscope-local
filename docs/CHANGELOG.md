@@ -4,6 +4,18 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🔒 v0.19.67 (Build 427) — 2026-07-24 — mobile lock parity (A): structural edits lock while output is live
+
+Closes the last lock gap — the mobile chrome (iPhone + iPad Capacitor) now restricts structural edits while output is LIVE, per Daniel's intent. **Reuses the desktop model** (`shell/locks.js`), not a reimplementation:
+
+- **`env.isOutputLive`** on mobile = recording ∥ NDI broadcast (`bcState`) ∥ external display streaming (HDMI/AirPlay, via the external-display autoconnect's `onStatus`). `env.isLocked/setLock/syncLocks` wired the same as desktop; mobile has no manual-keyframe motion, so the only locking context is output-live.
+- **Gesture enforcement:** the mobile overlay ctx now passes `isLocked` + `canEditDiscrete`, so the on-canvas segment-spoke / offset-diamond drags (the main touch edit path) go inert while output is live.
+- **Settings-panel controls** (segments, spiral, tier/wedge mirror, out-of-bounds, frame aspect) get the padlock + manual override — default locked during output, unlockable (aspect stays hard-locked, encoder-tied). Padlocks surface ONLY while output is live (idle mobile controls stay clean — no always-on fat-finger padlock).
+- **Form tab** is hard-locked during output (the tab UI has no room for the padlock affordance) — tapping shows "stop the output to change form." The accepted "disabling is ok" for the one awkward control.
+- `env.syncLocks` re-runs on every output-state change (`updateLiveUI` + external-display status). Guarded by a `locksReady` flag so the init-time `updateLiveUI` calls don't read `recState`/`bcState` before they're declared (TDZ). Mobile lock CSS (`.lock-toggle`, `.m-locked`) added to `mobile/styles.css` (mobile doesn't load `shell/styles.css`).
+
+**Untested by Claude on-device — this is the one to device-verify** (iPhone record + broadcast; iPad Capacitor external display): padlocks appear only while live, unlock works on the settings controls, form tab blocks with the toast, gestures inert while live, all clear when output stops.
+
 ## 🔒 v0.19.66 (Build 426) — 2026-07-24 — non-blocking unlock confirm (unfreezes broadcast) + droste arms≥2 affordance gate
 
 From Daniel's native-device (iPad/iPhone Capacitor) session — two lock-related fixes here; the larger mobile-lock gap and two non-lock native bugs are scoped separately (see HANDOFF).

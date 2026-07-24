@@ -19,6 +19,7 @@ import { createEngine, getActiveForm } from '../engine/index.js';
 import { FORMS } from '../engine/forms/index.js';
 import { state, session } from '../shell/state.js';
 import { makeControlsSync } from '../shell/controls.js';
+import { lockState, setLock, makeLockToggle } from '../shell/locks.js';   // M3 locks — reused on mobile
 import { createSourceOverlay } from '../components/source-overlay.js';
 import { createOutputGestures } from '../components/output-gestures.js';
 import { mountRangeControl } from '../components/param-control.js';
@@ -114,6 +115,26 @@ const env = {
   // mobile undo/redo is out of scope: no pushHistory / updateUndoUI.
 };
 
+// M3 locks on mobile — REUSE the desktop model (shell/locks.js). Mobile has no manual-keyframe
+// motion authoring, so the ONLY locking context here is OUTPUT-LIVE: while recording, broadcasting
+// over NDI, or presenting to an external display (HDMI/AirPlay), structural edits default LOCKED
+// (Daniel's intent — native output should restrict edits mid-broadcast). `extStreaming` is set by
+// the external-display autoconnect's onStatus; recState/bcState are declared further below.
+let extStreaming = false;
+let locksReady = false;   // gate: recState/bcState are declared further down; don't read them (TDZ)
+                          // until module init has run past those declarations (set true at file end)
+env.isOutputLive = () => recState === 'recording' || bcState === 'live' || extStreaming;
+env.isLocked = (key) => lockState({
+  session, motionActive: false, keyframeCount: 0,
+  outputLive: env.isOutputLive(),
+}, key);
+env.setLock = (key, locked) => {
+  const sk = env.isLocked(key).scopeKey || key;
+  setLock(session, sk, locked);
+  env.syncLocks?.(); controlsSync.syncAll(); scheduleRender(); sourceOverlay.scheduleDraw?.();
+};
+env.syncLocks = () => {};   // replaced by wireMobileLocks once the controls exist
+
 let renderScheduled = false;
 function scheduleRender() {
   if (renderScheduled) return;
@@ -201,6 +222,10 @@ const sourceOverlay = createSourceOverlay({
   syncControls: () => controlsSync.syncAll(),
   scheduleRender,
   fit: 'cover',                 // mobile fills the panel by default (no side gutters)
+  // gesture enforcement: on-canvas segment-spoke / offset-diamond drags respect the output-live
+  // lock (the main edit path on touch). Same seam the desktop overlay reads.
+  isLocked: (key) => env.isLocked(key),
+  canEditDiscrete: () => !env.isLocked('segments').locked,
 });
 
 createOutputGestures(outputCanvas, {
@@ -323,7 +348,7 @@ canvasPopEl.innerHTML = '<h2>canvas</h2>';
 // mobile output honored only square before this.
 (function mountAspectControl() {
   const wrap = document.createElement('div');
-  wrap.className = 'm-control';
+  wrap.className = 'm-control'; wrap.id = 'm-aspect-ctl';
   wrap.innerHTML = '<div class="m-control-row"><span>frame aspect</span></div>';
   const seg = document.createElement('div');
   seg.className = 'm-seg';
@@ -387,7 +412,7 @@ for (const id of DECLARATIVE_PARAM_IDS) {
 // not a range, so it's rendered directly here rather than via mountRangeControl.
 (function mountOobControl() {
   const wrap = document.createElement('div');
-  wrap.className = 'm-control';
+  wrap.className = 'm-control'; wrap.id = 'm-oob-ctl';
   wrap.innerHTML = '<div class="m-control-row"><span>out of bounds</span></div>';
   const seg = document.createElement('div');
   seg.className = 'm-seg';
@@ -537,9 +562,49 @@ $('m-fit-toggle').addEventListener('click', () => {
   sourceOverlay.render();
 });
 
+// ---- M3 LOCKS on mobile: while output is LIVE (record / NDI / HDMI-AirPlay) the structural
+// controls default LOCKED. The settings-panel controls get the padlock + manual override (same
+// pattern as desktop); the FORM tab is hard-locked during output (the tab UI has no room for the
+// padlock affordance) — stop output to change form. env.syncLocks re-runs on every output-state
+// change (updateLiveUI + the external-display onStatus).
+(function wireMobileLocks() {
+  const byId = (id) => document.getElementById(id);
+  const TARGETS = [
+    { key: 'segments',    id: 'segmentsLabel' },
+    { key: 'spiral',      id: 'spiralLabel' },
+    { key: 'mirror',      id: 'mirrorLabel' },
+    { key: 'wedgeMirror', id: 'wedgeMirrorLabel' },
+    { key: 'oobMode',     id: 'm-oob-ctl' },
+    { key: 'frameAspect', id: 'm-aspect-ctl' },
+  ];
+  const syncers = [];
+  for (const t of TARGETS) {
+    const ctl = byId(t.id); if (!ctl) continue;
+    const row = ctl.querySelector('.m-control-row'); if (!row) continue;
+    row.classList.add('has-lock');
+    const btn = makeLockToggle(env, t.key, () => {});   // env.setLock already re-syncs everything
+    row.appendChild(btn);
+    syncers.push(() => {
+      btn.sync();
+      // mobile shows padlocks ONLY while output is live (the stated intent) — hide the always-on
+      // fat-finger padlock (segments) so idle controls stay clean; the desktop keeps that opt-in.
+      if (!env.isOutputLive()) btn.hidden = true;
+      ctl.classList.toggle('m-locked', env.isLocked(t.key).locked);
+    });
+  }
+  // form tab — hard-locked while output is live (contextual): show the lock cue, block the menu.
+  const formTab = byId('m-tab-form');
+  syncers.push(() => { if (formTab) formTab.classList.toggle('m-locked', env.isLocked('form').locked); });
+  // guarded: env.isOutputLive reads recState/bcState (declared below) — only run once locksReady.
+  env.syncLocks = () => { if (locksReady) syncers.forEach((s) => s()); };
+})();
+
 // ------------------------------------------------------------------- tab bar
 $('m-tab-source').addEventListener('click', () => showSourceMenu());
-$('m-tab-form').addEventListener('click', () => showFormMenu());
+$('m-tab-form').addEventListener('click', () => {
+  if (env.isLocked('form').locked) { statusToast('busy', 'stop the output to change form', { ttl: 2200 }); return; }
+  showFormMenu();
+});
 $('m-file').addEventListener('change', (e) => { if (e.target.files[0]) loadImage(e.target.files[0], 'file'); });
 $('m-file-still').addEventListener('change', (e) => { if (e.target.files[0]) loadImage(e.target.files[0], 'still'); });
 // null state: tapping the output opens the source menu
@@ -1079,6 +1144,7 @@ function stopCameraStream() {
 }
 
 function updateLiveUI() {
+  env.syncLocks?.();      // output-live state may have changed → re-sync structural locks
   const cap = $('m-tab-capture');
   cap.disabled = false;   // the busy states below re-disable as needed
   // the top-row camera control: the camera-settings menu on the native path (flip +
@@ -2149,7 +2215,14 @@ if (host.externalDisplay?.available) {
       },
       onStatus: (connected, streaming) => {
         console.info('[fold] external display', connected ? (streaming ? 'streaming' : 'connected') : 'disconnected');
+        extStreaming = connected && streaming;   // HDMI/AirPlay live → output-live locks engage
+        env.syncLocks?.();
       },
     });
   }).catch((e) => console.warn('[fold] external display unavailable:', e));
 }
+
+// all module state (recState/bcState/…) + controls now exist — enable the lock syncers and run
+// the initial pass so the padlocks reflect the (idle) output state from first paint.
+locksReady = true;
+env.syncLocks();

@@ -117,6 +117,23 @@ html, body { margin: 0; padding: 0; height: 100%; background: var(--bg); color: 
 .m-control-row { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px;
   font-size: var(--text-base); color: var(--text-dim); }   /* was --text-md (13px); matched to the desktop 12px label */
 .m-control-val { color: var(--text); font-variant-numeric: tabular-nums; }
+
+/* M3 locks (mobile) — the padlock (shell/locks.js makeLockToggle) + a locked-control dim. Mobile
+   loads only this stylesheet, so .lock-toggle is defined here (not shared from shell/styles.css). */
+.m-control-row.has-lock { align-items: center; }
+.lock-toggle {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 34px; height: 34px; padding: 0; flex: 0 0 auto; margin-left: auto;
+  background: transparent; border: none; border-radius: 8px;
+  color: var(--text-dim); cursor: pointer;
+}
+.lock-toggle svg { width: 18px; height: 18px; display: block; }
+.lock-toggle.locked { color: var(--text); }
+.lock-toggle[hidden] { display: none; }
+/* a locked control: dim + inert its interactive parts (slider / segmented buttons); padlock stays live */
+.m-control.m-locked > :not(.m-control-row) { opacity: 0.4; pointer-events: none; }
+/* form tab locked cue (hard-locked while output is live) */
+.m-tab.m-locked { opacity: 0.55; }
 /* the slider inherits the shared input[type=range] rules from styles.css — including
    the coarse touch target (--touch-target, 44px). No mobile-specific height override
    (the old height:28px gave irregular, too-small touch targets). */
