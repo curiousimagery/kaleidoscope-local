@@ -126,6 +126,9 @@ html, body { margin: 0; padding: 0; height: 100%; background: var(--bg); color: 
   width: 34px; height: 34px; padding: 0; flex: 0 0 auto; margin-left: auto;
   background: transparent; border: none; border-radius: 8px;
   color: var(--text-dim); cursor: pointer;
+  /* iOS: the first tap was being consumed as a scroll/hover gesture (Daniel: "needs two taps") —
+     manipulation opts out of double-tap-zoom + the synthetic delay so the tap toggles immediately. */
+  touch-action: manipulation;
 }
 .lock-toggle svg { width: 18px; height: 18px; display: block; }
 .lock-toggle.locked { color: var(--text); }

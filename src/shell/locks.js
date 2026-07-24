@@ -45,11 +45,14 @@ const WHY = {
 };
 
 // The current lock state of a control.
-//   ctx = { session, motionActive, keyframeCount, outputLive }
+//   ctx = { session, motionActive, keyframeCount, outputLive, fatFingerAll }
 //   returns { locked, lockable, unlockable, why }. `lockable:false` = padlock HIDDEN (the
 //   control is freely editable in this context — keep the surface clean).
+//   `fatFingerAll` (mobile): treat EVERY structural control as also fat-finger — the padlock is
+//   ALWAYS available (default unlocked), auto-locking only when output is live. On touch the
+//   fat-finger concern is broader, so mobile wants the lock reachable at all times (Daniel).
 export function lockState(ctx, key) {
-  const { session, motionActive, keyframeCount = 0, outputLive = false } = ctx;
+  const { session, motionActive, keyframeCount = 0, outputLive = false, fatFingerAll = false } = ctx;
 
   // center offset: NO padlock anymore — its manual gesture is governed by the two-toggle on the
   // offset row (session.offsetManual, default false = the diamond can't be dragged). This returns
@@ -66,7 +69,10 @@ export function lockState(ctx, key) {
 
   const structuralCtx = (motionActive && keyframeCount >= 2) || outputLive;   // the locking context
   const structuralLock = STRUCTURAL.has(key) && structuralCtx;
-  const lockable = FAT_FINGER.has(key) || structuralLock;
+  // fat-finger = always lockable (default unlocked). segments everywhere; on mobile (fatFingerAll)
+  // EVERY structural control too, so its padlock is reachable even when idle.
+  const fatFinger = FAT_FINGER.has(key) || (fatFingerAll && STRUCTURAL.has(key));
+  const lockable = fatFinger || structuralLock;
   if (!lockable) return { locked: false, lockable: false };   // freely editable here → no padlock
 
   // encoder-tied dims (aspect) can't change while output is live → hard contextual lock

@@ -4,6 +4,15 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🔒 v0.19.69 (Build 429) — 2026-07-24 — mobile locks: always-available padlock + first-tap responsiveness
+
+Daniel's mobile lock test — two refinements:
+
+- **Padlocks are always available now (default unlocked), not only while output is live.** On touch the fat-finger concern is broader, so Daniel wants the lock reachable at all times, auto-locking on output. New `lockState` ctx flag `fatFingerAll` (mobile passes it) treats EVERY structural control as also fat-finger — lockable always, default unlocked, default locked only in the output-live context. Desktop is unchanged (it doesn't pass the flag). Removed the mobile "hide padlock unless live" gate.
+- **First-tap responsiveness (was two-tap to unlock).** The padlock previously *appeared* when output went live, and iOS commonly absorbs the first tap on a freshly-shown control inside a `-webkit-overflow-scrolling: touch` momentum-scroll container (`#m-settings`) — hence "one tap to wake it, one to toggle." Always-visible (above) removes the appear-then-tap artifact; `touch-action: manipulation` on `.lock-toggle` is the backstop (opts out of double-tap-zoom + the synthetic-click delay).
+
+Verified: node --check, vite build. **Untested by Claude on-device — confirm: padlocks visible + tappable when idle (default unlocked), lock/unlock on the FIRST tap, auto-lock on record/broadcast.**
+
 ## 🩹 v0.19.68 (Build 428) — 2026-07-24 — FIX: B427 crashed mobile init (TDZ) + OOB reads clamp in motion
 
 Two fixes, one of them urgent (B427 regression that blocked all mobile testing):

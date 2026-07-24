@@ -131,6 +131,7 @@ env.isOutputLive = () => recState === 'recording' || bcState === 'live' || extSt
 env.isLocked = (key) => lockState({
   session, motionActive: false, keyframeCount: 0,
   outputLive: env.isOutputLive(),
+  fatFingerAll: true,   // mobile: padlocks always available (default unlocked), auto-lock on output
 }, key);
 env.setLock = (key, locked) => {
   const sk = env.isLocked(key).scopeKey || key;
@@ -589,10 +590,7 @@ $('m-fit-toggle').addEventListener('click', () => {
     const btn = makeLockToggle(env, t.key, () => {});   // env.setLock already re-syncs everything
     row.appendChild(btn);
     syncers.push(() => {
-      btn.sync();
-      // mobile shows padlocks ONLY while output is live (the stated intent) — hide the always-on
-      // fat-finger padlock (segments) so idle controls stay clean; the desktop keeps that opt-in.
-      if (!env.isOutputLive()) btn.hidden = true;
+      btn.sync();   // fatFingerAll makes every target lockable-always → padlock always visible
       ctl.classList.toggle('m-locked', env.isLocked(t.key).locked);
     });
   }
