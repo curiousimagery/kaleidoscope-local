@@ -1687,6 +1687,10 @@ function padPoint(e) { const t = e.touches ? e.touches[0] : e; return { x: t.cli
 
 function padDown(e) {
   if (!padEnabled()) return;
+  // TOUCH PRIORITY: never let the source-panel camera gesture steal a tap meant for an interactive
+  // control layered on top of the source (the icon buttons, a padlock, a segmented toggle) — the
+  // visible top layer always wins (Daniel). This capture-phase handler runs first, so bail early.
+  if (e.target.closest?.('button, .m-icon-btn, .lock-toggle, .m-seg, input, .m-menu, .m-control')) return;
   const p = padPoint(e);
   clearTimeout(padTimer); padTimer = 0;
   if (p.n > 1) return;                 // two fingers → a pinch, not the pad

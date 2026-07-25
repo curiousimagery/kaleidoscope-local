@@ -86,7 +86,12 @@ html, body { margin: 0; padding: 0; height: 100%; background: var(--bg); color: 
 #m-context { position: relative; flex: 1 1 auto; min-height: 0; background: var(--bg); overflow: hidden; }
 #m-context-toggle, #m-fit-toggle, #m-flip, #m-cam-menu { position: absolute; top: 8px; z-index: 5; width: 40px; height: 40px;
   border-radius: var(--radius-lg); border: 1px solid var(--border); background: rgba(20,20,20,0.85);
-  color: var(--text); font-size: 16px; display: flex; align-items: center; justify-content: center; }
+  color: var(--text); font-size: 16px; display: flex; align-items: center; justify-content: center;
+  touch-action: manipulation; }
+/* expand the tap target ~14px beyond the 40px visual (invisible), so a near-miss opens the control
+   instead of falling through to the source panel's live-camera gesture (Daniel: top layer wins). */
+#m-context-toggle::after, #m-fit-toggle::after, #m-flip::after, #m-cam-menu::after {
+  content: ''; position: absolute; inset: -14px; border-radius: inherit; }
 #m-context-toggle { left: 8px; }
 #m-fit-toggle { right: 8px; }
 #m-flip, #m-cam-menu { right: 56px; }   /* left of fit/fill (Daniel's record-video spec); only one shows at a time */

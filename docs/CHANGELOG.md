@@ -4,6 +4,15 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 📱 v0.19.70 (Build 430) — 2026-07-24 — mobile touch priority: source-panel gesture yields to controls on top
+
+Daniel found taps on the source-panel icon buttons sometimes triggering the live-camera gesture ("tap to focus") instead of the button — a near-miss falling through to the layer behind. Principle he set: **the top visible layer always wins the tap.**
+
+- **Source gesture bails on interactive controls.** `padDown` (the capture-phase EV/WB pad on `#m-source`) now returns immediately when the tap lands on a `button` / `.m-icon-btn` / `.lock-toggle` / `.m-seg` / `input` / `.m-control` — so a control layered over the source is never robbed of its tap. (Also the leading theory for the padlock's during-record two-tap: `padDown` only arms with a live camera, which recording usually is — if the gesture layer was reachable in a record layout, this closes it.)
+- **Expanded icon-button hit targets.** `#m-context-toggle` / `#m-fit-toggle` / `#m-flip` / `#m-cam-menu` get a transparent `::after` extending the tap area ~14px beyond the 40px visual, so a near-miss opens the control instead of the source. `touch-action: manipulation` on them too.
+
+Verified: node --check, vite build. **Untested by Claude on-device.**
+
 ## 🔒 v0.19.69 (Build 429) — 2026-07-24 — mobile locks: always-available padlock + first-tap responsiveness
 
 Daniel's mobile lock test — two refinements:
