@@ -542,6 +542,7 @@ function componentsSection() {
       el('div', { class: 'pan-joy-row', style: 'max-width:150px' }, [
         el('div', { class: 'row' }, [el('span', { class: 't-label', text: 'pan' }), el('button', { class: 'pan-joy-recenter', text: 'recenter' })]),
         el('div', { class: 'pan-joy' }, [
+          el('div', { class: 'pan-joy-rect', style: 'width:78px;height:44px' }),
           el('div', { class: 'pan-joy-origin' }),
           el('div', { class: 'pan-joy-dot', style: 'transform: translate(20px, -12px)' }),
           el('div', { class: 'pan-joy-handle', style: 'transform: translate(12px, 8px)' }),

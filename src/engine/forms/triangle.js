@@ -104,6 +104,15 @@ export default {
   // spokeRule semantics.
   spokeRule: 'none',
 
+  // TILING PAN lattice period (canvas space). The triangle lattice basis is e1=(s, 0),
+  // e2=(s/2, √3/2·s) with s=TRI_SIZE, so the smallest RECTANGULAR super-period is
+  // (s, √3·s) (verified: e1 and 2·e2−e1=(0,√3·s) are both identity). p3m1 mirrors are
+  // intra-cell. Keep s in sync with the shader TRI_SIZE (0.6) until it's a uniform (M6).
+  latticePeriod() {
+    const s = 0.6;   // = TRI_SIZE in foldTriangle
+    return [s, Math.sqrt(3) * s];
+  },
+
   buildPolygon(state) {
     // Horizontal 60-120 rhombus, apex on the left at slice center, long
     // diagonal along +X. The four corners match the fold output range exactly

@@ -1512,6 +1512,8 @@ if (engine) {
     // same lock as the source overlay: canvasZoom/canvasRotation are animated, so an
     // output pinch/twist during playback is clobbered + would leak into the broadcast.
     editLocked: isMotionDriven,
+    // one-finger TILING PAN — enabled only on tileable forms (non-null lattice period).
+    panPeriod: () => getActiveForm(state)?.latticePeriod?.(state) || null,
   });
   setupUndoBar();
   wireFrameAspect();

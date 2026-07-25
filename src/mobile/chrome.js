@@ -236,6 +236,8 @@ const sourceOverlay = createSourceOverlay({
 createOutputGestures(outputCanvas, {
   state,
   onChange: () => { controlsSync.syncAll(); scheduleRender(); },
+  // one-finger TILING PAN — enabled only on tileable forms (non-null lattice period).
+  panPeriod: () => getActiveForm(state)?.latticePeriod?.(state) || null,
 });
 
 // ------------------------------------------------------------ settings (State B)

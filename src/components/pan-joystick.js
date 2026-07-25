@@ -18,7 +18,7 @@ const SPEED = 1.6;   // offset units / second at full deflection
 
 export function createPanJoystick(env, opts = {}) {
   const { keyX = 'canvasOffsetX', keyY = 'canvasOffsetY', periodOf = () => null, speed = SPEED } = opts;
-  const { state, scheduleRender, controlsSync } = env;
+  const { state, session, scheduleRender, controlsSync } = env;
 
   const root = document.createElement('div');
   root.className = 'pan-joy-row';
@@ -26,11 +26,13 @@ export function createPanJoystick(env, opts = {}) {
   root.innerHTML = `
     <div class="row"><span>pan</span><button type="button" class="pan-joy-recenter">recenter</button></div>
     <div class="pan-joy">
+      <div class="pan-joy-rect"></div>
       <div class="pan-joy-origin"></div>
       <div class="pan-joy-dot"></div>
       <div class="pan-joy-handle"></div>
     </div>`;
   const pad     = root.querySelector('.pan-joy');
+  const rectEl  = root.querySelector('.pan-joy-rect');
   const handle  = root.querySelector('.pan-joy-handle');
   const dot     = root.querySelector('.pan-joy-dot');
   const recenter = root.querySelector('.pan-joy-recenter');
@@ -47,14 +49,21 @@ export function createPanJoystick(env, opts = {}) {
   }
   function centerHandle() { hx = 0; hy = 0; handle.style.transform = 'translate(0,0)'; }
 
-  // dot = offset mod period, mapped so offset 0 → CENTER (aligned with the origin marker) and
-  // the far edge wraps pacman. centeredFrac ∈ [-0.5, 0.5).
-  function positionDot() {
+  // The POSITION DOT tracks a RECTANGLE proportional to the canvas (frameAspect), inscribed in
+  // the circle — so the dot never strays into the corner gaps and vanishes (Daniel). The circle
+  // stays the finger-joystick affordance for the handle. Dot = offset mod period, mapped into
+  // the rectangle (pacman wrap; offset 0 = center, aligned with the origin marker).
+  function layout() {
+    const r = radius();
+    const a = (session && session.frameAspect) || 1;      // canvas output aspect
+    const k = 0.92 * r / Math.sqrt(a * a + 1);            // inscribe (corners ~on the circle)
+    const halfW = k * a, halfH = k;
+    rectEl.style.width = (2 * halfW) + 'px';
+    rectEl.style.height = (2 * halfH) + 'px';
     const period = periodOf();
     if (!period) { dot.style.transform = 'translate(0,0)'; return; }
     const cf = (v, p) => (p > 0 ? ((((v / p) + 0.5) % 1) + 1) % 1 - 0.5 : 0);
-    const r = radius();
-    dot.style.transform = `translate(${cf(state[keyX] || 0, period[0]) * 2 * r}px, ${cf(state[keyY] || 0, period[1]) * 2 * r}px)`;
+    dot.style.transform = `translate(${cf(state[keyX] || 0, period[0]) * 2 * halfW}px, ${cf(state[keyY] || 0, period[1]) * 2 * halfH}px)`;
   }
 
   function tick(now) {
@@ -64,7 +73,7 @@ export function createPanJoystick(env, opts = {}) {
     if (hx || hy) {
       state[keyX] = (state[keyX] || 0) + hx * speed * dt;
       state[keyY] = (state[keyY] || 0) + hy * speed * dt;
-      positionDot();
+      layout();
       scheduleRender();
     }
     if (dragging || hx || hy) raf = requestAnimationFrame(tick);
@@ -105,10 +114,10 @@ export function createPanJoystick(env, opts = {}) {
   recenter.addEventListener('click', () => {
     env.pushHistory?.();
     state[keyX] = 0; state[keyY] = 0;
-    positionDot(); scheduleRender(); env.updateUndoUI?.();
+    layout(); scheduleRender(); env.updateUndoUI?.();
   });
 
-  function syncAll() { positionDot(); }
+  function syncAll() { layout(); }
   syncAll();
   controlsSync?.register(syncAll);
   return { root, syncAll };

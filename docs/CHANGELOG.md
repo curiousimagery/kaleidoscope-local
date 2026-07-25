@@ -4,6 +4,19 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🕹️ v0.19.77 (Build 437) — 2026-07-25 — Tiling pan — fixes + pan gesture + hex/triangle
+
+Daniel's B436 smoke test (desktop web): two fixes, plus B437's planned extensions.
+
+- **FIX — X direction was backwards** (Y was right). Single sign-convention point: negate X in the `u_canvasOffset` uniform, so pushing the joystick right pans right. Joystick + dot + gesture all inherit it.
+- **FIX — position dot vanished in the corner gaps.** The dot mapped to the full square extent but the pad is a circle, so corners clipped. Now the dot tracks a **rectangle proportional to the canvas** (`frameAspect`), inscribed in the circle — the circle stays the finger-joystick affordance; the rectangle (dashed outline) is the dot's field. Dot never leaves the circle. Lab specimen updated.
+- **Canvas PAN GESTURE** — one-finger drag on the output → `canvasOffset` (direct, content-follows-finger). In the shared `output-gestures.js`, gated to tileable forms via a new `ctx.panPeriod()` (returns the form's lattice period or null); supersedes/yields to the two-finger pinch cleanly. **Covers desktop touch, iPad, and mobile** (mobile gets pan via gesture now; its settings joystick is B438).
+- **Hex + triangle now pan.** `hex.latticePeriod = [√3·s, 3·s]`, `triangle.latticePeriod = [s, √3·s]` (s = 0.6, the shader `HEX_SIZE`/`TRI_SIZE`) — the smallest RECTANGULAR seamless super-period, verified against each fold; p6m/p3m1 mirrors are intra-cell so the translation lattice is the identity period. The joystick + gesture auto-enable for them (both gated by `latticePeriod`). (Promoting the size constants to uniforms is deferred to M6; `latticePeriod` must stay in sync with the shader constant until then.)
+
+**VERIFY (Daniel):** square/hex/triangle → push joystick or one-finger-drag the output → seamless looping pan, **X now correct**, dot stays in the rectangle. Note any hex/triangle seam (would mean a lattice-period miss).
+
+Verified: node --check, vite build. **Untested by Claude on-device.** Fresh Capacitor + Electron builds produced.
+
 ## 🕹️ v0.19.76 (Build 436) — 2026-07-25 — Tiling PAN foundation + velocity joystick (repeating-movements ②, rectangle · desktop)
 
 Step ② — the shared canvas-translation foundation + the pan control, greenlit. **Tiling pan is the 2D analog of the infinite zoom:** the tiling fold mods `p`, so translating `p -= canvasOffset` before the fold is inherently periodic — pan across one lattice period and it loops seamlessly (pacman). Same "store unwrapped, shader wraps" machinery as the zoom, so perform-easing / motion / (future) autoplay come along.

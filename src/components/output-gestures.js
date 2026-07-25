@@ -19,6 +19,7 @@
 export function createOutputGestures(canvas, ctx) {
   const { state } = ctx;
   let pinch = null;
+  let pan = null;   // one-finger TILING PAN drag (only when ctx.panPeriod() is non-null)
 
   // DROSTE INFINITE ZOOM: in droste, pinch drives the loop PHASE (drosteZoomPhase),
   // not canvasZoom — so it circles endlessly instead of hitting the [0.15,4] wall. A
@@ -38,6 +39,7 @@ export function createOutputGestures(canvas, ctx) {
   function onStart(e) {
     if (locked()) return;
     if (e.touches.length === 2) {
+      pan = null;                          // a second finger → pinch supersedes a pan
       ctx.onCommitStart?.();
       const t0 = e.touches[0], t1 = e.touches[1];
       pinch = {
@@ -48,10 +50,24 @@ export function createOutputGestures(canvas, ctx) {
         startRotation: state.canvasRotation,
       };
       e.preventDefault();
+    } else if (e.touches.length === 1 && ctx.panPeriod && ctx.panPeriod()) {
+      // one-finger TILING PAN (tileable forms only) — direct drag, content follows the finger.
+      ctx.onCommitStart?.();
+      pan = { x: e.touches[0].clientX, y: e.touches[0].clientY, ox: state.canvasOffsetX || 0, oy: state.canvasOffsetY || 0 };
+      e.preventDefault();
     }
   }
 
   function onMove(e) {
+    if (pan && e.touches.length === 1) {
+      const rect = canvas.getBoundingClientRect();
+      // screen delta → canvas units ([-1,1] over the element); same offset sign as the joystick.
+      state.canvasOffsetX = pan.ox + (e.touches[0].clientX - pan.x) / (rect.width / 2);
+      state.canvasOffsetY = pan.oy + (e.touches[0].clientY - pan.y) / (rect.height / 2);
+      ctx.onChange?.();
+      e.preventDefault();
+      return;
+    }
     if (!pinch || e.touches.length !== 2) return;
     const t0 = e.touches[0], t1 = e.touches[1];
     const dist  = Math.hypot(t1.clientX - t0.clientX, t1.clientY - t0.clientY);
@@ -68,7 +84,8 @@ export function createOutputGestures(canvas, ctx) {
   }
 
   function onEnd(e) {
-    if (e.touches.length < 2) { pinch = null; ctx.onCommitEnd?.(); }
+    if (e.touches.length < 2 && pinch) { pinch = null; ctx.onCommitEnd?.(); }
+    if (e.touches.length === 0 && pan) { pan = null; ctx.onCommitEnd?.(); }
   }
 
   // Trackpad pinch-to-zoom the OUTPUT. macOS delivers a trackpad pinch as wheel +

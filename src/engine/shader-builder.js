@@ -38,7 +38,9 @@ export const COMMON_UNIFORMS = {
   u_canvasOffset:  { type: '2f', get: (state) => {
     const form = FORMS.find(f => f.id === state.form);
     const period = form && form.latticePeriod && form.latticePeriod(state);
-    const ox = state.canvasOffsetX || 0, oy = state.canvasOffsetY || 0;
+    // X negated so pushing the joystick RIGHT pans the pattern right (Daniel: X read backwards);
+    // Y already reads correctly. This is the single sign-convention point for canvasOffset.
+    const ox = -(state.canvasOffsetX || 0), oy = state.canvasOffsetY || 0;
     if (!period) return [ox, oy];
     const wrap = (v, p) => (p > 0 ? ((v % p) + p) % p : v);
     return [wrap(ox, period[0]), wrap(oy, period[1])];

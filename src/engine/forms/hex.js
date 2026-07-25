@@ -92,6 +92,16 @@ export default {
   // scale (scale should only fire on the FAR cell-boundary edge).
   spokeRule: 'hex',
 
+  // TILING PAN lattice period (canvas space). The hex lattice basis is a1=(√3·s, 0),
+  // a2=(√3/2·s, 3/2·s) with s=HEX_SIZE, so the smallest RECTANGULAR super-period is
+  // (√3·s, 3·s) (verified against the fold: a1 and 2·a2−a1=(0,3s) are both identity).
+  // p6m mirrors are intra-cell, so the translation lattice IS the seamless period.
+  // Keep s in sync with the shader HEX_SIZE (0.6) until it's promoted to a uniform (M6).
+  latticePeriod() {
+    const s = 0.6;   // = HEX_SIZE in foldHex
+    return [Math.sqrt(3) * s, 3 * s];
+  },
+
   buildPolygon(state) {
     // per Daniel's v0.0.7 feedback, show a wedge representing the FUNDAMENTAL
     // sample region (the same region radial shows), not the cumulative envelope.
