@@ -148,6 +148,39 @@ html, body { margin: 0; padding: 0; height: 100%; background: var(--bg); color: 
 /* the LOOPING (jog) slider (droste infinite zoom) drives value from a RELATIVE pointer
    drag, so it must own the touch — no native range absolute-drag / scroll interference. */
 .m-loop-slider { touch-action: none; }
+
+/* TILING PAN velocity joystick (components/pan-joystick.js). Same component as desktop; the
+   .pan-joy rules live in shell/styles.css which boot.js drops on mobile, so duplicate here
+   (touch-sized). Handle LATCHES on release → drift continues (.drifting glow). */
+.pan-joy-row { display: flex; flex-direction: column; gap: 10px; padding: 6px 0; }
+.pan-joy-row > .row { display: flex; justify-content: space-between; align-items: center; }
+.pan-joy-recenter {
+  font-size: var(--text-md); padding: 6px 14px; border-radius: var(--radius-lg); cursor: pointer;
+  background: var(--surface-control); border: 1px solid var(--border); color: var(--text-secondary);
+}
+.pan-joy {
+  position: relative; width: 128px; height: 128px; align-self: center; box-sizing: border-box;
+  border: 1px solid var(--border); border-radius: 50%; background: var(--surface-control);
+  touch-action: none; overflow: hidden;
+}
+.pan-joy-rect {
+  position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+  border: 1px dashed var(--border); border-radius: 2px; box-sizing: border-box; pointer-events: none;
+}
+.pan-joy-origin {
+  position: absolute; top: 50%; left: 50%; width: 12px; height: 12px; margin: -6px;
+  border: 1px solid var(--border); border-radius: 50%; pointer-events: none;
+}
+.pan-joy-dot {
+  position: absolute; top: 50%; left: 50%; width: 10px; height: 10px; margin: -5px;
+  background: var(--accent); border-radius: 50%; pointer-events: none; box-shadow: 0 0 0 2px var(--surface-control);
+}
+.pan-joy-handle {
+  position: absolute; top: 50%; left: 50%; width: 28px; height: 28px; margin: -14px;
+  background: var(--fill-bright); border-radius: 50%; pointer-events: none;
+  transition: transform 0.2s cubic-bezier(0.2, 0.8, 0.3, 1.3);
+}
+.pan-joy.drifting .pan-joy-handle { box-shadow: 0 0 10px 1px var(--accent); }
 #m-settings h2, #m-canvas-pop h2 { font-size: var(--text-sm); color: var(--text-dim); text-transform: lowercase; letter-spacing: 0.08em; margin: 4px 0 12px; }
 /* the motion block reads as a NEW section: space + a half-width rule above */
 #m-motion-sec { margin-top: 24px; padding-top: 16px; position: relative; }

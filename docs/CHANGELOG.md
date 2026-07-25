@@ -4,6 +4,17 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🕹️ v0.19.79 (Build 439) — 2026-07-25 — Pan joystick on mobile + pan mappable to controllers
+
+- **Mobile pan joystick.** The `createPanJoystick` component (pointer-based + `touch-action:none`) now mounts in the mobile canvas settings too, gated to tileable forms via `applyFormVisibility`. Touch-sized `.pan-joy` CSS duplicated into `mobile/styles.css` (boot.js drops the desktop stylesheet on mobile). So iPhone now has both the pan gesture (B437) and the settings joystick, with the same latch-drift behavior.
+- **Pan is now mappable to MIDI / gamepad / remote.** Added `canvasOffsetX/Y` (`pan x` / `pan y`) to `input-bus.js` `PARAM_TARGETS`, so they appear in the controller-mapping dropdown. Works in absolute / rel / **rate** modes (a stick in rate mode drifts the pan like the joystick). Absolute maps to ±2 units (~one lattice period); the shader wraps the visual so it still loops.
+
+**Answering the underlying question (Daniel):** new controls are **not** auto-exposed to controllers — `PARAM_TARGETS` (the input-mapping catalog) is hand-maintained and separate from `PARAMS` (the UI control registry). Infinite zoom happened to already be mappable (added for the pinch reroute); pan was not until now. **Filed a proposal** to unify the two registries so any new control auto-surfaces for mapping (and to make discrete controls like segment count mappable with snapping) — see BACKLOG.
+
+**VERIFY (Daniel):** iPhone → tileable form → canvas settings shows the pan joystick (push/latch/drift/recenter); and in input settings, `pan x`/`pan y` appear as mappable targets.
+
+Verified: node --check, vite build. **Untested by Claude on-device.** Fresh Capacitor + Electron builds produced.
+
 ## 🕹️ v0.19.78 (Build 438) — 2026-07-25 — Pan joystick — LATCH drift (continue motion on release)
 
 Daniel's live-performance ask: set a subtle drift that keeps going on its own while he does other manipulations. He picked the **latching handle** pattern (over a drift toggle) — "a single continuous movement beats nudge-stop-nudge," and the handle staying put is an always-visible direction affordance.

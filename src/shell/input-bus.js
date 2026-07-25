@@ -40,6 +40,11 @@ const PARAM_TARGETS = [
   { key: 'sliceCy', label: 'slice position y', min: 0, max: 1, dir: 'top → bottom' },
   { key: 'canvasZoom', label: 'composition zoom', min: 0.15, max: 4, dir: 'zoomed out → zoomed in' },
   { key: 'canvasRotation', label: 'canvas rotation', min: 0, max: 360, wrap: true, dir: '0° → 360°' },
+  // TILING PAN (tileable forms). Absolute maps to ±2 units (~one lattice period); RATE/REL modes
+  // (a stick/encoder) drift it like the joystick. The shader wraps the visual, so it loops
+  // regardless. (True infinite-loop-per-knob-sweep needs lattice-aligned wrap — a later refinement.)
+  { key: 'canvasOffsetX', label: 'pan x', min: -2, max: 2, dir: 'left → right' },
+  { key: 'canvasOffsetY', label: 'pan y', min: -2, max: 2, dir: 'up → down' },
   { key: 'squareAspect', label: 'square aspect', min: 0.25, max: 4, dir: 'tall → wide' },
   { key: 'drosteZoom', label: 'droste thickness', min: 1.1, max: 16, dir: 'thin → thick' },
   { key: 'drosteSpiral', label: 'droste spiral', min: -3, max: 3, dir: 'wind left → wind right' },

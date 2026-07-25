@@ -22,6 +22,7 @@ import { makeControlsSync } from '../shell/controls.js';
 import { lockState, setLock, makeLockToggle } from '../shell/locks.js';   // M3 locks — reused on mobile
 import { createSourceOverlay } from '../components/source-overlay.js';
 import { createOutputGestures } from '../components/output-gestures.js';
+import { createPanJoystick } from '../components/pan-joystick.js';
 import { mountRangeControl, mountLoopingControl } from '../components/param-control.js';
 import { PARAMS, DECLARATIVE_PARAM_IDS } from '../shell/params.js';
 import { formatVersion } from '../version.js';
@@ -418,6 +419,9 @@ for (const id of DECLARATIVE_PARAM_IDS) {
 // droste INFINITE ZOOM — a LOOPING slider (bespoke, declarative:false), replaces composition
 // zoom in droste (gated in applyFormVisibility). Same jog-drag as desktop so the thumb circles.
 mountLoopingControl(canvasPopEl, PARAMS.infiniteZoom, env);
+// TILING PAN velocity joystick — tileable forms only (gated in applyFormVisibility). Same
+// component as desktop (pointer-based + touch-action:none, so it works on touch).
+canvasPopEl.appendChild(createPanJoystick(env, { periodOf: () => getActiveForm(state)?.latticePeriod?.(state) || null }).root);
 // Out-of-bounds mode (clamp / mirror / transparent) — a stateful 3-way toggle,
 // not a range, so it's rendered directly here rather than via mountRangeControl.
 (function mountOobControl() {
@@ -537,6 +541,8 @@ function applyFormVisibility() {
   const isDroste = form.id === 'droste';
   $('compZoomLabel')?.classList.toggle('m-hidden', isDroste);
   $('infiniteZoomLabel')?.classList.toggle('m-hidden', !isDroste);
+  // tiling PAN joystick — tileable forms only (those declaring a latticePeriod)
+  $('panJoyRow')?.classList.toggle('m-hidden', !form.latticePeriod);
 }
 controlsSync.register(applyFormVisibility);
 applyFormVisibility();
