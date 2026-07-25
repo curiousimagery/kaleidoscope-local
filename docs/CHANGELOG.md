@@ -4,6 +4,17 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🌀 v0.19.72 (Build 432) — 2026-07-25 — source-swap copy refinement + Droste infinite-zoom loop math (foundation)
+
+Two small pieces from Daniel's post-compact review: a copy/signal refinement on the source-swap dialog, and the first unambiguous, decision-independent piece of Droste infinite zoom.
+
+- **Source-swap dialog copy + red discipline.** Header lowercased ("replace current clip?") to match the button casing; the primary is no longer red (`danger: false`) — **red is reserved for destructive / live-recording states**, so the *destructive* alternative ("discard and load new") now carries the danger accent as **text only** (`--danger-text`), while "save current and load new" is the calm bright primary. CTAs made more explicit for clarity per Daniel. Lab specimen synced.
+- **Droste infinite-zoom loop math** — new `kit/droste-zoom.js`, a **pure, driver-agnostic** primitive (no clock, no control surface): `drosteZoomPeriod` (×drosteZoom for wrap tiers, ×drosteZoom² for mirror tiers — the reflected tier isn't the identity), `wrapZoomToLoop` / `stepZoomLoop` (multiplicative wrap that keeps the animated canvasZoom bounded and seamless), and `spiralResidualPerLoop` (the canvasRotation coupling a spiral zoom needs — **exposed, not wired**, pending on-device sign check). Seamlessness preconditions documented in-module: **offset centered** (Möbius isn't scale-invariant → why offset is default-locked) and **spiral = 0** for a pure zoom. Inert seam — the control surface (toggle vs. autoplay vs. joystick) is the open decision going to Daniel with the repeating-movements proposal.
+
+Known UX gap (noted, acceptable): the saved `.zip` clip can't be re-uploaded yet for a round-trip — that closes when the in-app clip store lands.
+
+Verified: node --check, vite build. **Untested by Claude on-device.**
+
 ## 🗂️ v0.19.71 (Build 431) — 2026-07-24 — source-swap data-loss gate (interim) — first staging seams
 
 The data-loss warning on source change (M3 tail), built as the **first pieces of the future clip/workspace staging area** rather than a throwaway (Daniel's priority — the plumbing must point the right way).

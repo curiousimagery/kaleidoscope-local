@@ -1228,7 +1228,10 @@ button .btn-spinner {
 .interrupt-confirm:hover { background: var(--fill-bright); color: var(--c-black); filter: brightness(1.08); }
 .interrupt-confirm.danger { background: var(--danger, #e0533d); border-color: var(--danger, #e0533d); color: #fff; }
 .interrupt-confirm.danger:hover { filter: brightness(1.08); color: #fff; }
-.interrupt-secondary { color: var(--text-secondary); }   /* the "discard & load" middle action */
+/* the destructive "discard and load new" alternative — danger accent as TEXT only
+   (fill-red stays reserved for truly destructive / live-recording states) */
+.interrupt-secondary { color: var(--danger-text); }
+.interrupt-secondary:hover { color: var(--danger-text); background: var(--surface-hover); filter: brightness(1.12); }
 .interrupt-actions { flex-wrap: wrap; }
 
 /* ===== Loop Builder — an in-app editing MODE (sits BELOW the global app bar) ===== */

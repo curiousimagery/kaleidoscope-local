@@ -269,9 +269,10 @@ env.saveActiveClip = async () => {
 env.guardSourceSwap = (proceed) => {
   if (!env.hasUnsavedClipWork()) { proceed(); return; }
   confirmInterrupt({
-    title: 'Replace the current clip?',
-    body: 'Loading a new source replaces the clip you’re working on, including its animation. Save it first if you want to keep it.',
-    confirmLabel: 'save & load', secondaryLabel: 'discard & load', cancelLabel: 'cancel',
+    title: 'replace current clip?',
+    body: 'loading a new source replaces the clip you’re working on, including its animation. save it first if you want to keep it.',
+    confirmLabel: 'save current and load new', secondaryLabel: 'discard and load new', cancelLabel: 'cancel',
+    danger: false,   // save-first is the safe primary — red is reserved for destructive/live (the discard action carries the danger accent)
     onConfirm: async () => { await env.saveActiveClip(); proceed(); },
     onSecondary: () => proceed(),
   });
