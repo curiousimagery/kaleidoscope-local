@@ -26,7 +26,10 @@ export function createPanJoystick(env, opts = {}) {
   root.className = 'pan-joy-row';
   root.id = 'panJoyRow';
   root.innerHTML = `
-    <div class="row"><span>pan</span><button type="button" class="pan-joy-recenter">recenter</button></div>
+    <div class="row"><span>pan</span><span class="pan-joy-btns">
+      <button type="button" class="pan-joy-drift" title="keep drifting after release">drift</button>
+      <button type="button" class="pan-joy-recenter">recenter</button>
+    </span></div>
     <div class="pan-joy">
       <div class="pan-joy-rect"></div>
       <div class="pan-joy-origin"></div>
@@ -38,9 +41,12 @@ export function createPanJoystick(env, opts = {}) {
   const handle  = root.querySelector('.pan-joy-handle');
   const dot     = root.querySelector('.pan-joy-dot');
   const recenter = root.querySelector('.pan-joy-recenter');
+  const driftBtn = root.querySelector('.pan-joy-drift');
 
   // handle deflection, normalized to a unit disc (0 = centered = no motion).
-  let hx = 0, hy = 0, dragging = false, raf = 0, lastT = 0;
+  // driftMode: OFF (default) = JOYSTICK — springs back + stops on release; ON = LATCH —
+  // the handle stays and the pan keeps drifting (Daniel wants both, toggleable).
+  let hx = 0, hy = 0, dragging = false, raf = 0, lastT = 0, driftMode = false;
   const radius = () => pad.getBoundingClientRect().width / 2 || 1;
 
   function setHandle(nx, ny) {
@@ -51,15 +57,14 @@ export function createPanJoystick(env, opts = {}) {
   }
   function centerHandle() { hx = 0; hy = 0; handle.style.transform = 'translate(0,0)'; }
 
-  // The POSITION DOT tracks a RECTANGLE proportional to the canvas (frameAspect), inscribed in
-  // the circle — so the dot never strays into the corner gaps and vanishes (Daniel). The circle
-  // stays the finger-joystick affordance for the handle. Dot = offset mod period, mapped into
-  // the rectangle (pacman wrap; offset 0 = center, aligned with the origin marker).
+  // The POSITION DOT tracks a RECTANGLE proportional to the canvas (frameAspect). Its HEIGHT
+  // matches the circle's (full diameter) and its WIDTH is height×aspect, so it uses the whole
+  // area — the dot may sit OUTSIDE the circle (fine, Daniel). The circle stays the handle's
+  // finger-joystick affordance. Dot = offset mod period (pacman wrap; offset 0 = center).
   function layout() {
     const r = radius();
     const a = (session && session.frameAspect) || 1;      // canvas output aspect
-    const k = 0.92 * r / Math.sqrt(a * a + 1);            // inscribe (corners ~on the circle)
-    const halfW = k * a, halfH = k;
+    const halfH = r, halfW = r * a;                       // height = circle diameter; width ∝ aspect
     rectEl.style.width = (2 * halfW) + 'px';
     rectEl.style.height = (2 * halfH) + 'px';
     const period = periodOf();
@@ -107,21 +112,39 @@ export function createPanJoystick(env, opts = {}) {
     if (!dragging) return;
     dragging = false;
     pad.releasePointerCapture?.(e.pointerId);
-    handle.style.transition = '';  // re-enable the CSS spring (for the recenter snap)
-    // LATCH: do NOT recenter — the handle stays put and the drift CONTINUES at that velocity
-    // (its position is the persistent, visible drift vector). The tick keeps running while
-    // hx||hy ≠ 0; drag the handle back to center, or press recenter, to stop.
-    pad.classList.toggle('drifting', !!(hx || hy));
+    handle.style.transition = '';  // re-enable the CSS spring (for the recenter/spring-back)
+    if (driftMode) {
+      // LATCH: handle stays put, the pan keeps drifting at that velocity (tick runs while hx||hy).
+      pad.classList.toggle('drifting', !!(hx || hy));
+    } else {
+      // JOYSTICK: spring back to center + stop (the tick ends once hx/hy hit 0).
+      centerHandle();
+      pad.classList.remove('drifting');
+    }
     env.updateUndoUI?.();
   };
   pad.addEventListener('pointerup', end);
   pad.addEventListener('pointercancel', end);
 
+  driftBtn.addEventListener('click', () => {
+    driftMode = !driftMode;
+    driftBtn.classList.toggle('active', driftMode);
+    if (!driftMode) { centerHandle(); pad.classList.remove('drifting'); }  // turning drift off stops it
+  });
+
   recenter.addEventListener('click', () => {
     env.pushHistory?.();
     centerHandle();                 // stop the drift (handle → center)
     pad.classList.remove('drifting');
-    state[keyX] = 0; state[keyY] = 0;
+    // Snap to the NEAREST lattice-period multiple, not 0 — every period-multiple is visually the
+    // origin, so this re-centers with a MINIMAL move (≤ half a period) instead of sweeping back the
+    // whole accumulated distance (Daniel: recenter was reversing the entire traversal). The unwrapped
+    // offset stays a smooth accumulator for drift; only the *visible* framing returns to origin.
+    const period = periodOf();
+    if (period) {
+      state[keyX] = Math.round((state[keyX] || 0) / period[0]) * period[0];
+      state[keyY] = Math.round((state[keyY] || 0) / period[1]) * period[1];
+    } else { state[keyX] = 0; state[keyY] = 0; }
     layout(); scheduleRender(); env.updateUndoUI?.();
   });
 

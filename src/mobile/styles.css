@@ -154,14 +154,16 @@ html, body { margin: 0; padding: 0; height: 100%; background: var(--bg); color: 
    (touch-sized). Handle LATCHES on release → drift continues (.drifting glow). */
 .pan-joy-row { display: flex; flex-direction: column; gap: 10px; padding: 6px 0; }
 .pan-joy-row > .row { display: flex; justify-content: space-between; align-items: center; }
-.pan-joy-recenter {
-  font-size: var(--text-md); padding: 6px 14px; border-radius: var(--radius-lg); cursor: pointer;
+.pan-joy-btns { display: flex; gap: 8px; }
+.pan-joy-recenter, .pan-joy-drift {
+  font-size: var(--text-md); padding: 6px 14px; border-radius: var(--radius-lg);
   background: var(--surface-control); border: 1px solid var(--border); color: var(--text-secondary);
 }
+.pan-joy-drift.active { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
 .pan-joy {
   position: relative; width: 128px; height: 128px; align-self: center; box-sizing: border-box;
   border: 1px solid var(--border); border-radius: 50%; background: var(--surface-control);
-  touch-action: none; overflow: hidden;
+  touch-action: none;
 }
 .pan-joy-rect {
   position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);

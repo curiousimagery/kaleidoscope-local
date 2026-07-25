@@ -4,6 +4,20 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🕹️ v0.19.80 (Build 440) — 2026-07-25 — Pan refinements + semantic "zoom" mapping (unification Stage 1)
+
+Daniel's play-test refinements + the first stage of the control-registry unification.
+
+- **Drift toggle (joystick ↔ latch).** The latch was always-on; now a **drift** toggle on the joystick switches modes: OFF (default) = classic joystick (springs back + stops on release); ON = latch (keeps drifting). Both available, per Daniel.
+- **Recenter no longer sweeps the whole traversal.** It now snaps the offset to the **nearest lattice-period multiple** (every multiple is visually the origin), so re-centering is a ≤ half-period move instead of animating back through the entire accumulated drift distance. The unwrapped offset stays a smooth accumulator for the drift; only the visible framing returns to origin.
+- **Position-dot field uses the whole area.** The dot's rectangle now matches the circle's **height** (full diameter), width = height × canvas aspect — so it's no longer tiny, and the dot may sit outside the circle (removed `overflow:hidden`), as Daniel okayed.
+- **Two-finger pan on desktop.** Desktop/Electron have no touch, so a trackpad two-finger drag arrives as a **non-ctrl wheel** event — now handled as tiling pan (was ignored; only ctrl+wheel zoom was). One-finger touch pan (iPad/mobile) unchanged.
+- **Semantic "zoom" mapping — unification Stage 1.** `PARAM_TARGETS`' zoom entry now **resolves per-form** (droste → `drosteZoomPhase`, else `canvasZoom`); `applyMapping` resolves on each apply. So **one knob mapped to "zoom" works across every form, and existing canvas-zoom mappings drive infinite zoom in droste with no reprogramming.** `drosteZoomPhase` is hidden from the mapping dropdown (kept internally for the pinch reroute). Stages 2–4 (derive the motion/follow/autoplay lists + PARAM_TARGETS from one descriptor; snap-aware discrete mapping; forms declare controls) are filed as a **dedicated hardening pass** — see BACKLOG for the architecture + effort estimate.
+
+**VERIFY (Daniel):** drift toggle switches joystick↔latch; recenter is a small snap (not a long reverse); dot uses the full box; two-finger trackpad drag pans on desktop; (when wiring hardware) one "zoom" target works on all forms.
+
+Verified: node --check, vite build. **Untested by Claude on-device.** Fresh Capacitor + Electron builds produced.
+
 ## 🕹️ v0.19.79 (Build 439) — 2026-07-25 — Pan joystick on mobile + pan mappable to controllers
 
 - **Mobile pan joystick.** The `createPanJoystick` component (pointer-based + `touch-action:none`) now mounts in the mobile canvas settings too, gated to tileable forms via `applyFormVisibility`. Touch-sized `.pan-joy` CSS duplicated into `mobile/styles.css` (boot.js drops the desktop stylesheet on mobile). So iPhone now has both the pan gesture (B437) and the settings joystick, with the same latch-drift behavior.

@@ -38,7 +38,14 @@ const PARAM_TARGETS = [
   { key: 'sliceScale', label: 'slice scale', min: 0.05, max: 3, dir: 'small → large' },
   { key: 'sliceCx', label: 'slice position x', min: 0, max: 1, dir: 'left → right' },
   { key: 'sliceCy', label: 'slice position y', min: 0, max: 1, dir: 'top → bottom' },
-  { key: 'canvasZoom', label: 'composition zoom', min: 0.15, max: 4, dir: 'zoomed out → zoomed in' },
+  // SEMANTIC "zoom" — one mapping point that RESOLVES to the active form's zoom control, so a
+  // single knob works across forms (droste → infinite zoom, else composition zoom) and existing
+  // hardware never needs reprogramming on a form switch (Daniel). `resolve(state)` returns the
+  // per-form key + range; applyMapping/writeParam use it. (Stage 1 of the registry unification.)
+  { key: 'canvasZoom', label: 'zoom', min: 0.15, max: 4, dir: 'zoomed out → zoomed in',
+    resolve: (s) => s.form === 'droste'
+      ? { key: 'drosteZoomPhase', min: 0, max: 1, wrap: true, wrapPeriod: 1 }
+      : { key: 'canvasZoom', min: 0.15, max: 4 } },
   { key: 'canvasRotation', label: 'canvas rotation', min: 0, max: 360, wrap: true, dir: '0° → 360°' },
   // TILING PAN (tileable forms). Absolute maps to ±2 units (~one lattice period); RATE/REL modes
   // (a stick/encoder) drift it like the joystick. The shader wraps the visual, so it loops
@@ -52,7 +59,9 @@ const PARAM_TARGETS = [
   { key: 'drosteOffsetY', label: 'droste offset y', min: -1, max: 1, dir: 'up → down' },
   // INFINITE ZOOM phase — cyclic like rotation, but its period is 1 (not 360), so it carries
   // an explicit wrapPeriod. Pinch over the canvas maps here in droste (see the pinch mapping).
-  { key: 'drosteZoomPhase', label: 'infinite zoom', min: 0, max: 1, wrap: true, wrapPeriod: 1, dir: 'zoom loop' },
+  // kept as a target so targetOf() (the pinch reroute) resolves it, but HIDDEN from the mapping
+  // dropdown — the semantic "zoom" above is the one mapping point for infinite zoom.
+  { key: 'drosteZoomPhase', label: 'infinite zoom', min: 0, max: 1, wrap: true, wrapPeriod: 1, dir: 'zoom loop', hidden: true },
 ];
 const ACTION_TARGETS = [
   { key: 'action:stage', label: '⏻ stage (hold)' },
@@ -195,8 +204,11 @@ export function createInputBus(env) {
       if (value > 0.5) fireAction(m.target.slice(7));
       return;
     }
-    const t = targetOf(m.target);
-    if (!t) return;
+    const t0 = targetOf(m.target);
+    if (!t0) return;
+    // a SEMANTIC target (e.g. "zoom") resolves to the active form's key + range each apply, so
+    // one mapping drives the right param per form (Stage 1 of the registry unification).
+    const t = t0.resolve ? { ...t0, ...t0.resolve(state) } : t0;
     const span = t.max - t.min;
     const sens = m.sens ?? 0.05;
     if (m.mode === 'rate') {
@@ -442,7 +454,7 @@ export function createInputBus(env) {
     const isAction = m.target.startsWith('action:');
     const opts = [
       '<optgroup label="parameters">',
-      ...PARAM_TARGETS.map((t) => `<option value="${t.key}"${m.target === t.key ? ' selected' : ''}>${t.label}</option>`),
+      ...PARAM_TARGETS.filter((t) => !t.hidden || m.target === t.key).map((t) => `<option value="${t.key}"${m.target === t.key ? ' selected' : ''}>${t.label}</option>`),
       '</optgroup><optgroup label="transport">',
       ...ACTION_TARGETS.map((t) => `<option value="${t.key}"${m.target === t.key ? ' selected' : ''}>${t.label}</option>`),
       '</optgroup>',

@@ -522,15 +522,17 @@ input[type="range"] {
    (springs back on release); the dot shows position within the tile (pacman wrap). */
 .pan-joy-row { display: flex; flex-direction: column; gap: 8px; padding: 2px 0; }
 .pan-joy-row > .row { display: flex; justify-content: space-between; align-items: center; }
-.pan-joy-recenter {
+.pan-joy-btns { display: flex; gap: 6px; }
+.pan-joy-recenter, .pan-joy-drift {
   font-size: var(--text-sm); padding: 3px 9px; border-radius: var(--radius-md); cursor: pointer;
   background: var(--surface-control); border: 1px solid var(--border); color: var(--text-secondary);
 }
-.pan-joy-recenter:hover { background: var(--surface-hover); color: var(--text-bright); }
+.pan-joy-recenter:hover, .pan-joy-drift:hover { background: var(--surface-hover); color: var(--text-bright); }
+.pan-joy-drift.active { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
 .pan-joy {
   position: relative; width: 96px; height: 96px; align-self: center; box-sizing: border-box;
   border: 1px solid var(--border); border-radius: 50%; background: var(--surface-control);
-  touch-action: none; cursor: grab; overflow: hidden;
+  touch-action: none; cursor: grab;
 }
 .pan-joy:active { cursor: grabbing; }
 /* canvas-proportional field the position dot roams (inscribed in the circle; sized in JS) */

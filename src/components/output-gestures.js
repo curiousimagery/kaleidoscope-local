@@ -93,8 +93,21 @@ export function createOutputGestures(canvas, ctx) {
   // (rotate isn't exposed there — Safari-gesture-only). One undo entry per burst.
   let wheelTimer = 0;
   function onWheel(e) {
-    if (!e.ctrlKey) return;
     if (locked()) return;
+    if (!e.ctrlKey) {
+      // NON-ctrl wheel = a trackpad TWO-FINGER scroll/drag → tiling pan (desktop/Electron
+      // have no touch, so this is their pan gesture). Tileable forms only.
+      if (!(ctx.panPeriod && ctx.panPeriod())) return;
+      e.preventDefault();
+      if (!wheelTimer) ctx.onCommitStart?.();
+      const rect = canvas.getBoundingClientRect();
+      state.canvasOffsetX += e.deltaX / (rect.width / 2);   // content follows the fingers
+      state.canvasOffsetY += e.deltaY / (rect.height / 2);
+      ctx.onChange?.();
+      clearTimeout(wheelTimer);
+      wheelTimer = setTimeout(() => { wheelTimer = 0; ctx.onCommitEnd?.(); }, 250);
+      return;
+    }
     e.preventDefault();
     if (!wheelTimer) ctx.onCommitStart?.();
     const factor = Math.exp(-e.deltaY * 0.01);
