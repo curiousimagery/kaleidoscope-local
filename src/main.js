@@ -20,6 +20,8 @@ import { zipStore } from './shell/zip.js';                 // clip package (sour
 import { createEngine } from './engine/index.js';
 import { createSourceOverlay } from './components/source-overlay.js';
 import { createOutputGestures } from './components/output-gestures.js';
+import { createPanJoystick } from './components/pan-joystick.js';
+import { getActiveForm } from './engine/forms/index.js';
 import {
   wireSliderWithScrub,
   wireLoopingSlider,
@@ -846,6 +848,11 @@ function wireControls() {
   // ∈ [0,1)), so it needs the relative wrapping drag, not the absolute native drag.
   { const p = PARAMS.infiniteZoom; wireLoopingSlider(env, p.sliderId, p.valId, p.key, p.opts); }
 
+  // TILING PAN — a VELOCITY joystick (repeating-movements ②). Shown only for tileable forms
+  // (applyFormControls gates #panJoyRow by form.latticePeriod). Inserted after canvas rotation.
+  const panJoy = createPanJoystick(env, { periodOf: () => getActiveForm(state)?.latticePeriod?.(state) || null });
+  document.getElementById('canvasRot')?.closest('label')?.after(panJoy.root);
+
   // droste spiral — tiers per canvas turn. snaps to multiples of 1/arms so
   // the spiral closes cleanly with the arms-fold lattice (1/12 at arms=12,
   // 1/2 at arms=2, integers at arms=1). signed value gives chirality.
@@ -979,6 +986,8 @@ function wireControls() {
     state.canvasZoom     = 1.0;
     state.canvasRotation = 0;
     state.drosteZoomPhase = 0;  // infinite zoom is a canvas control in droste — reset it too
+    state.canvasOffsetX  = 0;   // tiling pan is a canvas control too — recenter it
+    state.canvasOffsetY  = 0;
     state.oobMode        = 1;   // mirror, the default
     env.controlsSync.syncAll();
     // the OOB buttons sync only in their own click handler — mirror the state here

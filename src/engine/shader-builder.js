@@ -31,6 +31,18 @@ export const COMMON_UNIFORMS = {
   u_segments:      { type: '1f', get: (state) => state.segments },
   u_canvasRot:     { type: '1f', get: (state) => state.canvasRotation * Math.PI / 180 },
   u_canvasZoom:    { type: '1f', get: (state) => state.canvasZoom },
+  // TILING PAN — canvas-space translation applied before the fold. Stored UNWRAPPED for
+  // smooth follower/tween/autoplay; wrapped HERE mod the active form's lattice period so the
+  // float32 input stays bounded (the fold wraps it anyway, so this is image-identical). Forms
+  // without a latticePeriod() (radial/droste) get the raw offset (0 unless ③ drives it later).
+  u_canvasOffset:  { type: '2f', get: (state) => {
+    const form = FORMS.find(f => f.id === state.form);
+    const period = form && form.latticePeriod && form.latticePeriod(state);
+    const ox = state.canvasOffsetX || 0, oy = state.canvasOffsetY || 0;
+    if (!period) return [ox, oy];
+    const wrap = (v, p) => (p > 0 ? ((v % p) + p) % p : v);
+    return [wrap(ox, period[0]), wrap(oy, period[1])];
+  } },
   u_sliceFactor:   { type: '1f', get: (state) => state.sliceScale },
   u_sliceRot:      { type: '1f', get: (state) => state.sliceRotation * Math.PI / 180 },
   u_sliceCenter:   { type: '2f', get: (state) => [state.sliceCx, state.sliceCy] },
@@ -64,6 +76,7 @@ uniform int   u_formIndex;
 uniform float u_segments;
 uniform float u_canvasRot;
 uniform float u_canvasZoom;
+uniform vec2 u_canvasOffset;
 uniform float u_sliceFactor;
 uniform float u_sliceRot;
 uniform vec2  u_sliceCenter;
@@ -155,6 +168,9 @@ void main() {
   p = mat2(c, s, -s, c) * p;
   // canvas zoom (1 = 1× — natural canvas range; <1 zooms out, >1 zooms in)
   p /= u_canvasZoom;
+  // tiling pan — translate the sample position; the tiling fold's mod makes this periodic
+  // (a shift by one lattice vector is identity), so panning loops seamlessly. 0 elsewhere.
+  p -= u_canvasOffset;
 
   vec2 folded;
 ${dispatchCases}

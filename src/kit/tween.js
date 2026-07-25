@@ -20,6 +20,7 @@ export const CONTINUOUS_KEYS = [
   'sliceScale', 'sliceCx', 'sliceCy', 'sliceRotation',
   'squareAspect', 'drosteZoom', 'drosteOffsetX', 'drosteOffsetY',
   'canvasZoom', 'canvasRotation', 'drosteZoomPhase',
+  'canvasOffsetX', 'canvasOffsetY',
 ];
 // drosteZoomPhase (droste INFINITE ZOOM) is continuous + UNWRAPPED — it interpolates
 // linearly like any other, and the shader wraps it. NOT angular (its period is 1, not

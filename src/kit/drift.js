@@ -42,7 +42,9 @@ const AUTO_BOUNDS = {   // guardrails: destinations never leave these (rotation 
 const AUTO_TEMPER = { canvasZoom: 0.3, canvasRotation: 0.25 };
 // Droste params that seam or misbehave when auto-wandered, so autoplay skips them by
 // default (drosteZoom is NOT here — it tweens seamlessly and carries the infinite-zoom look).
-const AUTOPLAY_EXCLUDED = new Set(['drosteSpiral', 'drosteOffsetX', 'drosteOffsetY']);
+// canvasOffsetX/Y (tiling pan) are continuous (perform easing + motion) but NOT auto-wandered
+// yet — pan autoplay would need the same directional-walker treatment as the infinite zoom.
+const AUTOPLAY_EXCLUDED = new Set(['drosteSpiral', 'drosteOffsetX', 'drosteOffsetY', 'canvasOffsetX', 'canvasOffsetY']);
 
 export function createAutoDrift({ state, session }) {
   let f = {};

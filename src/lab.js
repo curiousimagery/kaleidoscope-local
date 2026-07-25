@@ -537,6 +537,17 @@ function componentsSection() {
       el('div', {}, [el('h3', { class: 'lab-h3', text: 'Sliders' }), sliders]),
       el('div', {}, [el('h3', { class: 'lab-h3', text: 'Fields' }), fields]),
     ]),
+    el('h3', { class: 'lab-h3', text: 'Pan joystick · .pan-joy (tiling translation — velocity; push to pan, dot = position, pacman wrap)' }),
+    el('div', { class: 'lab-row' }, [
+      el('div', { class: 'pan-joy-row', style: 'max-width:150px' }, [
+        el('div', { class: 'row' }, [el('span', { class: 't-label', text: 'pan' }), el('button', { class: 'pan-joy-recenter', text: 'recenter' })]),
+        el('div', { class: 'pan-joy' }, [
+          el('div', { class: 'pan-joy-origin' }),
+          el('div', { class: 'pan-joy-dot', style: 'transform: translate(20px, -12px)' }),
+          el('div', { class: 'pan-joy-handle', style: 'transform: translate(12px, 8px)' }),
+        ]),
+      ]),
+    ]),
   ]);
 }
 

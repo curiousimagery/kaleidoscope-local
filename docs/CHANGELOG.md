@@ -4,6 +4,21 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🕹️ v0.19.76 (Build 436) — 2026-07-25 — Tiling PAN foundation + velocity joystick (repeating-movements ②, rectangle · desktop)
+
+Step ② — the shared canvas-translation foundation + the pan control, greenlit. **Tiling pan is the 2D analog of the infinite zoom:** the tiling fold mods `p`, so translating `p -= canvasOffset` before the fold is inherently periodic — pan across one lattice period and it loops seamlessly (pacman). Same "store unwrapped, shader wraps" machinery as the zoom, so perform-easing / motion / (future) autoplay come along.
+
+- **Foundation (form-agnostic):** new `canvasOffsetX/Y` state (unwrapped) + common `u_canvasOffset` uniform; `p -= u_canvasOffset` in `main()` after zoom. Wrapped in the uniform mod the active form's lattice period so the float32 input stays bounded (image-identical). No-op (0) on non-tiling forms.
+- **Per-form lattice, declared on the form:** `square.latticePeriod(state)` = `[2√aspect, 2/√aspect]` — the SEAMLESS translation period. Confirms the mirror-group nuance in code: translating by `W` (a visible half-cell) lands on the mirror image, so identity is the full `2W`. (Declaring it on the form builds toward M4 geometry-truth.)
+- **Velocity joystick** (`components/pan-joystick.js`, Daniel's pick): push the handle from center → pan while held (speed = push distance); release → handle springs back and motion stops. A separate **position dot** shows offset-mod-period (pacman wrap; centered at offset 0). **Recenter** zeros it. Circular clamp, pointer-capture, `touch-action:none`, no-lag-during-drag / spring-on-release. Shown only for tileable forms (`applyFormControls` gates `#panJoyRow` by `form.latticePeriod`). New component → Lab.
+- **Wired into the systems:** `canvasOffsetX/Y` added to tween `CONTINUOUS_KEYS` + follow `FOLLOW_SPANS`(=2) (perform easing + motion keyframing) and to drift `AUTOPLAY_EXCLUDED` (no pan-autoplay yet). Canvas reset zeros the offset.
+
+**Scope:** rectangle, desktop chrome (= desktop web + **iPad Capacitor** + **Electron**). **Deferred to B437:** mobile-chrome joystick, the canvas **pan gesture** (direct one-finger drag), and **hex/triangle** (promote their size constants to uniforms + declare their lattices). Fresh Capacitor + Electron builds produced.
+
+**VERIFY (Daniel):** square form → canvas settings shows the **pan** joystick → push it: the tiling pattern pans and **loops seamlessly**; release stops it; the dot tracks position; recenter re-centers. Note the direction/axis signs — if X or Y feels inverted it's a one-line sign flip. (Radial/droste show no joystick.)
+
+Verified: node --check, vite build. **Untested by Claude on-device.**
+
 ## 🔁 v0.19.75 (Build 435) — 2026-07-25 — Droste infinite zoom — COMPLETE: perform easing, reset, mobile slider, iPad touch, AUTOPLAY
 
 Daniel's cross-platform test found the remaining gaps (all fixed) and greenlit autoplay. Underpinning all of it: **phase is now stored UNWRAPPED** (a continuous accumulator) — the shader wraps it (`mod(phase,1)·loopLog`, keeping the float32 input bounded), so the follower spring, motion tween, and autoplay all move it smoothly with **no wrap-blip and no re-base coordination**.

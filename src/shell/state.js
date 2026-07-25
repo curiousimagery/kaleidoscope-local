@@ -49,6 +49,10 @@ export const state = {
                         // period and wraps with no seam. Replaces composition zoom in droste.
   canvasZoom: 1.0,
   canvasRotation: 0,
+  canvasOffsetX: 0,     // TILING PAN — canvas-space translation (u_canvasOffset). Stored UNWRAPPED
+  canvasOffsetY: 0,     // (continuous accumulator); the tiling fold's mod wraps it, so a pan across
+                        // one lattice period loops seamlessly (pacman). Driven by the pan joystick /
+                        // gesture; only meaningful on tileable forms (square/hex/triangle).
   oobMode: 1,           // 0=clamp, 1=mirror, 2=transparent. mirror is default.
 };
 

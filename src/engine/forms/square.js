@@ -50,6 +50,15 @@ export default {
   // boundaries; spoke handling does not apply.
   spokeRule: 'none',
 
+  // TILING PAN lattice period (canvas space): the seamless translation period. foldSquare
+  // uses fract(q*0.5) with q = p/(W,H), so the fold repeats with period 2 in q → 2W × 2H in
+  // p. NOTE the mirror nuance: translating by W (one visible half-cell) lands on the MIRROR
+  // image, so the identity/seamless period is the full 2W × 2H (the translation lattice).
+  latticePeriod(state) {
+    const W = Math.sqrt(state.squareAspect);
+    return [2 * W, 2 / W];
+  },
+
   buildPolygon(state) {
     // foldSquare returns values in [-W/2, W/2] × [-H/2, H/2]. when squareAspect
     // = 1, W = H = 0.5 (the original unit-square cell).
