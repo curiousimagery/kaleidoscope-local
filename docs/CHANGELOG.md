@@ -4,6 +4,20 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🕹️ v0.19.78 (Build 438) — 2026-07-25 — Pan joystick — LATCH drift (continue motion on release)
+
+Daniel's live-performance ask: set a subtle drift that keeps going on its own while he does other manipulations. He picked the **latching handle** pattern (over a drift toggle) — "a single continuous movement beats nudge-stop-nudge," and the handle staying put is an always-visible direction affordance.
+
+- **The handle latches.** Releasing no longer springs it back — it stays where you left it and the pan **keeps drifting** at that velocity (the tick runs while the deflection is non-zero). The handle position *is* the persistent drift vector.
+- **Stop by returning to center** — drag the handle back to center, or press **recenter** (which also zeros the offset).
+- **`.drifting` cue** — a soft accent glow on the off-center handle while it's drifting on its own (cleared while you're actively holding it), so a live drift is distinguishable from a parked handle. Lab specimen shows it.
+
+Behavior note: with latching, *every* release leaves some drift unless you let go at dead center — intended (Daniel), and we'll pivot if it feels twitchy in practice. The drift is a live input (like holding a stick), so it isn't keyframed/undo-stepped; the resulting `canvasOffset` still is.
+
+**VERIFY (Daniel):** push the pan handle and release → pattern keeps drifting that way, handle stays + glows; drag handle to center → stops; recenter → stops + re-centers.
+
+Verified: node --check, vite build. **Untested by Claude on-device.** Fresh Capacitor + Electron builds produced.
+
 ## 🕹️ v0.19.77 (Build 437) — 2026-07-25 — Tiling pan — fixes + pan gesture + hex/triangle
 
 Daniel's B436 smoke test (desktop web): two fixes, plus B437's planned extensions.

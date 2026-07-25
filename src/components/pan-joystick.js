@@ -4,10 +4,12 @@
 // components/pan-joystick.js
 //
 // A VELOCITY joystick for 2D canvas translation (TILING PAN — repeating-movements ②). Push
-// the handle from center → the pattern pans that way while held (speed = push distance);
-// release → the handle springs back to center and motion STOPS. A separate POSITION DOT shows
-// where you are within the tile (offset mod the form's lattice period), wrapping pacman.
-// A recenter button zeros the offset.
+// the handle from center → the pattern pans that way (speed = push distance). It LATCHES:
+// releasing leaves the handle where you left it and the drift CONTINUES at that velocity, so
+// the handle position is a persistent, always-visible drift vector (Daniel's pick — a single
+// continuous movement beats nudge-stop-nudge). Drag the handle back to center — or press
+// recenter — to stop. A separate POSITION DOT shows where you are within the tile (offset mod
+// the form's lattice period), wrapping pacman. Recenter also zeros the offset.
 //
 // Offset is stored UNWRAPPED (canvasOffsetX/Y; the shader wraps it), so this simply integrates
 // velocity into the offset each frame while held. Self-contained DOM component; the caller owns
@@ -90,6 +92,7 @@ export function createPanJoystick(env, opts = {}) {
     dragging = true;
     pad.setPointerCapture?.(e.pointerId);
     env.pushHistory?.();
+    pad.classList.remove('drifting');        // actively held, not latched
     handle.style.transition = 'none';        // follow the finger 1:1 while dragging (no lag)
     const [nx, ny] = padVec(e); setHandle(nx, ny);
     startTick();
@@ -104,8 +107,11 @@ export function createPanJoystick(env, opts = {}) {
     if (!dragging) return;
     dragging = false;
     pad.releasePointerCapture?.(e.pointerId);
-    handle.style.transition = '';  // re-enable the CSS spring, then recenter → it eases home
-    centerHandle();                // hx/hy = 0 → motion stops immediately
+    handle.style.transition = '';  // re-enable the CSS spring (for the recenter snap)
+    // LATCH: do NOT recenter — the handle stays put and the drift CONTINUES at that velocity
+    // (its position is the persistent, visible drift vector). The tick keeps running while
+    // hx||hy ≠ 0; drag the handle back to center, or press recenter, to stop.
+    pad.classList.toggle('drifting', !!(hx || hy));
     env.updateUndoUI?.();
   };
   pad.addEventListener('pointerup', end);
@@ -113,6 +119,8 @@ export function createPanJoystick(env, opts = {}) {
 
   recenter.addEventListener('click', () => {
     env.pushHistory?.();
+    centerHandle();                 // stop the drift (handle → center)
+    pad.classList.remove('drifting');
     state[keyX] = 0; state[keyY] = 0;
     layout(); scheduleRender(); env.updateUndoUI?.();
   });

@@ -552,6 +552,9 @@ input[type="range"] {
   background: var(--fill-bright); border-radius: 50%; pointer-events: none;
   transition: transform 0.2s cubic-bezier(0.2, 0.8, 0.3, 1.3);
 }
+/* latched drift active — a soft accent glow on the (off-center) handle so it's clear the pan
+   is still moving on its own, not just parked. The handle position remains the direction cue. */
+.pan-joy.drifting .pan-joy-handle { box-shadow: 0 0 9px 1px var(--accent); }
 input[type="range"]::-webkit-slider-runnable-track { height: 2px; background: var(--border); border-radius: var(--radius-2xs); }
 input[type="range"]::-webkit-slider-thumb {
   -webkit-appearance: none; appearance: none;
