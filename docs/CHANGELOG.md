@@ -4,6 +4,22 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🔁 v0.19.75 (Build 435) — 2026-07-25 — Droste infinite zoom — COMPLETE: perform easing, reset, mobile slider, iPad touch, AUTOPLAY
+
+Daniel's cross-platform test found the remaining gaps (all fixed) and greenlit autoplay. Underpinning all of it: **phase is now stored UNWRAPPED** (a continuous accumulator) — the shader wraps it (`mod(phase,1)·loopLog`, keeping the float32 input bounded), so the follower spring, motion tween, and autoplay all move it smoothly with **no wrap-blip and no re-base coordination**.
+
+- **Perform/live easing (was instant).** `drosteZoomPhase` added to tween `CONTINUOUS_KEYS` + follow `FOLLOW_SPANS` (span 1) — so the perform follower springs it over the transition-speed instead of riding it verbatim. Fixes both desktop perform and mobile live output applying the zoom instantly.
+- **Canvas reset now zeros it.** Desktop + mobile "reset canvas" set `drosteZoomPhase = 0` (it's the canvas zoom in droste now).
+- **Mobile dedicated looping slider.** New `mountLoopingControl` (param-control.js) mounts the infinite-zoom jog slider in mobile canvas settings; `applyFormVisibility` hides "composition zoom" and shows "infinite zoom" in droste (parity with desktop). Mobile pinch already looped; now the slider does too.
+- **iPad touch fix.** The looping slider "snapped on release" instead of looping on iPad because the native range's touch-drag fought the relative handler — `touch-action: none` on `#infiniteZoom` / `.m-loop-slider` gives the pointer drag sole ownership.
+- **AUTOPLAY (new, per Daniel).** `drosteZoomPhase` participates in autoplay as a **continuous-velocity directional walker** (drift.js): it picks a direction and **keeps moving** (never self-reverses, no settle/pause between picks); only the speed varies each pick. A manual gesture **pivots** the direction — the drift delta-detector sets `F.dir` to the hand's sign and re-picks promptly, so autoplay turns around with you.
+
+**Platform coverage:** now full on **all four** — desktop web, iPad Capacitor, Electron, and **iPhone mobile chrome** (slider + pinch + autoplay). Fresh Capacitor + Electron builds produced.
+
+**Notes / possible tuning:** autoplay uses the standard variety-subsetting, so the zoom can drop out of the active set periodically (a pause) — if Daniel wants it always-on during autoplay, that's a one-line exclusion from the subset. Motion-mode keyframing of the phase now interpolates (continuous key). Remote/MIDI `pinch` still wraps to [0,1) (niche path).
+
+Verified: node --check, vite build. **Untested by Claude on-device.**
+
 ## 🔁 v0.19.74 (Build 434) — 2026-07-25 — Droste infinite zoom — FIX direction + make it actually loop (slider + pinch)
 
 Daniel's B433 desktop test (Firefox/Brave): label + zoom work, and 0% = 100% shows the same frame (periodicity confirmed) — but two real issues. Both fixed.

@@ -22,7 +22,7 @@ import { makeControlsSync } from '../shell/controls.js';
 import { lockState, setLock, makeLockToggle } from '../shell/locks.js';   // M3 locks — reused on mobile
 import { createSourceOverlay } from '../components/source-overlay.js';
 import { createOutputGestures } from '../components/output-gestures.js';
-import { mountRangeControl } from '../components/param-control.js';
+import { mountRangeControl, mountLoopingControl } from '../components/param-control.js';
 import { PARAMS, DECLARATIVE_PARAM_IDS } from '../shell/params.js';
 import { formatVersion } from '../version.js';
 import { createCamera } from '../shell/camera.js';
@@ -413,6 +413,9 @@ if (host.externalDisplay?.available) (function mountHdmiFillControl() {
 for (const id of DECLARATIVE_PARAM_IDS) {
   if (PARAMS[id].scope === 'canvas') mountRangeControl(canvasPopEl, PARAMS[id], env);
 }
+// droste INFINITE ZOOM — a LOOPING slider (bespoke, declarative:false), replaces composition
+// zoom in droste (gated in applyFormVisibility). Same jog-drag as desktop so the thumb circles.
+mountLoopingControl(canvasPopEl, PARAMS.infiniteZoom, env);
 // Out-of-bounds mode (clamp / mirror / transparent) — a stateful 3-way toggle,
 // not a range, so it's rendered directly here rather than via mountRangeControl.
 (function mountOobControl() {
@@ -439,7 +442,7 @@ const resetCanvasBtn = document.createElement('button');
 resetCanvasBtn.id = 'm-reset-canvas';
 resetCanvasBtn.textContent = 'reset canvas';
 resetCanvasBtn.addEventListener('click', () => {
-  state.canvasZoom = 1.0; state.canvasRotation = 0; state.oobMode = 1;
+  state.canvasZoom = 1.0; state.canvasRotation = 0; state.drosteZoomPhase = 0; state.oobMode = 1;
   session.frameAspect = 1;
   controlsSync.syncAll(); sizeOutput(); scheduleRender();
 });
@@ -527,6 +530,11 @@ function applyFormVisibility() {
     if (fc === 'wedgeMirror' && vis) vis = Math.round(state.drosteArms || 1) > 1;  // hide at arms=1
     el.classList.toggle('m-hidden', !vis);
   }
+  // droste replaces composition zoom with the infinite-zoom loop slider (bespoke, so not
+  // in the DECLARATIVE loop above — gate it explicitly, same as desktop applyFormControls).
+  const isDroste = form.id === 'droste';
+  $('compZoomLabel')?.classList.toggle('m-hidden', isDroste);
+  $('infiniteZoomLabel')?.classList.toggle('m-hidden', !isDroste);
 }
 controlsSync.register(applyFormVisibility);
 applyFormVisibility();

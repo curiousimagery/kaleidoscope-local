@@ -19,8 +19,11 @@
 export const CONTINUOUS_KEYS = [
   'sliceScale', 'sliceCx', 'sliceCy', 'sliceRotation',
   'squareAspect', 'drosteZoom', 'drosteOffsetX', 'drosteOffsetY',
-  'canvasZoom', 'canvasRotation',
+  'canvasZoom', 'canvasRotation', 'drosteZoomPhase',
 ];
+// drosteZoomPhase (droste INFINITE ZOOM) is continuous + UNWRAPPED — it interpolates
+// linearly like any other, and the shader wraps it. NOT angular (its period is 1, not
+// 360); linear tween is smooth because the stored value never jumps.
 // NOTE: drosteSpiral is DISCRETE (structural), not continuous — it seams when it changes
 // between keyframes, so it's held to keyframe 0 like segment count (Daniel, M3).
 

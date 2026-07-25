@@ -75,7 +75,15 @@ export function createAutoDrift({ state, session }) {
   // MORE of the source: scale picks lean high, position picks stay near home).
   function pick(k, F, now) {
     const range = (session.performAutoRange ?? 0.3) * (AUTO_TEMPER[k] || 1);
-    if (k === 'canvasRotation') {
+    if (k === 'drosteZoomPhase') {
+      // INFINITE ZOOM is a CONTINUOUS-velocity walker (integrated in tick), not a spring —
+      // Daniel: once it picks a direction it KEEPS MOVING that way (no settle/pause between
+      // picks); only the SPEED varies, never the direction (a manual gesture pivots F.dir in
+      // tick's delta block). Each pick just re-rolls the speed.
+      const dir = F.dir || (Math.random() < 0.5 ? -1 : 1);
+      F.dir = dir;
+      F.speed = dir * (0.06 + range * (0.3 + 0.7 * Math.random()));   // loops/sec, varied per pick
+    } else if (k === 'canvasRotation') {
       // framing rotation OSCILLATES around home instead of walking — the
       // momentum walk belongs to the slice (full rotations are the show there)
       F.dest = F.home + (Math.random() * 2 - 1) * range * 360;
@@ -145,9 +153,19 @@ export function createAutoDrift({ state, session }) {
         : live - F.cur;
       if (Math.abs(delta) > (ANGULAR.has(k) ? 1e-4 : (FOLLOW_SPANS[k] || 1) * 1e-6)) {
         F.cur += delta; F.home += delta; F.dest += delta;
+        // manual input PIVOTS the infinite-zoom direction (Daniel): follow the hand's sign
+        // and re-pick promptly so autoplay turns around instead of finishing the old sweep.
+        if (k === 'drosteZoomPhase') { const s = Math.sign(delta); if (s && s !== F.dir) { F.dir = s; F.pickT = now; } }
       }
       if (!F.active) { F.cur = live; F.vel = 0; F.home = live; F.dest = live; continue; }
       if (now >= F.pickT) pick(k, F, now);
+      if (k === 'drosteZoomPhase') {
+        // CONTINUOUS-velocity walker: advance by the picked speed every frame so the zoom
+        // never settles/pauses between picks. Unwrapped — the shader wraps it. No spring.
+        F.cur += (F.speed || 0) * dts;
+        state[k] = F.cur;
+        continue;
+      }
       const y = F.cur - F.dest;
       const tmp = (F.vel + omega * y) * dts;
       F.cur = F.dest + (y + tmp) * decay;

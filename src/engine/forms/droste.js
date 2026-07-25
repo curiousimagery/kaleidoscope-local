@@ -83,7 +83,12 @@ export default {
       get: (state) => {
         const logS = Math.log(Math.max(1.0001, state.drosteZoom));
         const loopLog = state.drosteMirror ? 2 * logS : logS;
-        return (state.drosteZoomPhase || 0) * loopLog;
+        // phase is stored UNWRAPPED (a continuous accumulator, so the perform follower,
+        // motion tween, and autoplay all move it smoothly with no wrap-blip). Wrap mod 1
+        // HERE so the float32 shader input stays bounded/precise — integer periods are
+        // absorbed by the logr mod below, so this is image-identical to the raw phase.
+        const ph = (((state.drosteZoomPhase || 0) % 1) + 1) % 1;
+        return ph * loopLog;
       },
     },
     // LENSTRA conformal-map parameter (generalized formulation, committed in

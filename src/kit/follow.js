@@ -41,7 +41,7 @@ export const FOLLOW_SPANS = {
   sliceScale: 2.95, sliceCx: 1, sliceCy: 1, sliceRotation: 360,
   squareAspect: 3.75, drosteZoom: 14.9, drosteSpiral: 6,
   drosteOffsetX: 2, drosteOffsetY: 2,
-  canvasZoom: 3.85, canvasRotation: 360,
+  canvasZoom: 3.85, canvasRotation: 360, drosteZoomPhase: 1,
 };
 
 // createFollower(initialState, { response }) →

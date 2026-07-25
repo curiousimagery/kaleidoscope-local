@@ -303,9 +303,9 @@ export function wireLoopingSlider(env, sliderId, valId, key, opts) {
   const valEl  = document.getElementById(valId);
   slider.min = 0; slider.max = wrap; slider.step = step;
 
-  const norm = (v) => ((v % wrap) + wrap) % wrap;
+  const norm = (v) => ((v % wrap) + wrap) % wrap;   // DISPLAY only — thumb position + readout
   const get = () => state[key] ?? 0;
-  const set = (v) => { state[key] = norm(v); };
+  const set = (v) => { state[key] = v; };           // store UNWRAPPED (continuous accumulator)
 
   function syncAll() {
     valEl.textContent = fmt(get());
@@ -342,7 +342,7 @@ export function wireLoopingSlider(env, sliderId, valId, key, opts) {
 
   makeScrubField(valEl, {
     get, set,
-    step: scrubStep, min: -Infinity, max: Infinity, wrap,
+    step: scrubStep, min: -Infinity, max: Infinity,   // unbounded — phase accumulates; fmt wraps for display
     format: fmt, parse,
     onStart: () => env.pushHistory?.(),
     onEnd:   () => env.updateUndoUI?.(),

@@ -145,6 +145,9 @@ html, body { margin: 0; padding: 0; height: 100%; background: var(--bg); color: 
 /* the slider inherits the shared input[type=range] rules from styles.css — including
    the coarse touch target (--touch-target, 44px). No mobile-specific height override
    (the old height:28px gave irregular, too-small touch targets). */
+/* the LOOPING (jog) slider (droste infinite zoom) drives value from a RELATIVE pointer
+   drag, so it must own the touch — no native range absolute-drag / scroll interference. */
+.m-loop-slider { touch-action: none; }
 #m-settings h2, #m-canvas-pop h2 { font-size: var(--text-sm); color: var(--text-dim); text-transform: lowercase; letter-spacing: 0.08em; margin: 4px 0 12px; }
 /* the motion block reads as a NEW section: space + a half-width rule above */
 #m-motion-sec { margin-top: 24px; padding-top: 16px; position: relative; }

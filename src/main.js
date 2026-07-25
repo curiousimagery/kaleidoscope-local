@@ -978,6 +978,7 @@ function wireControls() {
     env.pushHistory();
     state.canvasZoom     = 1.0;
     state.canvasRotation = 0;
+    state.drosteZoomPhase = 0;  // infinite zoom is a canvas control in droste — reset it too
     state.oobMode        = 1;   // mirror, the default
     env.controlsSync.syncAll();
     // the OOB buttons sync only in their own click handler — mirror the state here

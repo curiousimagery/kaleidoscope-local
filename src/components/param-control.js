@@ -18,9 +18,9 @@
 // param's sliderId/valId so wireSliderWithScrub finds them by id, exactly as on
 // desktop.
 
-import { wireSliderWithScrub } from '../shell/controls.js';
+import { wireSliderWithScrub, wireLoopingSlider } from '../shell/controls.js';
 
-export function mountRangeControl(container, param, env) {
+function buildControlDom(container, param, inputClass) {
   const label = document.createElement('label');
   label.className = 'm-control';
   label.id = param.sliderId + 'Label';
@@ -38,11 +38,25 @@ export function mountRangeControl(container, param, env) {
   const input = document.createElement('input');
   input.type = 'range';
   input.id = param.sliderId;
+  if (inputClass) input.className = inputClass;
 
   label.append(row, input);
   container.appendChild(label);
+  return label;
+}
 
+export function mountRangeControl(container, param, env) {
+  const label = buildControlDom(container, param);
   // Shared wiring: ranges/steps/fmt/parse/snap/scrub + controlsSync registration.
   wireSliderWithScrub(env, param.sliderId, param.valId, param.key, param.opts);
+  return label;
+}
+
+// Same DOM, wired as a LOOPING (jog) slider — for cyclic params (droste infinite zoom)
+// whose thumb must circle back rather than pin at the edges. `.m-loop-slider` gets
+// touch-action:none so the relative wrapping drag owns the touch (no native range fight).
+export function mountLoopingControl(container, param, env) {
+  const label = buildControlDom(container, param, 'm-loop-slider');
+  wireLoopingSlider(env, param.sliderId, param.valId, param.key, param.opts);
   return label;
 }

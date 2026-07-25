@@ -513,6 +513,10 @@ input[type="range"] {
   background: transparent;
   height: 18px;
 }
+/* the LOOPING (jog) slider (droste infinite zoom) drives value from a RELATIVE pointer
+   drag — touch-action:none so it owns the touch on iPad (native absolute drag pinned the
+   thumb at the edges, so the loop only "snapped on release"). */
+#infiniteZoom { touch-action: none; }
 input[type="range"]::-webkit-slider-runnable-track { height: 2px; background: var(--border); border-radius: var(--radius-2xs); }
 input[type="range"]::-webkit-slider-thumb {
   -webkit-appearance: none; appearance: none;
