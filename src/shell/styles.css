@@ -1228,6 +1228,8 @@ button .btn-spinner {
 .interrupt-confirm:hover { background: var(--fill-bright); color: var(--c-black); filter: brightness(1.08); }
 .interrupt-confirm.danger { background: var(--danger, #e0533d); border-color: var(--danger, #e0533d); color: #fff; }
 .interrupt-confirm.danger:hover { filter: brightness(1.08); color: #fff; }
+.interrupt-secondary { color: var(--text-secondary); }   /* the "discard & load" middle action */
+.interrupt-actions { flex-wrap: wrap; }
 
 /* ===== Loop Builder — an in-app editing MODE (sits BELOW the global app bar) ===== */
 .loop-mode {

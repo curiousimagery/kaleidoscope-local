@@ -4,6 +4,19 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🗂️ v0.19.71 (Build 431) — 2026-07-24 — source-swap data-loss gate (interim) — first staging seams
+
+The data-loss warning on source change (M3 tail), built as the **first pieces of the future clip/workspace staging area** rather than a throwaway (Daniel's priority — the plumbing must point the right way).
+
+- **`env.guardSourceSwap(proceed)`** fronts the desktop file-input + drag-drop loads. If `env.hasUnsavedClipWork()` (a source is loaded AND an animation is authored, `keyframes>1`), it raises a non-blocking `confirmInterrupt` with **save & load / discard & load / cancel**; otherwise it loads straight through (no nag on an empty slot or a bare swap).
+- **Staging-named seams**, so the deck grows into them (not around them): `hasUnsavedClipWork` → per-slot dirty; `saveActiveClip` packages the CLIP artifact — `env.media.originalSource` blob + `motionJSONBlob()` (isLoop/keyframes) — which is exactly what a deck slot will hold; interim it's a `.zip` download, staging swaps the sink for the in-app clip store. `guardSourceSwap` is the "load into the active slot" chokepoint.
+- `confirmInterrupt` gained an optional **secondary action** (3-button save/discard/cancel); `env.motionJSONBlob` exposed as the clip seam. Lab specimen updated to the 3-button variant.
+- Copy is deliberately clip/staging vocabulary ("replace the current clip", "save it first") so the mental model is right from day one.
+
+**Remaining (filed):** route the source picker / camera-swap / **mobile** source-load through the same guard; upgrade the `keyframes>1` heuristic to real dirty-tracking. Mobile touch responsiveness filed as a POLISH WATCH (not a blocker).
+
+Verified: node --check, vite build. **Untested by Claude on-device.**
+
 ## 📱 v0.19.70 (Build 430) — 2026-07-24 — mobile touch priority: source-panel gesture yields to controls on top
 
 Daniel found taps on the source-panel icon buttons sometimes triggering the live-camera gesture ("tap to focus") instead of the button — a near-miss falling through to the layer behind. Principle he set: **the top visible layer always wins the tap.**

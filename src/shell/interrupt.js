@@ -13,12 +13,15 @@
 
 let current = null;   // one interrupt at a time
 
-// confirmInterrupt({ title, body, confirmLabel, cancelLabel, onConfirm, onCancel, danger })
-// Returns a handle with .dismiss(ok). onConfirm/onCancel fire on resolve.
+// confirmInterrupt({ title, body, confirmLabel, cancelLabel, onConfirm, onCancel, danger,
+//                    secondaryLabel, onSecondary })
+// Returns a handle with .dismiss(). onConfirm/onCancel fire on resolve. An optional SECONDARY action
+// (e.g. "discard & load" beside a primary "save & load") renders a third button.
 export function confirmInterrupt(opts) {
   const {
     title, body,
     confirmLabel = 'continue', cancelLabel = 'cancel',
+    secondaryLabel, onSecondary,
     onConfirm, onCancel, danger = true,
   } = opts;
 
@@ -45,31 +48,38 @@ export function confirmInterrupt(opts) {
   actions.className = 'interrupt-actions';
   const cancelBtn = document.createElement('button');
   cancelBtn.className = 'interrupt-btn'; cancelBtn.type = 'button'; cancelBtn.textContent = cancelLabel;
+  let secondaryBtn = null;
+  if (secondaryLabel) {
+    secondaryBtn = document.createElement('button');
+    secondaryBtn.className = 'interrupt-btn interrupt-secondary';
+    secondaryBtn.type = 'button'; secondaryBtn.textContent = secondaryLabel;
+  }
   const okBtn = document.createElement('button');
   okBtn.className = 'interrupt-btn interrupt-confirm' + (danger ? ' danger' : '');
   okBtn.type = 'button'; okBtn.textContent = confirmLabel;
-  actions.append(cancelBtn, okBtn);
+  actions.append(cancelBtn, ...(secondaryBtn ? [secondaryBtn] : []), okBtn);
 
   card.append(head, bodyEl, actions);
   sheet.appendChild(card);
   document.body.appendChild(sheet);
 
-  const dismiss = (ok) => {
+  const dismiss = (result) => {   // 'confirm' | 'secondary' | 'cancel'
     if (current !== handle) return;
     current = null;
     document.removeEventListener('keydown', onKey, true);
     sheet.remove();
-    (ok ? onConfirm : onCancel)?.();
+    (result === 'confirm' ? onConfirm : result === 'secondary' ? onSecondary : onCancel)?.();
   };
   const onKey = (e) => {
-    if (e.key === 'Escape') { e.preventDefault(); dismiss(false); }
-    else if (e.key === 'Enter') { e.preventDefault(); dismiss(true); }
+    if (e.key === 'Escape') { e.preventDefault(); dismiss('cancel'); }
+    else if (e.key === 'Enter') { e.preventDefault(); dismiss('confirm'); }
   };
   document.addEventListener('keydown', onKey, true);
-  x.addEventListener('click', () => dismiss(false));
-  cancelBtn.addEventListener('click', () => dismiss(false));
-  okBtn.addEventListener('click', () => dismiss(true));
-  sheet.addEventListener('click', (e) => { if (e.target === sheet) dismiss(false); });   // backdrop tap
+  x.addEventListener('click', () => dismiss('cancel'));
+  cancelBtn.addEventListener('click', () => dismiss('cancel'));
+  secondaryBtn?.addEventListener('click', () => dismiss('secondary'));
+  okBtn.addEventListener('click', () => dismiss('confirm'));
+  sheet.addEventListener('click', (e) => { if (e.target === sheet) dismiss('cancel'); });   // backdrop tap
 
   const handle = { dismiss };
   current = handle;

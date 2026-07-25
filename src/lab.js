@@ -693,11 +693,12 @@ function compositesSection() {
   // destructive-interrupt confirm (shell/interrupt.js) — NON-blocking; replaced window.confirm
   // (which froze the rAF/broadcast loop on iOS). Reuses .vid-card on the .vid-sheet backdrop.
   const interruptCard = el('div', { class: 'vid-card interrupt-card' }, [
-    el('div', { class: 'vid-head' }, [el('span', { text: 'switch form?' }), el('button', { class: 'vid-x', text: '✕' })]),
-    el('div', { class: 'interrupt-body', text: 'This restructures the whole animation and applies to every keyframe.' }),
+    el('div', { class: 'vid-head' }, [el('span', { text: 'Replace the current clip?' }), el('button', { class: 'vid-x', text: '✕' })]),
+    el('div', { class: 'interrupt-body', text: 'Loading a new source replaces the clip you’re working on, including its animation. Save it first if you want to keep it.' }),
     el('div', { class: 'interrupt-actions' }, [
       el('button', { class: 'interrupt-btn', text: 'cancel' }),
-      el('button', { class: 'interrupt-btn interrupt-confirm danger', text: 'unlock' }),
+      el('button', { class: 'interrupt-btn interrupt-secondary', text: 'discard & load' }),
+      el('button', { class: 'interrupt-btn interrupt-confirm danger', text: 'save & load' }),
     ]),
   ]);
   const interruptDemo = el('div', { class: 'lab-modal-demo' }, [

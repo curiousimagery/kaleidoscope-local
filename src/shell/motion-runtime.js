@@ -2194,6 +2194,7 @@ function setupVideoExport() {
 
   // ---- public surface (consumed by chrome + clip-editor + source-host) -------
   env.scrubVideo = scrubVideo;
+  env.motionJSONBlob = motionJSONBlob;   // clip artifact seam (source + this) — staging store
   env.renderTimeline = renderTimeline;
   env.renderRuler = renderRuler;
   env.scheduleFilmstrip = scheduleFilmstrip;

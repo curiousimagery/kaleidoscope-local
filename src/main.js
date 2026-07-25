@@ -16,6 +16,7 @@ import { state, session, motion } from './shell/state.js';
 import { lockState, setLock, makeLockToggle } from './shell/locks.js';
 import { DISCRETE_KEYS } from './kit/tween.js';   // discrete settings are global (held to kf0)
 import { confirmInterrupt } from './shell/interrupt.js';   // non-blocking destructive-interrupt (M3)
+import { zipStore } from './shell/zip.js';                 // clip package (source + motion JSON)
 import { createEngine } from './engine/index.js';
 import { createSourceOverlay } from './components/source-overlay.js';
 import { createOutputGestures } from './components/output-gestures.js';
@@ -241,6 +242,39 @@ env.setLock = (key, locked) => {
 env.commitDiscreteToKeyframes = () => {
   if (!env.motionRT.active) return;
   for (const kf of motion.keyframes) if (kf?.snap) for (const dk of DISCRETE_KEYS) kf.snap[dk] = state[dk];
+};
+
+// ---- ACTIVE-CLIP / STAGING seams (M3 source-swap guard → future staging area) ------------------
+// "Active slot" = the current source + its motion. These are the FIRST pieces of the clip/workspace
+// store (BACKLOG "Fold Live → Clip queue → workspace sessions"). They intentionally have staging
+// names so the deck grows into them: hasUnsavedClipWork → per-slot dirty; saveActiveClip → save to a
+// deck slot (not a file download); guardSourceSwap → "load into the active slot".
+env.hasUnsavedClipWork = () =>
+  !!(engine && engine.getSourceImage()) && motion.keyframes.length > 1;   // an authored animation to lose
+
+// A CLIP artifact = original source + motion JSON (isLoop/keyframes) — exactly what a deck slot will
+// hold. Interim: package to a downloadable .zip; staging swaps the sink for the in-app clip store.
+env.saveActiveClip = async () => {
+  const files = [];
+  if (env.motionJSONBlob) files.push({ name: (env.media?.sourceFilename || 'clip') + '-motion.json', blob: env.motionJSONBlob() });
+  const src = env.media?.originalSource;
+  if (src?.blob) files.push({ name: src.name || 'source', blob: src.blob });
+  if (!files.length) return;
+  const zip = await zipStore(files);
+  env.downloadBlob?.(zip, (env.media?.sourceFilename || 'clip') + '-clip.zip');
+};
+
+// Gate a source SWAP behind the data-loss warning. `proceed` runs the actual load. Empty slot / no
+// authored work → straight through (no nag). This is the reusable "into the active slot" chokepoint.
+env.guardSourceSwap = (proceed) => {
+  if (!env.hasUnsavedClipWork()) { proceed(); return; }
+  confirmInterrupt({
+    title: 'Replace the current clip?',
+    body: 'Loading a new source replaces the clip you’re working on, including its animation. Save it first if you want to keep it.',
+    confirmLabel: 'save & load', secondaryLabel: 'discard & load', cancelLabel: 'cancel',
+    onConfirm: async () => { await env.saveActiveClip(); proceed(); },
+    onSecondary: () => proceed(),
+  });
 };
 
 // ============================================================================
@@ -1024,7 +1058,7 @@ function wireControls() {
   });
   document.getElementById('fileInput').addEventListener('change', e => {
     const f = e.target.files[0];
-    if (f) (f.type.startsWith('video/') ? env.loadVideo : env.loadImage)(f);
+    if (f) env.guardSourceSwap(() => (f.type.startsWith('video/') ? env.loadVideo : env.loadImage)(f));
   });
 
   // drag & drop
@@ -1033,9 +1067,9 @@ function wireControls() {
     e.preventDefault();
     const file = e.dataTransfer.files[0];
     if (!file) return;
-    if (file.type.startsWith('video/')) { env.loadVideo(file); return; }
+    if (file.type.startsWith('video/')) { env.guardSourceSwap(() => env.loadVideo(file)); return; }
     const ok = /^image\/(jpeg|png|webp)$/i.test(file.type);
-    if (ok) env.loadImage(file);
+    if (ok) env.guardSourceSwap(() => env.loadImage(file));
     else if (uploadErrorEl) {
       uploadErrorEl.textContent = `unsupported format: ${file.type || 'unknown'} — use jpg, png, webp, or a video`;
     }
