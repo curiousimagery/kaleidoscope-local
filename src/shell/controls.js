@@ -288,6 +288,72 @@ export function wireSliderWithScrub(env, sliderId, valId, key, opts) {
   return { syncAll };
 }
 
+// A LOOPING (jog-style) slider for a CYCLIC value of period `wrap`. A native range
+// input pins its thumb at the track edges, so an ABSOLUTE drag can't circle back —
+// which is why the ordinary slider "stopped at the edges." Instead we drive the value
+// from RELATIVE pointer motion and wrap it: the thumb (rendered at value mod wrap)
+// jumps far-right → far-left at the repeat point, and that jump IS the loop. One full
+// track width of drag ≈ one period. The % readout reuses makeScrubField (which already
+// wraps). Used by droste infinite zoom (drosteZoomPhase); the tiling-pan joystick will
+// want the same wrapping-input idea.
+export function wireLoopingSlider(env, sliderId, valId, key, opts) {
+  const { state, scheduleRender, controlsSync } = env;
+  const { wrap = 1, step = 0.001, scrubStep = 0.01, fmt, parse } = opts;
+  const slider = document.getElementById(sliderId);
+  const valEl  = document.getElementById(valId);
+  slider.min = 0; slider.max = wrap; slider.step = step;
+
+  const norm = (v) => ((v % wrap) + wrap) % wrap;
+  const get = () => state[key] ?? 0;
+  const set = (v) => { state[key] = norm(v); };
+
+  function syncAll() {
+    valEl.textContent = fmt(get());
+    slider.value = norm(get());
+  }
+
+  // RELATIVE wrapping drag. preventDefault stops the native absolute thumb-grab; we
+  // render the thumb ourselves at value mod wrap so it visibly circles back.
+  let dragging = false, startX = 0, startVal = 0;
+  slider.addEventListener('pointerdown', (e) => {
+    dragging = true; startX = e.clientX; startVal = get();
+    slider.setPointerCapture?.(e.pointerId);
+    env.pushHistory?.();
+    e.preventDefault();
+  });
+  slider.addEventListener('pointermove', (e) => {
+    if (!dragging) return;
+    const w = slider.getBoundingClientRect().width || 1;
+    set(startVal + ((e.clientX - startX) / w) * wrap);   // full track width ≈ one period
+    slider.value = norm(get());
+    valEl.textContent = fmt(get());
+    scheduleRender();
+    e.preventDefault();
+  });
+  const end = (e) => {
+    if (!dragging) return;
+    dragging = false;
+    slider.releasePointerCapture?.(e.pointerId);
+    slider.value = norm(get());   // self-correct any native drift from a bare click
+    env.updateUndoUI?.();
+  };
+  slider.addEventListener('pointerup', end);
+  slider.addEventListener('pointercancel', end);
+
+  makeScrubField(valEl, {
+    get, set,
+    step: scrubStep, min: -Infinity, max: Infinity, wrap,
+    format: fmt, parse,
+    onStart: () => env.pushHistory?.(),
+    onEnd:   () => env.updateUndoUI?.(),
+    onChange: () => { slider.value = norm(get()); scheduleRender(); },
+  });
+
+  syncAll();
+  controlsSync.register(syncAll);
+  return { syncAll };
+}
+
 // ===========================================================================
 // form picker
 // ===========================================================================

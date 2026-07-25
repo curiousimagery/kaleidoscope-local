@@ -45,6 +45,9 @@ const PARAM_TARGETS = [
   { key: 'drosteSpiral', label: 'droste spiral', min: -3, max: 3, dir: 'wind left → wind right' },
   { key: 'drosteOffsetX', label: 'droste offset x', min: -1, max: 1, dir: 'left → right' },
   { key: 'drosteOffsetY', label: 'droste offset y', min: -1, max: 1, dir: 'up → down' },
+  // INFINITE ZOOM phase — cyclic like rotation, but its period is 1 (not 360), so it carries
+  // an explicit wrapPeriod. Pinch over the canvas maps here in droste (see the pinch mapping).
+  { key: 'drosteZoomPhase', label: 'infinite zoom', min: 0, max: 1, wrap: true, wrapPeriod: 1, dir: 'zoom loop' },
 ];
 const ACTION_TARGETS = [
   { key: 'action:stage', label: '⏻ stage (hold)' },
@@ -158,7 +161,7 @@ export function createInputBus(env) {
     const kind = sig.slice(sig.lastIndexOf('.') + 1);   // rotate | pinch | dragx | dragy
     const key = overSrc
       ? { rotate: 'sliceRotation', pinch: 'sliceScale', dragx: 'sliceCx', dragy: 'sliceCy' }[kind]
-      : { rotate: 'canvasRotation', pinch: 'canvasZoom' }[kind];
+      : { rotate: 'canvasRotation', pinch: (state.form === 'droste' ? 'drosteZoomPhase' : 'canvasZoom') }[kind];
     const t = key && targetOf(key);
     if (!t) return;
     // slice rotation is negated: the overlay's Y-flip means screen-clockwise
@@ -225,7 +228,7 @@ export function createInputBus(env) {
   }
 
   function writeParam(t, v) {
-    if (t.wrap) v = ((v % 360) + 360) % 360;
+    if (t.wrap) { const P = t.wrapPeriod || 360; v = ((v % P) + P) % P; }
     else v = Math.max(t.min, Math.min(t.max, v));
     state[t.key] = v;
     env.scheduleRender?.();

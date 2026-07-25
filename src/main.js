@@ -22,6 +22,7 @@ import { createSourceOverlay } from './components/source-overlay.js';
 import { createOutputGestures } from './components/output-gestures.js';
 import {
   wireSliderWithScrub,
+  wireLoopingSlider,
   makeScrubField,
   buildFormGrid,
   applyFormControls,
@@ -840,6 +841,10 @@ function wireControls() {
     const p = PARAMS[id];
     wireSliderWithScrub(env, p.sliderId, p.valId, p.key, p.opts);
   }
+
+  // droste INFINITE ZOOM — a looping (jog-style) slider; the value is cyclic (phase
+  // ∈ [0,1)), so it needs the relative wrapping drag, not the absolute native drag.
+  { const p = PARAMS.infiniteZoom; wireLoopingSlider(env, p.sliderId, p.valId, p.key, p.opts); }
 
   // droste spiral — tiers per canvas turn. snaps to multiples of 1/arms so
   // the spiral closes cleanly with the arms-fold lattice (1/12 at arms=12,

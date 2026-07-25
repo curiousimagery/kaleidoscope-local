@@ -517,6 +517,10 @@ function componentsSection() {
   const sliders = el('div', { class: 'lab-stack' }, [
     labeled('input[type=range]', el('label', { class: 'slider' }, [slider()])),
     labeled('disabled', el('label', { class: 'slider disabled' }, [slider({ disabled: '' })])),
+    // No new component/CSS — the LOOPING variant (droste infinite zoom) is the same .slider
+    // driven by wireLoopingSlider: a RELATIVE wrapping drag so the thumb circles far-right →
+    // far-left at the repeat point (a native range pins at the edges; static can't show it).
+    labeled('.slider · looping (jog) variant', el('label', { class: 'slider' }, [slider({ value: '55' })])),
   ]);
   const fields = el('div', { class: 'lab-stack' }, [
     labeled('.scrub', el('span', { class: 'scrub', text: '128' })),

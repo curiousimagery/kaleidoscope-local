@@ -157,7 +157,7 @@ export default {
       float r = length(p);
       if (r < 1e-8) return vec2(0.0);
       float logr = log(r);
-      logr += u_drosteZoomShift;   // infinite zoom: continuous scale-periodic sweep (wraps via the mod below)
+      logr -= u_drosteZoomShift;   // infinite zoom: continuous scale-periodic sweep (wraps via the mod below); − so phase↑ = zoom IN
       float theta = atan(p.y, p.x);
 
       // 3. ARMS — angular fold into 1/N wedge (unchanged).

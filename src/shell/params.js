@@ -156,14 +156,17 @@ export const PARAMS = {
   // far-right → far-left at the repeat point (the visible jump IS the seamless visual loop).
   // The phase→zoom mapping lives entirely in the shader (u_drosteZoomShift), so this stays
   // a plain [0,1) slider. Displayed as % through one loop.
+  // declarative:false — bespoke LOOPING wiring (wireLoopingSlider) because a native
+  // range can't circle back on an absolute drag; it needs a relative wrapping drag.
   infiniteZoom: {
     id: 'infiniteZoom', label: 'infinite zoom', type: 'range', scope: 'canvas',
     sliderId: 'infiniteZoom', valId: 'infiniteZoomVal', key: 'drosteZoomPhase',
-    formControl: 'infiniteZoom', declarative: true,
+    formControl: 'infiniteZoom', declarative: false,
     opts: {
-      min: 0, max: 1, step: 0.001, scrubStep: 0.01, wrap: 1,
+      wrap: 1, step: 0.001, scrubStep: 0.01,
+      // displayed as % of one loop, so parse must convert % back to phase (0..1)
       fmt: v => Math.round((((v % 1) + 1) % 1) * 100) + '%',
-      parse: parsePlain,
+      parse: s => { const n = parseFloat(String(s).replace('%', '').trim()); return isNaN(n) ? null : n / 100; },
     },
   },
 

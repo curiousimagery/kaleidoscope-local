@@ -4,6 +4,20 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🔁 v0.19.74 (Build 434) — 2026-07-25 — Droste infinite zoom — FIX direction + make it actually loop (slider + pinch)
+
+Daniel's B433 desktop test (Firefox/Brave): label + zoom work, and 0% = 100% shows the same frame (periodicity confirmed) — but two real issues. Both fixed.
+
+- **Direction (issue 1): dragging right zoomed OUT; should zoom IN.** Flipped the shader shift to `logr -= u_drosteZoomShift` so phase↑ = zoom in. Slider (drag right) and pinch (pinch-in) now both zoom in consistently.
+- **Loop (issue 2): the slider stopped at the edges instead of circling back; pinch hit the [0.15,4] wall.** Root cause: a native `<input type=range>` **physically pins its thumb at the edges** — an absolute drag can't wrap. Fixes:
+  - **Looping slider** — new `wireLoopingSlider` (`shell/controls.js`): a **relative wrapping drag** (accumulate pointer dx → phase → wrap; thumb rendered at value mod 1 so it visibly jumps far-right → far-left at the repeat point — that jump IS the loop). One track-width ≈ one loop; pointer-capture lets the drag continue past the track edge. `infiniteZoom` is now `declarative:false` with this bespoke wiring. The % readout (scrub) already wrapped.
+  - **Pinch loops** — pinch in droste now drives the loop **phase**, not `canvasZoom`, so it circles endlessly. Fixed in the shared `components/output-gestures.js` (the `onWheel` trackpad path Daniel actually tested + the touch path), calibrated in log space: a pinch by one factor of the loop period (`drosteZoom`, ×2 with mirror) = exactly one loop. Also routed the input-bus `pinch` mapping (MIDI/remote) → phase in droste, with a general `wrapPeriod` (the old wrap hardcoded 360).
+- **Lab:** the looping/jog slider noted as a behavior variant of `.slider` (no new component/CSS).
+
+**Platform coverage:** desktop web (all browsers), **iPad Capacitor**, and **Electron** all use desktop chrome → full infinite-zoom (looping slider + pinch). **iPhone (mobile chrome):** gains **looping pinch** for free (shared output-gestures), but the dedicated infinite-zoom *slider* is a deliberate follow-up (mobile needs its own touch jog-interaction I can't verify blind; mobile control layout is otherwise untouched → no regression). Fresh Capacitor + Electron builds produced this pass so Daniel can verify all covered platforms in parallel.
+
+Verified: node --check, vite build. **Untested by Claude on-device.**
+
 ## 🔁 v0.19.73 (Build 433) — 2026-07-25 — Droste INFINITE ZOOM — looping slider (repeating-movements ①, desktop)
 
 First of the three "repeating movements" Daniel greenlit. A **looping zoom slider** in canvas settings (replacing composition zoom in Droste) drives a seamless endless zoom.

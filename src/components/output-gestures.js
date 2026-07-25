@@ -20,6 +20,15 @@ export function createOutputGestures(canvas, ctx) {
   const { state } = ctx;
   let pinch = null;
 
+  // DROSTE INFINITE ZOOM: in droste, pinch drives the loop PHASE (drosteZoomPhase),
+  // not canvasZoom — so it circles endlessly instead of hitting the [0.15,4] wall. A
+  // multiplicative zoom by one factor of the loop period (drosteZoom, ×2 with mirror)
+  // = exactly one loop, so map the zoom ratio into phase in log space: phase↑ = zoom
+  // in (matches the shader `logr -= shift`). Twist still drives canvasRotation.
+  const zoomIsPhase = () => state.form === 'droste';
+  const loopLog = () => Math.log(Math.max(1.0001, state.drosteZoom)) * (state.drosteMirror ? 2 : 1);
+  const wrap01 = (v) => ((v % 1) + 1) % 1;
+
   // canvasZoom/canvasRotation are animated params; while an animation drives the
   // state a gesture's write is clobbered next tick and would leak into the live
   // broadcast (the output bus renders state on its own loop). So go inert then.
@@ -34,6 +43,7 @@ export function createOutputGestures(canvas, ctx) {
         startDist:     Math.hypot(t1.clientX - t0.clientX, t1.clientY - t0.clientY),
         startAngle:    Math.atan2(t1.clientY - t0.clientY, t1.clientX - t0.clientX),
         startZoom:     state.canvasZoom,
+        startPhase:    state.drosteZoomPhase || 0,
         startRotation: state.canvasRotation,
       };
       e.preventDefault();
@@ -45,7 +55,11 @@ export function createOutputGestures(canvas, ctx) {
     const t0 = e.touches[0], t1 = e.touches[1];
     const dist  = Math.hypot(t1.clientX - t0.clientX, t1.clientY - t0.clientY);
     const angle = Math.atan2(t1.clientY - t0.clientY, t1.clientX - t0.clientX);
-    state.canvasZoom     = Math.max(0.15, Math.min(4, pinch.startZoom * (dist / pinch.startDist)));
+    if (zoomIsPhase()) {
+      state.drosteZoomPhase = wrap01(pinch.startPhase + Math.log(dist / pinch.startDist) / loopLog());
+    } else {
+      state.canvasZoom   = Math.max(0.15, Math.min(4, pinch.startZoom * (dist / pinch.startDist)));
+    }
     const da             = (angle - pinch.startAngle) * 180 / Math.PI;
     state.canvasRotation = ((pinch.startRotation + da) % 360 + 360) % 360;
     ctx.onChange?.();
@@ -66,7 +80,11 @@ export function createOutputGestures(canvas, ctx) {
     e.preventDefault();
     if (!wheelTimer) ctx.onCommitStart?.();
     const factor = Math.exp(-e.deltaY * 0.01);
-    state.canvasZoom = Math.max(0.15, Math.min(4, state.canvasZoom * factor));
+    if (zoomIsPhase()) {
+      state.drosteZoomPhase = wrap01((state.drosteZoomPhase || 0) + Math.log(factor) / loopLog());
+    } else {
+      state.canvasZoom = Math.max(0.15, Math.min(4, state.canvasZoom * factor));
+    }
     ctx.onChange?.();
     clearTimeout(wheelTimer);
     wheelTimer = setTimeout(() => { wheelTimer = 0; ctx.onCommitEnd?.(); }, 250);
