@@ -346,16 +346,21 @@ export function applyFormControls(env) {
 
   // per-form conditional sliders: [controlKey, labelElementId]
   const conditionalLabels = [
-    ['aspect',      'aspectLabel'],
-    ['zoom',        'zoomLabel'],
-    ['spiral',      'spiralLabel'],
-    ['mirror',      'mirrorLabel'],
-    ['wedgeMirror', 'wedgeMirrorLabel'],
+    ['aspect',       'aspectLabel'],
+    ['zoom',         'zoomLabel'],
+    ['spiral',       'spiralLabel'],
+    ['mirror',       'mirrorLabel'],
+    ['wedgeMirror',  'wedgeMirrorLabel'],
+    ['infiniteZoom', 'infiniteZoomLabel'],
   ];
   for (const [key, labelId] of conditionalLabels) {
     const el = document.getElementById(labelId);
     if (el) el.style.display = form.controls.includes(key) ? '' : 'none';
   }
+  // composition zoom is REPLACED by the infinite-zoom loop slider in droste (the droste
+  // pattern is scale-periodic, so a separate framing zoom is redundant — the loop IS the zoom).
+  const compZoomRow = document.getElementById('compZoomLabel');
+  if (compZoomRow) compZoomRow.style.display = form.id === 'droste' ? 'none' : '';
   // center-offset lock/autoplay row is Droste-only (the offset is a canvas gesture, no slider)
   const offsetRow = document.getElementById('drosteOffsetLabel');
   if (offsetRow) offsetRow.style.display = form.id === 'droste' ? '' : 'none';

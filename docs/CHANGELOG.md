@@ -4,6 +4,22 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🔁 v0.19.73 (Build 433) — 2026-07-25 — Droste INFINITE ZOOM — looping slider (repeating-movements ①, desktop)
+
+First of the three "repeating movements" Daniel greenlit. A **looping zoom slider** in canvas settings (replacing composition zoom in Droste) drives a seamless endless zoom.
+
+- **Shader-side, not JS-side.** New `drosteZoomPhase ∈ [0,1)` state + `u_drosteZoomShift` uniform; `foldDroste` does `logr += u_drosteZoomShift`. The fold is scale-periodic (logr is reduced mod logS), so a continuous log-radius shift sweeps the zoom and **the existing `mod` handles the wrap** — no seam. Cleaner than driving the shared `canvasZoom` framing param from JS (no cross-system pollution; the shift is Droste-scoped).
+- **The control is a plain looping slider.** `infiniteZoom` param (`key: drosteZoomPhase`, `wrap: 1`) reuses `wireSliderWithScrub`'s existing wrap behavior (same as the rotation sliders) — the thumb loops far-right → far-left at the repeat point, and that visible jump IS the seamless visual loop. The phase→zoom mapping lives entirely in the shader, so the slider stays a clean [0,1). Displayed as % through one loop. No new component/CSS (the `.slider` is already in the Lab).
+- **Replaces composition zoom in Droste.** `applyFormControls` hides `compZoom` and shows `infiniteZoom` for the Droste form — a separate framing zoom is redundant in a scale-periodic pattern (the loop *is* the zoom). Daniel confirmed the replace.
+- **Seam preconditions honored:** exact loop requires **offset centered** (Möbius pre-comp isn't scale-invariant — already default-locked) and **spiral = 0** for a pure zoom; the mirror-tier period doubles (×zoom²). All documented at the uniform. Spiral coupling (canvasRotation screw motion) exposed in the math notes, **not wired** — needs an on-device sign check.
+- **B432's `kit/droste-zoom.js` primitive was subsumed** by the shader implementation (engine can't import kit; the driver no longer needs wrap math) — its reference math moved into the Droste uniform's comment and the module removed.
+
+**Scope (desktop, still-mode core):** the live slider. **Deliberately deferred to follow-ups:** pinch-to-zoom gesture routing (input-bus `PARAM_TARGETS`/`writeParam`) + mobile parity (B434); smooth motion-tween + autoplay-wander of the phase (a clean add across tween `CONTINUOUS_KEYS` / drift `AUTOPLAY_EXCLUDED` / follow `FOLLOW_SPANS` — mind the FOLLOW_SPANS-or-NaN gotcha). Today the phase holds to keyframe 0 in motion (full-snapshot preserved, not interpolated) and rides verbatim in perform — works, just not smoothed.
+
+**Verify (Daniel, on device):** enter Droste → canvas settings shows "infinite zoom" (not "composition zoom") → drag it: continuous zoom that loops seamlessly at the wrap. **Note:** direction is `+=` (drag-right zooms one way); if it feels inverted, it's a one-char flip in `foldDroste`. Non-Droste forms still show composition zoom unchanged.
+
+Verified: node --check, vite build. **Untested by Claude on-device.**
+
 ## 🌀 v0.19.72 (Build 432) — 2026-07-25 — source-swap copy refinement + Droste infinite-zoom loop math (foundation)
 
 Two small pieces from Daniel's post-compact review: a copy/signal refinement on the source-swap dialog, and the first unambiguous, decision-independent piece of Droste infinite zoom.

@@ -747,9 +747,15 @@
        under the output panel) -->
   <div class="group">
     <h2>canvas</h2>
-    <label class="slider">
+    <label class="slider" id="compZoomLabel">
       <div class="row"><span>composition zoom</span><span class="val scrub" id="compZoomVal" data-key="canvasZoom">1.00×</span></div>
       <input type="range" id="compZoom" min="0.15" max="4" step="0.01" value="1">
+    </label>
+    <!-- infinite zoom: droste-only, REPLACES composition zoom (applyFormControls toggles both).
+         A looping slider — phase ∈ [0,1) wraps far-right → far-left at the seamless repeat point. -->
+    <label class="slider" id="infiniteZoomLabel" style="display:none">
+      <div class="row"><span>infinite zoom</span><span class="val scrub" id="infiniteZoomVal" data-key="drosteZoomPhase">0%</span></div>
+      <input type="range" id="infiniteZoom" min="0" max="1" step="0.001" value="0">
     </label>
     <label class="slider">
       <div class="row"><span>rotation</span><span class="val scrub" id="canvasRotVal" data-key="canvasRotation">0°</span></div>

@@ -43,6 +43,10 @@ export const state = {
                         // rings), and (b) source-side per-tier drift —
                         // z_src += u_drosteOffset · (1 − r/r_src) — deeper
                         // tiers' source content drifts toward `a`. one handle.
+  drosteZoomPhase: 0,   // droste form only: INFINITE ZOOM phase ∈ [0,1) through one seamless
+                        // loop. Drives a log-radius shift in foldDroste (u_drosteZoomShift):
+                        // the fold is scale-periodic, so sweeping phase 0→1 zooms exactly one
+                        // period and wraps with no seam. Replaces composition zoom in droste.
   canvasZoom: 1.0,
   canvasRotation: 0,
   oobMode: 1,           // 0=clamp, 1=mirror, 2=transparent. mirror is default.

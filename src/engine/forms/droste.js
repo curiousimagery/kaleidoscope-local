@@ -59,13 +59,32 @@ export default {
     <path d="M 21 16 A 5 5 0 0 1 22.5 19.5 L 26.6 23.6"/>
   </g></svg>`,
 
-  controls: ['segments', 'zoom', 'spiral', 'mirror', 'wedgeMirror'],
+  controls: ['segments', 'zoom', 'spiral', 'mirror', 'wedgeMirror', 'infiniteZoom'],
 
   uniforms: {
     // log(drosteZoom) — precomputed to spare the shader a log() per pixel.
     u_drosteLogS: {
       type: '1f',
       get: (state) => Math.log(Math.max(1.0001, state.drosteZoom)),
+    },
+    // INFINITE ZOOM — a log-radius shift driven by drosteZoomPhase ∈ [0,1). The
+    // fold is scale-periodic (logr is reduced mod logS below), so sweeping the
+    // shift continuously zooms and wraps with NO seam. shift = phase · loopLog,
+    // where the seamless loop is logS for WRAP tiers but 2·logS for MIRROR tiers
+    // (a mirror tier reflects — one factor lands on the mirror image, identity
+    // returns only at 2·logS). SEAMLESS PRECONDITIONS: offset centered (the
+    // Möbius pre-comp is NOT scale-invariant — why the offset is default-locked)
+    // and spiral = 0 for a PURE zoom: spiral keeps the radial shift exact
+    // (c.real = 1) but adds a residual source rotation per loop = spiral·logS²/(2π),
+    // so a seamless spiral zoom must couple canvasRotation to cancel it (the Droste
+    // screw motion — not yet wired; needs an on-device sign check).
+    u_drosteZoomShift: {
+      type: '1f',
+      get: (state) => {
+        const logS = Math.log(Math.max(1.0001, state.drosteZoom));
+        const loopLog = state.drosteMirror ? 2 * logS : logS;
+        return (state.drosteZoomPhase || 0) * loopLog;
+      },
     },
     // LENSTRA conformal-map parameter (generalized formulation, committed in
     // Build 55 after A/B test): c = 1 + i·b where b = -spiral·logS/(2π).
@@ -138,6 +157,7 @@ export default {
       float r = length(p);
       if (r < 1e-8) return vec2(0.0);
       float logr = log(r);
+      logr += u_drosteZoomShift;   // infinite zoom: continuous scale-periodic sweep (wraps via the mod below)
       float theta = atan(p.y, p.x);
 
       // 3. ARMS — angular fold into 1/N wedge (unchanged).

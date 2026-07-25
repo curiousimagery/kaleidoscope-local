@@ -151,6 +151,22 @@ export const PARAMS = {
     },
   },
 
+  // INFINITE ZOOM (droste only) — REPLACES composition zoom in droste (applyFormControls
+  // hides compZoom, shows this). Drives the loop PHASE ∈ [0,1); `wrap: 1` loops the thumb
+  // far-right → far-left at the repeat point (the visible jump IS the seamless visual loop).
+  // The phase→zoom mapping lives entirely in the shader (u_drosteZoomShift), so this stays
+  // a plain [0,1) slider. Displayed as % through one loop.
+  infiniteZoom: {
+    id: 'infiniteZoom', label: 'infinite zoom', type: 'range', scope: 'canvas',
+    sliderId: 'infiniteZoom', valId: 'infiniteZoomVal', key: 'drosteZoomPhase',
+    formControl: 'infiniteZoom', declarative: true,
+    opts: {
+      min: 0, max: 1, step: 0.001, scrubStep: 0.01, wrap: 1,
+      fmt: v => Math.round((((v % 1) + 1) % 1) * 100) + '%',
+      parse: parsePlain,
+    },
+  },
+
   canvasRot: {
     id: 'canvasRot', label: 'rotation', type: 'range', scope: 'canvas',
     sliderId: 'canvasRot', valId: 'canvasRotVal', key: 'canvasRotation',
