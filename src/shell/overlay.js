@@ -384,35 +384,41 @@ export function drawSourceOverlay(env) {
 
   // EDGE SEAM — where the primary wedge crosses a source edge, draw a dashed line along that edge
   // segment (clamped to the visible edge). It's the honest "the fold reflects/clips here" marker
-  // AND stands in as the scale-drag handle when the true (reflected / off-source) edge is
-  // unreachable (Daniel's spec, replacing the fake in-bounds arc). Hit-testing wired in a follow-up.
+  // AND the scale-drag handle when the true (reflected / off-source) edge is unreachable (Daniel's
+  // spec, replacing the fake in-bounds arc). The segments are stashed in _geom.seams so
+  // classifyPointer can treat a drag on the seam as a scale (the seam sits at a reachable distance;
+  // the ratio-based scale drag handles the rest). The whole highlight scales when the seam is the
+  // active/hovered scale target.
+  const seamSegs = [];   // {p0,p1} screen segments of the edge seam → stashed in _geom for hit-testing
+  const seamActive = env.overlayDragMode === 'scale' || (env.hoverMode === 'scale' && !env.hoverOnSpoke);
   if (oobAnyAxis) {
-    const seams = [
+    const edges = [
       { on: oobLeft,   axis: 'u', at: 0 },
       { on: oobRight,  axis: 'u', at: 1 },
       { on: oobTop,    axis: 'v', at: 0 },
       { on: oobBottom, axis: 'v', at: 1 },
     ];
     ctx.save();
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
+    ctx.strokeStyle = seamActive ? 'rgba(255, 255, 255, 1.0)' : 'rgba(255, 255, 255, 0.9)';
     ctx.setLineDash([6, 4]);
-    ctx.lineWidth = 1.5 * sw;
-    for (const s of seams) {
-      if (!s.on) continue;
+    ctx.lineWidth = (seamActive ? 2.5 : 1.5) * sw;
+    for (const e of edges) {
+      if (!e.on) continue;
       const hits = [];
       for (let i = 0; i < uvPts.length; i++) {
         const a = uvPts[i], b = uvPts[(i + 1) % uvPts.length];
-        const av = s.axis === 'u' ? a.u : a.v, bv = s.axis === 'u' ? b.u : b.v;
-        if ((av - s.at) * (bv - s.at) < 0) {            // segment straddles the edge line
-          const t = (s.at - av) / (bv - av);
-          hits.push(s.axis === 'u' ? a.v + t * (b.v - a.v) : a.u + t * (b.u - a.u));
+        const av = e.axis === 'u' ? a.u : a.v, bv = e.axis === 'u' ? b.u : b.v;
+        if ((av - e.at) * (bv - e.at) < 0) {            // segment straddles the edge line
+          const t = (e.at - av) / (bv - av);
+          hits.push(e.axis === 'u' ? a.v + t * (b.v - a.v) : a.u + t * (b.u - a.u));
         }
       }
       if (hits.length < 2) continue;
       const lo = Math.max(0, Math.min(...hits)), hi = Math.min(1, Math.max(...hits));  // clamp to visible edge
       if (hi <= lo) continue;
-      const p0 = s.axis === 'u' ? uvToScreen(s.at, lo) : uvToScreen(lo, s.at);
-      const p1 = s.axis === 'u' ? uvToScreen(s.at, hi) : uvToScreen(hi, s.at);
+      const p0 = e.axis === 'u' ? uvToScreen(e.at, lo) : uvToScreen(lo, e.at);
+      const p1 = e.axis === 'u' ? uvToScreen(e.at, hi) : uvToScreen(hi, e.at);
+      seamSegs.push({ p0, p1 });
       ctx.beginPath(); ctx.moveTo(p0.x, p0.y); ctx.lineTo(p1.x, p1.y); ctx.stroke();
     }
     ctx.restore();
@@ -451,7 +457,7 @@ export function drawSourceOverlay(env) {
   }
 
   // store geometry for hit testing
-  canvas._geom = { imgX, imgY, imgW, imgH, screenPts, cx: cxPx, cy: cyPx };
+  canvas._geom = { imgX, imgY, imgW, imgH, screenPts, cx: cxPx, cy: cyPx, seams: seamSegs };
 
   // perform-mode onion skin rides every draw (see drawGhostWedges)
   if (env.performGhosts?.length) drawGhostWedges(env, env.performGhosts);
@@ -764,6 +770,22 @@ function classifyPointer(env, x, y, isTouch = false) {
   if (R == null) {
     R = Math.max(...pts.map(p => Math.hypot(p.x - cx, p.y - cy)));
     outsideAngular = true;
+  }
+
+  // EDGE-SEAM scale handle: when the wedge crosses the source edge, its true outer boundary is
+  // off-source/unreachable — so a drag on the dashed edge seam (drawn along the source boundary in
+  // drawSourceOverlay) scales instead (Daniel). Priority near the seam; the generic ratio-based
+  // scale drag (startR = pointer distance) does the rest. Segments come from _geom.seams.
+  if (g.seams && g.seams.length) {
+    for (const seg of g.seams) {
+      const ex = seg.p1.x - seg.p0.x, ey = seg.p1.y - seg.p0.y;
+      const elen = Math.hypot(ex, ey) || 1;
+      const ux = ex / elen, uy = ey / elen;
+      const projT = (x - seg.p0.x) * ux + (y - seg.p0.y) * uy;
+      if (projT < -SCALE_OUT || projT > elen + SCALE_OUT) continue;   // within the seam span (+grace)
+      const perp = Math.abs((x - seg.p0.x) * (-uy) + (y - seg.p0.y) * ux);
+      if (perp <= SCALE_OUT) return { mode: 'scale', r, theta, R, onSpoke: false, cursorTheta: theta };
+    }
   }
 
   // Per-edge proximity check — for forms whose slice center sits at a polygon

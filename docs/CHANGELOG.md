@@ -4,6 +4,18 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🔺 v0.19.91 (Build 451) — 2026-07-26 — M4 geometry-truth · increment 2: edge-seam is a scale handle
+
+Wires the B450 edge seam into hit-testing so it actually grabs — the "preserve interaction" payoff (criterion #3): when the wedge extends past the source edge, its true outer boundary is off-source and unreachable, so the on-source dashed seam becomes the scale handle.
+
+- `drawSourceOverlay` now stashes the seam segments in `canvas._geom.seams`.
+- `classifyPointer` checks proximity to those segments (perpendicular within the span + a 20px/28px grab band) and returns `mode:'scale'`, taking priority near the seam. The existing **ratio-based** scale drag (`newScale = startScale × r/startR`) needs no special-casing — the seam sits at a reachable distance, so drag-out grows / drag-in shrinks naturally. Hover shows the scale cursor automatically; the seam brightens + thickens while it's the active scale target.
+- Polygon forms (radial/square/hex/triangle). Droste (own `classifyPointer`) is the tracked follow-up.
+
+**VERIFY (Daniel):** grow a slice past the source edge → hover the dashed seam shows the scale cursor → drag it in/out to scale the slice (works even though the real outer edge is off-source). Touch: same, 28px grab band.
+
+Verified: node --check, vite build. **Untested by Claude on-device.** Fresh Capacitor + Electron builds produced.
+
 ## 🔺 v0.19.90 (Build 450) — 2026-07-26 — M4 geometry-truth · increment 1: reflection-UI restyle
 
 First increment of Movement 4 (geometry-truth). Reworks how the slice overlay signals a wedge crossing the source edge, per Daniel's refined spec (replaces the old "whole outline goes dashed amber"). Lands in the one shared drawer `drawSourceOverlay`, so desktop / mobile / companion-video inherit it.
