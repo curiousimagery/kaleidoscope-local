@@ -20,6 +20,28 @@
 //     panDrift,        // () => { on, stop, set } drift API for flick-to-drift on release — optional
 //   }) → { destroy() }
 
+// UNIFIED ZOOM (Daniel): sliceScale is the PRIMARY zoom range; canvasZoom EXTENDS it. Zooming OUT
+// grows the slice to full size FIRST, then dials canvasZoom below 1× (more reach/repeats); zooming IN
+// reverses — canvasZoom back to 1×, then shrink the slice, then magnify past 1×. Fixes the trap where
+// you bottom out canvasZoom while the slice still has headroom. Applied to the pinch + trackpad-zoom
+// on NON-droste forms (droste's zoom is the already-unbounded looping infinite-zoom, no wall). Bounds
+// are placeholders — Phase B normalizes sliceScale so ~1× = full source, the natural handoff point.
+const Z_SLICE_MIN = 0.05, Z_SLICE_MAX = 3, Z_CANVAS_MIN = 0.15, Z_CANVAS_MAX = 4;
+function applyUnifiedZoom(state, factor) {
+  let s = state.sliceScale, z = state.canvasZoom;
+  if (factor >= 1) {                                          // ZOOM IN
+    if (z < 1)                z = Math.min(1, z * factor);
+    else if (s > Z_SLICE_MIN) s = Math.max(Z_SLICE_MIN, s / factor);
+    else                      z = Math.min(Z_CANVAS_MAX, z * factor);
+  } else {                                                    // ZOOM OUT
+    if (z > 1)                z = Math.max(1, z * factor);
+    else if (s < Z_SLICE_MAX) s = Math.min(Z_SLICE_MAX, s / factor);
+    else                      z = Math.max(Z_CANVAS_MIN, z * factor);
+  }
+  state.sliceScale = s;
+  state.canvasZoom = z;
+}
+
 export function createOutputGestures(canvas, ctx) {
   const { state } = ctx;
   let manip = null;   // active two-finger manipulation (zoom + twist + centroid pan)
@@ -63,8 +85,10 @@ export function createOutputGestures(canvas, ctx) {
     const canPan = !!(ctx.panPeriod && ctx.panPeriod());
     if (canPan) ctx.panDrift?.()?.stop?.();          // grabbing takes control — stop any running drift
     const cx = (t0.clientX + t1.clientX) / 2, cy = (t0.clientY + t1.clientY) / 2;
+    const startDist = Math.hypot(t1.clientX - t0.clientX, t1.clientY - t0.clientY);
     manip = {
-      startDist:     Math.hypot(t1.clientX - t0.clientX, t1.clientY - t0.clientY),
+      startDist,
+      prevDist:      startDist,   // incremental pinch-zoom (feeds applyUnifiedZoom on non-droste)
       startAngle:    Math.atan2(t1.clientY - t0.clientY, t1.clientX - t0.clientX),
       startZoom:     state.canvasZoom,
       startPhase:    state.drosteZoomPhase || 0,
@@ -84,7 +108,8 @@ export function createOutputGestures(canvas, ctx) {
     if (zoomIsPhase()) {
       state.drosteZoomPhase = manip.startPhase + Math.log(dist / manip.startDist) / loopLog();
     } else {
-      state.canvasZoom   = Math.max(0.15, Math.min(4, manip.startZoom * (dist / manip.startDist)));
+      applyUnifiedZoom(state, dist / manip.prevDist);   // slice-first-then-canvas (incremental)
+      manip.prevDist = dist;
     }
     const da             = (angle - manip.startAngle) * 180 / Math.PI;
     state.canvasRotation = ((manip.startRotation + da) % 360 + 360) % 360;
@@ -149,7 +174,7 @@ export function createOutputGestures(canvas, ctx) {
     if (zoomIsPhase()) {
       state.drosteZoomPhase = (state.drosteZoomPhase || 0) + Math.log(factor) / loopLog();
     } else {
-      state.canvasZoom = Math.max(0.15, Math.min(4, state.canvasZoom * factor));
+      applyUnifiedZoom(state, factor);   // slice-first-then-canvas
     }
     ctx.onChange?.();
     clearTimeout(wheelTimer);

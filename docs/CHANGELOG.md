@@ -4,6 +4,19 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🔍 v0.19.94 (Build 454) — 2026-07-26 — Unified zoom (slice-first-then-canvas) — the zoom-trap fix
+
+Fixes the trap Daniel found: sliceScale and canvasZoom both drive perceived zoom, so you compensate one with the other and bottom out canvasZoom (0.15×) while sliceScale still has headroom — then continuing "out" required manually growing the slice, which isn't intuitive.
+
+- **`applyUnifiedZoom(state, factor)`** in output-gestures — sliceScale is the PRIMARY zoom range, canvasZoom EXTENDS it. Zoom OUT grows the slice to full size first, then dials canvasZoom below 1×; zoom IN reverses (canvasZoom→1×, shrink slice, then magnify past 1×). The pinch (now incremental via `prevDist`) and the trackpad ctrl-zoom both route through it. So the gesture never hits a premature wall, and zooming out from a trapped state escapes by growing the slice.
+- **Droste is exempt** — its zoom is the looping infinite-zoom (already unbounded, no wall). Applies to radial + tiling.
+
+**Wired now; values are Phase B.** The slice/canvas handoff bounds are placeholders (sliceScale max 3). Once Phase B normalizes so ~1× spans the full source per form, the handoff lands where Daniel wants it. **Constraints (Daniel):** (1) only the gestures are unified — the compZoom/scale *sliders* stay explicit single-param controls, so a slider can still reach the trap state (the gesture escapes it). (2) per-form feel differs: clean for radial (redundant controls); on tiling, zoom-out first grows the cell's source window, then adds repeats. (3) pinch zoom is now incremental (rotation still absolute).
+
+**VERIFY (Daniel):** radial/tiling → pinch or ctrl-scroll to zoom out → the slice grows to its max first, THEN the composition zooms out; no premature dead-end; zoom in reverses. Droste zoom unchanged (infinite-zoom).
+
+Verified: node --check, vite build. **Untested by Claude on-device.** Fresh Capacitor + Electron builds produced.
+
 ## 🔺 v0.19.93 (Build 453) — 2026-07-26 — M4 geometry-truth · increment 3a: radial wedge honest under canvas zoom
 
 The overlay was accurate at canvas defaults but not under canvas zoom (criterion #2/#3). Investigation narrowed this a lot: **tiling forms are already honest under zoom** (mod-periodic fold → the fundamental cell is zoom-independent; zooming just shows more cells), and **canvas rotation/offset never change the source footprint** (they're output→folded; the overlay is folded→source). The one real case is the **radial wedge**, whose radius-preserving fold means the output samples a larger source ring as you zoom out.
