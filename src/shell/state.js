@@ -27,7 +27,8 @@ export const state = {
                         // since odd values misalign at the canvas seam with mirror).
   drosteMirror: true,   // droste form only: when true, tier transitions reflect
                         // instead of teleporting — eliminates the source-side wrap seam.
-  drosteArms: 1,        // droste form only: integer from {1, 2, 4, 6, 8, 10, 12}. arms=1
+  drosteArms: 6,        // droste form only: integer from {1, 2, 4, 6, 8, 10, 12}. default 6 (Phase B:
+                        // a relatable kaleidoscopic shape out of the box vs the lone arms=1 spiral). arms=1
                         // bypasses the wedge fold (single chiral spiral). arms ≥ 2
                         // fold θ into a 1/N wedge with mirror at wedge edges (when
                         // drosteWedgeMirror is on). even-only matches segments parity.

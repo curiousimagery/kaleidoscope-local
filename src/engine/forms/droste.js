@@ -422,13 +422,10 @@ export default {
                  || env.overlayDragMode === 'droste-ratio';
 
     function strokeRingArc(r, highlighted) {
-      if (oobOut) {
-        ctx.strokeStyle = highlighted ? 'rgba(255, 230, 140, 1.0)' : 'rgba(255, 196, 80, 0.95)';
-        ctx.setLineDash([6, 4]);
-      } else {
-        ctx.strokeStyle = highlighted ? 'rgba(255, 255, 255, 1.0)' : 'rgba(255, 255, 255, 0.9)';
-        ctx.setLineDash([]);
-      }
+      // primary ring outline ALWAYS solid white (matches the polygon forms' M4 restyle) — the
+      // off-source crossing is shown by the dashed EDGE SEAM below, not by dashing the whole ring.
+      ctx.strokeStyle = highlighted ? 'rgba(255, 255, 255, 1.0)' : 'rgba(255, 255, 255, 0.9)';
+      ctx.setLineDash([]);
       ctx.lineWidth = (highlighted ? 2.5 : 1.5) * strokeScale;
       ctx.beginPath();
       if (isFullCircle) {
@@ -442,16 +439,55 @@ export default {
     strokeRingArc(rOut, outerHL || ringHL);
     strokeRingArc(rIn,  innerHL || ringHL);
 
+    // EDGE SEAM (droste) — dashed white line where the sampled annulus's OUTER ring crosses a source
+    // edge (the fold reflects/clips there). Same language as the polygon forms; sampled from the arc.
+    // (Scale-handle hit-testing on this seam is the immediate follow-up, mirroring polygons B450→B451.)
+    if (oobOut) {
+      const A0 = isFullCircle ? 0 : wedgeStart, A1 = isFullCircle ? Math.PI * 2 : wedgeEnd;
+      const N = 64, arc = [];
+      for (let i = 0; i <= N; i++) {
+        const a = A0 + (i / N) * (A1 - A0);
+        arc.push({ x: cx + rOut * Math.cos(a), y: cy + rOut * Math.sin(a) });
+      }
+      const seamEdges = [
+        { axis: 'x', at: imgX,        lo: imgY, hi: imgY + imgH },
+        { axis: 'x', at: imgX + imgW, lo: imgY, hi: imgY + imgH },
+        { axis: 'y', at: imgY,        lo: imgX, hi: imgX + imgW },
+        { axis: 'y', at: imgY + imgH, lo: imgX, hi: imgX + imgW },
+      ];
+      ctx.save();
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
+      ctx.setLineDash([6, 4]);
+      ctx.lineWidth = 1.5 * strokeScale;
+      for (const e of seamEdges) {
+        const hits = [];
+        for (let i = 0; i < arc.length - 1; i++) {
+          const p = arc[i], q = arc[i + 1];
+          const pv = e.axis === 'x' ? p.x : p.y, qv = e.axis === 'x' ? q.x : q.y;
+          if ((pv - e.at) * (qv - e.at) < 0) {
+            const t = (e.at - pv) / (qv - pv);
+            hits.push(e.axis === 'x' ? p.y + t * (q.y - p.y) : p.x + t * (q.x - p.x));
+          }
+        }
+        if (hits.length < 2) continue;
+        const lo = Math.max(e.lo, Math.min(...hits)), hi = Math.min(e.hi, Math.max(...hits));
+        if (hi <= lo) continue;
+        ctx.beginPath();
+        if (e.axis === 'x') { ctx.moveTo(e.at, lo); ctx.lineTo(e.at, hi); }
+        else { ctx.moveTo(lo, e.at); ctx.lineTo(hi, e.at); }
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+
     // wedge sides — radial line segments at the wedge boundaries connecting
     // the inner and outer arcs. only drawn for arms > 1 (full circle has no
     // angular boundary). dashed amber when OOB, white otherwise.
     if (!isFullCircle) {
       const sideHL = ringHL;  // sides highlight with the rest of the ring outline
-      ctx.strokeStyle = oobOut
-        ? (sideHL ? 'rgba(255, 230, 140, 1.0)' : 'rgba(255, 196, 80, 0.95)')
-        : (sideHL ? 'rgba(255, 255, 255, 1.0)' : 'rgba(255, 255, 255, 0.9)');
+      ctx.strokeStyle = sideHL ? 'rgba(255, 255, 255, 1.0)' : 'rgba(255, 255, 255, 0.9)';   // always solid white (M4 restyle)
       ctx.lineWidth = (sideHL ? 2.5 : 1.5) * strokeScale;
-      ctx.setLineDash(oobOut ? [6, 4] : []);
+      ctx.setLineDash([]);
       for (const a of [wedgeStart, wedgeEnd]) {
         ctx.beginPath();
         ctx.moveTo(cx + rIn  * Math.cos(a), cy + rIn  * Math.sin(a));
@@ -477,11 +513,9 @@ export default {
       const logS = Math.log(Math.max(1.0001, state.drosteZoom));
       const b = -spiral * logS / (2 * Math.PI);
       const SEAM_STEPS = 80;
-      ctx.strokeStyle = oobOut
-        ? 'rgba(255, 196, 80, 0.7)'
-        : 'rgba(255, 255, 255, 0.7)';
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.7)';   // always solid white (M4 restyle); seam marks OOB
       ctx.lineWidth = 1.5 * strokeScale;
-      ctx.setLineDash(oobOut ? [6, 4] : []);
+      ctx.setLineDash([]);
 
       const drawCurve = (thetaCanvas) => {
         ctx.beginPath();

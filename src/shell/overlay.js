@@ -1131,7 +1131,7 @@ export function setupSourceInteraction(env, wrap) {
         const r = Math.hypot(x - g.cx, y - g.cy);
         if (drag.startR < 1) return;
         let newScale = drag.startScale * (r / drag.startR);
-        newScale = Math.max(0.05, Math.min(3, newScale));
+        newScale = Math.max(0.05, Math.min(5, newScale));
         state.sliceScale = newScale;
       } else if (drag.mode === 'square-edge') {
         if (!g) return;
@@ -1144,7 +1144,7 @@ export function setupSourceInteraction(env, wrap) {
           : drag.startAspect / r;
         const newScale  = drag.startSliceScale * Math.sqrt(r);
         state.squareAspect = Math.max(0.25, Math.min(4, newAspect));
-        state.sliceScale   = Math.max(0.05, Math.min(3, newScale));
+        state.sliceScale   = Math.max(0.05, Math.min(5, newScale));
       } else if (drag.mode === 'square-corner') {
         if (!g) return;
         const startDx = drag.startVx - drag.startCx;
@@ -1159,14 +1159,14 @@ export function setupSourceInteraction(env, wrap) {
           const newAspect = drag.startAspect * (rx2 / ry2);
           const newScale  = drag.startSliceScale * Math.sqrt(rx2 * ry2);
           state.squareAspect = Math.max(0.25, Math.min(4, newAspect));
-          state.sliceScale   = Math.max(0.05, Math.min(3, newScale));
+          state.sliceScale   = Math.max(0.05, Math.min(5, newScale));
         } else {
           const startD = Math.hypot(startDx, startDy);
           const nowD   = Math.hypot(nowDx, nowDy);
           if (startD < 1) return;
           let r = nowD / startD;
           r = Math.max(0.05, r);
-          state.sliceScale = Math.max(0.05, Math.min(3, drag.startSliceScale * r));
+          state.sliceScale = Math.max(0.05, Math.min(5, drag.startSliceScale * r));
         }
       } else if (drag.mode === 'segments') {
         if (!g) return;

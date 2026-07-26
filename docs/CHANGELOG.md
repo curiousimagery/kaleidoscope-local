@@ -4,6 +4,16 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🔺 v0.19.95 (Build 455) — 2026-07-26 — Zoom-trap tune + droste overlay restyle/seam + droste default 6 arms
+
+- **Slice ceiling 3→5.** The unified-zoom handoff stopped at sliceScale 3 before the slice fully covered the source — a weird dead stop when dragging out. Raised the max to 5 consistently (`Z_SLICE_MAX`, the scale-drag clamps, and the slider's `max`) so the slice covers the source and beyond before flowing into canvas zoom (Daniel). Still a placeholder pending Phase B calibration.
+- **Droste overlay adopts the M4 reflection language.** Its ring arcs, wedge sides, and spiral-preview curves now stay **solid white** when the annulus crosses the source edge (were dashed amber), and a **dashed white edge seam** is drawn where the outer ring crosses each source edge (sampled from the arc, clamped to the visible edge). The off-source cue moves from "dash the whole outline" to the seam, matching the polygon forms. **Seam-as-scale-handle hit-testing is the immediate follow-up** (droste has its own `classifyPointer`), mirroring how polygons went B450→B451.
+- **Droste default → 6 arms** (Phase B): a relatable kaleidoscopic shape out of the box instead of the lone arms=1 spiral.
+
+**VERIFY (Daniel):** droste → grow the annulus past the source edge → outline stays solid white + a dashed white seam appears on the crossed edges (no amber dashing); new droste sessions open at 6 arms; zoom-out via gesture grows the slice fully (to 5×) before canvas engages.
+
+Verified: node --check, vite build. **Untested by Claude on-device.** Fresh Capacitor + Electron builds produced.
+
 ## 🔍 v0.19.94 (Build 454) — 2026-07-26 — Unified zoom (slice-first-then-canvas) — the zoom-trap fix
 
 Fixes the trap Daniel found: sliceScale and canvasZoom both drive perceived zoom, so you compensate one with the other and bottom out canvasZoom (0.15×) while sliceScale still has headroom — then continuing "out" required manually growing the slice, which isn't intuitive.

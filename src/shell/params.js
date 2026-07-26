@@ -99,7 +99,7 @@ export const PARAMS = {
     sliderId: 'scale', valId: 'scaleVal', key: 'sliceScale',
     formControl: null, declarative: true,
     opts: {
-      min: 0.05, max: 3, step: 0.005, scrubStep: 0.01,
+      min: 0.05, max: 5, step: 0.005, scrubStep: 0.01,   // max 5 (was 3): slice fully covers the source before flowing into canvas zoom (Daniel)
       fmt: v => v.toFixed(2) + '×',
       parse: parseTimes,
     },

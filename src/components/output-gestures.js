@@ -26,7 +26,7 @@
 // you bottom out canvasZoom while the slice still has headroom. Applied to the pinch + trackpad-zoom
 // on NON-droste forms (droste's zoom is the already-unbounded looping infinite-zoom, no wall). Bounds
 // are placeholders — Phase B normalizes sliceScale so ~1× = full source, the natural handoff point.
-const Z_SLICE_MIN = 0.05, Z_SLICE_MAX = 3, Z_CANVAS_MIN = 0.15, Z_CANVAS_MAX = 4;
+const Z_SLICE_MIN = 0.05, Z_SLICE_MAX = 5, Z_CANVAS_MIN = 0.15, Z_CANVAS_MAX = 4;
 function applyUnifiedZoom(state, factor) {
   let s = state.sliceScale, z = state.canvasZoom;
   if (factor >= 1) {                                          // ZOOM IN
