@@ -28,6 +28,7 @@ import { createGamepadInput } from './gamepad-input.js';
 import { createTrackpadInput } from './trackpad-input.js';
 import { createRemoteInput } from './remote-input.js';
 import qrcode from 'qrcode-generator';   // QR pairing (Daniel-approved dependency, MIT, zero-dep)
+import { applyUnifiedZoom } from '../kit/zoom.js';   // shared unified zoom — the canvas pinch routes here too
 
 const STORE_KEY = 'fold-inputs-v1';
 
@@ -173,6 +174,15 @@ export function createInputBus(env) {
     }
     if (!overSrc && !overOut) return;
     const kind = sig.slice(sig.lastIndexOf('.') + 1);   // rotate | pinch | dragx | dragy
+    // CANVAS PINCH on a NON-droste form → route through the SHARED unified zoom (kit/zoom.js) so the
+    // slice-first-then-canvas trap fix reaches the remote/MIDI/gamepad pinch too — the iPad gesture
+    // surface used to write canvasZoom directly and bypass it. Direct-apply (the additive path's
+    // glideBy jitter-smoothing isn't wired here yet — tune sensitivity / add glide if it reads jerky).
+    if (!overSrc && kind === 'pinch' && state.form !== 'droste') {
+      applyUnifiedZoom(state, Math.exp(value));   // value = scale delta ×2 → multiplicative factor
+      env.scheduleRender?.(); env.sourceOverlay?.scheduleDraw?.(); env.syncControls?.();
+      return;
+    }
     const key = overSrc
       ? { rotate: 'sliceRotation', pinch: 'sliceScale', dragx: 'sliceCx', dragy: 'sliceCy' }[kind]
       : { rotate: 'canvasRotation', pinch: (state.form === 'droste' ? 'drosteZoomPhase' : 'canvasZoom') }[kind];

@@ -4,6 +4,19 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🔧 v0.20.1 (Build 458) — 2026-07-26 — Unified zoom is now shared (fixes the iPad gesture-surface bypass)
+
+Bug 2: the slice-first-then-canvas zoom didn't reach the iPad-as-gesture-surface (its pinch is applied on the Electron side via `input-bus`, which wrote `canvasZoom` directly), and the iPad's reference overlay didn't resize.
+
+- **`applyUnifiedZoom` extracted to a shared module (`kit/zoom.js`).** `output-gestures` (local canvas pinch/trackpad) and `input-bus` (remote/MIDI/gamepad pinch) now both route through the one function, so the trap fix reaches every zoom surface by construction rather than per-path. The canvas pinch on non-droste forms in `input-bus` converts its scale delta to a multiplicative factor and calls it.
+- **The iPad overlay resize follows for free:** the unified zoom grows `sliceScale`, and remote-input streams the outline through `sliceVecToSourceUV` (which reads `sliceScale`), so the streamed reference resizes.
+
+**Caveats (Daniel):** (1) the remote pinch is direct-apply — the additive path's `glideBy` jitter-smoothing isn't wired to the unified path yet, so tune sensitivity / add glide if the iPad pinch reads jerky. (2) the composition-zoom **slider** still writes `canvasZoom` directly (absolute) — routing it needs an absolute→distribution mapping; it's the last un-unified entry point.
+
+**VERIFY (Daniel):** iPad-as-gesture-surface + Electron → pinch the canvas → slice grows first (slice-first-then-canvas), and the iPad reference overlay resizes to match.
+
+Verified: node --check, vite build. **Untested by Claude on-device.** Fresh Capacitor + Electron builds produced.
+
 ## 🎉 v0.20.0 (Build 457) — 2026-07-26 — Minor milestone bump + droste boundary fix + radial two-finger pan
 
 **Version milestone.** Bumped to **v0.20.0** — the v0.19.x line quietly shipped several minor-worthy features (loop auto-detection, droste infinite zoom, canvas panning, and the whole M4 geometry-truth pass) on patch bumps. This marks the accumulated surface (Daniel).

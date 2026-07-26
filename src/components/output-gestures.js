@@ -20,27 +20,7 @@
 //     panDrift,        // () => { on, stop, set } drift API for flick-to-drift on release — optional
 //   }) → { destroy() }
 
-// UNIFIED ZOOM (Daniel): sliceScale is the PRIMARY zoom range; canvasZoom EXTENDS it. Zooming OUT
-// grows the slice to full size FIRST, then dials canvasZoom below 1× (more reach/repeats); zooming IN
-// reverses — canvasZoom back to 1×, then shrink the slice, then magnify past 1×. Fixes the trap where
-// you bottom out canvasZoom while the slice still has headroom. Applied to the pinch + trackpad-zoom
-// on NON-droste forms (droste's zoom is the already-unbounded looping infinite-zoom, no wall). Bounds
-// are placeholders — Phase B normalizes sliceScale so ~1× = full source, the natural handoff point.
-const Z_SLICE_MIN = 0.05, Z_SLICE_MAX = 5, Z_CANVAS_MIN = 0.15, Z_CANVAS_MAX = 4;
-function applyUnifiedZoom(state, factor) {
-  let s = state.sliceScale, z = state.canvasZoom;
-  if (factor >= 1) {                                          // ZOOM IN
-    if (z < 1)                z = Math.min(1, z * factor);
-    else if (s > Z_SLICE_MIN) s = Math.max(Z_SLICE_MIN, s / factor);
-    else                      z = Math.min(Z_CANVAS_MAX, z * factor);
-  } else {                                                    // ZOOM OUT
-    if (z > 1)                z = Math.max(1, z * factor);
-    else if (s < Z_SLICE_MAX) s = Math.min(Z_SLICE_MAX, s / factor);
-    else                      z = Math.max(Z_CANVAS_MIN, z * factor);
-  }
-  state.sliceScale = s;
-  state.canvasZoom = z;
-}
+import { applyUnifiedZoom } from '../kit/zoom.js';   // shared: EVERY zoom entry point routes through this
 
 export function createOutputGestures(canvas, ctx) {
   const { state } = ctx;
