@@ -4,6 +4,17 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🔺 v0.19.96 (Build 456) — 2026-07-26 — Droste seam is draggable + droste reflection (never rendered before)
+
+Completes droste's M4 overlay parity.
+
+- **Droste seam scales.** The dashed edge seam (B455) is now a scale handle: its segments are stashed in droste's `_geom`, and droste's `classifyPointer` checks proximity to them (16px/24px band) and returns the outer-ring scale (→ the sliceScale ratio-drag). So when the annulus crosses the source edge and its outer ring is off-source, you grab the on-source seam to scale — matching the polygon forms.
+- **Droste reflection — new.** Droste never actually drew the reflected copies (it only dimmed the mirror arms). Now, in mirror mode, where the annulus crosses a source edge it draws the **mirror of the sampled annulus across that edge** (faint amber + dashed, clipped to the source rect) via a canvas mirror transform — the honest "where the kaleidoscope pulls color from" that the polygons have always shown. Closes the affordance gap Daniel flagged.
+
+**VERIFY (Daniel):** droste, mirror OOB mode → grow the annulus past a source edge → a faint dashed-amber reflection appears across that edge, and dragging the dashed seam scales the slice.
+
+Verified: node --check, vite build. **Untested by Claude on-device.** Fresh Capacitor + Electron builds produced.
+
 ## 🔺 v0.19.95 (Build 455) — 2026-07-26 — Zoom-trap tune + droste overlay restyle/seam + droste default 6 arms
 
 - **Slice ceiling 3→5.** The unified-zoom handoff stopped at sliceScale 3 before the slice fully covered the source — a weird dead stop when dragging out. Raised the max to 5 consistently (`Z_SLICE_MAX`, the scale-drag clamps, and the slider's `max`) so the slice covers the source and beyond before flowing into canvas zoom (Daniel). Still a placeholder pending Phase B calibration.

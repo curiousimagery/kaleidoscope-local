@@ -442,6 +442,7 @@ export default {
     // EDGE SEAM (droste) — dashed white line where the sampled annulus's OUTER ring crosses a source
     // edge (the fold reflects/clips there). Same language as the polygon forms; sampled from the arc.
     // (Scale-handle hit-testing on this seam is the immediate follow-up, mirroring polygons B450→B451.)
+    const drosteSeams = [];   // {p0,p1} screen segments → stashed in _geom so classifyPointer scales on them
     if (oobOut) {
       const A0 = isFullCircle ? 0 : wedgeStart, A1 = isFullCircle ? Math.PI * 2 : wedgeEnd;
       const N = 64, arc = [];
@@ -470,12 +471,27 @@ export default {
           }
         }
         if (hits.length < 2) continue;
+        // REFLECTION — mirror the sampled annulus across this crossed edge (where the kaleidoscope
+        // ACTUALLY pulls color in mirror mode). Faint amber + dashed, clipped to the source rect —
+        // the same "reflected region" language the polygon forms use. Droste never drew this before.
+        if (state.oobMode === 1) {
+          ctx.save();
+          ctx.beginPath(); ctx.rect(imgX, imgY, imgW, imgH); ctx.clip();
+          if (e.axis === 'x') { ctx.translate(2 * e.at, 0); ctx.scale(-1, 1); }
+          else                { ctx.translate(0, 2 * e.at); ctx.scale(1, -1); }
+          ctx.beginPath();
+          if (isFullCircle) { ctx.arc(cx, cy, rOut, 0, Math.PI * 2); ctx.arc(cx, cy, rIn, 0, Math.PI * 2, true); }
+          else { ctx.arc(cx, cy, rOut, wedgeStart, wedgeEnd, false); ctx.arc(cx, cy, rIn, wedgeEnd, wedgeStart, true); ctx.closePath(); }
+          ctx.fillStyle = 'rgba(255, 196, 80, 0.10)'; ctx.fill('evenodd');
+          ctx.strokeStyle = 'rgba(255, 196, 80, 0.6)'; ctx.setLineDash([6, 4]); ctx.lineWidth = 1 * strokeScale; ctx.stroke();
+          ctx.restore();
+        }
         const lo = Math.max(e.lo, Math.min(...hits)), hi = Math.min(e.hi, Math.max(...hits));
         if (hi <= lo) continue;
-        ctx.beginPath();
-        if (e.axis === 'x') { ctx.moveTo(e.at, lo); ctx.lineTo(e.at, hi); }
-        else { ctx.moveTo(lo, e.at); ctx.lineTo(hi, e.at); }
-        ctx.stroke();
+        const p0 = e.axis === 'x' ? { x: e.at, y: lo } : { x: lo, y: e.at };
+        const p1 = e.axis === 'x' ? { x: e.at, y: hi } : { x: hi, y: e.at };
+        drosteSeams.push({ p0, p1 });
+        ctx.beginPath(); ctx.moveTo(p0.x, p0.y); ctx.lineTo(p1.x, p1.y); ctx.stroke();
       }
       ctx.restore();
     }
@@ -688,6 +704,7 @@ export default {
       halfWedge,
       sliceRotationRad: seamPhaseRad,
       isFullCircle,
+      seams: drosteSeams,
     };
   },
 
@@ -734,6 +751,22 @@ export default {
       const d = Math.hypot(x - offsetHandleX, y - offsetHandleY);
       if (d <= OFFSET_HIT) {
         return { mode: 'droste-offset', r, theta, R: 0 };
+      }
+    }
+
+    // EDGE-SEAM scale: when the annulus crosses the source edge, its outer ring is off-source/
+    // unreachable — a drag on the dashed edge seam scales instead (like the polygon forms). Returns
+    // the OUTER-ring scale (→ the sliceScale ratio-drag). Priority near the seam.
+    if (g.seams && g.seams.length) {
+      const SEAM_BAND = isTouch ? 24 : 16;
+      for (const s of g.seams) {
+        const ex = s.p1.x - s.p0.x, ey = s.p1.y - s.p0.y;
+        const elen = Math.hypot(ex, ey) || 1;
+        const ux = ex / elen, uy = ey / elen;
+        const projT = (x - s.p0.x) * ux + (y - s.p0.y) * uy;
+        if (projT < -SEAM_BAND || projT > elen + SEAM_BAND) continue;
+        const perp = Math.abs((x - s.p0.x) * (-uy) + (y - s.p0.y) * ux);
+        if (perp <= SEAM_BAND) return { mode: 'scale', r, theta, R: rOut, handle: 'outer', cursorTheta: theta };
       }
     }
 
