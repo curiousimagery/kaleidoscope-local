@@ -4,6 +4,27 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🕹️ v0.19.87 (Build 447) — 2026-07-25 — Settings popovers lock during motion playback
+
+Fixes the bug Daniel found: in motion mode the canvas/form-settings popover controls stayed live during playback — they moved but the tick clobbered them next frame ("didn't save anywhere"). Intent (confirmed) is that keyframe params lock during playback: pause to adjust, then save a keyframe.
+
+- **Dim + disable (the lightweight approach Daniel agreed to).** `syncPanelEditLock()` toggles a `.motion-locked` class on `#slicePopover` / `#canvasPopover` whenever `isMotionDriven()` (motion active + playing or scrubbing); CSS dims the `.group` content to `--disabled-opacity` and sets `pointer-events: none`. Called from `updateMotionUI()` (fires on play/stop, so the lock engages/releases on an already-open popover) and on popover open (so opening one mid-playback shows it locked). Mirrors the existing overlay/gesture `editLock`. The B445/B446 offset joysticks already self-locked via their `locked()` guard; this covers the slider/scrub surface.
+
+**VERIFY (Daniel):** motion mode, start playback, open canvas/slice settings → controls are dimmed + inert; pause → they're live again and edits save as keyframes.
+
+Verified: node --check, vite build. **Untested by Claude on-device.** Fresh Capacitor + Electron builds produced.
+
+## 🕹️ v0.19.86 (Build 446) — 2026-07-25 — Fix: radial pan joystick never showed + droste offset less sensitive
+
+Two from Daniel's B445 test.
+
+- **Radial pan joystick now shows.** The row (`#panJoyRow`) is created in `wireControls()`, which runs *after* the init `applyFormControls(env)` — and `applyFormControls` isn't registered to re-run — so on the default form (radial) the gate hit a null element and the row was never gated. (Droste's offset row worked because it's static HTML present at init.) Fix: the joystick now **self-gates in its own `syncAll`** via a `visibleWhen` predicate, which runs at mount and on every `controlsSync` — timing-independent. Removed the dead `panJoyRow` line from `applyFormControls`; `#panJoyRow` visibility now has a single source of truth. (Mobile was already correct — it mounts before its gate runs.)
+- **Droste center offset ~5× less sensitive.** The Möbius center is far touchier than a tiling pan; dropped that joystick's gain to `speed: 0.32` (from 1.6) — Daniel's ~80% reduction. Tiling/radial pan unchanged.
+
+**VERIFY (Daniel):** radial → the pan joystick appears + translates the center; droste center-offset joystick moves much more gently.
+
+Verified: node --check, vite build. **Untested by Claude on-device.** Fresh Capacitor + Electron builds produced.
+
 ## 🕹️ v0.19.85 (Build 445) — 2026-07-25 — Center-offset joystick (droste + radial translation)
 
 Repeating-movements ③ (desktop). The velocity joystick now serves two non-looping translation cases in addition to tiling pan.

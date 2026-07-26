@@ -400,6 +400,10 @@ body { display: flex; flex-direction: column; height: 100vh; height: 100dvh; ove
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
 }
 .panel-popover[hidden] { display: none; }
+/* MOTION EDIT-LOCK: while an animation drives the state, the settings-popover controls would
+   write values the tick clobbers next frame — dim + disable them (pause to adjust, then keyframe).
+   Mirrors the overlay/gesture editLock. Toggled by syncPanelEditLock() on play/stop + on open. */
+.panel-popover.motion-locked .group { opacity: var(--disabled-opacity); pointer-events: none; }
 /* gray stand-in for the hidden preview during a stage-divider drag — shows what
    size the output will land at (sized per-frame by setupStageDivider) */
 .canvas-skeleton {

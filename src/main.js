@@ -854,6 +854,9 @@ function wireControls() {
   // locked while an animation drives the state (writes would be clobbered next tick).
   const panJoy = createPanJoystick(env, {
     periodOf: () => getActiveForm(state)?.latticePeriod?.(state) || null,
+    // self-gate: tileable (loops) or radial (translates the center). Runs at mount + every
+    // controlsSync, so it doesn't depend on applyFormControls firing after this dynamic row mounts.
+    visibleWhen: () => { const f = getActiveForm(state); return !!(f && (f.latticePeriod || f.id === 'radial')); },
     locked: () => isMotionDriven(),
   });
   document.getElementById('canvasRot')?.closest('label')?.after(panJoy.root);
@@ -867,6 +870,7 @@ function wireControls() {
   // default, which the seamless infinite zoom depends on — or while an animation drives the state.
   const drosteOffsetJoy = createPanJoystick(env, {
     keyX: 'drosteOffsetX', keyY: 'drosteOffsetY', rowId: 'drosteOffsetJoyRow', label: '',
+    speed: 0.32,   // the Möbius center is far more sensitive than a tiling pan — ~1/5 the gain (Daniel)
     locked: () => isMotionDriven() || env.isLocked('drosteOffset').locked,
   });
   document.getElementById('drosteOffsetLabel')?.appendChild(drosteOffsetJoy.root);
@@ -1123,6 +1127,17 @@ function wireControls() {
 // undo / redo UI
 // ============================================================================
 
+// MOTION EDIT-LOCK for the settings POPOVERS: while an animation drives the state
+// (isMotionDriven), the canvas/slice controls would write values the tick clobbers next
+// frame (and leak into the live broadcast) — so dim + disable them. Pause to adjust, then
+// save a keyframe. Called on play/stop (via updateMotionUI) and when a popover opens.
+function syncPanelEditLock() {
+  const locked = isMotionDriven();
+  document.getElementById('slicePopover')?.classList.toggle('motion-locked', locked);
+  document.getElementById('canvasPopover')?.classList.toggle('motion-locked', locked);
+}
+env.syncPanelEditLock = syncPanelEditLock;
+
 function updateUndoUI() {
   const undoBtn = document.getElementById('undoBtn');
   const redoBtn = document.getElementById('redoBtn');
@@ -1372,6 +1387,7 @@ function wirePanelPopovers() {
       onOpen?.();          // build dynamic content BEFORE unhiding so the measure is real
       pop.hidden = false;
       btn.classList.add('open');
+      syncPanelEditLock();  // reflect the current play/scrub state on this fresh-opened popover
       // anchor ABOVE the trigger (it sits near the panel's bottom edge), centered on
       // it, clamped to the viewport; measured after unhide so the dims are real.
       const r = btn.getBoundingClientRect();
