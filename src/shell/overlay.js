@@ -392,11 +392,17 @@ export function drawSourceOverlay(env) {
   const seamSegs = [];   // {p0,p1} screen segments of the edge seam → stashed in _geom for hit-testing
   const seamActive = env.overlayDragMode === 'scale' || (env.hoverMode === 'scale' && !env.hoverOnSpoke);
   if (oobAnyAxis) {
+    // The seam sits at the VISIBLE source boundary = source [0,1] ∩ the canvas viewport. In COVER
+    // fit (mobile default) the source overflows the panel, so a source edge can be off-canvas — draw
+    // the seam at the reachable PANEL edge instead. In CONTAIN fit this reduces to the source edges
+    // (uLo/vLo=0, uHi/vHi=1). Fixes top/bottom seams invisible on mobile cover (Daniel).
+    const uLo = Math.max(0, -imgX / imgW), uHi = Math.min(1, (w - imgX) / imgW);
+    const vLo = Math.max(0, -imgY / imgH), vHi = Math.min(1, (h - imgY) / imgH);
     const edges = [
-      { on: oobLeft,   axis: 'u', at: 0 },
-      { on: oobRight,  axis: 'u', at: 1 },
-      { on: oobTop,    axis: 'v', at: 0 },
-      { on: oobBottom, axis: 'v', at: 1 },
+      { on: oobLeft,   axis: 'u', at: uLo, sLo: vLo, sHi: vHi },
+      { on: oobRight,  axis: 'u', at: uHi, sLo: vLo, sHi: vHi },
+      { on: oobTop,    axis: 'v', at: vLo, sLo: uLo, sHi: uHi },
+      { on: oobBottom, axis: 'v', at: vHi, sLo: uLo, sHi: uHi },
     ];
     ctx.save();
     ctx.strokeStyle = seamActive ? 'rgba(255, 255, 255, 1.0)' : 'rgba(255, 255, 255, 0.9)';
@@ -414,7 +420,7 @@ export function drawSourceOverlay(env) {
         }
       }
       if (hits.length < 2) continue;
-      const lo = Math.max(0, Math.min(...hits)), hi = Math.min(1, Math.max(...hits));  // clamp to visible edge
+      const lo = Math.max(e.sLo, Math.min(...hits)), hi = Math.min(e.sHi, Math.max(...hits));  // clamp to visible span
       if (hi <= lo) continue;
       const p0 = e.axis === 'u' ? uvToScreen(e.at, lo) : uvToScreen(lo, e.at);
       const p1 = e.axis === 'u' ? uvToScreen(e.at, hi) : uvToScreen(hi, e.at);

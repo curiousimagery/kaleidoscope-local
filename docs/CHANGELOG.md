@@ -4,6 +4,16 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🔺 v0.19.92 (Build 452) — 2026-07-26 — M4 fix: edge seams visible in mobile cover fit
+
+Daniel's B450 test: on mobile web the top/bottom seams didn't draw (left/right did). Cause: mobile defaults to `fit: 'cover'` (fills the panel, crops), so the cropped-axis source edges land **off-canvas** — the seams were drawn above/below the viewport.
+
+- The seam now sits at the **visible source boundary** = source `[0,1]` ∩ the canvas viewport (`uLo/uHi/vLo/vHi` derived from `imgRect`). In cover fit it lands at the reachable panel edge; in contain fit it reduces to the source edges exactly as before. The seam span is clamped to the visible range too. Since the seam segments are what `_geom.seams` feeds hit-testing, the scale-grab handle (B451) now works at the visible seam in cover fit as well.
+
+**VERIFY (Daniel):** mobile (cover) → grow slice past the top/bottom → dashed seams now appear at the panel edges; desktop (contain) unchanged.
+
+Verified: node --check, vite build. **Untested by Claude on-device.** Fresh Capacitor + Electron builds produced.
+
 ## 🔺 v0.19.91 (Build 451) — 2026-07-26 — M4 geometry-truth · increment 2: edge-seam is a scale handle
 
 Wires the B450 edge seam into hit-testing so it actually grabs — the "preserve interaction" payoff (criterion #3): when the wedge extends past the source edge, its true outer boundary is off-source and unreachable, so the on-source dashed seam becomes the scale handle.
