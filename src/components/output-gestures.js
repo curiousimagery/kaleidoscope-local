@@ -3,23 +3,26 @@
 //
 // components/output-gestures.js
 //
-// Two-finger gestures on the OUTPUT (kaleidoscope) canvas — pinch = canvasZoom,
-// twist = canvasRotation. Thin input over shared state, mounted by both chromes.
-// Extracted verbatim from the desktop preview-canvas handler so the mobile
-// OUTPUT region reuses the exact same gesture math.
+// Multi-touch gestures on the OUTPUT (kaleidoscope) canvas. TWO fingers carry the
+// full manipulation at once — pinch = zoom, twist = canvasRotation, and centroid
+// travel = tiling pan (on tileable forms) — the standard Maps/Photos gesture. ONE
+// finger is intentionally reserved (falls through to overlay/segment handlers, and
+// is free for a future single-finger rotate). Thin input over shared state, mounted
+// by both chromes so the mobile OUTPUT region reuses the exact same gesture math.
 //
 //   createOutputGestures(canvas, {
-//     state,           // shared state object (canvasZoom / canvasRotation)
+//     state,           // shared state object (canvasZoom / canvasRotation / canvasOffset*)
 //     onChange,        // () => void  after a gesture updates state (render + sync)
 //     onCommitStart,   // () => void  gesture start (undo push) — optional
 //     onCommitEnd,     // () => void  gesture end (undo UI) — optional
 //     editLocked,      // () => bool  read-only while playback/scrub drives state — optional
+//     panPeriod,       // () => [px,py]|null  lattice period → tileable form (enables pan) — optional
+//     panDrift,        // () => { on, stop, set } drift API for flick-to-drift on release — optional
 //   }) → { destroy() }
 
 export function createOutputGestures(canvas, ctx) {
   const { state } = ctx;
-  let pinch = null;
-  let pan = null;   // one-finger TILING PAN drag (only when ctx.panPeriod() is non-null)
+  let manip = null;   // active two-finger manipulation (zoom + twist + centroid pan)
 
   // DROSTE INFINITE ZOOM: in droste, pinch drives the loop PHASE (drosteZoomPhase),
   // not canvasZoom — so it circles endlessly instead of hitting the [0.15,4] wall. A
@@ -36,73 +39,84 @@ export function createOutputGestures(canvas, ctx) {
   // broadcast (the output bus renders state on its own loop). So go inert then.
   const locked = () => !!(ctx.editLocked && ctx.editLocked());
 
+  // Map a desired CONTENT screen displacement → a canvasOffset delta so the content follows
+  // the given screen vector. Folds in three sign/space facts, all of which must be undone:
+  //   • Y flip: v_uv makes shader p.y point UP (shader-builder.js:63), but client Y points DOWN.
+  //   • X-negation: u_canvasOffset negates X but not Y (shader-builder.js:43), so O maps to the
+  //     sample coord as (+Ox, −Oy) — an axis reflection A = diag(1,−1).
+  //   • Rotation: the offset is subtracted in the shader's POST-rotation space (:170 rotates p,
+  //     :175 subtracts O), so the drag must be counter-rotated by the current canvas rotation.
+  // Deriving δO = −A·M·f (f = content displacement in p-space, y-up) collapses to the below.
+  // fx/fy are in CLIENT orientation (x right+, y DOWN+). Identity-free even at 0° (it negates),
+  // which is why touch — never cleanly tested un-rotated before — read inverted.
+  function panToOffset(fx, fy) {
+    const r = state.canvasRotation * Math.PI / 180;
+    const c = Math.cos(r), s = Math.sin(r);
+    return [-c * fx - s * fy, s * fx - c * fy];
+  }
+
   function onStart(e) {
     if (locked()) return;
-    if (e.touches.length === 2) {
-      pan = null;                          // a second finger → pinch supersedes a pan
-      ctx.onCommitStart?.();
-      const t0 = e.touches[0], t1 = e.touches[1];
-      pinch = {
-        startDist:     Math.hypot(t1.clientX - t0.clientX, t1.clientY - t0.clientY),
-        startAngle:    Math.atan2(t1.clientY - t0.clientY, t1.clientX - t0.clientX),
-        startZoom:     state.canvasZoom,
-        startPhase:    state.drosteZoomPhase || 0,
-        startRotation: state.canvasRotation,
-      };
-      e.preventDefault();
-    } else if (e.touches.length === 1 && ctx.panPeriod && ctx.panPeriod()) {
-      // one-finger TILING PAN (tileable forms only) — direct drag, content follows the finger.
-      ctx.panDrift?.()?.stop?.();          // grabbing takes control — stop any running drift
-      ctx.onCommitStart?.();
-      const t = e.touches[0];
-      pan = { x: t.clientX, y: t.clientY, ox: state.canvasOffsetX || 0, oy: state.canvasOffsetY || 0,
-              vx: 0, vy: 0, lastX: t.clientX, lastY: t.clientY, lastT: performance.now() };
-      e.preventDefault();
-    }
+    if (e.touches.length !== 2) return;    // one finger reserved (future rotate); ignore here
+    ctx.onCommitStart?.();
+    const t0 = e.touches[0], t1 = e.touches[1];
+    const canPan = !!(ctx.panPeriod && ctx.panPeriod());
+    if (canPan) ctx.panDrift?.()?.stop?.();          // grabbing takes control — stop any running drift
+    const cx = (t0.clientX + t1.clientX) / 2, cy = (t0.clientY + t1.clientY) / 2;
+    manip = {
+      startDist:     Math.hypot(t1.clientX - t0.clientX, t1.clientY - t0.clientY),
+      startAngle:    Math.atan2(t1.clientY - t0.clientY, t1.clientX - t0.clientX),
+      startZoom:     state.canvasZoom,
+      startPhase:    state.drosteZoomPhase || 0,
+      startRotation: state.canvasRotation,
+      canPan,
+      cx0: cx, cy0: cy, ox: state.canvasOffsetX || 0, oy: state.canvasOffsetY || 0,
+      vx: 0, vy: 0, lastCx: cx, lastCy: cy, lastT: performance.now(),
+    };
+    e.preventDefault();
   }
 
   function onMove(e) {
-    if (pan && e.touches.length === 1) {
-      const rect = canvas.getBoundingClientRect();
-      const nx = e.touches[0].clientX, ny = e.touches[0].clientY, now = performance.now();
-      // screen delta → canvas units ([-1,1] over the element); same offset sign as the joystick.
-      state.canvasOffsetX = pan.ox + (nx - pan.x) / (rect.width / 2);
-      state.canvasOffsetY = pan.oy + (ny - pan.y) / (rect.height / 2);
-      const dtms = now - pan.lastT;   // last-move velocity (offset units/sec) → flick-to-drift on release
-      if (dtms > 0) {
-        pan.vx = ((nx - pan.lastX) / (rect.width / 2)) / (dtms / 1000);
-        pan.vy = ((ny - pan.lastY) / (rect.height / 2)) / (dtms / 1000);
-      }
-      pan.lastX = nx; pan.lastY = ny; pan.lastT = now;
-      ctx.onChange?.();
-      e.preventDefault();
-      return;
-    }
-    if (!pinch || e.touches.length !== 2) return;
+    if (!manip || e.touches.length !== 2) return;
     const t0 = e.touches[0], t1 = e.touches[1];
     const dist  = Math.hypot(t1.clientX - t0.clientX, t1.clientY - t0.clientY);
     const angle = Math.atan2(t1.clientY - t0.clientY, t1.clientX - t0.clientX);
     if (zoomIsPhase()) {
-      state.drosteZoomPhase = pinch.startPhase + Math.log(dist / pinch.startDist) / loopLog();
+      state.drosteZoomPhase = manip.startPhase + Math.log(dist / manip.startDist) / loopLog();
     } else {
-      state.canvasZoom   = Math.max(0.15, Math.min(4, pinch.startZoom * (dist / pinch.startDist)));
+      state.canvasZoom   = Math.max(0.15, Math.min(4, manip.startZoom * (dist / manip.startDist)));
     }
-    const da             = (angle - pinch.startAngle) * 180 / Math.PI;
-    state.canvasRotation = ((pinch.startRotation + da) % 360 + 360) % 360;
+    const da             = (angle - manip.startAngle) * 180 / Math.PI;
+    state.canvasRotation = ((manip.startRotation + da) % 360 + 360) % 360;
+    if (manip.canPan) {
+      // centroid travel → tiling pan; content follows the two fingers' midpoint.
+      const rect = canvas.getBoundingClientRect(), now = performance.now();
+      const cx = (t0.clientX + t1.clientX) / 2, cy = (t0.clientY + t1.clientY) / 2;
+      const [cdx, cdy] = panToOffset((cx - manip.cx0) / (rect.width / 2), (cy - manip.cy0) / (rect.height / 2));
+      state.canvasOffsetX = manip.ox + cdx;
+      state.canvasOffsetY = manip.oy + cdy;
+      const dtms = now - manip.lastT;   // centroid velocity (same transform) → flick-to-drift on release
+      if (dtms > 0) {
+        const [vx, vy] = panToOffset((cx - manip.lastCx) / (rect.width / 2), (cy - manip.lastCy) / (rect.height / 2));
+        manip.vx = vx / (dtms / 1000); manip.vy = vy / (dtms / 1000);
+      }
+      manip.lastCx = cx; manip.lastCy = cy; manip.lastT = now;
+    }
     ctx.onChange?.();
     e.preventDefault();
   }
 
   function onEnd(e) {
-    if (e.touches.length < 2 && pinch) { pinch = null; ctx.onCommitEnd?.(); }
-    if (e.touches.length === 0 && pan) {
-      // FLICK-TO-DRIFT: if drift mode is on, continue at the release velocity — a quick swipe drifts
-      // fast; panning to a stop before lifting leaves ~0 velocity → no drift (Daniel). Touch only;
-      // trackpad (wheel) keeps its native momentum coast.
+    if (e.touches.length >= 2 || !manip) return;   // ends when we drop below two fingers
+    ctx.onCommitEnd?.();
+    if (manip.canPan) {
+      // FLICK-TO-DRIFT: if drift mode is on, continue at the centroid's release velocity — a quick
+      // swipe drifts fast; panning to a stop before lifting leaves ~0 velocity → no drift (Daniel).
+      // Touch only; trackpad (wheel) keeps its native momentum coast.
       const pd = ctx.panDrift?.();
-      if (pd?.on?.()) pd.set?.(pan.vx || 0, pan.vy || 0);
-      pan = null; ctx.onCommitEnd?.();
+      if (pd?.on?.()) pd.set?.(manip.vx || 0, manip.vy || 0);
     }
+    manip = null;
   }
 
   // Trackpad pinch-to-zoom the OUTPUT. macOS delivers a trackpad pinch as wheel +
@@ -118,8 +132,12 @@ export function createOutputGestures(canvas, ctx) {
       e.preventDefault();
       if (!wheelTimer) { ctx.onCommitStart?.(); ctx.panDrift?.()?.stop?.(); }   // start of scroll takes control
       const rect = canvas.getBoundingClientRect();
-      state.canvasOffsetX += e.deltaX / (rect.width / 2);   // content follows the fingers
-      state.canvasOffsetY += e.deltaY / (rect.height / 2);
+      // Natural-scroll trackpad: a two-finger scroll delta is the NEGATED finger travel, so the
+      // fingers' content displacement is (−deltaX, −deltaY). Same transform → content follows the
+      // fingers at any rotation. At 0° this reduces to (+deltaX, +deltaY) — the confirmed behavior.
+      const [cdx, cdy] = panToOffset(-e.deltaX / (rect.width / 2), -e.deltaY / (rect.height / 2));
+      state.canvasOffsetX += cdx;
+      state.canvasOffsetY += cdy;
       ctx.onChange?.();
       clearTimeout(wheelTimer);
       wheelTimer = setTimeout(() => { wheelTimer = 0; ctx.onCommitEnd?.(); }, 250);

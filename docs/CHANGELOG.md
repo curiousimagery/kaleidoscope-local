@@ -4,6 +4,28 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🕹️ v0.19.83 (Build 443) — 2026-07-25 — Two-finger pan direction fix (X-negation + Y-flip)
+
+Follow-up to B442: axis was right but direction was inverted (Daniel: "left is right, up is down").
+
+- **Pan now folds in all three sign conventions.** B442's rotation compensation used a plain rotation matrix, which was correct at 0° for the trackpad-*wheel* path (why desktop looked fine) but inverted for *touch* — because the touch path had never been cleanly tested un-rotated. Three facts collide: (1) `v_uv` makes shader `p.y` point **up** while touch `clientY` points **down**; (2) `u_canvasOffset` negates **X but not Y** (Daniel's joystick fix), an axis reflection; (3) a trackpad two-finger scroll and a direct touch drag need **opposite** signs (natural-scroll vs. direct-manipulation). Replaced `toOffsetDelta` with `panToOffset(fx, fy)` — derived as `δO = −A·M·f` — which maps a desired *content* screen displacement to the offset delta with all three undone. Touch feeds the finger delta; wheel feeds the negated scroll delta (`−deltaX, −deltaY`), which reduces to the confirmed `(+deltaX, +deltaY)` at 0° so the desktop path is unchanged. Flick-to-drift velocity uses the same transform, so drift continues in the pan's direction.
+
+**VERIFY (Daniel):** two-finger drag → content follows the fingers on both axes (drag left → content left, drag up → content up), at 0° and with the canvas rotated; desktop trackpad pan unchanged.
+
+Verified: node --check, vite build. **Untested by Claude on-device.** Fresh Capacitor + Electron builds produced.
+
+## 🕹️ v0.19.82 (Build 442) — 2026-07-25 — Two-finger pan (standard manipulation) + rotation-compensated pan
+
+From Daniel's iPad Capacitor test — the first real touchscreen test of the pan gesture (desktop/Electron use the trackpad-wheel path, which has no rotation in play).
+
+- **Pan direction now honors canvas rotation.** The pan wrote the raw finger delta straight into `canvasOffset`, but the shader applies that offset in the canvas's **post-rotation** space (rotates the sample point, *then* subtracts the offset — shader-builder.js:170,175). So the pan was only correct at 0° rotation; on the iPad (canvas rotated ~90°) it read as a 90° axis remap ("down→left, right→down"). Fix: `toOffsetDelta()` rotates the finger/scroll delta by the current canvas rotation before applying — content follows the finger at **any** rotation. Identity at 0°, so the desktop path can't regress. Applied to both the touch gesture and the desktop trackpad-wheel pan.
+- **Pan is now a TWO-finger gesture (standard manipulation).** Two fingers carry the whole manipulation at once — pinch → zoom (infinite-zoom on droste), twist → rotation, and **centroid travel → tiling pan** — the Maps/Photos gesture. One undo entry per gesture. Flick-to-drift moved onto the two-finger release (centroid release velocity, rotation-compensated).
+- **One finger is now reserved.** The output canvas no longer claims single-touch, so it falls through to the segment/overlay handlers — and is free for a future single-finger rotate (filed in BACKLOG; not built).
+
+**VERIFY (Daniel):** iPad/iPhone → tileable form → two-finger drag pans (and pans correctly with the canvas rotated); pinch+twist+pan compose in one gesture; with drift on, a quick two-finger swipe-and-lift keeps drifting; one finger no longer pans.
+
+Verified: node --check, vite build. **Untested by Claude on-device.** Fresh Capacitor + Electron builds produced.
+
 ## 🕹️ v0.19.81 (Build 441) — 2026-07-25 — Pan: reset-canvas stops drift + flick-to-drift on the gesture
 
 Two more from Daniel's mobile+desktop test.
