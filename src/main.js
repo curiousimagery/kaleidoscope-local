@@ -871,6 +871,7 @@ function wireControls() {
   const drosteOffsetJoy = createPanJoystick(env, {
     keyX: 'drosteOffsetX', keyY: 'drosteOffsetY', rowId: 'drosteOffsetJoyRow', label: '',
     speed: 0.32,   // the Möbius center is far more sensitive than a tiling pan — ~1/5 the gain (Daniel)
+    signY: -1,     // the Möbius pole moves opposite the handle in Y (shader p.y is up); flip so down = down
     locked: () => isMotionDriven() || env.isLocked('drosteOffset').locked,
   });
   document.getElementById('drosteOffsetLabel')?.appendChild(drosteOffsetJoy.root);
@@ -1532,8 +1533,8 @@ if (engine) {
   }
 
   buildFormGrid(env);
-  applyFormControls(env);
-  wireControls();
+  wireControls();       // mount the dynamic controls (incl. the pan joystick #panJoyRow) FIRST,
+  applyFormControls(env); // THEN gate per-form visibility so it can see the just-mounted rows.
   wireLocks();          // padlocks on lockable controls (M3) — after the controls exist
   setupStageDivider(env);
   setupLiveDivider(env);

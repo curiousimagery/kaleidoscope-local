@@ -4,6 +4,18 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🕹️ v0.19.88 (Build 448) — 2026-07-25 — Radial joystick (proven gate), droste-offset Y, slice-popover lock
+
+Three follow-ups from Daniel's B447 test (Firefox / iPad Safari / Electron).
+
+- **Radial pan joystick now shows — via the proven gate.** B446's self-gate (`visibleWhen`) was provably correct and compiled correctly, yet the row still didn't appear across all three renderers. Rather than keep chasing it, switched to the mechanism that demonstrably works (the same `applyFormControls` gate that shows/hides the droste row): restored the `#panJoyRow` display gate **and fixed the init order** so `wireControls()` (which mounts the dynamic row) runs **before** `applyFormControls(env)` — previously the init gate hit a not-yet-mounted element. The self-gate stays as a backstop. Also did a clean rebuild to eliminate any stale bundle/service-worker cache.
+- **Droste center-offset Y was inverted.** The Möbius pole moves opposite the handle in Y (the shader's `p.y` points up). Added `signX`/`signY` write-direction options to the joystick; the droste-offset instance passes `signY: -1` so pushing down moves the center down. Tiling/radial unchanged.
+- **Slice-settings popover now locks during playback too.** B447's lock CSS targeted `.group`, but `#slicePopover` wraps its controls in `#sliceGroup` (no `.group` class), so only the canvas popover locked. Broadened the selector to cover both.
+
+**VERIFY (Daniel):** radial → pan joystick appears in **canvas** settings + translates the center; droste center-offset down = center down; motion playback → **both** canvas *and* slice settings dim + go inert.
+
+Verified: node --check, clean vite build. **Untested by Claude on-device.** Fresh Capacitor + Electron builds produced.
+
 ## 🕹️ v0.19.87 (Build 447) — 2026-07-25 — Settings popovers lock during motion playback
 
 Fixes the bug Daniel found: in motion mode the canvas/form-settings popover controls stayed live during playback — they moved but the tick clobbered them next frame ("didn't save anywhere"). Intent (confirmed) is that keyframe params lock during playback: pause to adjust, then save a keyframe.

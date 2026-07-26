@@ -427,9 +427,11 @@ export function applyFormControls(env) {
   // pattern is scale-periodic, so a separate framing zoom is redundant — the loop IS the zoom).
   const compZoomRow = document.getElementById('compZoomLabel');
   if (compZoomRow) compZoomRow.style.display = form.id === 'droste' ? 'none' : '';
-  // NOTE: the canvas-translation PAN joystick (#panJoyRow) SELF-GATES in its own syncAll
-  // (createPanJoystick `visibleWhen`) — it's a dynamic row mounted AFTER the init applyFormControls,
-  // so gating it here would no-op on the default form. See main.js panJoy mount.
+  // canvas-translation PAN joystick — tileable (latticePeriod → loops) or radial (translates the
+  // center, non-looping). This runs AFTER wireControls mounts the row (init order fixed in createApp),
+  // so the element exists; the joystick ALSO self-gates in syncAll (visibleWhen) as a backstop.
+  const panRow = document.getElementById('panJoyRow');
+  if (panRow) panRow.style.display = (form.latticePeriod || form.id === 'radial') ? '' : 'none';
   // center-offset lock/autoplay row is Droste-only (the offset is a canvas gesture, no slider)
   const offsetRow = document.getElementById('drosteOffsetLabel');
   if (offsetRow) offsetRow.style.display = form.id === 'droste' ? '' : 'none';

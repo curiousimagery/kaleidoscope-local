@@ -26,8 +26,12 @@ export function createPanJoystick(env, opts = {}) {
   // visibleWhen: () => bool — if provided, syncAll gates the row's display by it (runs at mount +
   // on every controlsSync, so it's timing-independent, unlike applyFormControls which fires before
   // this dynamic row is even mounted). Omit to let a static parent / other code own visibility.
+  // signX/signY: per-axis write direction (the droste Möbius center reads its Y opposite to a
+  // tiling pan, so that instance passes signY:-1). Only the state write flips; the handle UI is
+  // unchanged (push down = same visual, content moves the intuitive way).
   const { keyX = 'canvasOffsetX', keyY = 'canvasOffsetY', periodOf = () => null, speed = SPEED,
-          rowId = 'panJoyRow', label = 'pan', locked = () => false, visibleWhen = null } = opts;
+          rowId = 'panJoyRow', label = 'pan', locked = () => false, visibleWhen = null,
+          signX = 1, signY = 1 } = opts;
   const { state, session, scheduleRender, controlsSync } = env;
 
   const root = document.createElement('div');
@@ -86,8 +90,8 @@ export function createPanJoystick(env, opts = {}) {
     const dt = Math.min(now - lastT, 100) / 1000;
     lastT = now;
     if ((hx || hy) && !locked()) {   // locked (motion / manual-off) → hold position, don't write
-      state[keyX] = (state[keyX] || 0) + hx * speed * dt;
-      state[keyY] = (state[keyY] || 0) + hy * speed * dt;
+      state[keyX] = (state[keyX] || 0) + hx * speed * signX * dt;
+      state[keyY] = (state[keyY] || 0) + hy * speed * signY * dt;
       layout();
       scheduleRender();
     }
