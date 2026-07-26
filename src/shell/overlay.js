@@ -342,13 +342,12 @@ export function drawSourceOverlay(env) {
   // REVERT: drop the `closed` branch + the `true` arg at the outerEdges call.
   function strokeEdges(edges, highlighted, closed) {
     if (edges.length === 0) return;
-    if (oobAnyAxis) {
-      ctx.strokeStyle = highlighted ? 'rgba(255, 230, 140, 1.0)' : 'rgba(255, 196, 80, 0.95)';
-      ctx.setLineDash([6, 4]);
-    } else {
-      ctx.strokeStyle = highlighted ? 'rgba(255, 255, 255, 1.0)' : 'rgba(255, 255, 255, 0.9)';
-      ctx.setLineDash([]);
-    }
+    // primary outline is ALWAYS solid white — "as if there were no reflection" (Daniel). The
+    // fact that the wedge crosses the source edge is communicated by the reflected copies
+    // (dashed amber + fill) and the dashed EDGE SEAM on the source boundary (drawn below), not
+    // by dashing the whole primary. Reads honestly + form-agnostically.
+    ctx.strokeStyle = highlighted ? 'rgba(255, 255, 255, 1.0)' : 'rgba(255, 255, 255, 0.9)';
+    ctx.setLineDash([]);
     ctx.lineWidth = (highlighted ? 2.5 : 1.5) * sw;
     const prevJoin = ctx.lineJoin;
     ctx.beginPath();
@@ -382,6 +381,42 @@ export function drawSourceOverlay(env) {
   const dragHLSpoke = dm === 'segments' || dm === 'pinch';
   strokeEdges(outerEdges, isRotateHover || isScaleArcHover || dragHL, true);   /* closed loop → joined corners */
   strokeEdges(spokeEdges, isRotateHover || isScaleSpokeHover || dragHLSpoke);
+
+  // EDGE SEAM — where the primary wedge crosses a source edge, draw a dashed line along that edge
+  // segment (clamped to the visible edge). It's the honest "the fold reflects/clips here" marker
+  // AND stands in as the scale-drag handle when the true (reflected / off-source) edge is
+  // unreachable (Daniel's spec, replacing the fake in-bounds arc). Hit-testing wired in a follow-up.
+  if (oobAnyAxis) {
+    const seams = [
+      { on: oobLeft,   axis: 'u', at: 0 },
+      { on: oobRight,  axis: 'u', at: 1 },
+      { on: oobTop,    axis: 'v', at: 0 },
+      { on: oobBottom, axis: 'v', at: 1 },
+    ];
+    ctx.save();
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
+    ctx.setLineDash([6, 4]);
+    ctx.lineWidth = 1.5 * sw;
+    for (const s of seams) {
+      if (!s.on) continue;
+      const hits = [];
+      for (let i = 0; i < uvPts.length; i++) {
+        const a = uvPts[i], b = uvPts[(i + 1) % uvPts.length];
+        const av = s.axis === 'u' ? a.u : a.v, bv = s.axis === 'u' ? b.u : b.v;
+        if ((av - s.at) * (bv - s.at) < 0) {            // segment straddles the edge line
+          const t = (s.at - av) / (bv - av);
+          hits.push(s.axis === 'u' ? a.v + t * (b.v - a.v) : a.u + t * (b.u - a.u));
+        }
+      }
+      if (hits.length < 2) continue;
+      const lo = Math.max(0, Math.min(...hits)), hi = Math.min(1, Math.max(...hits));  // clamp to visible edge
+      if (hi <= lo) continue;
+      const p0 = s.axis === 'u' ? uvToScreen(s.at, lo) : uvToScreen(lo, s.at);
+      const p1 = s.axis === 'u' ? uvToScreen(s.at, hi) : uvToScreen(hi, s.at);
+      ctx.beginPath(); ctx.moveTo(p0.x, p0.y); ctx.lineTo(p1.x, p1.y); ctx.stroke();
+    }
+    ctx.restore();
+  }
 
   // sample-region outline: indicator showing the actual fold sample region.
   // Subtler than the main outline (1px @ 0.7 opacity vs 1.5px @ 0.9) so it

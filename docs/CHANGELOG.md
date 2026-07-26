@@ -4,6 +4,20 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🔺 v0.19.90 (Build 450) — 2026-07-26 — M4 geometry-truth · increment 1: reflection-UI restyle
+
+First increment of Movement 4 (geometry-truth). Reworks how the slice overlay signals a wedge crossing the source edge, per Daniel's refined spec (replaces the old "whole outline goes dashed amber"). Lands in the one shared drawer `drawSourceOverlay`, so desktop / mobile / companion-video inherit it.
+
+- **Primary outline stays solid white** even when the wedge crosses a source edge (was: flipped to dashed amber). Reads "as if there were no reflection."
+- **Reflected copies unchanged** — still thin dashed amber + faint fill (the honest "where the kaleidoscope actually pulls color" indicator, mirror mode).
+- **New edge seam** — a dashed white line along the source-edge segment the wedge crosses. It's the honest "the fold reflects/clips here" marker and (once hit-testing is wired, increment 2) the drag-to-scale handle that stands in for the unreachable off-source edge. Form-agnostic (polygon forms this build; droste's own `drawOverlay` gets the parallel restyle in a later increment).
+
+This increment is **drawing-only** — no geometry or hit-testing change yet. Accurate at canvas defaults; honest-under-zoom is increment 3.
+
+**VERIFY (Daniel):** on radial/square/hex/triangle, grow the slice past the source edge → primary stays solid white, reflected stays dashed amber, and a dashed white seam appears along the crossed edge.
+
+Verified: node --check, vite build. **Untested by Claude on-device.** Fresh Capacitor + Electron builds produced.
+
 ## 🕹️ v0.19.89 (Build 449) — 2026-07-26 — Mobile droste-offset joystick + gate cleanup
 
 - **Droste center-offset joystick on mobile.** Ports the desktop control to the mobile slice/form settings (`#m-settings`): a `center offset` section with a `manual` on/off toggle (session-based, `session.offsetManual` — the same unlock as desktop) + the joystick driving `drosteOffsetX/Y` (`signY:-1`, gentle `speed:0.32`). Gated to droste via `applyFormVisibility`. Disabled/dimmed until `manual` is on. Mobile radial pan was already ungated (B448). This closes the deferred mobile item — repeating-movements ③ now has parity across desktop and mobile.
