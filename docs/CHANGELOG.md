@@ -4,6 +4,15 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🕹️ v0.19.89 (Build 449) — 2026-07-26 — Mobile droste-offset joystick + gate cleanup
+
+- **Droste center-offset joystick on mobile.** Ports the desktop control to the mobile slice/form settings (`#m-settings`): a `center offset` section with a `manual` on/off toggle (session-based, `session.offsetManual` — the same unlock as desktop) + the joystick driving `drosteOffsetX/Y` (`signY:-1`, gentle `speed:0.32`). Gated to droste via `applyFormVisibility`. Disabled/dimmed until `manual` is on. Mobile radial pan was already ungated (B448). This closes the deferred mobile item — repeating-movements ③ now has parity across desktop and mobile.
+- **Gate cleanup (per Daniel).** The B446 self-gate (`visibleWhen`) was redundant once the init-order bug was fixed (B448) — the standard `applyFormControls` gate that every other control row uses is sufficient and is now the single source of truth for `#panJoyRow` visibility. Removed the `visibleWhen` opt from the component and the desktop mount. (The earlier "radial not showing" was a look-in-the-wrong-popover mixup, not a code fault — the control was in canvas settings all along.)
+
+**VERIFY (Daniel):** iPhone → droste → slice/form settings shows a `center offset` section; joystick is dimmed until `manual: on`, then drives the center (down = down). Desktop radial/droste/tiling joysticks unchanged.
+
+Verified: node --check, vite build. **Untested by Claude on-device.** Fresh Capacitor + Electron builds produced.
+
 ## 🕹️ v0.19.88 (Build 448) — 2026-07-25 — Radial joystick (proven gate), droste-offset Y, slice-popover lock
 
 Three follow-ups from Daniel's B447 test (Firefox / iPad Safari / Electron).

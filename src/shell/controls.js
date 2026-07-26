@@ -429,7 +429,7 @@ export function applyFormControls(env) {
   if (compZoomRow) compZoomRow.style.display = form.id === 'droste' ? 'none' : '';
   // canvas-translation PAN joystick — tileable (latticePeriod → loops) or radial (translates the
   // center, non-looping). This runs AFTER wireControls mounts the row (init order fixed in createApp),
-  // so the element exists; the joystick ALSO self-gates in syncAll (visibleWhen) as a backstop.
+  // so the dynamic #panJoyRow element exists when we gate it.
   const panRow = document.getElementById('panJoyRow');
   if (panRow) panRow.style.display = (form.latticePeriod || form.id === 'radial') ? '' : 'none';
   // center-offset lock/autoplay row is Droste-only (the offset is a canvas gesture, no slider)

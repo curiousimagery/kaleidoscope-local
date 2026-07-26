@@ -257,6 +257,7 @@ for (const id of DECLARATIVE_PARAM_IDS) {
 mountSpiralControl();
 mountToggleControl('mirror', 'drosteMirror', 'tier mirror');
 mountToggleControl('wedgeMirror', 'drosteWedgeMirror', 'wedge mirror');
+mountDrosteOffsetControl();   // droste center-offset joystick (gated to droste in applyFormVisibility)
 
 const resetBtn = document.createElement('button');
 resetBtn.id = 'm-reset';
@@ -508,6 +509,35 @@ function mountSpiralControl() {
   });
   controlsSync.register(sync); sync();
 }
+// DROSTE CENTER OFFSET (mobile parity with desktop slice settings) — a joystick driving
+// drosteOffsetX/Y (the Möbius center), gated to droste (applyFormVisibility). Disabled unless
+// `manual` is on (session.offsetManual — the same unlock as desktop; keeps the offset centered
+// by default, which seamless infinite zoom depends on). signY:-1 (the pole reads Y inverted),
+// gentle gain (0.32). The manual toggle is session-based, so not mountToggleControl (state-based).
+function mountDrosteOffsetControl() {
+  const wrap = document.createElement('div');
+  wrap.className = 'm-control'; wrap.id = 'm-droste-offset';
+  wrap.innerHTML = '<div class="m-control-row"><span>center offset</span></div>';
+  const manualRow = document.createElement('div'); manualRow.className = 'm-control-row';
+  manualRow.innerHTML = '<span>manual</span>';
+  const seg = document.createElement('div'); seg.className = 'm-seg';
+  const btns = [['off', false], ['on', true]].map(([t, v]) => {
+    const b = document.createElement('button'); b.className = 'm-seg-btn'; b.textContent = t;
+    b.addEventListener('click', () => { session.offsetManual = v; sync(); controlsSync.syncAll(); });
+    seg.appendChild(b); return [b, v];
+  });
+  function sync() { btns.forEach(([b, v]) => b.classList.toggle('active', !!session.offsetManual === v)); }
+  manualRow.appendChild(seg); wrap.appendChild(manualRow);
+  const joy = createPanJoystick(env, {
+    keyX: 'drosteOffsetX', keyY: 'drosteOffsetY', rowId: 'mDrosteOffsetJoyRow', label: '',
+    speed: 0.32, signY: -1,
+    locked: () => env.isLocked('drosteOffset').locked,
+  });
+  wrap.appendChild(joy.root);
+  settingsEl.appendChild(wrap);
+  controlsSync.register(sync); sync();
+}
+
 function mountToggleControl(labelId, key, label) {
   const wrap = document.createElement('label');
   wrap.className = 'm-control'; wrap.id = labelId + 'Label';
@@ -546,6 +576,7 @@ function applyFormVisibility() {
   const isDroste = form.id === 'droste';
   $('compZoomLabel')?.classList.toggle('m-hidden', isDroste);
   $('infiniteZoomLabel')?.classList.toggle('m-hidden', !isDroste);
+  $('m-droste-offset')?.classList.toggle('m-hidden', !isDroste);   // droste center-offset joystick
   // canvas PAN joystick — tileable forms (loops) + radial (translates the center, non-looping).
   $('panJoyRow')?.classList.toggle('m-hidden', !(form.latticePeriod || form.id === 'radial'));
 }

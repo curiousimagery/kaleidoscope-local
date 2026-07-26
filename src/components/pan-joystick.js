@@ -23,14 +23,13 @@ export function createPanJoystick(env, opts = {}) {
   // for the droste center). rowId/label let a SECOND instance coexist (a droste-offset joystick
   // alongside the tiling-pan one). locked(): while true the joystick is inert + dimmed — used for
   // the motion edit-lock (writes would be clobbered next tick) AND the droste `manual` gate.
-  // visibleWhen: () => bool — if provided, syncAll gates the row's display by it (runs at mount +
-  // on every controlsSync, so it's timing-independent, unlike applyFormControls which fires before
-  // this dynamic row is even mounted). Omit to let a static parent / other code own visibility.
+  // Per-form row VISIBILITY is owned by the caller's gating (applyFormControls on desktop,
+  // applyFormVisibility on mobile) — the row's mounted before those run, so no self-gate is needed.
   // signX/signY: per-axis write direction (the droste Möbius center reads its Y opposite to a
   // tiling pan, so that instance passes signY:-1). Only the state write flips; the handle UI is
   // unchanged (push down = same visual, content moves the intuitive way).
   const { keyX = 'canvasOffsetX', keyY = 'canvasOffsetY', periodOf = () => null, speed = SPEED,
-          rowId = 'panJoyRow', label = 'pan', locked = () => false, visibleWhen = null,
+          rowId = 'panJoyRow', label = 'pan', locked = () => false,
           signX = 1, signY = 1 } = opts;
   const { state, session, scheduleRender, controlsSync } = env;
 
@@ -176,7 +175,6 @@ export function createPanJoystick(env, opts = {}) {
   recenter.addEventListener("click", () => { if (locked()) return; env.pushHistory?.(); recenterPan(); env.updateUndoUI?.(); });
 
   function syncAll() {
-    if (visibleWhen) root.style.display = visibleWhen() ? '' : 'none';   // self-gate (timing-independent)
     layout();
     root.classList.toggle('disabled', locked());
   }

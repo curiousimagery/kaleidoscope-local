@@ -854,9 +854,6 @@ function wireControls() {
   // locked while an animation drives the state (writes would be clobbered next tick).
   const panJoy = createPanJoystick(env, {
     periodOf: () => getActiveForm(state)?.latticePeriod?.(state) || null,
-    // self-gate: tileable (loops) or radial (translates the center). Runs at mount + every
-    // controlsSync, so it doesn't depend on applyFormControls firing after this dynamic row mounts.
-    visibleWhen: () => { const f = getActiveForm(state); return !!(f && (f.latticePeriod || f.id === 'radial')); },
     locked: () => isMotionDriven(),
   });
   document.getElementById('canvasRot')?.closest('label')?.after(panJoy.root);
