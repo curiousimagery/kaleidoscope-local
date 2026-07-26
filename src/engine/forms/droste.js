@@ -444,11 +444,16 @@ export default {
     // (Scale-handle hit-testing on this seam is the immediate follow-up, mirroring polygons B450→B451.)
     const drosteSeams = [];   // {p0,p1} screen segments → stashed in _geom so classifyPointer scales on them
     if (oobOut) {
-      const A0 = isFullCircle ? 0 : wedgeStart, A1 = isFullCircle ? Math.PI * 2 : wedgeEnd;
-      const N = 64, arc = [];
-      for (let i = 0; i <= N; i++) {
-        const a = A0 + (i / N) * (A1 - A0);
-        arc.push({ x: cx + rOut * Math.cos(a), y: cy + rOut * Math.sin(a) });
+      // sample the FULL sampled-region boundary (not just the outer arc) so the seam + reflection
+      // also render where the straight WEDGE SIDES cross a source edge (Daniel: more segments → more
+      // straight edge → missed). Closed loop [outer arc, inner arc]; the connecting segments ARE the
+      // two sides. arms=1 is just the outer ring.
+      const N = 40, arc = [];
+      if (isFullCircle) {
+        for (let i = 0; i <= N; i++) { const a = (i / N) * Math.PI * 2; arc.push({ x: cx + rOut * Math.cos(a), y: cy + rOut * Math.sin(a) }); }
+      } else {
+        for (let i = 0; i <= N; i++) { const a = wedgeStart + (i / N) * (wedgeEnd - wedgeStart); arc.push({ x: cx + rOut * Math.cos(a), y: cy + rOut * Math.sin(a) }); }
+        for (let i = 0; i <= N; i++) { const a = wedgeEnd   + (i / N) * (wedgeStart - wedgeEnd); arc.push({ x: cx + rIn  * Math.cos(a), y: cy + rIn  * Math.sin(a) }); }
       }
       const seamEdges = [
         { axis: 'x', at: imgX,        lo: imgY, hi: imgY + imgH },
@@ -462,8 +467,8 @@ export default {
       ctx.lineWidth = 1.5 * strokeScale;
       for (const e of seamEdges) {
         const hits = [];
-        for (let i = 0; i < arc.length - 1; i++) {
-          const p = arc[i], q = arc[i + 1];
+        for (let i = 0; i < arc.length; i++) {
+          const p = arc[i], q = arc[(i + 1) % arc.length];   // closed loop → the sides are segments too
           const pv = e.axis === 'x' ? p.x : p.y, qv = e.axis === 'x' ? q.x : q.y;
           if ((pv - e.at) * (qv - e.at) < 0) {
             const t = (e.at - pv) / (qv - pv);

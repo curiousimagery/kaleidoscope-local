@@ -4,6 +4,20 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🎉 v0.20.0 (Build 457) — 2026-07-26 — Minor milestone bump + droste boundary fix + radial two-finger pan
+
+**Version milestone.** Bumped to **v0.20.0** — the v0.19.x line quietly shipped several minor-worthy features (loop auto-detection, droste infinite zoom, canvas panning, and the whole M4 geometry-truth pass) on patch bumps. This marks the accumulated surface (Daniel).
+
+Two bug fixes from Daniel's B456 test:
+- **Droste seam + reflection now cover the wedge SIDES, not just the arc.** They were sampled from the outer arc only, so when a straight wedge side crossed a source edge (increasingly likely with more segments) nothing rendered. Now the crossing detection samples the full sampled-region boundary as a closed loop (outer arc + inner arc; the connecting segments are the two sides), so seams + reflections render on every boundary part.
+- **Two-finger pan now works on radial.** The pan gesture gated on `panPeriod()` (the lattice period), which radial lacks — so it was never enabled there even though radial pans fine via `canvasOffset` (that's why the joystick worked but the gesture didn't). Added a `panDrivable` check (tileable OR radial) for the gesture + trackpad-pan enable, keeping `panPeriod` for the wrap.
+
+**Deferred (documented) — bug 2, the iPad remote gesture-surface:** the unified-zoom trap fix doesn't reach the iPad-as-gesture-surface (its pinch is applied via `input-bus` → `canvasZoom`, bypassing `applyUnifiedZoom`), and the iPad's reference overlay doesn't resize to the zoom. Both belong to the "unify ALL zoom entry points (gesture + input-bus/remote pinch + sliders) through one shared `applyUnifiedZoom`, and sync the remote overlay to `canvasZoom`" follow-up.
+
+**VERIFY (Daniel):** droste with more segments → grow past an edge on a straight side → seam + reflection render there; radial → two-finger pan works on the output canvas.
+
+Verified: node --check, vite build. **Untested by Claude on-device.** Fresh Capacitor + Electron builds produced.
+
 ## 🔺 v0.19.96 (Build 456) — 2026-07-26 — Droste seam is draggable + droste reflection (never rendered before)
 
 Completes droste's M4 overlay parity.

@@ -82,7 +82,7 @@ export function createOutputGestures(canvas, ctx) {
     if (e.touches.length !== 2) return;    // one finger reserved (future rotate); ignore here
     ctx.onCommitStart?.();
     const t0 = e.touches[0], t1 = e.touches[1];
-    const canPan = !!(ctx.panPeriod && ctx.panPeriod());
+    const canPan = !!(ctx.panDrivable ? ctx.panDrivable() : (ctx.panPeriod && ctx.panPeriod()));
     if (canPan) ctx.panDrift?.()?.stop?.();          // grabbing takes control — stop any running drift
     const cx = (t0.clientX + t1.clientX) / 2, cy = (t0.clientY + t1.clientY) / 2;
     const startDist = Math.hypot(t1.clientX - t0.clientX, t1.clientY - t0.clientY);
@@ -153,7 +153,7 @@ export function createOutputGestures(canvas, ctx) {
     if (!e.ctrlKey) {
       // NON-ctrl wheel = a trackpad TWO-FINGER scroll/drag → tiling pan (desktop/Electron
       // have no touch, so this is their pan gesture). Tileable forms only.
-      if (!(ctx.panPeriod && ctx.panPeriod())) return;
+      if (!(ctx.panDrivable ? ctx.panDrivable() : (ctx.panPeriod && ctx.panPeriod()))) return;
       e.preventDefault();
       if (!wheelTimer) { ctx.onCommitStart?.(); ctx.panDrift?.()?.stop?.(); }   // start of scroll takes control
       const rect = canvas.getBoundingClientRect();
