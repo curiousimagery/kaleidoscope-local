@@ -132,24 +132,38 @@ export function createPanJoystick(env, opts = {}) {
     if (!driftMode) { centerHandle(); pad.classList.remove('drifting'); }  // turning drift off stops it
   });
 
-  recenter.addEventListener('click', () => {
-    env.pushHistory?.();
-    centerHandle();                 // stop the drift (handle → center)
-    pad.classList.remove('drifting');
-    // Snap to the NEAREST lattice-period multiple, not 0 — every period-multiple is visually the
-    // origin, so this re-centers with a MINIMAL move (≤ half a period) instead of sweeping back the
-    // whole accumulated distance (Daniel: recenter was reversing the entire traversal). The unwrapped
-    // offset stays a smooth accumulator for drift; only the *visible* framing returns to origin.
+  // stop the drift (velocity → 0); position unchanged.
+  function stopDrift() { centerHandle(); pad.classList.remove('drifting'); }
+
+  // set the drift from a VELOCITY in offset-units/sec (hx·speed = velocity) — the pan GESTURE
+  // hands its release velocity here on a flick, so the drift continues at the swipe speed.
+  function setDriftVelocity(vx, vy) {
+    let nx = vx / speed, ny = vy / speed;
+    const mag = Math.hypot(nx, ny);
+    if (mag > 1) { nx /= mag; ny /= mag; }
+    hx = nx; hy = ny;
+    handle.style.transition = '';
+    handle.style.transform = `translate(${hx * radius()}px, ${hy * radius()}px)`;
+    pad.classList.toggle('drifting', !!(hx || hy));
+    if (hx || hy) startTick();
+  }
+
+  // stop drift + snap to the NEAREST lattice-period multiple (every multiple is visually origin),
+  // so re-centering is a ≤ half-period move, not a sweep back through the whole accumulated drift.
+  function recenterPan() {
+    stopDrift();
     const period = periodOf();
     if (period) {
       state[keyX] = Math.round((state[keyX] || 0) / period[0]) * period[0];
       state[keyY] = Math.round((state[keyY] || 0) / period[1]) * period[1];
     } else { state[keyX] = 0; state[keyY] = 0; }
-    layout(); scheduleRender(); env.updateUndoUI?.();
-  });
+    layout(); scheduleRender();
+  }
+
+  recenter.addEventListener("click", () => { env.pushHistory?.(); recenterPan(); env.updateUndoUI?.(); });
 
   function syncAll() { layout(); }
   syncAll();
   controlsSync?.register(syncAll);
-  return { root, syncAll };
+  return { root, syncAll, driftOn: () => driftMode, stopDrift, setDriftVelocity, recenter: recenterPan };
 }

@@ -239,6 +239,7 @@ createOutputGestures(outputCanvas, {
   onChange: () => { controlsSync.syncAll(); scheduleRender(); },
   // one-finger TILING PAN — enabled only on tileable forms (non-null lattice period).
   panPeriod: () => getActiveForm(state)?.latticePeriod?.(state) || null,
+  panDrift: () => env.panDrift,   // flick-to-drift on release (lazy: joystick mounts after this)
 });
 
 // ------------------------------------------------------------ settings (State B)
@@ -421,7 +422,10 @@ for (const id of DECLARATIVE_PARAM_IDS) {
 mountLoopingControl(canvasPopEl, PARAMS.infiniteZoom, env);
 // TILING PAN velocity joystick — tileable forms only (gated in applyFormVisibility). Same
 // component as desktop (pointer-based + touch-action:none, so it works on touch).
-canvasPopEl.appendChild(createPanJoystick(env, { periodOf: () => getActiveForm(state)?.latticePeriod?.(state) || null }).root);
+const mPanJoy = createPanJoystick(env, { periodOf: () => getActiveForm(state)?.latticePeriod?.(state) || null });
+canvasPopEl.appendChild(mPanJoy.root);
+env.panDrift = { on: mPanJoy.driftOn, stop: mPanJoy.stopDrift, set: mPanJoy.setDriftVelocity };
+env.panRecenter = mPanJoy.recenter;
 // Out-of-bounds mode (clamp / mirror / transparent) — a stateful 3-way toggle,
 // not a range, so it's rendered directly here rather than via mountRangeControl.
 (function mountOobControl() {
@@ -449,6 +453,7 @@ resetCanvasBtn.id = 'm-reset-canvas';
 resetCanvasBtn.textContent = 'reset canvas';
 resetCanvasBtn.addEventListener('click', () => {
   state.canvasZoom = 1.0; state.canvasRotation = 0; state.drosteZoomPhase = 0; state.oobMode = 1;
+  env.panRecenter?.();   // stop any pan drift + recenter
   session.frameAspect = 1;
   controlsSync.syncAll(); sizeOutput(); scheduleRender();
 });

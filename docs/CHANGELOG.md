@@ -4,6 +4,17 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🕹️ v0.19.81 (Build 441) — 2026-07-25 — Pan: reset-canvas stops drift + flick-to-drift on the gesture
+
+Two more from Daniel's mobile+desktop test.
+
+- **Reset canvas now stops the drift + recenters the pan.** The joystick's drift was component-local, so the main "reset canvas" couldn't reach it. Exposed a small drift API (`env.panDrift` + `env.panRecenter`); reset-canvas (desktop + mobile) now calls `env.panRecenter()` (stop drift + snap to nearest period-multiple) instead of blindly zeroing the offset.
+- **Flick-to-drift on the pan gesture.** With **drift on**, releasing a one-finger pan now continues at the **release velocity** — a quick swipe drifts fast; panning to a stop before lifting leaves ~0 velocity → no drift (exactly Daniel's ask). The gesture tracks last-move velocity and hands it to the joystick's drift on `touchend`; grabbing a new pan (or two-finger scroll) stops any running drift first. **Touch only** — trackpad two-finger (wheel) keeps its native momentum coast; a constant-drift flick there is a calibration follow-up (OS inertial-scroll events make it ambiguous).
+
+**VERIFY (Daniel):** reset-canvas halts a running drift + recenters; with drift on, a quick one-finger swipe-and-lift keeps drifting at that speed, a slow pan-to-stop-then-lift doesn't.
+
+Verified: node --check, vite build. **Untested by Claude on-device.** Fresh Capacitor + Electron builds produced.
+
 ## 🕹️ v0.19.80 (Build 440) — 2026-07-25 — Pan refinements + semantic "zoom" mapping (unification Stage 1)
 
 Daniel's play-test refinements + the first stage of the control-registry unification.

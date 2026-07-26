@@ -852,6 +852,9 @@ function wireControls() {
   // (applyFormControls gates #panJoyRow by form.latticePeriod). Inserted after canvas rotation.
   const panJoy = createPanJoystick(env, { periodOf: () => getActiveForm(state)?.latticePeriod?.(state) || null });
   document.getElementById('canvasRot')?.closest('label')?.after(panJoy.root);
+  // expose the drift so the pan GESTURE can flick into it and reset-canvas can stop + recenter it.
+  env.panDrift = { on: panJoy.driftOn, stop: panJoy.stopDrift, set: panJoy.setDriftVelocity };
+  env.panRecenter = panJoy.recenter;
 
   // droste spiral — tiers per canvas turn. snaps to multiples of 1/arms so
   // the spiral closes cleanly with the arms-fold lattice (1/12 at arms=12,
@@ -986,8 +989,7 @@ function wireControls() {
     state.canvasZoom     = 1.0;
     state.canvasRotation = 0;
     state.drosteZoomPhase = 0;  // infinite zoom is a canvas control in droste — reset it too
-    state.canvasOffsetX  = 0;   // tiling pan is a canvas control too — recenter it
-    state.canvasOffsetY  = 0;
+    env.panRecenter?.();        // tiling pan: STOP any drift + recenter (Daniel)
     state.oobMode        = 1;   // mirror, the default
     env.controlsSync.syncAll();
     // the OOB buttons sync only in their own click handler — mirror the state here
@@ -1514,6 +1516,7 @@ if (engine) {
     editLocked: isMotionDriven,
     // one-finger TILING PAN — enabled only on tileable forms (non-null lattice period).
     panPeriod: () => getActiveForm(state)?.latticePeriod?.(state) || null,
+    panDrift: () => env.panDrift,   // flick-to-drift on release when drift mode is on (lazy: set after gestures)
   });
   setupUndoBar();
   wireFrameAspect();

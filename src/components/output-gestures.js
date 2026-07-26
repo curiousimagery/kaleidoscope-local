@@ -52,8 +52,11 @@ export function createOutputGestures(canvas, ctx) {
       e.preventDefault();
     } else if (e.touches.length === 1 && ctx.panPeriod && ctx.panPeriod()) {
       // one-finger TILING PAN (tileable forms only) — direct drag, content follows the finger.
+      ctx.panDrift?.()?.stop?.();          // grabbing takes control — stop any running drift
       ctx.onCommitStart?.();
-      pan = { x: e.touches[0].clientX, y: e.touches[0].clientY, ox: state.canvasOffsetX || 0, oy: state.canvasOffsetY || 0 };
+      const t = e.touches[0];
+      pan = { x: t.clientX, y: t.clientY, ox: state.canvasOffsetX || 0, oy: state.canvasOffsetY || 0,
+              vx: 0, vy: 0, lastX: t.clientX, lastY: t.clientY, lastT: performance.now() };
       e.preventDefault();
     }
   }
@@ -61,9 +64,16 @@ export function createOutputGestures(canvas, ctx) {
   function onMove(e) {
     if (pan && e.touches.length === 1) {
       const rect = canvas.getBoundingClientRect();
+      const nx = e.touches[0].clientX, ny = e.touches[0].clientY, now = performance.now();
       // screen delta → canvas units ([-1,1] over the element); same offset sign as the joystick.
-      state.canvasOffsetX = pan.ox + (e.touches[0].clientX - pan.x) / (rect.width / 2);
-      state.canvasOffsetY = pan.oy + (e.touches[0].clientY - pan.y) / (rect.height / 2);
+      state.canvasOffsetX = pan.ox + (nx - pan.x) / (rect.width / 2);
+      state.canvasOffsetY = pan.oy + (ny - pan.y) / (rect.height / 2);
+      const dtms = now - pan.lastT;   // last-move velocity (offset units/sec) → flick-to-drift on release
+      if (dtms > 0) {
+        pan.vx = ((nx - pan.lastX) / (rect.width / 2)) / (dtms / 1000);
+        pan.vy = ((ny - pan.lastY) / (rect.height / 2)) / (dtms / 1000);
+      }
+      pan.lastX = nx; pan.lastY = ny; pan.lastT = now;
       ctx.onChange?.();
       e.preventDefault();
       return;
@@ -85,7 +95,14 @@ export function createOutputGestures(canvas, ctx) {
 
   function onEnd(e) {
     if (e.touches.length < 2 && pinch) { pinch = null; ctx.onCommitEnd?.(); }
-    if (e.touches.length === 0 && pan) { pan = null; ctx.onCommitEnd?.(); }
+    if (e.touches.length === 0 && pan) {
+      // FLICK-TO-DRIFT: if drift mode is on, continue at the release velocity — a quick swipe drifts
+      // fast; panning to a stop before lifting leaves ~0 velocity → no drift (Daniel). Touch only;
+      // trackpad (wheel) keeps its native momentum coast.
+      const pd = ctx.panDrift?.();
+      if (pd?.on?.()) pd.set?.(pan.vx || 0, pan.vy || 0);
+      pan = null; ctx.onCommitEnd?.();
+    }
   }
 
   // Trackpad pinch-to-zoom the OUTPUT. macOS delivers a trackpad pinch as wheel +
@@ -99,7 +116,7 @@ export function createOutputGestures(canvas, ctx) {
       // have no touch, so this is their pan gesture). Tileable forms only.
       if (!(ctx.panPeriod && ctx.panPeriod())) return;
       e.preventDefault();
-      if (!wheelTimer) ctx.onCommitStart?.();
+      if (!wheelTimer) { ctx.onCommitStart?.(); ctx.panDrift?.()?.stop?.(); }   // start of scroll takes control
       const rect = canvas.getBoundingClientRect();
       state.canvasOffsetX += e.deltaX / (rect.width / 2);   // content follows the fingers
       state.canvasOffsetY += e.deltaY / (rect.height / 2);
