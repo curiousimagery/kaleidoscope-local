@@ -427,9 +427,10 @@ export function applyFormControls(env) {
   // pattern is scale-periodic, so a separate framing zoom is redundant — the loop IS the zoom).
   const compZoomRow = document.getElementById('compZoomLabel');
   if (compZoomRow) compZoomRow.style.display = form.id === 'droste' ? 'none' : '';
-  // tiling PAN joystick — only tileable forms (those that declare a latticePeriod) loop.
+  // canvas-translation PAN joystick — tileable forms (latticePeriod → loops, pacman) AND radial
+  // (translates the center, non-looping). Droste uses its own center-offset joystick (below).
   const panRow = document.getElementById('panJoyRow');
-  if (panRow) panRow.style.display = form.latticePeriod ? '' : 'none';
+  if (panRow) panRow.style.display = (form.latticePeriod || form.id === 'radial') ? '' : 'none';
   // center-offset lock/autoplay row is Droste-only (the offset is a canvas gesture, no slider)
   const offsetRow = document.getElementById('drosteOffsetLabel');
   if (offsetRow) offsetRow.style.display = form.id === 'droste' ? '' : 'none';

@@ -19,14 +19,19 @@
 const SPEED = 1.6;   // offset units / second at full deflection
 
 export function createPanJoystick(env, opts = {}) {
-  const { keyX = 'canvasOffsetX', keyY = 'canvasOffsetY', periodOf = () => null, speed = SPEED } = opts;
+  // keyX/keyY: which offset the joystick drives (canvasOffset for tiling+radial pan; drosteOffset
+  // for the droste center). rowId/label let a SECOND instance coexist (a droste-offset joystick
+  // alongside the tiling-pan one). locked(): while true the joystick is inert + dimmed — used for
+  // the motion edit-lock (writes would be clobbered next tick) AND the droste `manual` gate.
+  const { keyX = 'canvasOffsetX', keyY = 'canvasOffsetY', periodOf = () => null, speed = SPEED,
+          rowId = 'panJoyRow', label = 'pan', locked = () => false } = opts;
   const { state, session, scheduleRender, controlsSync } = env;
 
   const root = document.createElement('div');
   root.className = 'pan-joy-row';
-  root.id = 'panJoyRow';
+  root.id = rowId;
   root.innerHTML = `
-    <div class="row"><span>pan</span><span class="pan-joy-btns">
+    <div class="row"><span>${label}</span><span class="pan-joy-btns">
       <button type="button" class="pan-joy-drift" title="keep drifting after release">drift</button>
       <button type="button" class="pan-joy-recenter">recenter</button>
     </span></div>
@@ -77,7 +82,7 @@ export function createPanJoystick(env, opts = {}) {
     raf = 0;
     const dt = Math.min(now - lastT, 100) / 1000;
     lastT = now;
-    if (hx || hy) {
+    if ((hx || hy) && !locked()) {   // locked (motion / manual-off) → hold position, don't write
       state[keyX] = (state[keyX] || 0) + hx * speed * dt;
       state[keyY] = (state[keyY] || 0) + hy * speed * dt;
       layout();
@@ -94,6 +99,7 @@ export function createPanJoystick(env, opts = {}) {
   }
 
   pad.addEventListener('pointerdown', (e) => {
+    if (locked()) return;                    // inert while motion-locked or manual-off
     dragging = true;
     pad.setPointerCapture?.(e.pointerId);
     env.pushHistory?.();
@@ -160,9 +166,9 @@ export function createPanJoystick(env, opts = {}) {
     layout(); scheduleRender();
   }
 
-  recenter.addEventListener("click", () => { env.pushHistory?.(); recenterPan(); env.updateUndoUI?.(); });
+  recenter.addEventListener("click", () => { if (locked()) return; env.pushHistory?.(); recenterPan(); env.updateUndoUI?.(); });
 
-  function syncAll() { layout(); }
+  function syncAll() { layout(); root.classList.toggle('disabled', locked()); }
   syncAll();
   controlsSync?.register(syncAll);
   return { root, syncAll, driftOn: () => driftMode, stopDrift, setDriftVelocity, recenter: recenterPan };

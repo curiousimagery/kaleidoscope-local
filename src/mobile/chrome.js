@@ -546,8 +546,8 @@ function applyFormVisibility() {
   const isDroste = form.id === 'droste';
   $('compZoomLabel')?.classList.toggle('m-hidden', isDroste);
   $('infiniteZoomLabel')?.classList.toggle('m-hidden', !isDroste);
-  // tiling PAN joystick — tileable forms only (those declaring a latticePeriod)
-  $('panJoyRow')?.classList.toggle('m-hidden', !form.latticePeriod);
+  // canvas PAN joystick — tileable forms (loops) + radial (translates the center, non-looping).
+  $('panJoyRow')?.classList.toggle('m-hidden', !(form.latticePeriod || form.id === 'radial'));
 }
 controlsSync.register(applyFormVisibility);
 applyFormVisibility();

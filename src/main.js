@@ -801,6 +801,7 @@ function wireLocks() {
     session.offsetManual = b.dataset.manual === '1';
     syncOffManual();
     env.scheduleOverlayDraw?.();   // the diamond's grabbability changed
+    env.syncControls?.();          // refresh the center-offset joystick's enabled/dim state
   }));
   syncOffManual();
 
@@ -848,13 +849,27 @@ function wireControls() {
   // ∈ [0,1)), so it needs the relative wrapping drag, not the absolute native drag.
   { const p = PARAMS.infiniteZoom; wireLoopingSlider(env, p.sliderId, p.valId, p.key, p.opts); }
 
-  // TILING PAN — a VELOCITY joystick (repeating-movements ②). Shown only for tileable forms
-  // (applyFormControls gates #panJoyRow by form.latticePeriod). Inserted after canvas rotation.
-  const panJoy = createPanJoystick(env, { periodOf: () => getActiveForm(state)?.latticePeriod?.(state) || null });
+  // CANVAS PAN — a VELOCITY joystick (repeating-movements ②). Shown for tileable forms (loops) +
+  // radial (translates the center); gated in applyFormControls. Inserted after canvas rotation.
+  // locked while an animation drives the state (writes would be clobbered next tick).
+  const panJoy = createPanJoystick(env, {
+    periodOf: () => getActiveForm(state)?.latticePeriod?.(state) || null,
+    locked: () => isMotionDriven(),
+  });
   document.getElementById('canvasRot')?.closest('label')?.after(panJoy.root);
   // expose the drift so the pan GESTURE can flick into it and reset-canvas can stop + recenter it.
   env.panDrift = { on: panJoy.driftOn, stop: panJoy.stopDrift, set: panJoy.setDriftVelocity };
   env.panRecenter = panJoy.recenter;
+
+  // DROSTE CENTER OFFSET — a second joystick (repeating-movements ③) driving drosteOffsetX/Y (the
+  // Möbius center), mounted inside the center-offset row. Non-looping (no lattice). Disabled unless
+  // `manual` is on (the same unlock that gates the diamond drag) — keeps the offset centered by
+  // default, which the seamless infinite zoom depends on — or while an animation drives the state.
+  const drosteOffsetJoy = createPanJoystick(env, {
+    keyX: 'drosteOffsetX', keyY: 'drosteOffsetY', rowId: 'drosteOffsetJoyRow', label: '',
+    locked: () => isMotionDriven() || env.isLocked('drosteOffset').locked,
+  });
+  document.getElementById('drosteOffsetLabel')?.appendChild(drosteOffsetJoy.root);
 
   // droste spiral — tiers per canvas turn. snaps to multiples of 1/arms so
   // the spiral closes cleanly with the arms-fold lattice (1/12 at arms=12,

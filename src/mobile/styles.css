@@ -154,6 +154,7 @@ html, body { margin: 0; padding: 0; height: 100%; background: var(--bg); color: 
    (touch-sized). Handle LATCHES on release → drift continues (.drifting glow). */
 /* font-size + color match .m-control-row (line 122) so the "pan" header reads like the other controls. */
 .pan-joy-row { display: flex; flex-direction: column; gap: 10px; padding: 6px 0; font-size: var(--text-base); color: var(--text-dim); }
+.pan-joy-row.disabled { opacity: var(--disabled-opacity); pointer-events: none; }
 .pan-joy-row > .row { display: flex; justify-content: space-between; align-items: center; }
 .pan-joy-btns { display: flex; gap: 8px; }
 .pan-joy-recenter, .pan-joy-drift {

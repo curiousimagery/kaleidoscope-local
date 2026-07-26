@@ -4,6 +4,22 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🕹️ v0.19.85 (Build 445) — 2026-07-25 — Center-offset joystick (droste + radial translation)
+
+Repeating-movements ③ (desktop). The velocity joystick now serves two non-looping translation cases in addition to tiling pan.
+
+- **Radial translation.** The existing `canvasOffset` pan joystick is now shown for **radial** too (was tileable-only), driving the center non-looping (`periodOf`→null). Ungated in both chromes.
+- **Droste center-offset joystick.** A second joystick instance drives `drosteOffsetX/Y` (the Möbius center), mounted inside the existing center-offset row. **Disabled unless `manual` is on** — the same unlock that gates the diamond drag — so the offset stays centered by default, which the seamless infinite zoom depends on. All the `drosteOffsetX/Y` plumbing already existed (tween / follow / drift / input-bus), so it eases in perform/motion and is controller-mappable for free.
+- **Component + lock.** `createPanJoystick` gained `rowId` / `label` / `locked` opts so a second instance can coexist and go inert. `locked()` covers the motion edit-lock (writes would be clobbered next tick) and the droste `manual` gate; a `.pan-joy-row.disabled` style dims + blocks it. **This means the offset joysticks correctly lock during motion playback** — unlike the popover sliders, which is a separate filed bug (below).
+- **Deferred:** the droste-offset joystick on **mobile** (the mobile chrome has no `manual`-gate UI to port yet — radial pan IS ungated there). Filed.
+- **Lab:** added the disabled/offset variant to the pan-joystick specimen.
+
+**Also filed (not built):** (1) **motion-playback edit-lock bug** — the canvas/form popover sliders stay live during playback and write state the motion tick clobbers ("moves but doesn't save"); fix seam is a lock class toggled in `updateMotionUI()`. (2) **Pan fat-finger lock** policy — parked as a UX refinement, skip unless real use surfaces a problem (Daniel: the inputs are discrete enough that pre-emptive locking isn't worth the friction).
+
+**VERIFY (Daniel):** radial → the pan joystick appears + translates the center; droste → center-offset joystick is dimmed until `manual` on, then drives the center; both go inert during motion playback.
+
+Verified: node --check, vite build. **Untested by Claude on-device.** Fresh Capacitor + Electron builds produced.
+
 ## 🕹️ v0.19.84 (Build 444) — 2026-07-25 — Undo/redo re-gates form controls + pan-header type fix
 
 Two from Daniel's iPad session.

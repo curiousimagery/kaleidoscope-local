@@ -537,7 +537,7 @@ function componentsSection() {
       el('div', {}, [el('h3', { class: 'lab-h3', text: 'Sliders' }), sliders]),
       el('div', {}, [el('h3', { class: 'lab-h3', text: 'Fields' }), fields]),
     ]),
-    el('h3', { class: 'lab-h3', text: 'Pan joystick · .pan-joy (tiling translation — velocity; DRIFT toggle latches motion on release; canvas-proportional dot field may exceed the circle; .drifting glow shown).' }),
+    el('h3', { class: 'lab-h3', text: 'Pan joystick · .pan-joy (canvas translation — velocity; DRIFT toggle latches motion on release; canvas-proportional dot field may exceed the circle). Two forms: tiling/radial pan ("pan", .drifting glow) and the droste center-offset variant (no label; .disabled while `manual` is off or an animation drives the state).' }),
     el('div', { class: 'lab-row' }, [
       el('div', { class: 'pan-joy-row', style: 'max-width:170px' }, [
         el('div', { class: 'row' }, [el('span', { class: 't-label', text: 'pan' }), el('span', { class: 'pan-joy-btns' }, [
@@ -549,6 +549,18 @@ function componentsSection() {
           el('div', { class: 'pan-joy-origin' }),
           el('div', { class: 'pan-joy-dot', style: 'transform: translate(48px, -30px)' }),
           el('div', { class: 'pan-joy-handle', style: 'transform: translate(14px, 9px)' }),
+        ]),
+      ]),
+      el('div', { class: 'pan-joy-row disabled', style: 'max-width:170px' }, [
+        el('div', { class: 'row' }, [el('span', {}), el('span', { class: 'pan-joy-btns' }, [
+          el('button', { class: 'pan-joy-drift', text: 'drift' }),
+          el('button', { class: 'pan-joy-recenter', text: 'recenter' }),
+        ])]),
+        el('div', { class: 'pan-joy' }, [
+          el('div', { class: 'pan-joy-rect', style: 'width:124px;height:90px' }),
+          el('div', { class: 'pan-joy-origin' }),
+          el('div', { class: 'pan-joy-dot' }),
+          el('div', { class: 'pan-joy-handle' }),
         ]),
       ]),
     ]),
