@@ -51,14 +51,20 @@ export default {
   spokeRule: 'radial',
 
   buildPolygon(state) {
-    // arc of unit radius, angle = TAU / segments
+    // arc of angle = TAU / segments. HONEST under canvas zoom (M4 criterion #2): the radial fold
+    // preserves radius, so the output samples out to ~1/canvasZoom in fold space — zoom OUT
+    // (canvasZoom < 1) makes the wedge sample a LARGER source ring; zoom IN shrinks it. canvasZoom=1
+    // is the unit-radius baseline that was already accurate at canvas defaults. Because buildPolygon
+    // is the shared geometry, the overlay + seam + hit-test + (future) SVG export all inherit this.
+    // (Output ASPECT reshaping the arc per-angle is the next sub-step; this captures the zoom magnitude.)
     const wedge = (Math.PI * 2) / state.segments;
+    const R = 1 / Math.max(0.0001, state.canvasZoom || 1);
     const pts = [];
     pts.push({ vx: 0, vy: 0 });
     const STEPS = 16;
     for (let i = 0; i <= STEPS; i++) {
       const a = -wedge / 2 + (i / STEPS) * wedge;
-      pts.push({ vx: Math.cos(a), vy: Math.sin(a) });
+      pts.push({ vx: Math.cos(a) * R, vy: Math.sin(a) * R });
     }
     return pts;
   },

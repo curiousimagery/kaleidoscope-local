@@ -4,6 +4,19 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🔺 v0.19.93 (Build 453) — 2026-07-26 — M4 geometry-truth · increment 3a: radial wedge honest under canvas zoom
+
+The overlay was accurate at canvas defaults but not under canvas zoom (criterion #2/#3). Investigation narrowed this a lot: **tiling forms are already honest under zoom** (mod-periodic fold → the fundamental cell is zoom-independent; zooming just shows more cells), and **canvas rotation/offset never change the source footprint** (they're output→folded; the overlay is folded→source). The one real case is the **radial wedge**, whose radius-preserving fold means the output samples a larger source ring as you zoom out.
+
+- `radial.buildPolygon` now scales the wedge arc by `1/canvasZoom` — zoom OUT grows the wedge (samples a larger source area, exactly Daniel's "a tiny slice samples a much larger area when zoomed out"); zoom IN shrinks it; `canvasZoom=1` is the unchanged baseline. Lands in the shared geometry, so the overlay, edge seam, hit-testing, and future SVG export all inherit it.
+- **UX note:** at extreme zoom-out the wedge can extend well past the source — that's honest, and the B451 edge-seam handle is exactly the reachable scale grab for that case. Flag if you'd rather it clamp.
+
+Still to do in Phase A: **3b** output-aspect reshaping the arc per-angle (the wide/tall frame), and the **droste** overlay's own honest-zoom + reflection restyle (bespoke `drawOverlay`). Tiling needs nothing.
+
+**VERIFY (Daniel):** radial → zoom the canvas out → the source-overlay wedge grows to match the larger sampled ring; zoom in → it shrinks; at 1× unchanged. Tiling forms unchanged.
+
+Verified: node --check, vite build. **Untested by Claude on-device.** Fresh Capacitor + Electron builds produced.
+
 ## 🔺 v0.19.92 (Build 452) — 2026-07-26 — M4 fix: edge seams visible in mobile cover fit
 
 Daniel's B450 test: on mobile web the top/bottom seams didn't draw (left/right did). Cause: mobile defaults to `fit: 'cover'` (fills the panel, crops), so the cropped-axis source edges land **off-canvas** — the seams were drawn above/below the viewport.
