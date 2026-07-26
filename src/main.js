@@ -1122,7 +1122,12 @@ function updateUndoUI() {
 function performHistoryStep(step) {
   if (motion.playing) env.stopPlayback?.();
   if (!step(state, motion, env.clip.trim)) return;
+  // an undo/redo can cross a FORM change — re-gate the per-form rows (pan joystick,
+  // comp-zoom↔infinite-zoom, offset) or they go stale from the previous form. Mirrors
+  // the form-picker handler (controls.js:385-389).
+  env.applyFormControls?.();
   env.syncControls();
+  env.syncLocks?.();
   env.scheduleRender();
   env.scheduleOverlayDraw();
   env.renderTimeline?.();

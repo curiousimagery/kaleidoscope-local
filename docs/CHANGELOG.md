@@ -4,6 +4,17 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🕹️ v0.19.84 (Build 444) — 2026-07-25 — Undo/redo re-gates form controls + pan-header type fix
+
+Two from Daniel's iPad session.
+
+- **Undo/redo now re-gates the per-form controls.** `performHistoryStep` restored state (which can cross a form change) but only called `syncControls()`, never `applyFormControls()` — so an undo/redo across a form switch left the per-form rows stale from the previous form. That's the "translation controls visible on radial wedge / old canvas settings showing" state (the tiling-pan joystick, comp-zoom↔infinite-zoom swap, and offset row weren't re-hidden). Added `applyFormControls()` + `syncLocks()` after restore, mirroring the form-picker handler. (Confirms item 3: the joystick on radial wedge was this leak — radial-wedge translation is not actually wired.)
+- **"pan" header type fix.** Control headers inherit `font-size`/`color` from `.slider` (desktop) / `.m-control-row` (mobile), but the pan row's root is `.pan-joy-row`, which missed both and fell back to the panel default — a one-off look. Added the two properties to `.pan-joy-row` in both stylesheets so "pan" reads like rotation/zoom/etc.
+
+**VERIFY (Daniel):** switch to a tileable form → undo/redo back across the switch → the pan joystick correctly disappears on radial/droste; the "pan" header matches the other control labels.
+
+Verified: node --check, vite build. **Untested by Claude on-device.** Fresh Capacitor + Electron builds produced.
+
 ## 🕹️ v0.19.83 (Build 443) — 2026-07-25 — Two-finger pan direction fix (X-negation + Y-flip)
 
 Follow-up to B442: axis was right but direction was inverted (Daniel: "left is right, up is down").

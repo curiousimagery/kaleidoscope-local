@@ -520,7 +520,8 @@ input[type="range"] {
 
 /* TILING PAN velocity joystick (components/pan-joystick.js). Push the handle → pan while held
    (springs back on release); the dot shows position within the tile (pacman wrap). */
-.pan-joy-row { display: flex; flex-direction: column; gap: 8px; padding: 2px 0; }
+/* font-size + color match .slider (line 495) so the "pan" header reads like rotation/zoom/etc. */
+.pan-joy-row { display: flex; flex-direction: column; gap: 8px; padding: 2px 0; font-size: var(--text-base); color: var(--text-dim); }
 .pan-joy-row > .row { display: flex; justify-content: space-between; align-items: center; }
 .pan-joy-btns { display: flex; gap: 6px; }
 .pan-joy-recenter, .pan-joy-drift {
