@@ -21,6 +21,7 @@
 //   }) → { destroy() }
 
 import { applyUnifiedZoom } from '../kit/zoom.js';   // shared: EVERY zoom entry point routes through this
+import { panToOffset } from '../kit/pan.js';         // shared: EVERY pan entry point routes through this
 
 export function createOutputGestures(canvas, ctx) {
   const { state } = ctx;
@@ -41,21 +42,10 @@ export function createOutputGestures(canvas, ctx) {
   // broadcast (the output bus renders state on its own loop). So go inert then.
   const locked = () => !!(ctx.editLocked && ctx.editLocked());
 
-  // Map a desired CONTENT screen displacement → a canvasOffset delta so the content follows
-  // the given screen vector. Folds in three sign/space facts, all of which must be undone:
-  //   • Y flip: v_uv makes shader p.y point UP (shader-builder.js:63), but client Y points DOWN.
-  //   • X-negation: u_canvasOffset negates X but not Y (shader-builder.js:43), so O maps to the
-  //     sample coord as (+Ox, −Oy) — an axis reflection A = diag(1,−1).
-  //   • Rotation: the offset is subtracted in the shader's POST-rotation space (:170 rotates p,
-  //     :175 subtracts O), so the drag must be counter-rotated by the current canvas rotation.
-  // Deriving δO = −A·M·f (f = content displacement in p-space, y-up) collapses to the below.
-  // fx/fy are in CLIENT orientation (x right+, y DOWN+). Identity-free even at 0° (it negates),
-  // which is why touch — never cleanly tested un-rotated before — read inverted.
-  function panToOffset(fx, fy) {
-    const r = state.canvasRotation * Math.PI / 180;
-    const c = Math.cos(r), s = Math.sin(r);
-    return [-c * fx - s * fy, s * fx - c * fy];
-  }
+  // Map a desired CONTENT screen displacement → a canvasOffset delta so content follows the
+  // finger. The transform (rotation + X-negation + Y-flip) lives in kit/pan.js so the remote
+  // gesture surface (input-bus) pans identically; here we just pass the current canvas rotation.
+  const pan = (fx, fy) => panToOffset(fx, fy, state.canvasRotation);
 
   function onStart(e) {
     if (locked()) return;
@@ -97,12 +87,12 @@ export function createOutputGestures(canvas, ctx) {
       // centroid travel → tiling pan; content follows the two fingers' midpoint.
       const rect = canvas.getBoundingClientRect(), now = performance.now();
       const cx = (t0.clientX + t1.clientX) / 2, cy = (t0.clientY + t1.clientY) / 2;
-      const [cdx, cdy] = panToOffset((cx - manip.cx0) / (rect.width / 2), (cy - manip.cy0) / (rect.height / 2));
+      const [cdx, cdy] = pan((cx - manip.cx0) / (rect.width / 2), (cy - manip.cy0) / (rect.height / 2));
       state.canvasOffsetX = manip.ox + cdx;
       state.canvasOffsetY = manip.oy + cdy;
       const dtms = now - manip.lastT;   // centroid velocity (same transform) → flick-to-drift on release
       if (dtms > 0) {
-        const [vx, vy] = panToOffset((cx - manip.lastCx) / (rect.width / 2), (cy - manip.lastCy) / (rect.height / 2));
+        const [vx, vy] = pan((cx - manip.lastCx) / (rect.width / 2), (cy - manip.lastCy) / (rect.height / 2));
         manip.vx = vx / (dtms / 1000); manip.vy = vy / (dtms / 1000);
       }
       manip.lastCx = cx; manip.lastCy = cy; manip.lastT = now;
@@ -140,7 +130,7 @@ export function createOutputGestures(canvas, ctx) {
       // Natural-scroll trackpad: a two-finger scroll delta is the NEGATED finger travel, so the
       // fingers' content displacement is (−deltaX, −deltaY). Same transform → content follows the
       // fingers at any rotation. At 0° this reduces to (+deltaX, +deltaY) — the confirmed behavior.
-      const [cdx, cdy] = panToOffset(-e.deltaX / (rect.width / 2), -e.deltaY / (rect.height / 2));
+      const [cdx, cdy] = pan(-e.deltaX / (rect.width / 2), -e.deltaY / (rect.height / 2));
       state.canvasOffsetX += cdx;
       state.canvasOffsetY += cdy;
       ctx.onChange?.();

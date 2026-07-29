@@ -4,6 +4,18 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🔧 v0.20.4 (Build 461) — 2026-07-28 — Remote canvas pan fix (+ shared pan transform) + droste zoom catch-up
+
+Two greenlit follow-ups from Daniel's testing (the zoom-model rework is on hold pending a UX-research review).
+
+- **iPhone-gesture two-finger pan into Electron now works.** The phone streams `canvas.dragx/.dragy` for a two-finger pan, but the input bus's *canvas* branch only mapped `rotate` + `pinch` — the drag axes fell through and were dropped, so only the incidental pinch registered ("records a tiny pinch but not the pan"). It never worked on the canvas zone (the *slice* zone's drag→`sliceCx/Cy` did, which is why it felt inconsistent). Now canvas drag routes to `canvasOffset` on pannable forms, glided through the spring. **Known minor:** the phone sends X and Y as separate signals, so panning *while the canvas is rotated* skews slightly; unrotated is exact (the local touch path gets both axes in one event and stays exact).
+- **Shared pan transform (`kit/pan.js`).** The rotation + X-negation + Y-flip pan math (`panToOffset`) is lifted out of `output-gestures` into a shared module, so the local gesture and the remote gesture pan *identically* by construction — the same "one shared function per input axis" move as `kit/zoom.js`. Prevents the two surfaces from silently drifting apart (the registry-hardening input-entry-point axis).
+- **Droste zoom honors a vigorous multi-loop pinch + catches up faster.** The perform follower capped `drosteZoomPhase` at one loop of lead, so a fast multi-loop pinch was truncated. Raised its lead-cap to 4 loops (rotation keeps its tight 1-lap cap), and gave it a per-field **catch-up boost**: the spring speeds up the farther behind it is (`omega ← omega·(1 + min(3, 2·|lead|))`), so a big backlog rushes to catch up and settles quickly with minimal drift after you lift — Daniel's "increase the velocity of the trailing motion while it catches up." Perform-only; still/motion already honor the full pinch distance directly.
+
+**VERIFY (Daniel):** iPhone-as-gesture-surface + Electron, tileable/radial form → two-finger pan on the canvas now moves the composition (tune `PAN_GESTURE_SENS` if the speed's off). Droste + perform + transition delay → a vigorous multi-loop pinch travels the full distance and catches up fast.
+
+Verified: node --check, vite build. **Untested by Claude on-device.** Fresh Capacitor + Electron builds produced.
+
 ## 🔧 v0.20.3 (Build 460) — 2026-07-28 — Droste perform-zoom follows the gestured direction + compZoom decision
 
 The two follow-ups from Daniel's B459 testing.

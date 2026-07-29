@@ -44,6 +44,18 @@ const wrapTo = (v, P) => ((v % P) + P) % P;
 // reducing mod P here handles both. For P=360 this is exactly the old angDelta.
 const cycDelta = (a, b, P) => ((b - a + 1.5 * P) % P) - 0.5 * P;
 
+// How many PERIODS of accumulated lead a cyclic field may hold (default 1 — "chase
+// where you are, at most one lap behind; never replay stacked laps"). Rotation keeps
+// the tight 1-lap cap; the droste infinite-zoom phase is raised so a VIGOROUS multi-
+// loop pinch is honored in full instead of truncated to one loop (Daniel).
+const LEAD_CAP = { drosteZoomPhase: 4 };
+// Per-field CATCH-UP boost: the field's spring speeds up the farther behind it is, so
+// a big backlog (a fast multi-loop droste zoom) rushes to catch up and settles quickly
+// rather than crawling the whole distance at the transition rate — with minimal drift
+// after you lift (Daniel: "increase the velocity of the trailing motion while it catches
+// up"). omega ← omega·(1 + min(max, gain·|lead|/span)). Only drosteZoomPhase opts in.
+const BOOST = { drosteZoomPhase: { gain: 2, span: 1, max: 3 } };
+
 // Rough usable span per continuous field — the state-delta metric that makes
 // deltas comparable across fields (rotation moves in degrees, scale in ~unity).
 // Used for settle detection + the remaining-distance readout (the in-sync
@@ -82,13 +94,16 @@ export function createFollower(initial, { response = 0.35 } = {}) {
         // cyclic: accumulate the shortest-path delta from the PREVIOUS target —
         // a streamed 0→350 unwinds forward, a single jump goes the short way
         let nt = tgt[k] + cycDelta(wrapTo(tgt[k], P), next[k], P);
-        // cap the accumulated LEAD at one period: live following chases where you
-        // ARE (in your direction, at most a full lap behind) — it never replays
-        // stacked laps. Spinning past a period used to queue every lap and leave
-        // the output visibly moving long after the hand stopped.
+        // cap the accumulated LEAD at LEAD_CAP periods (default 1): live following
+        // chases where you ARE (in your direction, at most that many laps behind) —
+        // it never replays stacked laps beyond the cap. Rotation caps at 1 lap;
+        // droste zoom caps higher so a vigorous multi-loop pinch travels in full.
+        // Subtract whole periods to bring the lead back within the cap, preserving
+        // the target's phase alignment (nt ≡ next mod P).
+        const cap = (LEAD_CAP[k] || 1) * P;
         const lead = nt - cur[k];
-        if (lead > P) { const m = lead % P; nt = cur[k] + (m === 0 ? P : m); }
-        else if (lead < -P) { const m = (-lead) % P; nt = cur[k] + (m === 0 ? -P : -m); }
+        if (lead > cap) nt -= P * Math.ceil((lead - cap) / P);
+        else if (lead < -cap) nt += P * Math.ceil((-lead - cap) / P);
         // re-base a long session's drift toward 0 so unwrapped values never grow
         // unbounded (shift target + current together; velocity is a rate, unchanged)
         if (Math.abs(nt) > 20 * P) { const s = P * Math.floor(nt / P); nt -= s; cur[k] -= s; }
@@ -115,10 +130,15 @@ export function createFollower(initial, { response = 0.35 } = {}) {
       for (const k of CONTINUOUS_KEYS) { cur[k] = tgt[k]; vel[k] = 0; }
     } else if (dt > 0) {
       // exact critically damped step: y(t) = (y0 + (v0 + ωy0)t)·e^(−ωt)
-      const omega = 2 / tau;
-      const decay = Math.exp(-omega * dt);
+      const omega0 = 2 / tau;
       for (const k of CONTINUOUS_KEYS) {
         const y = cur[k] - tgt[k];
+        // per-field catch-up boost: fields in BOOST speed up the farther behind they
+        // are, so a big backlog rushes to catch up + settles (others ride omega0).
+        let omega = omega0;
+        const b = BOOST[k];
+        if (b) omega = omega0 * (1 + Math.min(b.max, b.gain * Math.abs(y) / b.span));
+        const decay = Math.exp(-omega * dt);
         const tmp = (vel[k] + omega * y) * dt;
         cur[k] = tgt[k] + (y + tmp) * decay;
         vel[k] = (vel[k] - omega * tmp) * decay;

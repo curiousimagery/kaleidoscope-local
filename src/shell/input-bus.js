@@ -29,6 +29,8 @@ import { createTrackpadInput } from './trackpad-input.js';
 import { createRemoteInput } from './remote-input.js';
 import qrcode from 'qrcode-generator';   // QR pairing (Daniel-approved dependency, MIT, zero-dep)
 import { applyUnifiedZoom } from '../kit/zoom.js';   // shared unified zoom — the canvas pinch routes here too
+import { panToOffset } from '../kit/pan.js';         // shared canvas-pan transform — the remote drag pans identically
+import { getActiveForm } from '../engine/forms/index.js';   // pannability check for the remote canvas drag
 
 const STORE_KEY = 'fold-inputs-v1';
 
@@ -190,6 +192,20 @@ export function createInputBus(env) {
       glideBy(targetOf('canvasZoom'), shadow.canvasZoom - goalZ, REMOTE_GLIDE_TAU);
       return;
     }
+    // CANVAS two-finger PAN from the phone gesture surface (mob canvas dragx/dragy). The overOut
+    // map below only had rotate + pinch, so this DROPPED the pan — "records a tiny pinch but not
+    // the pan" (Daniel). Route drag → canvasOffset through the SHARED pan transform (kit/pan.js),
+    // on pannable forms only. NOTE: x and y arrive as SEPARATE signals, so each is rotation-
+    // compensated independently — exact at 0°, mildly skewed when the canvas is rotated (the local
+    // touch path gets both axes in one event and is exact; acceptable for the remote surface).
+    if (!overSrc && (kind === 'dragx' || kind === 'dragy') && panDrivableNow()) {
+      const [dx, dy] = kind === 'dragx'
+        ? panToOffset(value * PAN_GESTURE_SENS, 0, state.canvasRotation)
+        : panToOffset(0, value * PAN_GESTURE_SENS, state.canvasRotation);
+      glideBy(targetOf('canvasOffsetX'), dx, REMOTE_GLIDE_TAU);
+      glideBy(targetOf('canvasOffsetY'), dy, REMOTE_GLIDE_TAU);
+      return;
+    }
     const key = overSrc
       ? { rotate: 'sliceRotation', pinch: 'sliceScale', dragx: 'sliceCx', dragy: 'sliceCy' }[kind]
       : { rotate: 'canvasRotation', pinch: (state.form === 'droste' ? 'drosteZoomPhase' : 'canvasZoom') }[kind];
@@ -215,6 +231,10 @@ export function createInputBus(env) {
   }
 
   const targetOf = (key) => PARAM_TARGETS.find((t) => t.key === key);
+  // pannable = tileable (has a lattice period) OR radial (pans via canvasOffset, no lattice).
+  // Mirrors main.js / mobile chrome's ctx.panDrivable — a candidate for the shared helper when
+  // the "one fn per input axis" hardening lands (the same duplication kit/pan.js just resolved).
+  const panDrivableNow = () => { const f = getActiveForm(state); return !!(f && (f.latticePeriod || f.id === 'radial')); };
 
   function applyMapping(m, value, meta) {
     if (m.target.startsWith('action:')) {
@@ -278,6 +298,7 @@ export function createInputBus(env) {
   // a touch of capture latency beats WS-burst choppiness in the staged panel).
   const REMOTE_GLIDE_TAU = 0.35;
   const PINCH_ZOOM_SENS = 3;   // WS scale-delta → unified-zoom factor exponent. TUNE: bigger = zoomier.
+  const PAN_GESTURE_SENS = 0.3;   // remote canvas-drag → canvasOffset delta scalar. TUNE: bigger = faster pan.
   function glideBy(t, d, tau = 0.18) {
     let g = glide.get(t.key);
     if (!g) { g = { cur: state[t.key] ?? 0, vel: 0, goal: state[t.key] ?? 0, tau }; glide.set(t.key, g); }
