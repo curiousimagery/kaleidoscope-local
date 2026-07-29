@@ -36,7 +36,7 @@ const STORE_KEY = 'fold-inputs-v1';
 // transport ACTIONS. `dir` names the low → high direction for the invert read.
 const PARAM_TARGETS = [
   { key: 'sliceRotation', label: 'slice rotation', min: 0, max: 360, wrap: true, dir: '0° → 360° counterclockwise' },
-  { key: 'sliceScale', label: 'slice scale', min: 0.05, max: 3, dir: 'small → large' },
+  { key: 'sliceScale', label: 'slice scale', min: 0.05, max: 5, dir: 'small → large' },   // max 5 (matches kit/zoom.js Z_SLICE_MAX)
   { key: 'sliceCx', label: 'slice position x', min: 0, max: 1, dir: 'left → right' },
   { key: 'sliceCy', label: 'slice position y', min: 0, max: 1, dir: 'top → bottom' },
   // SEMANTIC "zoom" — one mapping point that RESOLVES to the active form's zoom control, so a
@@ -179,8 +179,15 @@ export function createInputBus(env) {
     // surface used to write canvasZoom directly and bypass it. Direct-apply (the additive path's
     // glideBy jitter-smoothing isn't wired here yet — tune sensitivity / add glide if it reads jerky).
     if (!overSrc && kind === 'pinch' && state.form !== 'droste') {
-      applyUnifiedZoom(state, Math.exp(value));   // value = scale delta ×2 → multiplicative factor
-      env.scheduleRender?.(); env.sourceOverlay?.scheduleDraw?.(); env.syncControls?.();
+      // route through the SHARED unified zoom, GLIDED through the spring so bursty WS pinch events read
+      // smoothly (Daniel: jerky). Apply the zoom to the current glide GOALS, then ease state toward them.
+      // PINCH_ZOOM_SENS scales the WS scale-delta into a multiplicative factor — TUNE on-device.
+      const gS = glide.get('sliceScale'), gZ = glide.get('canvasZoom');
+      const goalS = gS?.goal ?? state.sliceScale, goalZ = gZ?.goal ?? state.canvasZoom;
+      const shadow = { sliceScale: goalS, canvasZoom: goalZ };
+      applyUnifiedZoom(shadow, Math.exp(value * PINCH_ZOOM_SENS));
+      glideBy(targetOf('sliceScale'), shadow.sliceScale - goalS, REMOTE_GLIDE_TAU);
+      glideBy(targetOf('canvasZoom'), shadow.canvasZoom - goalZ, REMOTE_GLIDE_TAU);
       return;
     }
     const key = overSrc
@@ -270,6 +277,7 @@ export function createInputBus(env) {
   // the snappy 0.18s; phone gestures get a longer response (Daniel's call —
   // a touch of capture latency beats WS-burst choppiness in the staged panel).
   const REMOTE_GLIDE_TAU = 0.35;
+  const PINCH_ZOOM_SENS = 3;   // WS scale-delta → unified-zoom factor exponent. TUNE: bigger = zoomier.
   function glideBy(t, d, tau = 0.18) {
     let g = glide.get(t.key);
     if (!g) { g = { cur: state[t.key] ?? 0, vel: 0, goal: state[t.key] ?? 0, tau }; glide.set(t.key, g); }

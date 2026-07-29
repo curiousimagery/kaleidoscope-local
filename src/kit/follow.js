@@ -18,20 +18,31 @@
 // and it never overshoots. A literal fixed-duration tween can be added as an
 // alternate mode later if perceptual disappoints.
 //
-// Angles follow in UNWRAPPED space: each target update accumulates the
+// CYCLIC fields follow in UNWRAPPED space: each target update accumulates the
 // shortest-path delta from the PREVIOUS target, so an input that travels
-// 0°→350° through intermediate values follows the long way (the way you
-// moved), while a single 0°→350° jump takes the short way (−10°). Gesture
-// capture stays the richer winding story (later arc); this rule is what makes
-// live following feel right for free.
+// 0→350 through intermediate values follows the long way (the way you moved,
+// the +gesture direction), while a single 0→350 jump takes the short way (the
+// least-disruptive return-to-center path). This is the one rule that makes live
+// following feel right for free — and it is period-agnostic: angles cycle at
+// 360°, droste infinite-zoom PHASE at 1. drosteZoomPhase joins so a pinch that
+// crosses the loop seam in perform keeps zooming the direction you gestured
+// instead of the follower easing backward toward the wrapped value. (Gesture
+// capture stays the richer winding story — later arc.)
 //
 // Kit layer: pure functions, no DOM, no chrome, no timers — the caller owns
 // the clock (pass dtMs per frame).
 
-import { CONTINUOUS_KEYS, ANGULAR_KEYS, DISCRETE_KEYS, angDelta } from './tween.js';
+import { CONTINUOUS_KEYS, DISCRETE_KEYS } from './tween.js';
 
-const ANGULAR = new Set(ANGULAR_KEYS);
-const wrap360 = (v) => ((v % 360) + 360) % 360;
+// stateKey → cycle PERIOD. Everything else is linear. (Angles used to be a
+// hardcoded 360 special-case; generalizing to a period lets infinite-zoom phase
+// reuse the identical directional-unwrap without a second code path.)
+const CYCLE = { sliceRotation: 360, canvasRotation: 360, drosteZoomPhase: 1 };
+const wrapTo = (v, P) => ((v % P) + P) % P;
+// signed shortest-path delta a→b within one period, in (−P/2, +P/2]. b may be
+// unwrapped (trackpad writes phase raw) or wrapped (mobile writeParam wraps it);
+// reducing mod P here handles both. For P=360 this is exactly the old angDelta.
+const cycDelta = (a, b, P) => ((b - a + 1.5 * P) % P) - 0.5 * P;
 
 // Rough usable span per continuous field — the state-delta metric that makes
 // deltas comparable across fields (rotation moves in degrees, scale in ~unity).
@@ -66,20 +77,21 @@ export function createFollower(initial, { response = 0.35 } = {}) {
   function setTarget(next) {
     for (const k of CONTINUOUS_KEYS) {
       if (next[k] == null) continue;
-      if (ANGULAR.has(k)) {
-        // angular: accumulate the shortest-path delta from the PREVIOUS target —
+      const P = CYCLE[k];
+      if (P) {
+        // cyclic: accumulate the shortest-path delta from the PREVIOUS target —
         // a streamed 0→350 unwinds forward, a single jump goes the short way
-        let nt = tgt[k] + angDelta(wrap360(tgt[k]), next[k]);
-        // cap the accumulated LEAD at one turn: live following chases where you
+        let nt = tgt[k] + cycDelta(wrapTo(tgt[k], P), next[k], P);
+        // cap the accumulated LEAD at one period: live following chases where you
         // ARE (in your direction, at most a full lap behind) — it never replays
-        // stacked laps. Spinning past 360° used to queue every lap and leave the
-        // output visibly rotating long after the hand stopped.
+        // stacked laps. Spinning past a period used to queue every lap and leave
+        // the output visibly moving long after the hand stopped.
         const lead = nt - cur[k];
-        if (lead > 360) { const m = lead % 360; nt = cur[k] + (m === 0 ? 360 : m); }
-        else if (lead < -360) { const m = (-lead) % 360; nt = cur[k] + (m === 0 ? -360 : -m); }
+        if (lead > P) { const m = lead % P; nt = cur[k] + (m === 0 ? P : m); }
+        else if (lead < -P) { const m = (-lead) % P; nt = cur[k] + (m === 0 ? -P : -m); }
         // re-base a long session's drift toward 0 so unwrapped values never grow
         // unbounded (shift target + current together; velocity is a rate, unchanged)
-        if (Math.abs(nt) > 7200) { const s = 360 * Math.floor(nt / 360); nt -= s; cur[k] -= s; }
+        if (Math.abs(nt) > 20 * P) { const s = P * Math.floor(nt / P); nt -= s; cur[k] -= s; }
         tgt[k] = nt;
       } else {
         tgt[k] = next[k];
@@ -112,7 +124,7 @@ export function createFollower(initial, { response = 0.35 } = {}) {
         vel[k] = (vel[k] - omega * tmp) * decay;
       }
     }
-    for (const k of CONTINUOUS_KEYS) snapshot[k] = ANGULAR.has(k) ? wrap360(cur[k]) : cur[k];
+    for (const k of CONTINUOUS_KEYS) snapshot[k] = CYCLE[k] ? wrapTo(cur[k], CYCLE[k]) : cur[k];
     return { ...snapshot };
   }
 

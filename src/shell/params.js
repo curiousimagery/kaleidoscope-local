@@ -140,6 +140,12 @@ export const PARAMS = {
     },
   },
 
+  // COMPOSITION ZOOM — the deliberate DIRECT `canvasZoom` escape hatch, NOT routed through
+  // the unified zoom (kit/zoom.js). Gestures own the unified slice↔canvas distribution; this
+  // slider is the explicit "just scale the canvas" power control for when you want one axis of
+  // that pair by hand. Bounds mirror kit/zoom.js Z_CANVAS_MIN/MAX (0.15/4). It stays in sync
+  // after a gesture via the onChange→syncControls path, so its thumb still reflects any
+  // canvasZoom the unified path set. (Decision, Daniel: keep it direct — minimal-change refine.)
   compZoom: {
     id: 'compZoom', label: 'composition zoom', type: 'range', scope: 'canvas',
     sliderId: 'compZoom', valId: 'compZoomVal', key: 'canvasZoom',

@@ -4,6 +4,32 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🔧 v0.20.3 (Build 460) — 2026-07-28 — Droste perform-zoom follows the gestured direction + compZoom decision
+
+The two follow-ups from Daniel's B459 testing.
+
+- **Droste infinite-zoom now follows the direction you pinched in perform.** Root cause: the perform follower classified `drosteZoomPhase` as a plain **linear** field, but the phase is written wrapped into [0,1) — so a pinch crossing the loop seam (0.95→0.05) made the follower ease *backward* toward 0.05 (the "barely moves / goes backwards" bug, worst with a transition delay). Fix: the follower's angular-unwrap machinery (which already does directional-for-a-streamed-sweep, shortest-path-for-a-single-jump) is generalized from a hardcoded 360° to a **per-field period**, and `drosteZoomPhase` joins it with period 1. So a streamed pinch unwinds forward through the seam the way you gestured (+gesture direction), while a stage/take/cut still snaps the least-disruptive short way (Daniel's explicit distinction — directional for gestures, shortest for return-to-center). Angle following is provably unchanged (period 360 reduces to the old code). Only the perform follower is touched — motion tweening keeps its own linear-unwrapped handling.
+- **Composition-zoom slider stays a direct `canvasZoom` control (decision).** Not routed through the unified zoom — the gesture owns the slice↔canvas distribution; this slider is the deliberate one-axis escape hatch, its bounds already mirror `kit/zoom.js` (0.15/4), and it already stays in sync after a gesture via `onChange`. Minimal-change refine; documented in `params.js` + `kit/zoom.js` so it isn't mistaken for an un-unified loose end.
+
+**VERIFY (Daniel):** droste, perform mode, non-zero transition delay → pinch to zoom in continuously → the output keeps zooming in the pinched direction through the loop seam (no backward snap / stall); stage a different look + take → the phase settles the short way.
+
+Verified: node --check, vite build. **Untested by Claude on-device.** Fresh Capacitor + Electron builds produced.
+
+## 🔧 v0.20.2 (Build 458→459) — 2026-07-28 — Zoom-in magnifies the canvas + remote pinch smoothed
+
+Follow-ups from Daniel's testing of the shared unified zoom:
+
+- **Zoom IN now magnifies the canvas (the real fix).** Both the "iPhone canvas pinch only touches slice" and the "iPad affordance doesn't scale up on zoom-in" reduce to the same thing: the model shrank the slice on zoom-in instead of magnifying. Reworked `applyUnifiedZoom` into a monotonic, **invertible** sweep with the pivot at (slice=1, canvas=1): zoom OUT is slice-first (grow window → then canvasZoom<1), zoom IN magnifies the canvas first (canvasZoom>1 → then a source-detail zoom), and each direction cleanly undoes the other's state so pinch-in-then-out returns to start (no hysteresis).
+- **Remote pinch smoothed + stronger.** The iPad-gesture-surface pinch now routes through the existing critically-damped spring (glide) instead of direct-apply, so bursty WS events read smoothly. Added a tunable `PINCH_ZOOM_SENS` (currently 3) since the previous `exp(value)` under-scaled — **tune on-device.** Also raised the `sliceScale` input-target max 3→5 to match `kit/zoom.js`.
+
+**Deferred with rationale (Daniel):**
+- **compZoom slider:** *not* routed through the unified zoom — doing so breaks its feel (zoom-out grows the slice, but the "composition zoom" slider shows `canvasZoom`, which wouldn't move → the slider fights back). Cleanest options: leave it a **direct `canvasZoom` power-control** (recommended), or **relabel it to a unified "zoom" slider** (a UX change). Your call.
+- **Droste zoom in perform + transition-delay barely moves / goes backwards:** a *different* subsystem — the perform follower eases `drosteZoomPhase` (a looping accumulator) toward the target along the shortest wrap path, so an explicit pinch can read as backward/stall. Wants the follower to trace the **gestured path** (the +gesture-vs-+keyframe distinction). Filed for a focused follower pass — not part of the zoom-entry-point work.
+
+**VERIFY (Daniel):** pinch to zoom IN on any non-droste form → the canvas magnifies (canvasZoom rises past 1); zoom OUT grows the slice first; iPad-surface pinch is smooth (tune `PINCH_ZOOM_SENS` if weak/strong).
+
+Verified: node --check, vite build. **Untested by Claude on-device.** Fresh Capacitor + Electron builds produced.
+
 ## 🔧 v0.20.1 (Build 458) — 2026-07-26 — Unified zoom is now shared (fixes the iPad gesture-surface bypass)
 
 Bug 2: the slice-first-then-canvas zoom didn't reach the iPad-as-gesture-surface (its pinch is applied on the Electron side via `input-bus`, which wrote `canvasZoom` directly), and the iPad's reference overlay didn't resize.
