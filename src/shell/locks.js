@@ -39,9 +39,10 @@ const ENCODER_TIED = new Set(['frameAspect']);
 
 const WHY = {
   structural: 'locked — this applies to the whole animation. unlock to change it across every keyframe.',
+  broadcast:  'locked while broadcasting to prevent accidental changes. unlock (tap the padlock) to change it live.',
   fatFinger:  'locked to prevent accidental drags. unlock to adjust.',
   resolution: 'locked while broadcasting. stop the output to change resolution.',
-  aspect:     'locked while broadcasting. stop the output to change the frame aspect.',
+  aspect:     'locked while broadcasting. stop the output to change the frame aspect (or use the fill-display toggle).',
 };
 
 // The current lock state of a control.
@@ -87,7 +88,9 @@ export function lockState(ctx, key) {
   const scopeKey = structuralLock ? key + ':structural' : key;
   const override = session.locks && session.locks[scopeKey];
   const locked = override !== undefined ? override : structuralLock;   // default: locked iff structural context
-  const why = structuralLock ? WHY.structural : WHY.fatFinger;
+  // during BROADCAST the reason is "don't disrupt the live output" (not the motion "applies across
+  // keyframes" story) — but it's still user-unlockable (structural, not encoder-tied).
+  const why = structuralLock ? (outputLive ? WHY.broadcast : WHY.structural) : WHY.fatFinger;
   return { locked, lockable: true, unlockable: true, scopeKey, why: locked ? why : 'unlocked — click to lock' };
 }
 

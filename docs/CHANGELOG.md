@@ -4,6 +4,43 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 📡 v0.20.14 (Build 471) — 2026-07-29 — NDI adaptive publish-rate governor (WiFi smoothness)
+
+Daniel's ethernet A/B (WiFi off → smooth in Arena) confirmed the NDI stutter is **WiFi-transport-bound**, not render/pipeline. Firing every rendered frame overruns WiFi's fluctuating capacity in bursts (buffer fills → host drops → visible stall).
+
+- **Adaptive pacing in `ndi-sink.js`.** The sink now holds an EVEN inter-frame gap the wire can sustain instead of bursting — a steady 30 reads far smoother than a bursty 54. AIMD, biased for margin: a backpressure drop (host `publish()` → false) widens the gap fast (back off); sustained success narrows it slowly (probe back toward full render rate). On **ethernet the gap collapses to ~0** (full rate); on **WiFi it settles just under capacity** so delivery is smooth. Sender-agnostic — helps iPhone + iPad. Skipped frames are free (Arena only ever wants the freshest frame; the next paced tick sends the latest render). Knobs (`GAP_UP/GAP_DOWN/PROBE_OK/GAP_MAX`) are tunable.
+- **Breadcrumb:** the sink logs `[fold] NDI paced <fps>fps · gap <ms>` once/sec — watch the gap converge (0 = full rate/ethernet; a settled positive value = WiFi capacity found). The native `[FoldNdi]` line's `send-wait` should also drop.
+- Syphon unaffected (local, no transport wall).
+
+**VERIFY (Daniel):** iPad + iPhone NDI → Arena on **WiFi** → playback is smooth (a steady, slightly-lower fps, no sputter/blackout); ethernet still runs full-rate. Console `gap` settles to a positive value on WiFi, ~0 on ethernet.
+
+Verified: node --check, vite build. **Untested by Claude on-device.** Fresh Capacitor + Electron builds produced.
+
+## 📺 v0.20.13 (Build 470) — 2026-07-29 — Video sources over the external display (HDMI/AirPlay)
+
+Daniel's #1 remaining conduit gap. A loaded video is a `blob:` URL, which is per-webview, so the external WKWebView couldn't read the main context's clip — it showed the "video sources coming" hint. Closed it (iPad/desktop chrome, where video sources live). **Native + device-blind — needs an iOS Xcode rebuild + verification.**
+
+- **Native staging + range serving** (`FoldExternalDisplayPlugin`). The main view hands the clip bytes to the plugin once (base64, on source change) via a new `stageVideo` method; the plugin writes a cache file and the `fold-ext://` scheme handler serves it back to the external view over `/staged/*` **with HTTP RANGE support** (a 206 handler — WKWebView's `<video>` refuses to play a custom scheme without it). Added video MIME types + a `clearStaged` cleanup (called on broadcast stop). Clip is capped (~60MB) so base64 can't jetsam the webview; larger clips fall back to the honest hint.
+- **JS wiring** (`external-display.js`): `buildSourcePayload` now stages the clip and returns `{ kind:'video', url }` instead of "unsupported."
+- **Render + clock-sync already existed:** `output-view.js` already loads `kind:'video'` and `reconcileVideo()` locks the external `<video>` to the program clock (paused/rate/drift via `getVideoSync`) — so motion animations *of* a video source track the timeline too. This build just delivers the clip to that machinery on Capacitor. (Desktop output-window already worked via a same-origin blob.)
+- iPhone/mobile chrome unaffected — it has no video sources (image + live-camera only).
+
+**VERIFY (Daniel, after Xcode rebuild):** iPad + HDMI/AirPlay → load a video source → it now **plays** on the external display (not the "coming soon" hint) and stays in sync with the program; motion of a video source tracks; stills/camera/test-pattern still work; a very large clip shows the "too large" hint.
+
+Verified: node --check, vite build, Swift brace balance. **Native path untested by Claude — device-gated.** Fresh Capacitor (Xcode rebuild) + Electron builds produced.
+
+## 🔒 v0.20.12 (Build 469) — 2026-07-29 — Locked-control feedback + broadcast-aware lock reason
+
+Per Daniel: structural controls (form, segments, spiral, mirrors, oobMode) are already user-unlockable mid-broadcast (they don't touch encoder dims); `frameAspect`/`outputRes` stay hard-locked (they'd force a sender restart). The gaps were feedback + wording.
+
+- **Tapping a locked control now shows a toast** explaining why it's locked and how to change it (mobile). The locked body is `pointer-events:none`, so a tap silently did nothing — it read as broken. A delegated listener catches the tap-through to the `.m-control` (tagged with its lock key) and surfaces the reason: for structural → "unlock (tap the padlock) to change it live"; for the encoder-tied aspect → "stop the output to change the frame aspect (or use the fill-display toggle)." The padlock's own tap stays exempt.
+- **Broadcast-aware lock reason** (`WHY.broadcast`): during broadcast a structural lock now reads "locked while broadcasting to prevent accidental changes — unlock to change it live," instead of the motion-context "applies across every keyframe" wording (which was confusing when broadcasting a still). Improves the desktop lock tooltip too.
+- Structural unlock already works on both chromes (mobile padlocks + desktop form-header padlock with a confirm) — no model change; only feedback/wording.
+
+**VERIFY (Daniel):** mid-broadcast, tap a locked control → a toast explains it; tap the padlock on a structural one (segments/mirror/etc.) → unlock → change → re-lock; aspect/resolution still hard-locked with a clear "stop output / use fill-display" toast.
+
+Verified: node --check, vite build. Fresh Capacitor + Electron builds produced.
+
 ## 🎛️ v0.20.11 (Build 468) — 2026-07-29 — iPad/native touch pan gain (matches the trackpad feel)
 
 - **Native touch pan sped up** (`PAN_TOUCH_GAIN` = 3.5, `output-gestures`). iPad two-finger pan moved only ~¼ of the finger travel because the local touch path is raw centroid travel, while the desktop trackpad's wheel deltas are OS-accelerated ~3× (which is why *that* felt good). The B467 `PAN_GESTURE_SENS` bump only touched the *remote* (input-bus) path, not the local touch path — so iPad/iPhone native pan never got it. Boosted the touch centroid (position + flick velocity) to match; wheel/trackpad pan is unchanged. TUNE `PAN_TOUCH_GAIN` if it over/undershoots.

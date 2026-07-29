@@ -25,6 +25,20 @@ export function createNdiSink(host) {
   // `false` from publish() declares the drop; anything else counts as sent.
   let sent = 0, winStart = 0, fps = 0;
 
+  // ADAPTIVE PACING — Daniel's ethernet A/B proved the NDI stutter is WiFi-TRANSPORT-bound (smooth
+  // on ethernet, halting on WiFi), not render/pipeline. Firing every rendered frame overruns WiFi's
+  // fluctuating capacity in BURSTS (buffer fills → the host drops → visible stall). Instead we hold
+  // an EVEN inter-frame GAP the wire can sustain — a steady 30 reads far smoother than a bursty 54.
+  // AIMD, biased for MARGIN: a backpressure DROP (host publish() → false) widens the gap FAST
+  // (congested → back off); sustained success narrows it SLOWLY (probe back toward the render rate).
+  // On ethernet the gap collapses to ~0 (full rate); on WiFi it settles just under capacity so
+  // delivery is smooth. Sender-agnostic (helps iPhone + iPad). All knobs TUNABLE.
+  const GAP_MAX = 60;    // ms — never pace slower than ~16fps (below this NDI isn't worth it)
+  const GAP_UP = 4;      // ms added per drop (fast additive increase — leave headroom for WiFi jitter)
+  const GAP_DOWN = 0.5;  // ms shaved per PROBE_OK run (slow multiplicative-ish decrease → keeps margin)
+  const PROBE_OK = 20;   // consecutive delivered frames before probing faster (~0.5–0.7s)
+  let gap = 0, lastT = 0, okRun = 0;
+
   return {
     id: 'ndi',
     supported: !!(ndi && ndi.available),
@@ -37,6 +51,7 @@ export function createNdiSink(host) {
       if (!ndi) return;
       ndi.start(name);
       sent = 0; winStart = 0; fps = 0;
+      gap = 0; lastT = 0; okRun = 0;   // re-probe capacity each session (network may differ)
       active = true;
     },
 
@@ -53,12 +68,25 @@ export function createNdiSink(host) {
     // it to NDI's line stride / flipped semantics).
     publish(frame) {
       if (!active || !ndi) return;
-      const ok = ndi.publish(frame.pixels, frame.w, frame.h, !!frame.topDown);
       const now = performance.now();
+      // PACE: hold the sustainable cadence — drop this interstitial frame (Arena only ever wants
+      // the FRESHEST frame, so skipping is free; the next paced tick sends the latest render).
+      if (now - lastT < gap) return;
+      lastT = now;
+      const ok = ndi.publish(frame.pixels, frame.w, frame.h, !!frame.topDown);
+      if (ok === false) {
+        gap = Math.min(GAP_MAX, gap + GAP_UP);   // congested → back off
+        okRun = 0;
+      } else {
+        sent++;
+        if (++okRun >= PROBE_OK) { gap = Math.max(0, gap - GAP_DOWN); okRun = 0; }   // probe faster
+      }
       if (!winStart) winStart = now;
-      if (ok !== false) sent++;
       if (now - winStart >= 1000) {
         fps = Math.round((sent * 10000) / (now - winStart)) / 10;
+        // breadcrumb: the paced fps + converged gap (0ms = full render rate / ethernet; a settled
+        // positive gap = WiFi capacity found). Shows the governor working in the Xcode console.
+        console.info(`[fold] NDI paced ${fps}fps · gap ${gap.toFixed(1)}ms`);
         sent = 0; winStart = now;
       }
     },

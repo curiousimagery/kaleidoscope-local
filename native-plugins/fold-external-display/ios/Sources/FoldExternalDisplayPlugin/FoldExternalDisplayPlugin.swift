@@ -27,13 +27,22 @@ import WebKit
 // Serves the app's bundled web assets (the public/ folder cap sync copies in) to
 // the external webview under the fold-ext:// scheme.
 class ExternalAssetHandler: NSObject, WKURLSchemeHandler {
-    let root: URL
-    init(root: URL) { self.root = root }
+    let root: URL       // the bundled public/ web assets
+    let staged: URL     // a writable cache dir for STAGED media (video sources) — served /staged/*
+    init(root: URL, staged: URL) { self.root = root; self.staged = staged }
 
     func webView(_ webView: WKWebView, start urlSchemeTask: WKURLSchemeTask) {
         guard let url = urlSchemeTask.request.url else { return }
         var path = url.path
         if path.isEmpty || path == "/" { path = "/index.html" }
+        // STAGED media (a video source cached for the external view) — served with HTTP RANGE
+        // support, which WKWebView's <video> element REQUIRES for a custom scheme (a 200 full-file
+        // response makes AVFoundation refuse to play). Bundle assets keep their simple path below.
+        if path.hasPrefix("/staged/") {
+            let name = String(path.dropFirst("/staged/".count))
+            serveWithRange(staged.appendingPathComponent(name), task: urlSchemeTask, url: url)
+            return
+        }
         let fileURL = root.appendingPathComponent(String(path.dropFirst()))
         guard let data = try? Data(contentsOf: fileURL) else {
             urlSchemeTask.didFailWithError(NSError(domain: "fold-ext", code: 404,
@@ -45,6 +54,44 @@ class ExternalAssetHandler: NSObject, WKURLSchemeHandler {
         urlSchemeTask.didReceive(resp)
         urlSchemeTask.didReceive(data)
         urlSchemeTask.didFinish()
+    }
+
+    // Serve a staged file, honoring a `Range: bytes=start-end` request with a 206 response (206 +
+    // Content-Range + Accept-Ranges), else a 200 with Accept-Ranges advertised.
+    private func serveWithRange(_ fileURL: URL, task: WKURLSchemeTask, url: URL) {
+        guard let size = (try? FileManager.default.attributesOfItem(atPath: fileURL.path)[.size]) as? Int,
+              let handle = try? FileHandle(forReadingFrom: fileURL) else {
+            task.didFailWithError(NSError(domain: "fold-ext", code: 404,
+                userInfo: [NSLocalizedDescriptionKey: "staged not found"]))
+            return
+        }
+        defer { try? handle.close() }
+        var status = 200, start = 0, end = max(0, size - 1)
+        var headers = ["Content-Type": Self.mime(for: fileURL.pathExtension), "Accept-Ranges": "bytes"]
+        if let rh = task.request.value(forHTTPHeaderField: "Range"), let r = Self.parseRange(rh, size: size) {
+            status = 206; start = r.0; end = r.1
+            headers["Content-Range"] = "bytes \(start)-\(end)/\(size)"
+        }
+        let length = end - start + 1
+        headers["Content-Length"] = "\(length)"
+        handle.seek(toFileOffset: UInt64(start))
+        let data = handle.readData(ofLength: length)
+        guard let resp = HTTPURLResponse(url: url, statusCode: status, httpVersion: "HTTP/1.1", headerFields: headers) else {
+            task.didFailWithError(NSError(domain: "fold-ext", code: 500, userInfo: nil)); return
+        }
+        task.didReceive(resp)
+        task.didReceive(data)
+        task.didFinish()
+    }
+
+    // "bytes=START-END" → (start, end) clamped to the file; END optional. nil if malformed/unsatisfiable.
+    static func parseRange(_ header: String, size: Int) -> (Int, Int)? {
+        guard header.hasPrefix("bytes="), size > 0 else { return nil }
+        let parts = header.dropFirst("bytes=".count).split(separator: "-", maxSplits: 1, omittingEmptySubsequences: false)
+        guard let s = parts.first, let start = Int(s), start < size else { return nil }
+        var end = size - 1
+        if parts.count > 1, !parts[1].isEmpty, let e = Int(parts[1]) { end = min(e, size - 1) }
+        return start <= end ? (start, end) : nil
     }
 
     func webView(_ webView: WKWebView, stop urlSchemeTask: WKURLSchemeTask) {}
@@ -61,6 +108,9 @@ class ExternalAssetHandler: NSObject, WKURLSchemeHandler {
         case "ico": return "image/x-icon"
         case "webmanifest": return "application/manifest+json"
         case "wasm": return "application/wasm"
+        case "mp4", "m4v": return "video/mp4"
+        case "mov": return "video/quicktime"
+        case "webm": return "video/webm"
         default: return "application/octet-stream"
         }
     }
@@ -75,6 +125,8 @@ public class FoldExternalDisplayPlugin: CAPPlugin, CAPBridgedPlugin, WKScriptMes
         CAPPluginMethod(name: "start", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "stop", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "postState", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "stageVideo", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "clearStaged", returnType: CAPPluginReturnPromise),
     ]
 
     private var externalWindow: UIWindow?
@@ -202,7 +254,7 @@ public class FoldExternalDisplayPlugin: CAPPlugin, CAPBridgedPlugin, WKScriptMes
         }
 
         let config = WKWebViewConfiguration()
-        config.setURLSchemeHandler(ExternalAssetHandler(root: root), forURLScheme: "fold-ext")
+        config.setURLSchemeHandler(ExternalAssetHandler(root: root, staged: Self.stagedDir()), forURLScheme: "fold-ext")
         config.allowsInlineMediaPlayback = true
         config.mediaTypesRequiringUserActionForPlayback = []
         config.userContentController.add(self, name: "foldExternal")
@@ -301,6 +353,33 @@ public class FoldExternalDisplayPlugin: CAPPlugin, CAPBridgedPlugin, WKScriptMes
                 completionHandler: nil)
             call.resolve()
         }
+    }
+
+    // A writable cache dir for staged media (video sources served to the external view). A blob:
+    // URL is per-webview, so a loaded video can't cross into the external context — the main view
+    // hands us the bytes once (base64) and we serve the file over fold-ext://localhost/staged/*.
+    static func stagedDir() -> URL {
+        FileManager.default.temporaryDirectory.appendingPathComponent("fold-ext-staged", isDirectory: true)
+    }
+
+    @objc func stageVideo(_ call: CAPPluginCall) {
+        guard let id = call.getString("id"), let b64 = call.getString("data"),
+              let data = Data(base64Encoded: b64) else {
+            call.reject("stageVideo: missing/invalid id or data"); return
+        }
+        let dir = Self.stagedDir()
+        do {
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            try data.write(to: dir.appendingPathComponent(id))
+            call.resolve(["url": "fold-ext://localhost/staged/\(id)"])
+        } catch {
+            call.reject("stageVideo: write failed \(error.localizedDescription)")
+        }
+    }
+
+    @objc func clearStaged(_ call: CAPPluginCall) {
+        try? FileManager.default.removeItem(at: Self.stagedDir())
+        call.resolve()
     }
 
     // Messages UP from the external view (hello / fps) → a plugin event.

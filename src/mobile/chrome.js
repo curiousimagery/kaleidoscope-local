@@ -640,6 +640,7 @@ $('m-fit-toggle').addEventListener('click', () => {
     const ctl = byId(t.id); if (!ctl) continue;
     const row = ctl.querySelector('.m-control-row'); if (!row) continue;
     row.classList.add('has-lock');
+    ctl.dataset.lockKey = t.key;   // so a tap on the locked body can look up WHY it's locked
     const btn = makeLockToggle(env, t.key, () => {});   // env.setLock already re-syncs everything
     row.appendChild(btn);
     syncers.push(() => {
@@ -647,6 +648,18 @@ $('m-fit-toggle').addEventListener('click', () => {
       ctl.classList.toggle('m-locked', env.isLocked(t.key).locked);
     });
   }
+  // FEEDBACK ON A LOCKED TAP (Daniel): a locked control's body is `pointer-events:none`, so a tap
+  // there silently did nothing — it read as broken. The event taps THROUGH to the `.m-control`
+  // parent (which keeps its data-lock-key), so a delegated listener can surface WHY it's locked +
+  // how to unlock (the padlock, for unlockable structural controls; "stop output" for the
+  // encoder-tied aspect/resolution). The padlock's own tap is exempt (it handles unlock itself).
+  document.addEventListener('click', (e) => {
+    if (e.target.closest('.lock-toggle')) return;
+    const ctl = e.target.closest('[data-lock-key]');
+    if (!ctl) return;
+    const st = env.isLocked(ctl.dataset.lockKey);
+    if (st.locked) statusToast('busy', st.why, { ttl: 3000 });
+  });
   // form tab — hard-locked while output is live (contextual): show the lock cue, block the menu.
   const formTab = byId('m-tab-form');
   syncers.push(() => { if (formTab) formTab.classList.toggle('m-locked', env.isLocked('form').locked); });

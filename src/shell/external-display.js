@@ -57,6 +57,36 @@ export function sourceToDataUrl(src, cap = 4096) {
   return c.toDataURL('image/jpeg', 0.9);
 }
 
+// ---- video staging (external display) ---------------------------------------
+// A loaded video is a blob: URL, which is per-webview — the external WKWebView can't read the main
+// context's blob. So we hand the CLIP BYTES to the native plugin ONCE (base64, on source change),
+// which writes a cache file and serves it back over fold-ext://localhost/staged/* WITH HTTP RANGE
+// support (WKWebView's <video> requires 206). output-view.js already handles `kind:'video'` + syncs
+// the external <video> to the program clock (getVideoSync). Capped: base64 of a large clip risks a
+// webview jetsam; loops/short clips are well under, larger ones fall back to the honest hint.
+const STAGE_MAX_BYTES = 60 * 1024 * 1024;
+
+async function stageVideoForExternal(blobUrl) {
+  const blob = await (await fetch(blobUrl)).blob();
+  if (blob.size > STAGE_MAX_BYTES) return null;
+  const dataUrl = await new Promise((res, rej) => {
+    const r = new FileReader();
+    r.onload = () => res(String(r.result));
+    r.onerror = () => rej(r.error || new Error('read failed'));
+    r.readAsDataURL(blob);
+  });
+  const b64 = dataUrl.slice(dataUrl.indexOf(',') + 1);
+  const t = blob.type || '';
+  const ext = t.includes('quicktime') ? 'mov' : t.includes('webm') ? 'webm' : 'mp4';
+  const id = `src-${Date.now()}.${ext}`;
+  const res = await FoldExternalDisplay.stageVideo({ id, data: b64 });
+  return res?.url || null;
+}
+
+function clearStagedVideo() {
+  try { FoldExternalDisplay.clearStaged(); } catch { /* plugin may be down */ }
+}
+
 // ---- the poster core --------------------------------------------------------
 // A thin ADAPTER over conduit's transport-neutral poster (conduit/external-surface.js):
 // this owns the iOS-specific plugin lifecycle (displayChanged/externalMessage/status
@@ -234,7 +264,13 @@ export function createExternalDisplaySink(env) {
         return { kind: 'unsupported', reason: 'live camera over HDMI needs the native camera — stills broadcast fine' };
       }
       if (env.sourceVideo && env.media?.sourceVideoUrl) {
-        return { kind: 'unsupported', reason: 'video sources on the external display are coming — use a still or the live camera for now' };
+        // stage the clip to the native cache + serve it back to the external view (blob URLs don't
+        // cross webviews); output-view.js loads `kind:'video'` + locks it to the program clock.
+        try {
+          const url = await stageVideoForExternal(env.media.sourceVideoUrl);
+          if (url) return { kind: 'video', url };
+        } catch (e) { console.warn('[fold] external video stage failed:', e); }
+        return { kind: 'unsupported', reason: 'this clip is too large to show on the external display — try a shorter one' };
       }
       const src = env.engine?.getSourceImage?.();
       if (src) {
@@ -267,7 +303,7 @@ export function createExternalDisplaySink(env) {
       if (!poster.connected) throw new Error('no external display detected — connect HDMI first');
       poster.start();
     },
-    stop: poster.stop,
+    stop() { poster.stop(); clearStagedVideo(); },
     publish() { /* no-op: the external view renders itself from state, not bus frames */ },
   };
 }
@@ -288,6 +324,6 @@ export function createExternalDisplayAutoconnect(opts) {
   return {
     get active() { return poster.active; },
     get connected() { return poster.connected; },
-    stop: poster.stop,
+    stop() { poster.stop(); clearStagedVideo(); },
   };
 }
