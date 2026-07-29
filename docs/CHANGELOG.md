@@ -4,6 +4,14 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🎛️ v0.20.11 (Build 468) — 2026-07-29 — iPad/native touch pan gain (matches the trackpad feel)
+
+- **Native touch pan sped up** (`PAN_TOUCH_GAIN` = 3.5, `output-gestures`). iPad two-finger pan moved only ~¼ of the finger travel because the local touch path is raw centroid travel, while the desktop trackpad's wheel deltas are OS-accelerated ~3× (which is why *that* felt good). The B467 `PAN_GESTURE_SENS` bump only touched the *remote* (input-bus) path, not the local touch path — so iPad/iPhone native pan never got it. Boosted the touch centroid (position + flick velocity) to match; wheel/trackpad pan is unchanged. TUNE `PAN_TOUCH_GAIN` if it over/undershoots.
+
+**VERIFY (Daniel):** iPad two-finger canvas pan now tracks ~1:1 with the fingers (zoom/rotate were already proportional).
+
+Verified: node --check, vite build. Fresh Capacitor + Electron builds produced.
+
 ## 🎛️ v0.20.10 (Build 467) — 2026-07-28 — Remote pan/pinch re-tune + droste pan enabled
 
 Pan confirmed working (the earlier failure was a stale DMG). Tuning + a droste gap, from Daniel's test.

@@ -23,6 +23,11 @@
 import { applyUnifiedZoom } from '../kit/zoom.js';   // shared: EVERY zoom entry point routes through this
 import { panToOffset } from '../kit/pan.js';         // shared: EVERY pan entry point routes through this
 
+// TOUCH pan gain — a raw finger-centroid travel reads as only ~¼ of the gesture (iPad, Daniel),
+// because the trackpad's wheel path is OS-accelerated ~3× while touch is raw. Boost the touch
+// centroid to match (≈ the remote surface's effective gain). Wheel/trackpad pan is UNCHANGED. TUNE.
+const PAN_TOUCH_GAIN = 3.5;
+
 export function createOutputGestures(canvas, ctx) {
   const { state } = ctx;
   let manip = null;   // active two-finger manipulation (zoom + twist + centroid pan)
@@ -87,12 +92,12 @@ export function createOutputGestures(canvas, ctx) {
       // centroid travel → tiling pan; content follows the two fingers' midpoint.
       const rect = canvas.getBoundingClientRect(), now = performance.now();
       const cx = (t0.clientX + t1.clientX) / 2, cy = (t0.clientY + t1.clientY) / 2;
-      const [cdx, cdy] = pan((cx - manip.cx0) / (rect.width / 2), (cy - manip.cy0) / (rect.height / 2));
+      const [cdx, cdy] = pan(PAN_TOUCH_GAIN * (cx - manip.cx0) / (rect.width / 2), PAN_TOUCH_GAIN * (cy - manip.cy0) / (rect.height / 2));
       state.canvasOffsetX = manip.ox + cdx;
       state.canvasOffsetY = manip.oy + cdy;
       const dtms = now - manip.lastT;   // centroid velocity (same transform) → flick-to-drift on release
       if (dtms > 0) {
-        const [vx, vy] = pan((cx - manip.lastCx) / (rect.width / 2), (cy - manip.lastCy) / (rect.height / 2));
+        const [vx, vy] = pan(PAN_TOUCH_GAIN * (cx - manip.lastCx) / (rect.width / 2), PAN_TOUCH_GAIN * (cy - manip.lastCy) / (rect.height / 2));
         manip.vx = vx / (dtms / 1000); manip.vy = vy / (dtms / 1000);
       }
       manip.lastCx = cx; manip.lastCy = cy; manip.lastT = now;
