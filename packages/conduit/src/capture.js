@@ -21,12 +21,19 @@
 // contract's flag); VideoFrame BGRA converts via copyTo({format:'RGBA'})
 // where supported, else an in-place u32 swizzle.
 
-const sampleSum = (px, w, h, flip) => {   // sampled RGB checksum (row-flip-aware)
+// Sampled CHANNEL-AWARE checksum (row-flip-aware). Weights R/G/B distinctly so a channel
+// PERMUTATION changes the signature — a plain R+G+B sum is invariant to channel order, which let a
+// device whose readPixels returns B,G,R,A (WebKit iPad) silently WIN the probe and ship a blue cast
+// to NDI/Syphon (the raw bytes were declared RGBA). `swapRB` computes the signature as if R and B
+// were swapped, so the probe can detect that exact case and correct it. (fixes the parked iOS NDI
+// "blue cast".)
+const sampleSig = (px, w, h, flip, swapRB = false) => {
   let s = 0;
   for (let i = 0; i < 997; i++) {
     const x = (i * 7919) % w, y = (i * 6007) % h;
     const o = ((flip ? h - 1 - y : y) * w + x) * 4;
-    s = (s + px[o] + px[o + 1] + px[o + 2]) % 1000000007;
+    const r = px[swapRB ? o + 2 : o], b = px[swapRB ? o : o + 2];
+    s = (s + r * 3 + px[o + 1] * 5 + b * 7) % 1000000007;
   }
   return s;
 };
@@ -48,6 +55,7 @@ const swizzleBgra = (buf, len) => {   // BGRA→RGBA in place (little-endian u32
 export function createAdaptiveCapture({ gl, glCanvas, capCtx, override = null, tag = '[conduit]' }) {
   let capMode = null;        // 'getimagedata' | 'readpixels' | 'videoframe'
   let vfConvert = false;     // VideoFrame.copyTo({format:'RGBA'}) supported here
+  let rpSwizzle = false;     // this device's readPixels returns B,G,R,A → swizzle back to RGBA
   let rpBuf = null, vfBuf = null;
 
   function readGetImageData(w, h) {
@@ -60,6 +68,7 @@ export function createAdaptiveCapture({ gl, glCanvas, capCtx, override = null, t
     if (!rpBuf || rpBuf.length < need) rpBuf = new Uint8Array(need);
     const t = performance.now();
     gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, rpBuf);
+    if (rpSwizzle) swizzleBgra(rpBuf, need);   // channel-order fix detected at probe time
     return { pixels: rpBuf.subarray(0, need), topDown: false, readMs: performance.now() - t };
   }
   async function readVideoFrame(w, h) {
@@ -89,19 +98,26 @@ export function createAdaptiveCapture({ gl, glCanvas, capCtx, override = null, t
       return;
     }
     const ref = readGetImageData(w, h);
-    const refSum = sampleSum(ref.pixels, w, h, false);
+    const refSig = sampleSig(ref.pixels, w, h, false);
     let best = { mode: 'getimagedata', ms: ref.readMs };
     const report = [`getimagedata ${ref.readMs.toFixed(1)}ms`];
     try {
       let ms = 0, ok = true;
       for (let i = 0; i < 3; i++) {
-        const r = readReadPixels(w, h);
+        const r = readReadPixels(w, h);   // rpSwizzle starts false; the i===0 read is raw
         ms += r.readMs;
-        if (i === 0) ok = sampleSum(r.pixels, w, h, true) === refSum;
+        if (i === 0) {
+          // channel-aware validation: accept as-is, or accept WITH an R↔B swizzle if that's
+          // the only difference (WebKit iPad's readPixels returns B,G,R,A → the blue cast).
+          if (sampleSig(r.pixels, w, h, true) === refSig) ok = true;
+          else if (sampleSig(r.pixels, w, h, true, true) === refSig) { ok = true; rpSwizzle = true; }
+          else ok = false;
+        }
       }
       ms /= 3;
-      report.push(`readpixels ${ms.toFixed(1)}ms${ok ? '' : ' INVALID'}`);
+      report.push(`readpixels ${ms.toFixed(1)}ms${rpSwizzle ? ' (R↔B fixed)' : ''}${ok ? '' : ' INVALID'}`);
       if (ok && ms < best.ms) best = { mode: 'readpixels', ms };
+      else if (!ok) rpSwizzle = false;   // not chosen / invalid → don't carry a stray swizzle
     } catch (e) { report.push(`readpixels failed (${e.message})`); }
     if (typeof VideoFrame !== 'undefined') {
       try {
@@ -116,7 +132,7 @@ export function createAdaptiveCapture({ gl, glCanvas, capCtx, override = null, t
         for (let i = 0; i < 3; i++) {
           const r = await readVideoFrame(w, h);
           ms += r.readMs;
-          if (i === 0) ok = sampleSum(r.pixels, w, h, false) === refSum;
+          if (i === 0) ok = sampleSig(r.pixels, w, h, false) === refSig;
         }
         ms /= 3;
         report.push(`videoframe ${ms.toFixed(1)}ms${vfConvert ? ' (native RGBA)' : ' (swizzled)'}${ok ? '' : ' INVALID'}`);

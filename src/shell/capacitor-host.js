@@ -98,11 +98,14 @@ export function createCapacitorHost() {
     ndi: (() => {
       let plugin = null;         // lazily registered (keeps @capacitor/core lazy-loadable)
       let ws = null, wsReady = false, gen = 0;
-      // Wire format + packing live in conduit/frame-wire.js (the FNDI protocol
-      // is package infrastructure now). UYVY stays OPT-IN (?ndiwire=uyvy):
-      // Daniel's Arena pass showed a blue shift — parked investigation in
-      // BACKLOG; the wire logs itself at sender start either way.
-      const uyvyWire = new URLSearchParams(window.location.search).get('ndiwire') === 'uyvy';
+      // Wire format + packing live in conduit/frame-wire.js (the FNDI protocol is package
+      // infrastructure now). UYVY 4:2:2 is now the DEFAULT wire — it halves the bytes, and
+      // WebKit's WebSocket send is the measured throughput wall (FHD RGBA ~20fps; UYVY ~2×).
+      // The blue cast that kept UYVY opt-in was a channel-order bug in the readback (iPad's
+      // readPixels returns B,G,R,A), now caught + swizzled at the capture layer
+      // (conduit/capture.js), so UYVY packs from correct RGBA. `?ndiwire=rgba` forces the old
+      // full-RGBA wire for A/B; the wire logs itself at sender start.
+      const uyvyWire = new URLSearchParams(window.location.search).get('ndiwire') !== 'rgba';
       return {
         ...webHost.ndi,
         available: true,

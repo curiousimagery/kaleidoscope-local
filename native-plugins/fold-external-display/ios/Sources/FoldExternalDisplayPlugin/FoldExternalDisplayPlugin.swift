@@ -105,12 +105,32 @@ public class FoldExternalDisplayPlugin: CAPPlugin, CAPBridgedPlugin, WKScriptMes
         UIScreen.screens.first { $0 != UIScreen.main }
     }
 
+    // External displays (HDMI adapters AND AirPlay) default to a CONSERVATIVE UI mode, not their
+    // native pixel resolution — a 4K TV commonly reports 2560×1440 or 1080p via bounds×scale
+    // (Daniel: iPad HDMI detected a 4K display as 2560×1440, and the test pattern rendered at that
+    // mode). The display's true resolution is the LARGEST available mode. `nativeSize` reports it
+    // (so the picker shows real capability on connect); `applyNativeMode` promotes the screen to it
+    // before we present, so the window — and the WKWebView that renders the program/test pattern
+    // from state — is sized to native pixels. AirPlay already lands on its native mode, so this is a
+    // no-op there.
+    private func nativeSize(_ s: UIScreen) -> CGSize {
+        s.availableModes.max { $0.size.width * $0.size.height < $1.size.width * $1.size.height }?.size
+            ?? CGSize(width: s.bounds.width * s.scale, height: s.bounds.height * s.scale)
+    }
+    private func applyNativeMode(_ s: UIScreen) {
+        if let best = s.availableModes.max(by: { $0.size.width * $0.size.height < $1.size.width * $1.size.height }),
+           s.currentMode != best {
+            s.currentMode = best
+        }
+    }
+
     private func statusData() -> [String: Any] {
         var data: [String: Any] = ["connected": false, "presenting": externalWindow != nil]
         if let s = externalScreen() {
             data["connected"] = true
-            data["width"] = Int(s.bounds.width * s.scale)
-            data["height"] = Int(s.bounds.height * s.scale)
+            let px = nativeSize(s)
+            data["width"] = Int(px.width)
+            data["height"] = Int(px.height)
         }
         if let attach = attachPath { data["attach"] = attach }
         return data
@@ -193,6 +213,7 @@ public class FoldExternalDisplayPlugin: CAPPlugin, CAPBridgedPlugin, WKScriptMes
         // raises the identical didConnect, and presenting a window switches the
         // screen from mirroring to extended content.
         screen.overscanCompensation = .scale
+        applyNativeMode(screen)   // promote to native resolution BEFORE sizing the window (Daniel: 4K HDMI read as 1440)
 
         let window = UIWindow(frame: screen.bounds)
         if let scene = scene {

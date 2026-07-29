@@ -215,22 +215,29 @@
     return [t.identifier % 1000, u, v];
   });
 
-  const freshAcc = () => ({ pinch: 0, rot: 0 });
+  const freshAcc = () => ({ pinch: 0, rot: 0, dx: 0, dy: 0 });
   let acc = freshAcc(), g0 = null, flushQueued = false;
   function twoFinger() {
     const pts = [...canvasPts.values()];
     if (pts.length < 2) return null;
-    return { dist: Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y) || 1, ang: Math.atan2(pts[1].y - pts[0].y, pts[1].x - pts[0].x) };
+    // dist + ang drive pinch/rotate; cx/cy (the centroid) drive PAN — the third leg of
+    // the two-finger manipulation the desktop app has (Maps-style), previously not sent.
+    return {
+      dist: Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y) || 1,
+      ang: Math.atan2(pts[1].y - pts[0].y, pts[1].x - pts[0].x),
+      cx: (pts[0].x + pts[1].x) / 2, cy: (pts[0].y + pts[1].y) / 2,
+    };
   }
   function queueFlush() {
     if (flushQueued) return;
     flushQueued = true;
     requestAnimationFrame(() => {
       flushQueued = false;
-      const { pinch, rot } = acc;
+      const { pinch, rot, dx, dy } = acc;
       acc = freshAcc();
       if (pinch) send({ t: 'p', z: 'canvas', v: pinch });
       if (rot) send({ t: 'r', z: 'canvas', v: rot });
+      if (dx || dy) send({ t: 'd', z: 'canvas', x: +dx.toFixed(4), y: +dy.toFixed(4) });
       // canvas-zone finger echo (slice fingers echo via the raw relay):
       // normalized to the FRAME CARD (aspect = the output frame), so the
       // desktop's aspect-fit lands them 1:1 on the panel
@@ -270,6 +277,11 @@
         let da = (g.ang - g0.ang) * 180 / Math.PI;
         if (da > 180) da -= 360; else if (da < -180) da += 360;
         acc.rot += da;
+        // centroid travel → PAN, normalized to the card's min dimension (the
+        // travel/minDim×3 protocol remote-input expects; resolution-independent)
+        const cr = canvasRect(), md = Math.min(cr.w, cr.h) || 1;
+        acc.dx += (g.cx - g0.cx) / md;
+        acc.dy += (g.cy - g0.cy) / md;
       }
       g0 = g;
     }

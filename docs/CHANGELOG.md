@@ -4,6 +4,17 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🕹️ v0.20.7 (Build 464) — 2026-07-28 — Remote canvas pan — the REAL fix (phone side now sends it)
+
+B461 was necessary but insufficient: it added the *receiver* for `mob:mobile.canvas.dragx/dragy`, but the phone gesture surface (`electron/remote-page.html`) never emitted them — its canvas two-finger handler only accumulated pinch (finger distance) + rotation (angle), and dropped the **centroid translation** entirely. So two-finger pan produced only the incidental pinch Daniel saw. (This is why the pan still didn't work after B461 — the fix was on the wrong side of the wire.)
+
+- **The phone now captures + sends the two-finger centroid translation.** `twoFinger()` returns the centroid (`cx/cy`); `touchmove` accumulates its delta normalized to the card's min dimension (the `travel/minDim×3` protocol `remote-input` already documents); `queueFlush` emits `{ t: 'd', z: 'canvas', x, y }`. The receiver (B461) turns that into `canvasOffset` through the shared `kit/pan.js` transform. So a two-finger drag on the remote canvas now pans, composing with pinch (zoom) + twist (rotate) — the full Maps-style manipulation the desktop/iPad app already had.
+- **Electron-only change** (the gesture surface is served by the Electron LAN server); the Capacitor/iOS app is unaffected (its local gestures already pan via `output-gestures`). **Requires the rebuilt DMG** for the phone to pick up the new page.
+
+**VERIFY (Daniel):** iPhone-as-gesture-surface + the rebuilt Electron app → tileable/radial form → two-finger drag on the canvas zone pans the composition (tune `PAN_GESTURE_SENS` if the speed's off).
+
+Verified: vite build. **Untested by Claude on-device.** Fresh Electron (+ Capacitor) builds produced.
+
 ## 🔭 v0.20.6 (Build 463) — 2026-07-28 — Overlay density-LOD: reflected copies fade at extreme zoom-out
 
 The paired follow-up to the zoom re-tune. At extreme zoom-out the honest mirror-reflection copies stop being informative and sprawl into overlapping amber noise ("go crazy all over") — because the radial wedge scales ×1/canvasZoom (B453), so the lower canvasZoom floor (0.05) makes it huge. Daniel's call: tame at high density.
