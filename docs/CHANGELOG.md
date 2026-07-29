@@ -4,6 +4,18 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🎛️ v0.20.10 (Build 467) — 2026-07-28 — Remote pan/pinch re-tune + droste pan enabled
+
+Pan confirmed working (the earlier failure was a stale DMG). Tuning + a droste gap, from Daniel's test.
+
+- **Remote pan sped up 4×** (`PAN_GESTURE_SENS` 0.3 → 1.2) — the iPhone-gesture pan felt like ~¼ of the physical gesture. (Desktop trackpad pan was already good and is a separate path, unchanged.)
+- **Remote pinch-zoom cut again** (`PINCH_ZOOM_SENS` 1.05 → 0.5) — still too enthusiastic after the first reduction.
+- **Droste now pans.** Two-finger / trackpad pan drives `canvasOffset` on droste (non-wrapping, like radial) — it was gated off (`panDrivable` = tileable + radial only) even though the shader already applies the raw offset for droste. Added droste to `panDrivable` in all three paths (desktop main, mobile chrome, input-bus remote). Composes with the droste pinch→infinite-zoom + twist. (canvasOffset = output-space pan; distinct from the Möbius `drosteOffset` center, which stays its own default-locked control.)
+
+**VERIFY (Daniel):** iPhone-gesture pan now tracks the gesture ~1:1; pinch is calmer; droste pans (two-finger + mac trackpad). Tell me if pan/pinch over/undershoot — they're one-number knobs.
+
+Verified: node --check, vite build. Fresh Capacitor + Electron builds produced.
+
 ## 🎛️ v0.20.9 (Build 466) — 2026-07-28 — Zoom/pan tuning + form unlockable while broadcasting + NDI wire breadcrumb
 
 Follow-ups from Daniel's testing (in parallel with Gate 1 verification).

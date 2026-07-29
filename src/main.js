@@ -1551,8 +1551,9 @@ if (engine) {
     // one-finger TILING PAN — enabled only on tileable forms (non-null lattice period).
     panPeriod: () => getActiveForm(state)?.latticePeriod?.(state) || null,
     // which forms accept a canvas-translation gesture: tileable (loops) OR radial (non-looping center).
-    // Separate from panPeriod (the wrap): radial pans but has no lattice period.
-    panDrivable: () => { const f = getActiveForm(state); return !!(f && (f.latticePeriod || f.id === 'radial')); },
+    // Separate from panPeriod (the wrap): radial + droste pan via canvasOffset but have no lattice
+    // period (non-wrapping pan). The shader already applies the raw offset for them (shader-builder).
+    panDrivable: () => { const f = getActiveForm(state); return !!(f && (f.latticePeriod || f.id === 'radial' || f.id === 'droste')); },
     panDrift: () => env.panDrift,   // flick-to-drift on release when drift mode is on (lazy: set after gestures)
   });
   setupUndoBar();

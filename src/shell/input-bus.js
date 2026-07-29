@@ -234,7 +234,7 @@ export function createInputBus(env) {
   // pannable = tileable (has a lattice period) OR radial (pans via canvasOffset, no lattice).
   // Mirrors main.js / mobile chrome's ctx.panDrivable — a candidate for the shared helper when
   // the "one fn per input axis" hardening lands (the same duplication kit/pan.js just resolved).
-  const panDrivableNow = () => { const f = getActiveForm(state); return !!(f && (f.latticePeriod || f.id === 'radial')); };
+  const panDrivableNow = () => { const f = getActiveForm(state); return !!(f && (f.latticePeriod || f.id === 'radial' || f.id === 'droste')); };
 
   function applyMapping(m, value, meta) {
     if (m.target.startsWith('action:')) {
@@ -297,8 +297,8 @@ export function createInputBus(env) {
   // the snappy 0.18s; phone gestures get a longer response (Daniel's call —
   // a touch of capture latency beats WS-burst choppiness in the staged panel).
   const REMOTE_GLIDE_TAU = 0.35;
-  const PINCH_ZOOM_SENS = 1.05;   // WS scale-delta → unified-zoom factor exponent. TUNE: bigger = zoomier. (was 3 — Daniel: −65%)
-  const PAN_GESTURE_SENS = 0.3;   // remote canvas-drag → canvasOffset delta scalar. TUNE: bigger = faster pan.
+  const PINCH_ZOOM_SENS = 0.5;    // WS scale-delta → unified-zoom factor exponent. TUNE: bigger = zoomier. (3 → 1.05 → 0.5; Daniel: still too enthusiastic)
+  const PAN_GESTURE_SENS = 1.2;   // remote canvas-drag → canvasOffset delta scalar. TUNE: bigger = faster pan. (0.3 → 1.2; Daniel: felt ~¼ of the gesture)
   function glideBy(t, d, tau = 0.18) {
     let g = glide.get(t.key);
     if (!g) { g = { cur: state[t.key] ?? 0, vel: 0, goal: state[t.key] ?? 0, tau }; glide.set(t.key, g); }

@@ -239,7 +239,7 @@ createOutputGestures(outputCanvas, {
   onChange: () => { controlsSync.syncAll(); scheduleRender(); },
   // one-finger TILING PAN — enabled only on tileable forms (non-null lattice period).
   panPeriod: () => getActiveForm(state)?.latticePeriod?.(state) || null,
-  panDrivable: () => { const f = getActiveForm(state); return !!(f && (f.latticePeriod || f.id === 'radial')); },   // tileable OR radial
+  panDrivable: () => { const f = getActiveForm(state); return !!(f && (f.latticePeriod || f.id === 'radial' || f.id === 'droste')); },   // tileable OR radial OR droste (canvasOffset pan)
   panDrift: () => env.panDrift,   // flick-to-drift on release (lazy: joystick mounts after this)
 });
 
