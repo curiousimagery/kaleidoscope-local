@@ -72,6 +72,15 @@ class ExternalAssetHandler: NSObject, WKURLSchemeHandler {
             status = 206; start = r.0; end = r.1
             headers["Content-Range"] = "bytes \(start)-\(end)/\(size)"
         }
+        // SAFETY for large staged clips: never read more than one chunk into memory per response. An
+        // open-ended range (`bytes=0-`) on a multi-hundred-MB clip would otherwise load the whole file
+        // and jetsam the process. Cap the span + force 206; the <video> range-requests the remainder.
+        let maxChunk = 8 * 1024 * 1024
+        if end - start + 1 > maxChunk {
+            end = start + maxChunk - 1
+            status = 206
+            headers["Content-Range"] = "bytes \(start)-\(end)/\(size)"
+        }
         let length = end - start + 1
         headers["Content-Length"] = "\(length)"
         handle.seek(toFileOffset: UInt64(start))
@@ -125,7 +134,7 @@ public class FoldExternalDisplayPlugin: CAPPlugin, CAPBridgedPlugin, WKScriptMes
         CAPPluginMethod(name: "start", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "stop", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "postState", returnType: CAPPluginReturnPromise),
-        CAPPluginMethod(name: "stageVideo", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "appendVideo", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "clearStaged", returnType: CAPPluginReturnPromise),
     ]
 
@@ -357,23 +366,38 @@ public class FoldExternalDisplayPlugin: CAPPlugin, CAPBridgedPlugin, WKScriptMes
 
     // A writable cache dir for staged media (video sources served to the external view). A blob:
     // URL is per-webview, so a loaded video can't cross into the external context — the main view
-    // hands us the bytes once (base64) and we serve the file over fold-ext://localhost/staged/*.
+    // hands us the bytes in chunks (base64) via appendVideo and we serve the assembled file over
+    // fold-ext://localhost/staged/*.
     static func stagedDir() -> URL {
         FileManager.default.temporaryDirectory.appendingPathComponent("fold-ext-staged", isDirectory: true)
     }
 
-    @objc func stageVideo(_ call: CAPPluginCall) {
+    // Stage a video source ONE CHUNK at a time. The main view slices the clip and streams the bytes
+    // here (base64); we append each slice to a cache file. Chunking keeps PEAK memory at one slice
+    // regardless of clip length — the old whole-file base64 held several copies at once and capped at
+    // ~60MB (a 3min 1080p clip blew it, Daniel's gauntlet). `first` truncates + drops any stale clip.
+    @objc func appendVideo(_ call: CAPPluginCall) {
         guard let id = call.getString("id"), let b64 = call.getString("data"),
               let data = Data(base64Encoded: b64) else {
-            call.reject("stageVideo: missing/invalid id or data"); return
+            call.reject("appendVideo: missing/invalid id or data"); return
         }
+        let first = call.getBool("first") ?? false
         let dir = Self.stagedDir()
+        let fileURL = dir.appendingPathComponent(id)
         do {
-            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-            try data.write(to: dir.appendingPathComponent(id))
+            if first {
+                try? FileManager.default.removeItem(at: dir)   // drop any previously staged clip
+                try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+                try data.write(to: fileURL)                    // create/truncate with the first slice
+            } else {
+                let handle = try FileHandle(forWritingTo: fileURL)
+                defer { try? handle.close() }
+                handle.seekToEndOfFile()
+                handle.write(data)                             // append this slice's raw bytes
+            }
             call.resolve(["url": "fold-ext://localhost/staged/\(id)"])
         } catch {
-            call.reject("stageVideo: write failed \(error.localizedDescription)")
+            call.reject("appendVideo: write failed \(error.localizedDescription)")
         }
     }
 

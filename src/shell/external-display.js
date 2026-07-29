@@ -59,28 +59,41 @@ export function sourceToDataUrl(src, cap = 4096) {
 
 // ---- video staging (external display) ---------------------------------------
 // A loaded video is a blob: URL, which is per-webview — the external WKWebView can't read the main
-// context's blob. So we hand the CLIP BYTES to the native plugin ONCE (base64, on source change),
-// which writes a cache file and serves it back over fold-ext://localhost/staged/* WITH HTTP RANGE
-// support (WKWebView's <video> requires 206). output-view.js already handles `kind:'video'` + syncs
-// the external <video> to the program clock (getVideoSync). Capped: base64 of a large clip risks a
-// webview jetsam; loops/short clips are well under, larger ones fall back to the honest hint.
-const STAGE_MAX_BYTES = 60 * 1024 * 1024;
+// context's blob. So we SLICE the clip bytes and stream them to the native plugin in CHUNKS (base64,
+// on source change); it appends each to a cache file served back over fold-ext://localhost/staged/*
+// WITH HTTP RANGE support (WKWebView's <video> requires 206). output-view.js handles `kind:'video'`
+// + syncs the external <video> to the program clock (getVideoSync).
+//
+// Why chunked: the old whole-file base64 held several copies of the clip in memory at once, so it
+// capped at ~60MB — a 3min 1080p clip blew it (Daniel's gauntlet). Slicing keeps PEAK memory at one
+// chunk regardless of clip length, lifting the ceiling to the realistic broadcast range (~9min
+// 1080p). Beyond STAGE_MAX_BYTES we still fall back to the honest hint; true 4K / 10min wants a real
+// streaming socket rather than base64-over-bridge (see BACKLOG).
+const STAGE_CHUNK_BYTES = 8 * 1024 * 1024;        // 8MB slices — peak memory is one chunk, not the whole clip
+const STAGE_MAX_BYTES = 2 * 1024 * 1024 * 1024;   // ~2GB soft ceiling: covers ~9min 1080p; 4K/very-long wants a socket
+
+function blobSliceToBase64(slice) {
+  return new Promise((res, rej) => {
+    const r = new FileReader();
+    r.onload = () => { const s = String(r.result); res(s.slice(s.indexOf(',') + 1)); };
+    r.onerror = () => rej(r.error || new Error('read failed'));
+    r.readAsDataURL(slice);   // each slice is base64'd independently; native appends the decoded raw bytes
+  });
+}
 
 async function stageVideoForExternal(blobUrl) {
   const blob = await (await fetch(blobUrl)).blob();
-  if (blob.size > STAGE_MAX_BYTES) return null;
-  const dataUrl = await new Promise((res, rej) => {
-    const r = new FileReader();
-    r.onload = () => res(String(r.result));
-    r.onerror = () => rej(r.error || new Error('read failed'));
-    r.readAsDataURL(blob);
-  });
-  const b64 = dataUrl.slice(dataUrl.indexOf(',') + 1);
+  if (blob.size > STAGE_MAX_BYTES) return null;   // beyond the base64-append ceiling → honest hint
   const t = blob.type || '';
   const ext = t.includes('quicktime') ? 'mov' : t.includes('webm') ? 'webm' : 'mp4';
   const id = `src-${Date.now()}.${ext}`;
-  const res = await FoldExternalDisplay.stageVideo({ id, data: b64 });
-  return res?.url || null;
+  let url = null;
+  for (let off = 0, first = true; off < blob.size; off += STAGE_CHUNK_BYTES, first = false) {
+    const b64 = await blobSliceToBase64(blob.slice(off, Math.min(off + STAGE_CHUNK_BYTES, blob.size)));
+    const res = await FoldExternalDisplay.appendVideo({ id, data: b64, first });
+    url = res?.url || url;
+  }
+  return url;
 }
 
 function clearStagedVideo() {
@@ -270,7 +283,7 @@ export function createExternalDisplaySink(env) {
           const url = await stageVideoForExternal(env.media.sourceVideoUrl);
           if (url) return { kind: 'video', url };
         } catch (e) { console.warn('[fold] external video stage failed:', e); }
-        return { kind: 'unsupported', reason: 'this clip is too large to show on the external display — try a shorter one' };
+        return { kind: 'unsupported', reason: 'this clip is too large for the external display yet (very long or 4K) — a shorter or lower-res clip will play' };
       }
       const src = env.engine?.getSourceImage?.();
       if (src) {

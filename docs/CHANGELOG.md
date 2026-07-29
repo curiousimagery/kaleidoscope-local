@@ -4,6 +4,32 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🎬 v0.20.16 (Build 473) — 2026-07-29 — Chunked video staging: large clips over the external display (HDMI/AirPlay)
+
+Daniel's gauntlet: video-over-HDMI works, but a **2:45 1080p clip failed** the ~60MB cap ("too large" hint) while a 19s clip played fine. Root cause: the B470 staging base64'd the **whole clip** across the bridge at once, holding several copies in memory — the cap existed to avoid a webview jetsam. **Native + device-blind — needs an iOS Xcode rebuild.**
+
+- **Chunked append** (`FoldExternalDisplayPlugin`): the old `stageVideo` (whole-file, one shot) is replaced by `appendVideo({ id, data, first })` — the main view slices the clip and streams 8MB pieces; the plugin truncates on `first` (dropping any stale clip) then appends each slice's decoded bytes to the cache file. **Peak memory is now one chunk regardless of clip length**, so the ceiling rises from ~60MB to a ~2GB soft cap — covering the **realistic broadcast range (~9min 1080p)**. Beyond it, the honest hint still shows.
+- **Range-serve safety cap:** `serveWithRange` now bounds any single response to ≤8MB (forcing 206 + `Content-Range`), so an open-ended `bytes=0-` request on a multi-hundred-MB staged clip can't load the whole file into memory and jetsam the process. Regression-safe — small clips with normal AVFoundation ranges are unaffected.
+- **JS** (`external-display.js`): `stageVideoForExternal` now loops `blob.slice()` → base64 per slice → `appendVideo`; each slice is base64'd independently and the native side concatenates the decoded raw bytes (contiguous byte ranges, so the file reassembles exactly). Updated the "too large" hint (very long / 4K).
+- **Known ceiling (by design):** base64-over-bridge is fine for the common case but has per-chunk overhead; **true 4K / 10min sources want a real localhost streaming socket** (the NDI-style transport) rather than base64 — captured in BACKLOG as the next step if long 4K broadcast becomes a need.
+
+**VERIFY (Daniel, after Xcode rebuild):** iPad + HDMI/AirPlay → load a **multi-minute 1080p** video source → it stages (brief delay while chunks stream) and plays + syncs on the external display; motion of that video tracks; stills/camera/test-pattern still work; a genuinely huge (4K / very long) clip still shows the honest hint. Watch for any stage stall on the largest clips.
+
+Verified: node --check, vite build, Swift brace balance. **Native path untested by Claude — device-gated.** Fresh Capacitor (Xcode rebuild) + Electron builds produced.
+
+## 📡 v0.20.15 (Build 472) — 2026-07-29 — NDI fixed-cadence pacing (the AIMD governor was a no-op) + iPad locked-control feedback
+
+Daniel ran the gauntlet: NDI WiFi **still halting** at HD/FHD even though the app reports great fps out. The native `[FoldNdi]` profile revealed why the B471 AIMD governor did nothing — `send-wait 0.0ms`: the native send is async (`NDIlib_send_send_video_async_v2`) and never blocks, so `host.publish()` never returns `false`, the drop signal AIMD needed. JS also can't *see* WiFi backpressure — it happens on the far side of the NDI SDK, past a localhost socket that never fills. **Reactive pacing had nothing to react to.**
+
+- **Fixed-cadence pacing in `ndi-sink.js`** (replaces the AIMD). Both native hosts *declare* 30fps (`frame_rate 30000/1000`) while we were feeding ~40–60 — a receiver told 30 and fed 40 fights its own frame-sync clock; ethernet's abundant bandwidth + low jitter masks it, WiFi's jitter compounds it into visible stutter. The sink now paces the send to an **even target that matches the declaration** (default 30): even frames, aligned timecodes, bandwidth that fits WiFi. Interstitial frames are dropped (Arena only wants the freshest). Even decimation via a scheduled `nextT += MIN_GAP` with a resync guard (no catch-up burst after a hiccup). Aligns **both** NDI hosts (Capacitor + Electron both declared 30, both were overrunning it).
+- **`?ndifps=N` diagnostic knob** (default 30). It's also a probe: if a lower target *proportionally* smooths WiFi → the stutter is **bandwidth-bound**; if it doesn't → **latency/jitter** (WiFi power-save), and the fix is wired or receiver-side. Breadcrumb now logs `[fold] NDI paced <fps>fps (target N)`.
+- **iPad locked-control feedback** (`main.js`). B469 wired the locked-tap toast on *mobile* chrome, but iPad uses *desktop* chrome, where the tip lived on the control's sibling label — a touch on the dimmed aspect/resolution buttons (`pointer-events:none`) fell through to the wrapper, which `closest()` never reached, so it did nothing. Now the lock tip is carried on the field wrapper (`.field` / `.op-section`, scoped) too, so tapping the ratio/tier buttons explains why they're locked. (Aspect stays hard-locked mid-broadcast by design — encoder-tied.)
+- Syphon unaffected (local, no transport wall).
+
+**VERIFY (Daniel):** iPad + iPhone NDI → Arena on **WiFi** → playback smooth (steady ~30, no sputter/blackout); ethernet still smooth. Console reads `paced ~30fps (target 30)`. If WiFi still stutters at a steady 30, try `?ndifps=24` — proportional improvement = bandwidth, no change = latency/jitter (report back either way). On iPad mid-HDMI, tap the aspect ratio buttons → a tip explains the lock.
+
+Verified: node --check, vite build. **NDI smoothness untested by Claude on-device.** JS-only — `cap:sync` copies it (no Xcode native rebuild needed); fresh Electron build produced.
+
 ## 📡 v0.20.14 (Build 471) — 2026-07-29 — NDI adaptive publish-rate governor (WiFi smoothness)
 
 Daniel's ethernet A/B (WiFi off → smooth in Arena) confirmed the NDI stutter is **WiFi-transport-bound**, not render/pipeline. Firing every rendered frame overruns WiFi's fluctuating capacity in bursts (buffer fills → host drops → visible stall).

@@ -783,6 +783,11 @@ function wireLocks() {
       btn.sync();
       ctrl.classList.toggle('lock-dimmed', st.locked);
       applyLockTip(host, st);
+      // the dimmed control is pointer-events:none, so a TOUCH on the ratio/tier buttons falls through
+      // to the field wrapper (the label is only a sibling — closest() never reaches it). Carry the tip
+      // on the wrapper too, so tapping the control itself explains WHY it's locked (Daniel: on iPad,
+      // tapping the aspect buttons mid-HDMI did nothing). Wrapper is scoped (.field / .op-section).
+      applyLockTip(ctrl.parentElement, st);
     });
   }
 
