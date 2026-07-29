@@ -297,7 +297,7 @@ export function createInputBus(env) {
   // the snappy 0.18s; phone gestures get a longer response (Daniel's call —
   // a touch of capture latency beats WS-burst choppiness in the staged panel).
   const REMOTE_GLIDE_TAU = 0.35;
-  const PINCH_ZOOM_SENS = 3;   // WS scale-delta → unified-zoom factor exponent. TUNE: bigger = zoomier.
+  const PINCH_ZOOM_SENS = 1.05;   // WS scale-delta → unified-zoom factor exponent. TUNE: bigger = zoomier. (was 3 — Daniel: −65%)
   const PAN_GESTURE_SENS = 0.3;   // remote canvas-drag → canvasOffset delta scalar. TUNE: bigger = faster pan.
   function glideBy(t, d, tau = 0.18) {
     let g = glide.get(t.key);

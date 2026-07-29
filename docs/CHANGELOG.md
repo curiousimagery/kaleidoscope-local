@@ -4,6 +4,20 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🎛️ v0.20.9 (Build 466) — 2026-07-28 — Zoom/pan tuning + form unlockable while broadcasting + NDI wire breadcrumb
+
+Follow-ups from Daniel's testing (in parallel with Gate 1 verification).
+
+- **Pinch-zoom sensitivity −65%** (remote/phone pinch): `PINCH_ZOOM_SENS` 3 → 1.05.
+- **Canvas zoom-in no longer shrinks the slice past ~70% of source.** The zoom-IN overflow (canvas at max → shrink slice for detail) felt unexpected — reducing the slice by adjusting the *canvas*. Added `Z_SLICE_IN_FLOOR` (0.7) so the canvas gesture can't drive the slice below ~70% source; going smaller (real source detail) stays a deliberate SLICE-control action. Zoom-OUT (grow slice to cover) is unchanged — that direction reads naturally. (Placeholder 0.7 → Phase B calibrates per-form.)
+- **Form is now changeable while broadcasting (HDMI/etc.).** The form lock during broadcast was already modeled as *unlockable* (structural, not encoder-tied), but the mobile form-tab handler hard-blocked any locked state with "stop the output to change form." Now it only hard-blocks a genuinely non-unlockable lock; otherwise it opens the form menu — the deliberate menu pick is the override (a stray canvas tap still can't change form). Daniel: "the lock is good, but it should be unlockable."
+- **Remote pan — verified correct end-to-end; added an on-device indicator.** The B464 chain (phone emits `d` centroid → main forwards → renderer → `canvasOffset`) checks out at every hop, so the persistent "no pan" is almost certainly a **stale gesture page on the phone** (old DMG, or Safari cached `remote-page.html`). Added "· pan" to the phone's canvas-card label — a decisive "am I on the new page?" tell (and it documents the gesture). If the label shows "· pan" and pan still fails, it's a real receiver bug and I'll dig further.
+- **NDI wire breadcrumb is now native** (Gate 1 aid): the `[FoldNdi]` stats line the Xcode console already prints now includes `WxH UYVY|RGBA`, confirming frames arrive at the native drain as UYVY (not just what JS thinks it sent). No Safari Web Inspector needed for the wire check.
+
+**VERIFY (Daniel):** phone canvas card reads "· pan" → two-finger canvas drag pans; pinch is ~⅓ as zoomy; canvas zoom-in stops shrinking the slice ~70%; form menu opens + changes form during HDMI out; Xcode console `[FoldNdi]` line shows `UYVY`.
+
+Verified: node --check, vite build, Swift brace balance. **Native + device paths untested by Claude.** Fresh Capacitor (Xcode rebuild) + Electron builds produced.
+
 ## 📡 v0.20.8 (Build 465) — 2026-07-28 — Gate 1: NDI throughput + blue-cast root fix + native HDMI resolution
 
 The first conduit-hardening gate. NDI was the systemic problem (a transport wall + a color bug); iPad HDMI under-detected the display. **Ships the confident, high-value fixes; needs an iOS Xcode rebuild + device verification.**

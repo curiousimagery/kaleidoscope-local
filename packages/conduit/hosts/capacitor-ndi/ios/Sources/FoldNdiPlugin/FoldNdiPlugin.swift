@@ -221,7 +221,10 @@ public class FoldNdiPlugin: CAPPlugin, CAPBridgedPlugin {
         let win = tArrive - statWindowStart
         if win >= 5 {
             let fps = Double(statFrames) / win
-            print(String(format: "[FoldNdi] %.1f fps · frame gap %.1fms · copy %.1fms · send-wait %.1fms (%d frames / %.1fs)",
+            // wire + dims on the stats line so the Xcode console confirms the frames ARRIVE as
+            // UYVY at the native drain (not just what JS thinks it sent) — the Gate 1 breadcrumb.
+            print(String(format: "[FoldNdi] %dx%d %@ · %.1f fps · frame gap %.1fms · copy %.1fms · send-wait %.1fms (%d frames / %.1fs)",
+                         Int(w), Int(h), uyvy ? "UYVY" : "RGBA",
                          fps, statGapMs / Double(max(1, statFrames - 1)),
                          statCopyMs / Double(statFrames), statWaitMs / Double(statFrames),
                          statFrames, win))

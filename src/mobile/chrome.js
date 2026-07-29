@@ -657,7 +657,12 @@ $('m-fit-toggle').addEventListener('click', () => {
 // ------------------------------------------------------------------- tab bar
 $('m-tab-source').addEventListener('click', () => showSourceMenu());
 $('m-tab-form').addEventListener('click', () => {
-  if (env.isLocked('form').locked) { statusToast('busy', 'stop the output to change form', { ttl: 2200 }); return; }
+  // Form auto-locks while broadcasting/animating, but that lock is UNLOCKABLE (structural, not
+  // encoder-tied) — Daniel wants to change forms during HDMI/broadcast out. Only HARD-block a
+  // NON-unlockable lock; otherwise open the menu — the deliberate menu pick is itself the override
+  // (a stray tap on the canvas still can't change form, so the accidental-change guard holds).
+  const lk = env.isLocked('form');
+  if (lk.locked && !lk.unlockable) { statusToast('busy', 'stop the output to change form', { ttl: 2200 }); return; }
   showFormMenu();
 });
 $('m-file').addEventListener('change', (e) => { if (e.target.files[0]) loadImage(e.target.files[0], 'file'); });

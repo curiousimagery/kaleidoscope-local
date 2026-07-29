@@ -82,7 +82,7 @@ The multi-clip staging above is step 1 of a larger arc. The full picture, captur
 - **Per-mapping curve/smoothing knobs** (the row model reserves them); **mapping profiles** (save/load named rigs per venue).
 
 ### Mobile gesture-input surface — open tails (SHIPPED v1 B281–B283)
-- ✅ Canvas two-finger PAN over the remote surface — SHIPPED B464 (phone now sends the centroid translation as a `d` message; was only pinch+rotate). Composes with pinch/twist. `PAN_GESTURE_SENS` (input-bus) tunable.
+- Canvas two-finger PAN over the remote surface — code SHIPPED B464 (phone sends centroid as a `d` message) + verified correct END-TO-END B466, but Daniel still sees no pan ⇒ suspected STALE gesture page on the phone (old DMG / Safari cache). B466 added "· pan" to the phone canvas-card label as the "am I on the new page?" tell. **If it reads "· pan" and pan STILL fails, it's a real receiver bug** (next: log in the input-bus drag branch / confirm `panDrivableNow()` on the active form). Tunables: `PAN_GESTURE_SENS` (input-bus), `PINCH_ZOOM_SENS`=1.05 (was 3, −65% per Daniel B466). Zoom guard: `Z_SLICE_IN_FLOOR`=0.7 (canvas can't shrink slice below ~70% source).
 - Full touch-manipulation of the overlay ON the phone (grab edges/corners/handles like the desktop overlay — port `classifyPointer` + affordance hit-testing over the WS; today's zone gestures cover move/scale/rotate without handles).
 - Duplicated-slider layouts; multi-phone support (server accepts N clients; signals need per-client ids).
 
