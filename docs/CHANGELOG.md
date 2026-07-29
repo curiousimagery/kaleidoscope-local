@@ -4,6 +4,26 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 📡 v0.20.8 (Build 465) — 2026-07-28 — Gate 1: NDI throughput + blue-cast root fix + native HDMI resolution
+
+The first conduit-hardening gate. NDI was the systemic problem (a transport wall + a color bug); iPad HDMI under-detected the display. **Ships the confident, high-value fixes; needs an iOS Xcode rebuild + device verification.**
+
+**NDI (Batch A):**
+- **Blue cast — root cause found + fixed at the capture layer.** The adaptive-capture probe validates each readback against `getImageData` with a checksum that summed R+G+B — **invariant to channel order** — so WebKit iPad's `readPixels` returning **B,G,R,A** silently won the probe and shipped a channel-swapped frame (declared RGBA → blue cast on warm content). Made the checksum **channel-aware** (`conduit/capture.js`): it now detects an exact R↔B swap and swizzles that device's fast path back to RGBA, keeping the speed. Self-correcting per-device, no hardcoded swap — corrects NDI *and* Syphon/recorder if they shared the flaw. The console probe line logs `(R↔B fixed)` when it engages.
+- **UYVY 4:2:2 is now the default NDI wire** (`?ndiwire=rgba` forces the old wire for A/B). Halves the bytes; WebKit's WebSocket send is the measured throughput wall (FHD RGBA ~20fps → UYVY fits FHD30 / HD60 under the wall), directly attacking the sputter/blackout. UYVY packs from the now-correct RGBA, so the color fix covers it too.
+- The output panel's fps already reports the sink's *delivered* count (not render fps), so no change there — the ~27fps you saw was genuinely near the wall.
+
+**Native HDMI display resolution (Batch B — B2/B4):**
+- **iPad HDMI now detects + renders at the display's NATIVE resolution.** The plugin reported `bounds × scale`, which for an external 4K display is a conservative default mode (you saw 2560×1440), and the test pattern rendered at that mode. `FoldExternalDisplayPlugin` now reports the **largest available `UIScreenMode`** and **promotes the screen to it before presenting**, so the window — and the WKWebView that renders the program/test pattern from state — is sized to true native pixels. Fixes both the mis-detection and the under-res test pattern. No-op on AirPlay (already native).
+
+**Not shipped — need device inspection, not blind code changes (see checklist):**
+- **B1 (motion-from-a-still blocked on external display):** the gate already keys on `env.sourceVideo` (null for a still), so it shouldn't fire for a still-source motion — needs the exact repro to pin (was a video loaded that session? does it error, or just show static?).
+- **B3 (iPhone aspect-lock unlock dead):** the padlock sits in the `.m-control-row` that `.m-locked` explicitly exempts from `pointer-events:none`, and it has the right `lock-toggle` class — the obvious suspects all check out, so it needs Web Inspector on-device to find the real cause.
+
+**VERIFY (Daniel) — after an Xcode rebuild:** see the Gate 1 checklist. Headline: iPad/iPhone NDI → Arena smooth + no blue cast + fps honest; iPad HDMI → 4K detected as 4K + sharp test pattern.
+
+Verified: node --check, vite build, Swift brace balance. **Native + color are untested by Claude — device-gated.** Fresh Capacitor (needs Xcode rebuild) + Electron builds produced.
+
 ## 🕹️ v0.20.7 (Build 464) — 2026-07-28 — Remote canvas pan — the REAL fix (phone side now sends it)
 
 B461 was necessary but insufficient: it added the *receiver* for `mob:mobile.canvas.dragx/dragy`, but the phone gesture surface (`electron/remote-page.html`) never emitted them — its canvas two-finger handler only accumulated pinch (finger distance) + rotation (angle), and dropped the **centroid translation** entirely. So two-finger pan produced only the incidental pinch Daniel saw. (This is why the pan still didn't work after B461 — the fix was on the wrong side of the wire.)
