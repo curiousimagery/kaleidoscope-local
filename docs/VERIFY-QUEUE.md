@@ -6,6 +6,14 @@ Legend: 🖥️ desktop browser · 📺 external display / AirPlay (workstation)
 
 ## open
 
+### 🌐 NDI / HDMI / conduit wave — B470–B474 (2026-07-29)
+- **📱📺 Large-clip video over HDMI/AirPlay — chunked staging (B473, needs Xcode rebuild).** ✅ SHORT TEST CONFIRMED (Daniel, cable+Movink): the 2:45 1080p clip that failed the old 60MB cap now broadcasts uneventfully. STILL TO DO at the workstation: a **longer/larger clip** (toward ~9min 1080p) to confirm it stages + plays without stall; a genuinely huge 4K/very-long clip should fall back to the honest hint (not hang).
+- **📱 NDI over WiFi — decisive HD-vs-FHD test (B472 pacing confirmed working).** BLOCKED at Starbucks (WiFi device detection off). At the regular workstation: pacing is confirmed even (30.0fps / gap 33.5ms / send-wait 0.0ms) but Arena still halts at FHD over WiFi. Test: stop NDI → set **HD (1280)** → restart on WiFi. HD smooth + FHD halts ⇒ bandwidth (HD-for-WiFi affordance); HD also halts ⇒ WiFi jitter/router ⇒ ethernet is the reliable FHD path. (iPhone-NDI-over-Thunderbolt already confirmed smooth — cable removes the WiFi variable.)
+- **📺 Movink 13 detected as QHD but is physically FHD (B465 res-detection incomplete).** `nativeSize` picks the largest `availableMode`, which over-reports on the Movink. Fix pending a diagnostic-logging pass (report `preferredMode` / `bounds×scale` / all modes) to pick a rule correct for BOTH the Movink (FHD) and the earlier 4K adapter (4K) without regressing either. Testable on the Movink now.
+- **📱 Aspect lock still unresponsive on iPhone mid-broadcast (B469/B472).** Desktop-chrome tap-tip landed B472; the iPhone (mobile chrome) aspect control is still totally unresponsive. Tangled with the pending aspect-unlock decision (unlock for live outputs / keep-locked-during-recording).
+- **🖥️ Perform source-swap no longer stacks the motion panel — ✅ FIXED B474 (desktop-verifiable, no device).** This resolves the **UI-teardown half** of the B382 finding below. Confirm: perform a clip → upload a new source → swaps in place, no motion panel; fresh video from STILL still opens motion. (The GL-context-lost half of B382 is separate + still open.)
+- **📱 v0.20.15/B472 iPad locked-control tip; v0.20.14/B471→472 NDI pacing** — carried by the above NDI/lock items.
+
 - **📱 Mobile width regression — ✅ CONFIRMED FIXED by Daniel (B411).** (Left here as a record; can drop next edit. iPhone fills 100% width, no horizontal scroll.)
 - (Deferred to BACKLOG, no longer verify-queue items: iPhone record AUDIO + the capture bitrate/perf failures → "Video capture hardening session"; motion 16:9 square-first → polish item.)
 - **🖥️ M3 LOCK PASS — full review (B414–B419).** Review across `/lab.html` (Composites → the padlock states + the icon inventory) and the running app:

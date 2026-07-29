@@ -83,7 +83,8 @@ export function createSourceHost(env) {
       env.updateSrcScrub?.();
       env.updateMotionUI();   // re-enable motion mode for a still (it's gated off for video sources)
       env.arrangeSlots();
-      if (env.motionRT.active) env.rebindMotionToSource();   // already animating → re-bind keyframes to the new still
+      if (env.motionRT.active) env.rebindMotionToSource();          // already animating → re-bind keyframes to the new still
+      else if (env.performRT?.active) env.refreshPerformSource?.();  // performing → swap source in place, no mode change
     };
     img.onerror = () => {
       if (uploadErrorEl) uploadErrorEl.textContent = 'failed to load image';
@@ -218,6 +219,12 @@ export function createSourceHost(env) {
             if (isLoop != null) env.setLoopClip?.(isLoop);
           });
         }
+      } else if (env.performRT?.active) {
+        // SWAP source while PERFORMING — do NOT change mode or park the clip (either stacks the
+        // motion panel onto perform and interrupts playback — Daniel's bug). Perform's own handler
+        // re-homes the timeline + restarts the loop with the new source; the UI stays put ("change
+        // sources from anywhere and have the UI stay unchanged").
+        env.refreshPerformSource?.();
       } else {
         const park = async () => {
           // Blink only rasterizes a frame for drawImage/texImage2D after a seek

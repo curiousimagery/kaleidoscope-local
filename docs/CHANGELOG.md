@@ -4,6 +4,18 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🔀 v0.20.17 (Build 474) — 2026-07-29 — Fix: swapping the source while performing no longer forces motion mode
+
+Daniel's repro: open a motion source, play back from **perform**, upload a new source → the **motion control panel loaded in on top of the perform controls** (both stacked); the only recovery was hopping to motion and back, which caused disruptive playback/pauses.
+
+- **Root cause** (`source-host.js`): a video load in the non-animating branch unconditionally ran the still-mode path — park the clip + `env.enterMotion()` (the D1 "fresh video routes into the motion editor" behavior). In perform, `motionRT.active` is false, so a source swap fell into that branch and switched modes.
+- **Fix:** the load now branches three ways — **already in motion** → rebind keyframes (unchanged); **performing** → `env.refreshPerformSource()` (perform's own handler re-homes the timeline + restarts the loop with the new clip, no mode change, no park); **still** → the existing park + D1 route-into-motion. `loadImage` got the matching perform-refresh branch too. Net: **you can swap sources from any mode and the UI stays put** (Daniel's ask).
+- The D1 auto-route-into-motion still fires exactly where intended — a fresh video loaded from **still** mode.
+
+**VERIFY (Daniel, desktop — no device needed):** perform a motion clip → upload a new video → it swaps in place, perform keeps playing, **no motion panel appears**; repeat with a still image; loading a fresh video from **still** still opens the motion editor; a source swap **during motion** still rebinds without leaving motion.
+
+Verified: node --check, vite build. JS-only — `cap:sync` covers iOS (no Xcode rebuild); fresh Electron build produced.
+
 ## 🎬 v0.20.16 (Build 473) — 2026-07-29 — Chunked video staging: large clips over the external display (HDMI/AirPlay)
 
 Daniel's gauntlet: video-over-HDMI works, but a **2:45 1080p clip failed** the ~60MB cap ("too large" hint) while a 19s clip played fine. Root cause: the B470 staging base64'd the **whole clip** across the bridge at once, holding several copies in memory — the cap existed to avoid a webview jetsam. **Native + device-blind — needs an iOS Xcode rebuild.**
