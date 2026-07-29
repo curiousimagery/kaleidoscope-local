@@ -48,6 +48,15 @@ const HIT = {
   RHOMBUS_SCALE_OUT_TOUCH: 16,
 };
 
+// REFLECTION DENSITY-LOD (Build 4, Daniel: "reflected states go crazy all over" at extreme
+// zoom-out). The mirror-reflection copies are honest, but when the sampled region grows far past
+// the source (radial's wedge scales ×1/canvasZoom, B453) the copies sprawl + overlap into amber
+// noise. Fade them out as the sampled polygon's UV bounding box exceeds the source (1 = one
+// source-dimension): full at ≤ START, gone by ≥ END. The PRIMARY outline is never faded. Tiling
+// forms don't grow their footprint with zoom, so their coverage stays ~1 and they never fade —
+// the LOD self-targets exactly the radial/large-slice case. TUNE these two on-device.
+const REFLECT_FADE_START = 1.6, REFLECT_FADE_END = 4.0;
+
 // ===========================================================================
 // drawing
 // ===========================================================================
@@ -273,10 +282,22 @@ export function drawSourceOverlay(env) {
   }
   ctx.globalCompositeOperation = 'source-over';
 
+  // DENSITY-LOD: fade the reflected copies as the sampled region outgrows the source, so extreme
+  // zoom-out doesn't fill the panel with overlapping amber (Daniel). coverage = the wedge's UV
+  // bounding-box span in source-dimensions; 1 ≈ source-sized. Full opacity ≤ START, gone ≥ END.
+  let uMin = Infinity, uMax = -Infinity, vMin = Infinity, vMax = -Infinity;
+  for (const { u, v } of uvPts) {
+    if (u < uMin) uMin = u; if (u > uMax) uMax = u;
+    if (v < vMin) vMin = v; if (v > vMax) vMax = v;
+  }
+  const coverage = Math.max(uMax - uMin, vMax - vMin);
+  const reflectFade = Math.max(0, Math.min(1, (REFLECT_FADE_END - coverage) / (REFLECT_FADE_END - REFLECT_FADE_START)));
+
   // mirror reflection visualization — when OOB mode is mirror AND the wedge
   // crosses an image edge, draw the reflected polygons (where the kaleidoscope
-  // ACTUALLY pulls color from in mirror mode). drawn faintly + dashed.
-  if (state.oobMode === 1 && oobAnyAxis) {
+  // ACTUALLY pulls color from in mirror mode). drawn faintly + dashed, and
+  // faded out (reflectFade) once the sampled region sprawls past the source.
+  if (state.oobMode === 1 && oobAnyAxis && reflectFade > 0.01) {
     const transforms = [];
     if (oobLeft)   transforms.push(({ u, v }) => ({ u: -u, v }));
     if (oobRight)  transforms.push(({ u, v }) => ({ u: 2 - u, v }));
@@ -300,9 +321,9 @@ export function drawSourceOverlay(env) {
         else ctx.lineTo(p.x, p.y);
       });
       ctx.closePath();
-      ctx.fillStyle = 'rgba(255, 196, 80, 0.10)';
+      ctx.fillStyle = `rgba(255, 196, 80, ${0.10 * reflectFade})`;
       ctx.fill();
-      ctx.strokeStyle = 'rgba(255, 196, 80, 0.6)';
+      ctx.strokeStyle = `rgba(255, 196, 80, ${0.6 * reflectFade})`;
       ctx.setLineDash([4, 3]);
       ctx.lineWidth = 1 * sw;
       ctx.stroke();

@@ -38,17 +38,17 @@ const STORE_KEY = 'fold-inputs-v1';
 // transport ACTIONS. `dir` names the low → high direction for the invert read.
 const PARAM_TARGETS = [
   { key: 'sliceRotation', label: 'slice rotation', min: 0, max: 360, wrap: true, dir: '0° → 360° counterclockwise' },
-  { key: 'sliceScale', label: 'slice scale', min: 0.05, max: 5, dir: 'small → large' },   // max 5 (matches kit/zoom.js Z_SLICE_MAX)
+  { key: 'sliceScale', label: 'slice scale', min: 0.05, max: 5, dir: 'small → large' },   // the slice control's OWN max (independent of the zoom gesture's Z_SLICE_COVER overflow cap)
   { key: 'sliceCx', label: 'slice position x', min: 0, max: 1, dir: 'left → right' },
   { key: 'sliceCy', label: 'slice position y', min: 0, max: 1, dir: 'top → bottom' },
   // SEMANTIC "zoom" — one mapping point that RESOLVES to the active form's zoom control, so a
   // single knob works across forms (droste → infinite zoom, else composition zoom) and existing
   // hardware never needs reprogramming on a form switch (Daniel). `resolve(state)` returns the
   // per-form key + range; applyMapping/writeParam use it. (Stage 1 of the registry unification.)
-  { key: 'canvasZoom', label: 'zoom', min: 0.15, max: 4, dir: 'zoomed out → zoomed in',
+  { key: 'canvasZoom', label: 'zoom', min: 0.05, max: 4, dir: 'zoomed out → zoomed in',
     resolve: (s) => s.form === 'droste'
       ? { key: 'drosteZoomPhase', min: 0, max: 1, wrap: true, wrapPeriod: 1 }
-      : { key: 'canvasZoom', min: 0.15, max: 4 } },
+      : { key: 'canvasZoom', min: 0.05, max: 4 } },
   { key: 'canvasRotation', label: 'canvas rotation', min: 0, max: 360, wrap: true, dir: '0° → 360°' },
   // TILING PAN (tileable forms). Absolute maps to ±2 units (~one lattice period); RATE/REL modes
   // (a stick/encoder) drift it like the joystick. The shader wraps the visual, so it loops

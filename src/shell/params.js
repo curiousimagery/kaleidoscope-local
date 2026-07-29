@@ -99,7 +99,7 @@ export const PARAMS = {
     sliderId: 'scale', valId: 'scaleVal', key: 'sliceScale',
     formControl: null, declarative: true,
     opts: {
-      min: 0.05, max: 5, step: 0.005, scrubStep: 0.01,   // max 5 (was 3): slice fully covers the source before flowing into canvas zoom (Daniel)
+      min: 0.05, max: 5, step: 0.005, scrubStep: 0.01,   // the slice's own resize range (how much source you sample); the zoom gesture is canvas-primary and only overflows into slice up to Z_SLICE_COVER
       fmt: v => v.toFixed(2) + '×',
       parse: parseTimes,
     },
@@ -143,15 +143,16 @@ export const PARAMS = {
   // COMPOSITION ZOOM — the deliberate DIRECT `canvasZoom` escape hatch, NOT routed through
   // the unified zoom (kit/zoom.js). Gestures own the unified slice↔canvas distribution; this
   // slider is the explicit "just scale the canvas" power control for when you want one axis of
-  // that pair by hand. Bounds mirror kit/zoom.js Z_CANVAS_MIN/MAX (0.15/4). It stays in sync
-  // after a gesture via the onChange→syncControls path, so its thumb still reflects any
-  // canvasZoom the unified path set. (Decision, Daniel: keep it direct — minimal-change refine.)
+  // that pair by hand. Bounds mirror kit/zoom.js Z_CANVAS_MIN/MAX (0.05/4 — the low floor gives
+  // the "gazillion repeats" range now that the gesture is canvas-primary). It stays in sync after
+  // a gesture via the onChange→syncControls path, so its thumb still reflects any canvasZoom the
+  // unified path set. (Decision, Daniel: keep it direct — minimal-change refine.)
   compZoom: {
     id: 'compZoom', label: 'composition zoom', type: 'range', scope: 'canvas',
     sliderId: 'compZoom', valId: 'compZoomVal', key: 'canvasZoom',
     formControl: null, declarative: true,
     opts: {
-      min: 0.15, max: 4, step: 0.01, scrubStep: 0.05,
+      min: 0.05, max: 4, step: 0.01, scrubStep: 0.05,
       fmt: v => v.toFixed(2) + '×',
       parse: parseTimes,
     },

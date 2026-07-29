@@ -4,6 +4,32 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🔭 v0.20.6 (Build 463) — 2026-07-28 — Overlay density-LOD: reflected copies fade at extreme zoom-out
+
+The paired follow-up to the zoom re-tune. At extreme zoom-out the honest mirror-reflection copies stop being informative and sprawl into overlapping amber noise ("go crazy all over") — because the radial wedge scales ×1/canvasZoom (B453), so the lower canvasZoom floor (0.05) makes it huge. Daniel's call: tame at high density.
+
+- **Reflected copies fade as the sampled region outgrows the source.** In `drawSourceOverlay` (the shared polygon/radial path), `coverage` = the sampled polygon's UV bounding-box span in source-dimensions (1 ≈ source-sized); the reflection fill/stroke alpha scales by `reflectFade` — full at `coverage ≤ REFLECT_FADE_START` (1.6), gone by `≥ REFLECT_FADE_END` (4.0), and the copies are skipped entirely once faded. The **primary slice outline and the edge seam are never faded** — the crossing stays communicated.
+- **Self-targeting.** Tiling forms don't grow their footprint with zoom (their coverage stays ~1), so they never fade; the LOD kicks in exactly where the problem is (radial zoomed out / a very large slice). Droste's overlay doesn't scale with its infinite-zoom phase, so it's unaffected by this case and untouched.
+- Both thresholds are named constants — **tune on-device.**
+
+**VERIFY (Daniel):** radial, mirror OOB → zoom the canvas way out → the reflected copies fade out as the wedge grows (primary outline + seam stay crisp) instead of filling the panel; a normal single-edge crossing still shows its reflection at full strength.
+
+Verified: node --check, vite build. **Untested by Claude on-device.** Fresh Capacitor + Electron builds produced.
+
+## 🔭 v0.20.5 (Build 462) — 2026-07-28 — Zoom model: canvas-primary with bounded slice overflow
+
+The zoom-model correction, after the UX-history review (Daniel confirmed the direction). The output pinch was *slice-first* — it grew `sliceScale` to 5× on zoom-out before touching `canvasZoom`, which pinned the slice at max (crazy reflections, no slice-shape control there) and made "small slice + zoom way out for a gazillion repeats" impossible (a single monotonic sweep can't be at both ends). The proposed "decouple by panel" turned out to be a **revert to the pre-B454 trap**; the real best-of-both is a re-tune.
+
+- **`applyUnifiedZoom` is now CANVAS-PRIMARY with a bounded slice overflow.** The output pinch drives `canvasZoom` across its whole range and **leaves `sliceScale` alone** — so the slice you set in the source panel is preserved, and small-slice + mega-repeat works by construction (canvasZoom < 1 = more repeats of the same small slice). **Only** when canvasZoom hits a wall does the gesture overflow into the slice (grow toward `Z_SLICE_COVER` on the way out, shrink toward `Z_SLICE_MIN` for detail on the way in) — so it never dead-ends (no trap) yet never shoves the slice to an unwieldy extreme. Invertible in the normal (canvas) range; benign stickiness only in a deep overflow excursion.
+- **canvasZoom floor 0.15 → 0.05** (≈ up to 20 repeats/dim for the "gazillion" case), mirrored in the compZoom slider and the input-bus semantic-"zoom" target. `Z_SLICE_COVER` = 3 placeholder (was 5) — M4 Phase B calibrates it per-form to "covers source." The slice slider keeps its own max 5 (a manual resize, independent of the zoom overflow cap).
+- Zoom-in still magnifies the canvas first (keeps the B459 intent); droste's pinch → infinite-zoom phase is unchanged.
+
+**Pairs with (next):** overlay density-LOD — at extreme zoom-out the honest radial overlay (B453) draws a gazillion reflected cells; tame/fade them past a count threshold (primary outline stays crisp). Not in this build.
+
+**VERIFY (Daniel):** set a small slice in the source panel → pinch OUT on the output → the same small slice repeats more and more (slice stays put, shape controllable); keep pinching out past the floor → the slice grows to cover (no dead-end); pinch IN → canvas magnifies first, then detail; pinch out-then-in in the normal range returns cleanly.
+
+Verified: node --check, vite build. **Untested by Claude on-device.** Fresh Capacitor + Electron builds produced.
+
 ## 🔧 v0.20.4 (Build 461) — 2026-07-28 — Remote canvas pan fix (+ shared pan transform) + droste zoom catch-up
 
 Two greenlit follow-ups from Daniel's testing (the zoom-model rework is on hold pending a UX-research review).
