@@ -175,14 +175,20 @@ public class FoldExternalDisplayPlugin: CAPPlugin, CAPBridgedPlugin, WKScriptMes
     // from state — is sized to native pixels. AirPlay already lands on its native mode, so this is a
     // no-op there.
     private func nativeSize(_ s: UIScreen) -> CGSize {
-        s.availableModes.max { $0.size.width * $0.size.height < $1.size.width * $1.size.height }?.size
+        // preferredMode ≈ the display's TRUE native resolution. Daniel's Movink 13 reports it as
+        // 1920×1080 (correct — the panel is FHD), while the "largest available mode" over-reports
+        // 2560×1600 (a scaled/virtual mode the panel advertises). Prefer it; fall back to the largest
+        // mode (the 4K-adapter case where bounds×scale under-reported), then bounds×scale.
+        if let p = s.preferredMode?.size { return p }
+        return s.availableModes.max { $0.size.width * $0.size.height < $1.size.width * $1.size.height }?.size
             ?? CGSize(width: s.bounds.width * s.scale, height: s.bounds.height * s.scale)
     }
     private func applyNativeMode(_ s: UIScreen) {
-        if let best = s.availableModes.max(by: { $0.size.width * $0.size.height < $1.size.width * $1.size.height }),
-           s.currentMode != best {
-            s.currentMode = best
-        }
+        // promote to the display's PREFERRED (native) mode — not the largest, which over-reports on
+        // panels like the Movink. Largest is the fallback when preferredMode is unavailable.
+        let target = s.preferredMode
+            ?? s.availableModes.max(by: { $0.size.width * $0.size.height < $1.size.width * $1.size.height })
+        if let target = target, s.currentMode != target { s.currentMode = target }
     }
 
     // DIAGNOSTIC (Daniel's Movink 13: detected QHD but physically FHD — "largest mode" over-reports

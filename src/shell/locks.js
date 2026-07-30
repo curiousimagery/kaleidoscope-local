@@ -110,7 +110,7 @@ export const LOCK_ICON = { locked: ICONS.lock, unlocked: ICONS.lockOpen };
 // Build a padlock toggle button bound to `key`. Reads env.isLocked(key), renders the right
 // glyph + state class + tooltip, and on click flips the lock (only when unlockable) then
 // calls onChange so the host can re-sync the affected control's disabled state.
-export function makeLockToggle(env, key, onChange, confirmUnlock) {
+export function makeLockToggle(env, key, onChange, confirmUnlock, onInfo) {
   const btn = document.createElement('button');
   btn.className = 'lock-toggle';
   btn.dataset.lockKey = key;
@@ -122,12 +122,15 @@ export function makeLockToggle(env, key, onChange, confirmUnlock) {
     btn.classList.toggle('contextual', st.locked && !st.unlockable);
     btn.innerHTML = st.locked ? LOCK_ICON.locked : LOCK_ICON.unlocked;
     btn.title = st.why || (st.locked ? 'locked' : 'unlocked — click to lock');
-    // a contextual lock isn't clickable (clear the context instead)
-    btn.disabled = st.locked && !st.unlockable;
+    // a contextual (hard) lock isn't user-unlockable. Normally we disable it — but a disabled button
+    // fires NO click, so on touch a tap gives zero feedback (Daniel's iPhone: "non-responsive, no
+    // toast"). When an onInfo handler is provided, keep it ENABLED so the tap registers and explains
+    // WHY it's locked (see the click handler) instead of reading as broken.
+    btn.disabled = st.locked && !st.unlockable && !onInfo;
   };
   btn.addEventListener('click', () => {
     const st = env.isLocked ? env.isLocked(key) : { locked: false };
-    if (!st.unlockable) return;                 // contextual — no-op
+    if (!st.unlockable) { onInfo?.(st.why); return; }   // hard-locked → explain why (not a silent no-op)
     const doToggle = () => { env.setLock?.(key, !st.locked); sync(); onChange && onChange(); };
     // unlocking a disruptive control → confirm first. confirmUnlock is a NON-BLOCKING gate: it
     // gets a `proceed` callback and calls it if the user confirms (see shell/interrupt.js). Must

@@ -4,6 +4,19 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🔧 v0.20.19 (Build 476) — 2026-07-30 — Aspect-unlock regression fixes (iPad + iPhone) + Movink resolution fix
+
+Daniel's verification pass caught three issues in B475. All fixed.
+
+- **iPad: unlocking the aspect padlock didn't re-enable the selectors.** Two independent lock mechanisms were fighting: the M3 padlock (`lock-dimmed`) and the output panel's older `lockAspect` (`.locked` → `pointer-events:none`). `lockAspect` was keyed on *any* live output, so over HDMI it kept the control disabled even after the M3 padlock unlocked. Now `lockAspect` is keyed on `env.isBusOutputLive()` (recording / NDI / Syphon only), so over a self-rendering dest the M3 padlock is the sole authority — unlock actually enables it. Resolution tiers still lock for any output (unchanged).
+- **iPhone: hard-locked padlock was non-responsive with no feedback.** A hard-locked padlock was `disabled`, and a disabled button fires no click — so a tap did nothing and read as broken. `makeLockToggle` now takes an optional `onInfo` handler; when present, the padlock stays enabled and a tap on a hard-locked padlock **explains why it's locked** (toast) instead of silently no-op'ing. Wired on mobile. (Desktop already surfaces it via the disabled-tip + hover title.)
+- **iPhone diagnostic:** the "erroneous" NDI/Syphon toast means `busOutputLive` was true, which only happens when recording or NDI is genuinely live. Added a `[fold] aspect hard-locked — rec:… bc:… ext:…` console line so Daniel's next test shows whether it's a real broadcast or a stale flag ("no broadcast active" needs that datum).
+- **Movink resolution — FIXED with your data.** The `[FoldExt] display modes` diagnostic showed `preferredMode: 1920×1080` (correct — the Movink panel is FHD) while "largest" picks 2560×1600 (a scaled/virtual mode it advertises). `nativeSize`/`applyNativeMode` now prefer `preferredMode`, falling back to largest (the 4K-adapter case) then bounds×scale. Output was always correct; this fixes the reported identifier + the presented mode.
+
+**VERIFY (Daniel, needs Xcode rebuild):** iPad HDMI → unlock the aspect padlock → the ratio buttons are now live → change ratio → external view re-letterboxes. iPhone → tap a hard-locked padlock → a toast explains why (and check the console `rec/bc/ext` line — if it says a broadcast is live when you didn't start one, that's the next bug). Movink → the panel now reports/renders 1920×1080.
+
+Verified: node --check (3 files), vite build, Swift brace balance. **Aspect-over-HDMI + Movink untested by Claude — device-gated.** Fresh Capacitor (Xcode rebuild) + Electron builds produced.
+
 ## 🔓 v0.20.18 (Build 475) — 2026-07-29 — Frame aspect unlockable over HDMI/AirPlay during broadcast + Movink resolution diagnostic
 
 Daniel's QoL ask: the frame-aspect control was hard-locked during any broadcast and totally unresponsive on iPhone. He wanted it unlockable. Scoped to a no-refactor change after tracing the coupling.

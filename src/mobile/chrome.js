@@ -646,7 +646,14 @@ $('m-fit-toggle').addEventListener('click', () => {
     const row = ctl.querySelector('.m-control-row'); if (!row) continue;
     row.classList.add('has-lock');
     ctl.dataset.lockKey = t.key;   // so a tap on the locked body can look up WHY it's locked
-    const btn = makeLockToggle(env, t.key, () => {});   // env.setLock already re-syncs everything
+    // onInfo: a hard-locked padlock tap explains WHY instead of doing nothing (Daniel's iPhone).
+    const btn = makeLockToggle(env, t.key, () => {}, null, (why) => {
+      // DIAGNOSTIC (Daniel: aspect hard-locked over HDMI "with no broadcast active"). busOutputLive
+      // is only true when recording or NDI is genuinely live — log the state so we can tell a real
+      // NDI/record from a stale flag next test.
+      if (t.key === 'frameAspect') console.info(`[fold] aspect hard-locked — rec:${recState} bc:${bcState} ext:${extStreaming}`);
+      statusToast('busy', why, { ttl: 3000 });
+    });   // env.setLock already re-syncs everything
     row.appendChild(btn);
     syncers.push(() => {
       btn.sync();   // fatFingerAll makes every target lockable-always → padlock always visible

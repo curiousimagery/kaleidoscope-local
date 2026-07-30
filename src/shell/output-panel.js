@@ -454,12 +454,14 @@ export function createOutputPanel(env, outputBus) {
       byId('hdmiFillBtn')?.classList.toggle('active', !!env.session?.hdmiFill);
     }
 
-    // resolution + frame aspect both set the output size, which is fixed for the
-    // session once output starts (the bus locks it; the window reads it at open) —
-    // disable them while live so a mid-session change can't silently do nothing.
-    const sizeLocked = outputBus.running || broadcasting;
-    lockAspect(sizeLocked);
-    if (resTiers) resTiers.querySelectorAll('button').forEach((b) => { b.disabled = sizeLocked; });
+    // RESOLUTION is fixed for the session once ANY output starts (bus + window read it at open).
+    // Frame ASPECT is only hard-fixed for a BUS output (recording / NDI / Syphon) — over a self-
+    // rendering dest (HDMI/AirPlay/window) it re-letterboxes from the state stream, so the M3
+    // padlock governs it (unlockable). Don't disable it here in that case, or the padlock unlock
+    // can't re-enable it (Daniel's iPad double-lock bug).
+    const resLocked = outputBus.running || broadcasting;
+    lockAspect(env.isBusOutputLive());
+    if (resTiers) resTiers.querySelectorAll('button').forEach((b) => { b.disabled = resLocked; });
   }
 
   function renderStatus() {
