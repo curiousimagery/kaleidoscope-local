@@ -223,6 +223,11 @@ env.isLocked = (key) => lockState({
   motionActive: env.motionRT.active,
   keyframeCount: motion.keyframes.length,   // ≥2 = at least one MANUAL keyframe past the seed
   outputLive: env.isOutputLive ? env.isOutputLive() : false,
+  // BUS output = recording / NDI / Syphon (fixed-size, can't change aspect mid-stream). A self-
+  // rendering dest (HDMI/AirPlay/output-window) is NOT bus-output, so aspect stays unlockable there.
+  // Fall back to outputLive until the output panel wires isBusOutputLive (preserves the hard lock).
+  busOutputLive: env.isBusOutputLive ? env.isBusOutputLive()
+               : (env.isOutputLive ? env.isOutputLive() : false),
 }, key);
 env.setLock = (key, locked) => {
   // write the override under the SAME context-scoped key lockState reads (see scopeKey there), so

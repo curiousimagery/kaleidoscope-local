@@ -129,9 +129,14 @@ let recState = 'idle';    // 'idle' | 'recording' | 'finishing' (stop tapped, fi
 let bcState = 'idle';     // 'idle' | 'live'
 let locksReady = false;   // syncers no-op until controls + state exist (set true at file end)
 env.isOutputLive = () => recState === 'recording' || bcState === 'live' || extStreaming;
+// BUS output = recording + NDI (fixed-size streams, aspect can't change mid-stream). The external
+// display (extStreaming) self-renders from state and re-letterboxes, so it is NOT bus-output —
+// aspect stays unlockable over HDMI/AirPlay (matches desktop; Daniel's QoL ask).
+env.isBusOutputLive = () => recState === 'recording' || bcState === 'live';
 env.isLocked = (key) => lockState({
   session, motionActive: false, keyframeCount: 0,
   outputLive: env.isOutputLive(),
+  busOutputLive: env.isBusOutputLive(),
   fatFingerAll: true,   // mobile: padlocks always available (default unlocked), auto-lock on output
 }, key);
 env.setLock = (key, locked) => {

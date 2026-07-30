@@ -42,7 +42,7 @@ const WHY = {
   broadcast:  'locked while broadcasting to prevent accidental changes. unlock (tap the padlock) to change it live.',
   fatFinger:  'locked to prevent accidental drags. unlock to adjust.',
   resolution: 'locked while broadcasting. stop the output to change resolution.',
-  aspect:     'locked while broadcasting. stop the output to change the frame aspect (or use the fill-display toggle).',
+  aspect:     'locked while recording or broadcasting over NDI/Syphon — those stream at a fixed size. stop them to change the frame aspect. (over HDMI/AirPlay it stays adjustable — unlock the padlock.)',
 };
 
 // The current lock state of a control.
@@ -53,7 +53,7 @@ const WHY = {
 //   ALWAYS available (default unlocked), auto-locking only when output is live. On touch the
 //   fat-finger concern is broader, so mobile wants the lock reachable at all times (Daniel).
 export function lockState(ctx, key) {
-  const { session, motionActive, keyframeCount = 0, outputLive = false, fatFingerAll = false } = ctx;
+  const { session, motionActive, keyframeCount = 0, outputLive = false, busOutputLive = false, fatFingerAll = false } = ctx;
 
   // center offset: NO padlock anymore — its manual gesture is governed by the two-toggle on the
   // offset row (session.offsetManual, default false = the diamond can't be dragged). This returns
@@ -76,8 +76,11 @@ export function lockState(ctx, key) {
   const lockable = fatFinger || structuralLock;
   if (!lockable) return { locked: false, lockable: false };   // freely editable here → no padlock
 
-  // encoder-tied dims (aspect) can't change while output is live → hard contextual lock
-  if (ENCODER_TIED.has(key) && outputLive) {
+  // encoder-tied dims (aspect) can't change mid-stream for a BUS output (recording / NDI / Syphon
+  // render through the fixed-size bus). A SELF-RENDERING output (HDMI/AirPlay/output-window) re-
+  // letterboxes from the state stream, so aspect stays a normal *unlockable* structural lock there —
+  // unlock the padlock and it changes live (Daniel's QoL ask; the Movink case).
+  if (ENCODER_TIED.has(key) && busOutputLive) {
     return { locked: true, lockable: true, unlockable: false, why: WHY.aspect };
   }
 

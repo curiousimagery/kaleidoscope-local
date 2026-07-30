@@ -185,6 +185,19 @@ public class FoldExternalDisplayPlugin: CAPPlugin, CAPBridgedPlugin, WKScriptMes
         }
     }
 
+    // DIAGNOSTIC (Daniel's Movink 13: detected QHD but physically FHD — "largest mode" over-reports
+    // on that panel, while it UNDER-reported on the earlier 4K adapter via bounds×scale). Log every
+    // candidate once on present so we can pick a rule correct for BOTH displays with real data
+    // instead of guessing (the NDI-AIMD lesson). Behavior is unchanged — this only prints.
+    private func logDisplayModes(_ s: UIScreen) {
+        let preferred = s.preferredMode?.size
+        let boundsScale = CGSize(width: s.bounds.width * s.scale, height: s.bounds.height * s.scale)
+        let picked = nativeSize(s)
+        let modes = s.availableModes.map { "\(Int($0.size.width))x\(Int($0.size.height))" }.joined(separator: ", ")
+        let pref = preferred.map { "\(Int($0.width))x\(Int($0.height))" } ?? "nil"
+        print("[FoldExt] display modes — preferred: \(pref) · bounds×scale: \(Int(boundsScale.width))x\(Int(boundsScale.height)) · picked(largest): \(Int(picked.width))x\(Int(picked.height)) · available: [\(modes)]")
+    }
+
     private func statusData() -> [String: Any] {
         var data: [String: Any] = ["connected": false, "presenting": externalWindow != nil]
         if let s = externalScreen() {
@@ -274,6 +287,7 @@ public class FoldExternalDisplayPlugin: CAPPlugin, CAPBridgedPlugin, WKScriptMes
         // raises the identical didConnect, and presenting a window switches the
         // screen from mirroring to extended content.
         screen.overscanCompensation = .scale
+        logDisplayModes(screen)   // one-shot: what each API reports (Movink QHD-vs-FHD diagnosis)
         applyNativeMode(screen)   // promote to native resolution BEFORE sizing the window (Daniel: 4K HDMI read as 1440)
 
         let window = UIWindow(frame: screen.bounds)

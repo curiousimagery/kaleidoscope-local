@@ -4,6 +4,17 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🔓 v0.20.18 (Build 475) — 2026-07-29 — Frame aspect unlockable over HDMI/AirPlay during broadcast + Movink resolution diagnostic
+
+Daniel's QoL ask: the frame-aspect control was hard-locked during any broadcast and totally unresponsive on iPhone. He wanted it unlockable. Scoped to a no-refactor change after tracing the coupling.
+
+- **Aspect unlockable during a SELF-RENDERING broadcast** (HDMI / AirPlay / output-window). Those render the program from the state stream and re-letterbox instantly when the aspect changes — no bus, no encoder, no reconfigure. So aspect is now a normal *unlockable* structural lock there: unlock the padlock and change it live. **Recording, NDI, and Syphon stay hard-locked** — they stream through the fixed-size bus, so a mid-stream aspect change would need a bus-resolution reconfigure + receiver re-negotiation (a follow-up gated on NDI-capable testing; deliberately *not* done here to avoid shipping unverifiable reconfigure code — Daniel is off his NDI network). New `env.isBusOutputLive()` (recording OR a bus-consuming broadcast dest) is the signal; `locks.js` keys the encoder-tied hard lock on it instead of any-output-live. Wired on **both** chromes (desktop + mobile), which also fixes the iPhone unresponsiveness (aspect now unlocks over HDMI/AirPlay, and gives a clear "why" toast when hard-locked for NDI/record).
+- **Movink resolution diagnostic** (`FoldExternalDisplayPlugin`, log-only): Daniel's Movink 13 is detected as QHD but is physically FHD — our "largest available mode" rule over-reports on it (while it *under*-reported on the earlier 4K adapter via bounds×scale). Rather than guess a new rule blind (and risk regressing the 4K case), a one-shot `[FoldExt] display modes` line now prints `preferredMode` / `bounds×scale` / picked / all available modes on present. Behavior unchanged; Daniel reads it off the Movink and we pick a provably-correct rule. Output was always correct — this is only about the reported identifier.
+
+**VERIFY (Daniel):** **HDMI/Movink (needs Xcode rebuild):** start HDMI out → the aspect padlock is now *unlockable* (not a dead contextual lock) → unlock → change ratio → the external view re-letterboxes live; NDI/recording still show a hard lock with the new "stop the fixed-size stream / HDMI stays adjustable" toast. Read the `[FoldExt] display modes` line for the Movink and send it over. iPhone: aspect responds over AirPlay/HDMI, explains itself over NDI.
+
+Verified: node --check (4 files), vite build, Swift brace balance. **Aspect-over-HDMI + Movink log untested by Claude — device-gated.** Fresh Capacitor (Xcode rebuild) + Electron builds produced.
+
 ## 🔀 v0.20.17 (Build 474) — 2026-07-29 — Fix: swapping the source while performing no longer forces motion mode
 
 Daniel's repro: open a motion source, play back from **perform**, upload a new source → the **motion control panel loaded in on top of the perform controls** (both stacked); the only recovery was hopping to motion and back, which caused disruptive playback/pauses.

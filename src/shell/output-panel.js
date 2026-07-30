@@ -210,6 +210,11 @@ export function createOutputPanel(env, outputBus) {
   // is the program output live (broadcasting or recording)? drives the M3 contextual locks
   // on resolution + aspect (they can't change while output is live).
   env.isOutputLive = () => broadcasting || wantRecord;
+  // BUS output = fixed-size streams (recording, or a bus-consuming broadcast dest like NDI/Syphon)
+  // where the frame aspect can't change mid-stream. A SELF-RENDERING dest (HDMI/AirPlay/output-window,
+  // needsBus:false) re-letterboxes from state, so aspect stays adjustable there — this is the signal
+  // locks.js uses to keep aspect unlockable over HDMI while hard-locking it for recording/NDI/Syphon.
+  env.isBusOutputLive = () => wantRecord || (broadcasting && selectedDest()?.sink.needsBus !== false);
 
   function syncBusRunning() {
     // the output-window destination self-renders (needsBus:false), so a window-only
