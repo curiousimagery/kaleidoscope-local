@@ -234,7 +234,7 @@ export function createInputBus(env) {
   // pannable = tileable (has a lattice period) OR radial (pans via canvasOffset, no lattice).
   // Mirrors main.js / mobile chrome's ctx.panDrivable — a candidate for the shared helper when
   // the "one fn per input axis" hardening lands (the same duplication kit/pan.js just resolved).
-  const panDrivableNow = () => { const f = getActiveForm(state); return !!(f && (f.latticePeriod || f.id === 'radial' || f.id === 'droste')); };
+  const panDrivableNow = () => { const f = getActiveForm(state); return !!(f && (f.latticePeriod || ((f.id === 'radial' || f.id === 'droste') && state.panManual))); };
 
   function applyMapping(m, value, meta) {
     if (m.target.startsWith('action:')) {

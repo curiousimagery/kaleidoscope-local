@@ -82,6 +82,10 @@ public class FoldNdiPlugin: CAPPlugin, CAPBridgedPlugin {
             name.withCString { cName in
                 var desc = NDIlib_send_create_t()
                 desc.p_ndi_name = cName
+                // clock_video: let the SDK stamp frames on its own precise clock (to the declared
+                // frame rate) rather than at raw arrival time. A WiFi-jitter experiment (Daniel) —
+                // more evenly-timecoded frames give the receiver's reclock a cleaner grid to lock to.
+                desc.clock_video = true
                 created = NDIlib_send_create(&desc)   // NDI copies the name during create
             }
             guard let send = created else { call.reject("could not create the NDI sender"); return }

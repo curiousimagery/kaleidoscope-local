@@ -17,7 +17,7 @@
 
 'use strict';
 
-const { app, BrowserWindow, ipcMain, session } = require('electron');
+const { app, BrowserWindow, ipcMain, session, screen } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { execFile } = require('child_process');
@@ -34,6 +34,33 @@ const remote = require('./remote-input');
 app.commandLine.appendSwitch('disable-renderer-backgrounding');
 
 let win;
+
+// ---- external display (desktop HDMI/projector out) --------------------------
+// The renderer's external-display sink (shell/output-window.js) opens output.html
+// as a window NAMED 'fold-output-ext'; we place THAT window borderless-fullscreen
+// on the connected external display so the program fills a projector chrome-free.
+// The renderer keeps opening the window itself (via window.open) so it stays in the
+// opener's context and SHARES the BroadcastChannel state stream — we only override
+// its bounds. Display detection mirrors the iPad Capacitor HDMI destination's UX.
+function externalDisplayInfo() {
+  const primary = screen.getPrimaryDisplay();
+  const ext = screen.getAllDisplays().find((d) => d.id !== primary.id);
+  if (!ext) return { connected: false };
+  const sf = ext.scaleFactor || 1;
+  return {
+    connected: true,
+    // native pixels for the render surface (a projector fills sharply); DIP bounds for placement
+    width: Math.round(ext.size.width * sf),
+    height: Math.round(ext.size.height * sf),
+    x: ext.bounds.x, y: ext.bounds.y,
+    boundsW: ext.bounds.width, boundsH: ext.bounds.height,
+  };
+}
+
+function pushDisplays() {
+  const wc = win?.webContents;
+  if (wc && !wc.isDestroyed()) wc.send('displays:changed', externalDisplayInfo());
+}
 
 function createWindow() {
   win = new BrowserWindow({
@@ -60,6 +87,22 @@ function createWindow() {
     ? path.join(process.resourcesPath, 'dist', 'index.html')
     : path.join(__dirname, '..', 'dist', 'index.html');
   win.loadFile(indexHtml);
+
+  // Place the external-display output window (name 'fold-output-ext') borderless on the
+  // connected external display; the floating output window ('fold-output') opens normally.
+  win.webContents.setWindowOpenHandler(({ frameName }) => {
+    if (frameName === 'fold-output-ext') {
+      const ext = externalDisplayInfo();
+      if (ext.connected) {
+        return { action: 'allow', overrideBrowserWindowOptions: {
+          x: ext.x, y: ext.y, width: ext.boundsW, height: ext.boundsH,
+          frame: false, backgroundColor: '#000000', fullscreenable: true,
+          webPreferences: { backgroundThrottling: false },
+        } };
+      }
+    }
+    return { action: 'allow' };   // floating output window / anything else: default popup
+  });
 
   // Detached devtools during dev only — never in a packaged build.
   if (!app.isPackaged) win.webContents.openDevTools({ mode: 'detach' });
@@ -90,6 +133,14 @@ app.whenReady().then(async () => {
   session.defaultSession.setPermissionCheckHandler(() => true);
 
   createWindow();
+
+  // External-display detection for the desktop HDMI-out destination (screen module is
+  // only valid after app-ready). The renderer reads the current state synchronously and
+  // subscribes to changes; the output panel auto-selects the destination on connect.
+  ipcMain.on('displays:get', (e) => { e.returnValue = externalDisplayInfo(); });
+  screen.on('display-added', pushDisplays);
+  screen.on('display-removed', pushDisplays);
+  screen.on('display-metrics-changed', pushDisplays);
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();

@@ -28,6 +28,11 @@ export default {
   label: 'Triangle',
   fileCode: 't',
 
+  // perceived-size normalization (Daniel): triangle reads much smaller than radial/rectangle/droste
+  // at the same sliceScale (TRI_SIZE=0.6 packs denser tiles). >1 grows the effective slice toward
+  // the radial/droste reference. FIRST-PASS — tune against the others. See formSizeNorm.
+  sizeNorm: 1.6,
+
   thumbnail: `<svg viewBox="0 0 32 32"><g class="stroke">
     <polygon points="16,4 27.7,24 4.3,24"/>
     <line x1="16" y1="4" x2="16" y2="24"/>

@@ -111,6 +111,19 @@ const foldHost = {
     },
   },
 
+  // External displays (desktop HDMI/projector out): the current external-display info
+  // (native pixels + placement) and a change subscription. Drives the renderer's
+  // external-display output sink (shell/output-window.js) — the same destination UX
+  // as the iPad Capacitor HDMI row (auto-select on connect, resolution readout).
+  displays: {
+    get() { return ipcRenderer.sendSync('displays:get'); },
+    onChanged(cb) {
+      const h = (_e, info) => cb(info);
+      ipcRenderer.on('displays:changed', h);
+      return () => ipcRenderer.removeListener('displays:changed', h);
+    },
+  },
+
   // Native trackpad gestures (Arc 6): magnify + rotate deltas from the NSEvent
   // monitor in main (Chromium swallows rotate; pinch only reaches the page as
   // ctrl+wheel). The control bus registers this as the "trackpad" device.

@@ -44,7 +44,7 @@ import { createOutputBus } from 'conduit/output-bus';
 import { createRecorderSink } from 'conduit/recorder';
 import { createSyphonSink } from 'conduit/syphon-sink';
 import { createNdiSink } from 'conduit/ndi-sink';
-import { createOutputWindow } from './shell/output-window.js';
+import { createOutputWindow, createExternalDisplayWindow } from './shell/output-window.js';
 import { mockSyphonHost } from 'conduit/mock-host';
 import { createOutputPanel } from './shell/output-panel.js';
 import { mountInputDebug } from './shell/input-debug.js';
@@ -815,6 +815,23 @@ function wireLocks() {
   }));
   syncOffManual();
 
+  // PAN LOCK (radial/droste) — those default centered (state.panManual=false); unlock to pan them.
+  // On state (not session) so the shader's u_canvasOffset gate reads it + it rides undo/redo.
+  const panManualBtns = [...document.querySelectorAll('#panManual button')];
+  const syncPanManual = () => {
+    const on = !!state.panManual;
+    panManualBtns.forEach((b) => b.classList.toggle('active', (b.dataset.pan === '1') === on));
+  };
+  panManualBtns.forEach((b) => b.addEventListener('click', () => {
+    state.panManual = b.dataset.pan === '1';
+    syncPanManual();
+    env.applyFormControls?.();     // show/hide the radial pan joystick for the new lock state
+    scheduleRender();              // re-center (locked) or restore the offset (unlocked)
+    env.scheduleOverlayDraw?.();
+  }));
+  syncPanManual();
+  env.syncPanManual = syncPanManual;   // a state load / reset / undo re-syncs the toggle
+
   const offAuto = [...document.querySelectorAll('#offsetAutoplay button')];
   const syncOffAuto = () => {
     const inc = !!(session.autoplayInclude && session.autoplayInclude.drosteOffsetX);
@@ -1018,7 +1035,9 @@ function wireControls() {
     state.drosteZoomPhase = 0;  // infinite zoom is a canvas control in droste — reset it too
     env.panRecenter?.();        // tiling pan: STOP any drift + recenter (Daniel)
     state.oobMode        = 1;   // mirror, the default
+    state.panManual      = false;   // radial/droste pan returns to the centered default
     env.controlsSync.syncAll();
+    env.applyFormControls?.();   // re-lock the pan toggle + hide the radial joystick
     // the OOB buttons sync only in their own click handler — mirror the state here
     document.querySelectorAll('#oobModes button').forEach(b => b.classList.toggle('active', b.dataset.oob === '1'));
     scheduleRender();
@@ -1518,6 +1537,20 @@ if (engine) {
   env.outputBus = outputBus;
   createOutputPanel(env, outputBus);
 
+  // Desktop HDMI / external display (Electron): present the output window fullscreen on a
+  // connected external monitor/projector — the SAME self-rendering output view as the floating
+  // window, repositioned by the shell (main.js setWindowOpenHandler). Registered only when the host
+  // exposes a `displays` capability; the destination auto-selects on connect + shows the resolution
+  // (env.addOutputDestination wires the sink's onDisplayChange), mirroring the iPad Capacitor row.
+  if (env.host?.displays?.get) {
+    outputBus.registerSink(createExternalDisplayWindow(env));
+    env.addOutputDestination?.({
+      id: 'hdmi',
+      label: 'external display',
+      title: 'present the program fullscreen on the connected external display (monitor / projector) — chrome-free',
+    });
+  }
+
   // HDMI / external display (Capacitor iOS/iPadOS): the sink module — and with it
   // @capacitor/core — loads lazily so the web bundle stays clean (the
   // native-camera pattern); the destination row appears once it's ready via
@@ -1563,7 +1596,7 @@ if (engine) {
     // which forms accept a canvas-translation gesture: tileable (loops) OR radial (non-looping center).
     // Separate from panPeriod (the wrap): radial + droste pan via canvasOffset but have no lattice
     // period (non-wrapping pan). The shader already applies the raw offset for them (shader-builder).
-    panDrivable: () => { const f = getActiveForm(state); return !!(f && (f.latticePeriod || f.id === 'radial' || f.id === 'droste')); },
+    panDrivable: () => { const f = getActiveForm(state); return !!(f && (f.latticePeriod || ((f.id === 'radial' || f.id === 'droste') && state.panManual))); },
     panDrift: () => env.panDrift,   // flick-to-drift on release when drift mode is on (lazy: set after gestures)
   });
   setupUndoBar();

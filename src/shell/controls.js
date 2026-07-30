@@ -431,7 +431,13 @@ export function applyFormControls(env) {
   // center, non-looping). This runs AFTER wireControls mounts the row (init order fixed in createApp),
   // so the dynamic #panJoyRow element exists when we gate it.
   const panRow = document.getElementById('panJoyRow');
-  if (panRow) panRow.style.display = (form.latticePeriod || form.id === 'radial') ? '' : 'none';
+  // radial's pan joystick shows only when pan is UNLOCKED (locked = centered, no joystick to offer);
+  // tileable forms always pan. droste pans via gesture (no joystick row).
+  if (panRow) panRow.style.display = (form.latticePeriod || (form.id === 'radial' && state.panManual)) ? '' : 'none';
+  // pan LOCK toggle — radial/droste only (those default centered; unlock to pan them)
+  const panLockRow = document.getElementById('panLockLabel');
+  if (panLockRow) panLockRow.style.display = (form.id === 'radial' || form.id === 'droste') ? '' : 'none';
+  env.syncPanManual?.();   // reflect state.panManual on the toggle (state load / undo / reset)
   // center-offset lock/autoplay row is Droste-only (the offset is a canvas gesture, no slider)
   const offsetRow = document.getElementById('drosteOffsetLabel');
   if (offsetRow) offsetRow.style.display = form.id === 'droste' ? '' : 'none';

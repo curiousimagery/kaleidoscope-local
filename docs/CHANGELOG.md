@@ -4,6 +4,43 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🖥️ v0.20.22 (Build 479) — 2026-07-30 — Desktop HDMI / external-display output (Electron)
+
+Daniel's prioritized gap: the Electron DMG had no way to drive a projector/second monitor (Syphon was the only broadcast). Now it can — reusing the existing self-rendering output view + the iPad HDMI destination UX.
+
+- **The rendering already existed** — the desktop output window self-renders the program from the state stream (same as iOS HDMI). This build adds **placement**: `output-window.js` now has `createExternalDisplayWindow(env)` (id `hdmi`), which opens the output view as a window named `fold-output-ext`; Electron's `setWindowOpenHandler` repositions *that* window **borderless on the connected external display**. Keeping `window.open` in the renderer means the window stays in the opener's context and **shares the BroadcastChannel** state stream — no new transport. Refactored the two window sinks (floating `window` + external `hdmi`) onto one shared core.
+- **Display detection** (`electron/main.js` + `preload.js`): a `displays` host capability — current external-display info (native pixels + placement) via the `screen` module, plus a change subscription (`display-added/removed/metrics-changed`). The destination **auto-selects on connect and shows the resolution** (the output panel already wires any sink's `onDisplayChange` — same path as the iPad row), and `start` guards on a real display.
+- **Same aspect handling as iPad:** the external window fits the composition's frame aspect inside the display's native pixels (letterboxed), or fills edge-to-edge with the existing HDMI-fill toggle (which already shows for the `hdmi` destination).
+- Registered only when the host exposes `displays` (Electron); plain web + Capacitor are unaffected. **Conduit note:** the transport-neutral poster core is already shared conduit; the display-enumeration + placement is the Electron-specific piece — a clean future extraction into a conduit "present on external display" capability every consumer inherits (logged in BACKLOG).
+
+**VERIFY (Daniel, Electron DMG + the Movink or a second monitor):** connect the display → an "external display · WxH" destination appears in the output picker and auto-selects → hit start → the program presents **fullscreen/borderless on the external display**, chrome-free, rendering from state (source, motion, gestures all track); the HDMI-fill toggle switches letterbox ↔ edge-to-edge; unplug → it stops cleanly. Floating "output window" destination still works as before.
+
+Verified: node --check (4 files), vite build. **Electron feature — untested by Claude; needs your display.** Fresh Electron DMG produced; iOS unaffected (web bundle synced).
+
+## 📡 v0.20.21 (Build 478) — 2026-07-30 — NDI `clock_video` experiment (iOS) + WiFi-NDI limitations documented
+
+Daniel's NDI posture has shifted from "fix it" to "document + warn," having concluded WiFi NDI is inherently choppier than hoped (his HD≈FHD test showed it's WiFi timing-jitter, not bandwidth; solid only over ethernet / Thunderbolt).
+
+- **`clock_video = true` on the iOS NDI sender** (`FoldNdiPlugin`) — the greenlit two-line experiment. Lets the SDK stamp frames on its own precise clock (to the declared 30fps) rather than at raw arrival time, giving the receiver's reclock a cleaner grid. **Caveat worth knowing:** the SDK's C++ `NDIlib_send_create_t` default constructor already sets `clock_video = true`, so depending on how the Swift import initializes the struct it may have *already* been true — the explicit set just makes it deterministic. If smoothness is unchanged, `clock_video` wasn't the lever (expected outcome given the jitter diagnosis). Electron sender left as-is (it's the wired/local path, not the WiFi problem; its addon uses the synchronous send where clocking would block).
+- **Limitations documented** (BACKLOG + VERIFY-QUEUE): WiFi NDI from iOS is usable but not smooth for live performance; the reliable paths are **ethernet (iPad) / Thunderbolt-or-USB-C (iPhone)** for wired, or HDMI/AirPlay + Electron→Syphon. Receiver-side buffering (Arena's NDI input buffer) is the other lever, on the receiver not the sender.
+
+**VERIFY (Daniel, with the same Xcode rebuild as B476):** iPad/iPhone NDI over WiFi — is it any smoother with `clock_video` explicit? (Honest expectation: probably not, per the jitter diagnosis — this closes the experiment either way.) Also try bumping Arena's NDI input buffer.
+
+Verified: node --check, vite build, Swift `clock_video` field confirmed in the SDK header. **iOS native — needs the Xcode rebuild.** Electron NDI addon rebuilt + verified intact (unchanged behavior).
+
+## 📐 v0.20.20 (Build 477) — 2026-07-30 — Per-form size normalization + radial/droste pan lock (canvas defaults & guardrails)
+
+Two canvas-defaults items. Both JS/GLSL — desktop-tunable, no rebuild.
+
+- **Per-form perceived-size normalization (mechanism A).** Long-standing weirdness from early builds: hex/triangle read *much smaller* than radial/rectangle/droste at the same `sliceScale` (their `SIZE = 0.6` packs denser tiles). Each form now carries a `sizeNorm` multiplier so `sliceScale = 1.0` is perceptually comparable across forms. Applied at all three `sliceScale` consumers — the shader's `u_sliceFactor`, the overlay geometry (`sliceVecToSourceUV`), and the sharpness hint — so the wedge stays matched. Anchor: radial = rectangle = droste = **1.0** (Daniel's note: radial & droste should read the same); **hex/triangle = 1.6 first-pass, to tune** against the reference. Helper `formSizeNorm()` in `forms/index.js`.
+- **Radial/droste pan locked by default (Daniel).** Those forms read best centered, but pan was fully unlocked. New `state.panManual` (default false = **centered**): the `u_canvasOffset` uniform returns `[0,0]` for radial/droste while locked (non-destructive — the stored offset is ignored, not cleared, so unlocking restores it), and `panDrivable` ignores pan gestures for them until unlocked. A **"pan · locked/unlocked" toggle in canvas settings** (shown only for radial/droste) unlocks it; the radial pan joystick appears only when unlocked. On `state` so it rides undo/redo; "reset canvas" returns it to locked. Tileable forms (square/hex/triangle) pan freely as before.
+
+**VERIFY (Daniel, desktop — no rebuild):** switch between radial → hex → triangle → droste at a fixed slice — hex/triangle should now read close to radial/droste in size (tell me to nudge the 1.6 up/down per form). Radial & droste open **centered**; the canvas-settings "pan" toggle unlocks panning (joystick appears for radial); a gesture/joystick pan works only when unlocked; reset canvas re-locks. Tileable pan unchanged.
+
+**Note:** the pan-lock toggle is in the desktop/iPad canvas settings; iPhone (mobile chrome) has no toggle yet, so radial/droste there are locked-centered (the good default) — a mobile unlock toggle is a small follow-up if wanted.
+
+Verified: node --check (8 files), vite build (no circular-import issue on the new geometry↔forms edge). JS/GLSL only — `cap:sync` covers iOS; fresh Electron build produced.
+
 ## 🔧 v0.20.19 (Build 476) — 2026-07-30 — Aspect-unlock regression fixes (iPad + iPhone) + Movink resolution fix
 
 Daniel's verification pass caught three issues in B475. All fixed.

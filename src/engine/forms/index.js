@@ -38,3 +38,13 @@ export function getActiveFormIndex(state) {
   const idx = FORMS.findIndex(f => f.id === state.form);
   return idx < 0 ? 0 : idx;
 }
+
+// helper: the per-form perceived-SIZE normalization multiplier. `sliceScale` is global, but each
+// form maps it to a different fundamental-domain size — hex/triangle (SIZE=0.6) read much smaller
+// than radial/rectangle/droste at the same sliceScale (Daniel's long-standing note). A form's
+// `sizeNorm` (default 1.0) scales the EFFECTIVE slice factor so sliceScale=1.0 is perceptually
+// comparable across forms. MUST be applied at EVERY sliceScale consumer — the shader's u_sliceFactor,
+// the overlay geometry, and the sharpness hint — or the overlay wedge desyncs from the render.
+export function formSizeNorm(state) {
+  return getActiveForm(state).sizeNorm ?? 1;
+}

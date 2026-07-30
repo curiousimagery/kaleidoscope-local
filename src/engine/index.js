@@ -305,7 +305,8 @@ export function createEngine({ canvas, maxProbeSize }) {
       const tilesPerDim = form.tilesPerDim ? form.tilesPerDim(state) : 1;
       const compZoom = Math.max(0.01, state.canvasZoom);
       const SOFTENING = 0.5;
-      return state.sliceScale * sourceMin * tilesPerDim * SOFTENING / compZoom;
+      const sizeNorm = form.sizeNorm ?? 1;   // effective slice = sliceScale × per-form perceived-size norm
+      return state.sliceScale * sizeNorm * sourceMin * tilesPerDim * SOFTENING / compZoom;
     },
   };
 }

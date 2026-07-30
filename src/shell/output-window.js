@@ -17,6 +17,15 @@
 // destination picker drives it identically — but `needsBus:false`, so a window-only
 // session never runs the bus's readback loop (the popup is self-rendering).
 //
+// TWO SINKS, ONE CORE:
+//   - createOutputWindow(env): the universal FLOATING output window (id:'window') —
+//     a normal popup, available on any web/Electron build.
+//   - createExternalDisplayWindow(env): the DESKTOP HDMI/projector output (id:'hdmi')
+//     — the SAME popup, but Electron repositions it FULLSCREEN on the connected
+//     external display (main.js setWindowOpenHandler keys on the window name). Only
+//     registered in Electron with a display capability; mirrors the iPad Capacitor
+//     HDMI destination's picker UX (auto-select on connect, resolution readout).
+//
 // Source sync is Fold-aware (so it lives in shell/, not engine-agnostic conduit):
 //   - still image  → an ImageBitmap of the current source (set once)
 //   - loaded video → the blob URL (the popup plays its own copy; loose sync)
@@ -26,57 +35,60 @@ import { createSurfacePoster } from 'conduit/external-surface';
 
 const CHANNEL = 'fold-output';
 
-export function createOutputWindow(env) {
+// ---- Fold-specific content (shared by both window sinks) --------------------
+// A stable identity for the current source, so we only rebuild + re-post the
+// (potentially heavy) source payload when it actually changes.
+function sourceSignature(env) {
+  if (env.live?.isLive) return 'cam:' + (env.liveCameraInfo?.()?.deviceId || '');
+  if (env.sourceVideo && env.media?.sourceVideoUrl) return 'vid:' + env.media.sourceVideoUrl;
+  const src = env.engine?.getSourceImage?.();
+  if (src) return 'img:' + (src.src || src.currentSrc || env.media?.sourceFilename || '1');
+  return 'none';
+}
+
+async function buildSourcePayload(env) {
+  if (env.live?.isLive) {
+    // include the MAIN capture's negotiated dimensions so the popup's own capture
+    // of the same device lands on the same mode — a second consumer can otherwise
+    // negotiate a different aspect (seen on Firefox), skewing every slice coordinate
+    const size = env.engine?.getSourceSize?.() || {};
+    return {
+      kind: 'camera',
+      deviceId: env.liveCameraInfo?.()?.deviceId || null,
+      width: size.w || undefined,
+      height: size.h || undefined,
+    };
+  }
+  if (env.sourceVideo && env.media?.sourceVideoUrl) {
+    return { kind: 'video', url: env.media.sourceVideoUrl };
+  }
+  const src = env.engine?.getSourceImage?.();
+  if (src) {
+    try { return { kind: 'image', bitmap: await createImageBitmap(src) }; }
+    catch { return { kind: 'none' }; }
+  }
+  return { kind: 'none' };
+}
+
+// For a loaded-video source, slave the popup's own copy to the PROGRAM's clock.
+// While motion staging runs, the program clock is the committed copy (the popup
+// follows the on-air loop, not the edit scrubs).
+function videoSync(env) {
+  const v = env.programVideo?.() || env.sourceVideo;
+  if (!v) return null;
+  return { t: v.currentTime || 0, paused: !!v.paused, rate: v.playbackRate || 1 };
+}
+
+// ---- the shared window driver -----------------------------------------------
+// Builds a sink around window.open + a BroadcastChannel poster. `opts` supplies
+// what differs between the floating window and the fullscreen external display:
+//   windowName  — the window.open target name (Electron keys placement on it)
+//   getDims     — () → { width, height } the popup renders at
+//   onExtChange — optional (cb) => unsubscribe for external-display connect events
+function createWindowSink(env, opts) {
+  const { id, windowName, getDims, features = 'width=1280,height=720', onExtChange } = opts;
   let win = null;
   let channel = null;
-
-  function outputDims() {
-    const bus = env.outputBus;
-    return { width: bus?.width || 1920, height: bus?.height || 1080 };
-  }
-
-  // A stable identity for the current source, so we only rebuild + re-post the
-  // (potentially heavy) source payload when it actually changes.
-  function sourceSignature() {
-    if (env.live?.isLive) return 'cam:' + (env.liveCameraInfo?.()?.deviceId || '');
-    if (env.sourceVideo && env.media?.sourceVideoUrl) return 'vid:' + env.media.sourceVideoUrl;
-    const src = env.engine?.getSourceImage?.();
-    if (src) return 'img:' + (src.src || src.currentSrc || env.media?.sourceFilename || '1');
-    return 'none';
-  }
-
-  async function buildSourcePayload() {
-    if (env.live?.isLive) {
-      // include the MAIN capture's negotiated dimensions so the popup's own capture
-      // of the same device lands on the same mode — a second consumer can otherwise
-      // negotiate a different aspect (seen on Firefox), skewing every slice coordinate
-      const size = env.engine?.getSourceSize?.() || {};
-      return {
-        kind: 'camera',
-        deviceId: env.liveCameraInfo?.()?.deviceId || null,
-        width: size.w || undefined,
-        height: size.h || undefined,
-      };
-    }
-    if (env.sourceVideo && env.media?.sourceVideoUrl) {
-      return { kind: 'video', url: env.media.sourceVideoUrl };
-    }
-    const src = env.engine?.getSourceImage?.();
-    if (src) {
-      try { return { kind: 'image', bitmap: await createImageBitmap(src) }; }
-      catch { return { kind: 'none' }; }
-    }
-    return { kind: 'none' };
-  }
-
-  // For a loaded-video source, slave the popup's own copy to the PROGRAM's clock.
-  // While motion staging runs, the program clock is the committed copy (the popup
-  // follows the on-air loop, not the edit scrubs).
-  function videoSync() {
-    const v = env.programVideo?.() || env.sourceVideo;
-    if (!v) return null;
-    return { t: v.currentTime || 0, paused: !!v.paused, rate: v.playbackRate || 1 };
-  }
 
   const poster = createSurfacePoster({
     transport: {
@@ -86,11 +98,11 @@ export function createOutputWindow(env) {
     content: {
       // programState = the COMMITTED program frame (shell/program-frame.js) — what the audience sees
       getState: () => (env.programState ? env.programState() : env.state),
-      getOutputDims: () => outputDims(),   // the window has no degradation ladder — cap ignored
-      getVideoSync: () => videoSync(),
+      getOutputDims: () => getDims(),   // the window has no degradation ladder — cap ignored
+      getVideoSync: () => videoSync(env),
       getTest: () => !!env.outputBus?.getStatus?.().testPattern,
-      sourceSignature,
-      buildSourcePayload,
+      sourceSignature: () => sourceSignature(env),
+      buildSourcePayload: () => buildSourcePayload(env),
     },
     onClosed: () => teardownTransport(),   // the user closed the popup → clean up channel + handle
   });
@@ -103,16 +115,14 @@ export function createOutputWindow(env) {
 
   // the driving app is closing / navigating away — take the self-rendering popup with
   // it (it would otherwise persist starved of the state stream, replaying its last few
-  // frames). win.close() is synchronous and reliable during unload — the opener may
-  // always close a window it opened — where a BroadcastChannel 'close' post might not
-  // deliver before teardown. Registered only while a window session is live.
+  // frames). win.close() is synchronous and reliable during unload.
   function onMainUnload() {
     if (win && !win.closed) { try { win.close(); } catch { /* already gone */ } }
   }
 
   function start() {
     if (poster.active) return;
-    win = window.open('output.html', 'fold-output', 'width=1280,height=720');
+    win = window.open('output.html', windowName, features);
     if (!win) throw new Error('output window blocked — allow pop-ups for this site');
     channel = new BroadcastChannel(CHANNEL);
     channel.onmessage = (e) => {
@@ -132,15 +142,8 @@ export function createOutputWindow(env) {
     teardownTransport();
   }
 
-  return {
-    id: 'window',
-    // needs a real popup: Capacitor has no second window at all, and iPadOS Safari
-    // only opens grouped TABS (dead UI there) — with HDMI/AirPlay/NDI on the iPad a
-    // "window" adds nothing anyway. Touch = maxTouchPoints (iPadOS reports "MacIntel").
-    supported: typeof window !== 'undefined' && typeof window.open === 'function'
-      && typeof BroadcastChannel !== 'undefined'
-      && !window.Capacitor?.isNativePlatform?.()
-      && !(navigator.maxTouchPoints > 1),
+  const sink = {
+    id,
     needsBus: false,            // self-rendering — a window-only session never runs the bus
     get active() { return poster.active && !!win && !win.closed; },
     get fps() { return poster.fps; },
@@ -148,4 +151,72 @@ export function createOutputWindow(env) {
     stop,
     publish() { /* no-op: the popup renders itself from state, not from bus frames */ },
   };
+  // external-display sinks expose onDisplayChange so the output panel auto-selects on
+  // connect + shows a live resolution readout + stops on unplug (the iPad HDMI UX).
+  if (onExtChange) sink.onDisplayChange = onExtChange;
+  return sink;
+}
+
+// ---- the universal floating output window (id:'window') ---------------------
+export function createOutputWindow(env) {
+  const outputDims = () => {
+    const bus = env.outputBus;
+    return { width: bus?.width || 1920, height: bus?.height || 1080 };
+  };
+  const sink = createWindowSink(env, {
+    id: 'window',
+    windowName: 'fold-output',
+    features: 'width=1280,height=720',
+    getDims: outputDims,
+  });
+  // needs a real popup: Capacitor has no second window at all, and iPadOS Safari
+  // only opens grouped TABS (dead UI there). Touch = maxTouchPoints (iPadOS reports "MacIntel").
+  sink.supported = typeof window !== 'undefined' && typeof window.open === 'function'
+    && typeof BroadcastChannel !== 'undefined'
+    && !window.Capacitor?.isNativePlatform?.()
+    && !(navigator.maxTouchPoints > 1);
+  return sink;
+}
+
+// ---- desktop HDMI / external-display output (id:'hdmi') ---------------------
+// The SAME window, but Electron repositions it fullscreen on the external display.
+// Requires the host's `displays` capability (electron/preload.js → main.js screen
+// API). Renders at the display's native pixels so a projector fills sharply.
+export function createExternalDisplayWindow(env) {
+  const displays = env.host?.displays;
+  let cur = displays?.get?.() || null;   // { connected, width, height } | null
+
+  // Fit the composition's frame aspect inside the display's native pixels (letterboxed by
+  // output.html), OR fill edge-to-edge when the HDMI-fill toggle is on — mirrors the iPad
+  // Capacitor computeOutputDims so the two HDMI paths behave identically.
+  const extDims = () => {
+    const w = cur?.width || 1920, h = cur?.height || 1080;
+    if (env.session?.hdmiFill) return { width: w, height: h };
+    const a = env.session?.frameAspect || 0;
+    if (!a) return { width: w, height: h };
+    let ow = w, oh = Math.round(w / a);
+    if (oh > h) { oh = h; ow = Math.round(h * a); }
+    return { width: ow, height: oh };
+  };
+
+  const sink = createWindowSink(env, {
+    id: 'hdmi',
+    windowName: 'fold-output-ext',   // main.js setWindowOpenHandler places THIS name fullscreen on the external display
+    features: 'width=1280,height=720',
+    getDims: extDims,
+    onExtChange: (cb) => {
+      if (!displays?.onChanged) return () => {};
+      return displays.onChanged((info) => { cur = info; cb(!!info?.connected, info); });
+    },
+  });
+  sink.supported = !!(displays && displays.get);
+  Object.defineProperty(sink, 'connected', { get: () => !!cur?.connected });
+  // guard start on a real display (matches the iPad HDMI sink) — else window.open with no external
+  // screen just makes a floating popup on the main display, which reads as broken.
+  const baseStart = sink.start;
+  sink.start = () => {
+    if (!cur?.connected) throw new Error('no external display detected — connect a monitor or projector first');
+    baseStart();
+  };
+  return sink;
 }

@@ -17,6 +17,11 @@ export default {
   label: 'Hex',
   fileCode: 'h',
 
+  // perceived-size normalization (Daniel): hex reads much smaller than radial/rectangle/droste at
+  // the same sliceScale (its HEX_SIZE=0.6 packs denser tiles). >1 grows the effective slice so it
+  // sits near the radial/droste reference. FIRST-PASS — tune against the others. See formSizeNorm.
+  sizeNorm: 1.6,
+
   thumbnail: `<svg viewBox="0 0 32 32"><g class="stroke">
     <polygon points="16,4 25,9 25,19 16,24 7,19 7,9"/>
     <line x1="16" y1="4" x2="16" y2="24"/>

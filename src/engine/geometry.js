@@ -1,5 +1,8 @@
 // engine/geometry.js
 //
+// (imports formSizeNorm at call-time inside sliceVecToSourceUV — a live binding, safe if the
+//  forms↔geometry module graph ever cycles, since it's read per-call not at module eval.)
+//
 // pure geometric functions — no DOM, no GL. these are the JS-side mirrors of
 // the shader's geometric math, used by the overlay to display the wedge in the
 // SAME coordinate frame the shader samples from. when this math drifts from
@@ -7,6 +10,8 @@
 //
 // also shared utilities like polygonRadiusAt and pointInPolygon that are
 // generic enough that any future form's hit-testing can use them.
+
+import { formSizeNorm } from './forms/index.js';
 
 // JS mirror of the shader's `toSourceUV` for a folded-space unit vector.
 // returns the SIGNED OFFSET in source-UV space from sliceCenter for the input
@@ -22,9 +27,11 @@ export function sliceVecToSourceUV(vx, vy, state, sourceAspect) {
   const s = Math.sin(state.sliceRotation * Math.PI / 180);
   let x = c * vx - s * vy;
   let y = s * vx + c * vy;
-  // scale by 0.5 * sliceFactor
-  x *= 0.5 * state.sliceScale;
-  y *= 0.5 * state.sliceScale;
+  // scale by 0.5 * sliceFactor — MUST match the shader's u_sliceFactor exactly, including the
+  // per-form perceived-size norm (or the wedge overlay desyncs from the render).
+  const f = 0.5 * state.sliceScale * formSizeNorm(state);
+  x *= f;
+  y *= f;
   // aspect correction (same direction as shader)
   if (sourceAspect >= 1.0) x /= sourceAspect;
   else y *= sourceAspect;

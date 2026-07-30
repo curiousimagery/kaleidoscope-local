@@ -761,6 +761,16 @@
       <div class="row"><span>rotation</span><span class="val scrub" id="canvasRotVal" data-key="canvasRotation">0°</span></div>
       <input type="range" id="canvasRot" min="0" max="360" step="0.5" value="0">
     </label>
+    <!-- pan lock (radial/droste): those read best CENTERED, so canvas pan is LOCKED by default;
+         unlock to translate them (tileable forms always pan). Shown only for radial/droste. -->
+    <div class="slider" id="panLockLabel" style="display:none">
+      <div class="row offset-sub-row"><span class="offset-sub">pan</span>
+        <div class="row-buttons" id="panManual">
+          <button class="toggle active" data-pan="0">locked</button>
+          <button class="toggle" data-pan="1">unlocked</button>
+        </div>
+      </div>
+    </div>
     <div class="field">
       <div class="field-label">out of bounds</div>
       <div class="button-grid-3" id="oobModes">
