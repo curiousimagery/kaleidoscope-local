@@ -175,20 +175,18 @@ public class FoldExternalDisplayPlugin: CAPPlugin, CAPBridgedPlugin, WKScriptMes
     // from state — is sized to native pixels. AirPlay already lands on its native mode, so this is a
     // no-op there.
     private func nativeSize(_ s: UIScreen) -> CGSize {
-        // preferredMode ≈ the display's TRUE native resolution. Daniel's Movink 13 reports it as
-        // 1920×1080 (correct — the panel is FHD), while the "largest available mode" over-reports
-        // 2560×1600 (a scaled/virtual mode the panel advertises). Prefer it; fall back to the largest
-        // mode (the 4K-adapter case where bounds×scale under-reported), then bounds×scale.
-        if let p = s.preferredMode?.size { return p }
+        // PER-DEVICE QUIRK, no clean universal rule yet: `preferredMode` was FHD-correct on the Movink
+        // (B476) but UNDER-reports a 4K display as QHD (Daniel, B480) — and under-reporting loses real
+        // resolution for stills, which is worse than the Movink's cosmetic over-report. So we're back
+        // to LARGEST available mode (gets 4K right; over-reports the Movink to QHD). The universal rule
+        // is still open — logDisplayModes now also prints `nativeBounds` (the physical-pixel candidate)
+        // for both displays so we can settle it with data.
         return s.availableModes.max { $0.size.width * $0.size.height < $1.size.width * $1.size.height }?.size
             ?? CGSize(width: s.bounds.width * s.scale, height: s.bounds.height * s.scale)
     }
     private func applyNativeMode(_ s: UIScreen) {
-        // promote to the display's PREFERRED (native) mode — not the largest, which over-reports on
-        // panels like the Movink. Largest is the fallback when preferredMode is unavailable.
-        let target = s.preferredMode
-            ?? s.availableModes.max(by: { $0.size.width * $0.size.height < $1.size.width * $1.size.height })
-        if let target = target, s.currentMode != target { s.currentMode = target }
+        if let best = s.availableModes.max(by: { $0.size.width * $0.size.height < $1.size.width * $1.size.height }),
+           s.currentMode != best { s.currentMode = best }
     }
 
     // DIAGNOSTIC (Daniel's Movink 13: detected QHD but physically FHD — "largest mode" over-reports
@@ -198,10 +196,11 @@ public class FoldExternalDisplayPlugin: CAPPlugin, CAPBridgedPlugin, WKScriptMes
     private func logDisplayModes(_ s: UIScreen) {
         let preferred = s.preferredMode?.size
         let boundsScale = CGSize(width: s.bounds.width * s.scale, height: s.bounds.height * s.scale)
+        let nb = s.nativeBounds.size   // physical-pixel candidate — the hoped-for universal rule
         let picked = nativeSize(s)
         let modes = s.availableModes.map { "\(Int($0.size.width))x\(Int($0.size.height))" }.joined(separator: ", ")
         let pref = preferred.map { "\(Int($0.width))x\(Int($0.height))" } ?? "nil"
-        print("[FoldExt] display modes — preferred: \(pref) · bounds×scale: \(Int(boundsScale.width))x\(Int(boundsScale.height)) · picked(largest): \(Int(picked.width))x\(Int(picked.height)) · available: [\(modes)]")
+        print("[FoldExt] display modes — preferred: \(pref) · nativeBounds: \(Int(nb.width))x\(Int(nb.height)) · bounds×scale: \(Int(boundsScale.width))x\(Int(boundsScale.height)) · picked(largest): \(Int(picked.width))x\(Int(picked.height)) · available: [\(modes)]")
     }
 
     private func statusData() -> [String: Any] {

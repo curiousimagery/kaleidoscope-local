@@ -4,6 +4,17 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🔁 v0.20.24 (Build 481) — 2026-07-30 — iPad 4K-display detection regression revert + triangle slice revert
+
+Two corrections from Daniel's B480 verification.
+
+- **iPad external-display detection — reverted to LARGEST mode.** B476's `preferredMode` was right for the Movink (FHD) but **under-reports a 4K display as QHD** (Daniel, B480) — and under-reporting *loses real resolution* for stills, worse than the Movink's cosmetic over-report. So `nativeSize`/`applyNativeMode` are back to the largest available mode (4K correct; Movink cosmetically QHD). No clean universal rule yet — the `[FoldExt] display modes` log now also prints **`nativeBounds`** (the physical-pixel candidate) for both displays so we can settle it with data. (Note: this only affects the readout + *stills* render; **video is capped to 1080p** by the B480 memory guard regardless, so it doesn't affect the crash test.)
+- **Triangle size reverted 2.88 → 1.6.** The `sizeNorm` scales the SLICE sample; Daniel confirmed 2.88 made the slice *too big*, and that the real issue is the **canvas** being too zoomed out (tiling density) — a different lever. Back to 1.6 (matching hex's slice); the canvas fix (triangle `TRI_SIZE`) is proposed separately rather than guessed a third time.
+
+**VERIFY (Daniel, iPad rebuild):** the 4K display detects **4K** again (Movink will read QHD — cosmetic, ignore for now); send the `[FoldExt] display modes` line for BOTH displays (esp. `nativeBounds`) so we can pick the universal rule. Triangle slice no longer oversized.
+
+Verified: node --check, vite build, Swift brace balance. iOS needs the Xcode rebuild.
+
 ## 🧯 v0.20.23 (Build 480) — 2026-07-30 — iPad-HDMI-video crash: mitigation + break-glass reset; size/pan/droste fixes
 
 Daniel's troubling finding: broadcasting a **video source over iPad HDMI** goes dark everywhere with "graphics context lost — could not recover" after ~30s, wedging the app. **Root cause** (device-blind, but the code confirms the mechanism): the external view runs its **own** `<video>` decoder ([output-view.js:163](../src/output-view.js#L163)) on top of a **second WebGL context**, at the display's native 4K/6K — two decoders + two GL contexts exhaust GPU memory; iOS kills the main context and `reinitGL` can't rebuild.
