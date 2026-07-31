@@ -173,11 +173,11 @@ export function createPerformRuntime(env) {
     },
   };
 
-  // output-engine's source-sync rules, applied to the PiP engine. One source for
-  // everyone since B495 (staging forks no footage copy), so the seek guard reads
-  // the element actually being uploaded.
+  // output-engine's source-sync rules, applied to the PiP engine. programVideo
+  // = the footage the audience sees (motion staging's committed copy, on its
+  // own clock); the seek guard reads the element actually being uploaded.
   function syncPipSource() {
-    const src = env.engine?.getSourceImage?.();
+    const src = env.programVideo?.() || env.engine?.getSourceImage?.();
     if (!src || !pipEngine) return false;
     const w = src.naturalWidth || src.videoWidth || src.width || 0;
     const h = src.naturalHeight || src.videoHeight || src.height || 0;

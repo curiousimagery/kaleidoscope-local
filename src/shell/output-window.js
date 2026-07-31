@@ -87,9 +87,11 @@ async function buildSourcePayload(env) {
 // While motion staging runs, the program clock is the committed copy (the popup
 // follows the on-air loop, not the edit scrubs).
 function videoSync(env) {
-  // ONE clock for everyone (B495): motion staging no longer forks its own footage
-  // copy, so the program clock IS the source clock — a <video> today, a native single
-  // decode under S3-A, and the popup follows either without knowing which.
+  // motion staging's committed copy is its own element and stays one; otherwise the
+  // program clock IS the source clock (env.sourceClock), which is a <video> today and
+  // a native single decode under S3-A — the popup follows either without knowing which.
+  const stgV = env.programVideo?.();
+  if (stgV) return { t: stgV.currentTime || 0, paused: !!stgV.paused, rate: stgV.playbackRate || 1 };
   const c = env.sourceClock;
   if (!c?.present) return null;
   return { t: c.time || 0, paused: !!c.paused, rate: c.rate || 1 };

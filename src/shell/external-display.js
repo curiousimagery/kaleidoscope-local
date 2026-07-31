@@ -268,8 +268,10 @@ export function createExternalDisplaySink(env) {
       return { width: bus?.width || 1920, height: bus?.height || 1080 };
     },
     getVideoSync: () => {
-      // ONE clock for everyone (B495): staging no longer forks its own footage copy,
-      // so the program clock IS the source clock (a <video> today, native under S3-A)
+      // staging's committed copy stays an element; otherwise the program clock IS the
+      // source clock (a <video> today, a native single decode under S3-A)
+      const stgV = env.programVideo?.();
+      if (stgV) return { t: stgV.currentTime || 0, paused: !!stgV.paused, rate: stgV.playbackRate || 1 };
       const c = env.sourceClock;
       if (!c?.present) return null;
       return { t: c.time || 0, paused: !!c.paused, rate: c.rate || 1 };

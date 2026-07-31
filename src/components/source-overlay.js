@@ -89,8 +89,11 @@ export function createSourceOverlay(ctx) {
     // directly on Blink/Gecko, so the source slot shows this canvas instead; the
     // host's render loop calls this each frame.
     paintSourceVideo() {
-      const v = view.sourceVideo;
-      if (view.sourceVideoCanvas && v && v.readyState >= 2) {
+      // What the EDITOR is looking at: while motion staging is on, that's the stage's
+      // parked still, not the live element the audience is watching (getPaintSource).
+      // Geometry still reads `sourceVideo`, so the wedge math is untouched.
+      const v = (ctx.getPaintSource && ctx.getPaintSource()) || view.sourceVideo;
+      if (view.sourceVideoCanvas && v && (v.tagName !== 'VIDEO' || v.readyState >= 2)) {
         view.sourceVideoCtx.drawImage(v, 0, 0, view.sourceVideoCanvas.width, view.sourceVideoCanvas.height);
       }
     },

@@ -22,6 +22,7 @@ import { sampleKeyframes, DISCRETE_KEYS, CONTINUOUS_KEYS, ANGULAR_KEYS, angDelta
 import { FOLLOW_SPANS } from '../kit/follow.js';
 import { ICONS } from '../mobile/icons.js';
 import { pToMediaSec, seekVideoTo } from './video-source.js';
+import { createVideoStageSource } from './stage-source.js';
 import { exportVideo, videoExportSupported, pickVideoCodec } from './video-export.js';
 import { createSequentialFrameReader } from './video-decode.js';
 import { drawSourceOverlay } from './overlay.js';
@@ -89,8 +90,7 @@ function setVideoSpeed(spd) {
   if (!env.sourceVideo) return;
   motion.videoSpeed = spd;
   lockVideoDuration();
-  env.sourceClock?.setRate(spd);
-  if (stg.video) { try { stg.video.playbackRate = spd; } catch { /* clamp */ } }   // retime is global — the committed copy follows
+  env.sourceClock?.setRate(spd);   // one player: the audience's loop retimes with it
   clampTimelineView();                 // duration changed → max-zoom bound changed
   renderTimeline();                    // ruler reflects the new effective duration
   updateMotionUI();
@@ -284,6 +284,14 @@ async function advanceSourceToP(p) {
   const clock = env.sourceClock;
   if (!clock?.present) return;
   const sec = pToMediaSec(clock, p, env.clip.trim);
+  // STAGING: scrubbing is an EDITOR action — it moves the stage's still, never the
+  // audience's playhead. That is the whole point of staging, and it is what a single
+  // shared playhead cannot express.
+  if (stg.on && stgSrc) {
+    await stgSrc.seekTo(sec);
+    engine.updateSourceFrame();
+    return;
+  }
   if (exportReader) {
     try {
       const frame = await exportReader.frameAt(sec);
@@ -332,7 +340,10 @@ async function scrubVideo(p, { assignParams = true } = {}) {
 function haltPlayback() {
   motion.playing = false;
   if (env.motionRT.raf) { cancelAnimationFrame(env.motionRT.raf); env.motionRT.raf = 0; }
-  env.sourceClock?.pause();
+  // while STAGING the shared element belongs to the audience — pausing it here is what
+  // made B495 unusable (parking the editor froze the program). Park the STAGE instead.
+  if (stg.on) stgParkOrFollow();
+  else env.sourceClock?.pause();
   env.syncLocks?.();   // playing → paused: clear the aspect contextual padlock
 }
 function startPlayback() {
@@ -366,15 +377,23 @@ function startVideoPlayback() {
   motion.selected = -1;
   const dur = clock.duration || 1;
   const inSec = env.clip.trim.inT * dur, outSec = env.clip.trim.outT * dur, span = Math.max(0.001, outSec - inSec);
-  clock.seek(pToMediaSec(clock, motion.playhead >= 1 ? 0 : motion.playhead, env.clip.trim));
-  clock.setRate(motion.videoSpeed || 1);   // retime
-  clock.play();                            // clears the element loop: we loop within the TRIMMED range ourselves
+  // WHILE STAGING the shared element is the audience's and stgAdvance owns it: don't
+  // seize the playhead, don't set the rate, don't rewind. "Play" here means the stage
+  // stops holding a parked still and rides the live frame instead.
+  if (!stg.on) {
+    clock.seek(pToMediaSec(clock, motion.playhead >= 1 ? 0 : motion.playhead, env.clip.trim));
+    clock.setRate(motion.videoSpeed || 1);   // retime
+    clock.play();                            // clears the element loop: we loop within the TRIMMED range ourselves
+  } else {
+    stgSrc?.followLive();
+  }
   const tick = () => {
     if (!motion.playing) return;
-    if (clock.time >= outSec - 0.03 || clock.time < inSec - 0.03) {   // reached the trimmed end — always rewind (motion always loops; a linear clip just cuts back to the start)
+    if (!stg.on && (clock.time >= outSec - 0.03 || clock.time < inSec - 0.03)) {   // reached the trimmed end — always rewind (motion always loops; a linear clip just cuts back to the start)
       clock.seek(inSec);
     }
     let p = Math.max(0, Math.min(1, (clock.time - inSec) / span));
+    if (stg.on) stgSrc?.followLive();   // the stage rides the audience's frame
     engine.updateSourceFrame();
     Object.assign(state, sampleAt(p));
     if (engine && engine.getSourceImage()) engine.render(state);
@@ -613,51 +632,67 @@ function toggleGesture() {
 // output across the discontinuity at the shared transition speed; CUT swaps
 // instantly; DISCARD restores the committed set (undoable). Leaving motion
 // mid-staging commits as a cut — staged edits are never silently lost.
-// VIDEO sources fork a SECOND decode path: staging spins up its own hidden
-// <video> on the same blob URL (one element can't present two times at once —
-// the committed loop's frame vs your edit frame), and that copy IS the
-// committed clock. The program consumers (output bus, live PiP, output
-// window) follow it through env.programVideo(); the take blend is params-only
-// (sync+play aligns the phases when frame continuity across a take matters).
+// VIDEO sources need the audience and the editor at DIFFERENT footage positions —
+// that IS staging, and one <video> can't present two times at once. Until B497 the
+// second decoder was the AUDIENCE's (a full-resolution PLAYING copy). It is now the
+// EDITOR's, and it is parked: the shared element keeps rolling for the program (so
+// env.programVideo() hands consumers that element), while the stage samples bounded
+// on-demand stills from shell/stage-source.js — a seek when you park, a copy of the
+// live frame when you follow. The audience needs 30fps; the editor needs one frame at
+// a time, so this is the cheap way round. Under a single native decode (S3-A stage 3)
+// the still provider becomes AVAssetImageGenerator and there is no second player at
+// all. The take blend stays params-only.
 // ===========================================================================
-const stg = { on: false, committed: null, playing: false, p: 0, t0: 0, raf: 0, live: null, blend: null, lastBar: 0, video: null };
+const stg = { on: false, committed: null, playing: false, p: 0, t0: 0, raf: 0, live: null, blend: null, lastBar: 0 };
 const stgWrap360 = (v) => ((v % 360) + 360) % 360;
 // consumed by env.programState (perform-runtime): what the audience sees
 // while staging (the committed loop) or while a take blends across
 env.motionStageLive = () => (stg.on ? stg.live : (stg.blend ? stg.blend.live : null));
-// the FOOTAGE the audience sees: while staging a video source, every program
-// consumer (bus hidden engine, live PiP, output window's clock) reads frames
-// from the committed copy instead of the shared edit element. Consumers keep
-// the shared element until the copy's first frame decodes (readyState guard),
-// so the handoff never shows an empty texture or a t=0 clock blip.
-env.programVideo = () => (stg.on && stg.video && stg.video.readyState >= 2 ? stg.video : null);
+// the FOOTAGE the audience sees. While staging, the MAIN engine is pointed at the
+// stage's still canvas, so program consumers (bus hidden engine, live PiP, output
+// window + external display clocks) must be told to keep sampling the shared element
+// — which is still playing, and is still the program clock.
+env.programVideo = () => (stg.on && env.sourceVideo ? env.sourceVideo : null);
+// what the EDITOR is looking at: the stage still while staging, else the shared
+// element. The source overlay paints this so its thumbnail matches the preview.
+env.editSource = () => (stg.on && stgSrc?.ready ? stgSrc.frameSource() : null);
 
-// The committed loop's own footage copy. Seeded at the fork position once its
-// first frame decodes (until then stgAdvance runs on the wall clock, so p
-// carries over seamlessly); loops within the trimmed range itself, mirroring
-// startVideoPlayback. Torn down on every staging exit — take/cut/discard all
-// hand the program back to the shared element.
+// The editor's bounded still provider (see shell/stage-source.js). Created on entry,
+// torn down on every exit — take/cut/discard all hand the stage back to the shared
+// element. Null outside staging, so nothing exists to pay for.
+let stgSrc = null;
 function stgStartVideo() {
-  const v2 = document.createElement('video');
-  v2.muted = true; v2.playsInline = true; v2.preload = 'auto'; v2.loop = false;
-  v2.setAttribute('playsinline', ''); v2.setAttribute('muted', '');
-  v2.disablePictureInPicture = true; v2.setAttribute('disablepictureinpicture', '');
-  v2.src = env.media.sourceVideoUrl;
-  v2.addEventListener('loadeddata', () => {
-    if (stg.video !== v2) return;                      // staging ended before the copy loaded
-    try { v2.playbackRate = motion.videoSpeed || 1; } catch { /* some browsers clamp */ }
-    try { v2.currentTime = pToMediaSec(v2, stg.p, env.clip.trim); } catch { /* not seekable yet */ }
-    if (stg.playing) v2.play().catch(() => {});
-  }, { once: true });
-  stg.video = v2;
+  stgSrc = createVideoStageSource(env);
+  stgSrc.begin();
+  // ONE setSource for the whole session: the stage always samples this canvas, whether
+  // it is holding a parked still or a copy of the live frame. Swapping the engine's
+  // source per park/unpark would re-init the texture on every transport change.
+  try { engine.setSource(stgSrc.frameSource()); engine.updateSourceFrame(); } catch { /* not ready */ }
+  // the audience's loop must be rolling before we park the editor on a still
+  env.sourceClock?.setRate(motion.videoSpeed || 1);
+  env.sourceClock?.play();
+  stgParkOrFollow();
 }
 function stgStopVideo() {
-  const v2 = stg.video;
-  if (!v2) return;
-  stg.video = null;
-  try { v2.pause(); } catch { /* ignore */ }
-  v2.removeAttribute('src');                           // release the decoder; the blob URL stays owned by media
-  try { v2.load(); } catch { /* ignore */ }
+  if (!stgSrc) return;
+  stgSrc.end();
+  stgSrc = null;
+  try { engine.setSource(env.sourceVideo); engine.updateSourceFrame(); } catch { /* source may be gone */ }
+}
+// Point the stage canvas at the right frame for the current transport: the live frame
+// while the editor is following, an exact seek when it is parked.
+function stgParkOrFollow() {
+  if (!stgSrc || !env.sourceVideo) return;
+  if (motion.playing) { stgSrc.followLive(); return; }
+  // parking is async (the seek-only decoder has to land) — repaint once it does, or the
+  // preview keeps whatever frame the canvas was holding
+  stgSrc.seekTo(pToMediaSec(env.sourceClock, motion.playhead, env.clip.trim)).then(() => {
+    if (!stg.on) return;
+    try { engine.updateSourceFrame(); } catch { /* engine may be mid-reinit */ }
+    env.scheduleRender?.();
+    env.sourceOverlay?.paintSourceVideo?.();
+    env.sourceOverlay?.scheduleDraw?.();
+  });
 }
 
 function stgEval(list, p) {
@@ -666,25 +701,22 @@ function stgEval(list, p) {
   return out;
 }
 function stgAdvance(now) {
-  // a video source: the committed COPY is its own clock (mirrors
-  // startVideoPlayback — deriving p from the presented frame keeps the
-  // program's params locked to the footage it's actually showing)
-  const v2 = stg.video;
-  if (v2 && v2.readyState >= 2 && v2.duration && isFinite(v2.duration)) {
-    const inSec = env.clip.trim.inT * v2.duration, outSec = env.clip.trim.outT * v2.duration;
+  // A VIDEO source: the SHARED element is the committed loop now — it keeps playing for
+  // the audience no matter what the editor's transport is doing, and this loop owns its
+  // trim rewind (motion's playback tick stands down while staging, so exactly one writer
+  // drives the clock). p comes off the frame the audience is actually being shown.
+  const clock = env.sourceClock;
+  if (env.sourceVideo && clock?.duration) {
+    const inSec = env.clip.trim.inT * clock.duration, outSec = env.clip.trim.outT * clock.duration;
     const span = Math.max(0.001, outSec - inSec);
-    if (stg.playing) {
-      if (v2.paused && !v2.seeking) v2.play().catch(() => {});
-      if (v2.currentTime >= outSec - 0.03 || v2.currentTime < inSec - 0.03) {   // trimmed end — always rewind (staging loops too)
-        try { v2.currentTime = inSec; } catch { /* ignore */ }
-      }
-    } else if (!v2.paused) { try { v2.pause(); } catch { /* ignore */ } }
-    stg.p = Math.max(0, Math.min(1, (v2.currentTime - inSec) / span));
+    if (clock.paused && !clock.seeking) clock.play();
+    if (clock.time >= outSec - 0.03 || clock.time < inSec - 0.03) clock.seek(inSec);
+    stg.p = Math.max(0, Math.min(1, (clock.time - inSec) / span));
     return stg.p;
   }
   if (stg.playing) {
     let p = (now - stg.t0) / motion.durationMs;
-    p -= Math.floor(p);   // staging playback always loops too
+    p -= Math.floor(p);   // a still source: staging playback runs on the wall clock, as before
     stg.p = p;
   }
   return stg.p;
@@ -704,6 +736,7 @@ function stgChanges() {
 function stgLoop(now) {
   if (!stg.on) return;
   const p = stgAdvance(now);
+  if (motion.playing) stgSrc?.followLive();   // following: the stage rides the live frame
   stg.live = stgEval(stg.committed, p);
   env.commitFrame?.();   // staging's commit point: the committed loop stays on-air
   env.liveView?.render(stg.live);
@@ -736,7 +769,7 @@ function startStaging() {
   stg.playing = motion.playing;
   stg.p = motion.playhead;
   stg.t0 = performance.now() - stg.p * motion.durationMs;
-  if (env.sourceVideo && env.media?.sourceVideoUrl) stgStartVideo();   // the committed loop's own decode path
+  if (env.sourceVideo && env.media?.sourceVideoUrl) stgStartVideo();   // the EDITOR's bounded still provider (the audience keeps the shared player)
   // BOTH sides keep playing (Daniel's round-2 call: auto-pausing the staged
   // preview was unexpected — users pause it themselves; edit interactions
   // still pause it exactly as they do outside staging)
@@ -757,7 +790,7 @@ function endStaging(how, { resume = true } = {}) {   // 'take' | 'cut' | 'discar
   stg.on = false;
   stg.live = null;
   stg.committed = null;
-  stgStopVideo();   // the program follows the shared element again (the take blend is params-only)
+  stgStopVideo();   // the stage samples the shared element again (the take blend is params-only)
   if (how === 'discard') {
     env.pushHistory?.(); env.updateUndoUI?.();   // undo brings the discarded staged set back
     motion.keyframes = committed;

@@ -4,6 +4,37 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🎭 v0.20.40 (Build 497) — 2026-07-31 — The `stageSource` seam: staging survives a single decode by paying for the cheap side
+
+B495 tried to remove staging's second decoder by sharing one playhead, and deleted the feature. This removes it properly, by **inverting which side pays**.
+
+**The audience needs 30fps of full-resolution footage. The editor needs one frame at a time.** So the shared player keeps rolling for the program, and the stage samples bounded, on-demand stills: a seek when you park, a copy of the live frame when you follow. The second decoder is now the editor's, and it is *parked* rather than playing.
+
+- **New `shell/stage-source.js`** — `createVideoStageSource(env)`: a hidden **paused, seek-only** `<video>` painting into a canvas capped at 2048 on the long edge, with latest-wins seek coalescing so a drag never queues seeks behind a working decoder. Written as one of two implementations behind a single interface (the `sourceClock` pattern); S3-A stage 3 adds the native one, `AVAssetImageGenerator` with `maximumSize`, which is a decode burst per scrub-settle and **no second player at all**.
+- **`env.programVideo()` inverts:** it used to hand consumers the staged copy; it now hands them **the shared element**, because the main engine is the one that moved. The bus, the live PiP, and both broadcast clocks keep sampling the playing source and never notice staging happened.
+- **`stgAdvance` owns the audience's loop** on the shared clock (play + trim rewind + `p` off the frame the audience is actually shown). Motion's playback tick stands down while staging, so there is exactly one writer on the clock.
+- **`haltPlayback` no longer pauses the source while staging** — that single line is what made B495 unusable. It parks the *stage* instead.
+- **Scrubbing while staged moves the stage's still, never the audience's playhead.** That is the capability B495 removed and the reason the seam exists.
+- **One `setSource` per staging session:** the stage always samples the same canvas whether it holds a parked still or a live copy, so a transport change never re-inits the texture.
+- **The source overlay's thumbnail follows the editor** (`env.editSource()` → `getPaintSource`), so the wedge sits on the frame you're composing against. Overlay *geometry* still reads the real element, so the wedge math is untouched.
+- **Still sources are completely unaffected** — no video, no provider, the wall-clock staging path as before.
+
+**VERIFY (Daniel, desktop first):** motion over a video clip → stage changes (S) → **the on-air loop keeps playing while you park, scrub the timeline, and add keyframes** (the thing B495 broke). The stage preview should show the frame you scrubbed to while the live view keeps rolling; take (T) crossfades onto the new look; discard still undoes. Watch for: the stage preview going blank or stale after a park, and any softness in the staged preview (that's the 2048 cap — tell me if it reads wrong at high canvas zoom and I'll raise it). Then a **still** source with 2+ keyframes, which should behave exactly as before. Then iPad: staging over 4K should now cost a parked decoder instead of a second playing one.
+
+Verified: node --check, vite build, and an audit that no reference to the old playing staged copy survives.
+
+## ↩️ v0.20.39 (Build 496) — 2026-07-31 — Revert B495: the single staging playhead removed staging
+
+**B495 was wrong and this puts it back.** Not "too sharp an edge" — the feature was gone. Off-air preparation requires parking the edit playhead; with one playhead, parking it freezes the program. What was left was motion mode with a delayed commit, which is worse than motion mode. Daniel: "it forces a stop to make a keyframe. this has zero benefit over just using motion mode without staging."
+
+Restored exactly as it was at B493: `stgStartVideo`/`stgStopVideo`/`stg.video`, `env.programVideo()` and its four consumers, the `＋ sync` button, and the `#mfLiveHead` on-air playhead. **B494 is untouched** (the Loop Builder still takes the broadcast off air, and `P` is still perform's transport key).
+
+**The constraint that motivated B495 is still real** — a single native decode has one playhead, so S3-A stage 3 cannot ship with a second full-resolution player. The mistake was solving it by deleting the capability instead of by giving the editor a cheaper source. See HANDOFF for the proposed `stageSource` seam: the AUDIENCE keeps the one playing decode, and the EDITOR gets bounded on-demand stills (`AVAssetImageGenerator` at ≤1280 on iOS; a seek-only hidden element on the fallback). That inverts which side pays — correctly, since the audience needs 30fps and the editor needs one frame at a time.
+
+**VERIFY (Daniel):** motion → stage changes (S) → the on-air loop keeps playing while you park the edit playhead, scrub, and add keyframes; `＋ sync` is back beside play; two playheads on the timeline; take (T) still crossfades. In short, B493 behavior.
+
+Verified: node --check, vite build, and a diff audit that the restore is byte-identical to d7a5cbb for the three files B495 solely touched.
+
 ## 🎬 v0.20.38 (Build 495) — 2026-07-31 — Staging stages the LOOK, not the position: one playhead, one decode
 
 Daniel's call, and it retires the last reason the app would ever open a second decoder of the same clip.

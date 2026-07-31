@@ -288,6 +288,7 @@
          preview from the on-air playhead, in lockstep) -->
     <span class="mf-play-cell">
       <button class="mf-btn mf-play" id="mfPlay" disabled title="play / pause (space)">play</button>
+      <button class="mf-btn" id="mfSyncPlay" hidden title="play the staged preview from the on-air playhead, in lockstep with the live loop">＋ sync</button>
     </span>
   </div>
   <!-- center: the tall timeline (ruler + track — the big pinch/zoom/pan surface) -->
@@ -302,6 +303,7 @@
       <!-- staging: the ON-AIR playhead — rides the committed loop, dimmed,
            non-interactive; your edit playhead stays the normal one -->
       <div class="mf-playhead" id="mfPlayhead"></div>
+      <div class="mf-playhead mf-livehead" id="mfLiveHead" hidden></div>
     </div>
     <!-- staging bar (stage changes): shown while editing off-air — the committed
          loop keeps playing to live + broadcasts; T takes, cut swaps instantly -->

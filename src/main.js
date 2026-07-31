@@ -387,6 +387,9 @@ const sourceOverlay = createSourceOverlay({
   engine,
   getLiveVideo: () => env.liveVideo,
   getSourceVideo: () => env.sourceVideo,   // a loaded video file source (vs the live camera)
+  // the drawable the EDITOR sees (motion staging parks it on a still while the audience
+  // keeps playing) — thumbnail paint only; geometry stays bound to getSourceVideo
+  getPaintSource: () => env.editSource?.() || null,
   syncControls: scheduleSyncControls,
   scheduleRender,
   onCommitStart: () => env.pushHistory(),
