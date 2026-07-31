@@ -4,6 +4,70 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🔌 v0.20.29 (Build 486) — 2026-07-31 — Shared-socket S2: native video-decode producer (foundation, iOS)
+
+First increment of the shared-socket root fix for the iPad HDMI+video crash (double `<video>` decode at 4K/6K → jetsam → lost context). Instead of each webview opening its own decoder, decode the clip ONCE natively and fan frames to both over a localhost socket — the same mechanism the native camera already uses to reach the external view. This build lands the **native producer only** (additive, nothing wired yet, zero regression to the working path).
+
+- **New Capacitor plugin `fold-native-video`:** `AVQueuePlayer` + `AVPlayerLooper` (seamless loop) + `AVPlayerItemVideoOutput` (biplanar 420 full-range) + `CADisplayLink`; on each new pixel buffer it encodes off the main thread and pushes over a **reused `FrameSocketServer` on port 8900**. Transport over the Capacitor bridge: `start({path,loop})→{port}` / `stop` / `pause` / `resume` / `seek` / `setRate`.
+- **Wire format is identical** to the camera's `FYUV`, so the existing JS consumer (`native-camera-receiver.js`) decodes video frames unchanged, just on a different port — the whole consumer side is already built.
+- Registered as a `file:` dep so `cap sync` discovers it; the app does not import or call it yet.
+
+Why it's grounded and low-risk: `FrameSocketServer` (incl. static `encode`) is reused verbatim; the consumer + YUV→RGB blit already exist; output-view.js already has a `camera` branch (`engine.setSource(receiver.frameSource())`) that S3's `video-native` branch mirrors. Full sub-plan: `~/.claude/plans/shared-socket-video-conduit.md`.
+
+**S3 (next):** wire `loadVideo` (source-host.js:156) + output-view.js to point BOTH views at 8900, drop the second `<video>` + the 1080p cap, JS `<video>` kept as fallback. **S4 (later):** Electron parity via a JS shared-frame producer into the same seam (no native decoder needed there).
+
+**VERIFY (Daniel):** `npm install` (symlinks the new `file:` dep) → `npm run cap:sync` → Xcode build **compiles**; then a smoke call to `FoldNativeVideo.start({path})` serves FYUV at 4K with **stable memory** (Xcode memory graph) — proving native decode + socket before S3 rips out `<video>`. No app-visible change this build (footer version only).
+
+Verified: node --check (index.js), Swift brace balance + method/bridge parity (6/6), vite build. iOS needs Daniel's Xcode build to compile-verify the Swift.
+
+## 🖥️ v0.20.28 (Build 485) — 2026-07-31 — Electron multi-display picker (all non-primary displays, choose which one)
+
+A 6K+4K rig only ever saw the first external display — `externalDisplayInfo()` returned `find(first non-primary)`, so the second was unreachable and which one got the output was arbitrary. Now:
+
+- **main.js enumerates ALL non-primary displays** (`listExternalDisplays`) and picks a target: an explicit renderer choice (`displays:setTarget`) or, by default, the **largest** — matching the iPad plugin's "largest mode" default (deterministic, not "whichever enumerated first"). `externalDisplayInfo()` returns the chosen display's geometry (back-compat shape) **plus** the full `displays` list + `targetId`.
+- **preload** gains `displays.setTarget(id)`; the **HDMI sink** exposes `externalDisplays()` / `currentDisplayId()` / `setExternalDisplay(id)`.
+- **Output panel** shows a **display sub-selector** — only when more than one display is connected — each option labeled **"HDMI / AirPlay · W×H"**. Picking one retargets where the window lands (takes effect at the next open, so it's disabled while broadcasting, like the destination itself). The single `'hdmi'` destination id is untouched, so `videoHdmiCapped`, the fill toggle, and persistence all behave exactly as before.
+
+**Single-display rigs (Daniel's Movink) are unchanged**: one external → selector stays hidden → same auto-select-on-connect + resolution readout as before. The picker reuses the existing `.text-input` `<select>` styling (same as the mic picker) — no new Lab component. **Electron-only**; iPad's real-world case is a single HDMI/AirPlay display (its open issue is resolution *detection*, not multiple displays), so iPad multi-display + per-display mode override stays deferred (BACKLOG).
+
+**VERIFY (Daniel):** single external → behaves as today. Two externals (e.g. 6K + 4K) → the "display" picker appears with both, labeled by resolution; pick either → start → output lands on the chosen one; the non-chosen is no longer stuck-inaccessible.
+
+Verified: node --check (5 files), vite build. Multi-display path needs Daniel's two-display hardware to confirm on-screen.
+
+## 📡 v0.20.27 (Build 484) — 2026-07-31 — NDI now works in the shipped Electron DMG (libndi bundled)
+
+NDI out worked only in `npm start` (dev): the packaged DMG didn't ship `libndi.dylib`, so the addon's rpath (the dev-only `sdk` symlink → `/Library/NDI SDK for Apple`) didn't resolve in the .app → `require(fold_ndi.node)` threw → no NDI destination row. Fixed by **bundling the redistributable dylib into the app and giving the addon a runtime-relative rpath**:
+
+- **binding.gyp** now links with **two** rpaths — the dev-SDK path (resolves on this machine) *and* `@loader_path` (resolves inside the packed app, relative to the .node).
+- **build-dmg.cjs** rebuilds the addon when it predates the `@loader_path` rpath, then **copies `libndi.dylib` next to `fold_ndi.node`** (after any rebuild, which wipes `build/`). libndi is Daniel's licensed SDK download, redistributed per its terms.
+- **package.json** `asarUnpack` now also extracts `libndi.dylib` (dlopen needs a real file on disk, not one inside the asar).
+
+**Proven (not just plausible):** copied the .node + dylib to a scratch dir, stripped the dev-SDK rpath so `@loader_path` was the *only* resolution route (the exact packed-app condition), loaded it from plain node → addon loaded and `start()` returned `true` (NDI sender created).
+
+**VERIFY (Daniel):** cut a fresh DMG (`npm run dist`) → launch it → the **NDI destination row now appears** → arm it → it lists in Resolume Arena / OBS on the LAN (localhost → Arena on the same Mac is the App-Store cross-app fallback path, no WiFi jitter). Only Electron/DMG changed — the web app and version-visible surface are unchanged except the footer version.
+
+Verified: `@loader_path` load test above; node --check.
+
+## 📐 v0.20.26 (Build 483) — 2026-07-31 — Triangle canvas normalization (per-form "1×" redefinition)
+
+Daniel picked approach B: redefine what "1×" composition zoom means per form. New `formCanvasNorm()` multiplies the shader's `u_canvasZoom` by a per-form `canvasNorm` — the render opens bigger while the comp-zoom slider still reads 1× (state stays raw; overlays are source-space so nothing desyncs). **Triangle `canvasNorm: 1.8`** — it packs denser tiles (p3m1) than hex, so it read too zoomed-out. Slice stays at `sizeNorm: 1.6` (matched to hex). Other forms = 1.0 (unchanged).
+
+**VERIFY (Daniel, desktop, no rebuild):** triangle now opens ~1.8× more zoomed-in (proportional to the others) with the comp-zoom slider still at 1×; nudge `canvasNorm` if needed. Other forms unchanged.
+
+Verified: node --check, vite build.
+
+## 🎛️ v0.20.25 (Build 482) — 2026-07-31 — NDI clock_video A/B toggle + iPad-HDMI resolution honesty + destination naming
+
+Follow-ups from Daniel's questions.
+
+- **NDI `clock_video` is now a diagnostic toggle** (settings → diagnostics → "NDI clock_video"). It helped iPhone / hurt iPad from memory, and Daniel can't A/B cleanly from recall — so `clock_video` is no longer hardcoded (default **off**); the native `start` reads a `clockVideo` param, the capacitor host passes a persisted flag, and the toggle flips it. Takes effect on the **next** NDI broadcast (stop + restart to compare). Lets us settle the keep-or-revert question with real per-device data instead of memory.
+- **iPad HDMI resolution honesty:** since video over iPad HDMI is capped to 1080p (the B480 memory guard), the output menu **now disables the >1080p tiers and shows "video over HDMI renders at 1080p on iPad (memory guard)"** for that case — no more selecting 4K and silently getting 1080p (Daniel). Electron HDMI + stills/camera are uncapped, so they're unaffected.
+- **Desktop destination renamed** "external display" → **"HDMI / AirPlay"** to match the iPad's clearer language (Daniel). AirPlay note in the tooltip: extend the display via macOS Control Center first, then it presents like HDMI.
+
+**VERIFY (Daniel):** iPad (rebuild) → NDI diagnostics toggle flips clock_video on the next broadcast (A/B it per device); with a video source + HDMI selected, the >1080p resolution tiers are disabled + the hint shows. Electron → the destination now reads "HDMI / AirPlay".
+
+Verified: node --check, vite build, Swift brace balance. iOS needs the Xcode rebuild.
+
 ## 🔁 v0.20.24 (Build 481) — 2026-07-30 — iPad 4K-display detection regression revert + triangle slice revert
 
 Two corrections from Daniel's B480 verification.

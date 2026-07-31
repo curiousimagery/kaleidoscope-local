@@ -200,8 +200,15 @@ export function createOutputPanel(env, outputBus) {
     }
     renderResHint();
   }
+  // iPad caps VIDEO over HDMI to 1080p (the GPU-memory guard), so offering higher tiers is dishonest
+  // — they're disabled + the hint says so. True ONLY for the iPad HDMI destination with a video source
+  // (Electron HDMI + stills/camera are uncapped and render at full native resolution).
+  function videoHdmiCapped() {
+    return destination === 'hdmi' && !!env.sourceVideo && !!window.Capacitor?.isNativePlatform?.();
+  }
   function renderResHint() {
     if (!resHint) return;
+    if (videoHdmiCapped()) { resHint.textContent = 'video over HDMI renders at 1080p on iPad (memory guard)'; return; }
     const { w, h } = computeDims();
     resHint.textContent = tier >= 3840 ? `${w}×${h} · clean hardware only` : `${w}×${h}`;
   }
@@ -454,6 +461,25 @@ export function createOutputPanel(env, outputBus) {
       byId('hdmiFillBtn')?.classList.toggle('active', !!env.session?.hdmiFill);
     }
 
+    // external-display picker (Electron multi-display): a sub-selector shown ONLY when more
+    // than one display is connected — the single 'hdmi' destination stays intact; this just
+    // chooses which screen it lands on, each option labeled by its resolution.
+    const dispField = byId('hdmiDisplayField');
+    const dispSel = byId('hdmiDisplay');
+    if (dispField && dispSel) {
+      const hdmiSink = destinations.find((d) => d.id === 'hdmi')?.sink;
+      const list = (destination === 'hdmi' && hdmiSink?.externalDisplays?.()) || [];
+      dispField.hidden = !(destination === 'hdmi' && list.length > 1);
+      if (!dispField.hidden) {
+        const curId = hdmiSink.currentDisplayId?.();
+        dispSel.innerHTML = list
+          .map((d) => `<option value="${d.id}">HDMI / AirPlay · ${d.width}×${d.height}</option>`)
+          .join('');
+        if (curId != null) dispSel.value = String(curId);
+        dispSel.disabled = broadcasting;   // stop to change display, like the destination itself
+      }
+    }
+
     // RESOLUTION is fixed for the session once ANY output starts (bus + window read it at open).
     // Frame ASPECT is only hard-fixed for a BUS output (recording / NDI / Syphon) — over a self-
     // rendering dest (HDMI/AirPlay/window) it re-letterboxes from the state stream, so the M3
@@ -461,7 +487,11 @@ export function createOutputPanel(env, outputBus) {
     // can't re-enable it (Daniel's iPad double-lock bug).
     const resLocked = outputBus.running || broadcasting;
     lockAspect(env.isBusOutputLive());
-    if (resTiers) resTiers.querySelectorAll('button').forEach((b) => { b.disabled = resLocked; });
+    const capVideo = videoHdmiCapped();   // iPad HDMI + video → tiers above 1080p are dishonest
+    if (resTiers) resTiers.querySelectorAll('button').forEach((b) => {
+      b.disabled = resLocked || (capVideo && Number(b.dataset.tier) > 1920);
+    });
+    renderResHint();   // reflect the video-cap hint when destination/source changes
   }
 
   function renderStatus() {
@@ -591,6 +621,15 @@ export function createOutputPanel(env, outputBus) {
   // output dims per tick and the external view resizes on the next message)
   byId('hdmiFillBtn')?.addEventListener('click', () => {
     if (env.session) env.session.hdmiFill = !env.session.hdmiFill;
+    reflect();
+  });
+
+  // display picker → retarget which external display presents (main places the window there
+  // at the next open, so this only takes effect while NOT broadcasting — the selector is
+  // disabled when live). ids are Electron numeric display ids.
+  byId('hdmiDisplay')?.addEventListener('change', (e) => {
+    const hdmiSink = destinations.find((d) => d.id === 'hdmi')?.sink;
+    hdmiSink?.setExternalDisplay?.(Number(e.target.value));
     reflect();
   });
 

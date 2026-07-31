@@ -115,7 +115,9 @@ export function createCapacitorHost() {
           import('@capacitor/core').then(({ registerPlugin }) => {
             if (myGen !== gen) return;
             if (!plugin) plugin = registerPlugin('FoldNdi');
-            return plugin.start({ name: name || 'Fold' });
+            // clockVideo: the diagnostic A/B toggle (settings → diagnostics). Default off.
+            const clockVideo = (() => { try { return localStorage.getItem('foldNdiClockVideo') === '1'; } catch { return false; } })();
+            return plugin.start({ name: name || 'Fold', clockVideo });
           }).then((res) => {
             if (!res || myGen !== gen) return;
             ws = new WebSocket(`ws://127.0.0.1:${res.port}`);

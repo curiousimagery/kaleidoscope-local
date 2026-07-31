@@ -16,7 +16,7 @@
 // also collects the union of all uniforms for use by gl.js when looking up
 // uniform locations and pushing values per-frame.
 
-import { FORMS, formSizeNorm } from './forms/index.js';
+import { FORMS, formSizeNorm, formCanvasNorm } from './forms/index.js';
 
 // uniforms common to ALL forms. these are the shared scaffolding the shader
 // preamble depends on. order matters only for readability of the generated
@@ -30,7 +30,7 @@ export const COMMON_UNIFORMS = {
   u_formIndex:     { type: '1i', get: (state, ctx) => ctx.formIndex },
   u_segments:      { type: '1f', get: (state) => state.segments },
   u_canvasRot:     { type: '1f', get: (state) => state.canvasRotation * Math.PI / 180 },
-  u_canvasZoom:    { type: '1f', get: (state) => state.canvasZoom },
+  u_canvasZoom:    { type: '1f', get: (state) => state.canvasZoom * formCanvasNorm(state) },   // per-form "1×" redefinition
   // TILING PAN — canvas-space translation applied before the fold. Stored UNWRAPPED for
   // smooth follower/tween/autoplay; wrapped HERE mod the active form's lattice period so the
   // float32 input stays bounded (the fold wraps it anyway, so this is image-identical). Forms

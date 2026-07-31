@@ -117,6 +117,9 @@ const foldHost = {
   // as the iPad Capacitor HDMI row (auto-select on connect, resolution readout).
   displays: {
     get() { return ipcRenderer.sendSync('displays:get'); },
+    // multi-display: choose which connected display presents the output (main re-pushes
+    // the change so the readout updates and the next placement targets it)
+    setTarget(id) { ipcRenderer.send('displays:setTarget', id); },
     onChanged(cb) {
       const h = (_e, info) => cb(info);
       ipcRenderer.on('displays:changed', h);

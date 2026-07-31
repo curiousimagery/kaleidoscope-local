@@ -17,6 +17,7 @@ let package = Package(
         .package(name: "CapacitorShare", path: "../../../node_modules/@capacitor/share"),
         .package(name: "FoldExternalDisplay", path: "../../../native-plugins/fold-external-display"),
         .package(name: "FoldNativeCamera", path: "../../../native-plugins/fold-native-camera"),
+        .package(name: "FoldNativeVideo", path: "../../../native-plugins/fold-native-video"),
         .package(name: "ConduitNdiCapacitor", path: "../../../packages/conduit/hosts/capacitor-ndi")
     ],
     targets: [
@@ -30,6 +31,7 @@ let package = Package(
                 .product(name: "CapacitorShare", package: "CapacitorShare"),
                 .product(name: "FoldExternalDisplay", package: "FoldExternalDisplay"),
                 .product(name: "FoldNativeCamera", package: "FoldNativeCamera"),
+                .product(name: "FoldNativeVideo", package: "FoldNativeVideo"),
                 .product(name: "ConduitNdiCapacitor", package: "ConduitNdiCapacitor")
             ]
         )

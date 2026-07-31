@@ -31,8 +31,12 @@ export default {
   // perceived-size normalization (Daniel): triangle reads much smaller than radial/rectangle/droste
   // at the same sliceScale (TRI_SIZE=0.6 packs denser tiles). This scales the SLICE SAMPLE — matched
   // to hex's 1.6. Daniel's remaining "canvas too zoomed out" is a DIFFERENT lever (tiling density /
-  // TRI_SIZE) — a 2.88 slice made the sample too big; the canvas fix is proposed separately.
+  // TRI_SIZE) — a 2.88 slice made the sample too big. Slice stays matched to hex at 1.6.
   sizeNorm: 1.6,
+  // canvasNorm: triangle's tiles read too zoomed-out (p3m1 packs denser than hex's p6m). Redefine
+  // "1×" composition zoom as 1.8× for triangle (Daniel) — the render opens bigger, the slider still
+  // shows 1×. Tune against the others; see formCanvasNorm.
+  canvasNorm: 1.8,
 
   thumbnail: `<svg viewBox="0 0 32 32"><g class="stroke">
     <polygon points="16,4 27.7,24 4.3,24"/>

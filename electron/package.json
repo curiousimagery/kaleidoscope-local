@@ -46,7 +46,8 @@
     "asarUnpack": [
       "node_modules/node-syphon/**/*",
       "native/trackpad/build/Release/*.node",
-      "node_modules/conduit/hosts/electron-ndi/build/Release/*.node"
+      "node_modules/conduit/hosts/electron-ndi/build/Release/*.node",
+      "node_modules/conduit/hosts/electron-ndi/build/Release/libndi.dylib"
     ],
     "npmRebuild": false,
     "mac": {

@@ -42,19 +42,44 @@ let win;
 // The renderer keeps opening the window itself (via window.open) so it stays in the
 // opener's context and SHARES the BroadcastChannel state stream — we only override
 // its bounds. Display detection mirrors the iPad Capacitor HDMI destination's UX.
-function externalDisplayInfo() {
+// Enumerate EVERY non-primary display — a 6K+4K rig previously exposed only the
+// first, so the picker could never reach the second. Each entry carries native
+// pixels (a projector fills sharply) + DIP bounds (for window placement).
+function listExternalDisplays() {
   const primary = screen.getPrimaryDisplay();
-  const ext = screen.getAllDisplays().find((d) => d.id !== primary.id);
-  if (!ext) return { connected: false };
-  const sf = ext.scaleFactor || 1;
-  return {
-    connected: true,
-    // native pixels for the render surface (a projector fills sharply); DIP bounds for placement
-    width: Math.round(ext.size.width * sf),
-    height: Math.round(ext.size.height * sf),
-    x: ext.bounds.x, y: ext.bounds.y,
-    boundsW: ext.bounds.width, boundsH: ext.bounds.height,
-  };
+  return screen.getAllDisplays()
+    .filter((d) => d.id !== primary.id)
+    .map((d) => {
+      const sf = d.scaleFactor || 1;
+      return {
+        id: d.id,
+        width: Math.round(d.size.width * sf),
+        height: Math.round(d.size.height * sf),
+        x: d.bounds.x, y: d.bounds.y,
+        boundsW: d.bounds.width, boundsH: d.bounds.height,
+      };
+    });
+}
+
+// Which external display receives the output. Honors an explicit renderer choice
+// (displays:setTarget from the panel's display picker); otherwise the LARGEST,
+// matching the iPad plugin's "largest mode" default. Falls back to largest if the
+// chosen display was unplugged.
+let targetDisplayId = null;
+function chosenExternal(list) {
+  const displays = list || listExternalDisplays();
+  if (!displays.length) return null;
+  const picked = targetDisplayId != null && displays.find((d) => d.id === targetDisplayId);
+  return picked || displays.slice().sort((a, b) => b.width * b.height - a.width * a.height)[0];
+}
+
+// Info for the renderer: the CHOSEN display's geometry (placement + native px, back-compat
+// shape) plus the full `displays` list + `targetId` so the panel can offer the picker.
+function externalDisplayInfo() {
+  const displays = listExternalDisplays();
+  const chosen = chosenExternal(displays);
+  if (!chosen) return { connected: false, displays: [] };
+  return { connected: true, ...chosen, targetId: chosen.id, displays };
 }
 
 function pushDisplays() {
@@ -138,6 +163,9 @@ app.whenReady().then(async () => {
   // only valid after app-ready). The renderer reads the current state synchronously and
   // subscribes to changes; the output panel auto-selects the destination on connect.
   ipcMain.on('displays:get', (e) => { e.returnValue = externalDisplayInfo(); });
+  // Panel's display picker (multi-display rigs): choose which external display gets the
+  // output. Re-push so the renderer's readout + the next window placement follow the pick.
+  ipcMain.on('displays:setTarget', (_e, id) => { targetDisplayId = id; pushDisplays(); });
   screen.on('display-added', pushDisplays);
   screen.on('display-removed', pushDisplays);
   screen.on('display-metrics-changed', pushDisplays);

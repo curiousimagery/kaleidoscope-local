@@ -1299,6 +1299,17 @@ function wireGlobalSheets() {
     const sheet = document.getElementById('settingsSheet'); if (sheet) sheet.hidden = true;
     env.resetSession?.();
   });
+  // NDI clock_video A/B toggle (diagnostics) — persists a flag the NDI start reads; applies next start.
+  const ndiClockBtn = document.getElementById('ndiClockVideo');
+  if (ndiClockBtn) {
+    const read = () => { try { return localStorage.getItem('foldNdiClockVideo') === '1'; } catch { return false; } };
+    const syncNdiClock = () => { const on = read(); ndiClockBtn.classList.toggle('active', on); ndiClockBtn.textContent = `NDI clock_video: ${on ? 'on' : 'off'}`; };
+    ndiClockBtn.addEventListener('click', () => {
+      try { localStorage.setItem('foldNdiClockVideo', read() ? '0' : '1'); } catch { /* private mode */ }
+      syncNdiClock();
+    });
+    syncNdiClock();
+  }
   // (#outputBtn toggles the in-column output expand-band, not a sheet — see
   //  wireBarBands below.)
 
@@ -1579,8 +1590,8 @@ if (engine) {
     outputBus.registerSink(createExternalDisplayWindow(env));
     env.addOutputDestination?.({
       id: 'hdmi',
-      label: 'external display',
-      title: 'present the program fullscreen on the connected external display (monitor / projector) — chrome-free',
+      label: 'HDMI / AirPlay',   // match the iPad destination's clearer language (Daniel); readout appends the resolution
+      title: 'present the program fullscreen on the connected external display — HDMI/USB-C monitor or projector, or an AirPlay display (extend it via macOS Control Center first). chrome-free.',
     });
   }
 

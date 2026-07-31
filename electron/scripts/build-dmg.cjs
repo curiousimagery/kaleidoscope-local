@@ -47,24 +47,50 @@ if (!fs.existsSync(tpNode)) {
 // 0c) the NDI sender addon — needs the locally installed NDI SDK (the `sdk`
 //     symlink → /Library/NDI SDK for Apple). Skipped, not fatal, when the SDK
 //     isn't installed: the ndi bridge reports unavailable and the app simply
-//     doesn't offer the NDI destination. NOTE for real distribution: the DMG
-//     must BUNDLE the redistributable libndi (SDK redist/ + its terms) — today
-//     the addon's rpath points at the local SDK install (fine on this machine).
+//     doesn't offer the NDI destination.
+//
+//     DISTRIBUTION: the addon links `@rpath/libndi.dylib` and carries TWO rpaths
+//     (binding.gyp) — the dev SDK install (resolves on this machine) and
+//     `@loader_path` (resolves inside the packed app). We BUNDLE the
+//     redistributable libndi next to the .node so the `@loader_path` rpath finds
+//     it on machines without the SDK — that's what makes NDI work in the shipped
+//     DMG. libndi is Daniel's licensed SDK download, redistributed per its terms.
 const ndiHost = path.join(electronDir, 'node_modules', 'conduit', 'hosts', 'electron-ndi');
-const ndiNode = path.join(ndiHost, 'build', 'Release', 'fold_ndi.node');
+const ndiReleaseDir = path.join(ndiHost, 'build', 'Release');
+const ndiNode = path.join(ndiReleaseDir, 'fold_ndi.node');
+const ndiDylibDst = path.join(ndiReleaseDir, 'libndi.dylib');
 const ndiSdkLink = path.join(ndiHost, 'sdk');
 const NDI_SDK = '/Library/NDI SDK for Apple';
-if (!fs.existsSync(ndiNode) && fs.existsSync(NDI_SDK)) {
-  console.log('[build-dmg] building the NDI sender addon…');
-  // the space-free `sdk` symlink is BUILD-TIME-ONLY tooling (gyp can't take the
-  // spaced /Library path): created here, removed below — it must never exist
-  // while electron-builder packs node_modules (the asar walker follows it into
-  // /Library and refuses the "unsafe path")
+const ndiDylibSrc = path.join(NDI_SDK, 'lib', 'macOS', 'libndi.dylib');
+if (fs.existsSync(NDI_SDK)) {
+  // Rebuild when the binary is missing OR predates the `@loader_path` rpath (a
+  // .node built before the bundling change won't resolve the packed dylib).
+  let needsBuild = !fs.existsSync(ndiNode);
+  if (!needsBuild) {
+    try {
+      const rpaths = execFileSync('otool', ['-l', ndiNode], { encoding: 'utf8' });
+      needsBuild = !rpaths.includes('@loader_path');
+    } catch { needsBuild = true; }
+  }
+  if (needsBuild) {
+    console.log('[build-dmg] building the NDI sender addon…');
+    // the space-free `sdk` symlink is BUILD-TIME-ONLY tooling (gyp can't take the
+    // spaced /Library path): created here, removed below — it must never exist
+    // while electron-builder packs node_modules (the asar walker follows it into
+    // /Library and refuses the "unsafe path")
+    fs.rmSync(ndiSdkLink, { force: true });
+    fs.symlinkSync(NDI_SDK, ndiSdkLink);
+    execFileSync('npx', ['node-gyp', 'rebuild'], { stdio: 'inherit', cwd: ndiHost });
+  }
   fs.rmSync(ndiSdkLink, { force: true });
-  fs.symlinkSync(NDI_SDK, ndiSdkLink);
-  execFileSync('npx', ['node-gyp', 'rebuild'], { stdio: 'inherit', cwd: ndiHost });
+  // BUNDLE the redistributable dylib next to the .node (AFTER any rebuild, which
+  // wipes build/) so the `@loader_path` rpath resolves it in the packed app.
+  fs.copyFileSync(ndiDylibSrc, ndiDylibDst);
+  console.log('[build-dmg] bundled libndi.dylib next to fold_ndi.node (NDI enabled in DMG)');
+} else {
+  fs.rmSync(ndiSdkLink, { force: true });
+  console.log('[build-dmg] NDI SDK not installed — NDI destination unavailable in this build');
 }
-fs.rmSync(ndiSdkLink, { force: true });
 // 1) build the web app into ../dist
 sh('npm', ['run', 'build', '--prefix', '..']);
 // 2) package, injecting the real app version so the DMG name reflects the build

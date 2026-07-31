@@ -211,6 +211,12 @@ export function createExternalDisplayWindow(env) {
   });
   sink.supported = !!(displays && displays.get);
   Object.defineProperty(sink, 'connected', { get: () => !!cur?.connected });
+  // multi-display (Electron): expose the connected displays + which one is targeted, and
+  // let the panel retarget. `cur` refreshes via onExtChange, so these stay current; the
+  // host places the output window on the chosen display at the next open.
+  sink.externalDisplays = () => cur?.displays || [];
+  sink.currentDisplayId = () => cur?.targetId ?? null;
+  sink.setExternalDisplay = (id) => { displays?.setTarget?.(id); };
   // guard start on a real display (matches the iPad HDMI sink) — else window.open with no external
   // screen just makes a floating popup on the main display, which reads as broken.
   const baseStart = sink.start;

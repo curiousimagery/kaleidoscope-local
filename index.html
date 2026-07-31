@@ -137,6 +137,12 @@
       <div class="field-label">broadcast server name</div>
       <input type="text" id="serverNameInput" class="text-input" value="Fold" maxlength="32" spellcheck="false">
     </div>
+    <!-- external-display picker: shown only when MORE THAN ONE display is connected (Electron
+         multi-display rigs); keeps the single 'hdmi' destination, picks which screen presents -->
+    <div class="op-section" id="hdmiDisplayField" hidden>
+      <div class="field-label">display</div>
+      <select id="hdmiDisplay" class="text-input" title="which connected display presents the output"></select>
+    </div>
     <!-- fill display: the loop-toggle pattern (one labeled button, active = on) -->
     <div class="op-section" id="hdmiFillField" hidden>
       <button id="hdmiFillBtn" class="toggle" title="fill the external display edge-to-edge at its native aspect — off keeps the canvas frame aspect (letterboxed, matches recording/save)">fill display</button>
@@ -448,6 +454,10 @@
            quitting — releases all output + rebuilds the graphics context; reloads if that fails. -->
       <label class="setting-label" style="margin-top: 14px;">recover</label>
       <button class="toggle" id="resetSession" title="stop all output and rebuild the graphics context — use if the output goes dark or the app wedges (e.g. after a 'graphics context lost' error). Does not lose your source or edits unless a full reload is needed.">⟳ reset session (break glass)</button>
+      <!-- experimental NDI pacing A/B (Daniel): clock_video helped iPhone / hurt iPad from memory —
+           this toggle lets him compare live per device. Applies on the NEXT NDI broadcast start. -->
+      <label class="setting-label" style="margin-top: 14px;">NDI experiment</label>
+      <button class="toggle" id="ndiClockVideo" title="A/B the NDI clock_video pacing (WiFi-jitter experiment). Takes effect on the next NDI broadcast — stop and restart NDI to compare.">NDI clock_video: off</button>
     </div>
   </div>
 </div>

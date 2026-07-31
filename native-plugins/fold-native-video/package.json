@@ -1,0 +1,18 @@
+{
+  "name": "fold-native-video",
+  "version": "0.0.1",
+  "description": "Fold native video decode → localhost WebSocket (FYUV). One AVFoundation decode of a clip, fanned to both webviews (main engine + external HDMI view) so iPad stops double-decoding video over HDMI. Mirrors fold-native-camera's frame socket.",
+  "type": "module",
+  "main": "src/index.js",
+  "module": "src/index.js",
+  "files": [
+    "ios/Sources",
+    "Package.swift",
+    "src"
+  ],
+  "capacitor": {
+    "ios": {
+      "src": "ios"
+    }
+  }
+}

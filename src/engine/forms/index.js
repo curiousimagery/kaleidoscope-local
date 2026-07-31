@@ -48,3 +48,12 @@ export function getActiveFormIndex(state) {
 export function formSizeNorm(state) {
   return getActiveForm(state).sizeNorm ?? 1;
 }
+
+// helper: the per-form CANVAS-ZOOM normalization multiplier — "redefine what 1× means" per form
+// (Daniel). Applied to the shader's u_canvasZoom so a form that reads too zoomed-out (triangle packs
+// denser tiles than hex) opens bigger while the composition-zoom slider still shows 1×. State stays
+// raw (the slider value is unchanged); only the RENDER scales — the overlays are source-space, so
+// nothing to desync. Distinct from sizeNorm, which scales the SLICE sample. Default 1.0.
+export function formCanvasNorm(state) {
+  return getActiveForm(state).canvasNorm ?? 1;
+}
