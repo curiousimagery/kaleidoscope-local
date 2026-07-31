@@ -119,6 +119,18 @@ async function setupSource(payload) {
     return;
   }
 
+  if (payload.kind === 'notice') {
+    // The main app is doing something the audience shouldn't watch — the Loop Builder,
+    // or a bake. `teardownSource` above already released THIS view's decoder and cleared
+    // the canvas, which is the entire point: a 4K bake and a 4K external render at the
+    // same time is what restarted the app (Daniel, 6min 4K + broadcasting). With no
+    // source, renderFrame returns early, so this view goes quiet until the real source
+    // is re-posted. A line of text is more than adequate here (Daniel's call).
+    if (hint) hint.textContent = payload.text || 'editing in Fold';
+    document.body.classList.remove('live');
+    return;
+  }
+
   if (payload.kind === 'unsupported') {
     // an honest hint instead of a stale frame (e.g. video sources over the
     // native bridge — a follow-up)

@@ -39,6 +39,9 @@ const CHANNEL = 'fold-output';
 // A stable identity for the current source, so we only rebuild + re-post the
 // (potentially heavy) source payload when it actually changes.
 function sourceSignature(env) {
+  // the Loop Builder owns the source while it's open — the window shows a text card
+  // instead of the program, and releases its own decoder (see buildSourcePayload)
+  if (env.loopIsActive?.()) return 'loop:' + (env.clip?.baking ? 'bake' : 'edit');
   if (env.live?.isLive) return 'cam:' + (env.liveCameraInfo?.()?.deviceId || '');
   if (env.sourceVideo && env.media?.sourceVideoUrl) return 'vid:' + env.media.sourceVideoUrl;
   const src = env.engine?.getSourceImage?.();
@@ -47,6 +50,16 @@ function sourceSignature(env) {
 }
 
 async function buildSourcePayload(env) {
+  // SUSPEND THE BROADCAST FOR THE LOOP BUILDER (Daniel: nothing worth broadcasting
+  // happens in there). On iPad this is a memory fix — a 4K bake alongside a 4K external
+  // render restarted the app — and on desktop it's the same honest behavior for free.
+  if (env.loopIsActive?.()) {
+    const name = env.media?.sourceFilename || 'this clip';
+    return {
+      kind: 'notice',
+      text: env.clip?.baking ? `baking ${name} in Loop Builder…` : `editing ${name} in Loop Builder`,
+    };
+  }
   if (env.live?.isLive) {
     // include the MAIN capture's negotiated dimensions so the popup's own capture
     // of the same device lands on the same mode — a second consumer can otherwise
@@ -74,11 +87,9 @@ async function buildSourcePayload(env) {
 // While motion staging runs, the program clock is the committed copy (the popup
 // follows the on-air loop, not the edit scrubs).
 function videoSync(env) {
-  // motion staging's committed copy is its own element and stays one; otherwise the
-  // program clock IS the source clock (env.sourceClock), which is a <video> today and
-  // a native single decode under S3-A — the popup follows either without knowing which.
-  const stgV = env.programVideo?.();
-  if (stgV) return { t: stgV.currentTime || 0, paused: !!stgV.paused, rate: stgV.playbackRate || 1 };
+  // ONE clock for everyone (B495): motion staging no longer forks its own footage
+  // copy, so the program clock IS the source clock — a <video> today, a native single
+  // decode under S3-A, and the popup follows either without knowing which.
   const c = env.sourceClock;
   if (!c?.present) return null;
   return { t: c.time || 0, paused: !!c.paused, rate: c.rate || 1 };

@@ -119,9 +119,9 @@ export function createOutputEngine(env) {
     // source so the bus stops quietly (its frame() catch).
     async renderFrameAt(w, h) {
       ensure();
-      // programVideo = the footage the AUDIENCE sees (motion staging's committed
-      // copy, on its own clock); otherwise the shared source element as always
-      const src = env.programVideo?.() || env.engine?.getSourceImage?.();
+      // ONE source for everyone (B495): motion staging no longer forks a committed
+      // footage copy, so the audience reads the same element the stage does
+      const src = env.engine?.getSourceImage?.();
       if (!src) throw new Error('no source loaded');
       syncSource(src);
 

@@ -93,6 +93,7 @@ async function stageVideoForExternal(blobUrl, sourceBlob = null) {
   const ext = t.includes('quicktime') ? 'mov' : t.includes('webm') ? 'webm' : 'mp4';
   const id = `src-${Date.now()}.${ext}`;
   let url = null;
+  console.info(`[fold] staging ${(blob.size / (1024 * 1024)).toFixed(0)}MB to the external display…`);
   for (let off = 0, first = true; off < blob.size; off += STAGE_CHUNK_BYTES, first = false) {
     const b64 = await blobSliceToBase64(blob.slice(off, Math.min(off + STAGE_CHUNK_BYTES, blob.size)));
     const res = await FoldExternalDisplay.appendVideo({ id, data: b64, first });
@@ -101,7 +102,14 @@ async function stageVideoForExternal(blobUrl, sourceBlob = null) {
   return url;
 }
 
+// One clip, one upload. The staged file is keyed by the source URL it came from, so a
+// source RE-POST (the Loop Builder suspending and resuming the broadcast) reuses the file
+// already on disk instead of pushing every byte over the bridge again. A bake mints a new
+// blob URL, so a baked clip correctly misses and re-stages.
+let staged = { url: null, served: null };
+
 function clearStagedVideo() {
+  staged = { url: null, served: null };
   try { FoldExternalDisplay.clearStaged(); } catch { /* plugin may be down */ }
 }
 
@@ -260,10 +268,8 @@ export function createExternalDisplaySink(env) {
       return { width: bus?.width || 1920, height: bus?.height || 1080 };
     },
     getVideoSync: () => {
-      // staging's committed copy stays an element; otherwise the program clock IS the
-      // source clock (a <video> today, a native single decode under S3-A)
-      const stgV = env.programVideo?.();
-      if (stgV) return { t: stgV.currentTime || 0, paused: !!stgV.paused, rate: stgV.playbackRate || 1 };
+      // ONE clock for everyone (B495): staging no longer forks its own footage copy,
+      // so the program clock IS the source clock (a <video> today, native under S3-A)
       const c = env.sourceClock;
       if (!c?.present) return null;
       return { t: c.time || 0, paused: !!c.paused, rate: c.rate || 1 };
@@ -278,12 +284,26 @@ export function createExternalDisplaySink(env) {
           ? `cam:native:${info.facing || ''}:${info.stream.gen ?? 0}`
           : 'cam:web';
       }
+      // the Loop Builder OWNS the source while it's open — the audience gets a text card
+      // instead of the program, and this view's decoder is released (see buildSourcePayload)
+      if (env.loopIsActive?.()) return 'loop:' + (env.clip?.baking ? 'bake' : 'edit');
       if (env.sourceVideo && env.media?.sourceVideoUrl) return 'vid:' + env.media.sourceVideoUrl;
       const src = env.engine?.getSourceImage?.();
       if (src) return 'img:' + (src.src || src.currentSrc || env.media?.sourceFilename || '1');
       return 'none';
     },
     async buildSourcePayload({ sourceCap = 4096 } = {}) {
+      // SUSPEND THE BROADCAST FOR THE LOOP BUILDER (Daniel: "there's no real merit to
+      // broadcasting anything during the loop builder"). Baking a long 4K clip while the
+      // external view renders 4K restarted the whole app; dropping the external decode +
+      // render for the duration is both the fix and the honest UX.
+      if (env.loopIsActive?.()) {
+        const name = env.media?.sourceFilename || 'this clip';
+        return {
+          kind: 'notice',
+          text: env.clip?.baking ? `baking ${name} in Loop Builder…` : `editing ${name} in Loop Builder`,
+        };
+      }
       if (env.live?.isLive) {
         // NATIVE camera (Capacitor iPad): the external view joins the frame
         // socket as a second client — the same frames the iPad previews, no
@@ -298,9 +318,10 @@ export function createExternalDisplaySink(env) {
       if (env.sourceVideo && env.media?.sourceVideoUrl) {
         // stage the clip to the native cache + serve it back to the external view (blob URLs don't
         // cross webviews); output-view.js loads `kind:'video'` + locks it to the program clock.
+        if (staged.url === env.media.sourceVideoUrl && staged.served) return { kind: 'video', url: staged.served };
         try {
           const url = await stageVideoForExternal(env.media.sourceVideoUrl, env.media.sourceVideoBlob);
-          if (url) return { kind: 'video', url };
+          if (url) { staged = { url: env.media.sourceVideoUrl, served: url }; return { kind: 'video', url }; }
         } catch (e) { console.warn('[fold] external video stage failed:', e); }
         const gb = (env.media.sourceVideoBlob?.size || 0) / (1024 * 1024 * 1024);
         console.warn(`[fold] clip too large to stage for the external display (${gb ? gb.toFixed(2) + 'GB' : 'size unknown'}, ceiling ${(STAGE_MAX_BYTES / (1024 * 1024 * 1024)).toFixed(0)}GB)`);

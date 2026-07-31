@@ -173,11 +173,11 @@ export function createPerformRuntime(env) {
     },
   };
 
-  // output-engine's source-sync rules, applied to the PiP engine. programVideo
-  // = the footage the audience sees (motion staging's committed copy, on its
-  // own clock); the seek guard reads the element actually being uploaded.
+  // output-engine's source-sync rules, applied to the PiP engine. One source for
+  // everyone since B495 (staging forks no footage copy), so the seek guard reads
+  // the element actually being uploaded.
   function syncPipSource() {
-    const src = env.programVideo?.() || env.engine?.getSourceImage?.();
+    const src = env.engine?.getSourceImage?.();
     if (!src || !pipEngine) return false;
     const w = src.naturalWidth || src.videoWidth || src.width || 0;
     const h = src.naturalHeight || src.videoHeight || src.height || 0;
@@ -605,8 +605,8 @@ export function createPerformRuntime(env) {
 
   // keyboard (perform only — space is FREE here, unlike motion, so it gets the
   // ergonomic star role Daniel wanted: press to STAGE the next take, press again
-  // to TAKE. S / T are the explicit memorable pair; video play/pause stays a
-  // button (P if it earns a key later).
+  // to TAKE. S / T are the explicit memorable pair; video play/pause is P (it earned
+  // the key in B494 — perform became a real home for a trimmed clip and space is taken).
   window.addEventListener('keydown', (e) => {
     if (!env.performRT.active) return;
     const el = e.target;
@@ -634,6 +634,12 @@ export function createPerformRuntime(env) {
     } else if (e.key === 'a' || e.key === 'A') {
       e.preventDefault();
       setAuto(!auto.on);   // autoplay toggle (the footer button's key)
+    } else if (e.key === 'p' || e.key === 'P') {
+      // video play/pause. It "earned a key" the moment perform became a real
+      // destination for a trimmed clip (B492) — reaching for space here is muscle
+      // memory from motion, and space is spoken for (stage/take, Daniel's call).
+      e.preventDefault();
+      toggleVideoPlayback();
     }
   });
 

@@ -4,6 +4,40 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🎬 v0.20.38 (Build 495) — 2026-07-31 — Staging stages the LOOK, not the position: one playhead, one decode
+
+Daniel's call, and it retires the last reason the app would ever open a second decoder of the same clip.
+
+**What it was.** Staging forked a second hidden `<video>` on the same clip, because one element can't present two times at once — the committed loop's frame and your edit frame. That gave you two playheads and two play modes ("play" ran the edit scrub wherever it sat; "+ sync" pulled both onto one clock). At 4K that second decoder is exactly the memory the shared-socket work exists to give back, and under a single native decode it cannot exist at all.
+
+**What it is now.** The committed loop reads the **same playhead you do**, evaluated against the committed keyframes. The audience sees your frame with the old look. Everything staging is actually for — editing keyframes off-air, the change counter, the take crossfade, discard-with-undo — is unchanged.
+
+- **Gone:** `stgStartVideo` / `stgStopVideo` / `stg.video`, the `+ sync` button, the second `#mfLiveHead` playhead marker, and `env.programVideo()` (with it, the "which element is the audience watching" branch in output-engine, perform's PiP, output-window and external-display — all four now read the one source).
+- **`stgAdvance()` is one line:** `stg.p = motion.playhead`. For a video source that playhead is already derived from the source clock every frame, so it *is* the time the audience is watching.
+- **The take blend** evaluates the outgoing look at that same playhead instead of a private wall clock. It was always params-only; now it can't drift.
+- **`play` gets its label back** — with one playhead, play *is* play+sync.
+
+**The consequence, stated plainly: scrubbing while staged now moves the program's footage with you.** That is what one playhead means. The timeline shows a single playhead because there is a single playhead. If that turns out to be too sharp an edge on air, the fallback is to disable timeline scrubbing while staged (params-only editing) rather than to bring the second decoder back.
+
+Also fixes a real drift Daniel noticed: "+ sync" only ever aligned the two clocks for **still** sources — `startVideoPlayback` ignores `env.motionRT.start` and derives everything from the video clock, so over footage the two elements were separately seeked and genuinely a few ms apart. There is nothing left to be out of sync.
+
+**VERIFY (Daniel, desktop first):** motion over a video clip → stage changes (S) → the live view keeps the committed look while you edit keyframes → take (T) crossfades onto the new look. Confirm: one playhead on the timeline, one play button, the change counter still counts, discard still undoes, and leaving motion mid-staging still commits as a cut. Then the same over a **still** source (2+ keyframes), which took the same simplification. Then on iPad, the reason for all of this: staging over a 4K clip should no longer cost a second decode.
+
+Verified: node --check, vite build, esbuild bundle (no new warnings), and a grep audit that no reference to the removed staging-copy machinery survives.
+
+## 📴 v0.20.37 (Build 494) — 2026-07-31 — The Loop Builder takes the broadcast off air (and perform gets a transport key)
+
+Daniel: "there's no real merit to broadcasting anything during the loop builder." Confirmed, and it's also the fix for the crash — baking a 6min 4K clip while the external view rendered 4K restarted the whole app and dropped the clip.
+
+- **While the Loop Builder is open, the broadcast shows a text card** instead of the program: "editing *clip* in Loop Builder", or "baking *clip* in Loop Builder…" during a bake. The external view's `teardownSource` already releases its decoder and clears the canvas, so this **drops a whole 4K decode and a 4K render for the duration** — which is the actual headroom the bake needed. Implemented as a new `notice` payload kind plus a source-signature change, so it rides the existing repost machinery: open the Loop Builder, the signature changes, the card posts; close it, the real source comes back.
+- **Both surfaces:** iPad HDMI (external-display) and the Electron output window. Same reasoning, and on desktop it's honest behavior for free.
+- **The staged clip is now uploaded once per clip.** Suspending and resuming would otherwise re-push every byte over the bridge on the way back; the staged file is memoized against the source URL it came from. A bake mints a new blob URL, so a baked clip correctly re-stages. Staging also logs its size now.
+- **Perform gets `P` for video play/pause.** Space in perform is stage/take (Daniel's own earlier call — it's the ergonomic star role there), so reaching for space is muscle memory from motion. The transport had no key at all; the code comment had been reserving `P` "if it earns a key later". B492 made perform a real home for a trimmed clip, so it earned it.
+
+**VERIFY (Daniel, iPad):** with a broadcast live, open the Loop Builder on the 6min 4K clip → the external display shows "editing … in Loop Builder" and the app stays calm → **bake a seamless loop → it completes without restarting the app** → closing the Loop Builder puts the program back on the display without a long re-stage. Desktop: same card in the output window. And in perform, `P` plays/pauses the clip.
+
+Verified: node --check, vite build.
+
 ## 🕰️ v0.20.36 (Build 493) — 2026-07-31 — Shared-socket S3-A stage 2: the `sourceClock` seam
 
 The runtimes no longer ask a `<video>` element for the time. They ask **a clock**.

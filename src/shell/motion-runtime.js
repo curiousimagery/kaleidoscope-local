@@ -89,8 +89,7 @@ function setVideoSpeed(spd) {
   if (!env.sourceVideo) return;
   motion.videoSpeed = spd;
   lockVideoDuration();
-  env.sourceClock?.setRate(spd);
-  if (stg.video) { try { stg.video.playbackRate = spd; } catch { /* clamp */ } }   // retime is global — the committed copy follows
+  env.sourceClock?.setRate(spd);   // one clock: the committed loop retimes with it
   clampTimelineView();                 // duration changed → max-zoom bound changed
   renderTimeline();                    // ruler reflects the new effective duration
   updateMotionUI();
@@ -613,80 +612,33 @@ function toggleGesture() {
 // output across the discontinuity at the shared transition speed; CUT swaps
 // instantly; DISCARD restores the committed set (undoable). Leaving motion
 // mid-staging commits as a cut — staged edits are never silently lost.
-// VIDEO sources fork a SECOND decode path: staging spins up its own hidden
-// <video> on the same blob URL (one element can't present two times at once —
-// the committed loop's frame vs your edit frame), and that copy IS the
-// committed clock. The program consumers (output bus, live PiP, output
-// window) follow it through env.programVideo(); the take blend is params-only
-// (sync+play aligns the phases when frame continuity across a take matters).
+// ONE PLAYHEAD (B495, Daniel's call). Staging used to fork a SECOND decode of
+// the same clip so the committed loop could sit at a different footage position
+// than your edit scrub — one <video> can't present two times at once. At 4K that
+// second decoder is exactly the memory the shared-socket work is trying to give
+// back, and it can never exist at all once a single native decode owns the clock.
+// So staging now stages the LOOK, not the POSITION: the committed loop reads the
+// SAME playhead you do, evaluated against the committed keyframes. The audience
+// sees your frame with the old look. Consequence, accepted: scrubbing while
+// staged moves the program's footage with you — the timeline shows one playhead
+// because there IS one, and "play + sync" is simply "play" now.
 // ===========================================================================
-const stg = { on: false, committed: null, playing: false, p: 0, t0: 0, raf: 0, live: null, blend: null, lastBar: 0, video: null };
+const stg = { on: false, committed: null, p: 0, raf: 0, live: null, blend: null, lastBar: 0 };
 const stgWrap360 = (v) => ((v % 360) + 360) % 360;
 // consumed by env.programState (perform-runtime): what the audience sees
 // while staging (the committed loop) or while a take blends across
 env.motionStageLive = () => (stg.on ? stg.live : (stg.blend ? stg.blend.live : null));
-// the FOOTAGE the audience sees: while staging a video source, every program
-// consumer (bus hidden engine, live PiP, output window's clock) reads frames
-// from the committed copy instead of the shared edit element. Consumers keep
-// the shared element until the copy's first frame decodes (readyState guard),
-// so the handoff never shows an empty texture or a t=0 clock blip.
-env.programVideo = () => (stg.on && stg.video && stg.video.readyState >= 2 ? stg.video : null);
-
-// The committed loop's own footage copy. Seeded at the fork position once its
-// first frame decodes (until then stgAdvance runs on the wall clock, so p
-// carries over seamlessly); loops within the trimmed range itself, mirroring
-// startVideoPlayback. Torn down on every staging exit — take/cut/discard all
-// hand the program back to the shared element.
-function stgStartVideo() {
-  const v2 = document.createElement('video');
-  v2.muted = true; v2.playsInline = true; v2.preload = 'auto'; v2.loop = false;
-  v2.setAttribute('playsinline', ''); v2.setAttribute('muted', '');
-  v2.disablePictureInPicture = true; v2.setAttribute('disablepictureinpicture', '');
-  v2.src = env.media.sourceVideoUrl;
-  v2.addEventListener('loadeddata', () => {
-    if (stg.video !== v2) return;                      // staging ended before the copy loaded
-    try { v2.playbackRate = motion.videoSpeed || 1; } catch { /* some browsers clamp */ }
-    try { v2.currentTime = pToMediaSec(v2, stg.p, env.clip.trim); } catch { /* not seekable yet */ }
-    if (stg.playing) v2.play().catch(() => {});
-  }, { once: true });
-  stg.video = v2;
-}
-function stgStopVideo() {
-  const v2 = stg.video;
-  if (!v2) return;
-  stg.video = null;
-  try { v2.pause(); } catch { /* ignore */ }
-  v2.removeAttribute('src');                           // release the decoder; the blob URL stays owned by media
-  try { v2.load(); } catch { /* ignore */ }
-}
 
 function stgEval(list, p) {
   const out = sampleKeyframes(list, p, { smoothing: motion.smoothing, loop: motion.loop });
   for (const k of DISCRETE_KEYS) out[k] = list[0].snap[k];
   return out;
 }
-function stgAdvance(now) {
-  // a video source: the committed COPY is its own clock (mirrors
-  // startVideoPlayback — deriving p from the presented frame keeps the
-  // program's params locked to the footage it's actually showing)
-  const v2 = stg.video;
-  if (v2 && v2.readyState >= 2 && v2.duration && isFinite(v2.duration)) {
-    const inSec = env.clip.trim.inT * v2.duration, outSec = env.clip.trim.outT * v2.duration;
-    const span = Math.max(0.001, outSec - inSec);
-    if (stg.playing) {
-      if (v2.paused && !v2.seeking) v2.play().catch(() => {});
-      if (v2.currentTime >= outSec - 0.03 || v2.currentTime < inSec - 0.03) {   // trimmed end — always rewind (staging loops too)
-        try { v2.currentTime = inSec; } catch { /* ignore */ }
-      }
-    } else if (!v2.paused) { try { v2.pause(); } catch { /* ignore */ } }
-    stg.p = Math.max(0, Math.min(1, (v2.currentTime - inSec) / span));
-    return stg.p;
-  }
-  if (stg.playing) {
-    let p = (now - stg.t0) / motion.durationMs;
-    p -= Math.floor(p);   // staging playback always loops too
-    stg.p = p;
-  }
+// One playhead: the committed loop is evaluated wherever the edit playhead is.
+// For a video source motion.playhead is already derived from the source clock each
+// frame (startVideoPlayback), so this is the same time the audience is watching.
+function stgAdvance() {
+  stg.p = motion.playhead;
   return stg.p;
 }
 function stgChanges() {
@@ -703,12 +655,10 @@ function stgChanges() {
 }
 function stgLoop(now) {
   if (!stg.on) return;
-  const p = stgAdvance(now);
+  const p = stgAdvance();
   stg.live = stgEval(stg.committed, p);
   env.commitFrame?.();   // staging's commit point: the committed loop stays on-air
   env.liveView?.render(stg.live);
-  const head = document.getElementById('mfLiveHead');
-  if (head) head.style.left = tToPct(p) + '%';
   if (now - stg.lastBar > 300) {   // the change counter is a diff — keep it off the per-frame path
     stg.lastBar = now;
     const c = document.getElementById('stgCount');
@@ -719,8 +669,6 @@ function stgLoop(now) {
 function stgSetUI(on) {
   const bar = document.getElementById('stgBar');
   if (bar) bar.hidden = !on;
-  const head = document.getElementById('mfLiveHead');
-  if (head) head.hidden = !on;
   const sl = document.getElementById('stageLabel');
   if (sl) sl.textContent = on ? 'staged' : 'output';
   document.getElementById('mfStage')?.classList.toggle('active', on);
@@ -733,13 +681,10 @@ function startStaging() {
   if (kfList().length < (env.sourceVideo ? 1 : 2)) return;
   closeKfMenu();
   stg.committed = kfList().map((k) => ({ t: k.t, anchored: k.anchored, snap: { ...k.snap }, thumb: k.thumb, ...(k.wind ? { wind: { ...k.wind } } : {}) }));
-  stg.playing = motion.playing;
   stg.p = motion.playhead;
-  stg.t0 = performance.now() - stg.p * motion.durationMs;
-  if (env.sourceVideo && env.media?.sourceVideoUrl) stgStartVideo();   // the committed loop's own decode path
-  // BOTH sides keep playing (Daniel's round-2 call: auto-pausing the staged
-  // preview was unexpected — users pause it themselves; edit interactions
-  // still pause it exactly as they do outside staging)
+  // playback is NOT interrupted by staging (Daniel's round-2 call) — and with one
+  // playhead there is nothing to fork: whatever the timeline is doing, the committed
+  // loop is evaluated at that same position.
   stg.on = true;
   stg.blend = null;
   stg.lastBar = 0;
@@ -751,13 +696,11 @@ function startStaging() {
 function endStaging(how, { resume = true } = {}) {   // 'take' | 'cut' | 'discard'
   if (!stg.on) return;
   const committed = stg.committed;
-  const wasPlaying = stg.playing;
-  const pNow = stgAdvance(performance.now());
+  const pNow = stgAdvance();
   if (stg.raf) { cancelAnimationFrame(stg.raf); stg.raf = 0; }
   stg.on = false;
   stg.live = null;
   stg.committed = null;
-  stgStopVideo();   // the program follows the shared element again (the take blend is params-only)
   if (how === 'discard') {
     env.pushHistory?.(); env.updateUndoUI?.();   // undo brings the discarded staged set back
     motion.keyframes = committed;
@@ -769,23 +712,14 @@ function endStaging(how, { resume = true } = {}) {   // 'take' | 'cut' | 'discar
     // fell through to the NEW state for one frame (Daniel read the flash as a
     // hard cut).
     const dur = Math.max(120, (env.session?.performResponse ?? 0.35) * 2500);
-    stg.blend = {
-      from: committed, t0: performance.now(), dur, playing: wasPlaying, p: pNow,
-      clock0: performance.now() - pNow * motion.durationMs,
-      live: stgEval(committed, pNow),
-    };
+    stg.blend = { from: committed, t0: performance.now(), dur, p: pNow, live: stgEval(committed, pNow) };
     requestAnimationFrame(stgBlendLoop);
   }
   stgSetUI(false);
   if (stg.blend) env.liveView?.set(true);   // the live view stays up to show the take LAND (hides on settle)
-  // one timeline again. If the STAGED preview is currently playing, it simply
-  // keeps playing (it's the new committed loop now — don't interrupt it);
-  // otherwise the on-air position carries over, resuming if IT was playing.
-  if (resume && !motion.playing) {
-    motion.playhead = Math.max(0, Math.min(1, pNow));
-    if (wasPlaying) startPlayback();
-    else loadPlayheadIntoState();
-  }
+  // the timeline never forked, so there is no position to carry back — just reload
+  // the (now committed) look at wherever the playhead sits.
+  if (resume && !motion.playing) loadPlayheadIntoState();
   renderTimeline();
   updateMotionUI();
 }
@@ -795,12 +729,9 @@ function stgBlendLoop() {
   const now = performance.now();
   const b = Math.min(1, (now - B.t0) / B.dur);
   const e = b * b * (3 - 2 * b);                 // smoothstep
-  let pOld = B.p;
-  if (B.playing) {
-    pOld = (now - B.clock0) / motion.durationMs;
-    pOld -= Math.floor(pOld);   // always loops
-  }
-  const from = stgEval(B.from, pOld);
+  // the OLD look, evaluated at the one playhead (static while paused, riding
+  // playback while it runs) — the crossfade is params-only, as it always was
+  const from = stgEval(B.from, motion.playhead);
   const to = state;                              // resumed playback IS the new committed eval
   const out = { ...to };
   for (const k of CONTINUOUS_KEYS) {
@@ -1507,18 +1438,17 @@ function updateMotionUI() {
   const stgBtn = q('mfStage');
   if (stgBtn) {
     stgBtn.disabled = !available || kfList().length < (env.sourceVideo ? 1 : 2);
-    stgBtn.title = 'stage changes — edit keyframes off-air while the animation keeps playing to the live output (S)';
+    stgBtn.title = 'stage changes — edit keyframes off-air; the live output keeps the committed look at the same playhead (S)';
   }
   // (keyframe ops — anchor/auto-space/delete — live in the #kfMenu context menu,
   //  which gates itself: it only opens for kf1+.)
   const minKf = env.sourceVideo ? 1 : 2;   // video plays/renders with 1 kf (the footage provides motion)
   if (q('mfPlay')) {
     q('mfPlay').disabled = n < minKf;
-    // icon+label normally; ICON-ONLY while staging (the cell splits to fit "+ sync")
+    // icon+label always: "+ sync" is gone (with one playhead, play IS play+sync)
     q('mfPlay').innerHTML = (motion.playing ? ICONS.pause : ICONS.play)
-      + (stg.on ? '' : `<span>${motion.playing ? 'pause' : 'play'}</span>`);
+      + `<span>${motion.playing ? 'pause' : 'play'}</span>`;
   }
-  if (q('mfSyncPlay')) { q('mfSyncPlay').hidden = !stg.on; q('mfSyncPlay').disabled = n < minKf; }
   // render lives in the APP BAR (per-mode export controls): motion-only, gated like play
   if (q('mfRender')) { q('mfRender').hidden = !env.motionRT.active; q('mfRender').disabled = n < minKf; }
   if (q('mfPrev')) q('mfPrev').disabled = n < 1;
@@ -1618,20 +1548,6 @@ function wireMotion() {
   byId('mfPrev')?.addEventListener('click', () => { closeKfMenu(); stepKeyframe(-1); });
   byId('mfNext')?.addEventListener('click', () => { closeKfMenu(); stepKeyframe(1); });
   byId('mfPlay')?.addEventListener('click', () => { if (motion.playing) stopPlayback(); else startPlayback(); });
-  // staging's sync+play: start the staged preview FROM the on-air playhead, in
-  // lockstep (same clock as the committed loop → zero drift)
-  const syncBtn = byId('mfSyncPlay');
-  if (syncBtn) {
-    syncBtn.innerHTML = ICONS.play + '<span>+ sync</span>';
-    syncBtn.addEventListener('click', () => {
-      if (!stg.on) return;
-      if (motion.playing) haltPlayback();
-      motion.playhead = stgAdvance(performance.now());
-      startPlayback();
-      if (stg.playing && motion.playing) env.motionRT.start = stg.t0;
-      updateMotionUI();
-    });
-  }
   env.setLoopClip = (v) => { motion.loop = !!v; renderTimeline(); updateMotionUI(); };   // "is this a loop" (repurposed)
   byId('mfLoop')?.addEventListener('click', () => env.setLoopClip(!motion.loop));
   byId('mfFit')?.addEventListener('click', fitTimeline);

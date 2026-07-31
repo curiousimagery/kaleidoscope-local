@@ -288,7 +288,6 @@
          preview from the on-air playhead, in lockstep) -->
     <span class="mf-play-cell">
       <button class="mf-btn mf-play" id="mfPlay" disabled title="play / pause (space)">play</button>
-      <button class="mf-btn" id="mfSyncPlay" hidden title="play the staged preview from the on-air playhead, in lockstep with the live loop">＋ sync</button>
     </span>
   </div>
   <!-- center: the tall timeline (ruler + track — the big pinch/zoom/pan surface) -->
@@ -302,7 +301,6 @@
       <div class="mf-markers" id="mfMarkers"></div>
       <!-- staging: the ON-AIR playhead — rides the committed loop, dimmed,
            non-interactive; your edit playhead stays the normal one -->
-      <div class="mf-playhead mf-livehead" id="mfLiveHead" hidden></div>
       <div class="mf-playhead" id="mfPlayhead"></div>
     </div>
     <!-- staging bar (stage changes): shown while editing off-air — the committed
@@ -368,7 +366,7 @@
     <button class="mf-btn mf-toggle pf-wide" id="pfHold" title="stage — freeze the live output and build what's up next off-air (S / space)">stage</button>
     <button class="mf-btn mf-add" id="pfTake" disabled title="take — blend the live output to the staged look at the transition speed (T / space)">take</button>
     <button class="mf-btn" id="pfCut" title="cut — snap the live output to the staged look instantly">cut</button>
-    <button class="mf-btn" id="pfPlay" disabled title="play / pause the source video">play</button>
+    <button class="mf-btn" id="pfPlay" disabled title="play / pause the source video (P)">play</button>
     <!-- autoplay ("drift"): the look wanders on its own within the guardrails —
          another pair of hands on the same stage (the follower chases as always) -->
     <span class="pf-auto-cell">
