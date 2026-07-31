@@ -1113,6 +1113,8 @@ button .btn-spinner {
 #mfLoop.active, #mfStage.active { color: var(--text-bright); }
 #mfLoop.active::after, #mfStage.active::after { content: ' · on'; color: var(--ok); }
 /* staging: the ON-AIR playhead (committed loop) — dimmed, non-interactive */
+.mf-livehead { opacity: 0.35; pointer-events: none; }
+.mf-livehead[hidden] { display: none; }
 /* the ruler's pan layer — the BOX stays fixed (full-width hit area), ticks pan */
 .mf-ruler-layer { position: absolute; inset: 0; will-change: transform; }
 /* staging marker vocabulary (Daniel): added/edited = dotted outline; deleted =
@@ -1125,8 +1127,9 @@ button .btn-spinner {
    while staging the play cell splits into [icon-only play][play "+ sync"] */
 .mf-left .mf-play-cell { grid-column: 1 / -1; display: flex; gap: 6px; }
 .mf-play-cell .mf-btn { flex: 1; min-width: 0; }
-.mf-play, #pfPlay { display: inline-flex; align-items: center; justify-content: center; gap: 7px; }
-.mf-play svg, #pfPlay svg { width: 13px; height: 13px; flex: 0 0 auto; }
+.mf-play, #mfSyncPlay, #pfPlay { display: inline-flex; align-items: center; justify-content: center; gap: 7px; }
+.mf-play svg, #mfSyncPlay svg, #pfPlay svg { width: 13px; height: 13px; flex: 0 0 auto; }
+#mfSyncPlay[hidden] { display: none; }
 
 /* the staging bar floats over the timeline's top-right corner */
 .mf-center { position: relative; }
