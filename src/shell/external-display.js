@@ -147,9 +147,13 @@ function createPoster(opts) {
     // for video sources so the second context's framebuffer stays small; stills/camera keep native.
     // diagnostics escape hatch ("4K/QHD over HDMI") lifts the guard so true 4K can be measured
     // on device to validate the shared-socket approach — at the cost of re-arming the ~30s crash.
+    // On the SINGLE NATIVE DECODE path the guard is unnecessary and comes off: the external
+    // view runs no decoder of its own, so the memory the cap was protecting isn't being
+    // spent (S3-A stage 4 — the reason all of this exists).
     let uncap = false;
     try { uncap = localStorage.getItem('foldHdmiVideoUncap') === '1'; } catch {}
-    const effCap = (opts.hasVideoSource?.() && !uncap) ? Math.min(cap, 1920) : cap;
+    const singleDecode = !!opts.hasNativeVideo?.();
+    const effCap = (opts.hasVideoSource?.() && !uncap && !singleDecode) ? Math.min(cap, 1920) : cap;
     // the display's native resolution when known — the point of HDMI — stepped down
     // by the crash generation when memory pressure killed the view
     const native = capDims(
@@ -263,11 +267,15 @@ export function createExternalDisplaySink(env) {
     getFrameAspect: () => env.session?.frameAspect || 1,
     getFill: () => !!env.session?.hdmiFill,
     hasVideoSource: () => !!env.sourceVideo,   // caps the external render for video (GPU-memory guard)
+    hasNativeVideo: () => !!env.nativeVideo,    // ...unless there's only ONE decode, in which case the cap is moot
     getOutputDims: () => {
       const bus = env.outputBus;
       return { width: bus?.width || 1920, height: bus?.height || 1080 };
     },
     getVideoSync: () => {
+      // the external view samples the SAME native frames, so there is no second clock to
+      // reconcile — send nothing and let it render whatever the shared decode produced
+      if (env.nativeVideo) return null;
       // staging's committed copy stays an element; otherwise the program clock IS the
       // source clock (a <video> today, a native single decode under S3-A)
       const stgV = env.programVideo?.();
@@ -289,6 +297,9 @@ export function createExternalDisplaySink(env) {
       // the Loop Builder OWNS the source while it's open — the audience gets a text card
       // instead of the program, and this view's decoder is released (see buildSourcePayload)
       if (env.loopIsActive?.()) return 'loop:' + (env.clip?.baking ? 'bake' : 'edit');
+      // the single native decode: the external view joins its socket, so the signature
+      // keys on the port (a re-acquire restarts the stream and must rebuild the receiver)
+      if (env.nativeVideo) return 'vidnative:' + env.nativeVideo.port;
       if (env.sourceVideo && env.media?.sourceVideoUrl) return 'vid:' + env.media.sourceVideoUrl;
       const src = env.engine?.getSourceImage?.();
       if (src) return 'img:' + (src.src || src.currentSrc || env.media?.sourceFilename || '1');
@@ -317,9 +328,14 @@ export function createExternalDisplaySink(env) {
         }
         return { kind: 'unsupported', reason: 'live camera over HDMI needs the native camera — stills broadcast fine' };
       }
+      // ONE DECODE (S3-A stage 4): hand the external view the frame socket instead of a
+      // staged copy of the clip. No second decoder, no 2GB base64 staging ceiling, no
+      // range server, and the two views are frame-synced by construction.
+      if (env.nativeVideo) return { kind: 'video-native', port: env.nativeVideo.port };
       if (env.sourceVideo && env.media?.sourceVideoUrl) {
-        // stage the clip to the native cache + serve it back to the external view (blob URLs don't
-        // cross webviews); output-view.js loads `kind:'video'` + locks it to the program clock.
+        // FALLBACK ONLY (no native decode): stage the clip to the native cache + serve it back
+        // (blob URLs don't cross webviews); output-view.js loads `kind:'video'` + locks it to
+        // the program clock.
         if (staged.url === env.media.sourceVideoUrl && staged.served) return { kind: 'video', url: staged.served };
         try {
           const url = await stageVideoForExternal(env.media.sourceVideoUrl, env.media.sourceVideoBlob);

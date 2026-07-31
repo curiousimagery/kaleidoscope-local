@@ -885,8 +885,12 @@ export function createClipEditor(env) {
       console.error('clip bake failed', e);
       alert('Could not bake the clip: ' + (e && e.message ? e.message : e));
     } finally {
+      // EVERY reader this bake opened, on EVERY exit path. bounceReader was missing here,
+      // so a failed bounce bake left a VideoDecoder holding the hardware and the immediate
+      // retry died at ~0s until the app was restarted (Daniel, B495).
       if (sliceReaderA) { try { sliceReaderA.close(); } catch { /* already closed */ } sliceReaderA = null; }
       if (sliceReaderB) { try { sliceReaderB.close(); } catch { /* already closed */ } sliceReaderB = null; }
+      if (bounceReader) { try { bounceReader.close(); } catch { /* already closed */ } bounceReader = null; }
       if (bounceReader) { try { bounceReader.close(); } catch { /* already closed */ } bounceReader = null; }
       if (prog) prog.hidden = true;
       if (fill) fill.style.width = '0%';

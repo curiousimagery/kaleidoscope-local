@@ -439,6 +439,7 @@ export function createPerformRuntime(env) {
     // (the camera's own live loop already does this for live sources.)
     const clock = env.sourceClock;
     if (clock?.present && !clock.paused && !clock.seeking && env.engine?.getSourceImage?.()) {
+      env.nativeVideo?.refreshFrame();   // single native decode: blit the socket frame first
       env.engine.updateSourceFrame();
       env.engine.render(state);
       env.sourceOverlay.paintSourceVideo();

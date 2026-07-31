@@ -21,13 +21,18 @@
 // READS come back the other way, in the frames themselves: every frame is stamped with
 // its presentation time + the clip duration ("FYUW"), so THIS decode owns the motion
 // clock and JS can answer currentTime/duration without a bridge round-trip per frame.
-// ADDITIVE for now — nothing in the app calls this yet; the source-swap (S3) wires it
-// with the JS <video> path kept as the fallback.
+// Bytes in: `AVURLAsset` needs a file on disk and a WKWebView Blob has no path, so the
+// clip arrives over a BINARY UPLOAD SOCKET (FileUploadServer, port 8901) rather than
+// base64 across the bridge — see that file for the reasoning. Stills out: `frameAt`
+// serves the EDITOR one bounded frame at a time (AVAssetImageGenerator) so motion
+// staging survives having only one player. Wired by shell/native-video.js, capability-
+// gated, with the JS <video> path intact as the fallback.
 
 import Foundation
 import AVFoundation
 import CoreVideo
 import QuartzCore
+import UIKit
 import Capacitor
 
 @objc(FoldNativeVideoPlugin)
@@ -40,13 +45,26 @@ public class FoldNativeVideoPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "pause", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "resume", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "seek", returnType: CAPPluginReturnPromise),
-        CAPPluginMethod(name: "setRate", returnType: CAPPluginReturnPromise)
+        CAPPluginMethod(name: "setRate", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "beginUpload", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "finishUpload", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "frameAt", returnType: CAPPluginReturnPromise)
     ]
 
     private let server = FrameSocketServer(port: 8900)
+    private let uploads = FileUploadServer(port: 8901)
+    // Stills for the EDITOR while motion staging is on (shell/stage-source.js). The
+    // audience keeps the one playing decode; the editor asks for one frame at a time,
+    // which is what an image generator is for — a decode burst per scrub, no second
+    // player. maximumSize bounds the buffer; the tolerances buy speed over exactness,
+    // which is the right trade for scrubbing.
+    private var stills: AVAssetImageGenerator?
+    private let stillQueue = DispatchQueue(label: "fold.video.stills")
     private var player: AVQueuePlayer?
     private var looper: AVPlayerLooper?          // strong ref required; it owns the loop
     private var output: AVPlayerItemVideoOutput?
+    private weak var outputItem: AVPlayerItem?   // which item `output` is currently attached to
+    private var itemObs: NSKeyValueObservation?
     private var displayLink: CADisplayLink?
     // encode + socket send off the main thread — copyPixelBuffer hands us an owned
     // buffer, so it's safe to carry to another queue; keeps 4K encode off the UI/decode tick
@@ -64,13 +82,13 @@ public class FoldNativeVideoPlugin: CAPPlugin, CAPBridgedPlugin {
             self.teardown()
             self.server.start()
 
-            let item = AVPlayerItem(asset: AVURLAsset(url: url))
-            let attrs: [String: Any] = [
-                kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_420YpCbCr8BiPlanarFullRange
-            ]
-            let out = AVPlayerItemVideoOutput(pixelBufferAttributes: attrs)
-            item.add(out)
-            self.output = out
+            let asset = AVURLAsset(url: url)
+            let gen = AVAssetImageGenerator(asset: asset)
+            gen.appliesPreferredTrackTransform = true
+            gen.requestedTimeToleranceBefore = CMTime(seconds: 0.05, preferredTimescale: 600)
+            gen.requestedTimeToleranceAfter = CMTime(seconds: 0.05, preferredTimescale: 600)
+            self.stills = gen
+            let item = AVPlayerItem(asset: asset)
 
             let qp = AVQueuePlayer()
             qp.isMuted = true
@@ -81,6 +99,25 @@ public class FoldNativeVideoPlugin: CAPPlugin, CAPBridgedPlugin {
                 qp.replaceCurrentItem(with: item)
             }
             self.player = qp
+
+            // THE VIDEO OUTPUT FOLLOWS `currentItem`, it is not attached once.
+            //
+            // AVPlayerLooper does NOT enqueue the template item — it enqueues COPIES of it,
+            // and swaps in a fresh copy every lap. An output added to the template is
+            // therefore attached to an item that never plays: hasNewPixelBuffer() is false
+            // forever, no frame is ever pushed, and the JS receiver times out and falls back
+            // to <video>. That is exactly what Daniel saw on iPad ("no native frames on port
+            // 8900"), and it is why the app looked unchanged after stages 3+4 landed.
+            // Observing currentItem re-attaches a fresh output to whatever is actually
+            // playing, which also covers the non-looping replaceCurrentItem path.
+            self.itemObs = qp.observe(\.currentItem, options: [.initial, .new]) { [weak self] p, _ in
+                guard let self = self else { return }
+                let current = p.currentItem
+                DispatchQueue.main.async {
+                    guard let item = current else { return }
+                    self.attachOutput(to: item)
+                }
+            }
             qp.play()
 
             let link = CADisplayLink(target: self, selector: #selector(self.tick))
@@ -89,6 +126,21 @@ public class FoldNativeVideoPlugin: CAPPlugin, CAPBridgedPlugin {
 
             call.resolve(["port": self.server.port])
         }
+    }
+
+    // Attach a FRESH video output to `item`, detaching from whatever held the last one.
+    // An AVPlayerItemVideoOutput belongs to one item at a time, and AVPlayerLooper hands us
+    // a new item every lap (see the observer in start()).
+    private func attachOutput(to item: AVPlayerItem) {
+        if outputItem === item, output != nil { return }
+        if let old = output, let prev = outputItem { prev.remove(old) }
+        let attrs: [String: Any] = [
+            kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_420YpCbCr8BiPlanarFullRange
+        ]
+        let out = AVPlayerItemVideoOutput(pixelBufferAttributes: attrs)
+        item.add(out)
+        output = out
+        outputItem = item
     }
 
     // paced to the display; pushes only when the output has a NEW buffer, so the
@@ -150,10 +202,60 @@ public class FoldNativeVideoPlugin: CAPPlugin, CAPBridgedPlugin {
         DispatchQueue.main.async { self.player?.rate = r; call.resolve() }
     }
 
+    // ---- byte transport: the clip's bytes reach AVURLAsset over a socket ----------
+    // See FileUploadServer.swift for why this isn't base64 over the bridge.
+
+    @objc func beginUpload(_ call: CAPPluginCall) {
+        let name = call.getString("name") ?? "clip.mp4"
+        guard let id = uploads.begin(name: name) else { call.reject("could not open the upload file"); return }
+        call.resolve(["port": uploads.port, "id": id])
+    }
+
+    @objc func finishUpload(_ call: CAPPluginCall) {
+        guard let id = call.getString("id") else { call.reject("no upload id"); return }
+        let bytes = call.getInt("bytes") ?? 0
+        uploads.finish(id: id, bytes: bytes) { url, received in
+            guard let url = url else { call.reject("upload did not complete"); return }
+            call.resolve(["path": url.path, "bytes": received])
+        }
+    }
+
+    // One frame, as a JPEG data URL. `maxSize` caps the long edge — the editor's preview
+    // never needs native 4K, and a bounded still is the whole reason staging can survive
+    // a single decode.
+    @objc func frameAt(_ call: CAPPluginCall) {
+        let t = call.getDouble("time") ?? 0
+        let maxSize = CGFloat(call.getInt("maxSize") ?? 2048)
+        let quality = CGFloat(call.getDouble("quality") ?? 0.9)
+        guard let gen = stills else { call.reject("no clip loaded"); return }
+        gen.maximumSize = CGSize(width: maxSize, height: maxSize)
+        stillQueue.async {
+            do {
+                let cg = try gen.copyCGImage(at: CMTime(seconds: t, preferredTimescale: 600),
+                                             actualTime: nil)
+                let img = UIImage(cgImage: cg)
+                guard let data = img.jpegData(compressionQuality: quality) else {
+                    call.reject("could not encode the frame"); return
+                }
+                call.resolve([
+                    "dataUrl": "data:image/jpeg;base64," + data.base64EncodedString(),
+                    "width": cg.width,
+                    "height": cg.height,
+                ])
+            } catch {
+                call.reject("frame extraction failed: \(error.localizedDescription)")
+            }
+        }
+    }
+
     private func teardown() {
         displayLink?.invalidate(); displayLink = nil
+        itemObs?.invalidate(); itemObs = nil
+        if let out = output, let item = outputItem { item.remove(out) }
+        output = nil
+        outputItem = nil
         player?.pause(); player = nil
         looper = nil
-        output = nil
+        stills = nil
     }
 }

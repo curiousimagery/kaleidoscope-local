@@ -112,6 +112,7 @@ export function createNativeFrameReceiver({ port = 8899, mirror = false } = {}) 
     stop,
     refreshFrame: paintLatest,
     frameSource: () => canvas,
+    get port() { return port; },
     // clock readouts — meaningful only on the stamped ("FYUW") video socket
     get pts() { return pts; },
     get duration() { return duration; },

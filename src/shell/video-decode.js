@@ -145,6 +145,56 @@ export async function createSequentialFrameReader(url, { maxBytes = 1_500_000_00
   let lastTargetUs = -Infinity;
   let closed = false;
 
+  // REVERSE-WALK CACHE — the bounce bake's real cost. `frameAt` is monotonic-friendly:
+  // a backward target re-decodes from the preceding keyframe. Bounce plays forward and
+  // then REVERSES, so every frame past the midpoint is a backward jump and pays that
+  // re-decode again, which is what put Daniel's 176s clip over the 10s per-frame budget
+  // at exactly its halfway point (B495). Filling a window of frames per miss turns one
+  // re-decode per FRAME into one per WINDOW.
+  //
+  // Bounded by BYTES, not frames, so it self-scales: ~96MB is ~32 frames at 1080p and
+  // ~8 at 4K, which is the right shape — the bigger the frame, the fewer we hold.
+  const REV_CACHE_BYTES = 96 * 1024 * 1024;
+  const frameBytes = Math.max(1, Math.round(
+    ((config.codedWidth || 1920) * (config.codedHeight || 1080) * 3) / 2));
+  const REV_CACHE_MAX = Math.max(4, Math.min(48, Math.floor(REV_CACHE_BYTES / frameBytes)));
+  let revCache = [];   // decoded frames, ascending presentation time
+
+  function revClear() {
+    for (const f of revCache) f.close();
+    revCache = [];
+  }
+  function revLookup(targetUs) {
+    for (let j = revCache.length - 1; j >= 0; j--) {
+      const f = revCache[j];
+      if (f.timestamp <= targetUs && f.timestamp + (f.duration || 33_333) > targetUs) return f;
+      if (f.timestamp <= targetUs) return f;   // last frame at/before the target covers it
+    }
+    return null;
+  }
+  // Decode forward from the keyframe to `targetUs`, keeping the trailing window. Frames
+  // move OUT of outQ and are owned solely by the cache, so nothing is double-closed.
+  async function revFill(targetUs) {
+    revClear();
+    resetTo(targetUs);
+    const deadline = performance.now() + 9000;
+    for (;;) {
+      if (decErr) throw decErr;
+      if (performance.now() > deadline) break;
+      let covered = false;
+      while (outQ.length) {
+        const f = outQ.shift();
+        revCache.push(f);
+        while (revCache.length > REV_CACHE_MAX) revCache.shift().close();
+        if (f.timestamp + (f.duration || 33_333) > targetUs) { covered = true; break; }
+      }
+      if (covered) break;
+      if (flushDone && i >= samples.length) break;   // end of stream
+      feed();
+      await new Promise((r) => setTimeout(r));
+    }
+  }
+
   function makeDecoder() {
     const d = new VideoDecoder({
       output: (f) => { if (closed) f.close(); else outQ.push(f); },
@@ -170,16 +220,32 @@ export async function createSequentialFrameReader(url, { maxBytes = 1_500_000_00
     outQ = [];
   }
 
-  // backward jump: re-decode from the last keyframe at/before the target
+  // Sync points as (decode-order index, presentation time), sorted by TIME. Built once
+  // so a backward jump is a binary search instead of a scan — and, more importantly, so
+  // it is CORRECT: see resetTo.
+  const syncPoints = [];
+  for (let j = 0; j < samples.length; j++) {
+    if (samples[j].is_sync) syncPoints.push({ j, us: usOf(samples[j]) });
+  }
+  syncPoints.sort((a, b) => a.us - b.us);
+
+  // backward jump: re-decode from the last keyframe at/before the target.
+  //
+  // (The previous scan walked `samples` in DECODE order and broke on the first cts past
+  // the target. A harness over IPBB-reordered tables showed it agrees with the correct
+  // answer on well-formed input, so it was NOT the bounce stall — but its early break is
+  // a real hazard on unusual tables and it was O(n) per reset. The time-sorted binary
+  // search below can't be fooled by reordering and costs O(log n).)
   function resetTo(targetUs) {
     drainQ();
     try { dec.reset(); } catch { /* already closed */ }
     try { dec.configure(config); } catch { dec = makeDecoder(); }
     flushing = false; flushDone = false;
-    let k = 0;
-    for (let j = 0; j < samples.length; j++) {
-      if (samples[j].is_sync && usOf(samples[j]) <= targetUs) k = j;
-      if (usOf(samples[j]) > targetUs && j > 0) break;
+    let lo = 0, hi = syncPoints.length - 1, k = 0;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      if (syncPoints[mid].us <= targetUs) { k = syncPoints[mid].j; lo = mid + 1; }
+      else hi = mid - 1;
     }
     i = k;
   }
@@ -200,11 +266,25 @@ export async function createSequentialFrameReader(url, { maxBytes = 1_500_000_00
     async frameAt(sec) {
       if (closed) throw new Error('reader closed');
       const target = Math.max(0, Math.round(sec * 1e6));
-      if (target < lastTargetUs) resetTo(target);
+      if (target < lastTargetUs) {
+        // walking BACKWARDS (the bounce bake): serve from the reverse window when we can,
+        // and refill it when we can't — one re-decode per window instead of per frame
+        const hit = revLookup(target);
+        if (hit) { lastTargetUs = target; return hit; }
+        await revFill(target);
+        const filled = revLookup(target);
+        if (filled) { lastTargetUs = target; return filled; }
+        resetTo(target);   // window didn't cover it (end of stream / timeout) — normal path
+      } else if (revCache.length) {
+        revClear();        // moving forward again: the window is dead weight
+      }
       lastTargetUs = target;
       const deadline = performance.now() + 10_000;   // a wedged decoder must not hang the render
       for (;;) {
-        if (performance.now() > deadline) throw new Error('decoder stalled at ' + sec.toFixed(3) + 's');
+        if (performance.now() > deadline) {
+          throw new Error(`decode timed out at ${sec.toFixed(3)}s (10s budget for one frame — `
+            + `usually a very long keyframe interval, or a backward seek re-decoding too much)`);
+        }
         if (decErr) throw decErr;
         // drop frames that a LATER queued frame supersedes for this target
         while (outQ.length >= 2 && outQ[1].timestamp <= target) outQ.shift().close();
@@ -226,6 +306,7 @@ export async function createSequentialFrameReader(url, { maxBytes = 1_500_000_00
       if (closed) return;
       closed = true;
       drainQ();
+      revClear();   // the reverse window owns its frames outright
       try { dec.close(); } catch { /* already closed */ }
     },
   };

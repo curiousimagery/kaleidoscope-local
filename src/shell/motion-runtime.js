@@ -349,10 +349,16 @@ function haltPlayback() {
 function startPlayback() {
   if (motion.playing || kfList().length < (env.sourceVideo ? 1 : 2)) return;   // video: 1 kf is playable (footage moves)
   closeKfMenu();
+  // STAGING: play IS play+sync now (Daniel, B499). The separate "+ sync" button is gone —
+  // over footage the two were identical the moment the audience got its own player back
+  // (B497), and for a still there is no reason to offer a deliberately DESYNCED play.
+  // So starting playback while staged always picks up the on-air position.
+  if (stg.on) motion.playhead = stgAdvance(performance.now());
   if (env.sourceVideo) { startVideoPlayback(); return; }   // a video source is its own clock
   motion.playing = true;
   motion.selected = -1;
-  env.motionRT.start = performance.now() - motion.playhead * motion.durationMs;
+  // a still while staged shares the committed loop's wall clock, so the two run in lockstep
+  env.motionRT.start = (stg.on && stg.playing) ? stg.t0 : performance.now() - motion.playhead * motion.durationMs;
   const tick = () => {
     if (!motion.playing) return;
     let p = (performance.now() - env.motionRT.start) / motion.durationMs;
@@ -393,6 +399,7 @@ function startVideoPlayback() {
       clock.seek(inSec);
     }
     let p = Math.max(0, Math.min(1, (clock.time - inSec) / span));
+    env.nativeVideo?.refreshFrame();    // blit the latest socket frame before we upload it
     if (stg.on) stgSrc?.followLive();   // the stage rides the audience's frame
     engine.updateSourceFrame();
     Object.assign(state, sampleAt(p));
@@ -655,14 +662,17 @@ env.motionStageLive = () => (stg.on ? stg.live : (stg.blend ? stg.blend.live : n
 env.programVideo = () => (stg.on && env.sourceVideo ? env.sourceVideo : null);
 // what the EDITOR is looking at: the stage still while staging, else the shared
 // element. The source overlay paints this so its thumbnail matches the preview.
-env.editSource = () => (stg.on && stgSrc?.ready ? stgSrc.frameSource() : null);
+env.editSource = () => (stg.on && stgSrc?.ready ? stgSrc.frameSource()
+  : (env.nativeVideo ? env.nativeVideo.frameSource() : null));
 
 // The editor's bounded still provider (see shell/stage-source.js). Created on entry,
 // torn down on every exit — take/cut/discard all hand the stage back to the shared
 // element. Null outside staging, so nothing exists to pay for.
 let stgSrc = null;
 function stgStartVideo() {
-  stgSrc = createVideoStageSource(env);
+  // native decode active → bounded stills come from AVAssetImageGenerator (no second
+  // player at all); otherwise the seek-only <video> sibling. Same interface either way.
+  stgSrc = env.nativeStageSource ? env.nativeStageSource() : createVideoStageSource(env);
   stgSrc.begin();
   // ONE setSource for the whole session: the stage always samples this canvas, whether
   // it is holding a parked still or a copy of the live frame. Swapping the engine's
@@ -736,6 +746,7 @@ function stgChanges() {
 function stgLoop(now) {
   if (!stg.on) return;
   const p = stgAdvance(now);
+  env.nativeVideo?.refreshFrame();            // the audience's frame comes off the socket
   if (motion.playing) stgSrc?.followLive();   // following: the stage rides the live frame
   stg.live = stgEval(stg.committed, p);
   env.commitFrame?.();   // staging's commit point: the committed loop stays on-air
@@ -1547,11 +1558,10 @@ function updateMotionUI() {
   const minKf = env.sourceVideo ? 1 : 2;   // video plays/renders with 1 kf (the footage provides motion)
   if (q('mfPlay')) {
     q('mfPlay').disabled = n < minKf;
-    // icon+label normally; ICON-ONLY while staging (the cell splits to fit "+ sync")
+    // icon+label always: "+ sync" is gone, so play owns the cell in every mode
     q('mfPlay').innerHTML = (motion.playing ? ICONS.pause : ICONS.play)
-      + (stg.on ? '' : `<span>${motion.playing ? 'pause' : 'play'}</span>`);
+      + `<span>${motion.playing ? 'pause' : 'play'}</span>`;
   }
-  if (q('mfSyncPlay')) { q('mfSyncPlay').hidden = !stg.on; q('mfSyncPlay').disabled = n < minKf; }
   // render lives in the APP BAR (per-mode export controls): motion-only, gated like play
   if (q('mfRender')) { q('mfRender').hidden = !env.motionRT.active; q('mfRender').disabled = n < minKf; }
   if (q('mfPrev')) q('mfPrev').disabled = n < 1;
@@ -1651,20 +1661,6 @@ function wireMotion() {
   byId('mfPrev')?.addEventListener('click', () => { closeKfMenu(); stepKeyframe(-1); });
   byId('mfNext')?.addEventListener('click', () => { closeKfMenu(); stepKeyframe(1); });
   byId('mfPlay')?.addEventListener('click', () => { if (motion.playing) stopPlayback(); else startPlayback(); });
-  // staging's sync+play: start the staged preview FROM the on-air playhead, in
-  // lockstep (same clock as the committed loop → zero drift)
-  const syncBtn = byId('mfSyncPlay');
-  if (syncBtn) {
-    syncBtn.innerHTML = ICONS.play + '<span>+ sync</span>';
-    syncBtn.addEventListener('click', () => {
-      if (!stg.on) return;
-      if (motion.playing) haltPlayback();
-      motion.playhead = stgAdvance(performance.now());
-      startPlayback();
-      if (stg.playing && motion.playing) env.motionRT.start = stg.t0;
-      updateMotionUI();
-    });
-  }
   env.setLoopClip = (v) => { motion.loop = !!v; renderTimeline(); updateMotionUI(); };   // "is this a loop" (repurposed)
   byId('mfLoop')?.addEventListener('click', () => env.setLoopClip(!motion.loop));
   byId('mfFit')?.addEventListener('click', fitTimeline);

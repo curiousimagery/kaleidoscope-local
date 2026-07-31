@@ -119,6 +119,31 @@ async function setupSource(payload) {
     return;
   }
 
+  if (payload.kind === 'video-native' && payload.port) {
+    // S3-A stage 4 — THE CRASH FIX COMPLETES. This view used to stage the whole clip to
+    // disk and run its OWN <video> decoder on top of a second WebGL context; at 4K that
+    // is the memory exhaustion that lost the main context ~30s in. Now it joins the same
+    // frame socket the main engine reads, as a second client of ONE native decode. No
+    // second decoder, no staged file, no range server, and no clock to reconcile: both
+    // views are looking at the identical frame by construction, so reconcileVideo never
+    // runs on this path.
+    let recv = null;
+    try {
+      const mod = await import('./shell/native-frame-receiver.js');
+      recv = mod.createNativeFrameReceiver({ port: payload.port });
+      await recv.start();
+    } catch (e) {
+      if (hint) hint.textContent = 'could not join the video stream: ' + (e.message || e);
+      try { recv?.stop(); } catch { /* not started */ }
+      return;
+    }
+    if (token !== sourceToken) { recv.stop(); return; }
+    receiver = recv;
+    engine.setSource(receiver.frameSource());
+    liveSource = true; haveSource = true;
+    return;
+  }
+
   if (payload.kind === 'notice') {
     // The main app is doing something the audience shouldn't watch — the Loop Builder,
     // or a bake. `teardownSource` above already released THIS view's decoder and cleared

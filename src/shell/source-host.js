@@ -42,6 +42,7 @@ export function createSourceHost(env) {
     env.haltPlayback();                                 // stop motion playback before swapping the source
     env.filmstrip.lastSig = '';                         // any existing keyframe thumbs are from the old source
     env.sourceVideo = null;                            // switching to a still clears any source video
+    env.detachNativeVideo?.();                         // release the single native decode
     if (env.media.sourceVideoUrl) { URL.revokeObjectURL(env.media.sourceVideoUrl); env.media.sourceVideoUrl = null; }
     env.media.sourceVideoBlob = null;
     const url = URL.createObjectURL(file);
@@ -161,6 +162,7 @@ export function createSourceHost(env) {
     if (env.loopIsActive?.() && !opts.srcUrl && !env.exitLoopBuilder?.()) return;
     if (env.live.isLive || env.live.frozen) stopCameraMode({ keepSource: true });   // uploading exits the camera workflow
     stopSourceVideoPlayback();                           // stop any previously loaded video's loop
+    env.detachNativeVideo?.();                           // a new clip means a new native decode
     env.haltPlayback();                                  // stop motion playback before swapping the source
     env.filmstrip.lastSig = '';                          // any existing keyframe thumbs are from the old source
     env.clip.trim.inT = 0; env.clip.trim.outT = 1; env.clip.trim.mode = 'forward';  // a new clip starts untrimmed
@@ -196,6 +198,7 @@ export function createSourceHost(env) {
       }
       env.sourceVideo = v;              // mountSourceView mounts this element
       env.liveVideo = null;
+      attachNativeVideo(v, file);       // iOS: hand PLAYBACK to the single native decode (no-op elsewhere)
       const meta = document.getElementById('sourceMeta');
       // motion data carries DURATION beside the dims (Daniel's spec); meta is the one home
       const dur = isFinite(v.duration) ? ` · ${v.duration.toFixed(1)}s` : '';
@@ -527,6 +530,7 @@ export function createSourceHost(env) {
     }
     if (uploadErrorEl) uploadErrorEl.textContent = '';
     stopSourceVideoPlayback();   // stop a loaded video's loop before the camera takes over
+    env.detachNativeVideo?.();
     if (env.media.sourceVideoUrl) { URL.revokeObjectURL(env.media.sourceVideoUrl); env.media.sourceVideoUrl = null; }
     env.media.sourceVideoBlob = null;
     env.media.originalSource = null;  // no captured original until the shutter fires
@@ -1038,12 +1042,57 @@ export function createSourceHost(env) {
 
   // Public surface used by the chrome's control/upload wiring + collaborators.
   env.loadImage = loadImage;
+  // ---- S3-A stage 3: hand PLAYBACK to the single native decode (iOS only) --------
+  // The `<video>` above still loads and still owns AUTHORING — overlay geometry, the
+  // footage thumbnails, the Loop Builder's decodes, loop detection. What moves is the
+  // thing that costs: the PLAYING decoder. The clip is streamed to the plugin over the
+  // upload socket, decoded once natively, and both webviews sample that one stream —
+  // so the `<video>` here goes PARKED (paused) and the external view stops decoding
+  // entirely (output-view.js's `video-native` branch).
+  //
+  // Capability-gated end to end: `createNativeVideoSource` returns null rather than
+  // throwing on any failure, and everything below simply doesn't happen — leaving the
+  // proven `<video>` path exactly as it was.
+  async function attachNativeVideo(v, file) {
+    detachNativeVideo();
+    const blob = env.media.sourceVideoBlob;
+    if (!blob) return;                                    // transcoded file:// path — stay on <video>
+    let mod;
+    try { mod = await import('./native-video.js'); } catch { return; }   // not bundled on web
+    if (!mod.nativeVideoAvailable()) return;
+    if (env.sourceVideo !== v) return;                    // a newer source landed while we imported
+    statusEl.textContent = 'preparing the clip for native playback…';
+    statusEl.classList.add('busy');
+    const src = await mod.createNativeVideoSource(env, blob, { name: file?.name || 'clip.mp4' });
+    statusEl.textContent = '';
+    statusEl.classList.remove('busy');
+    if (!src) return;                                     // fallback stays intact
+    if (env.sourceVideo !== v) { src.stop(); return; }     // source swapped mid-upload
+    env.nativeVideo = src;
+    env.sourceClock = src.clock;                          // motion + perform now drive the native player
+    try { v.pause(); } catch { /* ignore */ }              // the <video> is authoring-only from here
+    try { engine.setSource(src.frameSource()); engine.updateSourceFrame(); } catch { /* not ready */ }
+    env.nativeStageSource = () => mod.createNativeStageSource(env);
+    console.info(`[fold] native video decode active on port ${src.port} — <video> parked for authoring`);
+    env.scheduleRender?.();
+  }
+  function detachNativeVideo() {
+    const src = env.nativeVideo;
+    if (!src) return;
+    env.nativeVideo = null;
+    env.nativeStageSource = null;
+    env.sourceClock = videoElementClock;
+    try { src.stop(); } catch { /* already stopped */ }
+  }
+  env.detachNativeVideo = detachNativeVideo;
+
   env.loadVideo = loadVideo;
   // THE source clock (S3-A stage 2): the one handle motion + perform ask for time
   // through, resolved live so a source swap or a Loop Builder bake can't leave it
   // driving a dead element. Stage 3 swaps this for the native-decode implementation
   // when the plugin is available, and falls back to exactly this object when it isn't.
-  env.sourceClock = createVideoElementClock(() => env.sourceVideo);
+  const videoElementClock = createVideoElementClock(() => env.sourceVideo);
+  env.sourceClock = videoElementClock;
   env.stopSourceVideoPlayback = stopSourceVideoPlayback;
   env.startLiveLoop = startLiveLoop;
   env.doExport = doExport;

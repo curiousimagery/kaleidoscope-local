@@ -4,6 +4,48 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🔁 v0.21.1 (Build 499) — 2026-07-31 — Why the iPad fell back: AVPlayerLooper never played the item we attached the output to
+
+Daniel's B498 iPad run showed no improvement at all, and the console said why: `native video source unavailable ... no native frames on port 8900`. The native path built in B498 never actually ran — it fell back to `<video>` every time, which is why the endurance run then hit the same B480 context loss it always did (source panel and thumbnails dark, external display still going on its own context). Nothing regressed; the fix simply wasn't reaching the device.
+
+**Root cause: `AVPlayerLooper` does not enqueue the template item — it enqueues COPIES of it,** and swaps in a fresh copy every lap. `FoldNativeVideoPlugin.start` added the `AVPlayerItemVideoOutput` to the template, so the output was attached to an item that never plays. `hasNewPixelBuffer()` was false forever, not one frame was ever pushed, and the JS receiver timed out after 6s into the fallback. The plugin looked healthy from every angle except the one that mattered.
+
+- **The output now follows `currentItem`.** A KVO observer attaches a *fresh* `AVPlayerItemVideoOutput` to whatever is actually playing, detaching from the previous item (an output belongs to one item at a time). Covers the looping path and the non-looping `replaceCurrentItem` path with the same code.
+- **`teardown` detaches and invalidates the observer**, so a source swap can't leak an output onto a dead item.
+
+**Stage breadcrumbs on the native path.** Every failure falls back to `<video>` — safe, but silent, and narrowing this one cost a whole verification round. The path now logs each stage as it passes (`upload opened`, `uploaded N bytes in Ns at N MB/s → path`, `decode started, serving port`, `first frame received`) and a failure names the stage it died at. The upload also fails loudly if it lands short rather than handing a truncated file to AVFoundation.
+
+**`＋ sync` is gone; play IS play+sync.** Daniel: "since play+sync isn't a thing anymore we should only ever have play/pause as the bottom left button." Right — once B497 gave the audience its own player back, over footage the two buttons did the same thing, and for a still there was never a reason to offer a deliberately *desynced* play. Starting playback while staged now always picks up the on-air position (and, for a still, shares the committed loop's wall clock so the two run in lockstep). Play keeps its label in every mode now that it owns the cell.
+
+**VERIFY (Daniel, iPad — this is the one):** `cap:sync` → Xcode → load the 6:39 4K clip. The console should walk the whole ladder and end at **`first frame received`** + `native video decode active on port 8900`. If it falls back again, the warning now names the stage, which is the thing to send back. Then the actual test: 4K over 4K HDMI with a single decode, and the endurance run. Also confirm the Loop Builder still shows one play button, and that staging over a clip still behaves as it did in B497.
+
+Verified: node --check, vite build, Swift brace balance (3/3), bridge/method parity (9/9). The Swift needs Daniel's Xcode build — and note that B498's Swift has never successfully executed its frame path, so this build is the first real exercise of it.
+
+## 🔌 v0.21.0 (Build 498) — 2026-07-31 — S3-A stages 3 + 4: one decode, both views — and the two bake bugs
+
+The arc lands. On iOS a clip is now decoded **once**, natively, and both webviews sample that one stream.
+
+### Stage 3 — the native decode owns playback
+- **The bytes move over a binary socket.** New `FileUploadServer.swift` (port 8901): `beginUpload` → raw `blob.slice()` chunks over a localhost WebSocket → `finishUpload({bytes})`. `finishUpload` carries the expected total because the bridge and the socket are different channels, so native waits for the last slices to land instead of assuming its queue drained. Peak memory is one 4MB slice regardless of clip length — the thing that made a 6min 4K clip a non-starter over base64.
+- **New `shell/native-video.js`** — `createNativeVideoSource()` uploads, starts the plugin, joins the FYUW socket through `native-frame-receiver`, and returns a **`sourceClock` implementation**: `time` off the PTS of the frame about to be painted, transport over the bridge. `seekSettled` resolves when a frame at the target has actually been painted, so scrub renders the right texture.
+- **`loadVideo` hands over PLAYBACK, not authoring.** The `<video>` still loads and still owns overlay geometry, footage thumbnails, the Loop Builder's decodes and loop detection — it just goes **parked**. What moves is the thing that costs: the playing decoder. Capability-gated end to end; `createNativeVideoSource` returns null rather than throwing, and everything downstream simply doesn't happen.
+- **The native half of the `stageSource` seam:** `frameAt` on the plugin (AVAssetImageGenerator, `maximumSize`, seek tolerance) → `createNativeStageSource`. Staging over a video clip now costs a decode burst per scrub and **no second player at all**.
+
+### Stage 4 — the external view stops decoding
+- **`kind:'video-native'`** in output-view joins the same socket as a second client. No second decoder, no staged file, no range server, and **no clock to reconcile** — both views look at the identical frame by construction, so `reconcileVideo` never runs on this path.
+- **The 1080p cap comes off** when a native decode is active (`hasNativeVideo`). It was protecting memory that is no longer being spent.
+- Weak links 1 and 2 from the B493 analysis are both gone on this path: the synchronous main-thread range reads, and the second 4K decode + texture upload.
+
+### The two bake bugs
+- **The bounce reader leaked.** `bounceReader` was opened but never closed — only `sliceReaderA/B` were in the `finally`. That is exactly why Daniel's retry after a failed bounce died at ~0s until he restarted the app. Fixed, with a comment naming every reader the bake opens.
+- **The bounce stall is now amortized.** `frameAt` is monotonic-friendly, so a bounce pays a keyframe re-decode on *every* frame past the reversal. A **reverse-walk cache** turns that into one re-decode per window, bounded by BYTES (~96MB, so ~32 frames at 1080p and ~8 at 4K — the bigger the frame, the fewer we hold).
+- **Correction, and I want it on the record:** I first diagnosed this as the keyframe search being fooled by B-frame cts reordering. I wrote a harness over IPBB-reordered sample tables and **it disproved that** — the old scan agrees with the correct answer on well-formed input. I kept the time-sorted binary search anyway (its early break is a real hazard on unusual tables, and it's O(log n) instead of O(n)), but it is not the fix. The re-decode-per-frame cost is, and the cache is what addresses it.
+- The timeout message now names the likely cause instead of saying "decoder stalled", which sent Daniel looking at his file.
+
+**VERIFY (Daniel):** `npm install` → `cap:sync` → Xcode **compiles** (two new Swift files' worth of surface). Then on iPad, the whole point: **a 4K clip over 4K HDMI with no second decoder** — watch for the upload progress on load, then play/loop/trim/scrub/retime, motion and perform, and the endurance run that used to lose the context. The console says `native video decode active on port 8900`. **If anything is off, the fallback is one flag away** — the `<video>` path is untouched and takes over whenever the native source returns null. On desktop/Electron nothing should change at all. Separately: the **bounce bake** that failed at 88s, and a deliberate bake failure followed by an immediate retry (should no longer need a restart).
+
+Verified: node --check, vite build, Swift brace balance (3/3 files), bridge/method parity (9/9), and the keyframe harness described above. The Swift needs Daniel's Xcode build.
+
 ## 🎭 v0.20.40 (Build 497) — 2026-07-31 — The `stageSource` seam: staging survives a single decode by paying for the cheap side
 
 B495 tried to remove staging's second decoder by sharing one playhead, and deleted the feature. This removes it properly, by **inverting which side pays**.
