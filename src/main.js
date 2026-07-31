@@ -126,6 +126,11 @@ try {
 // "panels black out on resize while broadcasting" report: if the preview goes black
 // but NO 'webglcontextlost' fires, the context is fine and it's a repaint bug, not a
 // context loss. (A full restore re-inits engine GL state — a scoped follow-up.)
+// Cache the lose-context extension WHILE THE CONTEXT IS ALIVE — on a lost context getExtension
+// returns null (the mobile chrome learned this the hard way). Used by env.resetSession to ask iOS
+// for a wedged context back.
+const loseCtxExt = (() => { try { return engine?.glContext?.getExtension('WEBGL_lose_context') || null; } catch { return null; } })();
+
 if (engine) {
   previewCanvas.addEventListener('webglcontextlost', (ev) => {
     ev.preventDefault();
@@ -323,6 +328,29 @@ function scheduleRender() {
   });
 }
 env.scheduleRender = scheduleRender;
+
+// BREAK-GLASS session reset (Daniel): the iPad-HDMI-over-video path can wedge the GPU — two GL
+// contexts + two video decoders at the display's native 4K/6K exhaust memory, iOS kills the main
+// context, and reinitGL can't rebuild ("could not recover"), leaving the app dark + unresponsive.
+// This is a recovery short of quitting: RELEASE all output (frees the external view's second
+// context + video decoder — the pressure source), then rebuild the main GL context (restoring it
+// first if it's lost). If even that throws, reload the webview — the native app stays open.
+env.resetSession = () => {
+  try { env.stopAllOutput?.('session reset'); } catch { /* keep going — the point is to recover */ }
+  try {
+    const gl = engine?.glContext;
+    if (gl && gl.isContextLost()) loseCtxExt?.restoreContext?.();   // ask iOS for the context back (restore handler reinits)
+    else engine?.reinitGL?.();
+    scheduleRender();
+    if (statusEl) {
+      statusEl.textContent = 'session reset'; statusEl.classList.remove('error');
+      setTimeout(() => { if (statusEl.textContent === 'session reset') statusEl.textContent = ''; }, 1600);
+    }
+  } catch (e) {
+    console.warn('[fold] session reset — GL rebuild failed, reloading', e);
+    setTimeout(() => location.reload(), 150);   // last resort: fresh webview + context (native app stays open)
+  }
+};
 
 // Coalesce control-widget syncing to one rAF. The direct-manipulation drag path
 // (source overlay + output gestures) fired syncControls on EVERY pointermove, and
@@ -1013,7 +1041,7 @@ function wireControls() {
     state.drosteZoom     = 2.0;
     state.drosteSpiral   = 0;
     state.drosteMirror   = true;
-    state.drosteArms     = 1;
+    state.drosteArms     = 6;   // match the state default (a relatable kaleidoscopic shape, not the lone arms=1 spiral)
     state.drosteWedgeMirror = true;
     state.drosteOffsetX  = 0;
     state.drosteOffsetY  = 0;
@@ -1266,6 +1294,11 @@ function wireGlobalSheets() {
   };
   wire('exportSheet', 'openExportBtn', 'exportClose');
   wire('settingsSheet', 'settingsBtn', 'settingsClose');
+  // break-glass session reset (settings → diagnostics): close the sheet so the recovery is visible.
+  document.getElementById('resetSession')?.addEventListener('click', () => {
+    const sheet = document.getElementById('settingsSheet'); if (sheet) sheet.hidden = true;
+    env.resetSession?.();
+  });
   // (#outputBtn toggles the in-column output expand-band, not a sheet — see
   //  wireBarBands below.)
 

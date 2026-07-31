@@ -4,6 +4,23 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🧯 v0.20.23 (Build 480) — 2026-07-30 — iPad-HDMI-video crash: mitigation + break-glass reset; size/pan/droste fixes
+
+Daniel's troubling finding: broadcasting a **video source over iPad HDMI** goes dark everywhere with "graphics context lost — could not recover" after ~30s, wedging the app. **Root cause** (device-blind, but the code confirms the mechanism): the external view runs its **own** `<video>` decoder ([output-view.js:163](../src/output-view.js#L163)) on top of a **second WebGL context**, at the display's native 4K/6K — two decoders + two GL contexts exhaust GPU memory; iOS kills the main context and `reinitGL` can't rebuild.
+
+- **GPU-memory guard (mitigation):** the external render is now **capped to 1080p-class when a video source is active** (`external-display.js` `computeOutputDims`), so the second context's framebuffer stays small. Stills/camera keep full native resolution. This should push the pressure below the cliff; **device verification needed** (I can't test iPad).
+- **Break-glass session reset (Daniel's ask):** a "⟳ reset session" control in **settings → diagnostics** — releases all output (tears down the external view's second context + video decoder — the pressure source), rebuilds the main GL context (restoring it first if lost), and falls back to a webview reload only if that throws (native app stays open). Recovery short of quitting, for when the output wedges. `env.resetSession` + `env.stopAllOutput`.
+- **Also monitor:** whether Electron desktop HDMI (B479, also a second context) can hit the same wall under a heavy video — the guard concept would port.
+
+Plus verified-feedback fixes:
+- **Triangle size** bumped `1.6 → 2.88` (~1.8× more, per Daniel) so it reads proportional to the others; hex stays 1.6.
+- **Droste default segments regression FIXED:** "reset slice" was resetting `drosteArms` to **1** (the lone spiral) while the state default is **6** — they'd drifted out of sync. Now resets to 6.
+- **Pan toggle** no longer uses the indented, dimmed `offset-sub` style (it read as a different font) — it's a normal control row now, with a tooltip explaining the **shared radial+droste** lock (Daniel: desirable but should be communicated).
+
+**VERIFY (Daniel):** **iPad HDMI + a video source → does it survive past ~30s now?** (the key test — report if it still crashes; the console external-view crash logs + the reset are the fallback). The reset control recovers a wedged session. Desktop: triangle proportional, droste opens at 6 segments (+ after "reset slice"), pan copy is normal-weight with the shared tooltip.
+
+Verified: node --check (4 files), vite build. **iPad crash mitigation untested by Claude — device-gated.** JS-only — `cap:sync` covers iOS (redeploy from Xcode to get the bundle); fresh Electron build produced.
+
 ## 🖥️ v0.20.22 (Build 479) — 2026-07-30 — Desktop HDMI / external-display output (Electron)
 
 Daniel's prioritized gap: the Electron DMG had no way to drive a projector/second monitor (Syphon was the only broadcast). Now it can — reusing the existing self-rendering output view + the iPad HDMI destination UX.

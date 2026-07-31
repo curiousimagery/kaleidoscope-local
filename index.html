@@ -444,6 +444,10 @@
       <div class="status" id="diag"></div>
       <div class="status" id="diagOps"></div>
       <div class="version-badge" id="versionBadge"></div>
+      <!-- break-glass: recover a wedged session (e.g. an iPad-HDMI GPU context loss) short of
+           quitting — releases all output + rebuilds the graphics context; reloads if that fails. -->
+      <label class="setting-label" style="margin-top: 14px;">recover</label>
+      <button class="toggle" id="resetSession" title="stop all output and rebuild the graphics context — use if the output goes dark or the app wedges (e.g. after a 'graphics context lost' error). Does not lose your source or edits unless a full reload is needed.">⟳ reset session (break glass)</button>
     </div>
   </div>
 </div>
@@ -762,9 +766,10 @@
       <input type="range" id="canvasRot" min="0" max="360" step="0.5" value="0">
     </label>
     <!-- pan lock (radial/droste): those read best CENTERED, so canvas pan is LOCKED by default;
-         unlock to translate them (tileable forms always pan). Shown only for radial/droste. -->
-    <div class="slider" id="panLockLabel" style="display:none">
-      <div class="row offset-sub-row"><span class="offset-sub">pan</span>
+         unlock to translate them (tileable forms always pan). Shown only for radial/droste; the
+         lock is SHARED across both (Daniel: desirable). -->
+    <div class="slider" id="panLockLabel" style="display:none" title="pan is shared by radial + droste — both read best centered, so it's locked by default; unlock to translate them. tileable forms (square/hex/triangle) always pan.">
+      <div class="row"><span>pan</span>
         <div class="row-buttons" id="panManual">
           <button class="toggle active" data-pan="0">locked</button>
           <button class="toggle" data-pan="1">unlocked</button>

@@ -128,11 +128,16 @@ function createPoster(opts) {
 
   // the render dims to post, given the current degradation cap (from the poster)
   function computeOutputDims(cap) {
+    // MEMORY GUARD (iPad HDMI over a VIDEO source): the external view runs its OWN video decoder on
+    // top of a second WebGL context — at the display's native 4K/6K that exhausts GPU memory and the
+    // MAIN context is lost ~30s in, unrecoverable (Daniel). Cap the external render to 1080p-class
+    // for video sources so the second context's framebuffer stays small; stills/camera keep native.
+    const effCap = opts.hasVideoSource?.() ? Math.min(cap, 1920) : cap;
     // the display's native resolution when known — the point of HDMI — stepped down
     // by the crash generation when memory pressure killed the view
     const native = capDims(
       (dims?.width && dims?.height) ? dims : (opts.getOutputDims?.() || { width: 1920, height: 1080 }),
-      cap);
+      effCap);
     // FILL mode (the installation case): render edge-to-edge at the display's native
     // aspect instead of honoring the canvas frame aspect.
     if (opts.getFill?.()) return native;
@@ -240,6 +245,7 @@ export function createExternalDisplaySink(env) {
     getState: () => (env.programState ? env.programState() : env.state),
     getFrameAspect: () => env.session?.frameAspect || 1,
     getFill: () => !!env.session?.hdmiFill,
+    hasVideoSource: () => !!env.sourceVideo,   // caps the external render for video (GPU-memory guard)
     getOutputDims: () => {
       const bus = env.outputBus;
       return { width: bus?.width || 1920, height: bus?.height || 1080 };

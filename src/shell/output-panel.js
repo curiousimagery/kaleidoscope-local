@@ -516,6 +516,11 @@ export function createOutputPanel(env, outputBus) {
     if (statusEl) { statusEl.textContent = `output stopped: ${message}`; statusEl.classList.remove('live'); }
   }
 
+  // Break-glass hook (env.resetSession): release ALL output cleanly — stops the recorder + broadcast,
+  // which tears down the external view (its second GL context + video decoder are the iPad-HDMI
+  // memory-pressure source). Callable when things are wedged, without touching the render loop.
+  env.stopAllOutput = (reason) => failOutput(reason || 'output stopped');
+
   function startPolling() {
     stopPolling();
     statusTimer = setInterval(() => {
