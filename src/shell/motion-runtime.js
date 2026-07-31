@@ -77,8 +77,8 @@ function rebindMotionToSource() {
 // speed multiplier (so ¼× makes the timeline + export 4× longer = slow-mo). Stills set
 // durationMs directly and ignore videoSpeed.
 function videoNativeDurationMs() {
-  const d = env.sourceVideo && env.sourceVideo.duration;
-  if (!(d && isFinite(d))) return 0;
+  const d = env.sourceClock?.duration || 0;
+  if (!d) return 0;
   return Math.round((env.clip.trim.outT - env.clip.trim.inT) * d * 1000);   // trimmed length
 }
 function lockVideoDuration() {
@@ -89,7 +89,7 @@ function setVideoSpeed(spd) {
   if (!env.sourceVideo) return;
   motion.videoSpeed = spd;
   lockVideoDuration();
-  try { env.sourceVideo.playbackRate = spd; } catch { /* some browsers clamp extreme rates */ }
+  env.sourceClock?.setRate(spd);
   if (stg.video) { try { stg.video.playbackRate = spd; } catch { /* clamp */ } }   // retime is global — the committed copy follows
   clampTimelineView();                 // duration changed → max-zoom bound changed
   renderTimeline();                    // ruler reflects the new effective duration
@@ -281,9 +281,9 @@ function teardownExportReader() {
 }
 
 async function advanceSourceToP(p) {
-  const v = env.sourceVideo;
-  if (!v) return;
-  const sec = pToMediaSec(v, p, env.clip.trim);
+  const clock = env.sourceClock;
+  if (!clock?.present) return;
+  const sec = pToMediaSec(clock, p, env.clip.trim);
   if (exportReader) {
     try {
       const frame = await exportReader.frameAt(sec);
@@ -295,7 +295,7 @@ async function advanceSourceToP(p) {
       teardownExportReader();   // re-points the engine at the video element
     }
   }
-  await seekVideoTo(v, sec);
+  await clock.seekSettled(sec);
   engine.updateSourceFrame();
 }
 // Scrub the footage to p, coalescing seeks (latest target wins) so dragging the
@@ -332,7 +332,7 @@ async function scrubVideo(p, { assignParams = true } = {}) {
 function haltPlayback() {
   motion.playing = false;
   if (env.motionRT.raf) { cancelAnimationFrame(env.motionRT.raf); env.motionRT.raf = 0; }
-  if (env.sourceVideo) { try { env.sourceVideo.pause(); } catch { /* ignore */ } }
+  env.sourceClock?.pause();
   env.syncLocks?.();   // playing → paused: clear the aspect contextual padlock
 }
 function startPlayback() {
@@ -353,28 +353,28 @@ function startPlayback() {
   env.motionRT.raf = requestAnimationFrame(tick);
   updateMotionUI();
 }
-// Playback over a source video: the <video> is the master clock — it plays, and
-// each frame we derive p from its currentTime, sample the params at p, and render
-// (so params stay locked to the actual presented frame). Mirrors the live-camera
-// loop with parameter sampling layered on.
+// Playback over a source video: the SOURCE CLOCK is the master — it plays, and each
+// frame we derive p from its time, sample the params at p, and render (so params stay
+// locked to the actual presented frame). Mirrors the live-camera loop with parameter
+// sampling layered on. Everything here goes through env.sourceClock rather than the
+// element, so the same loop drives a native single-decode source unchanged (S3-A).
 function startVideoPlayback() {
-  const v = env.sourceVideo;
-  if (!v) return;
+  const clock = env.sourceClock;
+  if (!clock?.present) return;
   env.filmstrip.gen++;             // cancel any in-flight thumbnail build before we drive the footage
   motion.playing = true;
   motion.selected = -1;
-  const dur = (v.duration && isFinite(v.duration)) ? v.duration : 1;
+  const dur = clock.duration || 1;
   const inSec = env.clip.trim.inT * dur, outSec = env.clip.trim.outT * dur, span = Math.max(0.001, outSec - inSec);
-  v.currentTime = pToMediaSec(v, motion.playhead >= 1 ? 0 : motion.playhead, env.clip.trim);
-  v.loop = false;                  // we loop within the TRIMMED range ourselves (native loop = whole clip)
-  try { v.playbackRate = motion.videoSpeed || 1; } catch { /* clamp */ }   // retime
-  v.play().catch(() => {});
+  clock.seek(pToMediaSec(clock, motion.playhead >= 1 ? 0 : motion.playhead, env.clip.trim));
+  clock.setRate(motion.videoSpeed || 1);   // retime
+  clock.play();                            // clears the element loop: we loop within the TRIMMED range ourselves
   const tick = () => {
     if (!motion.playing) return;
-    if (v.currentTime >= outSec - 0.03 || v.currentTime < inSec - 0.03) {   // reached the trimmed end — always rewind (motion always loops; a linear clip just cuts back to the start)
-      try { v.currentTime = inSec; } catch { /* ignore */ }
+    if (clock.time >= outSec - 0.03 || clock.time < inSec - 0.03) {   // reached the trimmed end — always rewind (motion always loops; a linear clip just cuts back to the start)
+      clock.seek(inSec);
     }
-    let p = Math.max(0, Math.min(1, (v.currentTime - inSec) / span));
+    let p = Math.max(0, Math.min(1, (clock.time - inSec) / span));
     engine.updateSourceFrame();
     Object.assign(state, sampleAt(p));
     if (engine && engine.getSourceImage()) engine.render(state);

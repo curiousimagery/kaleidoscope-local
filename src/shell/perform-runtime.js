@@ -194,30 +194,38 @@ export function createPerformRuntime(env) {
   }
 
   // ---- source transport (a video source LOOPS while performing) -------------
+  // THE LOOP HONORS THE TRIM. Perform used to set `v.loop = true` and let the element
+  // wrap at the file end, so a Loop Builder "trim only" apply (which is non-destructive
+  // — it commits to env.clip.trim rather than baking) was respected in motion and
+  // silently ignored here: same clip, two different lengths depending on the mode
+  // (Daniel, B491). Motion's rule is the one to match — loop within [inSec, outSec] —
+  // and env.srcScrubSpan() is the shared definition of that range.
+  const trimSpan = () => env.srcScrubSpan?.() || null;
   function startVideoLoop() {
-    const v = env.sourceVideo;
-    if (!v) return;
-    v.loop = true;
-    try { v.playbackRate = session.performVideoSpeed || 1; } catch { /* clamped */ }
-    v.play().catch(() => {});
+    const clock = env.sourceClock;
+    if (!clock?.present) return;
+    const s = trimSpan();
+    if (s && (clock.time < s.inSec - 0.03 || clock.time >= s.outSec - 0.03)) clock.seek(s.inSec);
+    clock.setRate(session.performVideoSpeed || 1);
+    clock.play();                 // clears the element loop: we wrap at the trim out-point ourselves
     syncTransportUI();
     env.updateSrcScrub?.();
   }
   function toggleVideoPlayback() {
-    const v = env.sourceVideo;
-    if (!v) return;
-    if (v.paused) { v.loop = true; v.play().catch(() => {}); }
-    else v.pause();
+    const clock = env.sourceClock;
+    if (!clock?.present) return;
+    if (clock.paused) startVideoLoop();
+    else clock.pause();
     syncTransportUI();
     env.updateSrcScrub?.();   // the frame picker shows while paused (pick a frame mid-set)
   }
   function syncTransportUI() {
-    const v = env.sourceVideo;
-    const hasVideo = !!v && env.performRT.active;
+    const clock = env.sourceClock;
+    const hasVideo = !!clock?.present && env.performRT.active;
     // play keeps its motion-mode geography — disabled (not hidden) for non-video
     const play = byId('pfPlay');
     if (play) {
-      const playing = hasVideo && !v.paused;
+      const playing = hasVideo && !clock.paused;
       play.disabled = !hasVideo;
       play.innerHTML = (playing ? ICONS.pause : ICONS.play) + `<span>${playing ? 'pause' : 'play'}</span>`;
     }
@@ -284,14 +292,14 @@ export function createPerformRuntime(env) {
   function renderPfRuler() {
     const ruler = byId('pfRuler');
     if (!ruler) return;
-    const v = env.sourceVideo;
-    const show = env.performRT.active && !!v && isFinite(v.duration) && v.duration > 0;
+    const sp = trimSpan();
+    const show = env.performRT.active && !!env.sourceClock?.present && !!sp;
     ruler.hidden = !show;
     ruler.innerHTML = '';
     if (!show) return;
     const fmt = env.fmtClock || ((s) => s.toFixed(1) + 's');
     const NICE = [0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 900, 1800];
-    const dur = v.duration / (session.performVideoSpeed || 1);
+    const dur = sp.span / (session.performVideoSpeed || 1);   // the TRIMMED length, retimed
     const w = ruler.clientWidth || 400;
     const targetLabels = Math.max(2, Math.min(12, Math.floor(w / 84)));
     const step = NICE.find((s) => dur / s <= targetLabels) ?? Math.ceil(dur / targetLabels);
@@ -331,6 +339,19 @@ export function createPerformRuntime(env) {
     lastSrcRef = src;
     placeSrcScrub(true);
     startVideoLoop();
+    syncTransportUI();
+    env.updateSrcScrub?.();
+    requestAnimationFrame(renderPfRuler);
+  };
+
+  // the TRIM changed under us (a Loop Builder apply or cancel) without the source
+  // element changing — re-home the loop bounds, the ruler and the thumb strip. Kept
+  // separate from refreshPerformSource because that one is identity-guarded, and a
+  // trim-only apply deliberately leaves the element alone.
+  env.refreshPerformTrim = () => {
+    if (!env.performRT.active) return;
+    const clock = env.sourceClock, s = trimSpan();
+    if (clock?.present && s && (clock.time < s.inSec - 0.03 || clock.time >= s.outSec - 0.03)) clock.seek(s.inSec);
     syncTransportUI();
     env.updateSrcScrub?.();
     requestAnimationFrame(renderPfRuler);
@@ -416,15 +437,19 @@ export function createPerformRuntime(env) {
     // a PLAYING video source drives the stage each frame (the preview otherwise
     // renders on demand): fresh frame → texture → render the target state.
     // (the camera's own live loop already does this for live sources.)
-    const v = env.sourceVideo;
-    if (v && !v.paused && !v.seeking && env.engine?.getSourceImage?.()) {
+    const clock = env.sourceClock;
+    if (clock?.present && !clock.paused && !clock.seeking && env.engine?.getSourceImage?.()) {
       env.engine.updateSourceFrame();
       env.engine.render(state);
       env.sourceOverlay.paintSourceVideo();
-      // the footer timeline's playhead rides the loop
-      if (isFinite(v.duration) && v.duration > 0) {
+      // wrap at the TRIM out-point (motion's rule) — the element's own loop would run to
+      // the file end and quietly ignore an applied trim
+      const s = trimSpan();
+      if (s && (clock.time >= s.outSec - 0.03 || clock.time < s.inSec - 0.03)) clock.seek(s.inSec);
+      // the footer timeline's playhead rides the loop, over the trimmed span
+      if (s) {
         const head = byId('srcScrubHead');
-        if (head) head.style.left = ((v.currentTime / v.duration) * 100) + '%';
+        if (head) head.style.left = (Math.max(0, Math.min(1, (clock.time - s.inSec) / s.span)) * 100) + '%';
       }
       if (!env.performRT.videoWasPlaying) { env.performRT.videoWasPlaying = true; syncTransportUI(); }
     } else if (env.performRT.videoWasPlaying) {
@@ -529,7 +554,7 @@ export function createPerformRuntime(env) {
       placeSrcScrub(false);            // the timeline returns to the source panel
       renderPfRuler();                 // hides itself when perform is off
       // park a playing video (still-mode semantics: the frame picker owns frames)
-      if (env.sourceVideo && !env.sourceVideo.paused) { try { env.sourceVideo.pause(); } catch { /* ignore */ } }
+      env.sourceClock?.pause();
       env.scheduleRender?.();
       trail = []; settleFadeT = 0;
       if (env.sourceOverlay?.view) env.sourceOverlay.view.performGhosts = null;
@@ -617,8 +642,7 @@ export function createPerformRuntime(env) {
   byId('pfSpeed')?.querySelectorAll('[data-pspd]').forEach((b) =>
     b.addEventListener('click', () => {
       session.performVideoSpeed = parseFloat(b.dataset.pspd) || 1;
-      const v = env.sourceVideo;
-      if (v) { try { v.playbackRate = session.performVideoSpeed; } catch { /* clamped */ } }
+      env.sourceClock?.setRate(session.performVideoSpeed);
       syncTransportUI();
       renderPfRuler();   // effective duration changed
     }));

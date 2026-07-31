@@ -20,7 +20,7 @@ import { createCamera } from './camera.js';
 import { createCameraSettings } from './camera-settings.js';
 import { createCameraTouchControls } from './camera-touch.js';
 import { ICONS } from '../mobile/icons.js';   // shared glyph set (camera flip)
-import { seekVideoTo } from './video-source.js';
+import { seekVideoTo, createVideoElementClock } from './video-source.js';
 import { zipStore } from './zip.js';
 import { createSaveFlow } from './save-flow.js';
 import { getActiveForm } from '../engine/index.js';
@@ -841,6 +841,31 @@ export function createSourceHost(env) {
   // A video source in still mode parks paused; this mini timeline under the source
   // picks the frame to work with (no transport by design). Latest-wins seek
   // coalescing so dragging never floods the decoder (the scrubVideo pattern).
+  // WHAT THE MINI TIMELINE SPANS — one source of truth, shared with perform-runtime.
+  // In still mode it's the frame PICKER, so it spans the whole file (pick any frame).
+  // In perform it's the performance TIMELINE, so it spans the TRIMMED range: the Loop
+  // Builder's "trim only" is non-destructive but it is real, and a bar that ignored it
+  // made an applied trim look like it hadn't applied at all (Daniel, B491 — motion
+  // showed the trimmed clip while perform played and displayed the full length).
+  function srcScrubSpan() {
+    const d = env.sourceClock?.duration || 0;
+    if (!d) return null;
+    if (!env.performRT?.active) return { d, inSec: 0, outSec: d, span: d };
+    const t = env.clip?.trim || {};
+    const inSec = Math.max(0, Math.min(d, (t.inT ?? 0) * d));
+    const outSec = Math.max(inSec + 0.05, Math.min(d, (t.outT ?? 1) * d));
+    return { d, inSec, outSec, span: outSec - inSec };
+  }
+  env.srcScrubSpan = srcScrubSpan;
+
+  // the strip's IDENTITY: which clip, over which range. Thumbs are stale the moment
+  // either changes.
+  function srcStripSig() {
+    const s = srcScrubSpan();
+    if (!s) return '';
+    return `${env.media.sourceVideoUrl || ''}|${s.inSec.toFixed(3)}|${s.outSec.toFixed(3)}`;
+  }
+
   function updateSrcScrub() {
     const wrap = document.getElementById('srcScrub');
     if (!wrap) return;
@@ -850,11 +875,19 @@ export function createSourceHost(env) {
     const show = !!v && !env.motionRT.active && !env.live.isLive && !env.live.frozen;
     wrap.hidden = !show;
     if (show && isFinite(v.duration) && v.duration > 0) {
+      const s = srcScrubSpan();
       const head = document.getElementById('srcScrubHead');
-      if (head) head.style.left = ((v.currentTime / v.duration) * 100) + '%';
-      // no thumbs yet (e.g. the video was loaded while IN motion mode) → build them
-      // now that the track is visible. rAF so layout (and module setup) are done.
-      if (!wrap.querySelector('.ss-cell')) requestAnimationFrame(() => buildSrcStrip());
+      if (head && s) head.style.left = (Math.max(0, Math.min(1, (v.currentTime - s.inSec) / s.span)) * 100) + '%';
+      // Rebuild the footage thumbs whenever that identity changes — a new clip, or a new
+      // trim range. This used to fire ONLY when the track had no cells at all, so a Loop
+      // Builder trim/bake left the OLD clip's thumbnails sitting there until a mode round
+      // trip happened to re-place the track and rebuild by side effect (Daniel's stale-
+      // thumbnails-in-perform report). rAF so layout (and module setup) are done.
+      const sig = srcStripSig();
+      if (sig && (sig !== srcStrip.sig || !wrap.querySelector('.ss-cell')) && !srcStrip.queued) {
+        srcStrip.queued = true;
+        requestAnimationFrame(() => { srcStrip.queued = false; buildSrcStrip(); });
+      }
     }
   }
   env.updateSrcScrub = updateSrcScrub;
@@ -864,15 +897,22 @@ export function createSourceHost(env) {
   // load. It NEVER touches the engine texture (no updateSourceFrame), so the parked
   // frame keeps rendering while thumbs build; cancelled (gen bump) the moment the
   // user scrubs, and rebuilt on scrub end if it was cut short.
-  const srcStrip = { gen: 0, dirty: false, building: false };
+  const srcStrip = { gen: 0, dirty: false, building: false, sig: '', queued: false };
   async function buildSrcStrip() {
     const track = document.getElementById('srcScrub');
     const v = env.sourceVideo;
-    if (srcStrip.building) return;   // single-flight (updateSrcScrub may re-trigger)
+    if (srcStrip.building) {
+      // a pass is running for a DIFFERENT clip/range — cancel it and retry when it unwinds
+      if (srcStripSig() !== srcStrip.sig) { srcStrip.gen++; srcStrip.dirty = true; }
+      return;                        // single-flight (updateSrcScrub may re-trigger)
+    }
     if (!track || track.hidden || !v || !isFinite(v.duration) || v.duration <= 0) return;
     const w = track.clientWidth, h = track.clientHeight;
     if (w < 8 || h < 8) return;
+    const span = srcScrubSpan();
+    if (!span) return;
     const gen = ++srcStrip.gen;
+    srcStrip.sig = srcStripSig();    // claimed only once we're actually building it
     srcStrip.dirty = false;
     srcStrip.building = true;
     const saved = v.currentTime;
@@ -882,7 +922,7 @@ export function createSourceHost(env) {
     try {
       for (let i = 0; i < n; i++) {
         if (gen !== srcStrip.gen) { srcStrip.dirty = true; return; }
-        await seekVideoTo(v, ((i + 0.5) / n) * v.duration);
+        await seekVideoTo(v, span.inSec + ((i + 0.5) / n) * span.span);
         if (gen !== srcStrip.gen) { srcStrip.dirty = true; return; }
         const cw = Math.ceil((w / n) * dpr), ch = Math.ceil(h * dpr);
         const c = document.createElement('canvas');
@@ -922,6 +962,11 @@ export function createSourceHost(env) {
             present();
           }
         }
+      } else if (srcStrip.dirty) {
+        // this pass was cancelled for a newer clip/range — pick the new one up now that
+        // the decoder is free (the scrub's own retry only fires on pointerup)
+        srcStrip.sig = '';
+        setTimeout(() => { if (!srcStrip.building && srcStrip.dirty) buildSrcStrip(); }, 60);
       }
     }
   }
@@ -936,7 +981,8 @@ export function createSourceHost(env) {
     if (srcSeekBusy) { srcSeekNext = p; return; }
     srcSeekBusy = true;
     try {
-      await seekVideoTo(v, p * v.duration);
+      const s = srcScrubSpan();                       // perform scrubs within the trim; still mode over the whole file
+      await seekVideoTo(v, s ? s.inSec + p * s.span : p * v.duration);
       engine.updateSourceFrame();
       engine.render(state);
       env.sourceOverlay.paintSourceVideo();
@@ -993,6 +1039,11 @@ export function createSourceHost(env) {
   // Public surface used by the chrome's control/upload wiring + collaborators.
   env.loadImage = loadImage;
   env.loadVideo = loadVideo;
+  // THE source clock (S3-A stage 2): the one handle motion + perform ask for time
+  // through, resolved live so a source swap or a Loop Builder bake can't leave it
+  // driving a dead element. Stage 3 swaps this for the native-decode implementation
+  // when the plugin is available, and falls back to exactly this object when it isn't.
+  env.sourceClock = createVideoElementClock(() => env.sourceVideo);
   env.stopSourceVideoPlayback = stopSourceVideoPlayback;
   env.startLiveLoop = startLiveLoop;
   env.doExport = doExport;

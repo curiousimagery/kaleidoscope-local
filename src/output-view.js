@@ -210,19 +210,59 @@ function applyTestPattern(on) {
 
 // ---- the render loop: GPU-direct, zero readback --------------------------------
 let frames = 0, fpsT = performance.now(), measuredFps = 0;
-// Keep the popup's own <video> copy locked to the main app's clock: match paused
-// (motion mode pauses the main video) + retime rate, and nudge currentTime toward
-// the master only on real drift (tight when paused/scrubbing, looser while playing
-// so we don't seek every frame).
+// Keep this view's own <video> copy locked to the main app's clock: match paused
+// (motion mode pauses the main video) + retime rate, and converge currentTime toward
+// the master.
+//
+// SEEK THRASH — the 4K-over-HDMI stutter (Daniel, B491). This runs on EVERY rendered
+// frame, and a bare `currentTime = t` on a 4K clip costs far more than one frame. So
+// once drift crossed the threshold we re-seeked before the previous seek had landed:
+// drift never closed, and playback locked into permanent start/stop. His tell nailed
+// it — smooth playback degenerates into stutter the moment you scrub forward, and only
+// recovers when the view is rebuilt (a Loop Builder round trip re-posts the source, so
+// the copy restarts aligned). A trimmed clip does the same thing every loop, because
+// this copy wraps at the file end while the master wraps at the trim out-point.
+//
+// Two changes: never issue a seek while one is in flight or still settling, and close
+// ORDINARY drift by trimming the playback RATE (the decoder keeps streaming; nothing
+// flushes) instead of seeking. A hard seek is now reserved for a real discontinuity —
+// a scrub, or a loop wrap — where there is no nearby time to converge to.
+const SEEK_JUMP_S = 1.0;      // drift beyond this means "somewhere else entirely", not "running behind"
+const SEEK_SETTLE_MS = 500;   // after a seek, let the decoder land before judging drift again
+const RATE_TRIM_MAX = 0.10;   // ±10%: closes 0.4s of drift in ~4s, and reads as normal playback
+const RATE_TRIM_GAIN = 0.25;  // drift seconds → rate trim, before clamping
+let lastSeekT = 0;
 function reconcileVideo() {
   if (!videoEl || !latestVideo) return;
+  const now = performance.now();
+  // `seeking` covers the seek we issued; the settle window covers the decode after it
+  const settling = videoEl.seeking || (now - lastSeekT) < SEEK_SETTLE_MS;
+  const drift = videoEl.currentTime - latestVideo.t;   // positive = ahead of the master
+  const hardSeek = () => {
+    try { videoEl.currentTime = latestVideo.t; lastSeekT = now; } catch { /* not seekable yet */ }
+  };
   if (latestVideo.paused) {
     if (!videoEl.paused) videoEl.pause();
-    if (Math.abs(videoEl.currentTime - latestVideo.t) > 0.05) videoEl.currentTime = latestVideo.t;
-  } else {
-    if (videoEl.paused) videoEl.play().catch(() => {});
-    if (videoEl.playbackRate !== latestVideo.rate) videoEl.playbackRate = latestVideo.rate || 1;
-    if (Math.abs(videoEl.currentTime - latestVideo.t) > 0.2) videoEl.currentTime = latestVideo.t;
+    if (videoEl.playbackRate !== 1) { try { videoEl.playbackRate = 1; } catch { /* clamped */ } }
+    // parked: there is no playback to converge through, so the seek IS the mechanism
+    // (this is the scrub path, where landing on the exact frame is the whole point)
+    if (!settling && Math.abs(drift) > 0.05) hardSeek();
+    return;
+  }
+  if (videoEl.paused) videoEl.play().catch(() => {});
+  const base = latestVideo.rate || 1;
+  if (!settling && Math.abs(drift) > SEEK_JUMP_S) {
+    hardSeek();
+    try { videoEl.playbackRate = base; } catch { /* clamped */ }
+    return;
+  }
+  // ordinary drift: ahead → run slightly slow, behind → slightly fast. While settling we
+  // hold the base rate rather than reacting to a mid-seek clock.
+  const trim = settling ? 0
+    : Math.max(-RATE_TRIM_MAX, Math.min(RATE_TRIM_MAX, -drift * RATE_TRIM_GAIN));
+  const target = base * (1 + trim);
+  if (Math.abs(videoEl.playbackRate - target) > 1e-3) {
+    try { videoEl.playbackRate = target; } catch { /* some browsers clamp extreme rates */ }
   }
 }
 

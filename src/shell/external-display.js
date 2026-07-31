@@ -260,9 +260,13 @@ export function createExternalDisplaySink(env) {
       return { width: bus?.width || 1920, height: bus?.height || 1080 };
     },
     getVideoSync: () => {
-      const v = env.programVideo?.() || env.sourceVideo;
-      if (!v) return null;
-      return { t: v.currentTime || 0, paused: !!v.paused, rate: v.playbackRate || 1 };
+      // staging's committed copy stays an element; otherwise the program clock IS the
+      // source clock (a <video> today, a native single decode under S3-A)
+      const stgV = env.programVideo?.();
+      if (stgV) return { t: stgV.currentTime || 0, paused: !!stgV.paused, rate: stgV.playbackRate || 1 };
+      const c = env.sourceClock;
+      if (!c?.present) return null;
+      return { t: c.time || 0, paused: !!c.paused, rate: c.rate || 1 };
     },
     getTest: () => !!env.outputBus?.getStatus?.().testPattern,
     sourceSignature: () => {

@@ -4,6 +4,53 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🕰️ v0.20.36 (Build 493) — 2026-07-31 — Shared-socket S3-A stage 2: the `sourceClock` seam
+
+The runtimes no longer ask a `<video>` element for the time. They ask **a clock**.
+
+`createVideoElementClock` (shell/video-source.js) is the interface — `time` / `duration` / `present` / `ready` / `paused` / `seeking` / `rate`, and `seek` / `seekSettled` / `setRate` / `play` / `pause`. Today's only implementation is a straight passthrough to the `<video>`: same reads, same writes, same order, so **this build is behavior-neutral by construction**. Stage 3 adds the native implementation (time from the latest frame's PTS, transport over the Capacitor bridge) and nothing above the seam changes.
+
+- **`env.sourceClock`** is the single handle, resolved live through a getter rather than bound to an element — the working source is swapped out from under the runtimes on upload and on a Loop Builder bake, and a clock holding the old element would silently drive a dead decoder.
+- **Routed:** motion-runtime's video play loop, retime, trim-rewind, scrub (`advanceSourceToP`), duration lock and `haltPlayback`; perform-runtime's transport, tick, ruler, speed buttons and mode exit; the `getVideoSync` program clock in both external-display and output-window.
+- **Looping is the seam's, not the element's:** `play()` clears the native loop flag, because every caller loops within the trimmed range itself and a native decode has no element-level loop to inherit. That's the same rule B492 had to teach perform, now in one place where the two runtimes can't drift apart again.
+- **Deliberately NOT routed** (authoring surfaces, same call the sub-plan made for the Loop Builder's ~50 sites): the filmstrip and footage-thumbnail builders, and motion staging's committed copy `stg.video`. See the note below on staging.
+
+**⚠️ Surfaced for stage 3 — motion staging currently implies a SECOND decode.** `stgStartVideo` creates its own `<video>` on the same clip so the committed loop can sit at a different playhead than the edit scrub, and `env.programVideo()` puts that copy on the broadcast path. Under a single native decode there is only one playhead, so hold/take over a video source either gives up the independent staged position or needs a second native decode. Daniel's call before stage 3 wires the source swap.
+
+**VERIFY (Daniel):** this should be **invisible**, and desktop is the right place to check it, before any device work. Motion over a video clip: play, scrub the timeline, trim in/out, change the retime speed, loop the trimmed range, enter and leave motion. Perform over a video clip: play/pause, the speed buttons, the footer timeline, and the trim behavior from B492. Broadcast to an output window and confirm it still tracks the program clock. Anything that behaves differently from B492 is a routing bug in this build, not a design change.
+
+Verified: node --check, vite build, and an audit confirming no direct `currentTime`/`playbackRate`/`paused`/`duration` reads remain on the broadcast path in motion-runtime, perform-runtime, external-display or output-window.
+
+## ✂️ v0.20.35 (Build 492) — 2026-07-31 — Perform honors the trim; Loop Builder returns you where you came from; thumbnails stop going stale
+
+Three findings from Daniel's B490 pass, all one family: **perform mode never knew about the Loop Builder.**
+
+- **Perform now loops within the trim.** It set `v.loop = true` and let the element wrap at the file end, so a "trim only" apply (non-destructive — it commits to `env.clip.trim` rather than baking) was honored in motion and silently ignored in perform. Same clip, two different lengths depending on the mode, which is exactly what Daniel hit and rightly called troubling. Perform now wraps at the out-point using motion's rule. The footer ruler shows the **trimmed** length, the playhead maps to the trimmed span, and dragging the timeline scrubs within it.
+- **New `env.srcScrubSpan()`** is the one definition of what the mini timeline spans, shared by source-host and perform-runtime: the whole file in still mode (it's a frame picker, pick any frame) and the trimmed range in perform (it's the performance timeline). No mode conditions scattered across the seek math.
+- **The Loop Builder returns you to the mode you opened it from.** Both the trim-only and bake tails hard-clicked `motionBtn`. That was the right call when the only entrance was a still, but from perform it was a mode switch nobody asked for — and it was how Daniel first noticed the trim divergence. From a still you still land in motion.
+- **Footage thumbnails rebuild when the clip's identity changes.** The strip only rebuilt when the track had *no* cells, so after a trim or bake the previous clip's thumbnails sat there until a mode round trip happened to re-place the track and rebuild by side effect (Daniel confirmed the round trip fixed them). The strip now carries a signature of clip URL + trim range; a mid-flight pass for a stale range is cancelled and retried.
+- **`rebindClipToTimeline` no longer parks the source when perform is active** — it used to scrub to frame 0, which would have stopped the program mid-set.
+
+**VERIFY (Daniel):** from **perform**, open the Loop Builder on a clip → "trim only" → you stay in **perform**, and the clip plays the **trimmed** range with the ruler showing the trimmed length. Switch to motion and back: both modes agree now. Then the 12.6s baked loop case: bake from perform → you stay in perform with the baked clip. Regression checks: from a **still**, trim-only and bake should still land you in **motion** exactly as before; still mode's frame picker should still scrub the **whole** file; and the thumbnails under the source should refresh right after a trim instead of needing a mode round trip.
+
+Verified: node --check, vite build. The mode/trim interactions are device- and interaction-heavy, so Daniel's pass is the real test.
+
+## 🎞️ v0.20.34 (Build 491) — 2026-07-31 — External-view seek thrash: the 4K-over-HDMI stutter has a mechanism, and it's fixed
+
+Daniel's B490 report gave the diagnostic that cracked this: 4K over HDMI plays start/stop erratically even at 50% speed, **a Loop Builder round trip makes it much smoother**, and **scrubbing forward on the timeline puts it straight back into start/stop**.
+
+**Mechanism.** The external view keeps its own `<video>` synced to the program clock, and `reconcileVideo` ran on **every rendered frame**: drift over 0.2s → `currentTime = t`. On a 4K clip a seek costs far more than one frame, so we re-seeked before the previous seek had landed. Drift never closed and playback locked into permanent start/stop. That explains every part of his report: a scrub creates the drift that starts the loop; a Loop Builder round trip re-posts the source, so the copy is re-created **aligned** and never crosses the threshold. A trimmed clip triggers the same thing every lap, because this copy wraps at the file end while the master wraps at the trim out-point.
+
+- **No seek while one is in flight or still settling** (`videoEl.seeking`, plus a 500ms decode-settle window). This alone breaks the feedback loop.
+- **Ordinary drift now converges via the playback RATE, not a seek** — ahead runs ~10% slow, behind ~10% fast, closing 0.4s in about 4s with the decoder streaming throughout and nothing flushed. Invisible on screen.
+- **A hard seek is reserved for a real discontinuity** (drift > 1s: a scrub, or a loop wrap) where there's no nearby time to converge to. The paused branch still seeks by design, since parked scrubbing is exactly "land on that frame" and there's no playback to converge through.
+
+Applies to the **Electron output window too** (same module, same code path), where the second decoder has been absorbed by desktop memory rather than fixed. **This is a mitigation, not the root fix** — the root fix is S3-A stages 3/4, where the external view stops running a second decoder at all.
+
+**VERIFY (Daniel, iPad, cap:sync):** the 6min 4K clip over HDMI → play → **scrub forward on the timeline → play again**. That is the exact repro; expect it to stay smooth this time instead of dropping into start/stop. Also worth re-checking: does the trimmed-clip loop still lurch every lap, and does 100% speed now behave more like the post-Loop-Builder state did? Regression check on the paths that already worked: the ~9min 1080p clip still broadcasts cleanly, and scrubbing while **paused** still lands frame-accurate on the external display.
+
+Verified: node --check, vite build. Device-blind for Claude — the mechanism is inferred from Daniel's repro, so his scrub-then-play result is the real test.
+
 ## ⏱️ v0.20.33 (Build 490) — 2026-07-31 — Shared-socket S3-A stage 1: the native decode's frames now carry the clock (PTS wire)
 
 First staged increment of S3-A (`~/.claude/plans/shared-socket-video-s3a.md`). Additive plumbing — the app still plays video through `<video>`; nothing user-visible changes.

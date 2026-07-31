@@ -90,10 +90,30 @@ export function createClipEditor(env) {
     motion.playhead = 0;
     session.timelineZoom = 1; session.timelinePan = 0;
     env.filmstrip.lastSig = '';
+    // Opened from PERFORM: the motion timeline still re-homes (above), but perform owns
+    // the transport there — re-home its loop/ruler/thumbs instead of scrubbing the source
+    // to frame 0 and parking it, which would stop the program mid-set.
+    if (env.performRT?.active) { env.refreshPerformTrim?.(); return; }
     if (env.ensureSeededSelection()) return;         // always land with a selected kf0 (so +keyframe adds an in-between)
     env.renderTimeline();
     env.updateMotionUI();
     env.scrubVideo(0);
+  }
+  // Where the Loop Builder hands you back. It opened OVER a mode, so it should return
+  // you to that mode: landing in motion after a trim you started from perform is a mode
+  // switch nobody asked for, and it left perform showing the untrimmed clip (Daniel,
+  // B491). Trim-only and bake share this tail.
+  function returnFromLoopBuilder() {
+    if (env.performRT?.active) {
+      env.refreshPerformSource?.();   // a bake swapped the element; identity-guarded, so trim-only is a no-op
+      env.refreshPerformTrim?.();
+    } else {
+      // opinionated (Daniel's original call): from still, motion is where you go next
+      document.getElementById('motionBtn')?.click();
+    }
+    // a baked clip may change aspect (e.g. portrait) — relayout after the mode settles
+    // so the source panel doesn't overlap the controls
+    requestAnimationFrame(() => { env.arrangeSlots?.(); env.resizePreviewCanvas?.(); });
   }
   function hideLoopSurface() {
     document.body.classList.remove('loop-active');
@@ -710,13 +730,12 @@ export function createClipEditor(env) {
   async function applyClip() {
     if (env.clip.baking) return;
     if (env.clip.trim.mode === 'forward') {
-      // trim-only is non-destructive, but it still produces MOTION content — land in the
-      // motion editor (not the still we opened the Loop Builder over), consistent with the
-      // bounce/slice bake paths below. closeClipEditor(true) keeps the trim + rebinds the
-      // timeline; then we switch modes + relayout exactly like the bake tail.
+      // trim-only is non-destructive, but it still produces MOTION content — so from a
+      // STILL we land in the motion editor, consistent with the bounce/slice bake paths
+      // below. From PERFORM we stay in perform (returnFromLoopBuilder decides).
+      // closeClipEditor(true) keeps the trim + rebinds the timeline first.
       closeClipEditor(true);
-      document.getElementById('motionBtn')?.click();
-      requestAnimationFrame(() => { env.arrangeSlots?.(); env.resizePreviewCanvas?.(); });
+      returnFromLoopBuilder();
       return;
     }
     const ok = window.confirm(
@@ -860,13 +879,8 @@ export function createClipEditor(env) {
       await applyBakedClip(blob);                   // swaps the source + re-binds the timeline
       disposeClipPreview();
       env.clip.backup = null;
-      // opinionated: drop straight into motion mode with the baked loop (Daniel's call —
-      // the "what next?" interstitial is gone; motion is where you go from here)
       hideLoopSurface();
-      document.getElementById('motionBtn')?.click();
-      // the baked clip may change aspect (e.g. portrait) — relayout after the mode switch
-      // settles so the source panel doesn't overlap the controls (Daniel's post-bake glitch)
-      requestAnimationFrame(() => { env.arrangeSlots?.(); env.resizePreviewCanvas?.(); });
+      returnFromLoopBuilder();                      // back to the mode you came from (motion from still)
     } catch (e) {
       console.error('clip bake failed', e);
       alert('Could not bake the clip: ' + (e && e.message ? e.message : e));
