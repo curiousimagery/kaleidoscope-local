@@ -1,29 +1,44 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Daniel Nelson
 //
-// shell/native-camera-receiver.js
+// shell/native-frame-receiver.js
 //
-// RECEIVE-ONLY consumer of the native camera's frame socket — how the live
-// native camera reaches the EXTERNAL DISPLAY view (output-view.js). The main
-// webview's shell/native-camera.js owns the AVCaptureSession and all controls;
-// this module just joins ws://127.0.0.1:<port> as a second client (the frame
-// server broadcasts to all connections), decodes the biplanar-YUV wire format,
-// and paints an RGB canvas the engine samples like any drawable. No
-// @capacitor/core, no plugin calls — plain WebSocket + WebGL2, so it runs in
-// the plain external WKWebView.
+// RECEIVE-ONLY consumer of a native FRAME SOCKET — how a natively-decoded source
+// (live camera on 8899, video clip on 8900) reaches a webview that does NOT own
+// the decode. Today that's the EXTERNAL DISPLAY view (output-view.js); with the
+// shared-socket video path it's the main engine too. The producer owns the
+// AVFoundation session and every control; this module just joins
+// ws://127.0.0.1:<port> as a client (the frame server broadcasts to all
+// connections), decodes the biplanar-YUV wire format, and paints an RGB canvas
+// the engine samples like any drawable. No @capacitor/core, no plugin calls —
+// plain WebSocket + WebGL2, so it runs in the plain external WKWebView.
 //
-// Wire format: see FrameSocketServer.swift ("FYUV" header + Y plane + CbCr).
+// TWO WIRE VARIANTS, one parser (see FrameSocketServer.swift in each plugin):
+//   "FYUV" — 24-byte header, CLOCKLESS. The camera: a live stream, "now" is the
+//            only time there is.
+//   "FYUW" — 40-byte header = the same fields + f64 pts + f64 duration (seconds).
+//            The video decode, which OWNS the motion runtime's master clock:
+//            `pts`/`duration` below answer currentTime/duration off the frame we
+//            are about to paint, with no per-frame bridge round-trip. A duration
+//            of 0 means "not known yet" and holds the last good value rather than
+//            collapsing the timeline.
 // The mirror flag (front/selfie camera) arrives with the source payload — the
 // sender bakes it into its own canvas the same way (uMirror).
 
 import { createYuvRenderer } from './yuv-renderer.js';
 
-export function createNativeCameraReceiver({ port = 8899, mirror = false } = {}) {
+const MAGIC_PLAIN = 0x46595556;    // "FYUV" — camera, clockless, 24-byte header
+const MAGIC_STAMPED = 0x46595557;  // "FYUW" — video, + pts/duration, 40-byte header
+
+export function createNativeFrameReceiver({ port = 8899, mirror = false } = {}) {
   const canvas = document.createElement('canvas');
   const renderer = createYuvRenderer(canvas);
   let ws = null;
   let latest = null;      // most recent YUV ArrayBuffer (painted on the render tick)
   let stopped = false;
+  let pts = 0;            // clock of the most recently PAINTED frame (stamped wire only)
+  let duration = 0;
+  let painted = 0;
 
   // Paint the latest received frame into the RGB canvas. Called each render
   // tick (refreshFrame) so the YUV->RGB blit is synced to the render loop —
@@ -31,20 +46,32 @@ export function createNativeCameraReceiver({ port = 8899, mirror = false } = {})
   function paintLatest() {
     if (!latest) return;
     const dv = new DataView(latest);
-    if (dv.getUint32(0, false) !== 0x46595556) return;   // "FYUV"
+    const magic = dv.getUint32(0, false);
+    if (magic !== MAGIC_PLAIN && magic !== MAGIC_STAMPED) return;
     const width = dv.getUint32(4, true);
     const height = dv.getUint32(8, true);
     const yStride = dv.getUint32(12, true);
     const cStride = dv.getUint32(16, true);
     const cHeight = dv.getUint32(20, true);
+    let head = 24;
+    if (magic === MAGIC_STAMPED) {
+      // the clock advances with the PAINT, not with arrival — a reader asking
+      // "what time is the frame on screen?" gets the frame on screen
+      const t = dv.getFloat64(24, true);
+      const d = dv.getFloat64(32, true);
+      if (isFinite(t) && t >= 0) pts = t;      // 0 is a real position (head of the clip)
+      if (isFinite(d) && d > 0) duration = d;  // 0 = not loaded yet; hold the last good value
+      head = 40;
+    }
     const ySize = yStride * height;
     const cSize = cStride * cHeight;
-    const yPlane = new Uint8Array(latest, 24, ySize);
-    const cPlane = new Uint8Array(latest, 24 + ySize, cSize);
+    const yPlane = new Uint8Array(latest, head, ySize);
+    const cPlane = new Uint8Array(latest, head + ySize, cSize);
     if (canvas.width !== width || canvas.height !== height) {
       canvas.width = width; canvas.height = height;
     }
     renderer.draw(width, height, yStride, cStride, yPlane, cPlane, mirror);
+    painted++;
   }
 
   // resolves on the FIRST frame (proves the socket + a live stream), with the
@@ -68,7 +95,7 @@ export function createNativeCameraReceiver({ port = 8899, mirror = false } = {})
       };
       connect();
       setTimeout(() => {
-        if (!done) { done = true; reject(new Error('no native camera frames on the external view (ws blocked or no stream)')); }
+        if (!done) { done = true; reject(new Error(`no native frames on port ${port} (ws blocked or nothing streaming)`)); }
       }, 6000);
     });
   }
@@ -85,5 +112,9 @@ export function createNativeCameraReceiver({ port = 8899, mirror = false } = {})
     stop,
     refreshFrame: paintLatest,
     frameSource: () => canvas,
+    // clock readouts — meaningful only on the stamped ("FYUW") video socket
+    get pts() { return pts; },
+    get duration() { return duration; },
+    get framesPainted() { return painted; },
   };
 }

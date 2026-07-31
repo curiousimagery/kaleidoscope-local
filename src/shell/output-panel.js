@@ -219,7 +219,11 @@ export function createOutputPanel(env, outputBus) {
     if (videoHdmiCapped()) { resHint.textContent = 'video over HDMI renders at 1080p on iPad (memory guard)'; return; }
     if (videoHdmiUncapped()) { resHint.textContent = '⚠ testing: 4K/QHD over HDMI may lose the graphics context (~30s) — break-glass resets'; return; }
     const { w, h } = computeDims();
-    resHint.textContent = tier >= 3840 ? `${w}×${h} · clean hardware only` : `${w}×${h}`;
+    const base = tier >= 3840 ? `${w}×${h} · clean hardware only` : `${w}×${h}`;
+    // NDI over Wi-Fi is jitter-bound (Daniel's iPad + iPhone A/B: bursty regardless of settings).
+    // Surface the honest caution inline whenever NDI is selected; Ethernet is the smooth path.
+    if (destination === 'ndi') { resHint.textContent = `${base} · ⚠ NDI over Wi-Fi can stutter — Ethernet for smooth playback`; return; }
+    resHint.textContent = base;
   }
 
   // ---- bus lifecycle: run while recording OR a bus-consuming destination is live --

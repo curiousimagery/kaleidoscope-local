@@ -81,8 +81,13 @@ function blobSliceToBase64(slice) {
   });
 }
 
-async function stageVideoForExternal(blobUrl) {
-  const blob = await (await fetch(blobUrl)).blob();
+// `sourceBlob` is the File/Blob the clip's URL was minted from (env.media.sourceVideoBlob).
+// Prefer it: `fetch(blobUrl).blob()` REASSEMBLES the whole clip in memory on WebKit, so an
+// oversized clip died of jetsam (main webview GL context lost) BEFORE the size check that
+// was supposed to reject it politely — Daniel's 6min-4K pressure test, 2026-07-31. Slicing
+// the original File instead keeps peak memory at one chunk and makes the reject free.
+async function stageVideoForExternal(blobUrl, sourceBlob = null) {
+  const blob = sourceBlob || await (await fetch(blobUrl)).blob();
   if (blob.size > STAGE_MAX_BYTES) return null;   // beyond the base64-append ceiling → honest hint
   const t = blob.type || '';
   const ext = t.includes('quicktime') ? 'mov' : t.includes('webm') ? 'webm' : 'mp4';
@@ -290,9 +295,11 @@ export function createExternalDisplaySink(env) {
         // stage the clip to the native cache + serve it back to the external view (blob URLs don't
         // cross webviews); output-view.js loads `kind:'video'` + locks it to the program clock.
         try {
-          const url = await stageVideoForExternal(env.media.sourceVideoUrl);
+          const url = await stageVideoForExternal(env.media.sourceVideoUrl, env.media.sourceVideoBlob);
           if (url) return { kind: 'video', url };
         } catch (e) { console.warn('[fold] external video stage failed:', e); }
+        const gb = (env.media.sourceVideoBlob?.size || 0) / (1024 * 1024 * 1024);
+        console.warn(`[fold] clip too large to stage for the external display (${gb ? gb.toFixed(2) + 'GB' : 'size unknown'}, ceiling ${(STAGE_MAX_BYTES / (1024 * 1024 * 1024)).toFixed(0)}GB)`);
         return { kind: 'unsupported', reason: 'this clip is too large for the external display yet (very long or 4K) — a shorter or lower-res clip will play' };
       }
       const src = env.engine?.getSourceImage?.();

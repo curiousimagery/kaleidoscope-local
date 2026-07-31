@@ -43,6 +43,7 @@ export function createSourceHost(env) {
     env.filmstrip.lastSig = '';                         // any existing keyframe thumbs are from the old source
     env.sourceVideo = null;                            // switching to a still clears any source video
     if (env.media.sourceVideoUrl) { URL.revokeObjectURL(env.media.sourceVideoUrl); env.media.sourceVideoUrl = null; }
+    env.media.sourceVideoBlob = null;
     const url = URL.createObjectURL(file);
     env.media.sourceFilename = (file.name || 'image').replace(/\.[^.]+$/, '');
     env.media.originalSource = { blob: file, name: file.name || 'original' };  // for export package
@@ -166,6 +167,10 @@ export function createSourceHost(env) {
     if (env.media.sourceVideoUrl) { URL.revokeObjectURL(env.media.sourceVideoUrl); env.media.sourceVideoUrl = null; }
     const url = opts.srcUrl || URL.createObjectURL(file);   // revoke on a file:// URL is a harmless no-op
     env.media.sourceVideoUrl = url;
+    // the bytes behind that URL, for consumers that need to size/slice the clip
+    // without materializing it (external-display staging). A transcoded file://
+    // URL isn't backed by this File, so don't claim it is.
+    env.media.sourceVideoBlob = opts.srcUrl ? null : file;
     env.media.sourceFilename = (file.name || 'video').replace(/\.[^.]+$/, '');
     env.media.originalSource = { blob: file, name: file.name || 'original' };   // for export package
     if (uploadErrorEl) uploadErrorEl.textContent = '';
@@ -523,6 +528,7 @@ export function createSourceHost(env) {
     if (uploadErrorEl) uploadErrorEl.textContent = '';
     stopSourceVideoPlayback();   // stop a loaded video's loop before the camera takes over
     if (env.media.sourceVideoUrl) { URL.revokeObjectURL(env.media.sourceVideoUrl); env.media.sourceVideoUrl = null; }
+    env.media.sourceVideoBlob = null;
     env.media.originalSource = null;  // no captured original until the shutter fires
     statusEl.textContent = 'starting camera…';
     statusEl.classList.add('busy');

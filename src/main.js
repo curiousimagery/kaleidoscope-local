@@ -193,7 +193,12 @@ const env = {
   // shared module later). Honors the "no module-level mutable globals" rule.
   // `sourceVideo`/`liveVideo` stay top-level (the source-overlay component
   // binds to those exact handles at construction).
-  media: { sourceFilename: '', sourceVideoUrl: null, originalSource: null, captureObjectURL: null },
+  // `sourceVideoBlob` is the Blob/File the playing clip's URL was minted from —
+  // held so consumers can read `.size` and `.slice()` the bytes WITHOUT
+  // `fetch(blobUrl).blob()`, which reassembles the whole clip in memory (fatal
+  // at 4K/multi-minute on iPad). null when the URL didn't come from a Blob
+  // (Electron's native-transcode `file://` output).
+  media: { sourceFilename: '', sourceVideoUrl: null, sourceVideoBlob: null, originalSource: null, captureObjectURL: null },
   live: { isLive: false, active: false, raf: 0, frozen: false },   // frozen = paused on a captured frame, camera resumable (record/pause toggle)
   motionRT: { active: false, raf: 0, start: 0, scrubbing: false, pointers: new Map(), gesture: null, relayoutPending: false },
   clip: {
@@ -1302,7 +1307,10 @@ function wireGlobalSheets() {
   // NDI clock_video A/B toggle (diagnostics) — persists a flag the NDI start reads; applies next start.
   const ndiClockBtn = document.getElementById('ndiClockVideo');
   if (ndiClockBtn) {
-    const read = () => { try { return localStorage.getItem('foldNdiClockVideo') === '1'; } catch { return false; } };
+    // default ON (Daniel's tentative call after the iPad NDI A/B: clock_video seemed to help
+    // iPhone; iPad NDI is WiFi-jitter-bound regardless, so on-by-default is the safer bet). The
+    // toggle stays in diagnostics to revisit — off only when explicitly set to '0'.
+    const read = () => { try { return localStorage.getItem('foldNdiClockVideo') !== '0'; } catch { return true; } };
     const syncNdiClock = () => { const on = read(); ndiClockBtn.classList.toggle('active', on); ndiClockBtn.textContent = `NDI clock_video: ${on ? 'on' : 'off'}`; };
     ndiClockBtn.addEventListener('click', () => {
       try { localStorage.setItem('foldNdiClockVideo', read() ? '0' : '1'); } catch { /* private mode */ }

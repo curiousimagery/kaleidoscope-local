@@ -18,6 +18,9 @@
 //
 // Transport (all over the Capacitor bridge, never the socket): start/stop/pause/resume/
 // seek/setRate. The app's motion/perform timeline drives these instead of a <video>.
+// READS come back the other way, in the frames themselves: every frame is stamped with
+// its presentation time + the clip duration ("FYUW"), so THIS decode owns the motion
+// clock and JS can answer currentTime/duration without a bridge round-trip per frame.
 // ADDITIVE for now — nothing in the app calls this yet; the source-swap (S3) wires it
 // with the JS <video> path kept as the fallback.
 
@@ -90,13 +93,29 @@ public class FoldNativeVideoPlugin: CAPPlugin, CAPBridgedPlugin {
 
     // paced to the display; pushes only when the output has a NEW buffer, so the
     // effective rate is the clip's fps, not the screen's.
+    //
+    // Every frame carries its PRESENTATION TIME (and the clip duration) — that's what
+    // makes this decode the motion runtime's master clock without a per-frame bridge
+    // round-trip: the JS receiver answers `currentTime`/`duration` straight off the
+    // frame it is about to paint, so sampled params are locked to the frame on screen
+    // (strictly tighter than reading a <video>'s clock a beat after it presented).
     @objc private func tick() {
         guard let out = output, server.wantsFrame() else { return }
-        let itemTime = out.itemTime(forHostTime: CACurrentMediaTime())
-        guard out.hasNewPixelBuffer(forItemTime: itemTime),
-              let pb = out.copyPixelBuffer(forItemTime: itemTime, itemTimeForDisplay: nil) else { return }
+        let hostTime = CACurrentMediaTime()
+        let itemTime = out.itemTime(forHostTime: hostTime)
+        guard out.hasNewPixelBuffer(forItemTime: itemTime) else { return }
+        var displayTime = CMTime.invalid
+        guard let pb = out.copyPixelBuffer(forItemTime: itemTime, itemTimeForDisplay: &displayTime) else { return }
+        // the buffer's own display time when the output reports one, else the time we asked for
+        let stamped = displayTime.isValid ? displayTime : itemTime
+        let pts = CMTimeGetSeconds(stamped)
+        // AVPlayerLooper swaps in a fresh copy of the template item each lap, so this is
+        // the CLIP's duration (position within the clip), not the queue's — which is
+        // exactly the span the timeline is scaled to.
+        let dur = CMTimeGetSeconds(player?.currentItem?.duration ?? .indefinite)
         encodeQueue.async { [weak self] in
-            guard let self = self, let data = FrameSocketServer.encode(pb) else { return }
+            guard let self = self,
+                  let data = FrameSocketServer.encode(pb, pts: pts, duration: dur) else { return }
             self.server.send(data)
         }
     }

@@ -115,8 +115,10 @@ export function createCapacitorHost() {
           import('@capacitor/core').then(({ registerPlugin }) => {
             if (myGen !== gen) return;
             if (!plugin) plugin = registerPlugin('FoldNdi');
-            // clockVideo: the diagnostic A/B toggle (settings → diagnostics). Default off.
-            const clockVideo = (() => { try { return localStorage.getItem('foldNdiClockVideo') === '1'; } catch { return false; } })();
+            // clockVideo: the diagnostic A/B toggle (settings → diagnostics). Default ON now
+            // (Daniel's call — helped iPhone; iPad NDI is WiFi-jitter-bound either way). Off only
+            // when explicitly set to '0'. Keep in sync with the diagnostics toggle read in main.js.
+            const clockVideo = (() => { try { return localStorage.getItem('foldNdiClockVideo') !== '0'; } catch { return true; } })();
             return plugin.start({ name: name || 'Fold', clockVideo });
           }).then((res) => {
             if (!res || myGen !== gen) return;

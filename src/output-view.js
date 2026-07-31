@@ -104,8 +104,8 @@ async function setupSource(payload) {
     // previews. Receiver is lazy-loaded (never needed by the web popup).
     let recv = null;
     try {
-      const mod = await import('./shell/native-camera-receiver.js');
-      recv = mod.createNativeCameraReceiver({ port: payload.port, mirror: !!payload.mirror });
+      const mod = await import('./shell/native-frame-receiver.js');
+      recv = mod.createNativeFrameReceiver({ port: payload.port, mirror: !!payload.mirror });
       await recv.start();
     } catch (e) {
       if (hint) hint.textContent = 'could not join the camera stream: ' + (e.message || e);

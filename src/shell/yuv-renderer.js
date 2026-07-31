@@ -8,7 +8,7 @@
 //
 // Extracted VERBATIM from shell/native-camera.js (the kit/drift.js precedent:
 // one proven implementation, multiple consumers) so the external-display view
-// (shell/native-camera-receiver.js) can decode the same native camera frames
+// (shell/native-frame-receiver.js) can decode the same native camera frames
 // WITHOUT importing the full camera module (which carries @capacitor/core and
 // the plugin control surface). Both the camera and the receiver paint through
 // this one blitter.

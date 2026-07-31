@@ -901,6 +901,7 @@ export function createClipEditor(env) {
     env.sourceVideo = v;
     if (env.media.sourceVideoUrl) URL.revokeObjectURL(env.media.sourceVideoUrl);   // free the previous source URL (original File kept in env.media.originalSource)
     env.media.sourceVideoUrl = url;
+    env.media.sourceVideoBlob = blob;   // the baked bytes are now the working clip (see media.sourceVideoBlob)
     if (old) { try { old.pause(); old.removeAttribute('src'); old.load(); } catch { /* ignore */ } }
     env.clip.trim.inT = 0; env.clip.trim.outT = 1; env.clip.trim.mode = 'forward';        // the baked clip is the full processed clip
     const meta = document.getElementById('sourceMeta');

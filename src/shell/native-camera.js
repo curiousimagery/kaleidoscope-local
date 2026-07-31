@@ -332,4 +332,4 @@ export function createNativeCamera() {
   };
 }
 // (the YUV->RGB blitter moved verbatim to shell/yuv-renderer.js — shared with
-//  the external-display receiver, shell/native-camera-receiver.js)
+//  the external-display receiver, shell/native-frame-receiver.js)

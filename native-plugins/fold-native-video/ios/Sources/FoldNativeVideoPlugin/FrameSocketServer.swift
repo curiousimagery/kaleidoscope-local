@@ -17,14 +17,24 @@
 // building a queue (and can't stall a fast one).
 //
 // Frame wire format (little-endian header, then two raw planes):
-//   [0..4)   magic "FYUV"
+//   [0..4)   magic "FYUW"   (the camera's clockless variant is "FYUV" — see below)
 //   [4..8)   width   (u32)
 //   [8..12)  height  (u32)
 //   [12..16) yStride (u32)   bytes per row, luma plane (may be padded)
 //   [16..20) cStride (u32)   bytes per row, chroma plane (interleaved Cb,Cr)
 //   [20..24) cHeight (u32)   chroma plane row count (== height/2 for 420)
+//   [24..32) pts      (f64)  presentation time of THIS frame, seconds into the clip
+//   [32..40) duration (f64)  clip duration in seconds (0 = not known yet)
 //   then Y plane  (yStride * height bytes)
 //   then CbCr     (cStride * cHeight bytes)
+//
+// WHY THE EXTRA MAGIC: the camera is CLOCKLESS (a live stream — "now" is the only
+// time there is), so its "FYUV" frames carry no timestamp and its 24-byte header is
+// unchanged. Video is the opposite: the decode owns the motion runtime's master
+// clock, and the receiver must be able to answer `currentTime` without a per-frame
+// bridge round-trip. Stamping every frame is the cheapest possible answer — 16 bytes
+// on a multi-MB frame — and a distinct magic means one JS receiver reads both sockets
+// while an old consumer can never silently misparse a stamped frame as an unstamped one.
 
 import Foundation
 import Network
@@ -123,7 +133,10 @@ final class FrameSocketServer {
         }
     }
 
-    static func encode(_ pb: CVPixelBuffer) -> Data? {
+    // pts/duration in SECONDS. A non-finite value (an unloaded duration is
+    // .indefinite) goes on the wire as 0 — "not known yet", which the receiver
+    // treats as "keep the last good value" rather than seeking to zero.
+    static func encode(_ pb: CVPixelBuffer, pts: Double, duration: Double) -> Data? {
         CVPixelBufferLockBaseAddress(pb, .readOnly)
         defer { CVPixelBufferUnlockBaseAddress(pb, .readOnly) }
 
@@ -139,11 +152,15 @@ final class FrameSocketServer {
         let ySize = yStride * height
         let cSize = cStride * cHeight
 
-        var out = Data(capacity: 24 + ySize + cSize)
-        out.append(contentsOf: [0x46, 0x59, 0x55, 0x56]) // "FYUV"
+        var out = Data(capacity: 40 + ySize + cSize)
+        out.append(contentsOf: [0x46, 0x59, 0x55, 0x57]) // "FYUW" (stamped)
         for value in [width, height, yStride, cStride, cHeight] {
             var le = UInt32(value).littleEndian
             withUnsafeBytes(of: &le) { out.append(contentsOf: $0) }
+        }
+        for value in [pts, duration] {
+            var bits = (value.isFinite ? value : 0).bitPattern.littleEndian
+            withUnsafeBytes(of: &bits) { out.append(contentsOf: $0) }
         }
         out.append(Data(bytes: yBase, count: ySize))
         out.append(Data(bytes: cBase, count: cSize))

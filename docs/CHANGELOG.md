@@ -4,6 +4,49 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## ⏱️ v0.20.33 (Build 490) — 2026-07-31 — Shared-socket S3-A stage 1: the native decode's frames now carry the clock (PTS wire)
+
+First staged increment of S3-A (`~/.claude/plans/shared-socket-video-s3a.md`). Additive plumbing — the app still plays video through `<video>`; nothing user-visible changes.
+
+**The problem this solves:** the camera streams over the socket because it's *clockless* — "now" is the only time there is. Video is the opposite: the `<video>` element **is** the motion runtime's master clock (progress `p` is derived from `currentTime` every frame). A socket-fed canvas has no clock, so the native decode has to hand one back. Stamping every frame is the cheapest possible answer — 16 bytes on a multi-MB frame, and no per-frame bridge round-trip.
+
+- **New `"FYUW"` wire variant** (fold-native-video only): the existing 24-byte FYUV header + `f64 pts` + `f64 duration`, both in seconds, planes at offset 40. `FrameSocketServer.encode(pb, pts:duration:)` writes it; the plugin's `CADisplayLink` tick reads the buffer's own `itemTimeForDisplay` (falling back to the requested item time) and the current item's duration. Non-finite values (an unloaded `.indefinite` duration) go on the wire as 0 = "not known yet".
+- **A distinct magic, deliberately.** The camera's `"FYUV"` frames and its 24-byte header are **untouched** — no camera regression is possible, and no consumer can silently misparse a stamped frame as an unstamped one.
+- **`shell/native-camera-receiver.js` → `shell/native-frame-receiver.js`** (`createNativeFrameReceiver`), because it is no longer camera-specific: one parser reads both magics, and it now exposes `pts` / `duration` / `framesPainted`. The clock advances **on paint**, not on arrival — so a reader asking "what time is the frame on screen?" gets the frame on screen (strictly tighter than reading a `<video>` clock a beat after it presented). Only import site (output-view.js) updated.
+
+**Next (stage 2):** the `sourceClock` seam — one small interface (`time`/`duration`/`paused`/`seek`/`setRate`/`play`/`pause`) with a `<video>` implementation that is byte-for-byte today's behavior, routed through the ~20 real clock sites in motion-runtime + perform-runtime + output-view. Behavior-neutral and desktop-verifiable, so a regression shows up before any device work.
+
+**VERIFY (Daniel):** this is invisible in the app — the check is that **nothing broke**. `npm install` is not needed; `npm run cap:sync` → Xcode **compiles** the changed Swift; then the **live camera over HDMI still works** (that's the FYUV path, through the renamed receiver — the one thing this build could plausibly have broken). No video behavior changes yet.
+
+Verified: node --check (all files incl. output-view.js), vite build, Swift brace balance, and a wire round-trip harness (4K + padded-stride + non-finite cases, plus FYUV 24-byte back-compat) — offsets and plane lengths all match. Swift itself needs Daniel's Xcode build.
+
+## 🩹 v0.20.32 (Build 489) — 2026-07-31 — External-display staging: reject an oversized clip WITHOUT taking the app down
+
+Daniel's 6min-4K pressure test was a non-starter: starting the broadcast showed "this clip is too large for the external display yet" on the display AND the iPad app lost its graphics context. The honest hint was working as designed; the crash was a defect in how we got to it.
+
+**Root cause:** `stageVideoForExternal` did `await (await fetch(blobUrl)).blob()` **before** checking the size. On WebKit that reassembles the entire clip in memory — a ~2GB+ clip blows the memory budget (jetsam → lost GL context in the main webview) *before* the `> STAGE_MAX_BYTES` check that was supposed to reject it politely. The size guard was standing behind the thing that killed us.
+
+- **New `env.media.sourceVideoBlob`** — the File/Blob the playing clip's URL was minted from, held alongside `sourceVideoUrl` (set in `loadVideo`, re-set by the Loop Builder's `applyBakedClip`, cleared on image load / camera start; null on Electron's transcoded `file://` path, where the URL isn't Blob-backed).
+- **Staging reads `.size` off that Blob and slices IT** — never `fetch().blob()` when the Blob is in hand. `File.slice()` is lazy and disk-backed, so peak memory stays at one 8MB chunk and an over-ceiling clip is rejected for free.
+- A console line now names the actual size vs the ceiling, so "too large" is diagnosable instead of mysterious.
+
+**This does not raise the ceiling** — a 6min 4K clip still can't broadcast to the external display today. It makes hitting the ceiling a message instead of a crash. Lifting it for real is the shared-socket S3-A work (single native decode, no base64-over-bridge staging at all).
+
+**VERIFY (Daniel, iPad, cap:sync):** load the 6min 4K clip → start the HDMI broadcast → the display shows the "too large" hint and **the app keeps running** (no graphics-context-lost, no break-glass needed); Safari/Xcode console shows the size line. Then confirm no regression on a clip that DOES work today: a ≤9min 1080p clip still stages and plays on the external display, and a re-bake in the Loop Builder still broadcasts (that path re-sets the blob).
+
+Verified: node --check (4 files), vite build.
+
+## 📡 v0.20.31 (Build 488) — 2026-07-31 — NDI: clock_video default ON + inline Wi-Fi caution (verification loose ends)
+
+Two refinements from Daniel's on-device NDI verification (iPad + iPhone, HD/FHD × clock on/off): **iPad NDI is bursty regardless of settings** (WiFi-jitter-bound), and clock_video seemed to help iPhone.
+
+- **`clock_video` now defaults ON** (was off) — Daniel's tentative call: it helped iPhone, and iPad NDI is jitter-bound either way, so on-by-default is the safer bet. Read flips to "off only when explicitly '0'" in both the diagnostics toggle (main.js) and the capacitor host. **The diagnostics toggle stays** to revisit.
+- **Inline Wi-Fi caution:** whenever NDI is the selected destination, the output hint now appends "⚠ NDI over Wi-Fi can stutter — Ethernet for smooth playback" (Daniel: the honest limitation should be visible, not just known). Ethernet / HDMI / Syphon remain the smooth paths.
+
+**VERIFY (Daniel):** diagnostics shows "NDI clock_video: on" by default (still togglable); selecting NDI shows the Wi-Fi caution inline under resolution.
+
+Verified: node --check (3 files), vite build. iPad needs cap:sync.
+
 ## 🔓 v0.20.30 (Build 487) — 2026-07-31 — Diagnostics: "4K/QHD over HDMI" testing toggle (unblocks Daniel's 4K measurement)
 
 Daniel is blocked measuring 4K-over-HDMI on iPad: two separate guards clamp it. A new **diagnostics toggle** ("4K/QHD over HDMI", default off) lifts both for testing:
