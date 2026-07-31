@@ -1310,6 +1310,20 @@ function wireGlobalSheets() {
     });
     syncNdiClock();
   }
+  // HDMI video-uncap (testing): lift the iPad 1080p-over-HDMI guard so true 4K/QHD can be
+  // measured on device (validates the shared-socket approach). Read by output-panel's
+  // videoHdmiCapped() (tier buttons) AND external-display's computeOutputDims (render cap).
+  const hdmiUncapBtn = document.getElementById('hdmiVideoUncap');
+  if (hdmiUncapBtn) {
+    const read = () => { try { return localStorage.getItem('foldHdmiVideoUncap') === '1'; } catch { return false; } };
+    const syncHdmiUncap = () => { const on = read(); hdmiUncapBtn.classList.toggle('active', on); hdmiUncapBtn.textContent = `4K/QHD over HDMI: ${on ? 'on' : 'off'}`; };
+    hdmiUncapBtn.addEventListener('click', () => {
+      try { localStorage.setItem('foldHdmiVideoUncap', read() ? '0' : '1'); } catch { /* private mode */ }
+      syncHdmiUncap();
+      env.updateOutputUI?.();   // reflect the tier-button enable/disable immediately
+    });
+    syncHdmiUncap();
+  }
   // (#outputBtn toggles the in-column output expand-band, not a sheet — see
   //  wireBarBands below.)
 

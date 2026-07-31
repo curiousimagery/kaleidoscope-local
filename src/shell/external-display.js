@@ -132,7 +132,11 @@ function createPoster(opts) {
     // top of a second WebGL context — at the display's native 4K/6K that exhausts GPU memory and the
     // MAIN context is lost ~30s in, unrecoverable (Daniel). Cap the external render to 1080p-class
     // for video sources so the second context's framebuffer stays small; stills/camera keep native.
-    const effCap = opts.hasVideoSource?.() ? Math.min(cap, 1920) : cap;
+    // diagnostics escape hatch ("4K/QHD over HDMI") lifts the guard so true 4K can be measured
+    // on device to validate the shared-socket approach — at the cost of re-arming the ~30s crash.
+    let uncap = false;
+    try { uncap = localStorage.getItem('foldHdmiVideoUncap') === '1'; } catch {}
+    const effCap = (opts.hasVideoSource?.() && !uncap) ? Math.min(cap, 1920) : cap;
     // the display's native resolution when known — the point of HDMI — stepped down
     // by the crash generation when memory pressure killed the view
     const native = capDims(

@@ -4,6 +4,21 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🔓 v0.20.30 (Build 487) — 2026-07-31 — Diagnostics: "4K/QHD over HDMI" testing toggle (unblocks Daniel's 4K measurement)
+
+Daniel is blocked measuring 4K-over-HDMI on iPad: two separate guards clamp it. A new **diagnostics toggle** ("4K/QHD over HDMI", default off) lifts both for testing:
+
+- **The greyed tier buttons** — `videoHdmiCapped()` (output-panel.js) returns false when the flag is on, so QHD/4K enable.
+- **The actual render cap** — external-display.js:135 (`Math.min(cap, 1920)` for video) uses the full cap when the flag is on, so the external view renders at the display's true native pixels.
+
+Both read `localStorage.foldHdmiVideoUncap`; the toggle mirrors the `clock_video` diagnostics pattern and calls `env.updateOutputUI()` so tiers re-enable immediately. The res hint shows a warning when uncapped ("⚠ testing: 4K/QHD over HDMI may lose the graphics context (~30s) — break-glass resets"). **Default off keeps the safe 1080p guard for everyone else** — this is a test escape hatch, not a behavior change to the shipped default.
+
+**Important framing for the test:** the halting Daniel saw playing 4K footage *at 1080p output* is the **4K DECODE cost, which is independent of output resolution** and doubled by the two `<video>` elements (main engine + external view). Turning this on adds framebuffer memory on top of an already-struggling double 4K decode, so it will likely crash *sooner* — it confirms the problem's severity, it does not test the fix. The fix is the shared-socket single native decode (S2 shipped B486; S3 wires it). Reuses the existing `.toggle` component (no new Lab specimen).
+
+**VERIFY (Daniel, iPad, cap:sync):** settings → diagnostics → "4K/QHD over HDMI: on" → the QHD/4K tiers enable + the warning hint shows; with a 4K source over HDMI the external view renders at native (expect heavy struggle / possible context loss — that's the double-decode problem, and break-glass recovers).
+
+Verified: node --check (3 files), vite build. iPad needs cap:sync to receive it.
+
 ## 🔌 v0.20.29 (Build 486) — 2026-07-31 — Shared-socket S2: native video-decode producer (foundation, iOS)
 
 First increment of the shared-socket root fix for the iPad HDMI+video crash (double `<video>` decode at 4K/6K → jetsam → lost context). Instead of each webview opening its own decoder, decode the clip ONCE natively and fan frames to both over a localhost socket — the same mechanism the native camera already uses to reach the external view. This build lands the **native producer only** (additive, nothing wired yet, zero regression to the working path).

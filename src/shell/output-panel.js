@@ -203,12 +203,21 @@ export function createOutputPanel(env, outputBus) {
   // iPad caps VIDEO over HDMI to 1080p (the GPU-memory guard), so offering higher tiers is dishonest
   // — they're disabled + the hint says so. True ONLY for the iPad HDMI destination with a video source
   // (Electron HDMI + stills/camera are uncapped and render at full native resolution).
+  // the diagnostics "4K/QHD over HDMI" escape hatch lifts this guard for on-device testing
+  function hdmiUncapOn() {
+    try { return localStorage.getItem('foldHdmiVideoUncap') === '1'; } catch { return false; }
+  }
   function videoHdmiCapped() {
-    return destination === 'hdmi' && !!env.sourceVideo && !!window.Capacitor?.isNativePlatform?.();
+    return !hdmiUncapOn() && destination === 'hdmi' && !!env.sourceVideo && !!window.Capacitor?.isNativePlatform?.();
+  }
+  // true when the tiers are unlocked for testing on the path that's normally capped
+  function videoHdmiUncapped() {
+    return hdmiUncapOn() && destination === 'hdmi' && !!env.sourceVideo && !!window.Capacitor?.isNativePlatform?.();
   }
   function renderResHint() {
     if (!resHint) return;
     if (videoHdmiCapped()) { resHint.textContent = 'video over HDMI renders at 1080p on iPad (memory guard)'; return; }
+    if (videoHdmiUncapped()) { resHint.textContent = '⚠ testing: 4K/QHD over HDMI may lose the graphics context (~30s) — break-glass resets'; return; }
     const { w, h } = computeDims();
     resHint.textContent = tier >= 3840 ? `${w}×${h} · clean hardware only` : `${w}×${h}`;
   }

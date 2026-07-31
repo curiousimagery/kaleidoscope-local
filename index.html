@@ -458,6 +458,11 @@
            this toggle lets him compare live per device. Applies on the NEXT NDI broadcast start. -->
       <label class="setting-label" style="margin-top: 14px;">NDI experiment</label>
       <button class="toggle" id="ndiClockVideo" title="A/B the NDI clock_video pacing (WiFi-jitter experiment). Takes effect on the next NDI broadcast — stop and restart NDI to compare.">NDI clock_video: off</button>
+      <!-- testing escape hatch (Daniel): lift the iPad 1080p video-over-HDMI guard so true
+           4K/QHD can be measured on device to validate the shared-socket approach. OFF by
+           default — ON re-arms the ~30s context-loss crash; break-glass reset recovers. -->
+      <label class="setting-label" style="margin-top: 14px;">HDMI experiment</label>
+      <button class="toggle" id="hdmiVideoUncap" title="Testing only: allow QHD/4K video over iPad HDMI (lifts the 1080p memory guard). May lose the graphics context after ~30s at high res — use the break-glass reset to recover. Reselect the resolution / restart output after toggling.">4K/QHD over HDMI: off</button>
     </div>
   </div>
 </div>
