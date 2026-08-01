@@ -33,6 +33,15 @@ const FoldNativeVideo = registerPlugin('FoldNativeVideo');
 
 const UPLOAD_SLICE = 4 * 1024 * 1024;   // 4MB per socket message: bounded memory, few round trips
 
+// Diagnostics knob (settings → diagnostics is the eventual home; localStorage for now).
+// 0 = native resolution. Caps the RGB canvas the ENGINE uploads from — see the note in
+// native-frame-receiver.js. Set to e.g. 1920 to A/B whether the cross-context 4K texture
+// copy is what pins the frame rate.
+function sourceCap() {
+  try { return Math.max(0, parseInt(localStorage.getItem('foldNativeVideoCap') || '0', 10) || 0); }
+  catch { return 0; }
+}
+
 export function nativeVideoAvailable() {
   try {
     return Capacitor?.isNativePlatform?.() && Capacitor.getPlatform() === 'ios';
@@ -190,7 +199,7 @@ export async function createNativeVideoSource(env, blob, { name, loop = true, on
     const { port } = await FoldNativeVideo.start({ path, loop });
     console.info(`[fold] native video: decode started, serving port ${port || 8900}`);
     stage = 'frame socket';
-    receiver = createNativeFrameReceiver({ port: port || 8900 });
+    receiver = createNativeFrameReceiver({ port: port || 8900, cap: sourceCap() });
     await receiver.start();     // resolves on the first frame — proves decode + socket
     console.info('[fold] native video: first frame received');
   } catch (e) {
@@ -200,12 +209,33 @@ export async function createNativeVideoSource(env, blob, { name, loop = true, on
     return null;
   }
   const clock = createNativeClock(receiver, state);
+
+  // WHERE THE TIME GOES. Daniel's B499 run: frames arrive at a FIXED low cadence that
+  // doesn't change with playback rate, which says a throughput wall rather than a clock
+  // problem — but "socket" and "GPU" both fit that shape, and guessing has already cost
+  // two rounds. So report the split: frames in off the wire, frames actually painted, the
+  // YUV→RGB blit, and the engine's upload out of that canvas (the 4K cross-context copy).
+  let lastReport = performance.now(), upMs = 0, ups = 0;
+  function report() {
+    const now = performance.now();
+    const dt = (now - lastReport) / 1000;
+    if (dt < 3) return;
+    lastReport = now;
+    const s = receiver.takeStats();
+    const cap = sourceCap();
+    console.info(`[fold] native video: ${(s.arrived / dt).toFixed(1)} in/s · ${(s.painted / dt).toFixed(1)} painted/s`
+      + ` · blit ${s.paintMs.toFixed(1)}ms · engine upload ${(ups ? upMs / ups : 0).toFixed(1)}ms`
+      + ` · ${receiver.frameSource().width}×${receiver.frameSource().height}${cap ? ` (capped ${cap})` : ''}`);
+    upMs = 0; ups = 0;
+  }
+
   return {
     kind: 'native-video',
     clock,
     port: receiver.port,
     frameSource: () => receiver.frameSource(),
-    refreshFrame: () => receiver.refreshFrame(),
+    refreshFrame: () => { receiver.refreshFrame(); report(); },
+    noteUpload: (ms) => { upMs += ms; ups++; },
     get width() { return receiver.frameSource().width; },
     get height() { return receiver.frameSource().height; },
     stop() {

@@ -401,7 +401,9 @@ function startVideoPlayback() {
     let p = Math.max(0, Math.min(1, (clock.time - inSec) / span));
     env.nativeVideo?.refreshFrame();    // blit the latest socket frame before we upload it
     if (stg.on) stgSrc?.followLive();   // the stage rides the audience's frame
+    const upT0 = env.nativeVideo ? performance.now() : 0;
     engine.updateSourceFrame();
+    if (env.nativeVideo) env.nativeVideo.noteUpload(performance.now() - upT0);
     Object.assign(state, sampleAt(p));
     if (engine && engine.getSourceImage()) engine.render(state);
     env.commitFrame?.();   // video playback's commit point (params locked to the presented frame)

@@ -30,7 +30,12 @@ import { createYuvRenderer } from './yuv-renderer.js';
 const MAGIC_PLAIN = 0x46595556;    // "FYUV" — camera, clockless, 24-byte header
 const MAGIC_STAMPED = 0x46595557;  // "FYUW" — video, + pts/duration, 40-byte header
 
-export function createNativeFrameReceiver({ port = 8899, mirror = false } = {}) {
+// `cap` bounds the RGB canvas's long edge. It does NOT reduce the decode or the wire —
+// it bounds what the ENGINE then has to upload from this canvas, which at 4K is a 33MB
+// cross-context texture copy per frame. Diagnostics knob, off by default: this is the
+// leading suspect for the fixed-cadence stutter but it is a TRADE (source detail for
+// throughput), so it stays measurable rather than assumed.
+export function createNativeFrameReceiver({ port = 8899, mirror = false, cap = 0 } = {}) {
   const canvas = document.createElement('canvas');
   const renderer = createYuvRenderer(canvas);
   let ws = null;
@@ -39,6 +44,10 @@ export function createNativeFrameReceiver({ port = 8899, mirror = false } = {}) 
   let pts = 0;            // clock of the most recently PAINTED frame (stamped wire only)
   let duration = 0;
   let painted = 0;
+  // rolling counters — WHERE the frames are going. `arrived` is what the socket delivered,
+  // `painted` is what actually reached the canvas: if arrived is healthy and painted is
+  // not, the wall is on the GPU side, and if arrived itself is low the wall is the wire.
+  let arrived = 0, winArrived = 0, winPainted = 0, winPaintMs = 0;
 
   // Paint the latest received frame into the RGB canvas. Called each render
   // tick (refreshFrame) so the YUV->RGB blit is synced to the render loop —
@@ -67,11 +76,15 @@ export function createNativeFrameReceiver({ port = 8899, mirror = false } = {}) 
     const cSize = cStride * cHeight;
     const yPlane = new Uint8Array(latest, head, ySize);
     const cPlane = new Uint8Array(latest, head + ySize, cSize);
-    if (canvas.width !== width || canvas.height !== height) {
-      canvas.width = width; canvas.height = height;
-    }
-    renderer.draw(width, height, yStride, cStride, yPlane, cPlane, mirror);
-    painted++;
+    // the renderer sets its viewport from the dims it's handed, so a capped canvas simply
+    // scales the same full-screen quad down — no separate resample pass
+    const scale = cap > 0 ? Math.min(1, cap / Math.max(width, height)) : 1;
+    const cw = Math.max(1, Math.round(width * scale)), ch = Math.max(1, Math.round(height * scale));
+    if (canvas.width !== cw || canvas.height !== ch) { canvas.width = cw; canvas.height = ch; }
+    const t0 = performance.now();
+    renderer.draw(cw, ch, yStride, cStride, yPlane, cPlane, mirror);
+    winPaintMs += performance.now() - t0;
+    painted++; winPainted++;
   }
 
   // resolves on the FIRST frame (proves the socket + a live stream), with the
@@ -87,6 +100,7 @@ export function createNativeFrameReceiver({ port = 8899, mirror = false } = {}) 
         ws.binaryType = 'arraybuffer';
         ws.onmessage = (ev) => {
           latest = ev.data;
+          arrived++; winArrived++;
           if (!done) { done = true; paintLatest(); resolve(); }
         };
         ws.onclose = () => {
@@ -117,5 +131,12 @@ export function createNativeFrameReceiver({ port = 8899, mirror = false } = {}) 
     get pts() { return pts; },
     get duration() { return duration; },
     get framesPainted() { return painted; },
+    get framesArrived() { return arrived; },
+    // consume + reset the rolling window (the caller owns the reporting cadence)
+    takeStats() {
+      const s = { arrived: winArrived, painted: winPainted, paintMs: winPainted ? winPaintMs / winPainted : 0 };
+      winArrived = 0; winPainted = 0; winPaintMs = 0;
+      return s;
+    },
   };
 }

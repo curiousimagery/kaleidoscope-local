@@ -4,6 +4,27 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 📊 v0.21.2 (Build 500) — 2026-07-31 — The native path RUNS. Now measure the wall instead of guessing at it
+
+B499 worked: Daniel's log walks the whole ladder — `upload opened on 8901 (1195MB)` → `uploaded 1252687803 bytes in 5.5s (**217MB/s**)` → `decode started, serving port 8900` → `first frame received` → `native video decode active`. The `AVPlayerLooper` output fix was the blocker, and the binary upload socket beat its estimate by a third.
+
+**But playback is worse, in a specific and informative way.** Daniel: frames advance at a *regular* cadence, one at a time — not the familiar burst-then-pause — and **"the tempo of frames shown stays roughly the same regardless of playback speed, just at faster speeds more frames are skipped."** A delivery rate that is independent of playback rate is a THROUGHPUT wall, not a clock problem. The external view shows the same shape, slower still.
+
+Two candidates fit that shape equally well, and I have guessed wrong twice today already, so this build measures rather than asserts:
+
+- **The wire** — 4K biplanar YUV is 12.4MB per frame, and `FrameSocketServer` won't hand a client a second frame until the first send completes.
+- **The GPU** — each frame is uploaded twice: `texImage2D` of the Y and CbCr planes into the receiver's canvas, then the **engine's** `texImage2D` out of that 4K canvas into its own context. The second hop is a cross-context copy of 33MB. (Note the native camera does the same thing and is fine — at its 1080p default, which is 4× less.)
+
+**A per-3s report on the native path** now splits it: `N in/s · N painted/s · blit Nms · engine upload Nms · WxH`. Frames *in* is the wire; *painted* vs *in* is the GPU falling behind; `blit` is the YUV→RGB pass; `engine upload` is that cross-context copy, timed on the motion playback tick.
+
+**A source-cap A/B knob** — `localStorage.foldNativeVideoCap` (0 = native). Caps the long edge of the RGB canvas the engine uploads from; the decode and the wire are untouched. Set it to `1920` and if the frame rate jumps, the cross-context copy is the wall and the structural fix is to stop making it (sample the YUV planes directly in the engine, one upload instead of two). If nothing changes, it's the wire.
+
+**Correction:** I said "the Loop Builder shows one play button" — wrong surface. `＋ sync` lived in the **motion footer** beside the timeline transport, and that's what B499 removed. The Loop Builder never had it, so there was nothing to confirm there.
+
+**VERIFY (Daniel, iPad):** load the 20.4s 4K clip in motion, play, and read the report line. Then set `localStorage.foldNativeVideoCap = '1920'`, reload, and read it again. Those two lines decide the next build. (Also still open: switching to motion mode threw a context loss on the 6:39 clip — leading suspicion is that entering motion wakes the PARKED `<video>` to build thumbnails, so a second 4K decoder spins up next to the native one. See HANDOFF.)
+
+Verified: node --check, vite build. Device-blind by construction — the point of this build is to stop being.
+
 ## 🔁 v0.21.1 (Build 499) — 2026-07-31 — Why the iPad fell back: AVPlayerLooper never played the item we attached the output to
 
 Daniel's B498 iPad run showed no improvement at all, and the console said why: `native video source unavailable ... no native frames on port 8900`. The native path built in B498 never actually ran — it fell back to `<video>` every time, which is why the endurance run then hit the same B480 context loss it always did (source panel and thumbnails dark, external display still going on its own context). Nothing regressed; the fix simply wasn't reaching the device.
