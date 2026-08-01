@@ -1324,6 +1324,28 @@ function wireGlobalSheets() {
   // HDMI video-uncap (testing): lift the iPad 1080p-over-HDMI guard so true 4K/QHD can be
   // measured on device (validates the shared-socket approach). Read by output-panel's
   // videoHdmiCapped() (tier buttons) AND external-display's computeOutputDims (render cap).
+  // SOURCE DETAIL for the native video decode — a real graceful-degradation lever, not a
+  // throwaway probe. The measured 4K wall is the engine's per-frame texture upload
+  // (162.6ms native / 49.5ms at 1080p), which scales with source pixels, so capping the
+  // decoded frame trades detail for frame rate on hardware that can't carry native. Cycles
+  // native → 2560 → 1920 → 1280 → native; read at clip-load time by shell/native-video.js.
+  const NATIVE_CAPS = [0, 2560, 1920, 1280];
+  const capBtn = document.getElementById('nativeVideoCap');
+  if (capBtn) {
+    const read = () => { try { return parseInt(localStorage.getItem('foldNativeVideoCap') || '0', 10) || 0; } catch { return 0; } };
+    const syncCap = () => {
+      const v = read();
+      capBtn.classList.toggle('active', v > 0);
+      capBtn.textContent = `source detail: ${v > 0 ? v + 'px' : 'native'}`;
+    };
+    capBtn.addEventListener('click', () => {
+      const next = NATIVE_CAPS[(NATIVE_CAPS.indexOf(read()) + 1) % NATIVE_CAPS.length] ?? 0;
+      try { localStorage.setItem('foldNativeVideoCap', String(next)); } catch { /* private mode */ }
+      syncCap();
+    });
+    syncCap();
+  }
+
   const hdmiUncapBtn = document.getElementById('hdmiVideoUncap');
   if (hdmiUncapBtn) {
     const read = () => { try { return localStorage.getItem('foldHdmiVideoUncap') === '1'; } catch { return false; } };

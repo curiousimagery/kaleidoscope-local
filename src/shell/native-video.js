@@ -103,13 +103,21 @@ function createNativeClock(receiver, state) {
       state.seekUntil = performance.now() + 120;
       FoldNativeVideo.seek({ time: Math.max(0, t) }).catch(() => {});
     },
-    // resolve once a frame at (or past) the target has actually been PAINTED — the
-    // scrub path needs the texture to be right before it renders, not just the request sent
+    // Resolve once a frame at (or past) the target has actually been PAINTED.
+    //
+    // THE POLL MUST PUMP THE PAINT. `receiver.pts` only advances when paintLatest() runs,
+    // and paintLatest only runs from refreshFrame() — which the motion/perform tick calls
+    // during PLAYBACK and nothing calls while paused. So a scrub used to fire the seek,
+    // poll a clock that could never move, time out after 2s, and leave the canvas holding
+    // the old frame: params updated at the new p while the FOOTAGE didn't (Daniel, B501 —
+    // "scrubbing updates output based on the keyframed slice position but not the position
+    // in the timeline"; and hitting play snapped everything to the real position at once).
     seekSettled(t) {
       this.seek(t);
       return new Promise((resolve) => {
         const deadline = performance.now() + 2000;
         const poll = () => {
+          receiver.refreshFrame();   // pump: paint whatever the socket has delivered
           if (Math.abs((receiver.pts || 0) - t) < 0.12 || performance.now() > deadline) { resolve(); return; }
           setTimeout(poll, 16);
         };

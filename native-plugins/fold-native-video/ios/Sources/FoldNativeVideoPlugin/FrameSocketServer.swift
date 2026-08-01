@@ -43,7 +43,13 @@ import CoreVideo
 final class FrameSocketServer {
     let port: Int
     private var listener: NWListener?
-    private let queue = DispatchQueue(label: "fold.video.socket")
+    // ACCEPT ON ITS OWN QUEUE. `queue` is serial and each 4K frame is a 12.4MB send, so a
+    // busy first client can occupy it for a long time — long enough that a SECOND client's
+    // handshake never completes inside the JS receiver's 6s window. That is what stopped
+    // the external display from joining port 8900 while the main webview was streaming
+    // ("could not join the video stream: no native frames on port 8900" — Daniel, B501),
+    // and it is exactly the fan-out this whole design exists to do.
+    private let acceptQueue = DispatchQueue(label: "fold.video.accept")
     private let lock = NSLock()
 
     // one entry per connected consumer (main webview, external-display webview)
@@ -57,7 +63,7 @@ final class FrameSocketServer {
     init(port: Int) { self.port = port }
 
     func start() {
-        queue.async { [weak self] in
+        acceptQueue.async { [weak self] in
             guard let self = self, self.listener == nil else { return }
             let params = NWParameters.tcp
             let ws = NWProtocolWebSocket.Options()
@@ -66,13 +72,13 @@ final class FrameSocketServer {
             guard let nwPort = NWEndpoint.Port(rawValue: UInt16(self.port)),
                   let listener = try? NWListener(using: params, on: nwPort) else { return }
             listener.newConnectionHandler = { [weak self] c in self?.accept(c) }
-            listener.start(queue: self.queue)
+            listener.start(queue: self.acceptQueue)   // never blocked behind a frame send
             self.listener = listener
         }
     }
 
     func stop() {
-        queue.async { [weak self] in
+        acceptQueue.async { [weak self] in
             guard let self = self else { return }
             self.lock.lock()
             for client in self.clients { client.conn.cancel() }
@@ -88,6 +94,9 @@ final class FrameSocketServer {
         lock.lock()
         clients.append(client)
         lock.unlock()
+        // one queue PER CLIENT: a slow consumer can no longer delay a fast one, and neither
+        // can delay a new arrival
+        let clientQueue = DispatchQueue(label: "fold.video.client.\(ObjectIdentifier(client).hashValue)")
         c.stateUpdateHandler = { [weak self] state in
             guard let self = self else { return }
             switch state {
@@ -100,7 +109,7 @@ final class FrameSocketServer {
             }
         }
         drain(c)
-        c.start(queue: queue)
+        c.start(queue: clientQueue)
     }
 
     private func drain(_ c: NWConnection) {

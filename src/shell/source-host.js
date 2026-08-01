@@ -1012,7 +1012,17 @@ export function createSourceHost(env) {
     srcSeekBusy = true;
     try {
       const s = srcScrubSpan();                       // perform scrubs within the trim; still mode over the whole file
-      await seekVideoTo(v, s ? s.inSec + p * s.span : p * v.duration);
+      const sec = s ? s.inSec + p * s.span : p * v.duration;
+      // the SOURCE CLOCK owns the playhead — on the native path seeking the parked
+      // `<video>` here moved nothing the viewer can see and woke a second 4K decoder
+      // (Daniel, B501: "scrubbing the ruler in perform mode doesn't update source or
+      // staged position")
+      if (env.nativeVideo) {
+        await env.sourceClock.seekSettled(sec);
+        env.nativeVideo.refreshFrame();
+      } else {
+        await seekVideoTo(v, sec);
+      }
       engine.updateSourceFrame();
       engine.render(state);
       env.sourceOverlay.paintSourceVideo();

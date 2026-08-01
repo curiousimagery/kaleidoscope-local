@@ -4,6 +4,38 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🎚️ v0.21.5 (Build 503) — 2026-07-31 — "source detail" toggle: the cap was already there, you just couldn't reach it
+
+Clarification first: `foldNativeVideoCap` shipped in B500 and needed no new code — it's a localStorage flag. What it needed was a way to *set it on an iPad*, which is exactly the friction that kept it untested. Now it's a diagnostics toggle beside the others.
+
+**"source detail: native / 2560px / 1920px / 1280px"** (settings → diagnostics), cycling on tap. It caps the long edge of the decoded frame the engine uploads from; the decode and the socket are untouched. Takes effect on the next clip load.
+
+**Why this is a keeper, not a probe.** The measured 4K wall is the engine's per-frame texture upload — 162.6ms at native, 49.5ms at 1080p — and it scales with source pixels. That makes source detail a genuine graceful-degradation lever of exactly the kind Daniel's stated target asks for ("degrade capabilities gracefully based on constraints of older or less powerful hardware"), and it stays useful even after the planar-upload fix lands, for hardware that still can't carry native.
+
+**It also confirms the diagnosis from a second direction.** If 1920 roughly quadruples the painted frame rate, the upload cost is confirmed proportional to pixels and the planar fix is the same win without the detail loss. If it doesn't move, my reading of the numbers is wrong and the engine change should wait.
+
+**VERIFY (Daniel, iPad):** 20.4s 4K clip, read the report at `native`, then toggle to `1920`, reload the clip, read it again. Expect `engine upload` to fall from ~162ms toward ~50ms and `painted/s` to rise correspondingly. That one comparison is what greenlights the engine work.
+
+Verified: node --check, vite build. Reuses the existing `.toggle` component (no new Lab specimen).
+
+## 🎯 v0.21.4 (Build 502) — 2026-07-31 — Scrubbing never repainted, and the external view could never get in the door
+
+Daniel's B501 pass on a 2:45 1080p clip and the 20.4s 4K clip found three things. Two are one bug; the third is its own.
+
+**Scrubbing moved the params but not the footage.** His description was exact: "scrubbing updates output based on the keyframed slice position but not the position in the timeline", and hitting play snapped everything to the real position at once. Cause: `receiver.pts` only advances when `paintLatest()` runs, and that only runs from `refreshFrame()` — which the motion and perform ticks call **during playback and nothing calls while paused**. So a scrub fired the seek, then polled a clock that could not move, timed out after 2s, and left the canvas holding the old frame. `seekSettled` now **pumps the paint** inside its poll loop, and the motion scrub repaints before uploading.
+
+**Perform's timeline scrub was seeking the wrong thing entirely.** `scrubStillFrame` seeks `env.sourceVideo` directly — on the native path that's the *parked* `<video>`, so it moved nothing the viewer can see and woke the second 4K decoder while doing it. It now goes through `env.sourceClock` when native owns the clip. Same root as B501's contention fix, one call site I missed.
+
+**The external display could never join the socket** ("could not join the video stream: no native frames on port 8900"). `FrameSocketServer` ran its listener and every connection on **one serial queue**, and each 4K frame is a 12.4MB send — so a busy first client occupied that queue long enough that a second client's handshake never completed inside the receiver's 6s window. The accept path now has its own queue and **each client gets its own**, so a slow consumer can't delay a fast one and neither can delay a new arrival. This is the fan-out the whole design exists to do, and it had never actually been exercised with two clients.
+
+**Still true and still expected:** the keyframe filmstrip does not rebuild on the native path (B501's stand-down — it's the remaining `<video>` seeker, and it needs its own increment because it also borrows the GL canvas). The 4K cadence is still ~4-6fps; that's the open throughput question, untouched here.
+
+**Also noted, not ours:** perform's timescale ruler isn't scrubbable. Pre-existing, filed.
+
+**VERIFY (Daniel):** on the 1080p clip first — scrub the motion timeline and the perform ruler and confirm **the footage moves with the playhead**, and that pausing no longer snaps back to a stale position. Then the 4K short clip, and the broadcast that failed: the external display should now join and show frames. Then, finally, the measurement B500 is still waiting on: play, read `[fold] native video: N in/s · N painted/s · blit Nms · engine upload Nms`, then `localStorage.foldNativeVideoCap = '1920'`, reload, read again.
+
+Verified: node --check, vite build, Swift brace balance (3/3). The Swift needs Daniel's Xcode build.
+
 ## 🧹 v0.21.3 (Build 501) — 2026-07-31 — Two decoders were starving each other, and every test round was leaking a gigabyte
 
 Daniel's B500 session was pathological, not merely slow: ~3 minutes for the footage thumbnails, ~1 minute for the preview to catch up after a scrub, playback advancing a single frame, the scrubber sometimes snapping back. The report line I added never appeared — the process never got far enough to print it. The log says why, twice over.

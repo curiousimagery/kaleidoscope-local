@@ -292,6 +292,12 @@ async function advanceSourceToP(p) {
     engine.updateSourceFrame();
     return;
   }
+  if (env.nativeVideo) {
+    await clock.seekSettled(sec);
+    env.nativeVideo.refreshFrame();   // the settled frame still has to reach the canvas
+    engine.updateSourceFrame();
+    return;
+  }
   if (exportReader) {
     try {
       const frame = await exportReader.frameAt(sec);
