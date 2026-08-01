@@ -105,12 +105,22 @@ function createNativeClock(receiver, state) {
     // the clock.
     get time() {
       const painted = receiver.pts || 0;
-      if (state.pendingT == null) return painted;
-      if (Math.abs(painted - state.pendingT) < 0.25 || performance.now() > state.pendingUntil) {
-        state.pendingT = null;
+      const p = state.pending;
+      if (!p) return painted;
+      if (Math.abs(painted - p.t) < 0.35) { state.pending = null; return painted; }
+      // GIVE UP ON EVIDENCE, NOT ON A STOPWATCH. The first version of this held the target
+      // for a fixed 1.5s, which a 4K seek into a long clip outlasts — so the guard expired
+      // mid-seek, the clock reported the position we had left, and the playhead jumped
+      // there before snapping back (Daniel: "skips forward to the middle before hopping
+      // back"). Counting PAINTED frames instead measures the thing that matters: a dozen
+      // real frames that are all nowhere near the target means the seek isn't landing
+      // where we asked, so believe the frames. A stalled decode paints nothing and
+      // therefore spends none of this budget.
+      if (receiver.framesPainted - p.frames > 12 || performance.now() > p.until) {
+        state.pending = null;
         return painted;
       }
-      return state.pendingT;
+      return p.t;
     },
     get duration() { return receiver.duration || 0; },
     get paused() { return state.paused; },
@@ -121,8 +131,8 @@ function createNativeClock(receiver, state) {
     seek(t) {
       const target = Math.max(0, t);
       state.seekUntil = performance.now() + 120;
-      state.pendingT = target;                        // `time` reports this until it lands
-      state.pendingUntil = performance.now() + 1500;
+      // `time` reports this target until a painted frame lands near it (see `get time`)
+      state.pending = { t: target, frames: receiver.framesPainted, until: performance.now() + 8000 };
       FoldNativeVideo.seek({ time: target }).catch(() => {});
     },
     // Resolve once a frame at (or past) the target has actually been PAINTED.
@@ -165,9 +175,9 @@ function createNativeClock(receiver, state) {
 // One frame at `sec` as a decoded <img>, straight from AVAssetImageGenerator. The ONLY
 // way to get a still while the native decode owns the clip — seeking the parked `<video>`
 // instead would wake a second 4K decode session and starve both (Daniel, B500).
-export async function nativeStillAt(sec, maxPx = 1280) {
+export async function nativeStillAt(sec, maxPx = 1280, tolerance = 0.05) {
   try {
-    const res = await FoldNativeVideo.frameAt({ time: Math.max(0, sec), maxSize: maxPx });
+    const res = await FoldNativeVideo.frameAt({ time: Math.max(0, sec), maxSize: maxPx, tolerance });
     if (!res?.dataUrl) return null;
     const img = new Image();
     img.src = res.dataUrl;
@@ -231,9 +241,9 @@ export function createNativeStageSource(env, { cap = 2048 } = {}) {
 // caller falls straight through to the <video> path.
 export async function createNativeVideoSource(env, blob, { name, loop = true, onProgress } = {}) {
   if (!nativeVideoAvailable() || !blob) return null;
-  // pendingT/pendingUntil = the seek target the clock reports until a painted frame
-  // catches up to it (see `get time()`)
-  const state = { paused: false, rate: 1, seekUntil: 0, pendingT: null, pendingUntil: 0 };
+  // pending = the seek target the clock reports until a painted frame catches up to it
+  // ({ t, frames, until } — see `get time()`)
+  const state = { paused: false, rate: 1, seekUntil: 0, pending: null };
   let receiver = null;
   // STAGE BREADCRUMB — every failure here falls back to <video>, which is safe but silent.
   // Naming the stage turns "it fell back" into "it fell back HERE" (the B498 iPad round
@@ -249,7 +259,9 @@ export async function createNativeVideoSource(env, blob, { name, loop = true, on
     // engine takes planes directly), and every consumer that still reads it — the source
     // panel, a freeze-frame — pays a readback per draw, so keeping it small is free detail
     receiver = createNativeFrameReceiver({ port: port || 8900, cap: PREVIEW_CAP });
-    await receiver.start();     // resolves on the first frame — proves decode + socket
+    // the MAIN path insists on a real frame: if the decode is dead we want the <video>
+    // fallback, not a black source (see the requireFrame note in native-frame-receiver)
+    await receiver.start({ requireFrame: true, timeout: 8000 });
     console.info('[fold] native video: first frame received');
   } catch (e) {
     console.warn(`[fold] native video source unavailable at "${stage}", using <video>:`, e?.message || e);

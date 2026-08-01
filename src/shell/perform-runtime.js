@@ -180,6 +180,7 @@ export function createPerformRuntime(env) {
   function syncPipSource() {
     const src = env.programVideo?.() || env.engine?.getSourceImage?.();
     if (!src || !pipEngine) return false;
+    if (env.filmstrip?.busy) return pipLastSource === src;   // don't follow a thumbnail build (see output-engine)
     const w = src.naturalWidth || src.videoWidth || src.width || 0;
     const h = src.naturalHeight || src.videoHeight || src.height || 0;
     // the element's own dims, not the engine's recorded source size — see the same note

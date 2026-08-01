@@ -910,10 +910,14 @@ export function createSourceHost(env) {
   // So on the native path every still comes from AVAssetImageGenerator (already there for
   // staging) and the `<video>` is never seeked at all. It stays loaded purely so overlay
   // geometry keeps reading real dimensions.
-  async function stillAt(sec, maxPx = 1280) {
+  // `tolerance` is how exact the frame has to be, in seconds. Thumbnails pass a loose one
+  // (a filmstrip cell doesn't care which frame of the surrounding second it gets) because
+  // exact extraction from a long 4K clip is most of the cost AND it competes with the
+  // player for the hardware decoder. A scrub preview keeps the tight default.
+  async function stillAt(sec, maxPx = 1280, tolerance = 0.05) {
     if (env.nativeVideo) {
       const mod = await import('./native-video.js').catch(() => null);
-      const img = await mod?.nativeStillAt?.(sec, maxPx);
+      const img = await mod?.nativeStillAt?.(sec, maxPx, tolerance);
       if (img) return img;
       return null;                     // no fallback to <video>: that's the contention
     }
@@ -949,7 +953,7 @@ export function createSourceHost(env) {
     try {
       for (let i = 0; i < n; i++) {
         if (gen !== srcStrip.gen) { srcStrip.dirty = true; return; }
-        const frame = await stillAt(span.inSec + ((i + 0.5) / n) * span.span, 640);
+        const frame = await stillAt(span.inSec + ((i + 0.5) / n) * span.span, 640, 0.5);   // a thumbnail cell: exactness is worthless, speed is not
         if (!frame) return;
         if (gen !== srcStrip.gen) { srcStrip.dirty = true; return; }
         const cw = Math.ceil((w / n) * dpr), ch = Math.ceil(h * dpr);

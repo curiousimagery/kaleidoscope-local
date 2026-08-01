@@ -138,7 +138,18 @@ export function createClipEditor(env) {
   // the ONLY exit (no cancel/close buttons) — the app-bar mode picker + uploading a new
   // clip both route here. Returns true if it's OK to leave, false if the user backed out.
   function exitLoopBuilder() {
-    if (env.clip.baking) return false;                               // never leave mid-bake
+    if (env.clip.baking) {
+      // Still never leave mid-bake — the decoders are in use, and tearing down under them
+      // is the B495 wedge. But "can't leave yet" is not the same as "your button is dead":
+      // ask the bake to stop, say so, and let its own unwind (which closes every reader)
+      // put us back. Pressing cancel again while it winds down is harmless.
+      env.clip.cancelBake = true;
+      const btn = document.getElementById('clipCancel');
+      if (btn) { btn.textContent = 'cancelling…'; btn.disabled = true; }
+      const cover = document.getElementById('clipBaking');
+      if (cover) cover.textContent = 'cancelling…';
+      return false;
+    }
     if (!document.body.classList.contains('loop-active')) return true;
     if (loopIsDirty() && !window.confirm('Leave Loop Builder? Your unsaved trim / loop settings will be discarded.')) return false;
     closeClipEditor(false);
@@ -754,6 +765,7 @@ export function createClipEditor(env) {
     if (!src) return;
     const decodeV = env.clip.prevVideo || src;
     env.clip.baking = true;
+    env.clip.cancelBake = false;   // armed by the cancel button; checked per encoded frame
     stopClipPreview();
     const dur = decodeV.duration || src.duration || 1;
     const { w, h } = bakeDims();                     // output resolution (source, or downscaled per the format control)
@@ -875,6 +887,13 @@ export function createClipEditor(env) {
       const { blob } = await exportVideo({
         frameAt, width: w, height: h, fps, durationMs, captureMode: '2d',
         onProgress: (x) => { if (fill) fill.style.width = Math.round(x * 100) + '%'; },
+        // A BAKE MUST BE ABANDONABLE. It used to run to completion no matter what: the
+        // cancel button routed to exitLoopBuilder, which refuses while `baking` is set, so
+        // it silently did nothing — and a 6:39 crossfaded clip projects to ~25 minutes
+        // (Daniel, B505). exportVideo has always taken `shouldCancel` and checks it per
+        // frame; the bake simply never passed one. The refusal to tear down mid-bake was
+        // right (readers are in use); the missing piece was a way to ask it to stop.
+        shouldCancel: () => env.clip.cancelBake,
       });
       await applyBakedClip(blob);                   // swaps the source + re-binds the timeline
       disposeClipPreview();
@@ -882,8 +901,14 @@ export function createClipEditor(env) {
       hideLoopSurface();
       returnFromLoopBuilder();                      // back to the mode you came from (motion from still)
     } catch (e) {
-      console.error('clip bake failed', e);
-      alert('Could not bake the clip: ' + (e && e.message ? e.message : e));
+      if (e?.code === 'cancelled') {
+        // the user's own decision, not a failure — unwind quietly and leave them in the
+        // Loop Builder with their settings intact, exactly where they were
+        console.info('[fold] clip bake cancelled');
+      } else {
+        console.error('clip bake failed', e);
+        alert('Could not bake the clip: ' + (e && e.message ? e.message : e));
+      }
     } finally {
       // EVERY reader this bake opened, on EVERY exit path. bounceReader was missing here,
       // so a failed bounce bake left a VideoDecoder holding the hardware and the immediate
@@ -891,13 +916,16 @@ export function createClipEditor(env) {
       if (sliceReaderA) { try { sliceReaderA.close(); } catch { /* already closed */ } sliceReaderA = null; }
       if (sliceReaderB) { try { sliceReaderB.close(); } catch { /* already closed */ } sliceReaderB = null; }
       if (bounceReader) { try { bounceReader.close(); } catch { /* already closed */ } bounceReader = null; }
-      if (bounceReader) { try { bounceReader.close(); } catch { /* already closed */ } bounceReader = null; }
       if (prog) prog.hidden = true;
       if (fill) fill.style.width = '0%';
       if (cover) cover.hidden = true;
       if (apply) { apply.disabled = false; }
+      if (cover) cover.textContent = 'baking…';      // reset the label the cancel path rewrote
+      const cbtn = document.getElementById('clipCancel');
+      if (cbtn) { cbtn.textContent = 'cancel'; cbtn.disabled = false; }
       setClipMode(env.clip.trim.mode);               // restore the apply label
       env.clip.baking = false;
+      env.clip.cancelBake = false;
     }
   }
   // Swap a freshly-baked clip in as the working source (keeps the uploaded original in

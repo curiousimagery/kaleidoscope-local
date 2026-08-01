@@ -205,6 +205,7 @@ const env = {
     trim: { inT: 0, outT: 1, mode: 'forward', slicePoint: 1 / 3, crossfadeMs: 500 },
     prevVideo: null, prevVideoB: null, thumbVideo: null, backup: null, drag: null, raf: 0,
     seg: 0, bounceStart: 0, phase: 'B', seekT: null, seeking: false, baking: false, sel: null,
+    cancelBake: false,   // the bake's cooperative abort flag (cancel while baking sets it)
     fmt: { res: 'source', fps: 'source', speed: 1 },   // output format at bake (resolution / fps / playback speed)
     srcFps: 0,   // measured source frame rate (probed on the bake step; 0 = unknown)
   },

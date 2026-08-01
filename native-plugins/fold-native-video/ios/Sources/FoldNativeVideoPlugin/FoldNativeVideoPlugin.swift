@@ -224,12 +224,22 @@ public class FoldNativeVideoPlugin: CAPPlugin, CAPBridgedPlugin {
     // One frame, as a JPEG data URL. `maxSize` caps the long edge — the editor's preview
     // never needs native 4K, and a bounded still is the whole reason staging can survive
     // a single decode.
+    // `tolerance` (seconds) is the caller's answer to "how exact does this frame have to
+    // be?", and it is the difference between a fast thumbnail pass and a slow one. A tight
+    // tolerance forces the generator to decode forward from the preceding keyframe to the
+    // exact time — on a long 4K clip that is most of the cost, and it competes with the
+    // player for the hardware decoder (measured: frame delivery drops from 30/s to ~14/s
+    // during a thumbnail pass). A scrub preview wants exactness; a 96px filmstrip cell does
+    // not care which frame of the surrounding second it gets.
     @objc func frameAt(_ call: CAPPluginCall) {
         let t = call.getDouble("time") ?? 0
         let maxSize = CGFloat(call.getInt("maxSize") ?? 2048)
         let quality = CGFloat(call.getDouble("quality") ?? 0.9)
+        let tol = CMTime(seconds: max(0, call.getDouble("tolerance") ?? 0.05), preferredTimescale: 600)
         guard let gen = stills else { call.reject("no clip loaded"); return }
         gen.maximumSize = CGSize(width: maxSize, height: maxSize)
+        gen.requestedTimeToleranceBefore = tol
+        gen.requestedTimeToleranceAfter = tol
         stillQueue.async {
             do {
                 let cg = try gen.copyCGImage(at: CMTime(seconds: t, preferredTimescale: 600),

@@ -84,6 +84,11 @@ export function createOutputEngine(env) {
   // the output would stretch (the preview is fine because the main engine re-setSources
   // on every camera switch). So also re-setSource when the source's dimensions change.
   function syncSource(src) {
+    // A filmstrip build BORROWS the preview engine's source, one thumbnail at a time.
+    // Following it here would broadcast the thumbnails; hold the last upload instead.
+    // (True on the <video> path too, where the build seeks the shared element — it just
+    // became visible on the native path, where each cell is a whole setSource.)
+    if (env.filmstrip?.busy) return;
     const w = src.naturalWidth || src.videoWidth || src.width || 0;
     const h = src.naturalHeight || src.videoHeight || src.height || 0;
     // track the ELEMENT's dims here rather than asking the engine for them: on the

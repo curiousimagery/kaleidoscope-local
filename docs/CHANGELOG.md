@@ -4,6 +4,58 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## ⏹️ v0.22.1 (Build 507) — 2026-07-31 — A bake you can abandon, and P for play in motion
+
+**The bake's cancel wasn't broken — it was never connected.** `#clipCancel` routes to `exitLoopBuilder()`, which refuses while `env.clip.baking` is set. The refusal is right (the decoders are in use, and tearing down under them is the B495 wedge), but it returned `false` and did nothing else, so the button was silently dead for the entire run — which on a 6:39 crossfaded clip is ~25 minutes.
+
+The missing piece was a way to ask the bake to *stop*. `exportVideo` has always taken a `shouldCancel` callback and checks it per encoded frame (motion's render/export already uses it); the bake simply never passed one. Now it does: cancel sets `env.clip.cancelBake`, the button reads "cancelling…", and the bake's own unwind — which already closes every reader correctly — puts you back in the Loop Builder with your settings intact. A cancelled bake is logged, not alerted: it's a decision, not a failure.
+
+**P now plays/pauses in motion too**, alongside space. Perform had to give play/pause its own key because space is spoken for there (stage/take), so anyone moving between modes builds P into muscle memory — it should keep working rather than silently do nothing. Space stays the primary in motion.
+
+Also removed a duplicated `bounceReader.close()` in the bake's `finally` (harmless, mine, from B498).
+
+**VERIFY (Daniel):** start a long bake, press cancel — it should say "cancelling…" and drop you back into the Loop Builder within a frame or two, with the trim/mode/crossfade you set still there. Then re-bake something short and confirm it still applies normally. And P in motion.
+
+Verified: node --check, vite build.
+
+## 🎬 v0.22.0 (Build 506) — 2026-07-31 — 4K works. Thumbnails come back, and the playhead stops lying.
+
+**Daniel's B505 device pass, verbatim: "at long last... 4k source content can broadcast in 4k!"** 22-26fps at 4K→4K on the 20s clip, 29-30 with source detail at 720p — and the 6:39 4K clip broadcasts too, at 24-29fps, at native source detail. The minor bump is for that: the shared-socket arc set out to make a 4K source broadcastable at 4K output, and it does.
+
+Camera over HDMI is unaffected by the fan-out change, as intended.
+
+### The keyframe filmstrip and timeline thumbnails are back on the native path
+
+They have stood down since B501, because `buildFilmstripVideo` seeks `env.sourceVideo` per cell — the PARKED `<video>` — and waking it puts a second 4K decode beside the native one. It now takes each cell from `env.stillAt` (the same `AVAssetImageGenerator` the footage strip and staging already use), points the engine's source at that still for the capture, and hands it back to the decode's planes afterwards. A cancelled build restores the planar source too, which the old path had no equivalent of.
+
+**And the still generator got a `tolerance` parameter, which is most of the speed.** It was seeking near-exact (0.05s) for every still, which on a long 4K clip means decoding forward from the preceding keyframe — most of the cost, and it competes with the player for the hardware decoder (measured: delivery drops from 30 frames/s to ~14 during a thumbnail pass). A 96px filmstrip cell does not care which frame of the surrounding second it gets, so thumbnails now ask for 0.5s tolerance. Scrub previews keep the tight default, where exactness is the point.
+
+**Also: a thumbnail build no longer leaks into the broadcast.** The build borrows the preview engine's source one cell at a time; the output bus and the perform PiP were following it, which would have put the thumbnails on air. Both now hold their last upload for the duration. (True on the `<video>` path too — it just became visible on the native path, where each cell is a whole `setSource`.)
+
+### The playhead sweep — the fix was giving up on a stopwatch
+
+B505 made the clock report a seek's target until a painted frame catches up. It still swept, because the guard expired after a fixed 1.5s and **a 4K seek into a long clip outlasts that** — so mid-seek the guard lifted, the clock reported the position we had left, and the playhead jumped there before snapping back.
+
+It now gives up on **evidence**: the target stands until either a painted frame lands near it, or a dozen painted frames arrive that are all nowhere near it (meaning the seek isn't going where we asked, so believe the frames). A stalled decode paints nothing and therefore spends none of that budget, which is exactly the property a stopwatch didn't have.
+
+### Joining the frame socket no longer requires a frame
+
+Daniel found the sharp edge: on the 6:39 4K clip, broadcasting **from motion mode** failed with "could not join the video stream" at every output resolution, while **from perform mode it worked**. Entering motion runs a thumbnail pass, and the image generator competing with the player stalls frame delivery for seconds on a clip that long. The socket was open and healthy the whole time — only the frames were late — but the receiver's hard 6s first-frame deadline turned a temporary stall into a permanent failure card.
+
+`start()` now takes `requireFrame`, and the choice is about whether the caller has a fallback:
+- **the main webview does** (the `<video>` path), and a decode that never produces a frame must fall back to it — that exact failure shipped once already in B499 — so it still insists on a real frame, with a longer window;
+- **the external display doesn't**, so for it an open socket is the assertion, and late frames are just late. The engine already holds its last frame until a new one lands.
+
+**VERIFY (Daniel, iPad):**
+1. **Motion timeline + keyframe thumbnails render on a 4K clip** — and how long the pass takes on the 6:39 clip (that number decides whether the batch-generator follow-up is worth it).
+2. **Press play in motion from anywhere** — no sweep, no forward flick.
+3. **Broadcast from MOTION mode on the 6:39 clip** — the case that failed.
+4. Broadcasting while a thumbnail pass runs shouldn't show thumbnails on the external display.
+
+Known and unfixed, both newly filed: **the Loop Builder bake is impractically slow on a long clip** (~25min projected for 6:39) **and its cancel button is non-responsive**. The cancel is the bug; the speed is a scope question.
+
+Verified: node --check, vite build. Swift changes are device-verified only.
+
 ## 📡 v0.21.7 (Build 505) — 2026-07-31 — Why 4K could never broadcast: a client joined the fan-out before its socket was up
 
 **B504's numbers came back and the readback is gone** (4K: `engine 0.6ms`, was 162.6ms; 60 painted/s against 30 in/s — fully decode-bound). What that left standing was the one thing the planar fix could never have touched: **no 4K clip could be broadcast at all**, at any source-detail setting or any output resolution, while a 1080p clip broadcast fine at every setting. Daniel ran the whole matrix, which is what made this findable.

@@ -12,7 +12,19 @@ He prefers **no em dashes** in any prose Claude generates for him.
 
 ## current version
 
-**▶ WHERE THIS STANDS (2026-07-31): the planar fix WORKED, the arc's throughput question is CLOSED, and B505 fixes the one thing left standing — 4K could never broadcast.**
+**▶ THE ARC LANDED (2026-07-31, v0.22.0 / B506). 4K source broadcasts at 4K output.** Daniel's device pass: 22-26fps at 4K→4K native source detail, 29-30 with detail at 720p, on both the 20s clip AND the 6:39 one. Camera over HDMI unaffected. His words: "this pass tipped the balance to get us into the '4k is more working than not' category."
+
+**What's left on the video path is authoring ergonomics on LONG clips, not throughput.** Clip length no longer costs anything per frame (the decode is native and streaming — the 6:39 clip broadcasts at the same rate as the 20s one). What still scales with length: the one-time upload, the thumbnail pass, and the Loop Builder bake. The remaining frame-rate gap is FILL RATE (four engines rasterizing, one of them at 3840×2160), not throughput — see the ranked levers in BACKLOG under "WHERE THE REMAINING 4K FRAMES ARE".
+
+**▶ THE ARC IS CLOSED OUT (B507).** Everything from the shared-socket work is shipped, verified on device, and documented. The one HIGH left over (the Loop Builder's dead cancel button) is fixed in B507. What remains from this arc is filed and optional, not blocking:
+- **ADAPTIVE PREVIEW RESOLUTION while broadcasting** — Daniel's proposal, written up in BACKLOG as a full design awaiting his yes. This is the path to a steady 30fps at 4K→4K.
+- **Bake speed on long clips** (~25min for a 6:39 crossfade). Now escapable, so it's a scope question rather than a trap. Baking only the crossfade REGION is probably the real answer.
+
+**▶ NEXT ARC (Daniel's stated sequence): slice hardening, then M4 geometry-truth → M5 SVG → M6 tile builder, then thermal.** See `project_flows_guardrails_tiling_arc` in memory and the plan in `~/.claude/plans`. Control-registry hardening wants to land before M6.
+
+---
+
+**Superseded, kept for the record:**
 
 **B504 verified on device.** 4K source: `30.0 in/s · 60.0 painted/s · engine 0.6ms · preview 1.3ms · 3840×2160`. The engine's per-frame source upload went **162.6ms → 0.6ms** and playback is now fully decode-bound (60 rendered frames/s against a 30fps clip). 1080p: `engine 0.1ms`. The decision rule's condition is met — the arc paid off, and the shared-socket approach is the right architecture, not a sunk cost.
 
@@ -30,20 +42,25 @@ Dead linear at ~20ms/megapixel = ~200MB/s = CPU readback speed. The engine was d
 
 **▶ THE FIX, AS BUILT (B504) — it turned out NOT to need a GLSL change.** The earlier proposal was to sample YUV in the composed kaleidoscope shader, which would have meant an indirection at every `texture(u_src, uv)`. The lower-risk shape that ships instead: convert the planes into the engine's **own** source texture through an FBO blit (`engine/yuv.js` + `gl.js createPlanarUploader`), so `u_source` stays an ordinary RGB texture and no form, export path, or slice behaves differently. Same win, none of the shader-composition risk. Wired into all four engines that sample a source: main preview, output bus, perform PiP, and the external display view.
 
-**▶ NEXT VERIFY (Daniel, iPad — B505):**
-1. **Broadcast the 4K clip at 4K.** The one that has never worked. Watch Xcode for `[FoldFrames:8900] client ready — 2 receiving`; a `1` means the join still failed, and now the native side says so.
-2. **Play in motion from a playhead near the end** — no timeline sweep before it returns to the start.
-3. Camera over HDMI still joins (the same server changed in both plugins).
+**▶ NEXT VERIFY (Daniel, iPad — B506):**
+1. **Motion timeline + keyframe thumbnails render on a 4K clip**, and how long the pass takes on the 6:39 one — that number decides whether the batch-generator follow-up is worth building.
+2. **Play in motion from anywhere** — no sweep, no forward flick.
+3. **Broadcast from MOTION mode on the 6:39 clip** — the case that failed while perform worked.
+4. A thumbnail pass shouldn't put thumbnails on the external display.
 
 **DECISION RULE (Daniel asked for one, so it stays on the record): the planar fix was the LAST big swing.** If 4K over HDMI lands decode-bound the arc paid off. If the number doesn't move materially, the WebKit texture path is this stack's ceiling and we STOP — but note **stopping is not reverting**. The `<video>` path is capability-gated and intact; turning the native path off returns us to B497, which is strictly better than pre-B480 (staging seam, bake fixes, Loop Builder broadcast suspension, seek-thrash fix, staging-file cleanup all stand on their own). The realistic non-4K outcome: keep the 1080p cap for video-over-HDMI (9min 1080p → 4K HDMI ran 15 minutes clean) and treat 4K-source-over-HDMI as the aspirational tier this stack can't reach yet.
 
 **⚠️ READ THE B503 A/B WITH ONE CAVEAT.** B500's cap CROPPED rather than scaled (it allocated the plane textures at the capped size while the planes held full-res rows), so a capped 4K frame was the top-left corner of the picture. B504 fixes it. The timing numbers above still hold — they're timings, not framing — but anything that looked wrongly framed at 1280 was this. Separately, the `(capped N)` label in the report read localStorage live while the canvas kept the cap from clip-load time, so **the caps printed in the 2026-07-31 comparison log are not the caps that were in force**; every line in that log ran at a 1280 canvas.
 
-**▶ STILL OPEN after B505 (in the order they should be picked up):**
-- **The motion filmstrip + keyframe thumbnails still stand down on the native path.** Daniel has now reported this three rounds running, so it is the most visible remaining gap. It is the filed B501 item: `buildFilmstripVideo` seeks `env.sourceVideo` per cell, which wakes a second 4K decode, so it early-returns. Route it through `env.stillAt` the way `buildSrcStrip` already is (`frameAt` is confirmed working — the 2026-07-31 log shows it returning valid 640×360 JPEGs). Its own increment because it also borrows the GL canvas and re-renders sampled states per cell.
+**▶ STILL OPEN after B507 (small, none blocking):**
 - **A video source opens in STILL mode before switching to motion** (Daniel, B504 — "newish"). Cosmetic but it reads as a glitch on every load.
+- **Grabbing the slice point in the Loop Builder is harder than it was** — Daniel kept getting the playhead instead (B505). Hit-target/z-order regression, probably small.
 - **Perform going dark on a 4K source.** The frozen-PiP gate fixed in B504 is a *candidate* cause; recheck before investigating further.
-- **The external WKWebView's console still doesn't reach Xcode.** B505 closes the cheap half (the frame server logs its own fan-out state), but everything else inside `output-view.js` is still invisible. `sendUp` already exists as a channel — forwarding warnings/errors up it is the full fix.
+- **The external WKWebView's console still doesn't reach Xcode.** B505 closed the cheap half (the frame server logs its own fan-out state), but everything else inside `output-view.js` is still invisible. `sendUp` already exists as a channel — forwarding warnings/errors up it is the full fix.
+
+**`v0.22.1 · Build 507` — ⏹️ AN ABANDONABLE BAKE.** Cancel wasn't broken, it was never connected: `exitLoopBuilder()` correctly refuses to tear down mid-bake but did nothing else, so the button was silently dead for the whole run. `exportVideo` already took a per-frame `shouldCancel`; the bake now passes one, and its existing unwind (which closes every reader) does the cleanup. Also: `P` plays/pauses in motion alongside space, matching perform's key.
+
+**`v0.22.0 · Build 506` — 🎬 4K WORKS; THUMBNAILS BACK; PLAYHEAD HONEST.** Filmstrip + keyframe thumbs route through `env.stillAt` on the native path (engine points at the still per cell, planar source restored after, including on cancel). `frameAt` gains a `tolerance` parameter — thumbnails ask 0.5s instead of 0.05s, which is most of the pass's cost on a long 4K clip and stops it starving the player. Output bus + PiP hold their last upload while a build runs so thumbnails can't reach the broadcast. The seek guard now expires on EVIDENCE (a dozen painted frames nowhere near the target) rather than a 1.5s stopwatch a 4K seek outlasts. `receiver.start()` gains `requireFrame`: the main webview still insists on a frame (it has the `<video>` fallback), the external view resolves on an open socket — which is why broadcasting from motion on a long clip failed while perform worked.
 
 **`v0.21.7 · Build 505` — 📡 THE FAN-OUT RACE.** A client joined the broadcast list on accept, before its WebSocket upgrade completed; the first send went to a connection that wasn't up, its completion never fired, `sending` latched, and that consumer starved forever. At 4K the loopback saturation meant the handshake lost every time — which is why NO 4K clip could broadcast at any setting while 1080p always could. Gated on `.ready` + a 6s stall reaper, in both plugins, with `[FoldFrames:<port>]` logging. Also: `clock.time` now reports a seek's TARGET until a painted frame catches up, fixing the play-from-the-end timeline sweep.
 

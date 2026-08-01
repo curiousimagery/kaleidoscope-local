@@ -1111,16 +1111,17 @@ function buildFilmstrip() {
 // (env.filmstrip.gen, bumped by scrub/playback); footage restored to the playhead after; the
 // preview is frozen behind a snapshot so the borrowed GL canvas never flashes.
 async function buildFilmstripVideo(strip, sig, geom) {
-  // The keyframe filmstrip seeks env.sourceVideo per cell. On the native path that is the
-  // PARKED <video>, and waking it puts a second 4K decode session next to the native one —
-  // which is what turned Daniel's B500 session into minutes-per-thumbnail. Stand down here
-  // rather than half-render: the strip keeps whatever it last built, and routing it through
-  // the image generator (as buildSrcStrip now is) is the follow-up.
-  if (env.nativeVideo) { env.filmstrip.busy = false; return; }
+  // ONE DECODER, TWO WAYS TO ASK IT FOR A FRAME. Seeking env.sourceVideo per cell is right
+  // when the <video> IS the decode; on the native path it is the PARKED element, and waking
+  // it puts a second 4K decode session beside the native one (B500: minutes per thumbnail).
+  // So the native path takes each cell from env.stillAt — the same AVAssetImageGenerator
+  // the footage strip and staging already use — and the engine's source is pointed at that
+  // still for the duration of the capture, then handed back to the decode's planes.
+  const nv = env.nativeVideo;
   env.filmstrip.busy = true;
   const gen = ++env.filmstrip.gen;
   const v = env.sourceVideo;
-  const saved = v.currentTime;
+  const saved = nv ? 0 : v.currentTime;
   const list = [...kfList()];                       // snapshot (the array may mutate during awaits)
   const { fs, n, multi, cellTime } = geom;
 
@@ -1145,9 +1146,17 @@ async function buildFilmstripVideo(strip, sig, geom) {
   try {
     for (const job of jobs) {
       if (gen !== env.filmstrip.gen) return;        // superseded by a scrub / playback / newer build
-      await seekVideoTo(v, pToMediaSec(v, job.p, env.clip.trim));
-      if (gen !== env.filmstrip.gen) return;
-      engine.updateSourceFrame();
+      const sec = pToMediaSec(nv ? env.sourceClock : v, job.p, env.clip.trim);
+      if (nv) {
+        const still = await env.stillAt(sec, fs, 0.5);   // filmstrip cell: loose tolerance, see stillAt
+        if (!still) return;                         // generator refused (clip torn down mid-build)
+        if (gen !== env.filmstrip.gen) return;
+        engine.setSource(still);                    // retires the planar provider; restored below
+      } else {
+        await seekVideoTo(v, sec);
+        if (gen !== env.filmstrip.gen) return;
+        engine.updateSourceFrame();
+      }
       job.draw(engine.captureFrame(job.snap));
     }
     if (gen !== env.filmstrip.gen) return;
@@ -1156,7 +1165,18 @@ async function buildFilmstripVideo(strip, sig, geom) {
     env.filmstrip.lastSig = sig;
   } finally {
     engine.endCapture();                            // restore the borrowed canvas's backing size
-    if (gen === env.filmstrip.gen) { await seekVideoTo(v, saved); engine.updateSourceFrame(); }   // not cancelled → restore footage to the playhead
+    // hand the engine back to the live source. On the native path that means re-installing
+    // the planar provider the per-cell setSource retired; a cancelled build must restore it
+    // too, or the preview keeps rendering the last thumbnail.
+    if (nv) {
+      try {
+        engine.setSource(nv.frameSource());
+        engine.setPlanarSource(nv.planeProvider, nv.cap);
+        engine.updateSourceFrame();
+      } catch { /* source torn down mid-build */ }
+    } else if (gen === env.filmstrip.gen) {
+      await seekVideoTo(v, saved); engine.updateSourceFrame();   // not cancelled → restore footage to the playhead
+    }
     env.resizePreviewCanvas();
     if (engine.getSourceImage()) engine.render(state);   // sync repaint BEFORE lifting the freeze (no flash)
     unfreezePreview();
@@ -2016,7 +2036,11 @@ function wireMotion() {
     if (tag === 'INPUT' && t.type === 'range' && /^(Arrow(Left|Right|Up|Down)|Home|End)$/.test(e.key)) return;
     if (e.metaKey || e.ctrlKey || e.altKey) return;   // don't shadow shortcuts (⌘Z etc.)
     if (tag === 'BUTTON') t.blur();   // space must never double as "re-click the focused button"
-    if (e.code === 'Space') {
+    if (e.code === 'Space' || e.key === 'p' || e.key === 'P') {
+      // P is a SECOND key for the same action, not a different one. Perform had to give
+      // play/pause its own key because space is spoken for there (stage/take), so anyone
+      // moving between modes builds P into muscle memory — it should keep working here
+      // rather than silently do nothing. Space stays the primary in motion.
       e.preventDefault();                             // page scroll
       if (motion.playing) stopPlayback(); else startPlayback();
     } else if (e.key === 'Delete' || e.key === 'Backspace') {

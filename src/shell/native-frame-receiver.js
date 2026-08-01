@@ -37,6 +37,11 @@ const MAGIC_STAMPED = 0x46595557;  // "FYUW" — video, + pts/duration, 40-byte 
 // read a drawable.
 export function createNativeFrameReceiver({ port = 8899, mirror = false, cap = 0 } = {}) {
   const canvas = document.createElement('canvas');
+  // a valid size BEFORE the first frame: the external view calls engine.setSource on this
+  // canvas as soon as the socket opens (it no longer waits for a frame), and setSource
+  // rejects a zero-sized source. The first real frame resizes it, and the planar path
+  // re-derives the true aspect from the frame itself, so this placeholder never shows.
+  canvas.width = 1280; canvas.height = 720;
   const renderer = createYuvRenderer(canvas);
   let ws = null;
   let latest = null;      // most recent YUV ArrayBuffer (painted on the render tick)
@@ -112,22 +117,50 @@ export function createNativeFrameReceiver({ port = 8899, mirror = false, cap = 0
     painted++; winPainted++;
   }
 
-  // resolves on the FIRST frame (proves the socket + a live stream), with the
-  // same retry posture as the camera module (the server may bind a beat late)
-  function start() {
+  // RESOLVES ON THE SOCKET, NOT ON THE FIRST FRAME.
+  //
+  // It used to wait for a frame, on the reasoning that a frame proves both the transport
+  // and a live decode. That conflates two things, and the conflation is what made the
+  // broadcast fail from motion mode on a long 4K clip while succeeding from perform
+  // (Daniel, B505): entering motion runs a thumbnail pass, and AVAssetImageGenerator
+  // competing with the player stalls frame delivery for seconds on a 6:39 4K source. The
+  // socket was open and healthy the whole time; only the frames were late. A hard 6s
+  // deadline turned a temporary stall into a permanent "could not join the video stream".
+  //
+  // An open socket is the thing this call can actually assert. Frames arriving late are
+  // normal and already handled — the engine holds its last frame until a new one lands.
+  // The native side now reports the fan-out ("[FoldFrames:<port>] client ready — N
+  // receiving"), which is where a genuinely dead stream shows up.
+  // `requireFrame` picks which of the two assertions this call makes, and the choice is
+  // about whether the caller HAS A FALLBACK. The main webview does (the `<video>` path),
+  // and a decode that never produces a frame must fall back to it — that exact failure
+  // shipped once already (B499's AVPlayerLooper output attached to an item that never
+  // played). The external display has no fallback, so for it a stall must not be fatal.
+  function start({ requireFrame = false, timeout = 10000 } = {}) {
     return new Promise((resolve, reject) => {
       let done = false;
       let attempt = 0;
+      const finish = () => { if (!done) { done = true; resolve(); } };
       const connect = () => {
         if (stopped) return;
         try { ws = new WebSocket(`ws://127.0.0.1:${port}`); }
         catch (e) { if (!done) { done = true; reject(e); } return; }
         ws.binaryType = 'arraybuffer';
+        ws.onopen = () => {
+          if (requireFrame) return;   // the caller wants proof of a live decode, not just a socket
+          finish();
+          // not fatal, but worth saying: an open socket with no traffic means the producer
+          // is stalled rather than absent
+          setTimeout(() => {
+            if (!stopped && arrived === 0) console.warn(`[fold] joined port ${port} but no frames yet — the decode may be stalled`);
+          }, 5000);
+        };
         ws.onmessage = (ev) => {
           latest = ev.data;
           seq++;
           arrived++; winArrived++;
-          if (!done) { done = true; paintLatest(); resolve(); }
+          if (arrived === 1) paintLatest();   // prime the preview canvas with real dimensions
+          finish();
         };
         ws.onclose = () => {
           if (!done && !stopped && attempt < 6) { attempt++; ws = null; setTimeout(connect, 300); }
@@ -135,8 +168,12 @@ export function createNativeFrameReceiver({ port = 8899, mirror = false, cap = 0
       };
       connect();
       setTimeout(() => {
-        if (!done) { done = true; reject(new Error(`no native frames on port ${port} (ws blocked or nothing streaming)`)); }
-      }, 6000);
+        if (done) return;
+        done = true;
+        reject(new Error(requireFrame
+          ? `no native frames on port ${port} (nothing streaming)`
+          : `could not open port ${port} (ws blocked or nothing listening)`));
+      }, timeout);
     });
   }
 
