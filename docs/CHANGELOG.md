@@ -4,6 +4,24 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🧹 v0.21.3 (Build 501) — 2026-07-31 — Two decoders were starving each other, and every test round was leaking a gigabyte
+
+Daniel's B500 session was pathological, not merely slow: ~3 minutes for the footage thumbnails, ~1 minute for the preview to catch up after a scrub, playback advancing a single frame, the scrubber sometimes snapping back. The report line I added never appeared — the process never got far enough to print it. The log says why, twice over.
+
+**1. The staged clip was never deleted.** `FileUploadServer.begin()` wrote `tmp/fold-video/<name>` and nothing ever removed it. Every clip load left another full copy — with a 1.2GB clip across several test rounds that is many gigabytes of dead staging in the app container, and a nearly-full container makes the whole app slow. His log opens with three `Fig -12710`s, a **5.4-second** networking-process launch, and `WebProcessProxy::didBecomeUnresponsive` **before any of our code ran**. The device was already in trouble at launch. Now: purge the staging directory before writing a new clip, and again on `stop()`. One clip is staged at a time, so anything else in there is garbage.
+
+**2. Two 4K hardware decode sessions were fighting.** Stage 3 deliberately left the `<video>` loaded-but-parked to keep authoring working — but "parked" only holds while nobody seeks it, and **both thumbnail builders seek it per cell**. Entering motion therefore woke a second 4K decoder right next to the native one. iOS has a small number of concurrent 4K decode sessions; we were asking for two and getting neither. That fits every symptom better than any throughput wall, including the ones that made no sense as a frame-rate problem (a scrub taking a minute to land, the scrubber snapping back).
+- **New `env.stillAt(sec, maxPx)`** — the single "give me the frame at t" accessor. On the native path it goes to `AVAssetImageGenerator` (`nativeStillAt`) and **never** falls back to the `<video>`, because falling back is the contention. Off the native path it behaves exactly as before.
+- **The footage thumbnails now use it.** They also request 640px cells instead of decoding full frames.
+- **The keyframe filmstrip stands down on the native path** rather than half-rendering — it keeps whatever it last built. Routing it through the image generator too is the follow-up; it does more than seek (it borrows the GL canvas and re-renders states), so it wants its own increment.
+- The strip's restore-seek is skipped on the native path for the same reason.
+
+**Where this leaves the throughput question:** unanswered, and deliberately so. B500's instrumentation is still in and still correct, but it could never report through a starved process. Get a healthy session first, then read the numbers.
+
+**VERIFY (Daniel, iPad):** this build's first job is to make the app usable again. Load the 20.4s 4K clip, enter motion, and expect thumbnails in seconds rather than minutes and a scrub that lands promptly. **Then** the measurement that B500 was for: play, read `[fold] native video: N in/s · N painted/s · blit Nms · engine upload Nms`, then set `localStorage.foldNativeVideoCap = '1920'`, reload, and read it again. Those two lines still decide the next build. Note the keyframe filmstrip will not rebuild on the native path yet — that's expected, not a bug. Worth also confirming free space on the device looks sane after a few loads.
+
+Verified: node --check, vite build, Swift brace balance (3/3). The Swift needs Daniel's Xcode build.
+
 ## 📊 v0.21.2 (Build 500) — 2026-07-31 — The native path RUNS. Now measure the wall instead of guessing at it
 
 B499 worked: Daniel's log walks the whole ladder — `upload opened on 8901 (1195MB)` → `uploaded 1252687803 bytes in 5.5s (**217MB/s**)` → `decode started, serving port 8900` → `first frame received` → `native video decode active`. The `AVPlayerLooper` output fix was the blocker, and the binary upload socket beat its estimate by a third.

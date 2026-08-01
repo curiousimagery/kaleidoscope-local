@@ -1089,6 +1089,12 @@ function buildFilmstrip() {
 // (env.filmstrip.gen, bumped by scrub/playback); footage restored to the playhead after; the
 // preview is frozen behind a snapshot so the borrowed GL canvas never flashes.
 async function buildFilmstripVideo(strip, sig, geom) {
+  // The keyframe filmstrip seeks env.sourceVideo per cell. On the native path that is the
+  // PARKED <video>, and waking it puts a second 4K decode session next to the native one —
+  // which is what turned Daniel's B500 session into minutes-per-thumbnail. Stand down here
+  // rather than half-render: the strip keeps whatever it last built, and routing it through
+  // the image generator (as buildSrcStrip now is) is the follow-up.
+  if (env.nativeVideo) { env.filmstrip.busy = false; return; }
   env.filmstrip.busy = true;
   const gen = ++env.filmstrip.gen;
   const v = env.sourceVideo;

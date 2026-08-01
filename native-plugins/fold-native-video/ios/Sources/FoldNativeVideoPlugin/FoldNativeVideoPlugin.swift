@@ -176,6 +176,7 @@ public class FoldNativeVideoPlugin: CAPPlugin, CAPBridgedPlugin {
         DispatchQueue.main.async {
             self.teardown()
             self.server.stop()
+            self.uploads.purge()   // the staged copy dies with the decode that used it
             call.resolve()
         }
     }

@@ -901,6 +901,29 @@ export function createSourceHost(env) {
   // load. It NEVER touches the engine texture (no updateSourceFrame), so the parked
   // frame keeps rendering while thumbs build; cancelled (gen bump) the moment the
   // user scrubs, and rebuilt on scrub end if it was cut short.
+  // ONE decoder, one seeker. While the native decode owns the clip, seeking the parked
+  // `<video>` wakes a SECOND 4K hardware decode session next to it and the two starve each
+  // other — Daniel's B500 session: 3 minutes for the footage thumbnails, ~1 minute for the
+  // preview to catch up after a scrub, playback advancing a frame at a time. iOS has a
+  // small number of concurrent 4K decode sessions and we were asking for two.
+  //
+  // So on the native path every still comes from AVAssetImageGenerator (already there for
+  // staging) and the `<video>` is never seeked at all. It stays loaded purely so overlay
+  // geometry keeps reading real dimensions.
+  async function stillAt(sec, maxPx = 1280) {
+    if (env.nativeVideo) {
+      const mod = await import('./native-video.js').catch(() => null);
+      const img = await mod?.nativeStillAt?.(sec, maxPx);
+      if (img) return img;
+      return null;                     // no fallback to <video>: that's the contention
+    }
+    const v = env.sourceVideo;
+    if (!v) return null;
+    await seekVideoTo(v, sec);
+    return v;
+  }
+  env.stillAt = stillAt;
+
   const srcStrip = { gen: 0, dirty: false, building: false, sig: '', queued: false };
   async function buildSrcStrip() {
     const track = document.getElementById('srcScrub');
@@ -926,7 +949,8 @@ export function createSourceHost(env) {
     try {
       for (let i = 0; i < n; i++) {
         if (gen !== srcStrip.gen) { srcStrip.dirty = true; return; }
-        await seekVideoTo(v, span.inSec + ((i + 0.5) / n) * span.span);
+        const frame = await stillAt(span.inSec + ((i + 0.5) / n) * span.span, 640);
+        if (!frame) return;
         if (gen !== srcStrip.gen) { srcStrip.dirty = true; return; }
         const cw = Math.ceil((w / n) * dpr), ch = Math.ceil(h * dpr);
         const c = document.createElement('canvas');
@@ -935,18 +959,20 @@ export function createSourceHost(env) {
         c.style.left = (i * 100 / n) + '%';
         c.style.width = (100 / n) + '%';
         // cover-fit the frame into the cell (center crop)
-        const va = (v.videoWidth || 1) / (v.videoHeight || 1), ca = cw / ch;
+        const fw = frame.videoWidth || frame.naturalWidth || frame.width || 1;
+        const fh = frame.videoHeight || frame.naturalHeight || frame.height || 1;
+        const va = fw / fh, ca = cw / ch;
         let sw, sh, sx, sy;
-        if (va > ca) { sh = v.videoHeight; sw = sh * ca; sx = (v.videoWidth - sw) / 2; sy = 0; }
-        else { sw = v.videoWidth; sh = sw / ca; sx = 0; sy = (v.videoHeight - sh) / 2; }
-        c.getContext('2d').drawImage(v, sx, sy, sw, sh, 0, 0, cw, ch);
+        if (va > ca) { sh = fh; sw = sh * ca; sx = (fw - sw) / 2; sy = 0; }
+        else { sw = fw; sh = sw / ca; sx = 0; sy = (fh - sh) / 2; }
+        c.getContext('2d').drawImage(frame, sx, sy, sw, sh, 0, 0, cw, ch);
         cells.push(c);
       }
       track.querySelectorAll('.ss-cell').forEach((el) => el.remove());
       for (const c of cells) track.appendChild(c);
     } finally {
       srcStrip.building = false;
-      if (gen === srcStrip.gen) {
+      if (gen === srcStrip.gen && !env.nativeVideo) {
         try { await seekVideoTo(v, saved); } catch { /* keep whatever frame presented */ }
         // The strip is the LAST WRITER on the video's clock during a load — a
         // parked still-mode source must be re-presented after the restore, or

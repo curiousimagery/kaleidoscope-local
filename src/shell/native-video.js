@@ -132,6 +132,20 @@ function createNativeClock(receiver, state) {
   };
 }
 
+// One frame at `sec` as a decoded <img>, straight from AVAssetImageGenerator. The ONLY
+// way to get a still while the native decode owns the clip — seeking the parked `<video>`
+// instead would wake a second 4K decode session and starve both (Daniel, B500).
+export async function nativeStillAt(sec, maxPx = 1280) {
+  try {
+    const res = await FoldNativeVideo.frameAt({ time: Math.max(0, sec), maxSize: maxPx });
+    if (!res?.dataUrl) return null;
+    const img = new Image();
+    img.src = res.dataUrl;
+    await img.decode().catch(() => {});
+    return img.naturalWidth ? img : null;
+  } catch { return null; }
+}
+
 // Bounded stills for the EDITOR while motion staging is on — the native half of the
 // stageSource seam. AVAssetImageGenerator on the same asset: a decode burst per
 // scrub-settle, no second player, which is the whole reason staging survives one decode.

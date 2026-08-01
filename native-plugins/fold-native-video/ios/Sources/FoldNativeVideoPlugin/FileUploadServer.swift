@@ -51,6 +51,13 @@ final class FileUploadServer {
         queue.sync {
             closeFileLocked()
             let dir = FileManager.default.temporaryDirectory.appendingPathComponent("fold-video", isDirectory: true)
+            // PURGE FIRST. Every clip load writes another full copy here and nothing was
+            // ever deleting them — across a few test rounds with a 1.2GB clip that is many
+            // GB of dead staging in the app container, and a nearly-full container makes
+            // the whole app slow (Daniel's B500 session opened with three Fig -12710s, a
+            // 5.4s networking-process launch and an immediately unresponsive web process).
+            // One clip is staged at a time, so anything already in here is garbage.
+            purgeLocked(dir)
             try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
             let safe = name.isEmpty ? "clip.mp4" : name
             let dest = dir.appendingPathComponent(safe)
@@ -91,6 +98,22 @@ final class FileUploadServer {
 
     func cancel() {
         queue.async { [weak self] in self?.closeFileLocked() }
+    }
+
+    // Drop every staged clip. Called before staging a new one and on plugin teardown.
+    func purge() {
+        queue.async { [weak self] in
+            guard let self = self else { return }
+            self.closeFileLocked()
+            self.purgeLocked(FileManager.default.temporaryDirectory
+                .appendingPathComponent("fold-video", isDirectory: true))
+        }
+    }
+
+    private func purgeLocked(_ dir: URL) {
+        let fm = FileManager.default
+        guard let names = try? fm.contentsOfDirectory(atPath: dir.path) else { return }
+        for n in names { try? fm.removeItem(at: dir.appendingPathComponent(n)) }
     }
 
     // MARK: - internals (all on `queue`)
