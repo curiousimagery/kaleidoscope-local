@@ -30,6 +30,7 @@ export function createOutputEngine(env) {
   let glCanvas = null;      // the hidden engine's GL drawing buffer (drawImage source)
   let capCanvas = null, capCtx = null;   // 2D blit target → getImageData
   let lastSource = null;    // identity of the source currently uploaded to the hidden engine
+  let lastW = 0, lastH = 0; // ...and the dims it had then (the camera reuses one element across renegotiation)
 
   // LANE 4B TIER 1 — probe-once adaptive readback. The strategy (and the bench
   // history that shaped it) lives in conduit/capture.js now, extracted so every
@@ -70,7 +71,7 @@ export function createOutputEngine(env) {
       console.warn('[fold] WebGL context RESTORED (output engine)');
       try { hidden.reinitGL(); }   // rebuild the GPU resources, not just the source
       catch (e) { console.warn('[fold] output engine GL reinit failed', e); }
-      lastSource = null;   // force a re-upload onto the restored context
+      lastSource = null; lastW = 0; lastH = 0;   // force a re-upload onto the restored context
     });
   }
 
@@ -85,11 +86,19 @@ export function createOutputEngine(env) {
   function syncSource(src) {
     const w = src.naturalWidth || src.videoWidth || src.width || 0;
     const h = src.naturalHeight || src.videoHeight || src.height || 0;
-    const cur = hidden.getSourceSize();   // dims currently uploaded to the hidden engine
-    if (src !== lastSource || (w && h && (w !== cur.w || h !== cur.h))) {
+    // track the ELEMENT's dims here rather than asking the engine for them: on the
+    // planar path the engine records the true SOURCE size (3840×2160) while the element
+    // it was handed is the bounded preview canvas, so comparing the two would re-upload
+    // every single frame and tear the planar provider down with it
+    if (src !== lastSource || (w && h && (w !== lastW || h !== lastH))) {
       try {
         hidden.setSource(src);     // records sourceAspect from the live dims; throws if not ready
-        lastSource = src;
+        // the native decode's preview canvas is small on purpose — this engine feeds
+        // recording / Syphon / NDI, so give it the full-res planes instead
+        if (env.nativeVideo && src === env.nativeVideo.frameSource()) {
+          hidden.setPlanarSource(env.nativeVideo.planeReader(), env.nativeVideo.cap);
+        }
+        lastSource = src; lastW = w; lastH = h;
       } catch {
         // not ready this frame (rare — the preview already validated the source);
         // leave lastSource so we retry next frame, and render whatever's uploaded.
@@ -107,8 +116,14 @@ export function createOutputEngine(env) {
     // around seek during playback too. The live camera (not a <video> src) is exempt.
     // The seek guard reads the element we're ACTUALLY uploading (src can be the
     // staging fork's committed copy, whose seeks are independent of env.sourceVideo).
+    // The native decode's frames arrive on a CANVAS, not a <video> — so neither branch
+    // of the old test matched and this engine froze on its first frame, which is the
+    // output bus (record / Syphon / NDI) showing a still of a playing clip. It has no
+    // seek state of its own to guard against: the shared decode is already settled by
+    // the time a frame is on the wire.
     const vid = src.tagName === 'VIDEO' ? src : null;
-    if (env.live?.isLive || (vid && !vid.seeking)) {
+    if (env.live?.isLive || env.nativeVideo || (vid && !vid.seeking)) {
+      if (env.nativeVideo) hidden.setPlanarCap(env.nativeVideo.cap);   // the toggle applies live
       hidden.updateSourceFrame();
     }
   }

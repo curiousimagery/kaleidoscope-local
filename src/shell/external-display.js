@@ -299,7 +299,9 @@ export function createExternalDisplaySink(env) {
       if (env.loopIsActive?.()) return 'loop:' + (env.clip?.baking ? 'bake' : 'edit');
       // the single native decode: the external view joins its socket, so the signature
       // keys on the port (a re-acquire restarts the stream and must rebuild the receiver)
-      if (env.nativeVideo) return 'vidnative:' + env.nativeVideo.port;
+      // the cap is part of the signature so changing source detail re-posts the payload —
+      // the external view runs its own engine and can't see the toggle otherwise
+      if (env.nativeVideo) return `vidnative:${env.nativeVideo.port}:${env.nativeVideo.cap}`;
       if (env.sourceVideo && env.media?.sourceVideoUrl) return 'vid:' + env.media.sourceVideoUrl;
       const src = env.engine?.getSourceImage?.();
       if (src) return 'img:' + (src.src || src.currentSrc || env.media?.sourceFilename || '1');
@@ -331,7 +333,9 @@ export function createExternalDisplaySink(env) {
       // ONE DECODE (S3-A stage 4): hand the external view the frame socket instead of a
       // staged copy of the clip. No second decoder, no 2GB base64 staging ceiling, no
       // range server, and the two views are frame-synced by construction.
-      if (env.nativeVideo) return { kind: 'video-native', port: env.nativeVideo.port };
+      // the source-detail cap rides along: the external view runs its own engine, so it
+      // has to apply the same bound the main one does or the two disagree about detail
+      if (env.nativeVideo) return { kind: 'video-native', port: env.nativeVideo.port, cap: env.nativeVideo.cap };
       if (env.sourceVideo && env.media?.sourceVideoUrl) {
         // FALLBACK ONLY (no native decode): stage the clip to the native cache + serve it back
         // (blob URLs don't cross webviews); output-view.js loads `kind:'video'` + locks it to

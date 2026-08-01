@@ -30,16 +30,17 @@ import { createYuvRenderer } from './yuv-renderer.js';
 const MAGIC_PLAIN = 0x46595556;    // "FYUV" — camera, clockless, 24-byte header
 const MAGIC_STAMPED = 0x46595557;  // "FYUW" — video, + pts/duration, 40-byte header
 
-// `cap` bounds the RGB canvas's long edge. It does NOT reduce the decode or the wire —
-// it bounds what the ENGINE then has to upload from this canvas, which at 4K is a 33MB
-// cross-context texture copy per frame. Diagnostics knob, off by default: this is the
-// leading suspect for the fixed-cadence stutter but it is a TRADE (source detail for
-// throughput), so it stays measurable rather than assumed.
+// `cap` bounds the RGB PREVIEW canvas's long edge. It does not reduce the decode or
+// the wire, and since Build 504 it no longer bounds what the engine samples either —
+// the engine takes the planes directly (`planeReader`) and applies its own cap. What
+// is left here is the source-panel preview and the fallback for consumers that still
+// read a drawable.
 export function createNativeFrameReceiver({ port = 8899, mirror = false, cap = 0 } = {}) {
   const canvas = document.createElement('canvas');
   const renderer = createYuvRenderer(canvas);
   let ws = null;
   let latest = null;      // most recent YUV ArrayBuffer (painted on the render tick)
+  let seq = 0;            // bumped per message — how a plane reader knows the frame is new
   let stopped = false;
   let pts = 0;            // clock of the most recently PAINTED frame (stamped wire only)
   let duration = 0;
@@ -48,41 +49,65 @@ export function createNativeFrameReceiver({ port = 8899, mirror = false, cap = 0
   // `painted` is what actually reached the canvas: if arrived is healthy and painted is
   // not, the wall is on the GPU side, and if arrived itself is low the wall is the wire.
   let arrived = 0, winArrived = 0, winPainted = 0, winPaintMs = 0;
+  // frames handed to the ENGINE as raw planes (the fast path) — counted apart from the
+  // preview blit so the report can say which one is actually carrying the picture
+  let taken = 0, winTaken = 0;
 
-  // Paint the latest received frame into the RGB canvas. Called each render
-  // tick (refreshFrame) so the YUV->RGB blit is synced to the render loop —
-  // one blit per rendered frame, not one per socket message.
-  function paintLatest() {
-    if (!latest) return;
+  // Parse the wire header into a frame the blitters understand. Cheap and pure — the
+  // engine calls this per render tick to get planes it can upload directly, so it must
+  // not touch GL or the canvas. Returns null when nothing has arrived (or a stray
+  // message came through), which callers read as "hold the last frame".
+  function parseLatest() {
+    if (!latest) return null;
     const dv = new DataView(latest);
     const magic = dv.getUint32(0, false);
-    if (magic !== MAGIC_PLAIN && magic !== MAGIC_STAMPED) return;
+    if (magic !== MAGIC_PLAIN && magic !== MAGIC_STAMPED) return null;
     const width = dv.getUint32(4, true);
     const height = dv.getUint32(8, true);
     const yStride = dv.getUint32(12, true);
     const cStride = dv.getUint32(16, true);
     const cHeight = dv.getUint32(20, true);
-    let head = 24;
+    let head = 24, t = 0, d = 0;
     if (magic === MAGIC_STAMPED) {
-      // the clock advances with the PAINT, not with arrival — a reader asking
-      // "what time is the frame on screen?" gets the frame on screen
-      const t = dv.getFloat64(24, true);
-      const d = dv.getFloat64(32, true);
-      if (isFinite(t) && t >= 0) pts = t;      // 0 is a real position (head of the clip)
-      if (isFinite(d) && d > 0) duration = d;  // 0 = not loaded yet; hold the last good value
+      t = dv.getFloat64(24, true);
+      d = dv.getFloat64(32, true);
       head = 40;
     }
     const ySize = yStride * height;
     const cSize = cStride * cHeight;
-    const yPlane = new Uint8Array(latest, head, ySize);
-    const cPlane = new Uint8Array(latest, head + ySize, cSize);
-    // the renderer sets its viewport from the dims it's handed, so a capped canvas simply
-    // scales the same full-screen quad down — no separate resample pass
-    const scale = cap > 0 ? Math.min(1, cap / Math.max(width, height)) : 1;
-    const cw = Math.max(1, Math.round(width * scale)), ch = Math.max(1, Math.round(height * scale));
+    return {
+      width, height, yStride, cStride, cHeight, mirror,
+      pts: t, duration: d, stamped: magic === MAGIC_STAMPED,
+      yPlane: new Uint8Array(latest, head, ySize),
+      cPlane: new Uint8Array(latest, head + ySize, cSize),
+    };
+  }
+
+  // The clock advances with the frame that reaches a RENDER TARGET, not with arrival —
+  // a reader asking "what time is the frame on screen?" gets the frame on screen. Both
+  // consumers (the engine's planar upload and the preview blit) report through here,
+  // so the clock keeps running whichever one a given mode actually uses.
+  function noteClock(frame) {
+    if (!frame.stamped) return;
+    if (isFinite(frame.pts) && frame.pts >= 0) pts = frame.pts;        // 0 is a real position (head of the clip)
+    if (isFinite(frame.duration) && frame.duration > 0) duration = frame.duration;  // 0 = not loaded yet; hold the last good value
+  }
+
+  // Paint the latest received frame into the RGB PREVIEW canvas. Called each render
+  // tick (refreshFrame) so the YUV->RGB blit is synced to the render loop — one blit
+  // per rendered frame, not one per socket message.
+  function paintLatest() {
+    const frame = parseLatest();
+    if (!frame) return;
+    noteClock(frame);
+    // the blitter uploads the planes at their TRUE size and lets the viewport scale, so
+    // a capped canvas is a downscale. (Allocating the plane textures at the CAPPED size
+    // instead reads a top-left crop of the frame — what Build 500's cap actually did.)
+    const scale = cap > 0 ? Math.min(1, cap / Math.max(frame.width, frame.height)) : 1;
+    const cw = Math.max(2, Math.round(frame.width * scale)), ch = Math.max(2, Math.round(frame.height * scale));
     if (canvas.width !== cw || canvas.height !== ch) { canvas.width = cw; canvas.height = ch; }
     const t0 = performance.now();
-    renderer.draw(cw, ch, yStride, cStride, yPlane, cPlane, mirror);
+    renderer.draw(frame, cw, ch, mirror);
     winPaintMs += performance.now() - t0;
     painted++; winPainted++;
   }
@@ -100,6 +125,7 @@ export function createNativeFrameReceiver({ port = 8899, mirror = false, cap = 0
         ws.binaryType = 'arraybuffer';
         ws.onmessage = (ev) => {
           latest = ev.data;
+          seq++;
           arrived++; winArrived++;
           if (!done) { done = true; paintLatest(); resolve(); }
         };
@@ -126,16 +152,41 @@ export function createNativeFrameReceiver({ port = 8899, mirror = false, cap = 0
     stop,
     refreshFrame: paintLatest,
     frameSource: () => canvas,
+    // THE FAST PATH: hand the raw planes to whoever is going to render them, so the
+    // pixels never make a round trip through another context's canvas. Counts as a
+    // painted frame — it IS the frame that reaches the screen on this path.
+    // One reader PER CONSUMING ENGINE (preview, output bus, PiP, the external view).
+    // Each tracks the last message it has seen and returns null when nothing new has
+    // arrived, which its engine reads as "hold the last frame" — so a 60Hz render loop
+    // on a 30fps clip does 30 uploads, not 60, and three engines don't starve each
+    // other by racing a single shared cursor.
+    planeReader() {
+      let lastSeq = -1;
+      return () => {
+        if (seq === lastSeq) return null;
+        const frame = parseLatest();
+        if (!frame) return null;
+        lastSeq = seq;
+        noteClock(frame);
+        taken++; winTaken++;
+        return frame;
+      };
+    },
     get port() { return port; },
     // clock readouts — meaningful only on the stamped ("FYUW") video socket
     get pts() { return pts; },
     get duration() { return duration; },
-    get framesPainted() { return painted; },
+    get framesPainted() { return painted + taken; },
     get framesArrived() { return arrived; },
     // consume + reset the rolling window (the caller owns the reporting cadence)
     takeStats() {
-      const s = { arrived: winArrived, painted: winPainted, paintMs: winPainted ? winPaintMs / winPainted : 0 };
-      winArrived = 0; winPainted = 0; winPaintMs = 0;
+      const s = {
+        arrived: winArrived,
+        painted: winPainted,
+        taken: winTaken,
+        paintMs: winPainted ? winPaintMs / winPainted : 0,
+      };
+      winArrived = 0; winPainted = 0; winTaken = 0; winPaintMs = 0;
       return s;
     },
   };

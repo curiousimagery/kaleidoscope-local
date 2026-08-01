@@ -405,15 +405,23 @@ function startVideoPlayback() {
       clock.seek(inSec);
     }
     let p = Math.max(0, Math.min(1, (clock.time - inSec) / span));
-    env.nativeVideo?.refreshFrame();    // blit the latest socket frame before we upload it
+    // TWO CONSUMERS, MEASURED APART (B504). `engine` is the source upload that renders
+    // the program; `preview` is everything that exists only so the EDITOR can see the
+    // footage — the preview canvas blit, the stage's copy of it, and the source panel's
+    // 2D draw. They used to be one cost because the engine sampled the preview canvas.
+    const nv = env.nativeVideo;
+    let pvMs = 0, t0 = nv ? performance.now() : 0;
+    nv?.refreshFrame();                 // preview canvas: the source panel + the stage read it
     if (stg.on) stgSrc?.followLive();   // the stage rides the audience's frame
-    const upT0 = env.nativeVideo ? performance.now() : 0;
+    if (nv) { pvMs = performance.now() - t0; t0 = performance.now(); }
     engine.updateSourceFrame();
-    if (env.nativeVideo) env.nativeVideo.noteUpload(performance.now() - upT0);
+    if (nv) nv.noteUpload(performance.now() - t0);
     Object.assign(state, sampleAt(p));
     if (engine && engine.getSourceImage()) engine.render(state);
     env.commitFrame?.();   // video playback's commit point (params locked to the presented frame)
+    if (nv) t0 = performance.now();
     env.sourceOverlay.paintSourceVideo();
+    if (nv) nv.notePreview(pvMs + (performance.now() - t0));
     env.sourceOverlay.render();
     setPlayhead(p);
     followPlayhead(p);
@@ -695,7 +703,15 @@ function stgStopVideo() {
   if (!stgSrc) return;
   stgSrc.end();
   stgSrc = null;
-  try { engine.setSource(env.sourceVideo); engine.updateSourceFrame(); } catch { /* source may be gone */ }
+  // hand the engine back to whatever owns the picture: the native decode's planes, or
+  // the <video> element when there is no native decode. (Restoring the ELEMENT on the
+  // native path hands back a source that is parked and never advances.)
+  try {
+    const nv = env.nativeVideo;
+    engine.setSource(nv ? nv.frameSource() : env.sourceVideo);
+    if (nv) engine.setPlanarSource(nv.planeProvider, nv.cap);
+    engine.updateSourceFrame();
+  } catch { /* source may be gone */ }
 }
 // Point the stage canvas at the right frame for the current transport: the live frame
 // while the editor is following, an exact seek when it is parked.

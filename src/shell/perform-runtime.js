@@ -38,6 +38,7 @@ export function createPerformRuntime(env) {
   let follower = null;
   let raf = 0, lastT = 0;
   let pipEngine = null, pipLastSource = null, pipFailed = false;
+  let pipLastW = 0, pipLastH = 0;   // dims of the element last uploaded (see syncPipSource)
   let dotSynced = null;   // last applied sync-dot state (avoid per-frame class churn)
 
   // onion-skin trail (Daniel's ghost spec, round 2): the trail spans the FULL
@@ -72,7 +73,7 @@ export function createPerformRuntime(env) {
       });
       canvas.addEventListener('webglcontextrestored', () => {
         console.warn('[fold] WebGL context RESTORED (live PiP)');
-        try { pipEngine.reinitGL(); pipLastSource = null; }   // resync the source next tick
+        try { pipEngine.reinitGL(); pipLastSource = null; pipLastW = 0; pipLastH = 0; }   // resync the source next tick
         catch (err) { console.warn('[fold] PiP GL reinit failed', err); }
       });
     } catch (e) {
@@ -156,7 +157,7 @@ export function createPerformRuntime(env) {
       externalLive = !!on;
       if (on) {
         ensurePipEngine();
-        pipLastSource = null;   // re-sync the source on borrow (it may have changed since perform last ran)
+        pipLastSource = null; pipLastW = 0; pipLastH = 0;   // re-sync the source on borrow (it may have changed since perform last ran)
         const dot = byId('lpDot');
         dot?.classList.add('sync');     // no chase semantics here — keep the dot quiet
         dot?.classList.remove('live');
@@ -181,13 +182,22 @@ export function createPerformRuntime(env) {
     if (!src || !pipEngine) return false;
     const w = src.naturalWidth || src.videoWidth || src.width || 0;
     const h = src.naturalHeight || src.videoHeight || src.height || 0;
-    const cur = pipEngine.getSourceSize();
-    if (src !== pipLastSource || (w && h && (w !== cur.w || h !== cur.h))) {
-      try { pipEngine.setSource(src); pipLastSource = src; }
-      catch { /* not ready this frame — retry next tick */ }
+    // the element's own dims, not the engine's recorded source size — see the same note
+    // in output-engine's syncSource (on the planar path those two legitimately differ)
+    if (src !== pipLastSource || (w && h && (w !== pipLastW || h !== pipLastH))) {
+      try {
+        pipEngine.setSource(src);
+        if (env.nativeVideo && src === env.nativeVideo.frameSource()) {
+          pipEngine.setPlanarSource(env.nativeVideo.planeReader(), env.nativeVideo.cap);
+        }
+        pipLastSource = src; pipLastW = w; pipLastH = h;
+      } catch { /* not ready this frame — retry next tick */ }
     }
+    // same blind spot as output-engine's syncSource: a native decode presents a canvas,
+    // so the PiP held its first frame for the whole session
     const vid = src.tagName === 'VIDEO' ? src : null;
-    if (env.live?.isLive || (vid && !vid.seeking)) {
+    if (env.live?.isLive || env.nativeVideo || (vid && !vid.seeking)) {
+      if (env.nativeVideo) pipEngine.setPlanarCap(env.nativeVideo.cap);   // the toggle applies live
       pipEngine.updateSourceFrame();
     }
     return pipLastSource === src;
@@ -439,10 +449,18 @@ export function createPerformRuntime(env) {
     // (the camera's own live loop already does this for live sources.)
     const clock = env.sourceClock;
     if (clock?.present && !clock.paused && !clock.seeking && env.engine?.getSourceImage?.()) {
-      env.nativeVideo?.refreshFrame();   // single native decode: blit the socket frame first
+      // same split as the motion tick: `engine` is the program's source upload, `preview`
+      // is what the editor's own panels cost (see native-video.js report())
+      const nv = env.nativeVideo;
+      let pvMs = 0, t0 = nv ? performance.now() : 0;
+      nv?.refreshFrame();                // preview canvas — the source panel reads it
+      if (nv) { pvMs = performance.now() - t0; t0 = performance.now(); }
       env.engine.updateSourceFrame();
+      if (nv) nv.noteUpload(performance.now() - t0);
       env.engine.render(state);
+      if (nv) t0 = performance.now();
       env.sourceOverlay.paintSourceVideo();
+      if (nv) nv.notePreview(pvMs + (performance.now() - t0));
       // wrap at the TRIM out-point (motion's rule) — the element's own loop would run to
       // the file end and quietly ignore an applied trim
       const s = trimSpan();

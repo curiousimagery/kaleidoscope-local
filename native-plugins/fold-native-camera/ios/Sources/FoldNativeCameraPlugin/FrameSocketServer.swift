@@ -42,9 +42,14 @@ final class FrameSocketServer {
     private final class Client {
         let conn: NWConnection
         var sending = false
+        // NOT BROADCASTABLE UNTIL `.ready` — see accept(). Same fix as the video plugin's
+        // FrameSocketServer, where this race is what starved the external display.
+        var ready = false
+        var sentAt: TimeInterval = 0
         init(_ c: NWConnection) { conn = c }
     }
     private var clients: [Client] = []
+    private let sendStallSeconds: TimeInterval = 6
 
     init(port: Int) { self.port = port }
 
@@ -83,10 +88,18 @@ final class FrameSocketServer {
         c.stateUpdateHandler = { [weak self] state in
             guard let self = self else { return }
             switch state {
+            case .ready:
+                self.lock.lock()
+                client.ready = true
+                let n = self.clients.filter { $0.ready }.count
+                self.lock.unlock()
+                print("[FoldFrames:\(self.port)] client ready — \(n) receiving")
             case .failed, .cancelled:
                 self.lock.lock()
                 self.clients.removeAll { $0 === client }
+                let n = self.clients.filter { $0.ready }.count
                 self.lock.unlock()
+                print("[FoldFrames:\(self.port)] client gone — \(n) receiving")
             default:
                 break
             }
@@ -105,13 +118,27 @@ final class FrameSocketServer {
     // nothing when no client is ready to take one.
     func wantsFrame() -> Bool {
         lock.lock(); defer { lock.unlock() }
-        return clients.contains { !$0.sending }
+        reapStalledLocked()
+        return clients.contains { $0.ready && !$0.sending }
+    }
+
+    // Caller holds `lock`. A send whose completion never fires would latch `sending` and
+    // silently starve that consumer forever; cancelling turns it into a retryable drop.
+    private func reapStalledLocked() {
+        let now = Date().timeIntervalSinceReferenceDate
+        let stalled = clients.filter { $0.sending && now - $0.sentAt > sendStallSeconds }
+        guard !stalled.isEmpty else { return }
+        for client in stalled { client.conn.cancel() }
+        clients.removeAll { c in stalled.contains { $0 === c } }
+        print("[FoldFrames:\(port)] dropped \(stalled.count) stalled client(s)")
     }
 
     func send(_ data: Data) {
+        let now = Date().timeIntervalSinceReferenceDate
         lock.lock()
-        let ready = clients.filter { !$0.sending }
-        for client in ready { client.sending = true }
+        reapStalledLocked()
+        let ready = clients.filter { $0.ready && !$0.sending }
+        for client in ready { client.sending = true; client.sentAt = now }
         lock.unlock()
         guard !ready.isEmpty else { return }
         let meta = NWProtocolWebSocket.Metadata(opcode: .binary)

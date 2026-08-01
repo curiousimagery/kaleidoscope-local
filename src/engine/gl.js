@@ -18,6 +18,7 @@ import {
   collectUniformSpecs,
   collectAllUniformNames,
 } from './shader-builder.js';
+import { createYuvBlitter } from './yuv.js';
 
 // create a WebGL2 context on the provided canvas. returns an object with the
 // active GL handle, program, uniform location map, and helper methods. throws
@@ -273,6 +274,55 @@ export function updateTexture(gl, source, tex) {
   gl.bindTexture(gl.TEXTURE_2D, tex);
   gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
   gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, source);
+}
+
+// PLANAR SOURCE UPLOAD — the same job as updateTexture, for a source whose frames
+// arrive as raw YUV planes rather than as a drawable element.
+//
+// The alternative (what the native-video path did through Build 503) is to let some
+// OTHER WebGL context convert the planes to RGB on a canvas and then texImage2D that
+// canvas here. On WebKit a cross-context canvas upload is a GPU->CPU->GPU round trip:
+// measured on device at ~20ms per megapixel, so 4K cost 162ms/frame and capped the
+// whole pipeline at ~6fps no matter how fast the decode or the socket ran.
+//
+// Here the planes go straight from the ArrayBuffer they arrived in into THIS context,
+// and one full-screen blit converts them into the source texture. `cap` bounds the
+// texture's long edge (the source-detail lever) — the planes still upload at full
+// size and the viewport scales, so capping trades detail for fill rate, not framing.
+export function createPlanarUploader(gl) {
+  const blitter = createYuvBlitter(gl, { flipY: true });   // texture target: row 0 at t=0
+  const fbo = gl.createFramebuffer();
+  const tex = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, tex);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  let tw = 0, th = 0;
+
+  function upload(frame, cap = 0) {
+    const scale = cap > 0 ? Math.min(1, cap / Math.max(frame.width, frame.height)) : 1;
+    const w = Math.max(2, Math.round(frame.width * scale));
+    const h = Math.max(2, Math.round(frame.height * scale));
+    if (w !== tw || h !== th) {
+      gl.bindTexture(gl.TEXTURE_2D, tex);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+      tw = w; th = h;
+    }
+    const prevFbo = gl.getParameter(gl.FRAMEBUFFER_BINDING);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
+    blitter.draw(frame, w, h, !!frame.mirror);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, prevFbo);
+    return tex;
+  }
+
+  function dispose() {
+    blitter.dispose();
+    try { gl.deleteFramebuffer(fbo); gl.deleteTexture(tex); } catch { /* context gone */ }
+  }
+
+  return { upload, dispose, get texture() { return tex; }, get width() { return tw; }, get height() { return th; } };
 }
 
 // push uniforms + bind program + bind position buffer. used by both preview

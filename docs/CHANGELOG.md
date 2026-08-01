@@ -4,6 +4,74 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 📡 v0.21.7 (Build 505) — 2026-07-31 — Why 4K could never broadcast: a client joined the fan-out before its socket was up
+
+**B504's numbers came back and the readback is gone** (4K: `engine 0.6ms`, was 162.6ms; 60 painted/s against 30 in/s — fully decode-bound). What that left standing was the one thing the planar fix could never have touched: **no 4K clip could be broadcast at all**, at any source-detail setting or any output resolution, while a 1080p clip broadcast fine at every setting. Daniel ran the whole matrix, which is what made this findable.
+
+**The bug.** `FrameSocketServer.accept()` added a client to the broadcast list the moment the connection was *accepted* — before `start()`, and therefore before the WebSocket upgrade had completed. The very next decode tick marked it `sending` and handed Network.framework a whole frame for a connection that wasn't up. That send's completion never fired, `sending` latched true, and **the consumer never received another frame** — it sat there until the JS receiver's 6s window expired and reported "could not join the video stream: no native frames on port 8900".
+
+**Why it presented as a resolution problem.** The race is against the upgrade handshake. With a 4K source the loopback is already carrying ~370MB/s to the first client, so the newcomer's handshake lost to the next 33ms tick essentially every time. At 1080p it usually won. That is exactly the pattern Daniel found — and it also explains why turning source detail down never helped: **the cap bounds the engine's texture, not the wire.** The wire always carried native-resolution frames.
+
+**Fixed:** a client only joins the fan-out on `.ready`. Plus a stall reaper — a send whose completion hasn't fired in 6s cancels that client, so a wedged consumer becomes a visible disconnect it can retry from instead of a silent permanent starve. **Both plugins**: `fold-native-video` and `fold-native-camera` carry the same server (extracted verbatim), so the camera-over-HDMI join had the identical latent race.
+
+**And the server now says what it is doing** — `[FoldFrames:8900] client ready — 2 receiving` / `client gone` / `dropped N stalled client(s)`. The external webview's console never reaches Xcode, so every failure on that side has been invisible; the fan-out reporting its own state from the native side is the cheap half of closing that gap.
+
+### The play-seek sweep
+
+Daniel: "on play it initially seeks across the whole timeline before returning to the beginning", and the smaller "the scrubber flicks forward a couple frames before returning back to the correct position".
+
+`clock.time` returned `receiver.pts` — the timestamp of the frame that has actually been **painted**. Correct at rest, wrong for the few frames a seek takes to come back down the pipe, during which it reported the position we just left. Pressing play from the end seeks to 0 and the clock kept reading the end, so the playhead swept the whole timeline before snapping back. A seek now publishes its **target** until a painted frame lands near it (or a 1.5s window expires, so an unresolved seek can't wedge the clock).
+
+**VERIFY (Daniel, iPad):**
+1. **Broadcast the 4K clip at 4K.** This is the one that has never worked. Watch the Xcode console for `[FoldFrames:8900] client ready — 2 receiving`; if it says 1, the join still failed and the log will now say so from the native side.
+2. **Press play in motion from a playhead near the end** — the scrubber should go straight to the start, no sweep.
+3. Re-check the camera over HDMI still joins (same server changed).
+
+Known and unchanged: the motion timeline filmstrip and keyframe thumbnails still stand down on the native path — that is the filed B501 item (`buildFilmstripVideo` needs routing through `env.stillAt`), not a regression. Also still open: opening in still mode before switching to motion.
+
+Verified: node --check, vite build. Swift changes are device-verified only.
+
+## ⚡ v0.21.6 (Build 504) — 2026-07-31 — The engine takes the planes: deleting the cross-context readback
+
+**The gate passed, so the fix is in.** Daniel's A/B run added a third point to the two we had, and the cost of the engine's per-frame source upload is dead linear in source pixels:
+
+| source | engine upload | ≈ per megapixel |
+| --- | --- | --- |
+| 1280×720 | 18.7ms | 20.3ms |
+| 1920×1080 | 49.5ms | 23.9ms |
+| 3840×2160 | 162.6ms | 19.6ms |
+
+That is the signature of a memory copy, not a GPU operation — ~200MB/s, which is CPU readback speed. It was: the native decode's frames were converted to RGB on the *receiver's* WebGL canvas, and the engine then did `texImage2D` of that canvas from a **different** context. On WebKit that round-trips through the CPU. 162ms/frame is a hard 6fps ceiling no matter how fast the decode or the socket runs — and the socket was delivering 28-30 frames/s the whole time.
+
+**The fix: hand the engine the planes, not a canvas.** The Y and CbCr planes are already sitting in CPU memory when they come off the socket. New [engine/yuv.js](../src/engine/yuv.js) blits biplanar YUV→RGB into whatever framebuffer is bound; [gl.js](../src/engine/gl.js) `createPlanarUploader` points that at an FBO whose colour attachment IS the engine's source texture. The planes go straight from their ArrayBuffer into the engine's own context, one blit converts them, and the round trip is gone. **No change to the composed kaleidoscope shader** — `u_source` still samples an ordinary RGB texture, so every form, export path and slice behaves exactly as before.
+
+The shell's [yuv-renderer.js](../src/shell/yuv-renderer.js) is now a thin canvas-target wrapper over the same blitter (one implementation, four consumers).
+
+**Where it's wired.** `engine.setPlanarSource(reader, cap)` on the main preview engine ([source-host.js](../src/shell/source-host.js)), the output-bus engine ([output-engine.js](../src/shell/output-engine.js) — record / Syphon / NDI), the perform PiP, and **the external display view** ([output-view.js](../src/output-view.js)) — which is the HDMI half of the fix, and was paying the identical cost on its own context. Each engine gets its OWN plane reader that tracks the last message it has seen, so a 60Hz render loop on a 30fps clip does 30 uploads and not 60, and four engines don't race one cursor. A reader returning null means "hold the last frame" — which now genuinely holds, instead of falling through and re-uploading the element.
+
+**Source detail is now a live lever.** The cap bounds the engine's source texture (the blit scales; the decode and the wire stay native), so the toggle applies **on the next rendered frame** rather than the next clip load, and every engine reads it live. The external view gets it in its source payload.
+
+### Three real bugs this uncovered
+
+**The cap was cropping, not scaling.** B500's cap allocated the plane textures at the *capped* size while the planes still held full-resolution rows — so `foldNativeVideoCap = 1280` on a 4K clip read the top-left 1280×720 corner of the frame. The blitter now always uploads planes at their true size and lets the viewport do the scaling, which is what the comment claimed all along. **This taints part of the B503 A/B reading** and is worth knowing before trusting those numbers: the per-megapixel figures above hold (they're timings, not framing), but anything Daniel saw framed oddly at 1280 was this.
+
+**The report was labelling the wrong cap.** The `(capped N)` suffix read localStorage *live* while the canvas kept whatever cap was in force at clip load — so toggling relabelled lines without changing anything. The report now prints the true source dimensions and the cap actually in force, and splits the cost into `engine` (the program's source upload) and `preview` (everything that exists only so the editor can see the footage — the preview blit, the stage's copy, the source panel's 2D draw). Those used to be one number because the engine sampled the preview canvas.
+
+**The output bus and the perform PiP were frozen on their first frame.** Both gate their per-frame re-upload on `isLive || (a <video> that isn't seeking)`. A native decode presents a **canvas**, so neither branch matched and neither engine ever re-uploaded — meaning recording / Syphon / NDI, and the perform PiP, showed a still of a playing clip. Both now include the native path. (This is a candidate cause for Daniel's "switching to perform mode, source and timeline go dark" on 4K, though not a confirmed one.)
+
+Also fixed: leaving motion staging restored the **parked** `<video>` as the engine's source on the native path — an element that never advances. It now hands back to the decode's planes.
+
+**VERIFY (Daniel, iPad — this is the decisive round):**
+1. **20.4s 4K clip, motion mode, play.** Read the report. `engine` should fall from ~162ms to single digits; `painted/s` should rise to meet `in/s` (~28-30). If it lands there, 4K playback is decode-bound and the arc paid off.
+2. **Broadcast that clip at 4K over HDMI.** This is the first time the external view has been off the readback path.
+3. **Toggle source detail while playing** — it should change on the next frame now, no reload.
+4. **Perform mode** — does the PiP move? Does the source panel keep up?
+5. **Record or Syphon a native clip** — the bus should show motion, not a frozen frame.
+
+Preview quality note: the receiver's RGB canvas is now bounded to 1280 on purpose. Nothing samples it for output any more (every engine takes planes), so it exists only for the source panel and the staging still — and every draw from it costs a readback, so keeping it small is free.
+
+Verified: node --check, vite build. No new UI, no Lab change.
+
 ## 🎚️ v0.21.5 (Build 503) — 2026-07-31 — "source detail" toggle: the cap was already there, you just couldn't reach it
 
 Clarification first: `foldNativeVideoCap` shipped in B500 and needed no new code — it's a localStorage flag. What it needed was a way to *set it on an iPad*, which is exactly the friction that kept it untested. Now it's a diagnostics toggle beside the others.

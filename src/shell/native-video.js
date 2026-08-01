@@ -32,11 +32,13 @@ import { createNativeFrameReceiver } from './native-frame-receiver.js';
 const FoldNativeVideo = registerPlugin('FoldNativeVideo');
 
 const UPLOAD_SLICE = 4 * 1024 * 1024;   // 4MB per socket message: bounded memory, few round trips
+const PREVIEW_CAP = 1280;               // the RGB canvas is a PREVIEW now — the engine takes planes
 
-// Diagnostics knob (settings → diagnostics is the eventual home; localStorage for now).
-// 0 = native resolution. Caps the RGB canvas the ENGINE uploads from — see the note in
-// native-frame-receiver.js. Set to e.g. 1920 to A/B whether the cross-context 4K texture
-// copy is what pins the frame rate.
+// SOURCE DETAIL (diagnostics toggle → localStorage; settings is the eventual home).
+// 0 = native resolution; otherwise the long edge the engine's source texture is bounded
+// to. This is the graceful-degradation lever: the decode and the wire stay full-res, and
+// the cap only trades detail for fill rate, so slower hardware steps down instead of
+// falling over. Read live so the toggle takes effect on the next frame, not the next load.
 function sourceCap() {
   try { return Math.max(0, parseInt(localStorage.getItem('foldNativeVideoCap') || '0', 10) || 0); }
   catch { return 0; }
@@ -92,7 +94,24 @@ function createNativeClock(receiver, state) {
     get el() { return receiver.frameSource(); },
     get present() { return true; },
     get ready() { return receiver.framesPainted > 0; },
-    get time() { return receiver.pts || 0; },
+    // OPTIMISTIC THROUGH A SEEK. `receiver.pts` is the timestamp of the frame that has
+    // actually been PAINTED, which is the right answer at rest and the wrong one for the
+    // few frames a seek takes to come back down the pipe — during which this reported the
+    // position we just left. That is Daniel's "on play it sweeps the whole timeline before
+    // returning to the beginning" (pressing play from the end seeks to 0, and the clock
+    // kept reading the end) and the smaller "scrubber flicks forward a couple of frames
+    // before snapping back". So a seek publishes its TARGET until a painted frame lands
+    // near it — or until the window expires, so a seek that never resolves can't wedge
+    // the clock.
+    get time() {
+      const painted = receiver.pts || 0;
+      if (state.pendingT == null) return painted;
+      if (Math.abs(painted - state.pendingT) < 0.25 || performance.now() > state.pendingUntil) {
+        state.pendingT = null;
+        return painted;
+      }
+      return state.pendingT;
+    },
     get duration() { return receiver.duration || 0; },
     get paused() { return state.paused; },
     // native seeks are not observable as a flag; treat the settle window as "seeking"
@@ -100,8 +119,11 @@ function createNativeClock(receiver, state) {
     get seeking() { return performance.now() < state.seekUntil; },
     get rate() { return state.rate; },
     seek(t) {
+      const target = Math.max(0, t);
       state.seekUntil = performance.now() + 120;
-      FoldNativeVideo.seek({ time: Math.max(0, t) }).catch(() => {});
+      state.pendingT = target;                        // `time` reports this until it lands
+      state.pendingUntil = performance.now() + 1500;
+      FoldNativeVideo.seek({ time: target }).catch(() => {});
     },
     // Resolve once a frame at (or past) the target has actually been PAINTED.
     //
@@ -209,7 +231,9 @@ export function createNativeStageSource(env, { cap = 2048 } = {}) {
 // caller falls straight through to the <video> path.
 export async function createNativeVideoSource(env, blob, { name, loop = true, onProgress } = {}) {
   if (!nativeVideoAvailable() || !blob) return null;
-  const state = { paused: false, rate: 1, seekUntil: 0 };
+  // pendingT/pendingUntil = the seek target the clock reports until a painted frame
+  // catches up to it (see `get time()`)
+  const state = { paused: false, rate: 1, seekUntil: 0, pendingT: null, pendingUntil: 0 };
   let receiver = null;
   // STAGE BREADCRUMB — every failure here falls back to <video>, which is safe but silent.
   // Naming the stage turns "it fell back" into "it fell back HERE" (the B498 iPad round
@@ -221,7 +245,10 @@ export async function createNativeVideoSource(env, blob, { name, loop = true, on
     const { port } = await FoldNativeVideo.start({ path, loop });
     console.info(`[fold] native video: decode started, serving port ${port || 8900}`);
     stage = 'frame socket';
-    receiver = createNativeFrameReceiver({ port: port || 8900, cap: sourceCap() });
+    // the preview canvas is bounded hard: nothing samples it for output any more (the
+    // engine takes planes directly), and every consumer that still reads it — the source
+    // panel, a freeze-frame — pays a readback per draw, so keeping it small is free detail
+    receiver = createNativeFrameReceiver({ port: port || 8900, cap: PREVIEW_CAP });
     await receiver.start();     // resolves on the first frame — proves decode + socket
     console.info('[fold] native video: first frame received');
   } catch (e) {
@@ -232,12 +259,13 @@ export async function createNativeVideoSource(env, blob, { name, loop = true, on
   }
   const clock = createNativeClock(receiver, state);
 
-  // WHERE THE TIME GOES. Daniel's B499 run: frames arrive at a FIXED low cadence that
-  // doesn't change with playback rate, which says a throughput wall rather than a clock
-  // problem — but "socket" and "GPU" both fit that shape, and guessing has already cost
-  // two rounds. So report the split: frames in off the wire, frames actually painted, the
-  // YUV→RGB blit, and the engine's upload out of that canvas (the 4K cross-context copy).
-  let lastReport = performance.now(), upMs = 0, ups = 0;
+  // WHERE THE TIME GOES. Every field here exists because a guess about it cost a device
+  // round: `in/s` separates the wire from the GPU, `engine` is the per-frame source
+  // upload (the 162ms-at-4K cross-context copy that Build 504 replaced with a planar
+  // upload), and `preview` is the source panel's readback — the one remaining place the
+  // old cost can still hide. Dims are the SOURCE's, and the cap is the one in force.
+  let lastReport = performance.now(), upMs = 0, ups = 0, pvMs = 0, pvs = 0;
+  let lastDims = { w: 0, h: 0 };
   function report() {
     const now = performance.now();
     const dt = (now - lastReport) / 1000;
@@ -246,9 +274,9 @@ export async function createNativeVideoSource(env, blob, { name, loop = true, on
     const s = receiver.takeStats();
     const cap = sourceCap();
     console.info(`[fold] native video: ${(s.arrived / dt).toFixed(1)} in/s · ${(s.painted / dt).toFixed(1)} painted/s`
-      + ` · blit ${s.paintMs.toFixed(1)}ms · engine upload ${(ups ? upMs / ups : 0).toFixed(1)}ms`
-      + ` · ${receiver.frameSource().width}×${receiver.frameSource().height}${cap ? ` (capped ${cap})` : ''}`);
-    upMs = 0; ups = 0;
+      + ` · engine ${(ups ? upMs / ups : 0).toFixed(1)}ms · preview ${(pvs ? pvMs / pvs : 0).toFixed(1)}ms`
+      + ` · ${lastDims.w}×${lastDims.h}${cap ? ` (capped ${cap})` : ''}`);
+    upMs = 0; ups = 0; pvMs = 0; pvs = 0;
   }
 
   return {
@@ -256,10 +284,26 @@ export async function createNativeVideoSource(env, blob, { name, loop = true, on
     clock,
     port: receiver.port,
     frameSource: () => receiver.frameSource(),
+    // THE ENGINE'S SOURCE. Handing over the planes (rather than the preview canvas) is
+    // what deletes the cross-context readback; the cap rides along so the source-detail
+    // toggle takes effect on the next frame instead of the next clip load. The preview
+    // engine gets this reader; every OTHER engine (output bus, PiP, the external view)
+    // makes its own, so each tracks its own last-seen frame.
+    planeProvider: (() => {
+      const read = receiver.planeReader();
+      return () => {
+        const f = read();
+        if (f) lastDims = { w: f.width, h: f.height };
+        return f;
+      };
+    })(),
+    planeReader: () => receiver.planeReader(),
+    get cap() { return sourceCap(); },
     refreshFrame: () => { receiver.refreshFrame(); report(); },
     noteUpload: (ms) => { upMs += ms; ups++; },
-    get width() { return receiver.frameSource().width; },
-    get height() { return receiver.frameSource().height; },
+    notePreview: (ms) => { pvMs += ms; pvs++; },
+    get width() { return lastDims.w || receiver.frameSource().width; },
+    get height() { return lastDims.h || receiver.frameSource().height; },
     stop() {
       try { receiver.stop(); } catch { /* already closed */ }
       FoldNativeVideo.stop().catch(() => {});

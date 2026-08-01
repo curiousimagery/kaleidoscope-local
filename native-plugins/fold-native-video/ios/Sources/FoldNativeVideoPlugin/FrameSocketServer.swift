@@ -56,9 +56,16 @@ final class FrameSocketServer {
     private final class Client {
         let conn: NWConnection
         var sending = false
+        // NOT BROADCASTABLE UNTIL `.ready`. See accept() — sending to a connection whose
+        // WebSocket upgrade hasn't completed is how the external display starved.
+        var ready = false
+        var sentAt: TimeInterval = 0
         init(_ c: NWConnection) { conn = c }
     }
     private var clients: [Client] = []
+    // a send that never completes would latch `sending` forever and silently starve that
+    // consumer; past this long we treat the client as wedged and drop it
+    private let sendStallSeconds: TimeInterval = 6
 
     init(port: Int) { self.port = port }
 
@@ -89,6 +96,22 @@ final class FrameSocketServer {
         }
     }
 
+    // WHY `ready` GATES THE BROADCAST (the bug that made 4K unbroadcastable).
+    //
+    // A client used to join the fan-out the instant its connection was accepted — before
+    // `start()`, and therefore before the WebSocket upgrade had completed. The very next
+    // decode tick would mark it `sending` and hand Network.framework a whole frame for a
+    // connection that wasn't up yet. That send's completion never fired, `sending` latched
+    // true, and the consumer never received another frame: it sat there until the JS
+    // receiver's 6s window expired and reported "no native frames on port 8900".
+    //
+    // Why it looked like a RESOLUTION problem: the race is against the upgrade handshake.
+    // With a 4K source the loopback is already carrying ~370MB/s to the first client, so
+    // the newcomer's handshake routinely lost to the next 33ms tick and the join failed
+    // every time. At 1080p the handshake usually won and the join worked — which is
+    // exactly the pattern Daniel found (fails at every source-detail setting with a 4K
+    // clip, succeeds at every setting with a 1080p clip). The source-detail cap could
+    // never have helped: it bounds the engine's texture, not the wire.
     private func accept(_ c: NWConnection) {
         let client = Client(c)
         lock.lock()
@@ -100,10 +123,18 @@ final class FrameSocketServer {
         c.stateUpdateHandler = { [weak self] state in
             guard let self = self else { return }
             switch state {
+            case .ready:
+                self.lock.lock()
+                client.ready = true
+                let n = self.clients.filter { $0.ready }.count
+                self.lock.unlock()
+                print("[FoldFrames:\(self.port)] client ready — \(n) receiving")
             case .failed, .cancelled:
                 self.lock.lock()
                 self.clients.removeAll { $0 === client }
+                let n = self.clients.filter { $0.ready }.count
                 self.lock.unlock()
+                print("[FoldFrames:\(self.port)] client gone — \(n) receiving")
             default:
                 break
             }
@@ -122,24 +153,39 @@ final class FrameSocketServer {
     // when no client is ready to take one.
     func wantsFrame() -> Bool {
         lock.lock(); defer { lock.unlock() }
-        return clients.contains { !$0.sending }
+        reapStalledLocked()
+        return clients.contains { $0.ready && !$0.sending }
     }
 
     func send(_ data: Data) {
+        let now = Date().timeIntervalSinceReferenceDate
         lock.lock()
-        let ready = clients.filter { !$0.sending }
-        for client in ready { client.sending = true }
+        reapStalledLocked()
+        let takers = clients.filter { $0.ready && !$0.sending }
+        for client in takers { client.sending = true; client.sentAt = now }
         lock.unlock()
-        guard !ready.isEmpty else { return }
+        guard !takers.isEmpty else { return }
         let meta = NWProtocolWebSocket.Metadata(opcode: .binary)
         let ctx = NWConnection.ContentContext(identifier: "frame", metadata: [meta])
-        for client in ready {
+        for client in takers {
             client.conn.send(content: data, contentContext: ctx, isComplete: true,
                              completion: .contentProcessed { [weak self] _ in
                 guard let self = self else { return }
                 self.lock.lock(); client.sending = false; self.lock.unlock()
             })
         }
+    }
+
+    // Caller holds `lock`. A completion that never fires would leave `sending` true for
+    // good, which reads as "this consumer is busy" forever — a silent starve rather than a
+    // visible failure. Cancelling makes it a disconnect the consumer can retry from.
+    private func reapStalledLocked() {
+        let now = Date().timeIntervalSinceReferenceDate
+        let stalled = clients.filter { $0.sending && now - $0.sentAt > sendStallSeconds }
+        guard !stalled.isEmpty else { return }
+        for client in stalled { client.conn.cancel() }
+        clients.removeAll { c in stalled.contains { $0 === c } }
+        print("[FoldFrames:\(port)] dropped \(stalled.count) stalled client(s) — \(clients.filter { $0.ready }.count) receiving")
     }
 
     // pts/duration in SECONDS. A non-finite value (an unloaded duration is

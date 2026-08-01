@@ -1325,10 +1325,10 @@ function wireGlobalSheets() {
   // measured on device (validates the shared-socket approach). Read by output-panel's
   // videoHdmiCapped() (tier buttons) AND external-display's computeOutputDims (render cap).
   // SOURCE DETAIL for the native video decode — a real graceful-degradation lever, not a
-  // throwaway probe. The measured 4K wall is the engine's per-frame texture upload
-  // (162.6ms native / 49.5ms at 1080p), which scales with source pixels, so capping the
-  // decoded frame trades detail for frame rate on hardware that can't carry native. Cycles
-  // native → 2560 → 1920 → 1280 → native; read at clip-load time by shell/native-video.js.
+  // throwaway probe. It bounds the long edge of the engine's SOURCE TEXTURE; the decode
+  // and the frame socket stay at native resolution either way, so this trades detail for
+  // fill rate and nothing else. Cycles native → 2560 → 1920 → 1280 → native, and applies
+  // on the next rendered frame (every engine reads the cap live — B504).
   const NATIVE_CAPS = [0, 2560, 1920, 1280];
   const capBtn = document.getElementById('nativeVideoCap');
   if (capBtn) {
@@ -1341,6 +1341,10 @@ function wireGlobalSheets() {
     capBtn.addEventListener('click', () => {
       const next = NATIVE_CAPS[(NATIVE_CAPS.indexOf(read()) + 1) % NATIVE_CAPS.length] ?? 0;
       try { localStorage.setItem('foldNativeVideoCap', String(next)); } catch { /* private mode */ }
+      // takes effect on the NEXT FRAME, not the next clip load: the cap bounds the
+      // engine's source texture, and the decode/wire never had to know about it
+      try { engine.setPlanarCap(next); } catch { /* no engine yet */ }
+      env.scheduleRender?.();
       syncCap();
     });
     syncCap();

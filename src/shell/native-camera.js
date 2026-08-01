@@ -98,7 +98,7 @@ export function createNativeCamera() {
     if (canvas.width !== width || canvas.height !== height) {
       canvas.width = width; canvas.height = height;
     }
-    renderer.draw(width, height, yStride, cStride, yPlane, cPlane, facing === 'user');
+    renderer.draw({ width, height, yStride, cStride, yPlane, cPlane }, width, height, facing === 'user');
   }
 
   function openSocket() {

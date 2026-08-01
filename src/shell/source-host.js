@@ -1107,7 +1107,16 @@ export function createSourceHost(env) {
     env.nativeVideo = src;
     env.sourceClock = src.clock;                          // motion + perform now drive the native player
     try { v.pause(); } catch { /* ignore */ }              // the <video> is authoring-only from here
-    try { engine.setSource(src.frameSource()); engine.updateSourceFrame(); } catch { /* not ready */ }
+    // setSource still takes the preview canvas — it is what carries dimensions, aspect,
+    // and the `getSourceImage()` truthiness the rest of the app reads as "there is a
+    // source". setPlanarSource then redirects the PER-FRAME pixels to the decode's own
+    // planes, which is what removes the cross-context readback (B504). Order matters:
+    // setSource retires any planar provider, so it has to come first.
+    try {
+      engine.setSource(src.frameSource());
+      engine.setPlanarSource(src.planeProvider, src.cap);
+      engine.updateSourceFrame();
+    } catch { /* not ready */ }
     env.nativeStageSource = () => mod.createNativeStageSource(env);
     console.info(`[fold] native video decode active on port ${src.port} — <video> parked for authoring`);
     env.scheduleRender?.();
@@ -1118,6 +1127,7 @@ export function createSourceHost(env) {
     env.nativeVideo = null;
     env.nativeStageSource = null;
     env.sourceClock = videoElementClock;
+    try { engine.setPlanarSource(null); } catch { /* engine may be mid-reinit */ }
     try { src.stop(); } catch { /* already stopped */ }
   }
   env.detachNativeVideo = detachNativeVideo;

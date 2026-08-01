@@ -16,7 +16,7 @@
 // principle from the original code: state lives in one place, owned by the
 // shell, passed to the engine on demand.
 
-import { createGLContext, uploadTexture, updateTexture, renderToCanvas, renderToFBO, probeMaxFBOSize } from './gl.js';
+import { createGLContext, uploadTexture, updateTexture, createPlanarUploader, renderToCanvas, renderToFBO, probeMaxFBOSize } from './gl.js';
 import { FORMS, FORMS_BY_ID, getActiveForm, getActiveFormIndex } from './forms/index.js';
 import { sliceVecToSourceUV } from './geometry.js';
 
@@ -34,6 +34,9 @@ export function createEngine({ canvas, maxProbeSize }) {
   let sourceW = 0, sourceH = 0;  // resolved pixel size (natural* for img, video* for video)
   let capturePrevSize = null;    // preview canvas size snapshot during a video-capture session
   let captureCanvas = null, captureCtx = null;   // 2D blit target → VideoFrame source (Safari-safe)
+  let planar = null;             // lazily-built planar uploader (native decode → this context)
+  let planarFrame = null;        // provider: () => wire frame | null, installed by the shell
+  let planarCap = 0;             // source-detail cap (long edge) for the planar texture
 
   // a source is an <img> (naturalWidth), a <video> (videoWidth), or a <canvas>
   // (width — used for the mirrored front-camera frame). resolve to pixel
@@ -49,7 +52,9 @@ export function createEngine({ canvas, maxProbeSize }) {
   // because formIndex depends on state.form.
   function buildCtx(state) {
     return {
-      sourceTexture,
+      // the planar uploader owns its own texture once a native frame has landed; the
+      // element texture stays the fallback (and the pre-first-frame render)
+      sourceTexture: (planar && planar.width > 0) ? planar.texture : sourceTexture,
       sourceAspect,
       formIndex: getActiveFormIndex(state),
       outputAspect: 1,   // overridden per render target (square preview = 1; FBO = w/h)
@@ -92,6 +97,7 @@ export function createEngine({ canvas, maxProbeSize }) {
       fresh.diagnostics = Object.assign(this.diagnostics, fresh.diagnostics);
       glCtx = fresh;
       sourceTexture = null;                          // the old handle died with the context
+      planar = null;                                 // ...and so did its FBO + blit program
       if (sourceImage) this.setSource(sourceImage);  // re-upload; aspect re-derives
     },
 
@@ -122,6 +128,10 @@ export function createEngine({ canvas, maxProbeSize }) {
       if (w > maxTex || h > maxTex) {
         throw new Error(`image too large for GPU: ${w}×${h} (max ${maxTex}×${maxTex} on this device)`);
       }
+      // a new source retires any planar provider — the shell re-installs it right
+      // after when the new source is itself a native decode (source-host attach)
+      planarFrame = null;
+      if (planar) { planar.dispose(); planar = null; }
       sourceTexture = uploadTexture(glCtx.gl, source, sourceTexture);
       sourceImage = source;
       sourceAspect = w / h;
@@ -134,9 +144,45 @@ export function createEngine({ canvas, maxProbeSize }) {
     // decoded frame yet (readyState < HAVE_CURRENT_DATA).
     updateSourceFrame() {
       if (!sourceTexture || !sourceImage) return;
+      // PLANAR FIRST. When a native decode is feeding this engine, its frames are raw
+      // YUV planes sitting in CPU memory — uploading them here beats sampling whatever
+      // canvas some other context painted them onto (see gl.js createPlanarUploader).
+      // A null frame means "nothing new off the wire yet": fall through, so the very
+      // first render still gets the element that setSource uploaded.
+      if (planarFrame) {
+        const frame = planarFrame();
+        if (frame) {
+          if (!planar) planar = createPlanarUploader(glCtx.gl);
+          planar.upload(frame, planarCap);
+          sourceAspect = frame.width / frame.height;
+          sourceW = frame.width; sourceH = frame.height;
+          return;
+        }
+        // nothing new off the wire: the frame already in the planar texture stands.
+        // Falling through here would re-upload the ELEMENT — which on this path is the
+        // preview canvas, i.e. exactly the cross-context readback we came to delete.
+        if (planar && planar.width > 0) return;
+      }
       if (sourceImage.readyState !== undefined && sourceImage.readyState < 2) return;
       updateTexture(glCtx.gl, sourceImage, sourceTexture);
     },
+
+    // Install (or clear, with null) a planar frame provider. The shell keeps calling
+    // setSource with a real drawable for bookkeeping — dimensions, aspect, and the
+    // `getSourceImage()` truthiness the rest of the app treats as "there is a source";
+    // this only changes WHERE the per-frame pixels come from. `cap` bounds the source
+    // texture's long edge, which is the graceful-degradation lever for slower hardware.
+    //
+    // The element texture stays allocated alongside the planar one: it is what renders
+    // until the first frame lands, and what the engine falls back to the moment the
+    // provider is removed (source swap, detach, context loss).
+    setPlanarSource(provider, cap = 0) {
+      planarFrame = provider || null;
+      planarCap = cap || 0;
+      if (!provider && planar) { planar.dispose(); planar = null; }
+    },
+    setPlanarCap(cap) { planarCap = cap || 0; },
+    get planarActive() { return !!(planarFrame && planar && planar.width > 0); },
 
     // current source element (for shell use — showing dimensions, mounting
     // source view). may be an <img> or a live <video>.
@@ -148,7 +194,11 @@ export function createEngine({ canvas, maxProbeSize }) {
     // texture is left allocated (cheap, reused on the next setSource); render()
     // still guards on sourceTexture, but the shell guards on getSourceImage()
     // and won't call render once this is null.
-    clearSource() { sourceImage = null; sourceW = 0; sourceH = 0; },
+    clearSource() {
+      sourceImage = null; sourceW = 0; sourceH = 0;
+      planarFrame = null;
+      if (planar) { planar.dispose(); planar = null; }
+    },
 
     // render to the canvas. caller is responsible for sizing the canvas
     // before calling. no-op if no source texture is loaded.

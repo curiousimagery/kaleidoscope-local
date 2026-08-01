@@ -46,6 +46,7 @@ let liveSource = false;          // camera/video re-upload the texture each fram
 let haveSource = false;
 let camera = null;               // createCamera() when the source is the live camera
 let receiver = null;             // native-camera frame-socket receiver (external display)
+let planarSource = false;        // the engine takes the receiver's planes directly (native video)
 let videoEl = null;              // the popup's own <video> for a loaded-video source
 let sourceToken = 0;             // guards against a stale async source setup winning a race
 
@@ -63,6 +64,8 @@ function applyOutput(out) {
 async function teardownSource() {
   liveSource = false;
   haveSource = false;
+  planarSource = false;
+  try { engine.setPlanarSource(null); } catch { /* engine may not have started */ }
   if (camera) { try { camera.stop(); } catch {} camera = null; }
   if (receiver) { try { receiver.stop(); } catch {} receiver = null; }
   if (videoEl) { try { videoEl.pause(); } catch {} videoEl.src = ''; videoEl = null; }
@@ -130,7 +133,11 @@ async function setupSource(payload) {
     let recv = null;
     try {
       const mod = await import('./shell/native-frame-receiver.js');
-      recv = mod.createNativeFrameReceiver({ port: payload.port });
+      // cap the receiver's own canvas hard: this view never samples it (the engine takes
+      // planes), it exists only to give setSource the source's dimensions and aspect —
+      // and an uncapped one would cost a full 4K readback right when the join window is
+      // ticking, which is the worst possible moment for a 160ms stall
+      recv = mod.createNativeFrameReceiver({ port: payload.port, cap: 1280 });
       await recv.start();
     } catch (e) {
       if (hint) hint.textContent = 'could not join the video stream: ' + (e.message || e);
@@ -139,7 +146,13 @@ async function setupSource(payload) {
     }
     if (token !== sourceToken) { recv.stop(); return; }
     receiver = recv;
+    // PLANES, NOT A CANVAS (B504). Sampling the receiver's own WebGL canvas from this
+    // engine's context is a GPU→CPU→GPU round trip on WebKit — ~20ms per megapixel, so
+    // 4K over HDMI could never exceed ~6fps no matter how fast the frames arrived. The
+    // planes are already in CPU memory; upload them here and convert in one blit.
     engine.setSource(receiver.frameSource());
+    engine.setPlanarSource(receiver.planeReader(), payload.cap || 0);
+    planarSource = true;
     liveSource = true; haveSource = true;
     return;
   }
@@ -314,7 +327,9 @@ let lastRenderT = 0;
 function renderFrame() {
   if (!(haveSource && latestState)) return;
   if (camera) camera.refreshFrame();        // front-camera: redraw the mirrored frame
-  if (receiver) receiver.refreshFrame();     // native camera: blit the latest socket frame
+  // on the planar path updateSourceFrame takes the socket frame itself — blitting the
+  // receiver's canvas first would just be a second conversion nothing reads
+  if (receiver && !planarSource) receiver.refreshFrame();
   if (videoEl) reconcileVideo();             // keep the video copy in sync with the main clock
   if (liveSource) engine.updateSourceFrame(); // re-upload camera/video texture
   engine.render(latestState);
