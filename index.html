@@ -781,9 +781,9 @@
       <input type="range" id="canvasRot" min="0" max="360" step="0.5" value="0">
     </label>
     <!-- pan lock (radial/droste): those read best CENTERED, so canvas pan is LOCKED by default;
-         unlock to translate them (tileable forms always pan). Shown only for radial/droste; the
-         lock is SHARED across both (Daniel: desirable). -->
-    <div class="slider" id="panLockLabel" style="display:none" title="pan is shared by radial + droste — both read best centered, so it's locked by default; unlock to translate them. tileable forms (square/hex/triangle) always pan.">
+         unlock to translate them. Shown for any form with a center (radial/droste/hex — see
+         formCenterLocked); the lock is SHARED across them (Daniel: desirable). -->
+    <div class="slider" id="panLockLabel" style="display:none" title="forms with a center — radial, droste and hex — read best centered, so pan is locked by default; unlock to translate them. square and triangle read as wallpaper and always pan. one shared lock across all of them.">
       <div class="row"><span>pan</span>
         <div class="row-buttons" id="panManual">
           <button class="toggle active" data-pan="0">locked</button>

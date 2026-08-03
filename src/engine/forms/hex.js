@@ -22,6 +22,11 @@ export default {
   // sits near the radial/droste reference. FIRST-PASS — tune against the others. See formSizeNorm.
   sizeNorm: 1.6,
 
+  // p6m radiates from a point the eye locks onto, so hex reads CENTERED even though it tiles —
+  // drifting off that point while pinching to zoom is disconcerting (Daniel, 2026-08-03). Locked
+  // by default like radial/droste; unlock to translate. square/triangle read as wallpaper and stay free.
+  centerLock: true,
+
   thumbnail: `<svg viewBox="0 0 32 32"><g class="stroke">
     <polygon points="16,4 25,9 25,19 16,24 7,19 7,9"/>
     <line x1="16" y1="4" x2="16" y2="24"/>

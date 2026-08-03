@@ -57,3 +57,18 @@ export function formSizeNorm(state) {
 export function formCanvasNorm(state) {
   return getActiveForm(state).canvasNorm ?? 1;
 }
+
+// helper: does this form have a MEANINGFUL CENTER that panning would pull you off?
+//
+// Originally this was hardcoded as "radial or droste", on the reasoning that only those two have a
+// focal point and the tileable forms are translation-symmetric so panning them is free. That reading
+// was too narrow (Daniel, 2026-08-03): hexagonal mirroring also has a clear center, and drifting off
+// it while pinching to zoom is disconcertingly easy — the two-finger gesture composes pan with zoom,
+// so any centroid travel during a pinch pans as a side effect. It's a property of the FORM's
+// symmetry, not of whether it happens to tile: p6m reads as radiating from a point, p4m/p3m1 read as
+// wallpaper. So it belongs on the form.
+//
+// `centerLock: true` means "defaults to centered, unlock (state.panManual) to translate".
+export function formCenterLocked(state) {
+  return !!getActiveForm(state).centerLock;
+}

@@ -54,7 +54,7 @@ export const state = {
   canvasOffsetY: 0,     // (continuous accumulator); the tiling fold's mod wraps it, so a pan across
                         // one lattice period loops seamlessly (pacman). Driven by the pan joystick /
                         // gesture; only meaningful on tileable forms (square/hex/triangle).
-  panManual: false,     // radial/droste: pan is LOCKED (centered) by default — those read best
+  panManual: false,     // forms with a CENTER (radial/droste/hex): pan is LOCKED (centered) by default — those read best
                         // centered. Unlock in canvas settings to pan them. Tileable forms always pan.
   oobMode: 1,           // 0=clamp, 1=mirror, 2=transparent. mirror is default.
 };

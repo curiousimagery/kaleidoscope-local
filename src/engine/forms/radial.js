@@ -22,6 +22,9 @@ export default {
 
   controls: ['segments'],
 
+  // one focal point by construction — pan is locked (centered) by default. See formCenterLocked.
+  centerLock: true,
+
   // radial uses universal uniforms only (u_segments). no per-form uniforms.
   uniforms: {},
 

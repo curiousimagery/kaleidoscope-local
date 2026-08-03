@@ -16,7 +16,7 @@
 // also collects the union of all uniforms for use by gl.js when looking up
 // uniform locations and pushing values per-frame.
 
-import { FORMS, formSizeNorm, formCanvasNorm } from './forms/index.js';
+import { FORMS, formSizeNorm, formCanvasNorm, formCenterLocked } from './forms/index.js';
 
 // uniforms common to ALL forms. these are the shared scaffolding the shader
 // preamble depends on. order matters only for readability of the generated
@@ -36,9 +36,10 @@ export const COMMON_UNIFORMS = {
   // float32 input stays bounded (the fold wraps it anyway, so this is image-identical). Forms
   // without a latticePeriod() (radial/droste) get the raw offset (0 unless ③ drives it later).
   u_canvasOffset:  { type: '2f', get: (state) => {
-    // radial/droste stay CENTERED unless pan is explicitly unlocked (Daniel: they read best centered).
-    // Non-destructive — the stored offset is ignored here, not cleared, so unlocking restores it.
-    if ((state.form === 'radial' || state.form === 'droste') && !state.panManual) return [0, 0];
+    // A form with a meaningful CENTER stays centered unless pan is explicitly unlocked (see
+    // formCenterLocked — radial, droste and hex today). Non-destructive: the stored offset is
+    // ignored here, not cleared, so unlocking restores exactly where you were.
+    if (formCenterLocked(state) && !state.panManual) return [0, 0];
     const form = FORMS.find(f => f.id === state.form);
     const period = form && form.latticePeriod && form.latticePeriod(state);
     // X negated so pushing the joystick RIGHT pans the pattern right (Daniel: X read backwards);

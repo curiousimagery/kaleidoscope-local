@@ -4,6 +4,22 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🎯 v0.22.2 (Build 508) — 2026-08-03 — Center lock is a property of the form, not a list of two
+
+The pan lock was hardcoded as "radial or droste", on the reasoning that only those have a focal point and tileable forms are translation-symmetric so panning them is free. **That reading was too narrow (Daniel):** hexagonal mirroring has a clear center too, and drifting off it while pinching to zoom is disconcertingly easy — the two-finger gesture composes pan with zoom, so any centroid travel during a pinch pans as a side effect.
+
+The real distinction is the form's SYMMETRY, not whether it happens to tile: p6m radiates from a point the eye locks onto, while p4m and p3m1 read as wallpaper. So it belongs on the form.
+
+**`centerLock: true`** now declares it, via `formCenterLocked()` in the forms registry. Set on **radial, droste and hex**; absent on square and triangle, which stay free by default (Daniel's call, and it matches how they read). Six hardcoded `radial || droste` checks collapse to one predicate — the shader's offset gate, desktop and mobile `panDrivable`, the input bus's remote-drag check, and both pan-joystick visibility rules.
+
+Behavior is unchanged for every form except hex, and the lock stays **non-destructive**: a locked form's stored offset is ignored at the shader, not cleared, so unlocking restores exactly where you were.
+
+**The lock is still one shared toggle across all locked forms**, which was Daniel's earlier call and stays right — but it now shows for hex as well, so the control appears wherever it has something to do.
+
+**Mobile got the toggle it never had.** While the lock was radial/droste-only, mobile's missing pan-lock control was survivable. It stops being survivable the moment hex is locked, since hex is a form people pan constantly — hex would have been locked with no way out. New `mountPanLockControl()` in the mobile canvas settings, same segmented pattern as the droste offset's manual toggle, writing `state.panManual` (state, not session, so it's undoable). No new component or CSS: it reuses `.m-seg` on mobile and the existing `.toggle` on desktop, so there's no Lab specimen to add.
+
+**VERIFY (Daniel):** hex should hold its center under a two-finger pinch until you unlock pan; square and triangle should pan exactly as before; radial and droste unchanged; the pan lock should appear in mobile canvas settings on hex/radial/droste and be absent on square/triangle. Worth a look at whether unlocking should also RECENTER — right now it just releases, and I did not assume.
+
 ## ⏹️ v0.22.1 (Build 507) — 2026-07-31 — A bake you can abandon, and P for play in motion
 
 **The bake's cancel wasn't broken — it was never connected.** `#clipCancel` routes to `exitLoopBuilder()`, which refuses while `env.clip.baking` is set. The refusal is right (the decoders are in use, and tearing down under them is the B495 wedge), but it returned `false` and did nothing else, so the button was silently dead for the entire run — which on a 6:39 crossfaded clip is ~25 minutes.

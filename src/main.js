@@ -21,7 +21,7 @@ import { createEngine } from './engine/index.js';
 import { createSourceOverlay } from './components/source-overlay.js';
 import { createOutputGestures } from './components/output-gestures.js';
 import { createPanJoystick } from './components/pan-joystick.js';
-import { getActiveForm } from './engine/forms/index.js';
+import { getActiveForm, formCenterLocked } from './engine/forms/index.js';
 import {
   wireSliderWithScrub,
   wireLoopingSlider,
@@ -852,7 +852,8 @@ function wireLocks() {
   }));
   syncOffManual();
 
-  // PAN LOCK (radial/droste) — those default centered (state.panManual=false); unlock to pan them.
+  // PAN LOCK — forms with a meaningful center (formCenterLocked: radial/droste/hex) default to
+  // centered (state.panManual=false); unlock to translate them. One shared lock across all of them.
   // On state (not session) so the shader's u_canvasOffset gate reads it + it rides undo/redo.
   const panManualBtns = [...document.querySelectorAll('#panManual button')];
   const syncPanManual = () => {
@@ -1072,7 +1073,7 @@ function wireControls() {
     state.drosteZoomPhase = 0;  // infinite zoom is a canvas control in droste — reset it too
     env.panRecenter?.();        // tiling pan: STOP any drift + recenter (Daniel)
     state.oobMode        = 1;   // mirror, the default
-    state.panManual      = false;   // radial/droste pan returns to the centered default
+    state.panManual      = false;   // centered forms return to the locked default
     env.controlsSync.syncAll();
     env.applyFormControls?.();   // re-lock the pan toggle + hide the radial joystick
     // the OOB buttons sync only in their own click handler — mirror the state here
@@ -1692,7 +1693,8 @@ if (engine) {
     // which forms accept a canvas-translation gesture: tileable (loops) OR radial (non-looping center).
     // Separate from panPeriod (the wrap): radial + droste pan via canvasOffset but have no lattice
     // period (non-wrapping pan). The shader already applies the raw offset for them (shader-builder).
-    panDrivable: () => { const f = getActiveForm(state); return !!(f && (f.latticePeriod || ((f.id === 'radial' || f.id === 'droste') && state.panManual))); },
+    // a form is pan-drivable when it has no meaningful center to hold, or when pan is unlocked
+    panDrivable: () => !!getActiveForm(state) && (!formCenterLocked(state) || !!state.panManual),
     panDrift: () => env.panDrift,   // flick-to-drift on release when drift mode is on (lazy: set after gestures)
   });
   setupUndoBar();

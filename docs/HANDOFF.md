@@ -22,6 +22,10 @@ He prefers **no em dashes** in any prose Claude generates for him.
 
 **▶ NEXT ARC (Daniel's stated sequence): slice hardening, then M4 geometry-truth → M5 SVG → M6 tile builder, then thermal.** See `project_flows_guardrails_tiling_arc` in memory and the plan in `~/.claude/plans`. Control-registry hardening wants to land before M6.
 
+**Two definitions a cold session will otherwise get wrong (pinned 2026-08-03):**
+- **"Slice hardening" = per-form slice normalization**, and it is the TAIL of M4 Phase B, not a separate milestone. The mechanisms all shipped (`sizeNorm` B477, triangle `canvasNorm` B483, `Z_SLICE_COVER`/`Z_SLICE_IN_FLOOR` B462); what is missing is the **values**, which only Daniel can dial against his reference. Treat it as a TUNING pass, not a build pass — the useful thing to build is the affordance that lets him tune without a rebuild per guess.
+- **"Thermal" = Gate 2**, greenlit then parked by Daniel, never built. Full reconstructed plan is now in BACKLOG under "THERMAL / SUSTAINED LOAD".
+
 ---
 
 **Superseded, kept for the record:**
@@ -57,6 +61,8 @@ Dead linear at ~20ms/megapixel = ~200MB/s = CPU readback speed. The engine was d
 - **Grabbing the slice point in the Loop Builder is harder than it was** — Daniel kept getting the playhead instead (B505). Hit-target/z-order regression, probably small.
 - **Perform going dark on a 4K source.** The frozen-PiP gate fixed in B504 is a *candidate* cause; recheck before investigating further.
 - **The external WKWebView's console still doesn't reach Xcode.** B505 closed the cheap half (the frame server logs its own fan-out state), but everything else inside `output-view.js` is still invisible. `sendUp` already exists as a channel — forwarding warnings/errors up it is the full fix.
+
+**`v0.22.2 · Build 508` — 🎯 CENTER LOCK IS A FORM PROPERTY.** `centerLock: true` on radial, droste and **hex** (new), via `formCenterLocked()`; square/triangle stay free. Collapses six hardcoded `radial || droste` checks into one predicate. Hex has a clear center and the two-finger pinch composes pan with zoom, so it drifted off-center while zooming. Non-destructive as before (offset ignored at the shader, not cleared). Mobile gained the pan-lock toggle it never had, which hex made mandatory rather than nice-to-have. **Open question for Daniel: should unlocking also RECENTER?** Today it only releases.
 
 **`v0.22.1 · Build 507` — ⏹️ AN ABANDONABLE BAKE.** Cancel wasn't broken, it was never connected: `exitLoopBuilder()` correctly refuses to tear down mid-bake but did nothing else, so the button was silently dead for the whole run. `exportVideo` already took a per-frame `shouldCancel`; the bake now passes one, and its existing unwind (which closes every reader) does the cleanup. Also: `P` plays/pauses in motion alongside space, matching perform's key.
 

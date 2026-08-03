@@ -11,7 +11,7 @@
 // none of these reach into the engine — they only mutate state and call
 // env.scheduleRender() when they need a redraw.
 
-import { FORMS, getActiveFormIndex } from '../engine/forms/index.js';
+import { FORMS, getActiveFormIndex, formCenterLocked } from '../engine/forms/index.js';
 
 // ===========================================================================
 // scrub fields — DAW-style numeric inputs
@@ -431,12 +431,16 @@ export function applyFormControls(env) {
   // center, non-looping). This runs AFTER wireControls mounts the row (init order fixed in createApp),
   // so the dynamic #panJoyRow element exists when we gate it.
   const panRow = document.getElementById('panJoyRow');
-  // radial's pan joystick shows only when pan is UNLOCKED (locked = centered, no joystick to offer);
-  // tileable forms always pan. droste pans via gesture (no joystick row).
-  if (panRow) panRow.style.display = (form.latticePeriod || (form.id === 'radial' && state.panManual)) ? '' : 'none';
-  // pan LOCK toggle — radial/droste only (those default centered; unlock to pan them)
+  // the joystick belongs to forms that pan via canvasOffset (tileable + radial; droste pans by
+  // gesture and has its own offset joystick), and only while pan is actually drivable — a locked
+  // form is centered, so there is no translation to offer.
+  const panViaOffset = !!form.latticePeriod || form.id === 'radial';
+  const panFree = !formCenterLocked(state) || !!state.panManual;
+  if (panRow) panRow.style.display = (panViaOffset && panFree) ? '' : 'none';
+  // pan LOCK toggle — shown for any form that HAS a center to hold (radial/droste/hex). Forms
+  // without one are always free, so a lock control there would be a switch with nothing behind it.
   const panLockRow = document.getElementById('panLockLabel');
-  if (panLockRow) panLockRow.style.display = (form.id === 'radial' || form.id === 'droste') ? '' : 'none';
+  if (panLockRow) panLockRow.style.display = formCenterLocked(state) ? '' : 'none';
   env.syncPanManual?.();   // reflect state.panManual on the toggle (state load / undo / reset)
   // center-offset lock/autoplay row is Droste-only (the offset is a canvas gesture, no slider)
   const offsetRow = document.getElementById('drosteOffsetLabel');
