@@ -44,6 +44,7 @@ The UI Lab (`lab.html` / `src/lab.js`) is the living inventory of the app's UI s
 
 - **Before adding any new component, style, or visual pattern, check the Lab first** for an existing component/token/text-style that already covers it. Reuse beats invention; the Lab exists to surface exactly this.
 - **Every new component or style that ships in app code lands in the Lab in the same increment** — with its state matrix (hover/active/disabled/error variants), rendered from the real classes/CSS, not a copy. A component that isn't in the Lab doesn't exist as far as the design system is concerned.
+- **Every new `?url` parameter lands in the Lab's URL-parameter cheat sheet (`LINK_PARAMS` in `src/lab.js`) in the same increment.** That sheet is the only index of them; an unlisted param is undiscoverable.
 
 ## prose style
 

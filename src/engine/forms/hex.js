@@ -25,7 +25,7 @@ export default {
   // p6m radiates from a point the eye locks onto, so hex reads CENTERED even though it tiles —
   // drifting off that point while pinching to zoom is disconcerting (Daniel, 2026-08-03). Locked
   // by default like radial/droste; unlock to translate. square/triangle read as wallpaper and stay free.
-  centerLock: true,
+  panLockedByDefault: true,
 
   thumbnail: `<svg viewBox="0 0 32 32"><g class="stroke">
     <polygon points="16,4 25,9 25,19 16,24 7,19 7,9"/>

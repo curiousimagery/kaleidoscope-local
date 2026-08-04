@@ -30,7 +30,7 @@ import { createRemoteInput } from './remote-input.js';
 import qrcode from 'qrcode-generator';   // QR pairing (Daniel-approved dependency, MIT, zero-dep)
 import { applyUnifiedZoom } from '../kit/zoom.js';   // shared unified zoom — the canvas pinch routes here too
 import { panToOffset } from '../kit/pan.js';         // shared canvas-pan transform — the remote drag pans identically
-import { getActiveForm, formCenterLocked } from '../engine/forms/index.js';   // pannability check for the remote canvas drag
+import { getActiveForm, formPanLocked } from '../engine/forms/index.js';   // pannability check for the remote canvas drag
 
 const STORE_KEY = 'fold-inputs-v1';
 
@@ -234,8 +234,7 @@ export function createInputBus(env) {
   // pannable = tileable (has a lattice period) OR radial (pans via canvasOffset, no lattice).
   // Mirrors main.js / mobile chrome's ctx.panDrivable — a candidate for the shared helper when
   // the "one fn per input axis" hardening lands (the same duplication kit/pan.js just resolved).
-  // no meaningful center to hold → always drivable; centered forms need the explicit unlock
-  const panDrivableNow = () => !!getActiveForm(state) && (!formCenterLocked(state) || !!state.panManual);
+  const panDrivableNow = () => !formPanLocked(state);
 
   function applyMapping(m, value, meta) {
     if (m.target.startsWith('action:')) {

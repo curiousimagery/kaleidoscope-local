@@ -16,7 +16,7 @@
 
 import './styles.css';
 import { createEngine, getActiveForm } from '../engine/index.js';
-import { FORMS, formCenterLocked } from '../engine/forms/index.js';
+import { FORMS, formPanLocked } from '../engine/forms/index.js';
 import { state, session } from '../shell/state.js';
 import { makeControlsSync } from '../shell/controls.js';
 import { lockState, setLock, makeLockToggle } from '../shell/locks.js';   // M3 locks — reused on mobile
@@ -244,7 +244,7 @@ createOutputGestures(outputCanvas, {
   onChange: () => { controlsSync.syncAll(); scheduleRender(); },
   // one-finger TILING PAN — enabled only on tileable forms (non-null lattice period).
   panPeriod: () => getActiveForm(state)?.latticePeriod?.(state) || null,
-  panDrivable: () => !!getActiveForm(state) && (!formCenterLocked(state) || !!state.panManual),   // centered forms (radial/droste/hex) need the unlock; the rest always pan
+  panDrivable: () => !formPanLocked(state),   // every form is lockable; only the default differs
   panDrift: () => env.panDrift,   // flick-to-drift on release (lazy: joystick mounts after this)
 });
 
@@ -521,30 +521,24 @@ function mountSpiralControl() {
 // `manual` is on (session.offsetManual — the same unlock as desktop; keeps the offset centered
 // by default, which seamless infinite zoom depends on). signY:-1 (the pole reads Y inverted),
 // gentle gain (0.32). The manual toggle is session-based, so not mountToggleControl (state-based).
-// PAN LOCK (mobile parity with the desktop canvas-settings toggle). Shown for any form with a
-// meaningful center (formCenterLocked — radial/droste/hex); those default to centered and this is
-// the only way to release them. Mobile had no such control while the lock was radial/droste-only,
-// which was survivable; it stops being survivable the moment hex is locked, since hex is a form
-// people pan constantly. `panManual` is STATE (undoable), not session — hence the direct write.
+// PAN LOCK (mobile) — the SAME padlock component as desktop (makeLockToggle on the 'pan' key),
+// so the mechanism, glyphs and per-form defaults are shared and there is nothing mobile-specific
+// to keep in step. Mobile had no pan control at all while the lock was radial/droste-only, which
+// was survivable; it stops being survivable once hex is locked, since hex is a form people pan
+// constantly and it would have been locked with no way out.
 function mountPanLockControl() {
   const wrap = document.createElement('div');
   wrap.className = 'm-control'; wrap.id = 'm-pan-lock';
-  const row = document.createElement('div'); row.className = 'm-control-row';
+  const row = document.createElement('div'); row.className = 'm-control-row has-lock';
   row.innerHTML = '<span>pan</span>';
-  const seg = document.createElement('div'); seg.className = 'm-seg';
-  const btns = [['locked', false], ['unlocked', true]].map(([t, v]) => {
-    const b = document.createElement('button'); b.className = 'm-seg-btn'; b.textContent = t;
-    b.addEventListener('click', () => {
-      state.panManual = v;
-      sync(); controlsSync.syncAll();   // the joystick row's visibility follows the lock
-      scheduleRender(); sourceOverlay.scheduleDraw();
-    });
-    seg.appendChild(b); return [b, v];
+  const pad = makeLockToggle(env, 'pan', () => {
+    controlsSync.syncAll();          // the joystick row's disclosure follows the lock
+    scheduleRender();                // re-centre (locked) or restore the offset (unlocked)
+    sourceOverlay.scheduleDraw();
   });
-  function sync() { btns.forEach(([b, v]) => b.classList.toggle('active', !!state.panManual === v)); }
-  row.appendChild(seg); wrap.appendChild(row);
+  row.appendChild(pad); wrap.appendChild(row);
   settingsEl.appendChild(wrap);
-  controlsSync.register(sync); sync();
+  controlsSync.register(() => pad.sync());
 }
 
 function mountDrosteOffsetControl() {
@@ -610,13 +604,11 @@ function applyFormVisibility() {
   $('compZoomLabel')?.classList.toggle('m-hidden', isDroste);
   $('infiniteZoomLabel')?.classList.toggle('m-hidden', !isDroste);
   $('m-droste-offset')?.classList.toggle('m-hidden', !isDroste);   // droste center-offset joystick
-  // canvas PAN joystick — tileable forms (loops) + radial (translates the center, non-looping),
-  // and only while pan is drivable (a center-locked form is centered: nothing to translate).
-  const panViaOffset = !!form.latticePeriod || form.id === 'radial';
-  const panFree = !formCenterLocked(state) || !!state.panManual;
-  $('panJoyRow')?.classList.toggle('m-hidden', !(panViaOffset && panFree));
-  // the pan LOCK itself shows for any form with a center to hold (mobile parity, B508)
-  $('m-pan-lock')?.classList.toggle('m-hidden', !formCenterLocked(state));
+  // PROGRESSIVE DISCLOSURE (desktop parity): the pan joystick shows only while pan is UNLOCKED,
+  // on every form including droste. The padlock row itself is unconditional so pan can be
+  // re-locked later in the session.
+  $('panJoyRow')?.classList.toggle('m-hidden', formPanLocked(state));
+  $('m-pan-lock')?.classList.remove('m-hidden');
 }
 controlsSync.register(applyFormVisibility);
 applyFormVisibility();

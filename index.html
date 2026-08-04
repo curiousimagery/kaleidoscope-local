@@ -780,16 +780,13 @@
       <div class="row"><span>rotation</span><span class="val scrub" id="canvasRotVal" data-key="canvasRotation">0°</span></div>
       <input type="range" id="canvasRot" min="0" max="360" step="0.5" value="0">
     </label>
-    <!-- pan lock (radial/droste): those read best CENTERED, so canvas pan is LOCKED by default;
-         unlock to translate them. Shown for any form with a center (radial/droste/hex — see
-         formCenterLocked); the lock is SHARED across them (Daniel: desirable). -->
-    <div class="slider" id="panLockLabel" style="display:none" title="forms with a center — radial, droste and hex — read best centered, so pan is locked by default; unlock to translate them. square and triangle read as wallpaper and always pan. one shared lock across all of them.">
-      <div class="row"><span>pan</span>
-        <div class="row-buttons" id="panManual">
-          <button class="toggle active" data-pan="0">locked</button>
-          <button class="toggle" data-pan="1">unlocked</button>
-        </div>
-      </div>
+    <!-- PAN LOCK — one padlock, every form, same mechanism; only the DEFAULT differs
+         (panLockedByDefault: radial/droste/hex start locked, square/triangle start unlocked).
+         Unlocking reveals the pan joystick below; the padlock itself never hides, so pan can be
+         re-locked later in the session. Scoped per form. -->
+    <div class="slider" id="panLockLabel" title="pan is locked so the composition holds its centre. unlock to translate it and reveal the pan joystick. radial, droste and hex start locked; square and triangle start unlocked.">
+      <!-- the padlock is injected by main.js (makeLockToggle) so it matches every other lock -->
+      <div class="row"><span>pan</span></div>
     </div>
     <div class="field">
       <div class="field-label">out of bounds</div>

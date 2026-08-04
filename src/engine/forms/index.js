@@ -58,7 +58,7 @@ export function formCanvasNorm(state) {
   return getActiveForm(state).canvasNorm ?? 1;
 }
 
-// helper: does this form have a MEANINGFUL CENTER that panning would pull you off?
+// helper: does this form DEFAULT to pan-locked (centered)?
 //
 // Originally this was hardcoded as "radial or droste", on the reasoning that only those two have a
 // focal point and the tileable forms are translation-symmetric so panning them is free. That reading
@@ -68,7 +68,20 @@ export function formCanvasNorm(state) {
 // symmetry, not of whether it happens to tile: p6m reads as radiating from a point, p4m/p3m1 read as
 // wallpaper. So it belongs on the form.
 //
-// `centerLock: true` means "defaults to centered, unlock (state.panManual) to translate".
-export function formCenterLocked(state) {
-  return !!getActiveForm(state).centerLock;
+// EVERY form is lockable (Daniel, 2026-08-03) — the padlock, the progressive disclosure of the
+// pan joystick, and the mechanism behind them are identical everywhere. The ONLY per-form
+// difference is which way the lock starts: forms with a center default LOCKED, wallpaper forms
+// default UNLOCKED. `panLockedByDefault: true` declares the former.
+export function formPanLockedByDefault(form) {
+  return !!(form && form.panLockedByDefault);
+}
+
+// Is pan locked RIGHT NOW for the active form? `state.panLock` holds per-form user overrides
+// (formId → boolean); absent means "use this form's default". Lives on STATE rather than in
+// session.locks because the ENGINE needs the answer — the shader zeroes u_canvasOffset while
+// locked, and the engine can see state but not the shell's session.
+export function formPanLocked(state) {
+  const form = getActiveForm(state);
+  const override = state.panLock && state.panLock[form.id];
+  return override !== undefined ? !!override : formPanLockedByDefault(form);
 }

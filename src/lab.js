@@ -907,9 +907,50 @@ function copyBtn(text) {
   });
   return b;
 }
-function cheatSheetModal() {
+// ---- URL-parameter cheat sheet (sibling of the CLI one) ---------------------
+// Every `?param` the app reads, grepped from the source rather than remembered — there are ten
+// across eight files and no other index of them. Keep this in step when you add one: the whole
+// point is that it is the single place to look, so an unlisted param may as well not exist.
+const LINK_PARAMS = [
+  { group: 'Chrome + panels  ·  the ones you reach for', items: [
+    ['?chrome=mobile', 'force the MOBILE chrome on any device',
+      'The one most often misremembered as "?mobile=true". Preview the phone UI on desktop without resizing the window. `?chrome=desktop` forces the other way (useful on a phone). Without it, mobile is chosen only for a genuine phone-class device: coarse pointer AND short side < 600px, so iPad stays on desktop chrome and a narrowed desktop window no longer swaps (that reload used to drop the loaded source). See boot.js.'],
+    ['?diag', 'auto-open the diagnostics panel on load',
+      'Same panel as the settings gizmo, opened for you ~50ms after boot. Handy when you are chasing something that happens during startup and do not want to spend the first seconds clicking. See shell/diagnostics.js.'],
+    ['?inputdebug', 'show the live input-event HUD (bottom-left)',
+      'A read-only overlay logging pointer/touch/wheel/gesture events as they arrive — how many touches the OS is actually reporting, and whether a trackpad is sending wheel+ctrl or real gesture events. This is what settles "is multi-touch even reaching us" questions on the Movink / Sidecar rigs. Not part of the shipped UX. See shell/input-debug.js.'],
+  ] },
+  { group: 'Broadcast + capture  ·  A/B switches for device debugging', items: [
+    ['?mocksyphon', 'pretend a Syphon host exists on plain web',
+      'Registers a mock native host so the broadcast destination picker, arming, and the output bus can be exercised in an ordinary browser with no Electron shell. Nothing actually leaves the machine. See main.js.'],
+    ['?recorder=mediarecorder', 'force the fallback recording engine',
+      'Default is `auto`, which picks the conduit WebCodecs recorder where available. Forcing MediaRecorder is the A/B when a recording comes out stuttery or wrongly sized on a specific device. See the recorder sink registration in main.js.'],
+    ['?buscapture=videoframe', 'force the output bus\'s GPU→CPU readback mode',
+      'Accepts `getimagedata`, `readpixels` or `videoframe`. The bus normally PROBES all three at startup and keeps the fastest, because the winner is per-device rather than per-browser (see the browser-engine notes in BACKLOG). Force one when you want to measure a specific path or when the probe picks badly. See conduit/capture.js.'],
+    ['?capture=gl', 'force the video-export frame source',
+      'Accepts `2d`, `bitmap` or `gl`. Defaults to `gl` on WebKit (far faster wrapping the WebGL canvas straight into a VideoFrame) and `2d` on Firefox/Chromium. A safety hatch if an older iOS device hangs on the WebGL-direct path. See kit/capabilities.js.'],
+    ['?ndiwire=rgba', 'force the old full-RGBA NDI wire',
+      'NDI now sends UYVY (half the bytes). This forces the previous full-RGBA wire for A/B. The blue cast that once kept UYVY opt-in was a readback channel-order bug (iPad readPixels returns B,G,R,A), fixed at the capture layer. The active wire logs itself when the sender starts. See shell/capacitor-host.js.'],
+    ['?ndifps=15', 'tune the NDI publish-rate target (1-120, default 30)',
+      'The adaptive governor paces sends; this sets its target. The diagnostic value: if a LOWER target smooths WiFi proportionally, the problem is bandwidth; if it does not, it is latency/jitter (WiFi power-save) and the fix is wired or receiver-side. Values other than 30 want the native frame_rate declaration updated to match for a fully clean stream. See conduit/ndi-sink.js.'],
+  ] },
+  { group: 'Build-time gates', items: [
+    ['?edition=pro', 'override the edition gate at runtime',
+      'Edition is normally a BUILD-time choice (`VITE_FOLD_EDITION`, or a native shell\'s build env, defaulting to `web`). This overrides it in the browser so edition-gated features can be exercised without a rebuild. See kit/capabilities.js.'],
+  ] },
+  { group: 'Related: localStorage switches  ·  not URL params, same class of thing', items: [
+    ['foldNativeVideoCap', 'source detail for the native video decode (0 / 2560 / 1920 / 1280)',
+      'Bounds the long edge of the engine\'s source texture; 0 = native. The decode and the frame socket stay full-res either way, so this trades detail for fill rate. Has a real toggle in settings → diagnostics ("source detail"), so you rarely need to set it by hand.'],
+    ['foldHdmiVideoUncap', 'lift the 1080p-over-HDMI guard for video sources ("1" / "0")',
+      'Also a toggle in settings → diagnostics ("4K/QHD over HDMI"). Largely historical now that the single native decode removed the second decoder that made the guard necessary.'],
+    ['foldNdiClockVideo', 'NDI clock_video ("0" disables; default on)',
+      'Toggle in settings → diagnostics. Left on by default after the iPad NDI A/B.'],
+  ] },
+];
+
+function cheatSheetModal(title, groups) {
   const rows = [];
-  for (const { group, items } of CLI_COMMANDS) {
+  for (const { group, items } of groups) {
     rows.push(el('div', { class: 'lab-cli-group', text: group }));
     for (const [cmd, note, detail] of items) {
       rows.push(el('div', { class: 'lab-cli-row' }, [
@@ -924,7 +965,7 @@ function cheatSheetModal() {
   }
   const card = el('div', { class: 'lab-cli-card' }, [
     el('div', { class: 'lab-cli-head' }, [
-      el('div', { class: 'lab-h2', text: 'CLI cheat sheet' }),
+      el('div', { class: 'lab-h2', text: title }),
       el('button', { class: 'lab-cli-x', text: '✕' }),
     ]),
     ...rows,
@@ -1053,17 +1094,21 @@ function build() {
   // build the sticky nav from the sections actually present
   const navItems = [...content.querySelectorAll('.lab-section')].map((s) =>
     el('a', { class: 'lab-navlink', href: `#${s.id}`, text: s.querySelector('.lab-h2').textContent }));
-  const modal = cheatSheetModal();
+  const cliModal = cheatSheetModal('CLI cheat sheet', CLI_COMMANDS);
   const cliBtn = el('button', { class: 'lab-cli-open', text: '⌘ CLI cheat sheet' });
-  cliBtn.addEventListener('click', () => { modal.hidden = false; });
+  cliBtn.addEventListener('click', () => { cliModal.hidden = false; });
+  const urlModal = cheatSheetModal('URL parameter cheat sheet', LINK_PARAMS);
+  const urlBtn = el('button', { class: 'lab-cli-open', text: '? URL parameters' });
+  urlBtn.addEventListener('click', () => { urlModal.hidden = false; });
   const nav = el('nav', { class: 'lab-nav' }, [
     el('div', { class: 'lab-nav-title', text: 'Fold · Lab' }),
     ...navItems,
-    el('div', { class: 'lab-nav-foot' }, [cliBtn]),
+    el('div', { class: 'lab-nav-foot' }, [cliBtn, urlBtn]),
   ]);
 
   document.body.appendChild(el('div', { class: 'lab' }, [nav, content]));
-  document.body.appendChild(modal);
+  document.body.appendChild(cliModal);
+  document.body.appendChild(urlModal);
 }
 
 // ---- lab-only layout (NOT part of the design system) ------------------------
@@ -1158,8 +1203,8 @@ labStyle.textContent = `
   /* file:// usage banner */
   .lab-banner { margin: 16px 0; padding: 10px 14px; border: 1px solid rgba(232, 200, 112, 0.4); background: rgba(232, 200, 112, 0.1); border-radius: var(--radius-md); font-size: var(--text-sm); color: var(--warn-text); line-height: 1.5; }
   .lab-banner code { font-family: var(--font-mono); color: var(--text); }
-  /* nav footer + CLI cheat sheet */
-  .lab-nav-foot { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--border-subtle); }
+  /* nav footer + the cheat-sheet buttons (CLI, URL parameters) */
+  .lab-nav-foot { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--border-subtle); display: flex; flex-direction: column; gap: 6px; }
   .lab-cli-open { width: 100%; text-align: left; background: var(--surface-control); border: 1px solid var(--border); border-radius: var(--radius-md); color: var(--text-secondary); font-size: var(--text-xs); padding: 8px 10px; cursor: pointer; }
   .lab-cli-open:hover { color: var(--text); border-color: var(--border-hover); }
   .lab-cli-modal[hidden] { display: none; }

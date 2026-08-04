@@ -4,6 +4,41 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🔗 v0.22.4 (Build 510) — 2026-08-03 — URL-parameter cheat sheet in the Lab
+
+A sibling to the CLI cheat sheet, in the Lab's nav footer: **every `?param` the app reads, grepped from the source rather than remembered.** There are ten, spread across eight files, with no other index of them anywhere — which is exactly why Daniel remembered one of them as `?mobile=true` (it's `?chrome=mobile`).
+
+Grouped by what you'd be doing:
+
+- **Chrome + panels** — `?chrome=mobile|desktop`, `?diag`, `?inputdebug`
+- **Broadcast + capture A/B switches** — `?mocksyphon`, `?recorder=`, `?buscapture=`, `?capture=`, `?ndiwire=`, `?ndifps=`
+- **Build-time gates** — `?edition=`
+- **Related: localStorage switches**, which aren't URL params but are the same class of hidden lever — `foldNativeVideoCap`, `foldHdmiVideoUncap`, `foldNdiClockVideo`, each noting that it also has a real toggle in settings → diagnostics
+
+Each entry carries the same short-note-plus-detail shape as the CLI sheet, including what the param is diagnostically FOR (e.g. a lower `?ndifps` smoothing WiFi proportionally means bandwidth-bound; not smoothing means latency/jitter and the fix is wired or receiver-side). `cheatSheetModal()` is now parameterized by title and groups, so the two sheets share one implementation rather than forking. The nav footer stacks the buttons; no new component or token.
+
+**Keep it in step when you add a param** — the value of this page is that it's the single place to look, so an unlisted param may as well not exist.
+
+## 🔒 v0.22.3 (Build 509) — 2026-08-03 — One pan lock, one padlock, every form; only the default differs
+
+B508 made the lock a form property but kept two things Daniel called out: the control was a pair of `locked` / `unlocked` text buttons rather than a real padlock, and it only appeared on forms that default to locked. Both are now normalized, so **the mechanism, the UI and the progressive disclosure are identical on every form and the only per-form difference is which way the lock starts.**
+
+**A real padlock, on the row, to the right.** The pan row now gets `makeLockToggle` (`shell/locks.js`), the same component, glyphs and tooltip behavior as every other lock in the app. `.slider .row` is already `space-between`, so it lands right with no new CSS. No new component and no new style, so there is no Lab specimen to add.
+
+**The padlock never hides.** That is what makes re-locking possible mid-session: the old two-button toggle vanished along with the joystick it gated, so once you unlocked there was no way back without switching forms. Now the lock stays put and the *joystick* is what appears and disappears.
+
+**Every form is lockable; defaults differ.** `panLockedByDefault: true` on radial, droste and hex; absent on square and triangle, which start unlocked. Locking a tiling form is a real capability, not a no-op: it pins the composition so a two-finger pinch can't drift it, which matters live.
+
+**The lock is scoped per form.** B508 inherited a single shared flag, which stops making sense once defaults differ: unlocking hex would have silently unlocked droste. `state.panLock` is now a map of formId → boolean, where absent means "use this form's default", so a form you have never touched keeps its default and one you have keeps your choice.
+
+It stays on **state** rather than `session.locks` for a specific reason: the engine needs the answer. The shader zeroes `u_canvasOffset` while pan is locked, and the engine can see state but not the shell's session. So `formPanLocked(state)` lives in the forms registry where both sides can reach it, and only the padlock's *presentation* goes through the lock component.
+
+**Droste gained a pan joystick.** It used to pan by gesture only, which meant the form with the most reason to translate had the least direct way to do it. It now gets the same thumb joystick as the others when unlocked. Its Möbius-centre joystick is a different control and stays in slice settings (the placement inconsistency between the two remains filed).
+
+Six hardcoded `radial || droste` tests are now one predicate, across the shader's offset gate, desktop and mobile `panDrivable`, the input bus's remote-drag check, and both joystick disclosure rules.
+
+**VERIFY (Daniel):** padlock on the pan row in canvas settings for every form, closed on radial/droste/hex and open on square/triangle; unlocking reveals the joystick and the padlock stays so you can re-lock; hex holds its centre under a two-finger pinch while locked; droste shows a pan joystick when unlocked; unlocking hex leaves droste locked; mobile matches. Still open and not assumed: **should locking also recentre?** Today it only stops honoring the offset.
+
 ## 🎯 v0.22.2 (Build 508) — 2026-08-03 — Center lock is a property of the form, not a list of two
 
 The pan lock was hardcoded as "radial or droste", on the reasoning that only those have a focal point and tileable forms are translation-symmetric so panning them is free. **That reading was too narrow (Daniel):** hexagonal mirroring has a clear center too, and drifting off it while pinching to zoom is disconcertingly easy — the two-finger gesture composes pan with zoom, so any centroid travel during a pinch pans as a side effect.
@@ -14,11 +49,9 @@ The real distinction is the form's SYMMETRY, not whether it happens to tile: p6m
 
 Behavior is unchanged for every form except hex, and the lock stays **non-destructive**: a locked form's stored offset is ignored at the shader, not cleared, so unlocking restores exactly where you were.
 
-**The lock is still one shared toggle across all locked forms**, which was Daniel's earlier call and stays right — but it now shows for hex as well, so the control appears wherever it has something to do.
+*(Superseded by B509, which made every form lockable, scoped the lock per form, and moved it onto the standard padlock.)*
 
-**Mobile got the toggle it never had.** While the lock was radial/droste-only, mobile's missing pan-lock control was survivable. It stops being survivable the moment hex is locked, since hex is a form people pan constantly — hex would have been locked with no way out. New `mountPanLockControl()` in the mobile canvas settings, same segmented pattern as the droste offset's manual toggle, writing `state.panManual` (state, not session, so it's undoable). No new component or CSS: it reuses `.m-seg` on mobile and the existing `.toggle` on desktop, so there's no Lab specimen to add.
-
-**VERIFY (Daniel):** hex should hold its center under a two-finger pinch until you unlock pan; square and triangle should pan exactly as before; radial and droste unchanged; the pan lock should appear in mobile canvas settings on hex/radial/droste and be absent on square/triangle. Worth a look at whether unlocking should also RECENTER — right now it just releases, and I did not assume.
+**Mobile got the pan control it never had**, which hex made mandatory rather than nice-to-have: hex would otherwise have been locked with no way out on mobile. *(B509 replaced its segmented buttons with the shared padlock.)*
 
 ## ⏹️ v0.22.1 (Build 507) — 2026-07-31 — A bake you can abandon, and P for play in motion
 

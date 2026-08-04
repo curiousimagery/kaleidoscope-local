@@ -21,7 +21,7 @@ import { createEngine } from './engine/index.js';
 import { createSourceOverlay } from './components/source-overlay.js';
 import { createOutputGestures } from './components/output-gestures.js';
 import { createPanJoystick } from './components/pan-joystick.js';
-import { getActiveForm, formCenterLocked } from './engine/forms/index.js';
+import { getActiveForm, formPanLocked } from './engine/forms/index.js';
 import {
   wireSliderWithScrub,
   wireLoopingSlider,
@@ -229,7 +229,15 @@ createProgramFrame(env);
 // isLocked(key) → { locked, unlockable, why }. Reads the current mode + context. The
 // `broadcasting` signal (for the resolution/aspect contextual locks) is wired later by the
 // output panel via env.isOutputLive; until then it resolves false (toggleable locks work now).
-env.isLocked = (key) => lockState({
+// PAN is a per-FORM user preference rather than a guardrail, so it resolves from `state.panLock`
+// instead of session.locks — the engine needs the answer too (the shader zeroes the offset while
+// locked) and it can see state but not session. It rides the same env seam so the padlock
+// component, its glyphs and its tooltips are shared with every other lock, unchanged.
+const PAN_WHY_LOCKED = 'pan is locked so the composition holds its centre — unlock to translate it (and to reveal the pan joystick)';
+env.isLocked = (key) => (key === 'pan'
+  ? { locked: formPanLocked(state), lockable: true, unlockable: true,
+      why: formPanLocked(state) ? PAN_WHY_LOCKED : 'pan unlocked — click to lock' }
+  : lockState({
   session,
   motionActive: env.motionRT.active,
   keyframeCount: motion.keyframes.length,   // ≥2 = at least one MANUAL keyframe past the seed
@@ -239,12 +247,20 @@ env.isLocked = (key) => lockState({
   // Fall back to outputLive until the output panel wires isBusOutputLive (preserves the hard lock).
   busOutputLive: env.isBusOutputLive ? env.isBusOutputLive()
                : (env.isOutputLive ? env.isOutputLive() : false),
-}, key);
+}, key));
 env.setLock = (key, locked) => {
+  if (key === 'pan') {
+    // scoped BY FORM: unlocking hex must not silently unlock droste — different compositions,
+    // different reasons to hold still. Stored as an explicit override so the form's default
+    // still applies to any form you haven't touched.
+    const id = getActiveForm(state)?.id;
+    if (id) { if (!state.panLock) state.panLock = {}; state.panLock[id] = !!locked; }
+  } else {
   // write the override under the SAME context-scoped key lockState reads (see scopeKey there), so
   // a Still fat-finger unlock and a structural unlock don't clobber each other.
   const scopeKey = env.isLocked(key).scopeKey || key;
   setLock(session, scopeKey, locked);
+  }
   env.syncLocks?.();             // re-run the lock syncers: padlock glyphs + the container
                                  // states they own (form-grid `form-locked`, aspect/res
                                  // `lock-dimmed`) — without this a toggle flips the glyph but
@@ -852,23 +868,24 @@ function wireLocks() {
   }));
   syncOffManual();
 
-  // PAN LOCK — forms with a meaningful center (formCenterLocked: radial/droste/hex) default to
-  // centered (state.panManual=false); unlock to translate them. One shared lock across all of them.
-  // On state (not session) so the shader's u_canvasOffset gate reads it + it rides undo/redo.
-  const panManualBtns = [...document.querySelectorAll('#panManual button')];
-  const syncPanManual = () => {
-    const on = !!state.panManual;
-    panManualBtns.forEach((b) => b.classList.toggle('active', (b.dataset.pan === '1') === on));
-  };
-  panManualBtns.forEach((b) => b.addEventListener('click', () => {
-    state.panManual = b.dataset.pan === '1';
+  // PAN LOCK — a real padlock on the row, same component and glyphs as every other lock
+  // (makeLockToggle), so there is nothing form-specific about the control itself. EVERY form is
+  // lockable; only the starting state differs (panLockedByDefault). The padlock stays on the row
+  // once unlocked, which is what makes re-locking mid-session possible — the old two-button
+  // toggle disappeared with the joystick it gated.
+  const panRowEl = byId('panLockLabel')?.querySelector('.row');
+  if (panRowEl) {
+    panRowEl.classList.add('has-lock');
+    const panPad = makeLockToggle(env, 'pan', () => {
+      env.applyFormControls?.();     // the joystick's progressive disclosure follows the lock
+      scheduleRender();              // re-centre (locked) or restore the offset (unlocked)
+      env.scheduleOverlayDraw?.();
+    });
+    panRowEl.appendChild(panPad);
+    const syncPanManual = () => panPad.sync();
     syncPanManual();
-    env.applyFormControls?.();     // show/hide the radial pan joystick for the new lock state
-    scheduleRender();              // re-center (locked) or restore the offset (unlocked)
-    env.scheduleOverlayDraw?.();
-  }));
-  syncPanManual();
-  env.syncPanManual = syncPanManual;   // a state load / reset / undo re-syncs the toggle
+    env.syncPanManual = syncPanManual;   // a state load / reset / undo / form switch re-syncs it
+  }
 
   const offAuto = [...document.querySelectorAll('#offsetAutoplay button')];
   const syncOffAuto = () => {
@@ -1073,7 +1090,7 @@ function wireControls() {
     state.drosteZoomPhase = 0;  // infinite zoom is a canvas control in droste — reset it too
     env.panRecenter?.();        // tiling pan: STOP any drift + recenter (Daniel)
     state.oobMode        = 1;   // mirror, the default
-    state.panManual      = false;   // centered forms return to the locked default
+    state.panLock        = {};      // every form returns to its own default lock state
     env.controlsSync.syncAll();
     env.applyFormControls?.();   // re-lock the pan toggle + hide the radial joystick
     // the OOB buttons sync only in their own click handler — mirror the state here
@@ -1694,7 +1711,7 @@ if (engine) {
     // Separate from panPeriod (the wrap): radial + droste pan via canvasOffset but have no lattice
     // period (non-wrapping pan). The shader already applies the raw offset for them (shader-builder).
     // a form is pan-drivable when it has no meaningful center to hold, or when pan is unlocked
-    panDrivable: () => !!getActiveForm(state) && (!formCenterLocked(state) || !!state.panManual),
+    panDrivable: () => !formPanLocked(state),
     panDrift: () => env.panDrift,   // flick-to-drift on release when drift mode is on (lazy: set after gestures)
   });
   setupUndoBar();

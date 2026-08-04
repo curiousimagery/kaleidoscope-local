@@ -62,8 +62,8 @@ export default {
   controls: ['segments', 'zoom', 'spiral', 'mirror', 'wedgeMirror', 'infiniteZoom'],
 
   // the spiral's eye IS the composition, and seamless infinite zoom depends on staying on it —
-  // pan locked (centered) by default. See formCenterLocked.
-  centerLock: true,
+  // pan locked (centered) by default. See formPanLockedByDefault.
+  panLockedByDefault: true,
 
   uniforms: {
     // log(drosteZoom) — precomputed to spare the shader a log() per pixel.
