@@ -76,6 +76,22 @@ export function formPanLockedByDefault(form) {
   return !!(form && form.panLockedByDefault);
 }
 
+// The per-form ZOOM-OVERFLOW bounds (kit/zoom.js). The unified zoom is canvas-primary and only
+// spills into `sliceScale` once canvasZoom is pinned at a wall: growing toward `zoomCover` on the
+// way out ("the slice now covers the source") and shrinking toward `zoomInFloor` on the way in.
+//
+// These were flat module constants (3 and 0.7) with a note that M4 Phase B should make them
+// per-form, and the note was right: "covers the source" is a different sliceScale for a small
+// radial wedge than for a hex cell, so one number is necessarily wrong for four of the five forms.
+// Wrong in a way that matters, too — too low re-introduces the zoom trap the canvas-primary model
+// exists to remove, too high lets the slice overshoot into the unwieldy extreme it exists to avoid.
+//
+// Defaults keep the previous flat values, so a form that declares nothing behaves exactly as before.
+export function formZoomBounds(state) {
+  const f = getActiveForm(state);
+  return { cover: f.zoomCover ?? 3, inFloor: f.zoomInFloor ?? 0.7 };
+}
+
 // Is pan locked RIGHT NOW for the active form? `state.panLock` holds per-form user overrides
 // (formId → boolean); absent means "use this form's default". Lives on STATE rather than in
 // session.locks because the ENGINE needs the answer — the shader zeroes u_canvasOffset while

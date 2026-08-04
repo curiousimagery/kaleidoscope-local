@@ -48,6 +48,7 @@ import { createOutputWindow, createExternalDisplayWindow } from './shell/output-
 import { mockSyphonHost } from 'conduit/mock-host';
 import { createOutputPanel } from './shell/output-panel.js';
 import { mountInputDebug } from './shell/input-debug.js';
+import { mountFormTuner } from './shell/form-tuner.js';
 import { createPerformRuntime } from './shell/perform-runtime.js';
 import { createInputBus } from './shell/input-bus.js';
 import { ICONS } from './mobile/icons.js';   // shared glyph set (fit/fill toggle)
@@ -1720,6 +1721,7 @@ if (engine) {
   wireBarBands();
   wireDiagnosticButton(engine, () => state);
   mountInputDebug();   // ?inputdebug → on-screen pointer/touch/gesture readout (hybrid-input diagnosis)
+  mountFormTuner(env); // ?tune=forms → live per-form normalization tuner (sizeNorm/canvasNorm/zoom bounds)
 
   window.addEventListener('resize', () => {
     // both sibling panels resize with the window — rebuild so the source box

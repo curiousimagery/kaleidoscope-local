@@ -4,6 +4,30 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🎚️ v0.22.5 (Build 511) — 2026-08-03 — `?tune=forms`: the per-form normalization tuner, and per-form zoom bounds
+
+Completes the "form slice hardening" tail. Two pieces: the capability that was genuinely missing, and the affordance that makes the rest a five-minute job instead of a build each.
+
+### Per-form zoom bounds (the real gap)
+
+`Z_SLICE_COVER = 3` and `Z_SLICE_IN_FLOOR = 0.7` were flat module constants carrying a note that M4 Phase B should make them per-form. The note was right, and this is the one part of slice hardening that was a **capability gap rather than a tuning tail**: "the slice now covers the source" is a different `sliceScale` for a small radial wedge than for a hex cell, so one number is necessarily wrong for four of the five forms — and wrong in a way that matters, since too low re-creates the zoom trap the canvas-primary model exists to remove, and too high lets the slice overshoot into the unwieldy extreme it exists to avoid.
+
+They are now `zoomCover` / `zoomInFloor` on the form, resolved through `formZoomBounds(state)`, with the old flat values as the fallback — so a form that declares nothing behaves exactly as before and this ships behavior-neutral. The canvas bounds stay module constants, because `canvasZoom` genuinely does mean the same thing on every form.
+
+### `?tune=forms`
+
+A dev-only panel (bottom-right) with sliders for the four numbers that make forms comparable: `sizeNorm`, `canvasNorm`, `zoomCover`, `zoomInFloor`. It follows whichever form is active, and each field carries what you are actually judging rather than just its name.
+
+**Why this rather than better guesses.** Every mechanism here shipped long ago (`sizeNorm` B477, triangle `canvasNorm` B483, the zoom bounds B462 and above). What never shipped was a way to *choose* the values — they are perceptual judgements only Daniel can make, and each candidate cost a rebuild, which is exactly why they sat at first-pass guesses for thirty builds. The useful thing to build was the affordance, not more guesses.
+
+**Why a URL flag and not the Lab** (Daniel raised it, and it was worth checking): the Lab is a UI inventory with no engine, no source and no forms rendering, so tuning perceptual scale there means judging numbers with nothing to look at. This needs the real app, real footage, real forms. A URL flag also needs no cleanup later — it is unreachable without the flag, unlike a diagnostics row that eventually has to be stripped.
+
+**How it applies:** it mutates the form objects in the registry directly. Every consumer already reads through `formSizeNorm` / `formCanvasNorm` / `formZoomBounds`, so one write lands on the shader, the overlay geometry and the sharpness hint together, with no second source of truth to drift. **Nothing is persisted** — reload returns the committed values, so the app can't be left in a tuned state by accident. `copy all values` emits a paste-ready block of only what changed, per form, which is how a session gets committed.
+
+Also listed in the Lab's URL-parameter cheat sheet, per the rule added last build.
+
+**VERIFY (Daniel):** open `?tune=forms` with your reference source loaded and walk the five forms. Target for `sizeNorm` is that `sliceScale = 1.0` samples a comparable amount of source everywhere; for the zoom bounds, that a hard zoom-out stops right about where the slice covers the source, without hitting a wall early. Then `copy all values` and paste the block back to me and I'll commit them into the form files. If nothing needs moving, that is also a result and slice hardening closes as-is.
+
 ## 🔗 v0.22.4 (Build 510) — 2026-08-03 — URL-parameter cheat sheet in the Lab
 
 A sibling to the CLI cheat sheet, in the Lab's nav footer: **every `?param` the app reads, grepped from the source rather than remembered.** There are ten, spread across eight files, with no other index of them anywhere — which is exactly why Daniel remembered one of them as `?mobile=true` (it's `?chrome=mobile`).

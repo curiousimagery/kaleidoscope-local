@@ -441,7 +441,8 @@ export function applyFormControls(env) {
   // (and stays put once unlocked, which is what makes re-locking possible mid-session).
   const panLockRow = document.getElementById('panLockLabel');
   if (panLockRow) panLockRow.style.display = '';
-  env.syncPanManual?.();   // reflect state.panManual on the toggle (state load / undo / reset)
+  env.syncPanManual?.();   // reflect the per-form pan lock on the padlock (state load / undo / reset)
+  env.formTunerSync?.();   // ?tune=forms panel re-points at the newly active form
   // center-offset lock/autoplay row is Droste-only (the offset is a canvas gesture, no slider)
   const offsetRow = document.getElementById('drosteOffsetLabel');
   if (offsetRow) offsetRow.style.display = form.id === 'droste' ? '' : 'none';
