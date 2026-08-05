@@ -26,6 +26,7 @@ import { createFollower, FOLLOW_SPANS, CONTINUOUS_KEYS } from '../kit/follow.js'
 import { angDelta, ANGULAR_KEYS } from '../kit/tween.js';
 import { createAutoDrift } from '../kit/drift.js';
 import { createEngine } from '../engine/index.js';
+import { PRIORITY } from 'conduit/perf-ledger';
 import { ICONS } from '../mobile/icons.js';
 
 export function createPerformRuntime(env) {
@@ -37,7 +38,7 @@ export function createPerformRuntime(env) {
 
   let follower = null;
   let raf = 0, lastT = 0;
-  let pipEngine = null, pipLastSource = null, pipFailed = false;
+  let pipEngine = null, pipLastSource = null, pipFailed = false, pipSurface = null;
   let pipLastW = 0, pipLastH = 0;   // dims of the element last uploaded (see syncPipSource)
   let dotSynced = null;   // last applied sync-dot state (avoid per-frame class churn)
 
@@ -63,7 +64,16 @@ export function createPerformRuntime(env) {
     const canvas = byId('livePipCanvas');
     if (!canvas) { pipFailed = true; return; }
     try {
-      pipEngine = createEngine({ canvas });
+      // registers on FIRST USE, releases never — the PiP engine outlives a mode switch. The
+      // registry is keyed by surface, not by panel, so the docked/floating relayout below
+      // just changes the size this reports.
+      pipSurface = env.perf?.surface({
+        id: 'pip', label: 'perform live view', serves: 'editor', priority: PRIORITY.EDITOR,
+        size: () => ({ w: canvas.width, h: canvas.height }),
+        onScale: () => sizePip(),
+      }) || null;
+      if (pipSurface) env.perfSurfaces.pip = pipSurface;
+      pipEngine = createEngine({ canvas, perf: pipSurface?.enginePerf('render') });
       // auto-recover from an OS-initiated context loss (e.g. a 4K display
       // attaching on iPad dropped every GL context in the app — the preview
       // engine heals in main.js; this is the live PiP's half)
@@ -109,7 +119,8 @@ export function createPerformRuntime(env) {
     }
     const hs = Math.round(h) + 'px';
     if (canvas.style.height !== hs) canvas.style.height = hs;
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    // ledger stepper scales the drawing buffer only; the CSS box below is untouched
+    const dpr = Math.min(window.devicePixelRatio || 1, 2) * (pipSurface?.scale ?? 1);
     let tw = Math.round(w * dpr), th = Math.round(h * dpr);
     const mx = Math.max(tw, th);
     const cap = docked ? 1600 : 960;   // the docked panel is a big view — let it stay crisp

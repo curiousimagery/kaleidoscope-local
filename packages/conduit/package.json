@@ -20,6 +20,8 @@
     "./mock-host": "./src/mock-host.js",
     "./ndi-sink": "./src/ndi-sink.js",
     "./output-bus": "./src/output-bus.js",
+    "./perf-ledger": "./src/perf-ledger.js",
+    "./pressure": "./src/pressure.js",
     "./recorder": "./src/recorder.js",
     "./syphon-sink": "./src/syphon-sink.js",
     "./test-pattern": "./src/test-pattern.js"

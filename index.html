@@ -463,6 +463,11 @@
       <label class="setting-label" style="margin-top: 14px;">HDMI experiment</label>
       <button class="toggle" id="nativeVideoCap" title="Source detail for the single native video decode (iPad). The engine's per-frame texture upload is the measured 4K bottleneck (162ms at native, 50ms at 1080p), and it scales with source pixels — so capping trades detail for frame rate. Takes effect on the next clip load.">source detail: native</button>
       <button class="toggle" id="hdmiVideoUncap" title="Testing only: allow QHD/4K video over iPad HDMI (lifts the 1080p memory guard). May lose the graphics context after ~30s at high res — use the break-glass reset to recover. Reselect the resolution / restart output after toggling.">4K/QHD over HDMI: off</button>
+      <!-- frame-cost ledger. A button rather than only ?perf because a URL parameter cannot
+           reach a Capacitor build, and iPad (which runs this chrome) is where the expensive
+           native paths live. Same panel as ?perf on web/Electron. -->
+      <label class="setting-label" style="margin-top: 14px;">performance</label>
+      <button class="toggle" id="perfPanelBtn" title="Frame-cost panel: what each render surface costs per frame, with a switch and a resolution ladder for each. Turning a surface off or scaling it down changes the app live; nothing persists except a baseline you save.">frame cost panel</button>
     </div>
   </div>
 </div>

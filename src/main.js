@@ -49,6 +49,9 @@ import { mockSyphonHost } from 'conduit/mock-host';
 import { createOutputPanel } from './shell/output-panel.js';
 import { mountInputDebug } from './shell/input-debug.js';
 import { mountFormTuner } from './shell/form-tuner.js';
+import { mountPerfPanel } from './shell/perf-panel.js';
+import { createPerfLedger, PRIORITY } from 'conduit/perf-ledger';
+import { createPressureSource } from 'conduit/pressure';
 import { createPerformRuntime } from './shell/perform-runtime.js';
 import { createInputBus } from './shell/input-bus.js';
 import { ICONS } from './mobile/icons.js';   // shared glyph set (fit/fill toggle)
@@ -88,9 +91,26 @@ const uploadErrorEl = document.getElementById('uploadError');
 // The capability profile (engine identity, capture path, texture cap) is built
 // once from the engine's diagnostics — see kit/capabilities.js. Threaded onto
 // `env.capabilities` via createApp; used here for the Firefox WebGL-cap notice.
+// THE FRAME-COST LEDGER (conduit/perf-ledger) — created before the engine so the preview can
+// be registered as it is built. Inert until a panel enables it; the pressure source is wired
+// in but DELIBERATELY has no consumer yet beyond the readout, which is how we find out whether
+// the inferred signal tracks a real one before anything degrades the app based on it.
+const perfPressure = createPressureSource({
+  native: () => env.host?.thermalState?.() ?? null,   // iOS ProcessInfo.thermalState, when a host provides it
+});
+const perf = createPerfLedger({ pressure: perfPressure });
+// Surfaces register themselves rather than being enumerated here — see the layout-agnostic
+// constraint in perf-ledger.js. A merged or removed panel re-registers a different set and the
+// readout, the switchboard and any future governor keep working untouched.
+const previewSurface = perf.surface({
+  id: 'preview', label: 'output preview', serves: 'editor', priority: PRIORITY.EDITOR,
+  size: () => ({ w: previewCanvas.width, h: previewCanvas.height }),
+  onScale: () => resizePreviewCanvas(),
+});
+
 let engine, capabilities;
 try {
-  engine = createEngine({ canvas: previewCanvas });
+  engine = createEngine({ canvas: previewCanvas, perf: previewSurface.enginePerf('render') });
   capabilities = createCapabilities(engine);
   // basic always-on diagnostics. expanded with unmasked renderer and device
   // pixel ratio so cross-device comparisons are easier without invoking the
@@ -219,6 +239,11 @@ const env = {
   // live-output bus pushes into and the diagnostics sheet reads back. See
   // kit/op-ring.js + stage/output-bus.js.
   diag: { ops: createOpRing(120) },
+  // the frame-cost ledger + its surface registry (see above). Every render surface in the app
+  // registers here; the panel reads it back. Inert until a panel turns it on.
+  perf,
+  perfSurfaces: { preview: previewSurface },
+  buildLabel: formatVersion(),
 };
 
 // the program frame — the committed "what the audience sees" snapshot every
@@ -400,9 +425,23 @@ const isMotionDriven = () => env.motionRT.active && (motion.playing || env.motio
 // the shared source-overlay component (mounted by both chromes). Desktop bridges
 // it to the existing env methods; it owns its own canvas, hover/drag state, and
 // overlay-draw scheduler internally.
+// the slice overlay is its own surface in the ledger: a 2D vector draw that redraws on every
+// frame of camera preview and video playback, with no resolution ladder (it is line work, so
+// the lever here is WHEN it draws, not how big)
+const overlaySurface = perf.surface({
+  id: 'overlay', label: 'slice overlay', serves: 'editor', priority: PRIORITY.DECOR,
+  size: () => {
+    const c = sourceOverlay?.canvas;
+    return { w: c?.width || 0, h: c?.height || 0 };
+  },
+  scaleLadder: [1],
+});
+env.perfSurfaces.overlay = overlaySurface;
+
 const sourceOverlay = createSourceOverlay({
   state,
   engine,
+  perfItem: overlaySurface.pass('draw'),
   getLiveVideo: () => env.liveVideo,
   getSourceVideo: () => env.sourceVideo,   // a loaded video file source (vs the live camera)
   // the drawable the EDITOR sees (motion staging parks it on a still while the audience
@@ -457,7 +496,10 @@ function resizePreviewCanvas() {
   let cw, ch;
   if (containerW / containerH >= a) { ch = Math.max(160, containerH); cw = ch * a; }
   else { cw = Math.max(160, containerW); ch = cw / a; }
-  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  // the ledger's resolution stepper scales the DRAWING BUFFER only — the CSS size below is
+  // untouched, so a stepped-down preview fills the same panel at lower detail rather than
+  // shrinking (which is what makes it a usable quality judgement instead of a layout change)
+  const dpr = Math.min(window.devicePixelRatio || 1, 2) * previewSurface.scale;
   let tw = Math.floor(cw * dpr), th = Math.floor(ch * dpr);
   const mx = Math.max(tw, th);
   if (mx > 2048) { const s = 2048 / mx; tw = Math.floor(tw * s); th = Math.floor(th * s); }
@@ -1722,6 +1764,19 @@ if (engine) {
   wireDiagnosticButton(engine, () => state);
   mountInputDebug();   // ?inputdebug → on-screen pointer/touch/gesture readout (hybrid-input diagnosis)
   mountFormTuner(env); // ?tune=forms → live per-form normalization tuner (sizeNorm/canvasNorm/zoom bounds)
+  // THE FRAME-COST PANEL. Two entry points because a URL parameter cannot reach a Capacitor
+  // build (the native shell loads a fixed URL) — and iPad, which runs THIS chrome, is where
+  // the expensive native paths live. So `?perf` for web/Electron, and a diagnostics button
+  // that works everywhere including on device.
+  let perfPanel = null;
+  const openPerfPanel = () => { if (!perfPanel) perfPanel = mountPerfPanel(env); };
+  if (new URLSearchParams(location.search).has('perf')) openPerfPanel();
+  const perfBtn = document.getElementById('perfPanelBtn');
+  if (perfBtn) perfBtn.addEventListener('click', () => {
+    if (perfPanel) { perfPanel.destroy(); perfPanel = null; env.perf.enabled = false; }
+    else openPerfPanel();
+    perfBtn.classList.toggle('active', !!perfPanel);
+  });
 
   window.addEventListener('resize', () => {
     // both sibling panels resize with the window — rebuild so the source box

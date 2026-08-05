@@ -4,6 +4,50 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🌡️ v0.22.6 (Build 512) — 2026-08-05 — Thermal Phase A: the frame-cost ledger, the switchboard, and the pressure seam
+
+**No behavior changes.** This build only adds the ability to see and switch what the app is spending per frame. It is the instrument the thermal/sustained-load arc is built on. Full audit and phased path: `~/.claude/plans/thermal-and-frame-cost-audit.md`.
+
+### Why an instrument first
+
+The audit that opened this arc found a worst case of **~23 megapixels rasterized per frame to put 8.3 on air** (perform, 4K source, 4K HDMI, recording: preview + PiP + bus + external view), and that several loops re-render and re-publish every frame regardless of whether anything changed. None of that was measurable per item, so every degradation decision would have been a guess about which item to cut.
+
+### `conduit/perf-ledger.js` — the registry
+
+Two instruments in one: it **measures** (ms and megapixels, per surface, per pass, over a 1s window) and it **switches** (each surface can be turned off or stepped down a resolution ladder live). The switchboard is the decisive half: mobile GPUs give no timer queries and `performance.now()` around a draw call measures submission rather than execution, so on the devices that matter the honest per-item cost is the fps delta when you switch something off. Every switch is also a candidate degradation lever, so this doubles as the prototype of the ladder a governor will later drive.
+
+Three design constraints, each from a real future feature and each expensive to retrofit:
+
+- **Layout-agnostic.** Surfaces register on mount and release on unmount; nothing in the ledger knows which panels exist today. Daniel's merged-single-surface proposal (now in BACKLOG) is exactly the change that would otherwise have orphaned a hardcoded list.
+- **Nested** — a surface owns passes. Today every surface has one, which looks like over-design until a user-loaded shader is a second pass on an existing surface, or a scene-graph layer is a second pass consuming the first. Without it the ledger can only say "the preview got slower".
+- **One-shot work budgeted separately.** A still export has seconds; a live frame has 16ms. The most useful thing we can say about an expensive effect is "fine on a still, impossible on video", and an averaged number cannot say it.
+
+Also carries a **cost probe** (render N iterations, report the distribution) — the primitive that will classify an unbounded user-loaded shader at load time, and the same code a baseline run needs.
+
+### `conduit/pressure.js` — the seam, deliberately inert
+
+One normalized 0..1 "how much trouble is this device in", with interchangeable inputs: iOS `ProcessInfo.thermalState` where a host provides it, and everywhere else an inferred signal (the web has no thermal API at all) that reads drift away from the best sustained frame time after a warm-up. **Nothing consumes it yet except the readout** — which is exactly how we find out whether the inferred signal tracks the real one *before* anything degrades the app based on it.
+
+The inferred baseline tracks DOWN only: a faster window is evidence of what the device can do, a slower one is the thing we are detecting. It deliberately does not fire for a device that was slow from the first frame — that is a capability problem, not a pressure problem, and conflating them would make a weak device read as permanently overheating.
+
+### `shell/perf-panel.js` — the readout, on three entry points
+
+fps, frame-time p50/p95, total MP/frame, pressure, then one row per surface: dimensions, ms/frame, an on/off switch, and a resolution stepper. Plus **named scenarios and a saved baseline** — run the same scenario after a change and the rows show deltas, which is what turns this from a live curiosity into regression detection.
+
+**Three entry points because a URL parameter cannot reach a Capacitor build** (the native shell loads a fixed URL) and the native builds are exactly where the expensive paths live — native decode, native camera, HDMI, NDI, native record — none of which exist in mobile Safari:
+
+- `?perf` on web and Electron (listed in the Lab's cheat sheet)
+- **frame cost panel** in the desktop chrome's diagnostics section, which is what iPad runs
+- **show frame cost** inside the phone chrome's diagnostics block, mounted lazily
+
+### Registered this build
+
+`preview`, `pip`, `bus` (render and readback as separate passes — a GPU→CPU transfer is a different kind of cost from a render), `overlay`, `external` (marked `remote`: it renders in another process so it has no ms here, but its pixels are usually the single largest item and omitting them would understate the frame by more than everything else combined), and on the phone chrome `output` + `overlay`.
+
+**VERIFY (Daniel):** open it on each device and walk the switches. Two questions per surface: the resolution above which you cannot see an improvement (the ceiling), and the one below which it looks bad (the floor). Those two rungs per surface per device are the ladder Phase D will drive. Save a baseline per named scenario first so later builds have something to diff against.
+
+**NEXT (B513):** the certain-waste cuts, measured with this — the uncapped-DPR overlay canvas, the overlay redrawing every frame when it should only redraw while being manipulated, and idle elision on the bus and poster loops.
+
 ## 🎚️ v0.22.5 (Build 511) — 2026-08-03 — `?tune=forms`: the per-form normalization tuner, and per-form zoom bounds
 
 Completes the "form slice hardening" tail. Two pieces: the capability that was genuinely missing, and the affordance that makes the rest a five-minute job instead of a build each.

@@ -70,6 +70,12 @@ export function createSourceOverlay(ctx) {
     snapDrosteSpiral: (v) => snapSpiralValue(view.state, v),
 
     scheduleOverlayDraw: null,
+    // frame-cost ledger hook (conduit/perf-ledger), optional. The overlay is a 2D VECTOR
+    // surface, so it looks trivial next to the GL renders — but it redraws on every frame of
+    // camera preview and video playback, and the perform ghost trail multiplies it by up to
+    // 28 wedge outlines. Whether that is negligible or not is exactly the kind of thing this
+    // ledger exists to stop us guessing about.
+    perfItem: ctx.perfItem || null,
   };
 
   const drawer = makeOverlayDrawer(view);

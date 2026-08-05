@@ -20,6 +20,24 @@ const DEST_KEY = 'fold.outputDestination';
 
 export function createOutputPanel(env, outputBus) {
   const byId = (id) => document.getElementById(id);
+
+  // The self-rendering destinations (external display, output window) draw in ANOTHER PROCESS,
+  // so we can never time them from here — but their pixels are usually the single largest item
+  // in the frame (up to 8.3MP at 4K), and leaving them out of the accounting would understate
+  // the load by more than everything else combined. Registered as a `remote` surface: it
+  // contributes megapixels and reports the view's own measured fps, and honestly shows no ms.
+  const remoteSurface = env.perf?.surface({
+    id: 'external', label: 'external display (other process)', serves: 'program',
+    priority: 70, remote: true, scaleLadder: [1],
+    size: () => {
+      // only while genuinely on air — an idle destination costs nothing and must not
+      // inflate the frame budget
+      if (!broadcasting) return { w: 0, h: 0 };
+      const dims = selectedDest()?.sink?.renderDims;
+      return { w: dims?.width || 0, h: dims?.height || 0 };
+    },
+  }) || null;
+  if (remoteSurface) env.perfSurfaces.external = remoteSurface;
   const outputBtn = byId('outputBtn');
   const led = byId('outputLed');
   const recordBtn = byId('recordBtn');

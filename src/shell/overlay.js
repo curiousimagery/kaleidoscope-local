@@ -169,6 +169,11 @@ function drawGhostWedges(env, ghosts) {
 }
 
 export function drawSourceOverlay(env) {
+  if (env.perfItem) { env.perfItem.begin(); try { drawSourceOverlayInner(env); } finally { env.perfItem.end(); } return; }
+  drawSourceOverlayInner(env);
+}
+
+function drawSourceOverlayInner(env) {
   const { state, engine } = env;
   if (!env.sourceOverlayCanvas || !engine.getSourceImage()) return;
   // outline stroke multiplier — 1 for the live overlay; the companion source-preview

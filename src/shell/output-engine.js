@@ -24,9 +24,11 @@
 
 import { createEngine } from '../engine/index.js';
 import { createAdaptiveCapture } from 'conduit/capture';
+import { PRIORITY } from 'conduit/perf-ledger';
 
 export function createOutputEngine(env) {
   let hidden = null;        // the second engine (lazy — plain-web sessions never output)
+  let surface = null, readItem = null;   // ledger registration (created with the engine)
   let glCanvas = null;      // the hidden engine's GL drawing buffer (drawImage source)
   let capCanvas = null, capCtx = null;   // 2D blit target → getImageData
   let lastSource = null;    // identity of the source currently uploaded to the hidden engine
@@ -44,8 +46,17 @@ export function createOutputEngine(env) {
   function ensure() {
     if (hidden) return;
     const canvas = document.createElement('canvas');   // never added to the DOM
+    // CAPTURE priority: this is the recording / broadcast itself, so it yields last or never.
+    // No resolution ladder either — degrading THIS is degrading the deliverable, which is the
+    // opposite of the whole point (the editor surfaces exist to be spent first).
+    surface = env.perf?.surface({
+      id: 'bus', label: 'record / broadcast bus', serves: 'program', priority: PRIORITY.CAPTURE,
+      size: () => ({ w: canvas.width, h: canvas.height }),
+      scaleLadder: [1],
+    }) || null;
+    if (surface) { env.perfSurfaces.bus = surface; readItem = surface.pass('readback'); }
     try {
-      hidden = createEngine({ canvas });               // a SECOND WebGL2 context
+      hidden = createEngine({ canvas, perf: surface?.enginePerf('render') });   // a SECOND WebGL2 context
     } catch (e) {
       // The browser couldn't give us another GL context (context limit, GPU fault,
       // WebGL2 unsupported). Throw a clear, surfaceable reason — the bus catches it,
@@ -161,8 +172,12 @@ export function createOutputEngine(env) {
 
       // the readback — the probe-selected path (conduit/capture.js): iPad
       // WebKit lands readpixels, Safari desktop videoframe, Blink keeps
-      // getimagedata. Same rendered buffer either way.
+      // getimagedata. Same rendered buffer either way. Measured as its own PASS because it
+      // is a different KIND of cost from the render (a GPU→CPU transfer, historically the
+      // most expensive single thing in the app) and the two want separate answers.
+      readItem?.begin();
       const r = await cap.read(w, h);
+      readItem?.end();
 
       // pixels: RGBA; orientation declared by topDown (readpixels is bottom-up —
       // every sink already honors the flag). canvas: the blitted top-down copy

@@ -39,6 +39,8 @@ import { createTestFrame } from 'conduit/test-pattern';
 import { EDITION, editionAllows, detectRuntime } from '../kit/capabilities.js';
 import { webHost } from 'conduit/host';
 import { createCapacitorHost } from '../shell/capacitor-host.js';
+import { createPerfLedger, PRIORITY } from 'conduit/perf-ledger';
+import { createPressureSource } from 'conduit/pressure';
 
 // (The desktop stylesheet is dropped in boot.js before this module loads.)
 
@@ -98,10 +100,21 @@ const camMenuBtn = $('m-cam-menu'), camPopEl = $('m-cam-pop');
 const outputCanvas = document.createElement('canvas');
 outputEl.appendChild(outputCanvas);
 
+// THE FRAME-COST LEDGER on the phone. This chrome does not mount createApp, so it builds its
+// own — same module, same registry contract, so a measurement here is directly comparable to
+// the desktop/iPad one. iPhone is the case the whole exercise matters most for.
+const perfPressure = createPressureSource({ native: () => host?.thermalState?.() ?? null });
+const perf = createPerfLedger({ pressure: perfPressure });
+const outputSurface = perf.surface({
+  id: 'output', label: 'output canvas', serves: 'program', priority: PRIORITY.PROGRAM,
+  size: () => ({ w: outputCanvas.width, h: outputCanvas.height }),
+  onScale: () => layout(),
+});
+
 let engine;
 try {
   // Cap the FBO probe so an iPhone doesn't attempt 8K/16K allocations on init.
-  engine = createEngine({ canvas: outputCanvas, maxProbeSize: 4096 });
+  engine = createEngine({ canvas: outputCanvas, maxProbeSize: 4096, perf: outputSurface.enginePerf('render') });
 } catch (e) {
   emptyEl.textContent = e.message;
   throw e;
@@ -110,6 +123,9 @@ try {
 const controlsSync = makeControlsSync();
 const env = {
   state, session, engine,
+  perf,
+  perfSurfaces: { output: outputSurface },
+  buildLabel: formatVersion(),
   controlsSync,
   scheduleRender: null,                       // set below
   syncControls: () => controlsSync.syncAll(),
@@ -227,8 +243,16 @@ function togglePipSwap() {
   updateLiveUI();
 }
 
+const overlaySurface = perf.surface({
+  id: 'overlay', label: 'slice overlay', serves: 'editor', priority: PRIORITY.DECOR,
+  size: () => ({ w: sourceOverlay?.canvas?.width || 0, h: sourceOverlay?.canvas?.height || 0 }),
+  scaleLadder: [1],
+});
+env.perfSurfaces.overlay = overlaySurface;
+
 const sourceOverlay = createSourceOverlay({
   state, engine,
+  perfItem: overlaySurface.pass('draw'),
   getLiveVideo: () => liveVideo,
   syncControls: () => controlsSync.syncAll(),
   scheduleRender,
@@ -2010,7 +2034,9 @@ function layout() {
 function sizeOutput() {
   const w = outputEl.clientWidth, h = outputEl.clientHeight;
   if (w === 0 || h === 0) return;
-  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  // ledger stepper scales the drawing buffer only; the CSS box is untouched, so a stepped-down
+  // output fills the same panel at lower detail rather than shrinking
+  const dpr = Math.min(window.devicePixelRatio || 1, 2) * outputSurface.scale;
   // fit a frameAspect (w/h) rect in the panel — mobile was square-only until
   // the canvas menu gained the aspect row (B295)
   const a = session.frameAspect || 1;
@@ -2123,7 +2149,10 @@ function buildSaveSheet() {
     <div class="m-sheet-panel">
       <div class="m-sheet-grip"></div>
       <button class="m-sheet-link" id="m-diag-toggle">show diagnostics</button>
-      <div id="m-diag" class="m-hidden"></div>
+      <div id="m-diag" class="m-hidden">
+        <div id="m-diag-text"></div>
+        <button class="m-sheet-link" id="m-perf-toggle">show frame cost</button>
+      </div>
       <div class="m-sheet-cap">format</div><div class="m-seg" id="m-fmt"></div>
       <div class="m-sheet-cap">size</div><div class="m-seg" id="m-size"></div>
       <div class="m-sheet-res" id="m-res-hint"></div>
@@ -2164,13 +2193,34 @@ function buildSaveSheet() {
   }
 
   const diag = sheet.querySelector('#m-diag'), diagToggle = sheet.querySelector('#m-diag-toggle');
+  // writes into its own child, not the container: the frame-cost panel mounts as a SIBLING
+  // here, and a refresh that replaced the container's innerHTML would tear it out mid-session
+  const diagText = sheet.querySelector('#m-diag-text');
   const renderDiag = () => {
     const src = engine.getSourceSize?.() || { w: 0, h: 0 };
-    diag.innerHTML = `WebGL2 • ${engine.diagnostics.renderer}<br>source ${src.w}×${src.h}px • max texture ${engine.diagnostics.maxTextureSize}px • max export ${engine.diagnostics.maxFBOSize}px • DPR ${window.devicePixelRatio || 1}`;
+    diagText.innerHTML = `WebGL2 • ${engine.diagnostics.renderer}<br>source ${src.w}×${src.h}px • max texture ${engine.diagnostics.maxTextureSize}px • max export ${engine.diagnostics.maxFBOSize}px • DPR ${window.devicePixelRatio || 1}`;
   };
   diagToggle.addEventListener('click', () => {
     const hidden = diag.classList.toggle('m-hidden');
     diagToggle.textContent = hidden ? 'show diagnostics' : 'hide diagnostics';
+  });
+
+  // FRAME-COST PANEL, inline in the diagnostics block. iPhone is the case this whole exercise
+  // matters most for (the hottest function on the most thermally constrained device we ship
+  // to) and it is also the one a URL parameter cannot reach — the Capacitor shell loads a
+  // fixed URL. Mounted lazily so a session that never opens diagnostics pays nothing.
+  let perfPanel = null;
+  const perfBtn = sheet.querySelector('#m-perf-toggle');
+  if (perfBtn) perfBtn.addEventListener('click', async () => {
+    if (perfPanel) {
+      perfPanel.destroy(); perfPanel = null;
+      if (env.perf) env.perf.enabled = false;
+      perfBtn.textContent = 'show frame cost';
+      return;
+    }
+    const { mountPerfPanel } = await import('../shell/perf-panel.js');
+    perfPanel = mountPerfPanel(env, { container: diag });
+    perfBtn.textContent = 'hide frame cost';
   });
 
   sheet.querySelector('#m-save-comp').addEventListener('click', () => doSave(false));

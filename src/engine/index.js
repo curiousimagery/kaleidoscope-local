@@ -26,7 +26,10 @@ export { sliceVecToSourceUV, polygonRadiusAt, pointInPolygon } from './geometry.
 // create an engine bound to a single canvas. the canvas is used both for
 // preview rendering and as the GL context owner — exports go to a separate
 // FBO so the canvas isn't disturbed.
-export function createEngine({ canvas, maxProbeSize }) {
+// `perf` is an optional collaborator from the frame-cost ledger (conduit/perf-ledger):
+// { skip, begin(), end() }. It hooks render() — the one place every caller funnels through —
+// so a surface can be measured and (via `skip`) switched off without any call site knowing.
+export function createEngine({ canvas, maxProbeSize, perf = null }) {
   let glCtx = createGLContext(canvas, { maxProbeSize });
   let sourceTexture = null;
   let sourceImage = null;     // HTMLImageElement OR HTMLVideoElement (live camera)
@@ -204,9 +207,16 @@ export function createEngine({ canvas, maxProbeSize }) {
     // before calling. no-op if no source texture is loaded.
     render(state) {
       if (!sourceTexture) return;
+      if (perf && perf.skip) return;   // switched off at the ledger — the canvas holds its last frame
+      perf?.begin();
       const ctx = buildCtx(state);
       renderToCanvas(glCtx, state, ctx, canvas.width, canvas.height);
+      perf?.end();
     },
+
+    // let the shell attach/replace the ledger hook after construction (the output bus builds
+    // its engine lazily, long after the ledger exists)
+    setPerf(p) { perf = p || null; },
 
     // FBO export. returns a Promise<Blob> for the requested format.
     // sizeArg can be a number or the string 'max' (uses the probed max FBO
