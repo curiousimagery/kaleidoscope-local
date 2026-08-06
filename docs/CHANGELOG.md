@@ -4,6 +4,27 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🧪 v0.22.17 (Build 523) — 2026-08-06 — The phone's recording ceiling is one line of code
+
+B522's instrumentation answered in one reading, and the answer was the same one the arc has given twice already.
+
+| iPhone, recording | `blit` | `encode` | fps |
+| --- | --- | --- | --- |
+| FHD source | **39.29ms** | 3.19ms | 20 |
+| 4K source | **58.00ms** | 4.50ms | 10 |
+
+**Twelve to one.** The encoder is not the problem and never was — every earlier plan to cap iPhone record resolution was treating a symptom. The cost is `ctx.getImageData(0, 0, 1, 1)`: a one-pixel read placed after the record blit **purely to force the deferred 2D canvas to rasterize in order**, which turns out to be a full pipeline sync.
+
+Note what the two rows prove together: the record canvas is 1080×1080 in BOTH, yet the blit nearly doubles when the SOURCE goes to 4K. It is not copying more pixels — **it is waiting longer, because the sync waits for the whole render to finish and a 4K source makes that render slower.** A stall, exactly like the desktop bus in B521.
+
+### Shipped as an experiment, not a fix
+
+The forced rasterization guards against something real: Chromium's 2D canvases are deferred, so a `drawImage` out of a WebGL canvas that re-renders later in the same task would capture the *later* render — the preview instead of the followed output. That bug was found on Chromium. **This code runs on WebKit too, where the deferral it defends against may simply not exist.**
+
+So `record: force sync rasterize` joins the optimization switches, defaulting to today's behavior. Turning it off is a question, not a speed-up.
+
+**VERIFY (Daniel) — and the fps is NOT the test:** iPhone, switch it off, record ~20 seconds while moving the slice around, then **watch the take back**. Correct frames means the flush was never needed on WebKit and it becomes Chromium-only, recovering ~39ms per frame. Wrong or stale frames means it is load-bearing, and the fix is architectural: a `VideoFrame` built straight off the GL canvas, which solves the ordering problem without ever leaving the GPU.
+
 ## 🔦 v0.22.16 (Build 522) — 2026-08-06 — Instrument the phone's record path, the last dark spot
 
 **B521 landed the big one: desktop 4K Syphon went to 85.3fps with readback at 0.87ms** (from 19.48ms — 22x), with the bus finally reporting `capture: async`. That also retires my earlier claim that ~19ms was a hardware floor and 4K/60 was unreachable in Electron. It was not a floor; it was a stall, and it is gone.

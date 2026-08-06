@@ -40,6 +40,7 @@ import { EDITION, editionAllows, detectRuntime } from '../kit/capabilities.js';
 import { webHost } from 'conduit/host';
 import { createCapacitorHost } from '../shell/capacitor-host.js';
 import { createPerfLedger, PRIORITY } from 'conduit/perf-ledger';
+import { perfFlags } from '../shell/perf-flags.js';
 import { createPressureSource } from 'conduit/pressure';
 
 // (The desktop stylesheet is dropped in boot.js before this module loads.)
@@ -1014,8 +1015,13 @@ function paintRecord() {
   ctx.drawImage(outputCanvas, 0, 0, recordCanvas.width, recordCanvas.height);
   // FORCE the copy to rasterize NOW: Chromium 2D canvases are deferred — a
   // drawImage from a WebGL canvas that re-renders later in the SAME task would
-  // otherwise capture the LATER render (the preview, not the followed output)
-  ctx.getImageData(0, 0, 1, 1);
+  // otherwise capture the LATER render (the preview, not the followed output).
+  //
+  // MEASURED B522: this one-pixel read is a full pipeline sync costing 39.29ms/frame on iPhone at
+  // FHD (58ms with a 4K source) against 3.19ms to encode — it IS the phone's recording ceiling.
+  // The flag exists to test whether WebKit needs it at all, since the deferral it guards against
+  // is a Chromium behavior. See perf-flags.js; the test is whether the TAKE is correct, not fps.
+  if (perfFlags.recordForceFlush) ctx.getImageData(0, 0, 1, 1);
   recBlit?.end();
   // the WebCodecs session encodes straight off this canvas (captureStream never sees it)
   recEncode?.begin();

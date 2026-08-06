@@ -44,6 +44,22 @@ export const perfFlags = {
   // to the heartbeat floor. OFF = post every frame, the pre-B513 behavior.
   posterElide: true,
 
+  // FORCE the record blit to rasterize synchronously (`getImageData(0,0,1,1)` after the
+  // drawImage). ON is the shipped behavior and exists for a real reason: CHROMIUM 2D canvases are
+  // deferred, so a drawImage out of a WebGL canvas that re-renders later in the same task would
+  // capture the LATER render — the preview instead of the followed output.
+  //
+  // But that one-pixel read is a full pipeline sync, and B522 measured it at **39.29ms per frame
+  // on iPhone at FHD (58ms with a 4K source), against 3.19ms to actually encode** — twelve to one,
+  // and the entire reason phone recording sits at 20fps. The open question is whether WebKit needs
+  // it at all: the deferral it defends against is a Chromium behavior, and this code runs on both.
+  //
+  // OFF is therefore an EXPERIMENT, not an optimization: turn it off, record, and check the TAKE
+  // ITSELF, not just the frame rate. Correct frames at 40fps means it was never needed here and
+  // the flush can be made Chromium-only. Wrong frames means it is load-bearing and the fix is
+  // architectural (a VideoFrame straight off the GL canvas, keeping the pixels on the GPU).
+  recordForceFlush: true,
+
   // PIPELINED (async) GPU→CPU readback for the broadcast bus (B519). OFF = the synchronous
   // `readPixels` that measured 21.3ms/frame at 4K on desktop — the largest single cost in the
   // app. This is the one flag whose OFF state is genuinely worse; it exists so the win can be
@@ -59,4 +75,5 @@ export const PERF_FLAG_SPECS = [
   ['busElide', 'bus: skip render when unchanged', 'off = render + read back every frame'],
   ['posterElide', 'external: skip identical posts', 'off = post state every frame'],
   ['asyncReadback', 'bus: pipelined readback', 'off = blocking readPixels (21ms/frame at 4K)'],
+  ['recordForceFlush', 'record: force sync rasterize', 'off = EXPERIMENT, check the take is correct'],
 ];
