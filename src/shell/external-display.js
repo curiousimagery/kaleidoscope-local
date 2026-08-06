@@ -39,6 +39,7 @@
 
 import { registerPlugin } from '@capacitor/core';
 import { createSurfacePoster } from 'conduit/external-surface';
+import { perfFlags } from './perf-flags.js';
 
 const FoldExternalDisplay = registerPlugin('FoldExternalDisplay');
 
@@ -187,6 +188,7 @@ function createPoster(opts) {
     },
     renderCaps: RENDER_CAPS,
     sourceCaps: SOURCE_CAPS,
+    elide: () => perfFlags.posterElide,   // A/B switch in the frame-cost panel
   });
 
   function emitChange(s) {

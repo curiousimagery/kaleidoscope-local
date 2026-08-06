@@ -1769,13 +1769,17 @@ if (engine) {
   // the expensive native paths live. So `?perf` for web/Electron, and a diagnostics button
   // that works everywhere including on device.
   let perfPanel = null;
-  const openPerfPanel = () => { if (!perfPanel) perfPanel = mountPerfPanel(env); };
-  if (new URLSearchParams(location.search).has('perf')) openPerfPanel();
+  const openPerfPanel = () => {
+    if (perfPanel) return;
+    perfPanel = mountPerfPanel(env, {
+      onClose: () => { perfPanel = null; perfBtn?.classList.remove('active'); },
+    });
+    perfBtn?.classList.add('active');
+  };
   const perfBtn = document.getElementById('perfPanelBtn');
+  if (new URLSearchParams(location.search).has('perf')) openPerfPanel();
   if (perfBtn) perfBtn.addEventListener('click', () => {
-    if (perfPanel) { perfPanel.destroy(); perfPanel = null; env.perf.enabled = false; }
-    else openPerfPanel();
-    perfBtn.classList.toggle('active', !!perfPanel);
+    if (perfPanel) perfPanel.destroy(); else openPerfPanel();
   });
 
   window.addEventListener('resize', () => {

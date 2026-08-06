@@ -28,6 +28,8 @@
 // NOTHING HERE CHANGES HOW THE APP BEHAVES unless you touch a switch, and nothing persists
 // except a baseline you explicitly save.
 
+import { perfFlags, PERF_FLAG_SPECS } from './perf-flags.js';
+
 const BASELINE_KEY = 'foldPerfBaseline';
 
 // The named runs, so a measurement is comparable across sessions, devices and builds instead
@@ -39,10 +41,20 @@ const SCENARIOS = [
 
 const CSS = `
 #perfPanel { font: 11px/1.4 var(--font-ui, system-ui); color: var(--text-secondary, #bbb); }
+/* floating so it can stay up WHILE the app is being used — the measurement is meaningless if
+   reading it requires covering the thing you are measuring (which is what mounting it inside
+   the phone's save sheet did) */
 #perfPanel.floating { position: fixed; right: 12px; bottom: 12px; z-index: 99997; width: 340px;
+  max-width: calc(100vw - 24px); max-height: 62vh; overflow-y: auto;
   background: var(--surface-panel, #141414); border: 1px solid var(--border, #333);
   border-radius: var(--radius-md, 8px); padding: 10px 12px; box-shadow: 0 8px 24px rgba(0,0,0,.5); }
+/* keep clear of the phone's home indicator / safe area */
+@supports (padding: env(safe-area-inset-bottom)) {
+  #perfPanel.floating { bottom: calc(12px + env(safe-area-inset-bottom)); }
+}
+#perfPanel.floating.min { max-height: none; overflow: visible; }
 #perfPanel.floating.min > *:not(.pf-head) { display: none; }
+#perfPanel .pf-cap { border-bottom: 0; padding-top: 10px; }
 #perfPanel .pf-head { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; }
 #perfPanel .pf-title { font-weight: 600; color: var(--text, #eee); }
 #perfPanel button { background: var(--surface-control, #1e1e1e); color: inherit; cursor: pointer;
@@ -58,7 +70,8 @@ const CSS = `
 #perfPanel .pf-row { display: flex; align-items: center; gap: 6px; padding: 4px 0; border-bottom: 1px solid rgba(255,255,255,.05); }
 #perfPanel .pf-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #perfPanel .pf-name em { font-style: normal; color: var(--text-faint, #666); }
-#perfPanel .pf-num { font-variant-numeric: tabular-nums; color: var(--text, #eee); min-width: 42px; text-align: right; }
+#perfPanel .pf-num { font-variant-numeric: tabular-nums; color: var(--text, #eee); min-width: 42px; text-align: right; white-space: nowrap; }
+#perfPanel .pf-num.pf-wide { min-width: 108px; }
 #perfPanel .pf-delta { font-variant-numeric: tabular-nums; min-width: 40px; text-align: right; font-size: 10px; }
 #perfPanel .pf-delta.up { color: var(--danger, #e2685a); }
 #perfPanel .pf-delta.down { color: var(--ok, #6ac47a); }
@@ -70,7 +83,7 @@ const CSS = `
 
 const pct = (a, b) => (b > 0 ? ((a - b) / b) * 100 : 0);
 
-export function mountPerfPanel(env, { container = null } = {}) {
+export function mountPerfPanel(env, { container = null, onClose = null } = {}) {
   const ledger = env.perf;
   if (!ledger) return null;
 
@@ -104,7 +117,11 @@ export function mountPerfPanel(env, { container = null } = {}) {
       panel.classList.toggle('min');
       minBtn.textContent = panel.classList.contains('min') ? '+' : '–';
     });
-    head.appendChild(minBtn);
+    const closeBtn = document.createElement('button');
+    closeBtn.textContent = '×';
+    closeBtn.title = 'close (restores every switch and resolution)';
+    closeBtn.addEventListener('click', () => api.destroy());
+    head.append(minBtn, closeBtn);
   }
   panel.appendChild(head);
 
@@ -205,9 +222,18 @@ export function mountPerfPanel(env, { container = null } = {}) {
       name.innerHTML = `${s.label} <em>${s.serves} · ${s.w}×${s.h}</em>`;
 
       const ms = document.createElement('span');
-      ms.className = 'pf-num'; ms.textContent = `${s.msPerFrame}ms`;
+      ms.className = 'pf-num';
+      // GPU time is the truer number where we have it, so it LEADS and the CPU figure follows in
+      // parentheses. Where we do not (WebKit), there is only one number and no false precision.
+      ms.textContent = s.gpuMsPerFrame > 0
+        ? `${s.gpuMsPerFrame}ms gpu (${s.msPerFrame} cpu)`
+        : `${s.msPerFrame}ms`;
+      if (s.gpuMsPerFrame > 0) ms.classList.add('pf-wide');
 
-      row.append(onBtn, name, ms, deltaEl(s.msPerFrame, baseById.get(s.id)?.msPerFrame));
+      const compareCurrent = s.gpuMsPerFrame > 0 ? s.gpuMsPerFrame : s.msPerFrame;
+      const base = baseById.get(s.id);
+      const compareBase = base && (base.gpuMsPerFrame > 0 ? base.gpuMsPerFrame : base.msPerFrame);
+      row.append(onBtn, name, ms, deltaEl(compareCurrent, compareBase));
 
       if (s.scaleLadder && s.scaleLadder.length > 1) {
         const scaleBtn = document.createElement('button');
@@ -238,6 +264,36 @@ export function mountPerfPanel(env, { container = null } = {}) {
       }
     }
 
+    // BEHAVIOR FLAGS — the A/B switches for optimizations that changed how the app works. These
+    // are not surfaces (they have no size and no cost of their own); they are the shipped
+    // optimizations, each switchable back off so its value can be measured rather than assumed.
+    if (PERF_FLAG_SPECS.length) {
+      const cap = document.createElement('div');
+      cap.className = 'pf-row pf-cap';
+      cap.innerHTML = '<span class="pf-name"><em>optimizations — switch off to measure what each is worth</em></span>';
+      rows.appendChild(cap);
+      for (const [key, label, offMeaning] of PERF_FLAG_SPECS) {
+        const row = document.createElement('div'); row.className = 'pf-row';
+        const b = document.createElement('button');
+        b.textContent = perfFlags[key] ? 'on' : 'off';
+        b.classList.toggle('off', !perfFlags[key]);
+        b.addEventListener('click', () => {
+          perfFlags[key] = !perfFlags[key];
+          // several of these change what a surface DRAWS, and the change-gate would otherwise
+          // hold the old pixels until something else moved — so force everything to repaint
+          env.scheduleOverlayDraw?.();
+          env.sourceOverlay?.scheduleDraw?.();
+          env.scheduleRender?.();
+          paint(ledger.report);
+        });
+        const n = document.createElement('span');
+        n.className = 'pf-name';
+        n.innerHTML = `${label} <em>${offMeaning}</em>`;
+        row.append(b, n);
+        rows.appendChild(row);
+      }
+    }
+
     for (const o of r.oneShots) {
       const row = document.createElement('div'); row.className = 'pf-row';
       const n = document.createElement('span');
@@ -255,18 +311,26 @@ export function mountPerfPanel(env, { container = null } = {}) {
 
   (container || document.body).appendChild(panel);
   console.info('[fold] frame-cost panel active — switches and resolution steppers change behavior live; nothing persists but a saved baseline');
-  return {
+
+  const api = {
     el: panel,
     paint,
     // RESTORE EVERYTHING on close. A switched-off surface stays off until something turns it
     // back on, and the panel is the only thing that can — so closing it while the preview is
     // cut would leave a dark panel with no visible cause and no way back short of a reload.
+    // Same for the optimization flags: closing must never leave the app de-optimized.
     destroy() {
       for (const s of ledger.report.surfaces) {
         if (!s.enabled) ledger.setSurfaceEnabled(s.id, true);
         if (s.scale !== 1) ledger.setSurfaceScale(s.id, 1);
       }
+      for (const [key] of PERF_FLAG_SPECS) perfFlags[key] = true;
+      ledger.enabled = false;
+      env.scheduleOverlayDraw?.();
+      env.scheduleRender?.();
       panel.remove();
+      onClose?.();
     },
   };
+  return api;
 }

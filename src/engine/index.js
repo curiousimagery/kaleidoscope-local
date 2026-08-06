@@ -19,6 +19,7 @@
 import { createGLContext, uploadTexture, updateTexture, createPlanarUploader, renderToCanvas, renderToFBO, probeMaxFBOSize } from './gl.js';
 import { FORMS, FORMS_BY_ID, getActiveForm, getActiveFormIndex } from './forms/index.js';
 import { sliceVecToSourceUV } from './geometry.js';
+import { createGpuTimer } from 'conduit/gpu-timer';
 
 export { FORMS, FORMS_BY_ID, getActiveForm, getActiveFormIndex };
 export { sliceVecToSourceUV, polygonRadiusAt, pointInPolygon } from './geometry.js';
@@ -40,6 +41,7 @@ export function createEngine({ canvas, maxProbeSize, perf = null }) {
   let planar = null;             // lazily-built planar uploader (native decode → this context)
   let planarFrame = null;        // provider: () => wire frame | null, installed by the shell
   let planarCap = 0;             // source-detail cap (long edge) for the planar texture
+  let gpuTimer;                  // undefined = not probed yet, null = unsupported here
 
   // a source is an <img> (naturalWidth), a <video> (videoWidth), or a <canvas>
   // (width — used for the mirrored front-camera frame). resolve to pixel
@@ -101,6 +103,7 @@ export function createEngine({ canvas, maxProbeSize, perf = null }) {
       glCtx = fresh;
       sourceTexture = null;                          // the old handle died with the context
       planar = null;                                 // ...and so did its FBO + blit program
+      gpuTimer = undefined;                          // ...and every outstanding timer query
       if (sourceImage) this.setSource(sourceImage);  // re-upload; aspect re-derives
     },
 
@@ -209,9 +212,21 @@ export function createEngine({ canvas, maxProbeSize, perf = null }) {
       if (!sourceTexture) return;
       if (perf && perf.skip) return;   // switched off at the ledger — the canvas holds its last frame
       perf?.begin();
+      // TRUE GPU TIME where the platform offers it (Chromium/Electron). Created on first render
+      // rather than at construction because the ledger hook can be attached later, and because a
+      // session that never opens the panel should never allocate query objects.
+      if (perf?.gpu && gpuTimer === undefined) gpuTimer = createGpuTimer(glCtx.gl) || null;
+      gpuTimer?.begin();
       const ctx = buildCtx(state);
       renderToCanvas(glCtx, state, ctx, canvas.width, canvas.height);
+      gpuTimer?.end();
       perf?.end();
+      if (gpuTimer && perf?.gpu) {
+        // results land a frame or two later, so this reports whatever finished since last time;
+        // null means a disjoint event made the outstanding results meaningless
+        const ms = gpuTimer.poll();
+        if (ms) perf.gpu(ms);
+      }
     },
 
     // let the shell attach/replace the ledger hook after construction (the output bus builds

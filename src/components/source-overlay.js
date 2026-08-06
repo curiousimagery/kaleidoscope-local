@@ -87,6 +87,9 @@ export function createSourceOverlay(ctx) {
     // mountSourceView clears the container and re-binds listeners.
     mount(container) { view.container = container; mountSourceView(view, container); },
 
+    // the per-frame path from the render loops: change-gated, so an idle camera preview stops
+    // re-stroking identical line work every frame. `scheduleDraw` is the explicit-invalidation
+    // path and always draws — use that whenever something changed that state alone cannot show.
     render() { drawSourceOverlay(view); },
     scheduleDraw: drawer.schedule,
 

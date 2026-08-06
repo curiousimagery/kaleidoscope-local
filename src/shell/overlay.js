@@ -20,6 +20,7 @@
 import { sliceVecToSourceUV, polygonRadiusAt, pointInPolygon } from '../engine/geometry.js';
 import { getActiveForm } from '../engine/forms/index.js';
 import { rotateCursorForAngle, scaleCursorForAngle } from './cursors.js';
+import { perfFlags } from './perf-flags.js';
 
 // touch-surface detection — used to decide whether to render always-visible
 // direct-manipulation handles (touch) vs cursor-only affordances (mouse).
@@ -73,7 +74,11 @@ export function makeOverlayDrawer(env) {
       draw();
     });
   }
-  function draw() { drawSourceOverlay(env); }
+  // An EXPLICIT schedule is an invalidation: someone changed something the overlay draws and
+  // said so. It always redraws. The change-detection gate in drawSourceOverlay exists for the
+  // OTHER kind of caller — the render loops that call render() every frame regardless — so a
+  // lock toggle or a hover can never be swallowed by a signature that failed to notice it.
+  function draw() { drawSourceOverlay(env, { force: true }); }
   return { draw, schedule };
 }
 
@@ -138,7 +143,10 @@ function drawGhostWedges(env, ghosts) {
   if (!wrap) return;
   const w = wrap.clientWidth, h = wrap.clientHeight;
   if (!w || !h) return;
-  const dpr = window.devicePixelRatio || 1;
+  // CAP AT 2, matching every other canvas in the app (preview, PiP, phone output, filmstrip).
+  // This was the one surface reading the raw ratio, so on a 3x phone it drew 2.25x the pixels
+  // of a capped one — for vector line work, which gains nothing visible past 2x.
+  const dpr = overlayDpr();
   const ctx = canvas.getContext('2d');
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   const sourceAspect = engine.getSourceAspect();
@@ -168,7 +176,46 @@ function drawGhostWedges(env, ghosts) {
   }
 }
 
-export function drawSourceOverlay(env) {
+const overlayDpr = () => (perfFlags.overlayDprCap
+  ? Math.min(window.devicePixelRatio || 1, 2)
+  : (window.devicePixelRatio || 1));
+
+// What a draw's OUTPUT depends on. If none of it moved, the pixels would be identical and the
+// draw is pure waste. Built over EVERY primitive in state rather than a hand-listed set of
+// slice fields, because a missed field means a stale overlay — a visible bug — and forty
+// property reads are nothing next to clearing and re-stroking a DPR-scaled canvas.
+function overlaySignature(env) {
+  let s = '';
+  for (const k in env.state) {
+    const v = env.state[k];
+    if (v === null || typeof v !== 'object') s += k + v + ';';
+  }
+  const wrap = env.sourceOverlayCanvas?.parentElement;
+  s += `|${wrap?.clientWidth}x${wrap?.clientHeight}|${env.engine.getSourceAspect()}|${env.fit}`;
+  s += `|${overlayDpr()}|${env.overlayStrokeScale || 1}|${env.hoverMode}${env.hoverOnSpoke}${env.hoverHandle}`;
+  s += `|${env.overlayDragging}${env.overlayDragMode}`;
+  try { s += `|${env.hideAffordances?.()}${env.editLocked?.()}`; } catch { /* not wired on every host */ }
+  return s;
+}
+
+// `force` = an explicit invalidation (see makeOverlayDrawer). Without it this is the per-frame
+// path from the render loops, and it redraws only when something it draws actually changed.
+//
+// WHY (Daniel, 2026-08-05): "this genuinely shouldn't be re-rendering at all unless it is
+// actively being manipulated." It was redrawing on every frame of camera preview and video
+// playback — precisely when the device is busiest — to produce identical vector line work.
+// Motion playback and perform still redraw every frame, correctly, because there the state IS
+// changing per frame; the signature notices that by itself rather than needing a mode check.
+export function drawSourceOverlay(env, { force = false } = {}) {
+  // the perform ghost trail animates independently of state (it fades and shifts every frame),
+  // so it opts out of the gate rather than trying to sign a moving array of snapshots
+  if (!force && !env.performGhosts && perfFlags.overlayGated) {
+    const sig = overlaySignature(env);
+    if (sig === env.lastOverlaySig) return;
+    env.lastOverlaySig = sig;
+  } else {
+    env.lastOverlaySig = null;   // a forced/ghost draw leaves no valid cache to compare against
+  }
   if (env.perfItem) { env.perfItem.begin(); try { drawSourceOverlayInner(env); } finally { env.perfItem.end(); } return; }
   drawSourceOverlayInner(env);
 }
@@ -186,7 +233,10 @@ function drawSourceOverlayInner(env) {
   const h = wrap.clientHeight;
   if (w === 0 || h === 0) return;
 
-  const dpr = window.devicePixelRatio || 1;
+  // CAP AT 2, matching every other canvas in the app (preview, PiP, phone output, filmstrip).
+  // This was the one surface reading the raw ratio, so on a 3x phone it drew 2.25x the pixels
+  // of a capped one — for vector line work, which gains nothing visible past 2x.
+  const dpr = overlayDpr();
   if (canvas.width !== w * dpr || canvas.height !== h * dpr) {
     canvas.width = w * dpr;
     canvas.height = h * dpr;
@@ -1583,6 +1633,8 @@ export function mountSourceView(env, slotEl) {
 
   setupSourceInteraction(env, slotEl);
   // schedule a draw — by next frame, layout is settled
-  requestAnimationFrame(() => drawSourceOverlay(env));
+  // forced: a remount rebuilt the canvas, so there is nothing on it regardless of what the
+  // signature would say about the state
+  requestAnimationFrame(() => drawSourceOverlay(env, { force: true }));
   return overlay;
 }

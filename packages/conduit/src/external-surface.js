@@ -36,8 +36,17 @@
 //   A transport steps them via degrade() on view-process death, resetGen() on a fresh
 //   surface (the iOS external view's memory-pressure response).
 
-export function createSurfacePoster({ transport, content, renderCaps = [Infinity], sourceCaps = [Infinity], onClosed = null }) {
+// The longest the poster will stay silent when nothing has changed. Short enough that a view
+// which missed a message recovers imperceptibly; long enough that a static program costs ~4
+// posts a second instead of 60.
+const HEARTBEAT_MS = 250;
+
+// `elide` is an optional predicate letting the consumer switch the skip off at runtime (Fold
+// exposes it as an A/B in the frame-cost panel). Default on; a consumer that passes nothing
+// gets the elision, since an identical message is identical everywhere.
+export function createSurfacePoster({ transport, content, renderCaps = [Infinity], sourceCaps = [Infinity], onClosed = null, elide = null }) {
   let active = false;
+  let lastStateJson = '', lastPostT = 0;   // idle elision (see loop)
   let raf = 0;
   let lastSourceSig = '';
   let lastOut = null;
@@ -67,22 +76,38 @@ export function createSurfacePoster({ transport, content, renderCaps = [Infinity
     const sig = content.sourceSignature();
     if (sig !== lastSourceSig) { lastSourceSig = sig; postSource(); }
     lastOut = outputDims();
-    // the popup uses message ARRIVAL as its render clock (unfocused rAF is throttled),
-    // so state is posted unconditionally each tick; a static-look skip is a possible
-    // follow-up but must keep posting for live sources or the view drops to its fallback
-    Promise.resolve(transport.post({
+    const msg = {
       type: 'state',
       state: content.getState(),
       output: lastOut,
       video: content.getVideoSync?.() || null,
       test: !!content.getTest?.(),
-    })).catch(() => { /* transport gone; the next tick's isClosed/stop handles it */ });
+    };
+    // IDLE ELISION with a HEARTBEAT FLOOR (B513). The view uses message ARRIVAL as its render
+    // clock — an unfocused window's rAF is throttled, so a loop-driven view renders jerkily or
+    // freezes — which is why this posted unconditionally. But posting an IDENTICAL message 60
+    // times a second makes the view re-render an identical frame 60 times a second, and on the
+    // external display that is an 8.3-megapixel redraw of a picture that did not change.
+    //
+    // So: skip only what is provably identical, and NEVER go quiet for longer than the
+    // heartbeat. That bounds the worst case of a missed or dropped message to a fraction of a
+    // second of staleness instead of a frozen output, which is the failure mode that matters
+    // here. A live source's state changes constantly anyway, so this only ever engages on a
+    // genuinely static program.
+    const now = performance.now();
+    const json = elide && elide() === false ? '' : JSON.stringify(msg);
+    if (!json || json !== lastStateJson || now - lastPostT >= HEARTBEAT_MS) {
+      lastStateJson = json; lastPostT = now;
+      Promise.resolve(transport.post(msg))
+        .catch(() => { /* transport gone; the next tick's isClosed/stop handles it */ });
+    }
     raf = requestAnimationFrame(loop);
   }
 
   // arm before the surface opens (so a stop() during an async open cancels the
   // pending begin); begin the loop once the surface is ready; end tears down.
-  function arm() { active = true; lastSourceSig = ''; fps = 0; }
+  // a fresh surface has seen nothing, so the elision cache must not carry over from the last one
+  function arm() { active = true; lastSourceSig = ''; fps = 0; lastStateJson = ''; lastPostT = 0; }
   function begin() { if (active && !raf) loop(); }
   function end() {
     active = false;
@@ -96,7 +121,9 @@ export function createSurfacePoster({ transport, content, renderCaps = [Infinity
     get fps() { return fps; },
     get renderDims() { return lastOut; },
     // view handshake — the transport routes its upstream messages here
-    noteHello() { lastSourceSig = ''; },   // the view (re)loaded → repost the source next tick
+    // the view (re)loaded → repost the source next tick, AND forget the elision cache: a fresh
+    // view has never received the state we would otherwise consider already delivered
+    noteHello() { lastSourceSig = ''; lastStateJson = ''; },
     noteFps(n) { fps = n || 0; },
     // degradation ladder (a no-op when the caller passed none)
     degrade() { gen = Math.min(gen + 1, renderCaps.length - 1); lastSourceSig = ''; },

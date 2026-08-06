@@ -14,6 +14,7 @@
     "./encode": "./src/encode.js",
     "./external-surface": "./src/external-surface.js",
     "./frame-wire": "./src/frame-wire.js",
+    "./gpu-timer": "./src/gpu-timer.js",
     "./hosts/electron-ndi/bridge": "./hosts/electron-ndi/bridge.cjs",
     "./engine-adapter": "./src/engine-adapter.js",
     "./host": "./src/host.js",

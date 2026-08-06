@@ -49,26 +49,49 @@ export function createOutputBus({ engineAdapter, host = null, diag = null } = {}
 
   // fps + op-record window accumulators (reset each ~1s window).
   let fps = 0;
-  let winStart = 0, winFrames = 0, winRender = 0, winRead = 0, winPublish = 0;
+  let winStart = 0, winFrames = 0, winRender = 0, winRead = 0, winPublish = 0, winReused = 0;
+
+  // IDLE ELISION state. `frameSignature()` is OPTIONAL on the adapter — an adapter that does
+  // not implement it never elides, so this is additive for every existing consumer.
+  let lastFrame = null, lastSig = null, pendingSig = null;
+
+  // Dimensions are part of the identity: a resolution change must re-render even if the look
+  // did not move, or the sinks keep receiving a frame at the old size.
+  function canReuseLastFrame() {
+    // pendingSig is recomputed on EVERY call, including the ones that cannot elide, because the
+    // render path stores it as the new identity — leaving a stale value here would let a later
+    // frame match a signature it never actually rendered.
+    pendingSig = null;
+    if (typeof engineAdapter.frameSignature !== 'function') return false;
+    let sig;
+    try { sig = engineAdapter.frameSignature(); } catch { return false; }
+    if (sig == null) return false;                       // adapter says "assume it changed"
+    pendingSig = `${sig}|${width}x${height}`;
+    return !!lastFrame && pendingSig === lastSig && lastFrame.w === width && lastFrame.h === height;
+  }
 
   function resetWindow(now) {
-    winStart = now; winFrames = 0; winRender = 0; winRead = 0; winPublish = 0;
+    winStart = now; winFrames = 0; winRender = 0; winRead = 0; winPublish = 0; winReused = 0;
   }
 
   function flushOpRecord(now) {
     const elapsed = now - winStart;
     if (!diag?.ops || winFrames === 0) { resetWindow(now); return; }
     fps = round1((winFrames * 1000) / elapsed);
+    // per-frame costs are averaged over the frames that actually DID the work, so an elided
+    // window reports what a rendered frame costs rather than a figure diluted by the skips
+    const rendered = Math.max(1, winFrames - winReused);
     diag.ops.push({
       op: 'live-output',
       t: Date.now(),
       w: width, h: height,
       frames: winFrames,
+      reused: winReused,          // frames republished without a re-render (idle elision)
       windowMs: Math.round(elapsed),
       throughputFps: fps,
       perFrameMs: {
-        render: round1(winRender / winFrames),
-        read: round1(winRead / winFrames),
+        render: round1(winRender / rendered),
+        read: round1(winRead / rendered),
         publish: round1(winPublish / winFrames),
       },
       sinks: [...sinks.keys()],
@@ -83,13 +106,24 @@ export function createOutputBus({ engineAdapter, host = null, diag = null } = {}
   // throws — we stop quietly rather than spin on errors.
   async function frame() {
     if (!running) return;
-    let f;
+    let f, reused = false;
     if (testPattern) {
       // diagnostic: a static, cached reference frame (no engine, no source needed)
       f = createTestFrame(width, height);
+    } else if (canReuseLastFrame()) {
+      // IDLE ELISION: the program is provably unchanged, so skip the render AND the readback
+      // (historically the most expensive thing in the app) and republish what we already have.
+      // We deliberately still PUBLISH: sinks are not all idempotent about silence — a recorder
+      // needs a frame per interval to keep its timeline honest, and a network receiver told
+      // nothing may decide the sender went away. The saving is the expensive half, not the wire.
+      f = lastFrame;
+      reused = true;
+      winReused += 1;
     } else {
       try {
         f = await engineAdapter.renderFrameAt(width, height);
+        lastFrame = f;
+        lastSig = pendingSig;
       } catch (e) {
         // Render failed (most likely the output engine couldn't create its GL
         // context). Record + log the reason, then stop — getStatus().error lets the
@@ -111,8 +145,9 @@ export function createOutputBus({ engineAdapter, host = null, diag = null } = {}
 
     const now = performance.now();
     winFrames += 1;
-    winRender += f.renderMs || 0;
-    winRead += f.readMs || 0;
+    // a reused frame carries the timings of the frame that PRODUCED it — counting them again
+    // would report work we deliberately skipped
+    if (!reused) { winRender += f.renderMs || 0; winRead += f.readMs || 0; }
     winPublish += publishMs;
     if (now - winStart >= 1000) flushOpRecord(now);
 
@@ -123,6 +158,7 @@ export function createOutputBus({ engineAdapter, host = null, diag = null } = {}
     if (running) return;
     lastError = null;          // fresh attempt — clear any prior failure
     running = true;
+    dropCachedFrame();         // a new session never republishes the previous one's last frame
     resetWindow(performance.now());
     raf = requestAnimationFrame(frame);
   }
@@ -132,7 +168,13 @@ export function createOutputBus({ engineAdapter, host = null, diag = null } = {}
     running = false;
     if (raf) { cancelAnimationFrame(raf); raf = 0; }
     fps = 0;
+    dropCachedFrame();
   }
+
+  // Anything that invalidates the cached frame's identity in a way the SIGNATURE cannot see
+  // (a resolution change, a test-pattern swap, a fresh session) drops it outright. The
+  // signature covers the program's look; this covers the frame's shape and provenance.
+  function dropCachedFrame() { lastFrame = null; lastSig = null; pendingSig = null; }
 
   return {
     // register a sink { id, publish(frame) }. Returns the sink so callers can
@@ -154,13 +196,14 @@ export function createOutputBus({ engineAdapter, host = null, diag = null } = {}
       if (w > 0) width = Math.round(w);
       if (h > 0) height = Math.round(h);
       aspect = width / height;
+      dropCachedFrame();
     },
     setServerName(name) { serverName = String(name || 'Fold'); },
 
     // Diagnostic: when on, the loop publishes a known reference frame (test-pattern.js)
     // instead of the program — to verify orientation/scale/color downstream (Arena, a
     // recording). Takes effect on the next frame; no source required.
-    setTestPattern(on) { testPattern = !!on; },
+    setTestPattern(on) { testPattern = !!on; dropCachedFrame(); },
 
     getStatus() {
       return {

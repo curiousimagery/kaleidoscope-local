@@ -12,12 +12,18 @@
 // cannot make a degradation decision from that without knowing which surface is which cost.
 //
 // TWO INSTRUMENTS IN ONE, and the second is the decisive one:
-//   · the LEDGER measures (ms and megapixels, per surface, per pass, over a 1s window)
+//   · the LEDGER measures (ms, GPU ms where available, and megapixels — per surface, per pass,
+//     over a 1s window)
 //   · the SWITCHBOARD lets each surface be turned OFF or scaled DOWN live
-// On mobile GPUs there are no timer queries, so the measured delta with a surface switched
-// off is the only trustworthy per-item cost. It is also better than a profiler for our
-// purpose: EVERY SWITCH IS A CANDIDATE DEGRADATION LEVER, so the switchboard is the
-// prototype of the ladder a governor will later drive, not just a way to look at numbers.
+//
+// THE CPU/GPU SPLIT, because it decides how to read every number here. Plain `ms` is main-thread
+// time, which for a draw call measures SUBMISSION rather than execution — real but partial.
+// `gpuMs` is true GPU time from `EXT_disjoint_timer_query_webgl2`, available on Chromium and
+// Electron and generally NOT on WebKit (see conduit/gpu-timer.js). So desktop can read the
+// ranking straight off the panel; iPad and iPhone rank by turning things off and watching fps.
+// That asymmetry is why the method is "rank on desktop, CONFIRM on device". It is also why the
+// switchboard matters more than the numbers: EVERY SWITCH IS A CANDIDATE DEGRADATION LEVER, so
+// it is the prototype of the ladder a governor will later drive, not just a way to look.
 //
 // THREE DESIGN CONSTRAINTS, each of which came from a real future feature and each of which
 // would be expensive to retrofit:
@@ -93,14 +99,18 @@ export function createPerfLedger({ enabled = false, windowMs = 1000, pressure = 
     for (const s of surfaces.values()) {
       const size = safeSize(s);
       const passes = [];
-      let sMs = 0;
+      let sMs = 0, sGpu = 0;
       for (const p of s.passes.values()) {
         // per-FRAME cost, not per-call: a surface rendered twice in one frame (rare, but the
         // scrub path does it) should read as what it costs the frame, not as a smaller average
         const perFrame = frames ? p.ms / frames : 0;
-        sMs += perFrame;
-        passes.push({ id: p.id, msPerFrame: round2(perFrame), calls: p.calls, maxMs: round2(p.maxMs) });
-        p.ms = 0; p.calls = 0; p.maxMs = 0;
+        const gpuPerFrame = frames ? p.gpuMs / frames : 0;
+        sMs += perFrame; sGpu += gpuPerFrame;
+        passes.push({
+          id: p.id, msPerFrame: round2(perFrame), gpuMsPerFrame: round2(gpuPerFrame),
+          calls: p.calls, maxMs: round2(p.maxMs),
+        });
+        p.ms = 0; p.calls = 0; p.maxMs = 0; p.gpuMs = 0;
       }
       const surfaceMp = (size.w * size.h) / 1e6;
       // a switched-off or unrendered surface still LISTS (you need to see what you turned off)
@@ -112,7 +122,7 @@ export function createPerfLedger({ enabled = false, windowMs = 1000, pressure = 
         id: s.id, label: s.label, serves: s.serves, priority: s.priority,
         w: size.w, h: size.h, mp: round2(surfaceMp), remote: s.remote,
         enabled: s.enabled, scale: s.scale, scaleLadder: s.scaleLadder,
-        msPerFrame: round2(sMs), passes,
+        msPerFrame: round2(sMs), gpuMsPerFrame: round2(sGpu), passes,
       });
     }
     rows.sort((a, b) => b.msPerFrame - a.msPerFrame || b.mp - a.mp);
@@ -170,6 +180,12 @@ export function createPerfLedger({ enabled = false, windowMs = 1000, pressure = 
         bucket.ms += ms; bucket.calls += 1;
         if (ms > bucket.maxMs) bucket.maxMs = ms;
       },
+      // TRUE GPU time, fed asynchronously by a producer that has it (conduit/gpu-timer.js).
+      // Kept in its own accumulator rather than replacing `ms`, because the two answer different
+      // questions: `ms` is what this cost the main thread, `gpuMs` is what it cost the GPU, and
+      // a surface can be expensive in one and free in the other. Its presence is also what tells
+      // a producer that reporting it is worth the query objects.
+      gpu(ms) { if (on && ms > 0) bucket.gpuMs += ms; },
     };
   }
 
@@ -213,7 +229,7 @@ export function createPerfLedger({ enabled = false, windowMs = 1000, pressure = 
         pass(passId) {
           const key = passId || 'render';
           let b = rec.passes.get(key);
-          if (!b) { b = { id: key, ms: 0, calls: 0, maxMs: 0 }; rec.passes.set(key, b); }
+          if (!b) { b = { id: key, ms: 0, calls: 0, maxMs: 0, gpuMs: 0 }; rec.passes.set(key, b); }
           return makeItem(b, `${rec.id}.${key}`);
         },
         // the switchboard's answer, read by the surface's own render path
@@ -224,7 +240,13 @@ export function createPerfLedger({ enabled = false, windowMs = 1000, pressure = 
         // both the switch and the timing land at the one place every caller funnels through.
         enginePerf(passId) {
           const item = this.pass(passId);
-          return { get skip() { return !rec.enabled; }, begin: item.begin, end: item.end };
+          return {
+            get skip() { return !rec.enabled; },
+            begin: item.begin, end: item.end,
+            // its PRESENCE is the signal that GPU timing is wanted — an engine only allocates
+            // query objects when someone is going to read them
+            gpu: item.gpu,
+          };
         },
         release() { surfaces.delete(rec.id); },
       };
@@ -234,7 +256,7 @@ export function createPerfLedger({ enabled = false, windowMs = 1000, pressure = 
     // total ms, never averaged into the per-frame budget. See constraint 3 above.
     oneShot(id) {
       let b = oneShots.get(id);
-      if (!b) { b = { id, ms: 0, calls: 0, maxMs: 0 }; oneShots.set(id, b); }
+      if (!b) { b = { id, ms: 0, calls: 0, maxMs: 0, gpuMs: 0 }; oneShots.set(id, b); }
       return makeItem(b, id);
     },
 

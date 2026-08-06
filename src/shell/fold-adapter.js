@@ -25,6 +25,7 @@
 
 import { lerpState } from '../kit/tween.js';
 import { createOutputEngine } from './output-engine.js';
+import { perfFlags } from './perf-flags.js';
 
 export function createFoldAdapter(env) {
   const outputEngine = createOutputEngine(env);
@@ -37,6 +38,25 @@ export function createFoldAdapter(env) {
       // reads the committed program frame → manipulating Fold updates the output
       // with no extra wiring, and automation transients never leak into it
       return outputEngine.renderFrameAt(w, h);
+    },
+
+    // IDLE ELISION (B513). The bus loop calls this each frame and re-renders + reads back only
+    // when the value changes. We already know the answer EXACTLY, from two things that exist for
+    // other reasons: the committed program frame's `gen` ticks only when the look actually
+    // changed (program-frame.js compares snapshots), and a live source announces itself. So a
+    // still image broadcasting to Syphon no longer pays a full render + GPU→CPU readback sixty
+    // times a second to republish a frame identical to the last one.
+    //
+    // A LIVE source (camera, playing video) returns a always-changing value on purpose: the
+    // pixels move even when the params do not, and we cannot cheaply prove a decoded frame is
+    // identical to its predecessor. Elision is for the genuinely static case only.
+    frameSignature() {
+      if (!perfFlags.busElide) return null;   // A/B switch (perf-flags.js): null disables elision
+      const live = env.live?.isLive || env.nativeVideo
+        || (env.sourceVideo && !env.sourceVideo.paused)
+        || (env.sourceClock?.present && !env.sourceClock.paused);
+      if (live) return null;   // null = "assume it changed"
+      return `${env.programFrame?.().gen ?? 0}|${env.engine?.getSourceImage?.() ? 1 : 0}`;
     },
 
     // perform tier (Phase 2)

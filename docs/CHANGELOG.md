@@ -4,6 +4,64 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🔬 v0.22.8 (Build 514) — 2026-08-05 — A/B switches for every optimization, real GPU timing, and the phone panel floats free
+
+Three things that make the measurement pass actually workable, built autonomously ahead of Daniel's device verify.
+
+### The phone panel no longer hides behind a modal
+
+B512 mounted it inside the save sheet's diagnostics block. **That was wrong and would have compromised every iPhone measurement**: reading the numbers required opening a sheet that covers the app, so you would be measuring a covered app, and you could not shoot, gesture or broadcast while watching. It now mounts FLOATING and closes the sheet behind it, with a close button, a size cap of 62% viewport height, and safe-area padding so it clears the home indicator. The launcher stays in the diagnostics block.
+
+### Optimization switches (`shell/perf-flags.js`)
+
+Daniel asked for a toggle on the two overlay cuts specifically, since those shipped on reasoning rather than measurement. All four of B513's behavior changes now have one, in a new section of the panel:
+
+- **overlay: draw only on change** — off = redraw every frame (pre-B513)
+- **overlay: cap at 2x pixels** — off = raw device pixel ratio
+- **bus: skip render when unchanged** — off = render + read back every frame
+- **external: skip identical posts** — off = post state every frame
+
+They default to the shipped behavior, are reachable only from the panel, and **nothing persists** — a reload returns to shipped, and closing the panel restores every switch, so the app cannot be left de-optimized by accident. A flag whose optimization proves worthless should be deleted along with it: this is a measuring stage, not a configuration surface.
+
+### Real GPU time (`conduit/gpu-timer.js`)
+
+Closes the gap flagged in B512's notes. **Timing a draw call with `performance.now()` measures how long it took to SUBMIT the work, not how long the GPU took to do it** — a render costing 12ms of GPU time can measure as 0.2ms of CPU time. Every B512 number was that partial signal, which is why the switchboard was the method.
+
+`EXT_disjoint_timer_query_webgl2` gives true GPU time on Chromium and Electron (generally not on WebKit), so desktop can now read the ranking straight off the panel while iPad and iPhone keep ranking by ablation. That asymmetry is precisely why the plan says rank on desktop, confirm on device.
+
+Handled honestly: results arrive a frame or two late and are attributed to the window rather than a frame (immaterial over a second); a **disjoint event** — the GPU was interrupted by a context switch or power-state change — invalidates every outstanding result, so they are discarded rather than reported, because a plausible-looking wrong number is worse than a missing one. Query objects are only allocated when something is going to read them, and are dropped on context loss.
+
+Rows now read `12.4ms gpu (0.3 cpu)` where GPU timing exists and `0.3ms` where it does not. Baseline deltas compare GPU-to-GPU where available.
+
+## ✂️ v0.22.7 (Build 513) — 2026-08-05 — Thermal Phase C: stop doing work that produces an identical result
+
+The three cuts from the audit that needed no measurement to justify, because in each case the work produced a pixel-for-pixel identical result. Measurable with B512's panel: **save a baseline on B512 first if you want the before/after.**
+
+### The slice overlay stops redrawing when nothing changed
+
+Daniel's call, and it was the right read: "this genuinely shouldn't be re-rendering at all unless it is actively being manipulated." It was redrawing on **every frame of camera preview and video playback** — precisely when the device is busiest — to re-stroke identical vector line work over a canvas it had just cleared.
+
+The fix splits the two kinds of caller, which is what makes it safe:
+
+- **`scheduleDraw()` is an explicit invalidation** and always draws. Every interaction, lock toggle, hover and param edit already routes through it, so nothing that changed can be swallowed.
+- **`render()` is the per-frame path** from the render loops, and now compares a signature of everything a draw depends on: every primitive in `state`, the wrap dimensions, source aspect, fit, stroke scale, hover and drag state, and the affordance/edit-lock flags.
+
+The signature is built over **every** key in state rather than a hand-picked list of slice fields, deliberately: a missed field means a stale overlay, which is a visible bug, and forty property reads cost nothing next to clearing and re-stroking a DPR-scaled canvas. Motion playback and perform still redraw every frame, correctly, because there the state genuinely does change per frame — the signature notices that by itself rather than needing a mode check. The perform ghost trail opts out entirely (it animates independently of state).
+
+### The overlay canvas is DPR-capped at 2
+
+It was the one surface in the app reading the raw device pixel ratio; the preview, PiP, phone output and filmstrip all cap at 2. On a 3x phone that meant 2.25x the pixels of a capped surface, for vector line work that gains nothing visible past 2x. Compounds with the fix above: it was the biggest canvas doing the most redundant redrawing.
+
+### Idle elision on the broadcast bus and the external-display poster
+
+**The bus** (`conduit/output-bus.js`) re-rendered and read back every frame regardless of whether anything moved, so a still image broadcasting to Syphon paid a full render plus a GPU→CPU readback sixty times a second to republish an identical frame. It now asks the adapter for an optional `frameSignature()` and reuses the cached frame when it matches. Fold answers it from two things that already exist: the committed program frame's `gen` (which ticks only when the look actually changed) and whether a live source is present. **A live source always returns "assume it changed"** — the pixels move even when the params do not, and we cannot cheaply prove a decoded frame matches its predecessor.
+
+It **still publishes** the cached frame. Sinks are not all idempotent about silence: a recorder needs a frame per interval to keep its timeline honest, and a network receiver told nothing may decide the sender went away. The saving is the expensive half, not the wire. Op records now carry a `reused` count, and per-frame costs average over the frames that did the work rather than being diluted by the skips. The cache drops on start, stop, resolution change and test-pattern toggle — anything that invalidates the frame's shape in a way a look-signature cannot see.
+
+**The poster** (`conduit/external-surface.js`) posted state unconditionally each tick, because the view uses message arrival as its render clock (an unfocused window's rAF is throttled). But an identical message 60 times a second makes the view re-render an identical frame 60 times a second, and on the external display that is an 8.3-megapixel redraw of a picture that did not change. It now skips provably identical messages **with a 250ms heartbeat floor**, so the worst case of a missed message is a fraction of a second of staleness rather than a frozen output. The elision cache clears on `arm()` and on `hello` — a fresh view has never received what we would otherwise consider delivered.
+
+**Adapter-optional throughout:** an adapter without `frameSignature()` never elides, so this is additive for every existing conduit consumer.
+
 ## 🌡️ v0.22.6 (Build 512) — 2026-08-05 — Thermal Phase A: the frame-cost ledger, the switchboard, and the pressure seam
 
 **No behavior changes.** This build only adds the ability to see and switch what the app is spending per frame. It is the instrument the thermal/sustained-load arc is built on. Full audit and phased path: `~/.claude/plans/thermal-and-frame-cost-audit.md`.

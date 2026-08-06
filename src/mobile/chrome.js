@@ -2205,22 +2205,24 @@ function buildSaveSheet() {
     diagToggle.textContent = hidden ? 'show diagnostics' : 'hide diagnostics';
   });
 
-  // FRAME-COST PANEL, inline in the diagnostics block. iPhone is the case this whole exercise
-  // matters most for (the hottest function on the most thermally constrained device we ship
-  // to) and it is also the one a URL parameter cannot reach — the Capacitor shell loads a
-  // fixed URL. Mounted lazily so a session that never opens diagnostics pays nothing.
+  // FRAME-COST PANEL. iPhone is the case this whole exercise matters most for (the hottest
+  // function on the most thermally constrained device we ship to) and it is also the one a URL
+  // parameter cannot reach — the Capacitor shell loads a fixed URL. Mounted lazily so a session
+  // that never opens diagnostics pays nothing.
+  //
+  // It mounts FLOATING and the sheet CLOSES behind it, rather than living inside the sheet: a
+  // measurement taken while a modal covers the app is a measurement of a covered app. You need
+  // to shoot, gesture and broadcast with the numbers visible.
   let perfPanel = null;
   const perfBtn = sheet.querySelector('#m-perf-toggle');
   if (perfBtn) perfBtn.addEventListener('click', async () => {
-    if (perfPanel) {
-      perfPanel.destroy(); perfPanel = null;
-      if (env.perf) env.perf.enabled = false;
-      perfBtn.textContent = 'show frame cost';
-      return;
-    }
+    if (perfPanel) { perfPanel.destroy(); return; }
     const { mountPerfPanel } = await import('../shell/perf-panel.js');
-    perfPanel = mountPerfPanel(env, { container: diag });
-    perfBtn.textContent = 'hide frame cost';
+    perfPanel = mountPerfPanel(env, {
+      onClose: () => { perfPanel = null; perfBtn.textContent = 'show frame cost'; },
+    });
+    perfBtn.textContent = 'hide frame cost (panel is floating)';
+    closeSaveSheet();
   });
 
   sheet.querySelector('#m-save-comp').addEventListener('click', () => doSave(false));
