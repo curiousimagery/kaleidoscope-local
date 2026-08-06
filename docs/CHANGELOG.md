@@ -27,7 +27,15 @@ A monitor does not need program parity. The PiP is now **10Hz**, and at that rat
 
 A B527 regression, and a universal one rather than an iOS quirk. WebKit does not reliably adopt the transferred bitmap's dimensions as the canvas's intrinsic size, and `#m-pip canvas` is styled `width:100%` with **no height** — so the element kept the default 300×150 and letterboxed a square composition into it. The width and height are now set explicitly, exactly as the 2D path did and for the same reason.
 
-**VERIFY (Daniel):** FHD recording with the PiP on. Expect proportions correct, the PiP live but visibly stepping at 10Hz, and the frame rate near the PiP-off number. Then toggle `PiP: 10Hz monitor` off for the per-consume-vs-fixed answer.
+**✅ VERIFIED ON DEVICE. The cost is PER CONSUME, and the rate limit is the fix.**
+
+| iPhone, FHD recording | PiP off | PiP every frame | **PiP 10Hz** |
+| --- | --- | --- | --- |
+| fps | 60 | 19.1 | **50.5** |
+| frame p50 | 17ms | 52ms | **16ms** |
+| pressure | nominal | critical | **nominal** |
+
+**Recording is now above its 30fps target with the monitor live** (51 encode calls in a 1.009s window), which closes the iPhone recording thread this arc opened. Each consume costs ~30-40ms of wall time, so ten of them still take about a third of each second — that is the whole remaining gap to 60, and it shows up honestly as **p95 46ms against a p50 of 16ms**: ten times a second the app hitches. 10Hz is kept as the default because a monitor below that stops reading as live, and the remaining cost buys a working monitor rather than being waste. The knob is one tap away if the hitch proves more objectionable than the liveness is valuable.
 
 ## 🖼️ v0.22.21 (Build 527) — 2026-08-06 — The 238-pixel thumbnail that cost two thirds of the frame rate
 

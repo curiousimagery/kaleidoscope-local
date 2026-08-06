@@ -24,6 +24,37 @@ Each entry names a SYMPTOM to watch for, what it would mean, and the mitigation 
   - **STATUS: shipped B525 for performance reasons, so the recording half of this item stands down.** The take is now `new VideoFrame(outputCanvas)` with no 2D canvas in between, and construction-time copy is exactly the ordering guarantee the guard was buying. Two residual paths still rely on the removal: the **MediaRecorder fallback** (which must blit, and where `recordForceFlush` still applies) and a **mid-take size change** (which rebuilds the scratch canvas to scale into the locked take size).
   - Same guard was removed from `paintPip` in the same build; a stale PiP is cosmetic, so it is the lower-stakes canary for the same behavior — **and it is now the only routine path still exposed**, since the PiP still blits.
 
+### 📊 THE iOS COST MODEL AS OF B528 — and what is still unmeasured
+
+**Read costs PER SECOND, not per frame.** Per-frame averages hid the PiP for four builds: it looked like 0.17ms because the expensive part was not inside the call. Per second is what the battery and the thermal budget actually see.
+
+iPhone, FHD 30fps recording, PiP at 10Hz, **still hand**:
+
+| item | per frame | **per second** | share |
+| --- | --- | --- | --- |
+| PiP consume | ~35ms × 10/sec | **~350ms** | the largest single item |
+| record encode | 3.29ms | 166ms | the deliverable |
+| output render | 1.76ms | 89ms | |
+| source refresh + upload | 0.78ms | 39ms | |
+| overlay | 0 | 0 | gated off with a still hand |
+| **total** | | **~644ms** | ~356ms idle |
+
+**Even at 10Hz the PiP is still twice the cost of the thing being recorded.** That is the shape of the remaining problem: a monitor is outspending the deliverable 2:1.
+
+**🔴 EVERY DIAGNOSTIC IN THIS ARC WAS TAKEN WITH A STILL HAND, AND THE MOVING CASE IS STRICTLY MORE EXPENSIVE.** Three costs appear only while the follower is chasing, and none has ever been measured:
+- **The engine renders TWICE per frame while diverged** (`chrome.js` tick: `render(eased)` for the take, then `render(state)` to restore the preview). Output render doubles: 1.76 → ~3.5ms at FHD, 7 → ~14ms at 4K. **This is every gesture with a non-instant transition.**
+- **The ghost trail is up to 28 extra slice outlines** redrawn into the overlay every frame while moving (`GHOST_MAX = 28`, `GHOST_EVERY_MS = 80`). Note it is **overlay vector work, not extra engine renders** — so halving the sample count halves 2D drawing, not GPU rendering, and the honest lever there is smaller than it sounds.
+- **The overlay itself un-gates** and redraws every frame while ghosts are alive.
+
+**▶ THE MISSING READING: record FHD while continuously dragging a slice.** That is the real workload and we have never seen it.
+
+**🎯 THE 4K PREDICTION (explicit, falsifiable, and the highest-value next test).** 4K has NOT been re-read since B526, when it was 9.8fps with the old per-frame PiP. Back-solving that reading: accounted 16.7ms + ~85ms unaccounted, so **the per-consume cost at 4K is ~85ms** (it waits on the whole pipeline, and a 4K source makes the render it waits for slower).
+- **At 10Hz that is 850ms/sec — the PiP alone saturates the second.** So the current default should barely improve 4K, maybe 9.8 → ~11fps.
+- **With the PiP OFF at 4K, accounted work is 16.7ms/frame, which is ~60fps.** If that holds, **4K/60 is not out of reach at all** and the entire 4K story was the monitor.
+- **This means the PiP rate must be adaptive**, not a constant: its cost scales with the whole pipeline, so it needs ~2Hz or off at 4K. That is the governor's first real rule and the first place declared priority does actual work.
+
+**Where the ceiling honestly is, pending those readings:** FHD 30 is comfortable (50.5fps with the monitor, 60 without). FHD 60 untested. 4K unknown and possibly much better than it looks. **No second device has ever been measured** — the iPhone 14 Pro on Xcode is the point sample that would turn one data point into a ladder, and until it exists we cannot design capability tiers, only guess at them.
+
 ### 📱 MOBILE WEB / PWA EXPOSURE FROM THE THERMAL ARC (audited B528, Daniel's question)
 
 **Every measurement in this arc is iOS Capacitor. No Android or mobile-web device has been in the loop at any point.** The audit below is a code-path reading, not a measurement, and it is the honest state of that surface.
@@ -33,6 +64,12 @@ Each entry names a SYMPTOM to watch for, what it would mean, and the mitigation 
 - **⚠️ Universal but low risk: the direct record path (B525).** Mobile web on both Android Chrome and iOS Safari uses it. `VideoFrame(canvas)` from a WebGL canvas is well-supported and cheap on Blink, and the MediaRecorder fallback is structurally intact — `recordCanvas` + its `captureStream` are still built eagerly and only released once the WebCodecs sink has actually started. Ordering is safe on Blink because `VideoFrame` copies at construction, which is a stronger guarantee than the `getImageData` flush it replaced.
 - **📊 Genuinely unknown, and the most likely mobile-web weak point: the iOS Safari camera upload.** B518's planar fix was native-only, so mobile web on iPhone still uploads through a `<video>` element. It was never measured before or after. Given the arc found four separate GPU→CPU round trips, this path deserves one reading before anyone claims mobile web is healthy.
 - **▶ THE TEST, when a device is available:** Android Chrome, phone chrome, record FHD with the PiP visible; read `unmeasured`, the `pip` row, and `record encode`. Then the same on iOS Safari (not the Capacitor app) to isolate what the native camera was hiding.
+
+**HOW MUCH OF THE ARC ALREADY REACHES MOBILE WEB: most of it, on iOS.** The two biggest wins (B525 direct record, B527/528 PiP) are fixes to WebKit image-source paths, and **iOS Safari is WebKit** — so mobile web on iPhone inherits them unchanged, without a line of extra work. Same for the B513 overlay cuts and the whole instrument. Only two are gated away: the planar camera (native plugin) and the pipelined broadcast readback (desktop bus / NDI, neither of which mobile web has).
+
+**A DEDICATED MOBILE-WEB ROUND — one real item, then measure.**
+- **🎯 [HIGH, portable, found B528] `updateSourceFrame()` re-uploads the same video frame every tick.** `src/engine/index.js:172` gates only on `readyState >= 2`, so a 30fps camera or clip against a 60fps render loop uploads **every frame twice**. The planar path (native) already has the right shape — it returns early when nothing new arrived off the wire — and the `<video>` path has no equivalent. Fix: gate on presented-frame identity via `requestVideoFrameCallback` (Safari 15.4+, Chrome; fall back to a `currentTime` comparison for Firefox). **This is not mobile-web-only** — desktop web and Electron video playback waste the same uploads. Unmeasured, but halving the call count is free regardless of what each call costs, and on WebKit "consume a video element as an image source" is exactly the family of operations this arc found to be expensive four times.
+- **Everything else waits for a reading.** The arc's method was measure-then-fix, and it corrected three of my own confident hypotheses. Guessing at Android before the panel has ever run there would abandon the only thing that worked. Given mobile web's long-term status is uncertain, the cheap and correct move is one measurement session, then decide whether it is a small fix or a real project — not speculative investment in a platform that may be cut.
 
 ### Open bugs (running list)
 
