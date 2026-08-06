@@ -73,7 +73,7 @@ export function createPerfLedger({ enabled = false, windowMs = 1000, pressure = 
   let latest = emptyReport();
 
   function emptyReport() {
-    return { fps: 0, frameMs: { p50: 0, p95: 0 }, surfaces: [], oneShots: [], mpPerFrame: 0, windowMs: 0 };
+    return { fps: 0, frameMs: { p50: 0, p95: 0 }, accountedMs: 0, unaccountedMs: 0, surfaces: [], oneShots: [], mpPerFrame: 0, windowMs: 0 };
   }
 
   function tick(t) {
@@ -95,7 +95,7 @@ export function createPerfLedger({ enabled = false, windowMs = 1000, pressure = 
     const sorted = frameTimes.slice().sort((a, b) => a - b);
     const frames = frameTimes.length;
     const rows = [];
-    let mp = 0;
+    let mp = 0, accounted = 0;
     for (const s of surfaces.values()) {
       const size = safeSize(s);
       const passes = [];
@@ -118,6 +118,7 @@ export function createPerfLedger({ enabled = false, windowMs = 1000, pressure = 
       // process (an external display's own webview), so it has no ms here and its pixels
       // still count — leaving them out would understate the frame by the largest single item.
       if (s.enabled && (sMs > 0 || s.remote)) mp += surfaceMp;
+      accounted += sMs;
       let note = '';
       try { note = s.note ? String(s.note() || '') : ''; } catch { note = ''; }
       rows.push({
@@ -135,9 +136,23 @@ export function createPerfLedger({ enabled = false, windowMs = 1000, pressure = 
       o.calls = 0; o.ms = 0; o.maxMs = 0;
     }
 
+    // WHAT THE LEDGER CANNOT SEE — the row that would have saved a build.
+    //
+    // B525 deleted a 40ms record blit and the frame time did not move: the cost had simply
+    // relocated to a per-frame path nobody had registered, and the panel showed four healthy
+    // surfaces summing to 3.8ms of a 44ms frame with no indication that 90% of the frame was
+    // missing. An instrument that only reports what it was pointed at will always read clean.
+    //
+    // So report the GAP. It is not all waste — vsync idle lives here, and on a source capped at
+    // 30fps a 33ms frame with 4ms of work is CORRECT. It matters when the frame is missing its
+    // target: a big gap on a frame that cannot keep up means the expensive thing is not on the
+    // list, and the next move is to find it rather than to optimize what is already measured.
+    const p50 = round2(pct(sorted, 50));
     latest = {
       fps: round1((frames * 1000) / elapsed),
-      frameMs: { p50: round2(pct(sorted, 50)), p95: round2(pct(sorted, 95)) },
+      frameMs: { p50, p95: round2(pct(sorted, 95)) },
+      accountedMs: round2(accounted),
+      unaccountedMs: round2(Math.max(0, p50 - accounted)),
       surfaces: rows,
       oneShots: shots,
       mpPerFrame: round2(mp),

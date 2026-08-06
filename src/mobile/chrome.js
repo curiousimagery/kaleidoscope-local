@@ -251,6 +251,26 @@ const overlaySurface = perf.surface({
 });
 env.perfSurfaces.overlay = overlaySurface;
 
+// THE PiP — registered late (B526) and that omission cost a build. It runs every frame in video
+// mode and does `drawImage(outputCanvas)` into a 2D canvas, which is the SAME implicit GPU sync
+// that made the record blit cost 40ms, on a path the ledger was not watching. When B525 deleted
+// the record blit the frame time barely moved, because the sync did not disappear — the next
+// consumer of the GL canvas inherited it, and that consumer was invisible.
+//
+// EDITOR priority: it is a monitor, not the deliverable, so it yields before the take does. The
+// switch is the point — turning it off is the direct A/B for "is the PiP the remaining cost".
+let pipSkip = false;
+const pipSurface = perf.surface({
+  id: 'pip', label: 'PiP monitor', serves: 'editor', priority: PRIORITY.EDITOR,
+  size: () => (pipCanvas && !pipEl?.classList.contains('m-hidden')
+    ? { w: pipCanvas.width, h: pipCanvas.height } : { w: 0, h: 0 }),
+  scaleLadder: [1],
+  note: () => (pipEl?.classList.contains('m-hidden') ? 'hidden' : 'gl → 2d'),
+  onEnabled: (v) => { pipSkip = !v; },
+});
+env.perfSurfaces.pip = pipSurface;
+const pipDraw = pipSurface.pass('draw');
+
 // The SOURCE path — everything between the camera and a usable texture. Registered as a surface
 // so it appears in the ledger alongside the renders it feeds: its "size" is the SOURCE's pixel
 // dimensions, which is the number that actually drives its cost, and which the camera-resolution
@@ -1296,7 +1316,7 @@ function placePip() {
 }
 placePip();
 function paintPip() {
-  if (pipEl.classList.contains('m-hidden')) return;
+  if (pipSkip || pipEl.classList.contains('m-hidden')) return;
   const w = pipEl.clientWidth;
   if (!w || !outputCanvas.width || !outputCanvas.height) return;
   const ar = outputCanvas.width / outputCanvas.height;
@@ -1304,12 +1324,14 @@ function paintPip() {
   const pw = Math.round(w * dpr), ph = Math.max(1, Math.round((w / ar) * dpr));
   if (pipCanvas.width !== pw || pipCanvas.height !== ph) { pipCanvas.width = pw; pipCanvas.height = ph; }
   const pctx = pipCanvas.getContext('2d');
+  pipDraw?.begin();
   pctx.drawImage(outputCanvas, 0, 0, pw, ph);
   // same forced flush as paintRecord, and now under the same Blink-only flag — it is the same
   // full pipeline sync, on a path that also runs every frame in video mode. The stakes are lower
   // here (a stale PiP is a cosmetic glitch, a stale recorded frame is a damaged take), which is
   // another reason to stop paying for it where the deferral does not exist.
   if (perfFlags.recordForceFlush) pctx.getImageData(0, 0, 1, 1);
+  pipDraw?.end();
 }
 // drag → snap to the nearest allowed corner (a small move is a tap: no-op)
 (function setupPipDrag() {

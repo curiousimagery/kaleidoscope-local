@@ -4,6 +4,32 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🕳️ v0.22.20 (Build 526) — 2026-08-06 — The ledger reports what it cannot see, and the PiP finally registers
+
+B525 worked and the frame time barely moved. Both halves of that are the finding.
+
+| iPhone, FHD recording | before | after |
+| --- | --- | --- |
+| `blit` | 40.7ms | **0ms** |
+| `encode` | 3.1ms | **2.74ms** |
+| fps | 19.4 | 22.4 |
+
+**The round trip is gone from the record path and the encoder was never the problem — 2.74ms confirms it.** But the frame is still 44ms, and every registered surface sums to **3.82ms**. Forty milliseconds is somewhere the panel was not looking.
+
+### The instrument was reporting clean because it only reported what it was pointed at
+
+So the ledger now publishes `accountedMs` and `unaccountedMs`, and the panel shows an **`unmeasured`** stat. It is deliberately not alarming on its own: a 33ms frame with 4ms of work is a 30fps-capped source behaving correctly, and idle waiting for vsync legitimately lives in that gap. It goes amber and then red only when the frame is **also** missing its target, which is the case that means *the expensive thing is not on the list*.
+
+Had this existed at B512 it would have flagged the phone's record path immediately, and it would have flagged this build's actual suspect without needing a device round trip.
+
+### The suspect: `paintPip`
+
+The PiP was never registered as a surface, and it does `pctx.drawImage(outputCanvas, …)` **every frame in video mode** — the identical implicit GPU sync that made the record blit cost 40ms. Deleting the blit did not delete the sync; **the next consumer of the GL canvas inherited it**, and that consumer was invisible.
+
+It registers now, at EDITOR priority (a monitor, not the deliverable, so it yields before the take), with a `draw` pass and a switch. The switch is the point: turning the PiP off is the direct A/B for whether it holds the remaining 40ms.
+
+**VERIFY (Daniel):** record FHD, read `unmeasured` and the new `pip` row, then **toggle the PiP surface off mid-take** and watch fps. Two outcomes, both useful — `pip draw` reading ~40ms and fps jumping when it is off means the sync simply relocated and the fix is to stop feeding a 2D canvas from the GL canvas anywhere. `pip draw` near zero with `unmeasured` still large means the gap is real GPU render time or compositing, which is a different problem and the first one this arc has found that instrumentation alone cannot name.
+
 ## 🗑️ v0.22.19 (Build 525) — 2026-08-06 — Delete the record canvas, encode the GL canvas directly
 
 B524 was wrong about the cause and Daniel's numbers said so immediately: with the forced flush removed, `blit` was still **40.7ms** at FHD and **92.57ms** with a 4K source. The one-pixel read was never the cost.

@@ -254,6 +254,15 @@ export function mountPerfPanel(env, { container = null, onClose = null } = {}) {
       const cls = p.value < 0.15 ? '' : p.value < 0.45 ? 'warn' : 'bad';
       top.append(stat('pressure', `${p.label} (${p.source})`, cls));
     }
+    // TIME THE LEDGER CANNOT SEE. Only alarming when the frame is ALSO slow: a 33ms frame with
+    // 4ms of work is a source capped at 30fps behaving correctly, not a hidden cost. A big gap on
+    // a frame that is missing its target means the expensive thing is not on the list below.
+    if (r.unaccountedMs > 0) {
+      const slow = r.frameMs.p50 > 20;
+      const share = r.frameMs.p50 ? r.unaccountedMs / r.frameMs.p50 : 0;
+      const cls = !slow ? '' : share > 0.6 ? 'bad' : share > 0.3 ? 'warn' : '';
+      top.append(stat('unmeasured', `${r.unaccountedMs}ms`, cls));
+    }
 
     rows.innerHTML = '';
     const baseById = new Map((baseline?.surfaces || []).map((s) => [s.id, s]));
