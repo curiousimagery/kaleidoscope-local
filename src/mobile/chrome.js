@@ -282,10 +282,12 @@ const srcUpload = sourceSurface.pass('upload');
 // CAPTURE priority: this IS the deliverable, so it yields last.
 const recordSurface = perf.surface({
   id: 'record', label: 'record (blit + encode)', serves: 'program', priority: PRIORITY.CAPTURE,
-  size: () => (recState === 'recording' && recordCanvas
-    ? { w: recordCanvas.width, h: recordCanvas.height } : { w: 0, h: 0 }),
+  size: () => (recState === 'recording' && recSize ? { w: recSize.w, h: recSize.h } : { w: 0, h: 0 }),
   scaleLadder: [1],
-  note: () => (recState === 'recording' ? (wcRec ? 'webcodecs' : 'mediarecorder') : 'idle'),
+  // the note has to name the PATH, not just the sink — `blit` reading ~0 is only meaningful if
+  // you can tell whether the copy was skipped or merely got fast (B517's lesson from the camera)
+  note: () => (recState !== 'recording' ? 'idle'
+    : wcRec ? (recordCanvas ? 'webcodecs · via blit' : 'webcodecs · direct') : 'mediarecorder'),
 });
 env.perfSurfaces.record = recordSurface;
 const recBlit = recordSurface.pass('blit');
@@ -875,7 +877,7 @@ function wcFinish(take, errMsg = null) {
   wcDiscard = false;
   wcRec = null;
   micStream?.getTracks().forEach((t) => t.stop()); micStream = null;
-  recordCanvas = null;
+  recordCanvas = null; recSize = null;
   recordUpscale = false; sizeOutput();
   recState = 'idle';
   releaseRecWakeLock();
@@ -896,7 +898,13 @@ function wcFinish(take, errMsg = null) {
 // recording, so getUserMedia IS the native-app audio path; the web camera bundles its
 // own mic track and doesn't use this.)
 let videoMicStream = null;
-let recordCanvas = null;       // full-res 2D canvas the recorder captures
+// The 2D scratch canvas the MediaRecorder fallback captures. On the WebCodecs path it is
+// RELEASED once the sink starts (B525) and stays null — a take encodes the GL output canvas
+// directly. It comes back lazily only if the output canvas diverges from the locked take size.
+let recordCanvas = null;
+// The take's locked dimensions, which used to live on recordCanvas. They have to outlive it now
+// that the canvas is optional: a mid-take divider drag must not change the file's resolution.
+let recSize = null;
 // SAVE PACKAGE: a second recorder on the RAW camera stream (no extra render
 // cost — the track comes straight from getUserMedia; mic cloned to both).
 // GATED: any failure just drops the raw take — two hardware encoders is
@@ -998,34 +1006,60 @@ async function startBroadcastVideo() {
   updateLiveUI();
 }
 
+// the scratch canvas, rebuilt on demand — the WebCodecs path drops it at record start and only
+// needs it back if the output canvas stops matching the take's locked size
+function ensureRecordCanvas() {
+  if (recordCanvas || !recSize) return recordCanvas;
+  recordCanvas = document.createElement('canvas');
+  recordCanvas.width = recSize.w; recordCanvas.height = recSize.h;
+  return recordCanvas;
+}
+
 function paintRecord() {
-  if (recState !== 'recording' || !recordCanvas) return;
-  const ctx = recordCanvas.getContext('2d');
+  if (recState !== 'recording' || !recSize) return;
   // THE LAST DARK SPOT. After B518 fixed the camera upload, iPhone recording still sat at ~20fps
   // with a 50ms frame, of which barely 1.3ms was measured — so ~48ms was in HERE, and this path
   // had no instrumentation because the phone chrome does not use the shared output bus.
   //
-  // Split into the two costs that have different fixes: `blit` is the GL→2D copy plus the forced
-  // rasterization below (a readback in all but name — `getImageData` on a deferred canvas makes
-  // the GPU finish and hand the pixels back), and `encode` is handing that canvas to WebCodecs.
-  // If `blit` dominates, this is the same GPU→CPU round trip we have now beaten twice, and the
-  // desktop answer (a pipelined read, B519/B521) is the template. If `encode` dominates, it is
-  // the hardware encoder and the honest response is a capability tier, not an optimization.
-  recBlit?.begin();
-  ctx.drawImage(outputCanvas, 0, 0, recordCanvas.width, recordCanvas.height);
-  // FORCE the copy to rasterize NOW: Chromium 2D canvases are deferred — a
-  // drawImage from a WebGL canvas that re-renders later in the SAME task would
-  // otherwise capture the LATER render (the preview, not the followed output).
+  // Split into the two costs that have different fixes: `blit` is getting the pixels into
+  // something WebCodecs accepts, `encode` is the encoder itself. B522/B524 measured the split at
+  // 40.7ms to 3.1ms — twelve to one, all of it in the copy, none of it in the hardware encoder.
   //
-  // MEASURED B522: this one-pixel read is a full pipeline sync costing 39.29ms/frame on iPhone at
-  // FHD (58ms with a 4K source) against 3.19ms to encode — it IS the phone's recording ceiling.
-  // The flag exists to test whether WebKit needs it at all, since the deferral it guards against
-  // is a Chromium behavior. See perf-flags.js; the test is whether the TAKE is correct, not fps.
-  if (perfFlags.recordForceFlush) ctx.getImageData(0, 0, 1, 1);
+  // B525 deletes the copy. `new VideoFrame(outputCanvas)` hands the GL canvas to the encoder
+  // without a round trip through a 2D canvas, and since the take renders AT record resolution
+  // (recordUpscale, sizeOutput) the copy was moving pixels between two same-size canvases for
+  // nothing. What made it expensive was not the bytes: `drawImage` out of a WebGL canvas has to
+  // wait for the render to finish, which is why the cost tracked SOURCE size while the record
+  // canvas stayed fixed, and why removing the explicit flush in B524 changed nothing.
+  //
+  // The blit survives for the two cases that still need it: the MediaRecorder fallback (which
+  // records a canvas stream, so a canvas must exist and be painted) and a mid-take size change,
+  // where scaling into the locked size is more correct than dropping the frame.
+  const direct = wcRec && perfFlags.recordDirect
+    && outputCanvas.width === recSize.w && outputCanvas.height === recSize.h;
+  let frameCanvas;
+  recBlit?.begin();
+  if (direct) {
+    // release the scratch canvas the first time we get here having not needed it — at 4K it is
+    // ~33MB of backing store, and Daniel's 4K take showed memory-shaped symptoms (unresponsive
+    // chrome, a finalize that outlasted the take)
+    if (recordCanvas && !mediaRec) recordCanvas = null;
+    frameCanvas = outputCanvas;
+  } else {
+    const ctx = ensureRecordCanvas()?.getContext('2d');
+    if (!ctx) { recBlit?.end(); return; }
+    ctx.drawImage(outputCanvas, 0, 0, recSize.w, recSize.h);
+    // FORCE the copy to rasterize NOW: Chromium 2D canvases are deferred — a drawImage from a
+    // WebGL canvas that re-renders later in the SAME task would otherwise capture the LATER
+    // render (the preview, not the followed output). Blink-only; see perf-flags.js. The direct
+    // path above does not need this at all — VideoFrame copies at construction.
+    if (perfFlags.recordForceFlush) ctx.getImageData(0, 0, 1, 1);
+    frameCanvas = recordCanvas;
+  }
   recBlit?.end();
   // the WebCodecs session encodes straight off this canvas (captureStream never sees it)
   recEncode?.begin();
-  wcRec?.publish({ canvas: recordCanvas, w: recordCanvas.width, h: recordCanvas.height, topDown: true });
+  wcRec?.publish({ canvas: frameCanvas, w: recSize.w, h: recSize.h, topDown: true });
   recEncode?.end();
 }
 
@@ -1066,12 +1100,15 @@ async function startRecording() {
   recordUpscale = true;
   sizeOutput();   // raise the backing store BEFORE the take's size locks below
   try {
+    recSize = { w: outputCanvas.width || 1080, h: outputCanvas.height || 1080 };
     recordCanvas = document.createElement('canvas');
-    recordCanvas.width = outputCanvas.width || 1080;
-    recordCanvas.height = outputCanvas.height || 1080;
+    recordCanvas.width = recSize.w;
+    recordCanvas.height = recSize.h;
     recordCanvas.getContext('2d').drawImage(outputCanvas, 0, 0);
+    // the fallback needs this stream to exist before we know whether WebCodecs will start; if it
+    // does, both the stream and the canvas are released below
     stream = recordCanvas.captureStream(30);
-  } catch { recordCanvas = null; recordUpscale = false; sizeOutput(); return; }
+  } catch { recordCanvas = null; recSize = null; recordUpscale = false; sizeOutput(); return; }
   // mic joins the canvas stream — CLONED from the camera stream (granted in
   // the combined prompt at mode entry; the recorder's stop must not kill the
   // camera's own track). Fallback asks fresh; denial degrades to video-only.
@@ -1098,13 +1135,21 @@ async function startRecording() {
       engine: 'webcodecs',
       save: (blob, name) => { wcFinish({ blob, ext: name.split('.').pop() || 'mp4' }); },
     });
-    await sink.start(recordCanvas.width, recordCanvas.height, micStream?.getAudioTracks?.()[0] || null);
+    await sink.start(recSize.w, recSize.h, micStream?.getAudioTracks?.()[0] || null);
     wcRec = sink;
   } catch (e) {
     wcRec = null;
     console.info('[fold] WebCodecs record unavailable — MediaRecorder path:', e?.message || e);
   }
   if (wcRec) {
+    // WebCodecs took the take, so the fallback's canvas stream is dead weight — stop the video
+    // track (NOT the audio one, which is the mic clone the sink is holding) and drop the canvas.
+    // paintRecord encodes the GL output canvas from here; it rebuilds this lazily if it ever
+    // needs to scale a mid-take size change.
+    if (perfFlags.recordDirect) {
+      for (const t of stream.getVideoTracks()) t.stop();
+      recordCanvas = null;
+    }
     startRawRecorder(mime);   // the package's unedited source rides MediaRecorder either way
     recordedVideo = null;
     recordingSaved = false;
@@ -1118,7 +1163,7 @@ async function startRecording() {
     mediaRec = new MediaRecorder(stream, mime ? { mimeType: mime, videoBitsPerSecond: 12e6 } : undefined);
   } catch {
     micStream?.getTracks().forEach((t) => t.stop()); micStream = null;
-    recordCanvas = null; recordUpscale = false; sizeOutput();
+    recordCanvas = null; recSize = null; recordUpscale = false; sizeOutput();
     return;
   }
   recChunks = [];
@@ -1129,7 +1174,7 @@ async function startRecording() {
     recChunks = [];
     recordingSaved = false;
     micStream?.getTracks().forEach((t) => t.stop()); micStream = null;
-    recordCanvas = null;
+    recordCanvas = null; recSize = null;
     recordUpscale = false; sizeOutput();
     recState = 'idle';
     releaseRecWakeLock();

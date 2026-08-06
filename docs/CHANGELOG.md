@@ -4,6 +4,28 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🗑️ v0.22.19 (Build 525) — 2026-08-06 — Delete the record canvas, encode the GL canvas directly
+
+B524 was wrong about the cause and Daniel's numbers said so immediately: with the forced flush removed, `blit` was still **40.7ms** at FHD and **92.57ms** with a 4K source. The one-pixel read was never the cost.
+
+**The cost is `drawImage` itself.** Drawing *out of* a WebGL canvas *into* a 2D canvas requires the GL commands to have completed, so that call carries its own implicit synchronization. Removing the explicit one just exposed the implicit one. Same conclusion as B523, one layer down.
+
+### The copy was never needed
+
+`recordCanvas.width = outputCanvas.width` at record start, and `recordUpscale` makes `sizeOutput` render the output canvas **at record resolution** while a take rolls. So this was a same-size canvas-to-canvas copy — pure overhead, sitting in the hottest path in the app. The tell was in the numbers all along: the record canvas is 1080² in both rows above while the cost more than doubles with a 4K *source*, which means it was waiting on the render, not moving bytes.
+
+So the take now goes straight to the encoder: `new VideoFrame(outputCanvas)`. `kit/capabilities.js` has resolved `capturePath: 'gl'` for WebKit for ages; the export path has used it all along and the record path simply never adopted it.
+
+**This also retires the ordering question.** `new VideoFrame(canvas)` is specified to *copy* at construction, so a later render in the same task cannot bleed into the take — which is the exact guarantee `recordForceFlush` was buying with a full pipeline stall. The watched item stands down on this path.
+
+**What survives.** The 2D canvas is still built at record start (the MediaRecorder fallback records its `captureStream`, so it must exist before we know whether WebCodecs will start) and is **released the moment the WebCodecs sink starts** — at 4K that is ~33MB of backing store, and Daniel's 4K take showed memory-shaped symptoms: unresponsive chrome, a finalize that outlasted the take. It rebuilds lazily for the one case that genuinely needs a copy, a mid-take size change, where scaling into the locked take size beats dropping the frame.
+
+Take dimensions move to a `recSize` record, since they used to live on a canvas that is now optional.
+
+**`record: encode the GL canvas`** joins the switchboard, and the surface note now reads `webcodecs · direct` or `webcodecs · via blit` so a near-zero `blit` can be distinguished from a *skipped* one — B517's lesson from the camera.
+
+**VERIFY (Daniel):** iPhone, record FHD and 4K, read the record surface. `blit` should collapse toward zero. **Watch where `encode` goes:** if it jumps from ~3ms to ~40ms, `VideoFrame(GL canvas)` is itself a hidden readback on WebKit and the sync has only moved, which is a different fix. If it stays near 3ms, the round trip is genuinely gone and the encoder ceiling is finally the thing being measured. Then watch the take back for correctness.
+
 ## 🍏 v0.22.18 (Build 524) — 2026-08-06 — The forced rasterization becomes Blink-only
 
 Daniel's device test came back clean: a take recorded with the forced sync OFF plays back smoothly with no frames out of place. So the guard is now applied **only on Blink**, which is where the behavior it defends against actually lives.

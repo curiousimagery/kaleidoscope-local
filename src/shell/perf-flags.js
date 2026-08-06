@@ -67,6 +67,24 @@ export const perfFlags = {
   // correctly without leaving the GPU) becomes the answer instead.
   recordForceFlush: detectEngine().isBlink,
 
+  // Hand WebCodecs the GL output canvas DIRECTLY, deleting the intermediate 2D record canvas
+  // (B525). OFF = the old GL→2D blit, which is what every measurement through B524 was made
+  // against: 40.7ms/frame at FHD, 92.57ms with a 4K source, against 3.1ms to encode.
+  //
+  // Why the blit was pure overhead: `recordCanvas.width = outputCanvas.width` at record start,
+  // and `recordUpscale` makes sizeOutput render the output canvas AT record resolution while a
+  // take rolls. So it was a same-size canvas-to-canvas copy — and `drawImage` out of a WebGL
+  // canvas carries an implicit sync, which is what B524 proved when removing the explicit
+  // `getImageData` flush changed nothing.
+  //
+  // It also makes `recordForceFlush` moot on this path: `new VideoFrame(canvas)` is specified to
+  // COPY at construction, so a later render in the same task cannot bleed into the take. That is
+  // the ordering guarantee the forced flush was buying with a full pipeline stall.
+  //
+  // The blit path stays live behind this flag and is still used unconditionally for the
+  // MediaRecorder fallback and for the rare mid-take resize, where scaling is the correct answer.
+  recordDirect: true,
+
   // PIPELINED (async) GPU→CPU readback for the broadcast bus (B519). OFF = the synchronous
   // `readPixels` that measured 21.3ms/frame at 4K on desktop — the largest single cost in the
   // app. This is the one flag whose OFF state is genuinely worse; it exists so the win can be
@@ -82,5 +100,6 @@ export const PERF_FLAG_SPECS = [
   ['busElide', 'bus: skip render when unchanged', 'off = render + read back every frame'],
   ['posterElide', 'external: skip identical posts', 'off = post state every frame'],
   ['asyncReadback', 'bus: pipelined readback', 'off = blocking readPixels (21ms/frame at 4K)'],
+  ['recordDirect', 'record: encode the GL canvas', 'off = the 2D blit (40ms/frame at FHD on iPhone)'],
   ['recordForceFlush', 'record: force sync rasterize', 'Blink-only by default; ON here if a WebKit take shows a stale frame'],
 ];
