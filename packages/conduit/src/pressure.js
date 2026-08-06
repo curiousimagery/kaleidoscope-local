@@ -36,10 +36,11 @@ const FULL_DRIFT = 1.0;
 const WARM_WINDOWS = 5;
 
 export function createPressureSource({ native = null } = {}) {
-  let baseline = 0;         // best sustained frame time seen (ms)
+  let baseline = 0;         // best sustained frame time seen (ms) FOR THE CURRENT WORKLOAD
   let windows = 0;
   let inferred = 0;
   let lastP50 = 0;
+  let workload = null;      // what the app was doing when the baseline was learned
 
   function nativeValue() {
     if (!native) return null;
@@ -52,13 +53,30 @@ export function createPressureSource({ native = null } = {}) {
   }
 
   return {
-    // fed one sample per ledger window (the window's median frame time)
-    note(p50) {
+    // Fed one sample per ledger window: the window's median frame time, plus a description of
+    // WHAT THE APP WAS DOING (megapixels rendered per frame).
+    //
+    // THE WORKLOAD KEY IS NOT OPTIONAL, and B514's device pass is why. Without it the baseline
+    // was simply the fastest frame time ever seen, so an idle still at 120fps set an 8.3ms bar
+    // and the moment Daniel started a 4K Syphon broadcast — a genuine, deliberate 3x increase in
+    // work — the signal read CRITICAL on a cold machine. That is not a pressure reading, it is a
+    // workload change wearing a pressure reading's clothes, and a governor acting on it would
+    // have degraded the app for doing exactly what the user asked.
+    //
+    // So the baseline is per-workload: a material change in how much we are rendering re-learns
+    // it. Pressure then means what it should — "this device is getting slower AT THE THING IT IS
+    // ALREADY DOING" — which is the shape thermal throttling actually has.
+    note(p50, workloadKey = 0) {
       if (!(p50 > 0)) return;
       lastP50 = p50;
+      // >15% change in rendered megapixels is a different job, not the same job getting slower
+      const changed = workload === null
+        || (workloadKey > 0 && workload > 0 && Math.abs(workloadKey - workload) / workload > 0.15)
+        || (workloadKey > 0) !== (workload > 0);
+      if (changed) { workload = workloadKey; baseline = 0; windows = 0; inferred = 0; }
       windows += 1;
-      // the baseline TRACKS DOWN only: a faster window is new evidence of what this device can
-      // do; a slower one is the thing we are trying to detect, so it must never raise the bar
+      // within one workload the baseline TRACKS DOWN only: a faster window is new evidence of
+      // what this device can do; a slower one is the thing we are trying to detect
       if (!baseline || p50 < baseline) baseline = p50;
       inferred = windows < WARM_WINDOWS ? 0 : clamp01((p50 / baseline - 1) / FULL_DRIFT);
     },
@@ -78,8 +96,12 @@ export function createPressureSource({ native = null } = {}) {
       return 'critical';
     },
     get detail() {
-      return { baselineMs: Math.round(baseline * 100) / 100, lastMs: Math.round(lastP50 * 100) / 100, windows };
+      return {
+        baselineMs: Math.round(baseline * 100) / 100,
+        lastMs: Math.round(lastP50 * 100) / 100,
+        windows, workload,
+      };
     },
-    reset() { baseline = 0; windows = 0; inferred = 0; },
+    reset() { baseline = 0; windows = 0; inferred = 0; workload = null; },
   };
 }

@@ -382,6 +382,25 @@ ver.id = 'm-version';
 ver.textContent = formatVersion();
 settingsEl.appendChild(ver);
 
+// FRAME-COST PANEL, opened by tapping the version label three times.
+//
+// It was previously only reachable from the save sheet's diagnostics block, which turned out to
+// be unreachable in practice (Daniel, B514 device pass): the save sheet lives behind the export
+// tab, which needs a loaded still and shows a different menu in video mode — so on a phone with
+// a live camera there was no way in at all. The version label is always present, is already the
+// "you are debugging" affordance, and a triple tap cannot be hit by accident.
+let verTaps = 0, verTapT = 0, mPerfPanel = null;
+ver.addEventListener('click', async () => {
+  const t = performance.now();
+  verTaps = (t - verTapT < 600) ? verTaps + 1 : 1;
+  verTapT = t;
+  if (verTaps < 3) return;
+  verTaps = 0;
+  if (mPerfPanel) { mPerfPanel.destroy(); return; }
+  const { mountPerfPanel } = await import('../shell/perf-panel.js');
+  mPerfPanel = mountPerfPanel(env, { onClose: () => { mPerfPanel = null; } });
+});
+
 // ---- the CANVAS settings popover (output panel, top-left gear) --------------
 canvasPopEl.innerHTML = '<h2>canvas</h2>';
 // frame aspect — the desktop row's exact behavior (1:1 · 5:4 · 4:3 · 3:2 · 16:9,

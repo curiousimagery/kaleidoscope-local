@@ -364,6 +364,11 @@ export function createExternalDisplaySink(env) {
 
   // publish the connected display's native dims on env — chrome that wants them
   // (the frame-aspect 'display' option matches the composition to the destination)
+  // the frame-cost ledger's `external` surface reads this. It has to come from the POSTER, not
+  // from the destination picker: on the iPad HDMI path the picker's selection did not resolve to
+  // this sink, and the ledger reported 0x0 for what was in fact the largest surface in the frame.
+  env.externalDisplay = { get renderDims() { return poster.active ? poster.renderDims : null; } };
+
   poster.onDisplayChange((connected, s) => {
     env.externalDisplayDims = connected && s?.width ? { width: s.width, height: s.height } : null;
     env.externalDisplayDimsChanged?.();

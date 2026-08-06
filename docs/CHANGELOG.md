@@ -4,6 +4,24 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 📐 v0.22.9 (Build 515) — 2026-08-05 — Three instrument fixes the first device pass exposed
+
+Daniel ran the desktop and iPad gauntlets on B514. The measurements were decisive (see the analysis in BACKLOG under "WHERE THE COST ACTUALLY IS"), and they also broke three things in the instrument itself. All three were wrong in ways that would have misled the decisions built on top of them.
+
+### The phone had no entry point at all
+
+The panel was reachable only from the save sheet's diagnostics block, and **the save sheet is behind the export tab, which needs a loaded still and shows a different menu in video mode.** On a phone with a live camera there was literally no way in. Now: **triple-tap the version label** in the settings panel. Always present, already the "you are debugging" affordance, and impossible to hit by accident.
+
+### The inferred pressure signal was measuring the wrong thing
+
+It read **critical on a cold Mac** the moment a 4K Syphon broadcast started. The baseline was simply the fastest frame time ever seen, so an idle still at 120fps set an 8.3ms bar and a deliberate 3x increase in work registered as the device being in trouble. That is a workload change wearing a pressure reading's clothes, and a governor acting on it would have degraded the app for doing exactly what the user asked.
+
+The baseline is now **per-workload**: megapixels-per-frame is the workload key, and a change over 15% re-learns it. Pressure now means what it should — this device is getting slower at the thing it is already doing — which is the shape thermal throttling actually has.
+
+### The largest surface in the frame was reporting 0×0
+
+On the iPad HDMI run the `external` row read 0×0 while an 8.3-megapixel external view was live. The surface resolved its size through the destination picker's current selection, which does not reach that sink on that path. It now asks every active sink directly, and the external display publishes its own live dims (`env.externalDisplay`) from the poster rather than through the picker.
+
 ## 🔬 v0.22.8 (Build 514) — 2026-08-05 — A/B switches for every optimization, real GPU timing, and the phone panel floats free
 
 Three things that make the measurement pass actually workable, built autonomously ahead of Daniel's device verify.

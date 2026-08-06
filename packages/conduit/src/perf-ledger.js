@@ -142,7 +142,10 @@ export function createPerfLedger({ enabled = false, windowMs = 1000, pressure = 
       windowMs: Math.round(elapsed),
       pressure: pressure ? { value: round2(pressure.value), source: pressure.source, label: pressure.label } : null,
     };
-    pressure?.note(latest.frameMs.p50);
+    // megapixels-per-frame IS the workload description: it moves when a broadcast starts, a
+    // resolution changes or a surface is cut, which are exactly the events that must re-learn
+    // the baseline rather than be reported as the device struggling
+    pressure?.note(latest.frameMs.p50, latest.mpPerFrame);
     frameTimes.length = 0;
     winStart = t;
     onReport?.(latest);

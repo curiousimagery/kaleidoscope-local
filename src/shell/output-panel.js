@@ -26,15 +26,29 @@ export function createOutputPanel(env, outputBus) {
   // in the frame (up to 8.3MP at 4K), and leaving them out of the accounting would understate
   // the load by more than everything else combined. Registered as a `remote` surface: it
   // contributes megapixels and reports the view's own measured fps, and honestly shows no ms.
+  // every sink the bus knows about, plus the external display when it runs outside the bus
+  // (the iPad HDMI path self-renders and never registers as a bus sink)
+  const activeSinks = () => {
+    const out = [];
+    for (const id of outputBus.getStatus().sinks) { const s = outputBus.getSink(id); if (s) out.push(s); }
+    if (env.externalDisplay) out.push(env.externalDisplay);
+    return out;
+  };
+
   const remoteSurface = env.perf?.surface({
     id: 'external', label: 'external display (other process)', serves: 'program',
     priority: 70, remote: true, scaleLadder: [1],
+    // Ask EVERY registered sink whether it is self-rendering right now, rather than routing
+    // through the currently-selected destination. B514's iPad run reported this surface as 0x0
+    // while an 8.3-megapixel external view was live — the biggest single item in the frame,
+    // invisible — because on that path the selection indirection did not resolve to the sink.
+    // A sink that exposes live `renderDims` IS an active surface, whatever the picker says.
     size: () => {
-      // only while genuinely on air — an idle destination costs nothing and must not
-      // inflate the frame budget
-      if (!broadcasting) return { w: 0, h: 0 };
-      const dims = selectedDest()?.sink?.renderDims;
-      return { w: dims?.width || 0, h: dims?.height || 0 };
+      for (const s of activeSinks()) {
+        const d = s?.renderDims;
+        if (d && d.width > 0 && d.height > 0) return { w: d.width, h: d.height };
+      }
+      return { w: 0, h: 0 };
     },
   }) || null;
   if (remoteSurface) env.perfSurfaces.external = remoteSurface;
