@@ -276,6 +276,20 @@ env.perfSurfaces.source = sourceSurface;
 const srcRefresh = sourceSurface.pass('refresh');
 const srcUpload = sourceSurface.pass('upload');
 
+// THE RECORD PATH — the phone's equivalent of the desktop bus, which it does not share. Sized to
+// the RECORD canvas (the deliverable's resolution, and the lever a capability tier would move).
+// CAPTURE priority: this IS the deliverable, so it yields last.
+const recordSurface = perf.surface({
+  id: 'record', label: 'record (blit + encode)', serves: 'program', priority: PRIORITY.CAPTURE,
+  size: () => (recState === 'recording' && recordCanvas
+    ? { w: recordCanvas.width, h: recordCanvas.height } : { w: 0, h: 0 }),
+  scaleLadder: [1],
+  note: () => (recState === 'recording' ? (wcRec ? 'webcodecs' : 'mediarecorder') : 'idle'),
+});
+env.perfSurfaces.record = recordSurface;
+const recBlit = recordSurface.pass('blit');
+const recEncode = recordSurface.pass('encode');
+
 // ONE place the camera becomes the engine's source, so the planar hand-off can never be
 // attached at some entry points and missed at others (go-live, flip, and lens/resolution
 // re-acquire all land here). setSource FIRST — it records the aspect and gives the engine a
@@ -986,13 +1000,27 @@ async function startBroadcastVideo() {
 function paintRecord() {
   if (recState !== 'recording' || !recordCanvas) return;
   const ctx = recordCanvas.getContext('2d');
+  // THE LAST DARK SPOT. After B518 fixed the camera upload, iPhone recording still sat at ~20fps
+  // with a 50ms frame, of which barely 1.3ms was measured — so ~48ms was in HERE, and this path
+  // had no instrumentation because the phone chrome does not use the shared output bus.
+  //
+  // Split into the two costs that have different fixes: `blit` is the GL→2D copy plus the forced
+  // rasterization below (a readback in all but name — `getImageData` on a deferred canvas makes
+  // the GPU finish and hand the pixels back), and `encode` is handing that canvas to WebCodecs.
+  // If `blit` dominates, this is the same GPU→CPU round trip we have now beaten twice, and the
+  // desktop answer (a pipelined read, B519/B521) is the template. If `encode` dominates, it is
+  // the hardware encoder and the honest response is a capability tier, not an optimization.
+  recBlit?.begin();
   ctx.drawImage(outputCanvas, 0, 0, recordCanvas.width, recordCanvas.height);
   // FORCE the copy to rasterize NOW: Chromium 2D canvases are deferred — a
   // drawImage from a WebGL canvas that re-renders later in the SAME task would
   // otherwise capture the LATER render (the preview, not the followed output)
   ctx.getImageData(0, 0, 1, 1);
+  recBlit?.end();
   // the WebCodecs session encodes straight off this canvas (captureStream never sees it)
+  recEncode?.begin();
   wcRec?.publish({ canvas: recordCanvas, w: recordCanvas.width, h: recordCanvas.height, topDown: true });
+  recEncode?.end();
 }
 
 // one guard for every path that would lose an unsaved take (re-record, source

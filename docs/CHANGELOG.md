@@ -4,6 +4,21 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🔦 v0.22.16 (Build 522) — 2026-08-06 — Instrument the phone's record path, the last dark spot
+
+**B521 landed the big one: desktop 4K Syphon went to 85.3fps with readback at 0.87ms** (from 19.48ms — 22x), with the bus finally reporting `capture: async`. That also retires my earlier claim that ~19ms was a hardware floor and 4K/60 was unreachable in Electron. It was not a floor; it was a stall, and it is gone.
+
+iPhone recording is now the only place left where the numbers do not add up: **20.2fps at a 50ms frame with ~1.3ms of measured work in it.** Roughly 48ms per frame is unaccounted for, and it always was — the phone chrome does not use the shared output bus, so its record path had no instrumentation at all.
+
+A `record` surface, sized to the record canvas, with two passes chosen because they have different fixes:
+
+- **`blit`** — the GL→2D copy plus the forced rasterization (`getImageData` on a deferred canvas, which is a readback in all but name: it makes the GPU finish and hand the pixels back)
+- **`encode`** — handing that canvas to WebCodecs
+
+**If `blit` dominates, this is the same GPU→CPU round trip we have now beaten twice** (the camera in B518, the desktop bus in B519/B521), and the pipelined-read template applies directly. **If `encode` dominates, it is the hardware encoder**, and the honest response is a capability tier rather than an optimization — which is goal 1 of this arc, not a failure of it.
+
+The note also reports `webcodecs` or `mediarecorder`, since those have different ceilings and the session picks between them.
+
 ## 🔁 v0.22.15 (Build 521) — 2026-08-06 — The pipelined readback never actually ran
 
 B520's note answered its question immediately and the answer was the unflattering one: **`capture: videoframe`.** The pipelined path lost the probe on desktop and never executed, so B519's "21.3ms → 19.1ms" was variance, not an improvement. The feature had not been measured at all.
