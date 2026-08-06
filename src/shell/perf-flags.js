@@ -25,6 +25,8 @@
 // as a broken output rather than a deliberate one. So the ladder is a step nobody notices (75)
 // and a step everybody notices ON PURPOSE (25, which reads as honest system status: "this is not
 // pushing full resolution"). Nothing in between to be misread.
+import { detectEngine } from '../kit/capabilities.js';
+
 export const QUALITY_LADDER = [1, 0.75, 0.25];
 
 export const perfFlags = {
@@ -44,21 +46,26 @@ export const perfFlags = {
   // to the heartbeat floor. OFF = post every frame, the pre-B513 behavior.
   posterElide: true,
 
-  // FORCE the record blit to rasterize synchronously (`getImageData(0,0,1,1)` after the
-  // drawImage). ON is the shipped behavior and exists for a real reason: CHROMIUM 2D canvases are
-  // deferred, so a drawImage out of a WebGL canvas that re-renders later in the same task would
-  // capture the LATER render — the preview instead of the followed output.
+  // FORCE the record blit to rasterize synchronously (`getImageData(0,0,1,1)` after the drawImage)
+  // — now BLINK-ONLY, which is where the behavior it guards against actually lives.
   //
-  // But that one-pixel read is a full pipeline sync, and B522 measured it at **39.29ms per frame
-  // on iPhone at FHD (58ms with a 4K source), against 3.19ms to actually encode** — twelve to one,
-  // and the entire reason phone recording sits at 20fps. The open question is whether WebKit needs
-  // it at all: the deferral it defends against is a Chromium behavior, and this code runs on both.
+  // What it defends: Chromium's 2D canvases are DEFERRED, so a drawImage out of a WebGL canvas
+  // that re-renders later in the same task captures the LATER render — the preview instead of the
+  // followed output. Real bug, found on Chromium, fix still required there.
   //
-  // OFF is therefore an EXPERIMENT, not an optimization: turn it off, record, and check the TAKE
-  // ITSELF, not just the frame rate. Correct frames at 40fps means it was never needed here and
-  // the flush can be made Chromium-only. Wrong frames means it is load-bearing and the fix is
-  // architectural (a VideoFrame straight off the GL canvas, keeping the pixels on the GPU).
-  recordForceFlush: true,
+  // Why it is off elsewhere: B522 measured that one-pixel read at **39.29ms/frame on iPhone at
+  // FHD (58ms with a 4K source) against 3.19ms to encode** — twelve to one, and the whole reason
+  // phone recording sat at 20fps. It is a full pipeline sync, not a copy: the record canvas is the
+  // same size in both measurements while the cost nearly doubles with a 4K SOURCE, i.e. it waits
+  // longer for a slower render. B523 shipped it as a switch and Daniel verified on device that a
+  // take recorded WITHOUT it plays back correctly, with no out-of-place frames.
+  //
+  // ⚠️ ONE TAKE IS EVIDENCE, NOT PROOF. Canvas deferral is timing-dependent, so a stale frame
+  // could still appear under different load. The switch stays in the panel for exactly that case:
+  // if a take on WebKit ever shows a frame out of place, turn this ON and we will know within one
+  // recording, and the architectural fix (a VideoFrame straight off the GL canvas, which orders
+  // correctly without leaving the GPU) becomes the answer instead.
+  recordForceFlush: detectEngine().isBlink,
 
   // PIPELINED (async) GPU→CPU readback for the broadcast bus (B519). OFF = the synchronous
   // `readPixels` that measured 21.3ms/frame at 4K on desktop — the largest single cost in the
@@ -75,5 +82,5 @@ export const PERF_FLAG_SPECS = [
   ['busElide', 'bus: skip render when unchanged', 'off = render + read back every frame'],
   ['posterElide', 'external: skip identical posts', 'off = post state every frame'],
   ['asyncReadback', 'bus: pipelined readback', 'off = blocking readPixels (21ms/frame at 4K)'],
-  ['recordForceFlush', 'record: force sync rasterize', 'off = EXPERIMENT, check the take is correct'],
+  ['recordForceFlush', 'record: force sync rasterize', 'Blink-only by default; ON here if a WebKit take shows a stale frame'],
 ];

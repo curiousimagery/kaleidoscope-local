@@ -4,6 +4,18 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🍏 v0.22.18 (Build 524) — 2026-08-06 — The forced rasterization becomes Blink-only
+
+Daniel's device test came back clean: a take recorded with the forced sync OFF plays back smoothly with no frames out of place. So the guard is now applied **only on Blink**, which is where the behavior it defends against actually lives.
+
+It stays in the code because it fixes a real Chromium bug: 2D canvases there are deferred, so a `drawImage` out of a WebGL canvas that re-renders later in the same task captures the *later* render — the preview instead of the followed output. That fix is still required on desktop. It simply was never required on WebKit, where it cost **39.29ms per frame at FHD and 58ms with a 4K source**, against 3.19ms to encode.
+
+`detectEngine()` is split out of `createCapabilities()` for this, since the record path needs the engine identity before any capability profile exists (the profile needs a live GL context; this needs a user-agent string).
+
+**Applied to the PiP paint too.** It carried the same guard, for the same reason, on a path that also runs every frame in video mode. The stakes there are lower — a stale PiP is a cosmetic glitch where a stale recorded frame is a damaged take — which is another reason not to pay for it where the deferral does not exist.
+
+**⚠️ One take is evidence, not proof.** Canvas deferral is timing-dependent and a stale frame could still surface under different load. The switch stays in the panel: if a WebKit take ever shows a frame out of place, turn it on and we will know within one recording, and the architectural fix (a `VideoFrame` built straight off the GL canvas, which orders correctly without the pixels leaving the GPU) becomes the answer instead.
+
 ## 🧪 v0.22.17 (Build 523) — 2026-08-06 — The phone's recording ceiling is one line of code
 
 B522's instrumentation answered in one reading, and the answer was the same one the arc has given twice already.

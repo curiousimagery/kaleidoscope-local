@@ -73,16 +73,23 @@ export function editionAllows(feature) {
   return !cfg || cfg[feature] !== false;
 }
 
-export function createCapabilities(engine) {
-  const ua = navigator.userAgent;
-  // WebKit = Safari / iPadOS proper — exclude the Chromium family and Firefox
-  // (incl. their iOS shells CriOS/FxiOS, which are WebKit under the hood but
-  // behave/choose differently for our capture path). Matches the long-standing
-  // `defaultCaptureMode` sniff exactly.
+// Browser-engine identity WITHOUT an engine instance. Split out of createCapabilities (which
+// needs GL diagnostics) so the pieces that only care "is this Blink" can ask cheaply and early —
+// the phone chrome's record path needs it before any capability profile exists.
+//
+// WebKit = Safari / iPadOS proper, excluding the Chromium family and Firefox (including their iOS
+// shells CriOS/FxiOS, which are WebKit underneath but behave and choose differently for our
+// capture path). Matches the long-standing `defaultCaptureMode` sniff exactly.
+export function detectEngine() {
+  const ua = typeof navigator !== 'undefined' ? navigator.userAgent : '';
   const isWebKit = /AppleWebKit/.test(ua) && !/Chrome|Chromium|Edg|OPR|Firefox|FxiOS|CriOS/.test(ua);
   const isGecko = /Firefox\//i.test(ua);
-  const isBlink = !isWebKit && !isGecko;   // Chromium family (and future Electron-Chromium)
-  const engineId = isWebKit ? 'webkit' : isGecko ? 'gecko' : 'blink';
+  const isBlink = !isWebKit && !isGecko;   // Chromium family (and Electron-Chromium)
+  return { isWebKit, isGecko, isBlink, engineId: isWebKit ? 'webkit' : isGecko ? 'gecko' : 'blink' };
+}
+
+export function createCapabilities(engine) {
+  const { isWebKit, isGecko, isBlink, engineId } = detectEngine();
 
   const maxFBOSize = (engine && engine.diagnostics && engine.diagnostics.maxFBOSize) || 4096;
   const maxTextureSize = (engine && engine.diagnostics && engine.diagnostics.maxTextureSize) || 4096;

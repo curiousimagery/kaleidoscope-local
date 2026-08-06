@@ -1260,7 +1260,11 @@ function paintPip() {
   if (pipCanvas.width !== pw || pipCanvas.height !== ph) { pipCanvas.width = pw; pipCanvas.height = ph; }
   const pctx = pipCanvas.getContext('2d');
   pctx.drawImage(outputCanvas, 0, 0, pw, ph);
-  pctx.getImageData(0, 0, 1, 1);   // same forced flush as paintRecord (deferral)
+  // same forced flush as paintRecord, and now under the same Blink-only flag — it is the same
+  // full pipeline sync, on a path that also runs every frame in video mode. The stakes are lower
+  // here (a stale PiP is a cosmetic glitch, a stale recorded frame is a damaged take), which is
+  // another reason to stop paying for it where the deferral does not exist.
+  if (perfFlags.recordForceFlush) pctx.getImageData(0, 0, 1, 1);
 }
 // drag → snap to the nearest allowed corner (a small move is a tap: no-op)
 (function setupPipDrag() {
