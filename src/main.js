@@ -114,6 +114,17 @@ const sourceSurface = perf.surface({
   id: 'source', label: 'source → texture', serves: 'program', priority: PRIORITY.CAPTURE,
   size: () => { const d = engine?.getSourceSize?.() || { w: 0, h: 0 }; return { w: d.w, h: d.h }; },
   scaleLadder: [1],
+  // which path the upload took — a canvas source means a CPU round trip on WebKit, a <video> or
+  // the planar path does not, and the cost is meaningless without knowing which one ran
+  note: () => {
+    const src = engine?.getSourceImage?.();
+    const tag = !src ? 'no source'
+      : src.tagName === 'VIDEO' ? 'from <video>'
+      : src.tagName === 'CANVAS' ? 'from canvas'
+      : `from <${(src.tagName || '?').toLowerCase()}>`;
+    return [tag, engine?.planarActive && 'planar', env.live?.isLive && 'camera',
+      env.nativeVideo && 'native decode'].filter(Boolean).join(' · ');
+  },
 });
 
 let engine, capabilities;

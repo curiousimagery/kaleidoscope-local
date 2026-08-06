@@ -258,6 +258,19 @@ const sourceSurface = perf.surface({
   id: 'source', label: 'camera → texture', serves: 'program', priority: PRIORITY.CAPTURE,
   size: () => { const d = engine.getSourceSize?.() || { w: 0, h: 0 }; return { w: d.w, h: d.h }; },
   scaleLadder: [1],
+  // WHICH PATH the upload actually took. Without this, front-vs-rear camera runs produced
+  // identical numbers and there was no way to tell whether that meant "the mirror canvas is
+  // innocent" or "both runs used the mirror canvas anyway" — see perf-ledger's `note`.
+  note: () => {
+    const src = engine.getSourceImage?.();
+    const tag = !src ? 'no source'
+      : src.tagName === 'VIDEO' ? 'from <video>'
+      : src.tagName === 'CANVAS' ? 'from canvas'
+      : `from <${(src.tagName || '?').toLowerCase()}>`;
+    const facing = camera?.getFacing?.();
+    return [tag, facing && `facing ${facing}`, engine.planarActive && 'planar',
+      useNativeCam ? 'native cam' : 'getUserMedia'].filter(Boolean).join(' · ');
+  },
 });
 env.perfSurfaces.source = sourceSurface;
 const srcRefresh = sourceSurface.pass('refresh');

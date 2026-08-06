@@ -4,6 +4,18 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🧭 v0.22.11 (Build 517) — 2026-08-06 — Surfaces report which PATH they took
+
+A correction to the instrument, prompted by a diagnosis it could not support.
+
+B516 measured the iPhone camera upload at ~6.7ms per source megapixel — the unmistakable signature of a CPU round trip — and the obvious suspect was the front-camera mirror canvas, since `camera.js` hands the engine a 2D canvas for the front camera and a raw `<video>` for the rear, and uploading from a canvas round-trips through main memory on WebKit while a `<video>` does not.
+
+**Daniel's front-vs-rear runs came back identical (5.88ms vs 5.43ms at 0.79MP), and the report could not say why.** It never recorded whether the engine was actually sampling a canvas or a video element, so the identical numbers were equally consistent with "the mirror canvas is innocent" and with "both runs went through the mirror canvas anyway". A measurement that cannot identify the path it measured can establish a cost but never a cause.
+
+So a surface can now declare a **`note`**: a short live description of the path it is taking, shown in its row and carried in the copied JSON. The source surface reports the source element type (`from <video>` / `from canvas`), the camera facing, whether the planar path is active, and whether it is the native camera or `getUserMedia`. Both chromes.
+
+That single line settles the question on the next run, and it generalises: every future "why is this expensive" answer needs to know which branch ran.
+
 ## 🔥 v0.22.10 (Build 516) — 2026-08-05 — A draggable panel, and instrumentation for the source path
 
 ### The panel is draggable

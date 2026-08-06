@@ -267,7 +267,10 @@ export function mountPerfPanel(env, { container = null, onClose = null } = {}) {
 
       const name = document.createElement('span');
       name.className = 'pf-name';
-      name.innerHTML = `${s.label} <em>${s.serves} · ${s.w}×${s.h}</em>`;
+      // the note says WHICH PATH this surface took, which is what turns a cost into a cause
+      const note = s.note ? ` · ${s.note}` : '';
+      name.innerHTML = `${s.label} <em>${s.serves} · ${s.w}×${s.h}${note}</em>`;
+      if (s.note) name.title = s.note;
 
       const ms = document.createElement('span');
       ms.className = 'pf-num';

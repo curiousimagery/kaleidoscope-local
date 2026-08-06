@@ -19,6 +19,14 @@
 // A flag that proves its optimization worthless should be DELETED along with the optimization —
 // this file is a measuring stage, not a permanent configuration surface.
 
+// The shipping resolution ladder, from Daniel's on-device judgement (B516/B517). 50% and 35%
+// are DELIBERATELY absent: 50 "lives in that uncanny 'something is off' zone", which is the worst
+// possible place for a degradation to sit — visible enough to distract, ambiguous enough to read
+// as a broken output rather than a deliberate one. So the ladder is a step nobody notices (75)
+// and a step everybody notices ON PURPOSE (25, which reads as honest system status: "this is not
+// pushing full resolution"). Nothing in between to be misread.
+export const QUALITY_LADDER = [1, 0.75, 0.25];
+
 export const perfFlags = {
   // draw the slice overlay only when something it draws actually changed (B513). OFF = redraw
   // on every call, which is the pre-B513 behavior: every frame of camera preview and playback.

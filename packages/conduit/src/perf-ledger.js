@@ -118,8 +118,10 @@ export function createPerfLedger({ enabled = false, windowMs = 1000, pressure = 
       // process (an external display's own webview), so it has no ms here and its pixels
       // still count — leaving them out would understate the frame by the largest single item.
       if (s.enabled && (sMs > 0 || s.remote)) mp += surfaceMp;
+      let note = '';
+      try { note = s.note ? String(s.note() || '') : ''; } catch { note = ''; }
       rows.push({
-        id: s.id, label: s.label, serves: s.serves, priority: s.priority,
+        id: s.id, label: s.label, serves: s.serves, priority: s.priority, note,
         w: size.w, h: size.h, mp: round2(surfaceMp), remote: s.remote,
         enabled: s.enabled, scale: s.scale, scaleLadder: s.scaleLadder,
         msPerFrame: round2(sMs), gpuMsPerFrame: round2(sGpu), passes,
@@ -216,9 +218,20 @@ export function createPerfLedger({ enabled = false, windowMs = 1000, pressure = 
         serves: spec.serves || 'editor',
         priority: spec.priority ?? PRIORITY.EDITOR,
         size: spec.size || null,
+        // A short live description of WHICH PATH this surface is actually taking. Added after a
+        // wrong diagnosis (B516→B517): the numbers said the iPhone camera upload was a CPU round
+        // trip, and the obvious suspect was the front-camera mirror canvas — but the report never
+        // recorded whether the engine was sampling a canvas or a video element, so front-vs-rear
+        // runs could not tell the two apart. A measurement that cannot identify the path it
+        // measured can establish a cost but never a cause.
+        note: spec.note || null,
         remote: !!spec.remote,   // rendered in another process; pixels count, ms cannot
         onEnabled: spec.onEnabled || null,
         onScale: spec.onScale || null,
+        // the exploratory default keeps the fine rungs so a NEW surface can still be judged
+        // across the range; a consumer that has already made that judgement passes its own
+        // (Fold's shipping ladder is QUALITY_LADDER in shell/perf-flags.js — 100/75/25, with the
+        // uncanny middle deliberately removed)
         scaleLadder: spec.scaleLadder || [1, 0.75, 0.5, 0.35, 0.25],
         enabled: true,
         scale: 1,
