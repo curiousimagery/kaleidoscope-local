@@ -465,9 +465,13 @@ export function createPerformRuntime(env) {
       // is what the editor's own panels cost (see native-video.js report())
       const nv = env.nativeVideo;
       let pvMs = 0, t0 = nv ? performance.now() : 0;
+      env.perfSource?.refresh.begin();
       nv?.refreshFrame();                // preview canvas — the source panel reads it
+      env.perfSource?.refresh.end();
       if (nv) { pvMs = performance.now() - t0; t0 = performance.now(); }
+      env.perfSource?.upload.begin();
       env.engine.updateSourceFrame();
+      env.perfSource?.upload.end();
       if (nv) nv.noteUpload(performance.now() - t0);
       env.engine.render(state);
       if (nv) t0 = performance.now();

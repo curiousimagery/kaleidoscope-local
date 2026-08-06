@@ -107,6 +107,14 @@ const previewSurface = perf.surface({
   size: () => ({ w: previewCanvas.width, h: previewCanvas.height }),
   onScale: () => resizePreviewCanvas(),
 });
+// The SOURCE path — camera/decode → GL texture. In the baseline of every live session, so if it
+// is expensive nothing else can be cheap; its "size" is the SOURCE's dimensions, the number that
+// actually drives the cost and the one the source-detail lever moves.
+const sourceSurface = perf.surface({
+  id: 'source', label: 'source → texture', serves: 'program', priority: PRIORITY.CAPTURE,
+  size: () => { const d = engine?.getSourceSize?.() || { w: 0, h: 0 }; return { w: d.w, h: d.h }; },
+  scaleLadder: [1],
+});
 
 let engine, capabilities;
 try {
@@ -242,7 +250,8 @@ const env = {
   // the frame-cost ledger + its surface registry (see above). Every render surface in the app
   // registers here; the panel reads it back. Inert until a panel turns it on.
   perf,
-  perfSurfaces: { preview: previewSurface },
+  perfSurfaces: { preview: previewSurface, source: sourceSurface },
+  perfSource: { refresh: sourceSurface.pass('refresh'), upload: sourceSurface.pass('upload') },
   buildLabel: formatVersion(),
 };
 

@@ -125,6 +125,54 @@ export function mountPerfPanel(env, { container = null, onClose = null } = {}) {
   }
   panel.appendChild(head);
 
+  // ---- draggable ------------------------------------------------------------
+  // It has to move: it sits bottom-right, which is exactly where the broadcast sheet lives, and
+  // whichever one is on top makes the other unusable (Daniel, B515). Drag by the header, clamp
+  // into the viewport so it can never be thrown off-screen, and remember where it was left —
+  // repositioning it on every open would be its own small tax on a measurement session.
+  const POS_KEY = 'foldPerfPanelPos';
+  function placeAt(x, y) {
+    const w = panel.offsetWidth || 320, h = panel.offsetHeight || 200;
+    const cx = Math.max(4, Math.min(window.innerWidth - w - 4, x));
+    const cy = Math.max(4, Math.min(window.innerHeight - h - 4, y));
+    panel.style.left = cx + 'px';
+    panel.style.top = cy + 'px';
+    panel.style.right = 'auto';
+    panel.style.bottom = 'auto';
+    return { x: cx, y: cy };
+  }
+  if (!container) {
+    let dragging = false, offX = 0, offY = 0;
+    head.style.cursor = 'grab';
+    head.style.touchAction = 'none';   // so a drag on the header is not stolen by page scrolling
+    head.addEventListener('pointerdown', (e) => {
+      if (e.target.closest('button, select')) return;   // the controls keep working
+      const r = panel.getBoundingClientRect();
+      dragging = true; offX = e.clientX - r.left; offY = e.clientY - r.top;
+      head.setPointerCapture(e.pointerId);
+      head.style.cursor = 'grabbing';
+      e.preventDefault();
+    });
+    head.addEventListener('pointermove', (e) => {
+      if (!dragging) return;
+      placeAt(e.clientX - offX, e.clientY - offY);
+    });
+    const endDrag = (e) => {
+      if (!dragging) return;
+      dragging = false;
+      head.style.cursor = 'grab';
+      try { head.releasePointerCapture(e.pointerId); } catch { /* already released */ }
+      const r = panel.getBoundingClientRect();
+      try { localStorage.setItem(POS_KEY, JSON.stringify({ x: r.left, y: r.top })); } catch { /* private mode */ }
+    };
+    head.addEventListener('pointerup', endDrag);
+    head.addEventListener('pointercancel', endDrag);
+    // a remembered position from a bigger window must still land on screen in a smaller one
+    window.addEventListener('resize', () => {
+      if (panel.style.left) placeAt(parseFloat(panel.style.left), parseFloat(panel.style.top));
+    });
+  }
+
   const top = document.createElement('div'); top.className = 'pf-top';
   const rows = document.createElement('div');
   panel.append(top, rows);
@@ -310,6 +358,13 @@ export function mountPerfPanel(env, { container = null, onClose = null } = {}) {
   paint(ledger.report);
 
   (container || document.body).appendChild(panel);
+  if (!container) {
+    // restore last position AFTER mounting, so offsetWidth/Height are real and the clamp works
+    try {
+      const p = JSON.parse(localStorage.getItem(POS_KEY) || 'null');
+      if (p && Number.isFinite(p.x) && Number.isFinite(p.y)) placeAt(p.x, p.y);
+    } catch { /* no saved position */ }
+  }
   console.info('[fold] frame-cost panel active — switches and resolution steppers change behavior live; nothing persists but a saved baseline');
 
   const api = {

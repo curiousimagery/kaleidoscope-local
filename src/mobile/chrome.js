@@ -250,6 +250,19 @@ const overlaySurface = perf.surface({
 });
 env.perfSurfaces.overlay = overlaySurface;
 
+// The SOURCE path — everything between the camera and a usable texture. Registered as a surface
+// so it appears in the ledger alongside the renders it feeds: its "size" is the SOURCE's pixel
+// dimensions, which is the number that actually drives its cost, and which the camera-resolution
+// lever moves directly. CAPTURE priority because degrading it degrades every surface at once.
+const sourceSurface = perf.surface({
+  id: 'source', label: 'camera → texture', serves: 'program', priority: PRIORITY.CAPTURE,
+  size: () => { const d = engine.getSourceSize?.() || { w: 0, h: 0 }; return { w: d.w, h: d.h }; },
+  scaleLadder: [1],
+});
+env.perfSurfaces.source = sourceSurface;
+const srcRefresh = sourceSurface.pass('refresh');
+const srcUpload = sourceSurface.pass('upload');
+
 const sourceOverlay = createSourceOverlay({
   state, engine,
   perfItem: overlaySurface.pass('draw'),
@@ -1243,8 +1256,17 @@ function startLiveLoop() {
   lastTickT = 0;
   const tick = (now) => {
     if (!liveActive) return;
+    // THE SOURCE PATH, measured. Daniel's B515 observation was that the iPhone runs warm on
+    // plain still-mode camera preview, not just while recording — so the expensive thing is in
+    // the baseline, and the baseline had no instrumentation at all. Two passes, because they
+    // are different costs with different fixes: `refresh` is the mirrored-canvas redraw (a full
+    // 2D copy of the camera frame, CPU-side), `upload` is getting those pixels into a GL texture.
+    srcRefresh.begin();
     camera.refreshFrame();                     // front camera: redraw mirrored frame
+    srcRefresh.end();
+    srcUpload.begin();
     engine.updateSourceFrame();
+    srcUpload.end();
     if (videoMode) {
       // record video: the OUTPUT (PiP + recording) eases toward the edited
       // state through the follower; the big panel stays the immediate PREVIEW.

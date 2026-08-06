@@ -4,6 +4,27 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🔥 v0.22.10 (Build 516) — 2026-08-05 — A draggable panel, and instrumentation for the source path
+
+### The panel is draggable
+
+It sat bottom-right, which is exactly where the broadcast sheet lives, so whichever was on top made the other unusable (Daniel). Drag it by its header; it clamps into the viewport so it cannot be thrown off-screen, and it remembers where you left it. Buttons and the scenario picker inside the header still work normally.
+
+### The source path is now measured, and it was the biggest blind spot
+
+Daniel's observation: **the iPhone runs warm on plain still-mode camera preview, not just while recording.** That means the expensive thing is in the baseline, and the baseline had no instrumentation at all — the phone report listed the output canvas and the overlay, and nothing about how a camera frame becomes a texture.
+
+A new `source` surface with two passes, because they are different costs with different fixes:
+
+- **`refresh`** — the mirrored-canvas redraw, a full CPU-side 2D copy of the camera frame
+- **`upload`** — getting those pixels into a GL texture
+
+Its reported size is the SOURCE's dimensions rather than any canvas, because that is the number that actually drives the cost and the one the camera-resolution and source-detail levers move. Priority is CAPTURE: degrading it degrades every surface at once, so it yields last.
+
+Registered on both chromes and wired into all four live paths (phone live loop, desktop camera loop, motion playback, perform), so a camera run on iPhone and a broadcast run on iPad now produce comparable rows.
+
+**The hypothesis it is there to test:** the live loops run on `requestAnimationFrame` at up to 120Hz while a camera delivers 30. If `refresh` and `upload` show real cost, we are paying for both two to four times per delivered frame, on the hottest path on the most heat-constrained device. That would make per-surface frame pacing (already on Daniel's lever list) the first fix rather than a later one.
+
 ## 📐 v0.22.9 (Build 515) — 2026-08-05 — Three instrument fixes the first device pass exposed
 
 Daniel ran the desktop and iPad gauntlets on B514. The measurements were decisive (see the analysis in BACKLOG under "WHERE THE COST ACTUALLY IS"), and they also broke three things in the instrument itself. All three were wrong in ways that would have misled the decisions built on top of them.

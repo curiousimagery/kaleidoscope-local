@@ -411,10 +411,14 @@ function startVideoPlayback() {
     // 2D draw. They used to be one cost because the engine sampled the preview canvas.
     const nv = env.nativeVideo;
     let pvMs = 0, t0 = nv ? performance.now() : 0;
+    env.perfSource?.refresh.begin();
     nv?.refreshFrame();                 // preview canvas: the source panel + the stage read it
     if (stg.on) stgSrc?.followLive();   // the stage rides the audience's frame
+    env.perfSource?.refresh.end();
     if (nv) { pvMs = performance.now() - t0; t0 = performance.now(); }
+    env.perfSource?.upload.begin();
     engine.updateSourceFrame();
+    env.perfSource?.upload.end();
     if (nv) nv.noteUpload(performance.now() - t0);
     Object.assign(state, sampleAt(p));
     if (engine && engine.getSourceImage()) engine.render(state);

@@ -452,8 +452,14 @@ export function createSourceHost(env) {
     const tick = () => {
       if (!env.live.active) return;
       if (engine) {
+        // measured as its own surface (see the phone chrome for the reasoning): the camera path
+        // is in the BASELINE of every live session, so if it is expensive nothing else can be cheap
+        env.perfSource?.refresh.begin();
         camera.refreshFrame();      // front camera: redraw the mirrored frame
+        env.perfSource?.refresh.end();
+        env.perfSource?.upload.begin();
         engine.updateSourceFrame();
+        env.perfSource?.upload.end();
         engine.render(state);
         // (mini-canvas 2D copy removed — the sibling panels show both real views)
         env.sourceOverlay.paintSourceVideo();   // loaded source video → its 2D preview canvas (no-op otherwise)
