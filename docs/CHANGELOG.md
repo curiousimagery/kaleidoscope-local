@@ -4,6 +4,24 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🔁 v0.22.15 (Build 521) — 2026-08-06 — The pipelined readback never actually ran
+
+B520's note answered its question immediately and the answer was the unflattering one: **`capture: videoframe`.** The pipelined path lost the probe on desktop and never executed, so B519's "21.3ms → 19.1ms" was variance, not an improvement. The feature had not been measured at all.
+
+### The bug: a busy-wait that cannot see a fence signal
+
+The probe validated the pipelined path by spinning on `clientWaitSync` until the fence signalled, bounded by wall clock. **In Chromium the GL context lives in a separate process, and a sync object's signalled state reaches the renderer through its event loop** — so a tight loop that never returns to that loop can burn the whole budget and never observe the signal. The probe then concluded "produced no frame" and disqualified the path, exactly as if the hardware did not support it.
+
+It now yields between polls. That is safe specifically here because the caller is awaiting, so no new frame is rendered in the gap and `preserveDrawingBuffer: true` keeps the pixels the checksum needs.
+
+### And the reason is now visible, not just the outcome
+
+`capture: videoframe` told us *which* path won but not *why* the other lost, which is another round of guessing. The mode string now carries it: `capture: videoframe (async: fence never signalled)`, or `checksum mismatch`, `needs WebGL2`, `switched off`, `stalled at runtime`, `failed at runtime`.
+
+**This is the third time in this arc that a wrong conclusion came from an instrument that reported an outcome without reporting the path that produced it** — the camera hypothesis, the iPad "no playback", and now this. The pattern is worth naming: when a measurement can be explained two ways, the fix is another field, not another theory.
+
+**VERIFY (Daniel):** desktop 4K Syphon, read the `bus` note. If it says `capture: async`, we finally have a real reading on whether pipelining helps. If it still says `videoframe` with a reason, that reason is the next thing to chase.
+
 ## 🔎 v0.22.14 (Build 520) — 2026-08-06 — Two notes that decide two open questions
 
 B519's verification produced one spectacular result and one ambiguous one, and the ambiguous one was ambiguous because of a missing readout, not because the data was noisy. Same lesson as the camera diagnosis: instrument the path.

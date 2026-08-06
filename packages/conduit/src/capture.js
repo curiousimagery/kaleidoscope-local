@@ -127,15 +127,24 @@ function createAsyncReader(gl, tag) {
     finally { try { gl.deleteSync(e.sync); gl.deleteBuffer(e.pbo); } catch { /* gone */ } }
   }
 
-  // PROBE ONLY: poll until the fence signals, bounded by wall clock. A busy-wait is normally the
-  // wrong tool, but the probe needs bytes for the SAME buffer the reference checksum came from,
-  // and there is no portable blocking wait to use instead. It runs exactly once per session.
-  function collectPrimed(maxMs = 250) {
+  // PROBE ONLY: wait for the fence, bounded by wall clock, YIELDING between polls.
+  //
+  // The yield is the whole point and a busy-loop here does not work. In Chromium the GL context
+  // lives in a separate process and a sync object's signalled state reaches us through the
+  // renderer's event loop — so spinning on `clientWaitSync` without ever returning to that loop
+  // can burn the entire budget and never observe the fence signal, which reads downstream as
+  // "the pipelined path produced no frame" and quietly disqualifies it.
+  //
+  // Yielding is safe here specifically because the caller is awaiting us: no new frame is
+  // rendered in the gap, and the drawing buffer is preserved, so the pixels still correspond to
+  // the reference the checksum was taken from. Runs exactly once per session.
+  async function collectPrimed(maxMs = 500) {
     const until = performance.now() + maxMs;
     for (;;) {
       const r = collect();
       if (r || broken) return r;
       if (performance.now() > until) return null;
+      await new Promise((res) => setTimeout(res, 1));
     }
   }
 
@@ -169,6 +178,10 @@ export function createAdaptiveCapture({ gl, glCanvas, capCtx, override = null, t
   let asyncReader = null;
   let asyncW = 0, asyncH = 0;
   let asyncMisses = 0;   // consecutive frames the pipeline had nothing ready (see read())
+  // WHY the pipelined path is not in use, surfaced through `mode` so a readback time that did not
+  // improve is never ambiguous between "it ran and did not help" and "it never ran". B520's device
+  // run reported `capture: videoframe` with no visible reason, which cost a round of guessing.
+  let asyncWhyNot = '';
 
   function readGetImageData(w, h) {
     const t = performance.now();
@@ -208,11 +221,22 @@ export function createAdaptiveCapture({ gl, glCanvas, capCtx, override = null, t
   // is in flight yet, so there is nothing to pipeline against, and blocking once beats handing a
   // sink a null frame it has no contract for. It also makes the returned frame correspond to the
   // buffer just rendered, which is what the probe's checksum needs.
-  function readAsync(w, h, { primed = false } = {}) {
+  // `primed` (probe only) awaits the fence; the steady-state path never waits and returns null
+  // when nothing is ready yet, which read() covers with a one-frame synchronous fallback.
+  function readAsync(w, h) {
     const t = performance.now();
     if (w !== asyncW || h !== asyncH) { asyncReader.resize(); asyncW = w; asyncH = h; }
     if (!asyncReader.full) asyncReader.issue(w, h);
-    const r = primed ? asyncReader.collectPrimed() : asyncReader.collect();
+    const r = asyncReader.collect();
+    if (!r) return null;
+    if (rpSwizzle) swizzleBgra(r.pixels, r.pixels.length);
+    return { pixels: r.pixels, topDown: false, readMs: performance.now() - t, delayed: true };
+  }
+  async function readAsyncPrimed(w, h) {
+    const t = performance.now();
+    if (w !== asyncW || h !== asyncH) { asyncReader.resize(); asyncW = w; asyncH = h; }
+    if (!asyncReader.full) asyncReader.issue(w, h);
+    const r = await asyncReader.collectPrimed();
     if (!r) return null;
     if (rpSwizzle) swizzleBgra(r.pixels, r.pixels.length);   // same channel-order fix as readPixels
     // bottom-up, exactly like the synchronous readPixels it replaces. `delayed` says these pixels
@@ -292,7 +316,7 @@ export function createAdaptiveCapture({ gl, glCanvas, capCtx, override = null, t
       if (reader) {
         asyncReader = reader; asyncW = 0; asyncH = 0;
         try {
-          const r = readAsync(w, h, { primed: true });
+          const r = await readAsyncPrimed(w, h);
           // rpSwizzle may already be set from the readPixels probe; if it was NOT chosen there,
           // re-derive it here, since a PBO read has the same channel-order behavior
           let ok = !!r && sampleSig(r.pixels, w, h, true) === refSig;
@@ -301,27 +325,33 @@ export function createAdaptiveCapture({ gl, glCanvas, capCtx, override = null, t
             capMode = 'async';
             report.push('async VALID → chosen (pipelined; not timed here — its win is across frames)');
           } else {
-            report.push(r ? 'async INVALID' : 'async produced no frame');
+            asyncWhyNot = r ? 'checksum mismatch' : 'fence never signalled';
+            report.push(`async REJECTED (${asyncWhyNot})`);
             reader.dispose(); asyncReader = null;
           }
         } catch (e) {
+          asyncWhyNot = e.message;
           report.push(`async failed (${e.message})`);
           reader.dispose(); asyncReader = null;
         }
       } else {
+        asyncWhyNot = 'needs WebGL2';
         report.push('async unsupported (needs WebGL2)');
       }
+    } else {
+      asyncWhyNot = 'switched off';
     }
     console.info(`${tag} capture probe @ ${w}×${h}: ${report.join(' · ')} → ${capMode.toUpperCase()}`);
   }
 
   return {
-    get mode() { return capMode; },
+    // the chosen path, and when it is NOT the pipelined one, why not — the panel shows this
+    get mode() { return capMode + (capMode !== 'async' && asyncWhyNot ? ` (async: ${asyncWhyNot})` : ''); },
     // Re-probe from scratch. The A/B switch for the pipelined path needs this: the mode is
     // decided once per session, so flipping the preference has to invalidate that decision.
     reset() {
       if (asyncReader) { asyncReader.dispose(); asyncReader = null; }
-      capMode = null; asyncW = 0; asyncH = 0; rpSwizzle = false; asyncMisses = 0;
+      capMode = null; asyncW = 0; asyncH = 0; rpSwizzle = false; asyncMisses = 0; asyncWhyNot = '';
     },
     async read(w, h) {
       if (!capMode) await probe(w, h);
@@ -337,10 +367,12 @@ export function createAdaptiveCapture({ gl, glCanvas, capCtx, override = null, t
         // them, and after a run of them give up on the pipeline for the session and say so.
         if (++asyncMisses >= ASYNC_MISS_LIMIT) {
           console.warn(`${tag} pipelined readback never completed in ${ASYNC_MISS_LIMIT} frames — falling back to readpixels`);
+          asyncWhyNot = 'stalled at runtime';
           if (asyncReader) { asyncReader.dispose(); asyncReader = null; }
           capMode = 'readpixels';
         } else if (asyncReader?.broken) {
           console.warn(`${tag} pipelined readback failed — falling back to readpixels`);
+          asyncWhyNot = 'failed at runtime';
           asyncReader.dispose(); asyncReader = null;
           capMode = 'readpixels';
         } else {
