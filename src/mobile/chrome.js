@@ -265,7 +265,8 @@ const pipSurface = perf.surface({
   size: () => (pipCanvas && !pipEl?.classList.contains('m-hidden')
     ? { w: pipCanvas.width, h: pipCanvas.height } : { w: 0, h: 0 }),
   scaleLadder: [1],
-  note: () => (pipEl?.classList.contains('m-hidden') ? 'hidden' : 'gl → 2d'),
+  note: () => (pipEl?.classList.contains('m-hidden') ? 'hidden'
+    : pipBitmapCtx ? 'gl → bitmap (async)' : 'gl → 2d'),
   onEnabled: (v) => { pipSkip = !v; },
 });
 env.perfSurfaces.pip = pipSurface;
@@ -1315,6 +1316,28 @@ function placePip() {
   pipEl.classList.toggle('pip-l', !pipCorner.includes('r'));
 }
 placePip();
+// THE PiP'S TRANSPORT (B527) — the single most expensive thing in the phone's video mode, and it
+// is a 238px thumbnail. B526 measured `drawImage(outputCanvas)` into a 2D canvas at **0.17ms of
+// call time and 41ms of frame time**: turning the PiP off took recording from 17.3fps to 60. The
+// call is cheap; what it CAUSES is not, and the cost lands outside any timer you can wrap it in.
+//
+// The mechanism: a 2D canvas on WebKit is CPU-backed, so drawing a WebGL canvas into one forces
+// the drawing buffer to be resolved and handed to the CPU every frame — the same GPU→CPU round
+// trip this arc has now found four times, wearing its fourth disguise. That the thumbnail is tiny
+// is exactly the tell: the cost tracks the SOURCE being read, never the destination being written.
+//
+// So the PiP never touches a 2D context again. `createImageBitmap` + `transferFromImageBitmap`
+// is a GPU-to-GPU handoff with no CPU-backed intermediate, and it is ASYNC, so even if WebKit does
+// copy internally the main thread is not standing still for it — B521's lesson, applied to a
+// different pipe. The frame it shows is up to one frame old, which is invisible on a monitor.
+//
+// A canvas element's context type is permanent, so the 2D path can only be reached by rebuilding
+// the element. It stays as the fallback for anything without `bitmaprenderer`; the A/B that
+// matters is the surface's own on/off switch, which is what produced the finding above.
+let pipBitmapCtx = null, pipInFlight = false;
+try { pipBitmapCtx = pipCanvas.getContext('bitmaprenderer'); } catch { pipBitmapCtx = null; }
+const pipPresent = pipSurface.pass('present');
+
 function paintPip() {
   if (pipSkip || pipEl.classList.contains('m-hidden')) return;
   const w = pipEl.clientWidth;
@@ -1322,14 +1345,37 @@ function paintPip() {
   const ar = outputCanvas.width / outputCanvas.height;
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
   const pw = Math.round(w * dpr), ph = Math.max(1, Math.round((w / ar) * dpr));
+
+  if (pipBitmapCtx) {
+    // DROP, never queue: a monitor wants the freshest frame, not a backlog of stale ones. This is
+    // also the backpressure valve — if the bitmap path is slow the PiP degrades to a lower frame
+    // rate on its own, which is the correct failure for an EDITOR-priority surface.
+    if (pipInFlight) return;
+    pipInFlight = true;
+    // `draw` is the SYNCHRONOUS issue cost and `present` is the handoff, split deliberately: the
+    // B526 trap was a single number that looked cheap because the expensive half was elsewhere.
+    pipDraw?.begin();
+    const pending = createImageBitmap(outputCanvas, {
+      resizeWidth: pw, resizeHeight: ph, resizeQuality: 'low',
+    });
+    pipDraw?.end();
+    pending.then((bmp) => {
+      // the surface may have been switched off, hidden, or the mode left while this was in flight
+      if (pipSkip || !pipBitmapCtx) { bmp.close(); return; }
+      pipPresent?.begin();
+      pipBitmapCtx.transferFromImageBitmap(bmp);   // takes ownership; no close() needed after
+      pipPresent?.end();
+    }).catch(() => { /* a dropped monitor frame is not worth reporting */ })
+      .finally(() => { pipInFlight = false; });
+    return;
+  }
+
   if (pipCanvas.width !== pw || pipCanvas.height !== ph) { pipCanvas.width = pw; pipCanvas.height = ph; }
   const pctx = pipCanvas.getContext('2d');
   pipDraw?.begin();
   pctx.drawImage(outputCanvas, 0, 0, pw, ph);
-  // same forced flush as paintRecord, and now under the same Blink-only flag — it is the same
-  // full pipeline sync, on a path that also runs every frame in video mode. The stakes are lower
-  // here (a stale PiP is a cosmetic glitch, a stale recorded frame is a damaged take), which is
-  // another reason to stop paying for it where the deferral does not exist.
+  // same forced flush as paintRecord, under the same Blink-only flag. Only the fallback path can
+  // reach this now; the bitmap path orders correctly because the snapshot is taken at call time.
   if (perfFlags.recordForceFlush) pctx.getImageData(0, 0, 1, 1);
   pipDraw?.end();
 }

@@ -4,6 +4,36 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🖼️ v0.22.21 (Build 527) — 2026-08-06 — The 238-pixel thumbnail that cost two thirds of the frame rate
+
+B526's A/B, on device, mid-take:
+
+| iPhone, FHD recording | PiP on | PiP off |
+| --- | --- | --- |
+| fps | 17.3 | **60** |
+| frame p50 | 58ms | **17ms** |
+| `unmeasured` | 52.39ms | 10.48ms |
+| `pip draw` | **0.17ms** | — |
+| pressure | critical | **nominal** |
+
+**A 238×238 monitor thumbnail was costing 41ms per frame while its own timer read 0.17ms.** The call is cheap; what it *causes* is not, and the cost lands outside any timer you can wrap around it. Note the PiP-off row is a textbook healthy frame: 6.5ms of work, 10.5ms unmeasured, which is idle waiting for vsync at 60fps and exactly what that stat should look like when nothing is wrong.
+
+### The same bug, wearing its fourth disguise
+
+A 2D canvas on WebKit is CPU-backed. Drawing a WebGL canvas into one forces the drawing buffer to be resolved and handed to the CPU **every frame**. That is the same GPU→CPU round trip behind the camera upload (B518), the desktop broadcast readback (B521), and the record blit (B525).
+
+**That the thumbnail is tiny is the tell, not a counter-argument.** The cost tracks the source being read, never the destination being written — the identical signature as the record blit doubling with a 4K source while the record canvas stayed 1080².
+
+### The fix: the PiP never touches a 2D context again
+
+`createImageBitmap` + `transferFromImageBitmap` is a GPU-to-GPU handoff with no CPU-backed intermediate, and it is **asynchronous**, so even where WebKit copies internally the main thread is not standing still for it. That is B521's lesson applied to a different pipe. The PiP shows a frame up to one frame old, which is invisible on a monitor.
+
+Frames **drop rather than queue** while one is in flight, so the PiP degrades to a lower frame rate under load on its own — the correct failure for an EDITOR-priority surface, and the first place in the app where the declared priority order has actual teeth.
+
+The `draw` pass now measures only the synchronous issue and a new **`present`** pass measures the handoff, deliberately split: B526's trap was a single number that looked cheap because the expensive half was somewhere else. The 2D path stays as the fallback for anything without `bitmaprenderer` (a canvas element's context type is permanent, so it is reachable only by rebuilding the element).
+
+**VERIFY (Daniel):** record FHD with the PiP **on**. The target is that it now costs nothing — fps near 60 with the PiP visible and updating, `unmeasured` back around 10ms. Check the PiP is actually live and not frozen, and that it still shows the *followed output* rather than the preview. Then 4K, where the previous reading was 9.8fps.
+
 ## 🕳️ v0.22.20 (Build 526) — 2026-08-06 — The ledger reports what it cannot see, and the PiP finally registers
 
 B525 worked and the frame time barely moved. Both halves of that are the finding.
