@@ -266,7 +266,7 @@ const pipSurface = perf.surface({
     ? { w: pipCanvas.width, h: pipCanvas.height } : { w: 0, h: 0 }),
   scaleLadder: [1],
   note: () => (pipEl?.classList.contains('m-hidden') ? 'hidden'
-    : pipBitmapCtx ? 'gl → bitmap (async)' : 'gl → 2d'),
+    : `${pipBitmapCtx ? 'gl → bitmap (async)' : 'gl → 2d'}${pipBitmapCtx && perfFlags.pipThrottle ? ` · ${PIP_HZ}Hz` : ' · every frame'}`),
   onEnabled: (v) => { pipSkip = !v; },
 });
 env.perfSurfaces.pip = pipSurface;
@@ -1334,7 +1334,8 @@ placePip();
 // A canvas element's context type is permanent, so the 2D path can only be reached by rebuilding
 // the element. It stays as the fallback for anything without `bitmaprenderer`; the A/B that
 // matters is the surface's own on/off switch, which is what produced the finding above.
-let pipBitmapCtx = null, pipInFlight = false;
+let pipBitmapCtx = null, pipInFlight = false, pipLastT = 0;
+const PIP_HZ = 10;             // a monitor's refresh, not the program's
 try { pipBitmapCtx = pipCanvas.getContext('bitmaprenderer'); } catch { pipBitmapCtx = null; }
 const pipPresent = pipSurface.pass('present');
 
@@ -1351,7 +1352,32 @@ function paintPip() {
     // also the backpressure valve — if the bitmap path is slow the PiP degrades to a lower frame
     // rate on its own, which is the correct failure for an EDITOR-priority surface.
     if (pipInFlight) return;
+    // RATE LIMIT (B528). B527 proved the transport is not the problem: swapping the 2D canvas for
+    // an async GPU-to-GPU bitmap moved the number by 9ms (52.39 → 43.6ms unmeasured) and left
+    // recording at 19fps. **On WebKit, CONSUMING the WebGL canvas as an image source at all is
+    // what costs ~43ms**, whatever you consume it into — with one exception the record path
+    // already proved: `new VideoFrame(outputCanvas)` costs 2.7ms on the same canvas in the same
+    // frame. So the mechanism is not interchangeable and the honest lever left is FREQUENCY.
+    //
+    // A monitor does not need program parity. At 10Hz the composition and framing are perfectly
+    // legible, and the arithmetic says it should be nearly free: ~43ms × 10 = 430ms/sec instead
+    // of ~830ms/sec, which is the difference between a saturated second and a spare one.
+    //
+    // The switch is the experiment: if the cost is PER CONSUME this restores 60fps, and if the
+    // frame rate barely moves then it is a fixed per-frame penalty for having consumed at all,
+    // which would mean the PiP cannot coexist with recording on WebKit at any rate.
+    if (perfFlags.pipThrottle) {
+      const now = performance.now();
+      if (now - pipLastT < 1000 / PIP_HZ) return;
+      pipLastT = now;
+    }
     pipInFlight = true;
+    // WebKit does not reliably adopt the bitmap's dimensions as the canvas's intrinsic size, and
+    // the CSS sizes this canvas by `width:100%` with NO height — so the element kept the default
+    // 300×150 and letterboxed a square output into a 2:1 box (Daniel: "squishing into 16:9").
+    // Setting it explicitly costs nothing after the first frame and restores the 2D path's
+    // behavior, which set the same two numbers for the same reason.
+    if (pipCanvas.width !== pw || pipCanvas.height !== ph) { pipCanvas.width = pw; pipCanvas.height = ph; }
     // `draw` is the SYNCHRONOUS issue cost and `present` is the handoff, split deliberately: the
     // B526 trap was a single number that looked cheap because the expensive half was elsewhere.
     pipDraw?.begin();

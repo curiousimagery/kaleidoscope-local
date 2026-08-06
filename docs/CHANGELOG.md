@@ -4,6 +4,31 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## ⏱️ v0.22.22 (Build 528) — 2026-08-06 — The transport was not the lever, so rate-limit the monitor
+
+B527 did not work, and failing cleanly is the finding.
+
+| iPhone, FHD recording | PiP off | PiP 2D (B526) | PiP async bitmap (B527) |
+| --- | --- | --- | --- |
+| fps | 60 | 17.3 | **19.1** |
+| `unmeasured` | 10.48ms | 52.39ms | **43.6ms** |
+
+Swapping a CPU-backed 2D canvas for an asynchronous GPU-to-GPU bitmap bought **9ms**. So the mechanism was never the problem: **on WebKit, consuming the WebGL canvas as an image source costs ~43ms whatever you consume it into.**
+
+**With one exception that rules out every "it is just an expensive copy" explanation.** `new VideoFrame(outputCanvas)` runs on the same canvas in the same frame for **2.7ms**. One image-source path on that canvas is cheap and the others are not, which makes this a specific WebKit path problem rather than a cost of moving pixels.
+
+### So the lever is frequency
+
+A monitor does not need program parity. The PiP is now **10Hz**, and at that rate framing and composition are perfectly legible. The arithmetic: ~43ms × 10 = 430ms of each second instead of ~830ms, which is the difference between a saturated second and a spare one.
+
+`PiP: 10Hz monitor` is on the switchboard, **and it is also the diagnostic.** Restoring 60fps means the cost is per-consume and the rate limit is the fix. Barely moving means it is a fixed penalty for having consumed at all, and the PiP cannot coexist with recording on WebKit at any rate — which would make it this arc's first honest "we cannot deliver this as designed" finding, and goal #1 of the arc is to say so plainly when that happens.
+
+### Fixed: the PiP squashed a square output into 2:1
+
+A B527 regression, and a universal one rather than an iOS quirk. WebKit does not reliably adopt the transferred bitmap's dimensions as the canvas's intrinsic size, and `#m-pip canvas` is styled `width:100%` with **no height** — so the element kept the default 300×150 and letterboxed a square composition into it. The width and height are now set explicitly, exactly as the 2D path did and for the same reason.
+
+**VERIFY (Daniel):** FHD recording with the PiP on. Expect proportions correct, the PiP live but visibly stepping at 10Hz, and the frame rate near the PiP-off number. Then toggle `PiP: 10Hz monitor` off for the per-consume-vs-fixed answer.
+
 ## 🖼️ v0.22.21 (Build 527) — 2026-08-06 — The 238-pixel thumbnail that cost two thirds of the frame rate
 
 B526's A/B, on device, mid-take:

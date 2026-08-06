@@ -85,6 +85,23 @@ export const perfFlags = {
   // MediaRecorder fallback and for the rare mid-take resize, where scaling is the correct answer.
   recordDirect: true,
 
+  // Rate-limit the PiP monitor to 10Hz instead of every frame (B528). OFF = every frame, which
+  // measured **17.3fps recording with the PiP on against 60fps with it off** — a 238×238 thumbnail
+  // costing 41ms/frame while its own timer read 0.17ms.
+  //
+  // B527 established that the TRANSPORT is not the lever: swapping the 2D canvas for an async
+  // GPU-to-GPU `createImageBitmap` moved it 9ms and left recording at 19fps. On WebKit, consuming
+  // the WebGL canvas as an image source is what costs ~43ms, whatever you consume it into. The one
+  // exception is `new VideoFrame(outputCanvas)`, which the record path does on the same canvas in
+  // the same frame for 2.7ms — so this is a WebKit image-source path problem, not a copy cost.
+  //
+  // That leaves frequency. A monitor does not need program parity; at 10Hz framing and composition
+  // are perfectly legible. **This flag is also the diagnostic:** restoring 60fps means the cost is
+  // per-consume and the rate limit IS the fix. Barely moving means it is a fixed penalty for having
+  // consumed at all, and the PiP cannot coexist with recording on WebKit at any rate — which would
+  // make it the arc's first genuine "we cannot deliver this as designed" finding.
+  pipThrottle: true,
+
   // PIPELINED (async) GPU→CPU readback for the broadcast bus (B519). OFF = the synchronous
   // `readPixels` that measured 21.3ms/frame at 4K on desktop — the largest single cost in the
   // app. This is the one flag whose OFF state is genuinely worse; it exists so the win can be
@@ -101,5 +118,6 @@ export const PERF_FLAG_SPECS = [
   ['posterElide', 'external: skip identical posts', 'off = post state every frame'],
   ['asyncReadback', 'bus: pipelined readback', 'off = blocking readPixels (21ms/frame at 4K)'],
   ['recordDirect', 'record: encode the GL canvas', 'off = the 2D blit (40ms/frame at FHD on iPhone)'],
+  ['pipThrottle', 'PiP: 10Hz monitor', 'off = every frame (17fps vs 60 while recording)'],
   ['recordForceFlush', 'record: force sync rasterize', 'Blink-only by default; ON here if a WebKit take shows a stale frame'],
 ];
