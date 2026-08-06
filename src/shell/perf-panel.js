@@ -335,6 +335,9 @@ export function mountPerfPanel(env, { container = null, onClose = null } = {}) {
           env.scheduleOverlayDraw?.();
           env.sourceOverlay?.scheduleDraw?.();
           env.scheduleRender?.();
+          // the capture path is decided ONCE per session, so flipping it has to invalidate that
+          // decision or the switch would appear to do nothing until a reload
+          if (key === 'asyncReadback') env.resetBusCapture?.();
           paint(ledger.report);
         });
         const n = document.createElement('span');

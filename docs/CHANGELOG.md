@@ -4,6 +4,29 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## ⚡ v0.22.13 (Build 519) — 2026-08-06 — Pipelined readback: stop standing still for the GPU
+
+The largest single cost in the app, addressed. On desktop, broadcasting a 4K program cost **21.3ms per frame in readback alone** — against 0.6ms to render it, and under 0.6ms for every editor surface combined. It is ~1.9GB/s, dead linear in pixels, and it is the wall on every device that broadcasts.
+
+**Most of that was waiting, not copying.** `gl.readPixels` into a JavaScript array is synchronous: it flushes the pipeline, blocks until the GPU has finished the frame, and only then transfers. The main thread stands idle through work the hardware could be doing in the background.
+
+### The fourth capture mode
+
+Read into a `PIXEL_PACK_BUFFER` (a GPU-side destination, so `readPixels` returns immediately), drop a fence, and collect the bytes on a later frame once that fence has signalled. Standard GL practice, available in WebGL2, never used here. The transfer still costs what it costs; we simply stop waiting on it.
+
+**The trade, made explicitly by Daniel: one frame of added latency** (~33ms at 30fps). His reasoning was better than mine: "choppy playback is always a dealbreaker for live performance, so starting with smooth playback helps us find the honest limit of how instantaneous we can get while maintaining fps and resolution." The delay is **constant**, not variable, so frame intervals are unchanged and a recording cannot drift from it.
+
+### Four decisions worth knowing
+
+- **It is not chosen by the probe.** The probe times a single read against the just-rendered buffer, which is exactly the case this mode cannot win — measured that way it is a blocking read plus bookkeeping. Its advantage exists only across frames. So it is chosen on architecture when supported, and still has to pass the same channel-aware checksum every other path does. The three blocking paths stay probe-chosen underneath it.
+- **Poll, never wait.** WebGL2 caps `clientWaitSync`'s timeout at `MAX_CLIENT_WAIT_TIMEOUT_WEBGL`, which many implementations report as **zero** — a nonzero timeout there is an `INVALID_OPERATION`, not a wait. (A first pass used a 1ms wait and would have fallen back on every frame at 4K.) So the only question asked per frame is "is it done yet", which is also the shape we want.
+- **A miss costs one frame, not the session.** Nothing is ready on the first frame after a start or a resolution change, so that frame does one synchronous read rather than handing sinks a null they have no contract for. But 30 consecutive misses means fences that never signal — which would pay *both* costs every frame — so that gives up on the pipeline and says so once.
+- **`frame.delayed`.** The pixels are one frame behind the blitted canvas the recorder uses. Both are internally consistent and neither drifts, but the flag is there so a sink that needs them to agree knows to pick one.
+
+An A/B switch (`bus: pipelined readback`) sits with the other optimization flags, and flipping it re-runs the probe so it takes effect mid-session. `?buscapture=async` forces it.
+
+**VERIFY (Daniel):** desktop, 4K source, 4K Syphon. The `bus` row's `readback` pass should fall well below 21.3ms and fps should rise toward 60. Then flip the switch off and back on to see both numbers. Same check on iPad over HDMI.
+
 ## 🎯 v0.22.12 (Build 518) — 2026-08-06 — The native camera gets the planar path it never got
 
 **The iPhone wall is the same bug B504 already fixed, on a path B504 never touched.** B517's `note` field settled it in one run: `from canvas · facing environment · native cam`, identical on both cameras. So the mirror canvas was never the variable, and neither was `camera.js` — the phone runs the NATIVE camera, which receives YUV planes over its socket, paints them into a WebGL canvas of its own, and then lets the engine `texImage2D` that canvas **out of a different GL context**, which WebKit services by dragging every pixel through main memory.

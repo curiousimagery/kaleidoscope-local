@@ -45,18 +45,130 @@ const swizzleBgra = (buf, len) => {   // BGRA→RGBA in place (little-endian u32
   }
 };
 
-// createAdaptiveCapture({ gl, glCanvas, capCtx, override, tag })
-//   gl       — the WebGL(2) context the program renders on
-//   glCanvas — its canvas (VideoFrame source)
-//   capCtx   — a 2D context the consumer blits each frame into (the reference)
-//   override — force a mode: 'getimagedata' | 'readpixels' | 'videoframe'
-//   tag      — console-log prefix (defaults to '[conduit]')
-// → { read(w, h) → Promise<{ pixels, topDown, readMs }>, get mode() }
-export function createAdaptiveCapture({ gl, glCanvas, capCtx, override = null, tag = '[conduit]' }) {
-  let capMode = null;        // 'getimagedata' | 'readpixels' | 'videoframe'
+// ─────────────────────────────────────────────────────────────────────────────
+// PIPELINED (ASYNC) READBACK — the fourth mode, and the one that wins on architecture
+// rather than on a stopwatch.
+//
+// THE MEASUREMENT THAT MOTIVATED IT (Daniel's Electron gauntlet, B514-B516): broadcasting a 4K
+// program cost 21.3ms per frame in readback alone, against 0.6ms to RENDER it and under 0.6ms
+// for every editor surface in the app COMBINED. It is ~1.9GB/s, dead linear in pixels, and it is
+// the single largest cost on every device that broadcasts.
+//
+// Most of that is not COPYING, it is WAITING. `gl.readPixels` into a JS array is synchronous: it
+// flushes the pipeline, blocks until the GPU has finished the frame, and only then transfers. So
+// the main thread sits idle through work that the hardware could have been doing in the background.
+//
+// The fix is standard GL practice, available in WebGL2 and not previously used here: read into a
+// PIXEL_PACK_BUFFER (a GPU-side destination, so `readPixels` returns immediately), drop a fence,
+// and collect the bytes on a LATER frame once that fence has signalled. The transfer still costs
+// what it costs; the main thread simply stops standing still for it.
+//
+// THE TRADE, made explicitly by Daniel: one frame of added latency (~33ms at 30fps). His call, and
+// his reasoning is the better one — "choppy playback is always a dealbreaker for live performance,
+// so starting with smooth playback helps us find the honest limit of how instantaneous we can get
+// while maintaining fps and resolution." Note the delay is CONSTANT, not variable, so frame
+// INTERVALS are unchanged and a recording cannot drift from it.
+//
+// WHY IT IS NOT CHOSEN BY THE PROBE. The probe times one read against the just-rendered buffer,
+// which is exactly the situation this mode cannot win: measured that way it is a blocking read
+// plus bookkeeping. Its advantage only exists across frames. So it is chosen on architecture when
+// supported and validated, and the fallbacks stay probe-chosen. `?buscapture=` still overrides,
+// and `preferAsync` lets a consumer A/B it at runtime.
+const RING = 3;   // in-flight reads; 2 suffices for one-frame pipelining, 3 absorbs a slow frame
+const ASYNC_MISS_LIMIT = 30;   // consecutive frames with nothing ready before we give up on it
+
+function createAsyncReader(gl, tag) {
+  if (typeof WebGL2RenderingContext === 'undefined' || !(gl instanceof WebGL2RenderingContext)) return null;
+  const ring = [];     // { pbo, sync, bytes, w, h }
+  let out = null;
+  let broken = false;
+
+  function dispose() {
+    for (const e of ring) {
+      try { if (e.sync) gl.deleteSync(e.sync); gl.deleteBuffer(e.pbo); } catch { /* context gone */ }
+    }
+    ring.length = 0;
+  }
+
+  function issue(w, h) {
+    const bytes = w * h * 4;
+    const pbo = gl.createBuffer();
+    gl.bindBuffer(gl.PIXEL_PACK_BUFFER, pbo);
+    gl.bufferData(gl.PIXEL_PACK_BUFFER, bytes, gl.STREAM_READ);
+    // offset form: the destination is the BOUND buffer, so this returns without stalling
+    gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, 0);
+    gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);   // leaving it bound would break every other readPixels
+    const sync = gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0);
+    gl.flush();   // without this the fence may never be submitted, so it could never signal
+    ring.push({ pbo, sync, bytes, w, h });
+  }
+
+  // Collect the OLDEST in-flight read if its fence has signalled, else null.
+  //
+  // POLL ONLY, never a timed wait. WebGL2 caps `clientWaitSync`'s timeout at
+  // MAX_CLIENT_WAIT_TIMEOUT_WEBGL, which many implementations report as ZERO — a nonzero timeout
+  // there is an INVALID_OPERATION, not a wait. So the only portable question is "is it done yet",
+  // asked once per frame. That is also the shape we want: never block the main thread, which is
+  // the entire point of the exercise.
+  function collect() {
+    const e = ring[0];
+    if (!e) return null;
+    const status = gl.clientWaitSync(e.sync, gl.SYNC_FLUSH_COMMANDS_BIT, 0);
+    if (status === gl.TIMEOUT_EXPIRED) return null;
+    if (status === gl.WAIT_FAILED) { dispose(); broken = true; return null; }
+    ring.shift();
+    try {
+      if (!out || out.length < e.bytes) out = new Uint8Array(e.bytes);
+      gl.bindBuffer(gl.PIXEL_PACK_BUFFER, e.pbo);
+      gl.getBufferSubData(gl.PIXEL_PACK_BUFFER, 0, out, 0, e.bytes);
+      gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
+      return { pixels: out.subarray(0, e.bytes), w: e.w, h: e.h };
+    } catch { broken = true; return null; }
+    finally { try { gl.deleteSync(e.sync); gl.deleteBuffer(e.pbo); } catch { /* gone */ } }
+  }
+
+  // PROBE ONLY: poll until the fence signals, bounded by wall clock. A busy-wait is normally the
+  // wrong tool, but the probe needs bytes for the SAME buffer the reference checksum came from,
+  // and there is no portable blocking wait to use instead. It runs exactly once per session.
+  function collectPrimed(maxMs = 250) {
+    const until = performance.now() + maxMs;
+    for (;;) {
+      const r = collect();
+      if (r || broken) return r;
+      if (performance.now() > until) return null;
+    }
+  }
+
+  return {
+    get broken() { return broken; },
+    get depth() { return ring.length; },
+    get full() { return ring.length >= RING; },
+    collectPrimed,
+    // A size change invalidates everything in flight — those buffers hold the OLD dimensions and
+    // handing them to a sink expecting the new ones is a garbled frame, not a stale one.
+    resize() { dispose(); },
+    issue, collect, dispose,
+    tag,
+  };
+}
+
+// createAdaptiveCapture({ gl, glCanvas, capCtx, override, tag, preferAsync })
+//   gl        — the WebGL(2) context the program renders on
+//   glCanvas  — its canvas (VideoFrame source)
+//   capCtx    — a 2D context the consumer blits each frame into (the reference)
+//   override  — force a mode: 'getimagedata' | 'readpixels' | 'videoframe' | 'async'
+//   tag       — console-log prefix (defaults to '[conduit]')
+//   preferAsync — () => bool. When true (default) and the pipelined path validates, it wins
+//                 without being timed; see the note above. Re-read on reset().
+// → { read(w, h) → Promise<{ pixels, topDown, readMs }>, get mode(), reset() }
+export function createAdaptiveCapture({ gl, glCanvas, capCtx, override = null, tag = '[conduit]', preferAsync = null }) {
+  let capMode = null;        // 'getimagedata' | 'readpixels' | 'videoframe' | 'async'
   let vfConvert = false;     // VideoFrame.copyTo({format:'RGBA'}) supported here
   let rpSwizzle = false;     // this device's readPixels returns B,G,R,A → swizzle back to RGBA
   let rpBuf = null, vfBuf = null;
+  let asyncReader = null;
+  let asyncW = 0, asyncH = 0;
+  let asyncMisses = 0;   // consecutive frames the pipeline had nothing ready (see read())
 
   function readGetImageData(w, h) {
     const t = performance.now();
@@ -87,8 +199,37 @@ export function createAdaptiveCapture({ gl, glCanvas, capCtx, override = null, t
     return { pixels: vfBuf.subarray(0, need), topDown: true, readMs: performance.now() - t };
   }
 
+  // ONE pipelined frame. Issues this frame's read, then collects the OLDEST outstanding one —
+  // which, at steady state, is the previous frame's, whose fence signalled long ago, so the
+  // collect returns essentially instantly. That is the whole trick: the wait has already
+  // happened, in the background, while we were doing something else.
+  //
+  // The blocking collect on the first frame (or the first after a resize) is deliberate: nothing
+  // is in flight yet, so there is nothing to pipeline against, and blocking once beats handing a
+  // sink a null frame it has no contract for. It also makes the returned frame correspond to the
+  // buffer just rendered, which is what the probe's checksum needs.
+  function readAsync(w, h, { primed = false } = {}) {
+    const t = performance.now();
+    if (w !== asyncW || h !== asyncH) { asyncReader.resize(); asyncW = w; asyncH = h; }
+    if (!asyncReader.full) asyncReader.issue(w, h);
+    const r = primed ? asyncReader.collectPrimed() : asyncReader.collect();
+    if (!r) return null;
+    if (rpSwizzle) swizzleBgra(r.pixels, r.pixels.length);   // same channel-order fix as readPixels
+    // bottom-up, exactly like the synchronous readPixels it replaces. `delayed` says these pixels
+    // are from an EARLIER frame than the one just rendered — which matters because the consumer's
+    // blitted canvas (the recorder's fast path) is current, so the two are one frame apart. Both
+    // are internally consistent and neither drifts; a sink that needs them to agree must use one
+    // or the other, not both.
+    return { pixels: r.pixels, topDown: false, readMs: performance.now() - t, delayed: true };
+  }
+
   // Runs against the CURRENT rendered+blitted buffer.
   async function probe(w, h) {
+    if (override === 'async') {
+      asyncReader = createAsyncReader(gl, tag);
+      if (asyncReader) { capMode = 'async'; console.info(`${tag} capture path OVERRIDDEN: async (pipelined readback)`); return; }
+      console.warn(`${tag} async capture unavailable (needs WebGL2) — falling through to the probe`);
+    }
     if (override === 'getimagedata' || override === 'readpixels' || override === 'videoframe') {
       if (override === 'videoframe') {
         try { const vf = new VideoFrame(glCanvas, { timestamp: 0 }); try { await vf.copyTo(new Uint8Array(w * h * 4), { format: 'RGBA' }); vfConvert = true; } finally { vf.close(); } } catch { vfConvert = false; }
@@ -140,13 +281,72 @@ export function createAdaptiveCapture({ gl, glCanvas, capCtx, override = null, t
       } catch (e) { report.push(`videoframe failed (${e.message})`); }
     }
     capMode = best.mode;
+
+    // THE PIPELINED PATH, chosen last and on ARCHITECTURE rather than on the stopwatch above —
+    // a single timed read is precisely the case it cannot win (see the note at the top). It has
+    // to VALIDATE, though: this priming read blocks, so it produces pixels for the same buffer
+    // the reference came from, and the checksum catches a driver that returns garbage or the
+    // wrong channel order exactly as it does for every other path.
+    if (preferAsync ? preferAsync() : true) {
+      const reader = createAsyncReader(gl, tag);
+      if (reader) {
+        asyncReader = reader; asyncW = 0; asyncH = 0;
+        try {
+          const r = readAsync(w, h, { primed: true });
+          // rpSwizzle may already be set from the readPixels probe; if it was NOT chosen there,
+          // re-derive it here, since a PBO read has the same channel-order behavior
+          let ok = !!r && sampleSig(r.pixels, w, h, true) === refSig;
+          if (r && !ok && !rpSwizzle && sampleSig(r.pixels, w, h, true, true) === refSig) { rpSwizzle = true; ok = true; }
+          if (ok && !reader.broken) {
+            capMode = 'async';
+            report.push('async VALID → chosen (pipelined; not timed here — its win is across frames)');
+          } else {
+            report.push(r ? 'async INVALID' : 'async produced no frame');
+            reader.dispose(); asyncReader = null;
+          }
+        } catch (e) {
+          report.push(`async failed (${e.message})`);
+          reader.dispose(); asyncReader = null;
+        }
+      } else {
+        report.push('async unsupported (needs WebGL2)');
+      }
+    }
     console.info(`${tag} capture probe @ ${w}×${h}: ${report.join(' · ')} → ${capMode.toUpperCase()}`);
   }
 
   return {
     get mode() { return capMode; },
+    // Re-probe from scratch. The A/B switch for the pipelined path needs this: the mode is
+    // decided once per session, so flipping the preference has to invalidate that decision.
+    reset() {
+      if (asyncReader) { asyncReader.dispose(); asyncReader = null; }
+      capMode = null; asyncW = 0; asyncH = 0; rpSwizzle = false; asyncMisses = 0;
+    },
     async read(w, h) {
       if (!capMode) await probe(w, h);
+      if (capMode === 'async') {
+        const r = readAsync(w, h);
+        if (r) { asyncMisses = 0; return r; }
+        // Nothing ready THIS frame. That is normal and expected on the first frame after a start
+        // or a resolution change (nothing is in flight yet to collect), so cover it with one
+        // synchronous read rather than handing the sinks a null they have no contract for.
+        //
+        // Persistent misses are a different thing — a driver whose fences never signal would
+        // silently pay BOTH costs every frame, which is worse than either path alone. So count
+        // them, and after a run of them give up on the pipeline for the session and say so.
+        if (++asyncMisses >= ASYNC_MISS_LIMIT) {
+          console.warn(`${tag} pipelined readback never completed in ${ASYNC_MISS_LIMIT} frames — falling back to readpixels`);
+          if (asyncReader) { asyncReader.dispose(); asyncReader = null; }
+          capMode = 'readpixels';
+        } else if (asyncReader?.broken) {
+          console.warn(`${tag} pipelined readback failed — falling back to readpixels`);
+          asyncReader.dispose(); asyncReader = null;
+          capMode = 'readpixels';
+        } else {
+          return readReadPixels(w, h);   // this frame only; the pipeline keeps filling
+        }
+      }
       return capMode === 'readpixels' ? readReadPixels(w, h)
         : capMode === 'videoframe' ? await readVideoFrame(w, h)
         : readGetImageData(w, h);

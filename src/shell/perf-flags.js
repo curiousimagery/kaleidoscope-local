@@ -43,6 +43,12 @@ export const perfFlags = {
   // skip posting an identical state message to a self-rendering external view (B513), subject
   // to the heartbeat floor. OFF = post every frame, the pre-B513 behavior.
   posterElide: true,
+
+  // PIPELINED (async) GPU→CPU readback for the broadcast bus (B519). OFF = the synchronous
+  // `readPixels` that measured 21.3ms/frame at 4K on desktop — the largest single cost in the
+  // app. This is the one flag whose OFF state is genuinely worse; it exists so the win can be
+  // measured rather than asserted, and because a driver that mishandles fences needs an escape.
+  asyncReadback: true,
 };
 
 // the switchboard entries the frame-cost panel renders — id, label, and what each one means when
@@ -52,4 +58,5 @@ export const PERF_FLAG_SPECS = [
   ['overlayDprCap', 'overlay: cap at 2x pixels', 'off = raw device pixel ratio'],
   ['busElide', 'bus: skip render when unchanged', 'off = render + read back every frame'],
   ['posterElide', 'external: skip identical posts', 'off = post state every frame'],
+  ['asyncReadback', 'bus: pipelined readback', 'off = blocking readPixels (21ms/frame at 4K)'],
 ];

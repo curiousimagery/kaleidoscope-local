@@ -25,6 +25,7 @@
 import { createEngine } from '../engine/index.js';
 import { createAdaptiveCapture } from 'conduit/capture';
 import { PRIORITY } from 'conduit/perf-ledger';
+import { perfFlags } from './perf-flags.js';
 
 export function createOutputEngine(env) {
   let hidden = null;        // the second engine (lazy — plain-web sessions never output)
@@ -71,7 +72,11 @@ export function createOutputEngine(env) {
       gl: hidden.glContext, glCanvas, capCtx,
       override: new URLSearchParams(window.location.search).get('buscapture'),
       tag: '[fold] bus',
+      // the pipelined-readback A/B (perf-flags.js). Read at probe time, and `reset()` below is
+      // what lets the switch take effect mid-session instead of only on reload.
+      preferAsync: () => perfFlags.asyncReadback,
     });
+    env.resetBusCapture = () => cap?.reset();
     // A second context-loss surface (we already handle the preview's). Log it so a
     // black output is never silent; the bus stops on render failure regardless.
     glCanvas.addEventListener('webglcontextlost', (ev) => {
@@ -186,6 +191,10 @@ export function createOutputEngine(env) {
         pixels: r.pixels,
         w, h,
         topDown: r.topDown,
+        // true when `pixels` come from an earlier frame than `canvas` (the pipelined readback
+        // path — conduit/capture.js). Pixel sinks are then one frame behind the canvas sink by a
+        // CONSTANT amount, so intervals are unchanged and nothing drifts.
+        delayed: !!r.delayed,
         renderMs, readMs: r.readMs,
         canvas: capCanvas,
       };
