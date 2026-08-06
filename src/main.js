@@ -123,9 +123,26 @@ const sourceSurface = perf.surface({
       : src.tagName === 'CANVAS' ? 'from canvas'
       : `from <${(src.tagName || '?').toLowerCase()}>`;
     return [tag, engine?.planarActive && 'planar', env.live?.isLive && 'camera',
-      env.nativeVideo && 'native decode'].filter(Boolean).join(' · ');
+      env.nativeVideo && 'native decode', wireRate()].filter(Boolean).join(' · ');
   },
 });
+
+// Frames per second arriving ON THE WIRE from the native decode, sampled between reads. This is
+// the number that says whether a stall is upstream or downstream: the render loop happily reports
+// 60fps while showing the same frame forever, so "is anything new arriving" cannot be inferred
+// from fps and has to be measured separately.
+let wireLast = 0, wireT = 0;
+function wireRate() {
+  const nv = env.nativeVideo;
+  if (!nv || typeof nv.framesArrived !== 'number') return '';
+  const now = performance.now(), n = nv.framesArrived;
+  if (!wireT) { wireT = now; wireLast = n; return ''; }
+  const dt = (now - wireT) / 1000;
+  if (dt < 0.5) return '';
+  const rate = (n - wireLast) / dt;
+  wireT = now; wireLast = n;
+  return `${rate.toFixed(1)} in/s`;
+}
 
 let engine, capabilities;
 try {

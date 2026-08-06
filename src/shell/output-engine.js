@@ -54,6 +54,11 @@ export function createOutputEngine(env) {
       id: 'bus', label: 'record / broadcast bus', serves: 'program', priority: PRIORITY.CAPTURE,
       size: () => ({ w: canvas.width, h: canvas.height }),
       scaleLadder: [1],
+      // WHICH readback path actually won. Without this, a readback time that did not improve is
+      // ambiguous between "the pipelined path is running and did not help" and "the pipelined
+      // path lost the probe and never ran" — two findings with opposite conclusions. The console
+      // logs the probe once at startup; this keeps the answer visible for the whole session.
+      note: () => (cap ? `capture: ${cap.mode || 'probing'}` : ''),
     }) || null;
     if (surface) { env.perfSurfaces.bus = surface; readItem = surface.pass('readback'); }
     try {

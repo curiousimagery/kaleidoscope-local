@@ -311,6 +311,11 @@ export async function createNativeVideoSource(env, blob, { name, loop = true, on
     })(),
     planeReader: () => receiver.planeReader(),
     get cap() { return sourceCap(); },
+    // TOTAL frames the socket has delivered. The frame-cost panel divides this over time to show
+    // a live wire rate, which is the one number that separates "the decode stopped" from "the
+    // renderer stopped" — a distinction that cost a round of guessing on the iPad playback
+    // regression, since a stalled decode still leaves the render loop reporting a healthy 60fps.
+    get framesArrived() { return receiver.framesArrived; },
     refreshFrame: () => { receiver.refreshFrame(); report(); },
     noteUpload: (ms) => { upMs += ms; ups++; },
     notePreview: (ms) => { pvMs += ms; pvs++; },

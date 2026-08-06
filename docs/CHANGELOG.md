@@ -4,6 +4,20 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🔎 v0.22.14 (Build 520) — 2026-08-06 — Two notes that decide two open questions
+
+B519's verification produced one spectacular result and one ambiguous one, and the ambiguous one was ambiguous because of a missing readout, not because the data was noisy. Same lesson as the camera diagnosis: instrument the path.
+
+### The bus reports which capture mode won
+
+Desktop 4K readback went 21.3ms → 19.1ms. That is a ~10% improvement where I had projected something far larger, and **the number cannot be interpreted without knowing whether the pipelined path is actually running.** "Pipelining is engaged and barely helped" and "pipelining lost the probe and never ran" are two findings with opposite conclusions and identical readouts. The `bus` row now carries `capture: async` (or `readpixels`, `getimagedata`, `videoframe`, `probing`) for the whole session, not just in the startup log.
+
+### The source reports the WIRE rate
+
+The iPad 4K playback regression now shows nothing playing at all, while the panel reports a healthy 59.9fps — because **fps measures the render loop, which happily runs at 60 showing the same frame forever.** "Is anything new arriving" cannot be inferred from it and was not measured anywhere the panel could see.
+
+The `source` row now appends a live `N in/s` for a native decode, sampled from the receiver's arrival counter. Zero means the decode or the socket stalled and nothing downstream is at fault; a healthy 30 means frames are arriving and the problem is after that point. That single number splits the regression's search space in half.
+
 ## ⚡ v0.22.13 (Build 519) — 2026-08-06 — Pipelined readback: stop standing still for the GPU
 
 The largest single cost in the app, addressed. On desktop, broadcasting a 4K program cost **21.3ms per frame in readback alone** — against 0.6ms to render it, and under 0.6ms for every editor surface combined. It is ~1.9GB/s, dead linear in pixels, and it is the wall on every device that broadcasts.
