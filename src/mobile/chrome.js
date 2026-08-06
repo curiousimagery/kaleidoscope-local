@@ -276,6 +276,19 @@ env.perfSurfaces.source = sourceSurface;
 const srcRefresh = sourceSurface.pass('refresh');
 const srcUpload = sourceSurface.pass('upload');
 
+// ONE place the camera becomes the engine's source, so the planar hand-off can never be
+// attached at some entry points and missed at others (go-live, flip, and lens/resolution
+// re-acquire all land here). setSource FIRST — it records the aspect and gives the engine a
+// valid element for the frames before the first plane arrives — then hand over the planes,
+// which is what removes the cross-context canvas upload measured at ~6.7ms/megapixel on iPhone.
+// Re-attaching on every acquisition matters: each restart is a NEW socket, so a reader bound to
+// the old one would sit at "nothing new" forever.
+function attachCameraSource() {
+  engine.setSource(camera.frameSource());
+  if (useNativeCam && camera.planeReader) engine.setPlanarSource(camera.planeReader(), 0);
+  else engine.setPlanarSource(null);
+}
+
 const sourceOverlay = createSourceOverlay({
   state, engine,
   perfItem: overlaySurface.pass('draw'),
@@ -1419,7 +1432,7 @@ async function startCamera() {
     const video = await camera.start({ facingMode: lastFacing, audio: videoMode });   // record video asks cam+mic in ONE prompt; rear by default, remembers a flip across freeze→go-live
     liveVideo = video;
     console.log(`[camera] granted resolution ${video.videoWidth || video.width}×${video.videoHeight || video.height}`);
-    engine.setSource(camera.frameSource());
+    attachCameraSource();
   } catch (e) {
     liveVideo = null;
     emptyEl.textContent = cameraErrorMessage(e);
@@ -1565,7 +1578,7 @@ async function flipCamera() {
     const video = await camera.flip({ audio: videoMode });
     liveVideo = video;
     lastFacing = camera.isFront() ? 'user' : 'environment';   // remember for go-live
-    engine.setSource(camera.frameSource());
+    attachCameraSource();
     sourceOverlay.mount(sourceEl);             // remount picks up the mirror transform
     refreshCamMenu();                          // front/rear have different lens sets
   } catch (e) { console.error(e); }
@@ -1843,7 +1856,7 @@ async function reacquireCamera(op) {
   try {
     await op();
     liveVideo = camera.getVideo();
-    engine.setSource(camera.frameSource());
+    attachCameraSource();
     sourceOverlay.mount(sourceEl);   // remount picks up the (unchanged) transform
     refreshCamMenu();                // re-highlight + re-read per-lens resolutions
   } catch (e) { console.error(e); }

@@ -4,6 +4,23 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🎯 v0.22.12 (Build 518) — 2026-08-06 — The native camera gets the planar path it never got
+
+**The iPhone wall is the same bug B504 already fixed, on a path B504 never touched.** B517's `note` field settled it in one run: `from canvas · facing environment · native cam`, identical on both cameras. So the mirror canvas was never the variable, and neither was `camera.js` — the phone runs the NATIVE camera, which receives YUV planes over its socket, paints them into a WebGL canvas of its own, and then lets the engine `texImage2D` that canvas **out of a different GL context**, which WebKit services by dragging every pixel through main memory.
+
+That is precisely the 162ms-at-4K wall from the video path, at camera resolutions: measured at **~6.7ms per source megapixel, dead linear** — 5.2-5.9ms at 0.79MP, 13.5ms at 2.07MP, which at idle is a third of a 60fps frame budget and ten times the cost of rendering the kaleidoscope itself.
+
+**The fix is the one we already own.** `native-camera.js` gains a `planeReader()` and the phone chrome hands it to `engine.setPlanarSource()`, so the engine uploads Y as R8 and CbCr as RG8 and converts in its own context. No round trip.
+
+Two details that made this cheap:
+
+- **The selfie mirror survives for free.** `mirror` rides in the frame and the engine's blitter already honors it (`gl.js createPlanarUploader` → `yuv.js draw`), so the flip that used to be baked into our canvas simply moves into the same blit that was already happening. No shader change, no overlay-geometry risk, none of what the (wrong) mirror-canvas theory would have cost.
+- **Three call sites became one.** Go-live, camera flip, and lens/resolution re-acquire each attached the source separately; they now route through `attachCameraSource()`. This matters beyond tidiness: every acquisition restarts the frame socket, so a reader bound to the old one would sit at "nothing new" forever, and an attach path that missed the hand-off would silently keep the slow upload.
+
+`refreshFrame()` still paints the canvas for the source panel's display copy. It measured 0.15-0.27ms, so it is not worth chasing until the big win is verified.
+
+**VERIFY (Daniel):** iPhone, live camera, frame-cost panel open. The `source` row should read **`planar`** in its note, and `upload` should fall from ~5.4ms toward a fraction of a millisecond. If it does, this is also the fix for the recording path — the same upload was costing 13.5-19.4ms there.
+
 ## 🧭 v0.22.11 (Build 517) — 2026-08-06 — Surfaces report which PATH they took
 
 A correction to the instrument, prompted by a diagnosis it could not support.

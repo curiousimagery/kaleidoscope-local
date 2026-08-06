@@ -33,6 +33,7 @@ export function createNativeCamera() {
   let canvas = null;          // RGB output canvas — the frameSource the engine samples
   let renderer = null;        // YUV->RGB WebGL2 blitter that owns `canvas`
   let latest = null;          // most recent YUV ArrayBuffer (painted on the render tick)
+  let seq = 0;                // bumps per received frame — lets a plane reader tell "new" from "same"
   let controlRanges = {};     // EV/zoom/WB ranges the device reported (for the UI)
   let lenses = [];            // [{id,label}] physical lenses on the current facing
   let lens = 'wide';          // the chosen physical lens (never 'auto' — the virtual
@@ -110,7 +111,7 @@ export function createNativeCamera() {
         catch (e) { if (!done) { done = true; reject(e); } return; }
         ws.binaryType = 'arraybuffer';
         ws.onmessage = (ev) => {
-          latest = ev.data;
+          latest = ev.data; seq++;
           if (!done) { done = true; paintLatest(); resolve(); }
         };
         ws.onclose = () => {
@@ -246,6 +247,45 @@ export function createNativeCamera() {
   function refreshFrame() { paintLatest(); }
   function frameSource() { return canvas; }
 
+  // THE FAST PATH — the same fix B504 shipped for native VIDEO, which the CAMERA never got.
+  //
+  // Measured on iPhone (B516/B517): the camera→texture upload cost ~6.7ms PER SOURCE MEGAPIXEL,
+  // dead linear, on BOTH cameras — 33% of a 60fps frame budget at idle and ten times the cost of
+  // rendering the kaleidoscope itself. That is the signature of a CPU round trip, and the cause
+  // is structural: we paint the received YUV planes into `canvas` (a WebGL canvas of our own),
+  // and then the ENGINE does texImage2D from that canvas out of a DIFFERENT GL context, which
+  // WebKit services by dragging every pixel through main memory. Identical to the 162ms-at-4K
+  // wall on the video path, just at camera resolutions.
+  //
+  // Handing the engine the PLANES instead deletes the round trip: it uploads them as R8/RG8 and
+  // converts in its own context. `mirror` rides along in the frame, and the engine's blitter
+  // already honors it (gl.js createPlanarUploader → yuv.js draw), so the selfie flip that used
+  // to be baked into our canvas survives the move with no extra plumbing.
+  //
+  // One reader per consuming engine, each tracking the last frame it saw, so a 60Hz render loop
+  // over a 30fps camera does 30 uploads rather than 60 — and returns null for "hold what you have".
+  function planeReader() {
+    let lastSeq = -1;
+    return () => {
+      if (seq === lastSeq || !latest) return null;
+      const dv = new DataView(latest);
+      if (dv.getUint32(0, false) !== 0x46595556) return null;   // "FYUV"
+      const width = dv.getUint32(4, true);
+      const height = dv.getUint32(8, true);
+      const yStride = dv.getUint32(12, true);
+      const cStride = dv.getUint32(16, true);
+      const cHeight = dv.getUint32(20, true);
+      const ySize = yStride * height;
+      lastSeq = seq;
+      return {
+        width, height, yStride, cStride, cHeight,
+        mirror: facing === 'user',
+        yPlane: new Uint8Array(latest, 24, ySize),
+        cPlane: new Uint8Array(latest, 24 + ySize, cStride * cHeight),
+      };
+    };
+  }
+
   // --- native controls (consumed by the camera UI) ----------------------------
   async function setExposureBias(value) { evBias = value; return FoldNativeCamera.setExposureBias({ value }); }
   async function setZoom(factor) { return FoldNativeCamera.setZoom({ factor }); }
@@ -308,6 +348,7 @@ export function createNativeCamera() {
     getWhiteBalanceTemp: () => wbTemp,
     refreshFrame,
     frameSource,
+    planeReader,
     setExposureBias,
     setZoom,
     setWhiteBalance,
