@@ -13,9 +13,13 @@
 // the engine samples like any drawable. No @capacitor/core, no plugin calls —
 // plain WebSocket + WebGL2, so it runs in the plain external WKWebView.
 //
-// TWO WIRE VARIANTS, one parser (see FrameSocketServer.swift in each plugin):
-//   "FYUV" — 24-byte header, CLOCKLESS. The camera: a live stream, "now" is the
-//            only time there is.
+// THREE WIRE VARIANTS, one parser (see FrameSocketServer.swift in each plugin):
+//   "FYUV" — 24-byte header, clockless. The camera before B540.
+//   "FYUX" — 40-byte header = the same fields + f64 capture pts + f64 capture-to-delivery
+//            latency (seconds). The camera now: cinematic stabilization buffers frames for
+//            lookahead, so arrival time is NOT capture time and stamping arrival pushed
+//            recorded video behind recorded audio. Only the recorder consumes the latency;
+//            this receiver just needs the right header size so the planes land.
 //   "FYUW" — 40-byte header = the same fields + f64 pts + f64 duration (seconds).
 //            The video decode, which OWNS the motion runtime's master clock:
 //            `pts`/`duration` below answer currentTime/duration off the frame we
@@ -27,8 +31,9 @@
 
 import { createYuvRenderer } from './yuv-renderer.js';
 
-const MAGIC_PLAIN = 0x46595556;    // "FYUV" — camera, clockless, 24-byte header
+const MAGIC_PLAIN = 0x46595556;    // "FYUV" — camera pre-B540, clockless, 24-byte header
 const MAGIC_STAMPED = 0x46595557;  // "FYUW" — video, + pts/duration, 40-byte header
+const MAGIC_CAM_TIMED = 0x46595558; // "FYUX" — camera, + pts/latency, 40-byte header
 
 // `cap` bounds the RGB PREVIEW canvas's long edge. It does not reduce the decode or
 // the wire, and since Build 504 it no longer bounds what the engine samples either —
@@ -66,23 +71,29 @@ export function createNativeFrameReceiver({ port = 8899, mirror = false, cap = 0
     if (!latest) return null;
     const dv = new DataView(latest);
     const magic = dv.getUint32(0, false);
-    if (magic !== MAGIC_PLAIN && magic !== MAGIC_STAMPED) return null;
+    if (magic !== MAGIC_PLAIN && magic !== MAGIC_STAMPED && magic !== MAGIC_CAM_TIMED) return null;
     const width = dv.getUint32(4, true);
     const height = dv.getUint32(8, true);
     const yStride = dv.getUint32(12, true);
     const cStride = dv.getUint32(16, true);
     const cHeight = dv.getUint32(20, true);
-    let head = 24, t = 0, d = 0;
+    let head = 24, t = 0, d = 0, latencySec = null;
     if (magic === MAGIC_STAMPED) {
       t = dv.getFloat64(24, true);
       d = dv.getFloat64(32, true);
+      head = 40;
+    } else if (magic === MAGIC_CAM_TIMED) {
+      // same header SIZE as FYUW, but the second double is capture latency, not duration —
+      // reading it as a duration would corrupt the motion runtime's clock
+      const lat = dv.getFloat64(32, true);
+      latencySec = lat >= 0 ? lat : null;
       head = 40;
     }
     const ySize = yStride * height;
     const cSize = cStride * cHeight;
     return {
       width, height, yStride, cStride, cHeight, mirror,
-      pts: t, duration: d, stamped: magic === MAGIC_STAMPED,
+      pts: t, duration: d, stamped: magic === MAGIC_STAMPED, latencySec,
       yPlane: new Uint8Array(latest, head, ySize),
       cPlane: new Uint8Array(latest, head + ySize, cSize),
     };

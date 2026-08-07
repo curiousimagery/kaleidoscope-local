@@ -50,6 +50,16 @@ export function createNativeCamera() {
                                // choice; the old cinematicExtended default surprised
                                // as "why isn't my camera following"): 'standard' |
                                // 'cinematic' (default) | 'cinematicExtended'
+  // …EXCEPT ON THE FRONT CAMERA, which defaults to 'standard' (B541). Stabilization buys its
+  // smoothness with lookahead buffering, and that latency is felt as on-screen lag between
+  // speaking and seeing yourself. Recordings stay in sync either way now, but the selfie camera
+  // is overwhelmingly a person talking to their own face on screen, which is the one framing
+  // where display lag is most obvious and smoothing is least valuable.
+  //
+  // Only the DEFAULT is facing-dependent: an explicit choice is remembered across a flip, since
+  // silently overriding what someone picked is worse than either default.
+  let stabChosen = false;
+  const defaultStabFor = (f) => (f === 'user' ? 'standard' : 'cinematic');
   // still capture: on pause we grab a real full-res still via capturePhoto (which
   // switches to the photo format for the shot). `stillMode` tells the plugin to preview
   // at the PHOTO aspect (4:3) so the composition doesn't shift on capture; video mode
@@ -87,23 +97,46 @@ export function createNativeCamera() {
   // Paint the latest received frame into the RGB canvas. Called each render tick
   // (via refreshFrame) so the YUV->RGB blit is synced to the render loop — one blit
   // per rendered frame, not one per socket message.
-  function paintLatest() {
-    if (!latest || !renderer) return;
-    const dv = new DataView(latest);
-    if (dv.getUint32(0, false) !== 0x46595556) return;   // "FYUV"
+  // ONE parser for the frame header, used by every consumer. B540 added the timestamped "FYUX"
+  // format and updated only `planeReader`, leaving `paintLatest` still rejecting anything that
+  // was not "FYUV" — so every native frame was dropped and the source panel went dark while the
+  // overlay kept drawing. Three copies of the same offsets is what allowed that; now there is one.
+  //
+  //   "FYUV" — 24-byte header, no timing (pre-B540 plugin)
+  //   "FYUX" — 40-byte header, + f64 capture pts + f64 capture-to-delivery latency (seconds)
+  function parseFrame(buf) {
+    if (!buf || buf.byteLength < 24) return null;
+    const dv = new DataView(buf);
+    const magic = dv.getUint32(0, false);
+    const timed = magic === 0x46595558;                  // "FYUX"
+    if (!timed && magic !== 0x46595556) return null;     // "FYUV"
+    const head = timed ? 40 : 24;
     const width = dv.getUint32(4, true);
     const height = dv.getUint32(8, true);
     const yStride = dv.getUint32(12, true);
     const cStride = dv.getUint32(16, true);
     const cHeight = dv.getUint32(20, true);
-    const ySize = yStride * height;
-    const cSize = cStride * cHeight;
-    const yPlane = new Uint8Array(latest, 24, ySize);
-    const cPlane = new Uint8Array(latest, 24 + ySize, cSize);
-    if (canvas.width !== width || canvas.height !== height) {
-      canvas.width = width; canvas.height = height;
+    const ySize = yStride * height, cSize = cStride * cHeight;
+    if (buf.byteLength < head + ySize + cSize) return null;
+    // `pts` rides along for parity with the video socket but is not usable here (capture clock).
+    // `latencySec` is the one that matters — see getCaptureLatency().
+    const latencySec = timed ? dv.getFloat64(32, true) : -1;
+    return {
+      width, height, yStride, cStride, cHeight,
+      latencySec: latencySec >= 0 ? latencySec : null,
+      yPlane: new Uint8Array(buf, head, ySize),
+      cPlane: new Uint8Array(buf, head + ySize, cSize),
+    };
+  }
+
+  function paintLatest() {
+    if (!latest || !renderer) return;
+    const f = parseFrame(latest);
+    if (!f) return;
+    if (canvas.width !== f.width || canvas.height !== f.height) {
+      canvas.width = f.width; canvas.height = f.height;
     }
-    renderer.draw({ width, height, yStride, cStride, yPlane, cPlane }, width, height, facing === 'user');
+    renderer.draw(f, f.width, f.height, facing === 'user');
   }
 
   function openSocket() {
@@ -133,6 +166,8 @@ export function createNativeCamera() {
   async function start(opts = {}) {
     if (typeof opts === 'string') opts = { facingMode: opts };
     if (opts.facingMode) facing = opts.facingMode;
+    // an untouched control follows the lens; an explicit choice survives a flip
+    if (!stabChosen) videoStab = defaultStabFor(facing);
     console.info('[native-camera] start', JSON.stringify(opts));
     await stop();
     ensureCanvas();
@@ -233,7 +268,8 @@ export function createNativeCamera() {
   // opt-in (extended's smoothing lag surprised as the default — Daniel's daylight
   // pass — but is expected behavior once chosen). Re-acquires.
   async function setVideoStabilization(mode) {
-    videoStab = ['standard', 'cinematic', 'cinematicExtended'].includes(mode) ? mode : 'cinematic';
+    videoStab = ['standard', 'cinematic', 'cinematicExtended'].includes(mode) ? mode : defaultStabFor(facing);
+    stabChosen = true;   // from here the choice is the user's, on both lenses
     return start({ facingMode: facing });
   }
 
@@ -272,34 +308,11 @@ export function createNativeCamera() {
     let lastSeq = -1;
     return () => {
       if (seq === lastSeq || !latest) return null;
-      const dv = new DataView(latest);
-      // "FYUX" carries the CAPTURE timestamp (32-byte header); "FYUV" is the old clockless
-      // 24-byte form. Accept both so a webview bundle newer or older than the installed native
-      // plugin degrades rather than breaks — the old format simply has no capture time.
-      const magic = dv.getUint32(0, false);
-      const timed = magic === 0x46595558;                        // "FYUX"
-      if (!timed && magic !== 0x46595556) return null;           // "FYUV"
-      const head = timed ? 40 : 24;
-      const width = dv.getUint32(4, true);
-      const height = dv.getUint32(8, true);
-      const yStride = dv.getUint32(12, true);
-      const cStride = dv.getUint32(16, true);
-      const cHeight = dv.getUint32(20, true);
-      // How long ago the lens saw this frame, measured natively where the capture PTS and "now"
-      // share a clock. Recording subtracts it from arrival time so cinematic stabilization's
-      // delivery delay stops becoming a timeline offset — the A/V sync fix. `pts` itself is
-      // carried for format parity with the video socket and is not usable here (different clock).
-      const latencySec = timed ? dv.getFloat64(32, true) : -1;
-      if (latencySec >= 0) lastLatencySec = latencySec;
-      const ySize = yStride * height;
+      const f = parseFrame(latest);
+      if (!f) return null;
+      if (f.latencySec != null) lastLatencySec = f.latencySec;
       lastSeq = seq;
-      return {
-        width, height, yStride, cStride, cHeight,
-        latencySec: latencySec >= 0 ? latencySec : null,
-        mirror: facing === 'user',
-        yPlane: new Uint8Array(latest, head, ySize),
-        cPlane: new Uint8Array(latest, head + ySize, cStride * cHeight),
-      };
+      return { ...f, mirror: facing === 'user' };
     };
   }
 

@@ -4,6 +4,26 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🩹 v0.22.35 (Build 541) — 2026-08-07 — Fix the dark source panel B540 caused, and default the selfie lens to standard
+
+**A/V sync is confirmed correct on device.** Two follow-ups.
+
+### The regression: three copies of one header parse
+
+B540 added the `"FYUX"` wire format and updated `planeReader`, but **`paintLatest` still rejected anything that was not `"FYUV"`** — so every native frame was dropped before reaching the canvas. The source panel went dark in all capture modes while the overlay, which reads state rather than frames, kept drawing normally. Uploaded stills were unaffected because they never touch the socket.
+
+The offsets existed in three places and I updated one. There is now a single `parseFrame()` that `paintLatest` and `planeReader` both use, so a future format change cannot half-land.
+
+`native-frame-receiver.js` (the external display's reader) also learned `"FYUX"`. It shares a header size with `"FYUW"` but the second double is **capture latency, not duration** — reading it as a duration would have corrupted the motion runtime's clock.
+
+**Verified across all three formats:** `FYUV` parses at 24, `FYUX` at 40 with its latency recovered, `FYUW` correctly rejected by the camera parser, truncated buffers rejected.
+
+### The front camera now defaults to `standard` stabilization
+
+Daniel's call, and the reasoning generalises: stabilization buys smoothness with lookahead buffering, and that latency is felt as lag between speaking and seeing yourself. Recordings stay in sync either way now, but **the selfie lens is overwhelmingly a person talking to their own face on screen** — the framing where display lag is most obvious and smoothing least valuable. Rear stays `cinematic`.
+
+Only the DEFAULT follows the lens. An explicit choice is remembered across a flip, because silently overriding what someone picked is worse than either default.
+
 ## 🎬 v0.22.34 (Build 540) — 2026-08-07 — A/V sync: carry the capture delay across the wire
 
 The three "motion modes" are AVFoundation video stabilization modes — `standard`, `cinematic`, `cinematicExtended`. Cinematic stabilization works by **buffering frames for lookahead**, so at smooth+ a frame can reach us roughly a second after the lens saw it. The frame socket carried no time, so JS stamped each frame on **arrival**, and that delivery latency became a timeline offset: recorded audio ran ahead of recorded video by the stabilization delay.
