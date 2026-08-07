@@ -257,9 +257,13 @@ async function audioEncoderYieldsConfig(cfg) {
     };
     try {
       enc = new AudioEncoder({
-        // AAC carries `description` (the esds payload); Opus is self-describing and legitimately
-        // ships without one, so a decoderConfig alone is the bar here.
-        output: (chunk, meta) => settle(!!(meta && meta.decoderConfig)),
+        // AAC IN MP4 REQUIRES `description` — it IS the AudioSpecificConfig that fills the `esds`
+        // box, and without it the track is structurally present and undecodable, which plays as
+        // silence. B531 deliberately relaxed this to "a decoderConfig is enough" on the reasoning
+        // that Opus is self-describing. True for Opus, wrong for AAC, and AAC is what we pick
+        // first — that relaxation is why B534 measured a peak of 0.677 into a silent file.
+        output: (chunk, meta) => settle(!!(meta && meta.decoderConfig
+          && (!/^mp4a/.test(cfg.codec) || meta.decoderConfig.description))),
         error: () => settle(false),
       });
       enc.configure(cfg);
@@ -391,14 +395,26 @@ async function startWebCodecsSession({ w, h, audioTrack, onDone, onError }) {
   venc.configure({ ...baseCfg, ...latency });
 
   let aenc = null;
-  // AUDIO TELEMETRY (B531). Every previous silent-take theory was a guess because nothing counted
-  // anything. These four numbers separate the candidates outright at `finish()`:
-  //   batches 0            → the worklet never delivered (suspended AudioContext / dead tap)
-  //   batches >0, chunks 0 → the encoder swallowed everything
-  //   chunks >0, configs 0 → WebKit gave no decoderConfig and the muxer wrote an unusable track
-  //   all >0               → audio was muxed and the fault is downstream (player, save, container)
+  // AUDIO TELEMETRY. B531-B533 counted the PIPELINE and every stage read healthy while the take
+  // stayed silent, ending at `container: 2 traks [vide,soun] audio=true` — a real audio track,
+  // full length, in the file, inaudible.
+  //
+  // The flaw was mine: **an AudioWorklet emits render quanta whether or not there is any signal
+  // in them.** A starved input produces a perfectly steady stream of zeros, so `batches > 0`
+  // proved the graph was running and said nothing about whether audio was flowing through it.
+  // Counting a pipeline is not the same as measuring what moves through it.
+  //
+  // So measure the SIGNAL (B534): peak amplitude across everything handed to the encoder.
+  //   peak 0 (or ~1e-7)  → we encoded digital silence; the fault is upstream of WebAudio, and the
+  //                        prime suspect is the native camera's AVAudioSession starving the
+  //                        WebAudio input (MediaRecorder gets sound off the same track, which is
+  //                        why the package's RAW take has audio and the composition does not)
+  //   peak meaningful    → real audio was encoded and muxed, and the fault is in playback or save
   let audioBatches = 0, audioRejected = 0, audioChunks = 0, audioConfigs = 0;
   let audioFramesIn = 0;      // samples handed to the encoder — vs chunks out, catches a stall
+  let audioPeak = 0;          // loudest sample seen this take, 0..1
+  let audioDescBytes = null;  // AudioSpecificConfig size — 0/null means an undecodable AAC track
+  let audioSilentBatches = 0; // batches that were entirely zeros
   let container = null;       // what the finished file actually contains (B533)
   const t0 = performance.now();
   let audioClockUs = null;   // sample-accurate once anchored to the session clock
@@ -406,7 +422,14 @@ async function startWebCodecsSession({ w, h, audioTrack, onDone, onError }) {
     aenc = new AudioEncoder({
       output: (chunk, meta) => {
         audioChunks++;
-        if (meta && meta.decoderConfig) audioConfigs++;
+        if (meta && meta.decoderConfig) {
+          audioConfigs++;
+          // the byte length of the AudioSpecificConfig. For AAC a null/0 here means the muxer
+          // writes an `esds` with nothing to describe the stream — a track that exists and
+          // cannot be decoded. This is the number that was missing for four builds.
+          const d = meta.decoderConfig.description;
+          audioDescBytes = d ? (d.byteLength ?? d.length ?? 0) : 0;
+        }
         try { muxer.addAudioChunk(chunk, meta && meta.decoderConfig ? meta : undefined); }
         catch (e) { sessionError = sessionError || e; }
       },
@@ -437,6 +460,12 @@ async function startWebCodecsSession({ w, h, audioTrack, onDone, onError }) {
         }
         off += n;
       }
+      // MEASURE THE SIGNAL, not just the plumbing (B534). Sampled every 16th value — enough to
+      // catch a live mic, cheap enough to run on every batch in the record loop.
+      let peak = 0;
+      for (let i = 0; i < data.length; i += 16) { const v = data[i] < 0 ? -data[i] : data[i]; if (v > peak) peak = v; }
+      if (peak > audioPeak) audioPeak = peak;
+      if (peak === 0) audioSilentBatches++;
       const ad = new AudioData({
         format: 'f32-planar', sampleRate: rate,
         numberOfFrames: frames, numberOfChannels: channels,
@@ -491,7 +520,13 @@ async function startWebCodecsSession({ w, h, audioTrack, onDone, onError }) {
       : !audioBatches ? 'NO MIC DATA — the worklet never delivered (context suspended or tap dead)'
         : !audioChunks ? 'MIC DATA BUT NO ENCODED CHUNKS — the audio encoder produced nothing'
           : !audioConfigs ? 'CHUNKS BUT NO decoderConfig — the muxer could not describe the track'
-            : 'ok';
+            // the check that should have existed from the start: a full-length track of zeros
+            // passes every count above and is inaudible
+            : audioPeak < 1e-5 ? `SILENCE ENCODED — peak ${audioPeak}; WebAudio got no signal from a live track (suspect the native camera's audio session)`
+              : !container?.hasAudioTrack ? 'AUDIO ENCODED BUT NO soun TRACK IN THE FILE — the muxer dropped it'
+                // real audio, real track, and no AudioSpecificConfig to decode it with
+                : (/^mp4a/.test(acfg.codec) && !audioDescBytes) ? 'AAC WITHOUT AudioSpecificConfig — the soun track exists but cannot be decoded (silent playback)'
+                  : 'ok';
     // PUBLISHED, not just logged — see perf-panel's export. A console-only diagnostic on a
     // Capacitor device is a diagnostic nobody can collect.
     const rate = mic?.sampleRate || 0;
@@ -515,12 +550,15 @@ async function startWebCodecsSession({ w, h, audioTrack, onDone, onError }) {
       // which a raw chunk count cannot show
       secondsIn: rate ? +(audioFramesIn / rate).toFixed(1) : null,
       secondsOut: rate ? +((audioChunks * 1024) / rate).toFixed(1) : null,
+      peak: +audioPeak.toFixed(5),
+      silentBatches: audioSilentBatches,
+      descBytes: audioDescBytes,
       videoFrames: videoFramesEncoded,
       engine: 'webcodecs',
     });
-    const line = `[conduit] audio: ${audioBatches} batches (${audioRejected} rejected) → ${audioChunks} chunks, ${audioConfigs} with config — ${verdict}`
+    const line = `[conduit] audio: ${audioBatches} batches (${audioSilentBatches} silent) → ${audioChunks} chunks, peak ${audioPeak.toFixed(5)}, desc ${audioDescBytes ?? 'none'}B — ${verdict}`
       + ` | container: ${container ? `${container.traks} traks [${(container.handlers || []).join(',')}] audio=${container.hasAudioTrack}` : 'not inspected'}`;
-    if (verdict === 'ok' && container?.hasAudioTrack) console.info(line); else console.warn(line);
+    if (verdict === 'ok') console.info(line); else console.warn(line);
   }
 
   return {

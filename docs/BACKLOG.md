@@ -24,40 +24,14 @@ Each entry names a SYMPTOM to watch for, what it would mean, and the mitigation 
   - **STATUS: shipped B525 for performance reasons, so the recording half of this item stands down.** The take is now `new VideoFrame(outputCanvas)` with no 2D canvas in between, and construction-time copy is exactly the ordering guarantee the guard was buying. Two residual paths still rely on the removal: the **MediaRecorder fallback** (which must blit, and where `recordForceFlush` still applies) and a **mid-take size change** (which rebuilds the scratch canvas to scale into the locked take size).
   - Same guard was removed from `paintPip` in the same build; a stale PiP is cosmetic, so it is the lower-stakes canary for the same behavior — **and it is now the only routine path still exposed**, since the PiP still blits.
 
-### 🧱 THE iOS CEILINGS, MEASURED B529 (two devices, the arc's first real ladder)
+### 🧱 iOS CEILINGS AND COST MODEL → see `docs/CAPABILITIES.md`
 
-**Corrected prediction.** B528 predicted 4K near 60fps with the PiP off, back-solved from B526's accounted total. **Wrong, and worth remembering why:** the accounted figure was small because `output render` was only being CALLED ~10 times a second. Per call it was always enormous. Averages hide per-call cost the same way per-frame averages hid the PiP.
+The measured per-device tables, the constraint list (C1-C6), the ranked levers, and the untested hypotheses (H1-H5) live in `CAPABILITIES.md` so there is one place to maintain them. Open work that came out of those measurements:
 
-**`output render` is a saturation gauge.** No GPU timers on WebKit, so it measures CPU submit. 2.97ms = the GPU is keeping up. 32-38ms = the command queue is full and the CPU is blocking on submit. Read `maxMs` alongside it (79ms, 95ms spikes).
-
-| scenario | device | PiP | fps | output render | verdict |
-| --- | --- | --- | --- | --- | --- |
-| FHD 30, still | 14 Pro | 10Hz | **59.9** | 2.97ms | ✅ comfortable |
-| FHD 30, still | 17 Pro | 10Hz | 50.5 | 1.76ms | ✅ |
-| FHD 30, dragging | 17 Pro | off | ~54 | — | ✅ |
-| FHD 30, dragging | 17 Pro | 10Hz | 14-18 | **32.11ms** (max 79) | ❌ |
-| FHD 60, hot, static | 17 Pro | off | 44-53 | 3.33ms | ⚠️ under target |
-| FHD 60, hot, dragging | 17 Pro | off | ~37 | — | ⚠️ |
-| FHD 60, hot | 17 Pro | 10Hz | 8.4 | 17.33ms (max 95) | ❌ |
-| 4K 30 | 17 Pro | off | 24-28 | — | ⚠️ close, not there |
-| 4K 30 | 17 Pro | 10Hz | ~10 | — | ❌ |
-| 4K 30 | 14 Pro | off | **11.4** | **37.83ms** | ❌ |
-| 4K 30 | 14 Pro | 10Hz | 11.0 | 35.55ms | ❌ |
-
-**FOUR CONCLUSIONS, stated plainly per arc goal #1.**
-1. **FHD 30 is solid on both devices, including a 2-year-old phone.** Ship it without a warning.
-2. **4K/60 is not deliverable and 4K/30 is not deliverable on the 14 Pro** (11fps, thermally critical within two minutes). The 17 Pro reaches 24-28fps, which is close but under target. **This is the arc's first genuine "we cannot deliver this as designed."**
-3. **The 4K wall is real GPU work** — the fold shader sampling an 8.29MP source texture — not a round trip. First ceiling of its kind here, and the only one that cannot be fixed by moving pixels a smarter way.
-4. **The PiP is not affordable at 4K at any rate.** 10Hz vs off is 11.0 vs 11.4fps on the 14 Pro: at 4K each consume costs so much that ten of them saturate the second regardless. **Its rate must be adaptive, not constant.**
-
-**🔴 THE DOUBLE RENDER IS CONFIRMED AND IT IS THE MANIPULATION COST.** 17 Pro, FHD, dragging: **31 `output render` calls for 18 frames.** The tick renders `eased` for the take then `state` to restore the preview whenever the follower is chasing, so every gesture with a non-instant transition costs two full renders — ~37ms of a 58ms frame.
-
-**▶ THE TWO LEVERS THAT REMAIN, with honest sizes.**
-- **[HIGH, contained] Halve the preview render while diverged.** Render the on-screen preview every OTHER frame during a transition; the recorded output keeps every frame. Worth ~35% of frame time in exactly the moment we are most starved, and the visual cost is a half-rate preview while the image is already moving. **This is the real version of the "reduce preview refresh rate" idea** — the ladder-based resolution version does not apply, because preview and output share one canvas and resizing between renders would thrash.
-- **[HIGH, riskier, the only thing that could rescue 4K] Downsample the source once, then sample the small copy.** The output is 1080² and the slice is usually a fraction of the frame, so sampling an 8.29MP texture to produce a 1.17MP result wastes most of the texel traffic. A single downscale pass sized to the actual sampling rate would cut it sharply. **The quality tradeoff is real and is Daniel's call**: a kaleidoscope magnifies a small slice, so source detail is exactly what a 4K sensor is bought for. Needs a visual A/B, not just a number.
-- **Not levers, measured and dismissed:** overlay (0.69-1.0ms even while dragging, with the ghost trail live — the onion-skin sample count is not worth cutting); record encode (3.3-4.9ms, the hardware encoder was never the problem); source upload at FHD (0.4-0.8ms).
-
-**🐛 BUGS SURFACED BY THE GAUNTLET.** 4K takes fail after a few minutes with "recording failed" and a finish that outlasts the take (17 Pro) — expected at 6-11fps with encoder backpressure plus thermal, but it is a data-loss failure and needs its own fix. 14 Pro at 4K showed color shifts and a freeze on the source/output until toggling to still and back.
+- **[HIGH] The output resolution ladder is unsafe during a take.** Since B525 the record path encodes the output canvas directly, so scaling it down scales the deliverable down — and `recSize` is locked at record start, so a mid-take change makes `paintRecord` fall back to the scaling blit B525 deleted. The switchboard currently permits it. Lock the ladder while `recState === 'recording'`, or give the preview its own render target.
+- **[HIGH] 4K takes fail after a few minutes** with "recording failed" and a finish that outlasts the take (17 Pro). Expected at 6-11fps with encoder backpressure plus thermal, but it is data loss and needs its own fix.
+- **[MED] 14 Pro at 4K: colour shifts and a frozen source/output** until toggling to still and back.
+- **[MED] The PiP rate must become adaptive.** 10Hz is right at FHD and useless at 4K (11.0 vs 11.4fps with it off) — its cost scales with the whole pipeline, not with the thumbnail.
 
 ### 🎬 A/V SYNC: MOTION SMOOTHING PUTS THE RECORDED PICTURE BEHIND THE RECORDED SOUND (Daniel, B532)
 
@@ -81,37 +55,6 @@ Surfaced while investigating why the 17 Pro is slower than the 14 Pro at consumi
 **Scope to work out:** what color space the engine composites in, whether we honor embedded ICC/EXIF profiles on import, what we tag on export, whether Display P3 is preserved end to end or flattened to sRGB, and how the canvas's `colorSpace` / `drawingBufferColorSpace` should be set per build. **Cross-cutting: this belongs in conduit**, since every consumer app inherits the same import/render/export path.
 
 Pairs with, but is not blocked by, the H1 perf experiment in `CAPABILITIES.md`.
-
-### 📊 THE iOS COST MODEL AS OF B528 — and what is still unmeasured
-
-**Read costs PER SECOND, not per frame.** Per-frame averages hid the PiP for four builds: it looked like 0.17ms because the expensive part was not inside the call. Per second is what the battery and the thermal budget actually see.
-
-iPhone, FHD 30fps recording, PiP at 10Hz, **still hand**:
-
-| item | per frame | **per second** | share |
-| --- | --- | --- | --- |
-| PiP consume | ~35ms × 10/sec | **~350ms** | the largest single item |
-| record encode | 3.29ms | 166ms | the deliverable |
-| output render | 1.76ms | 89ms | |
-| source refresh + upload | 0.78ms | 39ms | |
-| overlay | 0 | 0 | gated off with a still hand |
-| **total** | | **~644ms** | ~356ms idle |
-
-**Even at 10Hz the PiP is still twice the cost of the thing being recorded.** That is the shape of the remaining problem: a monitor is outspending the deliverable 2:1.
-
-**🔴 EVERY DIAGNOSTIC IN THIS ARC WAS TAKEN WITH A STILL HAND, AND THE MOVING CASE IS STRICTLY MORE EXPENSIVE.** Three costs appear only while the follower is chasing, and none has ever been measured:
-- **The engine renders TWICE per frame while diverged** (`chrome.js` tick: `render(eased)` for the take, then `render(state)` to restore the preview). Output render doubles: 1.76 → ~3.5ms at FHD, 7 → ~14ms at 4K. **This is every gesture with a non-instant transition.**
-- **The ghost trail is up to 28 extra slice outlines** redrawn into the overlay every frame while moving (`GHOST_MAX = 28`, `GHOST_EVERY_MS = 80`). Note it is **overlay vector work, not extra engine renders** — so halving the sample count halves 2D drawing, not GPU rendering, and the honest lever there is smaller than it sounds.
-- **The overlay itself un-gates** and redraws every frame while ghosts are alive.
-
-**▶ THE MISSING READING: record FHD while continuously dragging a slice.** That is the real workload and we have never seen it.
-
-**🎯 THE 4K PREDICTION (explicit, falsifiable, and the highest-value next test).** 4K has NOT been re-read since B526, when it was 9.8fps with the old per-frame PiP. Back-solving that reading: accounted 16.7ms + ~85ms unaccounted, so **the per-consume cost at 4K is ~85ms** (it waits on the whole pipeline, and a 4K source makes the render it waits for slower).
-- **At 10Hz that is 850ms/sec — the PiP alone saturates the second.** So the current default should barely improve 4K, maybe 9.8 → ~11fps.
-- **With the PiP OFF at 4K, accounted work is 16.7ms/frame, which is ~60fps.** If that holds, **4K/60 is not out of reach at all** and the entire 4K story was the monitor.
-- **This means the PiP rate must be adaptive**, not a constant: its cost scales with the whole pipeline, so it needs ~2Hz or off at 4K. That is the governor's first real rule and the first place declared priority does actual work.
-
-**Where the ceiling honestly is, pending those readings:** FHD 30 is comfortable (50.5fps with the monitor, 60 without). FHD 60 untested. 4K unknown and possibly much better than it looks. **No second device has ever been measured** — the iPhone 14 Pro on Xcode is the point sample that would turn one data point into a ladder, and until it exists we cannot design capability tiers, only guess at them.
 
 ### 📱 MOBILE WEB / PWA EXPOSURE FROM THE THERMAL ARC (audited B528, Daniel's question)
 

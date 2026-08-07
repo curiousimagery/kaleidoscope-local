@@ -4,6 +4,40 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🎧 v0.22.29 (Build 535) — 2026-08-07 — AAC without its AudioSpecificConfig
+
+`peak 0.67689` — loud, real audio, 1815 chunks, muxed into a `soun` track, silent on playback. Front and rear camera both, which also retires the AVAudioSession theory.
+
+**The hole was one I put in deliberately at B531.** The video probe requires `meta.decoderConfig.description`. The audio probe I wrote requires only `decoderConfig`, justified in a comment as *"Opus is self-describing and legitimately ships without one."* True for Opus. **Wrong for AAC, which is what we pick first — and for AAC in MP4 the `description` IS the AudioSpecificConfig that fills the `esds` box.** Without it the track is structurally present and undecodable, which plays as exactly this: perfect video, a real audio track, no sound.
+
+Same failure as the video-side bug already documented three comments above it, in its audio flavour, introduced while fixing a different symptom.
+
+- The audio probe now requires `description` for `mp4a.*` codecs. A failure rejects the WebCodecs session, so the take falls back to MediaRecorder — which muxes natively and demonstrably produces sound, as the package's raw take has shown all along.
+- `descBytes` is now reported per take: the AudioSpecificConfig's byte length, the number that was missing for four builds.
+
+**Stated honestly: this is a correct tightening plus the measurement that will confirm or refute it, not a verified fix.** If WebKit does supply the description, `descBytes` will report a real number, the verdict will read `ok`, and the fault is somewhere else again — but we will know rather than guess.
+
+**VERIFY (Daniel):** record while speaking, then read `descBytes` and the verdict. `desc none` confirms the diagnosis and the take should now have sound via the fallback.
+
+## 🔉 v0.22.28 (Build 534) — 2026-08-07 — Measure the signal, not the plumbing
+
+`container: 2 traks [vide,soun] audio=true`. The file has a real, full-length audio track, and it is inaudible.
+
+**The flaw was in my instrumentation, not the app.** An AudioWorklet emits render quanta whether or not there is any signal in them, so a starved input produces a perfectly steady stream of zeros. Every count I added — 5477 batches, 0 rejected, 6847 chunks, a decoderConfig, a `soun` track in the container — measured that the pipeline was *running*. None of them measured whether anything was *moving through it*. Three builds of correct-looking green lights.
+
+So: **peak amplitude**, sampled across everything handed to the encoder, reported per take.
+
+| reading | conclusion |
+| --- | --- |
+| `peak ≈ 0` | we encoded digital silence; the fault is upstream of WebAudio |
+| `peak` meaningful | real audio was encoded and muxed; the fault is in playback or save |
+
+**If it is silence, the leading suspect is the native camera's `AVAudioSession` starving the WebAudio input.** That fits the one fact that has held throughout: MediaRecorder pulls sound off the same track — which is why the package's RAW take has audio — while the WebAudio graph, fed by `createMediaStreamSource`, gets zeros. The track itself reports `enabled: true, muted: false, readyState: live, label: "iPhone Microphone"`, so nothing upstream looks wrong from JS.
+
+The verdict string now covers both cases directly, so no interpretation is required.
+
+**VERIFY (Daniel):** record a take **while speaking**, then copy report. `audio.peak` is the answer.
+
 ## 📦 v0.22.27 (Build 533) — 2026-08-06 — The audio is fine. Ask the container instead.
 
 B532's telemetry worked on the first take, and it killed both standing hypotheses at once:
