@@ -50,6 +50,20 @@ export function createOutputPanel(env, outputBus) {
       }
       return { w: 0, h: 0 };
     },
+    // THE FPS MEASURED ON THE DISPLAY, which is a different number from ours and the only one
+    // that describes the broadcast. This surface reported dimensions and nothing else, so an
+    // external view rendering at 10fps was indistinguishable from one rendering at 60 while the
+    // app's own loop truthfully reported 46 (B549). A remote surface with no throughput reading
+    // is a surface we cannot debug.
+    note: () => {
+      for (const s of activeSinks()) {
+        const d = s?.renderDims;
+        if (!(d && d.width > 0)) continue;
+        const f = s?.fps || 0;
+        return f ? `${f} fps ON THE DISPLAY` : 'awaiting first fps report';
+      }
+      return '';
+    },
   }) || null;
   if (remoteSurface) env.perfSurfaces.external = remoteSurface;
   const outputBtn = byId('outputBtn');
@@ -581,20 +595,36 @@ export function createOutputPanel(env, outputBus) {
   // The bus stopped itself on a render failure (e.g. the output engine couldn't create
   // its second GL context) — tear down our side cleanly and surface the reason, so the
   // broadcast/record doesn't just die silently with the controls still lit.
-  function failOutput(message) {
+  // `all` = the break-glass reset, which really does mean everything. A BUS failure does not:
+  // it may only tear down what the bus was actually carrying.
+  //
+  // D3 (Daniel, iPad + 4K HDMI): with a self-rendering broadcast live, pressing record started
+  // the bus for the recorder, the bus failed, and this stopped BOTH — killing an HDMI broadcast
+  // that never touched the bus (`needsBus:false`, it renders from state in another process).
+  // The display went gray while the panel still read 60fps, because the render loop genuinely
+  // was healthy; only the thing being torn down was unrelated to the failure.
+  function failOutput(message, all = false) {
     if (recorder?.recording) { recorder.stop(); stopRecMic(); }
-    if (broadcasting) selectedDest()?.sink.stop();
-    wantRecord = false; broadcasting = false;
+    const dest = selectedDest();
+    const destUsedBus = dest?.sink.needsBus !== false;
+    if (broadcasting && (all || destUsedBus)) { dest?.sink.stop(); broadcasting = false; }
+    wantRecord = false;
     syncBusRunning();
-    stopPolling();
+    if (!broadcasting) stopPolling();
     reflect();
-    if (statusEl) { statusEl.textContent = `output stopped: ${message}`; statusEl.classList.remove('live'); }
+    if (statusEl) {
+      // name what actually stopped, so a surviving broadcast does not read as a dead one
+      statusEl.textContent = broadcasting
+        ? `recording stopped: ${message} — the broadcast is still live`
+        : `output stopped: ${message}`;
+      if (!broadcasting) statusEl.classList.remove('live');
+    }
   }
 
   // Break-glass hook (env.resetSession): release ALL output cleanly — stops the recorder + broadcast,
   // which tears down the external view (its second GL context + video decoder are the iPad-HDMI
   // memory-pressure source). Callable when things are wedged, without touching the render loop.
-  env.stopAllOutput = (reason) => failOutput(reason || 'output stopped');
+  env.stopAllOutput = (reason) => failOutput(reason || 'output stopped', true);
 
   function startPolling() {
     stopPolling();

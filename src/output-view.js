@@ -343,9 +343,15 @@ function renderFrame() {
   }
 }
 
+// Fallback floor. The state stream normally drives rendering; this only fires when messages
+// stop arriving. It used to sit at 100ms, which silently WAS the frame rate for the whole time
+// the poster was eliding a live source (B549): the display ran at exactly 10fps and the app,
+// measuring only its own loop, reported 46. A keepalive that doubles as an undetectable
+// throttle is the wrong shape — 32ms degrades a message gap to ~30fps instead of 10, so the
+// same class of bug costs one frame rather than five sixths of them.
+const FALLBACK_MS = 32;
 function tick() {
-  // fallback only: the state stream normally drives rendering (see above)
-  if (performance.now() - lastRenderT > 100) renderFrame();
+  if (performance.now() - lastRenderT > FALLBACK_MS) renderFrame();
   requestAnimationFrame(tick);
 }
 requestAnimationFrame(tick);

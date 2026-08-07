@@ -306,7 +306,12 @@ const externalSurface = perf.surface({
   },
   scaleLadder: [1],
   remote: true,
-  note: () => (extStreaming ? 'self-rendering (state posted)' : 'idle'),
+  // the view's OWN measured fps, not ours — see external-display.js
+  note: () => {
+    if (!extStreaming) return 'idle';
+    const f = env.externalDisplay?.fps || 0;
+    return f ? `self-rendering · ${f} fps ON THE DISPLAY` : 'self-rendering (awaiting first fps report)';
+  },
 });
 env.perfSurfaces.external = externalSurface;
 
@@ -2753,6 +2758,9 @@ if (host.externalDisplay?.available) {
       getFrameAspect: () => session.frameAspect || 1,
       getFill: () => !!session.hdmiFill,
       getOutputDims: () => ({ width: outputCanvas.width || 1080, height: outputCanvas.height || 1080 }),
+      // the phone's external view samples the live camera, whose pixels move while the posted
+      // state sits still — eliding here throttled the display to its fallback keepalive (B549)
+      hasLivePixels: () => cameraMode === 'live',
       sourceSignature: () => {
         if (cameraMode === 'live') {
           // native: the facing AND the acquisition gen ride the signature — any

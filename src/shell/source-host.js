@@ -361,6 +361,26 @@ export function createSourceHost(env) {
     cameraIsNative = true;
     console.info('[fold] native camera path active (desktop chrome)');
   }
+  // ONE place the camera becomes the engine's source, so the planar hand-off can never be
+  // attached at some entry points and missed at others (go-live, device pick, flip, and the
+  // lens/resolution re-acquire all land here).
+  //
+  // B549: this is B518's fix, which the PHONE got and the iPad never did. The desktop chrome
+  // swaps in the native camera on Capacitor but only ever called `setSource`, so the engine kept
+  // sampling the camera's own WebGL canvas cross-context — Daniel's iPad measured **15.47ms per
+  // frame to upload a 0.79MP texture**, against 1.91ms for an 8.29MP 4K source on the iPhone.
+  // Ten times fewer pixels at eight times the cost is the round-trip signature, not a size cost.
+  //
+  // setSource FIRST — it records the aspect and gives the engine a valid element for the frames
+  // before the first plane arrives — then hand over the planes. Re-attaching on every acquisition
+  // matters: each restart is a NEW socket, so a reader bound to the old one would sit at
+  // "nothing new" forever and the source would freeze.
+  function attachCameraSource() {
+    engine.setSource(camera.frameSource());
+    if (cameraIsNative && camera.planeReader) engine.setPlanarSource(camera.planeReader(), 0);
+    else engine.setPlanarSource(null);
+  }
+
   const CAMERA_DEVICE_KEY = 'fold.cameraDeviceId';   // last-picked camera, persisted across sessions
 
   // Default facing by device. Touch devices (iPad) default to the rear camera
@@ -431,7 +451,7 @@ export function createSourceHost(env) {
     try {
       const video = await camera.start({ deviceId });
       env.liveVideo = video;
-      engine.setSource(camera.frameSource());
+      attachCameraSource();
     } catch (e) {
       if (uploadErrorEl) uploadErrorEl.textContent = cameraErrorMessage(e);
       return;
@@ -546,7 +566,7 @@ export function createSourceHost(env) {
       const video = await startWithPreferredDevice();
       env.liveVideo = video;
       env.sourceVideo = null;                          // camera takes over the source view
-      engine.setSource(camera.frameSource());
+      attachCameraSource();
     } catch (e) {
       env.liveVideo = null;
       statusEl.textContent = '';
@@ -573,6 +593,13 @@ export function createSourceHost(env) {
   function stopCameraMode({ keepSource = false } = {}) {
     stopLiveLoop();
     camera.stop();
+    // RELEASE THE PLANES BEFORE ANYTHING ELSE BECOMES THE SOURCE. `updateSourceFrame` consults
+    // the planar provider first and, when its socket has gone quiet, holds the last uploaded
+    // plane rather than falling through to the element — so a reader left attached across a
+    // source change means the new source never reaches the texture and the panel shows the last
+    // camera frame forever. That is the B541 dark-source bug, and `keepSource:true` (the upload
+    // path) would walk straight into it, so this runs before the early return, not after.
+    try { engine.setPlanarSource(null); } catch { /* engine may be mid-reinit */ }
     env.live.isLive = false;
     env.live.frozen = false;
     env.liveVideo = null;
@@ -593,7 +620,7 @@ export function createSourceHost(env) {
     try {
       const video = await camera.flip();
       env.liveVideo = video;
-      engine.setSource(camera.frameSource());   // video (rear) or mirror canvas (front)
+      attachCameraSource();   // video (rear) or mirror canvas (front)
     } catch (e) {
       if (uploadErrorEl) uploadErrorEl.textContent = cameraErrorMessage(e);
       return;
@@ -612,7 +639,7 @@ export function createSourceHost(env) {
     try {
       const video = await op();
       if (video) env.liveVideo = video;
-      engine.setSource(camera.frameSource());
+      attachCameraSource();
     } catch (e) {
       if (uploadErrorEl) uploadErrorEl.textContent = cameraErrorMessage(e);
       return;
@@ -675,6 +702,9 @@ export function createSourceHost(env) {
     if (!frame) return;
     stopLiveLoop();
     camera.stop();
+    // same release as stopCameraMode — the frozen still below is a plain element, and a live
+    // plane reader would out-rank it and keep the panel showing the feed's last frame
+    try { engine.setPlanarSource(null); } catch { /* engine may be mid-reinit */ }
     env.live.isLive = false;
     env.live.frozen = true;
     env.liveVideo = null;

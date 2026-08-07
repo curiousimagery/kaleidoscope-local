@@ -28,6 +28,11 @@
 //   getOutputDims({ cap })           // the render dims to post; `cap` = the degradation
 //                                    //   ceiling (Infinity when no ladder)
 //   getVideoSync?()                  // { t, paused, rate } for a loaded-video source, or null
+//   hasLivePixels?()                 // TRUE when the view's picture moves independently of the
+//                                    //   posted state (live camera, playing clip). The poster
+//                                    //   cannot see this — the message is identical either way —
+//                                    //   and getting it wrong throttles the view to its fallback
+//                                    //   keepalive. Default false = a static program, safe to elide.
 //   getTest?()                       // publish the reference test pattern instead
 //   sourceSignature()                // a stable id for the current source (repost on change)
 //   buildSourcePayload({ sourceCap })// the (potentially heavy) source descriptor
@@ -89,13 +94,24 @@ export function createSurfacePoster({ transport, content, renderCaps = [Infinity
     // times a second makes the view re-render an identical frame 60 times a second, and on the
     // external display that is an 8.3-megapixel redraw of a picture that did not change.
     //
-    // So: skip only what is provably identical, and NEVER go quiet for longer than the
-    // heartbeat. That bounds the worst case of a missed or dropped message to a fraction of a
-    // second of staleness instead of a frozen output, which is the failure mode that matters
-    // here. A live source's state changes constantly anyway, so this only ever engages on a
-    // genuinely static program.
+    // So: skip only what is provably identical, and NEVER go quiet for longer than the heartbeat.
+    //
+    // ⚠️ THE PREMISE THAT BROKE (B549). B513 reasoned "a live source's state changes constantly
+    // anyway, so this only ever engages on a genuinely static program." That was true when
+    // written and became false underneath it. This message carries STATE, not pixels — and on
+    // the single-native-decode path `getVideoSync` deliberately returns null, because both views
+    // sample the same frames and there is no second clock to reconcile. So while a clip plays or
+    // a camera runs, the pixels change every frame and **every field of this message stays
+    // byte-identical**. Elision engaged, the view stopped receiving its render clock, and it fell
+    // back to its own 100ms keepalive: **HDMI ran at 10fps while the app reported 46**.
+    //
+    // Two independently-correct changes composed into a silent regression on the one surface
+    // nobody was measuring. Hence `hasLivePixels`: the poster cannot infer from the message
+    // whether the picture is moving, so the consumer must say. Static program → elide; live
+    // pixels → post every frame, which is what the view needs to draw them.
     const now = performance.now();
-    const json = elide && elide() === false ? '' : JSON.stringify(msg);
+    const livePixels = !!content.hasLivePixels?.();
+    const json = (elide && elide() === false) || livePixels ? '' : JSON.stringify(msg);
     if (!json || json !== lastStateJson || now - lastPostT >= HEARTBEAT_MS) {
       lastStateJson = json; lastPostT = now;
       Promise.resolve(transport.post(msg))

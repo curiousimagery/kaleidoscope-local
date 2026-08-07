@@ -182,6 +182,7 @@ function createPoster(opts) {
       getState: opts.getState,
       getOutputDims: ({ cap }) => computeOutputDims(cap),
       getVideoSync: opts.getVideoSync,
+      hasLivePixels: opts.hasLivePixels,
       getTest: opts.getTest,
       sourceSignature: opts.sourceSignature,
       buildSourcePayload: opts.buildSourcePayload,
@@ -270,6 +271,11 @@ export function createExternalDisplaySink(env) {
     getFill: () => !!env.session?.hdmiFill,
     hasVideoSource: () => !!env.sourceVideo,   // caps the external render for video (GPU-memory guard)
     hasNativeVideo: () => !!env.nativeVideo,    // ...unless there's only ONE decode, in which case the cap is moot
+    // Does the external view's PICTURE move on its own? Anything the view samples per-frame —
+    // a live camera or a clip on either decode path — keeps moving while the posted state sits
+    // still, so the state stream must not be elided (see external-surface.js). A still image is
+    // the only genuinely static case, and it is the one elision was built for.
+    hasLivePixels: () => !!(env.live?.isLive || env.nativeVideo || env.sourceVideo),
     getOutputDims: () => {
       const bus = env.outputBus;
       return { width: bus?.width || 1920, height: bus?.height || 1080 };
@@ -367,7 +373,15 @@ export function createExternalDisplaySink(env) {
   // the frame-cost ledger's `external` surface reads this. It has to come from the POSTER, not
   // from the destination picker: on the iPad HDMI path the picker's selection did not resolve to
   // this sink, and the ledger reported 0x0 for what was in fact the largest surface in the frame.
-  env.externalDisplay = { get renderDims() { return poster.active ? poster.renderDims : null; } };
+  // `fps` is the EXTERNAL VIEW's own measured render rate, reported back over the plugin bridge
+  // and surfaced in the frame-cost report. Without it the panel showed dimensions for a surface
+  // whose throughput was invisible — which is how HDMI ran at 10fps for weeks while the app
+  // truthfully reported 46 (B549). The number that matters for a broadcast is the one measured
+  // where the picture actually lands, not where it was composed.
+  env.externalDisplay = {
+    get renderDims() { return poster.active ? poster.renderDims : null; },
+    get fps() { return poster.active ? poster.fps : 0; },
+  };
 
   poster.onDisplayChange((connected, s) => {
     env.externalDisplayDims = connected && s?.width ? { width: s.width, height: s.height } : null;

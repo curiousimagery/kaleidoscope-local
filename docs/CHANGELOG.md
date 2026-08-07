@@ -4,6 +4,39 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🛠️ v0.22.43 (Build 549) — 2026-08-07 — HDMI was running at 10fps, and we had built the instrument that couldn't see it
+
+**Daniel: "somehow we've regressed iPad HDMI to be unusable."** He was right, it was a regression, and it had a specific cause.
+
+### The 10fps root cause — two correct changes that composed into a silent failure
+
+The external view does not render on its own clock. It renders **on message arrival**, deliberately: an unfocused window's rAF is throttled, so a loop-driven view stutters or freezes. B513 then added idle elision to the poster, reasoning — correctly at the time — that *"a live source's state changes constantly anyway, so this only ever engages on a genuinely static program."*
+
+Then the single-native-decode work made `getVideoSync` return **null**, because both views sample the same frames and there is no second clock to reconcile. Sound on its own merits. But the posted message carries **state, not pixels** — so with the video clock gone, a playing clip and a running camera both produce a message that is **byte-identical every frame**. Elision engaged, the view lost its render clock, and fell back to its own 100ms keepalive: **exactly 10fps, on both camera and video, at any resolution** — which is why dropping to an FHD source and FHD output changed nothing.
+
+Neither change was wrong. The premise one of them rested on was quietly invalidated by the other, on the one surface with no instrument pointed at it.
+
+- **Fix:** `hasLivePixels()` joins the poster's content contract. The poster cannot infer this — the message looks the same either way — so the consumer declares it. Live camera or clip on either decode path → post every frame. A still image → elide, which is the case the optimization was actually built for.
+- **Safety net:** the view's fallback floor drops 100ms → **32ms**. A keepalive that doubles as an undetectable throttle is the wrong shape; now the same class of bug costs one frame instead of five sixths of them.
+
+### The instrument that couldn't see it
+
+`external` reported dimensions and nothing else, so a view rendering at 10fps was indistinguishable from one at 60 while the app truthfully reported 46. **The view has been measuring and reporting its own fps the whole time** (`noteFps` → `poster.fps`); it simply never reached the report. Both the iPad panel and the phone now show **`N fps ON THE DISPLAY`** — the number measured where the picture lands, not where it was composed.
+
+### D3 — a bus failure was killing a broadcast that never used the bus
+
+With HDMI live, pressing record started the bus for the recorder; the bus failed; and `failOutput` stopped **both**. The HDMI sink is `needsBus:false` — it self-renders in another process and had nothing to do with the failure. Hence a gray display while the panel still read 60fps: the render loop genuinely was healthy.
+
+`failOutput` now tears down only what the bus was carrying; a self-rendering destination survives, and the status line says so instead of reading as a dead output. The break-glass reset keeps its all-inclusive behaviour via an explicit flag. The bus note also stops saying a bare `capture: null` and now says **`NOT STARTED — readback path never resolved`**, which is the difference between "running badly" and "never started".
+
+### The iPad camera finally gets B518
+
+The desktop chrome swaps in the native camera on Capacitor but only ever called `setSource` — it never attached the plane reader. So the engine kept sampling the camera's own WebGL canvas cross-context: **15.47ms to upload 0.79MP on iPad, against 1.91ms for 8.29MP on iPhone.** Ten times fewer pixels at eight times the cost is a round trip, not a size cost. All four acquisition sites now funnel through one `attachCameraSource()`, the same shape the phone has had since B518.
+
+**Doing that exposed a hazard it would have created.** `updateSourceFrame` consults the planar provider first and, when its socket goes quiet, holds the last plane rather than falling through to the element — so a reader left attached across a source change means the new source never uploads. Capturing a still or uploading an image would have shown the feed's last frame forever: the B541 dark-source bug, reintroduced. Both teardown paths now release the planes first, `stopCameraMode` before its `keepSource` early return.
+
+**Untouched and still open:** motion-paused-but-broadcast-plays, and 4K take-save reliability — see BACKLOG.
+
 ## 📋 v0.22.42 (Build 548) — 2026-08-07 — The device pass writes back: three bugs, one big inefficiency, two ceilings moved
 
 Docs-only. Daniel ran A–E on iPhone and the never-before-run D group on iPad + 4K HDMI.

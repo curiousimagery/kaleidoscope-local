@@ -21,8 +21,9 @@ Legend: 🖥️ desktop browser · 💻 Electron · 📺 external display / HDMI
 | **B2 + D4** (the two 10-min runs) | **the governor** | Its yield order and sustained setpoint have to be designed against measured drift, not assumption. This is the arc's last hard blocker. |
 | **D1** (external reports real dimensions) | **D2, D3, D4** | If the external surface reads 0×0 it is not registered and the rest measures nothing. |
 | **B + E** | **cleanup C2** (retiring settled perf flags) | Those flags ARE the A/B mechanism for these rows. They cannot be deleted until the rows they serve are closed. |
-| **a fresh `cap:sync`** | **all of FH** | C1 shipped B546, after the sync taken for A–F. |
-| nothing | **A, FH, F, Loop Builder, the carried-forward items** | independent; run in any order |
+| **a fresh `cap:sync`** | **all of FH + all of H** | C1 shipped B546, after the sync taken for A–F. |
+| **H-1** (display fps visible) | **H-2, H-3** | without a throughput reading those rows cannot be judged |
+| nothing | **A, FH, H, F, Loop Builder, the carried-forward items** | independent; run in any order |
 
 **Not blocked, not urgent:** everything under "carried forward" — those have been open for weeks and are not gating current work.
 
@@ -128,6 +129,25 @@ Both native frame consumers now share one parser (`shell/frame-header.js`). Noth
 | FH-6 | 📲 iPad Capacitor + HDMI | live **camera** to the external display | feed appears on the external panel | eyes |
 
 ---
+
+
+## 🛠️ B549 — the HDMI fixes — **REQUIRES A FRESH `cap:sync`** (run with the FH rows)
+
+Four fixes to the path the D group broke on. **Every row is 📲 iPad Capacitor + 4K HDMI unless stated.**
+
+| # | do | closes when | channel |
+|---|---|---|---|
+| **H-1** | Broadcast a **video clip** to the display. Watch the panel's `external` row. | it now reads **`N fps ON THE DISPLAY`**. 🛑 If it still reads no fps, the view is not reporting and everything below is unmeasurable. | **`copy report`** |
+| **H-2** | Same, clip broadcasting. | that number is **~30–60, not ~10**, and the picture on the panel visibly matches. This is the regression fix. | **`copy report`** |
+| **H-3** | Live **camera** broadcasting. | same: display fps well above 10 | **`copy report`** |
+| **H-4** | Camera broadcasting. Check `source` note + `upload`. | note now says **`planar`**; `upload` drops from **15.47ms** to a fraction of a millisecond | **`copy report`** |
+| **H-5** | 🐛 **The B541 hazard H-4 could have reintroduced.** Camera live → **capture a still**. Then separately: camera live → **upload an image**. | the still/image actually appears — **not** the feed's last frame frozen. If the panel shows a stale camera frame, stop and report: the planar release is not firing. | eyes |
+| **H-6** | **D3 re-run.** Broadcast to HDMI, then press **record**. | the **broadcast survives**. If recording itself fails, the status line should say so *and* note the broadcast is still live. | **`copy report`** + eyes |
+| **H-7** | If H-6's recording failed: read the `bus` row. | note now names the failure (`NOT STARTED — readback path never resolved`) instead of a bare `capture: null` | **`copy report`** |
+| **H-8** | **D4 re-run.** After a glass-break reset, re-arm a 4K broadcast. | display actually shows the picture when the app says it is broadcasting | eyes |
+| **H-9** | 📱 **iPhone + HDMI — never tested on any build.** Plug in, live camera. | display shows the program; `external` reports fps | **`copy report`** |
+
+**H-9 is new coverage, not a re-test** — iPhone HDMI has never appeared in this queue. Daniel suspects it shares the iPad's symptoms; the elision fix is wired for the phone's autoconnect path too, so this is where that gets confirmed.
 
 ## 🎬 Loop Builder — fresh pass (authored B547, replaces B385–B406)
 

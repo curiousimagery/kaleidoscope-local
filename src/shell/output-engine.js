@@ -58,7 +58,12 @@ export function createOutputEngine(env) {
       // ambiguous between "the pipelined path is running and did not help" and "the pipelined
       // path lost the probe and never ran" — two findings with opposite conclusions. The console
       // logs the probe once at startup; this keeps the answer visible for the whole session.
-      note: () => (cap ? `capture: ${cap.mode || 'probing'}` : ''),
+      // `cap` null means the readback probe never resolved — the bus is registered but was never
+      // able to run. Daniel's D3 report read a bare `capture: null`, which was the truth and
+      // said nothing: it is the difference between "running badly" and "never started", and only
+      // the second one explains a broadcast dying. Say which, in the report, since that is the
+      // only diagnostic channel that reaches a device.
+      note: () => (cap ? `capture: ${cap.mode || 'probing'}` : 'NOT STARTED — readback path never resolved'),
     }) || null;
     if (surface) { env.perfSurfaces.bus = surface; readItem = surface.pass('readback'); }
     try {
