@@ -142,31 +142,45 @@ function inspectMp4Tracks(buffer) {
     const dv = new DataView(buffer);
     const td = new TextDecoder();
     const typeAt = (o) => td.decode(new Uint8Array(buffer, o + 4, 4));
-    const handlers = [];
-    let traks = 0;
+    const tracks = [];
+    let cur = null;
 
+    // Per-track detail, because "a soun track exists" turned out not to mean "a soun track plays"
+    // (B535: 2 traks, audio=true, silent). Duration, sample count and the sample-entry format are
+    // what separate a real track from an empty or misdescribed one.
     const walk = (start, end, depth) => {
       let o = start;
-      while (o + 8 <= end && depth < 6) {
+      while (o + 8 <= end && depth < 8) {
         const size = dv.getUint32(o);
         const type = typeAt(o);
         // 0 means "to end of file"; 1 means a 64-bit size we do not need to chase for diagnostics
         const box = size === 0 ? end - o : size;
         if (box < 8 || o + box > end) break;
-        if (type === 'trak') traks++;
-        if (type === 'hdlr') handlers.push(td.decode(new Uint8Array(buffer, o + 16, 4)));
-        if (type === 'moov' || type === 'trak' || type === 'mdia' || type === 'minf') {
-          walk(o + 8, o + box, depth + 1);
+        if (type === 'trak') { cur = { handler: null, format: null, samples: null, seconds: null }; tracks.push(cur); }
+        if (type === 'hdlr' && cur) cur.handler = td.decode(new Uint8Array(buffer, o + 16, 4));
+        if (type === 'mdhd' && cur) {
+          const v = dv.getUint8(o + 8);
+          // v0: timescale @20, duration @24 (32-bit). v1: timescale @28, duration @32 (64-bit)
+          const ts = v === 1 ? dv.getUint32(o + 28) : dv.getUint32(o + 20);
+          const dur = v === 1 ? Number(dv.getBigUint64(o + 32)) : dv.getUint32(o + 24);
+          if (ts) cur.seconds = +(dur / ts).toFixed(2);
         }
+        if (type === 'stsd' && cur) cur.format = typeAt(o + 16);   // first sample entry's 4CC
+        // stsz: 8 header + 4 version/flags + 4 sample_size, then sample_count
+        if (type === 'stsz' && cur) cur.samples = dv.getUint32(o + 16);
+        if (['moov', 'trak', 'mdia', 'minf', 'stbl'].includes(type)) walk(o + 8, o + box, depth + 1);
         o += box;
       }
     };
     walk(0, buffer.byteLength, 0);
+    const audio = tracks.find((t) => t.handler === 'soun') || null;
     return {
-      traks,
-      handlers,
-      hasAudioTrack: handlers.includes('soun'),
-      hasVideoTrack: handlers.includes('vide'),
+      traks: tracks.length,
+      handlers: tracks.map((t) => t.handler),
+      tracks,
+      hasAudioTrack: !!audio,
+      audioPlayable: !!(audio && audio.samples > 0 && audio.seconds > 0),
+      hasVideoTrack: tracks.some((t) => t.handler === 'vide'),
       bytes: buffer.byteLength,
     };
   } catch (e) {
@@ -414,6 +428,7 @@ async function startWebCodecsSession({ w, h, audioTrack, onDone, onError }) {
   let audioFramesIn = 0;      // samples handed to the encoder — vs chunks out, catches a stall
   let audioPeak = 0;          // loudest sample seen this take, 0..1
   let audioDescBytes = null;  // AudioSpecificConfig size — 0/null means an undecodable AAC track
+  let audioDescHex = null, audioDescLooksLikeEsds = false;
   let audioSilentBatches = 0; // batches that were entirely zeros
   let container = null;       // what the finished file actually contains (B533)
   const t0 = performance.now();
@@ -429,6 +444,18 @@ async function startWebCodecsSession({ w, h, audioTrack, onDone, onError }) {
           // cannot be decoded. This is the number that was missing for four builds.
           const d = meta.decoderConfig.description;
           audioDescBytes = d ? (d.byteLength ?? d.length ?? 0) : 0;
+          // WHAT the description actually IS, not just how big (B536). An AAC-LC AudioSpecificConfig
+          // for 48kHz mono is TWO bytes; WebKit handed back 39, which is ES_Descriptor territory.
+          // mp4-muxer expects the bare ASC to nest inside the esds it builds, so if this is a full
+          // ES_Descriptor we are nesting a descriptor inside a descriptor — a malformed esds, a
+          // track that exists and cannot be decoded, and playback that is silent. The first byte
+          // settles it: 0x03 is the ES_Descriptor tag; an ASC starts with the object type in its
+          // top 5 bits (AAC-LC = 2, so 0x11/0x12-ish).
+          if (d) {
+            const u = d instanceof ArrayBuffer ? new Uint8Array(d) : new Uint8Array(d.buffer || d, d.byteOffset || 0, audioDescBytes);
+            audioDescHex = Array.from(u.slice(0, 8)).map((b) => b.toString(16).padStart(2, '0')).join(' ');
+            audioDescLooksLikeEsds = u[0] === 0x03;
+          }
         }
         try { muxer.addAudioChunk(chunk, meta && meta.decoderConfig ? meta : undefined); }
         catch (e) { sessionError = sessionError || e; }
@@ -526,7 +553,9 @@ async function startWebCodecsSession({ w, h, audioTrack, onDone, onError }) {
               : !container?.hasAudioTrack ? 'AUDIO ENCODED BUT NO soun TRACK IN THE FILE — the muxer dropped it'
                 // real audio, real track, and no AudioSpecificConfig to decode it with
                 : (/^mp4a/.test(acfg.codec) && !audioDescBytes) ? 'AAC WITHOUT AudioSpecificConfig — the soun track exists but cannot be decoded (silent playback)'
-                  : 'ok';
+                  : audioDescLooksLikeEsds ? `DESCRIPTION IS AN ES_DESCRIPTOR, NOT AN ASC (${audioDescBytes}B, starts 0x03) — mp4-muxer nests it inside its own esds, producing a malformed, undecodable track`
+                    : container && !container.audioPlayable ? `soun TRACK IS EMPTY OR ZERO-LENGTH — ${JSON.stringify(container.tracks?.find((t) => t.handler === 'soun') || null)}`
+                      : 'ok';
     // PUBLISHED, not just logged — see perf-panel's export. A console-only diagnostic on a
     // Capacitor device is a diagnostic nobody can collect.
     const rate = mic?.sampleRate || 0;
@@ -553,11 +582,14 @@ async function startWebCodecsSession({ w, h, audioTrack, onDone, onError }) {
       peak: +audioPeak.toFixed(5),
       silentBatches: audioSilentBatches,
       descBytes: audioDescBytes,
+      descHex: audioDescHex,
+      descLooksLikeEsds: audioDescLooksLikeEsds,
       videoFrames: videoFramesEncoded,
       engine: 'webcodecs',
     });
     const line = `[conduit] audio: ${audioBatches} batches (${audioSilentBatches} silent) → ${audioChunks} chunks, peak ${audioPeak.toFixed(5)}, desc ${audioDescBytes ?? 'none'}B — ${verdict}`
-      + ` | container: ${container ? `${container.traks} traks [${(container.handlers || []).join(',')}] audio=${container.hasAudioTrack}` : 'not inspected'}`;
+      + ` (${audioDescHex || 'n/a'})`
+      + ` | container: ${container ? `${container.traks} traks ${JSON.stringify(container.tracks)}` : 'not inspected'}`;
     if (verdict === 'ok') console.info(line); else console.warn(line);
   }
 

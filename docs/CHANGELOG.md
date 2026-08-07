@@ -4,6 +4,20 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🔬 v0.22.30 (Build 536) — 2026-08-07 — 39 bytes is the wrong size, and the bisect points at B365
+
+`desc 39B` refuted B535: the description is present. **But an AAC-LC AudioSpecificConfig for 48kHz mono is TWO bytes.** 39 is ES_Descriptor territory, and mp4-muxer expects the bare ASC to nest inside the `esds` it builds itself. Handing it a full ES_Descriptor means nesting a descriptor inside a descriptor: a malformed `esds`, a track that exists and cannot be decoded, silent playback. Every symptom fits.
+
+Rather than act on that, this build measures it. `descHex` reports the first 8 bytes. **`0x03` is the ES_Descriptor tag; an AAC-LC ASC starts around `0x11`/`0x12`.** One byte settles four builds of hypotheses.
+
+**Container inspection now goes per track** — handler, sample-entry format, sample count, and duration in seconds — because "a `soun` track exists" turned out not to mean "a `soun` track plays". A zero-sample or zero-duration audio track is now stated outright rather than passing as `audio=true`. Verified against synthetic healthy and empty-audio files (and the first version of this walker read `stsz` four bytes off, which the test caught).
+
+### Daniel's bisect question, answered from the history
+
+His hypothesis was native camera vs WebKit camera. **Close, but the axis is the recorder.** `B365 (v0.19.5)` moved live recording from MediaRecorder to WebCodecs + our own mp4 muxer; `B372 (v0.19.12)` put iPhone on it. Before that the composition was muxed natively by MediaRecorder — the same path the package's RAW take still uses, which is why that file has always had sound.
+
+**So composition audio on iPhone has plausibly been silent since B372 and nothing surfaced it.** This is not a recent regression, which also explains why nothing in the recent arc correlated with it.
+
 ## 🎧 v0.22.29 (Build 535) — 2026-08-07 — AAC without its AudioSpecificConfig
 
 `peak 0.67689` — loud, real audio, 1815 chunks, muxed into a `soun` track, silent on playback. Front and rear camera both, which also retires the AVAudioSession theory.
