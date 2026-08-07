@@ -4,6 +4,27 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🗄️ v0.22.41 (Build 547) — 2026-08-07 — C3 + C4: the docs stop lying, and 308MB of dead spike goes
+
+Docs-only except the deletion. Closes the cleanup arc's paperwork half.
+
+**HANDOFF: 811 → 500 lines.** Builds 19–187 moved to `archive/HANDOFF-builds-19-187.md`. That half contained `## what's working` (describing Build 24) and `## what we're doing right now` (describing Build 57) — the two sections CLAUDE.md names as going stale fastest, wrong by ~490 builds, in the file every session reads first.
+
+**Nothing live was archived without being rescued first.** Three items were filed into BACKLOG that had never been there:
+- **Firefox + Safari video colour and orientation** — a real correctness bug from 2026-06-10 that was never filed. iPhone `.mov` renders washed-out on both engines while the 2D preview looks right, so it is the texture path; Firefox also rotates all video 90° CCW. Daniel had believed this fixed, but has been testing with FCP `.m4v` exports rather than straight-from-iPhone `.mov`. **Plausibly the same texture-path problem as the colour-management gap.**
+- **CONTROLS.md as a system-wide reference** — the deferred user-manual / icon-library intent.
+- **Settings persistence across sessions** — folded into the existing clip/workspace persistence item rather than duplicated, with the distinction that matters: app settings and the clip store should be one design, and perf flags stay excluded because they are a measuring stage.
+
+**Two were examined and deliberately not filed.** *Gesture recording* shipped at **Build 269** — its residuals were already in BACKLOG and the 2026-06-10 note was simply never retired. *Cross-format/frame-rate robustness* rested on a premise ("Blink largely untested") that was wrong even when written.
+
+**VERIFY-QUEUE rebuilt.** The B382–B476 sediment moved to `archive/VERIFY-QUEUE-b382-b476.md`; five genuinely-open items were carried forward. The queue now opens with a **blocking table**, and every row states its platform and what closes it — a row without those is a wish, not a task (standing rule, B546).
+
+**The Loop Builder rows were archived as obsolete, not merely old**, and replaced with a fresh nine-row pass. The originals were authored across fifteen builds during which the surface was reshaped three times; verifying them literally would mean checking buttons a later build removed. The new pass targets the defects Daniel believes are fixed — **cancel mid-bake** and **back-navigation during a bake** — plus a new iPad bug he found: the Loop Builder header ignores the safe-area inset and collides with the iOS status bar. Filed in quick-wins with a repro row.
+
+**`spike/electron-syphon/` deleted** — 308MB, untouched since the spike, and the wiring pattern it was kept for has been live in `electron/syphon-bridge.js` since Build 182. Daniel's call; recoverable from git.
+
+Also refreshed HANDOFF's environment section, which still said "M1 Max", "Chrome primary" and "iPad untested until on a public URL".
+
 ## 🧩 v0.22.40 (Build 546) — 2026-08-07 — C1: one parser for the native frame wire format
 
 New `src/shell/frame-header.js` owns the frame-socket header. `native-camera.js` and `native-frame-receiver.js` both consume it; the magic numbers and byte offsets now exist in exactly one place.

@@ -1,187 +1,146 @@
 # verification queue — pending Daniel's hardware
 
-A running list of things built but not yet verified on real hardware / a full desktop session. Claude appends here as it ships device-unverifiable work; Daniel checks off when back on his setup. Remove items once confirmed (or move a confirmed note to CHANGELOG).
+Things built but not yet verified on real hardware. Claude appends as it ships device-unverifiable work; Daniel checks off. Confirmed items move to CHANGELOG and are deleted from here.
 
-Legend: 🖥️ desktop browser · 📺 external display / AirPlay (workstation) · 📱 iOS device · ✅ Daniel confirmed
+**Every row names WHERE to run it and WHAT closes it.** A row that says "verify X works" without a platform and a readout is not a verification task, it is a wish. (Standing rule, Daniel B546.)
 
-**Every row states WHERE to run it and, if a diagnostic is wanted, WHERE that diagnostic comes from.** A row that says "verify X works" without naming the platform and the readout is not a verification task — it is a wish. (Daniel, B546.)
+Legend: 🖥️ desktop browser · 💻 Electron · 📺 external display / HDMI / AirPlay · 📱 iPhone Capacitor · 📲 iPad Capacitor · ✅ confirmed
 
-## open
+**Where diagnostics come from** — the three channels, named exactly as the rows reference them:
+- **`copy report`** — the frame-cost panel's export button. Phone: diagnostics block → **show frame cost**. iPad: desktop diagnostics → **frame cost panel**. Desktop: `?perf`. This is the primary channel and works with no cable.
+- **Xcode console** — device run from Xcode, filter string given per row. Only where a row says so.
+- **eyes** — an observed outcome, no paste. Say what you saw.
 
-### 🧩 C1 — the unified frame-header parser (B546) — REQUIRES A FRESH `cap:sync`
+---
 
-**⚠️ B546 landed AFTER the sync you took for the A–F matrix. These rows need a new `npm run build && npx cap sync ios` and a rebuild from Xcode — running them against the older build verifies nothing.**
+## ⛔ WHAT BLOCKS WHAT
 
-Both native frame consumers now share one parser. Nothing should change; the entire point is that nothing changes. This is a pure-regression pass on the path B540 broke.
+| this | blocks | why |
+|---|---|---|
+| **A** (no-regression) | **B, C, E** | A is a hazard check. If render elision shows a stale frame the build is broken and every number after it is measuring the wrong thing. |
+| **B2 + D4** (the two 10-min runs) | **the governor** | Its yield order and sustained setpoint have to be designed against measured drift, not assumption. This is the arc's last hard blocker. |
+| **D1** (external reports real dimensions) | **D2, D3, D4** | If the external surface reads 0×0 it is not registered and the rest measures nothing. |
+| **B + E** | **cleanup C2** (retiring settled perf flags) | Those flags ARE the A/B mechanism for these rows. They cannot be deleted until the rows they serve are closed. |
+| **a fresh `cap:sync`** | **all of C1** | C1 shipped B546, after the sync taken for A–F. |
+| nothing | **A, C1, F, Loop Builder, the carried-forward items** | independent; run in any order |
 
-| # | where | do | pass condition | diagnostic to send |
-|---|---|---|---|---|
-| C1-1 | 📱 **iPhone, Capacitor build from Xcode** | live camera, still mode | **source panel shows the live feed** — not black, not frozen. This is the exact B540 failure and the first thing that would break. | none — eyes only |
-| C1-2 | 📱 iPhone Capacitor | rear ▸ front ▸ rear via the flip control | feed survives every flip; mirroring correct on front | none |
-| C1-3 | 📱 iPhone Capacitor | `take still` mode, then upload a still | both show a source (B541 regressed `take still` specifically while upload still worked) | none |
-| C1-4 | 📱 iPhone Capacitor | record a ~15s take, play it back **in Photos** | video normal, **audio present and in sync** — confirms the camera latency field still parses at its offset | none |
-| C1-5 | 📱 iPad Capacitor **+ HDMI cable** | play a **video clip** to the external display | clip plays on the external panel; **timeline position and duration read correctly** in the app. This is the `FYUW` path — the one where a misread second f64 corrupts the master clock. | 🖥️ **frame cost panel → `copy report`**, on the **iPad**, while the clip plays |
-| C1-6 | 📱 iPad Capacitor + HDMI | live **camera** to the external display | feed appears on the external panel | none |
+**Not blocked, not urgent:** everything under "carried forward" — those have been open for weeks and are not gating current work.
 
-**If C1-1 fails, stop and say so** — it means the shared parser rejects what the camera sends, and the whole build is bad on device.
+---
 
-**Xcode console, C1-5 only:** with the iPad running from Xcode, filter the console for `[fold]` and paste any line containing `clock` or `duration`. A `duration` stuck at `0` while the clip visibly plays is the specific corruption this row exists to catch.
+## 🔥 THERMAL ARC — the A–F matrix (B540–B543)
 
+**Run A first.** Each row: set it up, do the thing, then `copy report` and note fps / `unmeasured` / `pressure`.
 
-### 🔥 THERMAL ARC — the matrix (B540–B542, 2026-08-07)
+### A. No-regression (📱 iPhone Capacitor, ~10 min) — **eyes only, nothing to paste**
 
-**Order matters: run A first.** A is a hazard check and a no-regression pass; if the render elision shows a stale frame, everything after it is measuring a broken build. Each row: set it up, do the thing, then **copy report** and note the fps / `unmeasured` / pressure.
-
-**Blocked on this matrix:** the governor (item 4). It needs the sustained + HDMI numbers to be designed against measurement rather than assumption — see the note at the end.
-
-#### A. No-regression pass (do first, ~10 min, iPhone)
-| # | setup | do | pass condition |
+| # | setup | do | closes when |
 |---|---|---|---|
-| A1 | live camera, still mode | leave it sitting, then move a slice | preview never stale or frozen; motion is immediate |
-| A2 | record video mode, PiP visible | record ~20s, move the slice mid-take | take has every frame; no stutter |
+| A1 | live camera, still mode | leave it sitting ~30s, then move a slice | preview never stale or frozen; motion starts on the **first** frame with no hitch at the idle→moving transition |
+| A2 | record video mode, PiP visible | record ~20s, move the slice mid-take | played back in **Photos**: every frame present, no stutter |
 | A3 | mid-take | open the panel, try stepping the **output** ladder down | stepper has no effect; note reads `ladder locked — this canvas IS the take` |
-| A4 | any | toggle `render: skip identical frames` off/on | no visual difference except battery/heat |
+| A4 | any | toggle `render: skip identical frames` off/on | no visible difference at all |
 
-**If A1 or A4 shows a stale preview:** turn `render: skip identical frames` OFF and say so — the elision guard has a gap and it is the first thing to fix.
+**🛑 If A1 or A4 shows a stale preview: stop, turn `render: skip identical frames` OFF, and report it.** The elision guard has a gap; it is the first thing to fix and B/C/E are invalid until it is.
 
-#### B. The elision win (iPhone, and iPad if convenient)
-| # | scenario | compare | looking for |
-|---|---|---|---|
-| B1 | live camera, static scene, NOT recording | flag ON vs OFF | `output render` calls per second should roughly HALVE; fps steady |
-| B2 | same, left running 10+ min | ON vs OFF | **pressure and device warmth** — this is the sustained/installation case |
-| B3 | record video, framing up (not recording), PiP HIDDEN | ON vs OFF | the eased render should disappear entirely |
+### B. The elision win (📱 iPhone; 📲 iPad if convenient) — **paste TWO reports per row**
 
-#### C. H2 — the unexplained third of every 4K frame (no build needed, ~5 min)
-| # | scenario | looking for |
+Paired A/B. A single report cannot close these rows.
+
+| # | scenario | closes when |
 |---|---|---|
-| C1 | 4K source = **camera**, PiP off | baseline: ~11fps on 14 Pro, `unmeasured` ~33ms |
-| C2 | 4K source = **a still image instead of the camera** | if fps jumps and `unmeasured` collapses, the missing third is the native camera bridge |
+| B1 | live camera, static scene, **not** recording | `output render` **calls** roughly HALVE with the flag on; `fps` unchanged. (Calls, not ms.) |
+| **B2** | same, left running **10+ min** | `pressure` and device warmth, ON vs OFF. **Paste a report at start AND at end of each run.** The sustained/installation case, and a governor blocker. |
+| B3 | record video mode, framing up (not recording), **PiP hidden** | the eased-render row disappears from the report entirely |
 
-#### D. HDMI — never measured on any device
-| # | scenario | looking for |
+### C. H2 — the unaccounted third of every 4K frame (📱 iPhone, ~5 min, no rebuild) — **paste both**
+
+| # | scenario | closes when |
 |---|---|---|
-| D1 | HDMI/AirPlay connected, idle | `external` row reports real dimensions, not 0×0 |
-| D2 | HDMI + live camera | fps and `unmeasured` vs no-HDMI baseline |
+| C1a | 4K source = **camera**, PiP off | baseline captured (~11fps on 14 Pro, `unmeasured` ~33ms) |
+| C1b | 4K source = **a still image**, same resolution, PiP off | **verdict:** `unmeasured` collapses + fps jumps ⇒ the missing third is the native camera bridge. Unchanged ⇒ it is the fold shader and there is nothing more to find. |
+
+### D. HDMI — never measured on any device (📲 iPad Capacitor + HDMI cable) — **paste every row**
+
+No prediction here; that is the point.
+
+| # | scenario | closes when |
+|---|---|---|
+| **D1** | HDMI connected, app idle | the `external` row reports **real dimensions, not 0×0**. 🛑 If 0×0, stop and report — D2–D4 would measure nothing. |
+| D2 | HDMI + live camera | fps and `unmeasured` vs the same scene with the cable out |
 | D3 | HDMI + recording a take | **the combination that decides the PiP question** |
-| D4 | HDMI, 10+ min | pressure drift, warmth |
+| **D4** | HDMI, **10+ min** | pressure drift and warmth. Governor blocker; paste start and end. |
 
-#### E. The starved PiP at 4K (B543)
-| # | scenario | pass condition |
+### E. The starved PiP at 4K (B543) (📱 iPhone Capacitor)
+
+| # | scenario | closes when | channel |
+|---|---|---|---|
+| E1 | 4K source, start a take | box stays · message reads `preview unavailable while capturing at 4K` · **rec dot still visible** (all three) | eyes |
+| E2 | same, stop the take | PiP returns to live immediately | eyes |
+| E3 | 4K, framing up, **not** capturing | PiP is LIVE — the rule is capture-only | eyes |
+| E4 | FHD, recording | PiP live at 10Hz, unchanged | eyes |
+| E5 | 4K, recording | fps near the PiP-off number (14 Pro: 11.4, not 11.0) | **`copy report`** |
+
+### F. A/V sync + audio (📱 iPhone Capacitor) — **eyes and ears; play back in Photos**
+
+| # | scenario | closes when |
 |---|---|---|
-| E1 | 4K source, start a take | PiP box stays, content replaced by `preview unavailable while capturing at 4K`; rec dot still visible |
-| E2 | same, stop the take | PiP returns to live immediately |
-| E3 | 4K, framing up, NOT capturing | PiP is LIVE — the rule is capture-only |
-| E4 | FHD, recording | PiP live at 10Hz, unchanged |
-| E5 | 4K recording | fps vs the old 10Hz-PiP number (14 Pro: 11.0) — expect it near the PiP-off number (11.4) |
+| F1 | front camera, `standard`, talking | sound present, lips in sync |
+| F2 | front camera, `smooth+`, talking | sound present, **still** in sync — the real test (~1s stabilization buffer must be compensated exactly) |
+| F3 | rear camera, `smooth+`, talking | in sync |
+| F4 | flip lenses without touching the motion control | front defaults `standard`, rear `cinematic` |
+| F5 | pick a mode explicitly, then flip | the explicit choice survives the flip |
 
-#### F. A/V + audio confirmations (short)
-| # | scenario | pass condition |
-|---|---|---|
-| E1 | front camera, `standard`, talking | sound present, lips in sync |
-| E2 | front camera, `smooth+`, talking | sound present, **still** in sync |
-| E3 | rear camera, `smooth+` | in sync |
-| E4 | flip lenses without touching the control | front defaults `standard`, rear `cinematic` |
-| E5 | pick a mode explicitly, then flip | the choice survives the flip |
+### Why the governor is not built yet
+Its first rule is already known and measured — **the PiP must go OFF at 4K, not merely slow down** (11.0fps at 10Hz vs 11.4fps off). That shipped as B543. Everything else a governor would decide — what yields first, at what pressure, what the sustained setpoint is — needs **B2 and D4**. Building it on assumptions is the mistake this arc has punished repeatedly.
 
-#### Why the governor is not built yet
-Its first rule is already known and measured — **the PiP must go OFF at 4K, not merely slow down** (11.0fps at 10Hz vs 11.4fps off; at that resolution each consume is so expensive that ten per second saturate the budget). That is a user-visible behaviour change and it collides with an open UX question: does choosing 4K silently disable the monitor, or explain that it is unavailable? That is Daniel's call, not an implementation detail. Everything else a governor would decide — what yields first, at what pressure, and what the sustained setpoint should be — needs B2, B4 and D4. Building it on assumptions is the mistake this arc has punished repeatedly.
+---
 
+## 🧩 C1 — the unified frame-header parser (B546) — **REQUIRES A FRESH `cap:sync`**
 
-### 🌐 NDI / HDMI / conduit wave — B470–B474 (2026-07-29)
-- **📱📺 Large-clip video over HDMI/AirPlay — chunked staging (B473, needs Xcode rebuild).** ✅ SHORT TEST CONFIRMED (Daniel, cable+Movink): the 2:45 1080p clip that failed the old 60MB cap now broadcasts uneventfully. STILL TO DO at the workstation: a **longer/larger clip** (toward ~9min 1080p) to confirm it stages + plays without stall; a genuinely huge 4K/very-long clip should fall back to the honest hint (not hang).
-- **📱 NDI over WiFi — decisive HD-vs-FHD test (B472 pacing confirmed working).** BLOCKED at Starbucks (WiFi device detection off). At the regular workstation: pacing is confirmed even (30.0fps / gap 33.5ms / send-wait 0.0ms) but Arena still halts at FHD over WiFi. Test: stop NDI → set **HD (1280)** → restart on WiFi. HD smooth + FHD halts ⇒ bandwidth (HD-for-WiFi affordance); HD also halts ⇒ WiFi jitter/router ⇒ ethernet is the reliable FHD path. (iPhone-NDI-over-Thunderbolt already confirmed smooth — cable removes the WiFi variable.)
-- **📺 Movink resolution — ✅ FIXED B476 (re-verify Movink + the original 4K adapter).** Diagnostic confirmed `preferredMode`=1920×1080 correct vs largest=2560×1600. Now prefers `preferredMode`. Verify: Movink reports/renders 1920×1080; when back on the 4K adapter, confirm it still reports 4K (preferredMode should give native there too).
-- **📱📺 Aspect padlock feedback + iPad double-lock — ✅ FIXED B476 (device re-verify).** iPad: unlock the aspect padlock over HDMI → the ratio buttons are now live (were stuck disabled by the old `lockAspect`). iPhone: tap a hard-locked padlock → a toast now explains why (was dead). **Also read the `[fold] aspect hard-locked — rec:… bc:… ext:…` console line on iPhone** — if it reports a broadcast/recording live when you didn't start one, that's a stale-flag bug to chase (Daniel saw the NDI/Syphon toast "with no broadcast active").
-- **🖥️ Perform source-swap no longer stacks the motion panel — ✅ FIXED B474 (desktop-verifiable, no device).** This resolves the **UI-teardown half** of the B382 finding below. Confirm: perform a clip → upload a new source → swaps in place, no motion panel; fresh video from STILL still opens motion. (The GL-context-lost half of B382 is separate + still open.)
-- **📱 v0.20.15/B472 iPad locked-control tip; v0.20.14/B471→472 NDI pacing** — carried by the above NDI/lock items.
+**⚠️ B546 landed AFTER the sync taken for A–F.** These rows need `npm run build && npx cap sync ios` and an Xcode rebuild. Running them against the older build verifies nothing. A–F are unaffected and can finish on the current sync.
 
-- **📱 Mobile width regression — ✅ CONFIRMED FIXED by Daniel (B411).** (Left here as a record; can drop next edit. iPhone fills 100% width, no horizontal scroll.)
-- (Deferred to BACKLOG, no longer verify-queue items: iPhone record AUDIO + the capture bitrate/perf failures → "Video capture hardening session"; motion 16:9 square-first → polish item.)
-- **🖥️ M3 LOCK PASS — full review (B414–B419).** Review across `/lab.html` (Composites → the padlock states + the icon inventory) and the running app:
-  1. **Still (Droste):** segments + center-offset rows show a padlock (default UNLOCKED); spiral / mirror / wedge-mirror / out-of-bounds show NO padlock (freely editable). Form picker editable, no overlay.
-  2. **Motion (Droste):** every one of the above shows a LOCKED padlock; each control is dimmed/disabled while locked; click a padlock → the control + its on-canvas gesture re-enable. Form picker shows the padlock OVERLAY over the thumbs; clicking it warns before unlocking.
-  3. **Gestures:** locked segments → dragging a radial spoke scales instead of changing count; locked droste-arms drag is inert; locked center-offset diamond won't drag.
-  4. **Autoplay (perform, Droste):** spiral + center offset hold steady; the offset row's "hold/autoplay" toggle switches whether the pole wanders (separate from the lock).
-  5. **Structural:** a Droste animation no longer tweens the spiral (held to kf0).
-  6. **Contextual:** start broadcasting → the resolution padlock appears (non-clickable, "stop to change"); play a motion clip → the frame-aspect padlock appears; stop/pause → they clear.
-  7. **Copy + glyph:** tooltips read right; the padlock shape/states feel right (net-new to the design system).
-  - Interim to refine: unlock warning is a bare `window.confirm`; offset diamond has no on-canvas locked visual.
-- **🖥️📱 Radial wedge segment drag — direction + targets (B409).** (1) Grab either spoke and pull it AWAY from the wedge's middle → the wedge gets fatter (fewer segments); pull toward the middle → skinnier (more segments). Both spokes should feel the same; no inversion. (2) The segment-grab band is tighter now (mouse 20→12, touch 32→20) — confirm you can still grab a spoke intentionally on touch, but accidental segment changes while scaling/rotating are reduced. iPad + iPhone especially.
-- **🖥️📱 Droste zoom does NOT seam when animated (Daniel's re-check).** Daniel's earlier "zoom seams" was likely mis-attributed to spiral. Build a Droste animation with different `drosteZoom` values across keyframes and confirm the tween stays seamless (no tier-thickness seam). If confirmed, drosteZoom stays freely animatable (no gate); if it does seam, it joins spiral as non-animatable. Settles the last open parameter in the M3 model.
-- **🖥️ Desktop layout reads well down to ~600px (B408).** With the floor lowered 700 → 600, drag the desktop window toward 600px and confirm the split layout still looks right (panels tight but usable) before the horizontal scrollbar kicks in. (Folds into the B407 check below.)
-- **🖥️📱 Chrome switch no longer drops the source (B407).** Desktop: load a source, then drag the window narrower than 700px → it should STAY in the desktop chrome (a horizontal scrollbar appears, layout holds at 700px) and keep the footage — no reset. Widen again → scrollbar goes away. Phone: a real phone (or `?chrome=mobile`) should still boot the mobile chrome. iPad should still be desktop chrome. Check the Lab (`/lab.html`) still lays out fine (it shares the min-width floor).
-- **🖥️ UI Lab — Loop Builder specimens (B406).** Open `/lab.html` → the Composites section should now show a "Loop Builder interstitial" row: the header (title + X, hover the X), the step rail across done/active/plain/disabled, and the `.ot-btn` access button. Confirm they render from the real classes (match what the running builder looks like). Open the Loop Builder → the app bar should DISAPPEAR (no mode picker, undo/redo, upload, save) and the surface fills the screen. Close via X / cancel → the app bar returns. Confirm you can't switch modes or upload mid-edit. Copy is lowercase (button "loop builder", header "loop builder", rail lowercased). Desktop/iPad.
-- **🖥️ D2 — Loop Builder as a modal (B404). Visual + flow verify.** (1) `#modeSelect` no longer lists "loop builder". (2) In motion or perform with a video source, a "Loop Builder" button shows between the mode switcher and undo/redo → click opens the builder. (3) The builder now has a header (title + X top-right) and a cancel button; X and cancel both close it, warning first if you changed the trim. (4) While the builder is open the picker reads the underlying mode (motion/perform), not "loop". (5) Eyeball the header / close / button styling and that the header doesn't crowd the stage. Desktop/iPad. (Header + button now in the UI Lab — B406.)
-- **🖥️ Loop detection re-runs on a source swap (B403).** Upload a loop → motion opens loop ON. WITHOUT reloading the app, upload a different clip (a non-loop) → the toggle flips to OFF (and the reverse). I.e. detection isn't stuck on the first clip. (Threshold calibrated at 28 — loops ~2, non-loops ~80; console log removed.)
-- **🖥️ Loop detection — capture fix + CALIBRATE (B402). ✅ calibrated (loops ~2, non-loops ~80) — superseded by B403.** Reload a few known loops and a few non-loops. Open the console: each load prints `[loop-detect] meanDiff=… lumFirst=… lumLast=… → LOOP/linear`. (a) If `lumFirst`/`lumLast` are ~0, capture is still black — report it. (b) Otherwise note the meanDiff for real loops vs non-loops, pick a `LOOP_MATCH_THRESHOLD` (source-host.js) that separates them, and report the numbers — I'll set it + remove the log. Then confirm the motion editor opens with loop ON for loops, OFF for non-loops.
-- **🖥️ Loop detection + open-into-motion routing (B401). NEEDS CALIBRATION + cross-browser check.** Desktop/iPad: load a fresh video → it should NOT open the Loop Builder anymore; it should land in the MOTION editor. A seamless-loop clip should arrive with loop ON; a non-loop clip (pan / one-way motion) with loop OFF (linear). If the calls are wrong, tune `LOOP_MATCH_THRESHOLD` in `source-host.js` on real clips. Reach the Loop Builder from the mode dropdown (still there until D2). Verify the load path on Safari + Firefox + Brave (seek-based detection + motion-entry). Confirm mobile load is unchanged (lands in still). Confirm loading while ALREADY in motion still rebinds (no re-detect / re-enter).
-- **🖥️📱 Drag keyframe to the end in linear mode (B400).** With loop OFF (linear): drag the last keyframe all the way to the right edge → it reaches the true end (no ~0.3s gap / end-stall on playback). With loop ON: the last keyframe should still stop just short of the very end (that spot is the return-to-kf0 loop point). Desktop + iPad.
-- **🖥️📱 Motion always loops + loop toggle = "is this a loop" (B399).** Play a motion animation with loop ON → it repeats seamlessly (kf0 return) as before. Toggle loop OFF (linear) → playback still repeats but with a visible cut at the wrap (no more halt / play-once). Confirm on BOTH a still-image animation and a video-source animation, and that HOLD/TAKE/CUT staging playback also loops. The loop button's tooltip reads the new "is this a loop" meaning. Desktop + iPad.
-- **🖥️📱 Motion defaults to 16:9 (B398).** Fresh session: enter motion with any source aspect (square / portrait / landscape) → the output frame should default to 16:9. Then change the aspect manually and re-enter motion → your choice sticks (no re-clobber). Desktop + mobile (mobile: the preview should reshape even if the aspect-button highlight lags).
-- **🖥️📱 Trim-only → motion editor (B397).** In the Loop Builder, load a video, choose trim-only, adjust the trim handles, apply. Confirm you land in the MOTION editor (timeline + keyframes) with the trimmed range, not back in the still frame-picker. Regression: bounce + slice bakes still drop into motion as before. Desktop + iPad.
-- **📺 External display + AirPlay render-from-state regression (B382). ⚠️ PRELIMINARY FINDINGS 2026-07-24 — regression CONFIRMED, extraction suspected.** The external-surface poster was refactored (`createSurfacePoster`, transport-neutral); meant behavior-neutral. Daniel's iPad Capacitor pass found it is NOT: **(C1)** iPad HDMI out with a **video source** shows "video sources on the external display are coming — use a still or live camera for now" (test pattern + still/live camera DO work) — video-over-external-display appears broken/regressed (cross-ref BACKLOG "Video sources across webviews"). **(C2)** a 4K external panel is **detected as 2560×1440, not its actual 3840×2160** — display-mode/resolution detection under-reports. **(B) Possibly-related, different mechanism:** motion→perform on iPad Capacitor throws **"graphics context lost — could not recover"**; source/timeline/output partially recover but staged output never does, and afterwards uploading a new source leaves **motion controls stacked on top of perform controls** in perform mode — a mode-transition GL-teardown + UI-teardown failure. Daniel's read (plausible): the conduit extraction introduced these; **root-cause why before adding surface** — basic plumbing must be resilient to new capabilities. Sequencing (broadcast/conduit hardening ASAP vs after the current arc) is an open call — Daniel leans ASAP. NEEDS: repro matrix (desktop web vs Electron vs Capacitor) to localize shared-code vs native-surface. (Daniel had been away from that setup as of 2026-07-18.)
-- **🖥️ Two-reader slice crossfade (B384).** Bake a **slice** loop with a crossfade and confirm the seam no longer drops/pops frames (a fading-out frame snapping back to full opacity). Also just confirm slice + bounce bakes still produce correct loops (regression). Desktop browser (needs WebCodecs — Brave/Chrome/Electron).
-- **📱🖥️ Loop Builder mode-as-next + touch transport (B396). UNTESTED.**
-  - Step 1: picking a loop mode (trim only / bounce / seamless loop, bottom-right) advances — no separate "next"; back-nav to step 1 shows the previously-picked mode highlighted.
-  - **iPad web:** play/pause button + prev/next (left of the timeline) work without a keyboard; prev/next jump to markers (loop ends, trim handles, slice cut on linear steps; ends + seam + crossfade edges on the crossfade step); the play label toggles play↔pause.
-  - **Baking mask:** while baking, the black cover fully hides the source (test PORTRAIT + landscape — no footage peeking).
-- **🖥️ Loop Builder arc-closing UX (B395). UNTESTED.**
-  - **Trim & behavior merged** into step 1 (trim handles + behavior buttons on one step); rail numbers read sequentially; slice = 4 steps, bounce = 2, trim-only = 1.
-  - **Tap on the crossfade step moves the playback point** (and selects); the **time ruler scrubs** (click/drag). Space no longer jumps to the start after scrubbing into the A segment.
-  - **Bake step shows the real source fps** ("match source (60 fps)") and warns when a setting fabricates data (slowing below source-fps support → "needs frame interpolation"; resolution above source → "won't upscale").
-  - Regression check: the merged step 1 still applies trim (trim-only) / advances (bounce, slice); behavior change still reshapes the sequence + undo still walks it.
-- **📱🖥️ Loop Builder portrait fix + UX rework + format settings (B394). UNTESTED.**
-  - **Portrait bake (iPhone):** load a PORTRAIT iPhone clip → bake a seamless loop → the baked source should be upright + correct aspect (was rotated 90° + stretched). Test slice AND bounce. Also confirm the source panel doesn't overlap the form controls right after the bake→motion drop (no divider nudge needed).
-  - **Crossfade timeline:** the band is full-height/prominent, edges drag the duration. Tap a clip → highlight under the timeline + a seam bar through/below the track; drag it (from the seam or underneath) to move that clip's edge. Tap the same clip / tap the band → deselect. Scrubbing still works while a clip is selected.
-  - **Output format (Preview & bake):** resolution / fps / speed selects + the live spec readout; bake honors them (downscaled resolution, chosen fps, slomo duration). Confirm 25% on a 30fps source is juddery-but-expected (interpolation is the fix), and clean on high-fps footage.
-- **🖥️ Loop Builder point 5 + bounce/fps (B393). UNTESTED — interaction-feel will want tuning.**
-  - Crossfade step: **tap the left clip** → an end handle at the seam drags the left clip's end; **tap the right clip** → a start handle drags the right clip's start; **tap the crossfade band** (top half) → drag its edges for duration. Tap = select, drag = scrub still works.
-  - Dragging an endpoint: the handle follows the cursor, the split-stage shows both seam frames live, and the strip **reflows on release** (freeze-then-reflow). Value overlay shows on every drag.
-  - Confirm the top/bottom split feels right (band on top, clips selectable below); confirm a 90/10 slice's tiny right clip is still grabbable (else revisit the zoom idea).
-  - **Bounce bake speed**: a bounce should bake faster than before (forward half fast); confirm the loop is still correct. **fps**: baked loop should match the source rate (a 24/60fps source bakes at 24/60, not 30).
-- **🖥️ Loop Builder review pass 2 (B392). UNTESTED.**
-  - Mode picker shows "loop" while in Loop Builder (not "still"). Sub-header gone; "XXs of XXs" reads UNDER the clip while trimming.
-  - Resize the window on any step — the thumbnail strip + ruler rebuild (no black/clipped cells).
-  - Primary button names the current step ("set slice point ›" on the slice step, etc.); last step "bake loop" (no ✦).
-  - Crossfade step: B and A are proportional to their real durations (90/10 slice looks 90/10); the yellow band is centered on the true seam; dragging its edges shows a white-on-black duration overlay (no popover).
-  - Baking drops straight into motion mode (no "what next?" screen).
-- **🖥️ Loop Builder seam-match + dissolve scrub (B391). UNTESTED.**
-  - Dragging a crossfade seam edge (step 4) pops the two-frame split (before/after seam) while dragging, then returns to the live preview on release.
-  - Scrubbing the timeline THROUGH the crossfade zone shows the blended dissolve (B fading into A), not just one clip; outside the zone it's a clean single frame.
-- **🖥️ Loop Builder review pass (B390). UNTESTED — mostly confirmed by Daniel; undo now works.**
-  - **No visible playthrough on load** — opening a clip should NOT scrub the stage preview through the whole clip while thumbnails build (now uses a separate hidden video).
-  - **Scrubber** works by dragging the timeline on every step (full-clip trim steps, resequenced crossfade step, bake preview) and lands the right frame; parks on the frame if it wasn't playing, resumes if it was.
-  - **Space** plays/pauses the preview on every step INCLUDING crossfade (the resequenced loop with the live dissolve) and the bake-preview step.
-  - **Primary button** reads the action ("choose loop type ›" / "set slice point ›" / "set crossfade ›" / "preview & bake ›" / "apply trim" / "bake loop ✦"), not "next".
-  - **Crossfade band is yellow** and draggable (edge handles) on the crossfade step; **static yellow** (no drag/menu) on the bake-preview step.
-  - **"Preview & bake"** step (renamed) shows the TRIMMED, resequenced loop — no cut-off head/tail.
-  - **SPLIT-STAGE RETIRED from step 4** (was the two-frame seam-match). Decide: relocate seam-match to the slice-point step, or leave it out?
-  - Seam geometry (B389): seam at a true 50%; crossfade region straddles it **asymmetrically** when B≠A (reaches each segment at its own time-scale); clamp = 90% of the shorter segment.
-- **✅ Undo/redo in Loop Builder (B389/B390)** — Daniel: "undo seems to work great now" (2026-07-19). Trim/slice/crossfade/behavior edits ride the global history stack.
-- **🖥️ Loop Builder timeline rework (B388). UNTESTED — geometry will want tuning.**
-  - Footage thumbnails render across the timeline (source clip frames, not the folded output); the time ruler reads right.
-  - On the crossfade step the strip resequences to B→gap→A (crossfade in the middle); non-editable blue slice markers at both ends; crossfade region at the seam is selectable.
-  - The split-stage's two seam frames still populate correctly (now via the thumbnail seek pass).
-  - (B389 made the resequenced halves exactly-equal so the seam is a true 50%, and replaced the crossfade-region width heuristic with real per-segment geometry — verify alongside the seam-drag item above.)
-- **🖥️ Loop Builder 2b — the editing-mode conversion (B387). UNTESTED.**
-  - App bar stays visible + only upload/mode/undo-redo/settings work; surface sits below the bar (check the `top` offset lands right — it's measured from the toolbar height).
-  - Mode picker is the exit; switching modes or uploading a new clip warns on unsaved changes and backs out on cancel; uploading resets the process.
-  - Space plays/pauses the preview (no longer fires "bake"); crossfade −/+ steppers + prominent value work.
-  - Cancel/close buttons are gone.
-- **🖥️ Loop Builder iteration 2 — the stepped mode (B386). UNTESTED.**
-  - Full-screen surface (not a popover), left step rail, progressive disclosure: Trim → Behavior → [Slice → Crossfade] → Bake; slice-only steps appear only for seamless loop; back-nav until bake; rail jumps between reached steps.
-  - Split-stage crossfade seam match on step 4: LEFT = last frame before seam, RIGHT = first after; dragging OUT updates left, IN updates right, in realtime.
-  - Crossfade region on the bar → click to select → contextual menu (duration + remove); inline duration scrub on the step panel.
-  - Keyframe-shift warning when entering with existing keyframes (explicit entry only).
-  - All four behaviors bake correctly (trim only / bounce / seamless loop) and the post-bake nudge still routes.
-  - Feel/polish feedback expected — this was built without runtime testing.
-- **🖥️ Loop Builder integration, iteration 1 (B385).**
-  - Selecting **"loop builder"** in the mode menu opens the Loop Builder sheet (and the picker snaps back to the real mode).
-  - Loading a **video** in still mode auto-opens Loop Builder.
-  - After a **bake**, the next-step nudge appears (render & save · edit in motion · perform · done for now) and each routes correctly (save opens the export sheet; motion/perform switch modes; done closes).
-  - The overflow-menu "loop builder…" entry still opens it.
+Both native frame consumers now share one parser (`shell/frame-header.js`). Nothing should change — that is the entire point. Pure regression pass on the path B540 broke.
 
-## recently confirmed (safe to prune)
+| # | where | do | closes when | channel |
+|---|---|---|---|---|
+| **C1-1** | 📱 iPhone Capacitor, run from Xcode | live camera, still mode | **source panel shows the live feed** — not black, not frozen. 🛑 If this fails, stop: the build is bad on device. | eyes |
+| C1-2 | 📱 iPhone Capacitor | rear ▸ front ▸ rear via flip | feed survives every flip; front mirroring correct | eyes |
+| C1-3 | 📱 iPhone Capacitor | `take still` mode, then upload a still | both show a source (B541 regressed `take still` while upload still worked) | eyes |
+| C1-4 | 📱 iPhone Capacitor | record ~15s, play back in **Photos** | video normal, **audio present and in sync** — confirms the latency field still parses at its offset | eyes |
+| **C1-5** | 📲 iPad Capacitor **+ HDMI**, run from Xcode | play a **video clip** to the external display | clip plays on the panel **and timeline position + duration read correctly in the app**. This is the `FYUW` path, where a misread second f64 corrupts the master clock. | **`copy report`** on the iPad while playing · **plus Xcode console**: filter `[fold]`, paste any line containing `clock` or `duration`. A `duration` of `0` while the clip visibly plays is the exact corruption this row exists to catch. |
+| C1-6 | 📲 iPad Capacitor + HDMI | live **camera** to the external display | feed appears on the external panel | eyes |
 
-- **✅ Camera UX (B379–B381)** — Daniel: "camera UX is looking good and working as expected" (2026-07-18). Stop-recording finishing state, capture-then-freeze, resolution/deep-fusion toggle. (One residual worth a glance: does "49MP · deep fusion" return a true ~49MP still, and how does `.speed` low-light quality read.)
-- **✅ Output window (B382/B383)** — Daniel smoke-tested in Brave (works); checking the new close-with-main-window behavior (B383) now.
+---
+
+## 🎬 Loop Builder — fresh pass (authored B547, replaces B385–B406)
+
+The fifteen B385–B406 rows were **archived rather than carried forward**: they describe an interface that was reshaped three times during the run that produced them (full-screen stepped surface → editing mode with app bar → modal with its own header + step rail; steps merged and renumbered at B395). Verifying them literally would mean checking buttons and layouts a later build removed. This is one pass against the surface as it actually ships, plus the defects Daniel believes are fixed.
+
+**Where:** 🖥️ desktop browser (Brave) for the bake/flow rows, 📲 iPad Capacitor for the touch and safe-area rows. Load a real video source first.
+
+| # | where | do | closes when | channel |
+|---|---|---|---|---|
+| **LB-1** | 🖥️ desktop | start a **seamless-loop** bake, then hit cancel mid-bake | the bake **actually stops** — progress halts, the surface returns to the step, the source is unchanged. Daniel believes this was fixed; it was a known limit at B156/B158. | eyes |
+| **LB-2** | 🖥️ desktop | during a bake, try to navigate **back a step** | either it is cleanly blocked with an explanation, or it cancels the bake and goes back — **not** a half-baked state or a stuck rail. Say which behaviour you get; both are defensible, silence is not. | eyes |
+| **LB-3** | 📲 **iPad Capacitor** | open the Loop Builder, both orientations | 🐛 **KNOWN BUG (BACKLOG quick-wins):** the header collides with the iOS status bar (clock / battery / island). This row is the repro until it is fixed — confirm it, then re-confirm after the fix. Check the step rail's top alignment too. | eyes + a screenshot if convenient |
+| LB-4 | 🖥️ desktop | trim-only ▸ apply | lands in the **motion editor** with the trimmed range, not the still frame-picker | eyes |
+| LB-5 | 🖥️ desktop | bounce bake, then seamless-loop bake | both produce a correct loop; playback is seamless at the wrap | eyes |
+| LB-6 | 📲 iPad | bake a **portrait** iPhone clip (slice and bounce) | baked source is **upright and correctly proportioned** — not rotated 90° or stretched | eyes |
+| LB-7 | 🖥️ desktop | mid-edit, try to switch modes / upload a new clip | warns about unsaved trim changes; cancel backs out cleanly | eyes |
+| LB-8 | 🖥️ desktop | open builder ▸ close via X and via cancel | app bar disappears while open and **returns** on close; changed-trim warns first | eyes |
+| LB-9 | 🖥️ desktop | undo after a trim / slice / crossfade edit | walks back through the edits on the global history stack | eyes |
+
+**If LB-1 or LB-2 fails**, file it rather than fixing in place — mid-bake lifecycle is its own piece of work, not a quick win.
+
+---
+
+## 📦 Carried forward — open, not blocking anything
+
+Kept from the B382–B476 wave because they are genuinely unverified. The rest of that wave is in [`archive/VERIFY-QUEUE-b382-b476.md`](archive/VERIFY-QUEUE-b382-b476.md).
+
+- **📺 [B382, still open] External display + GL-context-lost cluster.** Three parts, all iPad Capacitor: **(a)** HDMI out with a **video source** shows "video sources on the external display are coming" (test pattern + still + live camera work) — video-over-external regressed; **(b)** a 4K external panel detected as 2560×1440 rather than 3840×2160; **(c)** motion→perform throws **"graphics context lost — could not recover"**, and afterwards a new source leaves motion controls stacked over perform controls. Suspected to originate in the conduit extraction. **Needs a repro matrix — desktop web vs Electron vs iPad Capacitor — to localise shared code vs native surface.** Closes with: which of the three surfaces reproduce each part. Note (b) may overlap D1.
+- **📺 [B473] Large-clip video over HDMI — LONG clip half.** Short test ✅ confirmed (2:45 1080p broadcasts fine). Still to do at the workstation: a clip toward ~9min 1080p stages and plays without stall; a genuinely huge 4K/long clip should fall back to an honest hint, **not hang**.
+- **📡 [B472] NDI HD-vs-FHD over WiFi — decisive test.** Blocked on location, not on the build. At the regular workstation: stop NDI → set **HD (1280)** → restart on WiFi. HD smooth + FHD halts ⇒ bandwidth (build an HD-for-WiFi affordance); both halt ⇒ WiFi jitter ⇒ ethernet is the reliable FHD path. iPhone-NDI-over-Thunderbolt is already confirmed smooth.
+- **📺 [B476] Movink resolution + aspect padlock — fixed, never re-checked on device.** Movink should report/render 1920×1080 (`preferredMode`, not largest=2560×1600); on the 4K adapter it should still report 4K. Same pass: iPad — unlock the aspect padlock over HDMI and confirm the ratio buttons are live; iPhone — tap a hard-locked padlock and confirm the explanatory toast appears.
+- **📱 [B476] The `[fold] aspect hard-locked` stale-flag reading.** iPhone from Xcode, filter `aspect hard-locked`, paste the line. **If it reports a broadcast or recording live when you did not start one, that is a stale-flag bug** — Daniel saw the NDI/Syphon toast with no broadcast active.
