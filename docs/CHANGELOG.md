@@ -4,6 +4,29 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🛰️ v0.22.23 (Build 529) — 2026-08-06 — Register the broadcast paths, and the 4K wall turns out to be real
+
+Two device gauntlets (iPhone 17 Pro and 14 Pro) landed together and **overturned this build's own prediction.**
+
+I predicted 4K would run near 60fps with the PiP off, back-solved from B526's accounted total. **Wrong.** With the PiP off, `output render` alone is **37.83ms** on the 14 Pro and drives the 17 Pro to 24-28fps. The earlier accounted figure was small because the render was only being *called* 10 times a second; per-call it was always enormous.
+
+**So the 4K wall is real GPU work in the fold shader sampling an 8.29MP source texture** — the first ceiling this arc has found that is not a round trip, and the first that cannot be fixed by moving pixels a smarter way.
+
+### `output render` is a saturation gauge, not just a cost
+
+WebKit gives no GPU timers, so this pass measures CPU submit time. When it reads 2.97ms the GPU is keeping up; when it reads 32-38ms **the command queue is full and the CPU is blocking on submit.** That reframes every earlier reading of it. The `maxMs` column is the tell: 79ms and 95ms spikes on a pass whose average was single digits a build ago.
+
+### The double render is confirmed, and it is the manipulation cost
+
+17 Pro, FHD, dragging a slice: **31 `output render` calls for 18 frames.** The tick renders `eased` for the take and then `state` to restore the preview whenever the follower is chasing, so **every gesture with a non-instant transition costs two full renders.** At ~18.6ms each that is 37ms of a 58ms frame.
+
+### Shipped: the last two unregistered output paths
+
+- **`broadcast` (NDI)** — split into `blit` (the `drawImage` B528 measured at ~35ms per consume), `read` (a full-canvas `getImageData`, a genuine every-pixel GPU→CPU transfer, on a `willReadFrequently` and therefore CPU-backed canvas) and `publish`. It has escaped every reading in this arc because every diagnostic so far was a record test. **Its fix will not be the PiP's fix** — NDI genuinely needs CPU pixels, so the template is the desktop bus's pipelined PBO readback (19.48ms → 0.87ms), not a bitmap handoff. No kill switch: you do not silently cut someone's live feed to buy frame rate.
+- **`external` (HDMI / AirPlay)** — registered `remote: true`. It self-renders from posted state, so it costs this thread almost nothing but still burns real pixels and real watts. The ledger counts its megapixels and expects no milliseconds, which is the difference between *free* and *invisible*. Whole-device power is megapixels per second, not milliseconds on one thread.
+
+**VERIFY (Daniel):** an NDI broadcast on iPhone, then HDMI, then both with a take rolling. This is the first time either has been measured on any device.
+
 ## ⏱️ v0.22.22 (Build 528) — 2026-08-06 — The transport was not the lever, so rate-limit the monitor
 
 B527 did not work, and failing cleanly is the finding.

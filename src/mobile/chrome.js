@@ -272,6 +272,40 @@ const pipSurface = perf.surface({
 env.perfSurfaces.pip = pipSurface;
 const pipDraw = pipSurface.pass('draw');
 
+// NDI BROADCAST — the phone's own publish path, registered B529. CAPTURE priority: like a take,
+// it is a deliverable someone downstream is watching, so it yields after the editor surfaces.
+// No `onEnabled`: you cannot silently cut someone's live feed to buy frame rate. The switchboard
+// lists it and reports it; stopping a broadcast stays a deliberate act in the real UI.
+const broadcastSurface = perf.surface({
+  id: 'broadcast', label: 'NDI broadcast', serves: 'program', priority: PRIORITY.CAPTURE,
+  size: () => (bcState === 'live' && bcCanvas ? { w: bcCanvas.width, h: bcCanvas.height } : { w: 0, h: 0 }),
+  scaleLadder: [1],
+  note: () => (bcState !== 'live' ? 'idle' : `${bcTier} · gl → 2d → cpu`),
+});
+env.perfSurfaces.broadcast = broadcastSurface;
+const bcBlit = broadcastSurface.pass('blit');
+const bcRead = broadcastSurface.pass('read');
+const bcPublish = broadcastSurface.pass('publish');
+
+// HDMI / AirPlay — a REMOTE surface. It self-renders from posted state in its own view rather
+// than consuming our canvas, so it costs this thread almost nothing but still burns real pixels
+// and real watts. `remote: true` makes the ledger count its megapixels while expecting no ms,
+// which is the difference between "free" and "invisible" — and the whole-device power question
+// is megapixels per second, not milliseconds on this thread.
+const externalSurface = perf.surface({
+  id: 'external', label: 'HDMI / AirPlay', serves: 'program', priority: PRIORITY.CAPTURE,
+  // dims come from the sink (external-display.js publishes them on env), not the host seam —
+  // the host only reports availability. Same resolution path B515 built for the desktop panel.
+  size: () => {
+    const d = extStreaming ? env.externalDisplay?.renderDims : null;
+    return d?.width ? { w: d.width, h: d.height } : { w: 0, h: 0 };
+  },
+  scaleLadder: [1],
+  remote: true,
+  note: () => (extStreaming ? 'self-rendering (state posted)' : 'idle'),
+});
+env.perfSurfaces.external = externalSurface;
+
 // The SOURCE path — everything between the camera and a usable texture. Registered as a surface
 // so it appears in the ledger alongside the renders it feeds: its "size" is the SOURCE's pixel
 // dimensions, which is the number that actually drives its cost, and which the camera-resolution
@@ -989,9 +1023,26 @@ function paintBroadcast() {
     host.ndi.publish(tf.pixels, tf.w, tf.h, tf.topDown !== false);
     return;
   }
+  // THE LAST UNINSTRUMENTED PER-FRAME PATH (B529). It has escaped every reading in this arc
+  // because it only runs while broadcasting and every diagnostic so far was a record test.
+  //
+  // Split into the two costs with different fixes, exactly as the record path was: `blit` is
+  // `drawImage` out of the WebGL canvas — the operation B528 measured at ~35ms per consume on
+  // WebKit — and `read` is the full-canvas `getImageData`, a genuine GPU→CPU transfer of every
+  // pixel. This canvas is `willReadFrequently`, so it is CPU-backed by construction.
+  //
+  // EXPECT THIS TO BE EXPENSIVE, and note the fix is NOT the PiP's fix: NDI genuinely needs the
+  // pixels on the CPU, so a bitmap handoff cannot help. The template is the desktop bus (B519/
+  // B521): a pipelined PBO readback, which took desktop 4K from 19.48ms to 0.87ms.
+  bcBlit?.begin();
   bcCtx.drawImage(outputCanvas, 0, 0, bcCanvas.width, bcCanvas.height);
+  bcBlit?.end();
+  bcRead?.begin();
   const img = bcCtx.getImageData(0, 0, bcCanvas.width, bcCanvas.height);
+  bcRead?.end();
+  bcPublish?.begin();
   host.ndi.publish(new Uint8Array(img.data.buffer, 0, img.data.byteLength), bcCanvas.width, bcCanvas.height, true);
+  bcPublish?.end();
 }
 function startBroadcast() {
   if (bcState === 'live' || !host.ndi?.available) return;

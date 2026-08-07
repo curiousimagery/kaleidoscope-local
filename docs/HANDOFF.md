@@ -28,6 +28,8 @@ He prefers **no em dashes** in any prose Claude generates for him.
 
 **🏆 B521 IS THE ARC'S BIGGEST WIN, VERIFIED: desktop 4K Syphon readback 19.48ms → 0.87ms (22x), fps 33.7 → 85.3, bus note `capture: async`.** The cost was the STALL, not the transfer. This retires two of my own claims: that ~19ms was a hardware floor, and that 4K/60 Syphon was unreachable in Electron. Both wrong; it is comfortable now.
 
+**📕 NEW LIVING DOC: `docs/CAPABILITIES.md`** — what we can deliver, on what hardware, and how detection must work. Read it before any capability-tier, warning, or degradation UX work. Its governing finding: **probe, never classify.** An iPhone 14 Pro beats an iPhone 17 Pro on FHD recording (59.9 vs 50.5fps) despite being three chip generations older and slower on every registered item, because one operation — consuming the WebGL canvas as an image source — is nearly free on the older device and ~35ms on the newer one. Any tier list built from chip generation would have been wrong about the only thing that mattered.
+
 **✅✅ B528 VERIFIED — THE iPHONE RECORDING THREAD IS CLOSED.** PiP at 10Hz: **19.1 → 50.5fps**, frame p50 52 → 16ms, pressure critical → nominal, **51 record-encode calls per second against a 30fps target**. The cost was per-consume, so the rate limit was the fix. Remaining gap to 60 is the ten consumes themselves (~30-40ms each), visible honestly as **p95 46ms against p50 16ms** — a hitch ten times a second. 10Hz stays the default because a slower monitor stops reading as live; the knob is one tap away.
 
 **THE FULL iPHONE FHD RECORDING ARC: 16.1fps → 50.5fps**, across four separate GPU→CPU round trips (B518 camera, B525 record blit, B528 PiP) plus the instrument that found the last one (B526 `unaccountedMs`).
