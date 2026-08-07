@@ -148,8 +148,11 @@ export function createEngine({ canvas, maxProbeSize, perf = null }) {
     // for a live <video> source the shell calls this each render tick. no-op
     // for a still image (the frame never changes) and while a video has no
     // decoded frame yet (readyState < HAVE_CURRENT_DATA).
+    // Returns TRUE when new pixels actually reached the texture. Callers use it to skip a render
+    // that would be identical to the last one — a 60Hz loop over a 30fps camera otherwise draws
+    // every frame twice (B542). `false` means "the texture still holds what it held".
     updateSourceFrame() {
-      if (!sourceTexture || !sourceImage) return;
+      if (!sourceTexture || !sourceImage) return false;
       // PLANAR FIRST. When a native decode is feeding this engine, its frames are raw
       // YUV planes sitting in CPU memory — uploading them here beats sampling whatever
       // canvas some other context painted them onto (see gl.js createPlanarUploader).
@@ -162,15 +165,19 @@ export function createEngine({ canvas, maxProbeSize, perf = null }) {
           planar.upload(frame, planarCap);
           sourceAspect = frame.width / frame.height;
           sourceW = frame.width; sourceH = frame.height;
-          return;
+          return true;
         }
         // nothing new off the wire: the frame already in the planar texture stands.
         // Falling through here would re-upload the ELEMENT — which on this path is the
         // preview canvas, i.e. exactly the cross-context readback we came to delete.
-        if (planar && planar.width > 0) return;
+        if (planar && planar.width > 0) return false;
       }
-      if (sourceImage.readyState !== undefined && sourceImage.readyState < 2) return;
+      if (sourceImage.readyState !== undefined && sourceImage.readyState < 2) return false;
       updateTexture(glCtx.gl, sourceImage, sourceTexture);
+      // A <video>/element source has no "is this frame new" signal here, so this is honestly
+      // optimistic: it reports an upload happened, which it did. Elision on that path needs
+      // requestVideoFrameCallback (filed) — the planar path above is where the phone lives.
+      return true;
     },
 
     // Install (or clear, with null) a planar frame provider. The shell keeps calling

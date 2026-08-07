@@ -4,6 +4,47 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🚦 v0.22.37 (Build 543) — 2026-08-07 — The first governor rule: starve the PiP at 4K
+
+**The only rule this arc has earned, shipped on its own rather than inside a controller built on assumptions.**
+
+**Measured:** at a 4K source, each PiP consume costs so much that ten per second saturate the whole budget — the 14 Pro recorded **11.0fps with the monitor at 10Hz against 11.4fps with it off**, and the 17 Pro fared no better. At FHD the same consume is affordable and 10Hz is nearly free (50.5fps live). **So this is a resolution cliff, not a slider: at 4K the PiP cannot be rationed, only removed.**
+
+Daniel's UX call, and it avoids a new affordance: **the surface stays, only the content is starved.** The record / broadcast dot keeps its home, and the empty box carries its own explanation — `preview unavailable while capturing at 4K` in dim text on a raised surface — rather than a toast that has to be read before it disappears.
+
+- Threshold is on **source** megapixels, because that is what the cost tracks. The thumbnail is 238px either way; what the consume waits on is the pipeline behind it.
+- Only while actually capturing (recording or broadcasting). Framing up at 4K keeps its monitor.
+- The eased render is skipped for a starved PiP too, since nothing is consuming it (B542's H5 rule composes with this one).
+- Re-evaluated in `updateLiveUI()` as well as the paint loop, so leaving video mode cannot strand the starved state.
+
+### Why the rest of the governor is still not built
+
+Its other decisions — what yields first, at what pressure, what the sustained setpoint should be — need the B/C/D rows of the verification matrix. One measured rule is a rule; a framework wrapped around one rule is speculative generality, and building the thresholds on assumption is the mistake this arc has punished four times. The structure follows once there are three real rules to generalise from.
+
+**Owed:** the PiP is not in the UI Lab at all, so its states (normal / starved / rec dot) still need an entry. Flagged rather than rushed.
+
+## 🪫 v0.22.36 (Build 542) — 2026-08-07 — Stop drawing pictures nobody asked for
+
+Back to the thermal arc. Three changes, all of them "do not render what nothing will look at".
+
+### The hazard, closed first
+
+Since B525 the recorder encodes the output canvas **directly**, so the resolution ladder scales the deliverable — and `recSize` is locked at record start, so a mid-take step made `paintRecord` fall back to the scaling blit B525 deleted, at ~40ms/frame. The switchboard could reach it. `sizeOutput` now clamps the stepper to 1 while `recState === 'recording'`, at the source of truth so no path can bypass it, and the surface note says `ladder locked — this canvas IS the take` rather than letting a stepper look effective while being ignored.
+
+### H3 — the display refreshes twice as often as the camera produces
+
+60 refreshes a second against 30 new camera images meant **half of every render redrew what was already on screen.** The bus has had idle elision since B513; the main render never did. `updateSourceFrame()` now reports whether new pixels actually landed, and a render is skipped when nothing arrived and state is unchanged.
+
+The guard is a full `JSON.stringify(state)` rather than a hand-listed signature, deliberately: the app has one flat state object, so stringifying it **cannot miss a field**. A signature with a gap shows a stale frame — the worst failure this could have — and a hand-maintained list is precisely how that gap appears three builds later.
+
+**Never active while recording, broadcasting, or driving an external display.** Skipping a frame there would drop it from the deliverable, and no battery saving is worth a hole in someone's take. That confines it to the idle/preview case, which is also the sustained-installation case: hours of a scene nobody is touching.
+
+### H5 — the eased render drawn for nobody
+
+While the follower chases, `eased` feeds the take and `state` is the on-screen preview: two full renders per frame, measured at 31 renders for 18 frames. But the eased render is only worth making if something consumes it — a take, a broadcast, an external display, or a PiP showing the output. **When none of those are true, which is most of the time someone is framing a shot, it was a whole render drawn for nobody.**
+
+Not attempted: halving the *preview* render while diverged. It has a real visual cost (the preview would alternate between eased and immediate) and should be Daniel's judgement against a device, not a silent default.
+
 ## 🩹 v0.22.35 (Build 541) — 2026-08-07 — Fix the dark source panel B540 caused, and default the selfie lens to standard
 
 **A/V sync is confirmed correct on device.** Two follow-ups.

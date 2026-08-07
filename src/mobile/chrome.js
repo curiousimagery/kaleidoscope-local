@@ -65,6 +65,7 @@ document.body.innerHTML = `
       <span id="m-stage-label" class="m-hidden"><i id="m-stage-dot"></i><span id="m-stage-label-text">preview</span></span>
       <div id="m-pip" class="m-hidden">
         <canvas id="m-pip-canvas"></canvas>
+        <div id="m-pip-msg"></div>
         <span class="m-pip-label"><i id="m-pip-dot"></i><span id="m-pip-label-text">output</span></span>
       </div>
       <button id="m-canvas-gear" class="m-hidden" title="canvas settings">${ICONS.sliders}</button>
@@ -110,6 +111,8 @@ const outputSurface = perf.surface({
   id: 'output', label: 'output canvas', serves: 'program', priority: PRIORITY.PROGRAM,
   size: () => ({ w: outputCanvas.width, h: outputCanvas.height }),
   onScale: () => layout(),
+  // say so, rather than letting a stepper look effective while sizeOutput ignores it
+  note: () => (recState === 'recording' ? 'ladder locked — this canvas IS the take' : ''),
 });
 
 let engine;
@@ -265,8 +268,9 @@ const pipSurface = perf.surface({
   size: () => (pipCanvas && !pipEl?.classList.contains('m-hidden')
     ? { w: pipCanvas.width, h: pipCanvas.height } : { w: 0, h: 0 }),
   scaleLadder: [1],
-  note: () => (pipEl?.classList.contains('m-hidden') ? 'hidden'
-    : `${pipBitmapCtx ? 'gl → bitmap (async)' : 'gl → 2d'}${pipBitmapCtx && perfFlags.pipThrottle ? ` · ${PIP_HZ}Hz` : ' · every frame'}`),
+  note: () => (pipEl?.classList.contains('pip-starved') ? 'starved — source too large to monitor while capturing'
+    : pipEl?.classList.contains('m-hidden') ? 'hidden'
+      : `${pipBitmapCtx ? 'gl → bitmap (async)' : 'gl → 2d'}${pipBitmapCtx && perfFlags.pipThrottle ? ` · ${PIP_HZ}Hz` : ' · every frame'}`),
   onEnabled: (v) => { pipSkip = !v; },
 });
 env.perfSurfaces.pip = pipSurface;
@@ -1416,7 +1420,38 @@ const PIP_HZ = 10;             // a monitor's refresh, not the program's
 try { pipBitmapCtx = pipCanvas.getContext('bitmaprenderer'); } catch { pipBitmapCtx = null; }
 const pipPresent = pipSurface.pass('present');
 
+// THE FIRST GOVERNOR RULE, and the only one this arc has earned (B543).
+//
+// MEASURED: at a 4K source each PiP consume costs so much that ten per second saturate the whole
+// budget — 14 Pro recorded 11.0fps with the monitor at 10Hz against 11.4fps with it off, and the
+// 17 Pro fared no better. **At 4K the PiP cannot be rationed, only removed.** At FHD the same
+// consume is affordable and 10Hz is nearly free (50.5fps with it live), so this is a resolution
+// cliff rather than a slider.
+//
+// The SURFACE stays and only the CONTENT is starved (Daniel's call): the record / broadcast dot
+// keeps its home, so nothing has to be re-homed into a new affordance, and the empty box carries
+// its own explanation instead of a toast that has to be read before it disappears.
+//
+// Threshold is on SOURCE megapixels because that is what the cost tracks — the thumbnail is
+// 238px either way; what the consume waits on is the pipeline behind it.
+const PIP_MAX_SOURCE_MP = 4;
+function pipStarveReason() {
+  const capturing = recState === 'recording' || bcState === 'live';
+  if (!capturing) return null;
+  const d = engine.getSourceSize?.() || { w: 0, h: 0 };
+  if ((d.w * d.h) / 1e6 <= PIP_MAX_SOURCE_MP) return null;
+  return `preview unavailable while capturing at ${d.h >= 2000 || d.w >= 2000 ? '4K' : 'this resolution'}`;
+}
+// applied where the PiP's visibility is already managed, so it cannot drift out of step
+function syncPipStarve() {
+  const reason = pipStarveReason();
+  pipEl.classList.toggle('pip-starved', !!reason);
+  if (reason) $('m-pip-msg').textContent = reason;
+  return !!reason;
+}
+
 function paintPip() {
+  if (syncPipStarve()) return;               // starved: the surface stays, the content does not
   if (pipSkip || pipEl.classList.contains('m-hidden')) return;
   const w = pipEl.clientWidth;
   if (!w || !outputCanvas.width || !outputCanvas.height) return;
@@ -1534,6 +1569,34 @@ function startLiveLoop() {
   if (liveActive) return;
   liveActive = true;
   lastTickT = 0;
+  // IDLE RENDER ELISION (B542). The display refreshes 60 times a second; the camera produces 30
+  // new images a second. So half of every render redrew pixels identical to the one before —
+  // pure heat, and the single biggest lever for the sustained/installation case where nothing is
+  // being manipulated for hours. The bus has had this logic since B513; the main render never did.
+  //
+  // The guard is a full `JSON.stringify(state)` rather than a hand-listed signature ON PURPOSE:
+  // the app has one flat state object, so stringifying it cannot miss a field. A signature with a
+  // gap shows a stale frame, which is the worst failure this could have, and a hand-maintained
+  // list is exactly how that gap appears later.
+  //
+  // NEVER elides while recording or broadcasting. Skipping a frame there would drop it from the
+  // deliverable, and no battery saving is worth a hole in someone's take.
+  let lastRenderSig = null;
+  function renderIfChanged(snapshot, newPixels) {
+    const capturing = recState === 'recording' || bcState === 'live' || extStreaming;
+    if (!perfFlags.renderElide || capturing || newPixels) {
+      engine.render(snapshot);
+      lastRenderSig = capturing ? null : JSON.stringify(snapshot);
+      return true;
+    }
+    const sig = JSON.stringify(snapshot);
+    if (sig === lastRenderSig) return false;      // provably the same image — skip it
+    engine.render(snapshot);
+    lastRenderSig = sig;
+    return true;
+  }
+  // any resize, context restore or explicit redraw request invalidates the comparison
+  env.invalidateRenderCache = () => { lastRenderSig = null; };
   const tick = (now) => {
     if (!liveActive) return;
     // THE SOURCE PATH, measured. Daniel's B515 observation was that the iPhone runs warm on
@@ -1545,7 +1608,7 @@ function startLiveLoop() {
     camera.refreshFrame();                     // front camera: redraw mirrored frame
     srcRefresh.end();
     srcUpload.begin();
-    engine.updateSourceFrame();
+    const newPixels = engine.updateSourceFrame();
     srcUpload.end();
     if (videoMode) {
       // record video: the OUTPUT (PiP + recording) eases toward the edited
@@ -1564,22 +1627,38 @@ function startLiveLoop() {
       lastEased = diverged ? eased : null;   // the program = the followed look while it chases
       updateGhosts(now, eased, !diverged);
       if (!diverged) {
-        engine.render(state);
-        paintRecord(); paintBroadcast(); paintPip();
+        // settled: one render serves preview, PiP and take alike — elide when it would be
+        // identical to the last one (no new camera pixels, no state change)
+        if (renderIfChanged(state, newPixels)) { paintRecord(); paintBroadcast(); paintPip(); }
       } else if (pipSwapped) {
         // big panel = OUTPUT: preview renders first for the PiP copy, the
-        // followed render stays on screen and feeds the recording
+        // followed render stays on screen and feeds the recording. Both are on screen here,
+        // so neither can be elided.
         engine.render(state);
         paintPip();
         engine.render(eased);
         paintRecord(); paintBroadcast();
+        lastRenderSig = null;
       } else {
-        engine.render(eased);
-        paintRecord(); paintBroadcast(); paintPip();
-        engine.render(state);                  // restore the preview on screen
+        // THE DOUBLE RENDER (B542). While the follower chases, `eased` feeds the take and
+        // `state` is the on-screen preview — two full renders per frame, measured at 31 renders
+        // for 18 frames on Daniel's 17 Pro. But the eased render is only worth making if
+        // something actually consumes it: a take, a broadcast, or a PiP that is showing the
+        // output. When none of those are true (framing up a shot, which is where the phone
+        // spends most of its life) it is a whole render drawn for nobody.
+        const pipShowsOutput = !pipSkip && !pipEl.classList.contains('m-hidden') && !pipStarveReason();
+        const easedConsumed = recState === 'recording' || bcState === 'live' || extStreaming || pipShowsOutput;
+        if (easedConsumed) {
+          engine.render(eased);
+          paintRecord(); paintBroadcast(); paintPip();
+          engine.render(state);                // restore the preview on screen
+          lastRenderSig = null;                // the canvas no longer matches any cached sig
+        } else {
+          renderIfChanged(state, newPixels);   // preview only — nobody is watching the program
+        }
       }
     } else {
-      engine.render(state);
+      renderIfChanged(state, newPixels);
     }
     lastTickT = now;
     sourceOverlay.render();
@@ -1599,6 +1678,9 @@ function stopCameraStream() {
 
 function updateLiveUI() {
   env.syncLocks?.();      // output-live state may have changed → re-sync structural locks
+  // re-evaluate here too, not only in the paint loop: leaving video mode stops paintPip, which
+  // would otherwise leave the starved state stuck on
+  syncPipStarve();
   const cap = $('m-tab-capture');
   cap.disabled = false;   // the busy states below re-disable as needed
   // the top-row camera control: the camera-settings menu on the native path (flip +
@@ -2357,7 +2439,12 @@ function sizeOutput() {
   if (w === 0 || h === 0) return;
   // ledger stepper scales the drawing buffer only; the CSS box is untouched, so a stepped-down
   // output fills the same panel at lower detail rather than shrinking
-  const dpr = Math.min(window.devicePixelRatio || 1, 2) * outputSurface.scale;
+  // THE LADDER IS LOCKED DURING A TAKE (B542). Since B525 the recorder encodes THIS canvas
+  // directly, so stepping it down scales the deliverable down — and `recSize` is locked at record
+  // start, so a mid-take change makes paintRecord fall back to the scaling blit B525 deleted, at
+  // ~40ms/frame. The switchboard could reach this; clamping here means no path can.
+  const stepper = recState === 'recording' ? 1 : outputSurface.scale;
+  const dpr = Math.min(window.devicePixelRatio || 1, 2) * stepper;
   // fit a frameAspect (w/h) rect in the panel — mobile was square-only until
   // the canvas menu gained the aspect row (B295)
   const a = session.frameAspect || 1;
@@ -2380,7 +2467,12 @@ function sizeOutput() {
   }
   const cap = 2048 / Math.max(pw, ph);
   if (cap < 1) { pw = Math.floor(pw * cap); ph = Math.floor(ph * cap); }
-  if (outputCanvas.width !== pw || outputCanvas.height !== ph) { outputCanvas.width = pw; outputCanvas.height = Math.max(1, ph); }
+  if (outputCanvas.width !== pw || outputCanvas.height !== ph) {
+    outputCanvas.width = pw; outputCanvas.height = Math.max(1, ph);
+    // a resized drawing buffer is cleared, so the cached "this is already on screen" signature
+    // no longer describes anything — force the next tick to draw
+    env.invalidateRenderCache?.();
+  }
   outputCanvas.style.width = Math.round(cw) + 'px';
   outputCanvas.style.height = Math.round(ch) + 'px';
   if (engine.getSourceImage()) scheduleRender();

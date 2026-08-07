@@ -41,6 +41,15 @@ html, body { margin: 0; padding: 0; height: 100%; background: var(--bg); color: 
 #m-pip.pip-r { right: var(--pip-r); }
 #m-pip.pip-l { left: var(--pip-l); }
 #m-pip canvas { display: block; width: 100%; }
+/* STARVED PiP: the monitor is unaffordable (4K + capture) but the surface stays, so the record /
+   broadcast status dot keeps its home and nothing has to be re-homed elsewhere. `visibility`
+   rather than `display` so the canvas still supplies the box its height. */
+#m-pip.pip-starved canvas { visibility: hidden; }
+#m-pip-msg { display: none; position: absolute; inset: 0; align-items: center; justify-content: center;
+  padding: 0 10px; text-align: center; text-wrap: balance;
+  background: var(--surface-raised); color: var(--text-dim);
+  font-size: var(--text-xs); line-height: 1.35; pointer-events: none; }
+#m-pip.pip-starved #m-pip-msg { display: flex; }
 .m-pip-label { position: absolute; top: 4px; left: 6px; display: inline-flex; align-items: center; gap: 5px;
   font-size: var(--text-xs); color: var(--text-bright); text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
   letter-spacing: 0.06em; text-transform: lowercase; pointer-events: none; }

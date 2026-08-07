@@ -6,6 +6,65 @@ Legend: 🖥️ desktop browser · 📺 external display / AirPlay (workstation)
 
 ## open
 
+### 🔥 THERMAL ARC — the matrix (B540–B542, 2026-08-07)
+
+**Order matters: run A first.** A is a hazard check and a no-regression pass; if the render elision shows a stale frame, everything after it is measuring a broken build. Each row: set it up, do the thing, then **copy report** and note the fps / `unmeasured` / pressure.
+
+**Blocked on this matrix:** the governor (item 4). It needs the sustained + HDMI numbers to be designed against measurement rather than assumption — see the note at the end.
+
+#### A. No-regression pass (do first, ~10 min, iPhone)
+| # | setup | do | pass condition |
+|---|---|---|---|
+| A1 | live camera, still mode | leave it sitting, then move a slice | preview never stale or frozen; motion is immediate |
+| A2 | record video mode, PiP visible | record ~20s, move the slice mid-take | take has every frame; no stutter |
+| A3 | mid-take | open the panel, try stepping the **output** ladder down | stepper has no effect; note reads `ladder locked — this canvas IS the take` |
+| A4 | any | toggle `render: skip identical frames` off/on | no visual difference except battery/heat |
+
+**If A1 or A4 shows a stale preview:** turn `render: skip identical frames` OFF and say so — the elision guard has a gap and it is the first thing to fix.
+
+#### B. The elision win (iPhone, and iPad if convenient)
+| # | scenario | compare | looking for |
+|---|---|---|---|
+| B1 | live camera, static scene, NOT recording | flag ON vs OFF | `output render` calls per second should roughly HALVE; fps steady |
+| B2 | same, left running 10+ min | ON vs OFF | **pressure and device warmth** — this is the sustained/installation case |
+| B3 | record video, framing up (not recording), PiP HIDDEN | ON vs OFF | the eased render should disappear entirely |
+
+#### C. H2 — the unexplained third of every 4K frame (no build needed, ~5 min)
+| # | scenario | looking for |
+|---|---|---|
+| C1 | 4K source = **camera**, PiP off | baseline: ~11fps on 14 Pro, `unmeasured` ~33ms |
+| C2 | 4K source = **a still image instead of the camera** | if fps jumps and `unmeasured` collapses, the missing third is the native camera bridge |
+
+#### D. HDMI — never measured on any device
+| # | scenario | looking for |
+|---|---|---|
+| D1 | HDMI/AirPlay connected, idle | `external` row reports real dimensions, not 0×0 |
+| D2 | HDMI + live camera | fps and `unmeasured` vs no-HDMI baseline |
+| D3 | HDMI + recording a take | **the combination that decides the PiP question** |
+| D4 | HDMI, 10+ min | pressure drift, warmth |
+
+#### E. The starved PiP at 4K (B543)
+| # | scenario | pass condition |
+|---|---|---|
+| E1 | 4K source, start a take | PiP box stays, content replaced by `preview unavailable while capturing at 4K`; rec dot still visible |
+| E2 | same, stop the take | PiP returns to live immediately |
+| E3 | 4K, framing up, NOT capturing | PiP is LIVE — the rule is capture-only |
+| E4 | FHD, recording | PiP live at 10Hz, unchanged |
+| E5 | 4K recording | fps vs the old 10Hz-PiP number (14 Pro: 11.0) — expect it near the PiP-off number (11.4) |
+
+#### F. A/V + audio confirmations (short)
+| # | scenario | pass condition |
+|---|---|---|
+| E1 | front camera, `standard`, talking | sound present, lips in sync |
+| E2 | front camera, `smooth+`, talking | sound present, **still** in sync |
+| E3 | rear camera, `smooth+` | in sync |
+| E4 | flip lenses without touching the control | front defaults `standard`, rear `cinematic` |
+| E5 | pick a mode explicitly, then flip | the choice survives the flip |
+
+#### Why the governor is not built yet
+Its first rule is already known and measured — **the PiP must go OFF at 4K, not merely slow down** (11.0fps at 10Hz vs 11.4fps off; at that resolution each consume is so expensive that ten per second saturate the budget). That is a user-visible behaviour change and it collides with an open UX question: does choosing 4K silently disable the monitor, or explain that it is unavailable? That is Daniel's call, not an implementation detail. Everything else a governor would decide — what yields first, at what pressure, and what the sustained setpoint should be — needs B2, B4 and D4. Building it on assumptions is the mistake this arc has punished repeatedly.
+
+
 ### 🌐 NDI / HDMI / conduit wave — B470–B474 (2026-07-29)
 - **📱📺 Large-clip video over HDMI/AirPlay — chunked staging (B473, needs Xcode rebuild).** ✅ SHORT TEST CONFIRMED (Daniel, cable+Movink): the 2:45 1080p clip that failed the old 60MB cap now broadcasts uneventfully. STILL TO DO at the workstation: a **longer/larger clip** (toward ~9min 1080p) to confirm it stages + plays without stall; a genuinely huge 4K/very-long clip should fall back to the honest hint (not hang).
 - **📱 NDI over WiFi — decisive HD-vs-FHD test (B472 pacing confirmed working).** BLOCKED at Starbucks (WiFi device detection off). At the regular workstation: pacing is confirmed even (30.0fps / gap 33.5ms / send-wait 0.0ms) but Arena still halts at FHD over WiFi. Test: stop NDI → set **HD (1280)** → restart on WiFi. HD smooth + FHD halts ⇒ bandwidth (HD-for-WiFi affordance); HD also halts ⇒ WiFi jitter/router ⇒ ethernet is the reliable FHD path. (iPhone-NDI-over-Thunderbolt already confirmed smooth — cable removes the WiFi variable.)

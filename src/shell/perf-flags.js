@@ -102,6 +102,18 @@ export const perfFlags = {
   // make it the arc's first genuine "we cannot deliver this as designed" finding.
   pipThrottle: true,
 
+  // Skip a render that would be pixel-identical to the last one (B542). The display refreshes 60
+  // times a second; the camera produces 30 new images a second, so half of every render redrew
+  // what was already on screen. Guarded by a full `JSON.stringify(state)` — the app has one flat
+  // state object, so it cannot miss a field the way a hand-listed signature eventually would.
+  //
+  // NEVER active while recording, broadcasting or driving an external display: skipping there
+  // would drop a frame from the deliverable. This is the idle/preview case, which is also the
+  // sustained-installation case — hours of a scene nobody is touching.
+  //
+  // OFF = render every rAF, the pre-B542 behaviour. Turn it off if the preview ever looks stale.
+  renderElide: true,
+
   // Force takes through MediaRecorder instead of WebCodecs (B537). ON = the pre-B365 recorder,
   // which muxes natively and demonstrably produces sound — the package's RAW take has had audio
   // this whole time and it is the only thing on that path.
@@ -142,5 +154,6 @@ export const PERF_FLAG_SPECS = [
   ['recordDirect', 'record: encode the GL canvas', 'off = the 2D blit (40ms/frame at FHD on iPhone)'],
   ['pipThrottle', 'PiP: 10Hz monitor', 'off = every frame (17fps vs 60 while recording)'],
   ['recordMediaRecorder', 'record: use MediaRecorder', 'on = the pre-B365 recorder — takes have SOUND, lower video quality'],
+  ['renderElide', 'render: skip identical frames', 'off = render every rAF (2x the renders on a 30fps camera)'],
   ['recordForceFlush', 'record: force sync rasterize', 'Blink-only by default; ON here if a WebKit take shows a stale frame'],
 ];
