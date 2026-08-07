@@ -28,7 +28,7 @@
 // NOTHING HERE CHANGES HOW THE APP BEHAVES unless you touch a switch, and nothing persists
 // except a baseline you explicitly save.
 
-import { perfFlags, PERF_FLAG_SPECS } from './perf-flags.js';
+import { perfFlags, PERF_FLAG_SPECS, PERF_FLAG_DEFAULTS } from './perf-flags.js';
 
 const BASELINE_KEY = 'foldPerfBaseline';
 
@@ -411,7 +411,7 @@ export function mountPerfPanel(env, { container = null, onClose = null } = {}) {
         if (!s.enabled) ledger.setSurfaceEnabled(s.id, true);
         if (s.scale !== 1) ledger.setSurfaceScale(s.id, 1);
       }
-      for (const [key] of PERF_FLAG_SPECS) perfFlags[key] = true;
+      for (const [key] of PERF_FLAG_SPECS) perfFlags[key] = PERF_FLAG_DEFAULTS[key];
       ledger.enabled = false;
       env.scheduleOverlayDraw?.();
       env.scheduleRender?.();

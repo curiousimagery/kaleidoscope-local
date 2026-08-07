@@ -4,6 +4,16 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🩹 v0.22.32 (Build 538) — 2026-08-07 — The panel's restore-on-close was about to sabotage the test
+
+`destroy()` restored the optimization flags by setting **every** flag to `true`. That was correct only while every flag defaulted to on — the rule was "closing must never leave the app de-optimized."
+
+`recordMediaRecorder` (B537) defaults to **false**. So closing the panel would have silently switched recording *to* the fallback path, which is the exact opposite of restoring, and would have corrupted the very A/B it was added for.
+
+Restore now reads `PERF_FLAG_DEFAULTS`, a snapshot of the shipped values taken at module load, so it stays correct no matter what a future flag defaults to.
+
+Also corrected in the docs: **the report has been readable mid-take since B533** — it reports the session's *configuration* while `live: true`. What does not exist until a take ENDS is the *outcome* (peak, chunks, container), because those are measured at finish. B537's changelog overstated this as "the diagnostic never reached anyone"; the console lines Daniel supplied were post-take and complete. The panel row is still worth having — it removes the Xcode dependency — but it was not why the bug survived.
+
 ## 🔁 v0.22.31 (Build 537) — 2026-08-07 — A working recorder now, and the verdict on screen
 
 Six builds of instrumentation on the silent take. Enough — ship a way to record with sound while the WebCodecs chain gets resolved.

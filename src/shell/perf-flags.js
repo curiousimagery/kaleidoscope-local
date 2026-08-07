@@ -123,6 +123,14 @@ export const perfFlags = {
   asyncReadback: true,
 };
 
+// The SHIPPED defaults, snapshotted at load. The panel restores from this on close.
+//
+// It used to restore by setting every flag to `true`, which was correct only while every flag
+// defaulted to on ("closing must never leave the app de-optimized"). `recordMediaRecorder`
+// defaults to FALSE, so that blanket restore would have silently switched recording to the
+// fallback path the moment the panel closed — the exact opposite of restoring.
+export const PERF_FLAG_DEFAULTS = { ...perfFlags };
+
 // the switchboard entries the frame-cost panel renders — id, label, and what each one means when
 // you turn it OFF (which is the direction you are testing)
 export const PERF_FLAG_SPECS = [
