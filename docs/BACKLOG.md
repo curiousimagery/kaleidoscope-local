@@ -59,6 +59,18 @@ Each entry names a SYMPTOM to watch for, what it would mean, and the mitigation 
 
 **🐛 BUGS SURFACED BY THE GAUNTLET.** 4K takes fail after a few minutes with "recording failed" and a finish that outlasts the take (17 Pro) — expected at 6-11fps with encoder backpressure plus thermal, but it is a data-loss failure and needs its own fix. 14 Pro at 4K showed color shifts and a freeze on the source/output until toggling to still and back.
 
+### 🎬 A/V SYNC: MOTION SMOOTHING PUTS THE RECORDED PICTURE BEHIND THE RECORDED SOUND (Daniel, B532)
+
+**Observed on device:** with smoothing on, the on-screen image lags reality enough that you see your lips move after you hear the word. Daniel flagged it while testing audio, and it has a consequence beyond the live feel.
+
+**The take records the EASED render** (`engine.render(eased)` feeds `paintRecord`) **while the mic is captured in real time.** So once audio works, the finished file will have **audio LEADING video by roughly the follower's time constant.** This is not a bug in the recorder; it is smoothing behaving exactly as designed, on a path where one stream is smoothed and the other is not.
+
+- **It will not fix itself at playback.** Both tracks are timestamped from the same session clock (`t0`), so they will be muxed "in sync" — and that is the problem. The video content is deliberately delayed; the timestamps do not know that.
+- **The fix is to delay the audio to match**, by offsetting audio timestamps by the follower's effective latency. That latency is not a single number (the follower is an exponential ease toward a target, so lag depends on how fast the target is moving), which makes "the right offset" a design decision rather than a lookup.
+- **Options, roughly in order of honesty:** (a) derive a nominal offset from the follower's response constant and apply it as a fixed audio delay; (b) measure the actual lag by comparing target and eased state during a take and apply the average; (c) accept the offset and document it; (d) record the un-eased render and let smoothing be a preview-only affordance — which changes what the product *is*, so it is Daniel's call, not an implementation detail.
+- **Do not attempt this until audio records at all** — an A/V offset cannot be judged against silence. But it should be checked on the FIRST take that has sound, because it decides whether the audio work is actually finished.
+- **Note the interaction with the perf levers:** H5 (skip the preview render while diverged) touches the same eased/immediate split. Whoever picks up either one should read both.
+
 ### 🎨 COLOR MANAGEMENT — a product gap, not a perf detail (Daniel, B531)
 
 Surfaced while investigating why the 17 Pro is slower than the 14 Pro at consuming the WebGL canvas (a possible Display P3 conversion). **Daniel's read is that the perf angle is the smaller half.** The real gap is that Fold has no color management story, and two audiences need one:

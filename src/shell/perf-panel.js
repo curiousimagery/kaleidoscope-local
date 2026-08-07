@@ -211,6 +211,12 @@ export function mountPerfPanel(env, { container = null, onClose = null } = {}) {
     const text = JSON.stringify({
       build: env.buildLabel || '', scenario: scenarioSel.value, device: deviceKey(),
       ua: navigator.userAgent, report: ledger.report, baseline,
+      // THE CONSOLE IS NOT A CHANNEL WE ACTUALLY HAVE (B532). Reading console output on a
+      // Capacitor device needs Safari Web Inspector attached; the exported report is the path
+      // that demonstrably works, because it is how every reading in this arc arrived. Any
+      // diagnostic that only prints to console is a diagnostic we cannot collect, which is how
+      // the silent-take bug survived two builds of confident guessing.
+      audio: env.lastAudioReport || null,
     }, null, 2);
     out.value = text; out.hidden = false; out.select();
     try { await navigator.clipboard.writeText(text); copyBtn.textContent = 'copied'; }

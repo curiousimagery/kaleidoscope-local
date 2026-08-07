@@ -4,6 +4,31 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🎚️ v0.22.26 (Build 532) — 2026-08-06 — Stop guessing: put the audio evidence where it can be read
+
+Two builds, two confident hypotheses, two failures. The common factor is not that the hypotheses were unreasonable — it is that **the evidence that would have settled them went to `console`, which needs Safari Web Inspector attached to read on a Capacitor device.**
+
+Every reading in this entire arc arrived through one channel: the frame-cost panel's exported JSON. So the audio outcome goes there now, under an `audio` key, alongside the perf report. **A diagnostic that only prints to console is a diagnostic we cannot collect.**
+
+The report names the exact stage and covers every path, including the fallbacks, so a rescued take does not read as a failed one:
+
+| verdict | meaning |
+| --- | --- |
+| `NO AUDIO TRACK …` | the sink was handed nothing — the fault is upstream in `startRecording` |
+| `NO MIC DATA` | the worklet never delivered (B530's suspended-context theory) |
+| `MIC DATA BUT NO ENCODED CHUNKS` | the encoder swallowed everything |
+| `CHUNKS BUT NO decoderConfig` | B531's theory — muxer could not describe the track |
+| `MIC TAP FAILED` / `YIELDS NO decoderConfig` | fell back to MediaRecorder, and **that take should have sound** |
+| `ok (MediaRecorder …)` | the fallback muxed it natively |
+
+It also carries the track's own state — `enabled`, `muted`, `readyState`, `label` — plus codec, sample rate and channel count.
+
+### One real change, defensible on its own
+
+The WebCodecs sink now gets the **original** mic track rather than a clone. The clone exists so a MediaRecorder stop cannot kill the held session mic, but since B530 the WebCodecs `mic.stop()` only disconnects worklet nodes and never touches the track — so on that path the clone buys nothing. And it may cost: MediaRecorder demonstrably handles a cloned audio track (the package's raw take has sound), which says nothing about `createMediaStreamSource`, which is what this path actually feeds. A cloned track into a `MediaStreamAudioSourceNode` is a long-standing WebKit soft spot. MediaRecorder keeps the clone.
+
+**VERIFY (Daniel):** record a take, then hit **copy report** and paste it. The `audio` block names the failing stage whether or not the track change fixed it.
+
 ## 🔊 v0.22.25 (Build 531) — 2026-08-06 — B530 did not fix it, and Daniel's clue named the real suspect
 
 B530's `AudioContext` fix was a correct fix to a real bug and **it was not this bug.** Daniel's own diagnosis is what narrowed it: *"when I record a package, the SOURCE video does still have the audio — it just isn't getting added to the composition."*

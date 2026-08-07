@@ -29,7 +29,7 @@ import { formatVersion } from '../version.js';
 import { createCamera } from '../shell/camera.js';
 import { createNativeCamera } from '../shell/native-camera.js';
 import { createSaveFlow } from '../shell/save-flow.js';
-import { createRecorderSink, primeRecordingAudio } from 'conduit/recorder';
+import { createRecorderSink, primeRecordingAudio, getLastAudioReport } from 'conduit/recorder';
 import { createFollower } from '../kit/follow.js';
 import { createAutoDrift } from '../kit/drift.js';
 import { ICONS } from './icons.js';
@@ -305,6 +305,10 @@ const externalSurface = perf.surface({
   note: () => (extStreaming ? 'self-rendering (state posted)' : 'idle'),
 });
 env.perfSurfaces.external = externalSurface;
+
+// the last take's audio outcome, read by the perf panel's export — the only diagnostic channel
+// that actually reaches a human on a Capacitor device (B532)
+Object.defineProperty(env, 'lastAudioReport', { get: getLastAudioReport, configurable: true });
 
 // The SOURCE path — everything between the camera and a usable texture. Registered as a surface
 // so it appears in the ledger alongside the renders it feeds: its "size" is the SOURCE's pixel
@@ -1212,7 +1216,18 @@ async function startRecording() {
       engine: 'webcodecs',
       save: (blob, name) => { wcFinish({ blob, ext: name.split('.').pop() || 'mp4' }); },
     });
-    await sink.start(recSize.w, recSize.h, micStream?.getAudioTracks?.()[0] || null);
+    // THE ORIGINAL TRACK, NOT THE CLONE (B532). The clone exists so a MediaRecorder stop cannot
+    // kill the held session mic — but the WebCodecs sink never stops the track (since B530 its
+    // `mic.stop()` only disconnects worklet nodes), so on this path the clone buys nothing.
+    //
+    // And it may cost something: MediaRecorder demonstrably handles a cloned audio track (the
+    // package's RAW take has sound), but that says nothing about `createMediaStreamSource`, which
+    // is what the WebCodecs path feeds. A cloned track into a MediaStreamAudioSourceNode is a
+    // long-standing WebKit soft spot. Prefer the original and keep the clone for MediaRecorder.
+    const wcMicTrack = videoMicStream?.getAudioTracks?.()[0]
+      || camera.getVideo?.()?.srcObject?.getAudioTracks?.()[0]
+      || micStream?.getAudioTracks?.()[0] || null;
+    await sink.start(recSize.w, recSize.h, wcMicTrack);
     wcRec = sink;
   } catch (e) {
     wcRec = null;

@@ -119,6 +119,16 @@ const MIC_TAP_SRC = `registerProcessor('conduit-mic-tap', class extends AudioWor
 //      A working take beats a silent one, and a loud failure beats both.
 let sharedCtx = null, sharedWorkletReady = null;
 
+// The last take's audio outcome, readable by whatever surface can actually show it to a human.
+// Two builds were spent guessing at the silent-take bug because the evidence only ever went to a
+// console nobody could open on the device.
+let lastAudioReport = null;
+export function getLastAudioReport() { return lastAudioReport; }
+function reportAudio(r) {
+  lastAudioReport = { ...r, at: new Date().toISOString() };
+  try { globalThis.__foldAudioReport = lastAudioReport; } catch { /* frozen global */ }
+}
+
 // Call this SYNCHRONOUSLY from the user gesture that starts a take. Creating and resuming the
 // context here is what buys the activation; everything downstream is too late.
 export function primeRecordingAudio() {
@@ -291,15 +301,22 @@ async function startWebCodecsSession({ w, h, audioTrack, onDone, onError }) {
       const s = audioTrack.getSettings?.() || {};
       channels = s.channelCount === 2 ? 2 : 1;
       acfg = await pickAudioCodec(mic.sampleRate, channels);
-      if (!acfg) { await mic.stop(); return null; }
+      if (!acfg) {
+        reportAudio({ verdict: 'NO USABLE AUDIO CODEC — falling back to MediaRecorder', trackSupplied: true, engine: 'none' });
+        await mic.stop(); return null;
+      }
       // …and prove the chosen codec actually hands back a decoderConfig, because
       // `isConfigSupported` saying yes is not evidence on WebKit (B531).
       const proves = await audioEncoderYieldsConfig({
         codec: acfg.codec, sampleRate: mic.sampleRate, numberOfChannels: channels, bitrate: acfg.bitrate,
       });
-      if (!proves) { await mic.stop(); return null; }
+      if (!proves) {
+        reportAudio({ verdict: 'AUDIO CODEC YIELDS NO decoderConfig — falling back to MediaRecorder', codec: acfg.codec, sampleRate: mic.sampleRate, channels, trackSupplied: true, engine: 'none' });
+        await mic.stop(); return null;
+      }
     } catch (e) {
       console.warn('[conduit] mic tap unavailable, falling back to MediaRecorder:', e);
+      reportAudio({ verdict: `MIC TAP FAILED — falling back to MediaRecorder: ${e?.message || e}`, trackSupplied: true, ctxState: sharedCtx?.state || null, engine: 'none' });
       return null;
     }
   }
@@ -410,16 +427,25 @@ async function startWebCodecsSession({ w, h, audioTrack, onDone, onError }) {
     try { venc.close(); } catch { /* closed */ }
     try { aenc?.close(); } catch { /* closed */ }
     if (dropped) console.info(`[conduit] recorder dropped ${dropped} frames to encoder backpressure`);
-    if (acfg) {
-      const verdict = !audioBatches ? 'NO MIC DATA — the worklet never delivered (context suspended or tap dead)'
+    const verdict = !acfg ? 'NO AUDIO TRACK on this take — the sink was handed no mic track at all'
+      : !audioBatches ? 'NO MIC DATA — the worklet never delivered (context suspended or tap dead)'
         : !audioChunks ? 'MIC DATA BUT NO ENCODED CHUNKS — the audio encoder produced nothing'
-          : !audioConfigs ? 'CHUNKS BUT NO decoderConfig — the muxer could not describe the track (silent audio)'
+          : !audioConfigs ? 'CHUNKS BUT NO decoderConfig — the muxer could not describe the track'
             : 'ok';
-      const line = `[conduit] audio: ${audioBatches} batches (${audioRejected} rejected) → ${audioChunks} chunks, ${audioConfigs} with config — ${verdict}`;
-      if (verdict === 'ok') console.info(line); else console.warn(line);
-    } else {
-      console.info('[conduit] audio: no track on this take (video-only by request or mic denied)');
-    }
+    // PUBLISHED, not just logged — see perf-panel's export. A console-only diagnostic on a
+    // Capacitor device is a diagnostic nobody can collect.
+    reportAudio({
+      verdict,
+      codec: acfg?.codec || null,
+      sampleRate: mic?.sampleRate || null,
+      channels: acfg ? channels : null,
+      trackSupplied: !!audioTrack,
+      trackState: audioTrack ? { enabled: audioTrack.enabled, muted: audioTrack.muted, readyState: audioTrack.readyState, label: audioTrack.label } : null,
+      batches: audioBatches, rejected: audioRejected, chunks: audioChunks, withConfig: audioConfigs,
+      engine: 'webcodecs',
+    });
+    const line = `[conduit] audio: ${audioBatches} batches (${audioRejected} rejected) → ${audioChunks} chunks, ${audioConfigs} with config — ${verdict}`;
+    if (verdict === 'ok') console.info(line); else console.warn(line);
   }
 
   return {
@@ -481,7 +507,17 @@ function startMediaRecorderSession({ w, h, audioTrack, onDone, onError }) {
   let imgData = ctx.createImageData(w, h);
 
   const stream = canvas.captureStream();   // tracks the canvas as it's drawn each frame
-  if (audioTrack) { try { stream.addTrack(audioTrack); } catch { /* video-only */ } }
+  let audioAdded = false;
+  if (audioTrack) { try { stream.addTrack(audioTrack); audioAdded = true; } catch { /* video-only */ } }
+  // report from THIS path too — otherwise a fallback take reads as "no data" in the export and
+  // looks like the WebCodecs failure it was actually rescued from
+  reportAudio({
+    verdict: !audioTrack ? 'NO AUDIO TRACK handed to the MediaRecorder session'
+      : audioAdded ? 'ok (MediaRecorder muxes the track natively)' : 'TRACK REJECTED by the capture stream',
+    trackSupplied: !!audioTrack,
+    trackState: audioTrack ? { enabled: audioTrack.enabled, muted: audioTrack.muted, readyState: audioTrack.readyState, label: audioTrack.label } : null,
+    engine: 'mediarecorder',
+  });
   // Quality: MediaRecorder's default bitrate for a canvas stream is low → heavily
   // compressed footage. Target ~0.2 bits/pixel/frame at 30fps (≈ w·h·6), capped so
   // the real-time encoder can keep up. Much better fidelity than the default.
