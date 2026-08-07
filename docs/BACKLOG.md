@@ -33,17 +33,17 @@ The measured per-device tables, the constraint list (C1-C6), the ranked levers, 
 - **[MED] 14 Pro at 4K: colour shifts and a frozen source/output** until toggling to still and back.
 - **[MED] The PiP rate must become adaptive.** 10Hz is right at FHD and useless at 4K (11.0 vs 11.4fps with it off) — its cost scales with the whole pipeline, not with the thumbnail.
 
-### 🎬 A/V SYNC: MOTION SMOOTHING PUTS THE RECORDED PICTURE BEHIND THE RECORDED SOUND (Daniel, B532)
+### 🎬 A/V SYNC — FIXED B540, awaiting device verification
 
-**Observed on device:** with smoothing on, the on-screen image lags reality enough that you see your lips move after you hear the word. Daniel flagged it while testing audio, and it has a consequence beyond the live feel.
+The "motion modes" are AVFoundation video stabilization modes (`standard` / `cinematic` / `cinematicExtended`), not our follower. Cinematic stabilization buffers frames for lookahead, so delivery lags capture by up to ~a second at smooth+; stamping frames on ARRIVAL turned that into a timeline offset and pushed recorded video behind recorded audio.
 
-**The take records the EASED render** (`engine.render(eased)` feeds `paintRecord`) **while the mic is captured in real time.** So once audio works, the finished file will have **audio LEADING video by roughly the follower's time constant.** This is not a bug in the recorder; it is smoothing behaving exactly as designed, on a path where one stream is smoothed and the other is not.
+Fixed by carrying the capture-to-delivery latency across the frame socket (`"FYUX"`, 40-byte header) and stamping recorded frames at capture time. Measured natively where the capture PTS and "now" share a clock — a raw PTS alone is unusable in JS, since the capture-clock-to-`performance.now()` offset is the very unknown being solved.
 
-- **It will not fix itself at playback.** Both tracks are timestamped from the same session clock (`t0`), so they will be muxed "in sync" — and that is the problem. The video content is deliberately delayed; the timestamps do not know that.
-- **The fix is to delay the audio to match**, by offsetting audio timestamps by the follower's effective latency. That latency is not a single number (the follower is an exponential ease toward a target, so lag depends on how fast the target is moving), which makes "the right offset" a design decision rather than a lookup.
-- **Options, roughly in order of honesty:** (a) derive a nominal offset from the follower's response constant and apply it as a fixed audio delay; (b) measure the actual lag by comparing target and eased state during a take and apply the average; (c) accept the offset and document it; (d) record the un-eased render and let smoothing be a preview-only affordance — which changes what the product *is*, so it is Daniel's call, not an implementation detail.
-- **Do not attempt this until audio records at all** — an A/V offset cannot be judged against silence. But it should be checked on the FIRST take that has sound, because it decides whether the audio work is actually finished.
-- **Note the interaction with the perf levers:** H5 (skip the preview render while diverged) touches the same eased/immediate split. Whoever picks up either one should read both.
+- **Needs `npx cap sync ios` + a native rebuild.** Web-only reload leaves the old plugin sending `"FYUV"`.
+- **Verify:** front camera, smooth+, talking — the harshest case. Then `standard` as a no-regression check.
+- **Not a factor, and an earlier entry here wrongly said it was:** the follower delays the kaleidoscope TRANSFORM, not the image. The camera texture is uploaded fresh every frame, so lip motion was never eased. Follower lag is exactly tau = `performResponse` for constant-velocity input (critically damped, omega = 2/tau) and is a deliberate look, not a sync fault.
+- **Kept in reserve, not built:** Daniel's mitigation strategies (a warning on smooth/smooth+, lighter default smoothing, front-camera prioritisation) if verification shows residual drift.
+- **Untouched:** the external-display consumer reads the same socket and now gets the field for free; the video plugin already carried a pts.
 
 ### 🎨 COLOR MANAGEMENT — a product gap, not a perf detail (Daniel, B531)
 

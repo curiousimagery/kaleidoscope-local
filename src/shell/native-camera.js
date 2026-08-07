@@ -34,6 +34,10 @@ export function createNativeCamera() {
   let renderer = null;        // YUV->RGB WebGL2 blitter that owns `canvas`
   let latest = null;          // most recent YUV ArrayBuffer (painted on the render tick)
   let seq = 0;                // bumps per received frame — lets a plane reader tell "new" from "same"
+  // Capture-to-delivery delay of the most recent frame, seconds. Held here rather than only in
+  // the plane frame because the RECORDER needs it and does not consume planes — see
+  // getCaptureLatency(). Zero-ish at `standard` stabilization, ~a second at `cinematicExtended`.
+  let lastLatencySec = 0;
   let controlRanges = {};     // EV/zoom/WB ranges the device reported (for the UI)
   let lenses = [];            // [{id,label}] physical lenses on the current facing
   let lens = 'wide';          // the chosen physical lens (never 'auto' — the virtual
@@ -269,19 +273,32 @@ export function createNativeCamera() {
     return () => {
       if (seq === lastSeq || !latest) return null;
       const dv = new DataView(latest);
-      if (dv.getUint32(0, false) !== 0x46595556) return null;   // "FYUV"
+      // "FYUX" carries the CAPTURE timestamp (32-byte header); "FYUV" is the old clockless
+      // 24-byte form. Accept both so a webview bundle newer or older than the installed native
+      // plugin degrades rather than breaks — the old format simply has no capture time.
+      const magic = dv.getUint32(0, false);
+      const timed = magic === 0x46595558;                        // "FYUX"
+      if (!timed && magic !== 0x46595556) return null;           // "FYUV"
+      const head = timed ? 40 : 24;
       const width = dv.getUint32(4, true);
       const height = dv.getUint32(8, true);
       const yStride = dv.getUint32(12, true);
       const cStride = dv.getUint32(16, true);
       const cHeight = dv.getUint32(20, true);
+      // How long ago the lens saw this frame, measured natively where the capture PTS and "now"
+      // share a clock. Recording subtracts it from arrival time so cinematic stabilization's
+      // delivery delay stops becoming a timeline offset — the A/V sync fix. `pts` itself is
+      // carried for format parity with the video socket and is not usable here (different clock).
+      const latencySec = timed ? dv.getFloat64(32, true) : -1;
+      if (latencySec >= 0) lastLatencySec = latencySec;
       const ySize = yStride * height;
       lastSeq = seq;
       return {
         width, height, yStride, cStride, cHeight,
+        latencySec: latencySec >= 0 ? latencySec : null,
         mirror: facing === 'user',
-        yPlane: new Uint8Array(latest, 24, ySize),
-        cPlane: new Uint8Array(latest, 24 + ySize, cStride * cHeight),
+        yPlane: new Uint8Array(latest, head, ySize),
+        cPlane: new Uint8Array(latest, head + ySize, cStride * cHeight),
       };
     };
   }
@@ -360,6 +377,10 @@ export function createNativeCamera() {
     mirrorsInSource: true,           // the front-camera selfie-flip is baked into the canvas
     getVideo: () => canvas,          // duck-types as a drawable; has no srcObject (audio paths degrade)
     getFacing: () => facing,
+    // Seconds between the lens seeing a frame and us receiving it. The recorder subtracts this
+    // from arrival time so cinematic stabilization's buffering does not push recorded video
+    // behind recorded audio. 0 when the plugin predates the timestamped wire format.
+    getCaptureLatency: () => lastLatencySec,
     getDeviceId: () => null,
     isFront: () => facing === 'user',
     isActive: () => active,

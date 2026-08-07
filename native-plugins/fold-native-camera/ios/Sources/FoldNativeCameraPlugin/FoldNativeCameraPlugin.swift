@@ -682,7 +682,24 @@ public class FoldNativeCameraPlugin: CAPPlugin, CAPBridgedPlugin, AVCaptureVideo
         guard !capturing else { return }               // suppress the heavy photo-format frames
         guard server.wantsFrame() else { return }
         guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
-        guard let data = FrameSocketServer.encode(pixelBuffer) else { return }
+        // THE CAPTURE TIME, not the delivery time. Cinematic stabilization buffers frames for
+        // lookahead, so at `cinematicExtended` this can be ~a second behind the moment we are
+        // standing in — and stamping arrival instead of capture is what put recorded audio ahead
+        // of recorded video. A non-numeric PTS (should not happen on a live capture) sends 0,
+        // which the JS side reads as "unknown" and handles by falling back to arrival time.
+        // Measure the delay HERE, where the capture PTS and "now" share a clock. Sending the raw
+        // PTS alone would be useless to JS: it sits on the capture clock, `performance.now()`
+        // sits on another, and the offset between them is precisely the unknown we are solving.
+        let stamp = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
+        var pts = -1.0, latency = -1.0
+        if stamp.isNumeric {
+            pts = CMTimeGetSeconds(stamp)
+            // the host time clock is the base a live capture session stamps against, so this
+            // subtraction is within one clock and needs no conversion
+            let nowSec = CMTimeGetSeconds(CMClockGetTime(CMClockGetHostTimeClock()))
+            latency = max(0, nowSec - pts)
+        }
+        guard let data = FrameSocketServer.encode(pixelBuffer, pts: pts, latency: latency) else { return }
         server.send(data)
     }
 }

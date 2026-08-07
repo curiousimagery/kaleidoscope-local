@@ -19,14 +19,43 @@
 // only valid there); only the finished Data is handed to the socket queue.
 //
 // Frame wire format (little-endian header, then two raw planes):
-//   [0..4)   magic "FYUV"
+//   [0..4)   magic "FYUX"   (was "FYUV", the clockless 24-byte variant — see below)
 //   [4..8)   width   (u32)   image width in px
 //   [8..12)  height  (u32)   image height in px
 //   [12..16) yStride (u32)   bytes per row, luma plane (may be padded)
 //   [16..20) cStride (u32)   bytes per row, chroma plane (interleaved Cb,Cr)
 //   [20..24) cHeight (u32)   chroma plane row count (== height/2 for 420)
+//   [24..32) pts     (f64)   CAPTURE presentation time, SECONDS on the capture clock
+//   [32..40) latency (f64)   SECONDS between capture and this send (see below)
 //   then Y plane  (yStride * height bytes)
 //   then CbCr     (cStride * cHeight bytes)
+//
+// `pts` matches the video plugin's "FYUW" layout byte for byte (f64 seconds, same offset), so
+// the two sockets parse identically. Magics: "FYUV" clockless camera (legacy), "FYUW" video,
+// "FYUX" timed camera.
+//
+// WHY LATENCY IS SENT AND NOT JUST THE TIMESTAMP. A raw capture PTS is useless to JavaScript on
+// its own: it sits on the capture clock, `performance.now()` sits on another, and the offset
+// between them is exactly the unknown we are trying to solve for — using the PTS alone just
+// re-expresses the problem. **The plugin can measure the latency directly, because on this side
+// both times are in the same clock**: `CACurrentMediaTime() - pts`. JS then subtracts that from
+// its own arrival time to recover when the lens actually saw the frame. No clock alignment, no
+// round trip, no per-mode calibration.
+//
+// WHY THE TIMESTAMP EXISTS (the A/V sync fix). Cinematic video stabilization works by BUFFERING
+// frames for lookahead, so `cinematicExtended` can deliver a frame roughly a second after the
+// lens saw it. The old "FYUV" header carried no time, so JS stamped each frame on ARRIVAL and
+// that delivery latency turned into a timeline offset: recorded audio ran ahead of recorded
+// video by the stabilization delay, badly enough to break lip sync at smooth+.
+//
+// AVFoundation itself never has this problem because a CMSampleBuffer carries the time it was
+// CAPTURED, not the time it was handed over. Passing that through is the whole fix, and it is
+// mode-independent by construction — nothing to calibrate per stabilization mode, and nothing
+// to re-tune if Apple changes the latency or adds a mode.
+//
+// VERSIONED BY MAGIC: a reader keyed on "FYUV" rejects "FYUX" outright rather than misparsing a
+// shifted header. The JS reader accepts both and falls back to arrival time on the old format,
+// so a stale webview bundle degrades to the previous behaviour instead of breaking.
 
 import Foundation
 import Network
@@ -152,7 +181,11 @@ final class FrameSocketServer {
         }
     }
 
-    static func encode(_ pb: CVPixelBuffer) -> Data? {
+    /// `pts` is the sample buffer's CAPTURE presentation time in seconds (when the lens saw this
+    /// frame) and `latency` is how long ago that was, measured here where both values share a
+    /// clock. Pass negatives when genuinely unknown; JS reads that as "no timestamp" and falls
+    /// back to arrival time.
+    static func encode(_ pb: CVPixelBuffer, pts: Double, latency: Double) -> Data? {
         CVPixelBufferLockBaseAddress(pb, .readOnly)
         defer { CVPixelBufferUnlockBaseAddress(pb, .readOnly) }
 
@@ -168,10 +201,14 @@ final class FrameSocketServer {
         let ySize = yStride * height
         let cSize = cStride * cHeight
 
-        var out = Data(capacity: 24 + ySize + cSize)
-        out.append(contentsOf: [0x46, 0x59, 0x55, 0x56]) // "FYUV"
+        var out = Data(capacity: 40 + ySize + cSize)
+        out.append(contentsOf: [0x46, 0x59, 0x55, 0x58]) // "FYUX"
         for value in [width, height, yStride, cStride, cHeight] {
             var le = UInt32(value).littleEndian
+            withUnsafeBytes(of: &le) { out.append(contentsOf: $0) }
+        }
+        for value in [pts, latency] {
+            var le = value.bitPattern.littleEndian
             withUnsafeBytes(of: &le) { out.append(contentsOf: $0) }
         }
         out.append(Data(bytes: yBase, count: ySize))

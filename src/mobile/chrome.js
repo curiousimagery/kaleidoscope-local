@@ -1135,7 +1135,12 @@ function paintRecord() {
   recBlit?.end();
   // the WebCodecs session encodes straight off this canvas (captureStream never sees it)
   recEncode?.begin();
-  wcRec?.publish({ canvas: frameCanvas, w: recSize.w, h: recSize.h, topDown: true });
+  // hand over the camera's capture-to-delivery delay so the frame lands on the timeline at the
+  // moment the lens saw it rather than the moment we drew it (A/V sync, B540)
+  wcRec?.publish({
+    canvas: frameCanvas, w: recSize.w, h: recSize.h, topDown: true,
+    latencySec: useNativeCam ? (camera.getCaptureLatency?.() || 0) : 0,
+  });
   recEncode?.end();
 }
 

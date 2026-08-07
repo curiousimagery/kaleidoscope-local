@@ -4,6 +4,30 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🎬 v0.22.34 (Build 540) — 2026-08-07 — A/V sync: carry the capture delay across the wire
+
+The three "motion modes" are AVFoundation video stabilization modes — `standard`, `cinematic`, `cinematicExtended`. Cinematic stabilization works by **buffering frames for lookahead**, so at smooth+ a frame can reach us roughly a second after the lens saw it. The frame socket carried no time, so JS stamped each frame on **arrival**, and that delivery latency became a timeline offset: recorded audio ran ahead of recorded video by the stabilization delay.
+
+AVFoundation never has this problem because a sample buffer carries the time it was **captured**, not the time it was handed over. This build carries that across the wire.
+
+### Why latency and not the raw timestamp
+
+A capture PTS is useless to JavaScript on its own: it sits on the capture clock, `performance.now()` sits on another, and **the offset between them is exactly the unknown we are solving** — passing the PTS alone just restates the problem.
+
+The plugin can measure the delay directly, because on the native side both values share a clock: `CMClockGetTime(CMClockGetHostTimeClock()) - pts`. JS subtracts that from its own arrival time to recover when the lens actually saw the frame. No clock alignment, no round trip, and **no per-mode calibration** — it is correct by construction rather than compensated, so it needs no re-tuning if Apple changes the latency or adds a mode.
+
+### The changes
+
+- **Wire format `"FYUX"`**, 40-byte header: the old fields plus `pts` (f64 seconds) and `latency` (f64 seconds). `pts` sits at the same offset and in the same units as the video plugin's `"FYUW"`, so both sockets parse identically; `latency` is the field that does the work. Magic-versioned, and the JS reader still accepts `"FYUV"` and falls back to arrival time, so a webview bundle out of step with the installed plugin degrades instead of breaking.
+- `camera.getCaptureLatency()` exposes it to the recorder, which does not consume planes.
+- `recorder.publish()` takes an optional `latencySec` and stamps `performance.now() - latency`.
+
+**Verified by round trip**, not by inspection: a compiled Swift build of the exact header construction, parsed by the exact JS offsets — magic, all five dimensions, both doubles, 40 bytes.
+
+⚠️ **Needs `npx cap sync ios` and a native rebuild.** Web-only reload keeps the old plugin, which still sends `"FYUV"` and reads as zero latency.
+
+**VERIFY (Daniel):** front camera at **smooth+**, talking, and watch the take back — that is the harshest case. Then `standard` to confirm nothing regressed where latency was already near zero.
+
 ## 🔊 v0.22.33 (Build 539) — 2026-08-07 — Unwrap the ES_Descriptor. The silent take is solved.
 
 ```

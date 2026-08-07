@@ -28,12 +28,15 @@
 //   then Y plane  (yStride * height bytes)
 //   then CbCr     (cStride * cHeight bytes)
 //
-// WHY THE EXTRA MAGIC: the camera is CLOCKLESS (a live stream — "now" is the only
-// time there is), so its "FYUV" frames carry no timestamp and its 24-byte header is
-// unchanged. Video is the opposite: the decode owns the motion runtime's master
+// WHY THE EXTRA MAGIC: video's decode owns the motion runtime's master
 // clock, and the receiver must be able to answer `currentTime` without a per-frame
 // bridge round-trip. Stamping every frame is the cheapest possible answer — 16 bytes
 // on a multi-MB frame — and a distinct magic means one JS receiver reads both sockets
+//
+// The camera used to be genuinely clockless ("FYUV", 24-byte header, no time). It is not any
+// more: cinematic stabilization buffers frames, so arrival time is not capture time, and
+// stamping arrival broke A/V sync in recordings. It now sends "FYUX" with the pts field at the
+// SAME offset and in the SAME f64-seconds units as below, so both sockets parse identically.
 // while an old consumer can never silently misparse a stamped frame as an unstamped one.
 
 import Foundation

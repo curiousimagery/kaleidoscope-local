@@ -649,7 +649,14 @@ async function startWebCodecsSession({ w, h, audioTrack, onDone, onError }) {
       if (sessionError || venc.state !== 'configured') return;
       if (frame.w !== w || frame.h !== h) return;          // bus resized mid-take: skip
       if (venc.encodeQueueSize > 4) { dropped++; return; } // freshness over completeness, live
-      const ts = Math.round((performance.now() - t0) * 1000);
+      // `latencySec` (optional) is how long ago the source actually SAW this frame. Cinematic
+      // video stabilization buffers frames for lookahead, so at `cinematicExtended` a frame can
+      // reach us ~a second after the lens saw it — and stamping arrival puts recorded video that
+      // far behind recorded audio, which is what broke lip sync. Subtracting it places the frame
+      // on the timeline at capture time, which is what AVFoundation does natively and is why it
+      // never has this problem. Mode-independent: nothing to calibrate, nothing to re-tune.
+      const lat = frame.latencySec > 0 ? frame.latencySec * 1000 : 0;
+      const ts = Math.max(0, Math.round((performance.now() - lat - t0) * 1000));
       // duration is NOMINAL but must exist: mp4-muxer requires a non-negative
       // duration per chunk (WebKit passes a missing VideoFrame duration through
       // as null → "addVideoChunkRaw's fourth argument…", Daniel's iPad take),
