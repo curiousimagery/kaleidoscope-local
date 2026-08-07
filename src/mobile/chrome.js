@@ -1310,12 +1310,34 @@ function stopRecording() {
   if (wcRec) {
     const sink = wcRec;
     sink.stop();   // async finalize → the stash callback runs wcFinish on success
-    const t0 = Date.now();
+    // TIME OUT ON STALL, NOT ON DURATION (B550). This was a flat 30-second wall clock that
+    // DISCARDED the take when it expired — and a 4K finalize legitimately takes longer than
+    // that, because the encoder still owes hundreds of frames when the stop is tapped. Daniel's
+    // "4K takes fail more often than not" is exactly what a fixed deadline on a variable-length
+    // job produces: the takes that were working got killed for being big.
+    //
+    // A take that is still making progress is not stuck, however long it has run. So the
+    // deadline now measures SILENCE — no phase change and no queue movement — and the floor
+    // stays generous because a single large flush can legitimately go quiet for a while.
+    const STALL_MS = 45_000;
+    let lastMove = Date.now(), lastSig = '';
     const iv = setInterval(() => {
       if (!wcRec) { clearInterval(iv); return; }                  // stash path completed
       const r = sink.lastResult;
-      if (r && !r.ok) { clearInterval(iv); wcFinish(null, r.error); }
-      else if (Date.now() - t0 > 30_000) { clearInterval(iv); wcFinish(null, 'finalize timed out'); }
+      if (r && !r.ok) { clearInterval(iv); wcFinish(null, r.error); return; }
+      const p = sink.progress;
+      if (p) {
+        const sig = `${p.phase}|${p.queued ?? ''}|${Math.round((p.frac || 0) * 100)}`;
+        if (sig !== lastSig) { lastSig = sig; lastMove = Date.now(); }
+        // the honest status line: name the phase, and show a percentage only where the
+        // denominator is real (the encoder's own queue), never a guessed one
+        const pct = p.frac > 0 ? ` ${Math.min(99, Math.round(p.frac * 100))}%` : '';
+        statusToast('busy', `${p.phase}…${pct}`);
+      }
+      if (Date.now() - lastMove > STALL_MS) {
+        clearInterval(iv);
+        wcFinish(null, `finalize stalled in "${p?.phase || 'startup'}" after ${Math.round((Date.now() - lastMove) / 1000)}s`);
+      }
     }, 300);
   }
   try { mediaRec?.stop(); } catch { /* already inactive */ }

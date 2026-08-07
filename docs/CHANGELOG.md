@@ -4,6 +4,23 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## ⏳ v0.22.44 (Build 550) — 2026-08-07 — Finalize stops being a black box, and stops discarding takes for being big
+
+Daniel ranked 4K take reliability above the status UX. Reading the code, **they turned out to be the same bug.**
+
+**Finalize had a flat 30-second wall clock that DISCARDED the take when it expired.** A 4K finalize legitimately runs longer than that — when you tap stop, the encoder still owes hundreds of frames, and flushing them is real work proportional to how much is queued. "4K takes fail more often than not" is precisely what a fixed deadline on a variable-length job produces: **the takes that were working got killed for being big.**
+
+- **The deadline now measures SILENCE, not duration.** A take still making progress is not stuck, however long it has run. The stall window is 45s of *no phase change and no queue movement*, which is generous because a single large flush can legitimately go quiet.
+- **The failure message names the phase it died in** rather than a bare "finalize timed out", so a genuine stall tells us where.
+
+**And finalize is no longer dark.** It reports its phases: flushing audio → encoding remaining frames → writing the file. The middle one is the long pole and the only phase with a **real denominator** — `encodeQueueSize` is the number of frames the encoder still owes, so watching it drain is genuine determinate progress rather than a guessed bar. The toast now reads `encoding remaining frames… 62%`.
+
+Percentages appear **only where the denominator is real.** The other phases name themselves and show no number, because inventing one is how a progress bar starts lying.
+
+**`finalizeMs` and `finalizeMarks` now ride the take report** (`copy report`), so the next 4K take says where its finish went — `flushing audio@120ms · encoding remaining frames@1400ms · writing the file@8200ms`. We still do not know why 4K finalize is slow; this is the instrument that will say.
+
+**Still open:** the in-memory muxer holds the whole file (`fastStart:'in-memory'`) and the Blob copies it again, so peak memory is a multiple of a take that can reach hundreds of MB. That is the OPFS-streaming item, and it remains the likely root cause of any *genuine* 4K failure now that the false ones are gone. Daniel's voice-memo-style ring around the stop button is filed as the paired UI increment; this build ships the data it needs.
+
 ## 🛠️ v0.22.43 (Build 549) — 2026-08-07 — HDMI was running at 10fps, and we had built the instrument that couldn't see it
 
 **Daniel: "somehow we've regressed iPad HDMI to be unusable."** He was right, it was a regression, and it had a specific cause.

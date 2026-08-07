@@ -1,15 +1,35 @@
 # verification queue — pending Daniel's hardware
 
-Things built but not yet verified on real hardware. Claude appends as it ships device-unverifiable work; Daniel checks off. Confirmed items move to CHANGELOG and are deleted from here.
+Things built but not yet verified on real hardware. Claude appends as it ships device-unverifiable work. **Confirmed rows are DELETED, not ticked** — the result lives in CHANGELOG. A queue that keeps its own history stops being a queue. (Daniel, B550.)
 
-**Every row names WHERE to run it and WHAT closes it.** A row that says "verify X works" without a platform and a readout is not a verification task, it is a wish. (Standing rule, Daniel B546.)
+**Every row names WHERE to run it and WHAT closes it.** A row without a platform and a readout is a wish, not a task.
 
-Legend: 🖥️ desktop browser · 💻 Electron · 📺 external display / HDMI / AirPlay · 📱 iPhone Capacitor · 📲 iPad Capacitor · ✅ confirmed
+Legend: 🖥️ desktop browser · 💻 Electron · 📺 external display / HDMI · 📱 iPhone Capacitor · 📲 iPad Capacitor
 
-**Where diagnostics come from** — the three channels, named exactly as the rows reference them:
-- **`copy report`** — the frame-cost panel's export button. Phone: diagnostics block → **show frame cost**. iPad: desktop diagnostics → **frame cost panel**. Desktop: `?perf`. This is the primary channel and works with no cable.
-- **Xcode console** — device run from Xcode, filter string given per row. Only where a row says so.
-- **eyes** — an observed outcome, no paste. Say what you saw.
+**Diagnostic channels:**
+- **`copy report`** — the frame-cost panel's export. Phone: diagnostics → **show frame cost**. iPad: desktop diagnostics → **frame cost panel**. Desktop: `?perf`.
+- **Xcode console** — filter string given per row. Only where a row says so.
+- **eyes** — an observed outcome, no paste.
+
+---
+
+# ▶ RUN IN THIS ORDER
+
+**First: `npm run build && npx cap sync ios`, then rebuild from Xcode.** B546 and B549 both landed after your last sync; P0 and P1 are unverifiable without it.
+
+| | what | why this rank | time |
+|---|---|---|---|
+| **P0** | **FH-1, then H-5** | Two hazard checks on MY changes, both "did I break the source panel." Ten seconds each, and if either fails nothing else in the build is worth measuring. | 1 min |
+| **P1** | **H-1 → H-9** | The HDMI regression fixes. This surface went from unusable to unknown, and H-9 is coverage that has never existed on any build. Highest information per minute in the queue. | ~20 min |
+| **P2** | **FH-2 → FH-6** | Rest of the frame-header regression pass. Cheap, and FH-5 is the only check on the master-clock path. | ~10 min |
+| **P3** | **TF-1 → TF-4** | 4K take reliability — the highest-stakes path in the app, and B550 changed how it fails. TF-3 is the first data we will ever have on where finalize goes. | ~5 min |
+| **P4** | **C-1 / C-2** | Settles where the unaccounted third of every 4K frame lives, which decides the next optimization target. Two reports, no rebuild. | 5 min |
+| **P5** | **B1-redo, E2, E3, E4** | Behaviour confirmations on shipped rules. Low risk of surprise, but E3 is where your "warn me before 4K" change will land, so it is worth knowing it currently passes. | ~10 min |
+| **P6** | **F1 → F5** | A/V sync. You already confirmed timing "looks perfect" at B540; this is regression cover, not discovery. | ~10 min |
+| **P7** | **LB-1 → LB-9** | Loop Builder. Independent of everything above; do it when you are on desktop rather than device. | ~20 min |
+| **P8** | carried-forward | Open for weeks, gating nothing. | — |
+
+**If you only have 20 minutes: P0 + P1.** That is the broken surface and the two hazard checks.
 
 ---
 
@@ -17,137 +37,82 @@ Legend: 🖥️ desktop browser · 💻 Electron · 📺 external display / HDMI
 
 | this | blocks | why |
 |---|---|---|
-| **A** (no-regression) | **B, C, E** | A is a hazard check. If render elision shows a stale frame the build is broken and every number after it is measuring the wrong thing. |
-| **B2 + D4** (the two 10-min runs) | **the governor** | Its yield order and sustained setpoint have to be designed against measured drift, not assumption. This is the arc's last hard blocker. |
-| **D1** (external reports real dimensions) | **D2, D3, D4** | If the external surface reads 0×0 it is not registered and the rest measures nothing. |
-| **B + E** | **cleanup C2** (retiring settled perf flags) | Those flags ARE the A/B mechanism for these rows. They cannot be deleted until the rows they serve are closed. |
-| **a fresh `cap:sync`** | **all of FH + all of H** | C1 shipped B546, after the sync taken for A–F. |
-| **H-1** (display fps visible) | **H-2, H-3** | without a throughput reading those rows cannot be judged |
-| nothing | **A, FH, H, F, Loop Builder, the carried-forward items** | independent; run in any order |
-
-**Not blocked, not urgent:** everything under "carried forward" — those have been open for weeks and are not gating current work.
+| **a fresh `cap:sync`** | **all FH + all H** | both shipped after your last sync |
+| **FH-1** (source panel shows the feed) | everything on device | if the shared parser rejects camera frames the build is bad |
+| **H-1** (display fps is visible at all) | **H-2, H-3** | without a throughput reading those cannot be judged |
+| **H-6** (D3 re-run) | the old **D3/D4** rows | they were blocked on the bug H-6 tests |
+| **D4 10-min run** | **the governor's thermal rules** | still the last hard blocker; B2 delivered the idle half |
+| **B1, E** | **cleanup C2** (retiring settled perf flags) | those flags are the A/B mechanism |
 
 ---
 
-## 🔥 THERMAL ARC — the A–F matrix (B540–B543)
-
-**Run A first.** Each row: set it up, do the thing, then `copy report` and note fps / `unmeasured` / `pressure`.
-
-### A. No-regression (📱 iPhone Capacitor, ~10 min) — **eyes only, nothing to paste**
-
-| # | setup | do | closes when |
-|---|---|---|---|
-| ✅ A1 | live camera, still mode | leave it sitting ~30s, then move a slice | **CONFIRMED B547** |
-| ✅ A2 | record video mode, PiP visible | record ~20s, move the slice mid-take | **CONFIRMED B547** |
-| ✅ A3 | — | — | **CONFIRMED B547 by the B3 report**, not by the stepper test — see below |
-| ✅ A4 | any | toggle `render: skip identical frames` off/on | **CONFIRMED B547** — no visible difference |
-
-**A3 was badly worded and is already answered.** The intent was: *while a take is actually rolling*, the output canvas cannot be downscaled, because on the direct-encode path that canvas **is** the recording. Stepping it while idle SHOULD work — that is the ladder doing its job. Daniel's 100%→25% test was performed idle, so it proved nothing either way. **But the B3 report closes it anyway:** mid-take, the `output` surface note reads `ladder locked — this canvas IS the take`, which is the lock engaged and self-describing. No re-test needed.
-
-### B. The elision win (📱 iPhone) — **paste TWO reports per row**
-
-**⚠️ B1's scenario was wrong and produced a null result. Corrected below.** A live camera preview at 768×1024 delivers a genuinely new frame on **every** tick (`planeReader` gates on the wire sequence, and it advanced 60×/s), so there were no identical frames to elide and `output render` correctly stayed at 60 calls. The elision only has something to skip when the SOURCE is static.
-
-| # | scenario | closes when |
-|---|---|---|
-| **B1 (redo)** | **a STILL IMAGE source** (not the camera), untouched, not recording | `output render` **calls** drop well below fps with the flag ON, and return to ~fps with it OFF. (Calls, not ms.) If calls stay pinned to fps in both states, the elision is not firing and that is the finding. |
-| ✅ B2 | live camera, 10+ min | **CONFIRMED B547 — stable.** fps 60.0, p95 **improved** 22→17ms, `pressure` nominal throughout, phone slightly warm, not hot. Sustained idle is not a thermal problem. Governor input satisfied for the idle case. |
-| ✅ B3 | 4K record | **CONFIRMED B547** and better than predicted — see the CAPABILITIES update. |
-
-### C. H2 — the unaccounted third of every 4K frame (📱 iPhone, ~5 min, no rebuild) — **paste both**
-
-**The question:** at a 4K source, about a third of every frame is time we cannot attribute to any registered surface. Is that the **native camera bridge** (socket + YUV plane handling) or the **fold shader itself**? The only way to tell is to keep everything identical and change only where the pixels come from.
-
-| # | exact setup | closes when |
-|---|---|---|
-| **C-1** | 📱 iPhone. Live camera, resolution set to **4K**. PiP monitor **OFF**. Do not record — just sit on the live preview. `copy report`. | baseline captured — note `fps` and `unmeasured` |
-| **C-2** | Same session, same everything. Now switch the source to **a still photo from the library** (any photo; ideally a large one). PiP still OFF. Still not recording. `copy report`. | **compare `unmeasured` between the two.** Collapses toward zero ⇒ the missing third is the native camera bridge, and that becomes the next optimization target. Stays ~33ms ⇒ it is real GPU work in the fold shader and there is nothing left to find. |
-
-The only variable that may change between them is the source; leave form, slice, zoom and output size alone.
-
-### D. HDMI (📲 iPad Capacitor + 4K HDMI) — **RUN B547; found three bugs**
-
-| # | scenario | result |
-|---|---|---|
-| ✅ D1 | HDMI connected, idle | **PASS, row was mis-worded.** `external` reads 0×0 while idle because nothing is being sent — that is correct, not a failure. It reports a true 3840×2160 the moment a broadcast starts (see D2). Row rewritten: *the external row reports real dimensions once broadcasting*. |
-| ⚠️ D2 | HDMI + live camera | **App renders 46fps; Daniel observes ~10fps on the monitor.** Also exposed the iPad camera's missing planar path (15.47ms upload for 0.79MP). Both filed. |
-| 🔴 D3 | HDMI + recording a take | **FAILS.** Starting a record kills the broadcast. Filed CRITICAL. **This row cannot close until that is fixed**, and it is the row that was meant to decide the PiP question. |
-| 🔴 D4 | HDMI, 10+ min | **BLOCKED by the same lifecycle bug** — after a reset, broadcast reports live with a blank display. A restart plus an FHD clip broadcasts, but at ~11fps observed against 42.9fps reported. The long-run thermal reading is still outstanding. |
-
-**D2/D4's core problem: we cannot see the external display's real frame rate.** It renders in another process and reports no passes. Every "observed ~10fps vs reported 46fps" gap is unmeasurable until the receiver reports its own paint rate. Filed as a blocker for the whole D group.
-
-### E. The starved PiP at 4K (B543) (📱 iPhone Capacitor)
-
-**What E is for, in one line:** at 4K the PiP monitor is too expensive to run during capture, so B543 keeps the *box* and starves its *content*. E checks that the rule fires at the right times and only then.
-
-**Setup for all rows:** phone, **record video** mode, live camera, PiP monitor **visible** (not hidden). Change only the camera resolution between rows.
-
-| # | exact steps | closes when | channel |
-|---|---|---|---|
-| ✅ E1 | Resolution **4K**. Start a take. Look at the PiP box. | **CONFIRMED B547** — box stayed, content starved. (Note reads `starved — source too large to monitor while capturing`.) | eyes |
-| **E2** | Still 4K. **Stop** the take. Watch the PiP. | live picture returns **immediately** — no stall, no need to leave and re-enter the mode | eyes |
-| **E3** | Still 4K, **not** recording, just framing up. | PiP is **LIVE**. The rule is capture-only; if it is starved while merely framing at 4K, the guard is too broad. *(This is also where Daniel's "warn me first" improvement will land.)* | eyes |
-| **E4** | Set resolution to **FHD**. Record a take. | PiP stays **live** through the whole take — FHD is affordable and must not be starved | eyes |
-| ✅ E5 | 4K, recording | **CONFIRMED B547** — 31.7fps | `copy report` |
-
-### F. A/V sync + audio (📱 iPhone Capacitor) — **eyes and ears only, nothing to paste**
-
-**What F is for:** `smooth`/`smooth+` use Apple's cinematic stabilization, which buffers about a second of frames. B540 measures that delay natively and shifts the audio to match. F confirms the compensation is right in every mode and survives a lens flip.
-
-**How to run each row:** record ~10 seconds **while talking** (count out loud — "one, two, three…" gives you sharp consonants to sync against), stop, save, then **play it back in Photos** and watch your mouth against the sound.
-
-The motion-smoothing control is in the camera settings: **standard · smooth · smooth+**.
-
-| # | exact steps | closes when |
-|---|---|---|
-| **F1** | **Front** camera, smoothing **standard**. Talk, record ~10s, play back in Photos. | sound present, lips in sync |
-| **F2** | **Front** camera, smoothing **smooth+**. Same. | sound present and **still in sync** — this is the real test; smooth+ has the longest buffer to compensate |
-| **F3** | **Rear** camera, smoothing **smooth+**. Same. | in sync |
-| **F4** | Fresh app launch. Do **not** touch the smoothing control. Look at what it reads on the **front** camera, flip to **rear**, look again. | front shows **standard**, rear shows **cinematic**. (B541 default: selfies favour low latency, rear favours stability.) |
-| **F5** | Now **explicitly pick** a smoothing mode — say `smooth+` on the front camera. Flip to rear, then flip back to front. | your explicit choice is still there. Once you choose, the per-lens default must stop overriding you. |
-
-### Why the governor is not built yet
-Its first thermal rule shipped as B543. The rest — what yields first, at what pressure, what the sustained setpoint is — needs D4, which is now blocked on the D3 lifecycle bug. **B2 delivered its half: sustained idle is stable and not a thermal problem.**
-
-**However, B547's pass found a governor rule that needs NO further data:** the "finishing take" case (filed in BACKLOG). It is triggered by a discrete known event rather than a thermal curve, so it can be designed and built now.
-
----
-
-## 🧩 FH — the unified frame-header parser (B546) — **REQUIRES A FRESH `cap:sync`**
-
-**⚠️ B546 landed AFTER the sync taken for A–F.** These rows need `npm run build && npx cap sync ios` and an Xcode rebuild. Running them against the older build verifies nothing. A–F are unaffected and can finish on the current sync.
-
-Both native frame consumers now share one parser (`shell/frame-header.js`). Nothing should change — that is the entire point. Pure regression pass on the path B540 broke.
-
-| # | where | do | closes when | channel |
-|---|---|---|---|---|
-| **FH-1** | 📱 iPhone Capacitor, run from Xcode | live camera, still mode | **source panel shows the live feed** — not black, not frozen. 🛑 If this fails, stop: the build is bad on device. | eyes |
-| FH-2 | 📱 iPhone Capacitor | rear ▸ front ▸ rear via flip | feed survives every flip; front mirroring correct | eyes |
-| FH-3 | 📱 iPhone Capacitor | `take still` mode, then upload a still | both show a source (B541 regressed `take still` while upload still worked) | eyes |
-| FH-4 | 📱 iPhone Capacitor | record ~15s, play back in **Photos** | video normal, **audio present and in sync** — confirms the latency field still parses at its offset | eyes |
-| **FH-5** | 📲 iPad Capacitor **+ HDMI**, run from Xcode | play a **video clip** to the external display | clip plays on the panel **and timeline position + duration read correctly in the app**. This is the `FYUW` path, where a misread second f64 corrupts the master clock. | **`copy report`** on the iPad while playing · **plus Xcode console**: filter `[fold]`, paste any line containing `clock` or `duration`. A `duration` of `0` while the clip visibly plays is the exact corruption this row exists to catch. |
-| FH-6 | 📲 iPad Capacitor + HDMI | live **camera** to the external display | feed appears on the external panel | eyes |
-
----
-
-
-## 🛠️ B549 — the HDMI fixes — **REQUIRES A FRESH `cap:sync`** (run with the FH rows)
-
-Four fixes to the path the D group broke on. **Every row is 📲 iPad Capacitor + 4K HDMI unless stated.**
+## 🛠️ H — the HDMI fixes (B549) · 📲 iPad + 4K HDMI unless stated
 
 | # | do | closes when | channel |
 |---|---|---|---|
-| **H-1** | Broadcast a **video clip** to the display. Watch the panel's `external` row. | it now reads **`N fps ON THE DISPLAY`**. 🛑 If it still reads no fps, the view is not reporting and everything below is unmeasurable. | **`copy report`** |
-| **H-2** | Same, clip broadcasting. | that number is **~30–60, not ~10**, and the picture on the panel visibly matches. This is the regression fix. | **`copy report`** |
-| **H-3** | Live **camera** broadcasting. | same: display fps well above 10 | **`copy report`** |
-| **H-4** | Camera broadcasting. Check `source` note + `upload`. | note now says **`planar`**; `upload` drops from **15.47ms** to a fraction of a millisecond | **`copy report`** |
-| **H-5** | 🐛 **The B541 hazard H-4 could have reintroduced.** Camera live → **capture a still**. Then separately: camera live → **upload an image**. | the still/image actually appears — **not** the feed's last frame frozen. If the panel shows a stale camera frame, stop and report: the planar release is not firing. | eyes |
-| **H-6** | **D3 re-run.** Broadcast to HDMI, then press **record**. | the **broadcast survives**. If recording itself fails, the status line should say so *and* note the broadcast is still live. | **`copy report`** + eyes |
-| **H-7** | If H-6's recording failed: read the `bus` row. | note now names the failure (`NOT STARTED — readback path never resolved`) instead of a bare `capture: null` | **`copy report`** |
-| **H-8** | **D4 re-run.** After a glass-break reset, re-arm a 4K broadcast. | display actually shows the picture when the app says it is broadcasting | eyes |
-| **H-9** | 📱 **iPhone + HDMI — never tested on any build.** Plug in, live camera. | display shows the program; `external` reports fps | **`copy report`** |
+| **H-5** 🛑 | **P0 HAZARD CHECK.** Camera live → **capture a still**. Then camera live → **upload an image**. | the still/image actually appears. **A stale camera frame means my planar-release fix is wrong** — stop and report. | eyes |
+| **H-1** 🛑 | Broadcast a **video clip**. Read the `external` row. | reads **`N fps ON THE DISPLAY`**. No fps ⇒ the view is not reporting; H-2/H-3 unmeasurable. | `copy report` |
+| **H-2** | Same, clip broadcasting. | that number is **~30–60, not ~10**, and the panel visibly matches. This is the regression fix. | `copy report` |
+| **H-3** | Live **camera** broadcasting. | display fps well above 10 | `copy report` |
+| **H-4** | Camera broadcasting. Read `source` note + `upload`. | note says **`planar`**; `upload` drops from **15.47ms** to a fraction of a ms | `copy report` |
+| **H-6** | **D3 re-run.** Broadcast, then press **record**. | the **broadcast survives**. If recording itself fails, the status line says so *and* notes the broadcast is still live. | `copy report` + eyes |
+| **H-7** | Only if H-6's recording failed: read the `bus` row. | names the failure (`NOT STARTED — readback path never resolved`) instead of a bare `capture: null` | `copy report` |
+| **H-8** | **D4 re-run.** After a glass-break reset, re-arm a 4K broadcast. | display shows the picture when the app says it is broadcasting | eyes |
+| **H-9** | 📱 **iPhone + HDMI — NEVER TESTED ON ANY BUILD.** Plug in, live camera. | display shows the program; `external` reports fps | `copy report` |
+| **H-10** | 📲 iPad, HDMI, **10+ min** (the old D4 thermal run). Do after H-6 passes. | pressure drift + warmth; **paste at start and end**. Governor blocker. | `copy report` ×2 |
 
-**H-9 is new coverage, not a re-test** — iPhone HDMI has never appeared in this queue. Daniel suspects it shares the iPad's symptoms; the elision fix is wired for the phone's autoconnect path too, so this is where that gets confirmed.
+## 🧩 FH — the unified frame-header parser (B546) · 📱 iPhone Capacitor
+
+| # | do | closes when | channel |
+|---|---|---|---|
+| **FH-1** 🛑 | **P0 HAZARD CHECK.** Live camera, still mode. | **source panel shows the live feed** — not black, not frozen. If it fails, stop: the build is bad on device. | eyes |
+| **FH-2** | rear ▸ front ▸ rear via flip | feed survives every flip; front mirroring correct | eyes |
+| **FH-3** | `take still` mode, then upload a still | both show a source (B541 regressed `take still` while upload worked) | eyes |
+| **FH-4** | record ~15s, play back in **Photos** | video normal, **audio present and in sync** | eyes |
+| **FH-5** | 📲 iPad + HDMI, run from Xcode: play a **video clip** to the display | clip plays **and timeline position + duration read correctly**. The `FYUW` path — a misread f64 corrupts the master clock. | `copy report` · **plus Xcode console**: filter `[fold]`, paste any line with `clock` or `duration`. A `duration` of `0` while the clip plays is the corruption this catches. |
+| **FH-6** | 📲 iPad + HDMI, live **camera** to the display | feed appears on the panel | eyes |
+
+## C — where the unaccounted third of every 4K frame lives · 📱 iPhone, no rebuild
+
+Keep everything identical and change only the source. The only variable is where pixels come from — leave form, slice, zoom and output size alone.
+
+| # | exact setup | closes when |
+|---|---|---|
+| **C-1** | Live camera at **4K**. PiP **OFF**. Not recording. `copy report`. | baseline — note `fps` and `unmeasured` |
+| **C-2** | Same session. Switch source to **a still photo from the library**. PiP still OFF, still not recording. `copy report`. | **compare `unmeasured`.** Collapses ⇒ it is the native camera bridge, and that becomes the next optimization target. Stays ~33ms ⇒ real shader work, nothing left to find. |
+
+## B / E — behaviour confirmations · 📱 iPhone
+
+**E setup:** record-video mode, live camera, PiP monitor **visible**. Change only resolution between rows.
+
+| # | exact steps | closes when |
+|---|---|---|
+| **B1** | A **STILL IMAGE** source, untouched, not recording. Toggle `render: skip identical frames` ON vs OFF. **Two reports.** | `output render` **calls** drop well below fps with it ON, return to ~fps OFF. Pinned to fps in both ⇒ elision is not firing, and that is the finding. |
+| **E2** | 4K, start a take, then **stop** it. Watch the PiP. | live picture returns **immediately** |
+| **E3** | 4K, **not** recording, framing up. | PiP is **LIVE** — the rule is capture-only. *(Where your "warn me before 4K" change will land.)* |
+| **E4** | **FHD**, record a take. | PiP stays live the whole take — FHD is affordable and must not be starved |
+
+## F — A/V sync · 📱 iPhone, eyes and ears only
+
+Record ~10s **while talking** (count out loud — sharp consonants to sync against), save, play back **in Photos**. Smoothing control is in camera settings: **standard · smooth · smooth+**.
+
+| # | exact steps | closes when |
+|---|---|---|
+| **F1** | **Front** camera, **standard**. | sound present, lips in sync |
+| **F2** | **Front** camera, **smooth+**. | sound present and **still in sync** — the real test, longest buffer to compensate |
+| **F3** | **Rear** camera, **smooth+**. | in sync |
+| **F4** | Fresh launch, do **not** touch smoothing. Check front, flip to rear, check again. | front reads **standard**, rear **cinematic** |
+| **F5** | Explicitly pick `smooth+` on front. Flip to rear, flip back. | your choice survived — the per-lens default must stop overriding you |
+
+
+## ⏳ TF — take finalize (B550) · 📱 iPhone Capacitor · **needs the same fresh `cap:sync`**
+
+| # | do | closes when | channel |
+|---|---|---|---|
+| **TF-1** | Record a **4K** take of ~60s. Tap stop and **watch the toast**. | it names phases and shows a **moving percentage** during `encoding remaining frames`. A stuck 0% or no phase text means the progress stream is not reaching the UI. | eyes |
+| **TF-2** | Same take, let it finish. | **the take actually saves.** This is the row that matters — previously a long 4K finalize was discarded at 30s. | eyes |
+| **TF-3** | After it saves, open the panel. | report has **`finalizeMs`** and **`finalizeMarks`** — paste them. This is the first real data on where 4K finalize spends its time. | `copy report` |
+| **TF-4** | If a take DOES still fail: read the message. | it names the phase it stalled in, not "finalize timed out". Paste it. | eyes |
 
 ## 🎬 Loop Builder — fresh pass (authored B547, replaces B385–B406)
 

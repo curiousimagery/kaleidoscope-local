@@ -367,7 +367,7 @@ async function encoderYieldsConfig(cfg) {
 // The WebCodecs session. Returns { publish, stop } or null when this browser /
 // this take can't ride WebCodecs (caller falls back to MediaRecorder).
 // onDone(blob, ext) on a finalized take; onError(e) when the take is lost.
-async function startWebCodecsSession({ w, h, audioTrack, onDone, onError }) {
+async function startWebCodecsSession({ w, h, audioTrack, onDone, onError, onProgress = null }) {
   if (!webCodecsRecordingSupported()) return null;
 
   const vcfg = await pickVideoCodec(w, h, 30);
@@ -567,14 +567,52 @@ async function startWebCodecsSession({ w, h, audioTrack, onDone, onError }) {
   // for the session if it's the slow one (Daniel's iPad: 17fps recording while
   // the bus rendered 29 — the construction cost was throttling the loop).
   let vfMode = null, vfProbeN = 0, vfProbeMs = 0;
+  // finalize telemetry — read by the sink while finalize runs, and folded into the take report
+  let progress = null, finalizeMs = 0, finalizeMarks = '';
 
+  // FINALIZE IS THE HIGHEST-STAKES MOMENT IN THE APP and until B550 it was completely dark:
+  // "finishing take…" with no progress, no phase, and a caller-side 30s wall clock that
+  // DISCARDED the take when it expired. Daniel's report — 4K finalize is slow and "has failed
+  // more often than not" — is consistent with takes that were still working being declared dead.
+  //
+  // So: report where the time actually goes. The video flush is the long pole and it is the one
+  // phase with a real denominator — `encodeQueueSize` is the number of frames the encoder still
+  // owes us, so watching it drain is genuine determinate progress rather than a guessed bar.
+  // The caller uses the same stream to tell "slow" apart from "stuck" (see chrome.js).
   async function finish() {
+    const t0 = performance.now();
+    const since = () => Math.round(performance.now() - t0);
+    const marks = [];
+    const step = (phase, frac, extra) => {
+      marks.push(`${phase}@${since()}ms`);
+      progress = { phase, frac, ms: since(), ...extra };
+      try { onProgress?.(progress); } catch { /* a reporting failure must never lose a take */ }
+    };
+
+    step('flushing audio', 0.05);
     if (mic) await mic.stop();   // posts the tail flush → onAudioData → encode
     try { if (aenc && aenc.state === 'configured') await aenc.flush(); } catch { /* mid-error */ }
+
+    // the long pole, and the only determinate one
+    const queued0 = venc.encodeQueueSize || 0;
+    step('encoding remaining frames', 0.15, { queued: queued0 });
+    let drain = null;
+    if (queued0 > 0) {
+      drain = setInterval(() => {
+        const q = venc.encodeQueueSize || 0;
+        // 0.15 → 0.85 across the drain, so the bar moves on real work
+        step('encoding remaining frames', 0.15 + 0.7 * (1 - q / queued0), { queued: q });
+      }, 250);
+    }
     try { if (venc.state === 'configured') await venc.flush(); } catch { /* mid-error */ }
+    if (drain) clearInterval(drain);
+
+    step('writing the file', 0.9);
     try {
       muxer.finalize();
       const buf = muxer.target.buffer;
+      finalizeMs = since();
+      finalizeMarks = marks.join(' · ');
       container = inspectMp4Tracks(buf);
       onDone(new Blob([buf], { type: 'video/mp4' }), 'mp4');
       // DOMExceptions stringify to {} — extract the message so the console names it
@@ -616,6 +654,7 @@ async function startWebCodecsSession({ w, h, audioTrack, onDone, onError }) {
       channels: acfg ? channels : null,
       trackSupplied: !!audioTrack,
       trackState: audioTrack ? { enabled: audioTrack.enabled, muted: audioTrack.muted, readyState: audioTrack.readyState, label: audioTrack.label } : null,
+      finalizeMs, finalizeMarks,   // WHERE the finish went — the 4K-finalize question (B550)
       batches: audioBatches, rejected: audioRejected, chunks: audioChunks, withConfig: audioConfigs,
       // seconds IN vs seconds OUT — a large gap means the encoder stalled or dropped mid-take,
       // which a raw chunk count cannot show
@@ -686,6 +725,7 @@ async function startWebCodecsSession({ w, h, audioTrack, onDone, onError }) {
       try { venc.encode(vf, { keyFrame: key }); videoFramesEncoded++; } finally { vf.close(); }
     },
     stop() { finish(); },
+    get progress() { return progress; },
   };
 }
 
@@ -778,6 +818,9 @@ export function createRecorderSink({ filenamePrefix = 'fold-live', save = null, 
   let recording = false;
   let lastResult = null;
 
+  // Live finalize progress, polled by the chrome. `null` when no finalize is in flight.
+  const progressOf = () => (session && 'progress' in session ? session.progress : null);
+
   const saveTake = (blob, ext) => {
     const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
     const name = `${filenamePrefix}-${stamp}.${ext}`;
@@ -798,6 +841,8 @@ export function createRecorderSink({ filenamePrefix = 'fold-live', save = null, 
   return {
     id: 'disk',
     get recording() { return recording; },
+    // { phase, frac, ms, queued? } while finalize runs — see finish() in the session
+    get progress() { return progressOf(); },
     get supported() { return webCodecsRecordingSupported() || pickMime() !== null; },
     get lastResult() { return lastResult; },
 
