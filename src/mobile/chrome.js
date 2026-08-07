@@ -1211,6 +1211,7 @@ async function startRecording() {
   // phone's flow — the user chooses video vs package later); the real save +
   // toast happen in downloadBlob when they pick. paintRecord feeds frames.
   try {
+    if (perfFlags.recordMediaRecorder) throw new Error('forced to MediaRecorder by the switchboard');
     wcDiscard = false;
     const sink = createRecorderSink({
       engine: 'webcodecs',

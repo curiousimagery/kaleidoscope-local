@@ -4,6 +4,22 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🔁 v0.22.31 (Build 537) — 2026-08-07 — A working recorder now, and the verdict on screen
+
+Six builds of instrumentation on the silent take. Enough — ship a way to record with sound while the WebCodecs chain gets resolved.
+
+**`record: use MediaRecorder`** on the switchboard forces takes through the pre-B365 recorder, which muxes natively and demonstrably produces audio (the package's raw take has had sound throughout and it is the only thing on that path). It is both the workaround and the decisive A/B: if a take made with it ON has sound, the fault is definitively inside the WebCodecs audio chain and not upstream. The cost is real and it is not a default — MediaRecorder ignores our bitrate on WebKit (the 1080p pixelation B365 existed to fix) and brings back the stop-that-never-stops class.
+
+### The diagnostic never reached anyone, and that was a design fault
+
+**The audio verdict is only written when a take ENDS.** Every report copied mid-take read `"recording…"`, so six rounds of evidence went only to a console that needs Xcode attached. The panel now shows a **last take audio** row — visible on the device, after the take, with the full block on hover.
+
+Same lesson as B532, one layer in: it is not enough for a diagnostic to be published, it has to be published **where and when someone will actually see it.**
+
+### Noted, not yet actionable
+
+Daniel's console showed a flood of `AudioComponentPluginMgr … AudioComponentRegistrar was invalidated … Operation not permitted` from the WebContent process. This is a common and usually benign WKWebView sandbox message, so it is not a diagnosis — but the **volume** is suspicious, and if AAC component lookup is genuinely failing inside the web content process it would produce exactly what we see: chunks that exist and carry a config, in a track that cannot be decoded. The MediaRecorder A/B is the cheapest way to separate that from everything else.
+
 ## 🔬 v0.22.30 (Build 536) — 2026-08-07 — 39 bytes is the wrong size, and the bisect points at B365
 
 `desc 39B` refuted B535: the description is present. **But an AAC-LC AudioSpecificConfig for 48kHz mono is TWO bytes.** 39 is ES_Descriptor territory, and mp4-muxer expects the bare ASC to nest inside the `esds` it builds itself. Handing it a full ES_Descriptor means nesting a descriptor inside a descriptor: a malformed `esds`, a track that exists and cannot be decoded, silent playback. Every symptom fits.

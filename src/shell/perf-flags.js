@@ -102,6 +102,20 @@ export const perfFlags = {
   // make it the arc's first genuine "we cannot deliver this as designed" finding.
   pipThrottle: true,
 
+  // Force takes through MediaRecorder instead of WebCodecs (B537). ON = the pre-B365 recorder,
+  // which muxes natively and demonstrably produces sound — the package's RAW take has had audio
+  // this whole time and it is the only thing on that path.
+  //
+  // Both a WORKAROUND and the decisive A/B. iPhone composition audio has plausibly been silent
+  // since B372 put the phone on WebCodecs; six builds of instrumentation have shown real signal
+  // (peak 0.72), real chunks, a decoderConfig, and a `soun` track in the container, and the file
+  // is still silent. Turning this ON should produce a take with sound. If it does, the fault is
+  // definitively inside the WebCodecs audio chain rather than anywhere upstream of it.
+  //
+  // The cost is real: MediaRecorder ignores our bitrate on WebKit (the 1080p pixelation B365 was
+  // built to fix) and brings back the stop-that-never-stops class. Not a default, a lever.
+  recordMediaRecorder: false,
+
   // PIPELINED (async) GPU→CPU readback for the broadcast bus (B519). OFF = the synchronous
   // `readPixels` that measured 21.3ms/frame at 4K on desktop — the largest single cost in the
   // app. This is the one flag whose OFF state is genuinely worse; it exists so the win can be
@@ -119,5 +133,6 @@ export const PERF_FLAG_SPECS = [
   ['asyncReadback', 'bus: pipelined readback', 'off = blocking readPixels (21ms/frame at 4K)'],
   ['recordDirect', 'record: encode the GL canvas', 'off = the 2D blit (40ms/frame at FHD on iPhone)'],
   ['pipThrottle', 'PiP: 10Hz monitor', 'off = every frame (17fps vs 60 while recording)'],
+  ['recordMediaRecorder', 'record: use MediaRecorder', 'on = the pre-B365 recorder — takes have SOUND, lower video quality'],
   ['recordForceFlush', 'record: force sync rasterize', 'Blink-only by default; ON here if a WebKit take shows a stale frame'],
 ];

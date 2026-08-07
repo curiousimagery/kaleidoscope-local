@@ -270,6 +270,17 @@ export function mountPerfPanel(env, { container = null, onClose = null } = {}) {
       top.append(stat('unmeasured', `${r.unaccountedMs}ms`, cls));
     }
 
+    // LAST TAKE'S AUDIO, on screen (B537). It was already in the export, but the verdict is only
+    // written when a take ENDS — so every report copied mid-take read `recording…` and the answer
+    // never reached anyone. A row that is simply visible after the take removes that trap.
+    const a = env.lastAudioReport;
+    if (a && !a.live) {
+      const ok = a.verdict === 'ok';
+      const el = stat('last take audio', ok ? `ok · peak ${a.peak ?? '?'}` : a.verdict, ok ? '' : 'bad');
+      el.title = JSON.stringify(a, null, 2);   // long-press / hover for the full block
+      top.append(el);
+    }
+
     rows.innerHTML = '';
     const baseById = new Map((baseline?.surfaces || []).map((s) => [s.id, s]));
     for (const s of r.surfaces) {
