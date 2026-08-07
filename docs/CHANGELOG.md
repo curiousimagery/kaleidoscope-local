@@ -4,6 +4,30 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🧹 v0.22.39 (Build 545) — 2026-08-07 — Comment hygiene after the audio saga
+
+The obvious-fix half of a post-arc cleanup pass; the rest is proposed in BACKLOG as a scoped audit rather than done opportunistically.
+
+- **A stranded function header in `conduit/recorder.js`.** The video probe's explanation sat 100 lines above the function it describes, orphaned when the audio probe and the ES_Descriptor unwrapper were inserted between them — so the video probe had no comment and the descriptor parser had someone else's. Three narration blocks from B531/B533/B539 had also stacked into one wall that read as a single argument. Each now sits on the thing it explains.
+- **`extractAudioSpecificConfig` was exported and imported nowhere** — surface left over from being probed in isolation during the saga. Now module-local.
+- **A comment that had become false.** `native-camera.js` claimed the frame-header offsets existed in one place after B541. They exist in two: `native-frame-receiver.js` parses the same wire format independently, because it also serves the video socket where the second f64 is duration rather than latency. Since two parsers for one format is the *exact* shape of the B540 dark-panel bug, the comment now says so and points at the other file.
+
+No behaviour change.
+
+**Also flagged, not yet fixed:** `HANDOFF.md`'s `## what's working` describes Build 24 and `## what we're doing right now` describes Build 57 — the two sections CLAUDE.md names as going stale fastest, wrong by ~490 builds, in the file every session reads first. A HISTORICAL banner now marks the boundary so it cannot mislead; archiving it properly is C4 in BACKLOG.
+
+## 🧪 v0.22.38 (Build 544) — 2026-08-07 — The PiP lands in the UI Lab, and stops being styled by ID
+
+Clears the debt B543 flagged. New **PiP monitor** section with its full state matrix: live output, live recording (rec dot), swapped labels, and starved-at-4K.
+
+**Adding it exposed why it was never there.** The component was styled entirely by ID — `#m-pip`, `#m-pip-msg`, `#m-pip-dot` — so it could not be specimened without copying its CSS into the Lab, which is precisely the duplicate-that-drifts the Lab exists to prevent. The visual rules now accept the class form too, **one declaration each**, so the specimens render from the shipping styles. Only the corner/safe-area positioning stays id-scoped, since that is layout rather than treatment.
+
+Worth applying the same rule to any other id-styled component. An id-styled component is one the design system cannot see.
+
+The specimens use a real `<canvas>`, not a div stand-in: both `#m-pip canvas, .m-pip canvas` and the starved `visibility: hidden` rule key on the element, so a stand-in would silently miss them and the starved state would look right for the wrong reason.
+
+**Second gap surfaced, not fixed:** the status dot is one flat `--danger` for BOTH recording and broadcasting, so the two live states are indistinguishable at a glance. Filed as a disambiguation target.
+
 ## 🚦 v0.22.37 (Build 543) — 2026-08-07 — The first governor rule: starve the PiP at 4K
 
 **The only rule this arc has earned, shipped on its own rather than inside a controller built on assumptions.**

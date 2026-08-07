@@ -94,16 +94,17 @@ export function createNativeCamera() {
     renderer = createYuvRenderer(canvas);
   }
 
-  // Paint the latest received frame into the RGB canvas. Called each render tick
-  // (via refreshFrame) so the YUV->RGB blit is synced to the render loop — one blit
-  // per rendered frame, not one per socket message.
-  // ONE parser for the frame header, used by every consumer. B540 added the timestamped "FYUX"
-  // format and updated only `planeReader`, leaving `paintLatest` still rejecting anything that
-  // was not "FYUV" — so every native frame was dropped and the source panel went dark while the
-  // overlay kept drawing. Three copies of the same offsets is what allowed that; now there is one.
+  // ONE parser for the frame header, used by every consumer IN THIS MODULE. B540 added the
+  // timestamped "FYUX" format and updated only `planeReader`, leaving `paintLatest` still
+  // rejecting anything that was not "FYUV" — so every native frame was dropped and the source
+  // panel went dark while the overlay kept drawing.
   //
   //   "FYUV" — 24-byte header, no timing (pre-B540 plugin)
   //   "FYUX" — 40-byte header, + f64 capture pts + f64 capture-to-delivery latency (seconds)
+  //
+  // ⚠️ `shell/native-frame-receiver.js` parses the SAME wire format independently (it also has to
+  // handle the video socket's "FYUW", where the second f64 is duration, not latency). Two parsers
+  // for one wire format is the exact shape of the B540 bug — a format change has to land in both.
   function parseFrame(buf) {
     if (!buf || buf.byteLength < 24) return null;
     const dv = new DataView(buf);
@@ -129,6 +130,9 @@ export function createNativeCamera() {
     };
   }
 
+  // Paint the latest received frame into the RGB canvas. Called each render tick (via
+  // refreshFrame) so the YUV->RGB blit is synced to the render loop — one blit per rendered
+  // frame, not one per socket message.
   function paintLatest() {
     if (!latest || !renderer) return;
     const f = parseFrame(latest);

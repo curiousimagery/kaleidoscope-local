@@ -834,6 +834,58 @@ function compositesSection() {
 }
 
 // ---- CROSS-DEVICE STATES (reused, handled inconsistently across chromes) -----
+// The record-video PiP monitor, rendered from the REAL #m-pip markup and classes (mobile
+// styles.css is imported above), so these specimens track the app rather than describe it.
+// Absolute positioning and the corner classes are neutralised for display only — everything
+// else is the shipping treatment.
+function pipSection() {
+  // position/corner rules stay id-scoped (they are layout, not treatment); everything visual is
+  // shared with the app by selector, so these specimens cannot drift from the shipping look.
+  const SHIM = 'position:relative;width:150px';
+
+  // a REAL canvas, because `#m-pip canvas, .m-pip canvas` and the starved `visibility:hidden`
+  // rule both key on the element — a div stand-in would silently miss them
+  function fauxCanvas() {
+    const c = el('canvas', { width: '160', height: '160' });
+    const g = c.getContext('2d').createLinearGradient(0, 0, 160, 160);
+    g.addColorStop(0, '#2b4a6f'); g.addColorStop(0.55, '#7a4a86'); g.addColorStop(1, '#c86a4a');
+    const ctx = c.getContext('2d');
+    ctx.fillStyle = g; ctx.fillRect(0, 0, 160, 160);
+    return c;
+  }
+
+  function pip({ label, rec, starved }) {
+    return el('div', { class: `m-pip${starved ? ' pip-starved' : ''}`, style: SHIM }, [
+      fauxCanvas(),
+      el('div', { class: 'm-pip-msg', text: 'preview unavailable while capturing at 4K' }),
+      el('span', { class: 'm-pip-label' }, [
+        el('i', { class: `m-pip-dot${rec ? ' rec' : ''}` }),
+        el('span', { text: label }),
+      ]),
+    ]);
+  }
+
+  const cell = (title, node, note) => el('div', {}, [
+    el('div', { class: 'lab-name', style: 'margin-bottom:8px', text: title }),
+    node,
+    note ? el('div', { class: 'lab-note', style: 'margin-top:6px', text: note }) : null,
+  ]);
+
+  return section('pip', 'PiP monitor (record video)',
+    'The corner monitor in record-video mode. The big panel is the immediate PREVIEW; the PiP shows the followed OUTPUT — what is actually being recorded — and the two swap (labels follow). '
+    + 'STARVED is a governor state, not an error: at a 4K source each PiP consume costs so much that ten per second saturate the frame budget (14 Pro: 11.0fps with the monitor at 10Hz vs 11.4 with it off), so at 4K the monitor cannot be rationed, only removed. '
+    + 'The surface deliberately STAYS so the record/broadcast dot keeps its home and the explanation sits where the content was, instead of a toast that has to be caught. '
+    + 'Two gaps this surfaces. (1) The dot is one flat --danger for BOTH recording and broadcasting, so the two live states are indistinguishable at a glance — a disambiguation target. '
+    + '(2) The component was styled entirely by ID (#m-pip, #m-pip-msg, #m-pip-dot), which made it impossible to specimen without copying its CSS. The visual rules now accept the class form too, from ONE declaration each, so these are the shipping styles rather than a duplicate that drifts. Only the corner/safe-area positioning stays id-scoped, since that is layout rather than treatment. Worth applying the same rule to any other id-styled component.', [
+      el('div', { class: 'lab-cols' }, [
+        cell('live · output', pip({ label: 'output' }), '10Hz on iOS — a monitor does not need program parity'),
+        cell('live · recording', pip({ label: 'output', rec: true }), '#m-pip-dot.rec'),
+        cell('live · swapped', pip({ label: 'preview' }), 'big panel becomes OUTPUT; labels trade places'),
+        cell('starved · 4K capture', pip({ label: 'output', rec: true, starved: true }), '.pip-starved — canvas visibility:hidden, #m-pip-msg shown'),
+      ]),
+    ]);
+}
+
 function crossDeviceStatesSection() {
   const deskOutput = el('div', { class: 'lab-state-stage', style: 'flex-direction:column;align-items:center;gap:6px;padding:20px;min-width:200px' }, [
     el('div', { class: 'placeholder' }, [el('strong', { text: 'kaleidoscope' }), 'upload an image to begin']),
@@ -1089,6 +1141,7 @@ function build() {
     inputsSection(),
     buildingBlocksSection(),
     compositesSection(),
+    pipSection(),
     crossDeviceStatesSection(),
   ]);
 

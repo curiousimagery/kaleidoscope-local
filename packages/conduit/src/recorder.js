@@ -238,25 +238,6 @@ async function startMicTap(track, onData) {
 }
 
 // ---------------------------------------------------------------------------
-// Encode ONE frame through a throwaway encoder and report whether its output
-// carried `meta.decoderConfig` with a description. isConfigSupported is NOT
-// enough: WebKit accepts `latencyMode:'realtime'` but then emits chunks with
-// no decoderConfig at all — the muxer can't build the avcC box and finalize
-// dies ("null is not an object … decoderConfig.colorSpace", Daniel's iPad
-// no-file take). Only an actual encode tells the truth. ~one encoder init at
-// record start; the verdict is cached per config for the session.
-// THE AUDIO SIDE OF THE SAME PROBE (B531). `pickAudioCodec` only asks `isConfigSupported`, which
-// this file's own header already says is not enough — WebKit answers yes and then emits chunks
-// with no `decoderConfig`. On the video path that was caught by `encoderYieldsConfig`; the audio
-// path never got the equivalent, and `addAudioChunk(chunk, undefined)` does not throw. The muxer
-// simply never receives the audio decoder config, so it cannot write a valid sample description
-// and the track comes back silent while the video is perfect.
-//
-// That is exactly Daniel's report: the composition has no audio, and the package's RAW source
-// take — muxed natively by MediaRecorder, never touching this code — has audio just fine.
-//
-// A `false` verdict rejects the whole WebCodecs session, so the take falls back to MediaRecorder
-// and comes back WITH sound. Slower and lower fidelity, and infinitely better than silent.
 // THE SILENT-TAKE FIX (B539). WebKit's AAC encoder returns `decoderConfig.description` as a FULL
 // ES_Descriptor (Daniel's device: 39 bytes, `03 80 80 80 22 00 00 00`), while mp4-muxer expects
 // the bare AudioSpecificConfig to nest inside the `esds` it builds itself. Handing it the whole
@@ -272,7 +253,7 @@ function readDescriptorSize(u8, i) {
   return { size, next: i };
 }
 
-export function extractAudioSpecificConfig(desc) {
+function extractAudioSpecificConfig(desc) {
   try {
     const u8 = desc instanceof Uint8Array ? desc
       : desc instanceof ArrayBuffer ? new Uint8Array(desc)
@@ -295,6 +276,13 @@ export function extractAudioSpecificConfig(desc) {
 }
 
 const probeCache = new Map();
+
+// Does the AUDIO encoder actually yield a usable decoderConfig? `isConfigSupported` is not enough
+// — WebKit answers yes and then emits chunks with no config, and `addAudioChunk(chunk, undefined)`
+// does not throw, so the muxer writes a sample description it cannot fill and the track comes back
+// silent while the video is perfect. A `false` verdict rejects the whole WebCodecs session, so the
+// take falls back to MediaRecorder and comes back WITH sound: lower fidelity, infinitely better
+// than silent. Cached per config for the session.
 async function audioEncoderYieldsConfig(cfg) {
   const key = `audio|${cfg.codec}|${cfg.sampleRate}|${cfg.numberOfChannels}`;
   if (probeCache.has(key)) return probeCache.get(key);
@@ -340,6 +328,11 @@ async function audioEncoderYieldsConfig(cfg) {
   return verdict;
 }
 
+// The VIDEO side of the same probe. Encode one frame through a throwaway encoder and report
+// whether its output carried `meta.decoderConfig` with a description. WebKit accepts
+// `latencyMode:'realtime'` and then emits chunks with no decoderConfig at all — the muxer can't
+// build the avcC box and finalize dies ("null is not an object … decoderConfig.colorSpace",
+// Daniel's iPad no-file take). Only an actual encode tells the truth.
 async function encoderYieldsConfig(cfg) {
   const key = `${cfg.codec}|${cfg.width}x${cfg.height}|${cfg.latencyMode || ''}`;
   if (probeCache.has(key)) return probeCache.get(key);

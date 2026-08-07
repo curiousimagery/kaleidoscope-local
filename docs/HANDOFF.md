@@ -695,7 +695,11 @@ We're building **animation of parameter keyframes over a source video** — the 
 
 **Decisions settled with Daniel (2026-06-02):** (1) **A/B prove-out first**, then generalize to a multi-keyframe list later; (2) **discrete params locked for the whole loop** (only continuous fields animate); (3) **loop = a toggle that tweens the end back to the start** (no manual loop-lock, no ping-pong). Default easing `easeInOut`. Still open for the multi-keyframe build: the timeline UI (Daniel drives), output aspect/fps for video export. **Verify:** a 2-keyframe loop interpolates smoothly and loops seamlessly. Full Phase 3/3.5/4/5 framing is in BACKLOG ("animation + performance track") and the plan doc `~/.claude/plans/i-d-like-to-think-parsed-sloth.md`. When delivering a new build, increment BUILD by 1 and bump VERSION when meaningful change ships. **BUILD never resets** on version bumps — it's a global monotonic counter (see `version.js` comment).
 
-## what's working
+## ⚠️ HISTORICAL FROM HERE DOWN — do not read as current state (flagged B545)
+
+Everything below this line describes **Builds 19–187** and has not been true for hundreds of builds. It is kept as a record of how decisions were reached, not as a status report. **For current state read `## current version` at the top of this file**, plus `CAPABILITIES.md` (measured ceilings), `BACKLOG.md` (open work) and `VERIFY-QUEUE.md` (pending hardware checks). Slated to move to `docs/archive/` — see BACKLOG "POST-ARC CLEANUP" C4.
+
+## what's working (AS OF BUILD 24 — historical)
 
 The full kaleidoscope app is functional and tested. Three forms (radial, square, hex), full slice + canvas controls, direct manipulation on the source overlay, export at 1K through GPU-max, all OOB modes, drag/swap/divider, scrub fields with pointer lock, slider sync.
 
@@ -707,7 +711,7 @@ Vite project, single static-site bundle. Engine in `src/engine/`, shell in `src/
 
 Read `ARCHITECTURE.md` if you need details on the registry, shader composition, or `env` runtime container.
 
-## what we're doing right now
+## what we're doing right now (AS OF BUILD 57 — historical, ~490 builds stale)
 
 Build 57 addresses five follow-ups from Build 56 testing:
 
