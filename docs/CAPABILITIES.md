@@ -1,5 +1,14 @@
 # capabilities
 
+> **UPDATE B547 (device pass).** Two ceilings moved and one measurement was found to be misleading.
+>
+> - **4K/30 recording IS deliverable on the 17 Pro: 31.7fps measured**, up from the 11.4fps that set the old "not deliverable" verdict. The starved PiP (B543) is what bought it. The 14 Pro has NOT been re-measured at 4K since B543 — the old 11.4 number stands there until it is.
+> - **Sustained idle is not a thermal problem.** 10 minutes of live camera: 60.0fps, p95 improved 22→17ms, pressure nominal, phone slightly warm. The installation case survives idle; it has not been tested under sustained *capture*.
+> - **`unaccountedMs` at idle is not hidden cost.** At 60fps with ~1.1ms of work, ~15.9ms of every 17ms frame is waiting for vsync. Only read `unaccounted` as a signal when the frame budget is actually saturated.
+> - **`pressure` cannot be trusted during a take.** It infers from fps against a 60 assumption, so a correct 30fps take reports `critical`. Fix before any governor consumes it.
+> - **The HDMI ceiling is still unknown** — the app's own fps and the observed fps on the panel diverge badly (46 vs ~10) and the external surface is uninstrumented.
+
+
 **What we can actually deliver, on what hardware, and how we find out at runtime.**
 
 This is a living doc. It exists because the thermal arc (B512-B529) turned "it should be fast enough" into measured numbers, and those numbers have to drive product decisions rather than sit in a changelog. Two audiences: the UX work that has to warn, degrade, or hide options honestly, and the detection code that has to decide which case a given device is in.

@@ -4,6 +4,25 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 📋 v0.22.42 (Build 548) — 2026-08-07 — The device pass writes back: three bugs, one big inefficiency, two ceilings moved
+
+Docs-only. Daniel ran A–E on iPhone and the never-before-run D group on iPad + 4K HDMI.
+
+**The HDMI group found more in one sitting than the rest of the matrix combined**, which is the expected return on a surface that had never been measured:
+- **D3 CRITICAL — starting a record while broadcasting kills the broadcast.** The panel still reads 60fps, which is what makes it nasty. The tell is `bus` reading `capture: null` with zero calls: registered, not running. Record and broadcast share one bus by design, so arming the second consumer is tearing down the first.
+- **D4 HIGH — after a reset, broadcast reports live with a blank display.** Same lifecycle defect, reported state diverging from actual.
+- **HIGH — broadcasting in motion mode plays the clip externally even when motion is PAUSED.** The external view runs its own clock instead of following the transport.
+- **The iPad camera never got B518's planar path.** Its `upload` costs **15.47ms/frame for 0.79MP** against **1.91ms for 8.29MP** on the iPhone — ten times fewer pixels at eight times the cost. The exact round-trip signature B518 fixed for the phone, still live on the surface the installation case runs on.
+- **We cannot see the external display's real frame rate at all.** Observed ~10fps against a reported 46. Until the receiver reports its own paint rate, every HDMI row measures the wrong process.
+
+**Two ceilings moved, both in the good direction.** 4K/30 recording is now **31.7fps on the 17 Pro** (the old "not deliverable" verdict came from 11.4). Ten minutes of sustained idle is stable — pressure nominal, p95 *improved* 22→17ms.
+
+**Two measurements were found to be misleading and are now annotated.** `unaccountedMs` at idle is vsync wait, not hidden cost. And `pressure` infers from fps against a 60 assumption, so a correct 30fps take reports `critical` — that must be fixed before any governor consumes it.
+
+**Verification queue corrected where it was the problem, not the tester.** A3 was badly worded (it needed a take rolling; it is closed anyway by B3's `ladder locked` note). B1's scenario was simply wrong — a live camera preview delivers a new frame every tick, so there was nothing to elide; it is re-specified against a still image. The C/E/F rows got exact step-by-step setups. **A `C1` label collided between the H2 group and the frame-header pass** — the parser rows are now `FH-*`.
+
+**One governor rule surfaced that needs no further data:** the "finishing take" case. 4K finalize is slow and historically fails more often than not, with no completion signal. It is triggered by a discrete known event rather than a thermal curve, so unlike the rest of the governor it is buildable now — with determinate progress and everything else yielding.
+
 ## 🗄️ v0.22.41 (Build 547) — 2026-08-07 — C3 + C4: the docs stop lying, and 308MB of dead spike goes
 
 Docs-only except the deletion. Closes the cleanup arc's paperwork half.

@@ -21,8 +21,8 @@ Legend: 🖥️ desktop browser · 💻 Electron · 📺 external display / HDMI
 | **B2 + D4** (the two 10-min runs) | **the governor** | Its yield order and sustained setpoint have to be designed against measured drift, not assumption. This is the arc's last hard blocker. |
 | **D1** (external reports real dimensions) | **D2, D3, D4** | If the external surface reads 0×0 it is not registered and the rest measures nothing. |
 | **B + E** | **cleanup C2** (retiring settled perf flags) | Those flags ARE the A/B mechanism for these rows. They cannot be deleted until the rows they serve are closed. |
-| **a fresh `cap:sync`** | **all of C1** | C1 shipped B546, after the sync taken for A–F. |
-| nothing | **A, C1, F, Loop Builder, the carried-forward items** | independent; run in any order |
+| **a fresh `cap:sync`** | **all of FH** | C1 shipped B546, after the sync taken for A–F. |
+| nothing | **A, FH, F, Loop Builder, the carried-forward items** | independent; run in any order |
 
 **Not blocked, not urgent:** everything under "carried forward" — those have been open for weeks and are not gating current work.
 
@@ -36,67 +36,83 @@ Legend: 🖥️ desktop browser · 💻 Electron · 📺 external display / HDMI
 
 | # | setup | do | closes when |
 |---|---|---|---|
-| A1 | live camera, still mode | leave it sitting ~30s, then move a slice | preview never stale or frozen; motion starts on the **first** frame with no hitch at the idle→moving transition |
-| A2 | record video mode, PiP visible | record ~20s, move the slice mid-take | played back in **Photos**: every frame present, no stutter |
-| A3 | mid-take | open the panel, try stepping the **output** ladder down | stepper has no effect; note reads `ladder locked — this canvas IS the take` |
-| A4 | any | toggle `render: skip identical frames` off/on | no visible difference at all |
+| ✅ A1 | live camera, still mode | leave it sitting ~30s, then move a slice | **CONFIRMED B547** |
+| ✅ A2 | record video mode, PiP visible | record ~20s, move the slice mid-take | **CONFIRMED B547** |
+| ✅ A3 | — | — | **CONFIRMED B547 by the B3 report**, not by the stepper test — see below |
+| ✅ A4 | any | toggle `render: skip identical frames` off/on | **CONFIRMED B547** — no visible difference |
 
-**🛑 If A1 or A4 shows a stale preview: stop, turn `render: skip identical frames` OFF, and report it.** The elision guard has a gap; it is the first thing to fix and B/C/E are invalid until it is.
+**A3 was badly worded and is already answered.** The intent was: *while a take is actually rolling*, the output canvas cannot be downscaled, because on the direct-encode path that canvas **is** the recording. Stepping it while idle SHOULD work — that is the ladder doing its job. Daniel's 100%→25% test was performed idle, so it proved nothing either way. **But the B3 report closes it anyway:** mid-take, the `output` surface note reads `ladder locked — this canvas IS the take`, which is the lock engaged and self-describing. No re-test needed.
 
-### B. The elision win (📱 iPhone; 📲 iPad if convenient) — **paste TWO reports per row**
+### B. The elision win (📱 iPhone) — **paste TWO reports per row**
 
-Paired A/B. A single report cannot close these rows.
+**⚠️ B1's scenario was wrong and produced a null result. Corrected below.** A live camera preview at 768×1024 delivers a genuinely new frame on **every** tick (`planeReader` gates on the wire sequence, and it advanced 60×/s), so there were no identical frames to elide and `output render` correctly stayed at 60 calls. The elision only has something to skip when the SOURCE is static.
 
 | # | scenario | closes when |
 |---|---|---|
-| B1 | live camera, static scene, **not** recording | `output render` **calls** roughly HALVE with the flag on; `fps` unchanged. (Calls, not ms.) |
-| **B2** | same, left running **10+ min** | `pressure` and device warmth, ON vs OFF. **Paste a report at start AND at end of each run.** The sustained/installation case, and a governor blocker. |
-| B3 | record video mode, framing up (not recording), **PiP hidden** | the eased-render row disappears from the report entirely |
+| **B1 (redo)** | **a STILL IMAGE source** (not the camera), untouched, not recording | `output render` **calls** drop well below fps with the flag ON, and return to ~fps with it OFF. (Calls, not ms.) If calls stay pinned to fps in both states, the elision is not firing and that is the finding. |
+| ✅ B2 | live camera, 10+ min | **CONFIRMED B547 — stable.** fps 60.0, p95 **improved** 22→17ms, `pressure` nominal throughout, phone slightly warm, not hot. Sustained idle is not a thermal problem. Governor input satisfied for the idle case. |
+| ✅ B3 | 4K record | **CONFIRMED B547** and better than predicted — see the CAPABILITIES update. |
 
 ### C. H2 — the unaccounted third of every 4K frame (📱 iPhone, ~5 min, no rebuild) — **paste both**
 
-| # | scenario | closes when |
+**The question:** at a 4K source, about a third of every frame is time we cannot attribute to any registered surface. Is that the **native camera bridge** (socket + YUV plane handling) or the **fold shader itself**? The only way to tell is to keep everything identical and change only where the pixels come from.
+
+| # | exact setup | closes when |
 |---|---|---|
-| C1a | 4K source = **camera**, PiP off | baseline captured (~11fps on 14 Pro, `unmeasured` ~33ms) |
-| C1b | 4K source = **a still image**, same resolution, PiP off | **verdict:** `unmeasured` collapses + fps jumps ⇒ the missing third is the native camera bridge. Unchanged ⇒ it is the fold shader and there is nothing more to find. |
+| **C-1** | 📱 iPhone. Live camera, resolution set to **4K**. PiP monitor **OFF**. Do not record — just sit on the live preview. `copy report`. | baseline captured — note `fps` and `unmeasured` |
+| **C-2** | Same session, same everything. Now switch the source to **a still photo from the library** (any photo; ideally a large one). PiP still OFF. Still not recording. `copy report`. | **compare `unmeasured` between the two.** Collapses toward zero ⇒ the missing third is the native camera bridge, and that becomes the next optimization target. Stays ~33ms ⇒ it is real GPU work in the fold shader and there is nothing left to find. |
 
-### D. HDMI — never measured on any device (📲 iPad Capacitor + HDMI cable) — **paste every row**
+The only variable that may change between them is the source; leave form, slice, zoom and output size alone.
 
-No prediction here; that is the point.
+### D. HDMI (📲 iPad Capacitor + 4K HDMI) — **RUN B547; found three bugs**
 
-| # | scenario | closes when |
+| # | scenario | result |
 |---|---|---|
-| **D1** | HDMI connected, app idle | the `external` row reports **real dimensions, not 0×0**. 🛑 If 0×0, stop and report — D2–D4 would measure nothing. |
-| D2 | HDMI + live camera | fps and `unmeasured` vs the same scene with the cable out |
-| D3 | HDMI + recording a take | **the combination that decides the PiP question** |
-| **D4** | HDMI, **10+ min** | pressure drift and warmth. Governor blocker; paste start and end. |
+| ✅ D1 | HDMI connected, idle | **PASS, row was mis-worded.** `external` reads 0×0 while idle because nothing is being sent — that is correct, not a failure. It reports a true 3840×2160 the moment a broadcast starts (see D2). Row rewritten: *the external row reports real dimensions once broadcasting*. |
+| ⚠️ D2 | HDMI + live camera | **App renders 46fps; Daniel observes ~10fps on the monitor.** Also exposed the iPad camera's missing planar path (15.47ms upload for 0.79MP). Both filed. |
+| 🔴 D3 | HDMI + recording a take | **FAILS.** Starting a record kills the broadcast. Filed CRITICAL. **This row cannot close until that is fixed**, and it is the row that was meant to decide the PiP question. |
+| 🔴 D4 | HDMI, 10+ min | **BLOCKED by the same lifecycle bug** — after a reset, broadcast reports live with a blank display. A restart plus an FHD clip broadcasts, but at ~11fps observed against 42.9fps reported. The long-run thermal reading is still outstanding. |
+
+**D2/D4's core problem: we cannot see the external display's real frame rate.** It renders in another process and reports no passes. Every "observed ~10fps vs reported 46fps" gap is unmeasurable until the receiver reports its own paint rate. Filed as a blocker for the whole D group.
 
 ### E. The starved PiP at 4K (B543) (📱 iPhone Capacitor)
 
-| # | scenario | closes when | channel |
+**What E is for, in one line:** at 4K the PiP monitor is too expensive to run during capture, so B543 keeps the *box* and starves its *content*. E checks that the rule fires at the right times and only then.
+
+**Setup for all rows:** phone, **record video** mode, live camera, PiP monitor **visible** (not hidden). Change only the camera resolution between rows.
+
+| # | exact steps | closes when | channel |
 |---|---|---|---|
-| E1 | 4K source, start a take | box stays · message reads `preview unavailable while capturing at 4K` · **rec dot still visible** (all three) | eyes |
-| E2 | same, stop the take | PiP returns to live immediately | eyes |
-| E3 | 4K, framing up, **not** capturing | PiP is LIVE — the rule is capture-only | eyes |
-| E4 | FHD, recording | PiP live at 10Hz, unchanged | eyes |
-| E5 | 4K, recording | fps near the PiP-off number (14 Pro: 11.4, not 11.0) | **`copy report`** |
+| ✅ E1 | Resolution **4K**. Start a take. Look at the PiP box. | **CONFIRMED B547** — box stayed, content starved. (Note reads `starved — source too large to monitor while capturing`.) | eyes |
+| **E2** | Still 4K. **Stop** the take. Watch the PiP. | live picture returns **immediately** — no stall, no need to leave and re-enter the mode | eyes |
+| **E3** | Still 4K, **not** recording, just framing up. | PiP is **LIVE**. The rule is capture-only; if it is starved while merely framing at 4K, the guard is too broad. *(This is also where Daniel's "warn me first" improvement will land.)* | eyes |
+| **E4** | Set resolution to **FHD**. Record a take. | PiP stays **live** through the whole take — FHD is affordable and must not be starved | eyes |
+| ✅ E5 | 4K, recording | **CONFIRMED B547** — 31.7fps | `copy report` |
 
-### F. A/V sync + audio (📱 iPhone Capacitor) — **eyes and ears; play back in Photos**
+### F. A/V sync + audio (📱 iPhone Capacitor) — **eyes and ears only, nothing to paste**
 
-| # | scenario | closes when |
+**What F is for:** `smooth`/`smooth+` use Apple's cinematic stabilization, which buffers about a second of frames. B540 measures that delay natively and shifts the audio to match. F confirms the compensation is right in every mode and survives a lens flip.
+
+**How to run each row:** record ~10 seconds **while talking** (count out loud — "one, two, three…" gives you sharp consonants to sync against), stop, save, then **play it back in Photos** and watch your mouth against the sound.
+
+The motion-smoothing control is in the camera settings: **standard · smooth · smooth+**.
+
+| # | exact steps | closes when |
 |---|---|---|
-| F1 | front camera, `standard`, talking | sound present, lips in sync |
-| F2 | front camera, `smooth+`, talking | sound present, **still** in sync — the real test (~1s stabilization buffer must be compensated exactly) |
-| F3 | rear camera, `smooth+`, talking | in sync |
-| F4 | flip lenses without touching the motion control | front defaults `standard`, rear `cinematic` |
-| F5 | pick a mode explicitly, then flip | the explicit choice survives the flip |
+| **F1** | **Front** camera, smoothing **standard**. Talk, record ~10s, play back in Photos. | sound present, lips in sync |
+| **F2** | **Front** camera, smoothing **smooth+**. Same. | sound present and **still in sync** — this is the real test; smooth+ has the longest buffer to compensate |
+| **F3** | **Rear** camera, smoothing **smooth+**. Same. | in sync |
+| **F4** | Fresh app launch. Do **not** touch the smoothing control. Look at what it reads on the **front** camera, flip to **rear**, look again. | front shows **standard**, rear shows **cinematic**. (B541 default: selfies favour low latency, rear favours stability.) |
+| **F5** | Now **explicitly pick** a smoothing mode — say `smooth+` on the front camera. Flip to rear, then flip back to front. | your explicit choice is still there. Once you choose, the per-lens default must stop overriding you. |
 
 ### Why the governor is not built yet
-Its first rule is already known and measured — **the PiP must go OFF at 4K, not merely slow down** (11.0fps at 10Hz vs 11.4fps off). That shipped as B543. Everything else a governor would decide — what yields first, at what pressure, what the sustained setpoint is — needs **B2 and D4**. Building it on assumptions is the mistake this arc has punished repeatedly.
+Its first thermal rule shipped as B543. The rest — what yields first, at what pressure, what the sustained setpoint is — needs D4, which is now blocked on the D3 lifecycle bug. **B2 delivered its half: sustained idle is stable and not a thermal problem.**
+
+**However, B547's pass found a governor rule that needs NO further data:** the "finishing take" case (filed in BACKLOG). It is triggered by a discrete known event rather than a thermal curve, so it can be designed and built now.
 
 ---
 
-## 🧩 C1 — the unified frame-header parser (B546) — **REQUIRES A FRESH `cap:sync`**
+## 🧩 FH — the unified frame-header parser (B546) — **REQUIRES A FRESH `cap:sync`**
 
 **⚠️ B546 landed AFTER the sync taken for A–F.** These rows need `npm run build && npx cap sync ios` and an Xcode rebuild. Running them against the older build verifies nothing. A–F are unaffected and can finish on the current sync.
 
@@ -104,12 +120,12 @@ Both native frame consumers now share one parser (`shell/frame-header.js`). Noth
 
 | # | where | do | closes when | channel |
 |---|---|---|---|---|
-| **C1-1** | 📱 iPhone Capacitor, run from Xcode | live camera, still mode | **source panel shows the live feed** — not black, not frozen. 🛑 If this fails, stop: the build is bad on device. | eyes |
-| C1-2 | 📱 iPhone Capacitor | rear ▸ front ▸ rear via flip | feed survives every flip; front mirroring correct | eyes |
-| C1-3 | 📱 iPhone Capacitor | `take still` mode, then upload a still | both show a source (B541 regressed `take still` while upload still worked) | eyes |
-| C1-4 | 📱 iPhone Capacitor | record ~15s, play back in **Photos** | video normal, **audio present and in sync** — confirms the latency field still parses at its offset | eyes |
-| **C1-5** | 📲 iPad Capacitor **+ HDMI**, run from Xcode | play a **video clip** to the external display | clip plays on the panel **and timeline position + duration read correctly in the app**. This is the `FYUW` path, where a misread second f64 corrupts the master clock. | **`copy report`** on the iPad while playing · **plus Xcode console**: filter `[fold]`, paste any line containing `clock` or `duration`. A `duration` of `0` while the clip visibly plays is the exact corruption this row exists to catch. |
-| C1-6 | 📲 iPad Capacitor + HDMI | live **camera** to the external display | feed appears on the external panel | eyes |
+| **FH-1** | 📱 iPhone Capacitor, run from Xcode | live camera, still mode | **source panel shows the live feed** — not black, not frozen. 🛑 If this fails, stop: the build is bad on device. | eyes |
+| FH-2 | 📱 iPhone Capacitor | rear ▸ front ▸ rear via flip | feed survives every flip; front mirroring correct | eyes |
+| FH-3 | 📱 iPhone Capacitor | `take still` mode, then upload a still | both show a source (B541 regressed `take still` while upload still worked) | eyes |
+| FH-4 | 📱 iPhone Capacitor | record ~15s, play back in **Photos** | video normal, **audio present and in sync** — confirms the latency field still parses at its offset | eyes |
+| **FH-5** | 📲 iPad Capacitor **+ HDMI**, run from Xcode | play a **video clip** to the external display | clip plays on the panel **and timeline position + duration read correctly in the app**. This is the `FYUW` path, where a misread second f64 corrupts the master clock. | **`copy report`** on the iPad while playing · **plus Xcode console**: filter `[fold]`, paste any line containing `clock` or `duration`. A `duration` of `0` while the clip visibly plays is the exact corruption this row exists to catch. |
+| FH-6 | 📲 iPad Capacitor + HDMI | live **camera** to the external display | feed appears on the external panel | eyes |
 
 ---
 
