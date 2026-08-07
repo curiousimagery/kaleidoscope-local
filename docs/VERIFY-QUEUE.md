@@ -4,7 +4,29 @@ A running list of things built but not yet verified on real hardware / a full de
 
 Legend: 🖥️ desktop browser · 📺 external display / AirPlay (workstation) · 📱 iOS device · ✅ Daniel confirmed
 
+**Every row states WHERE to run it and, if a diagnostic is wanted, WHERE that diagnostic comes from.** A row that says "verify X works" without naming the platform and the readout is not a verification task — it is a wish. (Daniel, B546.)
+
 ## open
+
+### 🧩 C1 — the unified frame-header parser (B546) — REQUIRES A FRESH `cap:sync`
+
+**⚠️ B546 landed AFTER the sync you took for the A–F matrix. These rows need a new `npm run build && npx cap sync ios` and a rebuild from Xcode — running them against the older build verifies nothing.**
+
+Both native frame consumers now share one parser. Nothing should change; the entire point is that nothing changes. This is a pure-regression pass on the path B540 broke.
+
+| # | where | do | pass condition | diagnostic to send |
+|---|---|---|---|---|
+| C1-1 | 📱 **iPhone, Capacitor build from Xcode** | live camera, still mode | **source panel shows the live feed** — not black, not frozen. This is the exact B540 failure and the first thing that would break. | none — eyes only |
+| C1-2 | 📱 iPhone Capacitor | rear ▸ front ▸ rear via the flip control | feed survives every flip; mirroring correct on front | none |
+| C1-3 | 📱 iPhone Capacitor | `take still` mode, then upload a still | both show a source (B541 regressed `take still` specifically while upload still worked) | none |
+| C1-4 | 📱 iPhone Capacitor | record a ~15s take, play it back **in Photos** | video normal, **audio present and in sync** — confirms the camera latency field still parses at its offset | none |
+| C1-5 | 📱 iPad Capacitor **+ HDMI cable** | play a **video clip** to the external display | clip plays on the external panel; **timeline position and duration read correctly** in the app. This is the `FYUW` path — the one where a misread second f64 corrupts the master clock. | 🖥️ **frame cost panel → `copy report`**, on the **iPad**, while the clip plays |
+| C1-6 | 📱 iPad Capacitor + HDMI | live **camera** to the external display | feed appears on the external panel | none |
+
+**If C1-1 fails, stop and say so** — it means the shared parser rejects what the camera sends, and the whole build is bad on device.
+
+**Xcode console, C1-5 only:** with the iPad running from Xcode, filter the console for `[fold]` and paste any line containing `clock` or `duration`. A `duration` stuck at `0` while the clip visibly plays is the specific corruption this row exists to catch.
+
 
 ### 🔥 THERMAL ARC — the matrix (B540–B542, 2026-08-07)
 

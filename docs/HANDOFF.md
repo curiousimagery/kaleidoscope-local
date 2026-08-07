@@ -12,6 +12,8 @@ He prefers **no em dashes** in any prose Claude generates for him.
 
 ## current version
 
+**🧹 POST-ARC CLEANUP IN FLIGHT (B545–B546).** The thermal + audio arc left no dead code, but it left narration debt and one real duplication. B545 = comment hygiene + a HISTORICAL banner on this file's stale bottom half. B546 = **C1, `shell/frame-header.js`**, one parser for the native frame-socket wire format (was two, which is how B540 blacked out the source panel). **B546 needs a fresh `cap:sync` before its device rows** — see VERIFY-QUEUE "C1". Remaining increments C2/C3/C4 are in BACKLOG under "POST-ARC CLEANUP"; **C2 is deliberately gated until after the A–F matrix**, because the flags it retires are the matrix's A/B mechanism.
+
 **▶ ACTIVE ARC (2026-08-05, v0.22.6 / B512): THERMAL + SUSTAINED LOAD. Phase A shipped.** Full audit and phased path live in `~/.claude/plans/thermal-and-frame-cost-audit.md` — read that before touching any render path. The four goals governing the arc are Daniel's (plan §0): say honestly what we cannot deliver; declare a priority order for who yields first; cut energy and heat; and build a UX around the functions that are necessarily hot.
 
 - **Phase A (B512, SHIPPED, no behavior change):** `conduit/perf-ledger.js` + `conduit/pressure.js` + `shell/perf-panel.js`. Every render surface registers itself with its role, priority, size and passes; the panel shows ms and megapixels per frame and gives each surface an on/off switch and a resolution ladder. Reachable as `?perf` (web/Electron), a **frame cost panel** button in desktop diagnostics (the only way in on iPad), and **show frame cost** in the phone chrome's diagnostics block.

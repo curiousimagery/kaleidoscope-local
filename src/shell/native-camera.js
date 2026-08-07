@@ -17,6 +17,7 @@
 
 import { registerPlugin, Capacitor } from '@capacitor/core';
 import { createYuvRenderer } from './yuv-renderer.js';
+import { parseFrameHeader } from './frame-header.js';
 
 // Registered at module scope (the spike proved this static path works on device; a
 // dynamic import('@capacitor/core') stalls inside the capacitor:// webview). On web
@@ -94,41 +95,10 @@ export function createNativeCamera() {
     renderer = createYuvRenderer(canvas);
   }
 
-  // ONE parser for the frame header, used by every consumer IN THIS MODULE. B540 added the
-  // timestamped "FYUX" format and updated only `planeReader`, leaving `paintLatest` still
-  // rejecting anything that was not "FYUV" — so every native frame was dropped and the source
-  // panel went dark while the overlay kept drawing.
-  //
-  //   "FYUV" — 24-byte header, no timing (pre-B540 plugin)
-  //   "FYUX" — 40-byte header, + f64 capture pts + f64 capture-to-delivery latency (seconds)
-  //
-  // ⚠️ `shell/native-frame-receiver.js` parses the SAME wire format independently (it also has to
-  // handle the video socket's "FYUW", where the second f64 is duration, not latency). Two parsers
-  // for one wire format is the exact shape of the B540 bug — a format change has to land in both.
-  function parseFrame(buf) {
-    if (!buf || buf.byteLength < 24) return null;
-    const dv = new DataView(buf);
-    const magic = dv.getUint32(0, false);
-    const timed = magic === 0x46595558;                  // "FYUX"
-    if (!timed && magic !== 0x46595556) return null;     // "FYUV"
-    const head = timed ? 40 : 24;
-    const width = dv.getUint32(4, true);
-    const height = dv.getUint32(8, true);
-    const yStride = dv.getUint32(12, true);
-    const cStride = dv.getUint32(16, true);
-    const cHeight = dv.getUint32(20, true);
-    const ySize = yStride * height, cSize = cStride * cHeight;
-    if (buf.byteLength < head + ySize + cSize) return null;
-    // `pts` rides along for parity with the video socket but is not usable here (capture clock).
-    // `latencySec` is the one that matters — see getCaptureLatency().
-    const latencySec = timed ? dv.getFloat64(32, true) : -1;
-    return {
-      width, height, yStride, cStride, cHeight,
-      latencySec: latencySec >= 0 ? latencySec : null,
-      yPlane: new Uint8Array(buf, head, ySize),
-      cPlane: new Uint8Array(buf, head + ySize, cSize),
-    };
-  }
+  // The wire format is parsed by `shell/frame-header.js` — see that file for why it is not
+  // written out here. On this socket only `latencySec` is usable downstream (see
+  // getCaptureLatency); `pts` is on the capture clock and is not comparable to performance.now().
+  const parseFrame = parseFrameHeader;
 
   // Paint the latest received frame into the RGB canvas. Called each render tick (via
   // refreshFrame) so the YUV->RGB blit is synced to the render loop — one blit per rendered

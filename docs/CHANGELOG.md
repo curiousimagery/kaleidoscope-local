@@ -4,6 +4,18 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🧩 v0.22.40 (Build 546) — 2026-08-07 — C1: one parser for the native frame wire format
+
+New `src/shell/frame-header.js` owns the frame-socket header. `native-camera.js` and `native-frame-receiver.js` both consume it; the magic numbers and byte offsets now exist in exactly one place.
+
+**Why it was worth doing.** The offsets were written out twice, once per consumer. B540 added a timestamped camera variant and updated one of them — the other rejected every frame as an unknown magic, the source panel went dark in all capture modes while the overlay kept drawing on top of it, and it cost a build to find. Two parsers for one wire format cannot be kept in sync by discipline.
+
+The distinction that made this look like it needed two parsers is the reason it needed one: **`FYUX` and `FYUW` are both 40 bytes and differ only in what the second f64 means** — capture latency on the camera socket, clip duration on the video socket. Reading one as the other corrupts the motion runtime's master clock silently rather than failing. That is now resolved by magic in one place, never by header size.
+
+**One behaviour change, in the safe direction.** The external-display receiver had no payload-length check: a truncated frame constructed an out-of-range `Uint8Array` and threw a `RangeError` out of the render tick. The shared parser bounds-checks and returns null, which every caller already handles as "hold the last frame." A truncated frame is a dropped frame, not a broken loop.
+
+Verified against `FrameSocketServer.swift`: big-endian magic, little-endian u32 fields, little-endian f64 bit patterns.
+
 ## 🧹 v0.22.39 (Build 545) — 2026-08-07 — Comment hygiene after the audio saga
 
 The obvious-fix half of a post-arc cleanup pass; the rest is proposed in BACKLOG as a scoped audit rather than done opportunistically.
