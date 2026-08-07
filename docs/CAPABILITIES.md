@@ -94,7 +94,29 @@ Not yet built. Requirements, so the UX work can be designed against them:
 
 ---
 
-## 6. Open UX questions these constraints raise
+## 6. Untested hypotheses worth money
+
+Not exhausted. These are the live leads, ordered by expected value.
+
+- **H1 — The 17 Pro's slow consume is a COLOR SPACE conversion.** The newer phone has a wider-gamut, EDR-capable display. If its WebGL drawing buffer lands in Display P3 while the older one is sRGB, then every consume of that canvas has to convert, which would explain a better display being slower at exactly one operation and nothing else. **Test:** pin `drawingBufferColorSpace` / the context's `colorSpace` to `'srgb'` and re-read the PiP cost. Cheap, and if right it may recover the PiP outright rather than merely rationing it.
+- **H2 — The 4K unaccounted third is the native camera bridge.** ~33.5ms/frame unexplained while the loop is saturated. `refresh` times only our paint of delivered planes; receiving ~373MB/s of YUV over the socket is invisible. **Test:** run 4K with a still image source instead of the camera.
+- **H3 — We render at 60fps from a 30fps source.** `chrome.js:1561` calls `engine.render(state)` every rAF with no change detection, so with a 30fps camera and no gesture, **half of all renders produce a provably identical frame.** The bus already has this logic (`frameSignature`/`busElide`); the main render never got it. **This is the single biggest lever for the sustained/exhibit case**, where nothing is being manipulated for hours.
+- **H4 — Source mipmaps.** The elegant answer to "how much source resolution do we need" is the one the hardware already computes per fragment. Helps only where we minify; a magnifying kaleidoscope gets nothing. Needs a measurement, not a decision.
+- **H5 — The double render while diverged** (measured: 31 calls for 18 frames) and **the eased render while idle**, which is not needed at all when nothing is recording, broadcasting, or showing a PiP.
+
+## 7. The sustained-operation target (installations, exhibits)
+
+A different problem from peak throughput, and currently unmet: **hours of smooth running, not seconds of peak.** The device is warm within minutes today.
+
+Peak-fps levers and steady-state-power levers are not the same list. Steady state wants **deliberately capping work**, not extracting maximum work:
+- render at the source's rate rather than the display's (H3),
+- an explicit frame-rate cap for installation mode,
+- no PiP, no overlay, no editor surfaces at all — the priority ladder already describes this and nothing consults it,
+- a governor that holds a thermal setpoint rather than chasing the highest number it can reach.
+
+**This target should be stated before the governor is designed**, because "never exceed X" produces a different controller than "go as fast as possible until it hurts."
+
+## 8. Open UX questions these constraints raise
 
 - What does the record menu do with an option the device cannot deliver — hide it, disable it, or offer it with a warning? (Daniel's instinct: offer everything we can honestly support, warn where we cannot.)
 - Does the PiP turn itself off at 4K, or does choosing 4K explain that the monitor is unavailable?

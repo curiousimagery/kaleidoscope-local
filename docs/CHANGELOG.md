@@ -4,6 +4,27 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🔇 v0.22.24 (Build 530) — 2026-08-06 — The silent takes: a swallowed exception, three layers down
+
+Daniel's hunch was right, and it was not the native camera.
+
+**iOS only lets an `AudioContext` resume inside a user gesture.** `startMicTap` created its context deep inside `startWebCodecsSession` — which by then had already awaited `pickVideoCodec` and **one or two real `encoderYieldsConfig` probes, each an actual hardware encode and flush.** The activation was long spent. `resume()` rejected, and the old code swallowed it:
+
+```js
+try { await ctx.resume(); } catch { /* not user-gesture-bound here */ }
+```
+
+A suspended context delivers **zero** audio to the worklet, so `onData` never fired. But the tap still returned successfully, so the session declared an audio track in the muxer that never received a single chunk. **Silent take, no error, no warning** — precisely the failure this file's own header says must never happen.
+
+**Why "anymore":** the `encoderYieldsConfig` probe was added to fix the iPad `decoderConfig.colorSpace` crash. It fixed that, and it pushed the mic tap two async encoder round trips further from the tap that authorized it. A regression introduced by a fix, in a different file, with no symptom at the seam.
+
+### Two defences, because either alone leaves a hole
+
+1. **Prime from the gesture.** `primeRecordingAudio()` is exported and called as the **first line of `startRecording`, before any `await`** — the last moment the activation exists. The context is now shared across takes and deliberately outlives them, since closing it would force the next take to win a gesture all over again.
+2. **Verify and throw.** After `resume()`, a context that is not `running` now throws, so the session falls back to MediaRecorder — which takes the mic track directly and needs no `AudioContext` at all. **A working take beats a silent one, and a loud failure beats both.**
+
+**VERIFY (Daniel):** record on iPhone and play the take back with sound. Also worth one take on iPad, which shares this path.
+
 ## 🛰️ v0.22.23 (Build 529) — 2026-08-06 — Register the broadcast paths, and the 4K wall turns out to be real
 
 Two device gauntlets (iPhone 17 Pro and 14 Pro) landed together and **overturned this build's own prediction.**

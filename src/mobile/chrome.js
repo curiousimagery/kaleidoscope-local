@@ -29,7 +29,7 @@ import { formatVersion } from '../version.js';
 import { createCamera } from '../shell/camera.js';
 import { createNativeCamera } from '../shell/native-camera.js';
 import { createSaveFlow } from '../shell/save-flow.js';
-import { createRecorderSink } from 'conduit/recorder';
+import { createRecorderSink, primeRecordingAudio } from 'conduit/recorder';
 import { createFollower } from '../kit/follow.js';
 import { createAutoDrift } from '../kit/drift.js';
 import { ICONS } from './icons.js';
@@ -1163,6 +1163,11 @@ function confirmLoseRecording(msg) {
 
 async function startRecording() {
   if (recState !== 'idle') return;   // recording or still finalizing the last take
+  // FIRST LINE ON PURPOSE, BEFORE ANY `await`. iOS only lets an AudioContext resume inside a user
+  // gesture, and this function is called straight from the tap handler — so this is the last
+  // moment the activation still exists. Everything below awaits the encoder probes, by which
+  // point it is spent, and a suspended context records a SILENT take without erroring (B530).
+  primeRecordingAudio();
   if (recordedVideo && !recordingSaved &&
       !window.confirm('start a new recording? it will replace this one — save first if you want to keep it.')) return;
   // the recording captures a dedicated full-res canvas painted with the

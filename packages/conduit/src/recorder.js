@@ -101,15 +101,52 @@ const MIC_TAP_SRC = `registerProcessor('conduit-mic-tap', class extends AudioWor
 // Wire a mic track into an AudioWorklet tap. onData receives batches of
 // [perChunk: [perChannel: Float32Array]]. Returns null-ish failure by THROWING
 // (the caller treats any audio setup failure as "fall back to MediaRecorder").
-async function startMicTap(track, onData) {
-  // 48kHz keeps Opus eligible (it only encodes at 48k); fall back to the
-  // device default if the context refuses the rate.
-  let ctx;
-  try { ctx = new AudioContext({ sampleRate: 48000 }); } catch { ctx = new AudioContext(); }
+// THE SILENT-TAKE BUG (fixed B530). iOS WebKit starts an AudioContext SUSPENDED and only lets it
+// resume inside a user gesture. `startMicTap` used to create its context deep inside
+// `startWebCodecsSession`, which by then had already awaited `pickVideoCodec` and one or two real
+// `encoderYieldsConfig` probes — each an actual hardware encode and flush. The activation is long
+// gone by then, `resume()` rejects, and the old code SWALLOWED that rejection.
+//
+// A suspended context delivers zero audio to the worklet, so `onData` never fires — but the tap
+// still returned successfully, so the session declared an audio track in the muxer that never
+// received a single chunk. **Silent take, no error, no warning.** Exactly the failure this file's
+// header says must never happen.
+//
+// Two defences, because either alone leaves a hole:
+//   1. PRIME the context from the user gesture (`primeRecordingAudio`, called at the tap).
+//   2. VERIFY the state afterwards and THROW if it is not running, so the session falls back to
+//      MediaRecorder — which takes the mic track directly and needs no AudioContext at all.
+//      A working take beats a silent one, and a loud failure beats both.
+let sharedCtx = null, sharedWorkletReady = null;
+
+// Call this SYNCHRONOUSLY from the user gesture that starts a take. Creating and resuming the
+// context here is what buys the activation; everything downstream is too late.
+export function primeRecordingAudio() {
   try {
-    try { await ctx.resume(); } catch { /* not user-gesture-bound here */ }
-    const url = URL.createObjectURL(new Blob([MIC_TAP_SRC], { type: 'application/javascript' }));
-    try { await ctx.audioWorklet.addModule(url); } finally { URL.revokeObjectURL(url); }
+    if (!sharedCtx || sharedCtx.state === 'closed') {
+      // 48kHz keeps Opus eligible (it only encodes at 48k); fall back to the device default
+      // if the context refuses the rate.
+      try { sharedCtx = new AudioContext({ sampleRate: 48000 }); } catch { sharedCtx = new AudioContext(); }
+      sharedWorkletReady = null;
+    }
+    // fire-and-forget: the gesture is spent on the CALL, not on awaiting it
+    if (sharedCtx.state === 'suspended') sharedCtx.resume().catch(() => {});
+  } catch { sharedCtx = null; }
+  return sharedCtx;
+}
+
+async function startMicTap(track, onData) {
+  const ctx = primeRecordingAudio();
+  if (!ctx) throw new Error('AudioContext unavailable');
+  try {
+    try { await ctx.resume(); } catch { /* reported by the state check below */ }
+    // THE CHECK THAT WAS MISSING. Suspended here means no audio will ever reach the worklet.
+    if (ctx.state !== 'running') throw new Error(`AudioContext ${ctx.state} — no user activation for the mic tap`);
+    if (!sharedWorkletReady) {
+      const url = URL.createObjectURL(new Blob([MIC_TAP_SRC], { type: 'application/javascript' }));
+      sharedWorkletReady = ctx.audioWorklet.addModule(url).finally(() => URL.revokeObjectURL(url));
+    }
+    await sharedWorkletReady;
     const src = ctx.createMediaStreamSource(new MediaStream([track]));
     const node = new AudioWorkletNode(ctx, 'conduit-mic-tap', { numberOfInputs: 1, numberOfOutputs: 0 });
     node.port.onmessage = (e) => onData(e.data);
@@ -120,11 +157,13 @@ async function startMicTap(track, onData) {
         try { node.port.postMessage('flush'); } catch { /* port gone */ }
         await new Promise((r) => setTimeout(r, 80));   // let the flush round-trip
         try { src.disconnect(); node.disconnect(); } catch { /* already down */ }
-        try { await ctx.close(); } catch { /* already closed */ }
+        // the context is SHARED across takes now and deliberately outlives this one: closing it
+        // would mean the next take has to win a user gesture all over again, which is the bug.
       },
     };
   } catch (e) {
-    try { await ctx.close(); } catch { /* never opened */ }
+    // deliberately no ctx.close() — the context is shared and must survive a failed take.
+    // Rethrown so startWebCodecsSession falls back to MediaRecorder rather than recording silence.
     throw e;
   }
 }
