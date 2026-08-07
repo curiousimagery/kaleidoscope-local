@@ -4,6 +4,35 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 📦 v0.22.27 (Build 533) — 2026-08-06 — The audio is fine. Ask the container instead.
+
+B532's telemetry worked on the first take, and it killed both standing hypotheses at once:
+
+```
+[conduit] audio: 1549 batches (0 rejected) → 1937 chunks, 1 with config — ok
+```
+
+Audio is captured, encoded, and handed to the muxer. `1 with config` is **correct** — only the first chunk carries `decoderConfig`. B530's suspended-context theory: dead. B531's missing-config theory: dead. **The audio goes into the muxer and does not come out the other side**, and the take is still silent.
+
+### So stop theorising and read the bytes
+
+`inspectMp4Tracks()` walks the finished file's box tree and reports what it actually contains — how many `trak` boxes, their handler types, and therefore whether a `soun` track exists at all. It walks only the container's own tree (`ftyp` → `moov` → `trak` → `mdia` → `hdlr`) and never scans sample data, so an `hdlr`-shaped byte sequence inside `mdat` cannot produce a false positive. Verified against a synthetic A/V file, a video-only file, and garbage.
+
+**That splits the remaining space cleanly:**
+
+| `container.hasAudioTrack` | conclusion |
+| --- | --- |
+| `false`, with chunks > 0 | the muxer dropped it — the fault is in muxing or the track config |
+| `true` | the bytes are in the file — the fault is downstream in save or playback |
+
+### Also fixed
+
+- **The report is no longer `null` mid-take.** Daniel captured during a recording and got nothing, because the only report was written at `finish()`. The session now publishes its configuration as soon as it starts (`live: true`) and overwrites it with the outcome at the end.
+- **Seconds in vs seconds out.** The counters showed 1549 batches (~62s of samples) against 1937 AAC chunks (~41s of audio) — a gap a raw chunk count cannot explain. The report now states both directly, plus the video frame count, so a mid-take encoder stall would be visible rather than inferred.
+- The console line now carries the container verdict too, and only reports `info` when the file genuinely has an audio track.
+
+**VERIFY (Daniel):** record a take, then **copy report** and paste. The `audio.container` block is the answer this time.
+
 ## 🎚️ v0.22.26 (Build 532) — 2026-08-06 — Stop guessing: put the audio evidence where it can be read
 
 Two builds, two confident hypotheses, two failures. The common factor is not that the hypotheses were unreasonable — it is that **the evidence that would have settled them went to `console`, which needs Safari Web Inspector attached to read on a Capacitor device.**

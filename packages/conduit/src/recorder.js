@@ -125,8 +125,53 @@ let sharedCtx = null, sharedWorkletReady = null;
 let lastAudioReport = null;
 export function getLastAudioReport() { return lastAudioReport; }
 function reportAudio(r) {
-  lastAudioReport = { ...r, at: new Date().toISOString() };
+  lastAudioReport = { ...(lastAudioReport?.live ? lastAudioReport : {}), ...r, at: new Date().toISOString() };
   try { globalThis.__foldAudioReport = lastAudioReport; } catch { /* frozen global */ }
+}
+
+// DOES THE FILE WE PRODUCED ACTUALLY CONTAIN AN AUDIO TRACK? (B533)
+//
+// The counters proved audio reaches the muxer — 1937 chunks, a decoderConfig, verdict ok — and
+// the take is still silent. So the question moved past "did we encode it" to "did it survive
+// muxing", and that is answerable from the bytes instead of by another hypothesis.
+//
+// Walks only the container's own box tree (ftyp/moov/trak/mdia/hdlr), never scanning raw sample
+// data, so an `hdlr`-shaped byte sequence inside mdat cannot produce a false positive.
+function inspectMp4Tracks(buffer) {
+  try {
+    const dv = new DataView(buffer);
+    const td = new TextDecoder();
+    const typeAt = (o) => td.decode(new Uint8Array(buffer, o + 4, 4));
+    const handlers = [];
+    let traks = 0;
+
+    const walk = (start, end, depth) => {
+      let o = start;
+      while (o + 8 <= end && depth < 6) {
+        const size = dv.getUint32(o);
+        const type = typeAt(o);
+        // 0 means "to end of file"; 1 means a 64-bit size we do not need to chase for diagnostics
+        const box = size === 0 ? end - o : size;
+        if (box < 8 || o + box > end) break;
+        if (type === 'trak') traks++;
+        if (type === 'hdlr') handlers.push(td.decode(new Uint8Array(buffer, o + 16, 4)));
+        if (type === 'moov' || type === 'trak' || type === 'mdia' || type === 'minf') {
+          walk(o + 8, o + box, depth + 1);
+        }
+        o += box;
+      }
+    };
+    walk(0, buffer.byteLength, 0);
+    return {
+      traks,
+      handlers,
+      hasAudioTrack: handlers.includes('soun'),
+      hasVideoTrack: handlers.includes('vide'),
+      bytes: buffer.byteLength,
+    };
+  } catch (e) {
+    return { error: String(e?.message || e) };
+  }
 }
 
 // Call this SYNCHRONOUSLY from the user gesture that starts a take. Creating and resuming the
@@ -353,6 +398,8 @@ async function startWebCodecsSession({ w, h, audioTrack, onDone, onError }) {
   //   chunks >0, configs 0 → WebKit gave no decoderConfig and the muxer wrote an unusable track
   //   all >0               → audio was muxed and the fault is downstream (player, save, container)
   let audioBatches = 0, audioRejected = 0, audioChunks = 0, audioConfigs = 0;
+  let audioFramesIn = 0;      // samples handed to the encoder — vs chunks out, catches a stall
+  let container = null;       // what the finished file actually contains (B533)
   const t0 = performance.now();
   let audioClockUs = null;   // sample-accurate once anchored to the session clock
   if (acfg) {
@@ -373,6 +420,7 @@ async function startWebCodecsSession({ w, h, audioTrack, onDone, onError }) {
       let frames = 0;
       for (const chunk of batch) frames += chunk[0].length;
       if (!frames) return;
+      audioFramesIn += frames;
       // anchor the first batch to the session clock, backdated by its own
       // duration (those samples happened BEFORE this message arrived)
       if (audioClockUs === null) {
@@ -405,6 +453,16 @@ async function startWebCodecsSession({ w, h, audioTrack, onDone, onError }) {
   let lastKeyUs = -Infinity;
   let flipBuf = null;
   let dropped = 0;
+  let videoFramesEncoded = 0;
+  // publish what the session was CONFIGURED with straight away — Daniel captured a report
+  // mid-take and got `audio: null`, because the only report was written at finish (B533)
+  reportAudio({
+    live: true, verdict: 'recording…', engine: 'webcodecs',
+    codec: acfg?.codec || null, muxerCodec: acfg?.muxerCodec || null,
+    sampleRate: mic?.sampleRate || null, channels: acfg ? channels : null,
+    trackSupplied: !!audioTrack,
+    trackState: audioTrack ? { enabled: audioTrack.enabled, muted: audioTrack.muted, readyState: audioTrack.readyState, label: audioTrack.label } : null,
+  });
   // VideoFrame(2D canvas) is ~15ms on WebKit (a hidden readback) but cheap on
   // Blink; VideoFrame(pixel buffer) is a plain copy everywhere. Probe the
   // canvas path's real cost on the first frames and switch to the pixels path
@@ -418,7 +476,9 @@ async function startWebCodecsSession({ w, h, audioTrack, onDone, onError }) {
     try { if (venc.state === 'configured') await venc.flush(); } catch { /* mid-error */ }
     try {
       muxer.finalize();
-      onDone(new Blob([muxer.target.buffer], { type: 'video/mp4' }), 'mp4');
+      const buf = muxer.target.buffer;
+      container = inspectMp4Tracks(buf);
+      onDone(new Blob([buf], { type: 'video/mp4' }), 'mp4');
       // DOMExceptions stringify to {} — extract the message so the console names it
       if (sessionError) console.warn(`[conduit] recording had encoder errors (take saved up to the failure): ${sessionError.name || ''} ${sessionError.message || sessionError}`);
     } catch (e) {
@@ -434,18 +494,33 @@ async function startWebCodecsSession({ w, h, audioTrack, onDone, onError }) {
             : 'ok';
     // PUBLISHED, not just logged — see perf-panel's export. A console-only diagnostic on a
     // Capacitor device is a diagnostic nobody can collect.
+    const rate = mic?.sampleRate || 0;
     reportAudio({
+      live: false,
+      // THE QUESTION MOVED. The counters below proved audio reaches the muxer, and the take was
+      // still silent — so `container` is now the load-bearing field: it says whether the file we
+      // handed back actually has a `soun` track. `hasAudioTrack: false` with chunks > 0 means the
+      // muxer dropped it and the fault is in muxing/config. `true` means the bytes are there and
+      // the fault is downstream in save or playback.
+      container,
       verdict,
       codec: acfg?.codec || null,
-      sampleRate: mic?.sampleRate || null,
+      muxerCodec: acfg?.muxerCodec || null,
+      sampleRate: rate || null,
       channels: acfg ? channels : null,
       trackSupplied: !!audioTrack,
       trackState: audioTrack ? { enabled: audioTrack.enabled, muted: audioTrack.muted, readyState: audioTrack.readyState, label: audioTrack.label } : null,
       batches: audioBatches, rejected: audioRejected, chunks: audioChunks, withConfig: audioConfigs,
+      // seconds IN vs seconds OUT — a large gap means the encoder stalled or dropped mid-take,
+      // which a raw chunk count cannot show
+      secondsIn: rate ? +(audioFramesIn / rate).toFixed(1) : null,
+      secondsOut: rate ? +((audioChunks * 1024) / rate).toFixed(1) : null,
+      videoFrames: videoFramesEncoded,
       engine: 'webcodecs',
     });
-    const line = `[conduit] audio: ${audioBatches} batches (${audioRejected} rejected) → ${audioChunks} chunks, ${audioConfigs} with config — ${verdict}`;
-    if (verdict === 'ok') console.info(line); else console.warn(line);
+    const line = `[conduit] audio: ${audioBatches} batches (${audioRejected} rejected) → ${audioChunks} chunks, ${audioConfigs} with config — ${verdict}`
+      + ` | container: ${container ? `${container.traks} traks [${(container.handlers || []).join(',')}] audio=${container.hasAudioTrack}` : 'not inspected'}`;
+    if (verdict === 'ok' && container?.hasAudioTrack) console.info(line); else console.warn(line);
   }
 
   return {
@@ -488,7 +563,7 @@ async function startWebCodecsSession({ w, h, audioTrack, onDone, onError }) {
       }
       const key = ts - lastKeyUs >= 2_000_000;
       if (key) lastKeyUs = ts;
-      try { venc.encode(vf, { keyFrame: key }); } finally { vf.close(); }
+      try { venc.encode(vf, { keyFrame: key }); videoFramesEncoded++; } finally { vf.close(); }
     },
     stop() { finish(); },
   };

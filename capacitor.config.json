@@ -2,6 +2,7 @@
   "appId": "art.curiousimagery.fold",
   "appName": "Fold",
   "webDir": "dist",
+  "loggingBehavior": "debug",
   "ios": {
     "contentInset": "never",
     "backgroundColor": "#0a0a0a"
