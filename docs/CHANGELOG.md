@@ -4,6 +4,34 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🔊 v0.22.33 (Build 539) — 2026-08-07 — Unwrap the ES_Descriptor. The silent take is solved.
+
+```
+desc 39B (03 80 80 80 22 00 00 00)
+container: 2 traks [{"handler":"vide","format":"avc1","samples":465,"seconds":9.07},
+                    {"handler":"soun","format":"mp4a","samples":431,"seconds":9.19}]
+```
+
+**WebKit's AAC encoder returns `decoderConfig.description` as a full ES_Descriptor. mp4-muxer expects the bare AudioSpecificConfig to nest inside the `esds` it builds itself.** Handing over the whole descriptor nests a descriptor inside a descriptor: an `esds` no decoder can read, in a track that is otherwise perfect — 431 samples, 9.19 seconds, and completely silent.
+
+`0x03` is the ES_Descriptor tag, `80 80 80 22` the expandable size (34), and 5 + 34 = the 39 bytes measured. Confirmed from the other side too: forcing MediaRecorder produced a take with sound.
+
+### The fix
+
+`extractAudioSpecificConfig()` walks ISO 14496-1 — ES_Descriptor(`0x03`) → DecoderConfigDescriptor(`0x04`) → DecoderSpecificInfo(`0x05`) — and returns that last payload, which is the ASC. Handled: the expandable size encoding, and the optional `streamDependence` / `URL` / `OCRstream` fields that shift every subsequent offset. A bare ASC passes through untouched; anything unparseable returns null and the take falls back to MediaRecorder rather than producing silence.
+
+**Verified against Daniel's exact bytes.** A reconstructed 39-byte descriptor matches both the reported length and the reported first 8 bytes, and extracts `11 90` — AAC-LC, 48kHz, mono, which is exactly this session's configuration.
+
+The probe now asks the right question too: not "is a description present" but "can we unwrap a usable ASC from it".
+
+### What it took
+
+Nine builds, four wrong hypotheses (suspended AudioContext, missing decoderConfig, cloned track, AAC without a description). What finally worked was measuring one noun at a time — signal instead of pipeline, container contents instead of "a track exists", the description's first byte instead of its length. **Each wrong hypothesis was reasonable and each was refuted by a number rather than by another fix.**
+
+Also confirmed by the bisect: this has been broken since **B372** put iPhone recording on WebCodecs. Not a regression from the thermal arc.
+
+**NEXT, and expected:** Daniel already observed the MediaRecorder take is out of sync — the take records the eased render while the mic is live, so audio leads video by the follower's time constant. Filed in BACKLOG; it is the remaining half of "recording works".
+
 ## 🩹 v0.22.32 (Build 538) — 2026-08-07 — The panel's restore-on-close was about to sabotage the test
 
 `destroy()` restored the optimization flags by setting **every** flag to `true`. That was correct only while every flag defaulted to on — the rule was "closing must never leave the app de-optimized."

@@ -257,6 +257,43 @@ async function startMicTap(track, onData) {
 //
 // A `false` verdict rejects the whole WebCodecs session, so the take falls back to MediaRecorder
 // and comes back WITH sound. Slower and lower fidelity, and infinitely better than silent.
+// THE SILENT-TAKE FIX (B539). WebKit's AAC encoder returns `decoderConfig.description` as a FULL
+// ES_Descriptor (Daniel's device: 39 bytes, `03 80 80 80 22 00 00 00`), while mp4-muxer expects
+// the bare AudioSpecificConfig to nest inside the `esds` it builds itself. Handing it the whole
+// descriptor nests a descriptor inside a descriptor: an `esds` that no decoder can read, in a
+// track that is otherwise perfect — 431 samples, 9.19 seconds, and completely silent.
+//
+// So unwrap it. ISO 14496-1 layout: ES_Descriptor(0x03) → DecoderConfigDescriptor(0x04) →
+// DecoderSpecificInfo(0x05), whose payload IS the AudioSpecificConfig. Sizes use the expandable
+// encoding where each byte's high bit means "another length byte follows".
+function readDescriptorSize(u8, i) {
+  let size = 0, b;
+  do { b = u8[i++]; size = (size << 7) | (b & 0x7f); } while (b & 0x80 && i < u8.length);
+  return { size, next: i };
+}
+
+export function extractAudioSpecificConfig(desc) {
+  try {
+    const u8 = desc instanceof Uint8Array ? desc
+      : desc instanceof ArrayBuffer ? new Uint8Array(desc)
+        : new Uint8Array(desc.buffer, desc.byteOffset || 0, desc.byteLength);
+    if (!u8.length || u8[0] !== 0x03) return null;   // already a bare ASC — leave it alone
+    let i = 1, r = readDescriptorSize(u8, i); i = r.next;
+    i += 2;                                   // ES_ID
+    const flags = u8[i++];
+    if (flags & 0x80) i += 2;                 // streamDependenceFlag → dependsOn_ES_ID
+    if (flags & 0x40) i += 1 + u8[i];         // URL_Flag → length-prefixed URL
+    if (flags & 0x20) i += 2;                 // OCRstreamFlag → OCR_ES_Id
+    if (u8[i] !== 0x04) return null;
+    i++; r = readDescriptorSize(u8, i); i = r.next;
+    i += 13;                                  // objectTypeIndication, streamType, bufferSizeDB(3), max+avg bitrate(8)
+    if (u8[i] !== 0x05) return null;
+    i++; r = readDescriptorSize(u8, i); i = r.next;
+    if (!r.size || i + r.size > u8.length) return null;
+    return u8.slice(i, i + r.size);
+  } catch { return null; }
+}
+
 const probeCache = new Map();
 async function audioEncoderYieldsConfig(cfg) {
   const key = `audio|${cfg.codec}|${cfg.sampleRate}|${cfg.numberOfChannels}`;
@@ -271,13 +308,17 @@ async function audioEncoderYieldsConfig(cfg) {
     };
     try {
       enc = new AudioEncoder({
-        // AAC IN MP4 REQUIRES `description` — it IS the AudioSpecificConfig that fills the `esds`
-        // box, and without it the track is structurally present and undecodable, which plays as
-        // silence. B531 deliberately relaxed this to "a decoderConfig is enough" on the reasoning
-        // that Opus is self-describing. True for Opus, wrong for AAC, and AAC is what we pick
-        // first — that relaxation is why B534 measured a peak of 0.677 into a silent file.
-        output: (chunk, meta) => settle(!!(meta && meta.decoderConfig
-          && (!/^mp4a/.test(cfg.codec) || meta.decoderConfig.description))),
+        // AAC in MP4 requires a usable AudioSpecificConfig. Present is not enough — WebKit hands
+        // back a full ES_Descriptor, so the real bar is that we can UNWRAP one (B539). Opus is
+        // self-describing and legitimately ships without a description at all.
+        output: (chunk, meta) => {
+          if (!meta || !meta.decoderConfig) return settle(false);
+          if (!/^mp4a/.test(cfg.codec)) return settle(true);
+          const d = meta.decoderConfig.description;
+          if (!d) return settle(false);
+          const u = d instanceof ArrayBuffer ? new Uint8Array(d) : new Uint8Array(d.buffer || d, d.byteOffset || 0, d.byteLength ?? d.length);
+          settle(u[0] !== 0x03 || !!extractAudioSpecificConfig(u));
+        },
         error: () => settle(false),
       });
       enc.configure(cfg);
@@ -428,7 +469,7 @@ async function startWebCodecsSession({ w, h, audioTrack, onDone, onError }) {
   let audioFramesIn = 0;      // samples handed to the encoder — vs chunks out, catches a stall
   let audioPeak = 0;          // loudest sample seen this take, 0..1
   let audioDescBytes = null;  // AudioSpecificConfig size — 0/null means an undecodable AAC track
-  let audioDescHex = null, audioDescLooksLikeEsds = false;
+  let audioDescHex = null, audioDescLooksLikeEsds = false, audioAsc = null;
   let audioSilentBatches = 0; // batches that were entirely zeros
   let container = null;       // what the finished file actually contains (B533)
   const t0 = performance.now();
@@ -455,9 +496,17 @@ async function startWebCodecsSession({ w, h, audioTrack, onDone, onError }) {
             const u = d instanceof ArrayBuffer ? new Uint8Array(d) : new Uint8Array(d.buffer || d, d.byteOffset || 0, audioDescBytes);
             audioDescHex = Array.from(u.slice(0, 8)).map((b) => b.toString(16).padStart(2, '0')).join(' ');
             audioDescLooksLikeEsds = u[0] === 0x03;
+            // unwrap once and reuse: the config is identical on every chunk that carries one
+            if (audioDescLooksLikeEsds) audioAsc = extractAudioSpecificConfig(u);
           }
         }
-        try { muxer.addAudioChunk(chunk, meta && meta.decoderConfig ? meta : undefined); }
+        // Hand the muxer the bare AudioSpecificConfig it expects, never WebKit's ES_Descriptor.
+        // Everything else about the take was already correct — this one substitution is the
+        // difference between a `soun` track that decodes and one that plays as silence.
+        const m = (meta && meta.decoderConfig)
+          ? (audioAsc ? { ...meta, decoderConfig: { ...meta.decoderConfig, description: audioAsc } } : meta)
+          : undefined;
+        try { muxer.addAudioChunk(chunk, m); }
         catch (e) { sessionError = sessionError || e; }
       },
       error: (e) => { sessionError = e; },
@@ -553,7 +602,7 @@ async function startWebCodecsSession({ w, h, audioTrack, onDone, onError }) {
               : !container?.hasAudioTrack ? 'AUDIO ENCODED BUT NO soun TRACK IN THE FILE — the muxer dropped it'
                 // real audio, real track, and no AudioSpecificConfig to decode it with
                 : (/^mp4a/.test(acfg.codec) && !audioDescBytes) ? 'AAC WITHOUT AudioSpecificConfig — the soun track exists but cannot be decoded (silent playback)'
-                  : audioDescLooksLikeEsds ? `DESCRIPTION IS AN ES_DESCRIPTOR, NOT AN ASC (${audioDescBytes}B, starts 0x03) — mp4-muxer nests it inside its own esds, producing a malformed, undecodable track`
+                  : (audioDescLooksLikeEsds && !audioAsc) ? `ES_DESCRIPTOR THAT WOULD NOT UNWRAP (${audioDescBytes}B, ${audioDescHex}) — no AudioSpecificConfig to give the muxer`
                     : container && !container.audioPlayable ? `soun TRACK IS EMPTY OR ZERO-LENGTH — ${JSON.stringify(container.tracks?.find((t) => t.handler === 'soun') || null)}`
                       : 'ok';
     // PUBLISHED, not just logged — see perf-panel's export. A console-only diagnostic on a
@@ -584,6 +633,7 @@ async function startWebCodecsSession({ w, h, audioTrack, onDone, onError }) {
       descBytes: audioDescBytes,
       descHex: audioDescHex,
       descLooksLikeEsds: audioDescLooksLikeEsds,
+      ascBytes: audioAsc ? audioAsc.length : null,   // the unwrapped config actually muxed
       videoFrames: videoFramesEncoded,
       engine: 'webcodecs',
     });
