@@ -4,6 +4,31 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🔊 v0.22.25 (Build 531) — 2026-08-06 — B530 did not fix it, and Daniel's clue named the real suspect
+
+B530's `AudioContext` fix was a correct fix to a real bug and **it was not this bug.** Daniel's own diagnosis is what narrowed it: *"when I record a package, the SOURCE video does still have the audio — it just isn't getting added to the composition."*
+
+That is decisive. The mic is live, the track is good, the clone is fine. The raw source take is muxed natively by MediaRecorder and never touches this code; the composition goes through the WebCodecs path. **So the fault is in the WebCodecs audio chain, after the microphone.**
+
+### The suspect: the audio side never got the probe the video side has
+
+`pickAudioCodec` only asks `isConfigSupported`. This file's own header already says that is not evidence — *"WebKit accepts it and then emits chunks with no decoderConfig at all"*. The video path was hardened against exactly that with `encoderYieldsConfig`. **The audio path was never given the equivalent**, and `addAudioChunk(chunk, undefined)` does not throw. The muxer just never receives the audio decoder config, cannot write a valid sample description, and produces a track that plays as silence while the video is perfect.
+
+`audioEncoderYieldsConfig` now mirrors the video probe: configure, encode ~20ms of silence, flush, and check whether `decoderConfig` came back. A `false` verdict rejects the whole WebCodecs session, so **the take falls back to MediaRecorder and comes back with sound** — slower and lower fidelity, and infinitely better than silent. (AAC carries a `description`; Opus is self-describing and legitimately ships without one, so the bar is the config itself.)
+
+### And telemetry, so the next reading is not another guess
+
+Every silent-take theory so far has been a guess because **nothing counted anything.** Four counters now separate the candidates outright at finish:
+
+| reading | meaning |
+| --- | --- |
+| `batches 0` | the worklet never delivered — suspended context or dead tap (B530's bug) |
+| `batches >0, chunks 0` | the audio encoder swallowed everything |
+| `chunks >0, configs 0` | **the predicted failure** — no decoderConfig, unusable track |
+| all `>0` | audio was muxed; the fault is downstream in the player, save, or container |
+
+**VERIFY (Daniel):** record a take, then read the `[conduit] audio:` line in the console. That line names the stage regardless of which hypothesis is right, so the next step is determined either way. B530's fix stays in — it defends a genuine failure mode that would have bitten eventually.
+
 ## 🔇 v0.22.24 (Build 530) — 2026-08-06 — The silent takes: a swallowed exception, three layers down
 
 Daniel's hunch was right, and it was not the native camera.

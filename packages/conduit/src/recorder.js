@@ -176,7 +176,56 @@ async function startMicTap(track, onData) {
 // dies ("null is not an object … decoderConfig.colorSpace", Daniel's iPad
 // no-file take). Only an actual encode tells the truth. ~one encoder init at
 // record start; the verdict is cached per config for the session.
+// THE AUDIO SIDE OF THE SAME PROBE (B531). `pickAudioCodec` only asks `isConfigSupported`, which
+// this file's own header already says is not enough — WebKit answers yes and then emits chunks
+// with no `decoderConfig`. On the video path that was caught by `encoderYieldsConfig`; the audio
+// path never got the equivalent, and `addAudioChunk(chunk, undefined)` does not throw. The muxer
+// simply never receives the audio decoder config, so it cannot write a valid sample description
+// and the track comes back silent while the video is perfect.
+//
+// That is exactly Daniel's report: the composition has no audio, and the package's RAW source
+// take — muxed natively by MediaRecorder, never touching this code — has audio just fine.
+//
+// A `false` verdict rejects the whole WebCodecs session, so the take falls back to MediaRecorder
+// and comes back WITH sound. Slower and lower fidelity, and infinitely better than silent.
 const probeCache = new Map();
+async function audioEncoderYieldsConfig(cfg) {
+  const key = `audio|${cfg.codec}|${cfg.sampleRate}|${cfg.numberOfChannels}`;
+  if (probeCache.has(key)) return probeCache.get(key);
+  const verdict = await new Promise((resolve) => {
+    let enc = null, done = false;
+    const settle = (v) => {
+      if (done) return;
+      done = true;
+      try { enc?.close(); } catch { /* closed */ }
+      resolve(v);
+    };
+    try {
+      enc = new AudioEncoder({
+        // AAC carries `description` (the esds payload); Opus is self-describing and legitimately
+        // ships without one, so a decoderConfig alone is the bar here.
+        output: (chunk, meta) => settle(!!(meta && meta.decoderConfig)),
+        error: () => settle(false),
+      });
+      enc.configure(cfg);
+      // ~20ms of silence is enough to force one encoded frame out
+      const frames = Math.round(cfg.sampleRate / 50);
+      const data = new Float32Array(frames * cfg.numberOfChannels);
+      const ad = new AudioData({
+        format: 'f32-planar', sampleRate: cfg.sampleRate,
+        numberOfFrames: frames, numberOfChannels: cfg.numberOfChannels,
+        timestamp: 0, data,
+      });
+      try { enc.encode(ad); } finally { ad.close(); }
+      enc.flush().catch(() => settle(false));
+    } catch { settle(false); }
+    setTimeout(() => settle(false), 2000);
+  });
+  probeCache.set(key, verdict);
+  if (!verdict) console.warn(`[conduit] audio encoder ${cfg.codec} yields no decoderConfig — MediaRecorder fallback (take keeps its sound)`);
+  return verdict;
+}
+
 async function encoderYieldsConfig(cfg) {
   const key = `${cfg.codec}|${cfg.width}x${cfg.height}|${cfg.latencyMode || ''}`;
   if (probeCache.has(key)) return probeCache.get(key);
@@ -243,6 +292,12 @@ async function startWebCodecsSession({ w, h, audioTrack, onDone, onError }) {
       channels = s.channelCount === 2 ? 2 : 1;
       acfg = await pickAudioCodec(mic.sampleRate, channels);
       if (!acfg) { await mic.stop(); return null; }
+      // …and prove the chosen codec actually hands back a decoderConfig, because
+      // `isConfigSupported` saying yes is not evidence on WebKit (B531).
+      const proves = await audioEncoderYieldsConfig({
+        codec: acfg.codec, sampleRate: mic.sampleRate, numberOfChannels: channels, bitrate: acfg.bitrate,
+      });
+      if (!proves) { await mic.stop(); return null; }
     } catch (e) {
       console.warn('[conduit] mic tap unavailable, falling back to MediaRecorder:', e);
       return null;
@@ -274,11 +329,20 @@ async function startWebCodecsSession({ w, h, audioTrack, onDone, onError }) {
   venc.configure({ ...baseCfg, ...latency });
 
   let aenc = null;
+  // AUDIO TELEMETRY (B531). Every previous silent-take theory was a guess because nothing counted
+  // anything. These four numbers separate the candidates outright at `finish()`:
+  //   batches 0            → the worklet never delivered (suspended AudioContext / dead tap)
+  //   batches >0, chunks 0 → the encoder swallowed everything
+  //   chunks >0, configs 0 → WebKit gave no decoderConfig and the muxer wrote an unusable track
+  //   all >0               → audio was muxed and the fault is downstream (player, save, container)
+  let audioBatches = 0, audioRejected = 0, audioChunks = 0, audioConfigs = 0;
   const t0 = performance.now();
   let audioClockUs = null;   // sample-accurate once anchored to the session clock
   if (acfg) {
     aenc = new AudioEncoder({
       output: (chunk, meta) => {
+        audioChunks++;
+        if (meta && meta.decoderConfig) audioConfigs++;
         try { muxer.addAudioChunk(chunk, meta && meta.decoderConfig ? meta : undefined); }
         catch (e) { sessionError = sessionError || e; }
       },
@@ -287,7 +351,8 @@ async function startWebCodecsSession({ w, h, audioTrack, onDone, onError }) {
     aenc.configure({ codec: acfg.codec, sampleRate: mic.sampleRate, numberOfChannels: channels, bitrate: acfg.bitrate });
     const rate = mic.sampleRate;
     onAudioData = (batch) => {
-      if (!aenc || aenc.state !== 'configured' || sessionError) return;
+      audioBatches++;
+      if (!aenc || aenc.state !== 'configured' || sessionError) { audioRejected++; return; }
       let frames = 0;
       for (const chunk of batch) frames += chunk[0].length;
       if (!frames) return;
@@ -345,6 +410,16 @@ async function startWebCodecsSession({ w, h, audioTrack, onDone, onError }) {
     try { venc.close(); } catch { /* closed */ }
     try { aenc?.close(); } catch { /* closed */ }
     if (dropped) console.info(`[conduit] recorder dropped ${dropped} frames to encoder backpressure`);
+    if (acfg) {
+      const verdict = !audioBatches ? 'NO MIC DATA — the worklet never delivered (context suspended or tap dead)'
+        : !audioChunks ? 'MIC DATA BUT NO ENCODED CHUNKS — the audio encoder produced nothing'
+          : !audioConfigs ? 'CHUNKS BUT NO decoderConfig — the muxer could not describe the track (silent audio)'
+            : 'ok';
+      const line = `[conduit] audio: ${audioBatches} batches (${audioRejected} rejected) → ${audioChunks} chunks, ${audioConfigs} with config — ${verdict}`;
+      if (verdict === 'ok') console.info(line); else console.warn(line);
+    } else {
+      console.info('[conduit] audio: no track on this take (video-only by request or mic denied)');
+    }
   }
 
   return {

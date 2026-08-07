@@ -59,6 +59,17 @@ Each entry names a SYMPTOM to watch for, what it would mean, and the mitigation 
 
 **🐛 BUGS SURFACED BY THE GAUNTLET.** 4K takes fail after a few minutes with "recording failed" and a finish that outlasts the take (17 Pro) — expected at 6-11fps with encoder backpressure plus thermal, but it is a data-loss failure and needs its own fix. 14 Pro at 4K showed color shifts and a freeze on the source/output until toggling to still and back.
 
+### 🎨 COLOR MANAGEMENT — a product gap, not a perf detail (Daniel, B531)
+
+Surfaced while investigating why the 17 Pro is slower than the 14 Pro at consuming the WebGL canvas (a possible Display P3 conversion). **Daniel's read is that the perf angle is the smaller half.** The real gap is that Fold has no color management story, and two audiences need one:
+
+- **Prosumer/pro photographers** doing `open in → Fold` round trips from Lightroom or DxO PhotoLab: edit, save, return. A round trip that shifts color is a broken round trip, and the app is not viable for that workflow without it.
+- **iPhone 48MP stills**, which are large enough for moderately sized prints, where color accuracy matters directly.
+
+**Scope to work out:** what color space the engine composites in, whether we honor embedded ICC/EXIF profiles on import, what we tag on export, whether Display P3 is preserved end to end or flattened to sRGB, and how the canvas's `colorSpace` / `drawingBufferColorSpace` should be set per build. **Cross-cutting: this belongs in conduit**, since every consumer app inherits the same import/render/export path.
+
+Pairs with, but is not blocked by, the H1 perf experiment in `CAPABILITIES.md`.
+
 ### 📊 THE iOS COST MODEL AS OF B528 — and what is still unmeasured
 
 **Read costs PER SECOND, not per frame.** Per-frame averages hid the PiP for four builds: it looked like 0.17ms because the expensive part was not inside the call. Per second is what the battery and the thermal budget actually see.
