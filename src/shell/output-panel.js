@@ -15,6 +15,8 @@
 // one-tap restart. Record-to-disk is a SEPARATE, concurrent control (record a take
 // while broadcasting). The test pattern swaps the program for a reference frame.
 
+import { setMicTrimHint } from 'conduit/recorder';
+
 const TIER_DEFAULT = 1920;            // FHD long side — safe live default (never 4K)
 const DEST_KEY = 'fold.outputDestination';
 
@@ -170,6 +172,8 @@ export function createOutputPanel(env, outputBus) {
     meterCtx = null;
     const wrap = byId('micMeter');
     if (wrap) wrap.hidden = true;
+    const gRow = byId('micGainRow');
+    if (gRow) gRow.hidden = true;
   }
   async function syncMicMeter() {
     const row = byId('outputRow');
@@ -204,27 +208,38 @@ export function createOutputPanel(env, outputBus) {
     });
     rawSrc.connect(meterTrim); meterTrim.connect(meterLimiter);
     const src = meterLimiter;
-    // one-time calibration off the RAW source, mirroring the recorder's: loudest 800ms window,
-    // clamped 1x..8x, never ridden afterwards
+    // THE CALIBRATION LIVES HERE, NOT IN THE TAKE (B561). B560 calibrated inside the recorder's
+    // mic tap, which opens at the instant recording starts — reliably the one moment nobody is
+    // talking. It measured room tone and correctly declined to act, so nothing happened and
+    // Daniel's iPad stayed inaudible.
+    //
+    // The meter is the right place: it is open while the mic is armed and the shot is being set
+    // up, so it sees real speech with no time pressure. It tracks the running peak CONTINUOUSLY
+    // (there is no take to disturb, so adapting freely here costs nothing) and publishes the trim
+    // to the recorder, which freezes it for the duration of the take.
     {
       const cal = new AnalyserNode(meterCtx, { fftSize: 2048 });
       rawSrc.connect(cal);
       const cbuf = new Float32Array(cal.fftSize);
       let rawPeak = 0;
-      const t0 = performance.now();
       const step = () => {
         if (!meterStream) { try { rawSrc.disconnect(cal); } catch {} return; }
         cal.getFloatTimeDomainData(cbuf);
         for (let i = 0; i < cbuf.length; i += 4) { const v = Math.abs(cbuf[i]); if (v > rawPeak) rawPeak = v; }
-        if (performance.now() - t0 < 800) { setTimeout(step, 50); return; }
         if (rawPeak > 0.005) {
-          const g = Math.min(8, Math.max(1, 0.5 / rawPeak));
-          try { meterTrim.gain.setTargetAtTime(g, meterCtx.currentTime, 0.05); }
+          const g = Math.min(32, Math.max(1, 0.5 / rawPeak));
+          try { meterTrim.gain.setTargetAtTime(g, meterCtx.currentTime, 0.15); }
           catch { meterTrim.gain.value = g; }
+          setMicTrimHint(g);
+          // SHOW THE NUMBER. Daniel has no console on the iPad, and a silent auto-gain that guesses
+          // wrong is indistinguishable from one that is not running — which is exactly what B560
+          // looked like. The readout is how the next failure gets diagnosed in one glance.
+          const gEl = byId('micGainRead');
+          if (gEl) gEl.textContent = `${g.toFixed(1)}× · raw peak ${rawPeak.toFixed(3)}`;
         }
-        try { rawSrc.disconnect(cal); } catch { /* already down */ }
+        setTimeout(step, 200);
       };
-      setTimeout(step, 50);
+      setTimeout(step, 100);
     }
     const stereo = (stream.getAudioTracks()[0]?.getSettings?.().channelCount || 1) >= 2;
     const anL = meterCtx.createAnalyser(); anL.fftSize = 512;
@@ -237,6 +252,8 @@ export function createOutputPanel(env, outputBus) {
       src.connect(anL); src.connect(anR);   // mono: both bars show the one channel
     }
     if (wrap) wrap.hidden = false;
+    const gRow = byId('micGainRow');
+    if (gRow) gRow.hidden = false;
     const buf = new Uint8Array(anL.fftSize);
     const lEl = byId('micMeterL'), rEl = byId('micMeterR');
     const peak = (an) => {

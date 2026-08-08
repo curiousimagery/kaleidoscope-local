@@ -113,7 +113,30 @@ Three items that were sitting in HANDOFF's stale half. Each was described there 
 - **✅ Quality — FIXED B558, confirmed by ear.** Voice-processing (echo cancellation / noise suppression / AGC) was ON for every mic. On iOS those flags also select the **voice-processing audio unit**, a different input path with its own resampling. That is the quality gap against Apple's Camera app.
 - **👁 WATCHED: drift on a long take.** B559 numbers on 5:06 at 4K: `videoSpanSec 305.5` vs `audioSpanSec 305.9` (0.13%, and a tail offset is expected since audio keeps flushing past the last video frame), `secondsIn 305.9` / `secondsOut 306` so the encoder lost nothing, `captureLatencyMs 73-113` so the stamp was stable within two frames. **Symptom to watch:** audible lip-sync error growing toward the end of a take. **What it would mean:** the voice-processing unit was not the cause and samples are being lost under main-thread saturation. **First read:** the same four numbers — a `videoSpan`/`audioSpan` gap beyond ~1% is the tell.
 - **👁 WATCHED: occasional static.** Not present in either B558/B559 take. Same suspected mechanism, same first read.
-### 🎚️ THE GAIN STAGE — SHIPPED B560, needs device verification
+### 🔔 STATUS MESSAGES ARE SCATTERED — audit and consolidate (Daniel, B561)
+
+**Daniel:** *"we throw messages all over the place, sometimes in the top left of the source panel, sometimes in their respective dialogs and sometimes in toasts... showing saving / take saved inline in the output dialog doesn't feel right. status and controls should be separate."*
+
+**His proposal, and it is the right default: toasts everywhere, including desktop and iPad**, unless a message has a specific reason to be inline. The principle underneath is the useful part — **a panel is for controls, a toast is for status** — and it explains why an inline "saving…" reads wrong even though it is technically in the right context.
+
+- **[MED] Audit every system notification in the app** and classify: genuinely inline (validation on the control it belongs to; a persistent state label like "ladder locked — this canvas IS the take") vs status (anything transient about something that is happening). Known emitters: `#outputStatus` in the output popover, the source panel's top-left messages, the save toast, the locked-control toast, the loop-builder notices, the external-view text cards.
+- **The toast already exists and is host-agnostic** (`shell/save-flow.js`, `status`/`dismiss` on the same surface as `save`), so this is mostly re-routing rather than new components. **Its landscape bug is already fixed (B552)**, which was the thing that would have made this consolidation backfire.
+- **Decide the desktop placement deliberately.** The toast pins bottom-centre above the mobile tab bar; on a wide desktop window that may want a different anchor. One decision, then apply everywhere.
+- **Lands in the UI Lab with its state matrix** per the standing rule, and the audit's classification table is worth keeping in the Lab entry as the reference for the next message anyone adds.
+
+### 🎚️ THE GAIN STAGE — B560 DID NOTHING, FIXED B561, needs device verification
+
+**B560 failed on device and the reason is worth keeping.** It sampled a fixed 800ms window starting when the mic tap opened — which is *the instant the take starts*, reliably the one moment the user is not talking yet. It measured room tone, fell under the signal floor, and correctly declined to guess. **The mechanism was right and the trigger was wrong: a calibration window that opens on a timer will nearly always open on silence.**
+
+Two changes at B561: the calibration now lives in the **level meter**, which is open while the mic is armed and the shot is being set up (so it sees real speech with no time pressure) and publishes its trim to the recorder via `setMicTrimHint`; and the take's own calibration triggers **on signal rather than on time**, bounded to the first 15s, as a fallback for paths with no meter. Ceiling raised 8x → 32x — the 8x figure was a guess, and Daniel's iPad needed playback volume at maximum even after it, so the real input is far quieter than that allowed for. **The property that matters is unchanged: the gain settles once and does not move for the rest of the take.**
+
+**A readout now shows `N× · raw peak M` under the meter.** Added because B560's failure was invisible: a silent auto-gain that guesses wrong looks exactly like one that never ran.
+
+**Still open underneath:** whether the iPad's quietness is mic SENSITIVITY or mic SELECTION. `micRawPeak` and `trackState.label` across takes answer it. The trim compensates for the first and only papers over the second.
+
+**[LOW] Two mic paths still acquire separately** — the meter opens its own `getUserMedia` alongside the take's, which is why the calibration constants are duplicated rather than shared. Unify when the audio path is next opened.
+
+### 🎚️ [HISTORICAL] THE FIRST ATTEMPT — SHIPPED B560
 
 **Built:** one-time calibrated trim (loudest 800ms at arm time, clamped 1x-8x, never ridden afterwards) into a limiter (-1.5dB, ratio 20), on both the recorder's mic tap and the level meter so the two agree. `micGain` / `micRawPeak` in the report.
 
@@ -145,6 +168,12 @@ B558 disabled AGC because it was audibly wrong for a recording. That was right, 
 Ten symptoms, four causes. Ranked by how much each unblocks.
 
 **CAUSE 1 — "4K record" does not exist.** `sizeOutput()` lifts a take's short side *to* 1080 (a floor, never a target) and hard-caps the long side at 2048. The 4K setting selects the SOURCE only.
+**▶ DANIEL'S DECISIONS (B561), and the one open question.** He has settled most of this:
+- **4K SOURCE earns its place regardless** — he can perceptibly see the improvement and the file size is unchanged, since the take is FHD either way. **So relabel rather than remove:** make clear we sample more pixels and always record FHD. That is the honest fix for the liar, and it is cheap.
+- **Test real 60fps output WITHOUT the PiP first.** If it comes back clean, keep it and apply the same starve-the-PiP pattern 4K recording already uses. If not, **cut it** — he judges a 60fps source feeding a 30fps take to be worth nothing, and I agree with one caveat worth stating: the only real benefit is a shorter exposure per frame (less motion blur), which is subtle and costs double the camera bandwidth and upload. Not worth keeping the liar for.
+- **A 720p tier for older devices** as a fallback where 1080p cannot be held, plus a clear statement of which iPhones clear which gate.
+- **🔴 THE OPEN QUESTION: can we actually record 4K/30 OUTPUT on the phone?** Never attempted. **The memory objection is gone** — B553-B555 proved a 254MB take streams to disk and never occupies the JS heap — so what remains is pure throughput, and that is measurable rather than arguable. **Test:** lift `sizeOutput()`'s 2048 cap behind a perf flag, record at 4K with the PiP starved, and read `record encode` + fps + `shortfall`. Note the prior 24-28fps reading was a 1080p take from a 4K source; a real 4K take is 4x the encoder pixels, so expect worse and measure rather than predict.
+
 - **🔴 [HIGH — now unblocked by B553] Recording at 4K on the PHONE is unimplemented.** The memory objection is gone; what remains is a product call. **Daniel's framing (B553) is the standard: weigh the complexity of bringing it up to spec against honestly not pretending we can do it.** The dishonest middle — a 4K setting that silently saves 1080p — is the one option ruled out. Cheapest honest fix is to relabel the phone control as a SOURCE resolution (which is what it is) and state the take resolution separately. TF-1: 4K selected, 1080p file, both lenses. **Fixing this is a product decision, not a patch** — a true 4K take multiplies encoder load AND the in-memory muxer's peak footprint, which is already the prime suspect for finalize failures. Sequence: OPFS streaming first, then lift the cap. Lifting it alone would very likely make finalize worse.
 - **Fallout: every "4K recording" number in this arc measured a 1080p take.** CAPABILITIES corrected at the top; the B547 "4K/30 is deliverable" line is withdrawn. Source-side findings stand.
 - **Blocks TF-2/TF-3/TF-4** — there is no 4K finalize to measure yet.

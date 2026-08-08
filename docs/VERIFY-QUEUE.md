@@ -14,33 +14,37 @@ Confirmed results are DELETED from here and recorded in CHANGELOG.
 
 **Two findings came out of it**, both filed in BACKLOG, neither a regression from B553-B559: iPad take audio is very quiet (the missing gain stage), and the `elideElementUploads` A/B was unmeasurable as I wrote it (see the entry — my instruction was wrong, and the desktop claim is withdrawn).
 
-# ▶ THIS SESSION — "does the mic sound right now, and what is the iPad's mic actually doing?"
+# ▶ THIS SESSION — "is the iPad mic fixed, and is it sensitivity or selection?"
 
-**iPad first (where the problem was), then one iPhone check.** `npm run build && npx cap sync ios`, Xcode rebuild. **~10 minutes.**
+**iPad first, then one iPhone check.** `npm run build && npx cap sync ios`, Xcode rebuild. **~10 minutes.**
 
 ## What we're trying to find out
 
-B560 added the gain stage B558 owed: a trim measured once while the mic arms, into a limiter. Two questions, and the second one outlives the first.
+B560's calibration ran at the instant recording started, so it always measured a silent room and never engaged. B561 moves it to the **level meter**, which is open while you are setting up and therefore actually hears you talk.
+
+**There is now a readout under the meter** (`N× · raw peak M`). That is the single most useful thing on screen: it says both what the mic delivered and what we did about it, so a failure is visible instead of silent.
 
 ## Steps — iPad
 
-1. **Enable the mic and watch the meter.** → does it now move meaningfully when you speak, instead of barely registering? (The meter runs the same chain as the recorder, so what you see is what the take gets.)
-2. **Record a short take (~30s), talking normally. Save and play it back.** → is it at a usable level? Does it sound natural, or does it breathe/pump the way the old AGC did? **Pumping is the failure mode to listen for** — the trim is set once and frozen, so it should not.
-3. **`copy report`** → paste. `micRawPeak`, `micGain`, `peak` and `trackState.label`.
-4. **If you can, one more take with the iPad oriented differently or from further away** — different `trackState.label` across takes would mean iOS is switching mic ELEMENTS, which the trim compensates for but does not fix.
+1. **Open the output panel, select the mic, and talk normally for a few seconds.** → does the readout under the meter move off `—` and show a multiplier? → do the L/R bars now move meaningfully?
+   - **Tell me the two numbers it settles on.** If the multiplier reads `32.0×` it hit the ceiling and the input is quieter still, which is itself the answer.
+2. **Record a short take (~30s) talking normally. Save and play it back.** → usable level at normal iPad volume?
+3. **Listen for the level moving on its own** — background noise swelling up in the gaps between words, or your voice ducking as you get louder. That is what the old AGC did and what this is designed not to do. It should sound steady.
+4. **`copy report`** → `micRawPeak`, `micGain`, `peak`, `trackState.label`.
+5. **One more take from further away, or holding the iPad differently.** → does `trackState.label` change between takes? A different label means iOS is switching mic ELEMENTS, which the trim compensates for but does not fix.
 
 ## Steps — iPhone
 
-5. **One short take, talking normally.** → unchanged from B559? It should be: a healthy input calibrates to exactly 1x. **`copy report`** and confirm `micGain` is 1 and `peak` is now at or under 1.0 rather than 2.82.
+6. **One short take, talking normally.** Should be unchanged: a healthy input calibrates to 1x. Confirm `micGain` is 1 and `peak` is now at or under 1.0 rather than 2.82.
 
 ## What counts as success
 
-Meter moves, iPad take is usable, iPhone take is unchanged, and nothing pumps.
+The readout shows a real multiplier, the iPad take is usable, the iPhone take is unchanged, and the level does not move on its own.
 
 ## What I can't see and need from you
 
-- **Whether it pumps.** No number will tell me this; the whole design rests on it not happening.
-- **`micRawPeak` + `micGain` + `trackState.label` from the iPad.** This is the pair that finally separates a quiet MIC from a quiet ROOM from the wrong mic being SELECTED — the question the trim papers over rather than answers.
+- **The two numbers under the meter on the iPad.** If this fails again, that pair says which part failed — and I would rather stop guessing.
+- **Whether the level moves on its own.** No number shows this and the whole design rests on it not happening.
 
 # 🅿️ NEXT UP after this — pick one
 

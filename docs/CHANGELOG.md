@@ -4,6 +4,26 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🎚️ v0.23.8 (Build 561) — 2026-08-08 — The calibration window opened on silence
+
+**B560 did nothing on device, and the reason is the useful part.** It sampled a fixed 800ms window starting when the mic tap opened, which is *the instant the take begins* — reliably the one moment nobody is talking yet. It measured room tone, fell under the signal floor, and correctly declined to guess. So the gain stayed at 1x and Daniel's iPad take was as quiet as before.
+
+**The mechanism was right and the trigger was wrong. A calibration window that opens on a timer will nearly always open on silence.**
+
+### The calibration moved to where the speech is
+
+The level meter is open while the mic is armed and the shot is being set up, so it hears real speech with no time pressure. It now tracks the running peak continuously (there is no take to disturb, so adapting freely costs nothing there) and publishes its trim to the recorder through `setMicTrimHint`. The take starts from that number and freezes it.
+
+The take's own calibration survives as a fallback for paths with no meter, but now **triggers on signal rather than on time** — it keeps watching until it actually observes speech-level input, sets the trim once, and stops, bounded to the first 15 seconds so it can never change level deep into a take.
+
+**Ceiling raised 8x → 32x.** The 8x figure was a guess, and Daniel's iPad needed playback volume at maximum even after a boost, so the real input is far quieter than that allowed for. The limiter is what makes a high ceiling safe; a ceiling set too low just fails silently, which is worse.
+
+The property that matters is unchanged: **the gain settles once and does not move for the rest of the take.**
+
+### And it says what it decided
+
+A readout under the meter shows `N× · raw peak M`. **B560's failure was invisible** — a silent auto-gain that guesses wrong looks exactly like one that never ran. This is how the next one gets diagnosed in a glance, with no console.
+
 ## 🎚️ v0.23.7 (Build 560) — 2026-08-08 — The gain stage B558 owed
 
 B558 disabled echo cancellation, noise suppression and AGC because they are audibly wrong for a recording. That was right, and it was **half the job: AGC was also the only thing managing level anywhere in the app.** Both halves of the consequence turned up in one test round, on two devices, pointing in opposite directions — an iPhone `peak` of **2.82** (about 9dB over full scale, with nothing preventing clipping) and an iPad take Daniel described as sounding like "a master gain tuned way down".

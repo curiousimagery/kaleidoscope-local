@@ -1602,3 +1602,6 @@ body.loop-active #outputToolbar { display: none; }
 .output-pop .op-meter-lab { font-size: var(--text-xs); color: var(--text-dim); width: 10px; }
 .output-pop .op-meter-track { flex: 1; height: 6px; background: var(--surface-control); border: 1px solid var(--border); border-radius: 3px; overflow: hidden; }
 .output-pop .op-meter-track i { display: block; height: 100%; width: 0%; background: var(--ok); transition: width 60ms linear; }
+/* what the auto-trim decided — a readout, not a control (B561). It exists because a silent
+   auto-gain that guesses wrong is indistinguishable from one that never ran. */
+.output-pop .op-hint { margin-top: 4px; font-size: var(--text-xs); color: var(--text-dim); }

@@ -118,6 +118,10 @@
         <span class="op-meter-lab">L</span><div class="op-meter-track"><i id="micMeterL"></i></div>
         <span class="op-meter-lab">R</span><div class="op-meter-track"><i id="micMeterR"></i></div>
       </div>
+      <!-- what the auto-trim decided, and what the mic actually delivered. A silent auto-gain
+           that guesses wrong looks identical to one that never ran (B560) — this is how the
+           next one gets diagnosed without a console. -->
+      <div class="op-row op-hint" id="micGainRow" hidden><span id="micGainRead">—</span></div>
     </div>
     <div class="op-section">
       <div class="field-label">destination</div>
