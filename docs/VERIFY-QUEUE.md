@@ -6,32 +6,34 @@ Confirmed results are DELETED from here and recorded in CHANGELOG.
 
 ---
 
-# ▶ THIS SESSION — "does a streamed take actually reach Photos?"
+# ▶ THIS SESSION — "where does the audio drift come from?"
 
-**Sync first:** `npm run build && npx cap sync ios`, rebuild from Xcode. **iPhone, ~5 minutes.**
+**Sync first:** `npm run build && npx cap sync ios`, rebuild from Xcode. **iPhone, ~10 minutes.**
 
 ## What we're trying to find out
 
-Last round the take finalized perfectly — valid file, 2 tracks, audio playable, 72MB — and then **`save failed`**, with a retry that failed the same way. That was my bug, and a stupid one: on the phone, the recorder's `save` callback only *stashes* the take; the real write to Photos happens when you tap it in the sheet. I was deleting the streamed file the moment the callback returned, so by the time you saved, the file was gone. Retry failed because there was nothing left to retry.
+Saving is solid now — steps 1-3 last round all passed, thank you. Two things remain from your 6-minute take: **the audio drifted out of sync by the end**, and there was **occasional static**.
 
-The delete is gone. **This session is one question: does a streamed take now survive all the way to Photos?**
+I'm not going to guess at either. There are two clocks in a take and they only agree under assumptions: audio advances by exact sample count, video is stamped on the wall clock minus capture latency. If audio loses samples, or if that latency moves as the phone heats, they separate. The report now carries all three clocks side by side so the numbers can say which one slipped.
+
+I also owe you a correction: I told you last build that the finalize wait was the video encoder. **It's the audio flush** — 32.7 of 33.1 seconds on your 4K take. That's why "flushing audio 5%" sat still: I'd weighted the bar on the wrong assumption. Both flushes now report from their own queues.
 
 ## Steps
 
-1. **Record ~30s at FHD, talking.** Stop, let it finalize, then **save it from the sheet.** → does the save succeed?
-2. **Open it in Photos.** → plays, with sound?
-3. **Record another ~30s take but DON'T save it. Then record a third take and save that one.** → does the third save fine? (This checks the orphan sweep isn't eating a file it shouldn't.)
-4. **Now a 4K take, 3+ minutes.** Stop, watch the toast, save it. → does the percentage stay visible long enough to be useful this time? And does the save succeed?
-5. **`copy report`** after step 4 → paste.
+1. **Long take, 5+ minutes, FHD, talking steadily throughout.** Count out loud periodically so there are sharp consonants to sync against. Save it.
+2. **`copy report`** → paste. The four numbers I need are `wallSec`, `videoSpanSec`, `audioSpanSec`, `captureLatencyMs`.
+3. **Play it back in Photos and tell me *when* the drift becomes noticeable** — near the start, halfway, only at the end? Whether it grows steadily or jumps matters more than the exact amount.
+4. **Note roughly when any static occurs** and what you were doing at the time (heavy gesture, zoom, EV/WB change, or nothing in particular).
+5. **While it finalizes, watch the toast.** → does `flushing audio` now show a percentage that actually moves?
 
 ## What counts as success
 
-Step 1 saving. Everything else is confirmation.
+There's no pass/fail here — it's a measurement session. Success is the four numbers plus your description of when the drift appears.
 
 ## What I can't see and need from you
 
-- **Whether saves actually complete now.** I have broken this twice by guessing when the file's life ends; I'd rather you tell me than assume again.
-- **Whether the finalize percentage is legible on a long take** — step 4 is the only one slow enough to judge it. Last time it flashed past because finalize took 669ms, which is correct behaviour, not a bug.
+- **The four clock numbers.** Everything downstream depends on which of them disagree.
+- **Whether the drift is progressive or sudden.** Progressive points at lost samples or moving latency; sudden points at a stall. These lead to completely different fixes, and I'd rather not build the wrong one.
 
 # 🅿️ PARKED — not this session
 

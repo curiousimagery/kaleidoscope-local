@@ -105,6 +105,12 @@ Three items that were sitting in HANDOFF's stale half. Each was described there 
 - *Gesture recording + live-tween* — **shipped at Build 269** (v0.12.11: a gesture lands as one keyframe carrying its winding), with the directional-vs-shortest-path distinction settled later on the Droste zoom follower. The residuals — per-segment rotation winding (+N turns) and smoothed translation-path capture — were already in BACKLOG. The 2026-06-10 note was simply never retired.
 - *Cross-format / frame-rate robustness + test story* — **premise was wrong when written.** It claimed "Blink largely untested for the video path"; Brave and the Electron build have been in rotation at least as much as WebKit and Gecko (Daniel, B547). The genuinely open piece of it is test infrastructure, which is a deliberate standalone decision, not a feature-commit rider.
 
+### 🔊 AUDIO QUALITY ON LONG TAKES (Daniel, B557) — new
+
+- **🔴 [HIGH] Audio drifts out of sync by the end of a long take.** Reproduced on a 6:03 4K take. **Instrumented at B557, not yet diagnosed:** the report now carries `wallSec` / `videoSpanSec` / `audioSpanSec` / `captureLatencyMs{min,max}`. Audio advances by exact SAMPLE COUNT; video is stamped wall-clock minus capture latency. They agree only if no audio samples are lost and `lat` is stable across the take. **Read those four numbers before touching anything** — the gap names which clock slipped. Note `secondsIn === secondsOut` on the drifting take (362.8/362.8), so the audio ENCODER lost nothing; the suspicion is therefore either samples never reaching the worklet's message pump under load, or `lat` moving as the device heats.
+- **🟠 [MED] Occasional static in long takes**, worse with heavy manipulation. Unexplained. `silentBatches: 1` and `peak: 0.496` rule out silence and clipping-to-zero. Same instrument is the first place to look; do not guess.
+- **[MED] The audio flush IS the finalize wait — so it is the thing to optimise.** 32.7s of a 33.1s finish. Video is drained continuously because `publish` drops frames above a queue depth of 4; audio has no equivalent valve and absorbs the whole backlog until the end. Options worth weighing: a shallower audio queue with backpressure during the take, a larger worklet batch, or accepting the wait now that it is honestly reported.
+
 ### 🔴 B551 TRIAGE — Daniel's H/FH/TF pass, grouped by SHARED CAUSE
 
 Ten symptoms, four causes. Ranked by how much each unblocks.

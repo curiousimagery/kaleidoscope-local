@@ -561,6 +561,7 @@ async function startWebCodecsSession({ w, h, audioTrack, onDone, onError, onProg
   let container = null;       // what the finished file actually contains (B533)
   const t0 = performance.now();
   let audioClockUs = null;   // sample-accurate once anchored to the session clock
+  let lastVideoTsUs = 0, latMinMs = Infinity, latMaxMs = 0;   // A/V drift instrument — see publish()
   if (acfg) {
     aenc = new AudioEncoder({
       output: (chunk, meta) => {
@@ -683,19 +684,37 @@ async function startWebCodecsSession({ w, h, audioTrack, onDone, onError, onProg
       try { onProgress?.(progress); } catch { /* a reporting failure must never lose a take */ }
     };
 
-    step('flushing audio', 0.05);
+    // ⚠️ THE AUDIO FLUSH IS THE LONG POLE, NOT THE VIDEO ENCODE (B557). B550 assumed the opposite
+    // and weighted the bar accordingly: audio got a flat 5% with no updates, video got 15→85%.
+    // Daniel's marks say otherwise, consistently — `flushing audio@0ms · encoding remaining
+    // frames@6459ms` means the AUDIO flush took 6.4 of the 7.2 second finish, and on his 4K take
+    // it was 32.7 of 33.1 seconds. The video encoder is essentially drained already, because
+    // `publish` drops frames whenever its queue exceeds 4; the audio encoder has no such valve and
+    // absorbs the entire backlog instead. So he watched "flushing audio 5%" sit still for the
+    // whole wait, which is exactly the uninformative spinner the progress work set out to remove.
+    //
+    // Both flushes now report from their own `encodeQueueSize`, and the weights follow the
+    // measurement rather than my assumption.
+    step('flushing audio', 0.02);
     if (mic) await mic.stop();   // posts the tail flush → onAudioData → encode
+    const aQueued0 = aenc?.encodeQueueSize || 0;
+    let aDrain = null;
+    if (aQueued0 > 0) {
+      aDrain = setInterval(() => {
+        const q = aenc?.encodeQueueSize || 0;
+        step('flushing audio', 0.02 + 0.73 * (1 - q / aQueued0), { queued: q });
+      }, 250);
+    }
     try { if (aenc && aenc.state === 'configured') await aenc.flush(); } catch { /* mid-error */ }
+    if (aDrain) clearInterval(aDrain);
 
-    // the long pole, and the only determinate one
     const queued0 = venc.encodeQueueSize || 0;
-    step('encoding remaining frames', 0.15, { queued: queued0 });
+    step('encoding remaining frames', 0.75, { queued: queued0 });
     let drain = null;
     if (queued0 > 0) {
       drain = setInterval(() => {
         const q = venc.encodeQueueSize || 0;
-        // 0.15 → 0.85 across the drain, so the bar moves on real work
-        step('encoding remaining frames', 0.15 + 0.7 * (1 - q / queued0), { queued: q });
+        step('encoding remaining frames', 0.75 + 0.15 * (1 - q / queued0), { queued: q });
       }, 250);
     }
     try { if (venc.state === 'configured') await venc.flush(); } catch { /* mid-error */ }
@@ -784,6 +803,13 @@ async function startWebCodecsSession({ w, h, audioTrack, onDone, onError, onProg
       trackSupplied: !!audioTrack,
       trackState: audioTrack ? { enabled: audioTrack.enabled, muted: audioTrack.muted, readyState: audioTrack.readyState, label: audioTrack.label } : null,
       finalizeMs, finalizeMarks,   // WHERE the finish went — the 4K-finalize question (B550)
+      // THREE CLOCKS THAT SHOULD AGREE (B557). wall = how long the take really ran; video =
+      // the span of stamped video timestamps; audio = samples actually encoded. A gap between
+      // any two IS the sync drift, and says which side slipped.
+      wallSec: +((performance.now() - t0) / 1000).toFixed(1),
+      videoSpanSec: +(lastVideoTsUs / 1e6).toFixed(1),
+      audioSpanSec: rate ? +(audioFramesIn / rate).toFixed(1) : null,
+      captureLatencyMs: latMaxMs ? { min: +latMinMs.toFixed(0), max: +latMaxMs.toFixed(0) } : null,
       diskStreamed,                // true = never assembled in RAM (B553)
       batches: audioBatches, rejected: audioRejected, chunks: audioChunks, withConfig: audioConfigs,
       // seconds IN vs seconds OUT — a large gap means the encoder stalled or dropped mid-take,
@@ -819,6 +845,14 @@ async function startWebCodecsSession({ w, h, audioTrack, onDone, onError, onProg
       // never has this problem. Mode-independent: nothing to calibrate, nothing to re-tune.
       const lat = frame.latencySec > 0 ? frame.latencySec * 1000 : 0;
       const ts = Math.max(0, Math.round((performance.now() - lat - t0) * 1000));
+      // A/V DRIFT INSTRUMENT (B557). Audio advances by exact SAMPLE COUNT while video is stamped
+      // on the WALL CLOCK minus capture latency — two different clocks that agree only if no
+      // audio is lost and `lat` is stable. Daniel's 6-minute take drifted audibly by the end and
+      // guessing which clock slipped is exactly the trap this arc keeps punishing, so record the
+      // span of each and the range of the latency correction. Costs three comparisons a frame.
+      lastVideoTsUs = ts;
+      if (lat < latMinMs) latMinMs = lat;
+      if (lat > latMaxMs) latMaxMs = lat;
       // duration is NOMINAL but must exist: mp4-muxer requires a non-negative
       // duration per chunk (WebKit passes a missing VideoFrame duration through
       // as null → "addVideoChunkRaw's fourth argument…", Daniel's iPad take),

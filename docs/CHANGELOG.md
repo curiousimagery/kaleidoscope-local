@@ -4,6 +4,36 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🔊 v0.23.4 (Build 557) — 2026-08-08 — I read the finalize numbers backwards; the wait is the AUDIO flush
+
+### Correction to B555
+
+I said the encoder flush was "~97% of finalize" and pointed at the video encoder. **That was wrong, and I stated it with a table.** `finalizeMarks` records when each phase *starts*, so:
+
+```
+flushing audio@0ms · encoding remaining frames@6459ms · writing the file@6584ms
+```
+
+means the **audio flush took 6.4 seconds** and the video flush took 125ms. Same story on the earlier 4K take: audio 32.7s, video 94ms. On the 2:48 FHD take: audio 8.16s, video 1ms.
+
+**It has been the audio flush every time.** And in hindsight it is the obvious answer: `publish` drops video frames whenever the encoder queue exceeds 4, so the video encoder is essentially drained by design. The audio encoder has no such valve and absorbs the entire backlog instead.
+
+The 30-second-cliff finding still stands — takes were dying ~3s short of a 33s finish. Only my attribution of *where* those seconds went was wrong.
+
+### Which is exactly why Daniel saw "flushing audio 5%" sit still
+
+B550 weighted the bar on that wrong assumption: audio got a flat 5% with no updates, video got 15→85%. So the phase carrying ~90% of the wait reported one number and never moved — the uninformative spinner the progress work existed to remove, wearing a percentage.
+
+Both flushes now report from their own `encodeQueueSize`, weighted to match the measurement: audio 2→75%, video 75→90%, writing 90→97%.
+
+### A/V drift: instrumented, not guessed
+
+Daniel's 6-minute take drifted audibly by the end and had occasional static. There are two clocks here and they only agree under assumptions: **audio advances by exact sample count**, while **video is stamped on the wall clock minus capture latency**. If audio loses samples, or if `lat` moves during a take, they separate — and which one slipped is not something to guess at.
+
+The report now carries all three side by side: `wallSec` (how long the take really ran), `videoSpanSec` (span of stamped video timestamps), `audioSpanSec` (samples actually encoded), plus `captureLatencyMs: {min, max}`. Any gap between them *is* the drift, and it names the side that moved. Three comparisons per frame.
+
+The static is unexplained and I have not guessed at it; the same instrument is the first place to look.
+
 ## 🩹 v0.23.3 (Build 556) — 2026-08-08 — The take was deleted before it was saved
 
 **My bug, introduced at B555, and the same shape as B553's.** Daniel's take finalized cleanly — valid container, 2 tracks, audio playable, 72MB — and then `save failed`, with a retry that failed identically.

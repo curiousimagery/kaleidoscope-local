@@ -1,5 +1,7 @@
 # capabilities
 
+> **CORRECTION B557:** the "encoder flush is ~97% of finalize" line from B555 attributed the wait to the VIDEO encoder. It is the **audio** flush — 32.7s of a 33.1s finish on a 3:28 4K take. Video is drained by design (`publish` drops frames above a queue of 4); audio has no such valve. The 30-second-cliff finding is unaffected.
+
 > ## 🛑 CORRECTION B551, NARROWED B552 — THE **MOBILE** TAKE PATH HAS NEVER RECORDED 4K
 >
 > **My B551 wording was too broad and Daniel was right to push back.** The DESKTOP/iPad path records
