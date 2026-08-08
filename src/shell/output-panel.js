@@ -24,9 +24,28 @@ const DEST_KEY = 'fold.outputDestination';
 // suppression and automatic gain control — tuned for calls, and audibly wrong for a recording (they
 // gate, duck and re-level continuously). `ideal` rather than `exact` so a platform that cannot
 // honour a flag still returns a track. Mirrors the phone chrome's RAW_MIC.
-const rawMicAudio = (devId) => (devId && devId !== 'default'
-  ? { deviceId: { exact: devId }, echoCancellation: { ideal: false }, noiseSuppression: { ideal: false }, autoGainControl: { ideal: false } }
-  : { echoCancellation: { ideal: false }, noiseSuppression: { ideal: false }, autoGainControl: { ideal: false } });
+//
+// BUT ON iPAD THE RAW PATH IS NEARLY DEAD (B564, and this is the diagnosis three builds of gain
+// work were circling). Daniel measured `micRawPeak 0.00249` — about **-52dBFS while talking
+// LOUDLY** — on an iPad he uses for FaceTime and Zoom without complaint. The hardware is fine.
+//
+// On iOS these three flags do not merely disable processing: they switch the input away from the
+// **voice-processing audio unit**, and on iPad that unit is evidently supplying most of the input
+// gain. Turn it off and you get a signal ~50dB down, which no amount of trim can rescue honestly —
+// 32x on -52dBFS is amplifying the noise floor and throwing away most of the bit depth, which is
+// exactly why Daniel's 32x take sounded "fairly normal" rather than good.
+//
+// **So this is a per-input choice, not a global constant**, and it cannot be decided by device
+// model (the project's standing rule is probe, never classify — and the iPhone's raw path is
+// healthy at `peak` 2.82, so a blanket revert would undo the quality win there). The mic row now
+// carries a `voice processing` toggle, and the readout says when the raw input is too dead to use.
+const rawMicAudio = (devId, voiceProcessing = false) => {
+  const base = voiceProcessing
+    // let the platform do what it does for calls — level included
+    ? {}
+    : { echoCancellation: { ideal: false }, noiseSuppression: { ideal: false }, autoGainControl: { ideal: false } };
+  return (devId && devId !== 'default') ? { deviceId: { exact: devId }, ...base } : (Object.keys(base).length ? base : true);
+};
 
 export function createOutputPanel(env, outputBus) {
   const byId = (id) => document.getElementById(id);
@@ -103,6 +122,16 @@ export function createOutputPanel(env, outputBus) {
 
   const recorder = outputBus.getSink('disk');
 
+  // VOICE PROCESSING (B564) — the iOS input path, exposed because it is the difference between a
+  // usable iPad recording and a dead one, and it cannot be chosen for the user by device model.
+  // Persisted per session; changing it re-acquires the meter so the effect is immediately audible
+  // on the bars rather than only discovered after a take.
+  const VP_KEY = 'fold.micVoiceProcessing';
+  const voiceProcessingOn = () => {
+    try { return localStorage.getItem(VP_KEY) === '1'; } catch { return false; }
+  };
+
+
   // audio-source picker: enumerate mics into the select (labels only appear
   // once some permission has been granted — generic names until then), keep
   // the choice in session, refresh on focus + device changes. "none" records
@@ -174,6 +203,8 @@ export function createOutputPanel(env, outputBus) {
     if (wrap) wrap.hidden = true;
     const gRow = byId('micGainRow');
     if (gRow) gRow.hidden = true;
+    const vRow = byId('micVpRow');
+    if (vRow) vRow.hidden = true;
   }
   async function syncMicMeter() {
     const row = byId('outputRow');
@@ -183,7 +214,7 @@ export function createOutputPanel(env, outputBus) {
     if (meterStream) return;   // already metering
     let stream;
     try {
-      stream = await navigator.mediaDevices.getUserMedia({ audio: rawMicAudio(devId) });
+      stream = await navigator.mediaDevices.getUserMedia({ audio: rawMicAudio(devId, voiceProcessingOn()) });
     } catch {
       // an enumerated id can be stale/foreign on WKWebView — fall back to the default mic
       try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }); }
@@ -276,6 +307,16 @@ export function createOutputPanel(env, outputBus) {
       if (gainReadEl && !gainAutoEl?.disabled) {
         gainReadEl.textContent = `${(+(gainEl?.value || 1)).toFixed(1)}× · raw ${recentRaw.toFixed(3)}`;
       }
+      // ADVISE, DO NOT SWITCH. A raw peak this low (about -40dBFS at its loudest) cannot be
+      // rescued by trim: 32x on it amplifies the noise floor and throws away most of the bit
+      // depth. Saying so is honest and actionable; flipping the input path silently would be
+      // another automatic decision of exactly the kind that has already failed twice here (B564).
+      const vpHint = byId('micVpHint');
+      if (vpHint) {
+        vpHint.textContent = (!voiceProcessingOn() && recentRaw > 0 && recentRaw < 0.01)
+          ? 'raw input is very quiet on this device — try turning this on'
+          : '';
+      }
       setTimeout(trackRaw, 200);
     };
     setTimeout(trackRaw, 200);
@@ -292,6 +333,19 @@ export function createOutputPanel(env, outputBus) {
     if (wrap) wrap.hidden = false;
     const gRow = byId('micGainRow');
     if (gRow) gRow.hidden = false;
+    const vRow = byId('micVpRow');
+    if (vRow) vRow.hidden = false;
+    const vpEl = byId('micVoiceProc');
+    if (vpEl) {
+      vpEl.checked = voiceProcessingOn();
+      vpEl.onchange = () => {
+        try { localStorage.setItem(VP_KEY, vpEl.checked ? '1' : '0'); } catch { /* private mode */ }
+        // re-acquire so the bars show the new path immediately — discovering this after a take
+        // is exactly the failure mode this control exists to remove
+        stopMicMeter();
+        syncMicMeter();
+      };
+    }
     const buf = new Uint8Array(anL.fftSize);
     const lEl = byId('micMeterL'), rEl = byId('micMeterR');
     const peak = (an) => {
@@ -458,7 +512,7 @@ export function createOutputPanel(env, outputBus) {
       const devId = recAudioEl?.value;
       if (devId) {
         try {
-          recMicStream = await navigator.mediaDevices.getUserMedia({ audio: rawMicAudio(devId) });
+          recMicStream = await navigator.mediaDevices.getUserMedia({ audio: rawMicAudio(devId, voiceProcessingOn()) });
           micTrack = recMicStream.getAudioTracks()[0] || null;
         } catch {
           recMicStream = null;

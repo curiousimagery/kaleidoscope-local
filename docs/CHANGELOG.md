@@ -4,6 +4,28 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🎙️ v0.23.11 (Build 564) — 2026-08-08 — The iPad's raw mic path is ~50dB down, and that is the whole story
+
+**`micRawPeak: 0.00249` while talking LOUDLY. That is about -52dBFS**, on an iPad Daniel uses for FaceTime and Zoom without complaint. The hardware is fine. Our capture path was not.
+
+**This is the diagnosis three builds of gain work were circling.** On iOS, `echoCancellation`/`noiseSuppression`/`autoGainControl: false` do not merely disable processing — they switch the input away from the **voice-processing audio unit**, and on iPad that unit is evidently supplying most of the input gain. Take it away and the signal is ~50dB down.
+
+**No trim can rescue that honestly.** 32x on -52dBFS amplifies the noise floor by 32x and throws away most of the bit depth, which is exactly why Daniel's 32x take sounded *"fairly normal"* rather than good, and why the meter bars never passed a fifth of the way up even at maximum gain. The gain stage was never the wrong idea; it was aimed at a symptom.
+
+### A per-input choice, because it cannot be a device rule
+
+The iPhone's raw path is healthy (`peak` 2.82 raw), so a blanket revert would undo B558's quality win on the device where it worked. And picking by device model is exactly what `CAPABILITIES.md` §1 forbids — probe, never classify.
+
+So the mic row gets a **`voice processing` toggle**. Off by default (unchanged, correct for iPhone), persisted, and changing it **re-acquires the meter immediately** so the difference is audible on the bars rather than discovered after a take.
+
+### It advises; it does not switch
+
+When the raw input reads under ~-40dBFS at its loudest, the row says *"raw input is very quiet on this device — try turning this on."* **Deliberately advisory.** Silently flipping the input path would be another automatic decision of exactly the kind that has already failed twice here, and the readout has been the thing that actually moved this forward each time.
+
+### Also
+
+**Resuming a paused camera reverts to the rear lens — fixed.** Daniel's standing bug. `startWithPreferredDevice()` had no saved deviceId to honour on the native path (the plugin drives lenses, not enumerated devices) so it fell through to `DEFAULT_FACING` every time. The lens is now persisted and preferred; the device default applies only to a genuine first run. **Un-pausing is a resume, not a fresh start.**
+
 ## 🚑 v0.23.10 (Build 563) — 2026-08-08 — B562 broke app init; plus a decluttering pass
 
 ### The regression, first

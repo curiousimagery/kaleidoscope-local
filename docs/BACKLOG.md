@@ -113,6 +113,17 @@ Three items that were sitting in HANDOFF's stale half. Each was described there 
 - **✅ Quality — FIXED B558, confirmed by ear.** Voice-processing (echo cancellation / noise suppression / AGC) was ON for every mic. On iOS those flags also select the **voice-processing audio unit**, a different input path with its own resampling. That is the quality gap against Apple's Camera app.
 - **👁 WATCHED: drift on a long take.** B559 numbers on 5:06 at 4K: `videoSpanSec 305.5` vs `audioSpanSec 305.9` (0.13%, and a tail offset is expected since audio keeps flushing past the last video frame), `secondsIn 305.9` / `secondsOut 306` so the encoder lost nothing, `captureLatencyMs 73-113` so the stamp was stable within two frames. **Symptom to watch:** audible lip-sync error growing toward the end of a take. **What it would mean:** the voice-processing unit was not the cause and samples are being lost under main-thread saturation. **First read:** the same four numbers — a `videoSpan`/`audioSpan` gap beyond ~1% is the tell.
 - **👁 WATCHED: occasional static.** Not present in either B558/B559 take. Same suspected mechanism, same first read.
+### 🚪 MODE SWITCHING IS GATED ON HAVING A SOURCE (Daniel, B564) — likely removable
+
+**Daniel:** *"we currently disable switching modes until a source has been added... it'd feel more natural to switch to perform mode and then turn on the live camera instead of the reverse. unless there's a legit constraint gating us lets unlock that."*
+
+**What I found reading it, not yet changed** (it spans mode lifecycle, so it wants a proposal rather than a drive-by):
+- `motion-runtime.js` gates **perform** on `engine.getSourceImage()` — any source, including a live camera.
+- The same file **force-exits perform when the source goes away**: `if (env.performRT?.active && !engine.getSourceImage()) env.setPerform?.(false)`. **That is the real blocker** — even if the button were enabled, entering perform with no source would immediately bounce you out.
+- **Motion** is gated on `available` (a video clip), which is a different and more defensible constraint.
+
+**So the perform gate is self-imposed and the unlock is two changes, not one:** enable the control, and relax the force-exit to fire only on a source being *removed* rather than on absence. Risk is in whatever `perform-runtime` assumes about a source existing at entry (`play.disabled = !hasVideo` suggests it already tolerates sourceless states, but that is a reading, not a test). Worth doing; worth doing deliberately.
+
 ### 🔔 STATUS MESSAGES ARE SCATTERED — audit and consolidate (Daniel, B561)
 
 **Daniel:** *"we throw messages all over the place, sometimes in the top left of the source panel, sometimes in their respective dialogs and sometimes in toasts... showing saving / take saved inline in the output dialog doesn't feel right. status and controls should be separate."*
@@ -123,6 +134,16 @@ Three items that were sitting in HANDOFF's stale half. Each was described there 
 - **The toast already exists and is host-agnostic** (`shell/save-flow.js`, `status`/`dismiss` on the same surface as `save`), so this is mostly re-routing rather than new components. **Its landscape bug is already fixed (B552)**, which was the thing that would have made this consolidation backfire.
 - **Decide the desktop placement deliberately.** The toast pins bottom-centre above the mobile tab bar; on a wide desktop window that may want a different anchor. One decision, then apply everywhere.
 - **Lands in the UI Lab with its state matrix** per the standing rule, and the audit's classification table is worth keeping in the Lab entry as the reference for the next message anyone adds.
+
+### 🎙️ THE iPAD MIC — DIAGNOSED B564. Raw path is ~50dB down.
+
+**`micRawPeak 0.00249` while talking loudly (about -52dBFS)** on an iPad that does FaceTime and Zoom fine. On iOS the B558 constraints switch the input away from the **voice-processing audio unit**, which on iPad supplies most of the input gain. **The gain stage was aimed at a symptom** — 32x on -52dBFS amplifies the noise floor and burns most of the bit depth, which is why a 32x take sounded "fairly normal" rather than good.
+
+Shipped B564: a **`voice processing` toggle** on the mic row (off by default — the iPhone raw path is healthy at `peak` 2.82, so this cannot be a device rule; probe, never classify per CAPABILITIES §1), re-acquiring the meter on change, plus an advisory when the raw input is too dead to rescue. **Advisory rather than automatic on purpose** — two automatic decisions have already failed here.
+
+- **▶ THE OPEN QUESTION FOR DANIEL: with voice processing ON, does the iPad recording sound GOOD, or does it sound processed** the way B558 set out to fix? That answer decides the default and whether we need a middle path.
+- **[MED] The middle path, if needed:** the three constraints may not be all-or-nothing. Keeping `autoGainControl: true` while disabling `echoCancellation`/`noiseSuppression` might buy the level without the gating artifacts. **Untested** — worth one A/B before designing anything more.
+- **[MED] The phone chrome has no toggle** (or gain control). Its raw path measures healthy, so the default is right there, but there is no escape hatch if a phone ever needs one.
 
 ### 🎚️ THE GAIN STAGE — MANUAL as of B562, needs device verification
 
@@ -207,7 +228,7 @@ Ten symptoms, four causes. Ranked by how much each unblocks.
 - **🟠 [MED] Toasts are invisible in landscape** — Daniel waited ~20s after a take with no status, rotated to portrait, and found a success toast already showing. **This masks every status message we ship**, including B550's new finalize progress, and is why TF-1 saw no percentage. Cheap fix, disproportionate value: it restores the channel the take UX depends on.
 
 **Unrelated singletons from the same pass:**
-- **🟠 [MED] Resuming live camera from a still reverts to the REAR lens** — breaks the sense of un-pausing when you were on the front camera (Daniel, H-5).
+- **✅ FIXED B564 — resuming live camera from a still reverted to the REAR lens.** `startWithPreferredDevice()` had no saved deviceId to honour on the native path (the plugin drives lenses, not enumerated devices), so it fell through to `DEFAULT_FACING` every time. The lens is now persisted (`fold.cameraFacing`) and preferred on restart; the device default applies only to a genuine first run. **Needs device verify: front camera → pause → resume should stay on front.**
 - **🟠 [MED] Intermittent audio static** on a take with aggressive zoom/droste manipulation (TF-1). New; not reproduced yet. Suspect main-thread starvation of the mic worklet during heavy interaction.
 
 ### 🔴 FROM THE D-GROUP DEVICE PASS (Daniel, B547 — iPad Capacitor + 4K HDMI)

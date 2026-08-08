@@ -382,6 +382,7 @@ export function createSourceHost(env) {
   }
 
   const CAMERA_DEVICE_KEY = 'fold.cameraDeviceId';   // last-picked camera, persisted across sessions
+  const CAMERA_FACING_KEY = 'fold.cameraFacing';     // last-used lens — a resume must return to it
 
   // Default facing by device. Touch devices (iPad) default to the rear camera
   // ("frame the world"); desktops have no real rear camera and want the front
@@ -395,13 +396,29 @@ export function createSourceHost(env) {
   async function startWithPreferredDevice() {
     await ensureNativeCamera();
     // saved web deviceIds mean nothing to the native camera (it drives lenses,
-    // not enumerated devices) — skip straight to the facing default there
+    // not enumerated devices) — skip straight to the facing preference there
     const savedId = cameraIsNative ? null : localStorage.getItem(CAMERA_DEVICE_KEY);
     if (savedId) {
       try { return await camera.start({ deviceId: savedId }); }
       catch { /* device gone or busy — fall through to default */ }
     }
-    return camera.start({ facingMode: DEFAULT_FACING });
+    // LAST-CHOSEN FACING BEATS THE DEVICE DEFAULT (B564, Daniel). Pausing a front-camera
+    // session and resuming it came back on the REAR lens, because the native path has no saved
+    // deviceId to honour and fell through to DEFAULT_FACING every time. Un-pausing is a resume,
+    // not a fresh start: it must return to the lens you were on. The device default now applies
+    // only to a genuinely first run.
+    let facing = DEFAULT_FACING;
+    try { facing = localStorage.getItem(CAMERA_FACING_KEY) || DEFAULT_FACING; } catch { /* private mode */ }
+    try { return await camera.start({ facingMode: facing }); }
+    catch { return camera.start({ facingMode: DEFAULT_FACING }); }
+  }
+  // Remember the lens whenever one is actually running, so flip / picker / first-run all persist
+  // through the same path rather than each remembering separately.
+  function rememberFacing() {
+    try {
+      const f = camera.getFacing?.();
+      if (f) localStorage.setItem(CAMERA_FACING_KEY, f);
+    } catch { /* private mode */ }
   }
 
   // Populate / show the multi-camera picker. Device labels need permission, so this
@@ -566,6 +583,7 @@ export function createSourceHost(env) {
       const video = await startWithPreferredDevice();
       env.liveVideo = video;
       env.sourceVideo = null;                          // camera takes over the source view
+      rememberFacing();       // whatever lens we actually landed on is the one to resume to (B564)
       attachCameraSource();
     } catch (e) {
       env.liveVideo = null;
@@ -620,6 +638,7 @@ export function createSourceHost(env) {
     try {
       const video = await camera.flip();
       env.liveVideo = video;
+      rememberFacing();       // a resume must come back to the lens you flipped to (B564)
       attachCameraSource();   // video (rear) or mirror canvas (front)
     } catch (e) {
       if (uploadErrorEl) uploadErrorEl.textContent = cameraErrorMessage(e);

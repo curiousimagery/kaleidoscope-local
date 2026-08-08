@@ -128,6 +128,13 @@
         <button type="button" id="micGainAuto" title="set the gain from what the mic hears right now — talk at a normal level and press">auto</button>
         <span class="op-gain-read" id="micGainRead">1.0×</span>
       </div>
+      <!-- VOICE PROCESSING (B564). On iOS this selects the input PATH, not just processing: with
+           it off, iPad delivers about -52dBFS even when shouting, which no trim can rescue. iPhone
+           is healthy either way, so this is a per-input choice rather than a device rule. -->
+      <div class="op-row op-gain" id="micVpRow" hidden>
+        <label class="op-vp-label"><input type="checkbox" id="micVoiceProc"> voice processing</label>
+        <span class="op-gain-read" id="micVpHint"></span>
+      </div>
     </div>
     <div class="op-section">
       <div class="field-label">destination</div>
