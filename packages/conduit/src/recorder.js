@@ -216,6 +216,11 @@ async function createDiskTarget(prefix) {
     // Sweep orphans first. A take that died mid-flight (jetsam, a crash, a force-quit) leaves its
     // part-file behind, and OPFS is persistent — without this, the failures this feature exists to
     // fix would each permanently consume their own size in the origin's quota.
+    //
+    // This also removes the PREVIOUS take's file, which is safe only because the host holds exactly
+    // one stashed take: starting a new recording replaces it, so the old one was already
+    // unreachable through the UI. If a host ever keeps more than one unsaved take, this sweep has
+    // to become age- or reference-aware rather than "delete every .part".
     try {
       for await (const [n, h] of root.entries()) {
         if (n.endsWith('.part') && h.kind === 'file') await root.removeEntry(n).catch(() => {});
@@ -953,13 +958,21 @@ export function createRecorderSink({ filenamePrefix = 'fold-live', save = null, 
     const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
     const name = `${filenamePrefix}-${stamp}.${ext}`;
     console.info(`[conduit] take finalized: ${(blob.size / 1e6).toFixed(1)} MB → ${name}`);
-    const done = () => { const s = finishing; finishing = null; s?.cleanupFile?.(); };   // the part-file has served its purpose
+    // ⚠️ DO NOT DELETE THE PART-FILE HERE (B556). `save` is not necessarily the save — on the phone
+    // it STASHES the take (`wcFinish`) and returns immediately, and the real write to Photos happens
+    // whenever the user taps it in the sheet, which may be minutes later. B555 treated this callback
+    // resolving as "the file has served its purpose" and removed the OPFS entry the blob is backed
+    // by, so the take was already gone by the time it was saved: "save failed", and RETRY failed
+    // identically because there was nothing left to retry against.
+    //
+    // The recorder cannot know when the host is finished with a deferred blob, so it must not guess.
+    // Space is reclaimed by the orphan sweep at the next session start, and a host that does know
+    // can call `releaseTake()`.
     Promise.resolve((save || downloadBlob)(blob, name)).then(
-      () => { lastResult = { ok: true, name, bytes: blob.size }; done(); },
+      () => { lastResult = { ok: true, name, bytes: blob.size }; },
       (e) => {
         lastResult = { ok: false, error: 'save failed: ' + ((e && e.message) || e) };
         console.warn('[conduit] take save failed:', e);
-        done();
       },
     );
   };
@@ -973,6 +986,9 @@ export function createRecorderSink({ filenamePrefix = 'fold-live', save = null, 
     get recording() { return recording; },
     // { phase, frac, ms, queued? } while finalize runs — see finish() in the session
     get progress() { return progressOf(); },
+    // Explicit release for a host that KNOWS the take's blob is finished with (saved, or
+    // discarded). Optional — the next session's sweep reclaims anything never released.
+    async releaseTake() { const s = finishing; finishing = null; await s?.cleanupFile?.(); },
     get supported() { return webCodecsRecordingSupported() || pickMime() !== null; },
     get lastResult() { return lastResult; },
 

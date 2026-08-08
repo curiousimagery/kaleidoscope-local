@@ -6,34 +6,32 @@ Confirmed results are DELETED from here and recorded in CHANGELOG.
 
 ---
 
-# ▶ THIS SESSION — "does the finish tell you what it's doing?"
+# ▶ THIS SESSION — "does a streamed take actually reach Photos?"
 
-**Sync first:** `npm run build && npx cap sync ios`, rebuild from Xcode. **iPhone, ~8 minutes.**
+**Sync first:** `npm run build && npx cap sync ios`, rebuild from Xcode. **iPhone, ~5 minutes.**
 
 ## What we're trying to find out
 
-Streaming to disk is **proven and now on by default** — thank you, that gate is closed. Your `finalizeMarks` also settled a months-old question: a 3:28 4K take needs **33 seconds** of encoder flush, and the old deadline was 30. It was killing takes three seconds short of finishing.
+Last round the take finalized perfectly — valid file, 2 tracks, audio playable, 72MB — and then **`save failed`**, with a retry that failed the same way. That was my bug, and a stupid one: on the phone, the recorder's `save` callback only *stashes* the take; the real write to Photos happens when you tap it in the sheet. I was deleting the streamed file the moment the callback returned, so by the time you saved, the file was gone. Retry failed because there was nothing left to retry.
 
-This session is short and mostly about whether things you *should* have seen are now visible.
-
-The progress indicator you asked about wasn't a 4K-only thing — **it was broken for every take**. The session got thrown away one line before the finalize it belonged to even started, so the progress had nothing to read. Same bug meant the streamed part-file was never cleaned up. Fixed, but I need your eyes to confirm it.
+The delete is gone. **This session is one question: does a streamed take now survive all the way to Photos?**
 
 ## Steps
 
-1. **4K source selected, NOT recording yet.** Look at the PiP monitor. → is there a caption over the live picture saying the monitor pauses during 4K capture? (This is the forenotice you expected and I hadn't built.)
-2. **Start the take.** → does the PiP go to its starved state as before, with the rec dot still visible?
-3. **Record ~3 minutes at 4K, then stop. Watch the toast.** → does it now name a phase and show a **moving percentage**? Expect `encoding remaining frames… N%` for most of the wait — that's where ~97% of the finish goes.
-4. **Let it save, then `copy report`** → paste. Two things I want: `finalizeMarks` again, and — importantly — **the audio verdict should no longer accuse the muxer.** Last time it claimed a healthy 153MB take had no audio track; it should now say it couldn't verify a file that size rather than crying wolf.
-5. **Record a short FHD take and let it save.** → the audio verdict should read a plain `ok` with real track detail (that file is small enough to inspect).
+1. **Record ~30s at FHD, talking.** Stop, let it finalize, then **save it from the sheet.** → does the save succeed?
+2. **Open it in Photos.** → plays, with sound?
+3. **Record another ~30s take but DON'T save it. Then record a third take and save that one.** → does the third save fine? (This checks the orphan sweep isn't eating a file it shouldn't.)
+4. **Now a 4K take, 3+ minutes.** Stop, watch the toast, save it. → does the percentage stay visible long enough to be useful this time? And does the save succeed?
+5. **`copy report`** after step 4 → paste.
 
 ## What counts as success
 
-Step 3 showing a moving percentage, and step 4's verdict not raising a false alarm.
+Step 1 saving. Everything else is confirmation.
 
 ## What I can't see and need from you
 
-- **Whether the progress is actually legible during a long finish.** It's the moment the app is least responsive and most worrying.
-- **Whether the pre-capture warning reads right** — wording, placement, and whether it's reassuring rather than alarming. That's a judgement call, not a pass/fail.
+- **Whether saves actually complete now.** I have broken this twice by guessing when the file's life ends; I'd rather you tell me than assume again.
+- **Whether the finalize percentage is legible on a long take** — step 4 is the only one slow enough to judge it. Last time it flashed past because finalize took 669ms, which is correct behaviour, not a bug.
 
 # 🅿️ PARKED — not this session
 

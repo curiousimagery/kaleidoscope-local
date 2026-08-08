@@ -4,6 +4,20 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🩹 v0.23.3 (Build 556) — 2026-08-08 — The take was deleted before it was saved
+
+**My bug, introduced at B555, and the same shape as B553's.** Daniel's take finalized cleanly — valid container, 2 tracks, audio playable, 72MB — and then `save failed`, with a retry that failed identically.
+
+**`save` is not the save.** On the phone that callback **stashes** the take (`wcFinish`) and returns immediately; the real write to Photos happens whenever the user taps it in the sheet, potentially minutes later. B555 treated the callback resolving as "the file has served its purpose" and deleted the OPFS entry the blob is backed by. So the take was already gone by the time it was saved — and retry failed for exactly the same reason, because there was nothing left to retry against.
+
+**The recorder cannot know when the host is finished with a deferred blob, so it must not guess.** The auto-delete is gone. Space is reclaimed by the orphan sweep at the next session start, and a host that genuinely knows can call the new `releaseTake()`.
+
+Also documented the invariant the sweep quietly depends on: it deletes the *previous* take's file too, which is safe only because the host holds exactly one stashed take. If that ever changes, the sweep has to become reference-aware rather than "delete every `.part`".
+
+**The pattern worth naming, since I have now hit it twice in four builds:** streaming to disk moved the take's lifetime out of the JS heap and into the filesystem, where *someone* has to decide when it ends. Both bugs were me deciding too early — first closing the stream before the writes landed, now deleting the file before the save read it. **A disk-backed artifact outlives the code path that produced it, and cleanup belongs to whoever knows the artifact is finished with — which is not the producer.**
+
+**Confirmed working in the same pass:** the PiP pre-capture warning reads correctly, the starve still fires on capture with the rec dot visible, and the audio verdict no longer cries wolf (`ok`, 2 tracks, audio playable). The finalize percentage appeared but only briefly — correctly, since that finalize took 669ms.
+
 ## ✅ v0.23.2 (Build 555) — 2026-08-08 — Streaming is proven; the 30-second cliff is confirmed; three follow-on bugs fixed
 
 **The gate is cleared.** Daniel's pass: a 22s streamed take opens and plays with sound in Photos, a **2:48 FHD** take produced a valid 108MB file, and a **3:28 4K-source** take produced a valid 153MB file with audio. The moov-at-end question is answered — AVFoundation reads them fine. `record: stream to disk` now defaults **ON**; the in-memory path stays one tap away.
