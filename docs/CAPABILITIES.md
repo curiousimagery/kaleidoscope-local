@@ -1,8 +1,27 @@
 # capabilities
 
+> ## 🛑 CORRECTION B551 — WE HAVE NEVER RECORDED 4K, AND I REPORTED THAT WE HAD
+>
+> Daniel selected 4K, recorded, and got a **1080p file** (both lenses). Reading `sizeOutput()` in
+> `mobile/chrome.js`, the take resolution is structurally capped and always has been:
+> - `recordUpscale` lifts the take's **short side up to 1080 and no further** — it is a floor, not a target;
+> - a hard `cap = 2048 / max(w,h)` bounds the long side at **2048**, so 3840 cannot survive it.
+>
+> **The "4K" camera setting selects the SOURCE resolution only.** The take has always been ≤1080×2048.
+>
+> **So every "4K recording" number in this arc measured a 1080p take fed by a 4K source**, including the
+> B547 line I wrote saying *"4K/30 recording IS deliverable on the 17 Pro: 31.7fps"*. That was a
+> 1080×1080 take. **It is withdrawn.** The honest statement is: a 4K SOURCE costs what those numbers
+> say; recording at 4K has never been attempted and its cost is unknown.
+>
+> This does not invalidate the source-side findings (the PiP starve rule, the round-trip fixes) — those
+> were about the cost of *sampling* a 4K source, which is real and correctly measured. It invalidates
+> only the claims about 4K *output*.
+
+
 > **UPDATE B547 (device pass).** Two ceilings moved and one measurement was found to be misleading.
 >
-> - **4K/30 recording IS deliverable on the 17 Pro: 31.7fps measured**, up from the 11.4fps that set the old "not deliverable" verdict. The starved PiP (B543) is what bought it. The 14 Pro has NOT been re-measured at 4K since B543 — the old 11.4 number stands there until it is.
+> - ~~4K/30 recording IS deliverable on the 17 Pro: 31.7fps~~ **WITHDRAWN B551 — that was a 1080p take from a 4K source. See the correction at the top.** What it does establish: recording a 1080p take while SAMPLING a 4K source runs at 31.7fps on the 17 Pro, up from 11.4 before the PiP starve rule.
 > - **Sustained idle is not a thermal problem.** 10 minutes of live camera: 60.0fps, p95 improved 22→17ms, pressure nominal, phone slightly warm. The installation case survives idle; it has not been tested under sustained *capture*.
 > - **`unaccountedMs` at idle is not hidden cost.** At 60fps with ~1.1ms of work, ~15.9ms of every 17ms frame is waiting for vsync. Only read `unaccounted` as a signal when the frame budget is actually saturated.
 > - **`pressure` cannot be trusted during a take.** It infers from fps against a 60 assumption, so a correct 30fps take reports `critical`. Fix before any governor consumes it.

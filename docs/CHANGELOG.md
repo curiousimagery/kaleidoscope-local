@@ -4,6 +4,35 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🔍 v0.22.45 (Build 551) — 2026-08-07 — iPhone HDMI becomes measurable for the first time, and a claim gets withdrawn
+
+### The correction first
+
+**We have never recorded 4K, and I reported at B547 that we had.**
+
+Daniel selected 4K, recorded, and got a 1080p file on both lenses. `sizeOutput()` lifts a take's short side **to** 1080 — a floor, never a target — and hard-caps the long side at **2048**, which 3840 cannot survive. **The 4K setting selects the SOURCE resolution only.**
+
+So every "4K recording" number in this arc measured a **1080p take fed by a 4K source**, including my line *"4K/30 recording IS deliverable on the 17 Pro: 31.7fps."* Withdrawn. What that number actually establishes is worth keeping: recording 1080p while *sampling* a 4K source runs at 31.7fps, up from 11.4 before the PiP starve rule. The source-side findings stand — they were always about the cost of sampling. Only the claims about 4K **output** were wrong.
+
+This blocks TF-2/3/4: there is no 4K finalize to measure yet.
+
+### iPhone HDMI has never been measurable, on any build
+
+The desktop sink publishes `env.externalDisplay` (dims since B515); **the mobile autoconnect never did.** So the phone's `external` row has reported 0×0 forever, and B549's new fps note read `awaiting first fps report` permanently — which is exactly what Daniel's H-9 shows. The autoconnect now exposes `renderDims`/`fps` and the chrome hangs it on env.
+
+That gap is why H-9 could describe a failure but not characterise it.
+
+### Ten symptoms, four causes (full triage in BACKLOG)
+
+The pass's findings collapse into four groups rather than ten bugs:
+
+1. **"4K record" is unimplemented** — above. Fixing it is a product decision, not a patch: a true 4K take multiplies both encoder load and the in-memory muxer's peak footprint, which is already the prime suspect for finalize failures. **OPFS streaming first, then lift the cap** — lifting it alone would likely make finalize worse.
+2. **The external view's first source payload is slow or stale** — the stale broadcast at session start (p95 **1262ms** with 2.5ms accounted), the 25–45s to pick up a source switch, and the iPhone's record-mode degradation are one shape: the **payload path, not the render path**. Once the view has its source it runs honestly — 60fps on video, 39–51 on camera, both devices.
+3. **Instrumentation gaps** — the one above, plus `pressure` still assuming a 60fps target (it read `serious` at a healthy 39.6fps).
+4. **Orientation, in two independent places** — the portrait vertical squish over HDMI, and **toasts being invisible in landscape**, which silently masks every status message we ship including B550's finalize progress. That is why TF-1 saw no percentage.
+
+**B549's fixes hold:** `source` reads `planar · camera` on iPad with sub-millisecond upload (H-4 passes), and the display fps note is live and honest where it is wired.
+
 ## ⏳ v0.22.44 (Build 550) — 2026-08-07 — Finalize stops being a black box, and stops discarding takes for being big
 
 Daniel ranked 4K take reliability above the status UX. Reading the code, **they turned out to be the same bug.**

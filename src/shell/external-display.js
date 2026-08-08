@@ -419,9 +419,16 @@ export function createExternalDisplayAutoconnect(opts) {
     opts.onDims?.(connected && s?.width ? { width: s.width, height: s.height } : null);
   };
   poster.onDisplayChange(sync);
+  // Same shape the desktop sink hangs on `env.externalDisplay`, so the phone's frame-cost surface
+  // can read it. It never had this: the mobile `external` row has been reporting 0×0 for the whole
+  // life of the feature, and B549's fps note therefore read "awaiting first fps report" forever
+  // (Daniel's H-9). The desktop path got dims at B515 and the phone was simply never wired up —
+  // which is why iPhone HDMI has never been measurable, on any build.
   return {
     get active() { return poster.active; },
     get connected() { return poster.connected; },
+    get renderDims() { return poster.active ? poster.renderDims : null; },
+    get fps() { return poster.active ? poster.fps : 0; },
     stop() { poster.stop(); clearStagedVideo(); },
   };
 }

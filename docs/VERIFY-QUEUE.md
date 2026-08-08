@@ -22,7 +22,7 @@ Legend: 🖥️ desktop browser · 💻 Electron · 📺 external display / HDMI
 | **P0** | **FH-1, then H-5** | Two hazard checks on MY changes, both "did I break the source panel." Ten seconds each, and if either fails nothing else in the build is worth measuring. | 1 min |
 | **P1** | **H-1 → H-9** | The HDMI regression fixes. This surface went from unusable to unknown, and H-9 is coverage that has never existed on any build. Highest information per minute in the queue. | ~20 min |
 | **P2** | **FH-2 → FH-6** | Rest of the frame-header regression pass. Cheap, and FH-5 is the only check on the master-clock path. | ~10 min |
-| **P3** | **TF-1 → TF-4** | 4K take reliability — the highest-stakes path in the app, and B550 changed how it fails. TF-3 is the first data we will ever have on where finalize goes. | ~5 min |
+| ~~P3~~ | ~~TF-1 → TF-4~~ | **BLOCKED — 4K recording is unimplemented (B551). There is no 4K finalize to measure.** TF-1 done: it exposed the cap. | — |
 | **P4** | **C-1 / C-2** | Settles where the unaccounted third of every 4K frame lives, which decides the next optimization target. Two reports, no rebuild. | 5 min |
 | **P5** | **B1-redo, E2, E3, E4** | Behaviour confirmations on shipped rules. Low risk of surprise, but E3 is where your "warn me before 4K" change will land, so it is worth knowing it currently passes. | ~10 min |
 | **P6** | **F1 → F5** | A/V sync. You already confirmed timing "looks perfect" at B540; this is regression cover, not discovery. | ~10 min |
@@ -58,7 +58,7 @@ Legend: 🖥️ desktop browser · 💻 Electron · 📺 external display / HDMI
 | **H-6** | **D3 re-run.** Broadcast, then press **record**. | the **broadcast survives**. If recording itself fails, the status line says so *and* notes the broadcast is still live. | `copy report` + eyes |
 | **H-7** | Only if H-6's recording failed: read the `bus` row. | names the failure (`NOT STARTED — readback path never resolved`) instead of a bare `capture: null` | `copy report` |
 | **H-8** | **D4 re-run.** After a glass-break reset, re-arm a 4K broadcast. | display shows the picture when the app says it is broadcasting | eyes |
-| **H-9** | 📱 **iPhone + HDMI — NEVER TESTED ON ANY BUILD.** Plug in, live camera. | display shows the program; `external` reports fps | `copy report` |
+| **H-9** ⭐ | 📱 **iPhone + HDMI, STILL mode then RECORD mode.** Needs the B551 sync. | `external` now reports **real dims and fps** (it read 0×0 forever before). Then: does record mode still degrade, and what does the display fps say while it does? **This is the row that characterises Daniel's worst iPhone symptom.** | `copy report` in BOTH modes |
 | **H-10** | 📲 iPad, HDMI, **10+ min** (the old D4 thermal run). Do after H-6 passes. | pressure drift + warmth; **paste at start and end**. Governor blocker. | `copy report` ×2 |
 
 ## 🧩 FH — the unified frame-header parser (B546) · 📱 iPhone Capacitor

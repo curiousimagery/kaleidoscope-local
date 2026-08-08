@@ -105,6 +105,34 @@ Three items that were sitting in HANDOFF's stale half. Each was described there 
 - *Gesture recording + live-tween* — **shipped at Build 269** (v0.12.11: a gesture lands as one keyframe carrying its winding), with the directional-vs-shortest-path distinction settled later on the Droste zoom follower. The residuals — per-segment rotation winding (+N turns) and smoothed translation-path capture — were already in BACKLOG. The 2026-06-10 note was simply never retired.
 - *Cross-format / frame-rate robustness + test story* — **premise was wrong when written.** It claimed "Blink largely untested for the video path"; Brave and the Electron build have been in rotation at least as much as WebKit and Gecko (Daniel, B547). The genuinely open piece of it is test infrastructure, which is a deliberate standalone decision, not a feature-commit rider.
 
+### 🔴 B551 TRIAGE — Daniel's H/FH/TF pass, grouped by SHARED CAUSE
+
+Ten symptoms, four causes. Ranked by how much each unblocks.
+
+**CAUSE 1 — "4K record" does not exist.** `sizeOutput()` lifts a take's short side *to* 1080 (a floor, never a target) and hard-caps the long side at 2048. The 4K setting selects the SOURCE only.
+- **🔴🔴 [CRITICAL] Recording at 4K is unimplemented, not broken.** TF-1: 4K selected, 1080p file, both lenses. **Fixing this is a product decision, not a patch** — a true 4K take multiplies encoder load AND the in-memory muxer's peak footprint, which is already the prime suspect for finalize failures. Sequence: OPFS streaming first, then lift the cap. Lifting it alone would very likely make finalize worse.
+- **Fallout: every "4K recording" number in this arc measured a 1080p take.** CAPABILITIES corrected at the top; the B547 "4K/30 is deliverable" line is withdrawn. Source-side findings stand.
+- **Blocks TF-2/TF-3/TF-4** — there is no 4K finalize to measure yet.
+
+**CAUSE 2 — the external view's first source payload is slow or stale.** Everything the view shows comes from a source payload posted on signature change; until it lands the view renders whatever it had.
+- **🔴 [HIGH] Broadcast is stale/latent at session start** (H-5): output updated once per 5–10s while the app itself logged **p95 1262ms** — the main thread stalling over a second at a time, with only 2.5ms accounted. Self-corrected after minutes, and reproduced on a fresh session.
+- **🔴 [HIGH] 25–45s for the display to pick up a SOURCE SWITCH** (H-1), then honest 60fps afterwards.
+- **🟠 [MED] iPhone HDMI degrades badly in RECORD MODE even before recording starts** (H-9) — seconds between frames, blackouts.
+- These are one shape: **the payload path, not the render path.** Once the view has its source it runs honestly (60fps video, 39–51fps camera, confirmed on both devices). Prime suspects: the native-camera/video socket handshake on the view's side, and the `hello`/repost sequence racing the first frames. **Next step is measurement, not a guess** — B551 makes the phone's row report dims+fps, which it never has.
+- **Daniel's call worth taking seriously:** should HDMI broadcast and recording be *allowed* simultaneously on iPhone? Two expensive pipelines, and the record path already owns the output canvas. A declared "not both on phone" is a legitimate capability statement.
+
+**CAUSE 3 — instrumentation gaps that make the above unmeasurable.**
+- **✅ FIXED B551 — the phone never published `env.externalDisplay` at all.** The desktop sink got dims at B515; the mobile autoconnect was never wired, so the iPhone `external` row has read 0×0 on every build ever, and B549's fps note read "awaiting first fps report" permanently. **iPhone HDMI has never been measurable.**
+- **🟡 [LOW, misleading] `pressure` still assumes a 60fps target.** H-3 read `serious` at a healthy 39.6fps. Must know the target rate before any governor consumes it.
+
+**CAUSE 4 — orientation is not handled in two independent places.**
+- **🟠 [MED] iPhone HDMI output is vertically squished in portrait, correct in landscape** (FH-2). The external render dims come from the display's native size and the frame aspect, and the portrait sensor's aspect is not surviving that math.
+- **🟠 [MED] Toasts are invisible in landscape** — Daniel waited ~20s after a take with no status, rotated to portrait, and found a success toast already showing. **This masks every status message we ship**, including B550's new finalize progress, and is why TF-1 saw no percentage. Cheap fix, disproportionate value: it restores the channel the take UX depends on.
+
+**Unrelated singletons from the same pass:**
+- **🟠 [MED] Resuming live camera from a still reverts to the REAR lens** — breaks the sense of un-pausing when you were on the front camera (Daniel, H-5).
+- **🟠 [MED] Intermittent audio static** on a take with aggressive zoom/droste manipulation (TF-1). New; not reproduced yet. Suspect main-thread starvation of the mic worklet during heavy interaction.
+
 ### 🔴 FROM THE D-GROUP DEVICE PASS (Daniel, B547 — iPad Capacitor + 4K HDMI)
 
 The HDMI group had never been run on any device. It found more in one sitting than the rest of the matrix combined.

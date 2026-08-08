@@ -2775,7 +2775,9 @@ window.addEventListener('pageshow', onVisible);
 if (host.externalDisplay?.available) {
   import('../shell/external-display.js').then((m) => {
     let srcRef = null, srcGen = 0;
-    m.createExternalDisplayAutoconnect({
+    // the frame-cost `external` surface reads dims + fps off env — without this the phone's row
+    // has no way to report either, which is why iPhone HDMI has never been measurable (B551)
+    env.externalDisplay = m.createExternalDisplayAutoconnect({
       getState: () => lastEased || state,
       getFrameAspect: () => session.frameAspect || 1,
       getFill: () => !!session.hdmiFill,
