@@ -18,6 +18,14 @@
 const TIER_DEFAULT = 1920;            // FHD long side — safe live default (never 4K)
 const DEST_KEY = 'fold.outputDestination';
 
+// RAW MIC, NOT THE CONFERENCING MIC (B558). Bare `audio: true` opts into echo cancellation, noise
+// suppression and automatic gain control — tuned for calls, and audibly wrong for a recording (they
+// gate, duck and re-level continuously). `ideal` rather than `exact` so a platform that cannot
+// honour a flag still returns a track. Mirrors the phone chrome's RAW_MIC.
+const rawMicAudio = (devId) => (devId && devId !== 'default'
+  ? { deviceId: { exact: devId }, echoCancellation: { ideal: false }, noiseSuppression: { ideal: false }, autoGainControl: { ideal: false } }
+  : { echoCancellation: { ideal: false }, noiseSuppression: { ideal: false }, autoGainControl: { ideal: false } });
+
 export function createOutputPanel(env, outputBus) {
   const byId = (id) => document.getElementById(id);
 
@@ -171,7 +179,7 @@ export function createOutputPanel(env, outputBus) {
     if (meterStream) return;   // already metering
     let stream;
     try {
-      stream = await navigator.mediaDevices.getUserMedia({ audio: devId === 'default' ? true : { deviceId: { exact: devId } } });
+      stream = await navigator.mediaDevices.getUserMedia({ audio: rawMicAudio(devId) });
     } catch {
       // an enumerated id can be stale/foreign on WKWebView — fall back to the default mic
       try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }); }
@@ -362,7 +370,7 @@ export function createOutputPanel(env, outputBus) {
       const devId = recAudioEl?.value;
       if (devId) {
         try {
-          recMicStream = await navigator.mediaDevices.getUserMedia({ audio: devId === 'default' ? true : { deviceId: { exact: devId } } });
+          recMicStream = await navigator.mediaDevices.getUserMedia({ audio: rawMicAudio(devId) });
           micTrack = recMicStream.getAudioTracks()[0] || null;
         } catch {
           recMicStream = null;

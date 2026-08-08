@@ -968,6 +968,29 @@ function wcFinish(take, errMsg = null) {
   }
 }
 // the native camera provides no audio track (it's native video-only), so record-video
+// THE MIC CONSTRAINTS THAT MAKE A RECORDING SOUND LIKE A PHONE CALL (B558).
+//
+// `getUserMedia({ audio: true })` opts into the browser's VOICE-PROCESSING defaults: echo
+// cancellation, noise suppression and automatic gain control are all ON. Those are tuned for
+// conferencing — they gate, duck and re-level continuously, which is precisely the "garbled,
+// staticky, worse than the native Camera app" quality Daniel reported, and the reason `peak` read
+// a pinned 1.0 on one take and 0.496 on another for similar material (that is AGC riding, not the
+// room changing). Apple's Camera app records the capture session's audio with none of it.
+//
+// On iOS these also switch the input to the VOICE-PROCESSING audio unit, which runs a different
+// path with its own resampling and is markedly less robust under load — a plausible contributor to
+// the 4K-only static and sample loss, though that remains to be confirmed by the clock instrument.
+//
+// So ask for the raw microphone. Every flag is `ideal` rather than `exact` so a platform that
+// cannot honour one still gives us a track instead of throwing.
+const RAW_MIC = {
+  audio: {
+    echoCancellation: { ideal: false },
+    noiseSuppression: { ideal: false },
+    autoGainControl: { ideal: false },
+  },
+};
+
 // acquires the mic itself via getUserMedia — ONE clean prompt at mode entry, held for
 // the session and cloned per take. (Native plugin-captured audio can't join a JS canvas
 // recording, so getUserMedia IS the native-app audio path; the web camera bundles its
@@ -1218,7 +1241,7 @@ async function startRecording() {
     // prefer the web camera's own mic track, else the native-path mic acquired at entry,
     // else a fresh request. CLONE it so the recorder's stop doesn't kill the held track.
     const camMic = camera.getVideo()?.srcObject?.getAudioTracks?.()[0] || videoMicStream?.getAudioTracks?.()[0];
-    micStream = camMic ? new MediaStream([camMic.clone()]) : await navigator.mediaDevices.getUserMedia({ audio: true });
+    micStream = camMic ? new MediaStream([camMic.clone()]) : await navigator.mediaDevices.getUserMedia(RAW_MIC);
     for (const t of micStream.getAudioTracks()) stream.addTrack(t);
   } catch { micStream = null; }
   // diag: pin down silent-take reports (track ABSENT vs present-but-muted vs encoder).
@@ -1409,7 +1432,7 @@ async function startRecordVideo() {
   // mid-record). Held for the session; each take clones a track so a recorder's stop
   // doesn't kill it. Denial degrades to video-only.
   if (useNativeCam && !videoMicStream) {
-    try { videoMicStream = await navigator.mediaDevices.getUserMedia({ audio: true }); }
+    try { videoMicStream = await navigator.mediaDevices.getUserMedia(RAW_MIC); }
     catch { videoMicStream = null; }
   }
   updateLiveUI();

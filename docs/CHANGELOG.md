@@ -4,6 +4,22 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🎙️ v0.23.5 (Build 558) — 2026-08-08 — We were recording through the conferencing mic
+
+**Daniel: "capturing video using the native camera app seems to get better quality than any of our takes."** He is right, and the cause is one line.
+
+Every mic in the app was acquired with bare `getUserMedia({ audio: true })`, which opts into the browser's **voice-processing defaults**: echo cancellation, noise suppression and automatic gain control, all ON. They are tuned for phone calls — they gate, duck and re-level continuously. That is the "garbled" quality against Apple's Camera app, which records the capture session's audio with none of it.
+
+It also explains a number I had been reading as material: `peak` sat pinned at **1.0** on one take and **0.496** on another for similar content. **That is AGC riding, not the room changing.**
+
+On iOS these flags additionally switch the input to the **voice-processing audio unit**, a different path with its own resampling that is markedly less robust under load — which makes it a live suspect for the 4K-only static and any sample loss behind the drift. Stated as a suspicion, not a conclusion; B557's clock instrument is what will settle it.
+
+Fixed at all four acquisition sites — the phone's record path, the phone's video-mode mic, the desktop record path, and the desktop mic meter (so the level you see is the level you get). Every flag is `ideal` rather than `exact`, so a platform that cannot honour one still returns a track instead of throwing.
+
+### Daniel's FHD-vs-4K result narrows the drift
+
+Two 5–7 minute **FHD** takes: sync "really quite good", no discernible drift. The **4K** take of similar length: obvious misalignment by the end, plus static and worse audio. Same code, same duration — **so the drift is load-correlated, not time-correlated.** That rules out a constant clock-rate error and points at samples being lost while the main thread is saturated, which is exactly what `audioSpanSec` vs `wallSec` will show.
+
 ## 🔊 v0.23.4 (Build 557) — 2026-08-08 — I read the finalize numbers backwards; the wait is the AUDIO flush
 
 ### Correction to B555
