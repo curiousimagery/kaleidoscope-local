@@ -60,7 +60,16 @@ export function createOutputPanel(env, outputBus) {
         const d = s?.renderDims;
         if (!(d && d.width > 0)) continue;
         const f = s?.fps || 0;
-        return f ? `${f} fps ON THE DISPLAY` : 'awaiting first fps report';
+        const sf = s?.srcFps;
+        if (!f) return 'awaiting first fps report';
+        // RENDER rate and ARRIVAL rate, because they diverge and that divergence IS the bug:
+        // a view re-drawing the same frame reports a healthy fps while the picture sits still.
+        if (typeof sf === 'number' && sf >= 0) {
+          return sf < f / 2
+            ? `${f} fps drawn · ⚠ only ${sf} NEW frames/s — the picture is stalling, not the renderer`
+            : `${f} fps ON THE DISPLAY · ${sf} new/s`;
+        }
+        return `${f} fps ON THE DISPLAY`;
       }
       return '';
     },

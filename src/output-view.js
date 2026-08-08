@@ -324,6 +324,7 @@ function reconcileVideo() {
 // rAF allowed). Messages aren't throttled, so rendering on arrival keeps the
 // broadcast smooth; the rAF tick stays as a fallback for when messages pause.
 let lastRenderT = 0;
+let lastArrived = -1;   // receiver.framesArrived at the last fps window (see renderFrame)
 function renderFrame() {
   if (!(haveSource && latestState)) return;
   if (camera) camera.refreshFrame();        // front-camera: redraw the mirrored frame
@@ -338,8 +339,23 @@ function renderFrame() {
   frames++;
   if (lastRenderT - fpsT >= 1000) {
     measuredFps = Math.round((frames * 1000) / (lastRenderT - fpsT));
+    // HOW MANY OF THOSE RENDERS SHOWED A NEW PICTURE (B552).
+    //
+    // Daniel's iPad broadcast updated once every 5–10 seconds while this counter cheerfully
+    // reported 51fps and the app reported its own loop healthy — neither side saw a problem
+    // because neither side was measuring the right thing. `frames` counts RENDER CALLS. When the
+    // receiver has no new socket frame, we re-render the identical picture, and that is
+    // indistinguishable from real throughput here.
+    //
+    // This is the same mistake, in the same shape, as the iPad source stall of B519: `refresh`
+    // cost 1.13ms/frame while ZERO frames were arriving, because repainting the last frame is not
+    // evidence of arrival. That was fixed by reporting the WIRE rate (`N in/s`) beside the render
+    // rate. Same remedy here — a remote surface needs an arrival counter, not just a paint counter.
+    const inNow = receiver ? receiver.framesArrived : (videoEl ? -1 : -1);
+    const srcFps = inNow >= 0 && lastArrived >= 0 ? Math.round(((inNow - lastArrived) * 1000) / (lastRenderT - fpsT)) : -1;
+    lastArrived = inNow;
     frames = 0; fpsT = lastRenderT;
-    sendUp({ type: 'fps', fps: measuredFps });
+    sendUp({ type: 'fps', fps: measuredFps, srcFps });
   }
 }
 

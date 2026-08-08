@@ -312,3 +312,12 @@ html, body { margin: 0; padding: 0; height: 100%; background: var(--bg); color: 
 /* broadcast server name field (camera menu, broadcast-video mode) */
 .m-text-input { background: var(--surface-control); border: 1px solid var(--border); border-radius: var(--radius-sm);
   color: var(--text-bright); font-size: var(--text-md); padding: 8px 10px; margin-top: 6px; }
+
+/* SETTINGS POPOVERS FLOAT ABOVE SOURCE CONTENT (Daniel, B552).
+   #m-canvas-pop lives inside #m-output, which is a flex sibling that comes BEFORE #m-context
+   (the source panel) and carries no z-index — so DOM order decided the paint order and the
+   popover rendered UNDER the source. #m-output's `overflow: hidden` then clipped whatever was
+   left. While a popover is open the output panel is raised and un-clipped, so the popover can
+   extend over the source the way every other menu surface does. Scoped to the open state so
+   nothing changes about the resting layout or the canvas clip. */
+#m-output:has(> #m-canvas-pop:not(.m-hidden)) { z-index: 40; overflow: visible; }

@@ -1,13 +1,19 @@
 # capabilities
 
-> ## 🛑 CORRECTION B551 — WE HAVE NEVER RECORDED 4K, AND I REPORTED THAT WE HAD
+> ## 🛑 CORRECTION B551, NARROWED B552 — THE **MOBILE** TAKE PATH HAS NEVER RECORDED 4K
+>
+> **My B551 wording was too broad and Daniel was right to push back.** The DESKTOP/iPad path records
+> through the output BUS, which has a real 4K tier (`tier >= 3840`, `outputBus.setResolution`) and no
+> 2048 cap — 4K takes there are genuine, and he very plausibly did verify 4K files from it. What
+> follows applies to the **mobile chrome only** (iPhone), which since B525 encodes the output canvas
+> directly rather than going through the bus.
 >
 > Daniel selected 4K, recorded, and got a **1080p file** (both lenses). Reading `sizeOutput()` in
 > `mobile/chrome.js`, the take resolution is structurally capped and always has been:
 > - `recordUpscale` lifts the take's **short side up to 1080 and no further** — it is a floor, not a target;
 > - a hard `cap = 2048 / max(w,h)` bounds the long side at **2048**, so 3840 cannot survive it.
 >
-> **The "4K" camera setting selects the SOURCE resolution only.** The take has always been ≤1080×2048.
+> **On the phone, the "4K" camera setting selects the SOURCE resolution only.** The take has always been ≤1080×2048. The cap dates to **B295** (the 2048 bound, from the original mobile record work) and **B373** (the 1080 short-side floor) — so it is original behaviour, not a regression.
 >
 > **So every "4K recording" number in this arc measured a 1080p take fed by a 4K source**, including the
 > B547 line I wrote saying *"4K/30 recording IS deliverable on the 17 Pro: 31.7fps"*. That was a

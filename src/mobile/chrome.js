@@ -310,7 +310,14 @@ const externalSurface = perf.surface({
   note: () => {
     if (!extStreaming) return 'idle';
     const f = env.externalDisplay?.fps || 0;
-    return f ? `self-rendering · ${f} fps ON THE DISPLAY` : 'self-rendering (awaiting first fps report)';
+    const sf = env.externalDisplay?.srcFps;
+    if (!f) return 'self-rendering (awaiting first fps report)';
+    if (typeof sf === 'number' && sf >= 0) {
+      return sf < f / 2
+        ? `${f} fps drawn · ⚠ only ${sf} NEW frames/s — the picture is stalling, not the renderer`
+        : `${f} fps ON THE DISPLAY · ${sf} new/s`;
+    }
+    return `self-rendering · ${f} fps ON THE DISPLAY`;
   },
 });
 env.perfSurfaces.external = externalSurface;

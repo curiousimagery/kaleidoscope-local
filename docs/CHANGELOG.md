@@ -4,6 +4,36 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🔬 v0.22.46 (Build 552) — 2026-08-07 — The telemetry blind spot, named and closed
+
+### First: Daniel was right to push back on the 4K claim
+
+**My B551 wording was too broad.** The **desktop/iPad** path records through the output bus, which has a genuine 4K tier and no 2048 cap — 4K takes there are real, and he very plausibly did verify 4K files from it. The cap is specific to the **mobile chrome**, which since B525 encodes the output canvas directly instead of going through the bus. Git dates it to **B295** (the 2048 bound) and **B373** (the 1080 floor), so it is original behaviour on that path, not a regression. CAPABILITIES corrected to say *which* path.
+
+### "How is our telemetry missing this?" — because we were counting the wrong noun. Again.
+
+Daniel's iPad broadcast updated **once every 5–10 seconds** while the external view reported a healthy **51fps** and the app reported its own loop fine. Neither side saw a problem, because neither was measuring the thing that was broken.
+
+`measuredFps` counts **render calls**. When the receiver has no new socket frame, the view re-renders the identical picture — and that is indistinguishable from real throughput by fps alone. A view redrawing one frame 51 times a second is, by that metric, perfectly healthy.
+
+**This is the same mistake in the same shape as B519**, where iPad `refresh` cost 1.13ms/frame while ZERO frames were arriving, because repainting the last frame is not evidence of arrival. That was fixed by reporting the WIRE rate (`N in/s`) next to the render rate. Same remedy, now applied to the remote surface: the view reports `srcFps` — frames that actually **arrived** — alongside the frames it drew.
+
+The report now reads `60 fps ON THE DISPLAY · 30 new/s`, and when they diverge it says so outright:
+
+> `51 fps drawn · ⚠ only 4 NEW frames/s — the picture is stalling, not the renderer`
+
+That line would have identified Daniel's mystery in one glance instead of two builds. **The rule worth keeping: a surface that can re-present its last frame needs an ARRIVAL counter, not just a paint counter.**
+
+### Toasts were invisible in landscape — and it was masking everything
+
+In portrait the tab bar is a short horizontal strip, and its height is the right bottom-offset for the toast. **In landscape it becomes a full-height column down the right edge** — so `offsetHeight` was nearly the whole viewport, and using it as a bottom offset launched the toast clean off the top of the screen. Daniel stopped a take, saw no status for 20 seconds, rotated to portrait, and found the success toast already showing.
+
+This silently masked **every status message we ship**, including B550's new finalize progress — which is exactly why the 4K take appeared to report nothing. A bar taller than it is wide is a side rail: it needs horizontal clearance, not vertical, so the pill now shifts left of it instead of above it.
+
+### Settings popovers no longer render under the source panel
+
+`#m-canvas-pop` lives inside `#m-output`, a flex sibling that comes *before* the source panel and carries no z-index — so DOM order decided the paint order, and `overflow: hidden` clipped what was left. While a popover is open the output panel is raised and un-clipped. Scoped to the open state, so the resting layout and the canvas clip are untouched.
+
 ## 🔍 v0.22.45 (Build 551) — 2026-08-07 — iPhone HDMI becomes measurable for the first time, and a claim gets withdrawn
 
 ### The correction first

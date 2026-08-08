@@ -57,6 +57,10 @@ export function createSurfacePoster({ transport, content, renderCaps = [Infinity
   let lastOut = null;
   let sourcePending = false;
   let fps = 0;
+  // The view's SOURCE ARRIVAL rate, distinct from its render rate. A view re-rendering the same
+  // frame is indistinguishable from a healthy one by fps alone — see renderFrame() in
+  // output-view.js for the failure this exists to make visible. -1 = not applicable/unknown.
+  let srcFps = -1;
   let gen = 0;
 
   const capAt = (arr) => arr[Math.min(gen, arr.length - 1)];
@@ -123,7 +127,7 @@ export function createSurfacePoster({ transport, content, renderCaps = [Infinity
   // arm before the surface opens (so a stop() during an async open cancels the
   // pending begin); begin the loop once the surface is ready; end tears down.
   // a fresh surface has seen nothing, so the elision cache must not carry over from the last one
-  function arm() { active = true; lastSourceSig = ''; fps = 0; lastStateJson = ''; lastPostT = 0; }
+  function arm() { active = true; lastSourceSig = ''; fps = 0; srcFps = -1; lastStateJson = ''; lastPostT = 0; }
   function begin() { if (active && !raf) loop(); }
   function end() {
     active = false;
@@ -140,7 +144,8 @@ export function createSurfacePoster({ transport, content, renderCaps = [Infinity
     // the view (re)loaded → repost the source next tick, AND forget the elision cache: a fresh
     // view has never received the state we would otherwise consider already delivered
     noteHello() { lastSourceSig = ''; lastStateJson = ''; },
-    noteFps(n) { fps = n || 0; },
+    noteFps(n, s = -1) { fps = n || 0; srcFps = typeof s === 'number' ? s : -1; },
+    get srcFps() { return srcFps; },
     // degradation ladder (a no-op when the caller passed none)
     degrade() { gen = Math.min(gen + 1, renderCaps.length - 1); lastSourceSig = ''; },
     resetGen() { gen = 0; },

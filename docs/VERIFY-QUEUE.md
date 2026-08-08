@@ -19,7 +19,7 @@ Legend: 🖥️ desktop browser · 💻 Electron · 📺 external display / HDMI
 
 | | what | why this rank | time |
 |---|---|---|---|
-| **P0** | **FH-1, then H-5** | Two hazard checks on MY changes, both "did I break the source panel." Ten seconds each, and if either fails nothing else in the build is worth measuring. | 1 min |
+| **P0** | **T-1**, then **FH-1**, then **H-5** | T-1 captures the stale-broadcast mystery with the instrument that can finally see it — do it while the bug is fresh. Then two hazard checks on MY changes ("did I break the source panel"), ten seconds each. | ~5 min |
 | **P1** | **H-1 → H-9** | The HDMI regression fixes. This surface went from unusable to unknown, and H-9 is coverage that has never existed on any build. Highest information per minute in the queue. | ~20 min |
 | **P2** | **FH-2 → FH-6** | Rest of the frame-header regression pass. Cheap, and FH-5 is the only check on the master-clock path. | ~10 min |
 | ~~P3~~ | ~~TF-1 → TF-4~~ | **BLOCKED — 4K recording is unimplemented (B551). There is no 4K finalize to measure.** TF-1 done: it exposed the cap. | — |
@@ -45,6 +45,16 @@ Legend: 🖥️ desktop browser · 💻 Electron · 📺 external display / HDMI
 | **B1, E** | **cleanup C2** (retiring settled perf flags) | those flags are the A/B mechanism |
 
 ---
+
+
+## 🔬 B552 — telemetry + two UI fixes · **needs the B552 sync**
+
+| # | where | do | closes when | channel |
+|---|---|---|---|---|
+| **T-1** ⭐ | 📲 iPad + HDMI | **Reproduce the stale-at-startup broadcast** (fresh session, live camera, broadcast on). While the display is lagging, read the `external` row. | it now reads something like `51 fps drawn · ⚠ only 4 NEW frames/s`. **That line is the whole point** — it separates "the view is stalling" from "the renderer is slow", which we could not tell apart before. Paste it. | `copy report` |
+| **T-2** | 📲 iPad + HDMI | Same, after it self-corrects. | `N fps ON THE DISPLAY · M new/s` with M close to 30 (camera) or the clip's rate | `copy report` |
+| **T-3** | 📱 iPhone, **LANDSCAPE** | Record a short take, stop, and **stay in landscape**. | the status toast is **visible** — phase text and, on a long finalize, a percentage. This was invisible in landscape and masked every status message. | eyes |
+| **T-4** | 📱 iPhone | Open **canvas settings** over a live source, both orientations. | the popover floats **above** the source panel, not under or clipped | eyes |
 
 ## 🛠️ H — the HDMI fixes (B549) · 📲 iPad + 4K HDMI unless stated
 

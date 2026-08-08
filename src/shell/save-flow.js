@@ -82,10 +82,26 @@ export function createSaveFlow({ host = null } = {}) {
     label.textContent = text;
     retryBtn.hidden = !onRetry;
     retryBtn.onclick = onRetry;
-    // clear the mobile tab bar when one exists (the toast must sit ABOVE it)
+    // Clear the mobile tab bar when one exists (the toast must sit ABOVE it).
+    //
+    // THE TOAST WAS INVISIBLE IN LANDSCAPE (Daniel, B552). In portrait the tab bar is a short
+    // horizontal strip and its height is the right offset. In LANDSCAPE it becomes a full-height
+    // column down the right edge — so `offsetHeight` is nearly the whole viewport, and using it
+    // as a bottom offset launched the toast clean off the top of the screen. He stopped a take,
+    // saw no status for 20 seconds, rotated to portrait and found the success toast already
+    // showing. **That silently masked every status message we ship, including B550's new
+    // finalize progress** — which is why the 4K take appeared to report nothing.
+    //
+    // A bar that is taller than it is wide is a side rail: it needs horizontal clearance, not
+    // vertical. Measure the axis that actually applies.
     const tb = document.getElementById('m-tabbar');
-    toast.style.bottom = tb && tb.offsetHeight
+    const rail = tb && tb.offsetHeight > tb.offsetWidth;   // column layout = landscape rail
+    toast.style.bottom = tb && tb.offsetHeight && !rail
       ? `calc(${tb.offsetHeight + 12}px + env(safe-area-inset-bottom, 0px))`
+      : '';
+    // in the rail case, shift the centred pill left of the bar instead of above it
+    toast.style.transform = rail
+      ? `translateX(calc(-50% - ${Math.round(tb.offsetWidth / 2)}px))`
       : '';
     if (ttl) hideTimer = setTimeout(hide, ttl);
   }

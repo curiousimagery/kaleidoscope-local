@@ -209,7 +209,7 @@ function createPoster(opts) {
       poster.noteHello();   // view (re)loaded — repost the source next tick
       console.info('[fold] external view ready (hello)');
     } else if (msg.type === 'fps') {
-      poster.noteFps(msg.fps);
+      poster.noteFps(msg.fps, msg.srcFps);
     } else if (msg.type === 'loaded') {
       // navigation finished — attach names which window path presented
       console.info('[fold] external view loaded output.html (attach:', msg.attach + ')');
@@ -381,6 +381,7 @@ export function createExternalDisplaySink(env) {
   env.externalDisplay = {
     get renderDims() { return poster.active ? poster.renderDims : null; },
     get fps() { return poster.active ? poster.fps : 0; },
+    get srcFps() { return poster.active ? poster.srcFps : -1; },
   };
 
   poster.onDisplayChange((connected, s) => {
@@ -429,6 +430,7 @@ export function createExternalDisplayAutoconnect(opts) {
     get connected() { return poster.connected; },
     get renderDims() { return poster.active ? poster.renderDims : null; },
     get fps() { return poster.active ? poster.fps : 0; },
+    get srcFps() { return poster.active ? poster.srcFps : -1; },
     stop() { poster.stop(); clearStagedVideo(); },
   };
 }
