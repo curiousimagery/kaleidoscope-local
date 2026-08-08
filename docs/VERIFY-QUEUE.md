@@ -20,31 +20,34 @@ Confirmed results are DELETED from here and recorded in CHANGELOG.
 
 ## What we're trying to find out
 
-B560's calibration ran at the instant recording started, so it always measured a silent room and never engaged. B561 moves it to the **level meter**, which is open while you are setting up and therefore actually hears you talk.
+**Automatic calibration is gone.** Your report named exactly why: `micRawPeak 0.00552` is about -45dBFS, which is your AC unit, not your voice — so B561 calibrated on room tone, computed 32x, and applied it 2.4s in. That is the jump you heard. Deciding "is this speech" from a short listen is the part that cannot be done reliably, so we stopped trying.
 
-**There is now a readout under the meter** (`N× · raw peak M`). That is the single most useful thing on screen: it says both what the mic delivered and what we did about it, so a failure is visible instead of silent.
+The gain is now **a slider you set, with an `auto` button that measures at the moment you press it** — while you are talking. And the raw mic level is on screen at all times, because that number is the whole diagnosis.
 
 ## Steps — iPad
 
-1. **Open the output panel, select the mic, and talk normally for a few seconds.** → does the readout under the meter move off `—` and show a multiplier? → do the L/R bars now move meaningfully?
-   - **Tell me the two numbers it settles on.** If the multiplier reads `32.0×` it hit the ceiling and the input is quieter still, which is itself the answer.
-2. **Record a short take (~30s) talking normally. Save and play it back.** → usable level at normal iPad volume?
-3. **Listen for the level moving on its own** — background noise swelling up in the gaps between words, or your voice ducking as you get louder. That is what the old AGC did and what this is designed not to do. It should sound steady.
-4. **`copy report`** → `micRawPeak`, `micGain`, `peak`, `trackState.label`.
-5. **One more take from further away, or holding the iPad differently.** → does `trackState.label` change between takes? A different label means iOS is switching mic ELEMENTS, which the trim compensates for but does not fix.
+**Step 1 is the important one. Do it before recording anything.**
+
+1. **Open the output panel, select the mic, and just watch the readout while you talk.** It reads `1.0× · raw 0.031`. **Tell me what the raw number does when you speak at a normal level.**
+   - Rises to ~0.05 or more → the mic is fine and this is purely a gain problem, now solvable with the slider.
+   - Stays near 0.005 even while talking → **the mic is genuinely near-dead**, no amount of gain fixes that honestly, and the cause is mic SELECTION or the iOS audio session. Completely different problem, and worth knowing before I build anything else.
+2. **Talk at a normal level and press `auto`.** → does the gain jump to something sensible and the L/R bars come alive?
+3. **Nudge the slider if `auto` overshot or undershot.** The bars should sit around two-thirds on speech peaks.
+4. **Record a short take (~30s) and play it back.** → usable at normal iPad volume?
+5. **`copy report`** → this should now actually contain an `audio` block on iPad (it never has before; that bug is fixed). I want `micRawPeak`, `micGain`, `peak`, `trackState.label`.
 
 ## Steps — iPhone
 
-6. **One short take, talking normally.** Should be unchanged: a healthy input calibrates to 1x. Confirm `micGain` is 1 and `peak` is now at or under 1.0 rather than 2.82.
+6. **One short take at the default 1x, talking normally.** Should be back to how it sounded at B559 — no jump partway in — with `micGain: 1` and `peak` at or under 1.0 instead of 2.82.
 
 ## What counts as success
 
-The readout shows a real multiplier, the iPad take is usable, the iPhone take is unchanged, and the level does not move on its own.
+The raw readout responds to your voice, the slider gets the iPad to a usable level, and the iPhone is back to sounding right with no mid-take jump.
 
 ## What I can't see and need from you
 
-- **The two numbers under the meter on the iPad.** If this fails again, that pair says which part failed — and I would rather stop guessing.
-- **Whether the level moves on its own.** No number shows this and the whole design rests on it not happening.
+- **What the raw number does when you talk on the iPad.** Everything downstream depends on it, and it is the thing I have been guessing at for three builds.
+- **Whether the iPhone take still jumps.** It should not — the default is 1x and nothing adapts.
 
 # 🅿️ NEXT UP after this — pick one
 

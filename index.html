@@ -118,10 +118,16 @@
         <span class="op-meter-lab">L</span><div class="op-meter-track"><i id="micMeterL"></i></div>
         <span class="op-meter-lab">R</span><div class="op-meter-track"><i id="micMeterR"></i></div>
       </div>
-      <!-- what the auto-trim decided, and what the mic actually delivered. A silent auto-gain
-           that guesses wrong looks identical to one that never ran (B560) — this is how the
-           next one gets diagnosed without a console. -->
-      <div class="op-row op-hint" id="micGainRow" hidden><span id="micGainRead">—</span></div>
+      <!-- INPUT GAIN (B562). Automatic calibration failed twice because deciding "is this speech
+           or is it the air conditioner" from a short listen is genuinely hard, and both failure
+           directions are bad. The `auto` button dissolves the problem: it calibrates against what
+           the mic hears AT THE MOMENT IT IS PRESSED, which the user presses while talking. -->
+      <div class="op-row op-gain" id="micGainRow" hidden>
+        <span class="op-meter-lab">gain</span>
+        <label class="slider"><input type="range" id="micGain" min="1" max="32" step="0.5" value="1"></label>
+        <button type="button" id="micGainAuto" title="set the gain from what the mic hears right now — talk at a normal level and press">auto</button>
+        <span class="op-gain-read" id="micGainRead">1.0×</span>
+      </div>
     </div>
     <div class="op-section">
       <div class="field-label">destination</div>

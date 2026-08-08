@@ -124,7 +124,20 @@ Three items that were sitting in HANDOFF's stale half. Each was described there 
 - **Decide the desktop placement deliberately.** The toast pins bottom-centre above the mobile tab bar; on a wide desktop window that may want a different anchor. One decision, then apply everywhere.
 - **Lands in the UI Lab with its state matrix** per the standing rule, and the audit's classification table is worth keeping in the Lab entry as the reference for the next message anyone adds.
 
-### 🎚️ THE GAIN STAGE — B560 DID NOTHING, FIXED B561, needs device verification
+### 🎚️ THE GAIN STAGE — MANUAL as of B562, needs device verification
+
+**Automatic calibration is removed after two failures in opposite directions.** B560 measured at record start and always caught silence. B561 fired on room tone (`micRawPeak 0.00552`, about -45dBFS) and jumped 32x, 2.4s into a take. **The unsolvable part was "is this speech", not the gain math** — both failure modes are bad and a short listen cannot reliably tell a voice from an air conditioner.
+
+**Shipped:** an input-gain slider (1x-32x) plus an `auto` button that calibrates against what the mic hears *at the moment it is pressed*, so the user's press is the measurement. Trim frozen for the take, limiter retained, default 1x (restoring B559's good iPhone behaviour plus clip protection). A live `N× · raw M` readout.
+
+- **Verify (iPad):** the raw readout should move when you speak — **that number is the whole diagnosis.** If raw stays near 0.005 while talking, the mic is genuinely near-dead and no gain will fix it honestly; that would point at mic SELECTION or the iOS audio session, not level.
+- **Verify (iPhone):** unchanged from B559 at 1x, with `peak` now at or under 1.0.
+- **[MED] The phone chrome has no gain control.** It defaults to 1x, which its measurements say is right, but there is no way to change it if a phone ever needs one. Add when the mobile audio UI is next touched.
+- **[LOW] Two mic paths still acquire separately** — the meter opens its own `getUserMedia` alongside the take's, which is why the trim is a handoff rather than one value. Unify when the audio path is next opened.
+
+**✅ FIXED B562 — the iPad and desktop take never published `env.lastAudioReport`.** It was wired only in the phone chrome, so every iPad report came back `audio: null` **including the ones sent to diagnose an iPad audio problem.** Three builds were spent guessing at something the instrument could have shown. **Standing lesson: the exported report is the only diagnostic channel that works on these devices, so a path that does not publish into it is a path we are debugging blind.**
+
+### 🎚️ [HISTORICAL] B560 DID NOTHING, B561 FIRED ON ROOM TONE
 
 **B560 failed on device and the reason is worth keeping.** It sampled a fixed 800ms window starting when the mic tap opened — which is *the instant the take starts*, reliably the one moment the user is not talking yet. It measured room tone, fell under the signal floor, and correctly declined to guess. **The mechanism was right and the trigger was wrong: a calibration window that opens on a timer will nearly always open on silence.**
 

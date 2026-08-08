@@ -41,7 +41,7 @@ import { createApp } from './shell/app.js';
 import { createFoldAdapter } from './shell/fold-adapter.js';
 import { createProgramFrame } from './shell/program-frame.js';
 import { createOutputBus } from 'conduit/output-bus';
-import { createRecorderSink } from 'conduit/recorder';
+import { createRecorderSink, getLastAudioReport } from 'conduit/recorder';
 import { createSyphonSink } from 'conduit/syphon-sink';
 import { createNdiSink } from 'conduit/ndi-sink';
 import { createOutputWindow, createExternalDisplayWindow } from './shell/output-window.js';
@@ -104,6 +104,12 @@ const perfPressure = createPressureSource({
   target: () => (env.recorderSink?.recording ? 30 : 0),
 });
 const perf = createPerfLedger({ pressure: perfPressure });
+// THE TAKE'S AUDIO REPORT NEVER REACHED THIS PANEL ON DESKTOP OR iPAD (B562). `env.lastAudioReport`
+// was wired only in the phone chrome, so every iPad report Daniel sent came back `audio: null` —
+// which is exactly why the iPad mic problem took three builds to see. The report is the only
+// diagnostic channel that works on these devices; a path that does not publish into it is a path
+// we are debugging blind.
+Object.defineProperty(env, 'lastAudioReport', { get: getLastAudioReport, configurable: true });
 // Surfaces register themselves rather than being enumerated here — see the layout-agnostic
 // constraint in perf-ledger.js. A merged or removed panel re-registers a different set and the
 // readout, the switchboard and any future governor keep working untouched.

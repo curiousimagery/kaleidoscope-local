@@ -324,23 +324,17 @@ export function primeRecordingAudio() {
 // The limiter is pure safety and stays regardless: threshold just under full scale, high ratio,
 // fast attack. It only acts on material that would otherwise clip, which is what makes it
 // inaudible on everything else.
-const MIC_CALIBRATE_MAX_MS = 15000;   // give up waiting for signal after this; never re-trim later
-const MIC_TARGET_PEAK = 0.5;    // where we would like typical speech to land
-// 32x, not 8x (B561). The 8x ceiling was a guess and Daniel's iPad needed the take turned all the
-// way up to be audible even after a boost, so the real input is far quieter than that allowed for.
-// The limiter makes a high ceiling safe; a ceiling too LOW just fails silently, which is worse.
-const MIC_MAX_GAIN = 32;
-const MIC_MIN_GAIN = 1;         // never attenuate here — that is the limiter's job
-const MIC_SIGNAL_FLOOR = 0.005; // below this we are measuring room tone, not speech
+export const MIC_TARGET_PEAK = 0.5;   // where the `auto` button aims typical speech
+export const MIC_MAX_GAIN = 32;
+export const MIC_MIN_GAIN = 1;        // never attenuate here — that is the limiter's job
 
-// THE METER'S TRIM, HANDED FORWARD (B561). The level meter runs while the mic is armed and the
-// user is setting up, so it sees real speech long before record is pressed — which is exactly what
-// the take's own calibration window cannot do. The meter publishes what it learned here and the
-// take starts from it. Module-level because the two paths open separate `getUserMedia` streams
-// (filed in BACKLOG); when that is unified this becomes one calibration instead of a handoff.
+// THE USER'S TRIM, HANDED FORWARD (B562). Set from the level meter's gain control, frozen by the
+// take for its whole duration. Module-level because the meter and the take open separate
+// `getUserMedia` streams (filed in BACKLOG); when that is unified this becomes one value rather
+// than a handoff. Defaults to 1x so a healthy mic is untouched.
 let micTrimHint = 1;
 export function setMicTrimHint(gain) {
-  micTrimHint = gain > 1 ? Math.min(MIC_MAX_GAIN, gain) : 1;
+  micTrimHint = gain > 0 ? Math.min(MIC_MAX_GAIN, Math.max(MIC_MIN_GAIN, gain)) : 1;
 }
 export function getMicTrimHint() { return micTrimHint; }
 
@@ -372,6 +366,29 @@ async function startMicTap(track, onData) {
     // influenced by the trim it is setting.
     const probe = new AnalyserNode(ctx, { fftSize: 2048 });
     src.connect(probe);
+    // AUTO-CALIBRATION IS GONE (B562). It failed twice, in opposite directions, and the reason is
+    // structural rather than a tuning miss.
+    //
+    // B560 measured a fixed window at record start and always caught silence. B561 fixed the
+    // trigger and then fired on ROOM TONE: Daniel's iPhone report reads `micRawPeak 0.00552`, which
+    // is about -45dBFS — an air conditioner, not a voice. The trim computed 0.5/0.00552, clamped to
+    // 32x, and applied it 2.4 seconds into the take, which is exactly the audible jump he heard.
+    //
+    // **The unsolvable part is "is this speech?"** Deciding that from a short observation is a real
+    // signal-processing problem, and both failure directions are bad: too eager and we amplify an
+    // air conditioner by 32x, too shy and we do nothing at all. Two builds spent guessing at a
+    // threshold is enough.
+    //
+    // **So the user tells us when.** The level meter has a gain control with an `auto` button that
+    // calibrates against whatever it is hearing AT THE MOMENT IT IS PRESSED — which the user
+    // presses while talking. That dissolves the question rather than answering it: there is no
+    // "when do we measure", because the press IS the measurement.
+    //
+    // What survives here is the part that was always right: a trim the take FREEZES for its whole
+    // duration, and a limiter so a wrong setting cannot destroy a recording. Default 1x, so a
+    // healthy mic (the iPhone's, `peak` 2.82 raw) is untouched except for clip protection.
+    //
+    // Kept for reference — the dead approach, so nobody rebuilds it:
     // WHY B560's FIRST ATTEMPT DID NOTHING (fixed B561). It sampled a fixed 800ms window starting
     // when the tap opened — which is the instant the take starts, i.e. the one moment the user is
     // reliably NOT talking yet. It measured room tone, fell under the 0.005 floor, and correctly
@@ -390,29 +407,20 @@ async function startMicTap(track, onData) {
     //
     // The result is unchanged in the property that matters: **the gain settles once and then does
     // not move for the rest of the take.**
-    let calibratedGain = micTrimHint > 1 ? micTrimHint : 1;
-    let rawPeak = 0, calTimer = 0, frozen = false;
-    if (calibratedGain > 1) { try { trim.gain.value = calibratedGain; } catch { /* read-only */ } }
+    // The trim is whatever the user set on the meter, applied once and never touched again.
+    const calibratedGain = micTrimHint > 0 ? micTrimHint : 1;
+    if (calibratedGain !== 1) { try { trim.gain.value = calibratedGain; } catch { /* read-only */ } }
+    // We still MEASURE the raw input, because `micRawPeak` beside `peak` is what separates a quiet
+    // room from a quiet mic from a trim that never engaged — the three cases this whole saga was
+    // unable to tell apart. Measuring is free; acting on it automatically is what went wrong.
+    let rawPeak = 0, calTimer = 0;
     const buf = new Float32Array(probe.fftSize);
-    const t0 = (globalThis.performance?.now?.() ?? Date.now());
-    const endProbe = () => { try { src.disconnect(probe); } catch { /* already down */ } calTimer = 0; frozen = true; };
     const sample = () => {
       probe.getFloatTimeDomainData(buf);
       for (let i = 0; i < buf.length; i += 4) { const v = buf[i] < 0 ? -buf[i] : buf[i]; if (v > rawPeak) rawPeak = v; }
-      // A floor on the denominator: below this the room is effectively silent and any ratio we
-      // compute is noise being amplified, so we keep waiting rather than guess.
-      if (rawPeak > MIC_SIGNAL_FLOOR) {
-        calibratedGain = Math.min(MIC_MAX_GAIN, Math.max(MIC_MIN_GAIN, MIC_TARGET_PEAK / rawPeak));
-        // ramp rather than step: an instant gain change mid-take is an audible jump
-        try { trim.gain.setTargetAtTime(calibratedGain, ctx.currentTime, 0.15); }
-        catch { trim.gain.value = calibratedGain; }
-        endProbe();
-        return;
-      }
-      if ((globalThis.performance?.now?.() ?? Date.now()) - t0 > MIC_CALIBRATE_MAX_MS) { endProbe(); return; }
-      calTimer = setTimeout(sample, 50);
+      calTimer = setTimeout(sample, 100);
     };
-    calTimer = setTimeout(sample, 50);
+    calTimer = setTimeout(sample, 100);
 
     return {
       sampleRate: ctx.sampleRate,

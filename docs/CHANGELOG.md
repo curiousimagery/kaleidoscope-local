@@ -4,6 +4,28 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🎚️ v0.23.9 (Build 562) — 2026-08-08 — Automatic calibration is gone; the user says when
+
+**Two automatic attempts, two failures, in opposite directions.** B560 measured a fixed window starting at record time and always caught silence. B561 fixed the trigger and then fired on ROOM TONE: Daniel's iPhone report reads `micRawPeak 0.00552` — about **-45dBFS, an air conditioner rather than a voice**. It computed `0.5 / 0.00552`, clamped to 32x, and applied it 2.4 seconds into the take. That is exactly the audible jump he heard, and the report named it precisely.
+
+**The hard part was never the gain math. It is deciding "is this speech".** Doing that from a short listen is a real signal-processing problem, and both failure directions are bad: too eager and you amplify an air conditioner by 32x, too shy and nothing happens at all. Two builds of guessing at a threshold is enough evidence.
+
+### So the user says when
+
+The meter gets an **input-gain slider** and an **`auto` button**. `auto` calibrates against what the mic hears **at the moment it is pressed**, and the user presses it while talking. That dissolves the question rather than answering it: there is no "when do we measure", because the press *is* the measurement.
+
+The slider is the primary control and is always available. Two failed guesses is enough evidence that this wants a knob.
+
+What survives from the previous attempts is the part that was always right: **a trim the take freezes for its whole duration**, and **a limiter** so a wrong setting cannot destroy a recording. Default is 1x, so a healthy mic (the iPhone's, `peak` 2.82 raw) is untouched apart from clip protection — which restores B559's known-good iPhone behaviour and adds the safety net.
+
+### The raw level is always on screen now
+
+`12.0× · raw 0.031`, live. **This is the load-bearing part, not decoration:** it is the one number separating "the mic hears nothing" from "the gain is wrong", and its absence is why this took three builds. General pattern worth reusing — **when an automatic decision can be wrong, show the input it decided from.**
+
+### The iPad has been debugged blind this whole time
+
+`env.lastAudioReport` was wired **only in the phone chrome**. Every iPad report came back `audio: null`, including the ones sent to diagnose an iPad audio problem. Now wired in `main.js` too. The exported report is the only diagnostic channel that works on these devices; a path that does not publish into it is a path we are debugging blind.
+
 ## 🎚️ v0.23.8 (Build 561) — 2026-08-08 — The calibration window opened on silence
 
 **B560 did nothing on device, and the reason is the useful part.** It sampled a fixed 800ms window starting when the mic tap opened, which is *the instant the take begins* — reliably the one moment nobody is talking yet. It measured room tone, fell under the signal floor, and correctly declined to guess. So the gain stayed at 1x and Daniel's iPad take was as quiet as before.

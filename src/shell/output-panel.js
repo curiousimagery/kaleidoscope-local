@@ -15,7 +15,7 @@
 // one-tap restart. Record-to-disk is a SEPARATE, concurrent control (record a take
 // while broadcasting). The test pattern swaps the program for a reference frame.
 
-import { setMicTrimHint } from 'conduit/recorder';
+import { setMicTrimHint, getMicTrimHint, MIC_TARGET_PEAK, MIC_MAX_GAIN, MIC_MIN_GAIN } from 'conduit/recorder';
 
 const TIER_DEFAULT = 1920;            // FHD long side — safe live default (never 4K)
 const DEST_KEY = 'fold.outputDestination';
@@ -198,49 +198,87 @@ export function createOutputPanel(env, outputBus) {
     try { meterCtx.resume?.(); } catch { /* already running */ }
     const rawSrc = meterCtx.createMediaStreamSource(stream);
     // THE METER MUST SHOW WHAT WILL BE RECORDED (B560). Daniel read a near-dead meter on the iPad
-    // and correctly predicted a quiet take. Now that the recorder trims and limits (see
-    // recorder.js `startMicTap`), a meter on the RAW input would say "almost nothing" about a take
-    // that comes back at a healthy level — an instrument that disagrees with the thing it measures
-    // is worse than no instrument. Same chain, same constants, so what you see is what you get.
-    const meterTrim = new GainNode(meterCtx, { gain: 1 });
+    // and correctly predicted a quiet take. Since the recorder trims and limits (recorder.js
+    // `startMicTap`), a meter on the RAW input would say "almost nothing" about a take that comes
+    // back at a healthy level — an instrument that disagrees with the thing it measures is worse
+    // than no instrument. Same chain, same constants, so what you see is what you get.
+    const meterTrim = new GainNode(meterCtx, { gain: getMicTrimHint() });
     const meterLimiter = new DynamicsCompressorNode(meterCtx, {
       threshold: -1.5, knee: 0, ratio: 20, attack: 0.003, release: 0.25,
     });
     rawSrc.connect(meterTrim); meterTrim.connect(meterLimiter);
     const src = meterLimiter;
-    // THE CALIBRATION LIVES HERE, NOT IN THE TAKE (B561). B560 calibrated inside the recorder's
-    // mic tap, which opens at the instant recording starts — reliably the one moment nobody is
-    // talking. It measured room tone and correctly declined to act, so nothing happened and
-    // Daniel's iPad stayed inaudible.
+
+    // THE GAIN CONTROL (B562), and why automatic calibration is gone.
     //
-    // The meter is the right place: it is open while the mic is armed and the shot is being set
-    // up, so it sees real speech with no time pressure. It tracks the running peak CONTINUOUSLY
-    // (there is no take to disturb, so adapting freely here costs nothing) and publishes the trim
-    // to the recorder, which freezes it for the duration of the take.
-    {
-      const cal = new AnalyserNode(meterCtx, { fftSize: 2048 });
-      rawSrc.connect(cal);
-      const cbuf = new Float32Array(cal.fftSize);
-      let rawPeak = 0;
-      const step = () => {
-        if (!meterStream) { try { rawSrc.disconnect(cal); } catch {} return; }
-        cal.getFloatTimeDomainData(cbuf);
-        for (let i = 0; i < cbuf.length; i += 4) { const v = Math.abs(cbuf[i]); if (v > rawPeak) rawPeak = v; }
-        if (rawPeak > 0.005) {
-          const g = Math.min(32, Math.max(1, 0.5 / rawPeak));
-          try { meterTrim.gain.setTargetAtTime(g, meterCtx.currentTime, 0.15); }
-          catch { meterTrim.gain.value = g; }
-          setMicTrimHint(g);
-          // SHOW THE NUMBER. Daniel has no console on the iPad, and a silent auto-gain that guesses
-          // wrong is indistinguishable from one that is not running — which is exactly what B560
-          // looked like. The readout is how the next failure gets diagnosed in one glance.
-          const gEl = byId('micGainRead');
-          if (gEl) gEl.textContent = `${g.toFixed(1)}× · raw peak ${rawPeak.toFixed(3)}`;
-        }
-        setTimeout(step, 200);
+    // Two automatic attempts failed in opposite directions. B560 measured at record start and
+    // always caught silence. B561 fixed the trigger and then fired on ROOM TONE — Daniel's report
+    // reads `micRawPeak 0.00552`, about -45dBFS, which is an air conditioner rather than a voice.
+    // It computed 32x and applied it 2.4s into the take: the audible jump he heard.
+    //
+    // **Deciding "is this speech" from a short listen is the hard part**, and getting it wrong is
+    // bad both ways. `auto` dissolves the question instead of answering it: it calibrates against
+    // what the mic hears AT THE MOMENT IT IS PRESSED, and the user presses it while talking. There
+    // is no "when do we measure" any more, because the press IS the measurement.
+    //
+    // The slider is the primary control and always available, because two failed guesses is enough
+    // evidence that this needs a knob.
+    const gainEl = byId('micGain');
+    const gainReadEl = byId('micGainRead');
+    const gainAutoEl = byId('micGainAuto');
+    // raw peak tracked continuously — what `auto` reads, and what tells a quiet ROOM from a quiet MIC
+    const cal = new AnalyserNode(meterCtx, { fftSize: 2048 });
+    rawSrc.connect(cal);
+    const cbuf = new Float32Array(cal.fftSize);
+    let recentRaw = 0;
+    const applyGain = (g, { persist = true } = {}) => {
+      const v = Math.min(MIC_MAX_GAIN, Math.max(MIC_MIN_GAIN, g));
+      try { meterTrim.gain.setTargetAtTime(v, meterCtx.currentTime, 0.08); }
+      catch { meterTrim.gain.value = v; }
+      setMicTrimHint(v);
+      if (gainEl) gainEl.value = String(v);
+      if (gainReadEl) gainReadEl.textContent = `${v.toFixed(1)}×`;
+      // survives a reload so a room that needed 12x does not have to be dialled in twice
+      if (persist && env.session) env.session.micGain = v;
+    };
+    applyGain(env.session?.micGain || getMicTrimHint() || 1, { persist: false });
+    if (gainEl) gainEl.oninput = () => applyGain(+gainEl.value);
+    if (gainAutoEl) {
+      gainAutoEl.onclick = () => {
+        // measure a fresh 600ms window rather than a lifetime peak: the user is talking NOW, and a
+        // running maximum would be polluted by whatever slammed the mic ten minutes ago
+        let peak = 0;
+        const t0 = performance.now();
+        const listen = () => {
+          if (!meterStream) return;
+          cal.getFloatTimeDomainData(cbuf);
+          for (let i = 0; i < cbuf.length; i += 4) { const v = Math.abs(cbuf[i]); if (v > peak) peak = v; }
+          if (performance.now() - t0 < 600) { setTimeout(listen, 30); return; }
+          if (peak > 0.002) applyGain(MIC_TARGET_PEAK / peak);
+          if (gainReadEl) gainReadEl.textContent = `${(+gainEl.value).toFixed(1)}× · heard ${peak.toFixed(3)}`;
+          gainAutoEl.textContent = 'auto';
+          gainAutoEl.disabled = false;
+        };
+        gainAutoEl.textContent = 'listening…';
+        gainAutoEl.disabled = true;
+        listen();
       };
-      setTimeout(step, 100);
     }
+    // keep `recentRaw` fresh so the readout can always answer "is the mic hearing anything at all"
+    const trackRaw = () => {
+      if (!meterStream) { try { rawSrc.disconnect(cal); } catch {} return; }
+      cal.getFloatTimeDomainData(cbuf);
+      let p = 0;
+      for (let i = 0; i < cbuf.length; i += 4) { const v = Math.abs(cbuf[i]); if (v > p) p = v; }
+      recentRaw = Math.max(p, recentRaw * 0.85);   // decaying peak-hold, so it follows the room
+      // THE RAW LEVEL IS ALWAYS ON SCREEN. It is the one number that separates "the mic hears
+      // nothing" from "the gain is wrong", and not having it is why this took three builds.
+      if (gainReadEl && !gainAutoEl?.disabled) {
+        gainReadEl.textContent = `${(+(gainEl?.value || 1)).toFixed(1)}× · raw ${recentRaw.toFixed(3)}`;
+      }
+      setTimeout(trackRaw, 200);
+    };
+    setTimeout(trackRaw, 200);
     const stereo = (stream.getAudioTracks()[0]?.getSettings?.().channelCount || 1) >= 2;
     const anL = meterCtx.createAnalyser(); anL.fftSize = 512;
     const anR = meterCtx.createAnalyser(); anR.fftSize = 512;

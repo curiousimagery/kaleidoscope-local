@@ -524,6 +524,19 @@ function componentsSection() {
     // driven by wireLoopingSlider: a RELATIVE wrapping drag so the thumb circles far-right →
     // far-left at the repeat point (a native range pins at the edges; static can't show it).
     labeled('.slider · looping (jog) variant', el('label', { class: 'slider' }, [slider({ value: '55' })])),
+    // MIC INPUT GAIN (B562) — no new control type, just the .slider composed with a bare panel
+    // button and a tabular readout. In the Lab because the READOUT is the load-bearing part: two
+    // automatic-calibration attempts failed invisibly, and showing the raw mic level beside the
+    // gain is what made the third attempt diagnosable. Pattern worth reusing: when an automatic
+    // decision can be wrong, show the input it decided from.
+    labeled('.op-gain · mic input gain (output panel)', el('div', { class: 'output-pop' }, [
+      el('div', { class: 'op-row op-gain' }, [
+        el('span', { class: 'op-meter-lab', text: 'gain' }),
+        el('label', { class: 'slider' }, [slider({ value: '12', min: '1', max: '32' })]),
+        el('button', { type: 'button', text: 'auto' }),
+        el('span', { class: 'op-gain-read', text: '12.0× · raw 0.031' }),
+      ]),
+    ])),
   ]);
   const fields = el('div', { class: 'lab-stack' }, [
     labeled('.scrub', el('span', { class: 'scrub', text: '128' })),
