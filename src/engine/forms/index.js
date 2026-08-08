@@ -87,9 +87,16 @@ export function formPanLockedByDefault(form) {
 // exists to remove, too high lets the slice overshoot into the unwieldy extreme it exists to avoid.
 //
 // Defaults keep the previous flat values, so a form that declares nothing behaves exactly as before.
+// The defaults a form inherits when it declares neither bound. They live HERE, beside the only
+// code that reads them, because `kit/zoom.js` used to hold a pair of constants with a comment
+// claiming this function consulted them — and it never did (B563). Two numbers in two files, one
+// of them decorative, is how a tuning change silently applies to half the app.
+export const ZOOM_COVER_DEFAULT = 3;      // zoom-OUT: grow the slice until it covers the source
+export const ZOOM_IN_FLOOR_DEFAULT = 0.7; // zoom-IN: the canvas may not shrink the slice past this
+
 export function formZoomBounds(state) {
   const f = getActiveForm(state);
-  return { cover: f.zoomCover ?? 3, inFloor: f.zoomInFloor ?? 0.7 };
+  return { cover: f.zoomCover ?? ZOOM_COVER_DEFAULT, inFloor: f.zoomInFloor ?? ZOOM_IN_FLOOR_DEFAULT };
 }
 
 // Is pan locked RIGHT NOW for the active form? `state.panLock` holds per-form user overrides

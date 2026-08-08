@@ -41,7 +41,7 @@ const USAGE = new Map();
 // (the /[^{}]+{[^{}]*}/ pattern skips @media wrappers and matches the rule INSIDE them),
 // then for each declaration records which token it consumes. Same code path runs in
 // Node, so it's validatable without a browser. Exported for the Node test.
-export function parseUsage(cssText, usage = new Map()) {
+function parseUsage(cssText, usage = new Map()) {
   const css = cssText.replace(/\/\*[\s\S]*?\*\//g, '');   // strip comments
   const ruleRe = /([^{}]+)\{([^{}]*)\}/g;
   let m;

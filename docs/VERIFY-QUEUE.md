@@ -16,6 +16,10 @@ Confirmed results are DELETED from here and recorded in CHANGELOG.
 
 # ▶ THIS SESSION — "is the iPad mic fixed, and is it sensitivity or selection?"
 
+> **⚠️ NEEDS BUILD 563 OR LATER. B562 broke app startup** (a `ReferenceError` at module evaluation — upload and camera selection were both dead). If you are on B562, nothing below will work. Rebuild first.
+>
+> **Also new in B563 and worth a glance while you are here:** the Loop Builder header should now clear the iOS status bar in both orientations, and a camera session should report a real `target` / `shortfall` in the perf panel instead of `0`.
+
 **iPad first, then one iPhone check.** `npm run build && npx cap sync ios`, Xcode rebuild. **~10 minutes.**
 
 ## What we're trying to find out

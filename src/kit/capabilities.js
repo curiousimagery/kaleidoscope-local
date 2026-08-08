@@ -39,7 +39,7 @@
 // at `vite build`; a native shell sets it in its build env). `?edition=` overrides
 // at runtime so the gates can be exercised in a browser without a rebuild.
 
-export function resolveEdition() {
+function resolveEdition() {
   const q = (typeof location !== 'undefined' && new URLSearchParams(location.search).get('edition')) || '';
   if (q) return q;
   const built = (import.meta && import.meta.env && import.meta.env.VITE_FOLD_EDITION) || '';

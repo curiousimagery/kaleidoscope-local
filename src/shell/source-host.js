@@ -1113,6 +1113,11 @@ export function createSourceHost(env) {
         deviceId: camera.getDeviceId(),
         facing: camera.getFacing(),
         stream: camera.streamInfo?.() || null,
+        // The rate the OS actually granted — the only honest denominator for "are we keeping up"
+        // (B563). Both camera implementations are asked, since the native plugin reports a target
+        // fps while the getUserMedia path reports it in the track's settings. 0 = we do not know,
+        // which pressure reads as "declare no target" rather than assuming one.
+        frameRate: Math.round(camera.getFrameRate?.() || camera.settings?.().frameRate || 0),
       }
     : null;
 

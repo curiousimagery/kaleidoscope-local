@@ -99,17 +99,21 @@ const uploadErrorEl = document.getElementById('uploadError');
 const perfPressure = createPressureSource({
   native: () => env.host?.thermalState?.() ?? null,   // iOS ProcessInfo.thermalState, when a host provides it
   // Declared only where we genuinely know the rate: a take is 30 by the recorder's encoder config
-  // (recorder.js `framerate: 30`). Everything else stays UNDECLARED rather than guessing 60 —
-  // pressure then falls back to pure drift, which is what it has always done (B559).
-  target: () => (env.recorderSink?.recording ? 30 : 0),
+  // (recorder.js `framerate: 30`), and a LIVE CAMERA is bounded by the sensor rate it was
+  // acquired at. Everything else stays UNDECLARED rather than guessing 60 — pressure then falls
+  // back to pure drift, which is what it has always done (B559).
+  //
+  // The camera case was missing at B559 and it is the one that matters on iPad: every report
+  // Daniel sent from an iPad camera session read `target: 0`, so `shortfall` was structurally 0
+  // and the new instrument said nothing on the device it was built to explain (B563). The rate
+  // comes from the track's own settings rather than an assumption — `getSettings().frameRate` is
+  // what the OS actually granted, which is the only honest denominator.
+  target: () => {
+    if (env.recorderSink?.recording) return 30;
+    return env.liveCameraInfo?.()?.frameRate || 0;
+  },
 });
 const perf = createPerfLedger({ pressure: perfPressure });
-// THE TAKE'S AUDIO REPORT NEVER REACHED THIS PANEL ON DESKTOP OR iPAD (B562). `env.lastAudioReport`
-// was wired only in the phone chrome, so every iPad report Daniel sent came back `audio: null` —
-// which is exactly why the iPad mic problem took three builds to see. The report is the only
-// diagnostic channel that works on these devices; a path that does not publish into it is a path
-// we are debugging blind.
-Object.defineProperty(env, 'lastAudioReport', { get: getLastAudioReport, configurable: true });
 // Surfaces register themselves rather than being enumerated here — see the layout-agnostic
 // constraint in perf-ledger.js. A merged or removed panel re-registers a different set and the
 // readout, the switchboard and any future governor keep working untouched.
@@ -293,6 +297,18 @@ const env = {
   perfSource: { refresh: sourceSurface.pass('refresh'), upload: sourceSurface.pass('upload') },
   buildLabel: formatVersion(),
 };
+
+// THE TAKE'S AUDIO REPORT NEVER REACHED THIS PANEL ON DESKTOP OR iPAD (B562). `env.lastAudioReport`
+// was wired only in the phone chrome, so every iPad report came back `audio: null` — which is why
+// the iPad mic problem took three builds to see. The exported report is the only diagnostic
+// channel that works on these devices; a path that does not publish into it is debugged blind.
+//
+// **MUST sit after `const env` (B563).** B562 put this immediately after the perf ledger, ~130
+// lines ABOVE the declaration, so it hit `env` in the temporal dead zone and threw
+// `ReferenceError: Cannot access 'env' before initialization` at module evaluation — killing app
+// init outright (Daniel: upload and camera selection both dead on iPad). The `native:`/`target:`
+// callbacks above only *look* like the same pattern; they are deferred, so they are fine.
+Object.defineProperty(env, 'lastAudioReport', { get: getLastAudioReport, configurable: true });
 
 // the program frame — the committed "what the audience sees" snapshot every
 // output consumer reads (defines env.programFrame / env.commitFrame /

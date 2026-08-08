@@ -13,7 +13,7 @@
 //   - arms = 1: base step is 1 (integer tiers per turn)
 //   - tier mirror ON: step doubles (only even multiples of base) because odd
 //     tier-counts land in a reflected tier and misalign at the canvas seam
-export function armsSnapStep(state) {
+function armsSnapStep(state) {
   const n = Math.round(state.drosteArms || 1);
   const armsEven = n <= 1 ? 1 : Math.max(2, Math.min(12, n - (n % 2)));
   const base = 1 / armsEven;

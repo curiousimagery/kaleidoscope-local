@@ -4,6 +4,32 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🚑 v0.23.10 (Build 563) — 2026-08-08 — B562 broke app init; plus a decluttering pass
+
+### The regression, first
+
+**B562 killed app startup on every platform.** Daniel found it on iPad: upload and camera selection both dead. The cause is one misplaced line — `Object.defineProperty(env, 'lastAudioReport', …)` was inserted straight after the perf ledger, about 130 lines **above** `const env = {…}`. `const` bindings sit in the temporal dead zone until their declaration executes, so this threw `ReferenceError: Cannot access 'env' before initialization` during module evaluation and took the whole app down with it.
+
+**Why it looked safe:** the `native:` and `target:` callbacks a few lines earlier reference `env` too — but those are arrow functions, evaluated later. The new line was eager. **A reference inside a deferred callback and a reference at module scope look identical on the page and are completely different.** Moved below the declaration, with a comment saying why it must stay there.
+
+The build passed both times, which is worth noting: nothing in the toolchain catches a TDZ violation across a module.
+
+### Then the declutter
+
+**A false comment that would have misled the next zoom tuning.** `kit/zoom.js` exported `Z_SLICE_IN_FLOOR = 0.7, Z_SLICE_COVER = 3` under a comment saying `formZoomBounds` used them as per-form defaults. **It never did** — it carried its own literals (`f.zoomCover ?? 3`). Two numbers in two files, one purely decorative, is how a tuning change silently applies to half the app. The defaults now live beside the only function that reads them, as `ZOOM_COVER_DEFAULT` / `ZOOM_IN_FLOOR_DEFAULT`. Directly relevant to the per-form zoom-extent work Daniel has queued.
+
+**Four accidental exports retired.** `parseUsage`, `armsSnapStep`, `resolveEdition` and `COMMON_UNIFORMS` were each exported but only ever used inside their own module. Not dead code and not public API — just ambiguity. Now module-local, so the export surface means something.
+
+**`.camera-live-row` deleted.** No markup carried the class; `#shutterBtn` and `#flipBtn` moved to `.ot-btn` toolbar items long ago, so the rules had nothing to match.
+
+### The Loop Builder honours the safe area
+
+Daniel's iPad finding. The Loop Builder hides the app bar (`body.loop-active #outputToolbar { display: none }`), which makes it **the one surface that owns its own top edge — and the one that forgot.** Its header ran under the clock and the Dynamic Island. Now `env(safe-area-inset-top)`, plus the left/right insets, because in iPad landscape those are non-zero and the close button sat hard against the edge. The step rail gets the left inset for the same reason. OS insets honoured verbatim rather than pixel-matching device geometry.
+
+### Pressure can finally see a camera session
+
+B559 declared a target rate only while recording, so **every iPad camera report came back `target: 0` and `shortfall: 0`** — the new instrument said nothing on the device it was built to explain. `env.liveCameraInfo()` now carries `frameRate`, taken from the rate the OS actually granted (the native plugin's target fps, or the track's `getSettings()`), and pressure declares it. 0 still means "we do not know", which reads as no target rather than an assumption.
+
 ## 🎚️ v0.23.9 (Build 562) — 2026-08-08 — Automatic calibration is gone; the user says when
 
 **Two automatic attempts, two failures, in opposite directions.** B560 measured a fixed window starting at record time and always caught silence. B561 fixed the trigger and then fired on ROOM TONE: Daniel's iPhone report reads `micRawPeak 0.00552` — about **-45dBFS, an air conditioner rather than a voice**. It computed `0.5 / 0.00552`, clamped to 32x, and applied it 2.4 seconds into the take. That is exactly the audible jump he heard, and the report named it precisely.

@@ -25,7 +25,7 @@ import { FORMS, formSizeNorm, formCanvasNorm, formPanLocked } from './forms/inde
 // each entry: name → { type: '1f' | '1i' | '2f', get: (state, ctx) => value }
 // where ctx provides any non-state values (e.g. sourceAspect from the loaded
 // image). returning a 2-element array for vec2 types is fine; gl.js spreads.
-export const COMMON_UNIFORMS = {
+const COMMON_UNIFORMS = {
   u_source:        { type: '1i', get: () => 0 /* texture unit 0 */ },
   u_formIndex:     { type: '1i', get: (state, ctx) => ctx.formIndex },
   u_segments:      { type: '1f', get: (state) => state.segments },

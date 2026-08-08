@@ -36,8 +36,10 @@ import { formZoomBounds } from '../engine/forms/index.js';
 // The CANVAS bounds are genuinely form-agnostic (canvasZoom means the same thing everywhere), so
 // they stay module constants. The SLICE overflow bounds are per-form — see formZoomBounds.
 export const Z_CANVAS_MIN = 0.05, Z_CANVAS_MAX = 4;
-// kept as the DEFAULTS a form inherits when it declares nothing (formZoomBounds owns that fallback)
-export const Z_SLICE_IN_FLOOR = 0.7, Z_SLICE_COVER = 3;
+// The per-form slice defaults used to be duplicated here, with a comment saying formZoomBounds
+// consulted them. It never did — it carried its own literals — so changing these changed nothing
+// and would have quietly misled the next person tuning zoom extents. They now live beside the
+// function that reads them (engine/forms/index.js: ZOOM_COVER_DEFAULT / ZOOM_IN_FLOOR_DEFAULT).
 
 export function applyUnifiedZoom(state, factor) {
   const { cover, inFloor } = formZoomBounds(state);
