@@ -1470,18 +1470,39 @@ const pipPresent = pipSurface.pass('present');
 // Threshold is on SOURCE megapixels because that is what the cost tracks — the thumbnail is
 // 238px either way; what the consume waits on is the pipeline behind it.
 const PIP_MAX_SOURCE_MP = 4;
+// Is the source too big for the monitor to survive a capture? Independent of whether one is
+// running — which is what lets us WARN before the fact instead of only explaining after it.
+function pipSourceTooBig() {
+  const d = engine.getSourceSize?.() || { w: 0, h: 0 };
+  if ((d.w * d.h) / 1e6 <= PIP_MAX_SOURCE_MP) return null;
+  return d.h >= 2000 || d.w >= 2000 ? '4K' : 'this resolution';
+}
+
 function pipStarveReason() {
   const capturing = recState === 'recording' || bcState === 'live';
   if (!capturing) return null;
-  const d = engine.getSourceSize?.() || { w: 0, h: 0 };
-  if ((d.w * d.h) / 1e6 <= PIP_MAX_SOURCE_MP) return null;
-  return `preview unavailable while capturing at ${d.h >= 2000 || d.w >= 2000 ? '4K' : 'this resolution'}`;
+  const label = pipSourceTooBig();
+  return label ? `preview unavailable while capturing at ${label}` : null;
 }
+
+// WARN BEFORE, NOT ONLY DURING (Daniel, B555). B543 shipped the starve and left the warning as a
+// filed intent; he selected 4K, started a take, and the monitor went dark with no forenotice —
+// "unexpected and potentially concerning". So while the source is too big and nothing is capturing
+// yet, the PiP stays LIVE (the rule is still capture-only) and carries a quiet caption saying what
+// will happen. The surprise was the problem, not the starving.
+function pipWarnLabel() {
+  if (recState === 'recording' || bcState === 'live') return null;
+  const label = pipSourceTooBig();
+  return label ? `monitor pauses during ${label} capture` : null;
+}
+
 // applied where the PiP's visibility is already managed, so it cannot drift out of step
 function syncPipStarve() {
   const reason = pipStarveReason();
   pipEl.classList.toggle('pip-starved', !!reason);
-  if (reason) $('m-pip-msg').textContent = reason;
+  const warn = reason ? null : pipWarnLabel();
+  pipEl.classList.toggle('pip-warn', !!warn);
+  if (reason || warn) $('m-pip-msg').textContent = reason || warn;
   return !!reason;
 }
 

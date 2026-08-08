@@ -854,10 +854,10 @@ function pipSection() {
     return c;
   }
 
-  function pip({ label, rec, starved }) {
-    return el('div', { class: `m-pip${starved ? ' pip-starved' : ''}`, style: SHIM }, [
+  function pip({ label, rec, starved, warn }) {
+    return el('div', { class: `m-pip${starved ? ' pip-starved' : ''}${warn ? ' pip-warn' : ''}`, style: SHIM }, [
       fauxCanvas(),
-      el('div', { class: 'm-pip-msg', text: 'preview unavailable while capturing at 4K' }),
+      el('div', { class: 'm-pip-msg', text: warn ? 'monitor pauses during 4K capture' : 'preview unavailable while capturing at 4K' }),
       el('span', { class: 'm-pip-label' }, [
         el('i', { class: `m-pip-dot${rec ? ' rec' : ''}` }),
         el('span', { text: label }),
@@ -875,12 +875,14 @@ function pipSection() {
     'The corner monitor in record-video mode. The big panel is the immediate PREVIEW; the PiP shows the followed OUTPUT — what is actually being recorded — and the two swap (labels follow). '
     + 'STARVED is a governor state, not an error: at a 4K source each PiP consume costs so much that ten per second saturate the frame budget (14 Pro: 11.0fps with the monitor at 10Hz vs 11.4 with it off), so at 4K the monitor cannot be rationed, only removed. '
     + 'The surface deliberately STAYS so the record/broadcast dot keeps its home and the explanation sits where the content was, instead of a toast that has to be caught. '
+    + 'WARNED is the state before that one (B555): while a 4K source is selected but nothing is capturing yet, the monitor stays LIVE and carries a quiet caption saying it will pause. Daniel hit the starve with no forenotice and called it "unexpected and potentially concerning" — the surprise was the problem, not the starving. '
     + 'Two gaps this surfaces. (1) The dot is one flat --danger for BOTH recording and broadcasting, so the two live states are indistinguishable at a glance — a disambiguation target. '
     + '(2) The component was styled entirely by ID (#m-pip, #m-pip-msg, #m-pip-dot), which made it impossible to specimen without copying its CSS. The visual rules now accept the class form too, from ONE declaration each, so these are the shipping styles rather than a duplicate that drifts. Only the corner/safe-area positioning stays id-scoped, since that is layout rather than treatment. Worth applying the same rule to any other id-styled component.', [
       el('div', { class: 'lab-cols' }, [
         cell('live · output', pip({ label: 'output' }), '10Hz on iOS — a monitor does not need program parity'),
         cell('live · recording', pip({ label: 'output', rec: true }), '#m-pip-dot.rec'),
         cell('live · swapped', pip({ label: 'preview' }), 'big panel becomes OUTPUT; labels trade places'),
+        cell('warned · 4K armed, not capturing', pip({ label: 'output', warn: true }), '.pip-warn — picture stays LIVE, caption over it'),
         cell('starved · 4K capture', pip({ label: 'output', rec: true, starved: true }), '.pip-starved — canvas visibility:hidden, #m-pip-msg shown'),
       ]),
     ]);

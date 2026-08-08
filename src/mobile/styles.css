@@ -321,3 +321,11 @@ html, body { margin: 0; padding: 0; height: 100%; background: var(--bg); color: 
    extend over the source the way every other menu surface does. Scoped to the open state so
    nothing changes about the resting layout or the canvas clip. */
 #m-output:has(> #m-canvas-pop:not(.m-hidden)) { z-index: 40; overflow: visible; }
+
+/* PRE-CAPTURE WARNING (B555): the monitor is still live, so the caption sits OVER the picture as
+   a quiet band rather than replacing it — the starved state is the one that hides the canvas. */
+#m-pip.pip-warn #m-pip-msg, .m-pip.pip-warn .m-pip-msg {
+  display: flex; align-items: flex-end; justify-content: center;
+  padding-bottom: 4px; background: linear-gradient(transparent, rgba(0,0,0,0.72));
+  font-size: 9px; line-height: 1.2; text-align: center;
+}

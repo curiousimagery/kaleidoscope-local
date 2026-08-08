@@ -6,60 +6,34 @@ Confirmed results are DELETED from here and recorded in CHANGELOG.
 
 ---
 
-# ▶ THIS SESSION — "does the take survive being long?"
+# ▶ THIS SESSION — "does the finish tell you what it's doing?"
 
-**Sync first:** `npm run build && npx cap sync ios`, rebuild from Xcode. **iPhone, ~15 minutes.**
+**Sync first:** `npm run build && npx cap sync ios`, rebuild from Xcode. **iPhone, ~8 minutes.**
 
 ## What we're trying to find out
 
-B553 changed how every take is written. Instead of building the whole file in memory and copying it, the muxer now streams it straight to disk. **The question is whether that fixed the long-take failures you've been hitting for months** — and, just as importantly, whether it broke anything about how takes play back.
+Streaming to disk is **proven and now on by default** — thank you, that gate is closed. Your `finalizeMarks` also settled a months-old question: a 3:28 4K take needs **33 seconds** of encoder flush, and the old deadline was 30. It was killing takes three seconds short of finishing.
 
-The one real risk is playback, not speed. Streaming forces the file's index (`moov`) to the END rather than the front. Everything I know says AVFoundation handles that fine for a local file, **but that is a claim I can't verify without your device**, and it's the kind of thing that would show up as "the take saves, then won't open."
+This session is short and mostly about whether things you *should* have seen are now visible.
 
-So: **short take first to prove nothing broke, then push it long.**
+The progress indicator you asked about wasn't a 4K-only thing — **it was broken for every take**. The session got thrown away one line before the finalize it belonged to even started, so the progress had nothing to read. Same bug meant the streamed part-file was never cleaned up. Fixed, but I need your eyes to confirm it.
 
 ## Steps
 
-Do these in one run, in order. Stop and tell me if any step fails — later steps assume the earlier ones passed.
-
-1. **Short FHD take, ~15 seconds.** Stop it, let it save. → **Open it in Photos and play it.** Does it open, play, scrub, and have sound?
-2. **Same take, check the report** (`copy report`). → paste it. I'm looking for `diskStreamed: true` and the `finalizeMs` / `finalizeMarks` line.
-3. **Now a long one: FHD, 3+ minutes.** Talk during it so there's audio to check. Stop, watch what the toast says while it finishes. → does it save, and does it open in Photos?
-4. **Report again** after that one. → paste it. `finalizeMarks` on a long take is the number we've never had.
-5. **Now the real target: 4K source, 3+ minutes.** (Take resolution will still be 1080 — see the note below; that's expected, not the bug.) → does it save?
-6. **If any take fails**, note what the toast said — it should now name the phase it stalled in rather than just giving up.
-7. **A/B it if something looks off:** panel → turn `record: stream to disk` **OFF** → repeat the failing case. That tells us instantly whether B553 caused it or fixed nothing.
-
-**While you're in there, two quick ones from the last build (10 seconds each):**
-
-8. **Landscape toast.** Record a short take *in landscape*, stop, and stay in landscape. → is the status toast visible now? It was rendering off-screen before, which is why finalize looked silent.
-9. **Canvas settings.** Open canvas settings over a live source. → does the popover float above the source panel instead of under it?
+1. **4K source selected, NOT recording yet.** Look at the PiP monitor. → is there a caption over the live picture saying the monitor pauses during 4K capture? (This is the forenotice you expected and I hadn't built.)
+2. **Start the take.** → does the PiP go to its starved state as before, with the rec dot still visible?
+3. **Record ~3 minutes at 4K, then stop. Watch the toast.** → does it now name a phase and show a **moving percentage**? Expect `encoding remaining frames… N%` for most of the wait — that's where ~97% of the finish goes.
+4. **Let it save, then `copy report`** → paste. Two things I want: `finalizeMarks` again, and — importantly — **the audio verdict should no longer accuse the muxer.** Last time it claimed a healthy 153MB take had no audio track; it should now say it couldn't verify a file that size rather than crying wolf.
+5. **Record a short FHD take and let it save.** → the audio verdict should read a plain `ok` with real track detail (that file is small enough to inspect).
 
 ## What counts as success
 
-- Takes open and play in Photos — that's the moov-at-end question answered.
-- A 3-minute take saves where it used to fail.
-- `diskStreamed: true` in the report.
-- The toast is legible in landscape.
+Step 3 showing a moving percentage, and step 4's verdict not raising a false alarm.
 
 ## What I can't see and need from you
 
-- **Whether the files actually open.** I have no way to test AVFoundation's tolerance for moov-at-end.
-- **`finalizeMarks` on a long take.** This is the first real data on where finalize spends its time; it's what would let me fix a genuine stall rather than guess.
-- **Whether the failures are gone or just moved.**
-
----
-
-## 📌 Note on the 4K labelling — not a test, a decision waiting on you
-
-The phone's "4K" control sets the **source** resolution; the take itself is capped at 1080/2048 and always has been (B295/B373). B553 removes the memory reason that cap couldn't move, so it's now a genuine choice:
-
-- **Implement 4K takes on the phone** — real work, and the encoder cost is unmeasured.
-- **Or relabel honestly** — call the control what it is (source resolution) and state the take resolution separately.
-
-Per your framing: the dishonest middle, a 4K setting that silently saves 1080p, is the one option ruled out. Cheap either way; I'd want your call before doing either.
-
----
+- **Whether the progress is actually legible during a long finish.** It's the moment the app is least responsive and most worrying.
+- **Whether the pre-capture warning reads right** — wording, placement, and whether it's reassuring rather than alarming. That's a judgement call, not a pass/fail.
 
 # 🅿️ PARKED — not this session
 

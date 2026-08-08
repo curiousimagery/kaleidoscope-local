@@ -142,6 +142,15 @@ export const perfFlags = {
   // fine, so takes should open normally in Photos; what moov-at-end breaks is progressive HTTP
   // streaming, which a saved take never does. If a take ever fails to open or scrub, turn this
   // OFF — that is the one symptom that would point here rather than at the encoder.
+  // ✅ PROVEN ON DEVICE B555 — default ON. Daniel's pass: a 22s take opens and plays with sound in
+  // Photos (the moov-at-end question, answered), a 2:48 FHD take produced a valid 108MB file, and a
+  // 3:28 4K-source take produced a valid 153MB file. The in-memory path stays one tap away.
+  //
+  // Previously (B554): DEFAULT OFF until it is proven on device. B553 shipped this ON and it cost Daniel a
+  // take: the moov was still in flight when the stream closed, so the file had no index at all and
+  // the iOS save sheet hung for two minutes on it. The await bug is fixed and the take is now
+  // validated before it reaches the OS — but an unproven change to how every take is WRITTEN does
+  // not get to be the default. Turn it ON deliberately to test; flip it back if anything is off.
   recordStreamToDisk: true,
 
   // PIPELINED (async) GPU→CPU readback for the broadcast bus (B519). OFF = the synchronous
@@ -171,6 +180,6 @@ export const PERF_FLAG_SPECS = [
   ['pipThrottle', 'PiP: 10Hz monitor', 'off = every frame (17fps vs 60 while recording)'],
   ['recordMediaRecorder', 'record: use MediaRecorder', 'on = the pre-B365 recorder — takes have SOUND, lower video quality'],
   ['renderElide', 'render: skip identical frames', 'off = render every rAF (2x the renders on a 30fps camera)'],
-  ['recordStreamToDisk', 'record: stream to disk', 'off = assemble the take in memory (the long-4K failure path)'],
+  ['recordStreamToDisk', 'record: stream to disk', 'off = assemble the take in memory (the pre-B553 path; peak RAM a multiple of the file)'],
   ['recordForceFlush', 'record: force sync rasterize', 'Blink-only by default; ON here if a WebKit take shows a stale frame'],
 ];

@@ -29,7 +29,7 @@
 // or high-resolution take never has to fit in RAM — see createDiskTarget. The in-memory
 // ArrayBufferTarget remains the fallback and is still what the offline exporter uses.
 
-import { Muxer, ArrayBufferTarget, FileSystemWritableFileStreamTarget } from 'mp4-muxer';
+import { Muxer, ArrayBufferTarget, StreamTarget } from 'mp4-muxer';
 import { pickVideoCodec, pickAudioCodec } from './encode.js';
 
 export function webCodecsRecordingSupported() {
@@ -221,14 +221,40 @@ async function createDiskTarget(prefix) {
         if (n.endsWith('.part') && h.kind === 'file') await root.removeEntry(n).catch(() => {});
       }
     } catch { /* entries() unsupported — skip the sweep, not the take */ }
+
     const name = `${prefix}-${Date.now()}.mp4.part`;
     const handle = await root.getFileHandle(name, { create: true });
     if (typeof handle.createWritable !== 'function') return null;
     const stream = await handle.createWritable();
+
+    // AWAIT THE WRITES (B554). mp4-muxer's own FileSystemWritableFileStreamTarget calls
+    // `stream.write(...)` and discards the promise, so when the synchronous `muxer.finalize()`
+    // returns, an unknown number of writes — INCLUDING THE MOOV, which `fastStart:false` puts
+    // last — are still in flight. B553 closed the stream immediately afterwards and Daniel got a
+    // 48MiB file (exactly 3× the muxer's 16MiB chunk size) containing the media and **no index at
+    // all**: `traks: 0`, no video track, no audio track. iOS then sat on it for two minutes trying
+    // to import a file with no moov.
+    //
+    // So drive StreamTarget directly and keep every write promise. `data.slice()` copies out of
+    // the muxer's reusable chunk buffer, because an un-awaited write must not race a buffer the
+    // muxer is entitled to overwrite.
+    const pending = [];
+    let writeError = null;
+    const target = new StreamTarget({
+      chunked: true,
+      onData: (data, position) => {
+        const p = Promise.resolve(stream.write({ type: 'write', data: data.slice(), position }))
+          .catch((e) => { writeError = writeError || e; });
+        pending.push(p);
+      },
+    });
+
     return {
-      target: new FileSystemWritableFileStreamTarget(stream),
+      target,
       // close the stream, then hand back the finished file WITHOUT reading it into memory
       async finish() {
+        await Promise.all(pending);            // the moov is in here
+        if (writeError) throw writeError;      // a lost write means a corrupt file — say so
         await stream.close();
         return handle.getFile();
       },
@@ -688,6 +714,16 @@ async function startWebCodecsSession({ w, h, audioTrack, onDone, onError, onProg
       // reading a streamed take back purely to count boxes would undo the streaming
       if (blob.size <= INSPECT_MAX_BYTES) container = inspectMp4Tracks(await blob.arrayBuffer());
       else container = { skipped: `not inspected — ${(blob.size / 1e6).toFixed(0)}MB streamed to disk`, bytes: blob.size };
+
+      // NEVER HAND THE OS A FILE WE HAVE NOT VALIDATED (B554). B553's indexless take went straight
+      // to the iOS save sheet, which sat on it for over two minutes trying to import an mp4 with no
+      // moov — a silent hang where a clear failure belonged. When we inspected the container and it
+      // has no video track we already KNOW the file is unusable; saying so costs nothing and turns
+      // a two-minute mystery into one sentence.
+      if (container && !container.skipped && !container.error && !container.hasVideoTrack) {
+        throw new Error(`the muxed file has no video track (${(blob.size / 1e6).toFixed(0)}MB, ${container.traks} tracks) — its index is missing, so it would not open`);
+      }
+
       step('saving', 0.97);
       onDone(blob, 'mp4');
       // DOMExceptions stringify to {} — extract the message so the console names it
@@ -707,7 +743,18 @@ async function startWebCodecsSession({ w, h, audioTrack, onDone, onError, onProg
             // the check that should have existed from the start: a full-length track of zeros
             // passes every count above and is inaudible
             : audioPeak < 1e-5 ? `SILENCE ENCODED — peak ${audioPeak}; WebAudio got no signal from a live track (suspect the native camera's audio session)`
-              : !container?.hasAudioTrack ? 'AUDIO ENCODED BUT NO soun TRACK IN THE FILE — the muxer dropped it'
+              // ORDER MATTERS: a container with NO tracks at all is not an audio bug. B553's
+              // indexless file reported "the muxer dropped the audio track" while in fact the whole
+              // moov was missing — a verdict that aimed the next build at the wrong half of the
+              // pipeline. Check the FILE before blaming one track inside it.
+              : (container && !container.skipped && !container.traks) ? `THE FILE HAS NO TRACKS AT ALL (${container.bytes} bytes) — the container index is missing; this is not an audio fault`
+                // A SKIPPED INSPECTION IS NOT EVIDENCE OF ANYTHING (B555). The size gate leaves
+                // `hasAudioTrack` undefined, which read as false and fired this alarm on Daniel's
+                // 153MB take — a take that in fact had perfectly good audio. Crying wolf on a
+                // healthy file is worse than staying quiet: the whole point of these verdicts is
+                // that they are trustworthy enough to act on.
+                : container?.skipped ? `ok (encoded ${audioChunks} chunks, peak ${+audioPeak.toFixed(3)} — file too large to verify: ${container.skipped})`
+                  : !container?.hasAudioTrack ? "AUDIO ENCODED BUT THE FILE HAS NO AUDIO ('soun') TRACK — the muxer dropped it"
                 // real audio, real track, and no AudioSpecificConfig to decode it with
                 : (/^mp4a/.test(acfg.codec) && !audioDescBytes) ? 'AAC WITHOUT AudioSpecificConfig — the soun track exists but cannot be decoded (silent playback)'
                   : (audioDescLooksLikeEsds && !audioAsc) ? `ES_DESCRIPTOR THAT WOULD NOT UNWRAP (${audioDescBytes}B, ${audioDescHex}) — no AudioSpecificConfig to give the muxer`
@@ -895,17 +942,18 @@ function startMediaRecorderSession({ w, h, audioTrack, onDone, onError }) {
 // when the take was lost — so the UI can stop pretending silence is success.
 export function createRecorderSink({ filenamePrefix = 'fold-live', save = null, engine = 'auto', streamToDisk = true } = {}) {
   let session = null;
+  let finishing = null;    // the session while its finalize is in flight — see stop()
   let recording = false;
   let lastResult = null;
 
   // Live finalize progress, polled by the chrome. `null` when no finalize is in flight.
-  const progressOf = () => (session && 'progress' in session ? session.progress : null);
+  const progressOf = () => { const s = finishing || session; return s && 'progress' in s ? s.progress : null; };
 
   const saveTake = (blob, ext) => {
     const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
     const name = `${filenamePrefix}-${stamp}.${ext}`;
     console.info(`[conduit] take finalized: ${(blob.size / 1e6).toFixed(1)} MB → ${name}`);
-    const done = () => { session?.cleanupFile?.(); };   // the streamed part-file has served its purpose
+    const done = () => { const s = finishing; finishing = null; s?.cleanupFile?.(); };   // the part-file has served its purpose
     Promise.resolve((save || downloadBlob)(blob, name)).then(
       () => { lastResult = { ok: true, name, bytes: blob.size }; done(); },
       (e) => {
@@ -960,11 +1008,18 @@ export function createRecorderSink({ filenamePrefix = 'fold-live', save = null, 
 
     // end the session → the active engine flushes/finalizes → the file saves
     // through the host-aware path.
+    //
+    // The session is moved to `finishing`, NOT dropped (B555). It used to be nulled here, one line
+    // before the finalize it belongs to even starts — so for the whole duration of the flush there
+    // was no session to ask, which silently disabled two things that both looked like separate
+    // bugs: the finalize progress the panel polls (`progress` read null the entire time, so the
+    // toast never showed a phase or a percentage), and the streamed part-file's cleanup, which
+    // hangs off the same reference. It survives until the save settles.
     stop() {
       recording = false;
-      const s = session;
+      finishing = session;
       session = null;
-      s?.stop();
+      finishing?.stop();
     },
   };
 }

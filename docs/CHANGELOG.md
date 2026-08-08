@@ -4,6 +4,53 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## ✅ v0.23.2 (Build 555) — 2026-08-08 — Streaming is proven; the 30-second cliff is confirmed; three follow-on bugs fixed
+
+**The gate is cleared.** Daniel's pass: a 22s streamed take opens and plays with sound in Photos, a **2:48 FHD** take produced a valid 108MB file, and a **3:28 4K-source** take produced a valid 153MB file with audio. The moov-at-end question is answered — AVFoundation reads them fine. `record: stream to disk` now defaults **ON**; the in-memory path stays one tap away.
+
+### The finalize numbers confirm B550's diagnosis exactly
+
+`finalizeMarks` is the data we have never had, and it is unambiguous:
+
+| take | finalize | of which, encoder flush |
+|---|---|---|
+| 22s FHD | 278ms | 167ms |
+| 2:48 FHD | 8,390ms | 8,158ms |
+| 3:28 4K source | **33,121ms** | **32,693ms** |
+
+**The old fixed deadline was 30 seconds.** A 3.5-minute 4K-source take needs ~33 seconds of encoder drain — so it was being killed roughly three seconds short of finishing, every time. That is "4K takes fail more often than not", measured. The flush is ~97% of finalize in every case; nothing else in the finish is worth optimising until that is.
+
+### Three bugs this pass surfaced
+
+**1. The finalize progress never showed — and it was never going to.** `stop()` nulled the session one line before the finalize it belongs to even began, so `progress` read null for the entire flush. B550's phases and percentage were correct and unreachable. The same reference also owns the streamed part-file's cleanup, so **that never ran either** — one root cause wearing two disguises. The session now moves to `finishing` and survives until the save settles.
+
+**2. We cried wolf on a healthy take.** The 153MB take reported `AUDIO ENCODED BUT THE FILE HAS NO AUDIO ('soun') TRACK` — on a file Daniel confirmed has perfectly good audio. Container inspection is size-gated, which leaves `hasAudioTrack` undefined, which read as false. **A skipped inspection is not evidence of anything.** It now says so plainly instead of accusing the muxer. A verdict that fires on a good file is worse than no verdict; these are only worth having if they can be acted on.
+
+**3. The PiP now warns BEFORE the capture, not during it.** B543 shipped the starve and left the warning as a filed intent, so Daniel selected 4K, started a take, and the monitor went dark with no forenotice — "unexpected and potentially concerning". While the source is too big and nothing is capturing yet, the monitor stays **live** and carries a quiet caption saying it will pause. The rule is unchanged; the surprise was the problem, not the starving. New `pip-warn` state is in the UI Lab alongside the others.
+
+### Noted, not fixed
+
+Quality degrades under heavy manipulation (grain/pixelation rather than dropped frames) — bitrate starvation at ~7Mbps for a 1080² take, expected, filed. `pressure` still reads `critical`/`serious` on takes that are behaving correctly, because it assumes a 60fps target.
+
+## 🩹 v0.23.1 (Build 554) — 2026-08-07 — B553 lost a take; here is why, and the guard so it can't happen quietly
+
+**B553 shipped a bug and it cost Daniel a take.** The report named it precisely: a **48 MiB** file — exactly 3× the muxer's 16 MiB chunk size — with `traks: 0`, no video track, no audio track. All the media, no index. iOS then sat on the save sheet for over two minutes trying to import an mp4 with no `moov`.
+
+**Cause: un-awaited writes.** mp4-muxer's own `FileSystemWritableFileStreamTarget` calls `stream.write(...)` and discards the returned promise. `muxer.finalize()` is synchronous, so when it returns, an unknown number of writes are still in flight — **including the moov, which `fastStart:false` puts last**. B553 closed the stream immediately after, and everything still queued was lost. The file size landing on an exact chunk boundary is the fingerprint: whole chunks made it, the tail did not.
+
+Fixed by driving `StreamTarget` directly, keeping every write promise, and awaiting them all before `close()`. Data is copied out of the muxer's reusable chunk buffer, because an un-awaited write must never race a buffer the muxer is entitled to overwrite.
+
+### Two guards, because the failure was quiet in two separate ways
+
+- **Never hand the OS a file we have not validated.** We already inspect the container; if it has no video track we *know* the file is unusable. It now fails with a sentence instead of handing iOS something that hangs for two minutes.
+- **The verdict was blaming the wrong half of the pipeline.** It read `AUDIO ENCODED BUT NO soun TRACK — the muxer dropped it`, on a file that had **no tracks at all**. That would have aimed the next build straight at the audio chain — the same chase that cost ten builds last time. A container with zero tracks is now reported as exactly that, checked *before* any audio-specific verdict. Also reworded so `soun` reads as the MP4 handler it is rather than a typo (Daniel flagged it).
+
+### Defaulting OFF
+
+`record: stream to disk` now defaults **false**. The await bug is fixed and takes are validated, but an unproven change to how every take is *written* does not get to be the default — especially one that has already lost a take. It is one tap in the switchboard to test deliberately.
+
+**Confirmed working from Daniel's pass:** the landscape toast is visible, and the iPhone aspect issue is corrected.
+
 ## 💾 v0.23.0 (Build 553) — 2026-08-07 — The take streams to disk
 
 **The take is no longer assembled in RAM.** `ArrayBufferTarget` + `fastStart:'in-memory'` held every encoded chunk until finalize, materialised one contiguous ArrayBuffer, then `new Blob([buf])` copied it *again* — peak footprint a multiple of the finished file. Fine for the 21MB/26s FHD takes we measured; the prime suspect for the long-4K failures Daniel has hit for months.
