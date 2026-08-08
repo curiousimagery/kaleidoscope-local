@@ -113,7 +113,17 @@ Three items that were sitting in HANDOFF's stale half. Each was described there 
 - **✅ Quality — FIXED B558, confirmed by ear.** Voice-processing (echo cancellation / noise suppression / AGC) was ON for every mic. On iOS those flags also select the **voice-processing audio unit**, a different input path with its own resampling. That is the quality gap against Apple's Camera app.
 - **👁 WATCHED: drift on a long take.** B559 numbers on 5:06 at 4K: `videoSpanSec 305.5` vs `audioSpanSec 305.9` (0.13%, and a tail offset is expected since audio keeps flushing past the last video frame), `secondsIn 305.9` / `secondsOut 306` so the encoder lost nothing, `captureLatencyMs 73-113` so the stamp was stable within two frames. **Symptom to watch:** audible lip-sync error growing toward the end of a take. **What it would mean:** the voice-processing unit was not the cause and samples are being lost under main-thread saturation. **First read:** the same four numbers — a `videoSpan`/`audioSpan` gap beyond ~1% is the tell.
 - **👁 WATCHED: occasional static.** Not present in either B558/B559 take. Same suspected mechanism, same first read.
-### 🎚️ WE REMOVED THE LEVEL CONTROL AND DID NOT REPLACE IT (Daniel, B559) — needs a product call
+### 🎚️ THE GAIN STAGE — SHIPPED B560, needs device verification
+
+**Built:** one-time calibrated trim (loudest 800ms at arm time, clamped 1x-8x, never ridden afterwards) into a limiter (-1.5dB, ratio 20), on both the recorder's mic tap and the level meter so the two agree. `micGain` / `micRawPeak` in the report.
+
+**Verify on iPad:** the meter should now move meaningfully when you speak, and the take should come back at a usable level. **Then `copy report` after the take** — `micRawPeak` says what the mic actually delivered and `micGain` says what we did about it. That pair still answers the open question underneath this: whether the iPad's quietness is mic SENSITIVITY (expected: low `micRawPeak`, high `micGain`) or mic SELECTION (a far-field element being chosen), which the trim compensates for but does not fix. Compare `trackState.label` across takes — Daniel's middle take was louder with more background noise, which fits a different element rather than a different gain.
+
+**Deliberately NOT built:** a manual input-gain control. The auto-trim should make it unnecessary for the common case, and adding a knob before knowing whether one is needed is the wrong order. If calibration ever picks a bad number in the field, that is the signal to expose it.
+
+**[LOW] Two mic paths still acquire separately** — the meter opens its own `getUserMedia` alongside the take's. That predates this work and is why the calibration had to be written twice with shared constants rather than shared code. Worth unifying when the audio path is next opened; not worth a dedicated pass.
+
+### 🎚️ [HISTORICAL — fixed B560] WE REMOVED THE LEVEL CONTROL AND DID NOT REPLACE IT (Daniel, B559)
 
 B558 disabled AGC because it was audibly wrong for a recording. That was right, and it was only half the job: **AGC was also the only thing managing level anywhere in the app.** Both halves of the consequence showed up in the same test round, on two devices, in opposite directions:
 

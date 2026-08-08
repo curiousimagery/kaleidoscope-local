@@ -192,7 +192,40 @@ export function createOutputPanel(env, outputBus) {
     // WKWebView creates AudioContexts SUSPENDED — without the resume the analysers
     // read flat zero and the bars never move (Daniel's iPad pass)
     try { meterCtx.resume?.(); } catch { /* already running */ }
-    const src = meterCtx.createMediaStreamSource(stream);
+    const rawSrc = meterCtx.createMediaStreamSource(stream);
+    // THE METER MUST SHOW WHAT WILL BE RECORDED (B560). Daniel read a near-dead meter on the iPad
+    // and correctly predicted a quiet take. Now that the recorder trims and limits (see
+    // recorder.js `startMicTap`), a meter on the RAW input would say "almost nothing" about a take
+    // that comes back at a healthy level — an instrument that disagrees with the thing it measures
+    // is worse than no instrument. Same chain, same constants, so what you see is what you get.
+    const meterTrim = new GainNode(meterCtx, { gain: 1 });
+    const meterLimiter = new DynamicsCompressorNode(meterCtx, {
+      threshold: -1.5, knee: 0, ratio: 20, attack: 0.003, release: 0.25,
+    });
+    rawSrc.connect(meterTrim); meterTrim.connect(meterLimiter);
+    const src = meterLimiter;
+    // one-time calibration off the RAW source, mirroring the recorder's: loudest 800ms window,
+    // clamped 1x..8x, never ridden afterwards
+    {
+      const cal = new AnalyserNode(meterCtx, { fftSize: 2048 });
+      rawSrc.connect(cal);
+      const cbuf = new Float32Array(cal.fftSize);
+      let rawPeak = 0;
+      const t0 = performance.now();
+      const step = () => {
+        if (!meterStream) { try { rawSrc.disconnect(cal); } catch {} return; }
+        cal.getFloatTimeDomainData(cbuf);
+        for (let i = 0; i < cbuf.length; i += 4) { const v = Math.abs(cbuf[i]); if (v > rawPeak) rawPeak = v; }
+        if (performance.now() - t0 < 800) { setTimeout(step, 50); return; }
+        if (rawPeak > 0.005) {
+          const g = Math.min(8, Math.max(1, 0.5 / rawPeak));
+          try { meterTrim.gain.setTargetAtTime(g, meterCtx.currentTime, 0.05); }
+          catch { meterTrim.gain.value = g; }
+        }
+        try { rawSrc.disconnect(cal); } catch { /* already down */ }
+      };
+      setTimeout(step, 50);
+    }
     const stereo = (stream.getAudioTracks()[0]?.getSettings?.().channelCount || 1) >= 2;
     const anL = meterCtx.createAnalyser(); anL.fftSize = 512;
     const anR = meterCtx.createAnalyser(); anR.fftSize = 512;

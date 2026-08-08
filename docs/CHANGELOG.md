@@ -4,6 +4,32 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🎚️ v0.23.7 (Build 560) — 2026-08-08 — The gain stage B558 owed
+
+B558 disabled echo cancellation, noise suppression and AGC because they are audibly wrong for a recording. That was right, and it was **half the job: AGC was also the only thing managing level anywhere in the app.** Both halves of the consequence turned up in one test round, on two devices, pointing in opposite directions — an iPhone `peak` of **2.82** (about 9dB over full scale, with nothing preventing clipping) and an iPad take Daniel described as sounding like "a master gain tuned way down".
+
+One cause, so one fix, and it is ours to build rather than a reason to revert.
+
+**Trim, then limit** — in that order, because the limiter has to see the boosted signal:
+
+```
+src → trim (GainNode) → limiter (DynamicsCompressor) → worklet tap → encoder
+```
+
+**The trim is measured once, not ridden.** That distinction is the entire design. Browser AGC pumps within a syllable, which is exactly what made takes sound processed; this samples the input for ~800ms while the mic arms, picks one number, and does not touch it again for the rest of the take. Nothing moves while you talk. It is a trim knob we happen to set for you.
+
+Calibration is deliberately conservative: the loudest 800ms window (so a pause cannot drive gain to the ceiling), clamped **1x-8x** so it never attenuates and never amplifies a dead room into a noise floor, and a 0.005 floor below which it declines to guess. A signal already at a healthy level gets exactly 1x, **so the iPhone is unaffected.** Measured off a separate analyser on the raw source, so the measurement can never be influenced by the trim it is setting.
+
+The limiter is pure safety and stays regardless: threshold just under full scale, ratio 20, 3ms attack, 250ms release, knee 0 so there is no gradual squeeze on ordinary material.
+
+### The meter now shows what will be recorded
+
+Daniel read a near-dead meter on the iPad and correctly predicted a quiet take. With the recorder trimming, a meter on the raw input would say "almost nothing" about a take that comes back healthy. **An instrument that disagrees with the thing it measures is worse than no instrument** — so the meter runs the same chain with the same constants.
+
+### And it says what it did
+
+`micGain` and `micRawPeak` ride the report beside `peak`. Together they separate three cases the encoded peak alone cannot: a quiet ROOM, a quiet MIC, and our trim failing to engage.
+
 ## 📐 v0.23.6 (Build 559) — 2026-08-08 — Pressure learns what rate we were aiming for, and the external view gets a voice
 
 Five fixable items off the list, chosen so none of them contaminates the desktop/iPad regression pass that is still outstanding.

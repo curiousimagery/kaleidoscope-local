@@ -14,13 +14,39 @@ Confirmed results are DELETED from here and recorded in CHANGELOG.
 
 **Two findings came out of it**, both filed in BACKLOG, neither a regression from B553-B559: iPad take audio is very quiet (the missing gain stage), and the `elideElementUploads` A/B was unmeasurable as I wrote it (see the entry — my instruction was wrong, and the desktop claim is withdrawn).
 
-# ▶ NEXT SESSION — to be chosen with Daniel
+# ▶ THIS SESSION — "does the mic sound right now, and what is the iPad's mic actually doing?"
 
-Three candidates, all ready. Named here rather than written out, so the one that gets written is the one Daniel wants:
+**iPad first (where the problem was), then one iPhone check.** `npm run build && npx cap sync ios`, Xcode rebuild. **~10 minutes.**
 
-1. **The sustained-capture run** — the arc's last unmet goal, and it also gets the first device reading of B542's `renderElide`.
-2. **The iPad mic** — one `copy report` after an iPad take, which decides mic SELECTION vs SENSITIVITY before any gain stage is designed. Ten minutes, and it unblocks a product call.
-3. **The input-mapping cluster** — controller/MIDI across forms, joystick 45° offset, gesture/joystick handoff, droste zoom leak. This is a BUILD pass with verification attached, not a pure test session.
+## What we're trying to find out
+
+B560 added the gain stage B558 owed: a trim measured once while the mic arms, into a limiter. Two questions, and the second one outlives the first.
+
+## Steps — iPad
+
+1. **Enable the mic and watch the meter.** → does it now move meaningfully when you speak, instead of barely registering? (The meter runs the same chain as the recorder, so what you see is what the take gets.)
+2. **Record a short take (~30s), talking normally. Save and play it back.** → is it at a usable level? Does it sound natural, or does it breathe/pump the way the old AGC did? **Pumping is the failure mode to listen for** — the trim is set once and frozen, so it should not.
+3. **`copy report`** → paste. `micRawPeak`, `micGain`, `peak` and `trackState.label`.
+4. **If you can, one more take with the iPad oriented differently or from further away** — different `trackState.label` across takes would mean iOS is switching mic ELEMENTS, which the trim compensates for but does not fix.
+
+## Steps — iPhone
+
+5. **One short take, talking normally.** → unchanged from B559? It should be: a healthy input calibrates to exactly 1x. **`copy report`** and confirm `micGain` is 1 and `peak` is now at or under 1.0 rather than 2.82.
+
+## What counts as success
+
+Meter moves, iPad take is usable, iPhone take is unchanged, and nothing pumps.
+
+## What I can't see and need from you
+
+- **Whether it pumps.** No number will tell me this; the whole design rests on it not happening.
+- **`micRawPeak` + `micGain` + `trackState.label` from the iPad.** This is the pair that finally separates a quiet MIC from a quiet ROOM from the wrong mic being SELECTED — the question the trim papers over rather than answers.
+
+# 🅿️ NEXT UP after this — pick one
+
+1. **The sustained-capture run** — exit criterion #5, the arc's last unmet goal, and the first device reading of B542's `renderElide`.
+2. **The combos audit** (exit criteria #1 + #2) — mostly decisions now, not measurements: relabel the source-vs-take controls honestly and gate the combinations we have already measured as undeliverable.
+3. **The input-mapping cluster** — controller/MIDI across forms, joystick 45° offset, gesture/joystick handoff, droste zoom leak. A BUILD pass with verification attached, not a test session.
 
 # 🅿️ PARKED — not this session
 

@@ -295,6 +295,40 @@ export function primeRecordingAudio() {
   return sharedCtx;
 }
 
+// THE GAIN STAGE WE OWED (B560).
+//
+// B558 disabled echo cancellation, noise suppression and AGC because they are audibly wrong for a
+// recording. That was right and it was half the job: **AGC was also the only thing managing LEVEL
+// anywhere in the app.** Removing it produced opposite failures on the two devices in the same
+// test round — an iPhone `peak` of 2.82 (about 9dB over full scale, nothing preventing clipping)
+// and an iPad so quiet Daniel described it as "a master gain tuned way down".
+//
+// One cause, so one fix, and it is ours to build rather than a reason to revert.
+//
+// TRIM, THEN LIMIT — in that order, because the limiter has to see the boosted signal:
+//
+//   src → trim (GainNode) → limiter (DynamicsCompressor) → worklet tap → encoder
+//
+// THE TRIM IS MEASURED ONCE, NOT RIDDEN. That distinction is the whole design. Browser AGC pumps
+// within a syllable, which is what made takes sound processed; this samples the input for ~800ms
+// while the mic arms, picks one number, and then does not touch it for the rest of the take. No
+// breathing, no ducking, nothing that moves while you talk. It is a trim knob we happen to set for
+// you, and the number rides the report so it is never a mystery.
+//
+// The calibration is deliberately conservative:
+//   - it uses the loudest 800ms window it sees, so a pause cannot drive the gain to the ceiling;
+//   - it is CLAMPED to 1x..8x — never attenuates (the limiter's job) and never amplifies a dead
+//     room into a noise floor;
+//   - a signal already at a healthy level gets exactly 1x, so the iPhone is unaffected.
+//
+// The limiter is pure safety and stays regardless: threshold just under full scale, high ratio,
+// fast attack. It only acts on material that would otherwise clip, which is what makes it
+// inaudible on everything else.
+const MIC_CALIBRATE_MS = 800;
+const MIC_TARGET_PEAK = 0.5;    // where we would like typical speech to land
+const MIC_MAX_GAIN = 8;
+const MIC_MIN_GAIN = 1;         // never attenuate here — that is the limiter's job
+
 async function startMicTap(track, onData) {
   const ctx = primeRecordingAudio();
   if (!ctx) throw new Error('AudioContext unavailable');
@@ -308,15 +342,50 @@ async function startMicTap(track, onData) {
     }
     await sharedWorkletReady;
     const src = ctx.createMediaStreamSource(new MediaStream([track]));
+    const trim = new GainNode(ctx, { gain: 1 });
+    // threshold/ratio chosen to be a LIMITER rather than a compressor: it should do nothing at all
+    // until the signal is about to clip, then hold it. knee 0 so there is no gradual squeeze on
+    // ordinary material, and a 250ms release so recovery is slow enough not to pump.
+    const limiter = new DynamicsCompressorNode(ctx, {
+      threshold: -1.5, knee: 0, ratio: 20, attack: 0.003, release: 0.25,
+    });
     const node = new AudioWorkletNode(ctx, 'conduit-mic-tap', { numberOfInputs: 1, numberOfOutputs: 0 });
     node.port.onmessage = (e) => onData(e.data);
-    src.connect(node);
+    src.connect(trim); trim.connect(limiter); limiter.connect(node);
+
+    // Calibrate off a SEPARATE analyser on the raw source, so the measurement can never be
+    // influenced by the trim it is setting.
+    const probe = new AnalyserNode(ctx, { fftSize: 2048 });
+    src.connect(probe);
+    let calibratedGain = 1, rawPeak = 0, calTimer = 0;
+    const buf = new Float32Array(probe.fftSize);
+    const t0 = (globalThis.performance?.now?.() ?? Date.now());
+    const sample = () => {
+      probe.getFloatTimeDomainData(buf);
+      for (let i = 0; i < buf.length; i += 4) { const v = buf[i] < 0 ? -buf[i] : buf[i]; if (v > rawPeak) rawPeak = v; }
+      if ((globalThis.performance?.now?.() ?? Date.now()) - t0 < MIC_CALIBRATE_MS) { calTimer = setTimeout(sample, 50); return; }
+      // A floor on the denominator: below this the room is effectively silent and any ratio we
+      // compute is noise being amplified, so we leave the trim alone rather than guess.
+      if (rawPeak > 0.005) {
+        calibratedGain = Math.min(MIC_MAX_GAIN, Math.max(MIC_MIN_GAIN, MIC_TARGET_PEAK / rawPeak));
+        // ramp rather than step: an instant gain change at the top of a take is an audible click
+        try { trim.gain.setTargetAtTime(calibratedGain, ctx.currentTime, 0.05); }
+        catch { trim.gain.value = calibratedGain; }
+      }
+      try { src.disconnect(probe); } catch { /* already down */ }
+      calTimer = 0;
+    };
+    calTimer = setTimeout(sample, 50);
+
     return {
       sampleRate: ctx.sampleRate,
+      get gain() { return calibratedGain; },
+      get rawPeak() { return rawPeak; },
       async stop() {
+        if (calTimer) { clearTimeout(calTimer); calTimer = 0; try { src.disconnect(probe); } catch {} }
         try { node.port.postMessage('flush'); } catch { /* port gone */ }
         await new Promise((r) => setTimeout(r, 80));   // let the flush round-trip
-        try { src.disconnect(); node.disconnect(); } catch { /* already down */ }
+        try { src.disconnect(); trim.disconnect(); limiter.disconnect(); node.disconnect(); } catch { /* already down */ }
         // the context is SHARED across takes now and deliberately outlives this one: closing it
         // would mean the next take has to win a user gesture all over again, which is the bug.
       },
@@ -816,7 +885,13 @@ async function startWebCodecsSession({ w, h, audioTrack, onDone, onError, onProg
       // which a raw chunk count cannot show
       secondsIn: rate ? +(audioFramesIn / rate).toFixed(1) : null,
       secondsOut: rate ? +((audioChunks * 1024) / rate).toFixed(1) : null,
+      // `peak` is measured AFTER the trim and limiter, so it describes what was encoded.
+      // `micRawPeak` is what the microphone actually delivered and `micGain` is what we did about
+      // it — together they say whether a quiet take is a quiet ROOM, a quiet MIC, or our trim
+      // failing to engage, which the encoded peak alone cannot distinguish (B560).
       peak: +audioPeak.toFixed(5),
+      micGain: mic?.gain ? +mic.gain.toFixed(2) : null,
+      micRawPeak: mic?.rawPeak != null ? +mic.rawPeak.toFixed(5) : null,
       silentBatches: audioSilentBatches,
       descBytes: audioDescBytes,
       descHex: audioDescHex,

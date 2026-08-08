@@ -44,6 +44,18 @@ This is a living doc. It exists because the thermal arc (B512-B529) turned "it s
 
 ---
 
+## 0. THE ARC'S EXIT CRITERIA (Daniel, B560)
+
+Recorded verbatim in substance, because the risk in this arc is chasing each next finding and losing why we started. **These five are the definition of done.**
+
+1. **Every option we offer is functional in the context we offer it in.** No 4K record while broadcasting over HDMI if the device cannot sustain both; no FHD 60 on iPhone if we know it collapses. Per device, only supported combinations.
+2. **Every label is honest.** See §2.5 — the known liars, and which are confirmed.
+3. **Capabilities are detected per device and the offer changes accordingly.** A 14 Pro is not a 17 Pro. Pressure-test the cases we intend to support: iPad performing a long 4K clip while broadcasting 4K over HDMI. **Get an honest read on NDI** too, and decide whether gains remain.
+4. **Instrumentation is documented and functional** — we can say what costs the most, per device, per context, well enough to optimize toward sustained multi-hour broadcast and real 4K mobile capture. Shipping those two is optional in this arc; **laying the foundation to get there is not.**
+5. **We can honestly rank how intensive each thing we do is.** A phone app that gets hot and eats the battery in ten minutes is not shippable. Identify the costly functions and weigh them, so guardrails (auto-idle after inactivity, "connect external power for this", degraded tiers) can be placed deliberately. **Building every guardrail is not required; the MAP of where they are needed is.**
+
+**What this changes about how to work the remaining items:** any finding that does not advance one of these five is a rabbit trail, however interesting. Note that #4 and #5 are the ones with real work left; #1 and #2 are mostly *decisions* now that the measurements exist.
+
 ## 1. The governing principle: probe, never classify
 
 **Do not gate features on device model, chip generation, or any static profile.** The measurements say this plainly:
@@ -89,6 +101,19 @@ So a specific graphics operation got *worse* on newer hardware or its driver. An
 - **Perform mode and Motion mode under load.** Every reading in the arc is record-video.
 
 ---
+
+## 2.5 THE LIARS — every label we know to be dishonest (audited B560)
+
+Exit criterion #2. Ranked by how badly the label misleads.
+
+- **🔴 CONFIRMED — the phone's "4K" record setting selects the SOURCE, not the take.** `sizeOutput()` lifts the short side *to* 1080 and hard-caps the long side at 2048. Daniel selected 4K and got a 1080p file on both lenses. Original behaviour (B295/B373), not a regression. Product call in BACKLOG.
+- **🔴 NEAR-CERTAIN, same shape, found B560 by code reading — the phone's frame-rate selector also describes the CAMERA, not the take.** `safeFps()` offers 60 whenever the *camera* supports it and it fits the device's peak throughput; it is a camera-capability gate with **no knowledge of the app's pipeline**. Meanwhile the encoder is hardcoded (`recorder.js`: `framerate: 30`, muxer `frameRate: 30`). So "60fps" sits in the record UI next to "4K", and both describe the source. Worse for criterion #1: **we measured FHD 60 with the PiP on at 8.4fps.** We offer it anyway. *Not device-confirmed — the muxer metadata is certainly 30; what a 60fps take actually contains has never been inspected.*
+- **🟠 SUSPECTED, unverified — the HDMI resolution we claim vs the mode the panel is in.** We pick the largest advertised mode, and B506 noted a panel reporting `preferred`/`nativeBounds` of 2560×1440 while we render 3840. If that holds, "4K over HDMI" is both a mislabel and wasted fill rate. **One reading settles it:** compare the `external` row's `w`/`h` against the display's actual mode.
+- **🟡 BENIGN, filed LOW — the save-resolution hint under-reports** ("sharp output up to ~XK"). It ignores canvas aspect and may under-count tile repeats. It errs toward *under*-promising, which is the safe direction, so it is a inaccuracy rather than a lie.
+- **✅ FIXED B559 — `pressure` was lying in both directions**, reporting `critical` on a correct 30fps take and `nominal` on a device running at 13.3fps. Now floored at a declared target, with `shortfall` carrying the absolute gap.
+- **✅ FIXED B549/B551 — the app reported 46fps while HDMI ran at 10**, and the iPhone `external` row read 0×0 on every build ever shipped.
+
+**The pattern worth naming:** three of these are the same mistake — **a control that names a SOURCE property while sitting in an OUTPUT context.** Resolution, frame rate, and (probably) HDMI mode. That is a UI-copy problem with a one-line honest fix (say "source" on the label, state the take's real spec separately) and a much larger honest fix (actually deliver what the label claims). Daniel's standing rule applies: the dishonest middle is the only option ruled out.
 
 ## 3. What the instrument still cannot see
 
