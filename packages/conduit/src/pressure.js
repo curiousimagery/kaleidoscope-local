@@ -35,12 +35,49 @@ const NATIVE_LEVELS = { nominal: 0, fair: 0.33, serious: 0.7, critical: 1 };
 const FULL_DRIFT = 1.0;
 const WARM_WINDOWS = 5;
 
-export function createPressureSource({ native = null } = {}) {
+// THE TARGET RATE, and why drift alone was not enough (B559).
+//
+// Pressure answers "is this device getting slower at the thing it is already doing". That is the
+// right question for thermal, and it is the WRONG question twice over on its own:
+//
+//   FALSE ALARM — a 30fps take on a device that idled at 60 doubles p50 by DESIGN. Nothing is
+//   wrong; we asked for half the frames. Without a declared target, that reads as 100% drift, and
+//   B551's device pass duly reported `critical` on a take running at a correct 31.7fps.
+//
+//   FALSE ALL-CLEAR — a device that is throttled for the WHOLE window learns its baseline from
+//   throttled frames, so drift is zero and it reads `nominal`. Daniel's B558 report caught this
+//   exactly: 13.3fps on a live 4K camera immediately after a long take, pressure 0.14 `nominal`.
+//
+// Both are fixed by knowing how many frames we were actually trying to produce:
+//   - the drift reference is FLOORED at the target frame time, so hitting the target is never drift;
+//   - `shortfall` reports the absolute gap to target, which is the capability signal drift cannot be.
+//
+// They are deliberately two numbers. Pressure is "getting worse"; shortfall is "not good enough".
+// A device that is honestly too slow should read high shortfall and zero pressure, and a governor
+// wants to respond to those differently: shed work for shortfall, back off for pressure.
+//
+// `target` is 0 (unknown) until a shell declares one — never inferred from the display rate,
+// because "renders per second" and "distinct frames per second" stopped being the same number
+// once B542 began eliding identical renders.
+
+export function createPressureSource({ native = null, target = 0 } = {}) {
   let baseline = 0;         // best sustained frame time seen (ms) FOR THE CURRENT WORKLOAD
   let windows = 0;
   let inferred = 0;
   let lastP50 = 0;
   let workload = null;      // what the app was doing when the baseline was learned
+  // `target` may be a number or a resolver. The resolver form exists for shells whose render is
+  // on-demand rather than a continuous loop (main.js schedules renders; it has no tick to push
+  // from), so the ledger's own window pulls it instead.
+  const targetFn = typeof target === 'function' ? target : null;
+  let targetFps = !targetFn && target > 0 ? target : 0;
+
+  function applyTarget(fps) {
+    const next = fps > 0 ? fps : 0;
+    if (next === targetFps) return;
+    targetFps = next;
+    baseline = 0; windows = 0; inferred = 0;
+  }
 
   function nativeValue() {
     if (!native) return null;
@@ -69,6 +106,7 @@ export function createPressureSource({ native = null } = {}) {
     note(p50, workloadKey = 0) {
       if (!(p50 > 0)) return;
       lastP50 = p50;
+      if (targetFn) { let t; try { t = targetFn(); } catch { t = 0; } applyTarget(t); }
       // >15% change in rendered megapixels is a different job, not the same job getting slower
       const changed = workload === null
         || (workloadKey > 0 && workload > 0 && Math.abs(workloadKey - workload) / workload > 0.15)
@@ -78,8 +116,27 @@ export function createPressureSource({ native = null } = {}) {
       // within one workload the baseline TRACKS DOWN only: a faster window is new evidence of
       // what this device can do; a slower one is the thing we are trying to detect
       if (!baseline || p50 < baseline) baseline = p50;
-      inferred = windows < WARM_WINDOWS ? 0 : clamp01((p50 / baseline - 1) / FULL_DRIFT);
+      // hitting the rate we ASKED for is not drift, however far it sits from the fastest frame
+      // this device has ever managed at some other job
+      const ref = targetFps > 0 ? Math.max(baseline, 1000 / targetFps) : baseline;
+      inferred = windows < WARM_WINDOWS ? 0 : clamp01((p50 / ref - 1) / FULL_DRIFT);
     },
+
+    // What rate the app is TRYING to hit right now. A change re-learns the baseline, because
+    // asking for half the frames is a different job — the same reasoning as the workload key.
+    setTarget: applyTarget,
+    get target() { return targetFps; },
+
+    // 0..1, how far BELOW the declared target we are actually running. Absolute, not relative:
+    // this is the number that stays honest on a device that has been slow the entire time.
+    // 0 when no target is declared, because there is then nothing to fall short of.
+    get shortfall() {
+      if (!(targetFps > 0) || !(lastP50 > 0)) return 0;
+      const targetMs = 1000 / targetFps;
+      return clamp01((lastP50 - targetMs) / targetMs);
+    },
+    // the rate we are actually sustaining, so a readout never has to recompute it from p50
+    get fps() { return lastP50 > 0 ? Math.round(1000 / lastP50) : 0; },
 
     get value() {
       const n = nativeValue();

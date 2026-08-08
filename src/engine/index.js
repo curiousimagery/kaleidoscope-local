@@ -41,6 +41,8 @@ export function createEngine({ canvas, maxProbeSize, perf = null }) {
   let planar = null;             // lazily-built planar uploader (native decode → this context)
   let planarFrame = null;        // provider: () => wire frame | null, installed by the shell
   let planarCap = 0;             // source-detail cap (long edge) for the planar texture
+  let elideElementUploads = false;  // <video> identity gate (B559) — off until the shell opts in
+  let lastElementTime = -1;         // last uploaded currentTime; -1 = nothing uploaded yet
   let gpuTimer;                  // undefined = not probed yet, null = unsupported here
 
   // a source is an <img> (naturalWidth), a <video> (videoWidth), or a <canvas>
@@ -139,6 +141,7 @@ export function createEngine({ canvas, maxProbeSize, perf = null }) {
       planarFrame = null;
       if (planar) { planar.dispose(); planar = null; }
       sourceTexture = uploadTexture(glCtx.gl, source, sourceTexture);
+      lastElementTime = -1;   // a new source invalidates the frame-identity comparison
       sourceImage = source;
       sourceAspect = w / h;
       sourceW = w; sourceH = h;
@@ -173,11 +176,41 @@ export function createEngine({ canvas, maxProbeSize, perf = null }) {
         if (planar && planar.width > 0) return false;
       }
       if (sourceImage.readyState !== undefined && sourceImage.readyState < 2) return false;
+      // THE <video> ELEMENT PATH — where desktop, Electron and mobile web live (B559).
+      //
+      // The planar path above knows when a frame is new because the socket tells it. An element
+      // does not, so this used to upload unconditionally: a 30fps clip against a 60Hz loop pushed
+      // every frame into the texture TWICE, and on WebKit "consume a video element as an image
+      // source" is precisely the family of operations this arc found expensive four times over.
+      //
+      // `currentTime` is the identity signal that works everywhere. rVFC would be more precise but
+      // is a per-frame callback registration we would have to own across seeks, source swaps and
+      // context loss; the timestamp is already sitting there and moves exactly when a new frame is
+      // presented. A paused video reports the same time forever, which is the correct answer: its
+      // texture genuinely still holds what it held.
+      //
+      // Behind a flag and OFF by default. The take path, the external display and the bus all
+      // consume this function's return value, and all three are carrying changes from B549-B558
+      // that have not been read on desktop or iPad yet. Shipping this ON would mean a problem
+      // found there could belong to either build, which is the one thing worth avoiding.
+      if (elideElementUploads && sourceImage.currentTime !== undefined) {
+        const t = sourceImage.currentTime;
+        if (t === lastElementTime && lastElementTime !== -1) return false;
+        lastElementTime = t;
+      }
       updateTexture(glCtx.gl, sourceImage, sourceTexture);
-      // A <video>/element source has no "is this frame new" signal here, so this is honestly
-      // optimistic: it reports an upload happened, which it did. Elision on that path needs
-      // requestVideoFrameCallback (filed) — the planar path above is where the phone lives.
       return true;
+    },
+
+    // Opt in to the <video> identity gate above. Set by the shell from the perf switchboard so
+    // the flag stays a measuring stage rather than the engine growing a permanent config surface.
+    // Idempotent by design — the shells call it every frame, and resetting the comparison on an
+    // unchanged value would defeat the gate entirely.
+    setElementUploadElision(on) {
+      const next = !!on;
+      if (next === elideElementUploads) return;
+      elideElementUploads = next;
+      lastElementTime = -1;
     },
 
     // Install (or clear, with null) a planar frame provider. The shell keeps calling

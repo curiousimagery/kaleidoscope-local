@@ -50,6 +50,7 @@ import { createOutputPanel } from './shell/output-panel.js';
 import { mountInputDebug } from './shell/input-debug.js';
 import { mountFormTuner } from './shell/form-tuner.js';
 import { mountPerfPanel } from './shell/perf-panel.js';
+import { perfFlags } from './shell/perf-flags.js';
 import { createPerfLedger, PRIORITY } from 'conduit/perf-ledger';
 import { createPressureSource } from 'conduit/pressure';
 import { createPerformRuntime } from './shell/perform-runtime.js';
@@ -97,6 +98,10 @@ const uploadErrorEl = document.getElementById('uploadError');
 // the inferred signal tracks a real one before anything degrades the app based on it.
 const perfPressure = createPressureSource({
   native: () => env.host?.thermalState?.() ?? null,   // iOS ProcessInfo.thermalState, when a host provides it
+  // Declared only where we genuinely know the rate: a take is 30 by the recorder's encoder config
+  // (recorder.js `framerate: 30`). Everything else stays UNDECLARED rather than guessing 60 —
+  // pressure then falls back to pure drift, which is what it has always done (B559).
+  target: () => (env.recorderSink?.recording ? 30 : 0),
 });
 const perf = createPerfLedger({ pressure: perfPressure });
 // Surfaces register themselves rather than being enumerated here — see the layout-agnostic
@@ -386,6 +391,9 @@ function scheduleRender() {
   requestAnimationFrame(() => {
     env.sched.renderScheduled = false;
     if (engine && engine.getSourceImage()) {
+      // the switchboard mutates perfFlags in place, so the engine is told each render rather
+      // than at construction (the setter is idempotent — see engine/index.js)
+      engine.setElementUploadElision?.(perfFlags.elideElementUploads);
       engine.render(state);
     }
     env.commitFrame();   // the render's look is the committed program frame
@@ -1713,11 +1721,14 @@ if (engine) {
   // Capacitor's webview (Daniel's iPad takes vanished) — env.downloadBlob routes
   // through host.fileSystem (share sheet / native dialog) and falls back to the
   // browser download on plain web.
-  outputBus.registerSink(createRecorderSink({
+  // held on env so the pressure source can ask whether a take is in flight (B559) — it needs the
+  // target rate and the sink is the only thing that knows a take is running
+  env.recorderSink = createRecorderSink({
     save: (blob, name) => env.downloadBlob(blob, name),
     // ?recorder=mediarecorder forces the fallback engine (device A/B debugging)
     engine: new URLSearchParams(window.location.search).get('recorder') || 'auto',
-  }));
+  });
+  outputBus.registerSink(env.recorderSink);
   // The external-window destination is universal (plain web APIs), so always available.
   // It's a self-rendering GPU engine view (shell/output-window.js, needsBus:false), not
   // a bus pixel sink — the bus's read-back loop never runs for a window-only session.

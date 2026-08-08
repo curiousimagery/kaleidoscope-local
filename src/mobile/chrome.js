@@ -1678,6 +1678,11 @@ function startLiveLoop() {
   env.invalidateRenderCache = () => { lastRenderSig = null; };
   const tick = (now) => {
     if (!liveActive) return;
+    // DECLARE WHAT RATE WE ARE TRYING TO HIT, so pressure can tell a deliberate 30 apart from a
+    // struggling 30 (B559). A take is 30 by construction (the recorder's encoder config); a live
+    // camera is sensor-capped at 30 on every resolution we offer. A still has no source clock at
+    // all, so nothing is declared and pressure falls back to pure drift, which is honest there.
+    perfPressure.setTarget(recState === 'recording' || cameraMode === 'live' ? 30 : 0);
     // THE SOURCE PATH, measured. Daniel's B515 observation was that the iPhone runs warm on
     // plain still-mode camera preview, not just while recording — so the expensive thing is in
     // the baseline, and the baseline had no instrumentation at all. Two passes, because they
@@ -1687,6 +1692,7 @@ function startLiveLoop() {
     camera.refreshFrame();                     // front camera: redraw mirrored frame
     srcRefresh.end();
     srcUpload.begin();
+    engine.setElementUploadElision?.(perfFlags.elideElementUploads);
     const newPixels = engine.updateSourceFrame();
     srcUpload.end();
     if (videoMode) {

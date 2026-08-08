@@ -50,10 +50,35 @@ export const SAVE_TOAST_CSS = `
     background: var(--danger-text, #ff453a); color: #fff; font-weight: 600;
   }
   .save-toast button[hidden] { display: none; }
+
+  /* INDETERMINATE ACTIVITY (B559). Daniel, on a 254MB take: "when i click save, there isn't any
+     sort of status indicator for how long this part will take... even an indeterminent indicator
+     could be helpful." The write to the share sheet has no denominator we can honestly report —
+     unlike the finalize, which counts down a real encoder queue — so this says WORKING rather
+     than inventing a percentage. Motion is the whole message: static text on a multi-second wait
+     is indistinguishable from a hung app. */
+  .save-toast .save-toast-bar {
+    position: absolute; left: 0; right: 0; bottom: 0; height: 2px;
+    border-radius: 0 0 999px 999px; overflow: hidden; display: none;
+  }
+  .save-toast.busy .save-toast-bar { display: block; }
+  .save-toast .save-toast-bar::after {
+    content: ''; position: absolute; top: 0; bottom: 0; width: 40%;
+    background: var(--text-dim, #bbb); opacity: 0.7; border-radius: 999px;
+    animation: save-toast-sweep 1.1s ease-in-out infinite;
+  }
+  @keyframes save-toast-sweep {
+    0%   { left: -40%; }
+    100% { left: 100%; }
+  }
+  /* honor the OS setting: a reduced-motion user gets a steady bar, not a sweeping one */
+  @media (prefers-reduced-motion: reduce) {
+    .save-toast .save-toast-bar::after { animation: none; left: 0; width: 100%; opacity: 0.35; }
+  }
 `;
 
 export function createSaveFlow({ host = null } = {}) {
-  let toast = null, glyph = null, label = null, retryBtn = null, hideTimer = 0;
+  let toast = null, glyph = null, label = null, retryBtn = null, bar = null, hideTimer = 0;
 
   function ensureToast() {
     if (toast) return;
@@ -68,7 +93,9 @@ export function createSaveFlow({ host = null } = {}) {
     label.className = 'save-toast-label';
     retryBtn = document.createElement('button');
     retryBtn.textContent = 'retry';
-    toast.append(glyph, label, retryBtn);
+    bar = document.createElement('div');
+    bar.className = 'save-toast-bar';
+    toast.append(glyph, label, retryBtn, bar);
     document.body.appendChild(toast);
   }
 
@@ -76,7 +103,7 @@ export function createSaveFlow({ host = null } = {}) {
   function show(kind, text, { onRetry = null, ttl = 0 } = {}) {
     ensureToast();
     clearTimeout(hideTimer);
-    toast.className = `save-toast on ${kind === 'busy' ? '' : kind}`;
+    toast.className = `save-toast on ${kind}`;
     glyph.textContent = kind === 'ok' ? '✓' : kind === 'fail' ? '✕' : '';
     glyph.hidden = kind === 'busy';
     label.textContent = text;

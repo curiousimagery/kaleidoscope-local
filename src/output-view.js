@@ -403,6 +403,41 @@ function sendUp(msg) {
   try { channel.postMessage(msg); } catch { /* channel closed */ }
   try { window.webkit?.messageHandlers?.foldExternal?.postMessage(msg); } catch { /* not native */ }
 }
+// THIS VIEW'S CONSOLE REACHES NOBODY (B559). Only the MAIN webview's `console.*` is bridged to
+// the Xcode log, so every failure inside this file — a source payload that never arrives, an
+// engine that never renders, "could not join the video stream" — has been invisible unless it
+// happened to draw text on the HDMI screen. That has cost two rounds of guessing.
+//
+// `sendUp` already exists as a channel out of here, so warnings and errors ride it and the driver
+// re-logs them with a `[fold ext]` prefix. Console output is preserved, not replaced: this is an
+// ADDITIONAL destination, so a browser popup (where devtools do work) loses nothing.
+//
+// Deliberately warn/error only. `console.log` here is per-frame in places and would flood the
+// bridge; anything worth reading remotely is worth logging at a level that says so.
+for (const level of ['warn', 'error']) {
+  const original = console[level].bind(console);
+  console[level] = (...args) => {
+    original(...args);
+    // never let a logging failure take down the view it is reporting on
+    try {
+      sendUp({ type: 'log', level, text: args.map(fmtLogArg).join(' ') });
+    } catch { /* channel closed or message not cloneable */ }
+  };
+}
+// Errors cross the bridge as strings: a postMessage of a live Error or a DOM node either throws
+// on structured clone or arrives stripped of the very fields worth reading.
+function fmtLogArg(a) {
+  if (a instanceof Error) return `${a.name}: ${a.message}`;
+  if (typeof a === 'object' && a !== null) { try { return JSON.stringify(a); } catch { return String(a); } }
+  return String(a);
+}
+window.addEventListener('error', (e) => {
+  sendUp({ type: 'log', level: 'error', text: `uncaught: ${e.message} @ ${e.filename}:${e.lineno}` });
+});
+window.addEventListener('unhandledrejection', (e) => {
+  sendUp({ type: 'log', level: 'error', text: `unhandled rejection: ${fmtLogArg(e.reason)}` });
+});
+
 // announce readiness so the driver (re)sends the current source even if it was
 // posted before this view finished loading.
 sendUp({ type: 'hello' });

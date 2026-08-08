@@ -114,6 +114,21 @@ export const perfFlags = {
   // OFF = render every rAF, the pre-B542 behaviour. Turn it off if the preview ever looks stale.
   renderElide: true,
 
+  // B542's elision for <video> ELEMENT sources, which is where desktop, Electron and mobile web
+  // live (B559). `updateSourceFrame` uploads unconditionally on that path, so a 30fps clip against
+  // a 60Hz loop pushes every frame into the texture twice; gating on `currentTime` halves it.
+  //
+  // DEFAULTED OFF, deliberately, and this is the whole reason it is a flag. The take path, the
+  // external display and the bus all consume this and all three are carrying unread changes from
+  // B549-B558 on desktop and iPad. Shipping it ON would make any problem found there ambiguous
+  // between two builds. Run the regression pass with it OFF, then flip it and measure in the same
+  // sitting — one build, both answers.
+  //
+  // ON = skip the upload when the video's currentTime has not moved. Watch for a STALE source on
+  // a paused clip or immediately after a seek; that would mean currentTime is not the identity
+  // signal on that path and the answer is requestVideoFrameCallback.
+  elideElementUploads: false,
+
   // Force takes through MediaRecorder instead of WebCodecs (B537). ON = the pre-B365 recorder,
   // which muxes natively and demonstrably produces sound — the package's RAW take has had audio
   // this whole time and it is the only thing on that path.
@@ -180,6 +195,7 @@ export const PERF_FLAG_SPECS = [
   ['pipThrottle', 'PiP: 10Hz monitor', 'off = every frame (17fps vs 60 while recording)'],
   ['recordMediaRecorder', 'record: use MediaRecorder', 'on = the pre-B365 recorder — takes have SOUND, lower video quality'],
   ['renderElide', 'render: skip identical frames', 'off = render every rAF (2x the renders on a 30fps camera)'],
+  ['elideElementUploads', 'source: skip repeat video uploads', 'on = gate <video> texture uploads on currentTime (2x on a 30fps clip at 60Hz)'],
   ['recordStreamToDisk', 'record: stream to disk', 'off = assemble the take in memory (the pre-B553 path; peak RAM a multiple of the file)'],
   ['recordForceFlush', 'record: force sync rasterize', 'Blink-only by default; ON here if a WebKit take shows a stale frame'],
 ];

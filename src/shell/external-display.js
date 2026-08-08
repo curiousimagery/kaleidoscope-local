@@ -125,6 +125,9 @@ function createPoster(opts) {
   let connected = false;
   let dims = null;                    // display-native { width, height }, when known
   const changeHandlers = new Set();
+  // last 20 warn/error lines the external view sent up (B559) — bounded because this is a
+  // diagnostic tail, not a log file, and it rides the exported report on every take
+  const lastExtLogs = [];
 
   // ADAPTIVE DEGRADATION ladder: each external web-process death steps the render +
   // source sizes down (Daniel's landscape pass: the view crash-looped under memory
@@ -210,6 +213,13 @@ function createPoster(opts) {
       console.info('[fold] external view ready (hello)');
     } else if (msg.type === 'fps') {
       poster.noteFps(msg.fps, msg.srcFps);
+    } else if (msg.type === 'log') {
+      // the external view's own console, re-logged here so it reaches the Xcode log — that
+      // webview's console is bridged nowhere (B559). Filter string: `[fold ext]`.
+      const line = `[fold ext] ${msg.text}`;
+      if (msg.level === 'error') console.error(line); else console.warn(line);
+      lastExtLogs.push(line);
+      if (lastExtLogs.length > 20) lastExtLogs.shift();
     } else if (msg.type === 'loaded') {
       // navigation finished — attach names which window path presented
       console.info('[fold] external view loaded output.html (attach:', msg.attach + ')');
@@ -258,7 +268,11 @@ function createPoster(opts) {
     get active() { return poster.active; },
     get connected() { return connected; },
     get fps() { return poster.fps; },
+    get srcFps() { return poster.srcFps; },
     get renderDims() { return poster.renderDims; },
+    // CONSOLE IS NEVER THE ONLY ROUTE (CLAUDE.md). Daniel does not run Safari Web Inspector, so
+    // the bridged external-view log has to reach `copy report` or it may as well not exist.
+    get logs() { return lastExtLogs.slice(); },
     onDisplayChange(h) { changeHandlers.add(h); return () => changeHandlers.delete(h); },
   };
 }

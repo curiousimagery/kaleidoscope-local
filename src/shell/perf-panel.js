@@ -217,6 +217,9 @@ export function mountPerfPanel(env, { container = null, onClose = null } = {}) {
       // diagnostic that only prints to console is a diagnostic we cannot collect, which is how
       // the silent-take bug survived two builds of confident guessing.
       audio: env.lastAudioReport || null,
+      // the external view's own warnings/errors, which reach no console we can read (B559).
+      // Omitted entirely when empty so a report from a session with no HDMI stays uncluttered.
+      extLogs: env.externalDisplay?.logs?.length ? env.externalDisplay.logs : undefined,
     }, null, 2);
     out.value = text; out.hidden = false; out.select();
     try { await navigator.clipboard.writeText(text); copyBtn.textContent = 'copied'; }
@@ -247,8 +250,14 @@ export function mountPerfPanel(env, { container = null, onClose = null } = {}) {
 
   function paint(r) {
     top.innerHTML = '';
-    const fpsCls = r.fps >= 50 ? '' : r.fps >= 25 ? 'warn' : 'bad';
-    const fpsStat = stat('fps', r.fps || '…', fpsCls);
+    // fps is graded against the DECLARED TARGET where there is one. The old fixed 50/25 cut
+    // points silently assumed 60, so a take running at a correct 30 read amber and a 4K camera
+    // limping at 13 against a 30fps source read the same red as a 24fps one (B559).
+    const tgt = r.pressure?.target || 0;
+    const fpsCls = tgt > 0
+      ? (r.fps >= tgt * 0.9 ? '' : r.fps >= tgt * 0.6 ? 'warn' : 'bad')
+      : (r.fps >= 50 ? '' : r.fps >= 25 ? 'warn' : 'bad');
+    const fpsStat = stat('fps', tgt > 0 ? `${r.fps || '…'}/${tgt}` : (r.fps || '…'), fpsCls);
     fpsStat.appendChild(deltaEl(r.fps, baseline?.fps, true));
     top.append(
       fpsStat,
@@ -259,6 +268,13 @@ export function mountPerfPanel(env, { container = null, onClose = null } = {}) {
       const p = r.pressure;
       const cls = p.value < 0.15 ? '' : p.value < 0.45 ? 'warn' : 'bad';
       top.append(stat('pressure', `${p.label} (${p.source})`, cls));
+      // SHORTFALL IS NOT PRESSURE and the panel must not let them be confused. A device that has
+      // been slow the whole window reads nominal pressure forever (drift from a throttled
+      // baseline is zero); this is the row that still tells the truth about it.
+      if (p.target > 0 && p.shortfall > 0.1) {
+        const sCls = p.shortfall > 0.5 ? 'bad' : 'warn';
+        top.append(stat('shortfall', `${Math.round(p.shortfall * 100)}% under ${p.target}fps`, sCls));
+      }
     }
     // TIME THE LEDGER CANNOT SEE. Only alarming when the frame is ALSO slow: a 33ms frame with
     // 4ms of work is a source capped at 30fps behaving correctly, not a hidden cost. A big gap on

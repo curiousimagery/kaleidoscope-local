@@ -157,7 +157,14 @@ export function createPerfLedger({ enabled = false, windowMs = 1000, pressure = 
       oneShots: shots,
       mpPerFrame: round2(mp),
       windowMs: Math.round(elapsed),
-      pressure: pressure ? { value: round2(pressure.value), source: pressure.source, label: pressure.label } : null,
+      // `shortfall`/`target` ride alongside `value` because they answer the question drift
+      // cannot: pressure says "getting worse", shortfall says "not good enough" (B559).
+      pressure: pressure
+        ? {
+            value: round2(pressure.value), source: pressure.source, label: pressure.label,
+            target: pressure.target || 0, shortfall: round2(pressure.shortfall),
+          }
+        : null,
     };
     // megapixels-per-frame IS the workload description: it moves when a broadcast starts, a
     // resolution changes or a surface is cut, which are exactly the events that must re-learn

@@ -498,15 +498,18 @@ function saveToastSection() {
     s.textContent = SAVE_TOAST_CSS;
     document.head.appendChild(s);
   }
-  const pin = 'position:static;transform:none;display:flex;pointer-events:auto';
+  // `position:static` for the specimen, but the sweep bar is absolutely positioned inside the
+  // pill — so the pin has to keep a containing block or the bar escapes to the page.
+  const pin = 'position:relative;transform:none;display:flex;pointer-events:auto';
   const sample = (kind, glyph, text, retry) => el('div', { class: `save-toast on ${kind}`, style: pin }, [
     ...(glyph ? [el('span', { class: 'save-toast-glyph', text: glyph })] : []),
     el('span', { class: 'save-toast-label', text }),
     ...(retry ? [el('button', { text: 'retry' })] : []),
+    el('div', { class: 'save-toast-bar' }),
   ]);
-  return section('save-toast', 'Save toast', 'The one save-status surface (shell/save-flow.js, exported CSS — these are the real classes). Silent for instant saves (400ms grace); "saving…" only during real waits (the iPad chunked share-sheet write, zip composition); success names the destination; failure is persistent with RETRY. Positions fixed bottom-center, above the mobile tab bar.', [
+  return section('save-toast', 'Save toast', 'The one save-status surface (shell/save-flow.js, exported CSS — these are the real classes). Silent for instant saves (400ms grace); "saving…" only during real waits (the iPad chunked share-sheet write, zip composition); success names the destination; failure is persistent with RETRY. Positions fixed bottom-center, above the mobile tab bar. BUSY carries an indeterminate sweep (B559) — the share-sheet write has no honest denominator, so it says working rather than inventing a percentage.', [
     el('div', { class: 'lab-stack' }, [
-      labeled('busy (saving…)', sample('', null, 'saving fold-take-20260717.mp4…', false)),
+      labeled('busy (saving…) — indeterminate sweep', sample('busy', null, 'saving fold-take-20260717.mp4…', false)),
       labeled('success', sample('ok', '✓', 'saved to Downloads ✓ fold-take-20260717.mp4', false)),
       labeled('failure + retry', sample('fail', '✕', 'save failed — fold-take-20260717.mp4', true)),
     ]),

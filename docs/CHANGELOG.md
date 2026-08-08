@@ -4,6 +4,41 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 📐 v0.23.6 (Build 559) — 2026-08-08 — Pressure learns what rate we were aiming for, and the external view gets a voice
+
+Five fixable items off the list, chosen so none of them contaminates the desktop/iPad regression pass that is still outstanding.
+
+### Pressure was answering the wrong question, twice
+
+`pressure` measures drift from the best frame time seen for the current workload. That is right for thermal and wrong on its own, and Daniel's B558 report caught the second failure mode in the act:
+
+- **False alarm.** A 30fps take on a device that idled at 60 doubles p50 *by design*. B551 duly reported `critical` on a take running at a correct 31.7fps. A governor acting on that would have degraded a healthy take.
+- **False all-clear.** A device throttled for the whole window learns its baseline from throttled frames, so drift is zero. Daniel's report: **13.3fps on a live 4K camera right after a long take, pressure `0.14 nominal`.**
+
+Both come from not knowing how many frames we were trying to produce. `createPressureSource` now takes a **target rate** (a number, or a resolver for shells whose render is on demand). The drift reference is floored at the target frame time, so hitting the rate we asked for is never drift; and a new **`shortfall`** reports the absolute gap to target, which is the capability signal drift structurally cannot be.
+
+**They are deliberately two numbers.** Pressure is "getting worse", shortfall is "not good enough", and a governor wants to respond differently: shed work for shortfall, back off for pressure. Changing the target re-learns the baseline, on the same reasoning as the workload key.
+
+Declared only where the rate is genuinely known: a take is 30 (the recorder's encoder config) and the phone's live camera is sensor-capped at 30. **A still declares nothing** and falls back to pure drift, rather than the module quietly assuming 60 — which is the bug, not a smaller version of it.
+
+The panel follows: fps now reads `13/30` and grades against the target instead of fixed 50/25 cut points, and a `shortfall` stat appears when we are more than 10% under.
+
+### The external display's console reaches somebody
+
+Only the main webview's `console.*` is bridged to the Xcode log, so every failure inside `output-view.js` has been invisible unless it drew text on the HDMI screen. That has cost two rounds of guessing. `warn`/`error` plus `window.onerror` and unhandled rejections now ride the existing `sendUp` channel; the driver re-logs them as **`[fold ext]`**.
+
+**And it reaches the exported report** — `extLogs`, last 20 lines. Console alone was never a channel we have (Daniel does not run Safari Web Inspector), so a console-only diagnostic is not a diagnostic.
+
+### Saving says it is working
+
+Daniel, on a 254MB take: *"when i click save, there isn't any sort of status indicator for how long this part will take... even an indeterminent indicator could be helpful."* The busy toast gets an indeterminate sweep. It has **no honest denominator** — unlike the finalize, which counts a real encoder queue down — so it says working rather than inventing a percentage. Reduced-motion users get a steady bar. In the UI Lab with the rest of the toast matrix.
+
+### The `<video>` double upload, behind a switch that is OFF
+
+`updateSourceFrame` uploads unconditionally on the element path, so a 30fps clip against a 60Hz loop pushes every frame into the texture twice — on WebKit, exactly the family of operations this arc found expensive four times. Now gated on `currentTime`, which is already sitting there and moves precisely when a new frame is presented.
+
+**Defaulted OFF, and that is the point.** The take path, the external display and the bus all consume this, and all three carry unread B549-B558 changes on desktop and iPad. Shipping it ON would make any problem found there ambiguous between two builds. Run the regression pass with it off, flip it, measure in the same sitting.
+
 ## 🎙️ v0.23.5 (Build 558) — 2026-08-08 — We were recording through the conferencing mic
 
 **Daniel: "capturing video using the native camera app seems to get better quality than any of our takes."** He is right, and the cause is one line.
