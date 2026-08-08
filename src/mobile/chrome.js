@@ -1236,6 +1236,7 @@ async function startRecording() {
     wcDiscard = false;
     const sink = createRecorderSink({
       engine: 'webcodecs',
+      streamToDisk: perfFlags.recordStreamToDisk,
       save: (blob, name) => { wcFinish({ blob, ext: name.split('.').pop() || 'mp4' }); },
     });
     // THE ORIGINAL TRACK, NOT THE CLONE (B532). The clone exists so a MediaRecorder stop cannot

@@ -4,6 +4,24 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 💾 v0.23.0 (Build 553) — 2026-08-07 — The take streams to disk
+
+**The take is no longer assembled in RAM.** `ArrayBufferTarget` + `fastStart:'in-memory'` held every encoded chunk until finalize, materialised one contiguous ArrayBuffer, then `new Blob([buf])` copied it *again* — peak footprint a multiple of the finished file. Fine for the 21MB/26s FHD takes we measured; the prime suspect for the long-4K failures Daniel has hit for months.
+
+Now the muxer writes through an OPFS file handle (`FileSystemWritableFileStreamTarget`), and `getFile()` hands back a **disk-backed File that never occupied the JS heap**. A long take costs disk, not memory.
+
+**This is also the precondition for ever lifting the phone's 1080/2048 record cap** — that cap cannot come off while the whole file has to fit in RAM twice. It does not lift the cap; it removes the reason the cap could not move.
+
+**The tradeoff, stated plainly:** `fastStart:false` puts the **moov box at the END**, because reserving space for a front-loaded one needs a chunk count a live take cannot know. AVFoundation reads local moov-at-end files fine, so takes should open normally in Photos — what moov-at-end breaks is progressive HTTP streaming, which a saved take never does. **That is a claim to verify, not to trust**, so it is behind `record: stream to disk` in the switchboard: if a take ever fails to open or scrub, turning it off is the one-tap answer and the symptom points here rather than at the encoder.
+
+**Two failure modes handled up front:**
+- **Orphan sweep.** A take that dies mid-flight (jetsam, crash, force-quit) leaves a `.part` behind, and OPFS is persistent — so without a sweep, the very failures this fixes would each permanently consume their own size in quota. Every session start clears stale part-files.
+- **Cleanup ordering.** The part-file is deleted only after the save actually settles; dropping it sooner can invalidate the File the save is still reading.
+
+Feature-detected throughout (`createWritable` on OPFS is Safari 17+/iOS 17+); any failure anywhere falls back to the in-memory path rather than losing a take. `diskStreamed` rides the take report, and container inspection is size-gated at 128MB so reading a streamed take back cannot undo the point of streaming it.
+
+**Minor bump:** this changes how every take is written — the first structural change to the record path since B525.
+
 ## 🔬 v0.22.46 (Build 552) — 2026-08-07 — The telemetry blind spot, named and closed
 
 ### First: Daniel was right to push back on the 4K claim

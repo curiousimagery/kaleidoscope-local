@@ -128,6 +128,22 @@ export const perfFlags = {
   // built to fix) and brings back the stop-that-never-stops class. Not a default, a lever.
   recordMediaRecorder: false,
 
+  // STREAM the take to disk (OPFS) instead of assembling it in memory (B553). OFF = the original
+  // `ArrayBufferTarget` + `fastStart:'in-memory'` path, which holds every encoded chunk until
+  // finalize, materialises one contiguous ArrayBuffer, and then COPIES it again into a Blob —
+  // peak footprint a multiple of the finished file.
+  //
+  // This is the tracked fix for the long-take failures, and the precondition for ever lifting the
+  // phone's 1080/2048 record cap: that cap cannot come off while the whole file has to fit in RAM
+  // twice. It also changes the file layout — `fastStart:false` puts the moov box at the END, since
+  // reserving space for a front-loaded one needs a chunk count a live take cannot know.
+  //
+  // ⚠️ THE THING TO WATCH IS PLAYBACK, NOT SPEED. AVFoundation reads local moov-at-end files
+  // fine, so takes should open normally in Photos; what moov-at-end breaks is progressive HTTP
+  // streaming, which a saved take never does. If a take ever fails to open or scrub, turn this
+  // OFF — that is the one symptom that would point here rather than at the encoder.
+  recordStreamToDisk: true,
+
   // PIPELINED (async) GPU→CPU readback for the broadcast bus (B519). OFF = the synchronous
   // `readPixels` that measured 21.3ms/frame at 4K on desktop — the largest single cost in the
   // app. This is the one flag whose OFF state is genuinely worse; it exists so the win can be
@@ -155,5 +171,6 @@ export const PERF_FLAG_SPECS = [
   ['pipThrottle', 'PiP: 10Hz monitor', 'off = every frame (17fps vs 60 while recording)'],
   ['recordMediaRecorder', 'record: use MediaRecorder', 'on = the pre-B365 recorder — takes have SOUND, lower video quality'],
   ['renderElide', 'render: skip identical frames', 'off = render every rAF (2x the renders on a 30fps camera)'],
+  ['recordStreamToDisk', 'record: stream to disk', 'off = assemble the take in memory (the long-4K failure path)'],
   ['recordForceFlush', 'record: force sync rasterize', 'Blink-only by default; ON here if a WebKit take shows a stale frame'],
 ];

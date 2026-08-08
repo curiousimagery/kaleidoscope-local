@@ -25,11 +25,11 @@
 // no pixels are read back here at all. Sessions are single-use: start() builds
 // one, stop() finishes it and hands the file to the injected `save`.
 //
-// Memory note: like the offline exporter, the mp4 is assembled in memory
-// (ArrayBufferTarget); a long 4K take is hundreds of MB. Streaming to OPFS is
-// the tracked upgrade if that ceiling is ever hit in practice.
+// Memory: the take STREAMS TO DISK via OPFS where the platform supports it (B553), so a long
+// or high-resolution take never has to fit in RAM — see createDiskTarget. The in-memory
+// ArrayBufferTarget remains the fallback and is still what the offline exporter uses.
 
-import { Muxer, ArrayBufferTarget } from 'mp4-muxer';
+import { Muxer, ArrayBufferTarget, FileSystemWritableFileStreamTarget } from 'mp4-muxer';
 import { pickVideoCodec, pickAudioCodec } from './encode.js';
 
 export function webCodecsRecordingSupported() {
@@ -187,6 +187,66 @@ function inspectMp4Tracks(buffer) {
     return { error: String(e?.message || e) };
   }
 }
+
+// ---------------------------------------------------------------------------
+// STREAM THE TAKE TO DISK (B553) instead of assembling it in memory.
+//
+// `ArrayBufferTarget` + `fastStart:'in-memory'` holds every encoded chunk until finalize, then
+// materialises one contiguous ArrayBuffer, which `new Blob([buf])` copies AGAIN. Peak footprint
+// is therefore a multiple of the finished file — fine for the 21MB/26s FHD takes we measured,
+// and the prime suspect for the long-4K failures Daniel has been hitting for months. It is also
+// what makes true 4K recording unshippable on the phone: the cap can't come off while the whole
+// file has to fit in RAM twice.
+//
+// OPFS gives us a real file handle with a seekable writable stream, which is exactly what
+// mp4-muxer's FileSystemWritableFileStreamTarget wants. The muxer writes through as it goes, and
+// `getFile()` hands back a disk-backed File — a Blob that never occupied the JS heap at all.
+//
+// `fastStart:false` is required: reserving space for a front-loaded moov needs the chunk count up
+// front, which a live take cannot know. So the moov lands at the END of the file. AVFoundation
+// (Photos, QuickTime) reads local moov-at-end files fine; what it would break is progressive
+// HTTP streaming, which is not a thing we do with a saved take.
+//
+// Feature-detected and fully optional — `createWritable` on OPFS is Safari 17+ / iOS 17+, and any
+// failure anywhere here falls back to the in-memory path rather than losing a take.
+async function createDiskTarget(prefix) {
+  try {
+    if (!navigator?.storage?.getDirectory) return null;
+    const root = await navigator.storage.getDirectory();
+    // Sweep orphans first. A take that died mid-flight (jetsam, a crash, a force-quit) leaves its
+    // part-file behind, and OPFS is persistent — without this, the failures this feature exists to
+    // fix would each permanently consume their own size in the origin's quota.
+    try {
+      for await (const [n, h] of root.entries()) {
+        if (n.endsWith('.part') && h.kind === 'file') await root.removeEntry(n).catch(() => {});
+      }
+    } catch { /* entries() unsupported — skip the sweep, not the take */ }
+    const name = `${prefix}-${Date.now()}.mp4.part`;
+    const handle = await root.getFileHandle(name, { create: true });
+    if (typeof handle.createWritable !== 'function') return null;
+    const stream = await handle.createWritable();
+    return {
+      target: new FileSystemWritableFileStreamTarget(stream),
+      // close the stream, then hand back the finished file WITHOUT reading it into memory
+      async finish() {
+        await stream.close();
+        return handle.getFile();
+      },
+      async cleanup() {
+        try { await stream.close(); } catch { /* already closed */ }
+        try { await root.removeEntry(name); } catch { /* already gone */ }
+      },
+    };
+  } catch (e) {
+    console.warn('[conduit] OPFS unavailable — take will be assembled in memory:', e?.message || e);
+    return null;
+  }
+}
+
+// Reading a streamed take back just to count its boxes would undo the point of streaming it, so
+// the audio verdict's container check is size-gated: normal takes still get the full diagnosis,
+// and the huge ones — the very takes this exists for — report honestly that it was skipped.
+const INSPECT_MAX_BYTES = 128 * 1024 * 1024;
 
 // Call this SYNCHRONOUSLY from the user gesture that starts a take. Creating and resuming the
 // context here is what buys the activation; everything downstream is too late.
@@ -367,7 +427,7 @@ async function encoderYieldsConfig(cfg) {
 // The WebCodecs session. Returns { publish, stop } or null when this browser /
 // this take can't ride WebCodecs (caller falls back to MediaRecorder).
 // onDone(blob, ext) on a finalized take; onError(e) when the take is lost.
-async function startWebCodecsSession({ w, h, audioTrack, onDone, onError, onProgress = null }) {
+async function startWebCodecsSession({ w, h, audioTrack, onDone, onError, onProgress = null, streamToDisk = true, filenamePrefix = 'fold-take' }) {
   if (!webCodecsRecordingSupported()) return null;
 
   const vcfg = await pickVideoCodec(w, h, 30);
@@ -418,11 +478,14 @@ async function startWebCodecsSession({ w, h, audioTrack, onDone, onError, onProg
     }
   }
 
+  // stream to disk when the platform allows it; otherwise the original in-memory path
+  const disk = streamToDisk ? await createDiskTarget(filenamePrefix) : null;
   const muxer = new Muxer({
-    target: new ArrayBufferTarget(),
+    target: disk ? disk.target : new ArrayBufferTarget(),
     video: { codec: vcfg.muxerCodec, width: w, height: h, frameRate: 30 },
     ...(acfg ? { audio: { codec: acfg.muxerCodec, sampleRate: mic.sampleRate, numberOfChannels: channels } } : {}),
-    fastStart: 'in-memory',
+    // moov at the end is the price of not knowing the chunk count up front — see createDiskTarget
+    fastStart: disk ? false : 'in-memory',
     // live takes are VFR on a wall clock: both tracks share the session clock
     // and the muxer shifts them together so the earliest sample lands at 0
     firstTimestampBehavior: 'cross-track-offset',
@@ -568,7 +631,7 @@ async function startWebCodecsSession({ w, h, audioTrack, onDone, onError, onProg
   // the bus rendered 29 — the construction cost was throttling the loop).
   let vfMode = null, vfProbeN = 0, vfProbeMs = 0;
   // finalize telemetry — read by the sink while finalize runs, and folded into the take report
-  let progress = null, finalizeMs = 0, finalizeMarks = '';
+  let progress = null, finalizeMs = 0, finalizeMarks = '', diskStreamed = false;
 
   // FINALIZE IS THE HIGHEST-STAKES MOMENT IN THE APP and until B550 it was completely dark:
   // "finishing take…" with no progress, no phase, and a caller-side 30s wall clock that
@@ -610,14 +673,28 @@ async function startWebCodecsSession({ w, h, audioTrack, onDone, onError, onProg
     step('writing the file', 0.9);
     try {
       muxer.finalize();
-      const buf = muxer.target.buffer;
+      let blob;
+      if (disk) {
+        // the muxer has written through; closing the stream hands back a disk-backed File that
+        // was never resident in the JS heap
+        blob = await disk.finish();
+        diskStreamed = true;
+      } else {
+        const buf = muxer.target.buffer;
+        blob = new Blob([buf], { type: 'video/mp4' });
+      }
       finalizeMs = since();
       finalizeMarks = marks.join(' · ');
-      container = inspectMp4Tracks(buf);
-      onDone(new Blob([buf], { type: 'video/mp4' }), 'mp4');
+      // reading a streamed take back purely to count boxes would undo the streaming
+      if (blob.size <= INSPECT_MAX_BYTES) container = inspectMp4Tracks(await blob.arrayBuffer());
+      else container = { skipped: `not inspected — ${(blob.size / 1e6).toFixed(0)}MB streamed to disk`, bytes: blob.size };
+      step('saving', 0.97);
+      onDone(blob, 'mp4');
       // DOMExceptions stringify to {} — extract the message so the console names it
       if (sessionError) console.warn(`[conduit] recording had encoder errors (take saved up to the failure): ${sessionError.name || ''} ${sessionError.message || sessionError}`);
     } catch (e) {
+      // a failed finalize must not leave a part-file squatting in the origin's storage quota
+      if (disk) { try { await disk.cleanup(); } catch { /* best effort */ } }
       onError(sessionError || e);
     }
     try { venc.close(); } catch { /* closed */ }
@@ -655,6 +732,7 @@ async function startWebCodecsSession({ w, h, audioTrack, onDone, onError, onProg
       trackSupplied: !!audioTrack,
       trackState: audioTrack ? { enabled: audioTrack.enabled, muted: audioTrack.muted, readyState: audioTrack.readyState, label: audioTrack.label } : null,
       finalizeMs, finalizeMarks,   // WHERE the finish went — the 4K-finalize question (B550)
+      diskStreamed,                // true = never assembled in RAM (B553)
       batches: audioBatches, rejected: audioRejected, chunks: audioChunks, withConfig: audioConfigs,
       // seconds IN vs seconds OUT — a large gap means the encoder stalled or dropped mid-take,
       // which a raw chunk count cannot show
@@ -726,6 +804,8 @@ async function startWebCodecsSession({ w, h, audioTrack, onDone, onError, onProg
     },
     stop() { finish(); },
     get progress() { return progress; },
+    // called by the sink AFTER the save settles — deleting sooner can invalidate the File
+    async cleanupFile() { if (disk) { try { await disk.cleanup(); } catch { /* best effort */ } } },
   };
 }
 
@@ -813,7 +893,7 @@ function startMediaRecorderSession({ w, h, audioTrack, onDone, onError }) {
 // integration — the mobile record path). `lastResult` reports how the LAST take ended —
 // `{ ok:true, name, bytes }` after the save resolved, `{ ok:false, error }`
 // when the take was lost — so the UI can stop pretending silence is success.
-export function createRecorderSink({ filenamePrefix = 'fold-live', save = null, engine = 'auto' } = {}) {
+export function createRecorderSink({ filenamePrefix = 'fold-live', save = null, engine = 'auto', streamToDisk = true } = {}) {
   let session = null;
   let recording = false;
   let lastResult = null;
@@ -825,11 +905,13 @@ export function createRecorderSink({ filenamePrefix = 'fold-live', save = null, 
     const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
     const name = `${filenamePrefix}-${stamp}.${ext}`;
     console.info(`[conduit] take finalized: ${(blob.size / 1e6).toFixed(1)} MB → ${name}`);
+    const done = () => { session?.cleanupFile?.(); };   // the streamed part-file has served its purpose
     Promise.resolve((save || downloadBlob)(blob, name)).then(
-      () => { lastResult = { ok: true, name, bytes: blob.size }; },
+      () => { lastResult = { ok: true, name, bytes: blob.size }; done(); },
       (e) => {
         lastResult = { ok: false, error: 'save failed: ' + ((e && e.message) || e) };
         console.warn('[conduit] take save failed:', e);
+        done();
       },
     );
   };
@@ -860,7 +942,7 @@ export function createRecorderSink({ filenamePrefix = 'fold-live', save = null, 
       let s = null;
       if (engine !== 'mediarecorder') {
         try {
-          s = await startWebCodecsSession({ w, h, audioTrack, onDone: saveTake, onError: failTake });
+          s = await startWebCodecsSession({ w, h, audioTrack, onDone: saveTake, onError: failTake, streamToDisk, filenamePrefix });
         } catch (e) {
           console.warn('[conduit] WebCodecs recorder failed to start, falling back to MediaRecorder:', e);
         }
