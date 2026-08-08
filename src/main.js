@@ -53,6 +53,7 @@ import { mountPerfPanel } from './shell/perf-panel.js';
 import { perfFlags } from './shell/perf-flags.js';
 import { createPerfLedger, PRIORITY } from 'conduit/perf-ledger';
 import { createPressureSource } from 'conduit/pressure';
+import { createGovernor } from 'conduit/governor';
 import { createPerformRuntime } from './shell/perform-runtime.js';
 import { createInputBus } from './shell/input-bus.js';
 import { ICONS } from './mobile/icons.js';   // shared glyph set (fit/fill toggle)
@@ -309,6 +310,30 @@ const env = {
 // init outright (Daniel: upload and camera selection both dead on iPad). The `native:`/`target:`
 // callbacks above only *look* like the same pattern; they are deferred, so they are fine.
 Object.defineProperty(env, 'lastAudioReport', { get: getLastAudioReport, configurable: true });
+
+// THE GOVERNOR (B568) — the first thing that acts on the ledger rather than only reporting it.
+// While broadcasting, a sustained shortfall against the declared frame rate steps the EDITOR
+// surfaces (preview, PiP) down their resolution ladder so the program keeps the headroom. It
+// never touches PROGRAM or CAPTURE priority: the declared yield order is the contract.
+//
+// Measured, not blanket, and Daniel's own example is why: "the PiP is redundant to the external
+// display" holds for HDMI and fails for Syphon/NDI, where the PiP is the operator's only view.
+// A device that can run both keeps both.
+env.governor = createGovernor({
+  ledger: perf,
+  pressure: perfPressure,
+  // `env.outputBus` (set at line ~1783), NOT the `outputBus` const — that is declared inside a
+  // later function and is not in scope here. B562 shipped exactly this mistake in this exact
+  // file; a deferred callback hides it from the build, so it must be checked by eye.
+  // `running` rather than `broadcasting`: the latter is Syphon-specific, and this rule applies to
+  // any live program output — NDI, the output window, a take through the bus. The external
+  // display is checked separately because the iPad HDMI path self-renders and never joins the bus.
+  isBroadcasting: () => !!(env.outputBus?.getStatus?.().running || env.externalDisplay?.active),
+  // routed to the same status surface everything else uses, so the reason is never a mystery —
+  // "explain, don't silently degrade" is the rule B555 set for the PiP going dark at 4K
+  onNotice: (text) => { env.governorNotice = text; if (text) env.saveFlow?.status?.('busy', text, { ttl: 3200 }); },
+});
+perf.onReport(() => env.governor.tick(performance.now()));
 
 // the program frame — the committed "what the audience sees" snapshot every
 // output consumer reads (defines env.programFrame / env.commitFrame /

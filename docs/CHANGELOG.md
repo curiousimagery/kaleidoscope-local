@@ -4,6 +4,50 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🎚️ v0.23.15 (Build 568) — 2026-08-08 — The governor: the first thing that acts on the measurements
+
+`conduit/governor.js`. The ledger has been able to see for a dozen builds and was never allowed to do anything; `PRIORITY.DECOR → EDITOR → PROGRAM → CAPTURE` has been declared since B512 and nothing consulted it. **This does.**
+
+While broadcasting, a sustained shortfall against the declared frame rate steps the **editor** surfaces (preview, PiP) down their resolution ladder so the program keeps the headroom. Daniel's call: prefer the broadcast over the app. Measured stakes on his M1 iPad at 4K — `preview render` 14.36ms + `pip render` 9.91ms = **24.3ms of a 44ms frame**, against 4.14ms to upload the whole 8.29MP source.
+
+**Measured, not blanket, and his own example is why.** "The PiP is redundant to the external display" holds for HDMI and **fails for Syphon and NDI**, where there is no second screen and the PiP is the operator's only view of the program. A blanket rule blinds the operator exactly where they can least afford it. An M3 iPad Pro that can run both keeps both.
+
+**The input is `shortfall`, not `pressure`** — the distinction B559 split them for. Pressure means "getting worse", relative to a learned baseline and structurally blind to a device that has been slow the whole time. Shortfall means "not good enough", absolute against the rate we declared. **A governor that sheds work has to act on the second.**
+
+Two thresholds with a dead band between them (shed above 25% under, restore below 10%), a 2s dwell before shedding and 4s before restoring, one rung at a time. **The hysteresis is the point:** a surface stepped down improves the number, which restores it, which degrades the number again — a visible oscillation, and the failure most likely to make this feel broken rather than helpful.
+
+It **never touches PROGRAM or CAPTURE priority.** If shedding every editor surface is not enough, the honest answer is a capability statement, not a degraded broadcast. And it explains itself through the existing toast (`preview at 75% — giving the broadcast the headroom`), because "explain, don't silently degrade" is the rule B555 set. In the Lab.
+
+### The gain slider is live during a take
+
+Daniel: *"if i adjust the gain while recording the levels update but the recording doesn't seem to apply the new gain."* Correct, and it was the wrong default. **The freeze was always about AUTOMATIC changes** — a trim that rides the signal by itself is what made takes sound processed. A hand on a fader mid-take is what every mixer does, and refusing it means a take that starts too quiet stays too quiet. The slider now reaches the running take, ramped so it is a move rather than a step.
+
+### The mic mode picker is gone
+
+Daniel ran all three on iPad: raw is best, balanced beats voice, raw + a large trim is the best-sounding option. `raw` is now hardcoded. **A three-way control existed to answer that question; keeping it afterwards would be shipping our A/B rig as a user setting.**
+
+### Gain row tidied to the panel's language
+
+It already reused `.slider`, the panel's bare `<button>` and the meter's label type — but the label had inherited `.op-meter-lab`'s `width: 10px`, sized for the "L"/"R" ticks. A word needs its own measure, and `auto` now takes the meter's type scale rather than full control height.
+
+## 🎙️ v0.23.14 (Build 567) — 2026-08-08 — Raw wins on iPad; and the panel stops repeating the toast
+
+### The mic thread closes: raw + trim
+
+Daniel ran all three modes. **`raw` is best; `balanced` beats `voice`; raw with a big trim is "genuinely pretty decent quality".** So `raw` stays the default everywhere and **the gain slider is the answer on iPad**, which is what the B562 work was for.
+
+The trim now persists in `localStorage` rather than the in-memory session, so a room that needed 12x is not re-dialled every launch.
+
+**And `trackState.applied` answered a question we did not know we had.** WebKit reports **only `echoCancellation`** — `noiseSuppression` and `autoGainControl` are absent from `getSettings()` entirely, not `false`. So on iOS **we cannot verify two of the three flags we set.** The one it does report tracks the level exactly (`echoCancellation: true` alongside a healthy `micRawPeak 0.391`, against 0.00249 with it off), which confirms the mechanism: **echo cancellation selects the voice-processing path and its gain.** The ordering raw < balanced < voice on quality is consistent with noise suppression being the garble, but that half stays a well-supported inference rather than a measurement, because the platform will not tell us.
+
+### The panel stops saying what the toast already said
+
+Daniel, on iPad: the in-dialog take status showed **redundantly** with the toast. Not intentional — `takeNote` predates the toast and nobody removed it when the toast took over the same events. **It only became visible now that the toast reliably reaches iPad** (B552 fixed it vanishing in landscape, B562 gave it motion).
+
+Applying Daniel's own rule from the scattered-status audit — *a panel is for controls, a toast is for status* — the transient half (`saving take…`, `take saved ✓`) is gone. **The FAILURE note stays**, because it is a persistent condition worth showing beside the record control and the toast's fail state only covers save-*transport* failures: a take that dies during encode never reaches it.
+
+First concrete step of that audit, on the surface that prompted it.
+
 ## 🎙️ v0.23.13 (Build 566) — 2026-08-08 — Are the three mic flags separable? One build, one sitting, one answer
 
 Daniel tested both ends of the iPad mic and **neither is shippable**:

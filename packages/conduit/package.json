@@ -23,6 +23,7 @@
     "./output-bus": "./src/output-bus.js",
     "./perf-ledger": "./src/perf-ledger.js",
     "./pressure": "./src/pressure.js",
+    "./governor": "./src/governor.js",
     "./recorder": "./src/recorder.js",
     "./syphon-sink": "./src/syphon-sink.js",
     "./test-pattern": "./src/test-pattern.js"

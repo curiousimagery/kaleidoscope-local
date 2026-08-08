@@ -333,8 +333,21 @@ export const MIC_MIN_GAIN = 1;        // never attenuate here — that is the li
 // `getUserMedia` streams (filed in BACKLOG); when that is unified this becomes one value rather
 // than a handoff. Defaults to 1x so a healthy mic is untouched.
 let micTrimHint = 1;
+// The LIVE trim node of the take in flight, when there is one. A deliberate operator adjustment
+// mid-take is not the thing the freeze was protecting against (B568, Daniel: "if i adjust the gain
+// while recording the levels update but the recording doesn't seem to apply the new gain").
+//
+// **The freeze was always about AUTOMATIC changes**, not manual ones — a trim that rides the
+// signal by itself is what made takes sound processed. A hand on a fader is what every mixer in
+// the world does mid-take, and refusing it would mean a take that starts too quiet stays too
+// quiet. So the slider is live, and ramped so the change is a move rather than a step.
+let activeTrim = null;
 export function setMicTrimHint(gain) {
   micTrimHint = gain > 0 ? Math.min(MIC_MAX_GAIN, Math.max(MIC_MIN_GAIN, gain)) : 1;
+  if (activeTrim) {
+    try { activeTrim.node.gain.setTargetAtTime(micTrimHint, activeTrim.ctx.currentTime, 0.08); }
+    catch { try { activeTrim.node.gain.value = micTrimHint; } catch { /* node gone */ } }
+  }
 }
 export function getMicTrimHint() { return micTrimHint; }
 
@@ -410,6 +423,7 @@ async function startMicTap(track, onData) {
     // The trim is whatever the user set on the meter, applied once and never touched again.
     const calibratedGain = micTrimHint > 0 ? micTrimHint : 1;
     if (calibratedGain !== 1) { try { trim.gain.value = calibratedGain; } catch { /* read-only */ } }
+    activeTrim = { node: trim, ctx };   // let the slider reach this take while it runs
     // We still MEASURE the raw input, because `micRawPeak` beside `peak` is what separates a quiet
     // room from a quiet mic from a trim that never engaged — the three cases this whole saga was
     // unable to tell apart. Measuring is free; acting on it automatically is what went wrong.
@@ -427,6 +441,7 @@ async function startMicTap(track, onData) {
       get gain() { return calibratedGain; },
       get rawPeak() { return rawPeak; },
       async stop() {
+        activeTrim = null;
         if (calTimer) { clearTimeout(calTimer); calTimer = 0; try { src.disconnect(probe); } catch {} }
         try { node.port.postMessage('flush'); } catch { /* port gone */ }
         await new Promise((r) => setTimeout(r, 80));   // let the flush round-trip

@@ -14,44 +14,39 @@ Confirmed results are DELETED from here and recorded in CHANGELOG.
 
 **Two findings came out of it**, both filed in BACKLOG, neither a regression from B553-B559: iPad take audio is very quiet (the missing gain stage), and the `elideElementUploads` A/B was unmeasurable as I wrote it (see the entry — my instruction was wrong, and the desktop claim is withdrawn).
 
-# ▶ THIS SESSION — "is the iPad mic fixed, and is it sensitivity or selection?"
+# ▶ THIS SESSION — "does the governor help, and did the arc's changes hold on iPad?"
 
-> **⚠️ NEEDS BUILD 563 OR LATER. B562 broke app startup** (a `ReferenceError` at module evaluation — upload and camera selection were both dead). If you are on B562, nothing below will work. Rebuild first.
->
-> **Also new in B563 and worth a glance while you are here:** the Loop Builder header should now clear the iOS status bar in both orientations, and a camera session should report a real `target` / `shortfall` in the perf panel instead of `0`.
-
-**iPad first, then one iPhone check.** `npm run build && npx cap sync ios`, Xcode rebuild. **~10 minutes.**
+**iPad, ~15 minutes.** `npm run build && npx cap sync ios`, Xcode rebuild. **Needs B568.**
 
 ## What we're trying to find out
 
-**Automatic calibration is gone.** Your report named exactly why: `micRawPeak 0.00552` is about -45dBFS, which is your AC unit, not your voice — so B561 calibrated on room tone, computed 32x, and applied it 2.4s in. That is the jump you heard. Deciding "is this speech" from a short listen is the part that cannot be done reliably, so we stopped trying.
+Two things at once, which is the point: the **governor** is new and unproven, and **iPad broadcast + NDI have not been touched since the hardening changes** this arc made to the poster, the bus teardown and the frame header.
 
-The gain is now **a slider you set, with an `auto` button that measures at the moment you press it** — while you are talking. And the raw mic level is on screen at all times, because that number is the whole diagnosis.
+## Steps — HDMI broadcast
 
-## Steps — iPad
+1. **Start a 4K→4K HDMI broadcast and leave it running for a minute or two.** Watch for a toast reading `preview at 75% — giving the broadcast the headroom (N% under 30fps)`.
+   - **Does the display get smoother when it fires?** That is the whole question.
+   - **Does the preview degradation read as acceptable, or as broken?** Your 75/50 rungs were measured on staged preview, not on a live broadcast.
+   - **Does it oscillate?** Stepping down, recovering, stepping down again within a few seconds would mean the hysteresis is too tight. Tell me if you see it flapping.
+2. **Stop the broadcast.** → does the preview return to full resolution?
+3. **`copy report`** during the broadcast — I want `pressure.shortfall`, `pressure.target`, and the `scale` on the `preview` and `pip` rows.
 
-**Step 1 is the important one. Do it before recording anything.**
+## Steps — NDI (untouched this arc)
 
-1. **Open the output panel, select the mic, and just watch the readout while you talk.** It reads `1.0× · raw 0.031`. **Tell me what the raw number does when you speak at a normal level.**
-   - Rises to ~0.05 or more → the mic is fine and this is purely a gain problem, now solvable with the slider.
-   - Stays near 0.005 even while talking → **the mic is genuinely near-dead**, no amount of gain fixes that honestly, and the cause is mic SELECTION or the iOS audio session. Completely different problem, and worth knowing before I build anything else.
-2. **Talk at a normal level and press `auto`.** → does the gain jump to something sensible and the L/R bars come alive?
-3. **Nudge the slider if `auto` overshot or undershot.** The bars should sit around two-thirds on speech peaks.
-4. **Record a short take (~30s) and play it back.** → usable at normal iPad volume?
-5. **`copy report`** → this should now actually contain an `audio` block on iPad (it never has before; that bug is fixed). I want `micRawPeak`, `micGain`, `peak`, `trackState.label`.
+4. **Start an NDI broadcast on iPad and watch it in Arena or another receiver.** Nothing here has been re-tested since the poster elision, the `failOutput` teardown fix, and the frame-header unification. **I have no expectations to set — this is a "did we break it" pass.**
+5. **If NDI runs, note the frame rate on the receiver** against what the output panel says. The panel now labels which surface it means.
+6. **Try record + NDI together**, which is the pairing that broke on HDMI at D3.
 
-## Steps — iPhone
+## Steps — audio (quick confirm)
 
-6. **One short take at the default 1x, talking normally.** Should be back to how it sounded at B559 — no jump partway in — with `micGain: 1` and `peak` at or under 1.0 instead of 2.82.
-
-## What counts as success
-
-The raw readout responds to your voice, the slider gets the iPad to a usable level, and the iPhone is back to sounding right with no mid-take jump.
+7. **The mic row should now show only `gain` + `auto`** — the raw/balanced/voice picker is gone, raw is hardcoded.
+8. **Adjust the gain DURING a take.** → the recording should now follow it (it did not before). Ramped, so it should sound like a fader move rather than a jump.
 
 ## What I can't see and need from you
 
-- **What the raw number does when you talk on the iPad.** Everything downstream depends on it, and it is the thing I have been guessing at for three builds.
-- **Whether the iPhone take still jumps.** It should not — the default is 1x and nothing adapts.
+- **Whether the governor helps or just makes the preview worse.** No number decides this; if the display does not visibly improve when it fires, the rule is wrong and should come out.
+- **Whether it oscillates.** The dead band is a guess (shed above 25% under, restore below 10%) and this is the first time it has run anywhere.
+- **Whether NDI still works at all.**
 
 # 🅿️ NEXT UP after this — pick one
 

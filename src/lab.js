@@ -537,6 +537,14 @@ function componentsSection() {
         el('span', { class: 'op-gain-read', text: '12.0× · raw 0.031' }),
       ]),
     ])),
+    // GOVERNOR NOTICE (B568) — not a new component. The governor speaks through the save toast,
+    // because the alternative is inventing a second status surface for the same job, which is the
+    // scattered-status problem the audit exists to fix. Specimened here so the wording lives
+    // somewhere reviewable: it always names the REASON, never just the fact.
+    labeled('governor degrade notice (uses .save-toast busy)', el('div', { class: 'save-toast on busy', style: 'position:relative;transform:none;display:flex;pointer-events:auto' }, [
+      el('span', { class: 'save-toast-label', text: 'preview at 75% — giving the broadcast the headroom (34% under 30fps)' }),
+      el('div', { class: 'save-toast-bar' }),
+    ])),
   ]);
   const fields = el('div', { class: 'lab-stack' }, [
     labeled('.scrub', el('span', { class: 'scrub', text: '128' })),

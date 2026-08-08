@@ -113,7 +113,7 @@ Three items that were sitting in HANDOFF's stale half. Each was described there 
 - **✅ Quality — FIXED B558, confirmed by ear.** Voice-processing (echo cancellation / noise suppression / AGC) was ON for every mic. On iOS those flags also select the **voice-processing audio unit**, a different input path with its own resampling. That is the quality gap against Apple's Camera app.
 - **👁 WATCHED: drift on a long take.** B559 numbers on 5:06 at 4K: `videoSpanSec 305.5` vs `audioSpanSec 305.9` (0.13%, and a tail offset is expected since audio keeps flushing past the last video frame), `secondsIn 305.9` / `secondsOut 306` so the encoder lost nothing, `captureLatencyMs 73-113` so the stamp was stable within two frames. **Symptom to watch:** audible lip-sync error growing toward the end of a take. **What it would mean:** the voice-processing unit was not the cause and samples are being lost under main-thread saturation. **First read:** the same four numbers — a `videoSpan`/`audioSpan` gap beyond ~1% is the tell.
 - **👁 WATCHED: occasional static.** Not present in either B558/B559 take. Same suspected mechanism, same first read.
-### 📺 PiP-DURING-BROADCAST POLICY (Daniel, B566) — recommendation: measured, not blanket
+### 📺 PiP-DURING-BROADCAST POLICY — ✅ SHIPPED B568 as `conduit/governor.js`, needs device verification
 
 Daniel weighed two approaches: **always hide the PiP during any broadcast**, or **hide/starve it only when the device is actually struggling**.
 
@@ -157,7 +157,16 @@ Baking a seamless 4K loop on an M1 iPad was **uneventful** (that closes a long-s
 - **Decide the desktop placement deliberately.** The toast pins bottom-centre above the mobile tab bar; on a wide desktop window that may want a different anchor. One decision, then apply everywhere.
 - **Lands in the UI Lab with its state matrix** per the standing rule, and the audit's classification table is worth keeping in the Lab entry as the reference for the next message anyone adds.
 
-### 🎙️ THE iPAD MIC — both ends measured, `balanced` is the open test (B566)
+### 🎙️ THE MIC THREAD — CLOSED B567. raw + trim.
+
+Daniel ran all three modes: **raw is best, balanced beats voice, and raw + a large trim is "genuinely pretty decent quality" on iPad.** `raw` stays the default everywhere; the gain slider is the answer where the input is quiet; the trim persists in localStorage.
+
+**A platform limit worth recording: WebKit's `getSettings()` reports only `echoCancellation`.** `noiseSuppression` and `autoGainControl` are absent entirely, not `false` — so **on iOS we cannot verify two of the three constraints we set.** The one it does report tracks level exactly (`echoCancellation: true` with `micRawPeak 0.391`, vs 0.00249 off), confirming that echo cancellation selects the voice-processing path and its gain. That noise suppression is the garble remains a well-supported inference, not a measurement.
+
+- **[MED] The phone chrome has no mode or gain control.** Its raw path measures healthy so the default is right, but there is no escape hatch if a phone ever needs one.
+- **[LOW] Two mic paths still acquire separately** (meter + take), which is why the trim is a handoff rather than one value. **Cross-ref the HIGH bug where opening the panel pauses playback** — these are the same acquisition, and fixing that one probably subsumes this.
+
+### 🎙️ [HISTORICAL] both ends measured, `balanced` was the open test (B566)
 
 | mode | `micRawPeak` | Daniel's verdict |
 | --- | --- | --- |

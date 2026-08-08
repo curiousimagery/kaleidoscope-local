@@ -1618,11 +1618,16 @@ body.loop-active #outputToolbar { display: none; }
    The raw readout is load-bearing, not decoration: it is the only thing that separates "the mic
    hears nothing" from "the gain is wrong", and its absence cost three builds. */
 .output-pop .op-gain { margin-top: 6px; }
+/* the label reuses .op-meter-lab's type so it reads as part of the meter cluster, but that class
+   is width:10px for the "L"/"R" ticks — a word needs its own measure (B568) */
+.output-pop .op-gain .op-meter-lab { width: auto; flex: 0 0 auto; }
 .output-pop .op-gain .slider { flex: 1; min-width: 0; }
-.output-pop .op-vp-label { display: inline-flex; align-items: center; gap: 6px; font-size: var(--text-xs); color: var(--text-dim); cursor: pointer; white-space: nowrap; }
-.output-pop .op-vp-label { flex: 0 0 auto; }
-.output-pop #micVpRow select { font-size: var(--text-xs); }
-.output-pop #micVpRow .op-gain-read { min-width: 0; flex: 1; text-align: left; }
+/* `auto` is a secondary action inside a dense row, so it takes the panel's button styling at the
+   meter's type scale rather than full control height */
+.output-pop .op-gain button {
+  flex: 0 0 auto; padding: 2px 8px; font-size: var(--text-xs);
+  line-height: 1.6; border-radius: var(--radius-sm);
+}
 .output-pop .op-gain-read {
   font-size: var(--text-xs); color: var(--text-dim);
   min-width: 92px; text-align: right; font-variant-numeric: tabular-nums;

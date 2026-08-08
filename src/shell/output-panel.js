@@ -29,33 +29,16 @@ const DEST_KEY = 'fold.outputDestination';
 // outcomes — which is why this is a per-input choice and never a device rule (CAPABILITIES §1:
 // probe, never classify). Mirrors the phone chrome's RAW_MIC, which stays on `raw`.
 //
-// THE THREE-WAY CHOICE (B566). Daniel tested both ends on iPad and neither is shippable:
-//   RAW   — `micRawPeak 0.00249` (~-52dBFS), clean but unusably quiet
-//   VOICE — `micRawPeak 0.83231` (a 334x jump, so the voice-processing unit supplies essentially
-//           ALL of the iPad's input gain) with good levels, but "garbled... terrible", the same
-//           artifact B558 removed from the iPhone. His verdict: he would take the quiet one.
-//
-// So the question is whether the three flags are separable, and NOBODY KNOWS — it has never been
-// tested. The hypothesis worth one A/B: **echo cancellation is what selects the voice-processing
-// path (and its gain), while NOISE SUPPRESSION is what garbles** (spectral gating is exactly what
-// "garbled" sounds like) and AGC is what pumps. If iOS honours the flags individually, `balanced`
-// keeps the gain and drops the artifact. If it does not, `balanced` will measure identical to one
-// of the other two and we will know the path is all-or-nothing.
-//
-// Three modes rather than a toggle so that answer arrives in ONE sitting instead of three builds.
-// `trackState.applied` in the report says which flags iOS actually honoured, which is the part we
-// have been unable to see.
-const MIC_MODES = {
-  raw:      { echoCancellation: { ideal: false }, noiseSuppression: { ideal: false }, autoGainControl: { ideal: false } },
-  balanced: { echoCancellation: { ideal: true },  noiseSuppression: { ideal: false }, autoGainControl: { ideal: true } },
-  voice:    {},   // platform defaults — full conferencing processing
+// SETTLED B568: `raw` everywhere. Daniel ran all three modes on iPad — raw is best, balanced
+// beats voice, and raw with a large trim is the best-sounding option there. The three-way picker
+// existed to answer that question; keeping it afterwards would be shipping our A/B rig as a user
+// setting. WebKit note worth keeping: `getSettings()` reports only `echoCancellation` on iOS —
+// `noiseSuppression` and `autoGainControl` are absent, so two of these three can never be verified.
+const rawMicAudio = (devId) => {
+  const base = { echoCancellation: { ideal: false }, noiseSuppression: { ideal: false }, autoGainControl: { ideal: false } };
+  return (devId && devId !== 'default') ? { deviceId: { exact: devId }, ...base } : base;
 };
-const rawMicAudio = (devId, mode = 'raw') => {
-  const base = MIC_MODES[mode] || MIC_MODES.raw;
-  return (devId && devId !== 'default')
-    ? { deviceId: { exact: devId }, ...base }
-    : (Object.keys(base).length ? base : true);
-};
+
 
 
 export function createOutputPanel(env, outputBus) {
@@ -133,15 +116,6 @@ export function createOutputPanel(env, outputBus) {
 
   const recorder = outputBus.getSink('disk');
 
-  // VOICE PROCESSING (B564) — the iOS input path, exposed because it is the difference between a
-  // usable iPad recording and a dead one, and it cannot be chosen for the user by device model.
-  // Persisted per session; changing it re-acquires the meter so the effect is immediately audible
-  // on the bars rather than only discovered after a take.
-  const VP_KEY = 'fold.micMode';
-  const micMode = () => {
-    try { return MIC_MODES[localStorage.getItem(VP_KEY)] ? localStorage.getItem(VP_KEY) : 'raw'; }
-    catch { return 'raw'; }
-  };
 
 
   // audio-source picker: enumerate mics into the select (labels only appear
@@ -215,8 +189,6 @@ export function createOutputPanel(env, outputBus) {
     if (wrap) wrap.hidden = true;
     const gRow = byId('micGainRow');
     if (gRow) gRow.hidden = true;
-    const vRow = byId('micVpRow');
-    if (vRow) vRow.hidden = true;
   }
   async function syncMicMeter() {
     const row = byId('outputRow');
@@ -226,7 +198,7 @@ export function createOutputPanel(env, outputBus) {
     if (meterStream) return;   // already metering
     let stream;
     try {
-      stream = await navigator.mediaDevices.getUserMedia({ audio: rawMicAudio(devId, micMode()) });
+      stream = await navigator.mediaDevices.getUserMedia({ audio: rawMicAudio(devId) });
     } catch {
       // an enumerated id can be stale/foreign on WKWebView — fall back to the default mic
       try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }); }
@@ -281,10 +253,14 @@ export function createOutputPanel(env, outputBus) {
       setMicTrimHint(v);
       if (gainEl) gainEl.value = String(v);
       if (gainReadEl) gainReadEl.textContent = `${v.toFixed(1)}×`;
-      // survives a reload so a room that needed 12x does not have to be dialled in twice
-      if (persist && env.session) env.session.micGain = v;
+      // survives a RELAUNCH, not just a reload: on iPad this is the difference between a usable
+      // default and re-dialling every session, and Daniel's verdict is that raw + a big trim is
+      // the best-sounding option there (B567)
+      if (persist) { try { localStorage.setItem('fold.micGain', String(v)); } catch { /* private mode */ } }
     };
-    applyGain(env.session?.micGain || getMicTrimHint() || 1, { persist: false });
+    let savedGain = 0;
+    try { savedGain = +localStorage.getItem('fold.micGain') || 0; } catch { /* private mode */ }
+    applyGain(savedGain || getMicTrimHint() || 1, { persist: false });
     if (gainEl) gainEl.oninput = () => applyGain(+gainEl.value);
     if (gainAutoEl) {
       gainAutoEl.onclick = () => {
@@ -319,16 +295,6 @@ export function createOutputPanel(env, outputBus) {
       if (gainReadEl && !gainAutoEl?.disabled) {
         gainReadEl.textContent = `${(+(gainEl?.value || 1)).toFixed(1)}× · raw ${recentRaw.toFixed(3)}`;
       }
-      // ADVISE, DO NOT SWITCH. A raw peak this low (about -40dBFS at its loudest) cannot be
-      // rescued by trim: 32x on it amplifies the noise floor and throws away most of the bit
-      // depth. Saying so is honest and actionable; flipping the input path silently would be
-      // another automatic decision of exactly the kind that has already failed twice here (B564).
-      const vpHint = byId('micVpHint');
-      if (vpHint) {
-        vpHint.textContent = (micMode() === 'raw' && recentRaw > 0 && recentRaw < 0.01)
-          ? 'raw input is very quiet here — try balanced'
-          : '';
-      }
       setTimeout(trackRaw, 200);
     };
     setTimeout(trackRaw, 200);
@@ -345,19 +311,6 @@ export function createOutputPanel(env, outputBus) {
     if (wrap) wrap.hidden = false;
     const gRow = byId('micGainRow');
     if (gRow) gRow.hidden = false;
-    const vRow = byId('micVpRow');
-    if (vRow) vRow.hidden = false;
-    const vpEl = byId('micVoiceProc');
-    if (vpEl) {
-      vpEl.value = micMode();
-      vpEl.onchange = () => {
-        try { localStorage.setItem(VP_KEY, vpEl.value); } catch { /* private mode */ }
-        // re-acquire so the bars show the new path immediately — discovering this after a take
-        // is exactly the failure mode this control exists to remove
-        stopMicMeter();
-        syncMicMeter();
-      };
-    }
     const buf = new Uint8Array(anL.fftSize);
     const lEl = byId('micMeterL'), rEl = byId('micMeterR');
     const peak = (an) => {
@@ -491,13 +444,23 @@ export function createOutputPanel(env, outputBus) {
   function watchTakeResult() {
     clearInterval(takeWatch);
     const t0 = Date.now();
-    takeNote = 'saving take…';
+    // STATUS BELONGS TO THE TOAST, NOT THE PANEL (B567, Daniel). "saving take…" and "take saved ✓"
+    // were being said twice on iPad — once here and once in the save toast — because this note
+    // predates the toast and nobody removed it when the toast started carrying the same events.
+    // It only became visible now that the toast reliably reaches iPad (B552 fixed it vanishing in
+    // landscape, B562 gave it motion). Daniel's rule: a panel is for controls, a toast is for
+    // status. So the transient half goes.
+    //
+    // The FAILURE note stays. It is a persistent condition worth showing beside the record control,
+    // and the toast's fail state only covers save-TRANSPORT failures — a take that dies during
+    // encode never reaches it.
+    takeNote = '';
     renderStatus();
     takeWatch = setInterval(() => {
       const r = recorder.lastResult;
       if (r) {
         clearInterval(takeWatch);
-        takeNote = r.ok ? `take saved ✓ ${r.name}` : `take FAILED: ${r.error}`;
+        takeNote = r.ok ? '' : `take FAILED: ${r.error}`;
       } else if (Date.now() - t0 > 30_000) {
         clearInterval(takeWatch);
         takeNote = 'take still saving… (check the console if nothing arrives)';
@@ -524,7 +487,7 @@ export function createOutputPanel(env, outputBus) {
       const devId = recAudioEl?.value;
       if (devId) {
         try {
-          recMicStream = await navigator.mediaDevices.getUserMedia({ audio: rawMicAudio(devId, micMode()) });
+          recMicStream = await navigator.mediaDevices.getUserMedia({ audio: rawMicAudio(devId) });
           micTrack = recMicStream.getAudioTracks()[0] || null;
         } catch {
           recMicStream = null;

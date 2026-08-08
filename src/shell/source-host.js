@@ -707,6 +707,10 @@ export function createSourceHost(env) {
   // app writes speaks one language. Kept as a named function so env.downloadBlob
   // and the local call sites read unchanged.
   const saveFlow = createSaveFlow({ host: env.host });
+  // published so anything that needs to SAY something transient can use the one status surface
+  // rather than inventing another (the governor's degrade notice, B568). Daniel's rule from the
+  // scattered-status audit: a panel is for controls, a toast is for status.
+  env.saveFlow = saveFlow;
   function downloadBlob(blob, name) {
     return saveFlow.save(blob, name);
   }
