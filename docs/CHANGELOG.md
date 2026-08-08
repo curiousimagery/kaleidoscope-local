@@ -4,6 +4,35 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🎙️ v0.23.13 (Build 566) — 2026-08-08 — Are the three mic flags separable? One build, one sitting, one answer
+
+Daniel tested both ends of the iPad mic and **neither is shippable**:
+
+| mode | `micRawPeak` | verdict |
+| --- | --- | --- |
+| raw | **0.00249** (~-52dBFS) | clean, unusably quiet |
+| voice | **0.83231** | good levels, *"garbled… terrible"* |
+
+**A 334x jump confirms the voice-processing unit supplies essentially ALL of the iPad's input gain** — and it brings back exactly the artifact B558 removed from the iPhone. His verdict: he would take the quiet one.
+
+So the real question is whether the three flags are **separable**, and nobody knows — it has never been tested. The hypothesis worth one A/B: **echo cancellation selects the voice-processing path (and its gain), noise suppression is what garbles** (spectral gating is precisely what "garbled" sounds like), and AGC is what pumps. A **`balanced`** mode keeps echo cancellation and AGC while dropping noise suppression.
+
+**Three modes instead of a toggle, so the answer arrives in one sitting rather than three builds.** If `balanced` measures identical to one of the other two, the path is all-or-nothing on iOS and we will know that too.
+
+### And we can finally see what the platform honoured
+
+`trackState.applied` now reports the audio track's real `getSettings()` — echo cancellation, noise suppression, AGC, sample rate, channel count. **This whole saga has run without it:** we have been setting three constraints and inferring from level whether they took. If `balanced` comes back with `noiseSuppression: true` anyway, the flags are not separable and no amount of UI will make them so.
+
+## 🏷️ v0.23.12 (Build 565) — 2026-08-08 — The output panel's fps says which surface it means
+
+Daniel, broadcasting 4K over HDMI from an M1 iPad: the output panel advertised **29-32fps** while the frame-cost panel read **21.6**.
+
+**Both numbers were correct.** The external view self-renders off the frame socket on its own clock — his report shows `30 new/s` arriving and `26 fps ON THE DISPLAY` — so it legitimately outruns the app's editor loop. They are two renderers, not one number and a lie.
+
+**The dishonesty was the missing label.** A bare "fps" in the output panel reads as *the app's* frame rate. It now names the surface (`26 fps on display`) and appends the app's own rate when the two diverge materially (`· app 22`), because that gap is the thing worth noticing: the wall looks fine while the editor is struggling.
+
+Filed alongside, not fixed here — the underlying gap, and it is the arc's signature finding one more time: **`preview render` 14.36ms (1.57MP) plus `pip render` 9.91ms (0.09MP) is 24.3ms of a 44ms frame, against 4.14ms to upload the entire 8.29MP 4K source.** A 402×226 PiP costing ten milliseconds is not about its size; the cost tracks the 4K texture it samples. This is B516's iPad measurement reproduced at 4K and it is the concrete case for adaptive preview resolution on mobile.
+
 ## 🎙️ v0.23.11 (Build 564) — 2026-08-08 — The iPad's raw mic path is ~50dB down, and that is the whole story
 
 **`micRawPeak: 0.00249` while talking LOUDLY. That is about -52dBFS**, on an iPad Daniel uses for FaceTime and Zoom without complaint. The hardware is fine. Our capture path was not.

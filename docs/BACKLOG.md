@@ -113,6 +113,28 @@ Three items that were sitting in HANDOFF's stale half. Each was described there 
 - **✅ Quality — FIXED B558, confirmed by ear.** Voice-processing (echo cancellation / noise suppression / AGC) was ON for every mic. On iOS those flags also select the **voice-processing audio unit**, a different input path with its own resampling. That is the quality gap against Apple's Camera app.
 - **👁 WATCHED: drift on a long take.** B559 numbers on 5:06 at 4K: `videoSpanSec 305.5` vs `audioSpanSec 305.9` (0.13%, and a tail offset is expected since audio keeps flushing past the last video frame), `secondsIn 305.9` / `secondsOut 306` so the encoder lost nothing, `captureLatencyMs 73-113` so the stamp was stable within two frames. **Symptom to watch:** audible lip-sync error growing toward the end of a take. **What it would mean:** the voice-processing unit was not the cause and samples are being lost under main-thread saturation. **First read:** the same four numbers — a `videoSpan`/`audioSpan` gap beyond ~1% is the tell.
 - **👁 WATCHED: occasional static.** Not present in either B558/B559 take. Same suspected mechanism, same first read.
+### 📺 PiP-DURING-BROADCAST POLICY (Daniel, B566) — recommendation: measured, not blanket
+
+Daniel weighed two approaches: **always hide the PiP during any broadcast**, or **hide/starve it only when the device is actually struggling**.
+
+**Recommendation: the measured one, and we already own every piece of it.**
+
+- **The blanket rule breaks the case Daniel himself flagged.** "The PiP is redundant to the external display" is true for HDMI and **false for Syphon and NDI**, where there is no second screen in the room and the PiP is the only view of the program. A blanket rule would blind the operator in exactly the destination he named as a concern.
+- **It also contradicts the arc's governing rule.** An M3 iPad Pro may run both comfortably; a device-agnostic "always hide" is classification by fiat, and CAPABILITIES §1 is probe, never classify.
+- **The mechanism exists.** B543 already ships a governor rule that starves the PiP for 4K capture, with a pre-warning (B555) so it is never a surprise. B559 added **`shortfall`** — an honest absolute "we are not hitting target". The rule is: *while broadcasting, if shortfall stays above a threshold for a couple of seconds, step the PiP down (rate, then resolution, then off) and say why.* Hysteresis so it cannot oscillate; restore when the broadcast stops.
+- **Measured stakes on the M1 iPad at 4K:** `preview render` 14.36ms + `pip render` 9.91ms = **24.3ms of a 44ms frame.** The PiP alone is ~23% of the budget. **Prefer the broadcast over the app** (Daniel's call), so the preview should be on the same ladder — his 100/75/50 rungs were measured for this.
+- **Pairs with:** the adaptive-preview-resolution proposal filed under the B506 entry. These are one piece of work, not two.
+
+### 🎛️ iPAD 4K HDMI SESSION — four findings (Daniel, B565)
+
+Baking a seamless 4K loop on an M1 iPad was **uneventful** (that closes a long-standing worry). Broadcasting it found four things.
+
+- **✅ PARTLY ADDRESSED B565 — the output panel advertised 29-32fps while the frame-cost panel read 21.6.** Both numbers were correct: the external view self-renders off the frame socket on its own clock (30 new/s arriving, 26 drawn), so it legitimately outruns the app's editor loop. **The dishonesty was the missing label** — a bare "fps" in the output panel reads as the app's frame rate. It now says `26 fps on display · app 22` when the two diverge materially. **What remains open is the underlying gap**, below.
+- **🔴 [HIGH] The iPad's editor surfaces are the wall, confirmed again and worse at 4K.** From the report: **`preview render` 14.36ms (1.57MP) + `pip render` 9.91ms (0.09MP) = 24.3ms of a 44ms frame**, against a `source` upload of 4.14ms for the full 8.29MP 4K texture. **A 402×226 PiP costing 9.91ms is the arc's signature finding again — the cost tracks the 4K SOURCE being sampled, not the tiny destination.** This is B516's number (preview 13.41 + PiP 9.0) reproduced at 4K, and it is the concrete case for **adaptive preview resolution on mobile** (the proposal already filed under the B506 entry). Daniel's ladder (100 → 75 → 50) was measured for exactly this.
+- **🔴 [HIGH] The external display starts DARK AND PAUSED on a fresh broadcast** — he had to scrub the timeline and press play before anything appeared. Distinct from (and sharper than) the existing "stale/latent at session start" entry: it is not slow, it is *paused*. Pairs with the standing **"broadcasting in MOTION mode plays even when paused"** bug — the same transport-state desync, seen from the other side. **The external view is not being told the transport state at broadcast start.**
+- **🔴 [HIGH] Opening the output panel PAUSES PLAYBACK when a mic is selected.** The level meter opens its own `getUserMedia` whenever the panel is open, and on iOS acquiring an audio input changes the AVAudioSession category, **interrupting video playback**. Opening a panel should never stop the program, and this is worst exactly where it matters — mid-broadcast. **Options:** do not auto-acquire the meter while a broadcast or playback is live (meter on demand); acquire once and hold it for the session rather than per-panel-open; or configure the audio session so capture and playback coexist (likely needs the native plugin). **Cross-ref: the meter's separate `getUserMedia` is already filed as a thing to unify with the take's.**
+- **🟠 [MED] Play/pause desyncs after a system-forced pause**, in BOTH the Loop Builder and perform. The transport stops for an external reason, the button still reads "pause", and resuming needs two taps. **The button reflects intent rather than the transport's actual state** — it should follow the `<video>`/decoder's real playing state (a `play`/`pause`/`ended` listener), not the last thing the user asked for. Same family as the external-display transport desync above; worth fixing together.
+
 ### 🚪 MODE SWITCHING IS GATED ON HAVING A SOURCE (Daniel, B564) — likely removable
 
 **Daniel:** *"we currently disable switching modes until a source has been added... it'd feel more natural to switch to perform mode and then turn on the live camera instead of the reverse. unless there's a legit constraint gating us lets unlock that."*
@@ -135,7 +157,20 @@ Three items that were sitting in HANDOFF's stale half. Each was described there 
 - **Decide the desktop placement deliberately.** The toast pins bottom-centre above the mobile tab bar; on a wide desktop window that may want a different anchor. One decision, then apply everywhere.
 - **Lands in the UI Lab with its state matrix** per the standing rule, and the audit's classification table is worth keeping in the Lab entry as the reference for the next message anyone adds.
 
-### 🎙️ THE iPAD MIC — DIAGNOSED B564. Raw path is ~50dB down.
+### 🎙️ THE iPAD MIC — both ends measured, `balanced` is the open test (B566)
+
+| mode | `micRawPeak` | Daniel's verdict |
+| --- | --- | --- |
+| raw | 0.00249 (~-52dBFS) | clean, unusably quiet |
+| voice | 0.83231 | good levels, "garbled… terrible" |
+
+**A 334x jump confirms the voice-processing unit supplies essentially all of the iPad's input gain**, and brings back the artifact B558 removed from the iPhone. He would take the quiet one.
+
+- **▶ THE OPEN TEST: does `balanced` (echo cancellation ON, noise suppression OFF, AGC ON) keep the gain without the garble?** Hypothesis: echo cancellation selects the voice-processing path, noise suppression is what garbles, AGC is what pumps. **Read `trackState.applied` in the report** — if `noiseSuppression` comes back `true` under `balanced`, iOS does not honour the flags individually and the path is all-or-nothing.
+- **If it IS all-or-nothing**, the honest options narrow to: ship `raw` + our own gain (accepting the noise floor, which at -52dBFS is poor), ship `voice` and accept processed audio, or **stop pretending the iPad's built-in mic is a recording input and recommend an external one** — a legitimate capability statement per the arc's goal #1, and one a VJ would find unsurprising.
+- **[MED] The phone chrome has no mode control.** Its raw path measures healthy so the default is right, but there is no escape hatch.
+
+### 🎙️ [HISTORICAL] THE iPAD MIC — DIAGNOSED B564. Raw path is ~50dB down.
 
 **`micRawPeak 0.00249` while talking loudly (about -52dBFS)** on an iPad that does FaceTime and Zoom fine. On iOS the B558 constraints switch the input away from the **voice-processing audio unit**, which on iPad supplies most of the input gain. **The gain stage was aimed at a symptom** — 32x on -52dBFS amplifies the noise floor and burns most of the bit depth, which is why a 32x take sounded "fairly normal" rather than good.
 

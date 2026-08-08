@@ -915,7 +915,23 @@ async function startWebCodecsSession({ w, h, audioTrack, onDone, onError, onProg
       sampleRate: rate || null,
       channels: acfg ? channels : null,
       trackSupplied: !!audioTrack,
-      trackState: audioTrack ? { enabled: audioTrack.enabled, muted: audioTrack.muted, readyState: audioTrack.readyState, label: audioTrack.label } : null,
+      // `applied` is what the PLATFORM actually honoured, not what we asked for (B566). The whole
+      // iPad mic saga has been conducted without it: we have been setting three constraints and
+      // inferring from level whether they took. If `balanced` comes back with noiseSuppression
+      // true anyway, the flags are not separable on iOS and no amount of UI will make them so.
+      trackState: audioTrack ? {
+        enabled: audioTrack.enabled, muted: audioTrack.muted,
+        readyState: audioTrack.readyState, label: audioTrack.label,
+        applied: (() => {
+          try {
+            const g = audioTrack.getSettings?.() || {};
+            return {
+              echoCancellation: g.echoCancellation, noiseSuppression: g.noiseSuppression,
+              autoGainControl: g.autoGainControl, sampleRate: g.sampleRate, channelCount: g.channelCount,
+            };
+          } catch { return null; }
+        })(),
+      } : null,
       finalizeMs, finalizeMarks,   // WHERE the finish went — the 4K-finalize question (B550)
       // THREE CLOCKS THAT SHOULD AGREE (B557). wall = how long the take really ran; video =
       // the span of stamped video timestamps; audio = samples actually encoded. A gap between

@@ -1620,7 +1620,8 @@ body.loop-active #outputToolbar { display: none; }
 .output-pop .op-gain { margin-top: 6px; }
 .output-pop .op-gain .slider { flex: 1; min-width: 0; }
 .output-pop .op-vp-label { display: inline-flex; align-items: center; gap: 6px; font-size: var(--text-xs); color: var(--text-dim); cursor: pointer; white-space: nowrap; }
-.output-pop .op-vp-label input { margin: 0; }
+.output-pop .op-vp-label { flex: 0 0 auto; }
+.output-pop #micVpRow select { font-size: var(--text-xs); }
 .output-pop #micVpRow .op-gain-read { min-width: 0; flex: 1; text-align: left; }
 .output-pop .op-gain-read {
   font-size: var(--text-xs); color: var(--text-dim);

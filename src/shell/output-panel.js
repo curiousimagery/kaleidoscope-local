@@ -20,32 +20,43 @@ import { setMicTrimHint, getMicTrimHint, MIC_TARGET_PEAK, MIC_MAX_GAIN, MIC_MIN_
 const TIER_DEFAULT = 1920;            // FHD long side — safe live default (never 4K)
 const DEST_KEY = 'fold.outputDestination';
 
-// RAW MIC, NOT THE CONFERENCING MIC (B558). Bare `audio: true` opts into echo cancellation, noise
-// suppression and automatic gain control — tuned for calls, and audibly wrong for a recording (they
-// gate, duck and re-level continuously). `ideal` rather than `exact` so a platform that cannot
-// honour a flag still returns a track. Mirrors the phone chrome's RAW_MIC.
+// THE MIC INPUT PATH (B558 → B566). Bare `audio: true` opts into echo cancellation, noise
+// suppression and automatic gain control — tuned for calls, and audibly wrong for a recording.
+// `ideal` rather than `exact` so a platform that cannot honour a flag still returns a track.
 //
-// BUT ON iPAD THE RAW PATH IS NEARLY DEAD (B564, and this is the diagnosis three builds of gain
-// work were circling). Daniel measured `micRawPeak 0.00249` — about **-52dBFS while talking
-// LOUDLY** — on an iPad he uses for FaceTime and Zoom without complaint. The hardware is fine.
+// On iOS these flags do not merely toggle processing: they select the input PATH. The iPhone's raw
+// path is healthy (`peak` 2.82). The iPad's is ~-52dBFS. Same code, same constraints, opposite
+// outcomes — which is why this is a per-input choice and never a device rule (CAPABILITIES §1:
+// probe, never classify). Mirrors the phone chrome's RAW_MIC, which stays on `raw`.
 //
-// On iOS these three flags do not merely disable processing: they switch the input away from the
-// **voice-processing audio unit**, and on iPad that unit is evidently supplying most of the input
-// gain. Turn it off and you get a signal ~50dB down, which no amount of trim can rescue honestly —
-// 32x on -52dBFS is amplifying the noise floor and throwing away most of the bit depth, which is
-// exactly why Daniel's 32x take sounded "fairly normal" rather than good.
+// THE THREE-WAY CHOICE (B566). Daniel tested both ends on iPad and neither is shippable:
+//   RAW   — `micRawPeak 0.00249` (~-52dBFS), clean but unusably quiet
+//   VOICE — `micRawPeak 0.83231` (a 334x jump, so the voice-processing unit supplies essentially
+//           ALL of the iPad's input gain) with good levels, but "garbled... terrible", the same
+//           artifact B558 removed from the iPhone. His verdict: he would take the quiet one.
 //
-// **So this is a per-input choice, not a global constant**, and it cannot be decided by device
-// model (the project's standing rule is probe, never classify — and the iPhone's raw path is
-// healthy at `peak` 2.82, so a blanket revert would undo the quality win there). The mic row now
-// carries a `voice processing` toggle, and the readout says when the raw input is too dead to use.
-const rawMicAudio = (devId, voiceProcessing = false) => {
-  const base = voiceProcessing
-    // let the platform do what it does for calls — level included
-    ? {}
-    : { echoCancellation: { ideal: false }, noiseSuppression: { ideal: false }, autoGainControl: { ideal: false } };
-  return (devId && devId !== 'default') ? { deviceId: { exact: devId }, ...base } : (Object.keys(base).length ? base : true);
+// So the question is whether the three flags are separable, and NOBODY KNOWS — it has never been
+// tested. The hypothesis worth one A/B: **echo cancellation is what selects the voice-processing
+// path (and its gain), while NOISE SUPPRESSION is what garbles** (spectral gating is exactly what
+// "garbled" sounds like) and AGC is what pumps. If iOS honours the flags individually, `balanced`
+// keeps the gain and drops the artifact. If it does not, `balanced` will measure identical to one
+// of the other two and we will know the path is all-or-nothing.
+//
+// Three modes rather than a toggle so that answer arrives in ONE sitting instead of three builds.
+// `trackState.applied` in the report says which flags iOS actually honoured, which is the part we
+// have been unable to see.
+const MIC_MODES = {
+  raw:      { echoCancellation: { ideal: false }, noiseSuppression: { ideal: false }, autoGainControl: { ideal: false } },
+  balanced: { echoCancellation: { ideal: true },  noiseSuppression: { ideal: false }, autoGainControl: { ideal: true } },
+  voice:    {},   // platform defaults — full conferencing processing
 };
+const rawMicAudio = (devId, mode = 'raw') => {
+  const base = MIC_MODES[mode] || MIC_MODES.raw;
+  return (devId && devId !== 'default')
+    ? { deviceId: { exact: devId }, ...base }
+    : (Object.keys(base).length ? base : true);
+};
+
 
 export function createOutputPanel(env, outputBus) {
   const byId = (id) => document.getElementById(id);
@@ -126,9 +137,10 @@ export function createOutputPanel(env, outputBus) {
   // usable iPad recording and a dead one, and it cannot be chosen for the user by device model.
   // Persisted per session; changing it re-acquires the meter so the effect is immediately audible
   // on the bars rather than only discovered after a take.
-  const VP_KEY = 'fold.micVoiceProcessing';
-  const voiceProcessingOn = () => {
-    try { return localStorage.getItem(VP_KEY) === '1'; } catch { return false; }
+  const VP_KEY = 'fold.micMode';
+  const micMode = () => {
+    try { return MIC_MODES[localStorage.getItem(VP_KEY)] ? localStorage.getItem(VP_KEY) : 'raw'; }
+    catch { return 'raw'; }
   };
 
 
@@ -214,7 +226,7 @@ export function createOutputPanel(env, outputBus) {
     if (meterStream) return;   // already metering
     let stream;
     try {
-      stream = await navigator.mediaDevices.getUserMedia({ audio: rawMicAudio(devId, voiceProcessingOn()) });
+      stream = await navigator.mediaDevices.getUserMedia({ audio: rawMicAudio(devId, micMode()) });
     } catch {
       // an enumerated id can be stale/foreign on WKWebView — fall back to the default mic
       try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }); }
@@ -313,8 +325,8 @@ export function createOutputPanel(env, outputBus) {
       // another automatic decision of exactly the kind that has already failed twice here (B564).
       const vpHint = byId('micVpHint');
       if (vpHint) {
-        vpHint.textContent = (!voiceProcessingOn() && recentRaw > 0 && recentRaw < 0.01)
-          ? 'raw input is very quiet on this device — try turning this on'
+        vpHint.textContent = (micMode() === 'raw' && recentRaw > 0 && recentRaw < 0.01)
+          ? 'raw input is very quiet here — try balanced'
           : '';
       }
       setTimeout(trackRaw, 200);
@@ -337,9 +349,9 @@ export function createOutputPanel(env, outputBus) {
     if (vRow) vRow.hidden = false;
     const vpEl = byId('micVoiceProc');
     if (vpEl) {
-      vpEl.checked = voiceProcessingOn();
+      vpEl.value = micMode();
       vpEl.onchange = () => {
-        try { localStorage.setItem(VP_KEY, vpEl.checked ? '1' : '0'); } catch { /* private mode */ }
+        try { localStorage.setItem(VP_KEY, vpEl.value); } catch { /* private mode */ }
         // re-acquire so the bars show the new path immediately — discovering this after a take
         // is exactly the failure mode this control exists to remove
         stopMicMeter();
@@ -512,7 +524,7 @@ export function createOutputPanel(env, outputBus) {
       const devId = recAudioEl?.value;
       if (devId) {
         try {
-          recMicStream = await navigator.mediaDevices.getUserMedia({ audio: rawMicAudio(devId, voiceProcessingOn()) });
+          recMicStream = await navigator.mediaDevices.getUserMedia({ audio: rawMicAudio(devId, micMode()) });
           micTrack = recMicStream.getAudioTracks()[0] || null;
         } catch {
           recMicStream = null;
@@ -733,8 +745,23 @@ export function createOutputPanel(env, outputBus) {
       // reports its OWN render size + GPU fps — the bus numbers describe the
       // read-back pipeline, which isn't what's on the wall
       const dims = (broadcasting && d?.sink.renderDims) || s;
-      const fps = (broadcasting && d?.sink.fps) || s.fps;
-      statusEl.textContent = `${parts.join(' · ')} · ${dims.width}×${dims.height} · ${fps || '…'} fps`;
+      const remoteFps = broadcasting ? (d?.sink.fps || 0) : 0;
+      const fps = remoteFps || s.fps;
+      // SAY WHICH SURFACE THE NUMBER DESCRIBES (B565, Daniel). During a 4K HDMI broadcast this
+      // line read a healthy 29-32 while the frame-cost panel read 21.6 — and BOTH were correct.
+      // A self-rendering external view draws from the frame socket on its own clock, so it can
+      // legitimately outrun the app's editor loop; they are two renderers, not one number and a
+      // lie. **But a bare "fps" in the output panel reads as "the app's frame rate", and that is
+      // the dishonesty** — the label was missing, not the measurement.
+      //
+      // So: name the remote surface, and append the app's own rate whenever it is materially
+      // lower, because that gap is the thing worth noticing (the editor is struggling while the
+      // wall looks fine, which is exactly the iPad's editor-surface wall).
+      const appFps = Math.round(env.perf?.report?.fps || 0);
+      const fpsText = remoteFps
+        ? `${remoteFps} fps on display${appFps && appFps < remoteFps * 0.9 ? ` · app ${appFps}` : ''}`
+        : `${fps || '…'} fps`;
+      statusEl.textContent = `${parts.join(' · ')} · ${dims.width}×${dims.height} · ${fpsText}`;
       statusEl.classList.add('live');
     } else if (takeNote) {
       // the last take's fate outlives the poll loop's rewrites until something

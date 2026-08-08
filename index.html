@@ -132,7 +132,12 @@
            it off, iPad delivers about -52dBFS even when shouting, which no trim can rescue. iPhone
            is healthy either way, so this is a per-input choice rather than a device rule. -->
       <div class="op-row op-gain" id="micVpRow" hidden>
-        <label class="op-vp-label"><input type="checkbox" id="micVoiceProc"> voice processing</label>
+        <label class="op-vp-label" for="micVoiceProc">input</label>
+        <select id="micVoiceProc" title="raw = no processing (best quality where the mic is loud enough) · balanced = keeps the platform's input gain but drops noise suppression · voice = full conferencing processing (loudest, most processed)">
+          <option value="raw">raw</option>
+          <option value="balanced">balanced</option>
+          <option value="voice">voice</option>
+        </select>
         <span class="op-gain-read" id="micVpHint"></span>
       </div>
     </div>
