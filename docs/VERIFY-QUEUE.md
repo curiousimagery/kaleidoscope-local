@@ -8,7 +8,28 @@ Confirmed results are DELETED from here and recorded in CHANGELOG.
 
 ---
 
-# ▶ THIS SESSION (B573) — "the governor is now visible, so what does it say?"
+# ▶ THIS SESSION (B574) — "is the governor helping or just reporting?"
+
+**iPad, ~5 minutes. Needs B574.** One question, one toggle, no rebuild between answers.
+
+B573 answered "does it fire" (yes) and "does the ladder work" (no — see CHANGELOG B574 for the numbers). **The only thing left unresolved is your own observation:** the display reported 37 → 23 fps under the governor and *felt steadier*. That is worth knowing, because if it is real then the governor is buying pacing even though it is not buying throughput, and that changes whether the ladder comes out or gets kept as a pacing lever.
+
+## Steps
+
+1. **Get into the pressured state** — 4K → 4K HDMI broadcast, slice widened until reflections cover most of the source. Confirm `governor · editor @ 35%`.
+2. **Scroll to the bottom of the panel and toggle `governor` off.** Surfaces snap back to full size within a frame.
+3. **Watch the DISPLAY for ~15s. Toggle back on. Watch again.** Two or three times.
+
+**The one thing I need:** with the governor off, is the display *choppier*, *the same*, or *smoother*? Ignore the fps number in the panel — it went the wrong way last time and that is the finding. **Trust your eyes on the wall.**
+
+- *Choppier with it off* → the ladder stays as a pacing lever and the rate ladder is added alongside it.
+- *No difference* → the ladder comes out and is replaced by the rate ladder.
+
+## While you are there, costs nothing
+
+Arm a take and **`copy report` immediately**. I need to know whether the `source` note says `planar` or not at that moment — that one word decides whether D3 is a bus bug or a filmstrip bug. Also confirm whether the clip loaded at the time was 4K or 720p, since I am reading a 1280×720 source in your last report and the two explanations look identical without that.
+
+# 🅿️ PREVIOUS SESSION (B573) — "the governor is now visible, so what does it say?" — CLEARED
 
 **iPad, ~10 minutes. Needs B573.** The point of this run is no longer "did it fire" — the panel now answers that itself.
 

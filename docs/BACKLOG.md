@@ -144,6 +144,24 @@ And the number that explains it: **`preview render` costs 16.53ms at 822×462 �
 
 **✅ FIXED B571 (the reason the governor never fired at all):** the pressure target was declared only for a take or a live camera, so a video CLIP reported `target: 0` and the governor skipped every tick. It now takes the decoder's arrival rate — the `29.8 in/s` the source note has shown all along — snapped to a common rate so it cannot re-learn the baseline every window.
 
+**✅ CONFIRMED FROM A SINGLE REPORT, B574 — no cross-build inference needed.** The governor fired, walked to its bottom rung, and produced the clean measurement:
+
+| surface | output pixels | cost |
+| --- | --- | --- |
+| preview | 585×329 = **0.19 MP** | **21.93 ms** |
+| pip | 141×79 = **0.011 MP** | **12.07 ms** |
+
+**17x fewer pixels, 55% of the cost.** A line through those two points implies **~11.5ms of fixed cost per editor surface per frame** plus ~54ms/MP. Inside the governor's operating range, shrinking a surface to a seventeenth of its area removes under half its cost, and a surface at zero pixels would still cost 11.5ms. **A resolution ladder cannot remove a fixed per-draw cost.**
+
+Caveat kept honest: `gpuMsPerFrame: 0` everywhere (no WebKit timer queries), so per-surface attribution is CPU wall-clock on a pipeline that blocks unpredictably. **The conclusion survives it for a different reason: a skipped render costs zero wherever the time lands, while a smaller render demonstrably does not.**
+
+**▶ THE ACTUATOR REDESIGN, ready to build, awaiting Daniel's yes:**
+1. **Rate ladder, not resolution ladder.** Editor surfaces render every frame → every 2nd → 3rd → 4th. Halving both editor surfaces' rate returns ~17ms of a 73ms frame, which is the whole shortfall.
+2. **Shed in Daniel's declared order, not uniformly.** Today all EDITOR surfaces step together. The contract is `broadcast → recording → source → stage → live PiP`, so the **PiP sheds first and hardest, the stage second, and only then together** — the fifth-rung problem, now with a concrete reason to solve it.
+3. **Keep the resolution ladder as a second, later rung** rather than deleting it: it is a no-op at 4K, but 54ms/MP is not nothing at FHD where the fixed cost is smaller relative to the variable one. Unmeasured — do not assume.
+4. **Watch the `external` surface's own rate**, not app fps (consequence 2 above).
+5. **`setPlanarCap` stays the untried lever** (consequence 3) — it shrinks the sampled texture, which is the term that actually dominates. It is wired and nothing consults it.
+
 ### 🔴 RECORD + BROADCAST ON iPAD LOSES THE SOURCE AND THEN THE TAKE (Daniel, B571)
 
 Starting a take during a 4K HDMI broadcast: **source panel, stage panel and thumbnails all go dark** (Daniel: "akin to old context loss"), playback on the display gets *smoother*, stop does not save, and pausing the broadcast reports **`take FAILED: null is not an object (evaluat…`** with no recovery.
@@ -152,6 +170,21 @@ Starting a take during a 4K HDMI broadcast: **source panel, stage panel and thum
 - **D3's signature exactly:** the report reads **`bus … capture: null`** with `readback` and `render` at **0 calls**. The bus is registered but not running and the capture probe never resolved to a mode. B549 fixed `failOutput` tearing down a `needsBus:false` destination; this is the same lifecycle defect from the other direction — arming the second consumer kills the first.
 - **The `decoderConfig.colorSpace` crash**, filed from B516 as an iPhone FHD failure, is not iPhone-specific. The take dies because the encoder's first chunk arrives without `decoderConfig` (or without `colorSpace`) and the muxer dereferences it unconditionally. **Guard the first-chunk path** — this is a small fix and it converts a lost take into a working one.
 - **The dark panels are NOT a governor degradation** (the governor was inert — `target: 0`). Daniel's read is right: it looks like context loss.
+
+**🎯 B574 ADDS THE MISSING HALF, and it moves the suspicion off the bus.** The take-failure report shows the `source` surface reading:
+
+```
+1280×720   "from canvas · native decode · 26.1 in/s"   refresh 0ms   upload 3.52ms
+```
+
+**No `planar` in that note, and the dimensions are `PREVIEW_CAP`.** So at the moment the take starts, the main engine has been knocked off the planar provider and is uploading `native-video.js`'s 1280-wide RGB *preview* canvas instead — which is the cross-context readback B518/B541 removed, silently back on, and the `refresh 0ms / upload 3.52ms` split is the fingerprint of exactly that swap.
+
+That reframes the bug. **`capture: null` on the bus may be a consequence rather than the cause**: something re-sources the engine when a take arms, and the dark source/stage/thumbnail panels are the same event seen from three other places.
+
+- **▶ FIRST SUSPECT — the filmstrip build.** `motion-runtime.js:1158` does `engine.setSource(still)` per cell with the comment *"retires the planar provider; restored below"*, and restores it in a `finally`. The **timeline going blank alongside the source** is exactly what an interrupted or half-finished filmstrip build looks like. Check whether arming a take invalidates the filmstrip signature and kicks a rebuild, and whether every exit from that loop truly restores the provider.
+- **▶ SECOND SUSPECT — `output-engine.js:112 syncSource`.** It re-`setSource`s the hidden bus engine when dimensions change, and it *holds* while `env.filmstrip.busy`. If a filmstrip build is in flight when the take arms, the bus engine skips its source sync for the duration — which would leave the capture probe with nothing to resolve against. That would tie `capture: null` and the dark panels to a single cause.
+- **▶ THE READING THAT SPLITS THEM:** publish `filmstrip.busy` and the planar state into the report. If `busy` is true at take-arm, it is the filmstrip; if it is false and planar is still gone, it is the take path re-sourcing directly. **One line in the export, one device run, no guessing.**
+- **Alternative reading to rule out first:** Daniel may simply have had a 720p clip loaded for that take. **The absence of `planar` is the load-bearing signal, not the resolution** — a natively-decoded 720p clip would still report `planar` — but confirm the source before building on it.
 
 **▶ DANIEL'S PRIORITY ORDER, recorded as the contract for every future degrade decision:**
 > **broadcast → recording → source → stage → live PiP**
@@ -189,7 +222,7 @@ bus  capture: async   readback 31.43ms/frame (max 33)   render 1.86ms
 **Almost certainly the standing CRITICAL from B519** ("iPad: a 4K clip LOADS BUT WILL NOT PLAY AT ALL, in either motion or perform"), not something B563-B568 introduced: **nothing since B562 touched the video decode, transport or playback path** (`git diff 957e540..HEAD` — the only `source-host.js` change is camera facing + `liveCameraInfo.frameRate`, and `native-video.js`/`motion-runtime.js`/`perform-runtime.js` are untouched). Daniel also successfully scrubbed and played a 4K clip earlier in the same session, which matches the B515/B516 note that this state is **INTERMITTENT**.
 
 - **▶ THE READING THAT SPLITS IT, and B520 built it for exactly this:** the `source` row's note carries a live wire rate. **`0 in/s` = the decode/socket stalled and nothing downstream is at fault; ~30 in/s = frames are arriving and the fault is after that point.** His FHD broadcast report shows the instrument working (`native decode · 60.1 in/s`), so one glance at that note during the 4K failure is decisive.
-- **🎯 THE REPRO SHARPENED (Daniel, B573): it is the FIRST 4K SOURCE LOADED PER SESSION.** Three sessions running: the first 4K clip arrives stuck, a second upload of the same or another clip plays fine, and it persists across builds. That is no longer "intermittent" in the useless sense — **it is a cold-start condition**, which is a much smaller search space than a random failure. Look for what is lazily initialized on first attach and is therefore not ready when the first clip lands: decoder/session warm-up in the native plugin, the planar reader's first `AVPlayerItemVideoOutput` bind, the `fold-ext://` scheme handler's first request, or a first-frame race between attach completing and the render loop reading. **The second upload succeeding is the diagnostic: the difference between attempt 1 and attempt 2 is the bug.** Pairs directly with the mode-switch-during-attach theory above — both point at attach, not decode.
+- **❌ THE COLD-START THEORY IS DEAD (Daniel, B574).** B573 filed "it is the first 4K source loaded per session" as a sharpened repro. **The very next session opened the same clip first and it played fine.** Recorded rather than deleted because a discarded hypothesis is worth as much as a live one here: **first-per-session is NOT the trigger**, so decoder warm-up, first `AVPlayerItemVideoOutput` bind and first `fold-ext://` request are all off the list. What remains is genuinely intermittent, and the mode-switch-during-attach theory above is the only surviving lead. **Do not sharpen this again from fewer than three consecutive observations** — this is the second theory the next session has invalidated.
 - **The dead still-mode scrubber is a NEW detail** worth carrying: it means the failure is not confined to the motion/perform transports, which points further upstream (the decoder or the socket) rather than at transport state.
 
 ### 🎛️ iPAD 4K HDMI SESSION — four findings (Daniel, B565)

@@ -4,6 +4,31 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 📏 v0.23.21 (Build 574) — 2026-08-09 — The resolution ladder is measured, and it is the wrong actuator
+
+The governor fired correctly on B573 and walked to its bottom rung. **The measurement it produced is the point of the build**, not the firing.
+
+From one report, so no cross-build inference is needed:
+
+| surface | output pixels | cost |
+|---|---|---|
+| preview | 585×329 = **0.19 MP** | **21.93 ms** |
+| pip | 141×79 = **0.011 MP** | **12.07 ms** |
+
+**The PiP has 17x fewer pixels than the preview and costs 55% as much.** Fit a line through those two points and it implies roughly **11.5ms of fixed cost per editor surface per frame**, plus ~54ms per megapixel. Inside the range the governor actually operates in, shrinking a surface to a seventeenth of its area removes under half its cost, and a surface shrunk to zero pixels would still cost 11.5ms.
+
+**A resolution ladder cannot remove a fixed per-draw cost. Only not drawing can.**
+
+The per-surface attribution is soft — `gpuMsPerFrame: 0` everywhere, because WebKit gives us no timer queries, so these are CPU wall-clock spans around draw calls on a pipeline that blocks wherever it feels like. The conclusion survives that caveat for a different reason: **a skipped render costs zero no matter where the time actually lands, while a smaller render demonstrably does not.**
+
+The governor said so itself, which is B573's readout earning its keep: *"at the bottom rung (35%) and still 100% under — the ladder is not the answer here"*.
+
+### An off switch for the governor, in the switchboard
+
+Daniel's read was that the display reported **lower** fps under the governor (37 → 23) but felt **steadier**. That is plausible and was unprovable while the only way to compare was to rebuild. Now one toggle, both answers, one sitting — the B559 batching rule.
+
+It reads live state off `env.governor` rather than the flags object, so it sits beside the optimization flags rather than in them. Switching it off releases what it is holding rather than merely stopping.
+
 ## 🛰 v0.23.20 (Build 573) — 2026-08-09 — The governor thought nothing was broadcasting, and now it says what it thinks
 
 Third build, third distinct reason the governor silently did nothing. B571 was an undeclared target, B572 a clobbered subscription, and this one is the broadcast probe itself.

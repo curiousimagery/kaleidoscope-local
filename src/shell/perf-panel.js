@@ -415,6 +415,25 @@ export function mountPerfPanel(env, { container = null, onClose = null } = {}) {
       }
     }
 
+    // THE GOVERNOR'S OWN OFF SWITCH (B574). Daniel's read of B573 was "the display reports LOWER
+    // fps but feels steadier" — plausible, and unprovable while the only way to compare is to
+    // rebuild. It belongs here rather than in PERF_FLAG_SPECS because it reads live state off
+    // `env.governor` rather than the flags object, and switching it off must RELEASE what it is
+    // holding rather than merely stop stepping (the setter already does).
+    if (env.governor) {
+      const row = document.createElement('div'); row.className = 'pf-row';
+      const b = document.createElement('button');
+      const on = env.governor.enabled;
+      b.textContent = on ? 'on' : 'off';
+      b.classList.toggle('off', !on);
+      b.addEventListener('click', () => { env.governor.enabled = !env.governor.enabled; paint(ledger.report); });
+      const n = document.createElement('span');
+      n.className = 'pf-name';
+      n.innerHTML = 'governor <em>off = editor surfaces stay at full size under pressure</em>';
+      row.append(b, n);
+      rows.appendChild(row);
+    }
+
     for (const o of r.oneShots) {
       const row = document.createElement('div'); row.className = 'pf-row';
       const n = document.createElement('span');
