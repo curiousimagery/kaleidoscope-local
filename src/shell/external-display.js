@@ -392,7 +392,17 @@ export function createExternalDisplaySink(env) {
   // whose throughput was invisible — which is how HDMI ran at 10fps for weeks while the app
   // truthfully reported 46 (B549). The number that matters for a broadcast is the one measured
   // where the picture actually lands, not where it was composed.
+  // REPUBLISH THE WHOLE PROBE SURFACE, NOT A SUBSET (B573). This object hand-picked three getters
+  // off the poster, and every consumer of one it left out silently read `undefined`:
+  //   - `active` — the governor and the B569 mic-meter deferral both ask it "is a program live on
+  //     HDMI", and both therefore read a live 4K broadcast as idle.
+  //   - `logs` — B559 bridged the external view's console into `copy report` FOR THIS PATH, and
+  //     the report's `extLogs` has been quietly absent from every iPad session since.
+  // The mobile chrome's object has always carried `active`, which is why this only failed on iPad
+  // and Electron. Optional chaining makes a missing getter indistinguishable from a false one.
   env.externalDisplay = {
+    get active() { return poster.active; },
+    get logs() { return poster.logs; },
     get renderDims() { return poster.active ? poster.renderDims : null; },
     get fps() { return poster.active ? poster.fps : 0; },
     get srcFps() { return poster.active ? poster.srcFps : -1; },

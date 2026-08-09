@@ -358,13 +358,22 @@ env.nativeDecodeError = getNativeDecodeError;   // rides the exported report (B5
 env.governor = createGovernor({
   ledger: perf,
   pressure: perfPressure,
-  // `env.outputBus` (set at line ~1783), NOT the `outputBus` const — that is declared inside a
-  // later function and is not in scope here. B562 shipped exactly this mistake in this exact
-  // file; a deferred callback hides it from the build, so it must be checked by eye.
-  // `running` rather than `broadcasting`: the latter is Syphon-specific, and this rule applies to
-  // any live program output — NDI, the output window, a take through the bus. The external
-  // display is checked separately because the iPad HDMI path self-renders and never joins the bus.
-  isBroadcasting: () => !!(env.outputBus?.getStatus?.().running || env.externalDisplay?.active),
+  // ASK THE CHROME, DON'T RE-DERIVE IT (B573). B568 hand-rolled this predicate out of
+  // `outputBus.getStatus().running || env.externalDisplay.active`, and on the one path the
+  // governor exists for — iPad 4K HDMI — BOTH terms are false. The HDMI sink is `needsBus:false`,
+  // so the bus never runs; and `env.externalDisplay` on the desktop-chrome path is the poster's
+  // dims/fps object, which has no `active` at all (the sink that does is registered on the bus
+  // under 'hdmi'). So the governor released on every window of a broadcast that was 100% under
+  // target. Third build, third distinct reason it silently did nothing.
+  //
+  // `env.isOutputLive` is the signal the CHROME maintains from its own state machine — both
+  // chromes define it, it is what the padlocks already trust, and it is true for HDMI. The two
+  // old terms stay as a fallback for any path that has not wired it yet, not as the primary.
+  //
+  // It also covers RECORDING with no broadcast, which is correct under Daniel's yield order
+  // (B571: broadcast → recording → source → stage → PiP): a take outranks the editor surfaces
+  // for the same reason a broadcast does.
+  isBroadcasting: () => !!(env.isOutputLive?.() || env.outputBus?.getStatus?.().running || env.externalDisplay?.active),
   // routed to the same status surface everything else uses, so the reason is never a mystery —
   // "explain, don't silently degrade" is the rule B555 set for the PiP going dark at 4K
   onNotice: (text) => { env.governorNotice = text; if (text) env.saveFlow?.status?.('busy', text, { ttl: 3200 }); },

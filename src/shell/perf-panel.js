@@ -67,6 +67,9 @@ const CSS = `
 #perfPanel .pf-stat b { color: var(--text, #eee); font-variant-numeric: tabular-nums; }
 #perfPanel .pf-stat.warn b { color: var(--warn, #e2b04a); }
 #perfPanel .pf-stat.bad b { color: var(--danger, #e2685a); }
+/* full-width sentence inside the wrapping stat row — a title tooltip is not a channel on iPad */
+#perfPanel .pf-why { flex-basis: 100%; color: var(--text-faint, #666); }
+#perfPanel .pf-why.bad { color: var(--danger, #e2685a); }
 #perfPanel .pf-row { display: flex; align-items: center; gap: 6px; padding: 4px 0; border-bottom: 1px solid rgba(255,255,255,.05); }
 #perfPanel .pf-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #perfPanel .pf-name em { font-style: normal; color: var(--text-faint, #666); }
@@ -223,6 +226,11 @@ export function mountPerfPanel(env, { container = null, onClose = null } = {}) {
       // a decoder refusing frames is the loudest thing a report can carry — it explains an inert
       // scrubber, a dead transport and a frozen picture all at once (B570)
       decodeError: env.nativeDecodeError?.() || undefined,
+      // WHAT THE GOVERNOR THINKS IT IS DOING (B573). Its only observable was an absence — surfaces
+      // that did not move — and an absence looks identical whether the rule declined to act, was
+      // never subscribed, or was reading a broadcast probe that returned false. Three builds, three
+      // of those, each found by reasoning rather than by reading. `reason` ends that.
+      governor: env.governor?.state || null,
     }, null, 2);
     out.value = text; out.hidden = false; out.select();
     try { await navigator.clipboard.writeText(text); copyBtn.textContent = 'copied'; }
@@ -279,6 +287,20 @@ export function mountPerfPanel(env, { container = null, onClose = null } = {}) {
         top.append(stat('shortfall', `${Math.round(p.shortfall * 100)}% under ${p.target}fps`, sCls));
       }
     }
+    // THE GOVERNOR, ON SCREEN. Daniel: "in lieu of being able to actually see and interact with
+    // the governor" — he has had to infer its behaviour from surfaces that did not move, which is
+    // no evidence at all. Always shown while a program is live, including when it is deciding NOT
+    // to act, because "decided we're fine" and "was never running" must not look the same.
+    const g = env.governor?.state;
+    if (g && (g.active || g.broadcasting === true || !g.ticking)) {
+      const cls = !g.ticking ? 'bad' : g.active ? 'warn' : '';
+      top.append(stat('governor', !g.ticking ? 'NOT TICKING' : g.active ? `editor @ ${Math.round(g.scale * 100)}%` : 'watching', cls));
+      const why = document.createElement('div');
+      why.className = 'pf-why' + (g.ticking ? '' : ' bad');
+      why.textContent = g.ticking ? g.reason : 'nothing is calling tick() — the governor is not subscribed';
+      top.append(why);
+    }
+
     // TIME THE LEDGER CANNOT SEE. Only alarming when the frame is ALSO slow: a 33ms frame with
     // 4ms of work is a source capped at 30fps behaving correctly, not a hidden cost. A big gap on
     // a frame that is missing its target means the expensive thing is not on the list below.

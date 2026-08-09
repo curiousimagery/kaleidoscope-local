@@ -4,6 +4,38 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🛰 v0.23.20 (Build 573) — 2026-08-09 — The governor thought nothing was broadcasting, and now it says what it thinks
+
+Third build, third distinct reason the governor silently did nothing. B571 was an undeclared target, B572 a clobbered subscription, and this one is the broadcast probe itself.
+
+### `isBroadcasting` was false during a 4K HDMI broadcast
+
+B568 hand-rolled the predicate as `outputBus.getStatus().running || env.externalDisplay?.active`. **On the one path the governor exists for, both terms are false:**
+
+- The HDMI sink is `needsBus: false` — it self-renders in another process and never starts the bus, so `running` stays false through an entire broadcast.
+- `env.externalDisplay` on the desktop-chrome path (iPad and Electron) is the poster's `{ renderDims, fps, srcFps }` object. **It has no `active` property at all.** The object that does is the sink, registered on the bus under `hdmi`. The mobile chrome's object has always had `active`, which is why this only ever failed on iPad and Electron.
+
+So on every window of Daniel's broadcast the governor read "no live output", called `release()`, and returned — against `pressure 0.86 critical`, `shortfall 1`, 13.7fps into a 30fps target.
+
+Now it asks the chrome: `env.isOutputLive()`, the signal each chrome maintains from its own state machine and the one the padlocks already trust. The two old terms stay as fallbacks, not as the primary. This also brings recording-without-broadcast under the governor, which is correct under the declared yield order — a take outranks the editor surfaces for the same reason a broadcast does.
+
+### The same object was dropping two other things
+
+`env.externalDisplay` on that path hand-picked three getters off the poster, and **every consumer of one it left out silently read `undefined`.** Now republished whole:
+
+- **`active`** — un-breaks B569's mic-meter deferral as well, which probes the same property. On iPad HDMI it has been reading a live 4K broadcast as idle and auto-acquiring the mic into it since the day it shipped.
+- **`logs`** — B559 bridged the external view's console into `copy report` *specifically for this path*, and `extLogs` has been quietly absent from every iPad report since.
+
+Optional chaining is what makes this shape so quiet: `?.active` cannot distinguish a missing getter from a false one, and neither can `?.logs?.length` distinguish "no logs" from "no getter".
+
+### The governor now says what it is doing, in the exported report
+
+Its only observable was an absence — surfaces that did not move. **An absence looks identical whether the rule declined to act, was never subscribed, or was reading a probe that returned false**, and this arc has now shipped all three. Every early return in `tick()` records why, and the state rides the exported report as `governor: { enabled, active, level, scale, reason, broadcasting, target, shortfall, ticking }`.
+
+`ticking` is the one that catches the B572 class outright: if nothing has called `tick()` in five seconds the governor is not subscribed, whatever else it claims. The panel shows it as a red `NOT TICKING`.
+
+On screen it is a `governor` stat plus a full-width sentence, shown whenever a program is live **including when the decision is to do nothing** — "keeping up" and "was never running" must not look the same. A full sentence rather than a tooltip because a `title` attribute is not a channel on iPad.
+
 ## 🔌 v0.23.19 (Build 572) — 2026-08-09 — Opening the frame-cost panel switched the governor off
 
 **`ledger.onReport` was a single slot, not a subscription.** Two things register: the frame-cost panel (to paint) and the governor (to tick). The panel mounts second, so **`onReport = paint` silently replaced the governor's handler.**

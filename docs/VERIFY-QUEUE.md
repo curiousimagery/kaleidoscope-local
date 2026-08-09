@@ -8,29 +8,38 @@ Confirmed results are DELETED from here and recorded in CHANGELOG.
 
 ---
 
-# ▶ THIS SESSION (B572) — "does the governor fire now, and does the take survive?"
+# ▶ THIS SESSION (B573) — "the governor is now visible, so what does it say?"
 
-**iPad, ~10 minutes. Needs B572.** Two blocking bugs are fixed; both need one run to confirm.
+**iPad, ~10 minutes. Needs B573.** The point of this run is no longer "did it fire" — the panel now answers that itself.
 
-## What changed and why it never worked before
+## What changed
 
-- **The governor was switched off by the frame-cost panel.** `ledger.onReport` was a single slot and the panel overwrote the governor's handler — so it was disabled exactly when you were watching for it. Your last report proves the rule was right and never ran: `target: 30, shortfall: 0.41` with `preview` and `pip` still at `scale: 1`.
-- **The lost take** was `decoderConfig` present but `colorSpace` missing; mp4-muxer dereferences through it. BT.709 defaults are supplied now.
+**The governor thought nothing was broadcasting.** `isBroadcasting` was `outputBus.running || env.externalDisplay?.active`, and during an iPad 4K HDMI broadcast **both are false**: the HDMI sink is `needsBus:false` so the bus never runs, and the desktop-chrome `env.externalDisplay` object has no `active` property at all. It now asks `env.isOutputLive()`.
+
+**It also says what it is doing now.** A `governor` stat plus a full sentence in the frame-cost panel, and a `governor` block in `copy report`. **You should never again have to infer it from surfaces that did not move.**
 
 ## Steps
 
-1. **4K → 4K HDMI broadcast, frame-cost panel OPEN.** Within a few seconds of the shortfall going past ~25%, expect `preview` and `pip` `scale` to step down in the panel, and a status message naming the reason.
-   - **The honest question is whether it HELPS.** Your manual walk said scaling did nothing at 4K (`preview render` 16.53ms at 0.38MP — the cost is sampling the 8.29MP texture, not writing pixels). **I expect it to fire and NOT help.** If so, the ladder is confirmed as the wrong actuator and the redesign is the next build.
-2. **Start a take during that broadcast.** → does it now save instead of dying with `null is not an object`?
-   - Expect **video only** and a message saying so — a mic would interrupt the program (B570).
-   - The source/stage panels going dark is a **separate, unfixed** bug (D3's `capture: null`), so it may still happen. Note whether it does.
-3. **`copy report`** during the broadcast and after the take.
+1. **Open the frame-cost panel with nothing playing.** Expect `governor · watching` with a sentence like *"no live output — nothing to protect"*.
+   - **If it says `NOT TICKING` in red, stop and send the report.** That means it is not subscribed at all, which is the B572 failure returning, and nothing below is worth running.
+2. **Start the 4K → 4K HDMI broadcast.** The sentence should change to *"keeping up"* or *"shedding in Nms"*, then after ~2s of sustained shortfall to **`editor @ 75%`**.
+3. **Watch the DISPLAY, not the app, as it steps 75 → 50 → 35.** This is the real question.
+   - **I expect it to fire and NOT help.** Your manual walk already showed 25% changed nothing, and `preview render` costing 16.53ms at 0.38MP says why: the cost is sampling the 8.29MP source texture, not writing output pixels. If the display does not visibly improve, **the ladder comes out rather than gets tuned** and the actuator redesign is the next build.
+   - The governor will tell you when it bottoms out: *"at the bottom rung (35%) and still N% under — the ladder is not the answer here"*.
+4. **Start a take during that broadcast.** → does it save now instead of dying with `null is not an object` (B572)?
+   - Expect **video only** and a message saying so; a mic would interrupt the program (B570).
+   - Source/stage going dark is a **separate, unfixed** bug (D3's `capture: null`). Note whether it happens.
+5. **`copy report`** during the broadcast and after the take.
 
 ## What I can't see and need from you
 
-- **Whether `scale` actually moves in the panel.** That is the whole confirmation.
-- **Whether the display improves when it does.** If not, say so plainly — the ladder comes out rather than gets tuned.
+- **The governor line's sentence** at each stage. It is the whole diagnostic now.
+- **Whether the DISPLAY improves when it steps down.** Say so plainly if it does not.
 - **Whether the take saves.**
+
+## Bonus, costs nothing
+
+You said the **first 4K source loaded per session** arrives stuck and a second upload works. If that holds again, note whether the `source` note reads `0 in/s` or ~30 during the stuck state, and whether `⚠ DECODE FAILING` appears. **A cold-start condition is a much smaller search space than an intermittent one** — filed with that reframing.
 
 # 🅿️ NEXT UP after this — pick one
 

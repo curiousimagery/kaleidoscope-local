@@ -63,6 +63,12 @@ export function createGovernor({ ledger, pressure, isBroadcasting, onNotice = nu
   let overSince = 0, underSince = 0;
   let active = false;            // are we currently holding anything down?
   let lastNotice = '';
+  // WHY THE LAST TICK DID NOTHING. Three builds have now shipped a governor that silently no-opped
+  // for three DIFFERENT reasons (undeclared target B571, a clobbered subscription B572, a false
+  // broadcast probe B573), and each cost a device session to find because the only observable was
+  // an absence. A rule that decides not to act must say so out loud, in the exported report.
+  let reason = 'not started';
+  let lastTick = 0;
 
   const editorSurfaces = () => (ledger.report?.surfaces || []).filter((s) => s.priority <= 30 && s.enabled);
 
@@ -92,27 +98,51 @@ export function createGovernor({ ledger, pressure, isBroadcasting, onNotice = nu
     get level() { return level; },
     get active() { return active; },
 
+    // The readout that rides the exported frame-cost report. `reason` is the whole point: it is
+    // the difference between "the governor decided the app is fine" and "the governor has been
+    // switched off by a predicate that reads the wrong object", which are indistinguishable from
+    // the outside and have both happened.
+    get state() {
+      return {
+        enabled, active, level,
+        scale: LADDER[Math.min(level, LADDER.length - 1)],
+        reason,
+        broadcasting: (() => { try { return !!isBroadcasting?.(); } catch { return 'probe threw'; } })(),
+        target: pressure?.target ?? 0,
+        shortfall: Math.round((pressure?.shortfall ?? 0) * 100) / 100,
+        shedAbove: cfg.shedAbove,
+        ticking: lastTick > 0 && (Date.now() - lastTick) < 5000,
+      };
+    },
+
     // Called once per ledger window. Deliberately pull-based rather than a subscription: the
     // ledger already runs a rAF and a second timer would be a second thing to get wrong.
     tick(now) {
-      if (!enabled) return;
-      const broadcasting = !!isBroadcasting?.();
+      lastTick = Date.now();
+      if (!enabled) { reason = 'disabled'; return; }
+      let broadcasting = false;
+      try { broadcasting = !!isBroadcasting?.(); }
+      catch (e) { reason = `broadcast probe threw: ${e?.message || e}`; return; }
       const shortfall = pressure?.shortfall ?? 0;
       const target = pressure?.target ?? 0;
 
       // No broadcast, or no declared target to be short OF, means nothing to govern. Releasing on
       // "no target" matters: an undeclared rate is not evidence of health, and holding surfaces
       // down on a signal we cannot compute would be degrading the app for an unknown reason.
-      if (!broadcasting || !(target > 0)) { this.release(); return; }
+      if (!broadcasting) { reason = 'no live output — nothing to protect'; this.release(); return; }
+      if (!(target > 0)) { reason = 'no declared frame rate to be short of'; this.release(); return; }
 
       if (shortfall > cfg.shedAbove) {
         underSince = 0;
         if (!overSince) overSince = now;
+        if (level >= LADDER.length - 1) reason = `at the bottom rung (${Math.round(LADDER[level] * 100)}%) and still ${Math.round(shortfall * 100)}% under — the ladder is not the answer here`;
+        else reason = `shedding in ${Math.max(0, Math.round(cfg.sustainMs - (now - overSince)))}ms`;
         if (now - overSince >= cfg.sustainMs && level < LADDER.length - 1) {
           applyLevel(level + 1);
           active = true;
           overSince = now;   // re-arm the dwell so we step one rung at a time, never two at once
           const pct = Math.round(LADDER[level] * 100);
+          reason = `holding editor surfaces at ${pct}%`;
           notice(`preview at ${pct}% — giving the broadcast the headroom (${Math.round(shortfall * 100)}% under ${target}fps)`);
         }
         return;
@@ -121,6 +151,7 @@ export function createGovernor({ ledger, pressure, isBroadcasting, onNotice = nu
       if (active && shortfall < cfg.restoreBelow) {
         overSince = 0;
         if (!underSince) underSince = now;
+        reason = `recovering in ${Math.max(0, Math.round(cfg.recoverMs - (now - underSince)))}ms`;
         if (now - underSince >= cfg.recoverMs) {
           underSince = now;
           if (level > 0) {
@@ -134,6 +165,9 @@ export function createGovernor({ ledger, pressure, isBroadcasting, onNotice = nu
       // in the dead band between the two thresholds: hold whatever we have, reset both dwells so
       // a drift back and forth across one edge cannot accumulate into a step
       overSince = 0; underSince = 0;
+      reason = active
+        ? `holding at ${Math.round(LADDER[level] * 100)}% — in the dead band`
+        : `keeping up (${Math.round(shortfall * 100)}% under, sheds above ${Math.round(cfg.shedAbove * 100)}%)`;
     },
 
     // Full restore — broadcast stopped, governor disabled, or teardown. Idempotent.
