@@ -4,6 +4,34 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## ⏱ v0.23.22 (Build 575) — 2026-08-09 — The governor sheds RATE, not resolution
+
+Daniel A/B'd B574's toggle at the wall for a few minutes: **no difference in steadiness with the resolution ladder on or off.** Combined with B574's measurement, that closes the question. The resolution ladder is out.
+
+### The actuator
+
+`LADDER` is now `[[1,1], [1,2], [2,4], [3,6]]` — frame divisors for `[primary, secondary]`. At a 30fps target the rungs read: full rate → main 30 / second 15 → 15 / 7.5 → 10 / 5.
+
+**It needed no changes at the render call sites.** The engine already consults `perf.skip` on every `render()` — the mechanism the switchboard's off button has used since B512 — so making `skip` also honour a rate divisor gates every surface wherever it is drawn without any caller knowing the feature exists.
+
+### Which surface is "secondary" flips by mode, so it cannot be an id
+
+From Daniel's own B573 reports: in still/motion the preview is 1716×965 and the PiP is 402×226; **in perform the PiP is 1550×872 and the preview is 540×303.** A rule that always shed "the PiP" would have degraded the operator's main view in perform mode. Ranked by area instead, which is the honest proxy for "which one are you looking at", and the chosen main view is named in the report.
+
+**And B574's measurement is what makes shedding the secondary worth doing at all:** because ~11.5ms of the cost is a fixed per-draw term, halving the *small* view recovers nearly as much as halving the big one. Most of the saving comes from the surface the operator cares least about.
+
+### Two things that are easy to leave out and both matter
+
+**Phase.** Two surfaces both at rate 2 with no phase offset render on the *same* frames — twice the work on even frames, none on odd. Same total cost, worse rhythm. Each surface gets a phase at registration so same-rate surfaces alternate. Smoothing frame times is half the point of this.
+
+**Deferred, not dropped.** The preview is render-*on-demand*, so a governed frame that just returned would strand the canvas on a stale look until something unrelated scheduled again — move a slider on a skipped frame and nothing happens. `surface.rateLimited` lets the caller re-schedule, so it converges on the latest state at the reduced rate. Continuous loops (the PiP) ignore it; their next frame comes anyway.
+
+### Guard: stopping the ledger releases every rate
+
+`frameIndex` only advances while the ledger's rAF runs, so a surface left at rate > 1 when the ledger stops would freeze on whichever side of the modulo it landed, possibly skipped forever. **An instrument that can permanently blank the preview by being switched off is worse than no instrument.**
+
+The panel shows `⏱ 1 in N` on a governed surface's row, because a cost that drops for an invisible reason is a misleading reading.
+
 ## 📏 v0.23.21 (Build 574) — 2026-08-09 — The resolution ladder is measured, and it is the wrong actuator
 
 The governor fired correctly on B573 and walked to its bottom rung. **The measurement it produced is the point of the build**, not the firing.

@@ -487,6 +487,12 @@ function scheduleRender() {
       // than at construction (the setter is idempotent — see engine/index.js)
       engine.setElementUploadElision?.(perfFlags.elideElementUploads);
       engine.render(state);
+      // DEFERRED, NOT DROPPED (B575). The engine honours the ledger's rate gate inside render(),
+      // and this loop is render-ON-DEMAND — so a governed frame that simply returned would strand
+      // the canvas on a stale look until something unrelated scheduled again. Moving a slider on a
+      // skipped frame would appear to do nothing. Asking for the next frame converges on the
+      // latest state at the reduced rate, which is the whole intent; the rAF is not the cost.
+      if (previewSurface.rateLimited) scheduleRender();
     }
     env.commitFrame();   // the render's look is the committed program frame
     sourceOverlay.render();

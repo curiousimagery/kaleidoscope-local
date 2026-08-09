@@ -8,7 +8,32 @@ Confirmed results are DELETED from here and recorded in CHANGELOG.
 
 ---
 
-# ▶ THIS SESSION (B574) — "is the governor helping or just reporting?"
+# ▶ THIS SESSION (B575) — "does the RATE ladder move the display, where resolution didn't?"
+
+**iPad, ~10 minutes. Needs B575.** Same setup as B574, different actuator, and the toggle is still there so it is still one sitting.
+
+## What changed
+
+The governor now sheds **how often** the editor surfaces draw, not how big they are. At a 30fps target the rungs read: full → main 30 / second 15 → 15 / 7.5 → 10 / 5. The panel shows `⏱ 1 in N` on a governed row and the `governor` stat reads e.g. `main view 15fps, second view 7.5fps`.
+
+## Steps
+
+1. **4K → 4K HDMI broadcast, slice wide enough to push it under.** Confirm the governor steps down and the `⏱ 1 in N` markers appear.
+2. **Toggle the governor off and on a few times, watching the DISPLAY.** Exactly the B574 test with a different lever. **This is the whole question.**
+3. **Check the app is still usable at the bottom rung.** The main view running at 10fps is meant to feel slow but responsive — drag a slider and confirm the preview still follows rather than freezing. (That path is new: a skipped frame re-schedules rather than dropping.)
+4. **`copy report`** at the bottom rung.
+
+## What I need from you
+
+- **Does the display improve?** If not, the editor surfaces are not the wall at all and `setPlanarCap` (shrinking the sampled 4K texture) is the next lever — a different term entirely.
+- **Does the governor pick the right main view in PERFORM mode?** It ranks by area, so it should protect the big PiP and shed the small preview. The report names its choice under `governor.surfaces`.
+- **Does anything feel stuck** when the preview is at 10fps? That is the deferred-render path and it is the riskiest part of this build.
+
+## Still open from B574, costs nothing while you are there
+
+Arm a take during the broadcast and **`copy report` immediately.** Whether the `source` note says `planar` at that moment decides whether D3 is a bus bug or a filmstrip bug. Also confirm whether the clip loaded was 4K or 720p — I read a 1280×720 source in your last take report and the two explanations look identical without that.
+
+# 🅿️ PREVIOUS SESSION (B574) — "is the governor helping or just reporting?" — CLEARED: no steadiness difference, resolution ladder removed
 
 **iPad, ~5 minutes. Needs B574.** One question, one toggle, no rebuild between answers.
 

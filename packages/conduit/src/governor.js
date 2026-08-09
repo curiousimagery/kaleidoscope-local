@@ -51,10 +51,29 @@ const DEFAULTS = {
   recoverMs: 4000,
 };
 
-// The ladder every editor surface walks, worst-last. Daniel measured these rungs on iPad staged
-// preview (B516): 75% barely noticeable, 50% the usable floor, 25% reserved as an honest "not at
-// full resolution" distress signal rather than a quality rung.
-const LADDER = [1, 0.75, 0.5, 0.35];
+// THE LADDER IS A RATE LADDER, NOT A RESOLUTION LADDER (B575). B568 shipped the resolution
+// version and B574 measured it dead on Daniel's M1 iPad, from a single report:
+//
+//   preview  585×329 = 0.19 MP → 21.93 ms
+//   pip      141×79  = 0.011 MP → 12.07 ms
+//
+// **17x fewer pixels, 55% of the cost.** A line through those two points implies ~11.5ms of FIXED
+// cost per editor surface per frame plus ~54ms/MP, so a surface shrunk to nothing would still cost
+// 11.5ms. A fixed per-draw cost cannot be scaled away; it can only be skipped. Daniel then A/B'd
+// the resolution ladder on and off at the wall and saw no difference in steadiness either.
+//
+// Each rung is [primary, secondary] as a frame divisor: 2 = every other frame.
+const LADDER = [[1, 1], [1, 2], [2, 4], [3, 6]];
+
+// WHICH SURFACE IS "SECONDARY" FLIPS BY MODE, so it cannot be hardcoded by id. In still/motion the
+// preview is the big view and the PiP is a thumbnail (1716×965 vs 402×226); in perform the PiP is
+// the operator's main view and the preview is the small one (540×303 vs 1550×872) — both from
+// Daniel's own B573 reports. Area is the honest proxy for "which one are you actually looking at".
+//
+// And the B574 measurement is what makes shedding the secondary worth doing at all: because the
+// cost is mostly a fixed per-draw term, halving the SMALL view recovers nearly as much as halving
+// the big one. We get most of the saving from the surface the operator cares least about.
+const byPrimacy = (a, b) => b.mp - a.mp;
 
 export function createGovernor({ ledger, pressure, isBroadcasting, onNotice = null, opts = {} } = {}) {
   const cfg = { ...DEFAULTS, ...opts };
@@ -70,17 +89,29 @@ export function createGovernor({ ledger, pressure, isBroadcasting, onNotice = nu
   let reason = 'not started';
   let lastTick = 0;
 
-  const editorSurfaces = () => (ledger.report?.surfaces || []).filter((s) => s.priority <= 30 && s.enabled);
+  // `msPerFrame > 0` excludes surfaces that cost nothing here — the slice overlay is EDITOR
+  // priority but draws on its own 2D path and reports 0ms, so rate-limiting it would buy nothing
+  // and could only make the overlay lag the render it annotates.
+  const editorSurfaces = () => (ledger.report?.surfaces || [])
+    .filter((s) => s.priority <= 30 && s.enabled && s.msPerFrame > 0)
+    .sort(byPrimacy);
 
   function applyLevel(n) {
-    const scale = LADDER[Math.min(n, LADDER.length - 1)] ?? LADDER[LADDER.length - 1];
-    for (const s of editorSurfaces()) {
-      // a surface with a single-rung ladder has declared itself unscalable — respect that rather
-      // than forcing a scale its actuator will ignore
-      if (!s.scaleLadder || s.scaleLadder.length < 2) continue;
-      ledger.setSurfaceScale(s.id, scale);
-    }
+    const [primary, secondary] = LADDER[Math.min(n, LADDER.length - 1)] ?? LADDER[LADDER.length - 1];
+    const list = editorSurfaces();
+    list.forEach((s, i) => ledger.setSurfaceRate(s.id, i === 0 ? primary : secondary));
     level = n;
+    return list;
+  }
+
+  // Say it in frames per second rather than divisors, because "the live view is at 15fps" is a
+  // thing an operator can judge and "rate 2" is not.
+  function rungText(n) {
+    const [p, s] = LADDER[Math.min(n, LADDER.length - 1)];
+    const t = pressure?.target ?? 0;
+    const fps = (d) => (t > 0 ? `${Math.round(t / d)}fps` : `1 frame in ${d}`);
+    if (n === 0) return 'full rate';
+    return p === s ? `editor views at ${fps(p)}` : `main view ${fps(p)}, second view ${fps(s)}`;
   }
 
   function notice(text) {
@@ -103,9 +134,14 @@ export function createGovernor({ ledger, pressure, isBroadcasting, onNotice = nu
     // switched off by a predicate that reads the wrong object", which are indistinguishable from
     // the outside and have both happened.
     get state() {
+      const [primary, secondary] = LADDER[Math.min(level, LADDER.length - 1)];
       return {
         enabled, active, level,
-        scale: LADDER[Math.min(level, LADDER.length - 1)],
+        rates: { primary, secondary },
+        rung: rungText(level),
+        // which surface it decided is the operator's main view — the decision flips by mode, so
+        // a report that omitted it would be unreadable when it picked the one you disagree with
+        surfaces: editorSurfaces().map((s) => `${s.id}:${s.mp}MP@${s.rate || 1}`),
         reason,
         broadcasting: (() => { try { return !!isBroadcasting?.(); } catch { return 'probe threw'; } })(),
         target: pressure?.target ?? 0,
@@ -135,15 +171,14 @@ export function createGovernor({ ledger, pressure, isBroadcasting, onNotice = nu
       if (shortfall > cfg.shedAbove) {
         underSince = 0;
         if (!overSince) overSince = now;
-        if (level >= LADDER.length - 1) reason = `at the bottom rung (${Math.round(LADDER[level] * 100)}%) and still ${Math.round(shortfall * 100)}% under — the ladder is not the answer here`;
+        if (level >= LADDER.length - 1) reason = `at the bottom rung (${rungText(level)}) and still ${Math.round(shortfall * 100)}% under — the editor surfaces are not the wall here`;
         else reason = `shedding in ${Math.max(0, Math.round(cfg.sustainMs - (now - overSince)))}ms`;
         if (now - overSince >= cfg.sustainMs && level < LADDER.length - 1) {
-          applyLevel(level + 1);
+          const list = applyLevel(level + 1);
           active = true;
           overSince = now;   // re-arm the dwell so we step one rung at a time, never two at once
-          const pct = Math.round(LADDER[level] * 100);
-          reason = `holding editor surfaces at ${pct}%`;
-          notice(`preview at ${pct}% — giving the broadcast the headroom (${Math.round(shortfall * 100)}% under ${target}fps)`);
+          reason = `holding ${rungText(level)}${list.length ? ` (main: ${list[0].id})` : ''}`;
+          notice(`${rungText(level)} — giving the broadcast the headroom (${Math.round(shortfall * 100)}% under ${target}fps)`);
         }
         return;
       }
@@ -156,7 +191,7 @@ export function createGovernor({ ledger, pressure, isBroadcasting, onNotice = nu
           underSince = now;
           if (level > 0) {
             applyLevel(level - 1);
-            notice(level === 0 ? '' : `preview at ${Math.round(LADDER[level] * 100)}%`);
+            notice(level === 0 ? '' : rungText(level));
           }
           if (level === 0) { active = false; notice(''); }
         }
@@ -166,7 +201,7 @@ export function createGovernor({ ledger, pressure, isBroadcasting, onNotice = nu
       // a drift back and forth across one edge cannot accumulate into a step
       overSince = 0; underSince = 0;
       reason = active
-        ? `holding at ${Math.round(LADDER[level] * 100)}% — in the dead band`
+        ? `holding ${rungText(level)} — in the dead band`
         : `keeping up (${Math.round(shortfall * 100)}% under, sheds above ${Math.round(cfg.shedAbove * 100)}%)`;
     },
 

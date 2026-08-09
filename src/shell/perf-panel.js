@@ -294,7 +294,7 @@ export function mountPerfPanel(env, { container = null, onClose = null } = {}) {
     const g = env.governor?.state;
     if (g && (g.active || g.broadcasting === true || !g.ticking)) {
       const cls = !g.ticking ? 'bad' : g.active ? 'warn' : '';
-      top.append(stat('governor', !g.ticking ? 'NOT TICKING' : g.active ? `editor @ ${Math.round(g.scale * 100)}%` : 'watching', cls));
+      top.append(stat('governor', !g.ticking ? 'NOT TICKING' : g.active ? g.rung : 'watching', cls));
       const why = document.createElement('div');
       why.className = 'pf-why' + (g.ticking ? '' : ' bad');
       why.textContent = g.ticking ? g.reason : 'nothing is calling tick() — the governor is not subscribed';
@@ -336,7 +336,10 @@ export function mountPerfPanel(env, { container = null, onClose = null } = {}) {
       name.className = 'pf-name';
       // the note says WHICH PATH this surface took, which is what turns a cost into a cause
       const note = s.note ? ` · ${s.note}` : '';
-      name.innerHTML = `${s.label} <em>${s.serves} · ${s.w}×${s.h}${note}</em>`;
+      // a governed surface renders every Nth frame, which changes what the ms column MEANS —
+      // without this the reader sees a cost drop and no reason for it
+      const rate = s.rate > 1 ? ` · ⏱ 1 in ${s.rate}` : '';
+      name.innerHTML = `${s.label} <em>${s.serves} · ${s.w}×${s.h}${rate}${note}</em>`;
       if (s.note) name.title = s.note;
 
       const ms = document.createElement('span');

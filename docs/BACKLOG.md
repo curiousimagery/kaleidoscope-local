@@ -155,12 +155,13 @@ And the number that explains it: **`preview render` costs 16.53ms at 822×462 �
 
 Caveat kept honest: `gpuMsPerFrame: 0` everywhere (no WebKit timer queries), so per-surface attribution is CPU wall-clock on a pipeline that blocks unpredictably. **The conclusion survives it for a different reason: a skipped render costs zero wherever the time lands, while a smaller render demonstrably does not.**
 
-**▶ THE ACTUATOR REDESIGN, ready to build, awaiting Daniel's yes:**
-1. **Rate ladder, not resolution ladder.** Editor surfaces render every frame → every 2nd → 3rd → 4th. Halving both editor surfaces' rate returns ~17ms of a 73ms frame, which is the whole shortfall.
-2. **Shed in Daniel's declared order, not uniformly.** Today all EDITOR surfaces step together. The contract is `broadcast → recording → source → stage → live PiP`, so the **PiP sheds first and hardest, the stage second, and only then together** — the fifth-rung problem, now with a concrete reason to solve it.
-3. **Keep the resolution ladder as a second, later rung** rather than deleting it: it is a no-op at 4K, but 54ms/MP is not nothing at FHD where the fixed cost is smaller relative to the variable one. Unmeasured — do not assume.
-4. **Watch the `external` surface's own rate**, not app fps (consequence 2 above).
-5. **`setPlanarCap` stays the untried lever** (consequence 3) — it shrinks the sampled texture, which is the term that actually dominates. It is wired and nothing consults it.
+**✅ SHIPPED B575 — the rate ladder** (`[[1,1],[1,2],[2,4],[3,6]]` as `[primary, secondary]` divisors; secondary ranked by AREA because it flips by mode; phase-staggered; deferred-not-dropped for the on-demand preview). Details in CHANGELOG B575. **Unverified on device — the open question is whether the DISPLAY improves, which the resolution ladder never did.**
+
+**▶ WHAT B575 DELIBERATELY DID NOT DO, still open:**
+1. **The resolution ladder was REMOVED from the governor rather than kept as a later rung.** Daniel's A/B showed no steadiness difference at 4K, so keeping it would have been carrying a lever with no evidence. **But 54ms/MP is not nothing at FHD**, where the fixed per-draw cost is smaller relative to the variable one, and that case is unmeasured. If FHD broadcast ever shows shortfall, re-measure before assuming rate is the only lever there too. Manual scale control stays in the panel either way.
+2. **The governor still watches APP fps, not the `external` surface's own rate** (consequence 2 above — turning surfaces off made the app's number better and the display worse). This is the one that can still make the product worse while reporting success. **Do this before trusting the governor unattended.**
+3. **`setPlanarCap` is still the untried lever** (consequence 3) — it shrinks the sampled texture, which is the term that actually dominates at 4K. Wired since B518 and nothing consults it. **If the rate ladder also fails to move the display, this is the next thing to try, and the fact that it attacks a different term is why.**
+4. **The fifth-rung problem is sidestepped, not solved.** Ranking by area gives the right answer for preview-vs-PiP in both modes, but it is a proxy for Daniel's declared `source → stage → live PiP` order rather than an expression of it. A third editor surface would expose the difference.
 
 ### 🔴 RECORD + BROADCAST ON iPAD LOSES THE SOURCE AND THEN THE TAKE (Daniel, B571)
 

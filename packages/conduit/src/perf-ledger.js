@@ -78,11 +78,26 @@ export function createPerfLedger({ enabled = false, windowMs = 1000, pressure = 
 
   function tick(t) {
     if (!on) { raf = 0; return; }
+    frameIndex++;
     if (lastFrameT) frameTimes.push(t - lastFrameT);
     lastFrameT = t;
     if (t - winStart >= windowMs) flush(t);
     raf = requestAnimationFrame(tick);
   }
+
+  // ---- the RATE actuator (B575) --------------------------------------------
+  // The resolution ladder was measured and does not work: B574 found ~11.5ms of FIXED cost per
+  // editor surface per frame on the M1 iPad, so a surface shrunk to a seventeenth of its area
+  // still cost 55% as much, and one shrunk to nothing would still cost 11.5ms. **A fixed
+  // per-draw cost can only be removed by not drawing.** So the lever is HOW OFTEN, not how big.
+  //
+  // `phase` is the part that is easy to leave out and matters. Two surfaces both at rate 2 with
+  // no phase render on the same frames — twice the work on even frames and none on odd, which is
+  // the same total cost delivered in a worse rhythm. Staggering them alternates instead, and
+  // smoothing frame times is half of what this is for.
+  let frameIndex = 0;
+  let nextPhase = 0;
+  const rateAllows = (rec) => rec.rate <= 1 || ((frameIndex + rec.phase) % rec.rate) === 0;
 
   function pct(sorted, p) {
     if (!sorted.length) return 0;
@@ -124,7 +139,7 @@ export function createPerfLedger({ enabled = false, windowMs = 1000, pressure = 
       rows.push({
         id: s.id, label: s.label, serves: s.serves, priority: s.priority, note,
         w: size.w, h: size.h, mp: round2(surfaceMp), remote: s.remote,
-        enabled: s.enabled, scale: s.scale, scaleLadder: s.scaleLadder,
+        enabled: s.enabled, scale: s.scale, scaleLadder: s.scaleLadder, rate: s.rate,
         msPerFrame: round2(sMs), gpuMsPerFrame: round2(sGpu), passes,
       });
     }
@@ -196,6 +211,11 @@ export function createPerfLedger({ enabled = false, windowMs = 1000, pressure = 
     if (raf) cancelAnimationFrame(raf);
     raf = 0;
     latest = emptyReport();
+    // RELEASE EVERY RATE ON THE WAY OUT. `frameIndex` only advances while the rAF runs, so a
+    // surface left at rate > 1 when the ledger stops is frozen on whichever side of the modulo it
+    // landed — possibly skipped forever. An instrument that can permanently blank the preview by
+    // being switched off is worse than no instrument.
+    for (const s of surfaces.values()) s.rate = 1;
   }
 
   // ---- the measurable unit -------------------------------------------------
@@ -262,6 +282,8 @@ export function createPerfLedger({ enabled = false, windowMs = 1000, pressure = 
         scaleLadder: spec.scaleLadder || [1, 0.75, 0.5, 0.35, 0.25],
         enabled: true,
         scale: 1,
+        rate: 1,                  // render every Nth frame; 1 = every frame
+        phase: nextPhase++,       // so same-rate surfaces alternate rather than bunch
         passes: new Map(),
       };
       surfaces.set(rec.id, rec);
@@ -276,15 +298,22 @@ export function createPerfLedger({ enabled = false, windowMs = 1000, pressure = 
           return makeItem(b, `${rec.id}.${key}`);
         },
         // the switchboard's answer, read by the surface's own render path
-        get skip() { return !rec.enabled; },
+        get skip() { return !rec.enabled || !rateAllows(rec); },
         get scale() { return rec.scale; },
+        // DEFERRED, NOT DROPPED — and the distinction is load-bearing for a render-on-demand
+        // caller. The preview renders when something schedules it, so a skipped frame would
+        // otherwise strand the canvas on a stale look until the next unrelated schedule: move a
+        // slider on an even frame at rate 2 and nothing happens. A caller that re-schedules on
+        // this converges on the latest state at the reduced rate instead of losing the update.
+        // Continuous loops (the PiP) can ignore it — their next frame comes anyway.
+        get rateLimited() { return rec.enabled && !rateAllows(rec); },
         // The shape an ENGINE takes: one object carrying both the cut and the measurement, so
         // an engine has a single optional collaborator instead of three loose callbacks, and
         // both the switch and the timing land at the one place every caller funnels through.
         enginePerf(passId) {
           const item = this.pass(passId);
           return {
-            get skip() { return !rec.enabled; },
+            get skip() { return !rec.enabled || !rateAllows(rec); },
             begin: item.begin, end: item.end,
             // its PRESENCE is the signal that GPU timing is wanted — an engine only allocates
             // query objects when someone is going to read them
@@ -315,6 +344,14 @@ export function createPerfLedger({ enabled = false, windowMs = 1000, pressure = 
       if (!s || !s.onScale) return;
       s.scale = n;
       try { s.onScale(n); } catch { /* ditto */ }
+    },
+    // Unlike scale, this needs no `onScale`-style actuator on the surface: the engine already
+    // consults `perf.skip` on every render (engine/index.js), so a rate takes effect wherever a
+    // surface is drawn without any call site knowing it exists.
+    setSurfaceRate(id, n) {
+      const s = surfaces.get(id);
+      if (!s) return;
+      s.rate = Math.max(1, Math.round(n) || 1);
     },
 
     // COST PROBE — render `frames` iterations of `fn` and report the distribution. This is the
