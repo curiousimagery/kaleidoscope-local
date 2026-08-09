@@ -4,6 +4,32 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🚨 v0.23.18 (Build 571) — 2026-08-09 — The governor never fired, and the ladder is the wrong lever anyway
+
+### Why it never fired
+
+B559 declared a pressure target for a take or a live **camera**. A video **clip** — the entire 4K broadcast case the governor was built for — reported `target: 0`, which the governor reads as "nothing to be short of" and skips. So Daniel watched a 4K HDMI broadcast sit at 21fps for several minutes with the rule silently disabled, and no toast because nothing fired.
+
+A clip's honest target is the rate frames actually arrive from the decoder — the `29.8 in/s` the source note has been showing all along. Now declared, snapped to a common rate so a jittery sample cannot re-learn the pressure baseline every window.
+
+### And the finding that invalidates the design
+
+Daniel drove the ladder by hand during a 4K→4K broadcast:
+
+| state | app fps | on display |
+| --- | --- | --- |
+| preview + PiP at 100% | 21-23 | 29-31 |
+| preview + PiP at **25%** | **unchanged** | unchanged |
+| preview + PiP **off** | 34-38 | **visibly choppier** |
+
+**`preview render` costs 16.53ms at 822×462 — 0.38 megapixels.** The cost is sampling the 8.29MP source texture, not writing output pixels, so shrinking the output does nothing. B506 named this a year of builds ago ("texture-bandwidth-bound at 4K") and the governor was built on the other assumption regardless.
+
+**So a resolution ladder cannot govern this workload.** The actuator has to cut CALLS, not pixels — which is what actually worked twice before (B542's render elision, B528's PiP rate limit) — or shrink the sampled texture via the source-detail cap, which is already wired and which nothing consults.
+
+**Worse, and worth stating plainly: turning surfaces off improved the app's number and made the display choppier.** Anything governing on app fps alone can degrade the product while reporting success. The governor should watch the external surface's own rate where one exists.
+
+The target fix ships here so the rule can be observed at all. **The actuator redesign does not** — it is filed, because shipping a second guess at the same problem is how the mic saga went.
+
 ## 🔍 v0.23.17 (Build 570) — 2026-08-09 — The 4K scrubber wasn't dead, it was silent
 
 **Daniel's blocker: a 4K clip where the transport, the scrubber and the still-mode mini-timeline were all inert, in every mode, with nothing anywhere to say why.** A FHD clip was fine in the same build.

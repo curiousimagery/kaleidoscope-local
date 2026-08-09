@@ -125,6 +125,47 @@ Daniel weighed two approaches: **always hide the PiP during any broadcast**, or 
 - **Measured stakes on the M1 iPad at 4K:** `preview render` 14.36ms + `pip render` 9.91ms = **24.3ms of a 44ms frame.** The PiP alone is ~23% of the budget. **Prefer the broadcast over the app** (Daniel's call), so the preview should be on the same ladder — his 100/75/50 rungs were measured for this.
 - **Pairs with:** the adaptive-preview-resolution proposal filed under the B506 entry. These are one piece of work, not two.
 
+### 🚨 THE RESOLUTION LADDER IS THE WRONG LEVER FOR A 4K SOURCE (Daniel, B571) — this changes the governor
+
+**The most important measurement of the arc, and it invalidates the design I just shipped.** Daniel drove the ladder by hand during a 4K→4K HDMI broadcast:
+
+| state | app fps | on display |
+| --- | --- | --- |
+| preview + PiP at 100% | 21-23 | 29-31 |
+| preview + PiP at 25% | **unchanged** | unchanged |
+| preview + PiP OFF entirely | 34-38 | **visibly choppier** |
+
+And the number that explains it: **`preview render` costs 16.53ms at 822×462 — 0.38 megapixels.** Same signature as the 9.91ms PiP at 402×226. **The cost is sampling the 8.29MP 4K source texture, not writing the output pixels**, so shrinking the output changes nothing. B506 already named this ("the kaleidoscope is TEXTURE-BANDWIDTH-BOUND at 4K") and the governor was built on the other assumption anyway.
+
+**Three consequences:**
+1. **A resolution ladder cannot govern this workload.** Stepping preview/PiP down their ladder is a no-op at 4K. The governor's actuator has to be *skipping the render* (or dropping its rate), not scaling it — the levers that worked were B542's elision and B528's rate limit, both of which cut CALLS rather than pixels.
+2. **Turning surfaces off made the DISPLAY worse while making the app's number better** — a 34-38fps app with choppier output. That gap is its own finding: the app's fps and what lands on the wall are not just different numbers, they can move in opposite directions. **Anything that governs on app fps alone can make the product worse while reporting success.** The governor should watch the `external` surface's own rate when one exists.
+3. **The source-detail cap is the lever that actually applies** (`setPlanarCap`) — it shrinks the sampled texture, which is the thing being measured. It is already wired and nothing consults it.
+
+**✅ FIXED B571 (the reason the governor never fired at all):** the pressure target was declared only for a take or a live camera, so a video CLIP reported `target: 0` and the governor skipped every tick. It now takes the decoder's arrival rate — the `29.8 in/s` the source note has shown all along — snapped to a common rate so it cannot re-learn the baseline every window.
+
+### 🔴 RECORD + BROADCAST ON iPAD LOSES THE SOURCE AND THEN THE TAKE (Daniel, B571)
+
+Starting a take during a 4K HDMI broadcast: **source panel, stage panel and thumbnails all go dark** (Daniel: "akin to old context loss"), playback on the display gets *smoother*, stop does not save, and pausing the broadcast reports **`take FAILED: null is not an object (evaluat…`** with no recovery.
+
+**Two known bugs firing together, both already filed, now confirmed on iPad:**
+- **D3's signature exactly:** the report reads **`bus … capture: null`** with `readback` and `render` at **0 calls**. The bus is registered but not running and the capture probe never resolved to a mode. B549 fixed `failOutput` tearing down a `needsBus:false` destination; this is the same lifecycle defect from the other direction — arming the second consumer kills the first.
+- **The `decoderConfig.colorSpace` crash**, filed from B516 as an iPhone FHD failure, is not iPhone-specific. The take dies because the encoder's first chunk arrives without `decoderConfig` (or without `colorSpace`) and the muxer dereferences it unconditionally. **Guard the first-chunk path** — this is a small fix and it converts a lost take into a working one.
+- **The dark panels are NOT a governor degradation** (the governor was inert — `target: 0`). Daniel's read is right: it looks like context loss.
+
+**▶ DANIEL'S PRIORITY ORDER, recorded as the contract for every future degrade decision:**
+> **broadcast → recording → source → stage → live PiP**
+
+Note this refines the ledger's four tiers: `source` sits ABOVE the stage/preview, which the current `PRIORITY.PROGRAM/EDITOR` split does not express (source is PROGRAM at 90, preview and PiP are both EDITOR at 30, so nothing distinguishes stage from PiP). **The ladder needs a fifth rung or an explicit ordering within EDITOR.**
+
+### 🟠 A LOCKED CONTROL WILL NOT UNLOCK DURING A BROADCAST (Daniel, B571)
+
+Tapping the **form** padlock mid-broadcast opens the tooltip but does not unlock. B469's decision was that structural locks (form/segments/spiral/mirrors/oobMode) stay user-unlockable mid-broadcast and only `frameAspect`/`outputRes` are hard-locked. Either the wiring regressed or form is being treated as encoder-tied. Check `locks.js` against the B469 list.
+
+### 🟠 A MODE SWITCH DURING "preparing clip for native playback" MAY CORRUPT THE UPLOAD (Daniel, B571 — theory, not reproduced)
+
+Daniel's own hypothesis for the 4K clip that would not play, and it survived a rebuild (the same clip plays now): he may have changed modes while the native upload/attach was still running. **Worth auditing whether any user action can interrupt that operation** — mode switches, source swaps, entering the Loop Builder — and either blocking them for the duration or making the attach cancel-safe. Cross-ref B570's decode-error publishing, which will name the failure if it recurs.
+
 ### 🔴 iPAD NDI + 4K READBACK — the async readback is NOT working on iPad (Daniel, B569)
 
 From a 4K NDI broadcast on the M1 iPad, with a FHD source:

@@ -110,9 +110,20 @@ const perfPressure = createPressureSource({
   // and the new instrument said nothing on the device it was built to explain (B563). The rate
   // comes from the track's own settings rather than an assumption — `getSettings().frameRate` is
   // what the OS actually granted, which is the only honest denominator.
+  // THE GOVERNOR NEVER FIRED, AND THIS IS WHY (B571). B559 declared a target only for a take or a
+  // live CAMERA, so a VIDEO CLIP — the entire 4K broadcast case the governor was built for —
+  // reported `target: 0`, which the governor reads as "nothing to be short of" and skips. Daniel
+  // watched a 4K HDMI broadcast sit at 21fps for minutes with the rule silently disabled.
+  //
+  // A clip's honest target is the rate frames actually ARRIVE from the decoder, which the source
+  // note has been showing all along (`29.8 in/s`). Rounded to a sane rate so a jittery sample does
+  // not re-learn the baseline every window.
   target: () => {
     if (env.recorderSink?.recording) return 30;
-    return env.liveCameraInfo?.()?.frameRate || 0;
+    const cam = env.liveCameraInfo?.()?.frameRate || 0;
+    if (cam > 0) return cam;
+    const wire = videoWireFps();
+    return wire > 0 ? wire : 0;
   },
 });
 const perf = createPerfLedger({ pressure: perfPressure });
@@ -152,6 +163,25 @@ const sourceSurface = perf.surface({
 // the number that says whether a stall is upstream or downstream: the render loop happily reports
 // 60fps while showing the same frame forever, so "is anything new arriving" cannot be inferred
 // from fps and has to be measured separately.
+// The same measurement `wireRate()` renders as text, as a NUMBER for the pressure target (B571).
+// Separate sampler because the note's is consumed by rendering and would fight with a second
+// reader; both are cheap counter deltas.
+let tgtLast = 0, tgtT = 0, tgtFps = 0;
+function videoWireFps() {
+  const nv = env.nativeVideo;
+  if (!nv || typeof nv.framesArrived !== 'number') { tgtT = 0; tgtFps = 0; return 0; }
+  const now = performance.now(), n = nv.framesArrived;
+  if (!tgtT) { tgtT = now; tgtLast = n; return tgtFps; }
+  const dt = (now - tgtT) / 1000;
+  if (dt < 1) return tgtFps;
+  const rate = (n - tgtLast) / dt;
+  tgtT = now; tgtLast = n;
+  // snap to the nearest common rate: a target that wobbles 29.4/30.6 would re-learn the pressure
+  // baseline on every window and never accumulate the dwell the governor needs
+  tgtFps = rate < 5 ? 0 : rate < 20 ? 15 : rate < 40 ? 30 : rate < 80 ? 60 : 120;
+  return tgtFps;
+}
+
 let wireLast = 0, wireT = 0;
 function wireRate() {
   const nv = env.nativeVideo;
