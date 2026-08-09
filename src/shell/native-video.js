@@ -189,6 +189,16 @@ export async function nativeStillAt(sec, maxPx = 1280, tolerance = 0.05) {
 // Bounded stills for the EDITOR while motion staging is on — the native half of the
 // stageSource seam. AVAssetImageGenerator on the same asset: a decode burst per
 // scrub-settle, no second player, which is the whole reason staging survives one decode.
+// Last decode failure and how many there have been, published so a stalled 4K clip can say why
+// instead of presenting as inert UI (B570). Cleared by the first successful frame.
+let lastDecodeError = null, decodeErrors = 0;
+export function getNativeDecodeError() { return lastDecodeError ? { message: lastDecodeError, count: decodeErrors } : null; }
+function noteDecode(msg) {
+  if (!msg) { lastDecodeError = null; decodeErrors = 0; return; }
+  lastDecodeError = msg; decodeErrors += 1;
+  if (decodeErrors === 1 || decodeErrors % 20 === 0) console.warn(`[fold] native decode failed (${decodeErrors}): ${msg}`);
+}
+
 export function createNativeStageSource(env, { cap = 2048 } = {}) {
   const canvas = document.createElement('canvas');
   const ctx = canvas.getContext('2d');
@@ -209,6 +219,17 @@ export function createNativeStageSource(env, { cap = 2048 } = {}) {
     return true;
   }
 
+  // THE SWALLOWED FAILURE (B570). This catch discarded every decode error, so a `frameAt` that
+  // rejected — a timeout, a memory failure, an unsupported profile — presented as a scrubber that
+  // simply does nothing. **A dead control with no error looks identical to a dead control with a
+  // reason**, and that is precisely the state Daniel hit: a 4K clip where the scrubber, the
+  // transport and the still-mode mini-timeline were all inert, in every mode, with nothing
+  // anywhere to say why.
+  //
+  // The fallback behaviour is still right (holding the last frame beats a black canvas), so the
+  // catch stays — but the reason is now recorded and PUBLISHED. It reaches the source note and
+  // rides the exported report, because a console-only diagnostic on a Capacitor device is a
+  // diagnostic nobody can collect.
   async function seekTo(sec) {
     if (!live) return;
     if (busy) { next = sec; return; }
@@ -219,9 +240,14 @@ export function createNativeStageSource(env, { cap = 2048 } = {}) {
         const img = new Image();
         img.src = res.dataUrl;
         await img.decode().catch(() => {});
-        if (img.naturalWidth) paint(img, img.naturalWidth, img.naturalHeight);
+        if (img.naturalWidth) { paint(img, img.naturalWidth, img.naturalHeight); noteDecode(null); }
+        else noteDecode('frameAt returned an image that would not decode');
+      } else {
+        noteDecode(`frameAt returned no image at ${sec.toFixed(2)}s`);
       }
-    } catch { /* fall back to whatever the canvas holds */ }
+    } catch (e) {
+      noteDecode(e?.message || String(e));
+    }
     finally { busy = false; }
     if (next != null) { const n = next; next = null; seekTo(n); }
   }

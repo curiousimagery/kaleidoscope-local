@@ -190,12 +190,59 @@ export function createOutputPanel(env, outputBus) {
     const gRow = byId('micGainRow');
     if (gRow) gRow.hidden = true;
   }
+  // OPENING A PANEL MUST NEVER STOP THE PROGRAM (B569, Daniel — blocking).
+  //
+  // The meter opens its own `getUserMedia` whenever this menu is visible with a mic selected. On
+  // iOS acquiring an audio input changes the AVAudioSession category, which **interrupts video
+  // playback** — so simply opening the output panel paused the clip, mid-broadcast, and the only
+  // way back was stopping the broadcast and setting the mic to `none`. Daniel hit this on every
+  // NDI and HDMI attempt; it blocked the whole verification pass.
+  //
+  // The meter is a SETUP affordance: its job is proving the mic works and dialling the gain before
+  // you record. It is not worth interrupting a live program for, so while something is playing or
+  // broadcasting it does not auto-acquire. The row says why, and offers the acquisition as an
+  // explicit action for anyone who accepts the interruption.
+  //
+  // NOTE this does not fix the underlying audio-session conflict — a take started mid-broadcast
+  // still acquires a mic and will still interrupt. That needs the native plugin to configure a
+  // category where capture and playback coexist, and is filed. This removes the accidental case,
+  // which is the one that fires without the user asking for anything.
+  const programIsLive = () => {
+    try {
+      if (env.outputBus?.getStatus?.().running) return true;
+      if (env.externalDisplay?.active) return true;
+      const v = env.sourceVideo;
+      if (v && !v.paused && !v.ended) return true;
+      if (env.nativeVideo && env.motionRT?.playing) return true;
+    } catch { /* a probe that throws must not block the meter */ }
+    return false;
+  };
+  let meterForced = false;   // the user explicitly asked, so honour it until the menu closes
+
+  // The deferred state: gain row visible, meter bars hidden, and an explicit way in.
+  function showMeterDeferred() {
+    const wrap = byId('micMeter');
+    if (wrap) wrap.hidden = true;
+    const gRow = byId('micGainRow');
+    if (gRow) gRow.hidden = false;
+    const readEl = byId('micGainRead');
+    if (readEl) readEl.textContent = 'meter paused while live';
+    const autoEl = byId('micGainAuto');
+    if (autoEl) {
+      autoEl.textContent = 'check';
+      autoEl.title = 'open the level meter now — on iOS this briefly interrupts playback';
+      autoEl.disabled = false;
+      autoEl.onclick = () => { meterForced = true; syncMicMeter(); };
+    }
+  }
+
   async function syncMicMeter() {
     const row = byId('outputRow');
     const wrap = byId('micMeter');
     const devId = recAudioEl?.value;
-    if (!devId || !row || row.hidden || !navigator.mediaDevices?.getUserMedia) { stopMicMeter(); return; }
+    if (!devId || !row || row.hidden || !navigator.mediaDevices?.getUserMedia) { stopMicMeter(); meterForced = false; return; }
     if (meterStream) return;   // already metering
+    if (programIsLive() && !meterForced) { showMeterDeferred(); return; }
     let stream;
     try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: rawMicAudio(devId) });
@@ -241,6 +288,7 @@ export function createOutputPanel(env, outputBus) {
     const gainEl = byId('micGain');
     const gainReadEl = byId('micGainRead');
     const gainAutoEl = byId('micGainAuto');
+    if (gainAutoEl) { gainAutoEl.textContent = 'auto'; gainAutoEl.title = 'set the gain from what the mic hears right now — talk at a normal level and press'; }
     // raw peak tracked continuously — what `auto` reads, and what tells a quiet ROOM from a quiet MIC
     const cal = new AnalyserNode(meterCtx, { fftSize: 2048 });
     rawSrc.connect(cal);
@@ -485,7 +533,20 @@ export function createOutputPanel(env, outputBus) {
       // failure degrades to video-only rather than blocking the take
       let micTrack = null;
       const devId = recAudioEl?.value;
-      if (devId) {
+      // THE BROADCAST OUTRANKS THE TAKE'S AUDIO (B570, Daniel's call). Acquiring a mic on iOS
+      // changes the AVAudioSession category and interrupts playback — so starting a take while
+      // broadcasting would stop the program the audience is watching in order to add sound to a
+      // file nobody is watching yet. **Record silent instead, and say so plainly.**
+      //
+      // This is the priority ladder applied to a resource that is not a render surface: CAPTURE
+      // yields to PROGRAM when they genuinely cannot coexist. The proper fix is an audio session
+      // where they can (native plugin, filed); until then this is the honest behaviour rather than
+      // a surprise mid-show.
+      const liveProgram = programIsLive();
+      if (devId && liveProgram) {
+        if (statusEl) statusEl.textContent = 'recording VIDEO ONLY — a mic would interrupt the live output';
+        env.saveFlow?.status?.('busy', 'recording without audio — the mic would interrupt the broadcast', { ttl: 5000 });
+      } else if (devId) {
         try {
           recMicStream = await navigator.mediaDevices.getUserMedia({ audio: rawMicAudio(devId) });
           micTrack = recMicStream.getAudioTracks()[0] || null;

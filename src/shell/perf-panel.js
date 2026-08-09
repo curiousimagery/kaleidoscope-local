@@ -220,6 +220,9 @@ export function mountPerfPanel(env, { container = null, onClose = null } = {}) {
       // the external view's own warnings/errors, which reach no console we can read (B559).
       // Omitted entirely when empty so a report from a session with no HDMI stays uncluttered.
       extLogs: env.externalDisplay?.logs?.length ? env.externalDisplay.logs : undefined,
+      // a decoder refusing frames is the loudest thing a report can carry — it explains an inert
+      // scrubber, a dead transport and a frozen picture all at once (B570)
+      decodeError: env.nativeDecodeError?.() || undefined,
     }, null, 2);
     out.value = text; out.hidden = false; out.select();
     try { await navigator.clipboard.writeText(text); copyBtn.textContent = 'copied'; }

@@ -125,6 +125,31 @@ Daniel weighed two approaches: **always hide the PiP during any broadcast**, or 
 - **Measured stakes on the M1 iPad at 4K:** `preview render` 14.36ms + `pip render` 9.91ms = **24.3ms of a 44ms frame.** The PiP alone is ~23% of the budget. **Prefer the broadcast over the app** (Daniel's call), so the preview should be on the same ladder — his 100/75/50 rungs were measured for this.
 - **Pairs with:** the adaptive-preview-resolution proposal filed under the B506 entry. These are one piece of work, not two.
 
+### 🔴 iPAD NDI + 4K READBACK — the async readback is NOT working on iPad (Daniel, B569)
+
+From a 4K NDI broadcast on the M1 iPad, with a FHD source:
+
+```
+bus  capture: async   readback 31.43ms/frame (max 33)   render 1.86ms
+```
+
+**`capture: async` yet 31.43ms.** On desktop, B521 took the same 4K readback from 19.48ms to **0.87ms** with the pipelined path — a 22x win that made 4K/60 Syphon comfortable. On iPad the mode string says the pipeline is selected and the cost says it is behaving like a blocking `readPixels`.
+
+**This is very likely the whole explanation for the NDI choppiness** Daniel has reported for two arcs (`~30fps` in the output panel, `~48` in the frame-cost panel, and visibly stop/start in Arena). 31.43ms of a 76ms frame is the single largest item, and the start/stop pattern is what a stalling readback produces while the reported render rate stays healthy.
+
+- **▶ FIRST THING TO CHECK:** whether `clientWaitSync` on WebKit ever reports the fence as signalled. B519's original bug was exactly this shape on Chromium (the busy-wait could not observe a signal arriving via the event loop) and B521 fixed it by yielding between polls. **If WebKit never signals, the pipeline silently falls back to a sync read every frame while still reporting `async`** — and the mode string would then be lying, which is its own bug (the note was added at B520 precisely so a reading like this would be interpretable).
+- **Instrument before fixing:** report the fence outcome (signalled / timed-out / abandoned) in the bus note, the way the capture mode already is. A count of pipeline misses per window would settle it in one reading.
+- **Cross-ref** the standing "iPad NDI drain — STUTTER PERSISTS after UYVY" item, which this may simply be the cause of.
+
+### 🔴 4K CLIP WILL NOT PLAY OR SCRUB ON iPAD — recurrence, not a new regression (Daniel, B569)
+
+4K source: play/pause reads "pause" while paused, toggling does nothing, the scrubber is dead in perform AND motion, and the still-mode mini-timeline will not scrub either. **A FHD clip is completely fine in the same build.** Blocked the whole B568 verification pass.
+
+**Almost certainly the standing CRITICAL from B519** ("iPad: a 4K clip LOADS BUT WILL NOT PLAY AT ALL, in either motion or perform"), not something B563-B568 introduced: **nothing since B562 touched the video decode, transport or playback path** (`git diff 957e540..HEAD` — the only `source-host.js` change is camera facing + `liveCameraInfo.frameRate`, and `native-video.js`/`motion-runtime.js`/`perform-runtime.js` are untouched). Daniel also successfully scrubbed and played a 4K clip earlier in the same session, which matches the B515/B516 note that this state is **INTERMITTENT**.
+
+- **▶ THE READING THAT SPLITS IT, and B520 built it for exactly this:** the `source` row's note carries a live wire rate. **`0 in/s` = the decode/socket stalled and nothing downstream is at fault; ~30 in/s = frames are arriving and the fault is after that point.** His FHD broadcast report shows the instrument working (`native decode · 60.1 in/s`), so one glance at that note during the 4K failure is decisive.
+- **The dead still-mode scrubber is a NEW detail** worth carrying: it means the failure is not confined to the motion/perform transports, which points further upstream (the decoder or the socket) rather than at transport state.
+
 ### 🎛️ iPAD 4K HDMI SESSION — four findings (Daniel, B565)
 
 Baking a seamless 4K loop on an M1 iPad was **uneventful** (that closes a long-standing worry). Broadcasting it found four things.
@@ -146,7 +171,24 @@ Baking a seamless 4K loop on an M1 iPad was **uneventful** (that closes a long-s
 
 **So the perform gate is self-imposed and the unlock is two changes, not one:** enable the control, and relax the force-exit to fire only on a source being *removed* rather than on absence. Risk is in whatever `perform-runtime` assumes about a source existing at entry (`play.disabled = !hasVideo` suggests it already tolerates sourceless states, but that is a reading, not a test). Worth doing; worth doing deliberately.
 
-### 🔔 STATUS MESSAGES ARE SCATTERED — audit and consolidate (Daniel, B561)
+### 🔔 STATUS SURFACE — a DEDICATED READOUT BAR, and a real audit (Daniel, B561 → B569)
+
+**⚠️ SCOPE CORRECTION (B569).** B567 removed ONE redundant inline message (the take status in the output panel, which was duplicating the toast) and I described it as "the first step of the audit". **That was an overstep** — Daniel: *"I actually was surprised to see you squeeze this in in the first place... this is UI work that needs consistent application."* He is right: the app has on the order of a hundred inline messages and changing one in isolation makes the inconsistency worse, not better. **Nothing else was touched.** Still inline and unaudited: `starting camera…`, `preparing clip for native playback`, the whole source-panel status line, the loop-builder notices, the external-view text cards, locked-control toasts, upload errors. **Do not fix these one at a time.**
+
+**▶ DANIEL'S DIRECTION (B569), and he leans strongly toward it: a dedicated STATUS READOUT BAR** — a strip immediately below the app bar, ~24-32px tall, small text at the toast's type scale and colours, shown only when it has something to say. It stays out of the way of other UI, unlike a toast that floats over the work.
+
+**Its second job is what makes it clearly right:** it can carry *dynamic* readouts, not just events — **current broadcast fps, elapsed recording duration** — which a toast fundamentally cannot, because a toast is transient by nature. That is the thing the app has no home for today, and it is why this beats "move everything to toasts".
+
+**The audit this needs, before any of it is built:**
+1. **Inventory every message-emitting site in the app.** Not a sample — the whole set, with where it renders today.
+2. **Classify each one** against a written rule: *persistent state* (belongs inline, next to the control it describes: "ladder locked", validation, a disabled reason) vs *transient event* (belongs in the status bar: saving, saved, camera starting, clip preparing) vs *continuous readout* (the new capability: fps, duration, take progress).
+3. **Decide the timing rules deliberately** — how long a transient stays, whether a new message replaces or queues, what wins when a readout and an event compete for the strip.
+4. **Then build**, once, and put the classification table in the UI Lab entry as the reference for every message added afterwards.
+5. **Decide what happens to the toast.** It may survive for save confirmations on mobile (where the tab bar makes a top strip awkward) or be fully superseded. One decision, applied everywhere.
+
+**Cross-refs:** the save toast (`shell/save-flow.js`) already exposes `status`/`dismiss` and is host-agnostic, so it is the closest thing to a precedent; the governor's degrade notice (B568) currently borrows it and should move to the strip; the take-progress ring is a third status surface still unbuilt and should be designed WITH this rather than after it.
+
+
 
 **Daniel:** *"we throw messages all over the place, sometimes in the top left of the source panel, sometimes in their respective dialogs and sometimes in toasts... showing saving / take saved inline in the output dialog doesn't feel right. status and controls should be separate."*
 

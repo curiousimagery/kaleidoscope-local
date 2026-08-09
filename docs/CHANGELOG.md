@@ -4,6 +4,44 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🔍 v0.23.17 (Build 570) — 2026-08-09 — The 4K scrubber wasn't dead, it was silent
+
+**Daniel's blocker: a 4K clip where the transport, the scrubber and the still-mode mini-timeline were all inert, in every mode, with nothing anywhere to say why.** A FHD clip was fine in the same build.
+
+`native-video.js`'s `seekTo` discarded every decode error:
+
+```js
+} catch { /* fall back to whatever the canvas holds */ }
+```
+
+So a `frameAt` that rejected — a timeout, a memory failure, an unsupported profile — **presented as a control that simply does nothing.** A dead control with no error looks identical to a dead control with a reason, and that is the entire reason this was undiagnosable.
+
+The fallback behaviour is still right (holding the last frame beats a black canvas), so the catch stays. **The reason is now recorded and published:** the `source` row leads with `⚠ DECODE FAILING ×N: <message>` when the decoder is refusing frames, and `decodeError` rides the exported report. A decoder refusing frames explains an inert scrubber, a dead transport and a frozen picture all at once, so it outranks everything else in that note.
+
+**This does not fix the 4K failure — it makes the next occurrence say what it is.** Nothing since B562 touched the video path (`git diff 957e540..HEAD`), and Daniel scrubbed and broadcast a 4K clip earlier in the same session, so the cause is still open.
+
+### Recording during a broadcast records silent
+
+Daniel's call: *"it would be better to record without audio than to interrupt the broadcast. UI feedback should just be clear that this is the case."* Acquiring a mic on iOS interrupts playback, so starting a take mid-broadcast would stop the program the audience is watching in order to add sound to a file nobody is watching yet.
+
+**This is the priority ladder applied to a resource that is not a render surface: CAPTURE yields to PROGRAM when they genuinely cannot coexist.** The panel says `recording VIDEO ONLY — a mic would interrupt the live output` and the toast says the same. The proper fix is an audio session where both can run, which needs the native plugin and is filed.
+
+## 🎚️ v0.23.16 (Build 569) — 2026-08-09 — Opening a panel stops pausing the program
+
+**Daniel's blocker, on every NDI and HDMI attempt:** selecting a mic and opening the output panel **paused playback**, and the only way back was stopping the broadcast and setting the mic to `none`.
+
+The level meter opens its own `getUserMedia` whenever the menu is visible with a mic selected. On iOS, acquiring an audio input changes the AVAudioSession category, which **interrupts video playback**. So a panel that exists to show controls was stopping the program, without anyone asking it to.
+
+**The meter is a SETUP affordance** — proving the mic works, dialling the gain before a take. That is not worth interrupting a live program for. It no longer auto-acquires while something is playing or broadcasting; the row says `meter paused while live` and offers a `check` button for anyone who accepts the interruption.
+
+**This does not fix the underlying audio-session conflict.** A take started mid-broadcast still acquires a mic and will still interrupt. That needs the native plugin to configure a category where capture and playback coexist, and it is filed. This removes the *accidental* case, which is the one that fires without the user asking for anything.
+
+### Scope correction on B567's toast change
+
+B567 removed one redundant inline message and I called it "the first step of the status audit". **That was an overstep.** Daniel: *"this is UI work that needs consistent application."* The app has on the order of a hundred inline messages; changing one in isolation makes the inconsistency worse. Nothing else was touched, and the BACKLOG entry now records what is still inline and unaudited.
+
+**His direction, recorded: a dedicated status readout bar** below the app bar, ~24-32px, toast type scale, shown only when it has something to say — and crucially able to carry **continuous** readouts (broadcast fps, recording duration) that a transient toast structurally cannot. The full audit approach is written up before any of it gets built.
+
 ## 🎚️ v0.23.15 (Build 568) — 2026-08-08 — The governor: the first thing that acts on the measurements
 
 `conduit/governor.js`. The ledger has been able to see for a dozen builds and was never allowed to do anything; `PRIORITY.DECOR → EDITOR → PROGRAM → CAPTURE` has been declared since B512 and nothing consulted it. **This does.**

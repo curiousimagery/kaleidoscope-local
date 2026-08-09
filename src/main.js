@@ -54,6 +54,7 @@ import { perfFlags } from './shell/perf-flags.js';
 import { createPerfLedger, PRIORITY } from 'conduit/perf-ledger';
 import { createPressureSource } from 'conduit/pressure';
 import { createGovernor } from 'conduit/governor';
+import { getNativeDecodeError } from './shell/native-video.js';
 import { createPerformRuntime } from './shell/perform-runtime.js';
 import { createInputBus } from './shell/input-bus.js';
 import { ICONS } from './mobile/icons.js';   // shared glyph set (fit/fill toggle)
@@ -138,8 +139,12 @@ const sourceSurface = perf.surface({
       : src.tagName === 'VIDEO' ? 'from <video>'
       : src.tagName === 'CANVAS' ? 'from canvas'
       : `from <${(src.tagName || '?').toLowerCase()}>`;
+    // A DECODE FAILURE OUTRANKS EVERYTHING ELSE IN THIS NOTE (B570). When the decoder is
+    // refusing frames, the wire rate and the tag are both describing a corpse — say so first.
+    const derr = getNativeDecodeError();
     return [tag, engine?.planarActive && 'planar', env.live?.isLive && 'camera',
-      env.nativeVideo && 'native decode', wireRate()].filter(Boolean).join(' · ');
+      env.nativeVideo && 'native decode', wireRate(),
+      derr && `⚠ DECODE FAILING ×${derr.count}: ${derr.message}`].filter(Boolean).join(' · ');
   },
 });
 
@@ -310,6 +315,7 @@ const env = {
 // init outright (Daniel: upload and camera selection both dead on iPad). The `native:`/`target:`
 // callbacks above only *look* like the same pattern; they are deferred, so they are fine.
 Object.defineProperty(env, 'lastAudioReport', { get: getLastAudioReport, configurable: true });
+env.nativeDecodeError = getNativeDecodeError;   // rides the exported report (B570)
 
 // THE GOVERNOR (B568) — the first thing that acts on the ledger rather than only reporting it.
 // While broadcasting, a sustained shortfall against the declared frame rate steps the EDITOR
