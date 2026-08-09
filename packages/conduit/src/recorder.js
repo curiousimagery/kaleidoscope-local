@@ -652,11 +652,29 @@ async function startWebCodecsSession({ w, h, audioTrack, onDone, onError, onProg
   });
 
   let sessionError = null;
+  // `decoderConfig` PRESENT BUT `colorSpace` MISSING (B572). The existing guard checked only that
+  // `decoderConfig` exists — but mp4-muxer reaches THROUGH it for `colorSpace` and dereferences
+  // the result, so a config without that field throws `null is not an object (evaluating
+  // 't.info.decoderConfig.colorSpace')` and the take is lost. Filed from B516 as an iPhone FHD
+  // failure; Daniel hit it again on iPad recording during a 4K broadcast, so it is not
+  // device-specific — it is whatever makes WebKit omit the field under load.
+  //
+  // Supply the defaults rather than dropping the metadata: without `decoderConfig` the muxer has
+  // no avcC to write and the file is unplayable, so passing `undefined` trades a crash for a
+  // broken file. These are the values H.264 4:2:0 8-bit is decoded as anyway when a stream
+  // carries no VUI, so stating them is a truthful default rather than a guess.
+  const safeVideoMeta = (meta) => {
+    const dc = meta && meta.decoderConfig;
+    if (!dc) return undefined;
+    if (dc.colorSpace) return meta;
+    return { ...meta, decoderConfig: { ...dc, colorSpace: { primaries: 'bt709', transfer: 'bt709', matrix: 'bt709', fullRange: false } } };
+  };
+
   // belt over the probe's braces: only hand the muxer metadata that actually
   // carries a decoderConfig, and never let a muxer throw escape the callback
   const venc = new VideoEncoder({
     output: (chunk, meta) => {
-      try { muxer.addVideoChunk(chunk, meta && meta.decoderConfig ? meta : undefined); }
+      try { muxer.addVideoChunk(chunk, safeVideoMeta(meta)); }
       catch (e) { sessionError = sessionError || e; }
     },
     error: (e) => { sessionError = e; },

@@ -4,6 +4,22 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🔌 v0.23.19 (Build 572) — 2026-08-09 — Opening the frame-cost panel switched the governor off
+
+**`ledger.onReport` was a single slot, not a subscription.** Two things register: the frame-cost panel (to paint) and the governor (to tick). The panel mounts second, so **`onReport = paint` silently replaced the governor's handler.**
+
+Which means the governor was disabled *precisely when someone was watching for it*. Daniel's report reads `target: 30, shortfall: 0.41` — 41% under, well past the 25% threshold, with `preview` and `pip` both still at `scale: 1`. The rule was correct and simply never ran.
+
+Now a `Set`, with each handler isolated so one bad listener cannot stop the rest.
+
+**A general lesson worth keeping: a setter-shaped subscription API is a silent-failure machine.** `onX(fn)` reads like "subscribe" and behaves like "replace", and the failure has no error, no log, and no symptom except the thing quietly not happening.
+
+### The lost take: `decoderConfig` present, `colorSpace` missing
+
+`null is not an object (evaluating 't.info.decoderConfig.colorSpace')` — filed from B516 as an iPhone FHD failure, hit again by Daniel on **iPad**, recording during a 4K broadcast. Not device-specific.
+
+The existing guard checked only that `decoderConfig` exists. **mp4-muxer reaches through it for `colorSpace` and dereferences the result**, so a config without that field throws and the take is lost. We now supply BT.709 defaults rather than dropping the metadata — without `decoderConfig` the muxer has no avcC to write and the file is unplayable, so passing `undefined` would trade a crash for a broken file. Those are the values H.264 4:2:0 8-bit is decoded as when a stream carries no VUI, so stating them is a truthful default.
+
 ## 🚨 v0.23.18 (Build 571) — 2026-08-09 — The governor never fired, and the ladder is the wrong lever anyway
 
 ### Why it never fired

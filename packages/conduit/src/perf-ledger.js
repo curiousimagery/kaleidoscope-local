@@ -172,10 +172,15 @@ export function createPerfLedger({ enabled = false, windowMs = 1000, pressure = 
     pressure?.note(latest.frameMs.p50, latest.mpPerFrame);
     frameTimes.length = 0;
     winStart = t;
-    onReport?.(latest);
+    for (const fn of reportHandlers) { try { fn(latest); } catch { /* one bad listener must not stop the rest */ } }
   }
 
-  let onReport = null;
+  // A SET, NOT A SLOT (B572). This was a single `onReport` reference, so the second registration
+  // silently replaced the first — and the two registrations are the frame-cost PANEL and the
+  // GOVERNOR. Opening the panel therefore switched the governor off, which is exactly when
+  // somebody is watching for it to work. Daniel spent two sessions unable to see it fire against
+  // a report reading `shortfall: 0.41`, well past its threshold.
+  const reportHandlers = new Set();
 
   function safeSize(s) {
     try { const d = s.size ? s.size() : null; return { w: d?.w || 0, h: d?.h || 0 }; }
@@ -337,7 +342,7 @@ export function createPerfLedger({ enabled = false, windowMs = 1000, pressure = 
 
     get report() { return latest; },
     get surfaces() { return [...surfaces.values()].map((s) => ({ id: s.id, label: s.label })); },
-    onReport(fn) { onReport = fn; },
+    onReport(fn) { reportHandlers.add(fn); return () => reportHandlers.delete(fn); },
     get pressure() { return pressure; },
   };
 }

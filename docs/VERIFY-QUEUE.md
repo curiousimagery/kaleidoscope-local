@@ -8,45 +8,29 @@ Confirmed results are DELETED from here and recorded in CHANGELOG.
 
 ---
 
-# ✅ LAST SESSION CLEARED (B559, Daniel) — the desktop/iPad take path survived
+# ▶ THIS SESSION (B572) — "does the governor fire now, and does the take survive?"
 
-**Electron:** short take clean, 4:48 take at real 4K clean with audio in sync, save near-instant on an M5 Max, record-during-Syphon-broadcast fine, output window fine. **iPad:** still capture fine, three takes recorded and played back fine, **HDMI healthy — `42 fps ON THE DISPLAY · 29 new/s` against a 30fps camera, matching the app's own 41.3fps.** That is B549's fix confirmed on device and it closes the OPFS-on-desktop risk.
+**iPad, ~10 minutes. Needs B572.** Two blocking bugs are fixed; both need one run to confirm.
 
-**Two findings came out of it**, both filed in BACKLOG, neither a regression from B553-B559: iPad take audio is very quiet (the missing gain stage), and the `elideElementUploads` A/B was unmeasurable as I wrote it (see the entry — my instruction was wrong, and the desktop claim is withdrawn).
+## What changed and why it never worked before
 
-# ▶ THIS SESSION — "does the governor help, and did the arc's changes hold on iPad?"
+- **The governor was switched off by the frame-cost panel.** `ledger.onReport` was a single slot and the panel overwrote the governor's handler — so it was disabled exactly when you were watching for it. Your last report proves the rule was right and never ran: `target: 30, shortfall: 0.41` with `preview` and `pip` still at `scale: 1`.
+- **The lost take** was `decoderConfig` present but `colorSpace` missing; mp4-muxer dereferences through it. BT.709 defaults are supplied now.
 
-**iPad, ~15 minutes.** `npm run build && npx cap sync ios`, Xcode rebuild. **Needs B568.**
+## Steps
 
-## What we're trying to find out
-
-Two things at once, which is the point: the **governor** is new and unproven, and **iPad broadcast + NDI have not been touched since the hardening changes** this arc made to the poster, the bus teardown and the frame header.
-
-## Steps — HDMI broadcast
-
-1. **Start a 4K→4K HDMI broadcast and leave it running for a minute or two.** Watch for a toast reading `preview at 75% — giving the broadcast the headroom (N% under 30fps)`.
-   - **Does the display get smoother when it fires?** That is the whole question.
-   - **Does the preview degradation read as acceptable, or as broken?** Your 75/50 rungs were measured on staged preview, not on a live broadcast.
-   - **Does it oscillate?** Stepping down, recovering, stepping down again within a few seconds would mean the hysteresis is too tight. Tell me if you see it flapping.
-2. **Stop the broadcast.** → does the preview return to full resolution?
-3. **`copy report`** during the broadcast — I want `pressure.shortfall`, `pressure.target`, and the `scale` on the `preview` and `pip` rows.
-
-## Steps — NDI (untouched this arc)
-
-4. **Start an NDI broadcast on iPad and watch it in Arena or another receiver.** Nothing here has been re-tested since the poster elision, the `failOutput` teardown fix, and the frame-header unification. **I have no expectations to set — this is a "did we break it" pass.**
-5. **If NDI runs, note the frame rate on the receiver** against what the output panel says. The panel now labels which surface it means.
-6. **Try record + NDI together**, which is the pairing that broke on HDMI at D3.
-
-## Steps — audio (quick confirm)
-
-7. **The mic row should now show only `gain` + `auto`** — the raw/balanced/voice picker is gone, raw is hardcoded.
-8. **Adjust the gain DURING a take.** → the recording should now follow it (it did not before). Ramped, so it should sound like a fader move rather than a jump.
+1. **4K → 4K HDMI broadcast, frame-cost panel OPEN.** Within a few seconds of the shortfall going past ~25%, expect `preview` and `pip` `scale` to step down in the panel, and a status message naming the reason.
+   - **The honest question is whether it HELPS.** Your manual walk said scaling did nothing at 4K (`preview render` 16.53ms at 0.38MP — the cost is sampling the 8.29MP texture, not writing pixels). **I expect it to fire and NOT help.** If so, the ladder is confirmed as the wrong actuator and the redesign is the next build.
+2. **Start a take during that broadcast.** → does it now save instead of dying with `null is not an object`?
+   - Expect **video only** and a message saying so — a mic would interrupt the program (B570).
+   - The source/stage panels going dark is a **separate, unfixed** bug (D3's `capture: null`), so it may still happen. Note whether it does.
+3. **`copy report`** during the broadcast and after the take.
 
 ## What I can't see and need from you
 
-- **Whether the governor helps or just makes the preview worse.** No number decides this; if the display does not visibly improve when it fires, the rule is wrong and should come out.
-- **Whether it oscillates.** The dead band is a guess (shed above 25% under, restore below 10%) and this is the first time it has run anywhere.
-- **Whether NDI still works at all.**
+- **Whether `scale` actually moves in the panel.** That is the whole confirmation.
+- **Whether the display improves when it does.** If not, say so plainly — the ladder comes out rather than gets tuned.
+- **Whether the take saves.**
 
 # 🅿️ NEXT UP after this — pick one
 
