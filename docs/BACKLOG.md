@@ -332,6 +332,29 @@ Starting a broadcast shows nothing on HDMI until the timeline moves, **even thou
 
 **The view joined the socket and no frame was ever posted.** So this is not a render fault at the far end; nothing was sent. Likely the poster only publishes on a change and there is no initial post at broadcast start. Cross-ref the standing "external display starts dark and PAUSED on a fresh broadcast" item from B565 — **this is probably the same bug with a mechanism now attached**, and it may also relate to the 25-45s source-switch lag.
 
+### 🔴🔴 THE ENGINE FALLS OFF THE PLANAR PATH — NOW REPRODUCIBLE ON DEMAND (Daniel, B579). **NEXT ITEM.**
+
+**Three triggers, all named by Daniel in one session:**
+1. load a 4K source into **motion**, then switch to **perform** → source and stage panels go dark/gray
+2. reopening within the same session → corrected
+3. **starting the broadcast** → they go dark again
+
+**The report signature is unambiguous and identical every time:**
+
+```
+source: 1280×720 · "from canvas · native decode"   (no `planar`)   refresh 0ms   upload 3-4ms
+```
+
+`1280` is `PREVIEW_CAP`. **The engine has been knocked off the planar provider onto `native-video.js`'s RGB preview canvas**, which is the cross-context readback B518/B541 deleted. `refresh` going free while `upload` becomes the cost is the fingerprint of exactly that swap.
+
+**This is the same state as the B574 take-failure report**, which we filed as possibly a filmstrip bug. Three reproducible triggers beats that theory: **it is source ATTACH, and a broadcast start is enough on its own.**
+
+**It now blocks clean 4K measurement** — every B579 report has the app rendering a 0.92MP texture instead of 8.29MP, so no app-side number in that session is a 4K number. **Instrument maintenance under the three-bucket rule, with a declared budget: one build.**
+
+- **▶ FIRST READ, and it is Class 1:** who calls `setPlanarSource(null)` or re-`setSource`s the main engine on broadcast start and on a mode switch. Candidates already known: `source-host.js:620/730` (teardown), `motion-runtime.js:715/1158-1178`, `perform-runtime.js:201-203`.
+- **▶ SECOND, and this one is subtle:** `receiver.planeReader()` mints a FRESH cursor per call (each engine gets its own), but `native-video.js` exposes **`planeProvider` as a single shared instance created once**. The main engine uses the shared one while the PiP and bus engines each call `planeReader()`. **If two consumers share `planeProvider`, they race for frames and one starves.** Starting a broadcast adds a consumer, which is exactly when this fires.
+- **Cross-ref** the FHD→4K context-loss item below and the take-failure item; all three now point at attach.
+
 ### 🔴 SWITCHING FHD → 4K SOURCE MID-SESSION CAUSES GL CONTEXT LOSS (Daniel, B579) — the sharpest 4K lead yet
 
 Loading an **FHD clip first and then switching to a 4K source** produced a graphics-context-loss error. **Loading the same 4K clip first in a fresh session works fine.** Reproduced deliberately, out of curiosity, which makes it the most controlled observation we have on the 4K cluster.
@@ -340,6 +363,20 @@ Loading an **FHD clip first and then switching to a 4K source** produced a graph
 
 - **▶ First read:** the teardown/reallocation path on source switch. `setPlanarSource(null)` disposes the uploader, but the ELEMENT texture stays allocated alongside (by design, engine/index.js), and there are three engines holding sources (preview, PiP, bus) plus the external view's own.
 - **Cross-ref** the scrubber-jitter item below and the mode-switch-during-attach theory. All three are now source-attach, not decode.
+
+### 🟠 THE EXTERNAL VIEW IS THROWING A SHADER-COMPILE LOOP (Daniel's B579 reports, `extLogs`)
+
+**The first error `extLogs` has ever carried**, so B573's republish fix earning its keep a second time.
+
+```
+[fold ext] uncaught: Error: compile failed @ .../test-pattern-*.js:111
+[fold ext] uncaught: TypeError: Argument 1 ('shader') to WebGL2RenderingContext.shaderSource
+           must be an instance of WebGLShader          × ~19
+```
+
+A shader compile returned null and every subsequent call passed that null straight back in. Present in **all three** B579 reports, during an ordinary broadcast with no test pattern requested.
+
+Two questions, in order: **why is the test-pattern module compiling shaders at all during a normal broadcast**, and **is the compile failing because the view's GL context is under pressure** — which would tie it to the FHD→4K context-loss item. `createShader` returning null is what a context that is lost or out of resources does. Cheap first check either way: whether it appears on a fresh session before any pressure.
 
 ### 🟢 THE JUDDER IS SPECIFIC TO 4K SOURCE **AND** 4K OUTPUT (Daniel, B579 smoke test)
 
