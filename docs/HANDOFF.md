@@ -10,6 +10,24 @@ Daniel Nelson is building a browser-based kaleidoscope tool for high-resolution 
 
 He prefers **no em dashes** in any prose Claude generates for him.
 
+## ▶ THE PLAN — read this before picking anything up (agreed with Daniel, B579-B582)
+
+Ordered by TRANSFER (what teaches the most about the rest) and DEPENDENCY, not by tractability. **The standing failure mode in this arc is a well-defined next step out-competing an important one** — see `DEBUGGING-PROTOCOL.md` state D. If you are about to work on something not on this list, that is the drift.
+
+**1. FRAME CADENCE / BROADCAST DELIVERY — essentially closed at B582.** Shipped: the view coalesces messages instead of rendering per message (B579), the governor watches what reaches the DISPLAY rather than app fps (B581), the last rung pauses the second view and says why (B581), recovery probes instead of waiting for an unreachable threshold (B582). **Remaining loose ends, both small:** (a) the **2560-vs-3840 lever is UNTRIED and is the single biggest remaining win** — `draw` p50 is 40-48ms against a 33ms budget, and the display's own `preferred`/`nativeBounds` both report 2560×1440, so we may be paying 8.29MP to show 3.7MP; (b) close-out step 4, the honest guardrail and label, which is now unblocked.
+
+**2. THE 4K FIRST-FRAME / SOURCE-ATTACH CLUSTER — next.** Four symptoms, one likely mechanism, all "the first frame after a seek or attach costs something we do not pay elsewhere": the loop-restart hold (**REGRESSION, and the only one that reproduces on demand — this is the way in**), the scrubber jitter at playback start, the intermittent "loads but will not play", and the mode-switch-during-attach theory. **Instrument maintenance with a declared budget**, because it blocks measurement.
+
+**3. NDI — one measurement, not an investigation.** B579's fix does NOT touch it (no view, no message-driven render loop). **B478 already concluded WiFi NDI is packet-timing jitter with sender-side levers exhausted.** What is genuinely open: the iPad `capture: async` reading 31.43ms/frame, and a wired retest.
+
+**4. iPAD LIMITS — sustained capture, long takes, honest edges.** Exit criterion 5's data. Needs 1 and 2 done first. Record-to-disk already shipped (B553); the open question is how long/how big, and the known long pole is the **audio flush at finalize** (32.7s on a 3:28 4K take vs 94ms for video).
+
+**5. iPHONE — mostly DECISIONS once the iPad numbers exist.** Same conduit, codecs, OPFS path. Genuinely phone-specific: HDMI has never been measured on any build, and the mobile chrome's 2048 output cap is structural. Honest labels are cheap after 4, guesswork before.
+
+**6. THERMAL / SUSTAINED LOAD — last.** Prerequisite: `ProcessInfo.thermalState` currently reads null, so we have no native signal and the inferred one is drift-based. **Fix that BEFORE the thermal work or we will be inferring heat from frame times**, which is the adjacent-quantity trap this arc is named for.
+
+**Riding alongside, not in the sequence:** the WebKit **GPU-process crash** (see below — it is exit criterion 5 work, not a side bug), the surface-naming unification (source/staged/live vs three other vocabularies), and the status-readout-bar audit.
+
 ## current version
 
 **🧭 B575 — A DEBUGGING PROTOCOL NOW EXISTS (`docs/DEBUGGING-PROTOCOL.md`), and `CLAUDE.md` points at it.** Daniel asked for a forensic review of the last ~50 builds. Findings: ~11 investigations measured a semantically adjacent quantity, and **roughly a third of device sessions went to questions a `grep` would have answered.** Two rules carry the weight: **Class 1** (does our code do what we think, resolved by reading) must never consume device time, which is reserved for **Class 2** (what does the platform do); and **conserved quantities** (peak amplitude, arrival counters, fps-on-the-display, the file's real dimensions) end investigations in one reading where **activity counters** (batches, chunks, calls) extend them by 2-4 builds. Also: name the uncertainty state **A/B/C/D** before proposing (in A the only legal move is instrumentation, never a fix; D feels productive and is why the governor ran three builds past its own recorded invalidation), and **scope triage has three buckets** — arc work, *instrument maintenance* (blocks a measurement, gets a declared budget), and backlog.

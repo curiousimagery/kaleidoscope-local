@@ -440,11 +440,20 @@ export function createPerformRuntime(env) {
     // with a live label reads as a fault. The label says what happened and why, so the operator
     // knows the broadcast is being protected rather than that the app broke.
     const starved = !!env.governor?.state?.starved?.includes('pip');
-    const key = synced + ':' + broadcasting + ':' + starved;
+    // THE PANEL BECOMES A READOUT WHEN IT STOPS BEING A PICTURE (Daniel, B575). A paused panel is
+    // wasted space, and the one number nobody could see anywhere in the app is the rate actually
+    // landing on the wall. `fresh.p50` is the interval between NEW pictures on the display, so its
+    // reciprocal is the honest broadcast rate — not the drawn fps, which has lied to us twice.
+    const shown = starved && env.externalDisplay?.active
+      ? Math.round(1000 / (env.externalDisplay.jitter?.fresh?.p50 || 0)) : 0;
+    const key = synced + ':' + broadcasting + ':' + starved + ':' + (shown || 0);
     if (key === dotSynced) return;
     dotSynced = key;
     const label = document.querySelector('#livePip .lp-label');
-    if (label) label.lastChild.textContent = starved ? 'paused to protect the broadcast' : 'live';
+    if (label) {
+      label.lastChild.textContent = !starved ? 'live'
+        : shown > 0 ? `paused · broadcast ${shown}fps` : 'paused to protect the broadcast';
+    }
     const dot = byId('lpDot');
     if (dot) {
       dot.classList.toggle('sync', synced);

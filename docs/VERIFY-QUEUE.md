@@ -8,7 +8,26 @@ Confirmed results are DELETED from here and recorded in CHANGELOG.
 
 ---
 
-# ▶ THIS SESSION (B581) — "does the governor now act on what the audience sees?"
+# ▶ THIS SESSION (B582) — "does it come back up?"
+
+**iPad, ~5 minutes. Needs B582.** Two nits from your B581 pass. Everything else there passed.
+
+## ⚠️ SET THE SCENARIO TAG TO `hdmi-broadcast` FIRST, and again before saving any baseline.
+
+## Steps
+
+1. 4K → 4K HDMI in perform. Widen the slice until the second view pauses.
+2. **Check the paused label reads `paused · broadcast NNfps`** — the real rate on the wall, not the drawn fps.
+3. **Shrink the slice back.** Within a few seconds the governor should **step back up a rung at a time** and the second view should return to `live`.
+   - The reason string narrates it: `probing recovery in NNNNms`.
+   - **Stepping up and immediately back down once or twice is expected and correct** — that is the probe finding the ceiling. What is NOT expected is oscillating indefinitely.
+4. `copy report` once it has settled.
+
+## Why it was stuck
+
+Recovery required a shortfall under 0.10, and **a healthy 4K broadcast in your own baseline sits at 0.17** (25 new pictures of 30 arriving). The threshold could never be reached. It now probes upward below the *shed* threshold instead, with a doubling backoff after a failed probe.
+
+# 🅿️ PREVIOUS SESSION (B581) — CLEARED: `signal: display` ✓, `starved: [pip]` ✓, label ✓, pause feels polished (Daniel). Only the ratchet and the missing fps readout failed.
 
 **iPad, ~8 minutes. Needs B581.** Close-out step 3 verification. No new investigation.
 

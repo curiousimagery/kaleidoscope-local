@@ -4,6 +4,24 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🔁 v0.23.29 (Build 582) — 2026-08-11 — The governor could shed but never recover, and the paused panel becomes a readout
+
+Daniel's B581 verification: the governor works, the pause feels polished, **and it never un-pauses.** Both nits fixed.
+
+### The recovery threshold was unreachable, so it was a one-way ratchet
+
+B581 recovered only below `restoreBelow` (0.10). **On the display signal that number cannot happen:** a HEALTHY 4K broadcast in his own baseline delivers 25 new pictures of 30 arriving, which is a shortfall of **0.17** — inside the old dead band. Once it shed, it held forever.
+
+**The thresholds were calibrated for the app signal, where zero is achievable. The display signal has a floor that is not our fault**, and porting the constants across without re-deriving them is what created a ratchet.
+
+Recovery no longer needs an absolute number. Below the *shed* threshold it steps up and sees what happens; a rung that fails immediately doubles the wait before the next probe (capped at 8x, reset on a genuinely healthy reading or on reaching full rate). **Self calibrating, no magic constant**, and the dwell plus backoff replaces the dead band as the anti-oscillation mechanism.
+
+### The paused panel now shows the broadcast rate
+
+Agreed at B575 and not shipped at B581. A paused panel is wasted space, and **the rate actually landing on the wall was visible nowhere in the app.**
+
+It reads `paused · broadcast 19fps`, from `1000 / extJitter.fresh.p50` — the interval between NEW pictures on the display. **Deliberately not the drawn fps**, which has now lied to us twice (B552 and B577).
+
 ## ⚖️ v0.23.28 (Build 581) — 2026-08-11 — The governor finally watches the audience, and the last rung pauses instead of stuttering
 
 Close-out step 3. Daniel held the plan to it: *"didn't we agree the governor wasn't finished and needed to be?"*

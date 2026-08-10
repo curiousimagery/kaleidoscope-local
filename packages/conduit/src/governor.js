@@ -114,6 +114,8 @@ export function createGovernor({ ledger, pressure, isBroadcasting, delivered = n
                                  // re-enable something the operator turned off by hand
   let primaryId = '';            // the sticky main view (see HANDOVER_MARGIN)
   let signal = 'app';            // which shortfall we are acting on: 'display' or 'app'
+  let probeBackoff = 1;          // multiplies the recovery dwell after a probe that failed
+  let lastProbeT = 0;
 
   // MEMBERSHIP IS BY PRIORITY, NOT BY COST (B576). B575 filtered on `msPerFrame > 0` to keep the
   // slice overlay out, and that made membership FLICKER: the overlay draws only during a gesture,
@@ -266,6 +268,8 @@ export function createGovernor({ ledger, pressure, isBroadcasting, delivered = n
         if (level >= LADDER.length - 1) reason = `at the bottom rung (${rungText(level)}) and still ${Math.round(shortfall * 100)}% under — the editor surfaces are not the wall here`;
         else reason = `shedding in ${Math.max(0, Math.round(cfg.sustainMs - (now - overSince)))}ms`;
         if (now - overSince >= cfg.sustainMs && level < LADDER.length - 1) {
+          // a rung that fails right after we probed up to it earns a longer wait next time
+          if (lastProbeT && now - lastProbeT < cfg.recoverMs * 3) probeBackoff = Math.min(8, probeBackoff * 2);
           const list = applyLevel(level + 1);
           active = true;
           overSince = now;   // re-arm the dwell so we step one rung at a time, never two at once
@@ -275,17 +279,33 @@ export function createGovernor({ ledger, pressure, isBroadcasting, delivered = n
         return;
       }
 
-      if (active && shortfall < cfg.restoreBelow) {
+      // RECOVERY PROBES, IT DOES NOT WAIT FOR A NUMBER THAT CANNOT HAPPEN (B582).
+      //
+      // B581 recovered only below `restoreBelow` (0.10). On the display signal that threshold is
+      // unreachable: a HEALTHY 4K broadcast delivers ~25 new pictures of 30 arriving, which is a
+      // shortfall of **0.17** — inside the old dead band, so once the governor shed it could never
+      // step back up. Daniel found it immediately: "when I shrink the slice it doesn't un-pause."
+      // **The thresholds were calibrated for the app signal, where zero is achievable, and the
+      // display signal has a floor that is not our fault.**
+      //
+      // So recovery no longer needs an absolute number. Below the SHED threshold it steps up and
+      // sees what happens; if that rung immediately fails, the next probe waits longer. Self
+      // calibrating, no magic constant, and the dwell plus backoff is what prevents the
+      // oscillation the old dead band was there to prevent.
+      if (active && shortfall < cfg.shedAbove) {
         overSince = 0;
+        if (shortfall < cfg.restoreBelow) probeBackoff = 1;   // genuinely healthy: probe eagerly
         if (!underSince) underSince = now;
-        reason = `recovering in ${Math.max(0, Math.round(cfg.recoverMs - (now - underSince)))}ms`;
-        if (now - underSince >= cfg.recoverMs) {
+        const wait = cfg.recoverMs * probeBackoff;
+        reason = `probing recovery in ${Math.max(0, Math.round(wait - (now - underSince)))}ms (${Math.round(shortfall * 100)}% under, ${signal})`;
+        if (now - underSince >= wait) {
           underSince = now;
+          lastProbeT = now;
           if (level > 0) {
             applyLevel(level - 1);
             notice(level === 0 ? '' : rungText(level));
           }
-          if (level === 0) { active = false; notice(''); }
+          if (level === 0) { active = false; probeBackoff = 1; notice(''); }
         }
         return;
       }
