@@ -325,6 +325,30 @@ function reconcileVideo() {
 // broadcast smooth; the rAF tick stays as a fallback for when messages pause.
 let lastRenderT = 0;
 let lastArrived = -1;   // receiver.framesArrived at the last fps window (see renderFrame)
+
+// JUDDER IS A VARIANCE PHENOMENON AND EVERYTHING HERE WAS AN AVERAGE (B577).
+//
+// B575 predicted the judder would clear when drawn fps met arrival fps. Daniel's B576 run
+// reported `28 fps ON THE DISPLAY · 28 new/s` — a perfect match — with SEVERE judder. Both
+// numbers are one-second means, and a mean is equally compatible with even delivery and with
+// violent bursting. **We were measuring the right nouns with the wrong statistic.**
+//
+// So: the interval DISTRIBUTION, for two different things.
+//   `draw`  — every render. Since this view renders on message arrival, this is effectively the
+//             app's POST cadence measured at the far end, which is better than measuring it at
+//             the source because it includes everything the bridge does to it.
+//   `fresh` — only the renders that put a NEW picture on the wall. **This is the one the eye
+//             judges.** New content requires BOTH a state message (to trigger a render) AND a new
+//             socket frame, and those are two independent clocks; if their interleaving is
+//             irregular, new content appears in bursts while both average rates look healthy.
+//             That is the leading mechanism and this is the number that confirms or kills it.
+let lastNewT = 0, seenArrived = -1, newDraws = 0;
+const drawGaps = [], newGaps = [];
+function pctl(a, p) {
+  if (!a.length) return 0;
+  const s = a.slice().sort((x, y) => x - y);
+  return Math.round(s[Math.min(s.length - 1, Math.max(0, Math.round((p / 100) * (s.length - 1))))]);
+}
 function renderFrame() {
   if (!(haveSource && latestState)) return;
   if (camera) camera.refreshFrame();        // front-camera: redraw the mirrored frame
@@ -335,8 +359,18 @@ function renderFrame() {
   if (liveSource) engine.updateSourceFrame(); // re-upload camera/video texture
   engine.render(latestState);
   if (hint && !document.body.classList.contains('live')) document.body.classList.add('live');
-  lastRenderT = performance.now();
+  const nowT = performance.now();
+  if (lastRenderT) drawGaps.push(nowT - lastRenderT);
+  lastRenderT = nowT;
   frames++;
+  // did this render put a NEW picture on the wall, or repeat the last one?
+  const arrivedNow = receiver ? receiver.framesArrived : -1;
+  if (arrivedNow >= 0 && arrivedNow !== seenArrived) {
+    seenArrived = arrivedNow;
+    if (lastNewT) newGaps.push(nowT - lastNewT);
+    lastNewT = nowT;
+    newDraws++;
+  }
   if (lastRenderT - fpsT >= 1000) {
     measuredFps = Math.round((frames * 1000) / (lastRenderT - fpsT));
     // HOW MANY OF THOSE RENDERS SHOWED A NEW PICTURE (B552).
@@ -354,8 +388,13 @@ function renderFrame() {
     const inNow = receiver ? receiver.framesArrived : (videoEl ? -1 : -1);
     const srcFps = inNow >= 0 && lastArrived >= 0 ? Math.round(((inNow - lastArrived) * 1000) / (lastRenderT - fpsT)) : -1;
     lastArrived = inNow;
+    const jitter = {
+      draw: { p50: pctl(drawGaps, 50), p95: pctl(drawGaps, 95) },
+      fresh: { p50: pctl(newGaps, 50), p95: pctl(newGaps, 95), n: newDraws },
+    };
+    drawGaps.length = 0; newGaps.length = 0; newDraws = 0;
     frames = 0; fpsT = lastRenderT;
-    sendUp({ type: 'fps', fps: measuredFps, srcFps });
+    sendUp({ type: 'fps', fps: measuredFps, srcFps, jitter });
   }
 }
 

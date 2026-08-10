@@ -61,6 +61,7 @@ export function createSurfacePoster({ transport, content, renderCaps = [Infinity
   // frame is indistinguishable from a healthy one by fps alone — see renderFrame() in
   // output-view.js for the failure this exists to make visible. -1 = not applicable/unknown.
   let srcFps = -1;
+  let jitter = null;      // the view's interval distributions (B577) — see noteFps/get jitter
   let gen = 0;
 
   const capAt = (arr) => arr[Math.min(gen, arr.length - 1)];
@@ -144,8 +145,12 @@ export function createSurfacePoster({ transport, content, renderCaps = [Infinity
     // the view (re)loaded → repost the source next tick, AND forget the elision cache: a fresh
     // view has never received the state we would otherwise consider already delivered
     noteHello() { lastSourceSig = ''; lastStateJson = ''; },
-    noteFps(n, s = -1) { fps = n || 0; srcFps = typeof s === 'number' ? s : -1; },
+    noteFps(n, s = -1, j = null) { fps = n || 0; srcFps = typeof s === 'number' ? s : -1; jitter = j || null; },
     get srcFps() { return srcFps; },
+    // The view's own interval DISTRIBUTIONS (B577), not another average. `fresh` is the interval
+    // between renders that actually showed a new picture, which is what the eye judges — an even
+    // 28fps and a bursty 28fps are the same number and a different product.
+    get jitter() { return jitter; },
     // degradation ladder (a no-op when the caller passed none)
     degrade() { gen = Math.min(gen + 1, renderCaps.length - 1); lastSourceSig = ''; },
     resetGen() { gen = 0; },

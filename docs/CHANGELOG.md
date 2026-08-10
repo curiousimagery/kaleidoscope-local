@@ -4,6 +4,33 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 📊 v0.23.24 (Build 577) — 2026-08-10 — Judder is a variance phenomenon and everything we had was an average
+
+**No behaviour change. This is an instrument, shipped because the last hypothesis was falsified and the replacement cannot be tested without it.**
+
+B575 predicted the judder would clear when drawn fps met arrival fps. Daniel's B576 run reported **`28 fps ON THE DISPLAY · 28 new/s`, a perfect match, with severe judder.** Both are one-second means, and **a mean is equally compatible with even delivery and with violent bursting.** Right nouns, wrong statistic.
+
+The app has reported `frameMs p50/p95` since B512. The external view has only ever reported an average.
+
+### Two distributions, because they answer different questions
+
+- **`draw`** — the interval between every render. This view renders on message arrival, so this is effectively **the app's POST cadence measured at the far end**, which is better than measuring it at the source because it includes whatever the bridge does to it.
+- **`fresh`** — the interval between renders that actually put a **new** picture on the wall. **This is the one the eye judges.**
+
+`fresh` is the load-bearing one because new content requires **both** a state message (to trigger a render) **and** a new socket frame, and those are two independent clocks. If their interleaving is irregular, new content appears in bursts while both average rates look perfectly healthy. That is the leading mechanism now, and this measurement confirms or kills it.
+
+**And `draw` is what localizes the burst.** Bursty draws mean the app's post cadence is irregular, upstream of the view. Even draws with bursty `fresh` mean the two streams are interleaving badly, which is a different bug with a different fix.
+
+### The verdict is a sentence, not a number to interpret
+
+The `external` surface note now reads either
+
+> `28 fps ON THE DISPLAY · 28 new/s · ⚠ UNEVEN: new frame every 34ms typical but 71ms at p95`
+
+or `· even (new frame 34/38ms p50/p95)`. The threshold is a ratio (p95 beyond 1.6x p50) rather than a constant, because the honest interval depends on the source rate. Raw numbers for both distributions ride the export as `extJitter`.
+
+**The app-side evidence that motivated this, from Daniel's juddering B576 report:** `fps 29.7, p50 39ms, p95 52ms` gives a mean of 33.7ms. **`p50` above the mean means the distribution is bursty** — a run of short frames then a long one — which averages to a healthy-looking 28.
+
 ## 🔧 v0.23.23 (Build 576) — 2026-08-10 — The governor's own state could drift from the world; three fixes so the diagnostic can be trusted
 
 All three were found by **reading Daniel's B575 report, with no device time**, and all three are mine from B575. They are fixed first and alone, because the governor's reported state is now the primary diagnostic for the pacing work and an instrument that can lie about itself is worse than none.

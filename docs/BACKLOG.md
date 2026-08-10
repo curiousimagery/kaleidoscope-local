@@ -161,7 +161,33 @@ In the governed state the grid is 40ms and arrivals are 38.5ms apart, so it is n
 2. **Our health signal is inverted in the worst state.** That report reads `pressure: nominal, shortfall: 0` because app fps 36.8 exceeds the 30 target. **The governor would correctly decide to do nothing while the broadcast judders.** This is BACKLOG consequence 2 ("anything governing on app fps alone can make the product worse while reporting success") now proven with numbers rather than argued.
 3. **B552's arrival counter is what solved this**, 23 builds after it was built, and this is the first time it was read as an A/B. Exactly the conserved-quantity pattern in DEBUGGING-PROTOCOL §3: one reading, hypothesis space collapsed.
 
-**▶ NEXT: this is now state C (know why, need the lever).** Do not shed more app work. Design the pacing change, and note it likely supersedes the rate ladder as the primary actuator.
+### ❌ FALSIFIED B576 — RATE MATCHING IS NOT SUFFICIENT. Back to state B.
+
+The cadence story above predicted that judder would go away when drawn ≈ new. **Daniel's B576 run produced `28 fps ON THE DISPLAY · 28 new/s`, a perfect match, with SEVERE judder.** The hypothesis is dead in its simple form and the entry above is kept only for the evidence it contains.
+
+**What survives:** app-loop timing and display smoothness are linked. **What is dead:** that the link is average rate matching.
+
+**The reframe, and it is a statistics problem rather than a semantics one for once.** Judder is a VARIANCE phenomenon and every number we have is a one-second AVERAGE. The app's own frame times already tell us the loop is badly paced in the state that judders:
+
+```
+fps 29.7   p50 39ms   p95 52ms   →  mean 33.7ms
+```
+
+**`p50` (39) above the mean (33.7) means the distribution is bursty**: a run of short frames then a long one. An average of 28 drawn against 28 new is exactly what a bursty loop looks like when you smooth it over a second, and it is compatible with both perfectly even delivery and violent judder.
+
+The most likely mechanism now: **presentation is even and CONTENT ADVANCE is not.** The app samples whatever the latest decoded frame is at rAF time; if rAF intervals are irregular, consecutive displayed frames represent unevenly-spaced moments of the clip. That is judder at a steady display rate, and the external view would faithfully mirror it while reporting healthy numbers.
+
+**And the frame is 89% unaccounted in that state.** `accountedMs 4.37` of a 39ms frame, with preview off, pip off and the overlay idle. The app is uploading an 8.29MP texture and rendering nothing visible, and still takes 39ms. Note the external view runs its OWN 4K kaleidoscope render in another process on the same GPU (it joins the same frame socket and renders from state), so contention is the leading candidate for the gap.
+
+**▶ THE INSTRUMENT GAP, and this is the next step rather than a fix:** the external view reports an average fps and nothing else. **We need its frame-interval DISTRIBUTION** (p50/p95 of its own intervals, and separately the interval between NEW frames), which is the same shape the app already reports as `frameMs`. Without it we cannot distinguish "even 28fps" from "bursty 28fps", and that distinction IS the bug.
+
+**Do not start the pacing work.** It was designed against a falsified hypothesis.
+
+### 🟠 THE SOURCE SURFACE'S OFF SWITCH DOES NOTHING (Daniel's B576 report)
+
+That report reads `source: enabled: false` alongside `refresh 30 calls / upload 30 calls`. The switch is decorative: `sourceSurface` declares no `onEnabled`, and `updateSourceFrame()` never consults `perf.skip` (only `render()` does).
+
+Small, but it is exactly the class of defect that corrupts an A/B, inside our own instrument, and it violates exit criterion 1 (every offered option functional in its context) in the tool we use to check exit criterion 1. Either wire it or stop offering it.
 
 ### ✅ FIXED B576 — THREE B575 GOVERNOR BUGS, ALL FOUND BY READING THE REPORT (no device time)
 

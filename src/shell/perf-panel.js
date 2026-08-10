@@ -223,6 +223,12 @@ export function mountPerfPanel(env, { container = null, onClose = null } = {}) {
       // the external view's own warnings/errors, which reach no console we can read (B559).
       // Omitted entirely when empty so a report from a session with no HDMI stays uncluttered.
       extLogs: env.externalDisplay?.logs?.length ? env.externalDisplay.logs : undefined,
+      // THE VIEW'S INTERVAL DISTRIBUTIONS (B577). The surface note carries the `fresh` verdict as
+      // a sentence; this carries both distributions as numbers, because `draw` is what LOCALIZES
+      // the burst. Bursty draws mean the app's post cadence is irregular (upstream of the view);
+      // even draws with bursty `fresh` mean the two streams — state posts and socket frames — are
+      // interleaving badly, which is a different bug with a different fix.
+      extJitter: env.externalDisplay?.jitter || undefined,
       // a decoder refusing frames is the loudest thing a report can carry — it explains an inert
       // scrubber, a dead transport and a frozen picture all at once (B570)
       decodeError: env.nativeDecodeError?.() || undefined,

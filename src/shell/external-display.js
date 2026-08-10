@@ -212,7 +212,7 @@ function createPoster(opts) {
       poster.noteHello();   // view (re)loaded — repost the source next tick
       console.info('[fold] external view ready (hello)');
     } else if (msg.type === 'fps') {
-      poster.noteFps(msg.fps, msg.srcFps);
+      poster.noteFps(msg.fps, msg.srcFps, msg.jitter);
     } else if (msg.type === 'log') {
       // the external view's own console, re-logged here so it reaches the Xcode log — that
       // webview's console is bridged nowhere (B559). Filter string: `[fold ext]`.
@@ -269,6 +269,7 @@ function createPoster(opts) {
     get connected() { return connected; },
     get fps() { return poster.fps; },
     get srcFps() { return poster.srcFps; },
+    get jitter() { return poster.jitter; },
     get renderDims() { return poster.renderDims; },
     // CONSOLE IS NEVER THE ONLY ROUTE (CLAUDE.md). Daniel does not run Safari Web Inspector, so
     // the bridged external-view log has to reach `copy report` or it may as well not exist.
@@ -403,6 +404,7 @@ export function createExternalDisplaySink(env) {
   env.externalDisplay = {
     get active() { return poster.active; },
     get logs() { return poster.logs; },
+    get jitter() { return poster.active ? poster.jitter : null; },
     get renderDims() { return poster.active ? poster.renderDims : null; },
     get fps() { return poster.active ? poster.fps : 0; },
     get srcFps() { return poster.active ? poster.srcFps : -1; },

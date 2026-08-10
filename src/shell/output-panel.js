@@ -85,14 +85,30 @@ export function createOutputPanel(env, outputBus) {
         const f = s?.fps || 0;
         const sf = s?.srcFps;
         if (!f) return 'awaiting first fps report';
+        // THE EVENNESS VERDICT (B577). Two rates that match on average can still judder, which is
+        // exactly what B576 proved: `28 fps ON THE DISPLAY · 28 new/s` with severe judder. So the
+        // note carries the SPREAD of the interval between renders that showed a NEW picture. An
+        // even 28fps and a bursty 28fps are the same average and a different product.
+        //
+        // The threshold is a ratio, not a constant, because the honest interval depends on the
+        // source rate: p95 beyond ~1.6x p50 means roughly one in twenty new frames waits more than
+        // half again as long as the typical one, which is where a swing starts being visible.
+        const j = s?.jitter;
+        let even = '';
+        if (j?.fresh?.p50 > 0) {
+          const { p50, p95 } = j.fresh;
+          even = p95 > p50 * 1.6
+            ? ` · ⚠ UNEVEN: new frame every ${p50}ms typical but ${p95}ms at p95`
+            : ` · even (new frame ${p50}/${p95}ms p50/p95)`;
+        }
         // RENDER rate and ARRIVAL rate, because they diverge and that divergence IS the bug:
         // a view re-drawing the same frame reports a healthy fps while the picture sits still.
         if (typeof sf === 'number' && sf >= 0) {
           return sf < f / 2
-            ? `${f} fps drawn · ⚠ only ${sf} NEW frames/s — the picture is stalling, not the renderer`
-            : `${f} fps ON THE DISPLAY · ${sf} new/s`;
+            ? `${f} fps drawn · ⚠ only ${sf} NEW frames/s — the picture is stalling, not the renderer${even}`
+            : `${f} fps ON THE DISPLAY · ${sf} new/s${even}`;
         }
-        return `${f} fps ON THE DISPLAY`;
+        return `${f} fps ON THE DISPLAY${even}`;
       }
       return '';
     },

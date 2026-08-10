@@ -8,7 +8,38 @@ Confirmed results are DELETED from here and recorded in CHANGELOG.
 
 ---
 
-# ▶ THIS SESSION (B576) — "can we trust what the governor says about itself?"
+# ▶ THIS SESSION (B577) — "is the judder in the delivery, or in what we deliver?"
+
+**iPad, ~5 minutes. Needs B577.** One state, one report. No toggling, no A/B.
+
+**No behaviour changed in this build.** It only adds the external view's interval distributions, because every number we had was a one-second average and judder is a variance phenomenon.
+
+## Steps
+
+1. **Get into the state you already described as severely juddering**: 4K clip looping, 4K HDMI broadcast, and the stage and live panels switched OFF by hand. That is the cleanest case because the app is doing almost nothing and it still judders.
+2. **Let it run ~15 seconds**, then `copy report`.
+3. **Also paste what the `external` row's note says on screen**, since it is the one-line verdict.
+4. **If it is convenient, a second report with the panels back ON.** Not required.
+
+## What the answer looks like, so you know what you are seeing
+
+The `external` note will now end with either `⚠ UNEVEN: new frame every Xms typical but Yms at p95` or `even (new frame X/Yms p50/p95)`. The raw numbers are in the export under `extJitter`, with **two** distributions: `draw` (every render) and `fresh` (only renders that showed a new picture).
+
+**All three outcomes are informative and each points somewhere different:**
+
+| reading | meaning | where we look next |
+| --- | --- | --- |
+| `fresh` bursty, `draw` bursty | the app's post cadence is irregular and the view faithfully mirrors it | the app's main loop and the 89% unaccounted frame time |
+| `fresh` bursty, `draw` even | posts are steady but state messages and socket frames interleave badly | the pairing of the two streams, likely render-on-arrival |
+| **both even** | delivery is fine and the judder is in the CONTENT | frame timestamps and what the app samples per render, not the transport at all |
+
+**The third row would be the most surprising and the most valuable**, because it would move this off the transport entirely. Do not be disappointed if it lands there; it is the outcome that saves the most time.
+
+## What this cannot tell us
+
+It says whether delivery is uneven. **It does not say why.** If it comes back bursty, the next step is localizing the cause, not a fix.
+
+# 🅿️ PREVIOUS SESSION (B576) — "can we trust what the governor says about itself?" — CLEARED: all four checks pass
 
 **iPad, ~3 minutes. Needs B576.** Confirmation only. No new question, no new lever.
 
