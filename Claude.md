@@ -29,6 +29,16 @@ If the change is docs-only (no code touched), none of the above applies.
 
 **Surface non-obvious choices before committing to them.** Which file something belongs in, whether to extract a helper, naming, what counts as "done." Daniel is quick to course-correct and prefers a 30-second checkpoint over a refactor.
 
+## debugging discipline (read `docs/DEBUGGING-PROTOCOL.md` before any investigation)
+
+A forensic review at B575 found that ~11 investigations in this arc measured something semantically adjacent to the phenomenon, and that roughly a third of device sessions went to questions a `grep` would have answered. The protocol doc owns the detail. These are the parts that are non-negotiable and must survive into every session:
+
+- **Class 1 vs Class 2.** Class 1 = "does our code do what we think" (resolved by reading code or one local run). Class 2 = "what does the platform do" (needs a device). **Never spend a device session on a Class 1 question.**
+- **Name the uncertainty state before proposing anything: A** (don't know what) **/ B** (know what, not why) **/ C** (know why, not which lever) **/ D** (enough evidence, no stopping rule). **In state A the only legal move is instrumentation, never a fix.** State D is the invisible one: it feels productive.
+- **The wrong-noun test.** Before shipping an instrument, complete: *"this counts X, which equals what I care about only if ___ holds."* Activity counters (batches, chunks, calls, render counts) may ride along; they may never conclude. Prefer a **conserved quantity** that must survive the boundary.
+- **Anything that can decline to act must publish why.** An absence is not evidence.
+- **State the five-line pre-flight in the response**, not just internally. Goal + exit criterion; uncertainty state; Class 1 resolved?; what the measurement cannot distinguish; the stopping rule. **Writing it in the response is also what makes it survive compaction.**
+
 ## codebase conventions you must internalize
 
 Read `docs/ARCHITECTURE.md` before working on anything you haven't worked on recently. The architecture doc is authoritative for: forms registry, engine/shell separation, state location, the `env` runtime container, GLSL composition, and the slot/divider mechanics. Don't restate any of that here; just follow it.

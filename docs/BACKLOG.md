@@ -125,6 +125,39 @@ Daniel weighed two approaches: **always hide the PiP during any broadcast**, or 
 - **Measured stakes on the M1 iPad at 4K:** `preview render` 14.36ms + `pip render` 9.91ms = **24.3ms of a 44ms frame.** The PiP alone is ~23% of the budget. **Prefer the broadcast over the app** (Daniel's call), so the preview should be on the same ladder — his 100/75/50 rungs were measured for this.
 - **Pairs with:** the adaptive-preview-resolution proposal filed under the B506 entry. These are one piece of work, not two.
 
+### 🔴 THE DISPLAY IS WORSE WITH THE EDITOR SURFACES OFF THAN WITH THEM GOVERNED (Daniel, B571 + confirmed B575)
+
+**Observed twice, in two different builds, with two different actuators. It is the most important open finding in the arc.** M1 iPad, 4K clip, 4K HDMI:
+
+| editor surfaces | app fps | on the display |
+| --- | --- | --- |
+| full rate | ~22 | 21-23, less smooth |
+| **governed (10fps / 5fps, B575)** | ~22 | **27-32, materially smoother** |
+| **OFF entirely** | **36-45** | **choppier than governed** |
+
+**The relationship is NOT monotonic.** Less app work does not mean a better broadcast. That rules out simple GPU contention as the sole mechanism, because the OFF row has the least app GPU work and the worst output.
+
+**Competing hypotheses, and this needs no new build to split them:**
+1. **Over-posting / back-pressure.** The poster publishes once per app loop. At 45Hz it posts faster than the external view can render 4K, so the view coalesces or queues unevenly. At ~22Hz the cadence matches its ~26-30fps capacity. Predicts exactly the observed non-monotonic shape, with a smoothness peak where post rate ≈ view capacity.
+2. **Elision/keepalive interaction.** B513's identical-post elision plus B549's 32ms floor may behave differently at a higher post rate.
+3. **Decode starvation.** A busier main thread at 45Hz starves the socket/decode; `in/s` would fall below ~29.
+
+**▶ THE EXPERIMENT: `copy report` in the surfaces-OFF state.** Three numbers already in the report split all three: `external` note (`N fps ON THE DISPLAY · M new/s`), `source` note (`N in/s`), and app fps. **Zero build cost, zero new instrumentation.** If `new/s` holds ~30 while drawn-fps falls, it is (1) or (2); if `in/s` collapses, it is (3).
+
+**If (1) is confirmed, the governor's actuator is wrong AGAIN in an interesting way:** the lever would be *pacing the poster to the consumer's capacity*, not shedding app work at all. Note this also reframes B571's original observation, which we filed as a curiosity and should have chased then.
+
+### 🟠 THE GOVERNOR'S BOTTOM RUNG SHOULD STARVE THE SECOND VIEW, NOT SLOW IT (Daniel, B575)
+
+At the bottom rung the second view runs at 5fps and Daniel's read is that **it is more distracting than helpful at that rate** — a monitor below some threshold stops reading as live and starts reading as broken. B528 found the same floor from the other direction on the phone PiP (10Hz was kept as the default "because a monitor below that stops reading as live").
+
+**So the last rung should be OFF with a stated reason, not 5fps.** That also matches the arc's own rule that 25% was reserved as an honest distress signal rather than a quality rung. Product decision, already made; needs implementing plus a visible "second view paused to protect the broadcast" state so it never looks like a failure.
+
+### 🟠 SURFACE NAMES ARE INCONSISTENT BETWEEN THE APP AND THE DIAGNOSTICS (Daniel, B575)
+
+The app says **source / staged / live**. The frame-cost panel says `output preview` and `perform live view`. The governor says `main view` and `second view`. **Three vocabularies for three surfaces**, and Daniel has been double-naming in conversation to avoid ambiguity — which is a tax he should not be paying.
+
+Worth noting this is the same failure the DEBUGGING-PROTOCOL is about, one level up: **a noun that does not consistently refer to one thing.** Pick one vocabulary (the app's, since it is the one users see), apply it to the panel, the governor's strings and the report's surface labels, and record it wherever the UI Lab records terminology. Cross-ref the status-readout-bar item, which will need the same nouns.
+
 ### 🚨 THE RESOLUTION LADDER IS THE WRONG LEVER FOR A 4K SOURCE (Daniel, B571) — this changes the governor
 
 **The most important measurement of the arc, and it invalidates the design I just shipped.** Daniel drove the ladder by hand during a 4K→4K HDMI broadcast:
@@ -191,6 +224,22 @@ That reframes the bug. **`capture: null` on the bus may be a consequence rather 
 > **broadcast → recording → source → stage → live PiP**
 
 Note this refines the ledger's four tiers: `source` sits ABOVE the stage/preview, which the current `PRIORITY.PROGRAM/EDITOR` split does not express (source is PROGRAM at 90, preview and PiP are both EDITOR at 30, so nothing distinguishes stage from PiP). **The ladder needs a fifth rung or an explicit ordering within EDITOR.**
+
+### 🟠 THE EXTERNAL DISPLAY STAYS GRAY UNTIL YOU PLAY OR SCRUB (Daniel, B575)
+
+Starting a broadcast shows nothing on HDMI until the timeline moves, **even though the PiP already has a picture.** A paused program still has a frame, and showing black instead of it reads as a broken connection.
+
+**And for the first time we have the external view's own account of it**, because B573 fixed `extLogs` on this path:
+
+```
+[fold ext] joined port 8900 but no frames yet — the decode may be stalled
+```
+
+**The view joined the socket and no frame was ever posted.** So this is not a render fault at the far end; nothing was sent. Likely the poster only publishes on a change and there is no initial post at broadcast start. Cross-ref the standing "external display starts dark and PAUSED on a fresh broadcast" item from B565 — **this is probably the same bug with a mechanism now attached**, and it may also relate to the 25-45s source-switch lag.
+
+### 🟡 THE 4K SCRUBBER JITTERS AT THE START OF PLAYBACK (Daniel, B575, long-standing)
+
+Initially playing a 4K source makes the scrubber jump around slightly. Believed fixed for FHD and thought to be fixed for 4K. **Daniel flagged it as possibly related to the intermittent 4K playback failure**, which is worth taking seriously: both are 4K-only, both are at the *start* of playback, and both are consistent with the clock/first-frame handshake settling late. Filed together deliberately.
 
 ### 🟠 A LOCKED CONTROL WILL NOT UNLOCK DURING A BROADCAST (Daniel, B571)
 
