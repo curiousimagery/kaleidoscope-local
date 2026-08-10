@@ -4,6 +4,35 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## ⚖️ v0.23.28 (Build 581) — 2026-08-11 — The governor finally watches the audience, and the last rung pauses instead of stuttering
+
+Close-out step 3. Daniel held the plan to it: *"didn't we agree the governor wasn't finished and needed to be?"*
+
+### It governs on what reaches the DISPLAY, not on what the app managed
+
+**This is B571's consequence 2, open for ten builds, and it was unmeasurable until B577.** Daniel's own walk showed the app's fps and the picture on the wall moving in **opposite directions**, which means a rule watching only the app can degrade the product while reporting success.
+
+`delivered()` compares **new pictures actually shown on the external display** (`1000 / extJitter.fresh.p50`) against **frames the source produced** (`srcFps`). The governor prefers that ratio and falls back to the app-side shortfall when there is no external surface, so Syphon, NDI and plain takes keep the old signal rather than losing one.
+
+`governor.signal` now reports `display` or `app`, because a governor holding steady is otherwise ambiguous between "the display is fine" and "we could not measure the display".
+
+**This also sidesteps a circularity found the same day:** the app-side target is derived from the observed arrival rate, and a slow sampling window can snap it from 30 to 15, halving the target so the shortfall looks fine. The delivered signal uses `srcFps` as its denominator, which does not move when we struggle.
+
+### The last rung pauses the second view instead of running it at 5fps
+
+Daniel's call at B575: *"the pip at our lowest 5fps might be more distracting than helpful."* B528 found the same floor from the other side on the phone PiP — below roughly 10Hz a monitor stops reading as live and starts reading as broken.
+
+`LADDER` is now `[[1,1], [1,2], [2,4], [3,0]]`, where **0 means off.** At a 30fps target: full → 30/15 → 15/7.5 → **10 / paused.**
+
+It frees a whole 4K source texture and uploader in the app process, which **matters more for the GPU-process crash than it does for frame rate** — the PiP costs 2.33ms of a 52ms frame, so the honest claim here is memory, not fps.
+
+**And it says so.** The live panel's label reads `paused to protect the broadcast` instead of `live`. A black panel under a live label reads as a fault; B555's rule is explain, never silently degrade.
+
+### Two traps avoided, both of them ones we have already fallen into
+
+- **`candidates()` includes starved surfaces.** A surface we switched off reports `enabled: false`, so filtering on `enabled` alone would drop it from the list the reset path walks — the exact coupling that left three surfaces throttled at B575.
+- **`starved` is tracked separately from `governed`,** so the governor only ever re-enables what *it* turned off. A surface the operator switched off by hand stays off.
+
 ## 🔦 v0.23.27 (Build 580) — 2026-08-10 — Recovering from a lost GL context silently deleted the planar path
 
 **Root cause of the dark source/stage panels, found by reading. No device time.**

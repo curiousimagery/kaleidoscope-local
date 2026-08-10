@@ -383,6 +383,19 @@ env.governor = createGovernor({
   // (B571: broadcast → recording → source → stage → PiP): a take outranks the editor surfaces
   // for the same reason a broadcast does.
   isBroadcasting: () => !!(env.isOutputLive?.() || env.outputBus?.getStatus?.().running || env.externalDisplay?.active),
+  // WHAT ACTUALLY REACHES THE AUDIENCE (B581). `fresh.p50` is the interval between renders that
+  // put a NEW picture on the external display, so its reciprocal is the real delivered rate;
+  // `srcFps` is what the source produced. Governing on that ratio instead of app fps is B571's
+  // consequence 2, open since Daniel measured the app's number and the wall moving in opposite
+  // directions. Returns null with no external surface — Syphon, NDI and takes keep the app signal.
+  delivered: () => {
+    const ext = env.externalDisplay;
+    if (!ext?.active) return null;
+    const p50 = ext.jitter?.fresh?.p50 || 0;
+    const expected = ext.srcFps > 0 ? ext.srcFps : 0;
+    if (!(p50 > 0 && expected > 0)) return null;
+    return { shown: 1000 / p50, expected };
+  },
   // routed to the same status surface everything else uses, so the reason is never a mystery —
   // "explain, don't silently degrade" is the rule B555 set for the PiP going dark at 4K
   onNotice: (text) => { env.governorNotice = text; if (text) env.saveFlow?.status?.('busy', text, { ttl: 3200 }); },

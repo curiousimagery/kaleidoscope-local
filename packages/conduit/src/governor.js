@@ -64,8 +64,15 @@ const DEFAULTS = {
 // 11.5ms. A fixed per-draw cost cannot be scaled away; it can only be skipped. Daniel then A/B'd
 // the resolution ladder on and off at the wall and saw no difference in steadiness either.
 //
-// Each rung is [primary, secondary] as a frame divisor: 2 = every other frame.
-const LADDER = [[1, 1], [1, 2], [2, 4], [3, 6]];
+// Each rung is [primary, secondary] as a frame divisor: 2 = every other frame. **0 means OFF.**
+//
+// The last rung starves the second view rather than running it at 5fps, which is Daniel's call
+// (B575): "the pip at our lowest 5fps might be more distracting than helpful." B528 found the same
+// floor from the other direction on the phone PiP — below about 10Hz a monitor stops reading as
+// live and starts reading as broken. **An honest "paused to protect the broadcast" beats a picture
+// that looks like a fault.** It also frees a whole 4K source texture and uploader in the app
+// process, which matters more for the GPU-process crash than it does for frame rate.
+const LADDER = [[1, 1], [1, 2], [2, 4], [3, 0]];
 
 // WHICH SURFACE IS "SECONDARY" FLIPS BY MODE, so it cannot be hardcoded by id. In still/motion the
 // preview is the big view and the PiP is a thumbnail (1716×965 vs 402×226); in perform the PiP is
@@ -83,7 +90,13 @@ const byPrimacy = (a, b) => b.mp - a.mp;
 // views' frame rates. A margin makes the choice sticky; it does not need to be large.
 const HANDOVER_MARGIN = 1.2;
 
-export function createGovernor({ ledger, pressure, isBroadcasting, onNotice = null, opts = {} } = {}) {
+// `delivered` is the signal this rule should always have used and could not measure until B577:
+// how many NEW PICTURES actually reach the audience, against how many the source is producing.
+// Governing on APP fps is what B571's consequence 2 warned about — Daniel's own walk showed the
+// app's number and the wall moving in OPPOSITE directions, so a rule watching only the app can
+// degrade the product while reporting success. It returns null when there is no external surface
+// to measure (Syphon, NDI, a plain take), and the app-side shortfall stays the fallback there.
+export function createGovernor({ ledger, pressure, isBroadcasting, delivered = null, onNotice = null, opts = {} } = {}) {
   const cfg = { ...DEFAULTS, ...opts };
   let enabled = true;
   let level = 0;                 // 0 = untouched; each step walks LADDER one rung down
@@ -97,7 +110,10 @@ export function createGovernor({ ledger, pressure, isBroadcasting, onNotice = nu
   let reason = 'not started';
   let lastTick = 0;
   const governed = new Set();    // ids we have set a rate on, so we can always put them back
+  const starved = new Set();     // ...and the ones we switched OFF, tracked separately so we never
+                                 // re-enable something the operator turned off by hand
   let primaryId = '';            // the sticky main view (see HANDOVER_MARGIN)
+  let signal = 'app';            // which shortfall we are acting on: 'display' or 'app'
 
   // MEMBERSHIP IS BY PRIORITY, NOT BY COST (B576). B575 filtered on `msPerFrame > 0` to keep the
   // slice overlay out, and that made membership FLICKER: the overlay draws only during a gesture,
@@ -108,8 +124,11 @@ export function createGovernor({ ledger, pressure, isBroadcasting, onNotice = nu
   // now excluded permanently, which is also the honest answer: its 2D draw path does not consult
   // `perf.skip`, so a rate on it changes nothing except the report. Governing it means teaching
   // that path to check first (its own comment already says "the lever here is WHEN it draws").
+  // `|| starved.has(id)` is not optional. A surface we switched OFF reports `enabled: false`, so
+  // filtering on `enabled` alone would drop it from the very list the reset path walks — the exact
+  // coupling that left three surfaces throttled at B575.
   const candidates = () => (ledger.report?.surfaces || [])
-    .filter((s) => s.priority === PRIORITY.EDITOR && s.enabled)
+    .filter((s) => s.priority === PRIORITY.EDITOR && (s.enabled || starved.has(s.id)))
     .sort(byPrimacy);
 
   // Sticky main view, so a near-tie cannot hand over on a rounding difference.
@@ -135,7 +154,15 @@ export function createGovernor({ ledger, pressure, isBroadcasting, onNotice = nu
       governed.delete(id);
     }
     list.forEach((s, i) => {
-      ledger.setSurfaceRate(s.id, i === 0 ? primary : secondary);
+      const r = i === 0 ? primary : secondary;
+      if (r === 0) {
+        // starve, not slow. `setSurfaceEnabled` is the existing actuator; we only ever undo what
+        // WE turned off, so a surface the operator switched off by hand stays off.
+        if (!starved.has(s.id)) { ledger.setSurfaceEnabled(s.id, false); starved.add(s.id); }
+      } else {
+        if (starved.has(s.id)) { ledger.setSurfaceEnabled(s.id, true); starved.delete(s.id); }
+        ledger.setSurfaceRate(s.id, r);
+      }
       if (n > 0) governed.add(s.id); else governed.delete(s.id);
     });
     level = n;
@@ -147,8 +174,9 @@ export function createGovernor({ ledger, pressure, isBroadcasting, onNotice = nu
   function rungText(n) {
     const [p, s] = LADDER[Math.min(n, LADDER.length - 1)];
     const t = pressure?.target ?? 0;
-    const fps = (d) => (t > 0 ? `${Math.round(t / d)}fps` : `1 frame in ${d}`);
+    const fps = (d) => (d === 0 ? 'PAUSED' : t > 0 ? `${Math.round(t / d)}fps` : `1 frame in ${d}`);
     if (n === 0) return 'full rate';
+    if (s === 0) return `main view ${fps(p)}, second view PAUSED`;
     return p === s ? `editor views at ${fps(p)}` : `main view ${fps(p)}, second view ${fps(s)}`;
   }
 
@@ -184,6 +212,10 @@ export function createGovernor({ ledger, pressure, isBroadcasting, onNotice = nu
         surfaces: candidates().map((s) => `${s.id}:${s.mp}MP@${s.rate || 1}${s.id === primaryId ? ' (main)' : ''}`),
         governing: [...governed],
         reason,
+        // WHICH shortfall the decision came from. Without it, a governor holding steady is
+        // ambiguous between "the display is fine" and "we could not measure the display".
+        signal,
+        starved: [...starved],
         broadcasting: (() => { try { return !!isBroadcasting?.(); } catch { return 'probe threw'; } })(),
         target: pressure?.target ?? 0,
         shortfall: Math.round((pressure?.shortfall ?? 0) * 100) / 100,
@@ -200,8 +232,17 @@ export function createGovernor({ ledger, pressure, isBroadcasting, onNotice = nu
       let broadcasting = false;
       try { broadcasting = !!isBroadcasting?.(); }
       catch (e) { reason = `broadcast probe threw: ${e?.message || e}`; return; }
-      const shortfall = pressure?.shortfall ?? 0;
-      const target = pressure?.target ?? 0;
+      // WHAT REACHES THE AUDIENCE OUTRANKS WHAT THE APP MANAGED (B581). `delivered` compares new
+      // pictures ON THE DISPLAY against frames the source produced; when there is no external
+      // surface it returns null and the app-side shortfall stands.
+      let d = null;
+      try { d = delivered?.(); } catch { d = null; }
+      const useDisplay = !!(d && d.expected > 0 && d.shown >= 0);
+      signal = useDisplay ? 'display' : 'app';
+      const shortfall = useDisplay
+        ? Math.max(0, Math.min(1, 1 - d.shown / d.expected))
+        : (pressure?.shortfall ?? 0);
+      const target = useDisplay ? Math.round(d.expected) : (pressure?.target ?? 0);
 
       // No broadcast, or no declared target to be short OF, means nothing to govern. Releasing on
       // "no target" matters: an undeclared rate is not evidence of health, and holding surfaces
@@ -262,9 +303,11 @@ export function createGovernor({ ledger, pressure, isBroadcasting, onNotice = nu
     // back. Idempotent.
     release() {
       overSince = 0; underSince = 0;
-      if (!active && level === 0 && !governed.size) return;
+      if (!active && level === 0 && !governed.size && !starved.size) return;
       for (const id of governed) ledger.setSurfaceRate(id, 1);
+      for (const id of starved) ledger.setSurfaceEnabled(id, true);
       governed.clear();
+      starved.clear();
       level = 0;
       active = false;
       notice('');

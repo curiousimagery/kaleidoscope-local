@@ -435,9 +435,16 @@ export function createPerformRuntime(env) {
     // Daniel's clarified spec: amber while differing; in sync + BROADCASTING =
     // GREEN (honest "what's out is what you see"); in sync, no broadcast = quiet.
     const broadcasting = !!document.querySelector('#outputLed i.on-green');
-    const key = synced + ':' + broadcasting;
+    // EXPLAIN, DON'T SILENTLY DEGRADE (B555's rule, applied to B581's new bottom rung). At the
+    // last rung the governor STARVES this view rather than running it at 5fps, and a black panel
+    // with a live label reads as a fault. The label says what happened and why, so the operator
+    // knows the broadcast is being protected rather than that the app broke.
+    const starved = !!env.governor?.state?.starved?.includes('pip');
+    const key = synced + ':' + broadcasting + ':' + starved;
     if (key === dotSynced) return;
     dotSynced = key;
+    const label = document.querySelector('#livePip .lp-label');
+    if (label) label.lastChild.textContent = starved ? 'paused to protect the broadcast' : 'live';
     const dot = byId('lpDot');
     if (dot) {
       dot.classList.toggle('sync', synced);

@@ -16,6 +16,26 @@ He prefers **no em dashes** in any prose Claude generates for him.
 
 **✅ B575 VERIFIED: THE RATE LADDER WORKS, WHERE THE RESOLUTION LADDER DID NOT.** iPad 4K→4K HDMI: display **21-23fps governor off → 27-32fps governor on**, and Daniel's read is that smoothness is **materially better**. First actuator in the arc to move the number that actually matters.
 
+**⚖️ B581 — CLOSE-OUT STEP 3 DONE: THE GOVERNOR NOW WATCHES THE AUDIENCE.** Daniel held the plan to it. Two changes. **(1)** It governs on `delivered()` — new pictures actually shown on the external display (`1000 / extJitter.fresh.p50`) against frames the source produced (`srcFps`) — falling back to the app shortfall only when there is no external surface. **This is B571's consequence 2, open for ten builds and unmeasurable until B577**, and it is the one that stopped a rule watching only the app from degrading the product while reporting success. It also sidesteps the app-target circularity (a slow window snaps the observed rate 30→15, halving the target so the shortfall looks fine); `srcFps` does not move when we struggle. `governor.signal` reports `display` or `app`. **(2)** `LADDER` is `[[1,1],[1,2],[2,4],[3,0]]` where **0 = off**, so the last rung PAUSES the second view instead of running it at 5fps (Daniel B575; B528 found the same ~10Hz floor from the other side). **The honest claim there is memory, not fps** — the PiP costs 2.33ms of a 52ms frame, but it frees a whole 4K source texture and uploader, which matters for the GPU-process crash. The live label reads `paused to protect the broadcast`. **▶ REMAINING: close-out step 4 (the honest guardrail + label) is now unblocked** — the numbers are `draw` p50 40-48ms and `fresh` 17-21/s of ~30, so the external view sustains roughly 20-25fps of 4K at a large slice.
+
+**🚨 THE ROOT CAUSE OF THE CONTEXT LOSSES IS THE WEBKIT **GPU PROCESS** CRASHING (Daniel's Xcode log, `docs/temp/iPadConsoleLog-Aug10-01.txt`, B580).** Not a GL context loss in the ordinary sense:
+
+```
+GPUProcessProxy::gpuProcessExited: reason=Crash
+  → [fold] WebGL context LOST (live PiP)
+  → [fold] WebGL context LOST (preview canvas)
+```
+
+**The GPU process is shared across WebContent processes, so when it dies it takes EVERY context in the app at once** — which is exactly why source, stage, PiP and preview all go together, and why it has always looked like "the session broke" rather than "a canvas broke". This retires "GL context loss" as the description; **the target is why the GPU process runs out.** Almost certainly 4K memory: the app's preview + PiP engines, the external view's own engine in a second WebContent process, and 4K textures in all of them, all on one GPU process.
+
+**✅ AND THE SAME LOG EXONERATES B580 — it proves the fix WORKED.** Immediately after the restore the app logs `native video: 23.2 in/s · 30.0 painted/s · engine 0.8ms · preview 1.4ms · **3840×2160**` and then runs healthily for ~10s at 30 in/s. **Before B580 that would have silently become 1280×720.** The planar path came back at full resolution, which is precisely what it was built to do.
+
+**⚠️ THERE ARE TWO DIFFERENT CRASHES IN THAT LOG AND THEY MUST NOT BE CONFLATED.**
+- **Crash A** — WebContent dies immediately after the **first `frameAt`** on a fresh 4K clip, with **no context loss anywhere before it**. This is the standing B519 CRITICAL (4K clip loads but will not play) and B580 cannot have caused it: `reinitGL` never ran.
+- **Crash B** — GPU process crashes → contexts lost → **restored correctly at 4K** → ~10s healthy → *then* WebContent dies.
+
+**A third load in the same log succeeded and ran normally** (many `frameAt` calls, seeks, pause/resume), so neither crash is deterministic on load.
+
 **✅ B580 — THE DARK-PANEL BLOCKER IS FIXED, root cause found by reading with zero device time.** `reinitGL()` re-uploaded via `this.setSource(sourceImage)`, and **`setSource` retires the planar provider by design** (a new source must not feed on the old decode's planes). So every GL context restore silently deleted the planar path and dropped the engine onto `native-video.js`'s **1280 RGB preview canvas** — the cross-context readback B518/B541 removed, back, per frame, at a sixth of the resolution. **Attaching a 4K external display drops every GL context in the app (B382 cluster), so the broadcast start caused the loss and the RECOVERY caused the damage**; reopening the source healed it because the attach path re-installs the provider, exactly as Daniel described. Same class as B572's `onReport` and B573's `externalDisplay.active`: **a call that looks identical to the one you want and carries different semantics.** Now preserved and restored around the re-upload. **And it is no longer invisible:** the source note carries `⚠ GL CONTEXT RESTORED ×N` (`engine.glGeneration`) and `⚠ NOT ON THE PLANAR PATH — sampling the preview canvas`, because "native decode without the word planar" required knowing that an ABSENT word was the signal. **▶ The context loss ITSELF is still unfixed — B580 fixes the damage, not the cause.** ▶ **Every app-side number in the B579 reports was measured in the degraded state, so the honest 4K limit is still unmeasured** (close-out step 2).
 
 **📋 CLOSE-OUT PLAN FOR THE BROADCAST THREAD (agreed with Daniel, B579). Do not close before all four.**

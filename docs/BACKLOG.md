@@ -361,7 +361,58 @@ source: 1280×720 · "from canvas · native decode"   (no `planar`)   refresh 0m
 - **▶ SECOND, and this one is subtle:** `receiver.planeReader()` mints a FRESH cursor per call (each engine gets its own), but `native-video.js` exposes **`planeProvider` as a single shared instance created once**. The main engine uses the shared one while the PiP and bus engines each call `planeReader()`. **If two consumers share `planeProvider`, they race for frames and one starves.** Starting a broadcast adds a consumer, which is exactly when this fires.
 - **Cross-ref** the FHD→4K context-loss item below and the take-failure item; all three now point at attach.
 
-### 🔴 SWITCHING FHD → 4K SOURCE MID-SESSION CAUSES GL CONTEXT LOSS (Daniel, B579) — the sharpest 4K lead yet
+### 🔴 REGRESSION — A 4K CLIP HOLDS A FRAME FOR A FEW BEATS ON EVERY LOOP RESTART (Daniel, B580)
+
+In-app, no broadcast needed. **This was fixed a long time ago and has come back.** Loop restart is a seek to zero, so this belongs with the 4K first-frame cluster: the scrubber jitter at playback start, the intermittent "loads but will not play", and the mode-switch-during-attach theory are all "the first frame after a seek costs something we do not pay elsewhere". **Four symptoms, one likely mechanism, and the loop restart is the only one that reproduces on demand — which makes it the way in.**
+
+### 🟠 THE PRESSURE TARGET CAN HALVE ITSELF UNDER LOAD, AND THAT IS CIRCULAR (Daniel's B580 report)
+
+One report reads `pressure: { target: 15, label: "warming up" }` on a 30fps clip while `srcArrive p50` is 30ms (i.e. ~33 arrivals/s, perfectly healthy). `videoWireFps()` snaps the measured arrival rate to 0/15/30/60/120, and a single slow sampling window drops it into the 15 bucket.
+
+**The failure is circular: struggling → a sampled window under 20/s → target halves to 15 → shortfall drops → the governor concludes we are fine.** Exactly the shape B559 split `shortfall` from `pressure` to avoid, reintroduced through the denominator instead of the numerator.
+
+**▶ The fix is to take the target from the CLIP's declared frame rate rather than the observed arrival rate**, since a clip's fps is a property of the file and does not degrade when we do. Observed arrival stays as the fallback for sources that cannot declare one.
+
+### 🚨🚨 IT IS THE WEBKIT **GPU PROCESS** CRASHING, NOT A GL CONTEXT LOSS (Daniel's Xcode log, B580)
+
+**This renames and re-scopes the entire context-loss cluster.** From `docs/temp/iPadConsoleLog-Aug10-01.txt`:
+
+```
+GPUProcessProxy::didClose:
+GPUProcessProxy::gpuProcessExited: reason=Crash
+WebProcessProxy::gpuProcessExited: reason=Crash
+GPUProcessConnection::didClose
+  → [fold] WebGL context LOST (live PiP)
+  → [fold] WebGL context LOST (preview canvas)
+```
+
+**The GPU process is shared across WebContent processes**, so its death takes every WebGL context in the app simultaneously — the app's preview and PiP, and the external view in its own WebContent process. That is why this has always presented as "the whole session broke" rather than "a canvas broke", and why source + stage + PiP go dark together.
+
+**So the target is not "recover from context loss" (B580 did that, and the log proves it worked). The target is why the GPU process runs out of resources.** Leading suspect is 4K memory across processes: preview engine + PiP engine + external view engine + 4K source textures + planar uploaders, all resident on one GPU process.
+
+- **▶ THIS SUPERSEDES** the "FHD→4K source switch causes context loss" framing below. Same phenomenon, correctly named.
+- **▶ It also reframes B382's long-standing external-display/GL-context cluster**, which has been open for dozens of builds under the wrong noun.
+- **▶ AND IT IS EXIT CRITERION 5 WORK**, not a side bug: "we can honestly rank how intensive each thing we do is" now has a hard failure mode attached. A GPU process that dies IS the resource ceiling, stated by the platform.
+- **Instrumentation we have:** `engine.glGeneration` (B580) counts restores and rides the source note, so a session that survived one is no longer silent.
+
+**▶ DANIEL'S QUESTION (B580): can we detect the per-device threshold in realtime, to warn and throttle? Answer: not by reading it, but yes by LEARNING it.**
+
+**What is not available, and will not be.** WebKit exposes nothing about GPU-process memory to JS. `performance.memory` is Chromium-only and reports the JS heap rather than GPU allocations. The GPU process is a *separate* process from our app, so even a native plugin calling `os_proc_available_memory()` measures the wrong process. **There is no realtime number to read.**
+
+**What we can do instead, and it is the arc's own governing principle (CAPABILITIES §1, probe never classify):**
+1. **Count what WE allocate**, which is arithmetic we fully control: source texture, planar planes, FBOs, per engine, plus the external view's own set. Publish it as `estGpuMB` per surface. It is an estimate of our contribution, not of the ceiling, and must be labelled as such.
+2. **Treat `webglcontextlost` as the ground truth**, because it is the device telling us it failed. `glGeneration` already counts it. **Record the WORKLOAD SIGNATURE at the moment of the loss** — source megapixels, output megapixels, engine count, broadcast on/off — and persist it per device.
+3. **Learn the ceiling from that.** A device that has died once at (4K source, 4K out, broadcast, PiP on) is a device that should be warned, or pre-degraded, before it gets there again. **We cannot predict the ceiling, but we can remember where the floor gave way**, which is enough for a guardrail and is exactly what exit criteria 3 and 5 ask for.
+
+**The honest limitation to state up front:** this learns from a crash. The first user on a new device still hits it. That is a real cost and it is why (1) matters as well: our own footprint estimate, compared across devices that HAVE crashed, is what turns one device's experience into a prediction for others.
+
+### 🔴 TWO DISTINCT CRASHES, DO NOT CONFLATE THEM (same log)
+
+- **Crash A — WebContent dies immediately after the FIRST `frameAt` on a fresh 4K clip, with no context loss anywhere before it.** The still generator. This is the standing B519 CRITICAL wearing its most severe face, and it is unrelated to the GPU-process story.
+- **Crash B — GPU process crash → contexts lost → restored correctly at 4K → ~10s healthy → WebContent dies.**
+- **A third load in the same session succeeded and ran normally** (many `frameAt` calls, seeks, pause/resume), so neither is deterministic on load. **Do not sharpen either from one session** (the standing rule after B573's cold-start theory).
+
+### [SUPERSEDED by the GPU-process finding above] SWITCHING FHD → 4K SOURCE MID-SESSION CAUSES GL CONTEXT LOSS (Daniel, B579)
 
 Loading an **FHD clip first and then switching to a 4K source** produced a graphics-context-loss error. **Loading the same 4K clip first in a fresh session works fine.** Reproduced deliberately, out of curiosity, which makes it the most controlled observation we have on the 4K cluster.
 

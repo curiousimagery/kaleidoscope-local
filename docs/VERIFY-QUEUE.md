@@ -8,7 +8,32 @@ Confirmed results are DELETED from here and recorded in CHANGELOG.
 
 ---
 
-# ▶ THIS SESSION (B580) — "do the panels survive the broadcast, and what is the HONEST 4K limit?"
+# ▶ THIS SESSION (B581) — "does the governor now act on what the audience sees?"
+
+**iPad, ~8 minutes. Needs B581.** Close-out step 3 verification. No new investigation.
+
+## ⚠️ SET THE SCENARIO TAG TO `hdmi-broadcast` FIRST, and again before saving any baseline.
+
+## Steps
+
+1. 4K clip → 4K HDMI broadcast, in **perform** (so the live view is a real surface). Widen the slice until it is under.
+2. **Watch the governor step down to the bottom rung.** Expect `main view 10fps, second view PAUSED`.
+3. **The live panel's label must read `paused to protect the broadcast`**, not `live`. A black panel under a live label is the failure this rung has to avoid.
+4. `copy report`.
+5. **Ease the slice back.** The second view must come back on its own, and the label must return to `live`.
+6. **Switch the second view off BY HAND, then let the governor recover.** It must stay off — the governor only re-enables what it turned off itself.
+
+## What decides it
+
+- **`governor.signal`** must read **`display`** while the HDMI broadcast is live. If it reads `app`, the delivered measurement is not reaching it and everything else is the old behaviour.
+- **`governor.starved`** should list `pip` at the bottom rung and be empty otherwise.
+- **Does the DISPLAY improve when the second view pauses?** Honest expectation: **only slightly.** The PiP costs 2.33ms of a 52ms frame, so the real benefit is a 4K texture freed in the app process, which is a crash-risk win rather than a frame-rate win. **Say plainly if you see no difference** — that is the expected answer and it is still worth having.
+
+## Then, if it all holds, close-out step 4 is unblocked
+
+The numbers for the guardrail: `draw` p50 40-48ms, `fresh` 17-21/s of ~30 arriving. **The external view sustains roughly 20-25fps of 4K at a large slice.** That is what an honest label and a warning threshold get built on.
+
+# 🅿️ PREVIOUS SESSION (B580) — CLEARED: planar survives the broadcast (3840×2160 held), and the log named the GPU process as the real crash
 
 **iPad, ~10 minutes. Needs B580.** This is close-out step 1 and step 2 together: the blocker fix, and the first clean 4K measurement we have ever taken.
 
