@@ -8,7 +8,37 @@ Confirmed results are DELETED from here and recorded in CHANGELOG.
 
 ---
 
-# ▶ THIS SESSION (B577) — "is the judder in the delivery, or in what we deliver?"
+# ▶ THIS SESSION (B578) — "do the frames arrive in bursts, or do we render in bursts?"
+
+**iPad, ~4 minutes. Needs B578.** Same state as B577, one report. No behaviour changed.
+
+## The finding this follows up
+
+B577 measured it: **the display shows ~6 new pictures a second while reporting 26 drawn and 30 arriving.** Not judder at 30fps. Six fps. Arithmetic says the arrivals are bunching, and B578 measures that directly on the socket event rather than inferring it.
+
+## Steps
+
+1. **Same juddering state**: 4K clip looping, 4K HDMI broadcast, stage and live panels switched OFF by hand.
+2. Run ~15s, `copy report`.
+3. **Then turn the panels back ON, run ~15s, `copy report` again.** Both states matter this time, because the 3x difference between them is the lever we do not understand yet.
+
+## What decides it — `extJitter.arrive`
+
+At 30 frames a second, honest arrivals are ~33ms apart.
+
+| `arrive` reading | meaning | next |
+| --- | --- | --- |
+| **p50 near 33, p95 near 33** | frames arrive steadily; **WE are the ones bursting** | the view's render trigger and its main-thread stalls |
+| **p50 tiny (~1-5ms) with a large p95** | frames arrive in BURSTS, exactly as predicted | the socket fan-out to the second client, native side (cross-ref B505) |
+| p50 near 159 | the producer itself is only sending 6/s | upstream of the socket entirely, in the decode or the writer |
+
+**The middle row is my prediction.** If it lands there, the next question is the native fan-out, and the honest answer is that part of it is Class 2 and will need the plugin's own logging.
+
+## Also worth noting
+
+The `external` row's note now leads with the LEVEL rather than the spread. It should read something like `⚠ ONLY ~6 NEW PICTURES/s ON SCREEN (one every 159ms) — 30 arrive and most are never shown`. B577's version called that "even", which was true and useless.
+
+# 🅿️ PREVIOUS SESSION (B577) — CLEARED, and it answered on the first run: the display was at 6fps, not 30
 
 **iPad, ~5 minutes. Needs B577.** One state, one report. No toggling, no A/B.
 

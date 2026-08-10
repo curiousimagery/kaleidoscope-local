@@ -391,6 +391,8 @@ function renderFrame() {
     const jitter = {
       draw: { p50: pctl(drawGaps, 50), p95: pctl(drawGaps, 95) },
       fresh: { p50: pctl(newGaps, 50), p95: pctl(newGaps, 95), n: newDraws },
+      // measured on the socket event, so it is independent of the render loop (B578)
+      arrive: receiver?.arrivalSpread ? receiver.arrivalSpread() : null,
     };
     drawGaps.length = 0; newGaps.length = 0; newDraws = 0;
     frames = 0; fpsT = lastRenderT;

@@ -161,7 +161,22 @@ In the governed state the grid is 40ms and arrivals are 38.5ms apart, so it is n
 2. **Our health signal is inverted in the worst state.** That report reads `pressure: nominal, shortfall: 0` because app fps 36.8 exceeds the 30 target. **The governor would correctly decide to do nothing while the broadcast judders.** This is BACKLOG consequence 2 ("anything governing on app fps alone can make the product worse while reporting success") now proven with numbers rather than argued.
 3. **B552's arrival counter is what solved this**, 23 builds after it was built, and this is the first time it was read as an A/B. Exactly the conserved-quantity pattern in DEBUGGING-PROTOCOL §3: one reading, hypothesis space collapsed.
 
-### ❌ FALSIFIED B576 — RATE MATCHING IS NOT SUFFICIENT. Back to state B.
+### 🎯 CHARACTERIZED B578 — IT IS A 3x FRAME LOSS, NOT A PACING SUBTLETY
+
+The B577 instrument answered on its first run. `26 fps ON THE DISPLAY · 30 new/s` with `fresh: { p50: 159, p95: 198, n: 7 }`. **Seven of twenty-six renders per second put a new picture on the wall, so the display's real rate is about SIX fps.**
+
+| state | drawn | arriving | **new pictures ON SCREEN** |
+| --- | --- | --- | --- |
+| governed, panels on | 23 | 30 | **~19/s** (53/83ms) |
+| panels off by hand | 26 | 30 | **~6/s** (159/198ms) |
+
+**Switching the editor surfaces off cuts the real content rate by 3x.** That is the whole "higher reported fps, worse display" mystery, and both the cadence theory and the contention theory are now retired: nothing subtle is happening, we are dropping three quarters of the frames and two averages were hiding it.
+
+**Arithmetic says the ARRIVALS bunch, not just the renders.** Renders are clustered (`draw` p50 24ms against a 41ms mean), but clustered renders alone would still find a new frame on ~73% of them, giving `fresh.n` near 19. We measured 7. So ~4-5 frames land at once, ~7 times a second, and the view renders once and takes the latest — three of every four are discarded unseen. The picture jumps four frame-times, holds 159ms, jumps again.
+
+**▶ OPEN, and this is the live question: WHY does switching off two editor surfaces make the socket delivery to the external view three times burstier?** B578 measures arrival intervals on the socket event (`extJitter.arrive`) to separate arrival bursting from render bursting, since those have entirely different fixes. Suspect the native fan-out to the second client (cross-ref B505, where a fan-out race starved a consumer permanently), and expect part of the answer to be Class 2 and need the plugin's own logging.
+
+### [SUPERSEDED B578] ❌ FALSIFIED B576 — RATE MATCHING IS NOT SUFFICIENT.
 
 The cadence story above predicted that judder would go away when drawn ≈ new. **Daniel's B576 run produced `28 fps ON THE DISPLAY · 28 new/s`, a perfect match, with SEVERE judder.** The hypothesis is dead in its simple form and the entry above is kept only for the evidence it contains.
 

@@ -93,13 +93,23 @@ export function createOutputPanel(env, outputBus) {
         // The threshold is a ratio, not a constant, because the honest interval depends on the
         // source rate: p95 beyond ~1.6x p50 means roughly one in twenty new frames waits more than
         // half again as long as the typical one, which is where a swing starts being visible.
+        // CHECK THE LEVEL BEFORE THE SPREAD (B578). B577 shipped this comparing only p95 against
+        // p50, and it printed `even (new frame 182/187ms)` for a display putting **six new
+        // pictures a second** on the wall while 30 arrived. A steady 6fps is perfectly even and
+        // completely broken. The level is the first question; the spread only matters after it.
         const j = s?.jitter;
         let even = '';
         if (j?.fresh?.p50 > 0) {
           const { p50, p95 } = j.fresh;
-          even = p95 > p50 * 1.6
-            ? ` · ⚠ UNEVEN: new frame every ${p50}ms typical but ${p95}ms at p95`
-            : ` · even (new frame ${p50}/${p95}ms p50/p95)`;
+          const want = sf > 0 ? 1000 / sf : 0;   // the interval if every arriving frame were shown
+          const shown = Math.round(1000 / p50);
+          if (want > 0 && p50 > want * 1.8) {
+            even = ` · ⚠ ONLY ~${shown} NEW PICTURES/s ON SCREEN (one every ${p50}ms) — ${sf} arrive and most are never shown`;
+          } else if (p95 > p50 * 1.6) {
+            even = ` · ⚠ UNEVEN: new picture every ${p50}ms typical, ${p95}ms at p95`;
+          } else {
+            even = ` · steady (new picture ${p50}/${p95}ms)`;
+          }
         }
         // RENDER rate and ARRIVAL rate, because they diverge and that divergence IS the bug:
         // a view re-drawing the same frame reports a healthy fps while the picture sits still.

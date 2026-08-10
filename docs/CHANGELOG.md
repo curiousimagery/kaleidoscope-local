@@ -4,6 +4,46 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🎯 v0.23.25 (Build 578) — 2026-08-10 — The display is showing SIX new pictures a second while reporting 26
+
+B577's instrument answered on its first run, and the answer reframes the whole investigation.
+
+```
+"26 fps ON THE DISPLAY · 30 new/s"
+extJitter.fresh: { p50: 159, p95: 198, n: 7 }
+```
+
+**`fresh.n` is 7.** Thirty frames arrive per second, twenty-six renders happen per second, and **seven of them put a new picture on the wall.** The display's real update rate is about six frames per second. It was never juddering at 30; it was running at 6 and we had no number that could say so.
+
+### The comparison that explains everything, and it came from the baseline
+
+Daniel saved a baseline in the governed state, so one report carried both:
+
+| state | drawn | arriving | **new pictures ON SCREEN** |
+| --- | --- | --- | --- |
+| governed, panels on | 23 | 30 | **~19/s** (new frame 53/83ms) |
+| panels off by hand | 26 | 30 | **~6/s** (new frame 159/198ms) |
+
+**Turning the editor surfaces off cuts the actual content rate by three times.** That is the entire "higher reported fps, worse display" mystery, and it stopped being mysterious the moment the right quantity was measured. It also retires the cadence theory properly: this was never a pacing subtlety, it was a 3x frame loss hiding behind two averages that both looked healthy.
+
+**The baseline feature earned itself here on its first use.** That comparison would otherwise have cost another device run.
+
+### The arithmetic that says arrivals are BUNCHED
+
+Renders are clustered (`draw` p50 24ms against a 41ms mean, so right-skewed). But clustered renders alone cannot explain it: if arrivals were steady at 33ms and renders cluster at 24ms apart, roughly 73% of renders would still find a new frame, giving `fresh.n` near 19. **We measured 7.** So the arrivals themselves must be bunching, about four or five at a time, roughly seven times a second.
+
+**The view renders once and takes the latest frame, so three of every four arrivals are discarded unseen.** The picture jumps forward four frame-times, holds 159ms, jumps again.
+
+### So: arrival intervals, measured on the socket event
+
+`arrivalSpread()` on the native frame receiver records the gap between `ws.onmessage` calls, **independent of the render loop**, which is the only way to separate "frames arrive in bursts" from "we render in bursts". Those have entirely different fixes. It rides the report as `extJitter.arrive`.
+
+### And a correction: B577's verdict checked the spread and not the level
+
+It printed `even (new frame 182/187ms p50/p95)` for a display managing six pictures a second. **A steady 6fps is perfectly even and completely broken.** The level is the first question and the spread only matters after it, so the note now leads with `⚠ ONLY ~6 NEW PICTURES/s ON SCREEN (one every 159ms) — 30 arrive and most are never shown`.
+
+Same error the whole arc has been about, committed inside the instrument built to catch it: I compared two numbers to each other instead of to the thing we actually wanted.
+
 ## 📊 v0.23.24 (Build 577) — 2026-08-10 — Judder is a variance phenomenon and everything we had was an average
 
 **No behaviour change. This is an instrument, shipped because the last hypothesis was falsified and the replacement cannot be tested without it.**

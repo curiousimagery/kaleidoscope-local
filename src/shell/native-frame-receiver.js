@@ -47,6 +47,8 @@ export function createNativeFrameReceiver({ port = 8899, mirror = false, cap = 0
   // `painted` is what actually reached the canvas: if arrived is healthy and painted is
   // not, the wall is on the GPU side, and if arrived itself is low the wall is the wire.
   let arrived = 0, winArrived = 0, winPainted = 0, winPaintMs = 0;
+  let lastArrivalT = 0;
+  const arrivalGaps = [];   // ms between socket messages — see ws.onmessage (B578)
   // frames handed to the ENGINE as raw planes (the fast path) — counted apart from the
   // preview blit so the report can say which one is actually carrying the picture
   let taken = 0, winTaken = 0;
@@ -133,6 +135,16 @@ export function createNativeFrameReceiver({ port = 8899, mirror = false, cap = 0
           latest = ev.data;
           seq++;
           arrived++; winArrived++;
+          // WHEN frames arrive, not just how many (B578). The external view's B577 reading showed
+          // 30 arrivals per second reaching the screen as only 7 new pictures, which is only
+          // possible if arrivals are BUNCHED — and this is the only place that can prove it,
+          // because it runs on the socket event rather than at render time.
+          {
+            const at = performance.now();
+            if (lastArrivalT) arrivalGaps.push(at - lastArrivalT);
+            lastArrivalT = at;
+            if (arrivalGaps.length > 300) arrivalGaps.shift();
+          }
           if (arrived === 1) paintLatest();   // prime the preview canvas with real dimensions
           finish();
         };
@@ -189,6 +201,17 @@ export function createNativeFrameReceiver({ port = 8899, mirror = false, cap = 0
     get duration() { return duration; },
     get framesPainted() { return painted + taken; },
     get framesArrived() { return arrived; },
+    // The DISTRIBUTION of arrival intervals, consumed and reset by the caller. Measured on the
+    // socket event, so it is independent of whatever the render loop is doing — which is the
+    // whole point: it separates "frames arrive in bursts" from "we render in bursts", and those
+    // two have entirely different fixes.
+    arrivalSpread() {
+      const a = arrivalGaps.slice().sort((x, y) => x - y);
+      arrivalGaps.length = 0;
+      if (!a.length) return null;
+      const p = (q) => Math.round(a[Math.min(a.length - 1, Math.max(0, Math.round((q / 100) * (a.length - 1))))]);
+      return { p50: p(50), p95: p(95), max: Math.round(a[a.length - 1]), n: a.length };
+    },
     // consume + reset the rolling window (the caller owns the reporting cadence)
     takeStats() {
       const s = {
