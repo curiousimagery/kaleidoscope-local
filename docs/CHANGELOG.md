@@ -4,6 +4,42 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🔦 v0.23.27 (Build 580) — 2026-08-10 — Recovering from a lost GL context silently deleted the planar path
+
+**Root cause of the dark source/stage panels, found by reading. No device time.**
+
+```js
+reinitGL() {
+  …
+  if (sourceImage) this.setSource(sourceImage);  // re-upload; aspect re-derives
+}
+```
+
+**`setSource` retires the planar provider by design** — a genuinely new source must not keep feeding on the old decode's planes. But this call means *"re-upload the SAME source"*, and routing it through `setSource` therefore **deleted the planar path on every context restore.**
+
+The engine then falls permanently onto `native-video.js`'s **1280 RGB preview canvas**: the cross-context readback B518 and B541 removed, back, per frame, at a sixth of the resolution. The report signature was identical every time Daniel hit it:
+
+```
+source: 1280×720 · "from canvas · native decode"   (no `planar`)   refresh 0ms   upload 3-4ms
+```
+
+### Why it fired exactly where he saw it
+
+**Attaching a 4K external display drops every GL context in the app** (the standing B382 cluster). So **starting the broadcast caused the loss, and the recovery caused the damage.** Reopening the source healed it because the attach path re-installs the provider, which is precisely the "reopening within the same session corrected it" he reported. The motion → perform switch is the same shape.
+
+Fixed by preserving and restoring the provider around the re-upload. The uploader itself genuinely died with the context and is recreated lazily on the next frame.
+
+**Same class as B572's `onReport` and B573's `externalDisplay.active`: a call that looks identical to the one you want and carries different semantics.** Here `setSource` is the "new source" primitive being used as the "re-upload" primitive, and only one of those should drop the planes.
+
+### It was invisible, which is why it lasted
+
+A context loss heals, the app keeps rendering, and the only trace was a `console.warn` on a device where we cannot read the console. Two additions to the `source` note:
+
+- **`⚠ GL CONTEXT RESTORED ×N`** — `engine.glGeneration`, so a restore is never silent again.
+- **`⚠ NOT ON THE PLANAR PATH — sampling the preview canvas`** — because "native decode without the word `planar`" required knowing that an *absent* word was the signal. Naming a degraded state beats omitting a healthy one.
+
+**Every app-side number in the B579 reports was measured in this state** (0.92MP instead of 8.29MP), so the honest 4K limit is still unmeasured.
+
 ## 🩹 v0.23.26 (Build 579) — 2026-08-10 — The external view stops rendering itself out of frames
 
 ### The root cause, measured

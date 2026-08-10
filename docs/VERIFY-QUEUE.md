@@ -8,7 +8,40 @@ Confirmed results are DELETED from here and recorded in CHANGELOG.
 
 ---
 
-# ▶ THIS SESSION (B579) — "does coalescing put the frames back on the wall?"
+# ▶ THIS SESSION (B580) — "do the panels survive the broadcast, and what is the HONEST 4K limit?"
+
+**iPad, ~10 minutes. Needs B580.** This is close-out step 1 and step 2 together: the blocker fix, and the first clean 4K measurement we have ever taken.
+
+## ⚠️ SET THE SCENARIO TAG TO `hdmi-broadcast` FIRST
+
+Top of the frame-cost panel, before every report and before saving any baseline.
+
+## What changed
+
+A GL context restore was re-uploading through `setSource`, which retires the planar provider — so **starting a 4K broadcast dropped every GL context (normal on this device), and the recovery silently deleted the planar path**, leaving the engine on a 1280 preview canvas at a sixth of the resolution. Every app-side number in the B579 reports was measured in that state.
+
+## Steps
+
+1. **Tag set.** Load the 4K clip, start the 4K HDMI broadcast.
+2. **Check the `source` row immediately.** It must read **`planar`**. If it reads `⚠ NOT ON THE PLANAR PATH`, the fix failed and everything below is moot.
+3. **Reproduce the old triggers**, which used to break it every time:
+   - motion → perform switch
+   - start / stop / restart the broadcast
+   - After each, the `source` row must still say `planar` and read **3840×2160**, not 1280×720.
+4. **Then take the honest 4K measurement**, which we have never had: normal slice → `copy report`, then large slice → `copy report`.
+5. **Save a baseline** at the normal slice, tagged `hdmi-broadcast`.
+
+## What I need
+
+- **Does `source` stay `planar` at 3840×2160 through all three triggers?** That is the fix.
+- **Does `⚠ GL CONTEXT RESTORED ×N` appear?** Expected, and now visible for the first time. **The count is the interesting part** — the loss itself is still unfixed, only its damage is.
+- **The two 4K reports.** With the app genuinely at 8.29MP, `fresh` and `draw` finally describe the real ceiling, and the guardrail decision depends on them.
+
+## Watch for
+
+The dark panels should be gone. If they persist while `source` reads `planar`, that is a **different** bug and worth saying so plainly rather than assuming this one came back.
+
+# 🅿️ PREVIOUS SESSION (B579) — CLEARED: `arrive` 2ms → 34ms, producer exonerated, `fresh` 8/s → 25/s
 
 **iPad, ~8 minutes. Needs B579.**
 

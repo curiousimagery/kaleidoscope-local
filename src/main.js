@@ -153,8 +153,17 @@ const sourceSurface = perf.surface({
     // A DECODE FAILURE OUTRANKS EVERYTHING ELSE IN THIS NOTE (B570). When the decoder is
     // refusing frames, the wire rate and the tag are both describing a corpse — say so first.
     const derr = getNativeDecodeError();
+    // A NATIVE DECODE WITHOUT `planar` IS A DEGRADED STATE, AND IT USED TO SAY SO ONLY BY OMISSION
+    // (B580). That combination means the engine is sampling the 1280 RGB preview canvas through a
+    // cross-context readback instead of the decode's planes — a sixth of the resolution at several
+    // times the cost — and reading it required knowing that the absent word was the signal.
+    // `glGeneration` rides alongside because a context restore is what causes it.
+    const gen = engine?.glGeneration || 0;
+    const degraded = env.nativeVideo && !engine?.planarActive;
     return [tag, engine?.planarActive && 'planar', env.live?.isLive && 'camera',
       env.nativeVideo && 'native decode', wireRate(),
+      gen > 0 && `⚠ GL CONTEXT RESTORED ×${gen}`,
+      degraded && '⚠ NOT ON THE PLANAR PATH — sampling the preview canvas',
       derr && `⚠ DECODE FAILING ×${derr.count}: ${derr.message}`].filter(Boolean).join(' · ');
   },
 });

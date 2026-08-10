@@ -332,7 +332,13 @@ Starting a broadcast shows nothing on HDMI until the timeline moves, **even thou
 
 **The view joined the socket and no frame was ever posted.** So this is not a render fault at the far end; nothing was sent. Likely the poster only publishes on a change and there is no initial post at broadcast start. Cross-ref the standing "external display starts dark and PAUSED on a fresh broadcast" item from B565 — **this is probably the same bug with a mechanism now attached**, and it may also relate to the 25-45s source-switch lag.
 
-### 🔴🔴 THE ENGINE FALLS OFF THE PLANAR PATH — NOW REPRODUCIBLE ON DEMAND (Daniel, B579). **NEXT ITEM.**
+### ✅ FIXED B580 — `reinitGL()` re-uploaded through `setSource`, which retires the planar provider
+
+**Root cause found by reading, no device time.** A GL context restore called `this.setSource(sourceImage)` to re-upload; `setSource` drops the planar provider by design (a new source must not feed on the old decode's planes), so **every context recovery silently deleted the planar path** and dropped the engine onto the 1280 RGB preview canvas. Attaching a 4K external display drops every GL context in the app (B382 cluster), so **the broadcast start caused the loss and the recovery caused the damage.** Now preserved and restored around the re-upload, plus `⚠ GL CONTEXT RESTORED ×N` and `⚠ NOT ON THE PLANAR PATH` in the source note so neither is ever silent again. Detail in CHANGELOG B580.
+
+**▶ STILL OPEN under this heading:** the context loss ITSELF. B580 fixes the damage, not the cause. See the FHD→4K item below and the B382 cluster.
+
+### [FIXED B580, kept for the evidence] THE ENGINE FALLS OFF THE PLANAR PATH (Daniel, B579)
 
 **Three triggers, all named by Daniel in one session:**
 1. load a 4K source into **motion**, then switch to **perform** → source and stage panels go dark/gray

@@ -41,6 +41,11 @@ export function createEngine({ canvas, maxProbeSize, perf = null }) {
   let planar = null;             // lazily-built planar uploader (native decode → this context)
   let planarFrame = null;        // provider: () => wire frame | null, installed by the shell
   let planarCap = 0;             // source-detail cap (long edge) for the planar texture
+  // HOW MANY TIMES THIS CONTEXT HAS DIED AND COME BACK (B580). A context loss is invisible from
+  // the report — it heals, the app keeps rendering, and the only trace was a `console.warn` on a
+  // device where we cannot read the console. It is also the trigger for the planar-drop bug above,
+  // so a report showing degraded source cost needs to say whether a restore happened.
+  let glGeneration = 0;
   let elideElementUploads = false;  // <video> identity gate (B559) — off until the shell opts in
   let lastElementTime = -1;         // last uploaded currentTime; -1 = nothing uploaded yet
   let gpuTimer;                  // undefined = not probed yet, null = unsupported here
@@ -106,7 +111,25 @@ export function createEngine({ canvas, maxProbeSize, perf = null }) {
       sourceTexture = null;                          // the old handle died with the context
       planar = null;                                 // ...and so did its FBO + blit program
       gpuTimer = undefined;                          // ...and every outstanding timer query
+      // RE-UPLOADING IS NOT A SOURCE SWAP, AND setSource CANNOT TELL THE DIFFERENCE (B580).
+      //
+      // `setSource` retires the planar provider by design — a genuinely new source must not keep
+      // feeding on the old decode's planes. But this call means "re-upload the SAME source", and
+      // routing it through setSource therefore **silently deleted the planar path on every context
+      // restore**, permanently dropping the engine onto `native-video.js`'s 1280 RGB preview
+      // canvas: the cross-context readback B518/B541 removed, back per frame, at a sixth of the
+      // resolution. That is Daniel's dark source/stage panels, and the report signature every time
+      // was `source: 1280×720 · from canvas · native decode` with no `planar`.
+      //
+      // It fires exactly where he saw it, because attaching a 4K external display drops every GL
+      // context in the app (see the B382 cluster): **starting the broadcast caused the loss, and
+      // the recovery caused the damage.** Reopening the source healed it because the attach path
+      // re-installs the provider.
+      const keepPlanar = planarFrame, keepCap = planarCap;
+      glGeneration++;
       if (sourceImage) this.setSource(sourceImage);  // re-upload; aspect re-derives
+      // the uploader itself is gone with the context and is recreated lazily on the next frame
+      if (keepPlanar) { planarFrame = keepPlanar; planarCap = keepCap; }
     },
 
     // run the same end-to-end render path as exportAt, but stop after readPixels
@@ -229,6 +252,8 @@ export function createEngine({ canvas, maxProbeSize, perf = null }) {
     },
     setPlanarCap(cap) { planarCap = cap || 0; },
     get planarActive() { return !!(planarFrame && planar && planar.width > 0); },
+    // 0 = this context has never been lost. Rides the frame-cost report (B580).
+    get glGeneration() { return glGeneration; },
 
     // current source element (for shell use — showing dimensions, mounting
     // source view). may be an <img> or a live <video>.
