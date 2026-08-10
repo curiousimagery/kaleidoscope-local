@@ -35,6 +35,8 @@
 // audience looks at is never sacrificed for what the operator looks at. If shedding every editor
 // surface is not enough, the honest answer is a capability statement, not a degraded broadcast.
 
+import { PRIORITY } from './perf-ledger.js';
+
 const DEFAULTS = {
   // How far under target we tolerate before shedding. 0.25 = running at 75% of the declared rate.
   shedAbove: 0.25,
@@ -75,6 +77,12 @@ const LADDER = [[1, 1], [1, 2], [2, 4], [3, 6]];
 // the big one. We get most of the saving from the surface the operator cares least about.
 const byPrimacy = (a, b) => b.mp - a.mp;
 
+// How much bigger a challenger must be before it takes over as the main view. Daniel's B575
+// layout had preview at 0.39MP and pip at 0.37MP, so a 5% difference was deciding which surface
+// gets protected — one panel resize away from flipping mid-broadcast and visibly swapping the two
+// views' frame rates. A margin makes the choice sticky; it does not need to be large.
+const HANDOVER_MARGIN = 1.2;
+
 export function createGovernor({ ledger, pressure, isBroadcasting, onNotice = null, opts = {} } = {}) {
   const cfg = { ...DEFAULTS, ...opts };
   let enabled = true;
@@ -88,18 +96,48 @@ export function createGovernor({ ledger, pressure, isBroadcasting, onNotice = nu
   // an absence. A rule that decides not to act must say so out loud, in the exported report.
   let reason = 'not started';
   let lastTick = 0;
+  const governed = new Set();    // ids we have set a rate on, so we can always put them back
+  let primaryId = '';            // the sticky main view (see HANDOVER_MARGIN)
 
-  // `msPerFrame > 0` excludes surfaces that cost nothing here — the slice overlay is EDITOR
-  // priority but draws on its own 2D path and reports 0ms, so rate-limiting it would buy nothing
-  // and could only make the overlay lag the render it annotates.
-  const editorSurfaces = () => (ledger.report?.surfaces || [])
-    .filter((s) => s.priority <= 30 && s.enabled && s.msPerFrame > 0)
+  // MEMBERSHIP IS BY PRIORITY, NOT BY COST (B576). B575 filtered on `msPerFrame > 0` to keep the
+  // slice overlay out, and that made membership FLICKER: the overlay draws only during a gesture,
+  // so it entered the governed set mid-drag, took the secondary rate, and then dropped out of the
+  // filter and was never reset — Daniel's report shows it stuck at `rate: 6` with `calls: 0`.
+  //
+  // `PRIORITY.EDITOR` exactly is a structural test that cannot flicker. The overlay is DECOR and is
+  // now excluded permanently, which is also the honest answer: its 2D draw path does not consult
+  // `perf.skip`, so a rate on it changes nothing except the report. Governing it means teaching
+  // that path to check first (its own comment already says "the lever here is WHEN it draws").
+  const candidates = () => (ledger.report?.surfaces || [])
+    .filter((s) => s.priority === PRIORITY.EDITOR && s.enabled)
     .sort(byPrimacy);
 
+  // Sticky main view, so a near-tie cannot hand over on a rounding difference.
+  function ordered() {
+    const list = candidates();
+    if (list.length < 2) { primaryId = list[0]?.id || ''; return list; }
+    const held = list.find((s) => s.id === primaryId);
+    if (held && list[0].mp < held.mp * HANDOVER_MARGIN) return [held, ...list.filter((s) => s !== held)];
+    primaryId = list[0].id;
+    return list;
+  }
+
+  // EVERY SURFACE WE HAVE EVER TOUCHED, so the reset path cannot depend on the same query that
+  // decided to touch it. That coupling is what left three surfaces throttled with the governor
+  // reporting `level: 0, rates {1,1}` (B575).
   function applyLevel(n) {
     const [primary, secondary] = LADDER[Math.min(n, LADDER.length - 1)] ?? LADDER[LADDER.length - 1];
-    const list = editorSurfaces();
-    list.forEach((s, i) => ledger.setSurfaceRate(s.id, i === 0 ? primary : secondary));
+    const list = ordered();
+    const keep = new Set(list.map((s) => s.id));
+    for (const id of [...governed]) {
+      if (keep.has(id)) continue;
+      ledger.setSurfaceRate(id, 1);
+      governed.delete(id);
+    }
+    list.forEach((s, i) => {
+      ledger.setSurfaceRate(s.id, i === 0 ? primary : secondary);
+      if (n > 0) governed.add(s.id); else governed.delete(s.id);
+    });
     level = n;
     return list;
   }
@@ -141,7 +179,10 @@ export function createGovernor({ ledger, pressure, isBroadcasting, onNotice = nu
         rung: rungText(level),
         // which surface it decided is the operator's main view — the decision flips by mode, so
         // a report that omitted it would be unreadable when it picked the one you disagree with
-        surfaces: editorSurfaces().map((s) => `${s.id}:${s.mp}MP@${s.rate || 1}`),
+        // reports the ACTUAL rate off the report row, not the rate we believe we set — the B575
+        // bug was precisely those two disagreeing, so the readout must not read from intent
+        surfaces: candidates().map((s) => `${s.id}:${s.mp}MP@${s.rate || 1}${s.id === primaryId ? ' (main)' : ''}`),
+        governing: [...governed],
         reason,
         broadcasting: (() => { try { return !!isBroadcasting?.(); } catch { return 'probe threw'; } })(),
         target: pressure?.target ?? 0,
@@ -170,6 +211,16 @@ export function createGovernor({ ledger, pressure, isBroadcasting, onNotice = nu
 
       if (shortfall > cfg.shedAbove) {
         underSince = 0;
+        // NOTHING TO SHED IS ITS OWN ANSWER (B576). B575 advanced `level` whether or not
+        // `applyLevel` had anything to act on, so with both editor surfaces switched off by hand
+        // the governor walked itself 3 → 0 against an empty list and then reported full rate while
+        // three surfaces were still throttled. A governor whose own state can drift from the world
+        // is worse than none, because its state is the diagnostic.
+        if (!candidates().length) {
+          reason = 'no editor surfaces to shed — they are already off, and the shortfall is elsewhere';
+          this.release();
+          return;
+        }
         if (!overSince) overSince = now;
         if (level >= LADDER.length - 1) reason = `at the bottom rung (${rungText(level)}) and still ${Math.round(shortfall * 100)}% under — the editor surfaces are not the wall here`;
         else reason = `shedding in ${Math.max(0, Math.round(cfg.sustainMs - (now - overSince)))}ms`;
@@ -206,10 +257,15 @@ export function createGovernor({ ledger, pressure, isBroadcasting, onNotice = nu
     },
 
     // Full restore — broadcast stopped, governor disabled, or teardown. Idempotent.
+    // Full restore. Resets from the `governed` SET rather than from a fresh query, so a surface
+    // that has since been disabled, resized to nothing or stopped costing anything still gets put
+    // back. Idempotent.
     release() {
       overSince = 0; underSince = 0;
-      if (!active && level === 0) return;
-      applyLevel(0);
+      if (!active && level === 0 && !governed.size) return;
+      for (const id of governed) ledger.setSurfaceRate(id, 1);
+      governed.clear();
+      level = 0;
       active = false;
       notice('');
     },

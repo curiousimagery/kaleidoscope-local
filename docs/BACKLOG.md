@@ -137,14 +137,41 @@ Daniel weighed two approaches: **always hide the PiP during any broadcast**, or 
 
 **The relationship is NOT monotonic.** Less app work does not mean a better broadcast. That rules out simple GPU contention as the sole mechanism, because the OFF row has the least app GPU work and the worst output.
 
-**Competing hypotheses, and this needs no new build to split them:**
-1. **Over-posting / back-pressure.** The poster publishes once per app loop. At 45Hz it posts faster than the external view can render 4K, so the view coalesces or queues unevenly. At ~22Hz the cadence matches its ~26-30fps capacity. Predicts exactly the observed non-monotonic shape, with a smoothness peak where post rate ≈ view capacity.
-2. **Elision/keepalive interaction.** B513's identical-post elision plus B549's 32ms floor may behave differently at a higher post rate.
-3. **Decode starvation.** A busier main thread at 45Hz starves the socket/decode; `in/s` would fall below ~29.
+## ✅ SOLVED B575 — IT IS A CADENCE MISMATCH, NOT A THROUGHPUT PROBLEM
 
-**▶ THE EXPERIMENT: `copy report` in the surfaces-OFF state.** Three numbers already in the report split all three: `external` note (`N fps ON THE DISPLAY · M new/s`), `source` note (`N in/s`), and app fps. **Zero build cost, zero new instrumentation.** If `new/s` holds ~30 while drawn-fps falls, it is (1) or (2); if `in/s` collapses, it is (3).
+Two reports, same session, same clip, same broadcast. **The `external` note settles it in one line each:**
 
-**If (1) is confirmed, the governor's actuator is wrong AGAIN in an interesting way:** the lever would be *pacing the poster to the consumer's capacity*, not shedding app work at all. Note this also reframes B571's original observation, which we filed as a curiosity and should have chased then.
+| state | app fps | source in/s | **display: drawn · new** |
+| --- | --- | --- | --- |
+| governed (smooth) | ~22 | 28.9 | **25 drawn · 26 new** |
+| surfaces off (choppy) | 36.8 | 28.9 | **36 drawn · 27 new** |
+
+- **`in/s` is identical (28.9).** Decode starvation is dead.
+- **`new/s` is essentially identical (26 vs 27).** The view receives the same frames either way, so back-pressure and over-delivery are dead too.
+- **What changes is the DRAW rate: 25 vs 36 against a source arriving at ~27.**
+
+**In the choppy state the view redraws 36 times a second while only 27 new frames arrive**, so roughly nine draws per second re-present a frame already on screen. That is not free: it quantizes each arrival onto a 27.8ms draw grid, and 27-into-36 is a non-integer cadence, so the interval between *new content actually appearing* alternates between one and two draw periods (27.8ms and 55.6ms). **A 2:1 swing in presentation interval is textbook judder, and it is exactly what Daniel sees.**
+
+In the governed state the grid is 40ms and arrivals are 38.5ms apart, so it is nearly 1:1 and every draw carries a new frame. Smooth.
+
+**MECHANISM: the external view redraws on the app's POST cadence (post-driven since B549's render-clock fix), while source frames arrive on the DECODER's cadence. Smoothness is governed by how well those two agree, not by how fast either one runs.** A faster app loop actively hurts, because it desynchronizes them.
+
+**Three consequences:**
+1. **The governor's actuator has been right for the wrong reason.** Rate-limiting the editor surfaces slows the whole loop, which drags the post cadence back toward the arrival rate. It is helping by side effect. **The direct lever is pacing the poster to source arrival** (publish on arrival rather than on rAF), which would make drawn ≈ new by construction. Care needed: B513's identical-post elision and B549's 32ms keepalive floor already live on this path, and B549 exists precisely because eliding posts starved the view's clock.
+2. **Our health signal is inverted in the worst state.** That report reads `pressure: nominal, shortfall: 0` because app fps 36.8 exceeds the 30 target. **The governor would correctly decide to do nothing while the broadcast judders.** This is BACKLOG consequence 2 ("anything governing on app fps alone can make the product worse while reporting success") now proven with numbers rather than argued.
+3. **B552's arrival counter is what solved this**, 23 builds after it was built, and this is the first time it was read as an A/B. Exactly the conserved-quantity pattern in DEBUGGING-PROTOCOL §3: one reading, hypothesis space collapsed.
+
+**▶ NEXT: this is now state C (know why, need the lever).** Do not shed more app work. Design the pacing change, and note it likely supersedes the rate ladder as the primary actuator.
+
+### ✅ FIXED B576 — THREE B575 GOVERNOR BUGS, ALL FOUND BY READING THE REPORT (no device time)
+
+All three are visible in Daniel's surfaces-off report and all three are mine, introduced in B575.
+
+1. **A surface that leaves the filter keeps its rate forever.** `editorSurfaces()` filters on `msPerFrame > 0`, so a surface that stops costing anything drops out of the list and is never reset. The `overlay` entered the list during a gesture (it draws then), took the secondary rate, and is now **stuck at `rate: 6` with `calls: 0`** for the rest of the session. Same for `preview` and `pip` once Daniel disabled them: they sit at 3 and 6 and will come back throttled when re-enabled.
+2. **`level` advances even when nothing was applied.** `applyLevel` decrements/increments `level` regardless of whether the list was empty, so the governor walked itself 3 → 0 over ~16s against an empty list while the real rates stayed at 3 and 6. **The report proves the divergence: `level: 0, rates: {primary: 1, secondary: 1}` alongside `preview rate: 3, pip rate: 6`.** The governor's model of the world and the world disagree.
+3. **The primacy tie is too close to be stable.** `preview` 0.39MP vs `pip` 0.37MP. A 5% difference decides which surface is protected, so a minor layout change could flip it mid-broadcast and swap the rates visibly. Needs hysteresis, or a stickier rule than area.
+
+**Fix (1) and (2) together: track the governed set explicitly rather than re-deriving it from a cost filter each tick, and reset every surface it has ever touched.** Worth doing before any further governor work, since (2) means its own reported state cannot currently be trusted.
 
 ### 🟠 THE GOVERNOR'S BOTTOM RUNG SHOULD STARVE THE SECOND VIEW, NOT SLOW IT (Daniel, B575)
 

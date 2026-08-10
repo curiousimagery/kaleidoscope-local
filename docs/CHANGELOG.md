@@ -4,6 +4,28 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🔧 v0.23.23 (Build 576) — 2026-08-10 — The governor's own state could drift from the world; three fixes so the diagnostic can be trusted
+
+All three were found by **reading Daniel's B575 report, with no device time**, and all three are mine from B575. They are fixed first and alone, because the governor's reported state is now the primary diagnostic for the pacing work and an instrument that can lie about itself is worse than none.
+
+### 1. Membership flickered, so a surface could be throttled forever
+
+B575 filtered the governed set on `msPerFrame > 0`, to keep the slice overlay out. But the overlay draws **only during a gesture**, so it entered the set mid-drag, took the secondary rate, then dropped out of the filter and was never reset. Daniel's report shows it stuck at `rate: 6` with `calls: 0`.
+
+**Membership is now `PRIORITY.EDITOR` exactly**, a structural test that cannot flicker. The overlay is DECOR and is excluded permanently, which is also the honest answer: its 2D draw path does not consult `perf.skip`, so a rate on it changed nothing except the report. Governing it later means teaching that path to check first.
+
+### 2. `level` advanced against an empty list, so the governor's state drifted from reality
+
+With both editor surfaces switched off by hand, `applyLevel` had nothing to act on but still moved `level`. The governor walked itself 3 → 0 over ~16 seconds and then reported `level: 0, rates: {1, 1}` **while `preview` sat at rate 3 and `pip` at rate 6.**
+
+Two changes. The shed path now treats an empty candidate list as its own answer (*"no editor surfaces to shed, they are already off, and the shortfall is elsewhere"*) rather than a step. And **`release()` resets from a `governed` SET rather than from a fresh query**, so a surface that has since been disabled, resized away or stopped costing anything still gets put back. The old coupling meant the reset depended on the same query that decided to act, which is exactly how three surfaces stayed throttled.
+
+The state readout now also reports **actual** rates off the report row plus a `governing` list, never the rate we believe we set. The B575 bug was precisely those two disagreeing.
+
+### 3. The main-view choice could flip on a rounding difference
+
+Daniel's layout had `preview` at 0.39MP and `pip` at 0.37MP, so a **5% difference** decided which surface gets protected. One panel resize from flipping mid-broadcast and visibly swapping the two views' frame rates. A challenger now has to be **20% bigger** to take over, and the report marks which one it picked.
+
 ## ⏱ v0.23.22 (Build 575) — 2026-08-09 — The governor sheds RATE, not resolution
 
 Daniel A/B'd B574's toggle at the wall for a few minutes: **no difference in steadiness with the resolution ladder on or off.** Combined with B574's measurement, that closes the question. The resolution ladder is out.

@@ -8,7 +8,26 @@ Confirmed results are DELETED from here and recorded in CHANGELOG.
 
 ---
 
-# ▶ THIS SESSION (B575) — "does the RATE ladder move the display, where resolution didn't?"
+# ▶ THIS SESSION (B576) — "can we trust what the governor says about itself?"
+
+**iPad, ~3 minutes. Needs B576.** Confirmation only. No new question, no new lever.
+
+B575's rate ladder is verified working (display 21-23 → 27-32, materially smoother). But its self-report could drift from reality, and that report is the instrument for the pacing work that comes next, so it gets confirmed alone.
+
+## Steps
+
+1. **Broadcast 4K → 4K HDMI, push it under, let the governor reach the bottom rung.**
+2. **Toggle `preview` and `pip` OFF by hand, wait ~20s, then `copy report`.**
+   - **PASS:** `governor.reason` says *"no editor surfaces to shed"*, `level: 0`, `governing: []`, and **`overlay` reads `rate: 1`**.
+   - **FAIL (the B575 bug):** any surface still showing `rate: 3` or `rate: 6` while the governor claims full rate.
+3. **Turn them back on.** They should come back at full rate and the governor should re-shed from level 0.
+4. **Drag a slice while governed.** The overlay must stay at `rate: 1` (it is DECOR now and permanently out of the governed set).
+
+## What I need
+
+Just the report from step 2. **One number decides it: `overlay` rate.**
+
+# 🅿️ PREVIOUS SESSION (B575) — "does the RATE ladder move the display, where resolution didn't?" — CLEARED: yes, and the mechanism turned out to be cadence (see CHANGELOG B575 / BACKLOG)
 
 **iPad, ~10 minutes. Needs B575.** Same setup as B574, different actuator, and the toggle is still there so it is still one sitting.
 
