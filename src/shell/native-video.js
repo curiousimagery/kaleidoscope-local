@@ -342,6 +342,12 @@ export async function createNativeVideoSource(env, blob, { name, loop = true, on
     // renderer stopped" — a distinction that cost a round of guessing on the iPad playback
     // regression, since a stalled decode still leaves the render loop reporting a healthy 60fps.
     get framesArrived() { return receiver.framesArrived; },
+    // THE CONTROL FOR THE EXTERNAL VIEW'S BURST (B579). The app and the view are two clients on
+    // the SAME socket. If the app sees even arrivals while the view sees a 2ms median, the
+    // producer and the native fan-out are exonerated and the fault is the view's own main thread —
+    // which is the difference between a fix we can make in JS and a Class 2 investigation with
+    // Xcode attached. Consumes and resets, so only the report should call it.
+    arrivalSpread: () => receiver.arrivalSpread?.() || null,
     refreshFrame: () => { receiver.refreshFrame(); report(); },
     noteUpload: (ms) => { upMs += ms; ups++; },
     notePreview: (ms) => { pvMs += ms; pvs++; },

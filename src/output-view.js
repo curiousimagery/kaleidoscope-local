@@ -408,10 +408,41 @@ function renderFrame() {
 // same class of bug costs one frame rather than five sixths of them.
 const FALLBACK_MS = 32;
 function tick() {
-  if (performance.now() - lastRenderT > FALLBACK_MS) renderFrame();
+  if (performance.now() - lastRenderT > FALLBACK_MS) scheduleRender();
   requestAnimationFrame(tick);
 }
 requestAnimationFrame(tick);
+
+// ---- COALESCE A BURST INTO ONE RENDER (B579) ---------------------------------
+//
+// THE BUG THIS FIXES, measured on Daniel's M1 iPad at 4K→4K. Rendering synchronously per message
+// meant a faster app made the display WORSE:
+//
+//   app 38.8fps → view attempted 39 renders/s → main thread saturated → `ws.onmessage` could not
+//   run → source frames queued and arrived in bursts (`arrive` p50 **2ms**, p95 139ms) → the view
+//   rendered once per burst and took the latest → **8 new pictures/s on screen out of 30 arriving.**
+//
+// With the app slowed to 27.9fps the same measurement read `arrive` p50 28ms and **17 new/s**. Same
+// arrival count both times (n=31); only the distribution changed. A 2ms median inter-arrival gap is
+// an event loop draining a backlog, not a producer sending fast.
+//
+// WHY NOT requestAnimationFrame, which is the obvious way to coalesce. **Because that is the bug
+// this view was built to avoid.** An unfocused window's rAF is throttled or suspended, and the
+// external view is unfocused by definition — you are operating the main app. A loop-driven view
+// stutters or freezes the moment focus moves, which is the perform-mode showstopper. Rendering on
+// message arrival is deliberate and stays.
+//
+// A macrotask keeps the render MESSAGE-driven while collapsing every message already queued behind
+// it into a single render. Messages arriving 33ms apart still get one render each; a burst of four
+// gets one instead of four. Nothing renders less often than it would have in the steady state,
+// which is what makes this strictly safer than the elision that failed at B549 — we are not
+// deciding a frame is unnecessary, only that four simultaneous ones are one.
+let renderPending = false;
+function scheduleRender() {
+  if (renderPending) return;
+  renderPending = true;
+  setTimeout(() => { renderPending = false; renderFrame(); }, 0);
+}
 
 // ---- transport: receive state + source from the main app ----------------------
 // Two ingress paths, one handler: the same-origin BroadcastChannel (the popup
@@ -425,8 +456,10 @@ function handleMessage(msg) {
     latestVideo = msg.video || null;
     applyOutput(msg.output);
     applyTestPattern(!!msg.test);
-    // the state stream IS the render clock (rAF is throttled unfocused — see renderFrame)
-    renderFrame();
+    // the state stream IS the render clock (rAF is throttled unfocused — see renderFrame), but
+    // COALESCED (B579): a burst of queued messages becomes one render, so the thread stays free
+    // to service the frame socket instead of re-rendering 4K pictures nobody will see
+    scheduleRender();
   } else if (msg.type === 'source') {
     applyOutput(msg.output);
     setupSource(msg.payload);

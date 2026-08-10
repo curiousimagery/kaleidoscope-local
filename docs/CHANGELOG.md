@@ -4,6 +4,35 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🩹 v0.23.26 (Build 579) — 2026-08-10 — The external view stops rendering itself out of frames
+
+### The root cause, measured
+
+`extJitter.arrive` on the view's own socket event, **same arrival count in both states (n=31), completely different distribution:**
+
+| state | app fps | `arrive` p50/p95 | **new pictures on screen** |
+| --- | --- | --- | --- |
+| panels OFF | 38.8 | **2ms** / 139ms | **8/s** of 30 arriving |
+| panels ON, governed | 27.9 | **28ms** / 72ms | **17/s** of 30 |
+
+**A 2ms median inter-arrival gap is an event loop draining a backlog**, not a producer sending fast. The view rendered synchronously on every state message; each render is a full 4K kaleidoscope; a faster app posts more often, so the view renders more often, saturates its own main thread, **cannot run `ws.onmessage`**, and frames queue. It then renders once per burst and takes the latest, discarding the rest unseen.
+
+**So posting faster put FEWER pictures on the wall.** More app fps, less content, which is the mystery Daniel spotted four builds ago.
+
+**It also retro-explains the resolution ladder (B574).** Scaling the preview down made the app cheaper per frame, hence faster, hence a worse display. **The ladder was never a no-op; it was two effects of opposite sign** whose sum measured as zero.
+
+### The fix: coalesce, do not throttle
+
+A macrotask (`setTimeout(0)`) collapses every message already queued behind the first into **one** render. Messages arriving 33ms apart still get one render each; a burst of four gets one instead of four.
+
+**Deliberately NOT `requestAnimationFrame`, which is the obvious way to coalesce and is the exact bug this view was built to avoid.** An unfocused window's rAF is throttled or suspended, and the external view is unfocused by definition, so a loop-driven view stutters or freezes the moment focus moves. Rendering on message arrival is deliberate and stays.
+
+**And it is strictly safer than B549's elision failure**, which is the other trap on this path. Elision decided a frame was *unnecessary* and was wrong, because the message carries state and a playing clip produces byte-identical state while the pixels move. This decides only that four *simultaneous* messages are one render. **Nothing renders less often than it would have in the steady state**, so there is no state in which this can starve the clock.
+
+### Shipped with its own control
+
+`arrivalSpread()` now also reports from the **app's** client on the same socket, as `srcArrive`. The app and the view are two clients of one producer. If the app reads ~33ms while the view reads 2ms, the producer and the native fan-out are exonerated and the fault is provably the view's own event loop — **the difference between a JS fix and a Class 2 investigation with Xcode attached.**
+
 ## 🎯 v0.23.25 (Build 578) — 2026-08-10 — The display is showing SIX new pictures a second while reporting 26
 
 B577's instrument answered on its first run, and the answer reframes the whole investigation.

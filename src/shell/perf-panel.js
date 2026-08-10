@@ -229,6 +229,11 @@ export function mountPerfPanel(env, { container = null, onClose = null } = {}) {
       // even draws with bursty `fresh` mean the two streams — state posts and socket frames — are
       // interleaving badly, which is a different bug with a different fix.
       extJitter: env.externalDisplay?.jitter || undefined,
+      // THE CONTROL, read from the APP's client on the same socket (B579). `extJitter.arrive`
+      // showed the view receiving frames in 2ms bursts; if this one reads ~33ms at the same
+      // moment, the producer is sending evenly and the burst is the view's own blocked event
+      // loop. Two clients, one socket, one of them starving: that comparison is the proof.
+      srcArrive: env.nativeVideo?.arrivalSpread?.() || undefined,
       // a decoder refusing frames is the loudest thing a report can carry — it explains an inert
       // scrubber, a dead transport and a frozen picture all at once (B570)
       decodeError: env.nativeDecodeError?.() || undefined,

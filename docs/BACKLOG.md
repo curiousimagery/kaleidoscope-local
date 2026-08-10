@@ -174,7 +174,34 @@ The B577 instrument answered on its first run. `26 fps ON THE DISPLAY · 30 new/
 
 **Arithmetic says the ARRIVALS bunch, not just the renders.** Renders are clustered (`draw` p50 24ms against a 41ms mean), but clustered renders alone would still find a new frame on ~73% of them, giving `fresh.n` near 19. We measured 7. So ~4-5 frames land at once, ~7 times a second, and the view renders once and takes the latest — three of every four are discarded unseen. The picture jumps four frame-times, holds 159ms, jumps again.
 
-**▶ OPEN, and this is the live question: WHY does switching off two editor surfaces make the socket delivery to the external view three times burstier?** B578 measures arrival intervals on the socket event (`extJitter.arrive`) to separate arrival bursting from render bursting, since those have entirely different fixes. Suspect the native fan-out to the second client (cross-ref B505, where a fan-out race starved a consumer permanently), and expect part of the answer to be Class 2 and need the plugin's own logging.
+## 🎯 ROOT CAUSE FOUND B578 — THE EXTERNAL VIEW RENDERS PER MESSAGE, SATURATES ITS OWN MAIN THREAD, AND THEN CANNOT SERVICE ITS SOCKET
+
+`extJitter.arrive`, measured on the view's `ws.onmessage` so it is independent of rendering. **Same arrival COUNT in both states (n=31), completely different distribution:**
+
+| state | app fps | `arrive` p50/p95 | `draw` p50 | **new pictures on screen** |
+| --- | --- | --- | --- | --- |
+| panels OFF | 38.8 | **2ms** / 139ms (max 187) | 20ms | **8/s** |
+| panels ON, governed | 27.9 | **28ms** / 72ms | 35ms | **17/s** |
+
+**A median inter-arrival gap of 2ms is an event loop draining a backlog**, not a producer sending fast. Frames pile up in the socket while the thread is busy, then fire back-to-back the instant it frees. With the panels on, arrivals land every 28ms, which is honest for a 30fps source.
+
+**THE MECHANISM, and it is a feedback loop that runs backwards from intuition:**
+
+1. The view renders **synchronously on every state message** (by design since the original render-on-message design and B549 — rAF is throttled in unfocused windows, so rendering on arrival was the fix for a real Firefox bug).
+2. Each render is a **full 4K kaleidoscope** in that process.
+3. **A faster app posts more often**, so the view renders more often, and at 4K it saturates its own main thread.
+4. **A saturated main thread cannot run `ws.onmessage`**, so socket frames queue and arrive in bursts of ~4.
+5. The view renders once per burst and takes the **latest** frame, discarding the other three unseen.
+
+**So posting faster puts FEWER pictures on the wall.** More app fps, less content. That is the whole three-build mystery, and it is not subtle once the right quantity is visible.
+
+**IT ALSO RETRO-EXPLAINS THE RESOLUTION LADDER (B574).** Scaling the preview down made the app *cheaper per frame*, so the app looped *faster*, so it posted *faster*, so the display got *worse* — roughly cancelling the gain. **The ladder was not a no-op; it was two effects of opposite sign.** That is why it measured as "changes nothing".
+
+**And it explains the sweet spot.** app 25.1fps → 14 new/s; app 27.9fps → 17 new/s; app 38.8fps → 8/s. Non-monotonic with a peak near 28, which is why the governor at level 2 felt best. **Even at the peak we are still losing 43% of arriving frames**, so the governor is finding a local optimum inside a broken design rather than fixing it.
+
+**▶ THE FIX: coalesce messages into ONE render, and never render more often than the source advances.** Rendering a 4K frame more often than the picture changes is pure waste under any explanation, and here it actively destroys frames. Constraint to respect: **do not go back to a pure rAF loop.** the original render-on-message design and B549 exist because rAF is throttled or suspended in an unfocused window, which is the perform-mode showstopper. Coalescing to a microtask or `setTimeout(0)` keeps message-driven rendering while collapsing a burst into one render.
+
+**▶ ONE CONFIRMATION WORTH SHIPPING WITH IT:** the same `arrivalSpread()` on the APP's receiver. If the app sees even arrivals (~33ms) at the moment the view sees 2ms bursts, the producer and the native fan-out are exonerated outright and this is proven rather than strongly inferred — which also means never opening the Class 2 fan-out investigation (cross-ref B505).
 
 ### [SUPERSEDED B578] ❌ FALSIFIED B576 — RATE MATCHING IS NOT SUFFICIENT.
 
@@ -304,6 +331,21 @@ Starting a broadcast shows nothing on HDMI until the timeline moves, **even thou
 ```
 
 **The view joined the socket and no frame was ever posted.** So this is not a render fault at the far end; nothing was sent. Likely the poster only publishes on a change and there is no initial post at broadcast start. Cross-ref the standing "external display starts dark and PAUSED on a fresh broadcast" item from B565 — **this is probably the same bug with a mechanism now attached**, and it may also relate to the 25-45s source-switch lag.
+
+### 🔴 SWITCHING FHD → 4K SOURCE MID-SESSION CAUSES GL CONTEXT LOSS (Daniel, B579) — the sharpest 4K lead yet
+
+Loading an **FHD clip first and then switching to a 4K source** produced a graphics-context-loss error. **Loading the same 4K clip first in a fresh session works fine.** Reproduced deliberately, out of curiosity, which makes it the most controlled observation we have on the 4K cluster.
+
+**This is very likely the same bug as the intermittent "4K clip loads but will not play"**, seen from a angle we can actually act on: it is a SOURCE SWITCH problem, not a cold-start problem (B573's cold-start theory was already falsified at B574). Retaining an FHD-sized texture/planar allocation and then being handed 8.29MP is exactly the shape that OOMs a GL context on a tile-based GPU.
+
+- **▶ First read:** the teardown/reallocation path on source switch. `setPlanarSource(null)` disposes the uploader, but the ELEMENT texture stays allocated alongside (by design, engine/index.js), and there are three engines holding sources (preview, PiP, bus) plus the external view's own.
+- **Cross-ref** the scrubber-jitter item below and the mode-switch-during-attach theory. All three are now source-attach, not decode.
+
+### 🟢 THE JUDDER IS SPECIFIC TO 4K SOURCE **AND** 4K OUTPUT (Daniel, B579 smoke test)
+
+4K source → FHD output: fine. FHD source → 4K output: fine. **Only 4K→4K.**
+
+Useful because it says **both terms contribute and neither alone crosses the threshold.** The source size drives the view's texture sampling (B506: the kaleidoscope is texture-bandwidth-bound) and the output size drives its fill cost; one render stays under the ~33ms budget with either halved and goes over with both at 4K. That is consistent with the B579 saturation mechanism and it also predicts where the residue will be if coalescing does not fully close it.
 
 ### 🟡 THE 4K SCRUBBER JITTERS AT THE START OF PLAYBACK (Daniel, B575, long-standing)
 

@@ -8,7 +8,49 @@ Confirmed results are DELETED from here and recorded in CHANGELOG.
 
 ---
 
-# ▶ THIS SESSION (B578) — "do the frames arrive in bursts, or do we render in bursts?"
+# ▶ THIS SESSION (B579) — "does coalescing put the frames back on the wall?"
+
+**iPad, ~8 minutes. Needs B579.**
+
+## ⚠️ FIRST, BEFORE ANYTHING: set the scenario tag to `hdmi-broadcast`
+
+Top of the frame-cost panel. **Do this before every report and before saving any baseline in this session.** Both B578 reports came through tagged `idle-still`, and the baseline you saved landed in that slot, so it will not line up with anything tagged `hdmi-broadcast`.
+
+## Steps
+
+1. **Set the tag to `hdmi-broadcast`.**
+2. 4K clip looping → 4K HDMI broadcast, stage and live panels **OFF** by hand. This was the WORST state (8 new pictures/s) so it is the clearest test. Run 15s → `copy report`.
+3. **Save a baseline here** if it now looks good, so later builds have a healthy reference in the right slot.
+4. Panels back **ON**, run 15s → `copy report`.
+5. **Watch the wall, not the panel.** Is the judder gone?
+
+## What success looks like
+
+| number | before | target |
+| --- | --- | --- |
+| `extJitter.arrive` p50 | **2ms** | **~33ms** |
+| `extJitter.fresh` n | **8/s** | **~30/s** |
+| external note | `⚠ ONLY ~8 NEW PICTURES/s` | `steady (new picture ~33/…ms)` |
+
+**Stopping rule: if `fresh.n` is within ~10% of `srcFps` and the judder is gone, this closes.** The governor then becomes a thermal lever rather than a smoothness lever.
+
+## If it improves but does not fully close
+
+Read **`extJitter.draw` p50**. After this change every render is a fresh one, so **`draw` p50 IS the cost of a single fresh 4K render in the view** — a number we have never had, because it was previously an average of cheap repeats and expensive fresh renders mixed together.
+
+- `draw` p50 near 33ms → the view can sustain 30fps and any residue is elsewhere.
+- `draw` p50 at 45ms+ → **the view's raw 4K render is the ceiling**, and the levers are different: render the external view at 2560 rather than 3840 (the display's own `preferred`/`nativeBounds` both report 2560×1440, so we may be oversampling for no visible gain — B506's ranked lever list).
+
+## Also check `srcArrive` in the export
+
+This is the control: the **app's** view of the same socket. If it reads ~33ms while the view read 2ms, the producer and the native fan-out are exonerated and we never need to open that investigation.
+
+## Regression watch, both of these are the known traps on this path
+
+- **Desktop/Electron output window, focus moved away.** Click another app so the output window is unfocused, then keep performing. **The broadcast must stay smooth.** This is the rAF-throttling failure and it is why the coalescer uses a macrotask rather than rAF.
+- **A still image as source, broadcasting.** Should stay live and correct, not freeze. That is B549's territory.
+
+# 🅿️ PREVIOUS SESSION (B578) — CLEARED: `arrive` p50 2ms proved the view starves its own socket
 
 **iPad, ~4 minutes. Needs B578.** Same state as B577, one report. No behaviour changed.
 
