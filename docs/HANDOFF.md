@@ -14,7 +14,13 @@ He prefers **no em dashes** in any prose Claude generates for him.
 
 Ordered by TRANSFER (what teaches the most about the rest) and DEPENDENCY, not by tractability. **The standing failure mode in this arc is a well-defined next step out-competing an important one** — see `DEBUGGING-PROTOCOL.md` state D. If you are about to work on something not on this list, that is the drift.
 
-**1. FRAME CADENCE / BROADCAST DELIVERY — essentially closed at B583.** Shipped: the view coalesces messages instead of rendering per message (B579), the governor watches what reaches the DISPLAY rather than app fps (B581), the last rung pauses the second view and says why (B581), recovery probes instead of waiting for an unreachable threshold (B582), the ladder walk concludes and releases when shedding is not paying for itself (B583). **Remaining loose ends:** (a) the **2560-vs-3840 lever is UNTRIED and is the single biggest remaining win** — `draw` p50 is 40-48ms against a 33ms budget, and the display's own `preferred`/`nativeBounds` both report 2560×1440, so we may be paying 8.29MP to show 3.7MP. **B583's futility release makes this more urgent, not less: the governor has now measured, on device, that the wall is NOT the editor surfaces**; (b) close-out step 4, the honest guardrail and label, which is now unblocked.
+**1. FRAME CADENCE / BROADCAST DELIVERY — the levers are closed; the CEILING is now the open question, and it moved.** Shipped: the view coalesces messages (B579), the governor watches the DISPLAY (B581), the last rung pauses and says why (B581), recovery probes (B582), the ladder walk concludes and releases when shedding is not paying (B583), both ends of the frame wire report (B584).
+
+> **⚠️ B584 RETIRED THE "EXTERNAL VIEW'S RENDER IS THE WALL" READING. Do not act on it; it is wrong.** Three of Daniel's B583 reports show the external view's **`draw` interval EQUAL to its `arrive` interval** — it draws every frame it receives, promptly. And during the B583 freeze, with the app not consuming, **it drew 4K at 45fps.** The 40-48ms draw times are CONTENTION, not a fixed render cost. **A minuscule slice delivered exactly the same 24/s as a normal one**, so slice size does not move delivery either.
+>
+> **The real ceiling is the frame fan-out.** The decoder produces 30/s; both clients see ~25/s arrivals (40ms); the difference is `FrameSocketServer.send()` skipping a client whose previous 12.4MB send is still in flight. **That makes the 2560 lever a smaller win than B583 claimed** — it would help only the loaded case. B584's `srcFanOut` counters (`offered` vs `taken` vs `skipped`) are what will size the real one; **read them before choosing a lever.**
+
+**Remaining:** close-out step 4, the honest guardrail and label, which is unblocked and should now be written against the fan-out number rather than the render number.
 
 > **⚠️ CONSTRAINT ON ANY AUTOMATIC RESOLUTION DEGRADATION (Daniel, B583).** A downstream consumer can be expecting a fixed frame size — his case is **Syphon/NDI into Resolume Arena, where a mid-broadcast resolution change rescales the composition.** So poor fps can be the better outcome there, and resolution must not degrade automatically on that path. **The 2560 lever is a different mechanism and is not covered by this**: an HDMI/AirPlay external window has no downstream consumer with a fixed expectation, and the display itself declares 2560×1440, so rendering 3840 into it is pure waste with no contract to break. Keep the two separate.
 
@@ -31,6 +37,18 @@ Ordered by TRANSFER (what teaches the most about the rest) and DEPENDENCY, not b
 **Riding alongside, not in the sequence:** the WebKit **GPU-process crash** (see below — it is exit criterion 5 work, not a side bug) and the status-readout-bar audit. *(Surface naming unified at B583.)*
 
 ## current version
+
+**🔌 B584 — BOTH ENDS OF THE FRAME WIRE REPORT. ⚠️ NEEDS `npx cap sync ios` + AN XCODE BUILD** (the Swift plugin gained a `frameStats` method).
+
+**THE B583 FREEZE WAS NOT A DECODER STALL.** All app panels stuck on one still while the external display kept playing. `source` read **`0.0 in/s`** with `upload` running **43 times for 0.00ms**, while `external` read **`32 NEW PICTURES/s · 30 arriving/s · 45 drawn/s`**. Both are clients of **one native decode on one port** ([output-view.js:125-132](../src/output-view.js#L125-L132)), so the decoder never stopped. **The app's client got nothing and the external view's got everything.**
+
+The mechanism is our own Swift: `send()` filters `{ $0.ready && !$0.sending }`, so **a client whose previous 12.4MB 4K frame is still in flight is skipped for that frame.** Deliberate and right. A separate 6s watchdog *reaps* a client stuck sending. **Starved, skipped and reaped were one identical symptom from JS with no way to distinguish them** — which is why this build is instrumentation and not a fix.
+
+**▶ THE READING THAT SETTLES IT, next repro:** `srcFanOut.clients[].offered` vs `taken`. **Equal counts with a frozen picture = the frames reached us and we dropped them (our bug).** A growing `skipped` = the fan-out is passing us over (contention). A bumped `reaped` or `srcSocket.state: closed` = we were dropped. Three different fixes.
+
+**A CLOSE AFTER THE FIRST FRAME USED TO BE TERMINAL AND SILENT** — `ws.onclose` only reconnected while still awaiting the first frame. It now rejoins with a capped backoff, published as `⚠ SOCKET REJOINED ×N` so the rescue cannot read as normal operation.
+
+**AND A FROZEN SOURCE MADE EVERY OTHER NUMBER LOOK BETTER.** The freeze reported **`fps: 42.5`, its best of the session**, with the governor saying `keeping up (0% under)` — an unfed frame is cheap. The panel now prints `app fps 42.5 · SOURCE FROZEN` in red. **This is the absence problem in the top-line readout, and it is the third time this arc.**
 
 **🧭 B583 — THE LADDER WALK NOW CONCLUDES, AND EVERY RATE IN THE REPORT IS NAMED FOR WHAT IT MEASURES.** Daniel's B582 verification found three things that did not line up; all three were **a readout naming something other than what it measures.**
 

@@ -275,6 +275,9 @@ export async function createNativeVideoSource(env, blob, { name, loop = true, on
   // Naming the stage turns "it fell back" into "it fell back HERE" (the B498 iPad round
   // cost a whole verification pass to narrow down).
   let stage = 'upload';
+  // the fan-out's own counters, refreshed by `pollFanOut()` on the report cadence — the bridge
+  // call is async and the report builder is not, so the report reads the last poll
+  let lastFanOut = null, fanOutBusy = false;
   try {
     const path = await uploadClip(blob, name, onProgress);
     stage = 'plugin start';
@@ -348,6 +351,24 @@ export async function createNativeVideoSource(env, blob, { name, loop = true, on
     // which is the difference between a fix we can make in JS and a Class 2 investigation with
     // Xcode attached. Consumes and resets, so only the report should call it.
     arrivalSpread: () => receiver.arrivalSpread?.() || null,
+    // WHY IT STOPPED, from BOTH ends of the wire (B584).
+    //
+    // `socketState()` is this client's own view (open/closed, how long since a frame). `fanOut` is
+    // the NATIVE server's account, polled over the Capacitor bridge — deliberately not over the
+    // frame socket, so it still answers when that socket is the thing failing. The pair that
+    // settles it is per-client `offered` vs `taken`: **equal counts with a stalled picture means
+    // the wire is fine and the fault is ours; a growing `skipped` means the fan-out is passing us
+    // over; a bumped `reaped` means we were dropped and are not coming back on our own.**
+    socketState: () => receiver.socketState?.() || null,
+    get fanOut() { return lastFanOut; },
+    pollFanOut: () => {
+      if (fanOutBusy) return;
+      fanOutBusy = true;
+      FoldNativeVideo.frameStats()
+        .then((s) => { lastFanOut = s || null; })
+        .catch(() => { lastFanOut = null; })
+        .finally(() => { fanOutBusy = false; });
+    },
     refreshFrame: () => { receiver.refreshFrame(); report(); },
     noteUpload: (ms) => { upMs += ms; ups++; },
     notePreview: (ms) => { pvMs += ms; pvs++; },

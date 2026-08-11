@@ -255,6 +255,21 @@ Resolved on Daniel's design rather than by picking one vocabulary, because **the
 
 **▶ Still open:** the status-readout-bar audit needs the same nouns, and the UI Lab has no terminology section to record them in.
 
+### 🚨 [HIGH — Daniel B583, intermittent] THE APP'S FRAME-SOCKET CLIENT CAN STOP RECEIVING WHILE THE EXTERNAL VIEW KEEPS PLAYING
+
+**Symptom:** start the broadcast and every app panel freezes on one still. Slice edits still update the stills and the external display. Reproduced once; a fresh session with the same clip was clean, so it is intermittent and probably a race at broadcast start.
+
+**Confirmed by reading, not guessed.** One native decode serves both webviews as two clients of one port. In the frozen report the app's client read `0.0 in/s` (with `upload` running 43x for 0.00ms) while the external client read 30 arriving/s. **The decoder never stopped.**
+
+`FrameSocketServer.send()` filters `{ $0.ready && !$0.sending }` — a client mid-send is skipped for that frame — and `reapStalledLocked()` cancels one that has been sending 6s. At 4K each frame is ~12.4MB and the loopback already carries ~370MB/s to one client, so a second client joining is exactly when contention peaks. **B501 fixed the mirror image of this** (the external view failing to join while the app streamed), which makes a start-of-broadcast race the leading hypothesis.
+
+**B584 shipped the instrument, not a fix** (uncertainty state B: we know what, not why). Next repro, read `srcFanOut.clients[].offered` vs `taken`:
+- **equal, picture frozen** → the frames arrived and we failed to use them. Our bug, JS side.
+- **`skipped` growing** → the fan-out is passing us over. Contention; the lever is the send path or a per-client budget.
+- **`reaped` bumped, or `srcSocket.state: closed`** → we were dropped by the watchdog. B584's rejoin should now recover it; `reconnects` will say so.
+
+**Related and NOT yet explained:** even in healthy sessions both clients see ~25/s arrivals against a decoder producing 30/s. **~5 frames a second are being skipped by the fan-out as normal operation**, and that is the real delivery ceiling (see the resolution item below).
+
 ### 🔒 CONSTRAINT: OUTPUT RESOLUTION IS A CONTRACT WITH THE DOWNSTREAM CONSUMER (Daniel, B583)
 
 **A destination can be expecting a fixed frame size, and changing it mid-broadcast breaks the composition rather than the frame rate.** Daniel's case is **Syphon/NDI into Resolume Arena**, where the incoming source's dimensions set the scale of the comp: degrade the resolution to buy fps and the projection is now the wrong size on the wall, mid-show. **So there are real circumstances where poor fps is the better outcome and resolution must not degrade automatically.**

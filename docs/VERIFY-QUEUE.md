@@ -8,7 +8,32 @@ Confirmed results are DELETED from here and recorded in CHANGELOG.
 
 ---
 
-# ▶ THIS SESSION (B583) — "does it give the panels back when shedding isn't working?"
+# ▶ THIS SESSION (B584) — "when the app freezes, which side stopped?"
+
+**⚠️ NEEDS A NATIVE REBUILD: `npx cap sync ios`, then build in Xcode.** The Swift plugin gained a `frameStats` method; without the rebuild `srcFanOut` will be absent from the report and this session cannot answer its question.
+
+**iPad, ~5 minutes plus however long the freeze takes to reappear.** This build adds no fix, only instruments. **Nothing here is expected to behave differently** except that a frozen source is now loud.
+
+## ⚠️ SET THE SCENARIO TAG TO `hdmi-broadcast` FIRST, and again before saving any baseline.
+
+## Steps
+
+1. **Load a 4K clip, start the broadcast, and watch the app panels.** This is the repro attempt; it hit once in three tries at B583.
+2. **If the panels freeze:** the panel header should read **`app fps NN · SOURCE FROZEN`** in red, and the source note should lead with `⚠ SOURCE STALLED N.Ns — socket <state>, offered N, took N, skipped N`. **`copy report` immediately.** That report answers the question by itself.
+3. **If it does not freeze:** `copy report` from a healthy broadcast anyway. `srcFanOut` on a HEALTHY session is worth as much — it should show why both clients see ~25/s while the decoder makes 30/s, which is the standing delivery ceiling.
+4. If you see `⚠ SOCKET REJOINED ×N` at any point, that is B584 catching a close that used to be permanent and silent. **Worth reporting even though nothing looked wrong.**
+
+## What the report will say
+
+`srcFanOut.clients[].offered` vs `taken`, per client:
+
+- **equal, picture frozen** → frames reached us and we failed to use them. Our bug, JS side.
+- **`skipped` climbing** → the native fan-out is passing us over because our previous 12.4MB send is still in flight. Contention.
+- **`reaped` above 0, or `srcSocket.state: closed`** → we were dropped by the 6s stall watchdog.
+
+Three different fixes, and at B583 all three looked identical.
+
+# 🅿️ PREVIOUS SESSION (B583) — "does it give the panels back when shedding isn't working?"
 
 **iPad, ~6 minutes. Needs B583.** Everything else from your B582 pass held.
 

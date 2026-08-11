@@ -49,6 +49,12 @@ export function createNativeFrameReceiver({ port = 8899, mirror = false, cap = 0
   let arrived = 0, winArrived = 0, winPainted = 0, winPaintMs = 0;
   let lastArrivalT = 0;
   const arrivalGaps = [];   // ms between socket messages — see ws.onmessage (B578)
+  // WHY THE FRAMES STOPPED, WHICH IS A DIFFERENT QUESTION FROM WHETHER THEY DID (B584). Daniel's
+  // B583 session had this client reading 0.0 in/s while the external view took 30/s from the SAME
+  // socket, and there was no way to tell a closed connection from a starving one. The native
+  // fan-out skips a client whose previous send is still in flight, and reaps one that has been
+  // sending for 6s — two very different diagnoses that produced one identical symptom.
+  let closes = 0, reconnects = 0, lastCloseT = 0;
   // frames handed to the ENGINE as raw planes (the fast path) — counted apart from the
   // preview blit so the report can say which one is actually carrying the picture
   let taken = 0, winTaken = 0;
@@ -150,6 +156,18 @@ export function createNativeFrameReceiver({ port = 8899, mirror = false, cap = 0
         };
         ws.onclose = () => {
           if (!done && !stopped && attempt < 6) { attempt++; ws = null; setTimeout(connect, 300); }
+          // A CLOSE AFTER THE FIRST FRAME USED TO BE TERMINAL AND SILENT. Nothing reconnected and
+          // nothing said so, so a reaped client left the app frozen on a still with every other
+          // number in the report looking healthy (Daniel, B583: app fps 42.5, both panels drawing
+          // 43x/s, source at 0.0 in/s). The rejoin is deliberately LOUD — `reconnects` rides the
+          // report — because a rescue that reads as normal operation aims the next build wrong.
+          if (done && !stopped) {
+            closes++;
+            lastCloseT = performance.now();
+            ws = null;
+            // backoff, capped: the producer may genuinely be gone (stop, teardown, source swap)
+            if (closes <= 8) setTimeout(() => { if (!stopped && !ws) { reconnects++; connect(); } }, Math.min(2000, 200 * closes));
+          }
         };
       };
       connect();
@@ -201,6 +219,20 @@ export function createNativeFrameReceiver({ port = 8899, mirror = false, cap = 0
     get duration() { return duration; },
     get framesPainted() { return painted + taken; },
     get framesArrived() { return arrived; },
+    // THE STATE OF THE PIPE ITSELF, not of the pictures in it (B584). `msSinceFrame` is the one
+    // that ends the ambiguity fastest: a socket that is OPEN with a large gap is being SKIPPED by
+    // the fan-out, and one that is CLOSED was reaped or torn down. Those need opposite fixes.
+    socketState() {
+      const rs = ws ? ws.readyState : -1;
+      return {
+        readyState: rs,
+        open: rs === 1,
+        state: rs === 0 ? 'connecting' : rs === 1 ? 'open' : rs === 2 ? 'closing' : rs === 3 ? 'closed' : 'none',
+        msSinceFrame: lastArrivalT ? Math.round(performance.now() - lastArrivalT) : -1,
+        msSinceClose: lastCloseT ? Math.round(performance.now() - lastCloseT) : -1,
+        closes, reconnects, arrived,
+      };
+    },
     // The DISTRIBUTION of arrival intervals, consumed and reset by the caller. Measured on the
     // socket event, so it is independent of whatever the render loop is doing — which is the
     // whole point: it separates "frames arrive in bursts" from "we render in bursts", and those

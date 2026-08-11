@@ -237,6 +237,15 @@ export function mountPerfPanel(env, { container = null, onClose = null } = {}) {
       // a decoder refusing frames is the loudest thing a report can carry — it explains an inert
       // scrubber, a dead transport and a frozen picture all at once (B570)
       decodeError: env.nativeDecodeError?.() || undefined,
+      // BOTH ENDS OF THE FRAME WIRE (B584). `srcSocket` is our client's own view (open/closed, how
+      // long since a frame, how many times it has been dropped and rejoined). `srcFanOut` is the
+      // NATIVE server's account of who it offered each frame to and who took it, polled over the
+      // Capacitor bridge rather than the frame socket — so it still answers when that socket is
+      // the thing that failed. The pair settles a question no single-sided count can: whether a
+      // frozen app was passed over by the fan-out, reaped by its stall watchdog, or handed frames
+      // it then failed to use. At B583 all three looked identical from JS.
+      srcSocket: env.nativeVideo?.socketState?.() || undefined,
+      srcFanOut: env.nativeVideo?.fanOut || undefined,
       // WHAT THE GOVERNOR THINKS IT IS DOING (B573). Its only observable was an absence — surfaces
       // that did not move — and an absence looks identical whether the rule declined to act, was
       // never subscribed, or was reading a broadcast probe that returned false. Three builds, three
@@ -284,7 +293,16 @@ export function mountPerfPanel(env, { container = null, onClose = null } = {}) {
     // caught this number and the picture on the wall moving in OPPOSITE directions, so an
     // unqualified "fps" beside a live broadcast invites exactly the wrong conclusion. The
     // broadcast's own rates get their own stats below.
-    const fpsStat = stat('app fps', tgt > 0 ? `${r.fps || '…'}/${tgt}` : (r.fps || '…'), fpsCls);
+    //
+    // AND A FROZEN SOURCE OVERRIDES IT ENTIRELY (B584). A high app fps beside a dead source is the
+    // single most misleading pair in this panel: Daniel's B583 freeze reported 42.5fps, its BEST
+    // number of the session, because an unfed frame is cheap. A rate that is measuring re-renders
+    // of one still picture must not be printed as though it were throughput.
+    const sock = env.nativeVideo?.socketState?.() || null;
+    const stalled = sock && sock.msSinceFrame >= 0 && sock.msSinceFrame >= 700;
+    const fpsStat = stalled
+      ? stat('app fps', `${r.fps || '…'} · SOURCE FROZEN`, 'bad')
+      : stat('app fps', tgt > 0 ? `${r.fps || '…'}/${tgt}` : (r.fps || '…'), fpsCls);
     fpsStat.appendChild(deltaEl(r.fps, baseline?.fps, true));
     top.append(
       fpsStat,

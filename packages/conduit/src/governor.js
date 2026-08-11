@@ -328,7 +328,12 @@ export function createGovernor({ ledger, pressure, isBroadcasting, delivered = n
           const pctOf = (v) => Math.round(v * 100);
           if (now - bottomSince >= cfg.sustainMs && gain < cfg.futileGain) {
             futile = true;
-            futileNote = `shedding every editor view did not move the delivered rate (${pctOf(shedStartShortfall)}% under before, ${pctOf(shortfall)}% after) — panels restored. The wall is not the editor surfaces; ${signal === 'display' ? "it is downstream, in the external view's own render" : 'it is not on the measured list'}.`;
+            // NAME WHAT WE RULED OUT, NOT A CULPRIT WE HAVE NOT MEASURED (B584). B583 shipped this
+            // saying the wall was "the external view's own render", which the next session's
+            // reports contradicted: at a normal slice the view's `draw` interval EQUALS its
+            // `arrive` interval, so it draws every frame it gets, and when the app stopped
+            // competing it drew 4K at 45fps. A negative result is worth exactly its negative.
+            futileNote = `shedding every editor view did not move the delivered rate (${pctOf(shedStartShortfall)}% under before, ${pctOf(shortfall)}% after) — panels restored. Whatever the wall is, it is not the editor surfaces.`;
             reason = futileNote;
             this.release();
             return;

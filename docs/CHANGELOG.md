@@ -4,6 +4,45 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🔌 v0.23.31 (Build 584) — 2026-08-11 — Both ends of the frame wire report, and a frozen source can no longer look like the best frame rate of the session
+
+**⚠️ NEEDS A NATIVE REBUILD** (`npx cap sync ios` + build in Xcode). The Swift plugin gained a method.
+
+Daniel's B583 pass hit an intermittent freeze: **all app panels stuck on one still while the external display kept playing.** The report named it precisely once you knew where to look, and was actively misleading everywhere else.
+
+### The freeze was not a decoder stall
+
+| | |
+|---|---|
+| `source` | **`0.0 in/s`**, `upload` ran **43 times for 0.00ms** |
+| `external` | **`32 NEW PICTURES/s · 30 arriving/s · 45 drawn/s`** |
+
+Both read **one native decode as two clients of one port**, so the decoder was producing the whole time. **The app's client got nothing; the external view's client got everything.**
+
+The mechanism is in our own `FrameSocketServer.swift`: `send()` filters `{ $0.ready && !$0.sending }`, so **a client whose previous frame is still in flight is skipped.** Correct behaviour (a slow client drops frames rather than queueing), and completely invisible from JS. A separate 6s watchdog *reaps* a client that has been sending too long. **Starved, skipped and reaped produced one identical symptom and no way to tell them apart.**
+
+### So both ends of the wire now report
+
+- **Native**: per-client `offered` vs `taken` vs `skipped`, plus whole-socket `reaped` and `ticksNoTaker`. **`offered` minus `taken` is the conserved quantity across the process boundary** — it cannot be inferred from any count the webview can take on its own side.
+- **JS**: the receiver publishes `readyState`, `msSinceFrame`, `closes` and `reconnects`.
+- Both land in the export as `srcFanOut` and `srcSocket`. **The native side is read over the Capacitor bridge, deliberately not over the frame socket**, so it still answers when that socket is what failed.
+
+### A close after the first frame used to be terminal and silent
+
+`ws.onclose` only reconnected while still waiting for the first frame. **After that, a close meant the app never received another frame and nothing anywhere said so.** It now rejoins with a capped backoff, and the rejoin is **loud** (`⚠ SOCKET REJOINED ×N`) — a rescue that reads as normal operation aims the next build wrong.
+
+### A frozen source made every other number look better
+
+The freeze reported **`fps: 42.5`**, its best of the session, with frame p50 26ms, both panels drawing 43x/s and the governor saying `keeping up (0% under)` — because **an unfed frame is cheap.** The only honest reading in the whole report was `0.0 in/s`, mid-sentence in a surface note.
+
+The panel now prints **`app fps 42.5 · SOURCE FROZEN`** in red, and the source note leads with `⚠ SOURCE STALLED 3.2s — socket open, offered 96, took 0, skipped 96`, which names which side stopped.
+
+### Correction: the external view's render is not the wall, and B583 said it was
+
+Daniel's own reports contradict it. At a normal and at a minuscule slice, the view's **`draw` interval equals its `arrive` interval** — it draws every frame it gets. And during the freeze, with the app not competing, **it drew 4K at 45fps.** So the 40-48ms draw times are contention, not a fixed render cost.
+
+**A minuscule slice delivered exactly the same 24/s as a normal one**, so slice size does not move delivery at all. The governor's futility text no longer names a culprit it has not measured; it says only what it ruled out.
+
 ## 🧭 v0.23.30 (Build 583) — 2026-08-11 — The ladder walk gets a conclusion, and every rate in the report is named for what it measures
 
 Daniel's B582 verification found three things that did not line up: the pip never self-recovers, its fps disagrees with the diagnostic, and the panels still have three names each. All three trace to the same habit — **a readout naming something other than what it measures.**

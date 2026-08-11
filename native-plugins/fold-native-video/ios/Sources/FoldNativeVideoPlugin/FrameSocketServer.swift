@@ -63,9 +63,30 @@ final class FrameSocketServer {
         // WebSocket upgrade hasn't completed is how the external display starved.
         var ready = false
         var sentAt: TimeInterval = 0
-        init(_ c: NWConnection) { conn = c }
+        // THE CONSERVED QUANTITY ACROSS THE PROCESS BOUNDARY (B584). `send()` silently skips a
+        // client whose previous frame is still in flight — correct behaviour, and completely
+        // invisible from JS, where a starving consumer and a dead one look identical. Daniel's
+        // B583 session had the app's client at `0.0 in/s` while the external client on the SAME
+        // socket took 30/s, and nothing on either side could say which of the two it was.
+        // `offered` counts frames this client was considered for, `taken` counts frames actually
+        // handed to Network.framework. Their DIFFERENCE is the skip, and it is not inferable
+        // from any count the webview can take on its own side of the wire.
+        var offered: UInt64 = 0
+        var taken: UInt64 = 0
+        var lastTakenAt: TimeInterval = 0
+        let joinedAt = Date().timeIntervalSinceReferenceDate
+        let id: Int
+        init(_ c: NWConnection, id: Int) { conn = c; self.id = id }
     }
     private var clients: [Client] = []
+    private var joinSeq = 0
+    // whole-socket totals, so a client that was REAPED (and is therefore no longer in `clients`)
+    // still leaves a trace. Without this, a dropped consumer looks exactly like one that never
+    // connected — the absence problem, one process boundary further out than usual.
+    private var framesOffered: UInt64 = 0
+    private var ticksNoTaker: UInt64 = 0
+    private var reaped = 0
+    private var lastReapAt: TimeInterval = 0
     // a send that never completes would latch `sending` forever and silently starve that
     // consumer; past this long we treat the client as wedged and drop it
     private let sendStallSeconds: TimeInterval = 6
@@ -116,8 +137,9 @@ final class FrameSocketServer {
     // clip, succeeds at every setting with a 1080p clip). The source-detail cap could
     // never have helped: it bounds the engine's texture, not the wire.
     private func accept(_ c: NWConnection) {
-        let client = Client(c)
         lock.lock()
+        joinSeq += 1
+        let client = Client(c, id: joinSeq)
         clients.append(client)
         lock.unlock()
         // one queue PER CLIENT: a slow consumer can no longer delay a fast one, and neither
@@ -157,15 +179,25 @@ final class FrameSocketServer {
     func wantsFrame() -> Bool {
         lock.lock(); defer { lock.unlock() }
         reapStalledLocked()
-        return clients.contains { $0.ready && !$0.sending }
+        let want = clients.contains { $0.ready && !$0.sending }
+        if !want { ticksNoTaker &+= 1 }
+        return want
     }
 
     func send(_ data: Data) {
         let now = Date().timeIntervalSinceReferenceDate
         lock.lock()
         reapStalledLocked()
+        framesOffered &+= 1
+        // EVERY READY CLIENT WAS OFFERED THIS FRAME; only the idle ones take it. Counting the
+        // offer separately from the take is the whole point — `taken` alone cannot distinguish
+        // "this consumer is slow" from "this consumer is gone".
+        for client in clients where client.ready { client.offered &+= 1 }
         let takers = clients.filter { $0.ready && !$0.sending }
-        for client in takers { client.sending = true; client.sentAt = now }
+        for client in takers {
+            client.sending = true; client.sentAt = now
+            client.taken &+= 1; client.lastTakenAt = now
+        }
         lock.unlock()
         guard !takers.isEmpty else { return }
         let meta = NWProtocolWebSocket.Metadata(opcode: .binary)
@@ -179,6 +211,38 @@ final class FrameSocketServer {
         }
     }
 
+    // READ FROM THE JS BRIDGE, WHICH IS NOT THE FRAME SOCKET (B584). That separation is the
+    // point: when a consumer is starving on this socket, the bridge still answers, so the app
+    // can report its own starvation. A diagnostic that travelled the same wire as the thing it
+    // measures would go silent exactly when it mattered.
+    func stats() -> [String: Any] {
+        lock.lock(); defer { lock.unlock() }
+        let now = Date().timeIntervalSinceReferenceDate
+        // Int, not UInt64, at the bridge: the plugin result is JSON-serialized and UInt64 is not a
+        // type the Capacitor bridge converts. Frame counters never approach Int64 anyway.
+        return [
+            "port": port,
+            "offered": Int(framesOffered),
+            "ticksNoTaker": Int(ticksNoTaker),
+            // a REAPED client is gone from `clients`, so without these two a wedged consumer
+            // and one that never joined are the same observation
+            "reaped": reaped,
+            "msSinceReap": lastReapAt > 0 ? Int((now - lastReapAt) * 1000) : -1,
+            "clients": clients.map { c in
+                [
+                    "id": c.id,
+                    "ready": c.ready,
+                    "sending": c.sending,
+                    "offered": Int(c.offered),
+                    "taken": Int(c.taken),
+                    "skipped": Int(c.offered &- c.taken),
+                    "msSinceTaken": c.lastTakenAt > 0 ? Int((now - c.lastTakenAt) * 1000) : -1,
+                    "ageMs": Int((now - c.joinedAt) * 1000),
+                ] as [String: Any]
+            },
+        ]
+    }
+
     // Caller holds `lock`. A completion that never fires would leave `sending` true for
     // good, which reads as "this consumer is busy" forever — a silent starve rather than a
     // visible failure. Cancelling makes it a disconnect the consumer can retry from.
@@ -188,6 +252,8 @@ final class FrameSocketServer {
         guard !stalled.isEmpty else { return }
         for client in stalled { client.conn.cancel() }
         clients.removeAll { c in stalled.contains { $0 === c } }
+        reaped += stalled.count
+        lastReapAt = now
         print("[FoldFrames:\(port)] dropped \(stalled.count) stalled client(s) — \(clients.filter { $0.ready }.count) receiving")
     }
 

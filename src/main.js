@@ -168,11 +168,42 @@ const sourceSurface = perf.surface({
     const degraded = env.nativeVideo && !engine?.planarActive;
     return [tag, engine?.planarActive && 'planar', env.live?.isLive && 'camera',
       env.nativeVideo && 'native decode', wireRate(),
+      sourceStallNote(),
       gen > 0 && `⚠ GL CONTEXT RESTORED ×${gen}`,
       degraded && '⚠ NOT ON THE PLANAR PATH — sampling the preview canvas',
       derr && `⚠ DECODE FAILING ×${derr.count}: ${derr.message}`].filter(Boolean).join(' · ');
   },
 });
+
+// A FROZEN SOURCE MADE EVERY OTHER NUMBER LOOK BETTER (B584). Daniel's B583 session: `app fps
+// 42.5`, frame p50 26ms, both panels drawing 43x/s, governor "keeping up (0% under)" — while the
+// app sat on one still frame, because an unfed frame is cheap. The only honest reading in the whole
+// report was `0.0 in/s`, in the middle of this note. So the stall gets its own sentence, and it
+// names WHICH side stopped, which is the distinction the whole B584 instrument exists to make.
+const SOURCE_STALL_MS = 700;   // ~21 frames at 30fps; longer than any legitimate gap we have seen
+function sourceStallNote() {
+  const nv = env.nativeVideo;
+  if (!nv || typeof nv.socketState !== 'function') return '';
+  const s = nv.socketState();
+  if (!s) return '';
+  // self-cadencing: notes are rebuilt once per ledger window, which is exactly how often the
+  // fan-out counters are worth re-reading. Fire-and-forget; the report uses the previous answer.
+  nv.pollFanOut?.();
+  const gap = s.msSinceFrame;
+  const rejoined = s.reconnects > 0 ? `⚠ SOCKET REJOINED ×${s.reconnects}` : '';
+  if (gap < 0 || gap < SOURCE_STALL_MS) return rejoined;   // healthy: only the rejoin note, if any
+  // Both ends of the wire, because they disagree in an informative way. `offered` vs `taken` on
+  // OUR client is the conserved quantity: equal counts with a frozen picture means the frames
+  // reached us and we dropped them; a growing gap means the fan-out passed us over.
+  const f = nv.fanOut;
+  const mine = f?.clients?.length === 1 ? f.clients[0]
+    : f?.clients?.find?.((c) => c.taken > 0 && c.msSinceTaken >= gap - 500) || null;
+  const wire = !f ? 'fan-out unreadable'
+    : f.clients?.length === 0 ? `⚠ WE ARE NOT ON THE SOCKET (${f.reaped} reaped)`
+    : mine ? `offered ${mine.offered}, took ${mine.taken}, skipped ${mine.skipped}${f.reaped ? `, reaped ${f.reaped}` : ''}`
+    : `${f.clients.length} clients, ${f.reaped} reaped`;
+  return `⚠ SOURCE STALLED ${Math.round(gap / 100) / 10}s — socket ${s.state}, ${wire}${rejoined ? ` · ${rejoined}` : ''}`;
+}
 
 // Frames per second arriving ON THE WIRE from the native decode, sampled between reads. This is
 // the number that says whether a stall is upstream or downstream: the render loop happily reports

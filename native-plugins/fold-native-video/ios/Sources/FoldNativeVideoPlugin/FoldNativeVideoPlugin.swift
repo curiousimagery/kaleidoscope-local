@@ -48,7 +48,8 @@ public class FoldNativeVideoPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "setRate", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "beginUpload", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "finishUpload", returnType: CAPPluginReturnPromise),
-        CAPPluginMethod(name: "frameAt", returnType: CAPPluginReturnPromise)
+        CAPPluginMethod(name: "frameAt", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "frameStats", returnType: CAPPluginReturnPromise)
     ]
 
     private let server = FrameSocketServer(port: 8900)
@@ -231,6 +232,13 @@ public class FoldNativeVideoPlugin: CAPPlugin, CAPBridgedPlugin {
     // player for the hardware decoder (measured: frame delivery drops from 30/s to ~14/s
     // during a thumbnail pass). A scrub preview wants exactness; a 96px filmstrip cell does
     // not care which frame of the surrounding second it gets.
+    // THE FAN-OUT'S OWN ACCOUNT OF WHO GOT WHAT (B584). Cheap enough to poll once a second; it
+    // takes the socket lock and copies counters. See FrameSocketServer.stats() for why this rides
+    // the JS bridge rather than the frame socket it describes.
+    @objc func frameStats(_ call: CAPPluginCall) {
+        call.resolve(server.stats())
+    }
+
     @objc func frameAt(_ call: CAPPluginCall) {
         let t = call.getDouble("time") ?? 0
         let maxSize = CGFloat(call.getInt("maxSize") ?? 2048)
