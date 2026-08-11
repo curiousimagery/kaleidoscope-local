@@ -8,24 +8,29 @@ Confirmed results are DELETED from here and recorded in CHANGELOG.
 
 ---
 
-# ▶ THIS SESSION (B582) — "does it come back up?"
+# ▶ THIS SESSION (B583) — "does it give the panels back when shedding isn't working?"
 
-**iPad, ~5 minutes. Needs B582.** Two nits from your B581 pass. Everything else there passed.
+**iPad, ~6 minutes. Needs B583.** Everything else from your B582 pass held.
 
 ## ⚠️ SET THE SCENARIO TAG TO `hdmi-broadcast` FIRST, and again before saving any baseline.
 
 ## Steps
 
-1. 4K → 4K HDMI in perform. Widen the slice until the second view pauses.
-2. **Check the paused label reads `paused · broadcast NNfps`** — the real rate on the wall, not the drawn fps.
-3. **Shrink the slice back.** Within a few seconds the governor should **step back up a rung at a time** and the second view should return to `live`.
-   - The reason string narrates it: `probing recovery in NNNNms`.
-   - **Stepping up and immediately back down once or twice is expected and correct** — that is the probe finding the ceiling. What is NOT expected is oscillating indefinitely.
-4. `copy report` once it has settled.
+1. 4K → 4K HDMI in perform. Widen the slice until the governor walks down to the bottom rung and the live panel pauses.
+2. **Wait ~4 more seconds without touching anything.** Expect the reason to read `checking whether shedding bought anything (NNNNms)` and then, if it did not, **both panels come back on their own** with `shedding every editor view did not move the delivered rate (NN% under before, NN% after) — panels restored`.
+   - **This is the pass condition, and it looks like the governor giving up.** It is: it ran the experiment, got a negative, and stopped charging you for it.
+   - If shedding IS buying something on your device, it stays down instead. Also a pass — the report says which happened.
+3. **`copy report` while it is settled.** The three things to check in it:
+   - `governor.shortfall` now matches the percentage in `governor.reason`. At B582 they read 0.29 and 61%.
+   - `governor.rung` names the panels: `main · staged 10fps, second · live PAUSED`.
+   - The external surface's note **leads with** `NN NEW PICTURES/s ON THE DISPLAY`, and the panel header's new **`on the display`** stat matches the number on the live panel's paused label. **At B582 those two disagreed and the panel was the wrong one.**
+4. **Shrink the slice right down.** Once the shortfall is genuinely low the futility latch clears, so it is allowed to try shedding again later.
 
-## Why it was stuck
+## What changed and why
 
-Recovery required a shortfall under 0.10, and **a healthy 4K broadcast in your own baseline sits at 0.17** (25 new pictures of 30 arriving). The threshold could never be reached. It now probes upward below the *shed* threshold instead, with a doubling backoff after a failed probe.
+The pip never recovered because the display shortfall was **0.59**, far above the 0.25 shed threshold, so B582's probing was never reached. **The real problem was that it should not have been shedding**: your report showed accounted cost falling 28.46ms → 11.17ms while the frame got *slower* (40 → 43ms). We removed 17ms of work and gained nothing.
+
+# 🅿️ PREVIOUS SESSION (B582) — CLEARED: recovery ratchet and the missing fps readout both fixed and verified; superseded by B583's futility release.
 
 # 🅿️ PREVIOUS SESSION (B581) — CLEARED: `signal: display` ✓, `starved: [pip]` ✓, label ✓, pause feels polished (Daniel). Only the ratchet and the missing fps readout failed.
 

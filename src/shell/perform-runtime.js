@@ -68,7 +68,8 @@ export function createPerformRuntime(env) {
       // registry is keyed by surface, not by panel, so the docked/floating relayout below
       // just changes the size this reports.
       pipSurface = env.perf?.surface({
-        id: 'pip', label: 'perform live view', serves: 'editor', priority: PRIORITY.EDITOR,
+        // the UI calls this panel "live" (index.html's .lp-label); the ledger says so too (B583)
+        id: 'pip', label: 'live', serves: 'editor', priority: PRIORITY.EDITOR,
         size: () => ({ w: canvas.width, h: canvas.height }),
         onScale: () => sizePip(),
       }) || null;

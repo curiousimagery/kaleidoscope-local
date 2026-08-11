@@ -279,13 +279,31 @@ export function mountPerfPanel(env, { container = null, onClose = null } = {}) {
     const fpsCls = tgt > 0
       ? (r.fps >= tgt * 0.9 ? '' : r.fps >= tgt * 0.6 ? 'warn' : 'bad')
       : (r.fps >= 50 ? '' : r.fps >= 25 ? 'warn' : 'bad');
-    const fpsStat = stat('fps', tgt > 0 ? `${r.fps || '…'}/${tgt}` : (r.fps || '…'), fpsCls);
+    // SAY WHOSE FPS THIS IS (Daniel, B583: "the general top left fps [should] honestly declare
+    // what it is and isn't"). It is the APP's own render loop and nothing more. B571 and B576 both
+    // caught this number and the picture on the wall moving in OPPOSITE directions, so an
+    // unqualified "fps" beside a live broadcast invites exactly the wrong conclusion. The
+    // broadcast's own rates get their own stats below.
+    const fpsStat = stat('app fps', tgt > 0 ? `${r.fps || '…'}/${tgt}` : (r.fps || '…'), fpsCls);
     fpsStat.appendChild(deltaEl(r.fps, baseline?.fps, true));
     top.append(
       fpsStat,
       stat('frame', `${r.frameMs.p50}/${r.frameMs.p95}ms`),
       stat('MP/frame', r.mpPerFrame || 0),
     );
+    // WHAT THE AUDIENCE ACTUALLY GETS, at the top of the panel rather than buried in a surface
+    // note. Daniel asked for a place to see the display's real counts; until now the delivered
+    // rate existed only inside the external surface's note string, where he found it disagreeing
+    // with the live panel and had no way to tell which one was lying (it was the note).
+    const ext = env.externalDisplay;
+    const freshP50 = ext?.active ? (ext.jitter?.fresh?.p50 || 0) : 0;
+    if (freshP50 > 0) {
+      const delivered = Math.round(1000 / freshP50);
+      const src = ext.srcFps > 0 ? ext.srcFps : 0;
+      const dCls = src > 0 ? (delivered >= src * 0.9 ? '' : delivered >= src * 0.6 ? 'warn' : 'bad') : '';
+      top.append(stat('on the display', src > 0 ? `${delivered}/${src} new/s` : `${delivered} new/s`, dCls));
+      if (ext.fps > 0) top.append(stat('ext drawn', `${ext.fps}/s`));
+    }
     if (r.pressure) {
       const p = r.pressure;
       const cls = p.value < 0.15 ? '' : p.value < 0.45 ? 'warn' : 'bad';
@@ -295,7 +313,8 @@ export function mountPerfPanel(env, { container = null, onClose = null } = {}) {
       // baseline is zero); this is the row that still tells the truth about it.
       if (p.target > 0 && p.shortfall > 0.1) {
         const sCls = p.shortfall > 0.5 ? 'bad' : 'warn';
-        top.append(stat('shortfall', `${Math.round(p.shortfall * 100)}% under ${p.target}fps`, sCls));
+        // named for its subject too, now that a display-side number sits beside it (B583)
+        top.append(stat('app shortfall', `${Math.round(p.shortfall * 100)}% under ${p.target}fps`, sCls));
       }
     }
     // THE GOVERNOR, ON SCREEN. Daniel: "in lieu of being able to actually see and interact with

@@ -247,11 +247,23 @@ At the bottom rung the second view runs at 5fps and Daniel's read is that **it i
 
 **So the last rung should be OFF with a stated reason, not 5fps.** That also matches the arc's own rule that 25% was reserved as an honest distress signal rather than a quality rung. Product decision, already made; needs implementing plus a visible "second view paused to protect the broadcast" state so it never looks like a failure.
 
-### 🟠 SURFACE NAMES ARE INCONSISTENT BETWEEN THE APP AND THE DIAGNOSTICS (Daniel, B575)
+### ✅ SURFACE NAMES ARE INCONSISTENT BETWEEN THE APP AND THE DIAGNOSTICS (Daniel, B575) — DONE B583
 
-The app says **source / staged / live**. The frame-cost panel says `output preview` and `perform live view`. The governor says `main view` and `second view`. **Three vocabularies for three surfaces**, and Daniel has been double-naming in conversation to avoid ambiguity — which is a tax he should not be paying.
+Three vocabularies for three surfaces (`source/staged/live` in the UI, `output preview`/`perform live view` in the panel, `main view`/`second view` in the governor). **The same failure the DEBUGGING-PROTOCOL is about, one level up: a noun that does not consistently refer to one thing.**
 
-Worth noting this is the same failure the DEBUGGING-PROTOCOL is about, one level up: **a noun that does not consistently refer to one thing.** Pick one vocabulary (the app's, since it is the one users see), apply it to the panel, the governor's strings and the report's surface labels, and record it wherever the UI Lab records terminology. Cross-ref the status-readout-bar item, which will need the same nouns.
+Resolved on Daniel's design rather than by picking one vocabulary, because **the obvious fix was wrong**: the middle slot is honestly `output` in still/motion and `staged` in perform, and those are **different things, not two names for one** — a keyframed output is not a pending staged change. So: **keep the UI names, and let the diagnostics carry a concise hybrid that references them** (`main · staged`, `second · live`). Ledger labels may now be live functions, so they quote the UI rather than duplicate it and cannot drift again.
+
+**▶ Still open:** the status-readout-bar audit needs the same nouns, and the UI Lab has no terminology section to record them in.
+
+### 🔒 CONSTRAINT: OUTPUT RESOLUTION IS A CONTRACT WITH THE DOWNSTREAM CONSUMER (Daniel, B583)
+
+**A destination can be expecting a fixed frame size, and changing it mid-broadcast breaks the composition rather than the frame rate.** Daniel's case is **Syphon/NDI into Resolume Arena**, where the incoming source's dimensions set the scale of the comp: degrade the resolution to buy fps and the projection is now the wrong size on the wall, mid-show. **So there are real circumstances where poor fps is the better outcome and resolution must not degrade automatically.**
+
+This does NOT prohibit degrading under duress; it prohibits doing it *silently on a contracted path*. Design implications when the honest-guardrail work (close-out step 4) lands:
+
+- **Separate the two mechanisms.** An **HDMI/AirPlay external window** has no downstream consumer with a fixed expectation, and the display itself declares its native size, so matching it is pure waste-removal with no contract to break. **The 2560-vs-3840 lever is that case and is not covered by this constraint.** Syphon/NDI publish into someone else's graph and are.
+- On a contracted path, prefer **telling the operator** ("this device sustains ~20fps at 4K") over changing the frame size under them. That is the same "explain, don't silently degrade" rule as B555 and the governor's paused-panel label.
+- If we ever do offer it there, it should be an explicit operator choice with the tradeoff stated, not an automatic rung — and ideally at **broadcast start**, when nothing downstream is locked in yet.
 
 ### 🚨 THE RESOLUTION LADDER IS THE WRONG LEVER FOR A 4K SOURCE (Daniel, B571) — this changes the governor
 

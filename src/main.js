@@ -131,7 +131,13 @@ const perf = createPerfLedger({ pressure: perfPressure });
 // constraint in perf-ledger.js. A merged or removed panel re-registers a different set and the
 // readout, the switchboard and any future governor keep working untouched.
 const previewSurface = perf.surface({
-  id: 'preview', label: 'output preview', serves: 'editor', priority: PRIORITY.EDITOR,
+  // QUOTE THE PANEL, DON'T RENAME IT (Daniel, B583). This slot is "output" in still/motion and
+  // "staged" in perform, and those are genuinely different things — a keyframed output is not a
+  // pending staged change — so a single ledger name would be wrong in one of the two modes. It
+  // read "output preview" while the UI said "staged" and the governor said "main view": three
+  // vocabularies for one panel, and reading a report meant translating between them.
+  id: 'preview', label: () => document.getElementById('stageLabel')?.textContent?.trim() || 'output',
+  serves: 'editor', priority: PRIORITY.EDITOR,
   size: () => ({ w: previewCanvas.width, h: previewCanvas.height }),
   onScale: () => resizePreviewCanvas(),
 });
@@ -139,7 +145,7 @@ const previewSurface = perf.surface({
 // is expensive nothing else can be cheap; its "size" is the SOURCE's dimensions, the number that
 // actually drives the cost and the one the source-detail lever moves.
 const sourceSurface = perf.surface({
-  id: 'source', label: 'source → texture', serves: 'program', priority: PRIORITY.CAPTURE,
+  id: 'source', label: 'source · decode → texture', serves: 'program', priority: PRIORITY.CAPTURE,
   size: () => { const d = engine?.getSourceSize?.() || { w: 0, h: 0 }; return { w: d.w, h: d.h }; },
   scaleLadder: [1],
   // which path the upload took — a canvas source means a CPU round trip on WebKit, a <video> or

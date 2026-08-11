@@ -51,6 +51,10 @@ const DEFAULTS = {
   sustainMs: 2000,
   // Same dwell on the way back, so recovery is not twitchy either.
   recoverMs: 4000,
+  // HOW MUCH THE SHORTFALL MUST IMPROVE for the shedding to count as working (B583). Expressed in
+  // the same units as `shortfall`, so 0.05 against a 30fps source is 1.5 more new pictures a
+  // second — small, but perceivable, and above the noise of a one-second window.
+  futileGain: 0.05,
 };
 
 // THE LADDER IS A RATE LADDER, NOT A RESOLUTION LADDER (B575). B568 shipped the resolution
@@ -116,6 +120,11 @@ export function createGovernor({ ledger, pressure, isBroadcasting, delivered = n
   let signal = 'app';            // which shortfall we are acting on: 'display' or 'app'
   let probeBackoff = 1;          // multiplies the recovery dwell after a probe that failed
   let lastProbeT = 0;
+  let lastShortfall = 0, lastTarget = 0;   // THE VALUES THE DECISION ACTUALLY USED — see `state`
+  // THE LADDER WALK IS AN EXPERIMENT, AND AN EXPERIMENT NEEDS A CONCLUSION (B583). See the shed
+  // branch: these hold the shortfall at the moment shedding began, how long we have sat at the
+  // bottom rung, and whether we have concluded that shedding does not help on this device.
+  let shedStartShortfall = 0, bottomSince = 0, futile = false, futileNote = '';
 
   // MEMBERSHIP IS BY PRIORITY, NOT BY COST (B576). B575 filtered on `msPerFrame > 0` to keep the
   // slice overlay out, and that made membership FLICKER: the overlay draws only during a gesture,
@@ -133,13 +142,19 @@ export function createGovernor({ ledger, pressure, isBroadcasting, delivered = n
     .filter((s) => s.priority === PRIORITY.EDITOR && (s.enabled || starved.has(s.id)))
     .sort(byPrimacy);
 
-  // Sticky main view, so a near-tie cannot hand over on a rounding difference.
-  function ordered() {
+  // Sticky main view, so a near-tie cannot hand over on a rounding difference. Split in two so the
+  // READ path (rung text, the state getter) cannot move the sticky choice as a side effect of
+  // being reported — only `ordered()`, called when we are about to act, commits it.
+  function orderedView() {
     const list = candidates();
-    if (list.length < 2) { primaryId = list[0]?.id || ''; return list; }
+    if (list.length < 2) return list;
     const held = list.find((s) => s.id === primaryId);
     if (held && list[0].mp < held.mp * HANDOVER_MARGIN) return [held, ...list.filter((s) => s !== held)];
-    primaryId = list[0].id;
+    return list;
+  }
+  function ordered() {
+    const list = orderedView();
+    primaryId = list[0]?.id || '';
     return list;
   }
 
@@ -173,13 +188,25 @@ export function createGovernor({ ledger, pressure, isBroadcasting, delivered = n
 
   // Say it in frames per second rather than divisors, because "the live view is at 15fps" is a
   // thing an operator can judge and "rate 2" is not.
+  //
+  // AND NAME THE PANELS THE WAY THE UI DOES (Daniel, B583). "main view / second view" was a third
+  // vocabulary on top of the UI's source/staged/live and the ledger's own labels, so a report said
+  // three different things about one panel. The primacy word still leads — that hierarchy is the
+  // governor's actual decision and it FLIPS BY MODE, so it cannot be replaced by a fixed name —
+  // but the UI's word rides with it: `main · staged`, `second · live`.
+  const named = (list, i, fallback) => {
+    const s = list[i];
+    return s ? `${fallback} · ${s.label || s.id}` : `${fallback} view`;
+  };
   function rungText(n) {
     const [p, s] = LADDER[Math.min(n, LADDER.length - 1)];
-    const t = pressure?.target ?? 0;
+    const t = lastTarget || pressure?.target || 0;
     const fps = (d) => (d === 0 ? 'PAUSED' : t > 0 ? `${Math.round(t / d)}fps` : `1 frame in ${d}`);
     if (n === 0) return 'full rate';
-    if (s === 0) return `main view ${fps(p)}, second view PAUSED`;
-    return p === s ? `editor views at ${fps(p)}` : `main view ${fps(p)}, second view ${fps(s)}`;
+    const list = orderedView();
+    const a = named(list, 0, 'main'), b = named(list, 1, 'second');
+    if (s === 0) return `${a} ${fps(p)}, ${b} PAUSED`;
+    return p === s ? `${a} and ${b} at ${fps(p)}` : `${a} ${fps(p)}, ${b} ${fps(s)}`;
   }
 
   function notice(text) {
@@ -211,16 +238,25 @@ export function createGovernor({ ledger, pressure, isBroadcasting, delivered = n
         // a report that omitted it would be unreadable when it picked the one you disagree with
         // reports the ACTUAL rate off the report row, not the rate we believe we set — the B575
         // bug was precisely those two disagreeing, so the readout must not read from intent
-        surfaces: candidates().map((s) => `${s.id}:${s.mp}MP@${s.rate || 1}${s.id === primaryId ? ' (main)' : ''}`),
+        surfaces: candidates().map((s) => `${s.id} (${s.label || s.id}):${s.mp}MP@${s.rate || 1}${s.id === primaryId ? ' — MAIN' : ''}`),
         governing: [...governed],
         reason,
+        // WHETHER THE LADDER WALK CONCLUDED ANYTHING (B583), and if so, what it concluded.
+        futile, futileNote,
         // WHICH shortfall the decision came from. Without it, a governor holding steady is
         // ambiguous between "the display is fine" and "we could not measure the display".
         signal,
         starved: [...starved],
         broadcasting: (() => { try { return !!isBroadcasting?.(); } catch { return 'probe threw'; } })(),
-        target: pressure?.target ?? 0,
-        shortfall: Math.round((pressure?.shortfall ?? 0) * 100) / 100,
+        // THE NUMBERS THE DECISION ACTUALLY RAN ON (B583). These published `pressure.shortfall`
+        // while `signal` said `display` and the tick had decided on a completely different value:
+        // Daniel's B582 report read `shortfall: 0.29` against `shedAbove: 0.25` — borderline —
+        // while the reason line beside it said 61% under. A readout that does not report its own
+        // decision variable is the exact failure this file's `reason` field exists to prevent, and
+        // it had it. The app-side number rides alongside now instead of standing in.
+        target: lastTarget,
+        shortfall: Math.round(lastShortfall * 100) / 100,
+        appShortfall: Math.round((pressure?.shortfall ?? 0) * 100) / 100,
         shedAbove: cfg.shedAbove,
         ticking: lastTick > 0 && (Date.now() - lastTick) < 5000,
       };
@@ -245,15 +281,21 @@ export function createGovernor({ ledger, pressure, isBroadcasting, delivered = n
         ? Math.max(0, Math.min(1, 1 - d.shown / d.expected))
         : (pressure?.shortfall ?? 0);
       const target = useDisplay ? Math.round(d.expected) : (pressure?.target ?? 0);
+      lastShortfall = shortfall; lastTarget = target;
 
       // No broadcast, or no declared target to be short OF, means nothing to govern. Releasing on
       // "no target" matters: an undeclared rate is not evidence of health, and holding surfaces
       // down on a signal we cannot compute would be degrading the app for an unknown reason.
-      if (!broadcasting) { reason = 'no live output — nothing to protect'; this.release(); return; }
-      if (!(target > 0)) { reason = 'no declared frame rate to be short of'; this.release(); return; }
+      // A new broadcast is a new device state, so it also re-arms the futility experiment.
+      if (!broadcasting) { reason = 'no live output — nothing to protect'; futile = false; this.release(); return; }
+      if (!(target > 0)) { reason = 'no declared frame rate to be short of'; futile = false; this.release(); return; }
 
       if (shortfall > cfg.shedAbove) {
         underSince = 0;
+        // ALREADY RAN THE EXPERIMENT, ALREADY GOT THE ANSWER (B583). Shedding again would cost the
+        // operator both panels for a second time to re-derive a result we have measured on this
+        // device, in this configuration, minutes ago.
+        if (futile) { reason = futileNote; return; }
         // NOTHING TO SHED IS ITS OWN ANSWER (B576). B575 advanced `level` whether or not
         // `applyLevel` had anything to act on, so with both editor surfaces switched off by hand
         // the governor walked itself 3 → 0 against an empty list and then reported full rate while
@@ -265,14 +307,46 @@ export function createGovernor({ ledger, pressure, isBroadcasting, delivered = n
           return;
         }
         if (!overSince) overSince = now;
-        if (level >= LADDER.length - 1) reason = `at the bottom rung (${rungText(level)}) and still ${Math.round(shortfall * 100)}% under — the editor surfaces are not the wall here`;
-        else reason = `shedding in ${Math.max(0, Math.round(cfg.sustainMs - (now - overSince)))}ms`;
-        if (now - overSince >= cfg.sustainMs && level < LADDER.length - 1) {
+
+        // THE BOTTOM RUNG IS A RESULT, NOT A RESTING PLACE (B583).
+        //
+        // B582 sat here forever. Daniel's report: at the bottom rung the ledger's ACCOUNTED cost
+        // had fallen from 28.46ms to 11.17ms — we successfully removed 17ms of real per-frame
+        // work — and the frame got SLOWER, 40ms to 43ms, with the unaccounted share rising from
+        // 11.54ms to 31.83ms of a 43ms frame. **We shed 17ms and gained nothing**, so the cost was
+        // never in the surfaces we can shed. This branch's own text had been SAYING that for
+        // builds ("the editor surfaces are not the wall here") and then holding anyway, which left
+        // the staged panel at 10fps and the live panel dark, permanently, buying nothing.
+        //
+        // So compare the same noun at two times: the shortfall when we started shedding against
+        // the shortfall now that everything is shed. No material gain means the experiment
+        // returned a negative, and the honest response is to give the operator their panels back
+        // and say why — not to keep paying for a result we already have.
+        if (level >= LADDER.length - 1) {
+          if (!bottomSince) bottomSince = now;
+          const gain = shedStartShortfall - shortfall;
+          const pctOf = (v) => Math.round(v * 100);
+          if (now - bottomSince >= cfg.sustainMs && gain < cfg.futileGain) {
+            futile = true;
+            futileNote = `shedding every editor view did not move the delivered rate (${pctOf(shedStartShortfall)}% under before, ${pctOf(shortfall)}% after) — panels restored. The wall is not the editor surfaces; ${signal === 'display' ? "it is downstream, in the external view's own render" : 'it is not on the measured list'}.`;
+            reason = futileNote;
+            this.release();
+            return;
+          }
+          reason = `at the bottom rung (${rungText(level)}), still ${pctOf(shortfall)}% under — checking whether shedding bought anything (${Math.max(0, Math.round(cfg.sustainMs - (now - bottomSince)))}ms)`;
+          return;
+        }
+
+        reason = `shedding in ${Math.max(0, Math.round(cfg.sustainMs - (now - overSince)))}ms`;
+        if (now - overSince >= cfg.sustainMs) {
           // a rung that fails right after we probed up to it earns a longer wait next time
           if (lastProbeT && now - lastProbeT < cfg.recoverMs * 3) probeBackoff = Math.min(8, probeBackoff * 2);
+          // the reading we will judge the whole walk against, captured before the first rung
+          if (level === 0) shedStartShortfall = shortfall;
           const list = applyLevel(level + 1);
           active = true;
           overSince = now;   // re-arm the dwell so we step one rung at a time, never two at once
+          bottomSince = 0;
           reason = `holding ${rungText(level)}${list.length ? ` (main: ${list[0].id})` : ''}`;
           notice(`${rungText(level)} — giving the broadcast the headroom (${Math.round(shortfall * 100)}% under ${target}fps)`);
         }
@@ -293,7 +367,7 @@ export function createGovernor({ ledger, pressure, isBroadcasting, delivered = n
       // calibrating, no magic constant, and the dwell plus backoff is what prevents the
       // oscillation the old dead band was there to prevent.
       if (active && shortfall < cfg.shedAbove) {
-        overSince = 0;
+        overSince = 0; bottomSince = 0;
         if (shortfall < cfg.restoreBelow) probeBackoff = 1;   // genuinely healthy: probe eagerly
         if (!underSince) underSince = now;
         const wait = cfg.recoverMs * probeBackoff;
@@ -311,7 +385,12 @@ export function createGovernor({ ledger, pressure, isBroadcasting, delivered = n
       }
       // in the dead band between the two thresholds: hold whatever we have, reset both dwells so
       // a drift back and forth across one edge cannot accumulate into a step
-      overSince = 0; underSince = 0;
+      overSince = 0; underSince = 0; bottomSince = 0;
+      // THE WORLD CHANGED, SO THE EXPERIMENT MAY RUN AGAIN (B583). Getting back under the shed
+      // threshold means whatever was the real wall has moved — a smaller slice, a different
+      // source, a cooler device — and a stale negative from the old conditions must not outlive
+      // the conditions that produced it.
+      if (futile) { futile = false; futileNote = ''; }
       reason = active
         ? `holding ${rungText(level)} — in the dead band`
         : `keeping up (${Math.round(shortfall * 100)}% under, sheds above ${Math.round(cfg.shedAbove * 100)}%)`;
@@ -322,7 +401,7 @@ export function createGovernor({ ledger, pressure, isBroadcasting, delivered = n
     // that has since been disabled, resized to nothing or stopped costing anything still gets put
     // back. Idempotent.
     release() {
-      overSince = 0; underSince = 0;
+      overSince = 0; underSince = 0; bottomSince = 0;
       if (!active && level === 0 && !governed.size && !starved.size) return;
       for (const id of governed) ledger.setSurfaceRate(id, 1);
       for (const id of starved) ledger.setSurfaceEnabled(id, true);

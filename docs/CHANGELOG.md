@@ -4,6 +4,52 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🧭 v0.23.30 (Build 583) — 2026-08-11 — The ladder walk gets a conclusion, and every rate in the report is named for what it measures
+
+Daniel's B582 verification found three things that did not line up: the pip never self-recovers, its fps disagrees with the diagnostic, and the panels still have three names each. All three trace to the same habit — **a readout naming something other than what it measures.**
+
+### The diagnostic and the live panel disagreed, and the diagnostic was the one lying
+
+His note read `21 fps ON THE DISPLAY · 31 new/s · ⚠ ONLY ~12 NEW PICTURES/s ON SCREEN`. **Three rates in one sentence, two of them mislabelled:**
+
+| shown as | actually is |
+|---|---|
+| `21 fps ON THE DISPLAY` | frames the external view **drew**, repeats included |
+| `31 new/s` | frames **arriving** over the socket (`srcFps`), not new pictures |
+| `12 new pictures/s` | the only one describing what a person watching sees |
+
+He read the 21, reasonably concluded the display was healthy, and could not work out why the live panel said 12. **The live panel was right** — it uses `fresh.p50` by deliberate choice at B582. The note now leads with the delivered rate: `12 NEW PICTURES/s ON THE DISPLAY · 31 arriving/s · 21 drawn/s`. Same fix in the mobile chrome's copy.
+
+The panel header gains **`on the display`** (delivered vs source) and **`ext drawn`** stats, so the broadcast's real counts are at the top rather than buried in a surface note. And the top-left `fps` is now **`app fps`**, with `shortfall` renamed `app shortfall`. Daniel's ask: *"the general top left fps [should] honestly declare what it is and isn't."* B571 and B576 both caught that number and the picture on the wall moving in **opposite directions**.
+
+### The bottom rung is a result, not a resting place
+
+The pip did not recover because the display shortfall was **0.59**, far above `shedAbove` (0.25), so B582's probing recovery was never reached. That was the governor behaving correctly on its signal. **The flaw was that it should not have been shedding at all**, and its own text had been saying so for builds (*"the editor surfaces are not the wall here"*) while holding anyway.
+
+His report is close to a proof. Between baseline and the bottom rung:
+
+| | baseline, full rate | bottom rung |
+|---|---|---|
+| accounted | **28.46ms** | **11.17ms** |
+| unaccounted | 11.54ms | **31.83ms** |
+| frame p50 | 40ms | **43ms** |
+
+**We removed 17ms of real per-frame work and the frame got slower.** The cost was never in the surfaces we can shed — it moved into the unaccounted bucket, 74% of the frame. Meanwhile the staged panel sat at 10fps and the live panel was dark, permanently, buying nothing.
+
+So the ladder walk is now an experiment **with a conclusion**. It records the shortfall at the moment shedding begins, and after a dwell at the bottom rung compares the same noun against it. Gain below `futileGain` (0.05, about 1.5 new pictures a second at 30fps) means the experiment returned a negative: **release everything and publish why.** Latched so it does not re-derive the same negative, and re-armed when the shortfall gets back under the shed threshold, because that means the real wall has moved.
+
+### The governor's readout was not reporting its own decision variable
+
+`state.shortfall` published `pressure.shortfall` — the **app** signal — while `signal` said `display` and the tick had decided on something else entirely. His report read `shortfall: 0.29` against `shedAbove: 0.25`, looking borderline, with the reason line beside it saying **61% under**. The tick's own values are published now, with `appShortfall` riding alongside instead of standing in.
+
+### One panel, one name
+
+Three vocabularies collapsed to one, on Daniel's design: **keep the UI names, and let the diagnostics carry a concise hybrid that references them.**
+
+- Ledger labels now **quote the UI** rather than duplicate it. `label` may be a live function (like `note` and `size` already were), so the middle panel reports `output` in still/motion and `staged` in perform. Those are **different things, not two names for one** — a keyframed output is not a pending staged change — which is why a single ledger name would have been wrong in one of the two modes.
+- The governor keeps its primacy word, because that hierarchy is its actual decision and it **flips by mode**, but the UI's word rides with it: `main · staged 10fps, second · live PAUSED`.
+- `perform live view` → `live`. `output preview` → live-quoted. `source → texture` → `source · decode → texture`.
+
 ## 🔁 v0.23.29 (Build 582) — 2026-08-11 — The governor could shed but never recover, and the paused panel becomes a readout
 
 Daniel's B581 verification: the governor works, the pause feels polished, **and it never un-pauses.** Both nits fixed.

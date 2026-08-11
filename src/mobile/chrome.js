@@ -312,12 +312,13 @@ const externalSurface = perf.surface({
     const f = env.externalDisplay?.fps || 0;
     const sf = env.externalDisplay?.srcFps;
     if (!f) return 'self-rendering (awaiting first fps report)';
-    if (typeof sf === 'number' && sf >= 0) {
-      return sf < f / 2
-        ? `${f} fps drawn · ⚠ only ${sf} NEW frames/s — the picture is stalling, not the renderer`
-        : `${f} fps ON THE DISPLAY · ${sf} new/s`;
-    }
-    return `self-rendering · ${f} fps ON THE DISPLAY`;
+    // same noun order as output-panel.js (B583): the delivered rate leads, the drawn count is
+    // context. `sf` is what ARRIVES over the socket, which is not what lands on the display.
+    const p50 = env.externalDisplay?.jitter?.fresh?.p50 || 0;
+    const shown = p50 > 0 ? Math.round(1000 / p50) : 0;
+    const arriving = typeof sf === 'number' && sf >= 0 ? ` · ${sf} arriving/s` : '';
+    if (shown > 0) return `${shown} NEW PICTURES/s ON THE DISPLAY${arriving} · ${f} drawn/s`;
+    return `self-rendering · ${f} drawn/s${arriving}`;
   },
 });
 env.perfSurfaces.external = externalSurface;

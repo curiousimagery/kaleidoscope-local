@@ -49,6 +49,13 @@ const now = () => performance.now();
 const round1 = (n) => Math.round(n * 10) / 10;
 const round2 = (n) => Math.round(n * 100) / 100;
 
+// A surface's label may be a live function (see `surface()`). A label that throws must degrade to
+// the id rather than take down the report — the whole point of this file is to keep reporting.
+const labelOf = (s) => {
+  if (typeof s.label !== 'function') return s.label;
+  try { return String(s.label() || s.id); } catch { return s.id; }
+};
+
 // A surface's PRIORITY is its place in the yield order: LOWER yields first. Declared by the
 // surface itself rather than inferred by a governor, so a new surface arrives already knowing
 // how it should degrade instead of needing the governor taught about it.
@@ -137,7 +144,7 @@ export function createPerfLedger({ enabled = false, windowMs = 1000, pressure = 
       let note = '';
       try { note = s.note ? String(s.note() || '') : ''; } catch { note = ''; }
       rows.push({
-        id: s.id, label: s.label, serves: s.serves, priority: s.priority, note,
+        id: s.id, label: labelOf(s), serves: s.serves, priority: s.priority, note,
         w: size.w, h: size.h, mp: round2(surfaceMp), remote: s.remote,
         enabled: s.enabled, scale: s.scale, scaleLadder: s.scaleLadder, rate: s.rate,
         msPerFrame: round2(sMs), gpuMsPerFrame: round2(sGpu), passes,
@@ -261,6 +268,11 @@ export function createPerfLedger({ enabled = false, windowMs = 1000, pressure = 
     surface(spec) {
       const rec = {
         id: spec.id,
+        // A STRING OR A FUNCTION, resolved at report time like `note` and `size` (B583). The
+        // middle panel is honestly called "output" in still/motion and "staged" in perform, and
+        // those are different things, not two names for one (Daniel's B583 note: a keyframed
+        // output is not a pending staged change). A live label lets the diagnostic QUOTE the UI
+        // rather than duplicate it, so the two can never drift apart again.
         label: spec.label || spec.id,
         serves: spec.serves || 'editor',
         priority: spec.priority ?? PRIORITY.EDITOR,
@@ -378,7 +390,7 @@ export function createPerfLedger({ enabled = false, windowMs = 1000, pressure = 
     },
 
     get report() { return latest; },
-    get surfaces() { return [...surfaces.values()].map((s) => ({ id: s.id, label: s.label })); },
+    get surfaces() { return [...surfaces.values()].map((s) => ({ id: s.id, label: labelOf(s) })); },
     onReport(fn) { reportHandlers.add(fn); return () => reportHandlers.delete(fn); },
     get pressure() { return pressure; },
   };

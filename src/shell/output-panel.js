@@ -59,7 +59,7 @@ export function createOutputPanel(env, outputBus) {
   };
 
   const remoteSurface = env.perf?.surface({
-    id: 'external', label: 'external display (other process)', serves: 'program',
+    id: 'external', label: 'external display · other process', serves: 'program',
     priority: 70, remote: true, scaleLadder: [1],
     // Ask EVERY registered sink whether it is self-rendering right now, rather than routing
     // through the currently-selected destination. B514's iPad run reported this surface as 0x0
@@ -99,26 +99,28 @@ export function createOutputPanel(env, outputBus) {
         // completely broken. The level is the first question; the spread only matters after it.
         const j = s?.jitter;
         let even = '';
+        const shown = j?.fresh?.p50 > 0 ? Math.round(1000 / j.fresh.p50) : 0;
         if (j?.fresh?.p50 > 0) {
           const { p50, p95 } = j.fresh;
           const want = sf > 0 ? 1000 / sf : 0;   // the interval if every arriving frame were shown
-          const shown = Math.round(1000 / p50);
           if (want > 0 && p50 > want * 1.8) {
-            even = ` · ⚠ ONLY ~${shown} NEW PICTURES/s ON SCREEN (one every ${p50}ms) — ${sf} arrive and most are never shown`;
+            even = ` · ⚠ most arrivals are never shown (one new picture every ${p50}ms)`;
           } else if (p95 > p50 * 1.6) {
             even = ` · ⚠ UNEVEN: new picture every ${p50}ms typical, ${p95}ms at p95`;
           } else {
             even = ` · steady (new picture ${p50}/${p95}ms)`;
           }
         }
-        // RENDER rate and ARRIVAL rate, because they diverge and that divergence IS the bug:
-        // a view re-drawing the same frame reports a healthy fps while the picture sits still.
-        if (typeof sf === 'number' && sf >= 0) {
-          return sf < f / 2
-            ? `${f} fps drawn · ⚠ only ${sf} NEW frames/s — the picture is stalling, not the renderer${even}`
-            : `${f} fps ON THE DISPLAY · ${sf} new/s${even}`;
-        }
-        return `${f} fps ON THE DISPLAY${even}`;
+        // THREE RATES, AND THE HEADLINE MUST BE THE ONE A PERSON SEES (B583). This sentence used
+        // to lead with the DRAWN count under the words "ON THE DISPLAY" while carrying the real
+        // delivered rate in a trailing warning — so it read `21 fps ON THE DISPLAY · 31 new/s ·
+        // ⚠ ONLY ~12 NEW PICTURES/s`, three numbers, two of them mislabelled. Daniel read the 21,
+        // reasonably concluded the display was healthy, and could not work out why the live panel
+        // said 12. The live panel was right. `srcFps` is what ARRIVES over the socket, not what is
+        // new on screen, and calling it "new/s" was the same wrong noun a second time.
+        const arriving = typeof sf === 'number' && sf >= 0 ? ` · ${sf} arriving/s` : '';
+        if (shown > 0) return `${shown} NEW PICTURES/s ON THE DISPLAY${arriving} · ${f} drawn/s${even}`;
+        return `${f} drawn/s${arriving} · new-picture rate not yet measured`;
       }
       return '';
     },
