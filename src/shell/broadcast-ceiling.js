@@ -22,7 +22,11 @@
 // consumer like Resolume Arena scales its composition to the incoming frame size, so changing it
 // mid-show is worse than a low frame rate — Daniel, B583).
 
-const KEY = 'foldBroadcastCeiling-v1';
+// v2 (B586): v1 keyed on the REQUESTED tier, which on a self-rendering destination is not what got
+// rendered — Daniel's first run filed a 3840×2160 broadcast under `hdmi:2560`. Every v1 reading on
+// such a destination is potentially mislabelled, and a mislabelled measurement is worse than none,
+// so the version bump discards them rather than carrying them forward.
+const KEY = 'foldBroadcastCeiling-v2';
 // Below this many one-second samples a run says nothing. Broadcast start is a transient the
 // governor already has to dwell through; a reading taken across it would libel the tier.
 const MIN_SAMPLES = 8;

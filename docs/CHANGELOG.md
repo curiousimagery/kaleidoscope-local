@@ -4,6 +4,20 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🪞 v0.23.33 (Build 586) — 2026-08-13 — The resolution tier never reached the HDMI path, so the QHD test never ran
+
+**Daniel's QHD run showed no improvement over 4K. The report says why: `external` reads `w: 3840, h: 2160` in BOTH runs.** The external view rendered at 4K either way.
+
+`computeOutputDims()` in `external-display.js` renders a **self-rendering destination at the DISPLAY's native size** by design ("the point of HDMI"). The tier only ever fed `outputBus.setResolution`, and HDMI is `needsBus: false`. **So switching 4K → QHD changed nothing on that path, and the null result is not evidence about resolution.**
+
+### Three consequences, all fixed
+
+**The panel implied the tier controlled something it did not.** For a self-rendering destination the hint now says `renders 3840×2160 — the display's own size · this tier (2560×1440) applies to recording, NDI and Syphon`.
+
+**The learned ceiling was filing mislabelled readings.** B585 keyed on the *requested* tier, so a 4K broadcast was stored under `hdmi:2560` and presented as a QHD measurement. **The wrong noun, inside the instrument shipped one build earlier to end wrong nouns.** It now keys on the **actual render size** (`renderDims`, falling back to the display's dims when idle). The store version bumps to `-v2`, discarding v1 readings rather than carrying mislabelled ones forward.
+
+**The hint could be silenced by an unrelated condition.** Every branch returned its own single sentence, so Daniel's break-glass HDMI toggle preempted the measured reading entirely and he never saw it. The parts accumulate now; only the hard 1080p memory guard still stands alone. That warning's text was also obsolete — the guard is a no-op on the single-native-decode path, so it no longer claims the graphics context is at risk.
+
 ## 📏 v0.23.32 (Build 585) — 2026-08-11 — The resolution tiers say what this device actually sustained, instead of guessing
 
 Close-out step 4, the honest limit. **Daniel confirmed the display is a real 4K panel (Dell P2415Q, 24" at 3840×2160), which settles an open question the wrong way for us: rendering the external view at 2560 is not removing an oversample, it IS broadcasting at QHD.** So it ships as an informed operator choice rather than an automatic rung, exactly as he asked.

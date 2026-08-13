@@ -270,6 +270,19 @@ Resolved on Daniel's design rather than by picking one vocabulary, because **the
 
 **✅ AND THE SAME INSTRUMENT EXONERATED THE WIRE ON ITS FIRST READING, killing the hypothesis that built it.** B584 healthy run: **`skipped: 0` on both clients** over 4414 frames, `reaped: 0`, `closes: 0`. `offered` over `ageMs` = **29.33/s against a 30fps source, 97.8% delivery.** The claim in this item's previous revision — that ~5 frames a second were being lost to the fan-out — was **wrong, and wrong because `extJitter.arrive` is measured in the external view's `ws.onmessage` and is therefore downstream of the main thread it was being used to exonerate.** A textbook wrong noun, in an instrument, used to justify a second instrument. The native counter is the wire; prefer it.
 
+### 🟠 [OPEN DECISION — B586] THE RESOLUTION TIER DOES NOT REACH HDMI/AIRPLAY, SO THE 4K-VS-QHD EXPERIMENT HAS NEVER RUN
+
+`computeOutputDims()` renders a self-rendering destination (`needsBus:false`) at the **display's native size** by design; the tier only feeds `outputBus.setResolution`, which those destinations never use. Daniel's B585 A/B switched 4K→QHD and saw no change **because nothing changed** — `external` read `3840×2160` in both reports. B586 made the panel state this plainly instead of implying otherwise.
+
+**So the single measurement that would size the GPU-contention hypothesis does not exist yet.**
+
+**Why it is not just wired in:** the tier defaults to FHD, so using it as a cap would silently downgrade every HDMI broadcast from display-native — a regression for the case HDMI exists to serve. Options, none chosen:
+- a separate **broadcast render size** control that defaults to native for self-rendering destinations
+- an HDMI-specific tier default of "display native", with the lower tiers as explicit opt-ins
+- a diagnostics-only override, enough to *run the experiment* without shipping a product decision
+
+**The third is the cheapest way to get the measurement**, and getting it should probably precede choosing between the first two.
+
 ### 🔒 CONSTRAINT: OUTPUT RESOLUTION IS A CONTRACT WITH THE DOWNSTREAM CONSUMER (Daniel, B583)
 
 **A destination can be expecting a fixed frame size, and changing it mid-broadcast breaks the composition rather than the frame rate.** Daniel's case is **Syphon/NDI into Resolume Arena**, where the incoming source's dimensions set the scale of the comp: degrade the resolution to buy fps and the projection is now the wrong size on the wall, mid-show. **So there are real circumstances where poor fps is the better outcome and resolution must not degrade automatically.**

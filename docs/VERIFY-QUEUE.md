@@ -8,7 +8,23 @@ Confirmed results are DELETED from here and recorded in CHANGELOG.
 
 ---
 
-# ▶ THIS SESSION (B585) — "does the panel tell the truth about what this device can do?"
+# ▶ THIS SESSION (B586) — "can you actually see the reading now?"
+
+**iPad, ~3 minutes.** B585's text existed but was invisible on your configuration, and its stored readings were mislabelled. Both fixed. **Frame rate is unchanged; nothing here makes anything faster.**
+
+## ⚠️ SET THE SCENARIO TAG TO `hdmi-broadcast` FIRST.
+
+## Steps
+
+1. **Open the output panel with HDMI selected.** The hint should now read something like `renders 3840×2160 — the display's own size · this tier (1920×1080) applies to recording, NDI and Syphon`. **The break-glass testing warning should no longer be the whole sentence** — it appends at the end if it appends at all.
+2. **Broadcast 4K → 4K HDMI for ~20 seconds, stop, reopen the panel.** The hint should gain `⚠ measured here: 23 of 30fps · a lower tier may hold`.
+3. `copy report`. `broadcastCeiling` should now hold **one** key, `hdmi:3840`. Your old `hdmi:2560` entry is gone on purpose: it was a 4K run filed under the wrong name.
+
+## Do NOT bother re-running the QHD comparison
+
+**It cannot work yet.** The tier does not reach the HDMI path at all, which is why your A/B showed nothing. Running it again would just re-measure 4K under a different label.
+
+# 🅿️ PREVIOUS SESSION (B585) — "does the panel tell the truth about what this device can do?" — PARTIAL: the ceiling learned and persisted correctly, but the hint was invisible and the QHD arm never ran.
 
 **iPad, ~6 minutes.** No native rebuild needed (B584's already covers it). Nothing about frame rate changes in this build; it only changes what the panel *says*.
 
