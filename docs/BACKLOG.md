@@ -270,18 +270,27 @@ Resolved on Daniel's design rather than by picking one vocabulary, because **the
 
 **✅ AND THE SAME INSTRUMENT EXONERATED THE WIRE ON ITS FIRST READING, killing the hypothesis that built it.** B584 healthy run: **`skipped: 0` on both clients** over 4414 frames, `reaped: 0`, `closes: 0`. `offered` over `ageMs` = **29.33/s against a 30fps source, 97.8% delivery.** The claim in this item's previous revision — that ~5 frames a second were being lost to the fan-out — was **wrong, and wrong because `extJitter.arrive` is measured in the external view's `ws.onmessage` and is therefore downstream of the main thread it was being used to exonerate.** A textbook wrong noun, in an instrument, used to justify a second instrument. The native counter is the wire; prefer it.
 
-### 🟠 [OPEN DECISION — B586] THE RESOLUTION TIER DOES NOT REACH HDMI/AIRPLAY, SO THE 4K-VS-QHD EXPERIMENT HAS NEVER RUN
+### ✅ [FIXED B587] THE RESOLUTION TIER DID NOT REACH HDMI/AIRPLAY
 
-`computeOutputDims()` renders a self-rendering destination (`needsBus:false`) at the **display's native size** by design; the tier only feeds `outputBus.setResolution`, which those destinations never use. Daniel's B585 A/B switched 4K→QHD and saw no change **because nothing changed** — `external` read `3840×2160` in both reports. B586 made the panel state this plainly instead of implying otherwise.
+`computeOutputDims()` rendered a self-rendering destination (`needsBus:false`) at the **display's native size**; the tier only fed `outputBus.setResolution`, which those destinations never use. **Picking FHD on a 4K panel broadcast 4K.** Daniel called it dishonest and he was right: the panel bundles recording and broadcast under one control, so it reads as governing both. Now it does, with the display's size as a ceiling and `.toggle.is-native` marking which tier that is.
 
-**So the single measurement that would size the GPU-contention hypothesis does not exist yet.**
+**✅ AND THE DEFAULT WAS FIXED AT B588**, because B587 shipped an honest picker with a degraded FHD default, which Daniel rightly called the opposite of the goal. Broadcasting defaults to the display's resolution; recording/NDI/Syphon default to the source's. A hand-picked tier outranks it for the session.
 
-**Why it is not just wired in:** the tier defaults to FHD, so using it as a cap would silently downgrade every HDMI broadcast from display-native — a regression for the case HDMI exists to serve. Options, none chosen:
-- a separate **broadcast render size** control that defaults to native for self-rendering destinations
-- an HDMI-specific tier default of "display native", with the lower tiers as explicit opt-ins
-- a diagnostics-only override, enough to *run the experiment* without shipping a product decision
+### 🌡️ [HIGH — B588] THE SAME WORK GETS MORE EXPENSIVE OVER A SESSION, AND IT INVALIDATES OUR A/B METHOD
 
-**The third is the cheapest way to get the measurement**, and getting it should probably precede choosing between the first two.
+Found while running the 4K-vs-QHD test. At **identical surface geometry**, within one sitting:
+
+| | `preview render` | `pip render` | accounted |
+|---|---|---|---|
+| baseline | 11.68ms | 12.68ms | 27.68ms |
+| 4K arm (~164s in) | 13.08ms | 7.63ms | 25.29ms |
+| QHD arm (~254s in) | **16.30ms** | 10.75ms | **32.85ms** |
+
+`preview render` rose **40%** at constant size. **Every cross-time A/B in this arc has therefore had an uncontrolled variable**, and it is a plausible explanation for how many of them came back ambiguous or reversed.
+
+**Leading hypothesis is thermal**, which we cannot confirm: `ProcessInfo.thermalState` reads null (see the thermal item), so the only signal is drift-based and drift is exactly what is in question. **Alternatives not ruled out:** accumulated GPU memory pressure, ledger overhead growth, a leak in one of the engines.
+
+**▶ THE CHEAP DISCRIMINATING TEST, and it should precede any further A/B: run the same comparison in the OPPOSITE order.** If the second arm is worse regardless of which resolution it holds, the variable is time. That result would mandate a warm-up-and-settle protocol (fixed dwell before sampling, and A/B/A rather than A/B) for everything downstream — which is a methodology fix worth more than any single measurement.
 
 ### 🔒 CONSTRAINT: OUTPUT RESOLUTION IS A CONTRACT WITH THE DOWNSTREAM CONSUMER (Daniel, B583)
 

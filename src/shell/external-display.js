@@ -158,11 +158,23 @@ function createPoster(opts) {
     try { uncap = localStorage.getItem('foldHdmiVideoUncap') === '1'; } catch {}
     const singleDecode = !!opts.hasNativeVideo?.();
     const effCap = (opts.hasVideoSource?.() && !uncap && !singleDecode) ? Math.min(cap, 1920) : cap;
-    // the display's native resolution when known — the point of HDMI — stepped down
-    // by the crash generation when memory pressure killed the view
-    const native = capDims(
-      (dims?.width && dims?.height) ? dims : (opts.getOutputDims?.() || { width: 1920, height: 1080 }),
-      effCap);
+    // THE SELECTED OUTPUT RESOLUTION GOVERNS THIS RENDER (Daniel, B587).
+    //
+    // Until B586 this used the DISPLAY's native size and treated `getOutputDims` (the resolution
+    // tier) only as a fallback for an unknown display. So picking FHD while connected to a 4K panel
+    // broadcast 4K, and Daniel's 4K-vs-QHD A/B measured nothing because both arms rendered 3840.
+    // His call, and the honest one: **"if I select resolution X for my output, it should output at
+    // X."** The panel bundles recording and broadcast under one control, so a user reasonably reads
+    // it as governing both — and it now does.
+    //
+    // The display's own size stays a CEILING: rendering more pixels than it can show buys nothing
+    // and costs frames. Picking 4K on a 1080p panel gets 1080p, which is what "output at X" means
+    // when X is unreachable.
+    const wanted = opts.getOutputDims?.() || { width: 1920, height: 1080 };
+    const display = (dims?.width && dims?.height) ? dims : null;
+    const budget = display ? capDims(display, Math.max(wanted.width, wanted.height)) : wanted;
+    // ...then stepped down by the crash generation when memory pressure killed the view
+    const native = capDims(budget, effCap);
     // FILL mode (the installation case): render edge-to-edge at the display's native
     // aspect instead of honoring the canvas frame aspect.
     if (opts.getFill?.()) return native;

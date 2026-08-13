@@ -4,6 +4,54 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## ⭐ v0.24.1 (Build 588) — 2026-08-13 — The default is full quality, and the pixel hypothesis is dead
+
+### 🔬 THE EXPERIMENT RAN, AND PIXELS ARE NOT THE CURRENCY
+
+The first genuine 4K-vs-QHD A/B on the external view. **Cutting it from 8.29MP to 3.69MP made delivery WORSE.**
+
+| | external render | delivered | `draw` p50 | app fps |
+|---|---|---|---|---|
+| 4K | 3840×2160 · 8.29MP | **23/s** | 42ms | 23.7 |
+| QHD | 2560×1440 · 3.69MP | **20/s** | **47ms** | 19.7 |
+
+**The external view drew SLOWER with 55% fewer pixels.** That is the same signature B574 found on the editor surfaces (17x fewer pixels, 55% of the cost): a large fixed per-draw term that resolution cannot touch. **There is no resolution win available, and this closes the last version of that hypothesis.**
+
+**⚠️ WITH A NAMED CONFOUND, because the honest reading needs it.** The app's own surfaces got ~30% more expensive between runs at *identical geometry* (preview 13.08 → 16.30ms, pip 7.63 → 10.75ms), and across the session `preview render` went **11.68 → 13.08 → 16.30ms** monotonically. **The same work is getting more expensive over time**, which is a thermal signature and means every cross-time A/B in this arc has an uncontrolled variable. The conclusion survives anyway — a 55% pixel cut should swamp a 30% drift and instead went backwards — but the confound is now the more interesting finding. See BACKLOG.
+
+### The default is the full-quality answer for the job
+
+B587 made the tier real and left it defaulting to FHD, which shipped an honest picker with a degraded default. Daniel: **"the whole point of what we're doing is to optimize how we broadcast so that we can hit higher resolutions. just not doing it is the opposite of our goal."**
+
+- **Broadcasting to a display** → defaults to the **display's** resolution.
+- **Recording / NDI / Syphon** → defaults to the **source's** resolution. *"If someone bothers to upload 4K source footage, it's likely they'd want to stay at this resolution."*
+
+Picking a tier by hand outranks the default for the rest of the session.
+
+### The marker is a star, not a green dot
+
+**Green is this app's live/broadcasting/online signal everywhere else** — the output traffic light, the sync dot, the presence lights — so using it for a static quality marker read as a state it is not (Daniel). Now a small white star, on the button and in the hint. Lab row updated.
+
+## 🎚️ v0.24.0 (Build 587) — 2026-08-13 — The output resolution you pick is the resolution you get
+
+**Daniel, on finding that HDMI ignored the tier: "if I select resolution X for my output, it should output at X."** Minor bump because the output resolution control changes what it does, which is a behaviour every existing user has already formed an expectation about.
+
+### It renders at the selected resolution now, not the display's
+
+`computeOutputDims()` used the **display's** native size and treated the resolution tier only as a fallback for an unknown display. So choosing FHD while connected to a 4K panel broadcast **4K**. Since the panel bundles recording and broadcast under one control, a user reasonably reads it as governing both, and now it does.
+
+**The display's own size stays a ceiling.** Picking 4K on a 1080p panel gets 1080p, because "output at X" cannot mean more pixels than the panel has, and rendering them buys nothing while costing frames.
+
+**⚠️ THIS CHANGES DEFAULT BEHAVIOUR.** The tier defaults to **FHD**, so an HDMI broadcast that previously ran at display-native 4K now runs at 1920 unless 4K is selected. That is the honest reading of the control, and it is also a large default frame-rate win, but it is a real change and the default may want revisiting.
+
+### The display's own size is marked
+
+`.toggle.is-native` puts a dot on whichever tier matches the connected display, and the hint names it (`display is 3840×2160 ●`), or warns when the selection exceeds it. **A dot rather than a word** because four tiers sit across a narrow panel; **on the button rather than in a `title`** because the iPad this is operated from has no hover, so a tooltip would be invisible exactly where it is needed. In the Lab's button matrix with its state row.
+
+### And the 4K-vs-QHD experiment is finally runnable
+
+Daniel's B585 A/B measured nothing because both arms rendered 3840. **Selecting a tier now genuinely changes the external render**, so the same test he already tried will answer the GPU-contention question — the product fix and the experiment turned out to be the same change.
+
 ## 🪞 v0.23.33 (Build 586) — 2026-08-13 — The resolution tier never reached the HDMI path, so the QHD test never ran
 
 **Daniel's QHD run showed no improvement over 4K. The report says why: `external` reads `w: 3840, h: 2160` in BOTH runs.** The external view rendered at 4K either way.

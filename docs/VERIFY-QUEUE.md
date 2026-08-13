@@ -8,7 +8,58 @@ Confirmed results are DELETED from here and recorded in CHANGELOG.
 
 ---
 
-# ▶ THIS SESSION (B586) — "can you actually see the reading now?"
+# ▶ THIS SESSION (B588) — "is the variable the resolution, or the clock?"
+
+**iPad, ~12 minutes.** The B587 A/B produced a decisive answer AND a reason to distrust it. This run separates the two. **Do the arms in this order; the order is the experiment.**
+
+## ⚠️ SET THE SCENARIO TAG TO `hdmi-broadcast` FIRST, and again before saving any baseline.
+
+## Part 1 — the defaults and the star (1 minute)
+
+1. Open the output panel with HDMI selected. **4K should already be picked**, with a small **white star** on it. The green dot is gone.
+2. Switch the destination to Syphon or NDI. **The tier should jump to the SOURCE's resolution** (4K for your clip).
+
+## Part 2 — the reversed A/B (the actual point)
+
+**Cold start: force-quit Fold and reopen it, so the device is in the same state the last run started from.**
+
+3. **QHD FIRST.** Broadcast ~30 seconds. `copy report`.
+4. **Then 4K.** Broadcast ~30 seconds. `copy report`.
+
+## How to read it
+
+Last time the second arm was worse. If that happens again **with the resolutions swapped**, the variable is TIME, not resolution:
+
+- **4K (second) now worse than QHD (first)** → **it is the clock.** Every A/B this arc has run is suspect, and we need a warm-up-and-settle protocol before any further comparison counts.
+- **4K (second) still better than QHD (first)** → the B587 result holds cleanly. Pixels are not the currency, resolution is closed, and the architecture conversation is next.
+
+**Also worth noting in each report:** `preview render` ms. It went 11.68 → 13.08 → 16.30 last session at identical size. **If it climbs again the same way, that alone is the finding.**
+
+# 🅿️ PREVIOUS SESSION (B587) — "does picking a resolution finally change the picture?" — RAN. QHD confirmed at `w: 2560`; delivery got WORSE (23→20/s). Pixel hypothesis closed, with a time confound to rule out.
+
+**iPad, ~10 minutes.** This is both the honesty fix and, at last, the real 4K-vs-QHD experiment.
+
+## ⚠️ SET THE SCENARIO TAG TO `hdmi-broadcast` FIRST, and again before saving any baseline.
+
+## Steps
+
+1. **Open the output panel with HDMI selected, not broadcasting.** Expect a **green dot on the 4K tier** (your display's own size) and the hint to end `display is 3840×2160 ●`.
+2. **Pick 4K. Broadcast ~20s. `copy report`.** Check `external` reads `w: 3840`.
+3. **Stop. Pick QHD. Broadcast ~20s. `copy report`.** **Check `external` now reads `w: 2560` — if it still says 3840 the change did not take and everything below is void.**
+4. **Compare `extJitter.fresh.p50` between the two**, and look at the wall during the QHD run.
+
+## What each outcome means
+
+- **QHD delivers materially more new pictures/s** → pixels are the currency, the GPU-contention story holds, and you have a real quality-versus-smoothness choice to make (and to label).
+- **QHD delivers the same ~23/s** → **pixels are NOT the currency.** That kills the last version of the resolution hypothesis and leaves the three-context 4K upload as the remaining explanation, which is the architecture conversation.
+
+**Both answers are worth the run.** The second is arguably more valuable, because it is the one that would stop us reaching for resolution again.
+
+## Also worth a glance
+
+Your first broadcast after updating will be **FHD by default**, which is a behaviour change: HDMI used to ignore the tier and render at display-native. If that reads as "why is my broadcast soft", say so — the fix is the default, not the mechanism.
+
+# 🅿️ PREVIOUS SESSION (B586) — "can you actually see the reading now?"
 
 **iPad, ~3 minutes.** B585's text existed but was invisible on your configuration, and its stored readings were mislabelled. Both fixed. **Frame rate is unchanged; nothing here makes anything faster.**
 

@@ -420,6 +420,15 @@ function buttonMatrix() {
       ['.reset', btnEl('reset', 'Reset')],
       [':disabled', btnEl('', 'Disabled', { disabled: 1 })],
     ]),
+    // B587, restyled B588: marks the FULL-QUALITY tier for the current job among the output
+    // resolutions. A star, not a dot, and not green — green is the live/broadcasting/online signal
+    // everywhere else in this app and reads as a state this is not (Daniel).
+    matrixRow('Toggle · .is-native (full-quality tier for the job)', [
+      ['.toggle.is-native', btnEl('toggle is-native', '4K')],
+      ['+ .active', btnEl('toggle is-native active', '4K')],
+      ['+ :disabled', btnEl('toggle is-native', '4K', { disabled: 1 })],
+      ['(plain, for contrast)', btnEl('toggle', 'QHD')],
+    ]),
     matrixRow('Bar · .ot-btn', [
       ['.ot-btn', btnEl('ot-btn', 'ot-btn')],
       ['.active', btnEl('ot-btn active', 'active')],

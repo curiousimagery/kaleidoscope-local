@@ -418,6 +418,7 @@ export function createOutputPanel(env, outputBus) {
     .filter((d) => d.sink && d.sink.supported !== false);
 
   let tier = TIER_DEFAULT;
+  let tierTouched = false;     // the operator picked one by hand — stop auto-defaulting (B588)
   const TIERS = [1280, 1920, 2560, 3840];
   // WHAT THIS DEVICE HAS ACTUALLY SUSTAINED (B585), learned per destination + tier while
   // broadcasting and read back into the hint before the next one starts. See broadcast-ceiling.js
@@ -486,6 +487,38 @@ export function createOutputPanel(env, outputBus) {
   // the learned ceiling on the tier therefore filed a 4K run under `hdmi:2560` and called it a QHD
   // measurement — the wrong noun, in the instrument shipped one build earlier to end wrong nouns.
   const selfRendering = () => selectedDest()?.sink?.needsBus === false;
+
+  // THE DEFAULT IS THE BEST HONEST ANSWER, NOT THE SAFEST ONE (Daniel, B588).
+  //
+  // B587 made the tier real and left it defaulting to FHD, which meant an honest picker shipped
+  // with a degraded default. Daniel: **"the whole point of what we're doing is to optimize how we
+  // broadcast so that we can hit higher resolutions. just not doing it is the opposite of our
+  // goal."** So the default is the full-quality answer for the job:
+  //
+  //   • broadcasting to a display → the DISPLAY's own resolution
+  //   • recording / NDI / Syphon  → the SOURCE's resolution ("if someone bothers to upload 4K
+  //     source footage, it's likely they'd want to stay at this resolution")
+  //
+  // Once the operator picks a tier by hand we stop moving it, for the rest of the session.
+  const tierAtOrBelow = (long) => (long > 0 ? (TIERS.filter((t) => t <= long).pop() || TIERS[0]) : 0);
+  function idealTier() {
+    if (selfRendering()) {
+      const d = (env.externalDisplay?.active ? env.externalDisplay.renderDims : null) || env.externalDisplayDims;
+      return tierAtOrBelow(d?.width ? Math.max(d.width, d.height) : 0);
+    }
+    const s = env.engine?.getSourceSize?.();
+    return tierAtOrBelow(s?.w ? Math.max(s.w, s.h) : 0);
+  }
+  function autoTier() {
+    if (tierTouched) return;
+    const want = idealTier();
+    // A display that has not reported yet, or a session with no source, teaches us nothing — hold
+    // the existing tier rather than snapping to a guess and then snapping again a moment later.
+    if (!want || want === tier) return;
+    tier = want;
+    applyResolution();
+  }
+
   function activeLongSide() {
     if (!selfRendering()) return tier;
     const live = env.externalDisplay?.active ? env.externalDisplay.renderDims : null;
@@ -526,12 +559,14 @@ export function createOutputPanel(env, outputBus) {
     // it did. HDMI/AirPlay and the output window render at the DISPLAY's native size by design
     // ("the point of HDMI" — external-display.js); the tier only feeds the bus, which they do not
     // use. Daniel switched 4K→QHD, saw no change, and the reason was that nothing changed.
+    parts.push(`${w}×${h}`);
+    // the display's own size, named rather than assumed — and if the selection exceeds it, say so,
+    // because "output at X" cannot mean more pixels than the panel has (B587)
     if (selfRendering()) {
-      const d = (env.externalDisplay?.active ? env.externalDisplay.renderDims : null) || env.externalDisplayDims;
-      parts.push(d?.width ? `renders ${d.width}×${d.height} — the display's own size` : 'renders at the display\'s native size');
-      parts.push(`this tier (${w}×${h}) applies to recording, NDI and Syphon`);
-    } else {
-      parts.push(`${w}×${h}`);
+      const d = env.externalDisplayDims;
+      const long = d?.width ? Math.max(d.width, d.height) : 0;
+      if (long && tier > long) parts.push(`⚠ display is ${d.width}×${d.height} — renders at its size`);
+      else if (long) parts.push(`display is ${d.width}×${d.height} ★`);
     }
     const measured = resMeasuredNote();
     if (measured) parts.push(measured);
@@ -855,8 +890,12 @@ export function createOutputPanel(env, outputBus) {
     const resLocked = outputBus.running || broadcasting;
     lockAspect(env.isBusOutputLive());
     const capVideo = videoHdmiCapped();   // iPad HDMI + video → tiers above 1080p are dishonest
+    if (!resLocked) autoTier();
+    const nativeTier = idealTier();
     if (resTiers) resTiers.querySelectorAll('button').forEach((b) => {
-      b.disabled = resLocked || (capVideo && Number(b.dataset.tier) > 1920);
+      const t = Number(b.dataset.tier);
+      b.disabled = resLocked || (capVideo && t > 1920);
+      b.classList.toggle('is-native', t === nativeTier);
     });
     renderResHint();   // reflect the video-cap hint when destination/source changes
   }
@@ -1007,6 +1046,7 @@ export function createOutputPanel(env, outputBus) {
   resTiers?.querySelectorAll('button[data-tier]').forEach((b) => {
     b.addEventListener('click', () => {
       tier = parseInt(b.dataset.tier, 10) || TIER_DEFAULT;
+      tierTouched = true;   // a hand-picked tier outranks the smart default for the session (B588)
       resTiers.querySelectorAll('button').forEach((x) => x.classList.toggle('active', x === b));
       applyResolution();
       renderStatus();

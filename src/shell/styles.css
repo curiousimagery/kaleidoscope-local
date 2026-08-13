@@ -716,6 +716,22 @@ button .btn-spinner {
 .row-buttons { display: flex; gap: 6px; }
 .row-buttons button { flex: 1; }
 
+/* THE FULL-QUALITY TIER for the current job (the display's size when broadcasting to one, the
+   source's when recording) — B587, restyled B588.
+   A STAR, not a dot, and deliberately not green: green is this app's live/broadcasting/online
+   signal everywhere else (the output traffic light, the sync dot, the presence lights), and
+   Daniel flagged that reusing it for a static quality marker reads as a state it is not.
+   A glyph rather than a word because four tiers sit across a narrow panel and "4K native" wraps;
+   on the button rather than in a `title` because the iPad this is operated from has no hover. */
+.toggle.is-native { position: relative; }
+.toggle.is-native::after {
+  content: '★'; position: absolute; top: 0; right: 3px;
+  font-size: 7px; line-height: 1.4;
+  color: var(--c-neutral-100, #fff); opacity: 0.75;
+  pointer-events: none;
+}
+.toggle.is-native:disabled::after { opacity: 0.3; }
+
 /* small caption above a control group when the group is a SETTING (not a CTA) */
 .setting-label {
   font-size: var(--text-xs);
