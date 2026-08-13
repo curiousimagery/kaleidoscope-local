@@ -246,6 +246,10 @@ export function mountPerfPanel(env, { container = null, onClose = null } = {}) {
       // it then failed to use. At B583 all three looked identical from JS.
       srcSocket: env.nativeVideo?.socketState?.() || undefined,
       srcFanOut: env.nativeVideo?.fanOut || undefined,
+      // WHAT THIS DEVICE HAS BEEN MEASURED SUSTAINING, per destination + resolution tier (B585).
+      // Accumulates across sessions, so a report carries the device's whole history of what held
+      // and what did not — which is the evidence the honest-limit label is built from.
+      broadcastCeiling: env.broadcastCeiling?.all?.() || undefined,
       // WHAT THE GOVERNOR THINKS IT IS DOING (B573). Its only observable was an absence — surfaces
       // that did not move — and an absence looks identical whether the rule declined to act, was
       // never subscribed, or was reading a broadcast probe that returned false. Three builds, three

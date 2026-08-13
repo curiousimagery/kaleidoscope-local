@@ -1027,6 +1027,8 @@ const LINK_PARAMS = [
       'Also a toggle in settings → diagnostics ("4K/QHD over HDMI"). Largely historical now that the single native decode removed the second decoder that made the guard necessary.'],
     ['foldNdiClockVideo', 'NDI clock_video ("0" disables; default on)',
       'Toggle in settings → diagnostics. Left on by default after the iPad NDI A/B.'],
+    ['foldBroadcastCeiling-v1', 'LEARNED, not a switch: what this device sustained per destination + resolution tier',
+      'Written by broadcast-ceiling.js once a second while broadcasting, and read back into the output panel\'s resolution hint before the next one starts ("measured here: 20 of 30fps · QHD held 29"). Median of the run, not the best window, because judder is a variance phenomenon and the best window flatters a tier that stutters. Delete the key to make the app forget and re-measure; it also rides the frame-cost report as `broadcastCeiling`.'],
   ] },
 ];
 

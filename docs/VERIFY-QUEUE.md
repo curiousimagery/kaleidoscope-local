@@ -8,7 +8,26 @@ Confirmed results are DELETED from here and recorded in CHANGELOG.
 
 ---
 
-# ▶ THIS SESSION (B584) — "when the app freezes, which side stopped?"
+# ▶ THIS SESSION (B585) — "does the panel tell the truth about what this device can do?"
+
+**iPad, ~6 minutes.** No native rebuild needed (B584's already covers it). Nothing about frame rate changes in this build; it only changes what the panel *says*.
+
+## ⚠️ SET THE SCENARIO TAG TO `hdmi-broadcast` FIRST, and again before saving any baseline.
+
+## Steps
+
+1. **Open the output panel before broadcasting.** At the 4K tier the hint should read `3840×2160 · not measured here yet · 4K asks the most of the GPU`. **The old hardcoded `clean hardware only` should be gone.**
+2. **Broadcast 4K → 4K HDMI for at least 15 seconds**, then stop. (It needs 8 samples past a 4-second warm-up before it will commit a reading.)
+3. **Reopen the panel at 4K.** It should now read something like `⚠ measured here: 20 of 30fps · a lower tier may hold`.
+4. **Switch to QHD, broadcast 15 seconds, stop.** Then look at the 4K tier again: if QHD held, the advice should name it — `· QHD held 29`.
+   - **This is also the answer to the resolution question itself.** Whatever QHD measures is the real cost/benefit of dropping a tier on your hardware, and you will be looking at the wall while it happens, which is the part I cannot measure.
+5. `copy report` — `broadcastCeiling` carries every reading it has accumulated.
+
+## What it will not do
+
+**It never changes the resolution for you.** The tier stays locked while output is live (that has always been true) and the text is only advice. On Syphon/NDI it also warns that the size is what downstream sees.
+
+# 🅿️ PREVIOUS SESSION (B584) — "when the app freezes, which side stopped?" — NO REPRO in two attempts; instrument is in place, closed as watched.
 
 **⚠️ NEEDS A NATIVE REBUILD: `npx cap sync ios`, then build in Xcode.** The Swift plugin gained a `frameStats` method; without the rebuild `srcFanOut` will be absent from the report and this session cannot answer its question.
 

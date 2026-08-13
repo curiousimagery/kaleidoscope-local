@@ -263,12 +263,12 @@ Resolved on Daniel's design rather than by picking one vocabulary, because **the
 
 `FrameSocketServer.send()` filters `{ $0.ready && !$0.sending }` — a client mid-send is skipped for that frame — and `reapStalledLocked()` cancels one that has been sending 6s. At 4K each frame is ~12.4MB and the loopback already carries ~370MB/s to one client, so a second client joining is exactly when contention peaks. **B501 fixed the mirror image of this** (the external view failing to join while the app streamed), which makes a start-of-broadcast race the leading hypothesis.
 
-**B584 shipped the instrument, not a fix** (uncertainty state B: we know what, not why). Next repro, read `srcFanOut.clients[].offered` vs `taken`:
+**B584 shipped the instrument, not a fix** (uncertainty state B: we know what, not why). **STATUS: NO REPRO in two further B584 attempts, closed as watched rather than pursued** (Daniel's call, and the right one: chasing an intermittent with no repro is the trap this arc is named for). The instrument is in place, so the next occurrence answers it in one reading rather than costing a session. Read `srcFanOut.clients[].offered` vs `taken`:
 - **equal, picture frozen** → the frames arrived and we failed to use them. Our bug, JS side.
 - **`skipped` growing** → the fan-out is passing us over. Contention; the lever is the send path or a per-client budget.
 - **`reaped` bumped, or `srcSocket.state: closed`** → we were dropped by the watchdog. B584's rejoin should now recover it; `reconnects` will say so.
 
-**Related and NOT yet explained:** even in healthy sessions both clients see ~25/s arrivals against a decoder producing 30/s. **~5 frames a second are being skipped by the fan-out as normal operation**, and that is the real delivery ceiling (see the resolution item below).
+**✅ AND THE SAME INSTRUMENT EXONERATED THE WIRE ON ITS FIRST READING, killing the hypothesis that built it.** B584 healthy run: **`skipped: 0` on both clients** over 4414 frames, `reaped: 0`, `closes: 0`. `offered` over `ageMs` = **29.33/s against a 30fps source, 97.8% delivery.** The claim in this item's previous revision — that ~5 frames a second were being lost to the fan-out — was **wrong, and wrong because `extJitter.arrive` is measured in the external view's `ws.onmessage` and is therefore downstream of the main thread it was being used to exonerate.** A textbook wrong noun, in an instrument, used to justify a second instrument. The native counter is the wire; prefer it.
 
 ### 🔒 CONSTRAINT: OUTPUT RESOLUTION IS A CONTRACT WITH THE DOWNSTREAM CONSUMER (Daniel, B583)
 
@@ -276,7 +276,7 @@ Resolved on Daniel's design rather than by picking one vocabulary, because **the
 
 This does NOT prohibit degrading under duress; it prohibits doing it *silently on a contracted path*. Design implications when the honest-guardrail work (close-out step 4) lands:
 
-- **Separate the two mechanisms.** An **HDMI/AirPlay external window** has no downstream consumer with a fixed expectation, and the display itself declares its native size, so matching it is pure waste-removal with no contract to break. **The 2560-vs-3840 lever is that case and is not covered by this constraint.** Syphon/NDI publish into someone else's graph and are.
+- **Separate the two mechanisms.** An **HDMI/AirPlay external window** has no downstream consumer with a fixed expectation, so the size is ours to choose. Syphon/NDI publish into someone else's graph and are not. **⚠️ CORRECTION (B585): the "we may be oversampling a 2560 panel" version of this is DEAD.** Daniel's display is a real 4K panel (Dell P2415Q, 24"). The `preferredMode`/`nativeBounds` 2560×1440 reading was the per-device iOS quirk [FoldExternalDisplayPlugin.swift:178](../native-plugins/fold-external-display/ios/Sources/FoldExternalDisplayPlugin/FoldExternalDisplayPlugin.swift#L178) already warns about. **Dropping to 2560 IS broadcasting at QHD.** Shipped B585 as an operator choice with a measured recommendation.
 - On a contracted path, prefer **telling the operator** ("this device sustains ~20fps at 4K") over changing the frame size under them. That is the same "explain, don't silently degrade" rule as B555 and the governor's paused-panel label.
 - If we ever do offer it there, it should be an explicit operator choice with the tradeoff stated, not an automatic rung — and ideally at **broadcast start**, when nothing downstream is locked in yet.
 

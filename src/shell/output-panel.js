@@ -16,6 +16,7 @@
 // while broadcasting). The test pattern swaps the program for a reference frame.
 
 import { setMicTrimHint, getMicTrimHint, MIC_TARGET_PEAK, MIC_MAX_GAIN, MIC_MIN_GAIN } from 'conduit/recorder';
+import { createBroadcastCeiling } from './broadcast-ceiling.js';
 
 const TIER_DEFAULT = 1920;            // FHD long side — safe live default (never 4K)
 const DEST_KEY = 'fold.outputDestination';
@@ -417,6 +418,12 @@ export function createOutputPanel(env, outputBus) {
     .filter((d) => d.sink && d.sink.supported !== false);
 
   let tier = TIER_DEFAULT;
+  const TIERS = [1280, 1920, 2560, 3840];
+  // WHAT THIS DEVICE HAS ACTUALLY SUSTAINED (B585), learned per destination + tier while
+  // broadcasting and read back into the hint before the next one starts. See broadcast-ceiling.js
+  // for why this is measured rather than declared.
+  const ceiling = createBroadcastCeiling();
+  env.broadcastCeiling = ceiling;
   let wantRecord = false;
   let broadcasting = false;             // is the selected destination live
   let testOn = false;
@@ -460,17 +467,95 @@ export function createOutputPanel(env, outputBus) {
   function videoHdmiUncapped() {
     return hdmiUncapOn() && destination === 'hdmi' && !!env.sourceVideo && !!window.Capacitor?.isNativePlatform?.();
   }
+  // WHAT WE MEASURED HERE, in place of what we assumed anywhere (B585).
+  //
+  // The 4K tier has carried a hardcoded "clean hardware only" since before any of this was
+  // measured — a guess wearing the clothes of a spec, and the thing CAPABILITIES §1 exists to
+  // prevent. We now have the real number on Daniel's M1 iPad (4K→4K HDMI sustains ~18-24 new
+  // pictures a second of a 30fps source) and, more to the point, a way to have it on ANY device
+  // without predicting anything: the broadcast is the experiment.
+  //
+  // The recommendation is deliberately only ever a SENTENCE. Lowering the resolution is the
+  // operator's call, never ours: on Syphon/NDI the frame size is a contract with whatever is
+  // downstream (Resolume Arena scales its composition to it), so a lower tier can be worse than a
+  // low frame rate. `locks.js` already freezes the tier while output is live, which means this
+  // text is only ever read at the one moment the choice is safe to make.
+  // WHAT WAS ACTUALLY RENDERED, WHICH IS NOT ALWAYS THE TIER (B586). A self-rendering destination
+  // (`needsBus:false` — HDMI/AirPlay, the output window) renders at the DISPLAY's native size; the
+  // tier only ever reached `outputBus.setResolution`, which those destinations do not use. Keying
+  // the learned ceiling on the tier therefore filed a 4K run under `hdmi:2560` and called it a QHD
+  // measurement — the wrong noun, in the instrument shipped one build earlier to end wrong nouns.
+  const selfRendering = () => selectedDest()?.sink?.needsBus === false;
+  function activeLongSide() {
+    if (!selfRendering()) return tier;
+    const live = env.externalDisplay?.active ? env.externalDisplay.renderDims : null;
+    const d = (live?.width ? live : env.externalDisplayDims) || null;
+    return d?.width ? Math.max(d.width, d.height) : tier;
+  }
+  function resMeasuredNote() {
+    const here = ceiling.get(destination, activeLongSide());
+    // the SELECTED destination's contract, not the live one: this text is read before a broadcast
+    // starts, which is the only moment `locks.js` lets the tier change at all
+    const bus = selectedDest()?.sink?.needsBus !== false;
+    if (here) {
+      if (ceiling.holds(here)) return `measured here: holds ${here.delivered} of ${here.source}fps`;
+      const better = ceiling.bestHolding(destination, TIERS.filter((t) => t < activeLongSide()));
+      const name = (t) => (t === 3840 ? '4K' : t === 2560 ? 'QHD' : t === 1920 ? 'FHD' : 'HD');
+      const advice = better
+        ? ` · ${name(better.tier)} held ${better.delivered}`
+        : ' · a lower tier may hold';
+      // the honest caveat, only where the frame size is somebody else's contract
+      return `⚠ measured here: ${here.delivered} of ${here.source}fps${advice}${bus ? ' (changes the size downstream sees)' : ''}`;
+    }
+    // Never measured at THIS tier. Say what we do know rather than inventing a verdict.
+    const best = ceiling.bestHolding(destination, TIERS);
+    if (best && best.tier < tier) return `not measured here yet · highest that held: ${best.tier === 3840 ? '4K' : best.tier === 2560 ? 'QHD' : best.tier === 1920 ? 'FHD' : 'HD'}`;
+    return tier >= 3840 ? 'not measured here yet · 4K asks the most of the GPU' : '';
+  }
+  // NO EARLY RETURNS (B586). Every branch here used to `return` its own single sentence, so on
+  // Daniel's iPad — which has the break-glass HDMI toggle on — the testing warning preempted the
+  // measured reading entirely and he never saw it. **A hint that can be silenced by an unrelated
+  // condition is not a hint.** The parts now accumulate; only the hard memory guard, which makes
+  // every other statement moot, still stands alone.
   function renderResHint() {
     if (!resHint) return;
     if (videoHdmiCapped()) { resHint.textContent = 'video over HDMI renders at 1080p on iPad (memory guard)'; return; }
-    if (videoHdmiUncapped()) { resHint.textContent = '⚠ testing: 4K/QHD over HDMI may lose the graphics context (~30s) — break-glass resets'; return; }
     const { w, h } = computeDims();
-    const base = tier >= 3840 ? `${w}×${h} · clean hardware only` : `${w}×${h}`;
+    const parts = [];
+    // THE TIER DOES NOT REACH A SELF-RENDERING DESTINATION, and this line implied for builds that
+    // it did. HDMI/AirPlay and the output window render at the DISPLAY's native size by design
+    // ("the point of HDMI" — external-display.js); the tier only feeds the bus, which they do not
+    // use. Daniel switched 4K→QHD, saw no change, and the reason was that nothing changed.
+    if (selfRendering()) {
+      const d = (env.externalDisplay?.active ? env.externalDisplay.renderDims : null) || env.externalDisplayDims;
+      parts.push(d?.width ? `renders ${d.width}×${d.height} — the display's own size` : 'renders at the display\'s native size');
+      parts.push(`this tier (${w}×${h}) applies to recording, NDI and Syphon`);
+    } else {
+      parts.push(`${w}×${h}`);
+    }
+    const measured = resMeasuredNote();
+    if (measured) parts.push(measured);
+    // the break-glass guard is a no-op on the single-native-decode path (external-display.js:154),
+    // so the old "may lose the graphics context" text was warning about a retired mechanism
+    if (videoHdmiUncapped()) parts.push('⚠ HDMI resolution guard lifted (testing)');
     // NDI over Wi-Fi is jitter-bound (Daniel's iPad + iPhone A/B: bursty regardless of settings).
     // Surface the honest caution inline whenever NDI is selected; Ethernet is the smooth path.
-    if (destination === 'ndi') { resHint.textContent = `${base} · ⚠ NDI over Wi-Fi can stutter — Ethernet for smooth playback`; return; }
-    resHint.textContent = base;
+    if (destination === 'ndi') parts.push('⚠ NDI over Wi-Fi can stutter — Ethernet for smooth playback');
+    resHint.textContent = parts.join(' · ');
   }
+
+  // THE BROADCAST IS THE EXPERIMENT. One sample per ledger window while live, of the same pair the
+  // governor acts on: NEW PICTURES on the display against frames the decode produced. Deliberately
+  // not the app's own fps — B571 and B576 both caught that number and the picture on the wall
+  // moving in OPPOSITE directions, so a ceiling learned from it would be confidently wrong.
+  env.perf?.onReport?.(() => {
+    if (!broadcasting) { ceiling.stop(); return; }
+    const ext = env.externalDisplay;
+    const p50 = ext?.active ? (ext.jitter?.fresh?.p50 || 0) : 0;
+    const source = ext?.srcFps > 0 ? ext.srcFps : 0;
+    if (!(p50 > 0 && source > 0)) return;   // a destination with no measurable display teaches us nothing
+    ceiling.note({ destination, tier: activeLongSide(), delivered: 1000 / p50, source });
+  });
 
   // ---- bus lifecycle: run while recording OR a bus-consuming destination is live --
   // is the program output live (broadcasting or recording)? drives the M3 contextual locks

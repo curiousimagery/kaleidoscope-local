@@ -4,6 +4,31 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 📏 v0.23.32 (Build 585) — 2026-08-11 — The resolution tiers say what this device actually sustained, instead of guessing
+
+Close-out step 4, the honest limit. **Daniel confirmed the display is a real 4K panel (Dell P2415Q, 24" at 3840×2160), which settles an open question the wrong way for us: rendering the external view at 2560 is not removing an oversample, it IS broadcasting at QHD.** So it ships as an informed operator choice rather than an automatic rung, exactly as he asked.
+
+### The 4K tier had been carrying a guess dressed as a spec
+
+The hint read **`clean hardware only`**, hardcoded, written before any of this was measured. That is the classification mistake CAPABILITIES §1 exists to prevent: an M3 iPad may sustain a tier an M1 cannot, and deciding by device name is how we would get it wrong on hardware we have never held.
+
+**Now the broadcast IS the experiment.** `broadcast-ceiling.js` samples once per ledger window while live, storing the **median** delivered rate per destination and tier:
+
+- **The median of the run, not the best window.** Judder is a variance phenomenon (B576), so the best window is precisely the reading that would flatter a tier that stutters.
+- **The same pair the governor acts on** — new pictures on the display against frames the decode produced. **Not app fps**, which B571 and B576 both caught moving in the opposite direction from the picture on the wall.
+- **Persisted**, because the reading is a property of the device and the display rather than of the session, and it has to be readable at the one moment the tier can change.
+
+The hint now reads `3840×2160 · ⚠ measured here: 20 of 30fps · QHD held 29`, or `not measured here yet · 4K asks the most of the GPU` before there is anything honest to say.
+
+### It recommends; it never acts
+
+Lowering the resolution stays the operator's call. On Syphon/NDI the frame size is a **contract with whatever is downstream** — Resolume Arena scales its composition to the incoming size — so a lower tier can be worse than a low frame rate (Daniel, B583). Two things keep that safe, and one of them was already there:
+
+- `locks.js` has always frozen the tier while output is live, so **this text is only ever read at the moment the choice is safe to make.**
+- On a bus destination the advice carries `(changes the size downstream sees)`.
+
+The store rides the frame-cost report as `broadcastCeiling`, so a device's whole history of what held and what did not travels with a copied report. Listed in the UI Lab's localStorage sheet; delete `foldBroadcastCeiling-v1` to make it forget and re-measure.
+
 ## 🔌 v0.23.31 (Build 584) — 2026-08-11 — Both ends of the frame wire report, and a frozen source can no longer look like the best frame rate of the session
 
 **⚠️ NEEDS A NATIVE REBUILD** (`npx cap sync ios` + build in Xcode). The Swift plugin gained a method.
