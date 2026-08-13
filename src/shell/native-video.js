@@ -360,6 +360,7 @@ export async function createNativeVideoSource(env, blob, { name, loop = true, on
     // the wire is fine and the fault is ours; a growing `skipped` means the fan-out is passing us
     // over; a bumped `reaped` means we were dropped and are not coming back on our own.**
     socketState: () => receiver.socketState?.() || null,
+    loopStall: () => receiver.loopStall?.() || null,
     get fanOut() { return lastFanOut; },
     pollFanOut: () => {
       if (fanOutBusy) return;

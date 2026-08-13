@@ -82,6 +82,10 @@ packages/
 ```
 Tiers: **A** = pure-JS moves (capture probe, codec discovery, FNDI protocol); **B** = native host packages per shell; **C** = design-first external-surface plumbing. Fold's adapter is `shell/fold-adapter.js` (app-side, so the package stays Fold-free).
 
+## broadcast delivery (external display, Syphon, NDI) → see `BROADCAST-DELIVERY.md`
+
+**That file is authoritative for this path** and is the answer sheet for the B549-B593 frame-rate arc: the frame pipeline (one native decode, one socket, two webview clients), **which conduit hooks fold answers and why**, what every diagnostic field is a noun for, the levers that work, and a table of hypotheses **proven dead with the measurement that killed each**. Read it before proposing anything about broadcast frame rate — several plausible ideas in there have already been measured and are wrong.
+
 ## key principles
 
 **State lives in one place.** All kaleidoscope parameters live in `src/shell/state.js` as a single object. The engine accepts state on every call rather than holding its own — this matches the original monolith's "single state object" architecture and is what lets the Motion and Perform modes record/replay/animate state (these were once imagined as separate "motion/live shells"; they're now modes in this app).

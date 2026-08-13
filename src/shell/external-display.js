@@ -199,6 +199,7 @@ function createPoster(opts) {
       getVideoSync: opts.getVideoSync,
       hasLivePixels: opts.hasLivePixels,
       viewHasOwnClock: opts.viewHasOwnClock,
+      isPlaying: opts.isPlaying,
       getTest: opts.getTest,
       sourceSignature: opts.sourceSignature,
       buildSourcePayload: opts.buildSourcePayload,
@@ -317,6 +318,8 @@ export function createExternalDisplaySink(env) {
     // Kept deliberately in lockstep with getSource() below; if a branch is added there, ask
     // whether it gives the view a socket before touching this.
     viewHasOwnClock: () => !!(env.nativeVideo || (env.live?.isLive && env.liveCameraInfo?.()?.stream)),
+    // A live camera has no transport to pause; a clip does. See external-surface.js (B593).
+    isPlaying: () => (env.nativeVideo ? !env.nativeVideo.clock?.paused : true),
     getOutputDims: () => {
       const bus = env.outputBus;
       return { width: bus?.width || 1920, height: bus?.height || 1080 };

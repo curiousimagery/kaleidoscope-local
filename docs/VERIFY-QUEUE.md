@@ -8,7 +8,48 @@ Confirmed results are DELETED from here and recorded in CHANGELOG.
 
 ---
 
-# ▶ THIS SESSION (B592) — "read the counter that was missing"
+# ▶ THIS SESSION (B594) — nothing to verify
+
+**No code changed.** B594 is documentation only: `docs/BROADCAST-DELIVERY.md`, the durable reference for this path, plus a pointer from `ARCHITECTURE.md`.
+
+**Carried forward, unverified, into the source-switch work:**
+1. **Motion-mode broadcast start still autoplays** (B593's gate is incomplete — correct after one perform round-trip).
+2. **Green/RGB glitch on the first motion → perform transition.**
+3. **The loop hold** — now known to be ours, not the decoder's.
+
+All three are the same family: *the first frame after a mode or source change.*
+
+# 🅿️ PREVIOUS SESSION (B593) — "does the wall follow the operator, and whose gap is the loop hold?"
+
+**iPad, ~8 minutes.** Two fixes and one new instrument.
+
+## ⚠️ SET THE SCENARIO TAG TO `hdmi-broadcast` FIRST. Your last three reports were tagged `idle-still`.
+
+## Part 1 — the pause regression
+
+1. Motion mode, **paused**, start the broadcast. **The wall must hold, not play.**
+2. Press play. The wall follows. Pause again. It holds.
+3. **Scrub while paused.** The wall should follow within ~250ms (the heartbeat). **If it does not follow at all, tell me** — that is the one thing this fix could plausibly break.
+4. Perform mode: hold, take, cut. All should behave as before.
+
+## Part 2 — the loop hold (the instrument)
+
+5. Let a 4K clip loop **at least three times** while broadcasting, watching for the hold you described.
+6. `copy report`. The new field is **`loopStall`**.
+
+**How to read it, and this decides where the fix goes:**
+
+- **`last.gapMs` near 30-50ms** → the decoder never stopped. Frames arrived on time and **we** failed to show them. Fix is ours, in JS.
+- **`last.gapMs` in the hundreds** → the native looper genuinely stalls across the wrap. Fix is in the Swift plugin.
+- **`after1s` well below 30** → confirms a real delivery stall rather than a single-frame hiccup.
+
+`wraps` should equal the number of loops you watched. **If it stays 0 while the clip visibly loops, the instrument is wrong and nothing else here counts.**
+
+## Also fixed, no action needed
+
+The learned ceiling no longer records while the source has fallen off the planar path — your GL-context-loss run had overwritten a healthy 29 with a broken 20.
+
+# 🅿️ PREVIOUS SESSION (B592) — "read the counter that was missing"
 
 **iPad, ~4 minutes.** No behaviour change. B591's `extPosts` counter never reached the report on your path; this makes it visible so the panels-off case can be diagnosed instead of guessed at.
 

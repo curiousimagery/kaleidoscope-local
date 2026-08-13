@@ -589,6 +589,11 @@ export function createOutputPanel(env, outputBus) {
     const p50 = ext?.active ? (ext.jitter?.fresh?.p50 || 0) : 0;
     const source = ext?.srcFps > 0 ? ext.srcFps : 0;
     if (!(p50 > 0 && source > 0)) return;   // a destination with no measurable display teaches us nothing
+    // A DEGRADED RUN DESCRIBES THE FAILURE, NOT THE DEVICE (B593). Daniel's GL-context-loss
+    // session wrote `delivered: 20` over a healthy 29: the source had fallen off the planar path
+    // onto a `<video>`, so it was measuring a broken state and filing it as this hardware's
+    // ceiling. `planarActive` is the same marker the source note already uses to say so out loud.
+    if (env.nativeVideo && !env.engine?.planarActive) return;
     ceiling.note({ destination, tier: activeLongSide(), delivered: 1000 / p50, source });
   });
 

@@ -248,6 +248,10 @@ export function mountPerfPanel(env, { container = null, onClose = null } = {}) {
       // identical state is safely skippable; a high `elided` beside healthy delivery is the fix
       // working. `ownClock:false` with a clip playing means we are back to posting every frame.
       extPosts: env.externalDisplay?.posts || undefined,
+      // THE LOOP-RESTART HOLD, instrumented (B593). See native-frame-receiver.noteClock: a small
+      // `last.gapMs` means the decoder never stopped and the hold is on our side; a large one
+      // means it did and the fix is native. This is the reading that decides which.
+      loopStall: env.nativeVideo?.loopStall?.() || undefined,
       srcSocket: env.nativeVideo?.socketState?.() || undefined,
       srcFanOut: env.nativeVideo?.fanOut || undefined,
       // WHAT THIS DEVICE HAS BEEN MEASURED SUSTAINING, per destination + resolution tier (B585).

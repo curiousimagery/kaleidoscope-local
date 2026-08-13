@@ -96,6 +96,14 @@ export function createSurfacePoster({ transport, content, renderCaps = [Infinity
       output: lastOut,
       video: content.getVideoSync?.() || null,
       test: !!content.getTest?.(),
+      // IS THE PROGRAM ACTUALLY RUNNING (B593). B590 let the view draw on frame arrival, which
+      // made its picture advance on the DECODER's clock rather than the operator's — Daniel
+      // started a broadcast while paused in motion and the wall played on without him. The
+      // contract is that the wall shows what the app shows, so the view only free-runs while this
+      // is true. Paused falls back to state-driven renders, which is the pre-B590 behaviour and
+      // the correct one: a paused program's picture changes only when its params do. Scrubbing
+      // while paused still follows, because the 250ms heartbeat floor keeps posting.
+      playing: content.isPlaying ? !!content.isPlaying() : true,
     };
     // IDLE ELISION with a HEARTBEAT FLOOR (B513). The view uses message ARRIVAL as its render
     // clock — an unfocused window's rAF is throttled, so a loop-driven view renders jerkily or

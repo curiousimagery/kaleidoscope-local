@@ -108,7 +108,7 @@ async function setupSource(payload) {
     let recv = null;
     try {
       const mod = await import('./shell/native-frame-receiver.js');
-      recv = mod.createNativeFrameReceiver({ port: payload.port, mirror: !!payload.mirror, onFrame: scheduleRender });
+      recv = mod.createNativeFrameReceiver({ port: payload.port, mirror: !!payload.mirror, onFrame: scheduleRenderOnFrame });
       await recv.start();
     } catch (e) {
       if (hint) hint.textContent = 'could not join the camera stream: ' + (e.message || e);
@@ -137,7 +137,7 @@ async function setupSource(payload) {
       // planes), it exists only to give setSource the source's dimensions and aspect —
       // and an uncapped one would cost a full 4K readback right when the join window is
       // ticking, which is the worst possible moment for a 160ms stall
-      recv = mod.createNativeFrameReceiver({ port: payload.port, cap: 1280, onFrame: scheduleRender });
+      recv = mod.createNativeFrameReceiver({ port: payload.port, cap: 1280, onFrame: scheduleRenderOnFrame });
       await recv.start();
     } catch (e) {
       if (hint) hint.textContent = 'could not join the video stream: ' + (e.message || e);
@@ -452,6 +452,17 @@ requestAnimationFrame(tick);
 // triggers collapse into at most one render per macrotask, so the render rate self-paces to
 // whatever this view can actually sustain, and the message handlers still return immediately —
 // which is the B579 constraint (rendering synchronously in the handler starved the socket).
+let latestPlaying = true;
+// FRAME ARRIVAL ONLY DRIVES THE PICTURE WHILE THE PROGRAM IS RUNNING (B593). B590 made a new
+// frame its own reason to draw, and that turned out to advance the wall on the DECODER's clock
+// rather than the operator's: Daniel started a broadcast while paused in motion mode and the
+// display played on without him. Paused reverts to state-driven renders, which is the pre-B590
+// behaviour and the right one — a paused program's picture changes only when its params do, and
+// the poster's 250ms heartbeat keeps a scrub following.
+function scheduleRenderOnFrame() {
+  if (!latestPlaying) return;
+  scheduleRender();
+}
 let renderPending = false;
 function scheduleRender() {
   if (renderPending) return;
@@ -471,6 +482,9 @@ function handleMessage(msg) {
     latestVideo = msg.video || null;
     applyOutput(msg.output);
     applyTestPattern(!!msg.test);
+    // WHETHER THE PROGRAM IS RUNNING gates the frame-arrival trigger below (B593). Absent on an
+    // older poster, so default to true rather than freezing on a message we do not understand.
+    latestPlaying = msg.playing !== false;
     // the state stream IS the render clock (rAF is throttled unfocused — see renderFrame), but
     // COALESCED (B579): a burst of queued messages becomes one render, so the thread stays free
     // to service the frame socket instead of re-rendering 4K pictures nobody will see

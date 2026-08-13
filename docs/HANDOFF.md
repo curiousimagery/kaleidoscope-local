@@ -46,7 +46,11 @@ This retires the confusion, not just a hypothesis. Resolution was free because t
 
 **▶ ITEM 1 IS EFFECTIVELY CLOSED. The remaining work here is CONSOLIDATION, not investigation** — see BACKLOG's consolidation item, which Daniel called for directly. **The governor is the live risk: B590 inverted its premise and its action now measurably hurts delivery.**
 
-**▶ NEXT IS ITEM 2, promoted by Daniel:** the **loop-restart stall is reproducing for him in normal use and he calls it "visually very disruptive."** It is a multi-frame hold at the end of each loop, predates B590, and is the way into the source-attach cluster.
+**📕 ITEM 1 IS CLOSED AT B594. `docs/BROADCAST-DELIVERY.md` is the answer sheet — read it before proposing anything about broadcast frame rate.** Result: **29 of 30 delivered at full 4K** while the app runs at ~20fps. Eight hypotheses are recorded there as measured-dead; several are plausible enough to be re-proposed by someone who has not read it.
+
+**▶ NEXT IS ITEM 2, promoted by Daniel:** the **loop-restart stall is reproducing for him in normal use and he calls it "visually very disruptive."** It is a multi-frame hold at the end of each loop, predates B590, and is the way into the source-attach cluster. **B593's `loopStall` already answered the first question: the decoder is INNOCENT** (25 wraps, max gap 17ms, 29 frames in the second after the wrap). The hold is in our own render/upload path on a pts discontinuity.
+
+**Three symptoms, one family — "the first frame after a mode or source change":** the loop hold; **broadcast-start from motion mode still autoplaying** (B593's `playing` gate is incomplete, correct after one perform round-trip); and a **green/RGB glitch on the first motion → perform transition**. Start with whichever reproduces most reliably.
 
 **(superseded) VERIFY DECIDES THE ARC.** If delivery goes to ~30/s and stops tracking app fps, item 1 closes and the product behaviour inverts in the right direction (a heavy slice slows the operator's editor, not the audience). **If delivery does NOT move, the app-frame story is wrong too, and the standing instruction is to STOP and go to item 2 without proposing anything further here.**
 

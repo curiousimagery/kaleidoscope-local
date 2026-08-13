@@ -55,6 +55,8 @@ export function createNativeFrameReceiver({ port = 8899, mirror = false, cap = 0
   // fan-out skips a client whose previous send is still in flight, and reaps one that has been
   // sending for 6s — two very different diagnoses that produced one identical symptom.
   let closes = 0, reconnects = 0, lastCloseT = 0;
+  // loop-boundary accounting — see noteClock (B593)
+  let loopWraps = 0, maxWrapGap = -1, lastWrap = null, postWrapWindow = 0, postWrapFrames = 0;
   // frames handed to the ENGINE as raw planes (the fast path) — counted apart from the
   // preview blit so the report can say which one is actually carrying the picture
   let taken = 0, winTaken = 0;
@@ -76,6 +78,27 @@ export function createNativeFrameReceiver({ port = 8899, mirror = false, cap = 0
   // so the clock keeps running whichever one a given mode actually uses.
   function noteClock(frame) {
     if (!frame.stamped) return;
+    // THE LOOP BOUNDARY, MEASURED AT THE ONLY PLACE THAT SEES BOTH SIDES OF IT (B593).
+    //
+    // Daniel: "whenever the clip loops it holds a frame for a few beats each time it restarts."
+    // The question is WHOSE gap it is, and there are only two candidates: the native looper stops
+    // producing across the wrap, or it does not and our render/upload path is what stalls.
+    //
+    // `pts` going BACKWARDS is the wrap — a conserved quantity from the far side of a boundary we
+    // do not own (AVPlayerLooper swaps in a fresh copy of the template item each lap). Pairing it
+    // with the WALL-CLOCK gap between the last frame before and the first after separates the two
+    // outright: a large gap means the decoder stalled and the fix is native; a normal gap with a
+    // visible hold means the frames arrived and we failed to show them, and the fix is ours.
+    if (isFinite(frame.pts) && frame.pts >= 0 && frame.pts + 0.25 < pts) {
+      const at = performance.now();
+      const gap = lastArrivalT ? Math.round(at - lastArrivalT) : -1;
+      loopWraps++;
+      lastWrap = { gapMs: gap, fromPts: Math.round(pts * 1000) / 1000, toPts: Math.round(frame.pts * 1000) / 1000, at };
+      if (gap > maxWrapGap) maxWrapGap = gap;
+      // frames arriving in the second AFTER the wrap — the direct test of "did delivery resume
+      // immediately". Counted by the arrival handler; reset here so each wrap gets its own count.
+      postWrapWindow = at + 1000; postWrapFrames = 0;
+    }
     if (isFinite(frame.pts) && frame.pts >= 0) pts = frame.pts;        // 0 is a real position (head of the clip)
     if (isFinite(frame.duration) && frame.duration > 0) duration = frame.duration;  // 0 = not loaded yet; hold the last good value
   }
@@ -146,6 +169,7 @@ export function createNativeFrameReceiver({ port = 8899, mirror = false, cap = 0
           // broadcast. This lets a consumer schedule on frame arrival instead. It must never do
           // work synchronously here — that is the B579 failure, where rendering inside the message
           // handler starved this very socket.
+          if (postWrapWindow && performance.now() <= postWrapWindow) postWrapFrames++;
           if (onFrame) { try { onFrame(); } catch { /* a consumer's scheduler must not kill the socket */ } }
           // WHEN frames arrive, not just how many (B578). The external view's B577 reading showed
           // 30 arrivals per second reaching the screen as only 7 new pictures, which is only
@@ -228,6 +252,13 @@ export function createNativeFrameReceiver({ port = 8899, mirror = false, cap = 0
     // THE STATE OF THE PIPE ITSELF, not of the pictures in it (B584). `msSinceFrame` is the one
     // that ends the ambiguity fastest: a socket that is OPEN with a large gap is being SKIPPED by
     // the fan-out, and one that is CLOSED was reaped or torn down. Those need opposite fixes.
+    // WHOSE GAP IS THE LOOP HOLD (B593). `lastWrap.gapMs` is the wall-clock silence across the
+    // boundary: near the frame interval means the decoder never stopped and the hold is ours;
+    // hundreds of ms means it did. `after1s` is how many frames landed in the second following
+    // the wrap — a low number confirms a genuine delivery stall rather than a one-frame hiccup.
+    loopStall() {
+      return { wraps: loopWraps, maxGapMs: maxWrapGap, last: lastWrap, after1s: postWrapFrames };
+    },
     socketState() {
       const rs = ws ? ws.readyState : -1;
       return {

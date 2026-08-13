@@ -282,9 +282,36 @@ Resolved on Daniel's design rather than by picking one vocabulary, because **the
 
 **Mechanism, and it is a direct consequence of B590.** The app pauses by *not consuming* frames, not by stopping the decoder — his report shows `30.7 in/s` still arriving while paused. Before B590 the view only drew when the app posted state, so a paused app meant a held picture. B590 made a new frame its own reason to draw, so the view now advances the picture on the decoder's clock regardless of the app's transport state.
 
-**Proposed fix (not yet built):** the state message carries a `playing` flag; `onFrame` only schedules a render when the program is actually playing. Paused falls back to state-driven renders, which is the old behaviour and the correct one — a paused program's picture changes only when params do. **This preserves B590's win exactly where it matters** (playing is the case we optimised) and costs nothing when paused.
+**⚠️ B593 FIX INCOMPLETE (Daniel, B594):** starting a broadcast from motion mode **still autoplays**; it is correct after one perform round-trip, and correct thereafter. So the gate works but `isPlaying` is not reading the right thing at broadcast-start from motion. **Also seen: a green/RGB channel glitch on the first motion → perform transition.** Both belong with the source-switch cluster.
+
+**Fix as shipped:** the state message carries a `playing` flag; `onFrame` only schedules a render when the program is actually playing. Paused falls back to state-driven renders, which is the old behaviour and the correct one — a paused program's picture changes only when params do. **This preserves B590's win exactly where it matters** (playing is the case we optimised) and costs nothing when paused.
 
 **Verify must cover:** motion paused, perform hold, scrubbing, and the transition into and out of play, on both the video and camera paths.
+
+### 🔁 [HIGH — B594] THE LOOP-RESTART HOLD IS OURS — the decoder is measured innocent
+
+`loopStall` at B593: **25 wraps, maxGap 17ms, last gap 0ms, 29 frames in the second after the wrap.** Frames cross the loop boundary at full rate. **The hold is in our render/upload path on a pts discontinuity, not in AVPlayerLooper.**
+
+**Ruled out by reading:** the seek-settle window (`seekUntil` is set only by an explicit `seek()`, so a wrap does not trip it).
+
+**Where to look next**, all Class 1: the planar `planeReader`/`seq` handling across a backwards pts; `native-video.js`'s clock `pending`/`present` logic; anything in perform/motion that compares the new pts against the last one and treats a backwards jump as an anomaly. **This is the entry point to the source-switch cluster** — same family as the first-frame-after-attach symptoms.
+
+### 🔬 [OPEN — B593] DOING LESS APP WORK MAKES THE BROADCAST WORSE, AND WE CANNOT SEE WHY
+
+The panels-off case, now that B592's counter exonerates state posts (**4650 elided vs 859 sent, `ownClock: true`, delivery still 29/s → 20/s**):
+
+| | app fps | app accounted | delivered |
+|---|---|---|---|
+| panels on | 19.0 | 30.95ms | **29/s** |
+| panels off | **35.3** | **3.81ms** | **20/s** |
+
+**The app got 8x cheaper and 1.9x faster, and the wall lost a third of its frames.** Nothing on the measured list explains it — with the panels off the app's own loop free-runs at 35fps, and the only shared resource left is the GPU process both webviews sit on.
+
+**Leading hypothesis: the app's rAF loop rate itself is the competitor**, independent of what it draws. If so the lever is a **frame-rate cap on the app's loop while broadcasting** — categorically different from shedding surfaces, and it would explain why every shedding experiment failed.
+
+**Cheap test, no code:** the app has no rate cap today, but the governor's rate ladder throttles surface renders while the loop keeps spinning. **A/B a deliberate cap (e.g. rAF every other frame) against the current free-run, panels off, and watch delivery.** If delivery recovers, that is the real lever and the governor should be rebuilt around it rather than deleted.
+
+**⚠️ THIS CHANGES THE CONSOLIDATION DECISION.** Do not delete the governor until this is answered — its machinery may be repurposable, and "shed surfaces" being wrong does not mean "throttle the app" is.
 
 ### 🧹 [HIGH — Daniel, B591] CONSOLIDATION: THE FPS ARC LEFT LEVERS IN THE CODE THAT WE HAVE SINCE DISPROVED
 

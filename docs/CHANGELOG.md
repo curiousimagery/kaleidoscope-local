@@ -4,6 +4,42 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 📕 v0.25.4 (Build 594) — 2026-08-13 — The loop hold is ours, and the arc gets an answer sheet
+
+### 🔬 `loopStall` exonerates the decoder outright
+
+**25 wraps, `maxGapMs: 17`, `last.gapMs: 0`, `after1s: 29`.** Frames arrive across the loop boundary at full rate and never stop. **The native looper is not the hold** — the frames are there and we fail to show them, so the fix is ours and in JS.
+
+Also ruled out **by reading rather than by a device run**: the seek-settle window. `seekUntil` is set only by an explicit `seek()`, so a pts wrap does not trip it and callers that skip work mid-seek are not involved.
+
+### `docs/BROADCAST-DELIVERY.md` — the durable reference
+
+Daniel asked for a record of what is now a known known. The CHANGELOG is already the narrative, so this is the complement: **the answer sheet.** The pipeline and who clocks what across B589/B590/B593; **conduit-vs-fold ownership** stated as a rule (if it needs to know what a kaleidoscope is it belongs to fold; if it needs to know what a surface or transport is it belongs to conduit); every diagnostic field with what it is *and is not* a noun for; the levers that work; and **eight hypotheses proven dead, each with the measurement that killed it** so they can be challenged rather than repeated.
+
+It also records the two false results that came from uncontrolled A/Bs rather than bad hypotheses — **both caught by Daniel, not by the instruments** — and the measurement protocol adopted afterwards. `ARCHITECTURE.md` now points at it.
+
+## ⏸ v0.25.3 (Build 593) — 2026-08-13 — The wall stops running ahead of the operator, and the loop hold gets an instrument
+
+### The pause regression is fixed at the contract, not the symptom
+
+B590 let the view draw on frame arrival, which advanced the wall on the **decoder's** clock rather than the operator's. The state message now carries `playing`, and frame-arrival renders are gated on it. Paused reverts to state-driven renders — the pre-B590 behaviour and the correct one, since a paused program's picture changes only when its params do. **Scrubbing while paused still follows, because the poster's 250ms heartbeat keeps posting.**
+
+### The loop hold, instrumented — `loopStall`
+
+Daniel: *"whenever the clip loops it holds a frame for a few beats."* The only question worth asking first is **whose gap it is**, and `pts` running backwards is the wrap — a conserved quantity from the far side of a boundary we do not own (AVPlayerLooper swaps in a fresh item each lap).
+
+`loopStall` reports `wraps`, `last.gapMs` (wall-clock silence across the boundary), `last.fromPts/toPts`, `maxGapMs`, and `after1s` (frames landing in the second following the wrap). **A gap near the frame interval means the decoder never stopped and the hold is ours. A gap of hundreds of ms means it did and the fix is native.** One reading decides it.
+
+### The state-post theory is dead for the panels-off case
+
+`extPosts` now reaches the report, and it exonerates elision: **4650 elided against 859 sent, `ownClock: true`, and delivery still fell to 20/s** with the panels off. So B591 works and is not what that case is about.
+
+**What the run does show is more interesting.** With the panels off the app's loop runs FASTER (35.3fps vs 19) and the wall gets WORSE (20/s vs 29). **Doing less app work makes the broadcast worse**, which points at the app's own loop competing for the shared GPU process rather than at any surface's cost. Recorded, not acted on.
+
+### Guarded: the learned ceiling was recording degraded states
+
+Daniel's GL-context-loss run wrote `delivered: 20` over a healthy `29`. A reading taken while the source has fallen off the planar path describes the failure, not the device.
+
 ## 🩹 v0.25.2 (Build 592) — 2026-08-13 — `extPosts` reached the report on two paths out of three, and the third is the one Daniel uses
 
 **🏆 B591 VERIFIED, AND IT IS THE BEST NUMBER OF THE ARC: `hdmi:3840 → delivered 29 of 30`, 97%, at full 4K with a moderately large slice, while the app ran at 19.8fps.** The progression across the decoupling work is 23 → 26 → **29**.
