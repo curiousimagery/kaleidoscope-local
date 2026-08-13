@@ -84,6 +84,16 @@ This retires the confusion, not just a hypothesis. Resolution was free because t
 
 ## current version
 
+**🎯 B596 — THE B595 LOOP MECHANISM IS DEAD, KILLED BY ITS OWN COUNTER. ⚠️ NEEDS `npx cap sync ios` + AN XCODE BUILD.**
+
+`rewinds: 0, suppressed: 0` — the rewind never fired, so its settle window cannot be the hold. The last frame of the baked loop sits at pts 17.633 against a 17.7s duration and the boundary test is `>= outSec - 0.03`, so it falls 0.037s short of a 0.03s window and AVPlayerLooper wraps without us. **The `rewind` change stays** (correct, inert on a full-range trim, removes a real 120ms stall on trimmed clips) but it is not this bug.
+
+**THE OPEN MEASUREMENT:** every reading so far has been ARRIVAL, and the wire has been clean three times running. `loopStall` now carries `takeGapMs`/`maxTakeGapMs`/`taken1s` — **when a frame reached a RENDER TARGET**, the other end of the same boundary. `native-frame-receiver.js` runs in both webviews, so **`extJitter.loop` is the wall's own account** and the app's `loopStall` is the app's. Small arrival gap plus large take gap localizes the hold to a consumer in one reading, and comparing the two says WHICH consumer.
+
+**Also fixed:** a client joining a PAUSED source got no frame at all (the decode only pushes on a new pixel buffer), so B595's correct decision to park the player on load surfaced as a **blank wall at broadcast start**. `FrameSocketServer` retains the last frame and primes a joiner on `.ready`.
+
+**Watch, not yet chased:** `toPts` at the wrap has read 0.109 / 0.115 / 0.115 across three sessions — **AVPlayerLooper's item swap appears to lose ~3 frames of content every lap.** A content skip is not the reported hold, but it is steady enough to be real.
+
 **🔁 B595 — THREE ROOT CAUSES, ALL FOUND BY READING.** Fixes for the autoplay, the post-bake dark source panel, and the loop-restart hold, plus `loopStall.rewinds/suppressed/why` so the loop fix's outcome is readable either way. **No Swift change; no `cap sync` needed.** See the item-2 block above for the mechanisms and `VERIFY-QUEUE.md` for the three-part verification (do the parts in order — part 3 is only meaningful once part 2 works).
 
 **🔌 B584 — BOTH ENDS OF THE FRAME WIRE REPORT. ⚠️ NEEDS `npx cap sync ios` + AN XCODE BUILD** (the Swift plugin gained a `frameStats` method).

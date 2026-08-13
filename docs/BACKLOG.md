@@ -276,6 +276,18 @@ Resolved on Daniel's design rather than by picking one vocabulary, because **the
 
 **✅ AND THE DEFAULT WAS FIXED AT B588**, because B587 shipped an honest picker with a degraded FHD default, which Daniel rightly called the opposite of the goal. Broadcasting defaults to the display's resolution; recording/NDI/Syphon default to the source's. A hand-picked tier outranks it for the session.
 
+### 🔁 [HIGH — B596] THE LOOP HOLD, WITH TWO MECHANISMS NOW MEASURED DEAD
+
+**Symptom:** the picture holds for a few beats every time the clip loops. Reproduces on demand, predates B590, Daniel calls it "visually very disruptive."
+
+**Dead, each by its own instrument:**
+1. **A decoder stall.** B593: `maxGapMs 17`, `after1s 29`. Three sessions running, the wire is clean across the wrap.
+2. **Our own trim rewind's 120ms settle window.** B595: `rewinds: 0, suppressed: 0`. The boundary test never fires on a full-range trim — the last frame's pts falls 0.037s short of a 0.03s window.
+
+**Open measurement (B596):** `loopStall.takeGapMs` and `extJitter.loop`. Arrival has been measured three times; **take never has.** The pair localizes the hold to a consumer, and the two receivers say which one.
+
+**If take gaps come back small too**, the hold is not at the frame boundary at all and the next suspects are param-side: `p` snapping from 1 to 0 at the wrap, and whatever the timeline/playhead UI does when it scrolls back to the start.
+
 ### 🌈 [OPEN — Daniel, B594] GREEN/RGB CHANNEL GLITCH ON THE FIRST MOTION → PERFORM TRANSITION
 
 **"there's a brief moment where colors get screwed up and RGB channels seem to be firing weird (glitchy green view)."** First transition only, seen across two builds. A green cast on a YUV path is the classic signature of **sampling a plane texture before all three planes have been uploaded**, or of a plane texture allocated at one size and read at another.

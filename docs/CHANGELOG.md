@@ -4,6 +4,39 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🎯 v0.25.6 (Build 596) — 2026-08-13 — The instrument falsified my own fix, and a paused source now has a picture
+
+**⚠️ NEEDS `npx cap sync ios` + AN XCODE BUILD** (`FrameSocketServer` gained a primed-join path).
+
+### B595's loop-hold mechanism is dead, killed by the counter shipped to test it
+
+```
+"loopStall": { "wraps": 9, "maxGapMs": 8, "last": { "gapMs": 2, "fromPts": 17.633, "toPts": 0.109 },
+               "after1s": 28, "rewinds": 0, "suppressed": 0, "why": "no loop boundary reached yet" }
+```
+
+**Both counters 0.** The rewind never ran, so the 120ms settle window it opens cannot be the hold. The arithmetic says why: the baked loop's last frame sits at pts **17.633** against a **17.7s** duration, and the boundary test is `time >= outSec - 0.03`. The last frame falls **0.037s short of a 0.03s window** and the wrap happens without us. This was the branch B595 explicitly flagged as unresolvable by reading, which is the only reason the counter existed.
+
+**The `rewind` change stays.** It is correct, it is inert on a full-range trim, and it removes a real 120ms stall on trimmed clips where the test *does* fire. It is simply not this bug.
+
+### The measurement that localizes it: arrival and take are different events
+
+Every reading so far has been **arrival** — the wire — and the wire has been clean three times running. What was never measured is the other end of the same boundary: **when a frame reached a render target.**
+
+`loopStall` gains `last.takeGapMs`, `maxTakeGapMs` and `taken1s`, the exact twins of the arrival fields. Small arrival gap with a large take gap localizes the hold to the consumer **in one reading**. And because `native-frame-receiver.js` runs in *both* webviews, the app and the external view each answer the question about themselves: **`extJitter.loop` is the wall's own account of the loop boundary**, which is the only place the eye's complaint can be confirmed.
+
+It rides the existing `jitter` bag deliberately. That is view-side timing, so it needs no new plumbing and no conduit change to carry a video concept.
+
+### A client joining a paused source now gets the current picture
+
+**A B595 regression, and the good kind — it made a latent bug visible.** The decode tick only pushes when the output has a *new* pixel buffer, which is right while playing and leaves a newcomer with nothing while paused. Parking the player on load turned that into: **start a broadcast from a paused motion timeline and the wall draws nothing at all** until a scrub produces a buffer. Daniel's report carries the matching native warning, `joined port 8900 but no frames yet`.
+
+`FrameSocketServer` now retains the last encoded frame and hands it to a client the moment it becomes `.ready`, logging which branch it took. Cleared on `stop()` so a new clip can never prime a joiner with the previous one's picture.
+
+### Also noted, not acted on
+
+`toPts` at the wrap has read **0.109 / 0.115 / 0.115** across three sessions. That is consistently ~3 frames into the clip, so **AVPlayerLooper's item swap appears to lose ~100ms of content at every lap.** A content skip is not the reported hold, and the numbers are steady enough to be worth a look once the hold is located.
+
 ## 🔁 v0.25.5 (Build 595) — 2026-08-13 — Three root causes, all found by reading
 
 Daniel's B594 verification produced three symptoms. **None of them needed a device session; all three resolved by reading code.**

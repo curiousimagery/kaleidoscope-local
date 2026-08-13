@@ -8,7 +8,40 @@ Confirmed results are DELETED from here and recorded in CHANGELOG.
 
 ---
 
-# ▶ THIS SESSION (B595) — "three root causes, found by reading — do the fixes hold?"
+# ▶ THIS SESSION (B596) — "where between the socket and the screen does the loop hold live?"
+
+**⚠️ NEEDS `npx cap sync ios` + AN XCODE BUILD.** The Swift plugin changed.
+
+**iPad, ~6 minutes.** One fix and one measurement. B595's loop mechanism was falsified by its own counter, so this build does not propose a new cause — it localizes the one we have.
+
+## ⚠️ SET THE SCENARIO TAG TO `hdmi-broadcast` FIRST.
+
+## Part 1 — the blank wall on broadcast start (regression from B595)
+
+Parking the player on load was right, and it exposed this: a client joining a **paused** source got nothing, because the decode only pushes on a new pixel buffer. The socket now hands a joiner the current picture.
+
+1. Motion mode, 4K clip loaded, **paused**. Connect the display, start the broadcast.
+2. **The wall must show the parked frame immediately** — not blank, and not playing.
+3. Scrub. It follows. Play/pause still behave.
+
+## Part 2 — the loop hold, localized
+
+4. Broadcast the baked loop, let it loop **four or more times**, watch the hold.
+5. `copy report`. **Two fields now, and comparing them is the whole point:** `loopStall` (the app's receiver) and **`extJitter.loop` (the external view's own receiver, which is the one driving the display).**
+
+**How to read it. In each, compare `last.gapMs` against `last.takeGapMs`:**
+
+| reading | meaning |
+|---|---|
+| `gapMs` small, `takeGapMs` small, **in both** | nothing holds at the boundary and the hold is not where we have been looking at all |
+| `gapMs` small, `takeGapMs` **large** in `extJitter.loop` | the wall received the frames and did not draw them. Fix is in `output-view.js` |
+| `gapMs` small, `takeGapMs` **large** in `loopStall` only | the APP's engine stalls at the wrap and the wall is fine. Then what you are seeing is the iPad preview, not the broadcast |
+| `takeGapMs` large in **both** | a shared cause, which points at the GPU process both webviews share |
+| `taken1s` well below 30 | confirms a sustained stall rather than a one-frame hiccup |
+
+**6. Tell me which surface holds — the iPad preview, the external display, or both.** The table above can distinguish them, but your eyes are faster and it costs you one sentence.
+
+# 🅿️ PREVIOUS SESSION (B595) — "three root causes, found by reading — do the fixes hold?"
 
 **iPad, ~10 minutes.** All three came out of code, not measurement, so this session is confirmation rather than investigation. **Do the parts in order — part 3 is only meaningful once part 2 works.**
 

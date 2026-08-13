@@ -57,6 +57,10 @@ export function createNativeFrameReceiver({ port = 8899, mirror = false, cap = 0
   let closes = 0, reconnects = 0, lastCloseT = 0;
   // loop-boundary accounting — see noteClock (B593)
   let loopWraps = 0, maxWrapGap = -1, lastWrap = null, postWrapWindow = 0, postWrapFrames = 0;
+  // WHEN A FRAME LAST REACHED A RENDER TARGET, which is a different event from when it
+  // ARRIVED (B596). The pair is what localizes the loop hold: arrival is the wire, take
+  // is the consumer, and the hold has to be in one of the two.
+  let lastTakeT = 0, maxWrapTakeGap = -1, postWrapTakes = 0;
   // frames handed to the ENGINE as raw planes (the fast path) — counted apart from the
   // preview blit so the report can say which one is actually carrying the picture
   let taken = 0, winTaken = 0;
@@ -89,16 +93,36 @@ export function createNativeFrameReceiver({ port = 8899, mirror = false, cap = 0
     // with the WALL-CLOCK gap between the last frame before and the first after separates the two
     // outright: a large gap means the decoder stalled and the fix is native; a normal gap with a
     // visible hold means the frames arrived and we failed to show them, and the fix is ours.
+    const at = performance.now();
     if (isFinite(frame.pts) && frame.pts >= 0 && frame.pts + 0.25 < pts) {
-      const at = performance.now();
       const gap = lastArrivalT ? Math.round(at - lastArrivalT) : -1;
+      // ARRIVAL AND TAKE ARE DIFFERENT EVENTS, AND THE HOLD IS IN THE GAP BETWEEN THEM (B596).
+      //
+      // B593 measured only arrival and proved the decoder innocent. B595 then proposed our own
+      // loop rewind as the hold and its own counter falsified it (`rewinds: 0, suppressed: 0` —
+      // the boundary condition never fired at all, because the last frame's pts fell 0.037s short
+      // of the trim end and the window is 0.03s wide).
+      //
+      // So the frames arrive on time and something between the socket and the screen fails to
+      // show them. `takeGapMs` is the wall-clock silence between the last frame that reached a
+      // RENDER TARGET and this one. Arrival small + take large localizes the hold to the consumer
+      // in ONE reading, and this module runs in BOTH webviews, so the app and the external view
+      // answer the same question about themselves independently.
+      const takeGap = lastTakeT ? Math.round(at - lastTakeT) : -1;
       loopWraps++;
-      lastWrap = { gapMs: gap, fromPts: Math.round(pts * 1000) / 1000, toPts: Math.round(frame.pts * 1000) / 1000, at };
+      lastWrap = {
+        gapMs: gap, takeGapMs: takeGap,
+        fromPts: Math.round(pts * 1000) / 1000, toPts: Math.round(frame.pts * 1000) / 1000, at,
+      };
       if (gap > maxWrapGap) maxWrapGap = gap;
+      if (takeGap > maxWrapTakeGap) maxWrapTakeGap = takeGap;
       // frames arriving in the second AFTER the wrap — the direct test of "did delivery resume
       // immediately". Counted by the arrival handler; reset here so each wrap gets its own count.
-      postWrapWindow = at + 1000; postWrapFrames = 0;
+      // `postWrapTakes` is its twin on this side: how many of them actually reached the screen.
+      postWrapWindow = at + 1000; postWrapFrames = 0; postWrapTakes = 0;
     }
+    if (postWrapWindow && at <= postWrapWindow) postWrapTakes++;
+    lastTakeT = at;
     if (isFinite(frame.pts) && frame.pts >= 0) pts = frame.pts;        // 0 is a real position (head of the clip)
     if (isFinite(frame.duration) && frame.duration > 0) duration = frame.duration;  // 0 = not loaded yet; hold the last good value
   }
@@ -257,7 +281,12 @@ export function createNativeFrameReceiver({ port = 8899, mirror = false, cap = 0
     // hundreds of ms means it did. `after1s` is how many frames landed in the second following
     // the wrap — a low number confirms a genuine delivery stall rather than a one-frame hiccup.
     loopStall() {
-      return { wraps: loopWraps, maxGapMs: maxWrapGap, last: lastWrap, after1s: postWrapFrames };
+      return {
+        wraps: loopWraps, maxGapMs: maxWrapGap, last: lastWrap, after1s: postWrapFrames,
+        // the consumer's side of the same boundary: how long this receiver went without
+        // putting a frame on a render target, and how many it managed in the second after
+        maxTakeGapMs: maxWrapTakeGap, taken1s: postWrapTakes,
+      };
     },
     socketState() {
       const rs = ws ? ws.readyState : -1;

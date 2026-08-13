@@ -394,6 +394,12 @@ function renderFrame() {
       fresh: { p50: pctl(newGaps, 50), p95: pctl(newGaps, 95), n: newDraws },
       // measured on the socket event, so it is independent of the render loop (B578)
       arrive: receiver?.arrivalSpread ? receiver.arrivalSpread() : null,
+      // THE WALL'S OWN ACCOUNT OF THE LOOP BOUNDARY (B596). The app's `loopStall` describes
+      // the APP's receiver; this is the same measurement taken by the view that is actually
+      // driving the display, which is the only place the eye's complaint can be confirmed.
+      // Rides the jitter bag deliberately: it is view-side timing, so it needs no new
+      // plumbing through conduit's poster and no conduit change to carry a video concept.
+      loop: receiver?.loopStall ? receiver.loopStall() : null,
     };
     drawGaps.length = 0; newGaps.length = 0; newDraws = 0;
     frames = 0; fpsT = lastRenderT;

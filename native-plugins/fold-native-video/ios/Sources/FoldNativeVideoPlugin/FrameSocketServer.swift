@@ -90,6 +90,22 @@ final class FrameSocketServer {
     // a send that never completes would latch `sending` forever and silently starve that
     // consumer; past this long we treat the client as wedged and drop it
     private let sendStallSeconds: TimeInterval = 6
+    // THE PICTURE THAT IS CURRENTLY ON SCREEN, kept so a client joining a PAUSED source has
+    // something to draw (B596).
+    //
+    // The decode tick only pushes when the output has a NEW pixel buffer, which is exactly
+    // right while playing and leaves a newcomer with nothing while paused. B595 parked the
+    // player on load (correctly — it had been playing since load and autoplayed the wall),
+    // and that turned the latent case into the visible one: starting a broadcast from a
+    // paused motion timeline joined the external view to a silent socket and it drew NOTHING.
+    // Daniel: "the output display is blank but not autoplaying... as soon as i scrub the
+    // motion timeline it shows the expected frame" — the scrub was the first event that
+    // produced a buffer. His report carries the matching native warning:
+    // "joined port 8900 but no frames yet — the decode may be stalled".
+    //
+    // One frame retained, replaced in place. A newcomer gets the current picture immediately
+    // and a fresh one on the next tick if anything is moving.
+    private var lastFrame: Data?
 
     init(port: Int) { self.port = port }
 
@@ -114,6 +130,7 @@ final class FrameSocketServer {
             self.lock.lock()
             for client in self.clients { client.conn.cancel() }
             self.clients.removeAll()
+            self.lastFrame = nil   // a new clip must never prime a joiner with the old one's picture
             self.lock.unlock()
             self.listener?.cancel()
             self.listener = nil
@@ -152,8 +169,20 @@ final class FrameSocketServer {
                 self.lock.lock()
                 client.ready = true
                 let n = self.clients.filter { $0.ready }.count
+                // hand over the current picture before the next tick, which may never come
+                let priming = self.lastFrame
+                if priming != nil { client.sending = true; client.sentAt = Date().timeIntervalSinceReferenceDate }
                 self.lock.unlock()
-                print("[FoldFrames:\(self.port)] client ready — \(n) receiving")
+                print("[FoldFrames:\(self.port)] client ready — \(n) receiving\(priming != nil ? " (primed with the current frame)" : " (no frame decoded yet)")")
+                if let data = priming {
+                    let meta = NWProtocolWebSocket.Metadata(opcode: .binary)
+                    let ctx = NWConnection.ContentContext(identifier: "frame", metadata: [meta])
+                    client.conn.send(content: data, contentContext: ctx, isComplete: true,
+                                     completion: .contentProcessed { [weak self] _ in
+                        guard let self = self else { return }
+                        self.lock.lock(); client.sending = false; self.lock.unlock()
+                    })
+                }
             case .failed, .cancelled:
                 self.lock.lock()
                 self.clients.removeAll { $0 === client }
@@ -188,6 +217,7 @@ final class FrameSocketServer {
         let now = Date().timeIntervalSinceReferenceDate
         lock.lock()
         reapStalledLocked()
+        lastFrame = data           // the current picture, for whoever joins next
         framesOffered &+= 1
         // EVERY READY CLIENT WAS OFFERED THIS FRAME; only the idle ones take it. Counting the
         // offer separately from the take is the whole point — `taken` alone cannot distinguish
