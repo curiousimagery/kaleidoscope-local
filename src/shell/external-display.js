@@ -198,6 +198,7 @@ function createPoster(opts) {
       getOutputDims: ({ cap }) => computeOutputDims(cap),
       getVideoSync: opts.getVideoSync,
       hasLivePixels: opts.hasLivePixels,
+      viewHasOwnClock: opts.viewHasOwnClock,
       getTest: opts.getTest,
       sourceSignature: opts.sourceSignature,
       buildSourcePayload: opts.buildSourcePayload,
@@ -283,6 +284,11 @@ function createPoster(opts) {
     get srcFps() { return poster.srcFps; },
     get jitter() { return poster.jitter; },
     get renderDims() { return poster.renderDims; },
+    // B591 shipped this on the OTHER two poster wrappers and missed this one — the object that is
+    // actually `env.externalDisplay` on the desktop-chrome path. So `extPosts` was absent from
+    // Daniel's reports, and an absent field is indistinguishable from "elision never engaged",
+    // which is the precise failure the counter exists to prevent. Fixed at B592.
+    get posts() { return poster.posts; },
     // CONSOLE IS NEVER THE ONLY ROUTE (CLAUDE.md). Daniel does not run Safari Web Inspector, so
     // the bridged external-view log has to reach `copy report` or it may as well not exist.
     get logs() { return lastExtLogs.slice(); },
@@ -303,6 +309,14 @@ export function createExternalDisplaySink(env) {
     // still, so the state stream must not be elided (see external-surface.js). A still image is
     // the only genuinely static case, and it is the one elision was built for.
     hasLivePixels: () => !!(env.live?.isLive || env.nativeVideo || env.sourceVideo),
+    // THE TWO `getSource` BRANCHES THAT HAND THE VIEW A FRAME SOCKET, and only those (B591).
+    // `kind:'native-camera'` requires a live camera WITH a stream, and `kind:'video-native'`
+    // requires the single native decode — both give output-view.js an `onFrame` trigger of its
+    // own (B590). Every other branch (`video` staged file, `image`, `notice`, `unsupported`) has
+    // no socket and still depends on the state post as its render clock, so it must NOT elide.
+    // Kept deliberately in lockstep with getSource() below; if a branch is added there, ask
+    // whether it gives the view a socket before touching this.
+    viewHasOwnClock: () => !!(env.nativeVideo || (env.live?.isLive && env.liveCameraInfo?.()?.stream)),
     getOutputDims: () => {
       const bus = env.outputBus;
       return { width: bus?.width || 1920, height: bus?.height || 1080 };
@@ -420,6 +434,7 @@ export function createExternalDisplaySink(env) {
     get renderDims() { return poster.active ? poster.renderDims : null; },
     get fps() { return poster.active ? poster.fps : 0; },
     get srcFps() { return poster.active ? poster.srcFps : -1; },
+    get posts() { return poster.active ? poster.posts : null; },   // state posts sent vs elided (B591)
   };
 
   poster.onDisplayChange((connected, s) => {
@@ -469,6 +484,7 @@ export function createExternalDisplayAutoconnect(opts) {
     get renderDims() { return poster.active ? poster.renderDims : null; },
     get fps() { return poster.active ? poster.fps : 0; },
     get srcFps() { return poster.active ? poster.srcFps : -1; },
+    get posts() { return poster.active ? poster.posts : null; },   // state posts sent vs elided (B591)
     stop() { poster.stop(); clearStagedVideo(); },
   };
 }

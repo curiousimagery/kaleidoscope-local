@@ -8,7 +8,43 @@ Confirmed results are DELETED from here and recorded in CHANGELOG.
 
 ---
 
-# ▶ THIS SESSION (B590) — "does the broadcast beat its own clock now?"
+# ▶ THIS SESSION (B592) — "read the counter that was missing"
+
+**iPad, ~4 minutes.** No behaviour change. B591's `extPosts` counter never reached the report on your path; this makes it visible so the panels-off case can be diagnosed instead of guessed at.
+
+## ⚠️ SET THE SCENARIO TAG TO `hdmi-broadcast` FIRST.
+
+## Steps
+
+1. 4K → 4K HDMI, moderate slice, broadcast ~20s. `copy report`. **`extPosts` should now be present** with `ownClock: true`.
+2. **Switch both editor panels off** (the run that gave 15/s). `copy report`.
+3. If you can, do one run **in perform with playback running** and one **in motion paused**, and say which was which — the elision behaves differently depending on whether the state genuinely changes each frame, and that is the thing to distinguish.
+
+## What each shape means
+
+- **`elided` >> `sent`** → elision is engaging; if delivery is still low the cause is elsewhere.
+- **`elided` ≈ 0 with a clip playing** → the state genuinely differs every frame. Then the question is which field is changing, and that is the next instrument.
+- **`ownClock: false`** → the predicate is wrong and B591 never applied at all.
+
+# 🅿️ PREVIOUS SESSION (B591) — "does quieting the state stream give back the frames?" — 🏆 29 of 30 delivered at full 4K (best of the arc) with the app at 19.8fps. Panels-off case still open; the counter was missing.
+
+**iPad, ~5 minutes.** One change: identical state is no longer posted every frame when the view has its own frame socket.
+
+## ⚠️ SET THE SCENARIO TAG TO `hdmi-broadcast` FIRST. Cold start, fixed slice.
+
+## Steps
+
+1. 4K → 4K HDMI, default slice, broadcast ~30s. `copy report`.
+2. **The new field is `extPosts`.** Expect `ownClock: true` and `elided` climbing well above `sent`. **If `ownClock` is false with a clip playing, the predicate is wrong and nothing else here counts.**
+3. **Now switch both editor panels off again** — the run that dropped you to 18/s. `copy report`.
+   - **Pass: delivery stays near 26/s instead of falling.** That was the whole point.
+4. **Watch the wall for a few seconds with the panels off.** The state stream is now nearly silent on that path; the picture must still move normally.
+
+## The one thing that would mean I got the predicate wrong
+
+**A clip that plays in the app but freezes on the external display.** That is the 10fps-over-HDMI failure this elision caused once before. The 250ms heartbeat should prevent a full freeze, so the symptom would be a choppy ~4fps wall rather than a still. **Report it immediately if you see anything like it and I will revert the predicate, not tune it.**
+
+# 🅿️ PREVIOUS SESSION (B590) — "does the broadcast beat its own clock now?" — PASSED. Big slice: app 10.8fps, delivery 24/s. Decoupled.
 
 **iPad, ~10 minutes. This one decides whether the 4K arc continues or closes.**
 

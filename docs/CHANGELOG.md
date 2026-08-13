@@ -4,6 +4,30 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🩹 v0.25.2 (Build 592) — 2026-08-13 — `extPosts` reached the report on two paths out of three, and the third is the one Daniel uses
+
+**🏆 B591 VERIFIED, AND IT IS THE BEST NUMBER OF THE ARC: `hdmi:3840 → delivered 29 of 30`, 97%, at full 4K with a moderately large slice, while the app ran at 19.8fps.** The progression across the decoupling work is 23 → 26 → **29**.
+
+`extPosts` was added to two of the three poster wrappers and missed the one that is actually `env.externalDisplay` on the desktop-chrome path, so it was **absent from both of Daniel's reports** — indistinguishable from "elision never engaged", which is exactly the failure the counter exists to prevent. Fixed.
+
+**⚠️ So the panels-off case is still undiagnosed**, and deliberately not theorised about here: it delivered **15/s**, worse than B590's 18/s, and without the counter there is no way to tell whether elision engaged, whether the state genuinely changes every frame in motion mode, or something else. **Re-measure before proposing.**
+
+## 🤐 v0.25.1 (Build 591) — 2026-08-13 — Stop shouting identical state at a view that no longer needs to hear it
+
+**✅ B590 VERIFIED, and the big-slice arm is the result of the arc:** app fps **10.8**, delivery **24/s**. Before B590 those tracked each other within one frame in every run ever measured. The operator's editor slowed and the audience's picture did not.
+
+### The follow-on Daniel's third run exposed
+
+With both editor panels off: app accounted fell to **4.96ms** and delivery **dropped from 24-26/s to 18/s**, arrivals went bursty (p50 19ms, p95 87ms), the view's draw slowed to 56ms. **Less app work, worse broadcast.**
+
+The cause is a comment in `external-surface.js` that B590 made false: *"live pixels → post every frame, **which is what the view needs to draw them**."* The view draws from its own socket now. So while a clip plays we pushed byte-identical JSON across the bridge ~25 times a second into the very thread trying to render, and with the panels off the app posted **faster**.
+
+`viewHasOwnClock()` now licenses eliding identical state. It is deliberately a **separate question** from `hasLivePixels`, because the two genuinely differ: a staged-file `<video>` in the view has live pixels and **no socket**, so it still needs the post as its clock. It mirrors exactly the two `getSource()` branches that hand over a socket (`native-camera` with a stream, `video-native`), and the 250ms heartbeat remains the backstop.
+
+### And the poster now publishes when it declines to post
+
+**This exact elision silently cost 10fps over HDMI once**, and the only observable was an absence. `extPosts` rides the report with `sent`, `elided` and `ownClock`, so "elision is working" and "elision never engaged" can no longer look identical from outside.
+
 ## 🔓 v0.25.0 (Build 590) — 2026-08-13 — The broadcast stops being clocked by the app's frame rate
 
 **The finding that explains every dead hypothesis in this arc at once: the external view only drew when the app told it to, and the app told it once per its own frame.**

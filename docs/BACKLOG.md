@@ -276,7 +276,31 @@ Resolved on Daniel's design rather than by picking one vocabulary, because **the
 
 **✅ AND THE DEFAULT WAS FIXED AT B588**, because B587 shipped an honest picker with a degraded FHD default, which Daniel rightly called the opposite of the goal. Broadcasting defaults to the display's resolution; recording/NDI/Syphon default to the source's. A hand-picked tier outranks it for the session.
 
-### 🔁 [HIGH — B590] RE-TEST THE GOVERNOR'S FUTILITY RESULT UNDER A CONTROLLED PROTOCOL
+### 🚨 [CRITICAL — Daniel, B592] B590 REGRESSION: THE EXTERNAL DISPLAY PLAYS WHILE THE APP IS PAUSED
+
+**"starting the broadcast autoplays on the display even though i'm still in motion mode and am paused in the app."** A correctness break, not cosmetic: **the wall is no longer showing what the operator is looking at**, and Daniel has a show.
+
+**Mechanism, and it is a direct consequence of B590.** The app pauses by *not consuming* frames, not by stopping the decoder — his report shows `30.7 in/s` still arriving while paused. Before B590 the view only drew when the app posted state, so a paused app meant a held picture. B590 made a new frame its own reason to draw, so the view now advances the picture on the decoder's clock regardless of the app's transport state.
+
+**Proposed fix (not yet built):** the state message carries a `playing` flag; `onFrame` only schedules a render when the program is actually playing. Paused falls back to state-driven renders, which is the old behaviour and the correct one — a paused program's picture changes only when params do. **This preserves B590's win exactly where it matters** (playing is the case we optimised) and costs nothing when paused.
+
+**Verify must cover:** motion paused, perform hold, scrubbing, and the transition into and out of play, on both the video and camera paths.
+
+### 🧹 [HIGH — Daniel, B591] CONSOLIDATION: THE FPS ARC LEFT LEVERS IN THE CODE THAT WE HAVE SINCE DISPROVED
+
+Daniel: *"our frame loss diagnostic is littered with the residue... lots of experiments we've determined aren't helpful so the controls and code to wire these up is probably cruft."* He is right. Each item below is a measured negative still carrying live code:
+
+1. **🚨 B590 INVERTS THE GOVERNOR'S PREMISE.** It sheds editor surfaces to protect the broadcast; **the broadcast no longer depends on them.** Worse, Daniel's B590 panels-off run shows shedding now *hurts* delivery (24-26/s → 18/s). **Left armed it will degrade a live show before the futility release pulls it back.** Decide: retire it, or repurpose it to protect the APP's responsiveness — a different goal needing a different signal. **Daniel's call, not ours.**
+2. **The resolution/scale ladder is dead** (B574: 17x fewer pixels, 55% of the cost) and still fully wired — `scaleLadder`, `onScale`, `setSurfaceScale`, plus the panel's scale controls on every surface.
+3. **Slice-overlay governing is vestigial.** B576 excluded it permanently as DECOR; it still declares a ladder and reports zeros forever.
+4. **`foldHdmiVideoUncap` is a confirmed no-op** on the single-decode path (B586) and still renders a warning about a mechanism that no longer exists.
+5. **The frame-cost panel carries settled conclusions as open questions** — several readouts exist to answer things now answered.
+
+**Sequenced AFTER the loop-restart stall** (Daniel is hitting that in normal use and calls it visually disruptive), because this is hygiene and that is a defect.
+
+### 🔁 [MED — B590, partly answered B591] RE-TEST THE GOVERNOR'S FUTILITY RESULT UNDER A CONTROLLED PROTOCOL
+
+**▶ B591 UPDATE: partly answered, and against the governor.** Daniel's controlled panels-off run delivered **18/s vs 24-26/s with the panels on** — shedding the editor surfaces made the broadcast *worse*, not merely useless. So the futility conclusion was directionally right even if its measurement was confounded. The open question is no longer "does shedding help" but item 1 above: whether the governor should exist at all now.
 
 B583 and B584 both concluded **"shedding the editor surfaces does not move the delivered rate"**, and the governor now acts on that conclusion by releasing at the bottom rung. **Both measurements were taken on a hot device with an enlarged slice, comparing before against after across time — the same uncontrolled setup that produced B587's false "QHD is slower" result**, which Daniel's slice-size callout later demolished.
 

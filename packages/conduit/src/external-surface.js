@@ -28,6 +28,9 @@
 //   getOutputDims({ cap })           // the render dims to post; `cap` = the degradation
 //                                    //   ceiling (Infinity when no ladder)
 //   getVideoSync?()                  // { t, paused, rate } for a loaded-video source, or null
+//   viewHasOwnClock?()               // TRUE when the view can trigger its own renders (it holds a
+//                                    //   frame socket). Then identical state may be elided even
+//                                    //   with live pixels — see the loop. Default false.
 //   hasLivePixels?()                 // TRUE when the view's picture moves independently of the
 //                                    //   posted state (live camera, playing clip). The poster
 //                                    //   cannot see this — the message is identical either way —
@@ -52,6 +55,7 @@ const HEARTBEAT_MS = 250;
 export function createSurfacePoster({ transport, content, renderCaps = [Infinity], sourceCaps = [Infinity], onClosed = null, elide = null }) {
   let active = false;
   let lastStateJson = '', lastPostT = 0;   // idle elision (see loop)
+  let posted = 0, elided = 0;              // ...and its published account (B591)
   let raf = 0;
   let lastSourceSig = '';
   let lastOut = null;
@@ -114,13 +118,35 @@ export function createSurfacePoster({ transport, content, renderCaps = [Infinity
     // nobody was measuring. Hence `hasLivePixels`: the poster cannot infer from the message
     // whether the picture is moving, so the consumer must say. Static program → elide; live
     // pixels → post every frame, which is what the view needs to draw them.
+    // ...AND THE VIEW GREW ITS OWN CLOCK, SO `hasLivePixels` NO LONGER IMPLIES "POST EVERY FRAME"
+    // (B591). The clause above — "live pixels → post every frame, which is what the view needs to
+    // draw them" — was true until B590 gave the view a second render trigger: a new frame on its
+    // OWN socket. Where that socket exists, every field of this message is still byte-identical
+    // while a clip plays, and posting it 25 times a second is pure bridge traffic landing on the
+    // very thread that is trying to render.
+    //
+    // Daniel measured the cost directly: with both editor panels switched off the app's loop ran
+    // free and posted FASTER, and delivery **fell from 24-26/s to 18/s** while the view's arrivals
+    // went bursty (p50 19ms, p95 87ms) and its draw slowed to 56ms. Less app work, worse broadcast.
+    //
+    // `viewHasOwnClock` is deliberately a separate question from `hasLivePixels`, because the two
+    // genuinely differ: a staged-file `<video>` in the view has live pixels and NO socket, so it
+    // still depends on this post as its clock. Getting that wrong is what cost 10fps over HDMI
+    // once already, and the heartbeat below is the backstop if it is wrong again.
     const now = performance.now();
-    const livePixels = !!content.hasLivePixels?.();
+    const ownClock = !!content.viewHasOwnClock?.();
+    const livePixels = !ownClock && !!content.hasLivePixels?.();
     const json = (elide && elide() === false) || livePixels ? '' : JSON.stringify(msg);
     if (!json || json !== lastStateJson || now - lastPostT >= HEARTBEAT_MS) {
       lastStateJson = json; lastPostT = now;
+      posted++;
       Promise.resolve(transport.post(msg))
         .catch(() => { /* transport gone; the next tick's isClosed/stop handles it */ });
+    } else {
+      // A POSTER THAT DECLINES TO POST MUST SAY SO. This exact elision silently cost 10fps over
+      // HDMI once, and the only observable was an absence. `elided` rides the report so "elision
+      // is working" and "elision is off" can never again look identical from the outside.
+      elided++;
     }
     raf = requestAnimationFrame(loop);
   }
@@ -147,6 +173,11 @@ export function createSurfacePoster({ transport, content, renderCaps = [Infinity
     noteHello() { lastSourceSig = ''; lastStateJson = ''; },
     noteFps(n, s = -1, j = null) { fps = n || 0; srcFps = typeof s === 'number' ? s : -1; jitter = j || null; },
     get srcFps() { return srcFps; },
+    // state posts SENT vs SKIPPED since the surface opened, plus whether the view is currently
+    // considered to hold its own frame clock (which is what licenses the skipping) — B591
+    get posts() {
+      return { sent: posted, elided, ownClock: !!content.viewHasOwnClock?.() };
+    },
     // The view's own interval DISTRIBUTIONS (B577), not another average. `fresh` is the interval
     // between renders that actually showed a new picture, which is what the eye judges — an even
     // 28fps and a bursty 28fps are the same number and a different product.

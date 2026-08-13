@@ -244,6 +244,10 @@ export function mountPerfPanel(env, { container = null, onClose = null } = {}) {
       // the thing that failed. The pair settles a question no single-sided count can: whether a
       // frozen app was passed over by the fan-out, reaped by its stall watchdog, or handed frames
       // it then failed to use. At B583 all three looked identical from JS.
+      // STATE POSTS SENT VS ELIDED (B591). `ownClock:true` means the view holds a frame socket and
+      // identical state is safely skippable; a high `elided` beside healthy delivery is the fix
+      // working. `ownClock:false` with a clip playing means we are back to posting every frame.
+      extPosts: env.externalDisplay?.posts || undefined,
       srcSocket: env.nativeVideo?.socketState?.() || undefined,
       srcFanOut: env.nativeVideo?.fanOut || undefined,
       // WHAT THIS DEVICE HAS BEEN MEASURED SUSTAINING, per destination + resolution tier (B585).

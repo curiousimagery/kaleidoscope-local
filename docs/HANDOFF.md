@@ -42,7 +42,13 @@ This retires the confusion, not just a hypothesis. Resolution was free because t
 
 **B590 makes a new frame its own reason to draw** (`onFrame` → `scheduleRender`), keeping the B579 coalescing so the socket is never starved.
 
-**▶ VERIFY DECIDES THE ARC.** If delivery goes to ~30/s and stops tracking app fps, item 1 closes and the product behaviour inverts in the right direction (a heavy slice slows the operator's editor, not the audience). **If delivery does NOT move, the app-frame story is wrong too, and the standing instruction is to STOP and go to item 2 without proposing anything further here.**
+**✅ VERIFIED B590, AND IT IS THE RESULT OF THE ARC.** Big-slice arm: **app fps 10.8, delivery 24/s.** The editor slowed and the audience's picture did not. **B591** then removed the redundant state posts B590 made unnecessary (they were measurably hurting delivery: panels off → 18/s).
+
+**▶ ITEM 1 IS EFFECTIVELY CLOSED. The remaining work here is CONSOLIDATION, not investigation** — see BACKLOG's consolidation item, which Daniel called for directly. **The governor is the live risk: B590 inverted its premise and its action now measurably hurts delivery.**
+
+**▶ NEXT IS ITEM 2, promoted by Daniel:** the **loop-restart stall is reproducing for him in normal use and he calls it "visually very disruptive."** It is a multi-frame hold at the end of each loop, predates B590, and is the way into the source-attach cluster.
+
+**(superseded) VERIFY DECIDES THE ARC.** If delivery goes to ~30/s and stops tracking app fps, item 1 closes and the product behaviour inverts in the right direction (a heavy slice slows the operator's editor, not the audience). **If delivery does NOT move, the app-frame story is wrong too, and the standing instruction is to STOP and go to item 2 without proposing anything further here.**
 
 **⚠️ ALSO SUSPECT, and cheap to re-test in the same session: the governor's futility results.** B583/B584 both concluded "shedding editor surfaces does not help", but both were measured on a hot device with an enlarged slice, comparing across time — **the same uncontrolled setup that produced B587's false QHD result.** Re-run the shed test under the B589 protocol (cold start, fixed slice) before treating that conclusion as settled.
 
