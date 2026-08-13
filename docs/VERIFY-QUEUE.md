@@ -8,7 +8,21 @@ Confirmed results are DELETED from here and recorded in CHANGELOG.
 
 ---
 
-# ▶ THIS SESSION (B588) — "is the variable the resolution, or the clock?"
+# ▶ THIS SESSION (B589) — "does the panel show the resolution it actually picked?"
+
+**iPad, ~2 minutes. No broadcast needed.** B588's smart default was working; you just could not see it. Two display bugs, no behaviour change underneath.
+
+## Steps
+
+1. **Force-quit Fold, reconnect the display, reopen.** With HDMI selected, **4K should be highlighted AND starred** — the star and the selection should agree. At B588 the star said 4K and the highlight said FHD.
+2. **Switch the destination to Syphon or NDI.** The highlight should move to the **source's** resolution (4K for your clip).
+3. **Tap FHD by hand, then switch destinations back and forth.** It should stay on FHD — a hand-picked tier outranks the default for the session.
+
+## No re-run of the resolution A/B
+
+**It is settled.** Your controlled pair gave 26/s and a 39ms draw interval at BOTH QHD and 4K. Resolution is free on this path in both directions, and your slice-size callout is what made that readable.
+
+# 🅿️ PREVIOUS SESSION (B588) — "is the variable the resolution, or the clock?" — ANSWERED: neither. Controlled cold-start pair showed 4K and QHD identical (26/s, 39ms). B587's QHD-worse result was the enlarged slice plus a hot session.
 
 **iPad, ~12 minutes.** The B587 A/B produced a decisive answer AND a reason to distrust it. This run separates the two. **Do the arms in this order; the order is the experiment.**
 

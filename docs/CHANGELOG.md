@@ -4,6 +4,32 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🎯 v0.24.2 (Build 589) — 2026-08-13 — 4K costs the same as QHD, and the smart default was invisible
+
+### 🔬 THE REVERSED A/B: RESOLUTION IS FREE ON THIS PATH
+
+Cold start, default slice, QHD first then 4K. **Identical delivery.**
+
+| | external render | delivered | `fresh` p50 | `draw` p50 |
+|---|---|---|---|---|
+| QHD (first) | 2560×1440 · 3.69MP | **26/s** | 39ms | 39ms |
+| 4K (second) | 3840×2160 · 8.29MP | **26/s** | 39ms | 39ms |
+
+**2.2x the pixels, the same 39ms draw interval, the same 26 new pictures a second.** B588 closed the pixel hypothesis from one direction (cutting pixels did not help); this closes it from the other (adding them does not hurt). **Resolution is not a lever on this path in either direction, and 4K is not "asking too much".**
+
+**And it retracts B588's reading.** That run had QHD *worse*, which I attributed to a fixed per-draw cost. Daniel identified the confound: **he had increased the slice size**, and that run was also later in a hot session. With slice and thermal state controlled, the difference vanishes entirely.
+
+**The drift is load-dependent, not a constant.** `preview render` rose 40% across the hot heavy-slice session; here it moved 12.00 → 12.65ms across two arms, ~5%. So cross-time A/Bs are salvageable — they need a cold start and a fixed slice, not abandonment.
+
+**Best delivery measured to date: 26 of 30, 87%**, at full 4K. The remaining gap is the external view's ~39ms cycle, which is the same at both resolutions and therefore fixed cost — the 4K **source** upload it performs regardless of output size is the one thing never varied.
+
+### The smart default was working and invisible
+
+Daniel: *"it still defaults to FHD even though the star indicating the native resolution is 4k."* Two bugs, one visible:
+
+- **The tier buttons' `active` class was only ever set by the click handler**, and started hardcoded on FHD in the markup. So a tier set by anything other than a tap changed the real resolution while the panel still highlighted FHD. It derives from state now.
+- **`onDisplayChange` did not re-evaluate the default.** On a cold start the panel renders before the display reports its size, so `idealTier()` had nothing to work with and was never asked again. A display arriving now re-runs it.
+
 ## ⭐ v0.24.1 (Build 588) — 2026-08-13 — The default is full quality, and the pixel hypothesis is dead
 
 ### 🔬 THE EXPERIMENT RAN, AND PIXELS ARE NOT THE CURRENCY

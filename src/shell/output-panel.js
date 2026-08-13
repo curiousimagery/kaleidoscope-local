@@ -797,7 +797,11 @@ export function createOutputPanel(env, outputBus) {
           d.label = connected && info?.width ? `${label} · ${info.width}×${info.height}` : label;
           buildDestPicker();
         }
-        if (connected && !broadcasting) selectDestination(id);
+        // A DISPLAY ARRIVING IS WHEN THE SMART DEFAULT BECOMES COMPUTABLE (B589). `idealTier()`
+        // needs the display's size, and on a cold start the panel renders before the display has
+        // reported — so the default was decided against no information and never revisited, which
+        // is why Daniel saw FHD selected under a 4K star.
+        if (connected && !broadcasting) { selectDestination(id); autoTier(); reflect(); }
         if (!connected && broadcasting && destination === id) {
           broadcasting = false;
           syncBusRunning();
@@ -896,6 +900,11 @@ export function createOutputPanel(env, outputBus) {
       const t = Number(b.dataset.tier);
       b.disabled = resLocked || (capVideo && t > 1920);
       b.classList.toggle('is-native', t === nativeTier);
+      // DERIVE THE SELECTION FROM STATE (B589). `active` was only ever set by the click handler and
+      // started life hardcoded on FHD in the markup, so a tier set by anything OTHER than a tap —
+      // like B588's smart default — changed the real resolution while the panel still showed FHD
+      // highlighted. Daniel saw exactly that: FHD selected, 4K starred.
+      b.classList.toggle('active', t === tier);
     });
     renderResHint();   // reflect the video-cap hint when destination/source changes
   }
