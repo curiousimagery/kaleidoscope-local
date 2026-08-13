@@ -402,7 +402,7 @@ function startVideoPlayback() {
   const tick = () => {
     if (!motion.playing) return;
     if (!stg.on && (clock.time >= outSec - 0.03 || clock.time < inSec - 0.03)) {   // reached the trimmed end — always rewind (motion always loops; a linear clip just cuts back to the start)
-      clock.seek(inSec);
+      clock.rewind(inSec, outSec);   // defers to the native looper when it owns the wrap (B595)
     }
     let p = Math.max(0, Math.min(1, (clock.time - inSec) / span));
     // TWO CONSUMERS, MEASURED APART (B504). `engine` is the source upload that renders
@@ -748,7 +748,7 @@ function stgAdvance(now) {
     const inSec = env.clip.trim.inT * clock.duration, outSec = env.clip.trim.outT * clock.duration;
     const span = Math.max(0.001, outSec - inSec);
     if (clock.paused && !clock.seeking) clock.play();
-    if (clock.time >= outSec - 0.03 || clock.time < inSec - 0.03) clock.seek(inSec);
+    if (clock.time >= outSec - 0.03 || clock.time < inSec - 0.03) clock.rewind(inSec, outSec);
     stg.p = Math.max(0, Math.min(1, (clock.time - inSec) / span));
     return stg.p;
   }

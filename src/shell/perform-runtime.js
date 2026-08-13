@@ -497,7 +497,10 @@ export function createPerformRuntime(env) {
       // wrap at the TRIM out-point (motion's rule) — the element's own loop would run to
       // the file end and quietly ignore an applied trim
       const s = trimSpan();
-      if (s && (clock.time >= s.outSec - 0.03 || clock.time < s.inSec - 0.03)) clock.seek(s.inSec);
+      // `rewind`, not `seek`: on the native path the decode's own looper already wraps a
+      // full-range clip seamlessly, and a seek here opened a settle window that skipped
+      // this whole block for four frames every lap (B595)
+      if (s && (clock.time >= s.outSec - 0.03 || clock.time < s.inSec - 0.03)) clock.rewind(s.inSec, s.outSec);
       // the footer timeline's playhead rides the loop, over the trimmed span
       if (s) {
         const head = byId('srcScrubHead');

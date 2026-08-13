@@ -128,12 +128,48 @@ function createNativeClock(receiver, state) {
     // so callers that skip work mid-seek (perform's tick, output-engine) still do
     get seeking() { return performance.now() < state.seekUntil; },
     get rate() { return state.rate; },
-    seek(t) {
+    // `settle` is the window during which `seeking` reads true, so callers that skip work
+    // mid-seek stand down. It protects a SCRUB, where painting the decoder's flight path
+    // would flicker the output. A loop rewind has nothing to protect, so it passes 0 —
+    // see `rewind`.
+    seek(t, { settle = 120 } = {}) {
       const target = Math.max(0, t);
-      state.seekUntil = performance.now() + 120;
+      state.seekUntil = settle ? performance.now() + settle : 0;
       // `time` reports this target until a painted frame lands near it (see `get time`)
       state.pending = { t: target, frames: receiver.framesPainted, until: performance.now() + 8000 };
       FoldNativeVideo.seek({ time: target }).catch(() => {});
+    },
+    // THE LOOP BOUNDARY IS NOT A SCRUB (B595). Both playback ticks wrap at the TRIM
+    // out-point by seeking, which is right for a `<video>` (whose own loop we cleared)
+    // and doubly wrong here.
+    //
+    // First, AVPlayerLooper is ALREADY looping this asset seamlessly, so when the trim
+    // spans the whole clip our seek is a redundant precise 4K seek issued at the exact
+    // moment the looper is swapping in the next item. Second, the seek opened a 120ms
+    // `seeking` window, and perform's tick skips its ENTIRE body while seeking — no
+    // frame refresh, no upload, no render. 120ms is four frames at 30fps, which is
+    // Daniel's "holds a frame for a few beats each time it restarts".
+    //
+    // So: defer to the looper when it owns the wrap, and when we genuinely do own it
+    // (a trimmed range) rewind without blanking the render. There are no stray
+    // intermediate frames to filter on this path — the receiver only ever holds the
+    // newest frame the socket delivered.
+    rewind(inSec, outSec) {
+      const dur = receiver.duration || 0;
+      const whole = dur > 0 && inSec <= 0.05 && outSec >= dur - 0.05;
+      if (whole && state.loops) {
+        state.suppressed++;
+        state.suppressWhy = 'AVPlayerLooper owns the wrap (trim spans the whole clip)';
+        return false;
+      }
+      state.rewinds++;
+      // always overwritten, so `why` reports the MOST RECENT decision — the trim can
+      // change mid-session, and a stale reason would misread as the current one
+      state.suppressWhy = state.loops
+        ? `we own the wrap (trim ${inSec.toFixed(2)}–${outSec.toFixed(2)} of ${dur.toFixed(2)}s)`
+        : 'we own the wrap (the native player is not looping)';
+      this.seek(inSec, { settle: 0 });
+      return true;
     },
     // Resolve once a frame at (or past) the target has actually been PAINTED.
     //
@@ -269,7 +305,9 @@ export async function createNativeVideoSource(env, blob, { name, loop = true, on
   if (!nativeVideoAvailable() || !blob) return null;
   // pending = the seek target the clock reports until a painted frame catches up to it
   // ({ t, frames, until } — see `get time()`)
-  const state = { paused: false, rate: 1, seekUntil: 0, pending: null };
+  // loops/rewinds/suppressed = who wraps the clip at the loop boundary, and how often
+  // each mechanism actually fired (see `rewind` and the loopStall report)
+  const state = { paused: false, rate: 1, seekUntil: 0, pending: null, loops: !!loop, rewinds: 0, suppressed: 0, suppressWhy: '' };
   let receiver = null;
   // STAGE BREADCRUMB — every failure here falls back to <video>, which is safe but silent.
   // Naming the stage turns "it fell back" into "it fell back HERE" (the B498 iPad round
@@ -292,6 +330,19 @@ export async function createNativeVideoSource(env, blob, { name, loop = true, on
     // fallback, not a black source (see the requireFrame note in native-frame-receiver)
     await receiver.start({ requireFrame: true, timeout: 8000 });
     console.info('[fold] native video: first frame received');
+    // A FRESHLY LOADED CLIP IS PARKED, exactly like a <video> that has loaded and never
+    // been played (B595). The plugin's start() calls play() so a first frame can arrive —
+    // which is what makes the requireFrame assertion above mean anything — but nothing
+    // ever paused it again, so `state.paused` read false while the transport UI showed a
+    // parked clip. The flag and the player disagreed from the moment of load.
+    //
+    // Invisible until something rendered the stream on its own clock: starting a
+    // broadcast joins the external view to the socket, it draws every arriving frame,
+    // and the clip plays with the app still showing "paused" (Daniel, B594). A scrub
+    // never fixed it because a seek does not pause; one play/pause toggle did, because
+    // that is the first call that ever reaches the plugin's pause().
+    state.paused = true;
+    await FoldNativeVideo.pause().catch(() => {});
   } catch (e) {
     console.warn(`[fold] native video source unavailable at "${stage}", using <video>:`, e?.message || e);
     try { receiver?.stop(); } catch { /* not started */ }
@@ -360,7 +411,19 @@ export async function createNativeVideoSource(env, blob, { name, loop = true, on
     // the wire is fine and the fault is ours; a growing `skipped` means the fan-out is passing us
     // over; a bumped `reaped` means we were dropped and are not coming back on our own.**
     socketState: () => receiver.socketState?.() || null,
-    loopStall: () => receiver.loopStall?.() || null,
+    // WHO WRAPPED THE CLIP, alongside the receiver's account of what crossed the wire.
+    // `wraps` is the pts discontinuity as seen by the frames themselves; `rewinds` and
+    // `suppressed` are the two ways OUR playback tick can reach the same boundary. The
+    // three together are what makes every outcome readable: suppressed ≈ wraps with the
+    // hold gone confirms the redundant seek was it; rewinds ≈ wraps with the hold still
+    // there means the seek fires but is not the cause; both 0 means our rewind never ran
+    // and the hold is somewhere else entirely.
+    loopStall: () => ({
+      ...(receiver.loopStall?.() || {}),
+      rewinds: state.rewinds,
+      suppressed: state.suppressed,
+      why: state.suppressWhy || (state.loops ? 'no loop boundary reached yet' : 'the native player is not looping'),
+    }),
     get fanOut() { return lastFanOut; },
     pollFanOut: () => {
       if (fanOutBusy) return;

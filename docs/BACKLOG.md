@@ -276,25 +276,19 @@ Resolved on Daniel's design rather than by picking one vocabulary, because **the
 
 **✅ AND THE DEFAULT WAS FIXED AT B588**, because B587 shipped an honest picker with a degraded FHD default, which Daniel rightly called the opposite of the goal. Broadcasting defaults to the display's resolution; recording/NDI/Syphon default to the source's. A hand-picked tier outranks it for the session.
 
-### 🚨 [CRITICAL — Daniel, B592] B590 REGRESSION: THE EXTERNAL DISPLAY PLAYS WHILE THE APP IS PAUSED
+### 🌈 [OPEN — Daniel, B594] GREEN/RGB CHANNEL GLITCH ON THE FIRST MOTION → PERFORM TRANSITION
 
-**"starting the broadcast autoplays on the display even though i'm still in motion mode and am paused in the app."** A correctness break, not cosmetic: **the wall is no longer showing what the operator is looking at**, and Daniel has a show.
+**"there's a brief moment where colors get screwed up and RGB channels seem to be firing weird (glitchy green view)."** First transition only, seen across two builds. A green cast on a YUV path is the classic signature of **sampling a plane texture before all three planes have been uploaded**, or of a plane texture allocated at one size and read at another.
 
-**Mechanism, and it is a direct consequence of B590.** The app pauses by *not consuming* frames, not by stopping the decoder — his report shows `30.7 in/s` still arriving while paused. Before B590 the view only drew when the app posted state, so a paused app meant a held picture. B590 made a new frame its own reason to draw, so the view now advances the picture on the decoder's clock regardless of the app's transport state.
+Class 1. Look at the perform engine's `setPlanarSource` / first `updateSourceFrame` ordering, and at whether the PiP engine's reader can return a frame before its textures are sized. **Last member of the source-switch cluster still without a root cause.**
 
-**⚠️ B593 FIX INCOMPLETE (Daniel, B594):** starting a broadcast from motion mode **still autoplays**; it is correct after one perform round-trip, and correct thereafter. So the gate works but `isPlaying` is not reading the right thing at broadcast-start from motion. **Also seen: a green/RGB channel glitch on the first motion → perform transition.** Both belong with the source-switch cluster.
+### 🎚 [OPEN — Daniel, B594] THE LOOP BUILDER'S CROSSFADE PREVIEW CANNOT KEEP UP ON M1 AT 4K
 
-**Fix as shipped:** the state message carries a `playing` flag; `onFrame` only schedules a render when the program is actually playing. Paused falls back to state-driven renders, which is the old behaviour and the correct one — a paused program's picture changes only when params do. **This preserves B590's win exactly where it matters** (playing is the case we optimised) and costs nothing when paused.
+The crossfade preview stutters and pauses on the M1 iPad Pro. **The bake itself is correct** — the preview drives two occluded decoders over the same 4K file in real time, which the bake does offline and at its own pace.
 
-**Verify must cover:** motion paused, perform hold, scrubbing, and the transition into and out of play, on both the video and camera paths.
+Daniel's call on the fix: **fix it if it is cheap, otherwise guard the expectation.** A warning on the crossfade step saying the *preview* may stutter on this device and the baked loop will still be correct. Preferable to silently looking broken.
 
-### 🔁 [HIGH — B594] THE LOOP-RESTART HOLD IS OURS — the decoder is measured innocent
-
-`loopStall` at B593: **25 wraps, maxGap 17ms, last gap 0ms, 29 frames in the second after the wrap.** Frames cross the loop boundary at full rate. **The hold is in our render/upload path on a pts discontinuity, not in AVPlayerLooper.**
-
-**Ruled out by reading:** the seek-settle window (`seekUntil` is set only by an explicit `seek()`, so a wrap does not trip it).
-
-**Where to look next**, all Class 1: the planar `planeReader`/`seq` handling across a backwards pts; `native-video.js`'s clock `pending`/`present` logic; anything in perform/motion that compares the new pts against the last one and treats a backwards jump as an anomaly. **This is the entry point to the source-switch cluster** — same family as the first-frame-after-attach symptoms.
+Cheap avenues before conceding: preview the crossfade at a reduced resolution (it is judging a dissolve, not detail), or pre-roll both readers before the seam instead of seeking into it live.
 
 ### 🔬 [OPEN — B593] DOING LESS APP WORK MAKES THE BROADCAST WORSE, AND WE CANNOT SEE WHY
 

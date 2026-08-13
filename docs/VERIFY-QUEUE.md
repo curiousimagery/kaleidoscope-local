@@ -8,16 +8,50 @@ Confirmed results are DELETED from here and recorded in CHANGELOG.
 
 ---
 
-# ▶ THIS SESSION (B594) — nothing to verify
+# ▶ THIS SESSION (B595) — "three root causes, found by reading — do the fixes hold?"
 
-**No code changed.** B594 is documentation only: `docs/BROADCAST-DELIVERY.md`, the durable reference for this path, plus a pointer from `ARCHITECTURE.md`.
+**iPad, ~10 minutes.** All three came out of code, not measurement, so this session is confirmation rather than investigation. **Do the parts in order — part 3 is only meaningful once part 2 works.**
 
-**Carried forward, unverified, into the source-switch work:**
-1. **Motion-mode broadcast start still autoplays** (B593's gate is incomplete — correct after one perform round-trip).
-2. **Green/RGB glitch on the first motion → perform transition.**
-3. **The loop hold** — now known to be ours, not the decoder's.
+## ⚠️ SET THE SCENARIO TAG TO `hdmi-broadcast` FIRST.
 
-All three are the same family: *the first frame after a mode or source change.*
+## Part 1 — the autoplay (root cause: the clip was playing from load)
+
+The native player was started playing so the first frame could arrive, and nothing ever paused it again. It is now parked after its first frame.
+
+1. Load a 4K clip in motion mode. **Do not press play.**
+2. Connect the external display, start the broadcast. **The wall must hold on the first frame, not play.**
+3. Scrub the motion timeline. On release the wall follows the scrub and **stays parked**.
+4. Press play — the wall follows. Pause — it holds. Motion ↔ perform round trip, both directions.
+5. **The one thing this could plausibly break:** the clip never producing a first frame and falling back to `<video>`. If the source panel shows footage and the report's `source` note says `native decode`, that did not happen.
+
+## Part 2 — the bake (root cause: the baked clip never got its own decode)
+
+The bake swapped the `<video>` and left the **pre-bake** decode driving the broadcast, with no planes flowing at all.
+
+6. Loop Builder → slice → bake a seamless loop.
+7. **You should now see "preparing the clip for native playback…"** after the bake completes. That message is the fix.
+8. **The source panel must show the baked footage, not go dark.**
+9. Check the clip length reads as the *baked* length (a slice bake is shorter than the original by the crossfade).
+
+**This matters beyond the panel:** your B594 loop test ran against the pre-bake clip, so it could not have told us anything about the bake.
+
+## Part 3 — the loop hold (root cause: we rewound a clip that was already looping)
+
+Our tick seeked back to the trim in-point at every lap. On a full-range trim AVPlayerLooper had already wrapped it, and the seek opened a 120ms window during which perform's tick skips **everything** — four frames at 30fps.
+
+10. Broadcast the baked loop and let it loop **at least four times**. Watch for the hold.
+11. `copy report`. **The field is `loopStall`, and it now has `rewinds`, `suppressed` and `why`.**
+
+**How to read it. Every outcome is informative, which is the point:**
+
+| reading | meaning |
+|---|---|
+| `suppressed` ≈ `wraps`, **hold gone** | confirmed and fixed — the redundant seek was the hold |
+| `suppressed` ≈ `wraps`, **hold remains** | the seek is gone but something else holds the picture; the next look is the planar upload across a backwards pts |
+| `rewinds` ≈ `wraps` | we genuinely own the wrap (a trimmed range) — the settle window is gone but the seek still costs |
+| **both 0** | our rewind never fired. My mechanism was wrong and the hold is elsewhere entirely |
+
+`why` says which branch was taken, so a zero is never ambiguous.
 
 # 🅿️ PREVIOUS SESSION (B593) — "does the wall follow the operator, and whose gap is the loop hold?"
 

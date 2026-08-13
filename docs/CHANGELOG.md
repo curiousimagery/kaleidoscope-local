@@ -4,6 +4,44 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🔁 v0.25.5 (Build 595) — 2026-08-13 — Three root causes, all found by reading
+
+Daniel's B594 verification produced three symptoms. **None of them needed a device session; all three resolved by reading code.**
+
+### The autoplay was a flag that had been lying since load
+
+The plugin's `start()` calls `qp.play()` so a first frame can arrive — which is what makes the `requireFrame` assertion mean anything — and **nothing ever paused it again**, while the JS clock initialised `state.paused = false`. So the native player had been rolling from the moment the clip loaded, with the transport UI showing it parked.
+
+Invisible until something rendered the stream on its own clock. **Starting a broadcast joins the external view to the socket, it draws every arriving frame, and the clip plays.** Daniel's two supporting details fall straight out: a scrub never fixed it (a seek does not pause), and one play/pause toggle fixed it permanently (that is the first call that ever reaches the plugin's `pause()`).
+
+**B593's `isPlaying` gate was not the wrong gate.** It read `!clock.paused` off a flag that had never once been true. The clip is now parked after its first frame, exactly like a `<video>` that has loaded and never been played.
+
+### A baked clip never got its own decode
+
+`applyBakedClip` swapped `env.sourceVideo` and called `engine.setSource(v)`, and **never re-ran the native hand-off** — which is only ever called on file load. Worse than missing: `setSource` retires the planar provider on its way through (deliberately, and commented).
+
+The result was a hybrid nobody could reason about. The engine and `env.sourceVideo` pointed at the baked element; `env.nativeVideo` and `env.sourceClock` still served the **pre-bake** decode; no planes flowed at all. Daniel's dark source panel, and his hunch about the missing "preparing for native playback" step, were both exactly right.
+
+**It also means the bake test measured the wrong clip** — the decode feeding the broadcast was still the original. The hold Daniel saw is real, but it was the pre-bake footage looping.
+
+### The loop hold: we were rewinding a clip that was already looping
+
+Both playback ticks wrap at the trim out-point by seeking. That is right for a `<video>`, whose own loop `play()` clears. On the native path it is **doubly** wrong.
+
+**AVPlayerLooper is already looping the asset seamlessly**, so on a full-range trim our seek is a redundant precise 4K seek issued at the exact moment the looper is swapping items. And the seek opened a 120ms `seeking` window, during which perform's tick skips its **entire** body: no frame refresh, no upload, no render. **120ms is four frames at 30fps**, which is "holds a frame for a few beats each time it restarts".
+
+`clock.rewind(inSec, outSec)` replaces `clock.seek(inSec)` at all three loop boundaries. It defers to the looper when the looper owns the wrap, and when we genuinely do own it (a trimmed range) it rewinds **without** blanking the render — there are no stray intermediate frames to filter on this path, since the receiver only ever holds the newest frame the socket delivered.
+
+**Correcting B594:** that entry ruled out the seek-settle window on the grounds that `seekUntil` is set only by an explicit `seek()`. The reading was right and the inference was wrong — **the trim rewind is an explicit seek, called from the playback tick at every lap.**
+
+### The instrument that makes every outcome readable
+
+The one thing reading could not settle is whether the rewind fires on a given clip: the condition is `clock.time >= outSec - 0.03` and frames are 33ms apart at 30fps, so it depends on where the last frame's pts falls. `loopStall` now carries `rewinds`, `suppressed` and `why` alongside `wraps`.
+
+- `suppressed ≈ wraps` **and the hold is gone** → the redundant seek was the cause, confirmed.
+- `rewinds ≈ wraps` **and the hold remains** → it fires but is not the cause.
+- **both 0** → our rewind never ran and the hold is elsewhere entirely.
+
 ## 📕 v0.25.4 (Build 594) — 2026-08-13 — The loop hold is ours, and the arc gets an answer sheet
 
 ### 🔬 `loopStall` exonerates the decoder outright

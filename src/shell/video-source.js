@@ -86,6 +86,11 @@ export function createVideoElementClock(resolve) {
     get seeking() { const v = el(); return v ? !!v.seeking : false; },
     get rate() { const v = el(); return v ? v.playbackRate : 1; },
     seek(t) { const v = el(); if (v) { try { v.currentTime = t; } catch { /* not seekable yet */ } } },
+    // The loop-boundary rewind, as its own verb (see the native clock's rewind for why
+    // it is not just a seek). `play()` clears the element's own loop so we can wrap at
+    // the TRIM out-point, which means this element always has to be rewound by hand —
+    // there is no second mechanism to defer to.
+    rewind(inSec) { this.seek(inSec); return true; },
     seekSettled(t) { return seekVideoTo(el(), t); },
     setRate(r) { const v = el(); if (v) { try { v.playbackRate = r; } catch { /* some browsers clamp extreme rates */ } } },
     play() {

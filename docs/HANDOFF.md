@@ -50,7 +50,17 @@ This retires the confusion, not just a hypothesis. Resolution was free because t
 
 **▶ NEXT IS ITEM 2, promoted by Daniel:** the **loop-restart stall is reproducing for him in normal use and he calls it "visually very disruptive."** It is a multi-frame hold at the end of each loop, predates B590, and is the way into the source-attach cluster. **B593's `loopStall` already answered the first question: the decoder is INNOCENT** (25 wraps, max gap 17ms, 29 frames in the second after the wrap). The hold is in our own render/upload path on a pts discontinuity.
 
-**Three symptoms, one family — "the first frame after a mode or source change":** the loop hold; **broadcast-start from motion mode still autoplaying** (B593's `playing` gate is incomplete, correct after one perform round-trip); and a **green/RGB glitch on the first motion → perform transition**. Start with whichever reproduces most reliably.
+**Three symptoms, one family — "the first frame after a mode or source change":** the loop hold; **broadcast-start from motion mode autoplaying**; and a **green/RGB glitch on the first motion → perform transition**.
+
+**✅ B595 FOUND ROOT CAUSES FOR TWO OF THE THREE, PLUS ONE NOBODY HAD REPORTED, ALL BY READING CODE — no device session spent.**
+
+- **The autoplay was a lying flag, not a wrong gate.** The plugin's `start()` plays the AVPlayer so a first frame can arrive, and nothing ever paused it again while the JS clock initialised `paused: false`. **The clip had been playing since load**; it only became visible once the external view started drawing on its own clock. Now parked after the first frame. B593's `isPlaying` was reading the right property off a value that had never been true.
+- **The loop hold: we were rewinding a clip that AVPlayerLooper had already wrapped.** Both playback ticks seek to the trim in-point at every lap, and `seek()` opened a 120ms `seeking` window during which perform's tick skips its entire body. **Four frames at 30fps.** `clock.rewind(inSec, outSec)` now defers to the looper when the looper owns the wrap, and rewinds without blanking the render when we genuinely own it. **⚠️ Whether the rewind fires at all depends on where the last frame's pts falls against `outSec - 0.03`, which is why `loopStall` gained `rewinds`/`suppressed`/`why`. If both counters read 0, this mechanism was wrong.**
+- **A bake never gave the baked clip its own decode.** `applyBakedClip` swapped the `<video>` and never re-ran `attachNativeVideo`, while `setSource` retired the planar provider on its way through. The result: the engine on the new element, `env.nativeVideo`/`env.sourceClock` still on the **pre-bake** decode, no planes flowing. Daniel's dark source panel. **It also means his B594 bake test measured the old clip.**
+
+**Still without a root cause: the green/RGB glitch.** Class 1; look at the perform engine's first `updateSourceFrame` after `setPlanarSource`.
+
+**⚠️ B594 CORRECTION.** That build ruled out the seek-settle window on the grounds that `seekUntil` is set only by an explicit `seek()`. True, and the inference was wrong: **the trim rewind IS an explicit seek, issued from the playback tick every lap.** `BROADCAST-DELIVERY.md` §6 has been corrected.
 
 **(superseded) VERIFY DECIDES THE ARC.** If delivery goes to ~30/s and stops tracking app fps, item 1 closes and the product behaviour inverts in the right direction (a heavy slice slows the operator's editor, not the audience). **If delivery does NOT move, the app-frame story is wrong too, and the standing instruction is to STOP and go to item 2 without proposing anything further here.**
 
@@ -73,6 +83,8 @@ This retires the confusion, not just a hypothesis. Resolution was free because t
 **Riding alongside, not in the sequence:** the WebKit **GPU-process crash** (see below — it is exit criterion 5 work, not a side bug) and the status-readout-bar audit. *(Surface naming unified at B583.)*
 
 ## current version
+
+**🔁 B595 — THREE ROOT CAUSES, ALL FOUND BY READING.** Fixes for the autoplay, the post-bake dark source panel, and the loop-restart hold, plus `loopStall.rewinds/suppressed/why` so the loop fix's outcome is readable either way. **No Swift change; no `cap sync` needed.** See the item-2 block above for the mechanisms and `VERIFY-QUEUE.md` for the three-part verification (do the parts in order — part 3 is only meaningful once part 2 works).
 
 **🔌 B584 — BOTH ENDS OF THE FRAME WIRE REPORT. ⚠️ NEEDS `npx cap sync ios` + AN XCODE BUILD** (the Swift plugin gained a `frameStats` method).
 

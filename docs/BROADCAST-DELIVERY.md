@@ -71,7 +71,7 @@ AVPlayer (native, iOS)
 | `srcFanOut.clients[].offered/taken` | the **native** fan-out's own account | the only true wire measurement; both other arrival numbers are proxies |
 | `srcSocket` | our client's `readyState`, `msSinceFrame`, `closes`, `reconnects` | — |
 | `extPosts` | state posts `sent` vs `elided`, and `ownClock` | — |
-| `loopStall` | wall-clock gap across a **pts wrap** | — |
+| `loopStall` | wall-clock gap across a **pts wrap**, plus `rewinds`/`suppressed`: which of the two loop mechanisms fired | `wraps` counts the pts discontinuity itself, so it counts a lap whichever mechanism caused it |
 | `broadcastCeiling` | learned median delivery per destination + **actual render size** | not the requested tier (they differ on self-rendering destinations) |
 | `gpuMsPerFrame` | **always 0.** `EXT_disjoint_timer_query_webgl2` is not exposed on WebKit | we have never measured GPU time. This is the largest blind spot |
 
@@ -110,10 +110,11 @@ AVPlayer (native, iOS)
 
 ## 6. Open, with the evidence that frames each
 
-- **The loop-restart hold is OURS.** The decoder is exonerated by measurement; frames arrive on time across the wrap. The hold is somewhere in our render/upload path on a pts discontinuity. *(Ruled out by reading: `seekUntil` is set only by an explicit `seek()`, so the wrap does not trip the seek-settle window.)*
+- **The loop-restart hold is OURS.** The decoder is exonerated by measurement; frames arrive on time across the wrap. **Root cause found at B595 by reading: we were rewinding a clip AVPlayerLooper had already wrapped.** Both playback ticks seek to the trim in-point every lap, and `seek()` opened a 120ms `seeking` window during which perform's tick skips its entire body — four frames at 30fps. `clock.rewind()` now defers to the looper when it owns the wrap. **Unconfirmed on device**; `loopStall.rewinds`/`suppressed` decide it.
+  - **⚠️ B594 recorded "ruled out by reading: `seekUntil` is set only by an explicit `seek()`, so the wrap does not trip the settle window." The reading was right and the inference was wrong** — the trim rewind *is* an explicit seek, called from the playback tick. **Filed here as a worked example of the failure this document exists to prevent: a correct fact about one code path, generalised to a claim about a behaviour.**
 - **A faster app loop makes the broadcast worse.** Panels off: app 8x cheaper and 1.9x faster, delivery 29 → 20/s. Nothing measured explains it. Leading hypothesis is that the app's rAF *rate itself* competes for the shared GPU process, which would make a **frame-rate cap while broadcasting** a real lever and is categorically different from shedding surfaces. **The governor should not be deleted until this is answered.**
 - **The WebKit GPU process is shared** across both webviews and its crash takes every context at once. Same suspect as the above.
-- **Motion-mode start-of-broadcast autoplays** despite B593's `playing` gate; correct after the first perform round-trip. The gate is not reading the right state at that moment.
+- ~~**Motion-mode start-of-broadcast autoplays**~~ **CLOSED B595.** Not a gate problem. The plugin's `start()` plays the AVPlayer so the first frame can arrive and nothing ever paused it again, so `clock.paused` had been false since load. The clip is now parked after its first frame. **B593's `isPlaying` was reading the right property off a value that had never been true**, which is the same shape as the wrong-noun failure: the field named the right thing and did not mean it.
 - **A green/RGB glitch on the first motion → perform transition.**
 - **Electron and NDI/Syphon are unmeasured.** Nothing removed in this arc ever ran on those paths, but the app-frame-rate finding may not transfer: on a **bus** destination the app's canvas genuinely is the output.
 

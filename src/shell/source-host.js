@@ -1199,6 +1199,13 @@ export function createSourceHost(env) {
     try { src.stop(); } catch { /* already stopped */ }
   }
   env.detachNativeVideo = detachNativeVideo;
+  // A BAKE PRODUCES A NEW CLIP, so it needs the same native hand-off a loaded file gets
+  // (B595). Without it `applyBakedClip` left a hybrid nobody could reason about: the
+  // engine and `env.sourceVideo` pointed at the baked element while `env.nativeVideo`
+  // and `env.sourceClock` still served the PRE-BAKE decode, and `setSource` had retired
+  // the planar provider on its way through — so the source panel went dark, the clock
+  // reported the old clip's duration, and the broadcast kept showing the old footage.
+  env.attachNativeVideo = attachNativeVideo;
 
   env.loadVideo = loadVideo;
   // THE source clock (S3-A stage 2): the one handle motion + perform ask for time

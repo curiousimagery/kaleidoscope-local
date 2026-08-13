@@ -950,6 +950,19 @@ export function createClipEditor(env) {
     env.media.sourceVideoBlob = blob;   // the baked bytes are now the working clip (see media.sourceVideoBlob)
     if (old) { try { old.pause(); old.removeAttribute('src'); old.load(); } catch { /* ignore */ } }
     env.clip.trim.inT = 0; env.clip.trim.outT = 1; env.clip.trim.mode = 'forward';        // the baked clip is the full processed clip
+    // THE BAKED CLIP NEEDS ITS OWN DECODE. Everything above swapped the <video>; on iOS
+    // the thing that actually carries the picture is the native decode, and it is still
+    // running the clip we just replaced. Detach unconditionally (so a failed re-attach
+    // can never leave the old decode driving the new source) then hand the baked bytes
+    // over exactly as a file load does — including its "preparing the clip for native
+    // playback…" status, which is the affordance Daniel expected to see here.
+    env.detachNativeVideo?.();
+    // the bake cover is still up at this point (bakeAndApply clears it in its finally),
+    // so say what we are doing rather than leaving "baking…" on screen through a step
+    // that can take as long as the bake did on a long 4K clip
+    const cover = document.getElementById('clipBaking');
+    if (cover) cover.textContent = 'preparing the loop for playback…';
+    await env.attachNativeVideo?.(v, { name: 'loop.mp4' });
     const meta = document.getElementById('sourceMeta');
     if (meta) meta.children[0].textContent = `${v.videoWidth} × ${v.videoHeight}`;
     env.arrangeSlots();
