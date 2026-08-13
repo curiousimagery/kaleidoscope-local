@@ -108,7 +108,7 @@ async function setupSource(payload) {
     let recv = null;
     try {
       const mod = await import('./shell/native-frame-receiver.js');
-      recv = mod.createNativeFrameReceiver({ port: payload.port, mirror: !!payload.mirror });
+      recv = mod.createNativeFrameReceiver({ port: payload.port, mirror: !!payload.mirror, onFrame: scheduleRender });
       await recv.start();
     } catch (e) {
       if (hint) hint.textContent = 'could not join the camera stream: ' + (e.message || e);
@@ -137,7 +137,7 @@ async function setupSource(payload) {
       // planes), it exists only to give setSource the source's dimensions and aspect —
       // and an uncapped one would cost a full 4K readback right when the join window is
       // ticking, which is the worst possible moment for a 160ms stall
-      recv = mod.createNativeFrameReceiver({ port: payload.port, cap: 1280 });
+      recv = mod.createNativeFrameReceiver({ port: payload.port, cap: 1280, onFrame: scheduleRender });
       await recv.start();
     } catch (e) {
       if (hint) hint.textContent = 'could not join the video stream: ' + (e.message || e);
@@ -334,14 +334,15 @@ let lastArrived = -1;   // receiver.framesArrived at the last fps window (see re
 // violent bursting. **We were measuring the right nouns with the wrong statistic.**
 //
 // So: the interval DISTRIBUTION, for two different things.
-//   `draw`  — every render. Since this view renders on message arrival, this is effectively the
-//             app's POST cadence measured at the far end, which is better than measuring it at
-//             the source because it includes everything the bridge does to it.
+//   `draw`  — every render. **REINTERPRETED AT B590:** renders are now triggered by socket frames
+//             as well as state posts, so this is this view's own achievable cadence, not the app's
+//             post rate reflected back. Before B590 it was the latter, which is why `draw` and
+//             `fresh` moved together with app fps in every report up to B589.
 //   `fresh` — only the renders that put a NEW picture on the wall. **This is the one the eye
-//             judges.** New content requires BOTH a state message (to trigger a render) AND a new
-//             socket frame, and those are two independent clocks; if their interleaving is
-//             irregular, new content appears in bursts while both average rates look healthy.
-//             That is the leading mechanism and this is the number that confirms or kills it.
+//             judges.** It used to require BOTH a state message (to trigger a render) AND a new
+//             socket frame — two independent clocks whose interleaving could bunch new content
+//             while both average rates looked healthy. B590 removed that coupling: a new frame is
+//             now sufficient on its own, so `fresh` should approach the arrival rate.
 let lastNewT = 0, seenArrived = -1, newDraws = 0;
 const drawGaps = [], newGaps = [];
 function pctl(a, p) {
@@ -437,6 +438,20 @@ requestAnimationFrame(tick);
 // gets one instead of four. Nothing renders less often than it would have in the steady state,
 // which is what makes this strictly safer than the elision that failed at B549 — we are not
 // deciding a frame is unnecessary, only that four simultaneous ones are one.
+// TWO CLOCKS FEED THIS, AND THE FRAME ONE IS THE POINT (B590).
+//
+// Until now the ONLY trigger was the app's state post, and `external-surface.js` posts on the
+// app's rAF loop — so **the app's frame rate was a hard ceiling on the broadcast.** Five runs
+// showed delivery tracking app fps to within one frame (25.1→26, 27.2→26, 23.7→23, 19.7→20,
+// 24.0→24), while the socket sat there with 30 frames a second the view was never told to draw.
+// The B583 freeze was the accidental control: with nothing to upload the app's loop ran at 42.5fps,
+// posted that often, and this view drew **45fps of 4K**. Its capability was never the limit.
+//
+// So a new picture is now its own reason to draw, and state changes remain a reason too (a param
+// move on a paused clip must still repaint). The coalescing below is what keeps that safe: both
+// triggers collapse into at most one render per macrotask, so the render rate self-paces to
+// whatever this view can actually sustain, and the message handlers still return immediately —
+// which is the B579 constraint (rendering synchronously in the handler starved the socket).
 let renderPending = false;
 function scheduleRender() {
   if (renderPending) return;

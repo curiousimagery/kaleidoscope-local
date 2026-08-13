@@ -4,6 +4,36 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🔓 v0.25.0 (Build 590) — 2026-08-13 — The broadcast stops being clocked by the app's frame rate
+
+**The finding that explains every dead hypothesis in this arc at once: the external view only drew when the app told it to, and the app told it once per its own frame.**
+
+`external-surface.js` posts state on the **app's rAF loop**. `output-view.js` said it outright: *"the state stream IS the render clock."* So the app's frame rate was a hard ceiling on the broadcast, and delivery tracked it to within one frame in every run ever measured:
+
+| run | app fps | delivered |
+|---|---|---|
+| B589 4K | 25.1 | 26/s |
+| B589 QHD | 27.2 | 26/s |
+| B587 4K | 23.7 | 23/s |
+| B587 QHD | 19.7 | 20/s |
+| B588 baseline | 24.0 | 24/s |
+
+Meanwhile the view's own socket was delivering **30 frames a second it was never asked to draw** (`srcFanOut` skipped: 0, offered == taken, both clients).
+
+**And B583's freeze was the accidental control.** With nothing to upload the app's loop ran at 42.5fps, posted that often, and the view drew **45fps of 4K**. Its capability was never the limit.
+
+### A new picture is now its own reason to draw
+
+`createNativeFrameReceiver` takes an `onFrame` callback, fired from `ws.onmessage`; the external view passes `scheduleRender`. State posts still trigger a render, because a param move on a paused clip must still repaint.
+
+**The B579 coalescing is what makes this safe and is deliberately unchanged.** Both triggers collapse into at most one render per macrotask, so the rate self-paces to what the view can sustain and the message handlers still return immediately. Rendering synchronously inside the handler is what starved the socket at B579, and that constraint is untouched.
+
+### Why this matters more as product than as performance
+
+Today a heavier slice slows **the audience's picture**, because the operator's editor and the broadcast share one clock. Decoupled, the wall holds its rate while the editor gets slower — which is the correct trade for a VJ and the exact opposite of the current behaviour.
+
+**Known cost:** a frame may be drawn with params up to one app-frame stale (~40ms). Invisible in continuous motion; possibly visible on a hard cut. Worth measuring, not worth blocking on.
+
 ## 🎯 v0.24.2 (Build 589) — 2026-08-13 — 4K costs the same as QHD, and the smart default was invisible
 
 ### 🔬 THE REVERSED A/B: RESOLUTION IS FREE ON THIS PATH

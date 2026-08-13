@@ -276,6 +276,14 @@ Resolved on Daniel's design rather than by picking one vocabulary, because **the
 
 **✅ AND THE DEFAULT WAS FIXED AT B588**, because B587 shipped an honest picker with a degraded FHD default, which Daniel rightly called the opposite of the goal. Broadcasting defaults to the display's resolution; recording/NDI/Syphon default to the source's. A hand-picked tier outranks it for the session.
 
+### 🔁 [HIGH — B590] RE-TEST THE GOVERNOR'S FUTILITY RESULT UNDER A CONTROLLED PROTOCOL
+
+B583 and B584 both concluded **"shedding the editor surfaces does not move the delivered rate"**, and the governor now acts on that conclusion by releasing at the bottom rung. **Both measurements were taken on a hot device with an enlarged slice, comparing before against after across time — the same uncontrolled setup that produced B587's false "QHD is slower" result**, which Daniel's slice-size callout later demolished.
+
+There is also now a mechanism predicting shedding SHOULD help: B590 found delivery was gated by the app's frame rate, and the editor surfaces are ~24ms of a 40ms frame.
+
+**Re-run under the B589 protocol** (cold start, fixed slice, A/B/A) using the frame-cost panel's manual surface toggles. No code needed. If shedding does help, `futileGain` and the whole futility branch need revisiting — a false negative there means the governor gives up exactly when it would have worked.
+
 ### 🌡️ [MED — B588, scoped down B589] THE SAME WORK GETS MORE EXPENSIVE OVER A SESSION — LOAD-DEPENDENT, SO CONTROL FOR IT
 
 **▶ B589 UPDATE: not the crisis it first looked like.** The 40% climb below came from a session with an **enlarged slice** running hot. B589's controlled pair (cold start, default slice) drifted only ~5% and produced a perfectly clean result. **Standing protocol for any A/B from here: cold start, fixed slice, and note the elapsed time in the report.** That is enough; a full warm-up-and-settle harness is not needed yet.

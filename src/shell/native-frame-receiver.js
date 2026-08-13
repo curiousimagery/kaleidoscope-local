@@ -28,7 +28,7 @@ import { parseFrameHeader } from './frame-header.js';
 // the engine takes the planes directly (`planeReader`) and applies its own cap. What
 // is left here is the source-panel preview and the fallback for consumers that still
 // read a drawable.
-export function createNativeFrameReceiver({ port = 8899, mirror = false, cap = 0 } = {}) {
+export function createNativeFrameReceiver({ port = 8899, mirror = false, cap = 0, onFrame = null } = {}) {
   const canvas = document.createElement('canvas');
   // a valid size BEFORE the first frame: the external view calls engine.setSource on this
   // canvas as soon as the socket opens (it no longer waits for a frame), and setSource
@@ -141,6 +141,12 @@ export function createNativeFrameReceiver({ port = 8899, mirror = false, cap = 0
           latest = ev.data;
           seq++;
           arrived++; winArrived++;
+          // A NEW PICTURE IS ITS OWN REASON TO DRAW (B590). The external view used to render only
+          // when the app posted state, which made the app's frame rate the ceiling on the
+          // broadcast. This lets a consumer schedule on frame arrival instead. It must never do
+          // work synchronously here — that is the B579 failure, where rendering inside the message
+          // handler starved this very socket.
+          if (onFrame) { try { onFrame(); } catch { /* a consumer's scheduler must not kill the socket */ } }
           // WHEN frames arrive, not just how many (B578). The external view's B577 reading showed
           // 30 arrivals per second reaching the screen as only 7 new pictures, which is only
           // possible if arrivals are BUNCHED — and this is the only place that can prove it,

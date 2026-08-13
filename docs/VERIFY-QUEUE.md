@@ -8,7 +8,31 @@ Confirmed results are DELETED from here and recorded in CHANGELOG.
 
 ---
 
-# ▶ THIS SESSION (B589) — "does the panel show the resolution it actually picked?"
+# ▶ THIS SESSION (B590) — "does the broadcast beat its own clock now?"
+
+**iPad, ~10 minutes. This one decides whether the 4K arc continues or closes.**
+
+## ⚠️ SET THE SCENARIO TAG TO `hdmi-broadcast` FIRST. Cold start, and keep the slice FIXED across all arms (the B589 protocol — it is what made the last comparison readable).
+
+## Part 1 — the decoupling (the whole point)
+
+1. Force-quit, reopen, 4K source → 4K HDMI, **default slice**. Broadcast ~30s. `copy report`.
+2. **The number that decides it: `external` note's NEW PICTURES/s versus `report.fps`.**
+   - **Delivery ~30/s while app fps sits at ~25** → **it worked.** They are decoupled and item 1 closes.
+   - **Delivery still equals app fps** → the app-frame story is wrong. **Say so and we stop here and move to the source-switch cluster.** No further proposals on this thread.
+3. **Now make the slice big enough that app fps drops hard.** `copy report`.
+   - **The interesting case:** app fps falls and **delivery holds near 30**. That is the product inversion — the operator's editor gets slower, the audience does not.
+
+## Part 2 — the suspect futility result (same session, no code)
+
+4. Still under the heavy slice, use the frame-cost panel to **turn the live and staged surfaces off by hand**. Watch the external note.
+   - B583/B584 concluded shedding these does not help, but **both were measured hot with a big slice across time** — the same setup that produced the false QHD result. This is the controlled re-test.
+
+## Watch for
+
+**Staleness on a hard cut.** Frames can now be drawn with params up to one app-frame (~40ms) old. Continuous motion should look identical; a hard cut is where a seam would show. **If you see one, describe it — that is a real cost of this change, not a bug to hide.**
+
+# 🅿️ PREVIOUS SESSION (B589) — "does the panel show the resolution it actually picked?" — VERIFIED (Daniel: "new defaults verified").
 
 **iPad, ~2 minutes. No broadcast needed.** B588's smart default was working; you just could not see it. Two display bugs, no behaviour change underneath.
 
