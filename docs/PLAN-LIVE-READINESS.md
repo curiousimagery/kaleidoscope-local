@@ -1,0 +1,184 @@
+# plan — live readiness
+
+**The arc that runs from B609 forward.** Written at B609 because the arc it continues never had a plan document, and three independent reconstructions of its history (Claude Code, Daniel, and a Sonnet pass over the full session transcript) agreed on the state but had to re-derive it each time. This file exists so that stops happening.
+
+**What this file owns:** the goal, the sequence, the dependencies between items, and the stopping rule for each one. **What it does not own:** current state (`HANDOFF.md`), open work detail (`BACKLOG.md`), how the frame pipeline works (`BROADCAST-DELIVERY.md`), or how to investigate (`DEBUGGING-PROTOCOL.md`). Where this file disagrees with a later CHANGELOG entry, the CHANGELOG wins.
+
+**Naming:** "live readiness" in both senses. The app has to perform, and it has to be trustworthy in a live show.
+
+---
+
+## The goal
+
+**Daniel, 2026-07-31:** *"On modern performant hardware we can handle working with 4K clips up to 10 mins and 4K output, and then degrade capabilities gracefully based on constraints of older or less powerful hardware."*
+
+So 4K at 10 minutes is **the ceiling to design toward, not the floor to require**, and the degradation ladder is a first-class part of the design rather than a failure mode.
+
+**The definition of done is the five exit criteria in `CAPABILITIES.md` §0** (Daniel, B560). They are not restated here. Read them before picking up any item. The short form: every offered option works in the context offered, every label is honest, capabilities are probed per device, the instrumentation can support optimization, and we can rank what things cost well enough to place guardrails deliberately.
+
+**A standing note on how to break a tie (Daniel, B609).** He performs weekly and uses those shows as forcing pressure on the app rather than the other way round. **The app is the primary output; the performance is the deadline that focuses it.**
+
+**The tiebreaker is development velocity and code quality, not learning for its own sake.** Learning is how we get there, not the goal. So the thing to refuse is not "a fix that helps tonight" — **shows genuinely should go well, on the latest build** — it is **a fix that has to be redone later.** When a short-term patch and the right change cost about the same, take the right change. When they do not, say so plainly and let Daniel weigh it, because there is always a **Plan B** (an older known-good build) that makes a deadline cheap to protect.
+
+---
+
+## Where we are
+
+| # | item | status |
+|---|---|---|
+| 1 | Frame cadence / broadcast delivery | **Closed B594.** 29 of 30 at full 4K. Record in `BROADCAST-DELIVERY.md` |
+| 2 | The 4K source-attach cluster | **Headline closed B608** (the loop hold). Tails open |
+| 3 | NDI | Not started. One specific bug already diagnosed and waiting |
+| 4 | iPad limits, sustained load | **Not reached. This is the arc's real unmet target** |
+| 5 | iPhone limits, honest labels | Not reached. **Now unblocked and independent** |
+| 6 | Thermal | Not started. No thermal code exists in the repo |
+
+**The single most important gap:** every 4K measurement in this entire arc used a **20.4 second clip**. The stated target is 5 to 10 minutes. The last time anyone ran the real test (6+ minutes of 4K, broadcasting 4K) was **2026-07-31**, and it is still recorded in BACKLOG as *"not usable yet, periodic sputter"*. That reading predates the single-decode architecture, B590's decoupling, and the loop cache. **It has never been re-taken, and it is exit criterion 3's named test.**
+
+---
+
+## The sequence
+
+Ordered by dependency, not tractability. **The documented failure mode of this arc is a well-defined next step out-competing an important one** (`DEBUGGING-PROTOCOL.md`, state D). If you are working on something not on this list, that is the drift.
+
+### 1. Close out B609 verification ✅ COMPLETE
+
+All three questions are answered. **Do not extend this session; it is done.**
+
+- **Upload drain holds.** Multiple clip loads across three sessions, no `NO NATIVE DECODE`.
+- **The minimum viable 4K budget is 64MB, the current default.** `heldMB 59`, 5 frames, `firstPts 0`, and the wall's worst lap gap was 52ms against a 33ms interval, a 19ms overhang on one frame. At 256MB it was 42ms. **Four times the memory buys 10ms on one frame per lap.** The default is right and the 4K memory risk is smaller than feared.
+- **The bake pattern inverted.** Not "first attempt fails" but **"the second bake within a session fails"**, with two fresh-session first bakes succeeding. Points at something a completed bake does not release, rather than something held at startup.
+
+**Two instrument defects to fix in the next native build, not now:**
+- `loopCache.coveredMs` measures the span between first and last cached pts, which under-reports real coverage by one frame interval, so `why` advises raising a budget that is already sufficient.
+- The report's `scenario` tag reads `idle-still` during a 4K broadcast. Per `BROADCAST-DELIVERY.md` §7 it must be set before a baseline is saved.
+
+### 1.5 Input normalization across modalities and forms
+
+**Promoted by Daniel at B609**, and explicitly scoped as architecture rather than triage: *"ensuring that the lower level infrastructure to capture inputs across modalities and surfaces matches how we want to build things long term and isn't a 'stop the bleeding' hack."*
+
+**The diagnosis, and it is already written in the code.** The zoom/slice/canvas normalization work (B440 semantic roles, B477 `sizeNorm`, B483 `canvasNorm`, B462 unified zoom) **landed for the touch surfaces and was never carried to the hardware paths.** `input-bus.js` even names the target in a comment: *"a candidate for the shared helper when the 'one fn per input axis' hardening lands."* So the architecture is not being invented here, it is being finished.
+
+**Three stages, and the bugs get fixed inside them rather than as one-offs:**
+
+- **A. Make the target registry per-form aware.** `PARAM_TARGETS` is a flat list of state keys with fixed ranges; exactly one entry (`canvasZoom`) has a `resolve(state)`. Extend that to every target whose meaning is per-form. **Pan can be done today** (`latticePeriod` is real per-form data on square, hex and triangle). **Scale cannot** (see the blocker below).
+- **B. One transform per input axis, shared across every modality.** Today the bus, the local touch handler, the pan joystick and the mobile chrome each derive their own input-to-param transform. `kit/zoom.js` and `kit/pan.js` are the pattern that already works; the remaining axes need the same treatment. **This is what makes a mapping behave identically whether it arrives from a fader, a finger, or a stick.**
+- **C. Ownership and handoff.** Whichever input takes over adopts the current value and moves relative to it. The per-field ownership pattern autoplay already uses. **This is the root fix for the gesture/joystick jerk**, which is two inputs holding independent absolute position state.
+
+**Bugs that resolve inside these stages:** the joystick 45° offset (axis-convention mismatch, stage B), the handoff jerk (stage C), left-pan not honored on triangle (stage A or B, a clamp or wrap boundary), droste's accumulated zoom leaking into other forms (stage A, and Daniel has already chosen the resolution: decouple per form), and iPad touch hypersensitivity (stage B, and note `PINCH_ZOOM_SENS` has been cut three times already at `3 → 1.05 → 0.5` with Daniel still reporting it too enthusiastic, which suggests the constant is not the real problem).
+
+**⚠️ BLOCKER, and it is Daniel's:** per-form scale normalization needs per-form values, and **no form declares `zoomCover` or `zoomInFloor` today.** Both appear only in `forms/index.js` as the flat fallbacks 3 and 0.7. B511 shipped `?tune=forms` to produce these values and **the tuning pass never happened.** Until it does, "per-form scale bounds" resolves to identical numbers on all five forms.
+
+**Also to settle here (Daniel, B609):** which parameters persist across a form switch versus a mode switch. His stated intuition, which stage C should implement: **persist basics like slice position and scale when switching forms during a performance; do not persist discrete changes across still and motion modes.**
+
+**Done when:** a mapped control behaves the same way on every form, an input that takes over from another does not jump, and a mapping that cannot act on the current form says so rather than writing silently.
+
+### 2. Real-world pressure testing and hardening
+
+**The arc's actual unmet target**, and Daniel's framing is the right one: this is one cluster, not a list of separate bugs. **The bake failure, the source-panel blackout, the GL context loss, the slice-preview stall and the green glitch are all downstream of a single question: how many decode, encode and GL sessions we hold at once, and whether we release them.** Fixing them individually means deriving the same audit three times.
+
+**Order within the item:**
+
+1. **The session audit.** Class 1, answerable by reading code, **no device time.** What hardware sessions does the app hold at each moment, and who releases them. This turns three device sessions into one.
+2. **The thermal signal.** `ProcessInfo.thermalState` reads null. The JS seam already exists at `main.js:102` and `createPressureSource` already consumes it, so this is a small addition to a plugin we rebuild anyway. **It is a prerequisite, not a phase.**
+3. **The long-form run.** 6 to 10 minutes of 4K, broadcasting 4K over HDMI, cold start, fixed slice. Governor pinned off. Readings at start, middle and end.
+4. **The cluster fixes**, aimed by what 1 and 3 found.
+
+**New this session, and it is the highest-value single finding:** the source-loss reading fired the B584 instrument for the first time and landed on the branch that instrument was built to separate.
+
+```
+offered 222 · took 222 · skipped 0 · 0.0 in/s · ⚠ GL CONTEXT RESTORED ×1
+```
+
+**Equal counts with a frozen picture means the frames reached us and we failed to use them.** Not contention, not the wire, not the fan-out. Almost certainly the planar source's plane textures not surviving `reinitGL`. **Class 1, readable, start here.**
+
+**On the second device:** the M1 iPad Air is a **control, not a second data point.** Same silicon, fewer pixels, 60Hz instead of 120, so it does strictly less work for the same content. **If a 6-minute 4K broadcast fails on both, the ceiling is not device headroom.** Check RAM on both first; the M1 iPad Pro is 8GB below 1TB and 16GB at 1TB or above.
+
+**Done when:** a 6+ minute 4K clip broadcasts 4K over HDMI, cold start, without a GL context loss and without the app becoming unresponsive, with cost recorded at three points. **If it fails, done means a named failure with a measurement**, not a fix.
+
+### 3. Cruft cleanup
+
+**Both code and documentation.** The consolidation item is filed HIGH at B591 and lists five disproven levers still carrying live code. Documentation gets the same treatment: keep the learnings, archive the narrative.
+
+**The governor decision belongs here, and B609's report sharpens it.** The report reads `active: false, level: 0, rung: "full rate", signal: display, shortfall: 0` while `appShortfall` is 0.62. **It is not shedding.** Since B581 it watches the display, and since B590 the display rarely has a shortfall, so it almost never arms. When it does arm, B591 measured that its action makes delivery *worse*.
+
+**So it is a loaded gun that only fires in the one situation where firing hurts** — and Daniel's instinct about the exception is correct. On an HDMI or external-window destination the view renders itself, so app fps does not gate it. **On a bus destination like NDI or Syphon the app's canvas genuinely is the output, so app fps gates it directly.** The governor's original premise is false for HDMI and still true for NDI. **The decision is therefore not retire-or-keep, it is scope it to bus destinations.** That decision needs item 5's measurement to confirm, which is why the governor should be disabled rather than deleted here.
+
+**Done when:** disproven levers are gone from the code and the panel, the docs hold only living material, and the governor has a decided scope rather than a default.
+
+### 4. iPhone limits and honest labels
+
+**Independent of everything above.** It was gated on items 1 and 2 when the plan was written; those are closed, so it is unblocked and can slot wherever a phone is in hand.
+
+**Known before starting:** the mobile chrome's take path has a structural 2048 cap, so "4K record" on the phone has never been true and every 4K recording number from the phone measured a 1080p take (`CAPABILITIES.md`, correction B551). HDMI from the phone has never been measured on any build.
+
+**The exit-criteria audit got bigger this arc, not smaller.** New confirmed liars: the source surface's off switch does nothing, `gpuMsPerFrame` always reads 0 because WebKit does not expose the timer extension, `pressure` cannot be trusted during a take, and `foldHdmiVideoUncap` is a confirmed no-op.
+
+**Done when:** every option the phone offers is either functional or honestly labeled.
+
+### 5. NDI
+
+**One measurement, not an investigation.** B478 already concluded that WiFi NDI is packet-timing jitter with sender-side levers exhausted, and that conclusion stands. **Do not re-litigate it.**
+
+**What is genuinely open, and it is specific:** B569 found the async readback is not working on iPad, costing **31.43ms of a 76ms frame**, the single largest item in that path. That is plausibly the entire explanation for the choppiness reported across two arcs, and it is a different animal from the WiFi jitter.
+
+**Done when:** the readback is fixed, one wired and one WiFi reading exist, and the destination carries a label matching what was actually measured.
+
+---
+
+## The dependencies that are real
+
+Everything else can be bundled or reordered. **These four cannot.**
+
+| dependency | why | strength |
+|---|---|---|
+| Thermal signal **before** the long run | Without it, a slowdown at minute six is indistinguishable between heat, memory pressure and a leak. Three different fixes | **Hard.** Cheap to clear |
+| Governor **pinned off** during the long run | If it arms mid-run it changes the workload under measurement | **Soft.** A switch, not a decision. Its fate does not need settling first |
+| Cleanup **after** pressure testing | **The flags being deleted are the instruments.** The cache budget knob, `loopBySeek`, the surface toggles. Delete them first and A/B capability is gone mid-investigation | **Hard** |
+| NDI readback fix **before** NDI measurement | Measuring with a known-broken readback measures the readback | **Hard**, but it is one small fix |
+
+**One discrete piece sits at the front of item 2:** the session audit. Class 1, no device. Doing it first is what makes the expensive session cheap.
+
+---
+
+## The pause point
+
+**After item 3.** Cleanup is where docs and code get consolidated, so it is the only seam where stopping does not leave half-derived context for the next arc to re-inherit.
+
+**Stage manager** (load and queue several clips, crossfade between them) is the pressing feature work and slots here. Items 4 and 5 are measurement and labeling work that does not rot while paused.
+
+**Do not pause before item 2.** Shipping feature work without ever having confirmed the core promise leaves that promise unverified indefinitely, and every open risk in this arc is one that only appears over time.
+
+---
+
+## Explicitly not this arc
+
+Named so they stop competing for attention, not to dismiss them.
+
+- **Color management.** A real product gap for the photography and round-trip audiences, raised by Daniel as more important than its perf angle. **New-feature-shaped, not hardening-shaped**, so it belongs in the same conversation as stage manager.
+- **Mobile web and Android.** No Android device has ever been in the loop. One measurement session, then a decision, and not before.
+- **New forms, motion editor work, tiling density.** Off-arc.
+- **Test infrastructure.** A deliberate standalone decision, never a feature-commit rider.
+
+---
+
+## How to measure so the answer survives
+
+Full form in `DEBUGGING-PROTOCOL.md` and `BROADCAST-DELIVERY.md` §7. **The three that this arc paid for in builds:**
+
+1. **Cold start, fixed slice, A/B/A.** The same work gets more expensive over a session. Two false results in this arc came from uncontrolled A/Bs, and **both were caught by Daniel rather than by the instruments.**
+2. **Prefer a conserved quantity** that must survive a boundary we do not own, over an activity counter. `offered`/`taken`, pts across a wrap, new pictures on the wall. Not draws, calls or batches.
+3. **Anything that can decline to act must publish why.** An absence is not evidence. `nativeAttach` caught three silent fallbacks this arc, each of which would otherwise have become a false conclusion.
+
+**And the standing rule at the top of every verification:** check the `source` row says `planar · native decode` before trusting any measurement. A report from the fallback path cannot be compared to one from the native path.
+
+---
+
+## Risk register
+
+What would invalidate this plan rather than merely delay it.
+
+- **The long run shows 4K at 10 minutes is not reachable on M1.** Then graceful degradation stops being the fallback and becomes the headline product story, and the honest-labels work moves up rather than down.
+- **The GPU-process crash is not fixable from our side.** It is a shared WebKit process across both webviews. If it cannot be avoided, the arc's deliverable becomes surviving it well (recovery, state preservation, an honest warning) rather than preventing it.
+- **The input work needs more of the control registry than stage A to C.** Stages 2 and 3 of that registry were described as load-bearing back at B559 and have never been scoped properly.
+- **A conclusion in this file was measured on the `<video>` fallback rather than the native decode.** It has happened twice. Every 4K number here should be re-checkable against a report where the source row says `native decode`.

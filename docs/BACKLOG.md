@@ -7,6 +7,8 @@ Living list of **incomplete / pending work**, grouped by **surface / family**. *
 - Items are roughly **stack-ranked within each group** (top = higher priority / more ready).
 - Bugs + quick wins are consolidated at the top as a running triage.
 
+> **▶ SEQUENCE LIVES IN `PLAN-LIVE-READINESS.md` (B609).** This file says *what* is open; the plan says *in what order and why*, with the dependencies and the stopping rule for each item. If you are about to pick something up from here, check the plan first — the arc's documented failure mode is a well-defined item out-competing an important one.
+>
 > Cleaned 2026-08-13 at B599 (Daniel's ask): **this file holds future planned work and the context that serves it, nothing else.** 16 resolved or superseded sections moved to `archive/BACKLOG-resolved-b560-b598.md`. Closed verification sessions are in `archive/VERIFY-QUEUE-b573-b597.md`.
 >
 > Previously cleaned 2026-07-18; pre-cleanup versions in git history.
@@ -240,6 +242,24 @@ Cache the clip's **head frames** as they arrive on the opening pass, and at the 
 
 **If take gaps come back small too**, the hold is not at the frame boundary at all and the next suspects are param-side: `p` snapping from 1 to 0 at the wrap, and whatever the timeline/playhead UI does when it scrolls back to the start.
 
+### 🚨 [HIGH — Daniel, B609] THE SOURCE FREEZES AFTER A GL CONTEXT RESTORE, AND THE FRAMES ARE ARRIVING FINE
+
+**This is the B584 instrument's first firing on the branch it was built to separate, and it answers the question in one reading.** Symptom: switching motion → perform loses the source image while the broadcast keeps working.
+
+```
+from canvas · planar · native decode · 0.0 in/s
+⚠ SOURCE STALLED 3.4s — socket open, offered 222, took 222, skipped 0
+⚠ SOCKET REJOINED ×1 · ⚠ GL CONTEXT RESTORED ×1
+```
+
+**Per the rule recorded when that counter shipped: equal `offered`/`taken` with a frozen picture means the frames reached us and we failed to use them. Our bug, JS side.** Not contention, not the wire, not the fan-out backpressure — all three are exonerated by `skipped: 0` and the equal counts.
+
+**Leading mechanism, and it is Class 1 (readable, no device time): the planar source's plane textures do not survive `reinitGL`.** A GL context was restored in the same window. B580 made the planar path come back at full resolution after a restore, but that is a different question from whether `setPlanarSource` re-establishes the plane textures the receiver is still feeding. The receiver keeps taking frames off the socket and has nowhere to put them.
+
+**Start here in `PLAN-LIVE-READINESS.md` item 2** — it is the cheapest entry point into the whole GPU-process cluster, and it may share a root cause with the bake failure directly above (a GL context loss preceded that failure too).
+
+**Cross-ref:** this is very likely the same defect as the long-standing "source panel lost its image after a bake → perform switch", now with a root-cause branch rather than a symptom.
+
 ### 🌈 [OPEN — Daniel, B594] GREEN/RGB CHANNEL GLITCH ON THE FIRST MOTION → PERFORM TRANSITION
 
 **"there's a brief moment where colors get screwed up and RGB channels seem to be firing weird (glitchy green view)."** First transition only, seen across two builds. A green cast on a YUV path is the classic signature of **sampling a plane texture before all three planes have been uploaded**, or of a plane texture allocated at one size and read at another.
@@ -248,9 +268,15 @@ Class 1. Look at the perform engine's `setPlanarSource` / first `updateSourceFra
 
 ### 🧨 [HIGH — Daniel, B607] THE BAKE THROWS "encoding task did not complete", AND ONCE CRASHED THE APP
 
-**⚠️ THE PATTERN IS THE DIAGNOSTIC (Daniel, B608): every FIRST attempt fails and every SECOND succeeds.** Seen on **FHD as well as 4K**, so "4K memory pressure" is too narrow and is retracted as the framing.
+**🔄 THE PATTERN INVERTED AT B609, and Daniel's data is what inverted it.** It is **not** "the first attempt fails". Two fresh sessions in a row had their **first** bake succeed uneventfully; the failure came on the **second bake within a session**, and that time the app went fully unresponsive with the bake UI frozen.
 
-`encoding task did not complete` is not our string — it is WebCodecs. A first-attempt-only failure points at **a hardware session still held when the bake asks for one**, and released by the failed attempt's own teardown. At first-bake time the app holds: the native decode, the Loop Builder's two preview `<video>` elements, the thumbnail image generator — and then asks for two WebCodecs readers plus an encoder. **iOS limits concurrent sessions, and B501 was the same shape.**
+**So it is not something held at startup and released by a failed attempt. It is something a completed bake does not release.** That is a better diagnostic and it points at the bake's own teardown rather than at app startup state.
+
+**⚠️ One confound to separate, and it costs nothing:** a **GL context loss happened between the good bake and the bad one** in that session. So the precondition might be the context loss rather than the preceding bake. **Cheap discriminator, no code: do a second bake in a session where nothing was lost.** If it still fails, it is bake teardown. If it succeeds, the context loss is the trigger and this item merges into the GPU-process cluster.
+
+**(superseded B609)** ~~every FIRST attempt fails and every SECOND succeeds~~. Seen on **FHD as well as 4K**, so "4K memory pressure" is too narrow and remains retracted as the framing.
+
+`encoding task did not complete` is not our string — it is WebCodecs. At bake time the app holds: the native decode, the Loop Builder's two preview `<video>` elements, the thumbnail image generator — and then asks for two WebCodecs readers plus an encoder. **iOS limits concurrent sessions, and B501 was the same shape.** The session audit in `PLAN-LIVE-READINESS.md` item 2 is where this gets answered.
 
 **Cheapest thing to try:** release what the bake does not need before it starts (the preview elements, and possibly the native decode, which the bake does not read from) rather than leaving them loaded.
 

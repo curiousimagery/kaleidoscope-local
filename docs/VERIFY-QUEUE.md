@@ -8,31 +8,23 @@ Confirmed results are DELETED from here and recorded in CHANGELOG. Closed sessio
 
 ---
 
-# ▶ THIS SESSION (B609) — does the upload survive, and what is the real 4K budget?
+# ▶ NO OPEN SESSION
 
-**JS only. No `cap sync` needed.**
+**The arc's plan now lives in `PLAN-LIVE-READINESS.md`.** Read it before opening a new session here; it says which item is next and what "done" means for it.
 
-**[panel]** = on screen. **[report]** = only in `copy report`.
+**The next session is item 2's long-form run**, and it has two prerequisites that are not verification: the thermal signal, and the session audit. **Do not open a device session until those land** or the reading will not be interpretable.
 
-## ⚠️ FIRST, EVERY TIME
+# ✅ CLOSED (B609) — all three questions answered. Do not extend this session.
 
-**[panel]** The `source` row must read `planar · native decode · ~30 in/s`. If it says `⚠ NO NATIVE DECODE`, **that report cannot be compared to anything** — which is exactly what happened to B608's 64MB arm.
+- **The upload drain holds.** Multiple clip loads across three sessions, no `NO NATIVE DECODE`.
+- **The minimum viable 4K budget is 64MB, the current default.** `heldMB 59`, 5 frames, `firstPts 0`; the wall's worst lap gap was 52ms against a 33ms interval, a 19ms overhang on one frame. At 256MB it was 42ms. **Four times the memory buys 10ms on one frame per lap.**
+- **The bake pattern INVERTED.** Not "first attempt fails" but **"the second bake within a session fails"** — two fresh-session first bakes succeeded. Points at something a completed bake does not release. **Confound to separate next time: a GL context loss happened between the good bake and the bad one. Do a second bake in a session where nothing was lost.**
 
-## 1. The upload fix
+**Two instrument defects found by this session, fix in the next native build:**
+- `loopCache.coveredMs` measures the span between first and last cached pts, so it under-reports real coverage by one frame interval and `why` advises raising a budget that is already sufficient.
+- The report's `scenario` tag read `idle-still` during a 4K broadcast.
 
-1. Load the 4K clip. **[panel]** Confirm `native decode`. B608 failed here with `upload short by 11161254 bytes`.
-2. Load it a few times, and a large FHD clip too. **Any `NO NATIVE DECODE` is a failure — send the report, `why` names the stage.**
-
-## 2. The real minimum 4K budget (needs a clip RELOAD between arms)
-
-**⚠️ Setting the budget to 0 discards the head, and a clip's head is only produced on its opening pass.** Reload between arms or the comparison is meaningless.
-
-3. **[panel]** `loop cache: 128MB` → **load the 4K clip fresh** → broadcast → lap 4+ times. **[report]** `loopCache.firstPts` must be ~0, `heldMB` ~94. Seamless?
-4. Repeat at **64MB from a fresh load**. 64 is below the ~94MB the window needs, so expect a partial fill — **the question is whether a partial fill still reads as acceptable**, since it is the safer default.
-
-## 3. The bake retry pattern
-
-5. **Does the first bake still fail and the second succeed?** No fix this build. If it now passes first time, the upload drain was involved and that is worth knowing.
+**And one finding that is not verification but a root cause** — see BACKLOG: the source-loss reading fired the B584 instrument for the first time on the branch it was built to separate (`offered 222 · took 222 · skipped 0` with a frozen picture and `GL CONTEXT RESTORED ×1`). **The frames reached us and we failed to use them.**
 
 # 🅿️ PREVIOUS SESSION (B608) — 4K + FHD loops VERIFIED SEAMLESS. 64MB arm void (no native decode).
 

@@ -10,7 +10,13 @@ Daniel Nelson is building a browser-based kaleidoscope tool for high-resolution 
 
 He prefers **no em dashes** in any prose Claude generates for him.
 
-## ▶ THE PLAN — read this before picking anything up (agreed with Daniel, B579-B582)
+## ▶▶ THE PLAN NOW LIVES IN `PLAN-LIVE-READINESS.md` (written B609, Daniel's ask)
+
+**Read that file first.** It owns the goal, the sequence, the real dependencies between items, and the stopping rule for each one. It also records the pause point for the stage-manager arc and what is explicitly out of scope.
+
+**What changed at B609:** input normalization was promoted to item 1.5 and scoped as architecture rather than triage; B609 verification is closed; and the six-item plan below is superseded as a *sequence* while remaining accurate as a *record of how each item was closed*. **Read the plan for what to do next; read below for why item 1 and the loop hold are settled.**
+
+## ▶ THE PLAN (SUPERSEDED B609 — kept for the reasoning behind items 1 and 2)
 
 Ordered by TRANSFER (what teaches the most about the rest) and DEPENDENCY, not by tractability. **The standing failure mode in this arc is a well-defined next step out-competing an important one** — see `DEBUGGING-PROTOCOL.md` state D. If you are about to work on something not on this list, that is the drift.
 
