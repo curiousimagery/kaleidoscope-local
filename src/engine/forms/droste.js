@@ -46,6 +46,10 @@
 //     ('droste-ratio', 'droste-twist') that overlay.js dispatches to dedicated
 //     drag handlers
 
+// Imported at CALL time inside drawOverlay (a live binding), so the forms↔index cycle is safe —
+// the same pattern engine/geometry.js uses for exactly this reason.
+import { formSizeNorm } from './index.js';
+
 const TAU = Math.PI * 2;
 
 export default {
@@ -64,6 +68,13 @@ export default {
   // the spiral's eye IS the composition, and seamless infinite zoom depends on staying on it —
   // pan locked (centered) by default. See formPanLockedByDefault.
   panLockedByDefault: true,
+
+  // ✅ TUNED B614 by Daniel against a reference source. Derived through `sliceScale` rather than
+  // the ?tune=forms sizeNorm slider, because droste's bespoke drawOverlay was not applying the
+  // norm at all (fixed in the same build) so the slider appeared to do nothing to the overlay.
+  // The value is still correct: the shader reads `sliceScale × sizeNorm`, so the two are
+  // interchangeable for the RENDER — only the overlay was out of step.
+  sizeNorm: 1.82,
 
   uniforms: {
     // log(drosteZoom) — precomputed to spare the shader a log() per pixel.
@@ -314,7 +325,13 @@ export default {
     // dimension wins — fold-radius 1 lands at image-pixel-radius
     // 0.5 × sliceScale × min(imgW, imgH)).
     const halfMinPx = 0.5 * Math.min(imgW, imgH);
-    const rOut = state.sliceScale * halfMinPx;
+    // ⚠️ formSizeNorm BELONGS HERE and was missing until B614. This bespoke overlay was written
+    // before per-form size normalisation existed (B477) and the comment above still describes the
+    // pre-B477 mirror. The shader uses `u_sliceFactor = sliceScale × sizeNorm`, so without it the
+    // annulus drawn here is wrong by exactly the norm — which is why the ?tune=forms sizeNorm
+    // slider appeared to do nothing to droste's overlay (Daniel, B613) and he had to derive
+    // droste's value through sliceScale instead. Every sliceScale consumer must apply the norm.
+    const rOut = state.sliceScale * formSizeNorm(state) * halfMinPx;
     const zoom = Math.max(1.0001, state.drosteZoom);
     const rIn  = rOut / zoom;
 

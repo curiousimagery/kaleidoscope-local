@@ -22,6 +22,11 @@ export default {
 
   controls: ['segments'],
 
+  // ✅ TUNED B614 by Daniel against a reference source. Radial used to be the 1.0 anchor that the
+  // others were normalised TO; the tuning pass moved the whole set to a larger default slice, so
+  // the anchor moved with it rather than staying at 1.
+  sizeNorm: 2.25,
+
   // one focal point by construction — pan is locked (centered) by default. See formPanLockedByDefault.
   panLockedByDefault: true,
 

@@ -90,6 +90,16 @@ This retires the confusion, not just a hypothesis. Resolution was free because t
 
 ## current version
 
+**📏 B614 — THE SLICE-SIZE TUNING PASS, FINALLY TAKEN. JS only, no `cap sync`.**
+
+**All five forms carry Daniel-tuned `sizeNorm` values**, measured against a reference source: **radial 2.25, rectangle 1.6, hex 2.35, triangle 2.6, droste 1.82.** Hex and triangle had been deliberately matched at a 1.6 first-pass; the pass separated them. Radial was the 1.0 anchor everything normalised to — the whole set moved to a larger default slice, so the anchor moved with it.
+
+**⚠️ AND DROSTE'S OVERLAY NEVER APPLIED `sizeNorm`** — its bespoke `drawOverlay` used `sliceScale × halfMinPx` against the shader's `sliceScale × sizeNorm`. Written before B477 added the norm and never updated. **Exactly the failure `formSizeNorm`'s own doc-comment warns about**, invisible because droste's overlay sits outside the shared polygon geometry. Daniel found it by using the tuner and noticing the slider did nothing to the overlay.
+
+**▶ STILL OWED, and the pass is not done without them: slice ORIGIN repositioning, and canvas ZOOM EXTENTS** (`zoomCover`/`zoomInFloor` are still undeclared on every form — the one thing gating per-form range normalisation for MIDI and gesture).
+
+**🔒 B613 — A BOUND THAT IS NOT IN STATE IS NOT A BOUND. `canvasOffset` no longer carries across a form switch, and unlocking pan always starts centred.**
+
 **🔭 B612 — STAGED AND LIVE WERE NEVER DISAGREEING ABOUT THE PICTURE, ONLY THE DISTANCE. JS only, no `cap sync`.**
 
 **The shader renders `phase mod 1`; `state.drosteZoomPhase` is a deliberately UNWRAPPED accumulator** (the motion tween needs that for multi-loop keyframes). **So staged looks identical at phase 0.4 and phase 200.4, while the follower must travel every loop in between.** That is the whole of *"staged is correct, live is stuck zooming forever"* — and why recentring fixed staged and not live: recentring never touches the distance. Gesture travel is now bounded by the follower's own `LEAD_CAP` (imported, not duplicated), on the argument that **anything past the cap is discarded by the follower anyway, so commanding more can only create divergence, never visible motion.**

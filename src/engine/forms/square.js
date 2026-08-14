@@ -20,6 +20,11 @@ export default {
 
   controls: ['aspect'],
 
+  // ✅ TUNED B614 by Daniel against a reference source. Lower than the others because the
+  // rectangle's origin is its CENTRE, not an apex — it already covers the middle of the source at
+  // a given scale, where the wedge forms have to reach across from their origin to do the same.
+  sizeNorm: 1.6,
+
   // square form needs the aspect ratio in the shader.
   uniforms: {
     u_squareAspect: {

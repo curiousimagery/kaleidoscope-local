@@ -6,6 +6,25 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 📏 v0.25.24 (Build 614) — 2026-08-14 — The slice-size tuning pass, finally taken
+
+**JS only. No `cap sync` needed.** **First half of the pass; slice ORIGIN and canvas zoom extents still to come.**
+
+### Shipped
+
+- **All five forms now carry Daniel-tuned `sizeNorm` values**, measured against a reference source: **radial 2.25, rectangle 1.6, hex 2.35, triangle 2.6, droste 1.82.** Hex and triangle were on a 1.6 first-pass and were deliberately matched to each other; **the tuning pass separated them.** Radial was the 1.0 anchor everything else normalised to — the whole set moved to a larger default slice, so the anchor moved with it.
+- **Fixed: droste's overlay never applied `sizeNorm`.** Its bespoke `drawOverlay` computed `rOut = sliceScale × halfMinPx` while the shader uses `sliceScale × sizeNorm`. Written before B477 added per-form normalisation and never updated — the comment above it still describes the pre-B477 mirror.
+
+### Why that overlay bug mattered more than it looks
+
+**It is the exact failure `formSizeNorm`'s own doc-comment warns about:** *"MUST be applied at EVERY sliceScale consumer — the shader's u_sliceFactor, the overlay geometry, and the sharpness hint — or the overlay wedge desyncs from the render."* Droste has a bespoke overlay path, so it silently sat outside "the overlay geometry".
+
+**Daniel found it by using the tool:** *"your size norm adjustment in the tuner tool doesn't actually touch the droste overlay so I had to use the scale tool in the slice params to get this value which I'm assuming is proportional."*
+
+**His assumption was right and his workaround was valid** — the shader reads `sliceScale × sizeNorm`, so the two are interchangeable for the render. Only the overlay was out of step. **Had the bug not been caught, setting droste to 1.82 would have left its overlay drawing an annulus 1.82× too small**, and the next person to tune droste would have been calibrating against a lying overlay.
+
+**This is also a live instance of the B612 invariant** — *you should never be able to zoom non-proportionally to the slice overlay* — arriving from a completely different direction than the `canvasOffset` case.
+
 ## 🚫 v0.25.23 (Build 613) — 2026-08-14 — A bound that is not in STATE is not a bound
 
 **JS only. No `cap sync` needed.**

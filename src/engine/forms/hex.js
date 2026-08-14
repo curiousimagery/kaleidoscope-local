@@ -20,7 +20,8 @@ export default {
   // perceived-size normalization (Daniel): hex reads much smaller than radial/rectangle/droste at
   // the same sliceScale (its HEX_SIZE=0.6 packs denser tiles). >1 grows the effective slice so it
   // sits near the radial/droste reference. FIRST-PASS — tune against the others. See formSizeNorm.
-  sizeNorm: 1.6,
+  // ✅ TUNED B614 by Daniel against a reference source (was 1.6 first-pass).
+  sizeNorm: 2.35,
 
   // p6m radiates from a point the eye locks onto, so hex reads CENTERED even though it tiles —
   // drifting off that point while pinching to zoom is disconcerting (Daniel, 2026-08-03). Locked
