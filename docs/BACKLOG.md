@@ -260,7 +260,19 @@ from canvas · planar · native decode · 0.0 in/s
 
 **Cross-ref:** this is very likely the same defect as the long-standing "source panel lost its image after a bake → perform switch", now with a root-cause branch rather than a symptom.
 
-### ♾️ [HIGH — Daniel, B609] INFINITE ZOOM RUNS AWAY IN PERFORM: THE FOLLOWER NEVER SETTLES
+### ✅ [FIXED B610] THE DROSTE RUNAWAY WAS A STRAY TOUCH, NOT AUTOPLAY
+
+**⚠️ THE ENTRY BELOW DIAGNOSED THE WRONG BUG. Daniel corrected it: he was NOT in autoplay.** Both are real; only one was his.
+
+**The actual cause:** a pinch's scale ratio is anchored to the two fingers' **starting separation**, with no floor on it ([output-gestures.js](../src/components/output-gestures.js)). A palm, a thumb catching the glass, or a fast two-finger tap gives a `startDist` of a few pixels, so `log(dist / startDist)` hands the follower a target dozens of loops away — or a **non-finite phase, which an unwrapped accumulator never recovers from for the rest of the session.** Fits every detail of the report: no autoplay, no deliberate gesture, touch-only, sudden, and sticky once entered.
+
+**Fixed:** separation floored at 40px (≈ the narrowest deliberate pinch), plus a `Number.isFinite` guard on the phase write. **Only droste was ever exposed** — the non-droste path is incremental and bounded by `applyUnifiedZoom`'s [0.05, 4] wall.
+
+**Checked and cleared while hunting this:** `loopLog()` divides by `log(drosteZoom)`, which looked like an explosion risk at low thickness. It is correct by construction — a pinch of ratio R yields exactly R of visual zoom at any thickness, which is why the pinch reads accurate throughout.
+
+**Still open, same family:** two-finger ROTATION has the same tiny-separation exposure (`atan2` on near-coincident touches is noisy). Bounded rather than unbounded, so it degrades instead of exploding, but it could ride the same floor.
+
+### ♾️ [MED — Daniel, B609; NOT the runaway he hit] AUTOPLAY'S ZOOM MEANS THE FOLLOWER NEVER SETTLES
 
 **Symptom (Daniel, B609, iPad gesture perform mode):** *"our infinite zoom control actually got locked into an infinite loop... the accumulated follow just kept following and following forever."* No repro steps known at report time.
 

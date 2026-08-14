@@ -102,8 +102,12 @@ This retires the confusion, not just a hypothesis. Resolution was free because t
 
 **📕 THE ARC PLAN IS `PLAN-LIVE-READINESS.md`** — read it before picking anything up.
 
+**🌀 AND THE DROSTE RUNAWAY IS FIXED — a stray touch, not autoplay.** A pinch's ratio is anchored to the fingers' STARTING separation and had no floor. A palm or a thumb catching the glass gives a `startDist` of a few pixels, so `log(dist/startDist)` hands the follower a target dozens of loops away, or a **non-finite phase that an unwrapped accumulator never recovers from.** Floored at 40px, plus a finite-guard on the write. **Only droste was exposed** because the non-droste path is incremental and bounded by `applyUnifiedZoom`'s [0.05,4] wall.
+
+**⚠️ AND THE FIRST DROSTE DIAGNOSIS WAS WRONG — Daniel caught it.** I blamed autoplay (`drift.js`'s never-settling walker + the follower's unique 4-period cap and 4× boost). **That is real and still filed** — `isSettled()` can never be true, so the ghost trail never fades — **but he was not in autoplay.** Two different bugs; only one was his.
+
 **Also settled this session, by reading:**
-- **The infinite-zoom runaway is autoplay + the follower's settle test.** Autoplay drives `drosteZoomPhase` as a never-settling walker (deliberate); the follower is the only field with both a 4-period lead cap and a 4× boost (also deliberate). Together `isSettled()` can never be true, so **the onion-skin ghost trail never fades and the in-sync affordance never fires.** Needs Daniel's call — see BACKLOG.
+- **`loopLog()` is NOT a runaway risk, checked and cleared.** Dividing by `log(drosteZoom)` looked explosive at low thickness; it is correct by construction (a pinch of ratio R gives exactly R of visual zoom at any thickness), which is why pinch reads accurate throughout.
 - **The joystick 45° offset does NOT reproduce on iPad (B609).** Do not fix it blind; check Electron and iPhone to decide whether it is resolved or platform-specific.
 - **The MIDI-vs-gesture rotation asymmetry is NOT a bug — retracted.** The gesture path negates slice rotation to reconcile a finger's screen direction with the overlay Y-flip. A knob has no screen direction; its direction is a declared convention with a per-mapping `invert`. Applying the negation to MIDI would introduce a bug.
 

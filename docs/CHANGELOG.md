@@ -6,11 +6,13 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
-## 🤏 v0.25.20 (Build 610) — 2026-08-14 — Canvas pan ignored the zoom, so it accelerated as you zoomed in
+## 🤏 v0.25.20 (Build 610) — 2026-08-14 — Canvas pan ignored the zoom; a stray touch could launch the droste phase
 
 **JS only. No `cap sync` needed.**
 
 ### Shipped
+
+- **Fixed: the droste infinite-zoom runaway.** A pinch's scale ratio is anchored to the two fingers' **starting separation**, and there was no floor on it. A palm, a thumb catching the glass, or a fast two-finger tap gives a `startDist` of a few pixels, so `log(dist / startDist)` hands the follower a target dozens of loops away — or a **non-finite** phase, if they land on the same point, which an unwrapped accumulator never recovers from. Separation is now floored at 40px and the phase write is guarded against NaN/Infinity. **The non-droste path was never exposed** because it is incremental and bounded by `applyUnifiedZoom`'s [0.05, 4] wall, which is precisely why only droste ran away.
 
 - **Fixed: two-finger canvas pan now tracks the finger at any zoom.** `u_canvasOffset` is subtracted *after* `p /= u_canvasZoom`, so one offset unit moves content in proportion to the zoom — and the pan gain was a flat constant. Panning therefore accelerated as you zoomed in and crawled as you zoomed out. The gain is now derived from the shader's own transform: **`aspect/Z` on x, `1/Z` on y**.
 - **Removed `PAN_TOUCH_GAIN = 3.5`**, a feel-tuned constant marked `TUNE` that could only ever be right at one zoom level. Its original justification (*"touch reads as only ~¼ of the gesture"*) was the missing `1/Z` seen at a zoomed-in state.
@@ -24,10 +26,18 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 **A 3× error for a 2.48× zoom change is the signature of a missing 1/zoom**, and solving the shader's transform predicts ~20% at 2.48× on a 16:9 canvas. The report and the arithmetic agree to within the precision of the observation. **The pinch reading correct throughout is the control** that isolates it to the pan path.
 
+### ⚠️ The droste diagnosis was corrected mid-session, by Daniel
+
+An earlier reading blamed **autoplay**: `drift.js` drives `drosteZoomPhase` as a never-settling walker while `follow.js` gives it the only 4-period lead cap and 4× boost, so `isSettled()` can never be true. **That is real and still filed** — it means the onion-skin ghost trail never fades and the in-sync affordance never fires — **but it is not what Daniel hit.** He was not in autoplay. Chasing it further would have been fixing a real bug that was not this bug. The `startDist` floor above is the actual cause, and it fits every detail: no autoplay, no deliberate gesture, touch-only, and sticky once entered.
+
+**Also checked and cleared:** `loopLog()` divides by `log(drosteZoom)`, which looked like an explosion risk at low thickness. It is not — a pinch of ratio R yields exactly R of visual zoom at any thickness, which is why the pinch reads accurate throughout. Correct by construction.
+
 ### Filed, not fixed
 
 - **Simultaneous pinch+pan** scales accumulated travel by the *current* zoom rather than integrating across the gesture, so content can drift slightly under the fingers while both change at once. Exact anchoring needs a content-space centroid.
-- **The remote surface almost certainly has the same defect**, masked because it was verified at default zoom. Test: zoom in on the host, then drag from the phone.
+- **The remote surface almost certainly has the same pan defect**, masked because it was verified at default zoom. Test: zoom in on the host, then drag from the phone.
+- **Two-finger ROTATION has the same tiny-separation exposure** — `atan2` on near-coincident touches is numerically noisy. It is bounded rather than unbounded, so it degrades instead of exploding, but it rides the same floor if we want it.
+- **The pan gain is still duplicated per input surface** (`3 × 1.2` on the remote path, formerly `3.5` locally, neither with a zoom term). Daniel, B610: *"we don't actually want a different mechanism, we just want a mechanism that works regardless of screen size."* Correct, and it is stage B of the input plan.
 
 ## 📦 v0.25.19 (Build 609) — 2026-08-14 — The upload was closing the socket before it drained
 

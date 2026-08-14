@@ -33,6 +33,19 @@ export function createOutputGestures(canvas, ctx) {
   // multiplicative zoom by one factor of the loop period (drosteZoom, ×2 with mirror)
   // = exactly one loop, so map the zoom ratio into phase in log space: phase↑ = zoom
   // in (matches the shader `logr -= shift`). Twist still drives canvasRotation.
+  // A pinch's SCALE RATIO is only meaningful once the fingers are meaningfully apart, and droste
+  // is uniquely exposed to that. Its phase is anchored to `startDist` for the WHOLE gesture and
+  // is deliberately UNWRAPPED and unclamped, so two touches landing close together — a palm, a
+  // thumb catching the glass, a fast two-finger tap while reaching for something — make
+  // `log(dist / startDist)` enormous, or non-finite if they land on the same point. The follower
+  // then chases a target dozens of loops away, with its 4× catch-up boost, and a non-finite phase
+  // never recovers at all. The NON-droste path is incremental and bounded by applyUnifiedZoom's
+  // [0.05, 4] wall, which is exactly why only droste runs away.
+  // (Daniel, B610: "starts zooming quickly and uncontrollably... sometimes even when i haven't
+  // adjusted a zoom gesture... when i'm doing something else it gets into a weird state.")
+  const MIN_PINCH_PX = 40;   // ≈ the narrowest deliberate two-finger pinch; below this is an artifact
+  const pinchDist = (a, b) => Math.max(MIN_PINCH_PX, Math.hypot(b.clientX - a.clientX, b.clientY - a.clientY));
+
   const zoomIsPhase = () => state.form === 'droste';
   const loopLog = () => Math.log(Math.max(1.0001, state.drosteZoom)) * (state.drosteMirror ? 2 : 1);
   // phase is stored UNWRAPPED (continuous accumulator) — the shader wraps it, and the
@@ -82,7 +95,7 @@ export function createOutputGestures(canvas, ctx) {
     const canPan = !!(ctx.panDrivable ? ctx.panDrivable() : (ctx.panPeriod && ctx.panPeriod()));
     if (canPan) ctx.panDrift?.()?.stop?.();          // grabbing takes control — stop any running drift
     const cx = (t0.clientX + t1.clientX) / 2, cy = (t0.clientY + t1.clientY) / 2;
-    const startDist = Math.hypot(t1.clientX - t0.clientX, t1.clientY - t0.clientY);
+    const startDist = pinchDist(t0, t1);
     manip = {
       startDist,
       prevDist:      startDist,   // incremental pinch-zoom (feeds applyUnifiedZoom on non-droste)
@@ -100,10 +113,13 @@ export function createOutputGestures(canvas, ctx) {
   function onMove(e) {
     if (!manip || e.touches.length !== 2) return;
     const t0 = e.touches[0], t1 = e.touches[1];
-    const dist  = Math.hypot(t1.clientX - t0.clientX, t1.clientY - t0.clientY);
+    const dist  = pinchDist(t0, t1);
     const angle = Math.atan2(t1.clientY - t0.clientY, t1.clientX - t0.clientX);
     if (zoomIsPhase()) {
-      state.drosteZoomPhase = manip.startPhase + Math.log(dist / manip.startDist) / loopLog();
+      // guard the write itself too: an unwrapped accumulator that ever takes NaN/±Infinity is
+      // stuck there for the session, and the follower chases it forever.
+      const next = manip.startPhase + Math.log(dist / manip.startDist) / loopLog();
+      if (Number.isFinite(next)) state.drosteZoomPhase = next;
     } else {
       applyUnifiedZoom(state, dist / manip.prevDist);   // slice-first-then-canvas (incremental)
       manip.prevDist = dist;
