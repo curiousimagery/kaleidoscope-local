@@ -61,6 +61,7 @@ export function createNativeFrameReceiver({ port = 8899, mirror = false, cap = 0
   // ARRIVED (B596). The pair is what localizes the loop hold: arrival is the wire, take
   // is the consumer, and the hold has to be in one of the two.
   let lastTakeT = 0, maxWrapTakeGap = -1, postWrapTakes = 0;
+  const recentTakeGaps = [];
   // frames handed to the ENGINE as raw planes (the fast path) — counted apart from the
   // preview blit so the report can say which one is actually carrying the picture
   let taken = 0, winTaken = 0;
@@ -110,6 +111,13 @@ export function createNativeFrameReceiver({ port = 8899, mirror = false, cap = 0
       // answer the same question about themselves independently.
       const takeGap = lastTakeT ? Math.round(at - lastTakeT) : -1;
       loopWraps++;
+      // THE ALL-TIME MAX IS CONTAMINATED BY EVENTS THAT ARE NOT LOOPS (B598). B597's reading
+      // had `maxTakeGapMs: 2009` from the first wrap after a Loop Builder bake, where this
+      // view had just re-joined the socket — an attach cost wearing a loop's clothes, and it
+      // sat on top of the honest 131ms for the rest of the session. Keeping the recent ones
+      // makes an outlier visible as an outlier instead of hiding the distribution behind it.
+      recentTakeGaps.push(takeGap);
+      if (recentTakeGaps.length > 6) recentTakeGaps.shift();
       lastWrap = {
         gapMs: gap, takeGapMs: takeGap,
         fromPts: Math.round(pts * 1000) / 1000, toPts: Math.round(frame.pts * 1000) / 1000, at,
@@ -286,8 +294,12 @@ export function createNativeFrameReceiver({ port = 8899, mirror = false, cap = 0
         // the consumer's side of the same boundary: how long this receiver went without
         // putting a frame on a render target, and how many it managed in the second after
         maxTakeGapMs: maxWrapTakeGap, taken1s: postWrapTakes,
+        recentTakeGaps: recentTakeGaps.slice(),
       };
     },
+    // cheap enough to poll per render — the render loop uses it to notice a wrap without
+    // allocating the whole loopStall object every frame
+    get loopWraps() { return loopWraps; },
     socketState() {
       const rs = ws ? ws.readyState : -1;
       return {

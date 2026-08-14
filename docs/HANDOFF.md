@@ -84,6 +84,16 @@ This retires the confusion, not just a hypothesis. Resolution was free because t
 
 ## current version
 
+**📍 B598 — THE LOOP HOLD IS THE EXTERNAL VIEW'S RENDER PATH, MEASURED. ⚠️ NEEDS `npx cap sync ios` + AN XCODE BUILD.**
+
+**The two receivers disagree by 7x across the same wrap.** App: arrive 0ms, take 18ms, worst-of-25 37ms. Wall: arrive 0ms, **take 131ms**. The wire delivers into both processes with a 0ms gap; the app makes pictures out of them and the external view does not. **131ms is four frames, and it is the hold.** First reading in the investigation that is not about arrival.
+
+**⚠️ Two cautions that ride with it.** `maxTakeGapMs: 2009` is contaminated (first wrap after a bake, view had just re-joined — an attach cost, not a lap). And **the app's take gap is the weaker signal**: three plane readers feed one counter (`taken1s: 53` vs the wall's 30), so it only sees a stall that hits all three at once. Trust the wall's number.
+
+**▶ THE OPEN READING:** `extJitter.wrapRenders` — the six renders after each lap as `{ sched, up, ren, gap }`. A view that does not draw for 131ms is doing exactly one of three things and one field each separates them: **`sched`** (queued behind something else), **`up`** (plane upload / texture realloc), **`ren`** (engine render — a shader or framebuffer rebuild, **which would also explain why the wall pays it and the app's 1.57MP preview does not**).
+
+**✅ B597 verified:** the staging race is fixed. A bake while broadcasting returns on `planar · native decode · 28.6 in/s`, no fallback, staged panel lit.
+
 **🧹 B597 — THE BAKE DELETED THE CLIP IT HAD JUST STAGED. ⚠️ NEEDS `npx cap sync ios` + AN XCODE BUILD.**
 
 **The B596 post-bake failure was a file race, not a memory event.** `FoldNativeVideo.stop()` purges the staging directory; B595 made the bake tear down and immediately re-stage, and the stop hops through the main queue on its way to the upload server's serial queue, so it can land after `begin()` created the new file. **Writes to an unlinked file still succeed**, so the upload "completed" into nothing, AVURLAsset produced no frames, and the 8s `requireFrame` window expired into the `<video>` fallback. Closed natively (`purge()` stands down when an upload owns the directory) and in JS (`attachNativeVideo` awaits **any** teardown in flight, not just its own — most callers detach fire-and-forget long before the matching attach, so the new-clip-load path was racing identically. **Candidate for the long-standing intermittent "loads but will not play".**)

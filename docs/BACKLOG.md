@@ -284,7 +284,11 @@ Resolved on Daniel's design rather than by picking one vocabulary, because **the
 1. **A decoder stall.** B593: `maxGapMs 17`, `after1s 29`. Three sessions running, the wire is clean across the wrap.
 2. **Our own trim rewind's 120ms settle window.** B595: `rewinds: 0, suppressed: 0`. The boundary test never fires on a full-range trim — the last frame's pts falls 0.037s short of a 0.03s window.
 
-**Open measurement (B596, still unread):** `loopStall.takeGapMs` and `extJitter.loop`. Arrival has been measured three times; **take never has.** The pair localizes the hold to a consumer, and the two receivers say which one. **B596's attempt returned `null`** because the native decode had fallen over first (the B597 staging race); the reading itself has never been taken.
+**✅ LOCALIZED AT B598.** Across the same wrap: app `takeGapMs 18` (worst of 25: 37), wall **`takeGapMs 131`**, both with `gapMs: 0` on the wire. **The frames land in the external view's process and it does not turn them into a picture for four frames.** The hold is in `output-view.js`'s render path, not in the wire, not in the decoder, and not in the app.
+
+**Open:** which third — `extJitter.wrapRenders` splits the six renders after a lap into `sched` / `up` / `ren`. A large `ren` would also explain the asymmetry (the wall renders 8.29MP, the app's preview 1.57MP), which makes it the leading candidate.
+
+**⚠️ Instrument caveats, both recorded at B598:** `maxTakeGapMs` was contaminated by a post-bake re-join (2009ms, an attach cost not a lap) — hence `recentTakeGaps`. And the app's take counter is fed by **three** plane readers, so it can only see a stall that hits all three at once; the wall's single reader is the trustworthy one.
 
 **If take gaps come back small too**, the hold is not at the frame boundary at all and the next suspects are param-side: `p` snapping from 1 to 0 at the wrap, and whatever the timeline/playhead UI does when it scrolls back to the start.
 

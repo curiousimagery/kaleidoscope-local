@@ -350,15 +350,45 @@ function pctl(a, p) {
   const s = a.slice().sort((x, y) => x - y);
   return Math.round(s[Math.min(s.length - 1, Math.max(0, Math.round((p / 100) * (s.length - 1))))]);
 }
+// WHAT THIS VIEW IS DOING FOR THE 131ms IT DOES NOT DRAW (B598).
+//
+// B597 localized the loop hold here and nowhere else: across 25 wraps the app's receiver went
+// 18ms between takes (37ms worst) while THIS view went 131ms, with the wire delivering
+// `gapMs: 0` into both. So the frames land and this thread does not turn them into a picture.
+//
+// There are only three ways that happens, and one number each separates them: the render was
+// never SCHEDULED (something else owns the thread), the UPLOAD was slow (a plane-texture
+// reallocation, which the item swap could cause), or the RENDER was slow (a shader rebuild or
+// a framebuffer reallocation, which would explain why this view pays it and the app's 1.57MP
+// preview does not). Captured only for the handful of renders after a wrap, so it costs
+// nothing in the steady state and cannot itself be the thing it is measuring.
+let wrapSeen = -1, wrapRows = null, lastWrapRows = null, scheduledAt = 0;
 function renderFrame() {
   if (!(haveSource && latestState)) return;
+  const tEnter = performance.now();
   if (camera) camera.refreshFrame();        // front-camera: redraw the mirrored frame
   // on the planar path updateSourceFrame takes the socket frame itself — blitting the
   // receiver's canvas first would just be a second conversion nothing reads
   if (receiver && !planarSource) receiver.refreshFrame();
   if (videoEl) reconcileVideo();             // keep the video copy in sync with the main clock
+  const tUp0 = performance.now();
   if (liveSource) engine.updateSourceFrame(); // re-upload camera/video texture
+  const tUp1 = performance.now();
   engine.render(latestState);
+  const tRen = performance.now();
+  if (receiver) {
+    const w = receiver.loopWraps;
+    if (w !== wrapSeen) { wrapSeen = w; wrapRows = []; }   // a lap just turned over — start capturing
+    if (wrapRows) {
+      wrapRows.push({
+        sched: Math.round(tEnter - scheduledAt),   // queued behind something else
+        up: Math.round(tUp1 - tUp0),               // plane upload
+        ren: Math.round(tRen - tUp1),              // engine render
+        gap: lastRenderT ? Math.round(tEnter - lastRenderT) : -1,
+      });
+      if (wrapRows.length >= 6) { lastWrapRows = wrapRows; wrapRows = null; }
+    }
+  }
   if (hint && !document.body.classList.contains('live')) document.body.classList.add('live');
   const nowT = performance.now();
   if (lastRenderT) drawGaps.push(nowT - lastRenderT);
@@ -400,6 +430,9 @@ function renderFrame() {
       // Rides the jitter bag deliberately: it is view-side timing, so it needs no new
       // plumbing through conduit's poster and no conduit change to carry a video concept.
       loop: receiver?.loopStall ? receiver.loopStall() : null,
+      // the six renders that followed the most recent lap, split into schedule / upload /
+      // render — the reading that says WHICH of the three the 131ms is
+      wrapRenders: lastWrapRows || undefined,
     };
     drawGaps.length = 0; newGaps.length = 0; newDraws = 0;
     frames = 0; fpsT = lastRenderT;
@@ -473,6 +506,7 @@ let renderPending = false;
 function scheduleRender() {
   if (renderPending) return;
   renderPending = true;
+  scheduledAt = performance.now();   // so a render that ran LATE can say so (see wrapRows)
   setTimeout(() => { renderPending = false; renderFrame(); }, 0);
 }
 

@@ -4,6 +4,45 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 📍 v0.25.8 (Build 598) — 2026-08-13 — The loop hold is the external view's, measured
+
+**⚠️ NEEDS `npx cap sync ios` + AN XCODE BUILD.**
+
+### The localization, at last
+
+B596's instrument finally got a clean reading, and the two receivers disagree by 7x:
+
+| | across the wrap | worst of 25 wraps |
+|---|---|---|
+| **app** (`loopStall`) | arrive 0ms, **take 18ms** | 37ms |
+| **wall** (`extJitter.loop`) | arrive 0ms, **take 131ms** | — |
+
+**The wire delivers into both processes with a 0ms gap. The app turns those frames into pictures; the external view goes 131ms without doing so.** That is four frames, and it is the hold, measured on the surface that shows it.
+
+**This is the first reading in the whole investigation that is not about arrival.** Three sessions of clean wire numbers were all answering a question that was never the one being asked.
+
+**⚠️ Two cautions recorded with it.** `maxTakeGapMs: 2009` is contaminated — it came from the first wrap after a bake, where the view had just re-joined the socket, so it is an attach cost wearing a loop's clothes. And **the app's take gap is a weaker signal than the wall's**: the app has three plane readers feeding one counter (`taken1s: 53` against the wall's 30), so it can only see a stall that hits all three at once. The wall's single reader is the trustworthy one.
+
+### The instrument that should end it: which third of the render
+
+A view that does not draw for 131ms is doing one of exactly three things, and one number each separates them. `extJitter.wrapRenders` captures the six renders after each lap as `{ sched, up, ren, gap }`:
+
+- **`sched` large** → the render was queued behind something else; the thread is owned by another task.
+- **`up` large** → the plane upload. A reallocation, which the looper's item swap could plausibly cause.
+- **`ren` large** → the engine render. A shader rebuild or a framebuffer reallocation, **which would also explain why this view pays it and the app's 1.57MP preview does not.**
+
+Captured only after a wrap, so it costs nothing in the steady state and cannot become the thing it measures.
+
+`loopStall` also gains `recentTakeGaps` (the last six), so an outlier reads as an outlier instead of hiding the distribution behind an all-time max.
+
+### Load parks on the first frame, not on whichever one the display link caught
+
+B597 stopped the preview hopping through several frames but left it parked a few frames in. Daniel: *"the initial image that loads in output is wrong but after scrubbing it corrects to the right frame."* The park now rewinds to zero and pushes nothing until the tick after, so the frame that reaches both webviews is the head of the clip.
+
+### Verified this build, no action
+
+**The B597 staging race is fixed.** A bake while broadcasting comes back on `planar · native decode · 28.6 in/s` with no fallback, and the staged panel stays lit.
+
 ## 🧹 v0.25.7 (Build 597) — 2026-08-13 — The bake deleted the clip it had just staged
 
 **⚠️ NEEDS `npx cap sync ios` + AN XCODE BUILD.** Two Swift files changed.

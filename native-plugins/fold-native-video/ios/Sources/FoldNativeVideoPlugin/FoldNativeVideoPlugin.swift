@@ -178,8 +178,21 @@ public class FoldNativeVideoPlugin: CAPPlugin, CAPBridgedPlugin {
         // the CLIP's duration (position within the clip), not the queue's — which is
         // exactly the span the timeline is scaled to.
         let dur = CMTimeGetSeconds(player?.currentItem?.duration ?? .indefinite)
-        // one frame is all a parked clip owes anyone — see start(startPaused:)
-        if pauseAfterFirstFrame { pauseAfterFirstFrame = false; player?.pause() }
+        // ONE FRAME, AND IT MUST BE THE FIRST ONE (B598). B597 parked on the tick that saw a
+        // buffer, which stopped the preview hopping through several frames but left it parked
+        // on whichever frame the display link happened to catch — a few frames in, not the head
+        // of the clip. Daniel: "the initial image that loads in output is wrong but after
+        // scrubbing it corrects to the right frame."
+        //
+        // So park AND rewind, and push nothing yet: the frame worth showing is the one at zero,
+        // which the next tick picks up. A seek on a paused player still produces a buffer, and
+        // that is the same mechanism a scrub has always relied on.
+        if pauseAfterFirstFrame {
+            pauseAfterFirstFrame = false
+            player?.pause()
+            player?.seek(to: .zero, toleranceBefore: .zero, toleranceAfter: .zero)
+            return
+        }
         encodeQueue.async { [weak self] in
             guard let self = self,
                   let data = FrameSocketServer.encode(pb, pts: pts, duration: dur) else { return }

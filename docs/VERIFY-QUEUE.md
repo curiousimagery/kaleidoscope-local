@@ -8,7 +8,37 @@ Confirmed results are DELETED from here and recorded in CHANGELOG.
 
 ---
 
-# ▶ THIS SESSION (B597) — "does the bake survive, and can we finally get a loop reading?"
+# ▶ THIS SESSION (B598) — "which third of the external view's render is the 131ms?"
+
+**⚠️ NEEDS `npx cap sync ios` + AN XCODE BUILD.**
+
+**iPad, ~5 minutes.** One fix and one reading. The hold is now known to be the external view's own render path; this decides which part of it.
+
+## ⚠️ SET THE SCENARIO TAG TO `hdmi-broadcast` FIRST.
+
+## Part 1 — load parks on frame 0
+
+1. Load a 4K clip. **The frame it settles on should be the first frame of the clip** — scrubbing to the start should not change the picture.
+2. Start the broadcast. The wall shows the same frame.
+
+## Part 2 — the reading
+
+3. Broadcast a looping clip, let it lap **four or more times**.
+4. `copy report`. **The field is `extJitter.wrapRenders`** — six rows, one per render after the most recent lap.
+
+**Read the row with the large `gap`. Whichever of `sched` / `up` / `ren` is large in it is the answer:**
+
+| large field | meaning | where the fix goes |
+|---|---|---|
+| `sched` | the render was queued behind something else | whatever owns the view's thread at a lap |
+| `up` | the plane upload, most likely a texture reallocation | `yuv-renderer` / the engine's planar path |
+| `ren` | the engine render — a shader rebuild or framebuffer realloc | the engine, and it explains why the app's 1.57MP preview escapes it |
+
+**If all three are small and `gap` is still large**, no render was even attempted, and the next question is why `scheduleRenderOnFrame` did not fire.
+
+5. Also worth a glance: `loopStall.recentTakeGaps` and `extJitter.loop.recentTakeGaps` now show the last six laps each, so one bad lap no longer masquerades as the norm.
+
+# 🅿️ PREVIOUS SESSION (B597) — "does the bake survive, and can we finally get a loop reading?"
 
 **⚠️ NEEDS `npx cap sync ios` + AN XCODE BUILD.** Two Swift files changed.
 
