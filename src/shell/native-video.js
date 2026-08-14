@@ -28,6 +28,7 @@
 
 import { registerPlugin, Capacitor } from '@capacitor/core';
 import { createNativeFrameReceiver } from './native-frame-receiver.js';
+import { perfFlags } from './perf-flags.js';
 
 const FoldNativeVideo = registerPlugin('FoldNativeVideo');
 
@@ -328,7 +329,11 @@ export async function createNativeVideoSource(env, blob, { name, loop = true, on
     // startPaused parks the player natively on the tick that pushes the first frame, which
     // is the only place the window can actually be closed. The JS pause below stays as the
     // fallback for a webview running ahead of an older plugin build.
-    const { port } = await FoldNativeVideo.start({ path, loop, startPaused: true });
+    // loopBySeek picks WHICH loop mechanism the plugin uses — read here rather than per frame,
+    // which is why the flag says to reload the clip (see perf-flags.js for the measurement).
+    const { port } = await FoldNativeVideo.start({
+      path, loop, startPaused: true, loopBySeek: !!perfFlags.loopBySeek,
+    });
     console.info(`[fold] native video: decode started, serving port ${port || 8900}`);
     stage = 'frame socket';
     // the preview canvas is bounded hard: nothing samples it for output any more (the

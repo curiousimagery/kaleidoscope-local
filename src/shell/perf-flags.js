@@ -129,6 +129,26 @@ export const perfFlags = {
   // signal on that path and the answer is requestVideoFrameCallback.
   elideElementUploads: false,
 
+  // Loop a clip by REWINDING ONE ITEM instead of letting AVPlayerLooper swap in a fresh copy
+  // (B601). OFF = AVPlayerLooper, the shipped behaviour since S3-A.
+  //
+  // THE MEASUREMENT THIS EXISTS TO SETTLE. The loop hold is AVFoundation's item swap: B599/B600
+  // measured `swapGapMs` at 141-150ms inside the plugin, before anything touches the socket, and
+  // the new item's clock runs through that silence so the footage skipped equals the stall.
+  // B600 tested the cheap explanation — a freshly allocated AVPlayerItemVideoOutput having to
+  // prime — by reusing the object across the lap. **`swapGapMs` did not move: 150 against 150.**
+  //
+  // So the cost is the swap itself, and the way to not pay it is to not swap: one AVPlayerItem,
+  // `actionAtItemEnd = .none`, seek to zero on `AVPlayerItemDidPlayToEndTime`. The video output
+  // is attached once and never moves, which is the whole point.
+  //
+  // ⚠️ NOT OBVIOUSLY BETTER, which is why it is a flag and not a change. A seek flushes the
+  // decode pipeline, and avoiding exactly that is why AVPlayerLooper was chosen in the first
+  // place. `swapGapMs` measures both arms identically (the loop event is instrumented either
+  // way), so one sitting answers it. **Reload the clip after flipping this** — it is read when
+  // the decode starts, not per frame.
+  loopBySeek: false,
+
   // Force takes through MediaRecorder instead of WebCodecs (B537). ON = the pre-B365 recorder,
   // which muxes natively and demonstrably produces sound — the package's RAW take has had audio
   // this whole time and it is the only thing on that path.
@@ -198,4 +218,5 @@ export const PERF_FLAG_SPECS = [
   ['elideElementUploads', 'source: skip repeat video uploads', 'on = gate <video> texture uploads on currentTime (2x on a 30fps clip at 60Hz)'],
   ['recordStreamToDisk', 'record: stream to disk', 'off = assemble the take in memory (the pre-B553 path; peak RAM a multiple of the file)'],
   ['recordForceFlush', 'record: force sync rasterize', 'Blink-only by default; ON here if a WebKit take shows a stale frame'],
+  ['loopBySeek', 'video: loop by seeking, not by item swap', 'RELOAD THE CLIP to apply. on = one AVPlayerItem, rewound at the end (B601 A/B against the 150ms swap)'],
 ];

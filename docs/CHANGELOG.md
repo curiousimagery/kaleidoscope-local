@@ -6,6 +6,29 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🔄 v0.25.11 (Build 601) — 2026-08-13 — Stop swapping items, behind a flag
+
+**⚠️ NEEDS `npx cap sync ios` + AN XCODE BUILD.**
+
+### Shipped
+
+- **New flag `video: loop by seeking, not by item swap` (`loopBySeek`), default OFF.** ON = one `AVPlayerItem` rewound to zero at the end, with the video output attached once and never moved. **Reload the clip to apply**; it is read when the decode starts.
+- **Both loop mechanisms are instrumented identically**, so `swapGapMs` compares the two arms in one sitting.
+- **Reverted B600's output reuse and its watchdog.** It measured nothing (150 against 150), so it went out with the hypothesis.
+- **The `pauseAfterFirstFrame` intent is now tracked as `parked`**, so a rewind cannot resume a clip the operator paused.
+
+### B600's result: the priming hypothesis is dead
+
+`swapGapMs: 150`, `maxSwapGapMs: 150`, against B599's 141/150. **Reusing the `AVPlayerItemVideoOutput` across the lap changed nothing**, so the ~150ms is not a fresh output having to prime. It is the item swap itself.
+
+**⚠️ Correcting what I told Daniel to watch for:** I said `swapRecoveries > 0` would mean the reused output stalled. It read 2, and that was **my watchdog arming during startup**, where `startPaused` deliberately produces no frames until the seek lands. It was never about a lap. The watchdog is gone with the reuse, and the ambiguity with it.
+
+### So: do not swap
+
+AVPlayerLooper is seamless for *playback* and is not seamless for *frame extraction* — it enqueues a fresh copy of the template item each lap, and every copy costs ~150ms before `hasNewPixelBuffer` says yes. `loopBySeek` does not swap: `replaceCurrentItem` once, `actionAtItemEnd = .none`, rewind on `AVPlayerItemDidPlayToEndTime`.
+
+**It ships as a flag rather than a replacement because it is not obviously better.** A seek flushes the decode pipeline, and avoiding exactly that is why AVPlayerLooper was chosen for this in the first place. One sitting, both arms, same number.
+
 ## 🏁 v0.25.10 (Build 600) — 2026-08-13 — The loop hold is AVFoundation's item swap, and our code is exonerated
 
 **⚠️ NEEDS `npx cap sync ios` + AN XCODE BUILD.**

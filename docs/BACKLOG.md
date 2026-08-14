@@ -170,7 +170,11 @@ The vocabulary Daniel decided on: **keep the UI names** (`source` / `staged` / `
 
 **✅ ROOT CAUSE FOUND AT B599, natively: AVFoundation's item swap.** `swapGapMs 141`, `maxSwapGapMs 150`, `swapFromPts 20.4 → swapToPts 0.1159`, measured inside the plugin before anything touches the socket. **The new item's clock runs through the silence, so the content skipped equals the stall** — which is why the earlier 1.8s content gap and the 150ms hold were always the same event. All three vantage points agree: decode 141, wall 136-157, app 91-162.
 
-**Open: which half of the swap.** B600 reuses the `AVPlayerItemVideoOutput` across the lap instead of allocating a fresh one, since a new output must prime before `hasNewPixelBuffer` says yes. If `swapGapMs` does not drop, the cost is AVFoundation's own item swap and **the fix is to stop swapping items: one `AVPlayerItem`, `actionAtItemEnd = .none`, seek to zero on `AVPlayerItemDidPlayToEndTime`, output never moves.** Note that a seek-based loop reintroduces seek cost at the boundary, which is what AVPlayerLooper was chosen to avoid — so measure before committing.
+**✅ NARROWED AT B600: it is the swap itself, not output priming.** Reusing the `AVPlayerItemVideoOutput` across the lap left `swapGapMs` at **150 against 150**. Reverted with the hypothesis.
+
+**Open: does not swapping help?** B601 ships `loopBySeek` (flag, default OFF) — one `AVPlayerItem`, `actionAtItemEnd = .none`, rewind on `AVPlayerItemDidPlayToEndTime`, output attached once. Both arms instrumented identically; one sitting answers it.
+
+**⚠️ If arm B is also ~150ms, neither mechanism is cheap and the question changes shape: hide the gap rather than remove it.** Options in that case, none costed yet: hold the last frame deliberately across the lap so it reads as a decision rather than a stutter; pre-roll a second decode of the head of the clip and cross-fade; or accept it and make the Loop Builder's bake the recommended path, since a baked seamless loop still pays the same swap but with content chosen to survive it.
 
 **Dead, each by its own instrument** (3 and 4 added at B598/B599, 5 at B599):
 

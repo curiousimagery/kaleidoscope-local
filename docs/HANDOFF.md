@@ -84,6 +84,14 @@ This retires the confusion, not just a hypothesis. Resolution was free because t
 
 ## current version
 
+**🔄 B601 — STOP SWAPPING ITEMS, BEHIND A FLAG. ⚠️ NEEDS `npx cap sync ios` + AN XCODE BUILD.**
+
+**B600 killed the cheap explanation.** Reusing the `AVPlayerItemVideoOutput` across the lap left `swapGapMs` at **150 against 150**, so the hold is not a fresh output priming — it is the item swap itself. The reuse and its watchdog were deleted with the hypothesis. **⚠️ B600's `swapRecoveries: 2` was my watchdog arming during startup** (where `startPaused` deliberately produces no frames until the seek lands), not a reuse stall as I said it would be.
+
+**▶ THE A/B, in one sitting:** the flag `video: loop by seeking, not by item swap` (`loopBySeek`, default OFF). ON = one `AVPlayerItem`, `actionAtItemEnd = .none`, rewind on `AVPlayerItemDidPlayToEndTime`, output attached once and never moved. **Read at decode start, so the clip must be reloaded to apply.** Both mechanisms are instrumented identically, so `swapGapMs` compares them directly against the 141-150 baseline.
+
+**It is a flag and not a change on purpose:** a precise seek flushes the decode pipeline, and avoiding that is why AVPlayerLooper was chosen here. **If arm B is also ~150, neither mechanism is cheap and the answer becomes hiding the gap rather than removing it.**
+
 **🏁 B600 — THE LOOP HOLD IS AVFOUNDATION'S ITEM SWAP. ⚠️ NEEDS `npx cap sync ios` + AN XCODE BUILD.**
 
 **Measured inside the plugin, before anything touches the socket:** `swapGapMs 141`, `maxSwapGapMs 150`, `swapFromPts 20.4 → swapToPts 0.1159`. The decode goes ~150ms without producing a frame at the item swap, and **the new item's clock runs through the silence — so the content skipped equals the stall.** That unifies the two things that never fitted together: the 150ms hold and the missing footage were always the same event.
