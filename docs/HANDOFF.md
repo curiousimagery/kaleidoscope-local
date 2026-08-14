@@ -84,6 +84,17 @@ This retires the confusion, not just a hypothesis. Resolution was free because t
 
 ## current version
 
+**🔍 B606 — THE PANEL'S MOST IMPORTANT LINE HAS NEVER BEEN READABLE ON THE iPAD. ⚠️ NEEDS `npx cap sync ios` + AN XCODE BUILD.**
+
+The surface note lived inside `.pf-name` (`nowrap` + ellipsis) with the overflow on a `title` tooltip — **unhoverable on a touch device.** So `planar · native decode · 30 in/s` and `⚠ NO NATIVE DECODE: …` truncated to about six characters. **Daniel has been checking the path blind for the whole arc.** It is now a wrapped line of its own under each row.
+
+**And the B605 cache fed nothing, by its own counter:** `lastReplayFrames: 0` against `lapsCovered: 28`, with `takeGapMs` identical at 256MB and off. The replay paced cached frames against absolute pts, which assumes the cache starts at 0. **It now replays the cache as a SEQUENCE at the source frame interval**, correct whatever its timestamps are, and `loopCache` publishes `firstPts`/`lastPts`/`frameIntervalMs` so this is never ambiguous again. `why` had said `covering the lap` while covering nothing — it reasoned about milliseconds held, never about eligibility.
+
+**⚠️ THE HOLD IS iPAD-ONLY.** Daniel checked without a build: **Electron B559 no perceptible hold, Firefox B582 seamless.** Both loop a `<video>` natively. So this is scoped to the AVFoundation path, not to how Fold loops.
+
+**Filed, not fixed:** the Loop Builder's slice preview stalls from the loop point to the crossfade. Neither B602 nor B604 is implicated (checked); see BACKLOG for where to look.
+
+
 **🧊 B605 — FILL THE LAP FROM A HEAD-FRAME CACHE. ⚠️ NEEDS `npx cap sync ios` + AN XCODE BUILD.**
 
 The investigation closed at B604 (fixed ~150ms, identical at 4K and FHD, every alternative measured dead). **This is the fix.** The plugin keeps the clip's first 0.3s of encoded frames and feeds them back at the lap while AVFoundation restarts — real frames, real timestamps, so both webviews and the motion clock never notice. **Works on any clip**, which is required since most loops are authored elsewhere.

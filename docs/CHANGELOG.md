@@ -6,6 +6,38 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🔍 v0.25.16 (Build 606) — 2026-08-14 — The panel's most important line has never been readable
+
+**⚠️ NEEDS `npx cap sync ios` + AN XCODE BUILD.**
+
+### Shipped
+
+- **Fixed: the surface note is now a wrapped line of its own.** It lived inside `.pf-name`, which is `nowrap` + ellipsis, so on the iPad it truncated to about six characters (`progra…`) with the rest reachable only via a `title` tooltip — **unhoverable on a touch device.** Warnings render in the warn colour.
+- **Fixed: the loop cache replayed nothing.** It paced cached frames against absolute pts, which assumed the cache begins at 0. It now replays the cache **as a sequence** at the source frame interval, which is correct whatever its timestamps are.
+- **`loopCache` now publishes `firstPts` / `lastPts` / `frameIntervalMs`**, and `why` calls out `held frames but fed none on the last lap`.
+- **The source frame interval is learned** from consecutive pushed timestamps, so the replay runs at the clip's rate rather than the display link's.
+
+### The cache did nothing, and its own counter said so
+
+```
+loopCache: { budgetMB: 256, frames: 7, coveredMs: 300, lapsCovered: 28,
+             lastReplayFrames: 0, why: "covering the lap" }
+```
+
+**`lastReplayFrames: 0` against `lapsCovered: 28`.** The replay ran on every lap and fed nothing, which is exactly why `takeGapMs` was identical at 256MB and off (140-153 either way). **`why` said `covering the lap` while covering nothing** — it was reasoning about how many milliseconds of frames were held, and never about whether any of them were eligible to play.
+
+**I could not determine from reading which of two causes it is**, so this build does both: the pacing is now robust to a cache that does not start at zero, and `firstPts`/`lastPts` say what is actually in it.
+
+### ⚠️ The hold is iPad-only, which Daniel established without a build
+
+**Electron B559: no perceptible hold. Firefox B582: seamless.** Both loop a `<video>` element natively. So this is scoped to the AVFoundation path and is not an architectural problem with how Fold loops — consistent with the ~150ms being a platform restart cost.
+
+### Filed, not fixed: a stall in the Loop Builder's slice preview
+
+Daniel, B605: while playing the preview/bake step of a seamless loop, after the playhead passes the cut point and returns to the beginning, **nothing plays until it reaches the crossfade, where it flickers and resumes.** The baked output is correct.
+
+**Checked, and neither recent change is implicated:** B604's forward-seek touches `createSequentialFrameReader`, which the **bake** uses and the preview does not (the preview drives `<video>` elements directly); B602's playhead fix touches `updateSrcScrub`, a different element from the Loop Builder's own bar. Needs its own investigation.
+
 ## 🧊 v0.25.15 (Build 605) — 2026-08-14 — Fill the lap from a head-frame cache
 
 **⚠️ NEEDS `npx cap sync ios` + AN XCODE BUILD.**

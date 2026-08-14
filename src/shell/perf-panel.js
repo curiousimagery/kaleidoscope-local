@@ -70,9 +70,17 @@ const CSS = `
 /* full-width sentence inside the wrapping stat row — a title tooltip is not a channel on iPad */
 #perfPanel .pf-why { flex-basis: 100%; color: var(--text-faint, #666); }
 #perfPanel .pf-why.bad { color: var(--danger, #e2685a); }
-#perfPanel .pf-row { display: flex; align-items: center; gap: 6px; padding: 4px 0; border-bottom: 1px solid rgba(255,255,255,.05); }
+#perfPanel .pf-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 4px 0; border-bottom: 1px solid rgba(255,255,255,.05); }
 #perfPanel .pf-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #perfPanel .pf-name em { font-style: normal; color: var(--text-faint, #666); }
+/* THE NOTE GETS ITS OWN LINE (B606). It lived inside .pf-name, which is nowrap + ellipsis, so on
+   the iPad's panel width it was truncated to about six characters — "progra…" — and the rest was
+   reachable only through a title tooltip, which is unhoverable on a touch device. So the single
+   most diagnostic line in the panel ("planar · native decode · 30 in/s", "NO NATIVE DECODE: …")
+   has never once been readable on the device it exists for (Daniel, B605). */
+#perfPanel .pf-note { flex-basis: 100%; margin: -2px 0 4px 34px; font-size: 11px; line-height: 1.35;
+  color: var(--text-faint, #888); white-space: normal; overflow-wrap: anywhere; }
+#perfPanel .pf-note.warn { color: var(--c-warn, #e8b339); }
 #perfPanel .pf-num { font-variant-numeric: tabular-nums; color: var(--text, #eee); min-width: 42px; text-align: right; white-space: nowrap; }
 #perfPanel .pf-num.pf-wide { min-width: 108px; }
 #perfPanel .pf-delta { font-variant-numeric: tabular-nums; min-width: 40px; text-align: right; font-size: 10px; }
@@ -400,12 +408,10 @@ export function mountPerfPanel(env, { container = null, onClose = null } = {}) {
       const name = document.createElement('span');
       name.className = 'pf-name';
       // the note says WHICH PATH this surface took, which is what turns a cost into a cause
-      const note = s.note ? ` · ${s.note}` : '';
       // a governed surface renders every Nth frame, which changes what the ms column MEANS —
       // without this the reader sees a cost drop and no reason for it
       const rate = s.rate > 1 ? ` · ⏱ 1 in ${s.rate}` : '';
-      name.innerHTML = `${s.label} <em>${s.serves} · ${s.w}×${s.h}${rate}${note}</em>`;
-      if (s.note) name.title = s.note;
+      name.innerHTML = `${s.label} <em>${s.serves} · ${s.w}×${s.h}${rate}</em>`;
 
       const ms = document.createElement('span');
       ms.className = 'pf-num';
@@ -420,6 +426,14 @@ export function mountPerfPanel(env, { container = null, onClose = null } = {}) {
       const base = baseById.get(s.id);
       const compareBase = base && (base.gpuMsPerFrame > 0 ? base.gpuMsPerFrame : base.msPerFrame);
       row.append(onBtn, name, ms, deltaEl(compareCurrent, compareBase));
+      // wrapped, full width, below the numbers — see the .pf-note rule for why this is not
+      // squeezed onto the same line any more
+      if (s.note) {
+        const noteEl = document.createElement('div');
+        noteEl.className = 'pf-note' + (s.note.includes('⚠') ? ' warn' : '');
+        noteEl.textContent = s.note;
+        row.appendChild(noteEl);
+      }
 
       if (s.scaleLadder && s.scaleLadder.length > 1) {
         const scaleBtn = document.createElement('button');

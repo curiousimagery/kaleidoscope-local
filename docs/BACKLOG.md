@@ -230,6 +230,14 @@ Cache the clip's **head frames** as they arrive on the opening pass, and at the 
 
 Class 1. Look at the perform engine's `setPlanarSource` / first `updateSourceFrame` ordering, and at whether the PiP engine's reader can return a frame before its textures are sized. **Last member of the source-switch cluster still without a root cause.**
 
+### 🔁 [OPEN — Daniel, B605] THE SLICE PREVIEW STALLS FROM THE LOOP POINT TO THE CROSSFADE
+
+**Consistent repro:** Loop Builder, seamless (slice) loop, preview or bake step, while playing. After the playhead passes the cut point at the end and returns to the beginning, **nothing plays until the playhead reaches the crossfade, where it flickers and resumes.** The baked output is correct, so this is the preview's phase machine and not the bake.
+
+**Checked at B606 — neither recent change is implicated.** B604's forward-seek is in `createSequentialFrameReader`, which the **bake** uses and the preview does not (`startSlicePreview` drives `<video>` elements directly). B602's playhead fix is in `updateSrcScrub`, a different element from the Loop Builder's bar.
+
+**Where to look:** `startSlicePreview`'s phase machine and the A/B pre-roll in `clip-editor.js` — the B-head keeps `vB` pre-seeked to `inA`, and the resume condition is `v.currentTime >= inA + cfSec - 0.06`. A stall that ends exactly at the crossfade points at that condition or at the pre-roll seek not having landed. **Also worth ruling out decoder contention**: the slice preview runs two `<video>` elements beside the native decode, and three concurrent sessions is the shape of B501.
+
 ### 🧨 [OPEN — Daniel, B603] BAKE FAILED WITH "Decoding task did not complete" AT ~3/4
 
 A 30s seamless loop taken from the **middle** of a long FHD clip, roughly three quarters through the bake. Not reproduced since; the same trim taken from the head of the file baked cleanly.

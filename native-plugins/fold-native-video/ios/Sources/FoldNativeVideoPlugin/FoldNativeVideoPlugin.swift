@@ -145,6 +145,10 @@ public class FoldNativeVideoPlugin: CAPPlugin, CAPBridgedPlugin {
     private var replayFedPts: Double = -1
     private var lapsCovered = 0
     private var lastReplayFrames = 0
+    private var replayIndex = 0
+    // the source's own frame interval, learned from consecutive pushed pts — the replay is paced
+    // to the CLIP's rate, not the display link's, so 30fps content stays 30fps content
+    private var frameInterval: Double = 1.0 / 30.0
 
     // path: a file:// URL or plain filesystem path to the clip. loop: seamless repeat (default true).
     @objc func start(_ call: CAPPluginCall) {
@@ -328,6 +332,10 @@ public class FoldNativeVideoPlugin: CAPPlugin, CAPBridgedPlugin {
             if pts <= replayFedPts + 0.001 { return }   // already on screen, from cache
             replayFedPts = -1                            // live has caught up; normal service
         }
+        if lastPushPts >= 0 {
+            let d = pts - lastPushPts
+            if d > 0.005 && d < 0.2 { frameInterval = frameInterval * 0.9 + d * 0.1 }
+        }
         lastPushAt = hostTime
         lastPushPts = pts
         encodeQueue.async { [weak self] in
@@ -364,9 +372,21 @@ public class FoldNativeVideoPlugin: CAPPlugin, CAPBridgedPlugin {
         let frames = headCache
         cacheLock.unlock()
         guard !frames.isEmpty else { return false }
-        if !replaying { replaying = true; replayStartedAt = hostTime; replayFedPts = -1; lastReplayFrames = 0 }
-        let elapsed = hostTime - replayStartedAt
-        guard let next = frames.first(where: { $0.pts > replayFedPts && $0.pts <= elapsed + 0.001 }) else { return false }
+        if !replaying { replaying = true; replayStartedAt = hostTime; replayFedPts = -1; lastReplayFrames = 0; replayIndex = 0 }
+        // PACE BY SEQUENCE, NOT BY ABSOLUTE PTS (B606). The first version gated on
+        // `pts <= elapsed`, which silently assumed the cache begins at pts 0. It does not: after
+        // the opening pass the decoder never produces anything below ~0.116 again, so the cache
+        // fills from there and every cached frame was still "in the future" for the whole 141ms
+        // the replay had to work with. `lastReplayFrames: 0` with `lapsCovered: 28` — the replay
+        // ran every lap and fed nothing, which is exactly why the take gap never moved.
+        //
+        // The cache is the head of the clip IN ORDER, so replaying it as a sequence at the source
+        // frame interval reproduces the motion correctly whatever its absolute timestamps are.
+        guard replayIndex < frames.count else { return false }
+        let due = Double(replayIndex) * frameInterval
+        guard hostTime - replayStartedAt >= due - 0.001 else { return false }
+        let next = frames[replayIndex]
+        replayIndex += 1
         replayFedPts = next.pts
         lastReplayFrames += 1
         let payload = next.data
@@ -379,6 +399,7 @@ public class FoldNativeVideoPlugin: CAPPlugin, CAPBridgedPlugin {
     private func endReplay() {
         replaying = false
         replayFedPts = -1
+        replayIndex = 0
     }
 
     @objc func stop(_ call: CAPPluginCall) {
@@ -480,17 +501,25 @@ public class FoldNativeVideoPlugin: CAPPlugin, CAPBridgedPlugin {
         let held = headCache.count
         let bytes = headBytes
         let covered = headCache.last.map { Int($0.pts * 1000) } ?? 0
+        let firstPts = headCache.first?.pts ?? -1
+        let lastPts = headCache.last?.pts ?? -1
         cacheLock.unlock()
         out["loopCache"] = [
             "budgetMB": cacheBudget / (1024 * 1024),
             "frames": held,
             "heldMB": bytes / (1024 * 1024),
             "coveredMs": covered,
+            // WHAT IS IN IT, not just how much. B605 reported `covering the lap` while feeding
+            // nothing, because "300ms of frames" said nothing about WHERE those 300ms start.
+            "firstPts": (firstPts * 1000).rounded() / 1000,
+            "lastPts": (lastPts * 1000).rounded() / 1000,
+            "frameIntervalMs": Int(frameInterval * 1000),
             "lapsCovered": lapsCovered,
             "lastReplayFrames": lastReplayFrames,
             "why": cacheBudget == 0 ? "disabled from the frame-cost panel"
                  : held == 0 ? "no head frames stored yet (the clip has not played through 0-0.3s)"
-                 : swapGapMs > 0 && covered < swapGapMs ? "partial fill — \(covered)ms of a \(swapGapMs)ms lap; raise the budget"
+                 : lastReplayFrames == 0 && lapsCovered > 0 ? "held frames but fed none on the last lap"
+                 : swapGapMs > 0 && Int((lastPts - firstPts) * 1000) < swapGapMs ? "partial fill — \(Int((lastPts - firstPts) * 1000))ms of a \(swapGapMs)ms lap; raise the budget"
                  : "covering the lap",
         ] as [String: Any]
         call.resolve(out)
@@ -544,6 +573,6 @@ public class FoldNativeVideoPlugin: CAPPlugin, CAPBridgedPlugin {
         swapAt = 0
         endReplay()
         cacheLock.lock(); headCache.removeAll(); headBytes = 0; cacheLock.unlock()
-        lapsCovered = 0; lastReplayFrames = 0
+        lapsCovered = 0; lastReplayFrames = 0; replayIndex = 0; frameInterval = 1.0 / 30.0
     }
 }

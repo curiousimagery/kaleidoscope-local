@@ -8,50 +8,32 @@ Confirmed results are DELETED from here and recorded in CHANGELOG. Closed sessio
 
 ---
 
-# ▶ THIS SESSION (B605) — "does the head cache fill the lap?"
+# ▶ THIS SESSION (B606) — "can you read the panel, and does the cache feed anything?"
 
 **⚠️ NEEDS `npx cap sync ios` + AN XCODE BUILD.**
 
-**iPad, ~10 minutes.** The knob is live, so this is one sitting and several arms.
+**iPad, ~6 minutes.**
 
-**[panel]** = on screen in the frame-cost panel. **[report]** = only in `copy report`.
+**[panel]** = on screen. **[report]** = only in `copy report`.
 
-## ⚠️ BEFORE TRUSTING ANY MEASUREMENT, EVERY TIME
+## 1. The panel is readable now (10 seconds, and it unblocks everything else)
 
-**[panel]** The `source` row must read `planar · native decode · ~30 in/s`. If it says `from <video>` or `⚠ NO NATIVE DECODE`, that report cannot be compared to any other.
+**[panel]** Every surface's note is now its **own wrapped line** under the row, in full. The `source` row should read the whole of `from canvas · planar · native decode · 30 in/s`. **Tell me if it is still cut off** — that line is how you check the path before any measurement, and it has never once been readable on the iPad.
 
-## The control is `loop cache` in settings → diagnostics
+## 2. Does the cache feed anything
 
-**[panel]** A cycling button: `64MB → 128MB → 256MB → off → 32MB`. **It applies immediately** — no reload, no clip re-load. Raising it lets the cache top up on the next lap; lowering it trims at once.
+1. Broadcast a looping clip (FHD is fine), **[panel]** `loop cache: 64MB`, lap 4+ times.
+2. **[report]** `srcFanOut.loopCache`. **The number that matters is `lastReplayFrames`** — B605 read **0**, which is why nothing changed.
+   - **`lastReplayFrames` 4-5** → the replay is feeding. Then judge the loop by eye.
+   - **still 0** → `why`, `firstPts` and `lastPts` now say what is in the cache and it will be diagnosable from one report.
+3. **[report]** `extJitter.loop.recentTakeGaps` against B605's 140-150. **That is the outcome measure**; `lastReplayFrames` only says the mechanism ran.
+4. **[panel]** Toggle `loop cache: off` and back, still looping, and say whether the loop point looks different between the two.
 
-## Part 1 — does it work at all (FHD first, where the budget is generous)
+## 3. The Loop Builder stall — no fix yet, one question
 
-1. Broadcast a **looping FHD clip**, let it lap 4+ times at the default **64MB**.
-2. **Watch the loop point. The hold should be gone.**
-3. **[report]** `srcFanOut.loopCache` — `coveredMs` should be **≥ `swapGapMs`** (~150) and `why` should read `covering the lap`.
+The slice-preview stall is filed and neither recent change is implicated. **If you get a chance: does it also stall on the crossfade STEP (step 4), or only on the bake-preview step (step 5)?** That narrows it a long way.
 
-## Part 2 — the A/B, same sitting
-
-4. **[panel]** Set `loop cache: off`. Keep looping. **The hold should come straight back.** That is the control arm and it proves the cache is what changed.
-5. **[panel]** Back to `64MB`. It should disappear again within a lap or two (the cache refills as the head plays).
-
-## Part 3 — 4K, where the budget is tight
-
-6. Load a **4K** clip, broadcast, lap 4+ times at **64MB**.
-7. **[report]** Read `loopCache.coveredMs` against `swapGapMs`, and `why`.
-   - `covering the lap` → done at 4K too.
-   - `partial fill — Nms of a 150ms lap` → **[panel]** raise to `128MB`, keep looping, read again.
-8. **Tell me how it LOOKS at each budget, not just what the numbers say.** A partial fill should read as a much shorter hitch; the question is whether it still reads as a defect.
-
-## ⚠️ Watch for the thing that would make this a bad trade
-
-9. **At 128MB and 256MB on a 4K clip, watch for a graphics context loss or the app being killed.** That is the jetsam risk and it is the reason the default is conservative. If it happens, drop back to 64MB and tell me — the cache is not worth a lost context mid-set.
-
-## Part 4 — the behaviours the cache could plausibly break
-
-10. **Scrub during playback** on a looping clip — the replay is meant to abandon on a seek, so scrubbing should feel exactly as before.
-11. **Pause across the loop point** — a paused clip should not lap at all.
-12. **Move the slice through the loop point** while broadcasting. **This should be unaffected** — the cache holds source footage, not rendered output, so the kaleidoscope keeps animating live. If the look freezes at the lap, the design assumption is wrong and I need to know immediately.
+# 🅿️ PREVIOUS SESSION (B605) — cache shipped but fed nothing (`lastReplayFrames: 0`); panel note found unreadable on device.
 
 # 🅿️ PREVIOUS SESSION (B604) — bake seek + [panel]/[report] convention; loop-gap investigation CLOSED.
 
