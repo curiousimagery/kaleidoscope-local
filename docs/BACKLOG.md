@@ -172,9 +172,13 @@ The vocabulary Daniel decided on: **keep the UI names** (`source` / `staged` / `
 
 **✅ NARROWED AT B600: it is the swap itself, not output priming.** Reusing the `AVPlayerItemVideoOutput` across the lap left `swapGapMs` at **150 against 150**. Reverted with the hypothesis.
 
-**Open: does not swapping help?** B601 ships `loopBySeek` (flag, default OFF) — one `AVPlayerItem`, `actionAtItemEnd = .none`, rewind on `AVPlayerItemDidPlayToEndTime`, output attached once. Both arms instrumented identically; one sitting answers it.
+**✅ AND THE MECHANISM DOES NOT MATTER (B601/B602 A/B, one sitting).** Item swap 141ms, seek-to-zero 150ms, `swapToPts` equal to the gap in both. **~150ms is what AVFoundation costs to resume delivering frames after the playhead returns to zero, by any route.** `loopBySeek` stays as a flag; it is a second road to the same floor.
 
-**⚠️ If arm B is also ~150ms, neither mechanism is cheap and the question changes shape: hide the gap rather than remove it.** Options in that case, none costed yet: hold the last frame deliberately across the lap so it reads as a decision rather than a stutter; pre-roll a second decode of the head of the clip and cross-fade; or accept it and make the Loop Builder's bake the recommended path, since a baked seamless loop still pays the same swap but with content chosen to survive it.
+**▶ ONE HYPOTHESIS LEFT, and it is a conformance question rather than a measurement.** We poll `hasNewPixelBuffer(forItemTime:)` blind every display tick. Apple's pull model is `requestNotificationOfMediaDataChange(withAdvanceInterval:)` + `AVPlayerItemOutputPullDelegate.outputMediaDataWillChange`, and the documented guidance is to use it after a seek or a stall instead of polling. **Never checked.** Cheap to try, and it is the last thing that could make the number move.
+
+**▶ AND ONE READING THAT NEEDS NO BUILD:** every measurement here is one 20.4s 4K clip. **A short 1080p clip separates a fixed pipeline cost from decode work.** If `swapGapMs` scales with pixels, resolution becomes a lever for the first time since B590.
+
+**STOPPING RULE (agreed shape, B602):** if the pull model does not move it and the gap does not scale with resolution, **stop investigating** and design around a ~150ms platform cost. Options, none costed yet: hold the last frame deliberately so it reads as a decision rather than a stutter; pre-roll the head of the clip at reduced resolution and cross-fade across the lap; or make the Loop Builder's bake choose a loop point whose content survives a 5-frame hold.
 
 **Dead, each by its own instrument** (3 and 4 added at B598/B599, 5 at B599):
 

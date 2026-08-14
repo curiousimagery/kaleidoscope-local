@@ -84,6 +84,21 @@ This retires the confusion, not just a hypothesis. Resolution was free because t
 
 ## current version
 
+**🎚 B602 — THE A/B IS A TIE, AND THAT IS THE ANSWER. JS only, no `cap sync`.**
+
+| arm | mechanism | `swapGapMs` |
+|---|---|---|
+| A | AVPlayerLooper item swap | **141** (max 150) |
+| B | one item, seek to zero | **150** (max 150) |
+
+**~150ms is not the cost of swapping items and not the cost of seeking. It is what AVFoundation costs to resume delivering frames after the playhead returns to zero, by any route.** `swapToPts` equals the gap in both arms, so the footage lost equals the silence. `loopBySeek` stays as a flag: not better, not worse, costs nothing to keep while one hypothesis is open.
+
+**Also fixed:** the perform playhead jumped to the start on pause — `updateSrcScrub` read `v.currentTime` off the parked `<video>` instead of the source clock. Same shape as the several other places that had to stop believing the element once the decode became the clock.
+
+**▶ THE LAST TECHNICAL STONE, not yet turned:** we poll `hasNewPixelBuffer` blind. Apple's pull model is `requestNotificationOfMediaDataChange(withAdvanceInterval:)` + `AVPlayerItemOutputPullDelegate.outputMediaDataWillChange`, and the documented guidance is to use it after a seek or a stall rather than polling. **This has never been checked.** If it does not move the number, stop: treat ~150ms as a platform cost and design around it.
+
+**▶ AND ONE READING THAT NEEDS NO BUILD:** every measurement in this arc is from one 20.4s 4K clip. **A short 1080p clip separates a fixed pipeline cost from decode work** — see VERIFY-QUEUE. If it scales with pixels that is the first new lever since B590.
+
 **🔄 B601 — STOP SWAPPING ITEMS, BEHIND A FLAG. ⚠️ NEEDS `npx cap sync ios` + AN XCODE BUILD.**
 
 **B600 killed the cheap explanation.** Reusing the `AVPlayerItemVideoOutput` across the lap left `swapGapMs` at **150 against 150**, so the hold is not a fresh output priming — it is the item swap itself. The reuse and its watchdog were deleted with the hypothesis. **⚠️ B600's `swapRecoveries: 2` was my watchdog arming during startup** (where `startPaused` deliberately produces no frames until the seek lands), not a reuse stall as I said it would be.

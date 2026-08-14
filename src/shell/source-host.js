@@ -940,7 +940,15 @@ export function createSourceHost(env) {
     if (show && isFinite(v.duration) && v.duration > 0) {
       const s = srcScrubSpan();
       const head = document.getElementById('srcScrubHead');
-      if (head && s) head.style.left = (Math.max(0, Math.min(1, (v.currentTime - s.inSec) / s.span)) * 100) + '%';
+      // THE CLOCK, NOT THE ELEMENT (B602). On the native path the `<video>` is parked for
+      // authoring and never advances, so reading `v.currentTime` here snapped the playhead to
+      // wherever the element was left — the head of the clip. Perform's tick sets this from
+      // `clock.time` while playing and is correct; `toggleVideoPlayback` then calls this on
+      // PAUSE and overwrote it. Hence Daniel, B601: "the playhead jumps to the beginning when
+      // paused; on play it resumes in the correct position." Same shape as the several other
+      // places that had to stop believing the element once the decode became the clock.
+      const now = env.sourceClock?.present ? env.sourceClock.time : v.currentTime;
+      if (head && s) head.style.left = (Math.max(0, Math.min(1, (now - s.inSec) / s.span)) * 100) + '%';
       // Rebuild the footage thumbs whenever that identity changes — a new clip, or a new
       // trim range. This used to fire ONLY when the track had no cells at all, so a Loop
       // Builder trim/bake left the OLD clip's thumbnails sitting there until a mode round

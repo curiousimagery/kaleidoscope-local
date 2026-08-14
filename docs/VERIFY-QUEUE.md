@@ -8,32 +8,29 @@ Confirmed results are DELETED from here and recorded in CHANGELOG. Closed sessio
 
 ---
 
-# ▶ THIS SESSION (B601) — "is rewinding one item cheaper than swapping items?"
+# ▶ THIS SESSION (B602) — one fix to confirm, and one reading only Daniel can take
 
-**⚠️ NEEDS `npx cap sync ios` + AN XCODE BUILD.**
+**JS only. No `cap sync` needed.**
 
-**iPad, ~8 minutes, one sitting, both arms.** B599 measured the loop hold as AVFoundation's item swap (141-150ms). B600 killed the cheap explanation: reusing the video output changed nothing. This tests the real alternative.
+## 1. The perform playhead (30 seconds)
 
-## ⚠️ SET THE SCENARIO TAG TO `hdmi-broadcast` FIRST. Start COLD.
+Perform mode, video source, press play then pause. **The playhead must stay where it is**, not jump to the start. On play it should continue from there.
 
-## The A/B — the flag is `video: loop by seeking, not by item swap` in the frame-cost panel
+## 2. ▶ THE DISCRIMINATING EXPERIMENT — a short 1080p clip
 
-**⚠️ The flag is read when the decode starts, so RELOAD THE CLIP after flipping it.** Nothing persists across an app restart.
+**This is the highest-value thing left and it needs no build.** Every measurement in this arc has been on one 20.4s 4K clip, so we cannot tell a fixed pipeline cost from decode work.
 
-1. **Arm A (flag OFF, shipped behaviour).** Load an unbaked 4K clip, broadcast, let it lap 4+ times. `copy report`.
-2. **Flip the flag ON. Reload the same clip.** Broadcast, lap 4+ times. `copy report`.
-3. Keep the slice the same in both arms and do not resize anything between them.
+1. Load a **short 1080p clip** (a few seconds is fine). Broadcast, let it lap 4+ times.
+2. `copy report`. **The number is `srcFanOut.swapGapMs`, against the 4K baseline of 141-150.**
 
-**The number is `srcFanOut.swapGapMs` (and `maxSwapGapMs`). B599/B600 baseline: 141-150.**
-
-| arm B reading | meaning | next |
+| reading | meaning | consequence |
 |---|---|---|
-| **~33ms** | the item swap was the whole hold | make `loopBySeek` the default and delete AVPlayerLooper from this path |
-| **still ~150** | a precise seek costs the same as a swap | neither mechanism is cheap; the answer is to hide the gap, not remove it (hold the last frame deliberately, or pre-roll) |
-| **worse than 150** | the seek flush is the more expensive of the two | keep AVPlayerLooper, and the hold is a platform cost we design around |
+| **still ~150ms** | a fixed cost to restart delivery, independent of resolution and length | resolution is not a lever; the fix is to hide the gap, not shrink it |
+| **drops proportionally (~40ms)** | it is decode work and it scales with pixels | a real lever for the first time in this arc: pre-roll at lower resolution, or accept the cost only at 4K |
 
-4. **Also watch, in arm B specifically:** does play/pause still behave, and does the clip still loop at all? The rewind now decides whether to resume, so a paused clip must stay paused at the loop point.
-5. `loopStall.recentTakeGaps` and `extJitter.loop.recentTakeGaps` should track `swapGapMs` in both arms. They agreed at B599 and B600; if they stop agreeing, the instruments have diverged and the arm comparison is void.
+**Either answer closes something.** The second would be the first genuinely new lever since B590.
+
+# 🅿️ PREVIOUS SESSION (B601) — "is rewinding one item cheaper than swapping items?" — ANSWERED: a tie. 141 vs 150; ~150ms is the platform floor for resuming at zero by any route.
 
 # 🅿️ PREVIOUS SESSION (B600) — "does reusing the video output close the 150ms lap?" — ANSWERED: no. 150 against 150; priming was not the cost.
 

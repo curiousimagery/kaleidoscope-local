@@ -6,6 +6,31 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🎚 v0.25.12 (Build 602) — 2026-08-13 — The A/B is a tie, and the perform playhead reads the clock
+
+**JS only. No `cap sync` needed.**
+
+### Shipped
+
+- **Fixed: the perform playhead jumped to the start of the timeline on pause.** `updateSrcScrub` read `v.currentTime` off the `<video>`, which on the native path is parked for authoring and never advances. It now reads the source clock.
+
+### The B601 A/B: a tie, and that is the answer
+
+| arm | mechanism | `swapGapMs` | `maxSwapGapMs` | content lost |
+|---|---|---|---|---|
+| **A** (flag off) | AVPlayerLooper item swap | **141** | 150 | 20.4 → 0.1154 |
+| **B** (flag on) | one item, seek to zero | **150** | 150 | 20.4 → 0.1157 |
+
+**Identical, and `swapToPts` equals the gap in both.** So ~150ms is not the cost of *swapping items* and not the cost of *seeking* — **it is what AVFoundation costs to resume delivering frames after the playhead returns to zero, by any route.** The clock runs through it, so the footage lost equals the silence.
+
+`loopBySeek` stays as a flag. It is not better, and it is not worse; it is a second way to reach the same platform floor, and keeping it costs nothing while the last hypothesis is open.
+
+### Where the investigation actually stands
+
+Eight builds. **Six of them fixed real bugs** the loop hold flushed out along the way — the autoplay, the dark panel after a bake, the staging-directory race that silently deleted a freshly baked clip, the blank wall at broadcast start, the wrong frame on load, the perform playhead. **Two of them were spent on instruments that measured the wrong noun** (`paintLatest` counting re-blits as arrivals, and a watchdog that could not tell startup from a lap). That is the honest accounting.
+
+**The root cause is known and it is not ours.** What is missing is a fix, and more instrumentation will not produce one.
+
 ## 🔄 v0.25.11 (Build 601) — 2026-08-13 — Stop swapping items, behind a flag
 
 **⚠️ NEEDS `npx cap sync ios` + AN XCODE BUILD.**
