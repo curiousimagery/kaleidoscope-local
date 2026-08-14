@@ -136,7 +136,9 @@ public class FoldNativeVideoPlugin: CAPPlugin, CAPBridgedPlugin {
     private var headCache: [CachedFrame] = []
     private var headBytes = 0
     private var cacheBudget = 64 * 1024 * 1024
-    private let headSeconds = 0.30
+    // 0.22 bounds the 4K cost: the measured lap is 141-158ms, and a 4K frame is ~12.4MB, so this
+    // is ~7 frames ≈ 87MB rather than the ~112MB that 0.30 was asking for.
+    private let headSeconds = 0.22
     private let cacheLock = NSLock()
     // replay state — `replayFedPts` also suppresses live frames we have already shown from cache,
     // so the content never goes backwards when the decoder finally catches up
@@ -279,13 +281,29 @@ public class FoldNativeVideoPlugin: CAPPlugin, CAPBridgedPlugin {
     // frame it is about to paint, so sampled params are locked to the frame on screen
     // (strictly tighter than reading a <video>'s clock a beat after it presented).
     @objc private func tick() {
-        guard let out = output, server.wantsFrame() else { return }
+        guard let out = output else { return }
         let hostTime = CACurrentMediaTime()
         // FILL THE LAP BEFORE ASKING THE DECODER (B605). During the ~150ms after the playhead
         // returns to zero there is nothing to ask for, so this is the only place the gap can be
         // covered — and it has to run ahead of the hasNewPixelBuffer guard, which returns early
         // for the whole duration of it.
         if feedFromCache(hostTime) { return }
+        // THE CACHE CANNOT BE FILLED FROM WHAT WE HAPPEN TO SEND (B607).
+        //
+        // `cacheHeadFrame` rode along behind `server.send`, so the cache only ever saw frames the
+        // fan-out actually wanted. At FHD that is every frame and the cache filled from pts 0 and
+        // the lap became seamless. At 4K `ticksNoTaker` runs into the thousands, and the frames
+        // near pts 0 — produced once, on the opening pass, while both clients are busy with 12.4MB
+        // sends — are exactly the ones most likely to be passed over. Daniel's 4K reading:
+        // `firstPts: 0.115`, which is where the decoder resumes anyway, so the replay could only
+        // ever repeat content that was coming regardless. **It filled nothing, precisely.**
+        //
+        // So while the head is still missing, take the buffer whether or not anyone wants it. The
+        // extra encode is bounded: `cacheNeedsFill` goes false as soon as the window is covered
+        // from ~0, which is once, on the first playthrough.
+        let wants = server.wantsFrame()
+        let fillingHead = cacheNeedsFill()
+        guard wants || fillingHead else { return }
         let itemTime = out.itemTime(forHostTime: hostTime)
         guard out.hasNewPixelBuffer(forItemTime: itemTime) else { ticksNoBuffer &+= 1; return }
         var displayTime = CMTime.invalid
@@ -341,7 +359,7 @@ public class FoldNativeVideoPlugin: CAPPlugin, CAPBridgedPlugin {
         encodeQueue.async { [weak self] in
             guard let self = self,
                   let data = FrameSocketServer.encode(pb, pts: pts, duration: dur) else { return }
-            self.server.send(data)
+            if wants { self.server.send(data) }
             self.cacheHeadFrame(pts: pts, data: data)
         }
     }
@@ -359,6 +377,16 @@ public class FoldNativeVideoPlugin: CAPPlugin, CAPBridgedPlugin {
         headCache.append(CachedFrame(pts: pts, data: data))
         headCache.sort { $0.pts < $1.pts }
         headBytes += data.count
+    }
+
+    // Is the head window still missing anything? Goes false once the cache spans ~0 to headSeconds,
+    // so the extra work this authorises is paid once per clip rather than per frame.
+    private func cacheNeedsFill() -> Bool {
+        cacheLock.lock(); defer { cacheLock.unlock() }
+        if cacheBudget == 0 || headBytes >= cacheBudget { return false }
+        let haveStart = (headCache.first?.pts ?? 1.0) <= 0.02
+        let haveEnd = (headCache.last?.pts ?? -1) >= headSeconds - 0.02
+        return !(haveStart && haveEnd)
     }
 
     // Feed the next cached frame if this moment of the lap calls for one. Paced by PTS against
@@ -518,6 +546,7 @@ public class FoldNativeVideoPlugin: CAPPlugin, CAPBridgedPlugin {
             "lastReplayFrames": lastReplayFrames,
             "why": cacheBudget == 0 ? "disabled from the frame-cost panel"
                  : held == 0 ? "no head frames stored yet (the clip has not played through 0-0.3s)"
+                 : firstPts > 0.02 ? "the cache starts at \(Int(firstPts * 1000))ms, not 0 — it can only repeat content the decoder was going to deliver anyway"
                  : lastReplayFrames == 0 && lapsCovered > 0 ? "held frames but fed none on the last lap"
                  : swapGapMs > 0 && Int((lastPts - firstPts) * 1000) < swapGapMs ? "partial fill — \(Int((lastPts - firstPts) * 1000))ms of a \(swapGapMs)ms lap; raise the budget"
                  : "covering the lap",

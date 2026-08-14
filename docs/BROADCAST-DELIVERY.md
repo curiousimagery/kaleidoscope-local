@@ -120,6 +120,41 @@ AVPlayer (native, iOS)
 
 ---
 
+## 6a. The loop hold — CLOSED, and the whole answer in one place (B593-B607)
+
+**What it is:** a clip loops and the picture holds for ~150ms. Reported since B487, never fixed.
+
+**Whose it is:** **AVFoundation's.** Measured inside the plugin, before anything touches the socket: `swapGapMs` **141-158ms**, and the new item's clock runs through the silence, so **the footage skipped equals the stall**. That is why "1.8s of content missing" and "a 150ms hold" were always the same event.
+
+**It is a FIXED cost, not decode work.** 4K 141/150, FHD 141/150 — four times the pixels, same gap.
+
+**It is iPad-only.** Electron and Firefox loop a `<video>` natively with no perceptible hold (Daniel, B605).
+
+**It feels new because B590 made everything around it smooth.** At 20-25/s a 150ms hold is three frames of an already-choppy stream; at 29-30/s it is the only thing moving wrong.
+
+### Eight things it is NOT, each closed by its own instrument
+
+| hypothesis | how it died |
+|---|---|
+| the decoder stalls | `loopStall` B593: `maxGapMs 17`, `after1s 29`. Frames cross the boundary at full rate |
+| our trim rewind's settle window | B595: `rewinds: 0, suppressed: 0` — the boundary test never fires on a full-range trim |
+| the external view's render | B598 `wrapRenders`: `ren` 8-15ms, `up` 0-4ms, `sched` 0-12ms. All fast |
+| "the app does not hold, only the wall does" | B599: an instrument artifact — `paintLatest` counted re-blits as arrivals |
+| our backpressure | `skipped: 0` on both clients across the lap |
+| the item swap specifically | B601 A/B: a single-item seek-to-zero costs the same 150ms |
+| a fresh video output having to prime | B600: reusing it across the lap left 150 against 150 |
+| Apple's pull model / pre-attaching an output | B601 arm B attached once and never moved it, and still paid 150ms |
+
+### The fix: fill the lap from a head-frame cache
+
+The plugin keeps the clip's first `headSeconds` of **encoded** frames and replays them **as a sequence at the source frame interval** while AVFoundation restarts. Real frames, real timestamps, so both webviews and the motion clock never notice, and **it works on any clip** — required, since most loops are authored elsewhere.
+
+**Cached frames are SOURCE FOOTAGE, not rendered output.** Each engine applies the kaleidoscope at render time from live state, so the slice keeps animating through the lap.
+
+**The one field that says whether it works is `srcFanOut.loopCache.firstPts`.** It must be ~0. If it is 0.115 the cache begins where the decoder resumes anyway and can only repeat content that was coming regardless — it fills nothing while reporting healthy frame counts.
+
+**Budget: the need is a duration, the risk is bytes.** Live knob in the panel (`loop cache`), capped by megabytes because 4K frames are ~12.4MB and this project has a jetsam history. **Verified seamless at FHD (B606).** 4K is memory-bound and is the open edge.
+
 ## 7. How to measure so the answer survives
 
 Adopted after two false results (B587, B588):

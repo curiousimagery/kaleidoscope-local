@@ -8,30 +8,36 @@ Confirmed results are DELETED from here and recorded in CHANGELOG. Closed sessio
 
 ---
 
-# ▶ THIS SESSION (B606) — "can you read the panel, and does the cache feed anything?"
+# ▶ THIS SESSION (B607) — "does the cache now start at zero on 4K?"
 
 **⚠️ NEEDS `npx cap sync ios` + AN XCODE BUILD.**
 
-**iPad, ~6 minutes.**
+**iPad, ~6 minutes.** FHD is verified seamless; this is the 4K edge.
 
 **[panel]** = on screen. **[report]** = only in `copy report`.
 
-## 1. The panel is readable now (10 seconds, and it unblocks everything else)
+## 1. FHD regression check (2 minutes)
 
-**[panel]** Every surface's note is now its **own wrapped line** under the row, in full. The `source` row should read the whole of `from canvas · planar · native decode · 30 in/s`. **Tell me if it is still cut off** — that line is how you check the path before any measurement, and it has never once been readable on the iPad.
+1. Loop an FHD clip, **[panel]** `loop cache: 64MB`, broadcast. **It should still be seamless.**
 
-## 2. Does the cache feed anything
+## 2. 4K, at the default first
 
-1. Broadcast a looping clip (FHD is fine), **[panel]** `loop cache: 64MB`, lap 4+ times.
-2. **[report]** `srcFanOut.loopCache`. **The number that matters is `lastReplayFrames`** — B605 read **0**, which is why nothing changed.
-   - **`lastReplayFrames` 4-5** → the replay is feeding. Then judge the loop by eye.
-   - **still 0** → `why`, `firstPts` and `lastPts` now say what is in the cache and it will be diagnosable from one report.
-3. **[report]** `extJitter.loop.recentTakeGaps` against B605's 140-150. **That is the outcome measure**; `lastReplayFrames` only says the mechanism ran.
-4. **[panel]** Toggle `loop cache: off` and back, still looping, and say whether the loop point looks different between the two.
+2. Load the 20.4s 4K clip. **[panel]** `loop cache: 64MB`. Broadcast, lap 4+ times.
+3. **[report]** `srcFanOut.loopCache`. **The field that decides it is `firstPts` — it must be ~0.** B606 read `0.115`, which is why 4K did not improve.
+   - **`firstPts` ~0 and the hold is gone** → done at 4K too.
+   - **`firstPts` ~0 and the hold remains** → check `coveredMs` against `swapGapMs`; a partial fill needs a bigger budget.
+   - **`firstPts` still >0.02** → `why` now names it, and the fill path is still not catching the opening pass.
 
-## 3. The Loop Builder stall — no fix yet, one question
+## 3. Only if 64MB is not enough
 
-The slice-preview stall is filed and neither recent change is implicated. **If you get a chance: does it also stall on the crossfade STEP (step 4), or only on the bake-preview step (step 5)?** That narrows it a long way.
+4. **[panel]** Step up to 128MB. **⚠️ Watch for trouble rather than just the loop point.** B606's 256MB run was in real distress (`maxSwapGapMs: 2201`, the display down to 7 arriving/s). **If the session degrades, drop back and say so — that is a more important finding than the loop point.**
+5. **[report]** `loopCache.heldMB` is the honest memory number; report it with whatever you see.
+
+## 4. Carried, unfixed
+
+6. The Loop Builder slice-preview stall. **No fix this build.** New detail from B605 is filed: it plays fine the first time and after a manual scrub, and stalls only after the loop, with the fading side of the crossfade frozen while the incoming side moves.
+
+# 🅿️ PREVIOUS SESSION (B606) — panel note readable ✓; FHD loop VERIFIED SEAMLESS ✓; 4K still stalls (cache started at 0.115).
 
 # 🅿️ PREVIOUS SESSION (B605) — cache shipped but fed nothing (`lastReplayFrames: 0`); panel note found unreadable on device.
 

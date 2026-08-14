@@ -84,6 +84,21 @@ This retires the confusion, not just a hypothesis. Resolution was free because t
 
 ## current version
 
+**🧩 B607 — THE CACHE COULD ONLY FILL FROM WHAT WE HAPPENED TO SEND. ⚠️ NEEDS `npx cap sync ios` + AN XCODE BUILD.**
+
+**✅ THE LOOP HOLD IS FIXED AT FHD AND DANIEL-VERIFIED (B606):** seamless at the default 64MB, and turning the cache off brings the stall straight back. Both arms, one sitting.
+
+**One field separates FHD from 4K: `srcFanOut.loopCache.firstPts`.** FHD `0` → covers the lap. 4K `0.115` → begins where the decoder resumes anyway, so the replay repeats content that was coming regardless. **It filled nothing, precisely**, while reporting four frames replayed and "covering the lap".
+
+**Cause:** `cacheHeadFrame` rode behind `server.send`, so the cache only saw frames the fan-out wanted. At FHD `ticksNoTaker` is 6; at 4K it is 4116, and the frames near pts 0 — produced once, on the opening pass, while both clients are busy with 12.4MB sends — are exactly the ones passed over. **B607 fills the head independently of the fan-out** and bounds `headSeconds` to 0.22 (~87MB at 4K).
+
+**⚠️ MEMORY IS THE REAL 4K CONSTRAINT, and B606 showed it.** The 256MB run was in genuine distress: `maxSwapGapMs: 2201`, the external view at 7 arriving/s with a 789ms p95, `governor.target: 7`. **If 4K needs more memory than is safe, the honest answer is a partial fill, not a bigger budget.**
+
+**📕 `BROADCAST-DELIVERY.md` §6a is now the durable record** — what the hold is, whose it is, the eight hypotheses closed with the instrument that killed each, the fix, and the one field that says whether it is working. **Read that before touching this again.**
+
+**Carried, unfixed:** the Loop Builder slice-preview stall. New detail: fine the first pass and after a manual scrub, stalls only after the loop, with the fading-OUT side of the crossfade frozen while the incoming side moves — so it is the B-tail element not restarting after a lap.
+
+
 **🔍 B606 — THE PANEL'S MOST IMPORTANT LINE HAS NEVER BEEN READABLE ON THE iPAD. ⚠️ NEEDS `npx cap sync ios` + AN XCODE BUILD.**
 
 The surface note lived inside `.pf-name` (`nowrap` + ellipsis) with the overflow on a `title` tooltip — **unhoverable on a touch device.** So `planar · native decode · 30 in/s` and `⚠ NO NATIVE DECODE: …` truncated to about six characters. **Daniel has been checking the path blind for the whole arc.** It is now a wrapped line of its own under each row.

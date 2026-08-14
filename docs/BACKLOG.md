@@ -178,13 +178,23 @@ The vocabulary Daniel decided on: **keep the UI names** (`source` / `staged` / `
 
 **✅ THE PULL-MODEL HYPOTHESIS IS DEAD WITHOUT A BUILD.** B601 arm B attached the output once and never moved it, and still paid 150ms. A notification cannot deliver data that does not exist, and we already poll at 60Hz. Same reasoning kills pre-attaching an output to the next queued item.
 
-### ✅ SHIPPED B605 — THE HEAD CACHE. Verification pending; the open risk is memory.
+### ✅ FIXED AT FHD (B606, Daniel-verified). 4K IS THE OPEN EDGE.
+
+**FHD loops seamlessly at the default 64MB, and turning the cache off brings the stall straight back** — both arms, one sitting. **`srcFanOut.loopCache.firstPts` is the one field that decides it:** ~0 means the cache covers the lap; 0.115 means it begins where the decoder resumes anyway and fills nothing while reporting healthy counts.
+
+**4K, open.** B607 fixed the fill path (the cache was only seeing frames the fan-out wanted, and at 4K `ticksNoTaker` is in the thousands). Unverified.
+
+**⚠️ MEMORY IS THE REAL 4K CONSTRAINT.** B606's 256MB run was in genuine distress: `maxSwapGapMs: 2201`, the external view at 7 arriving/s with a 789ms p95, `governor.target: 7`. 83MB of cache beside a 4K decode and two webviews is the jetsam pressure the single-decode architecture exists to avoid. **If 4K needs more memory than is safe, the honest answer is a partial fill (a much shorter hitch) rather than a bigger budget.**
+
+<details><summary>Original design notes (B605)</summary>
 
 The plugin holds the clip's first 0.3s of encoded frames and feeds them back at the lap. Budget is a **live knob** in the panel (`loop cache`, 64/128/256/off/32 MB), so arms are compared in one sitting. `srcFanOut.loopCache` publishes `coveredMs` against `swapGapMs` and names a partial fill.
 
 **⚠️ THE OPEN RISK IS JETSAM AT 4K.** 128MB and 256MB are the memory pressure that made the single-decode architecture necessary in the first place. If a higher budget costs a GL context mid-set it is not worth it, and the honest answer becomes a partial fill.
 
 **If a partial fill is where this lands**, the remaining ideas are: store the head frames at reduced resolution (a brief softness at the lap instead of a hold — needs a taste call from Daniel), or trigger the rewind early enough that the cache only has to cover what it can.
+
+</details>
 
 <details><summary>Original proposal (B604), kept for the reasoning</summary>
 
@@ -235,6 +245,8 @@ Class 1. Look at the perform engine's `setPlanarSource` / first `updateSourceFra
 **Consistent repro:** Loop Builder, seamless (slice) loop, preview or bake step, while playing. After the playhead passes the cut point at the end and returns to the beginning, **nothing plays until the playhead reaches the crossfade, where it flickers and resumes.** The baked output is correct, so this is the preview's phase machine and not the bake.
 
 **Checked at B606 — neither recent change is implicated.** B604's forward-seek is in `createSequentialFrameReader`, which the **bake** uses and the preview does not (`startSlicePreview` drives `<video>` elements directly). B602's playhead fix is in `updateSrcScrub`, a different element from the Loop Builder's bar.
+
+**More detail (Daniel, B606):** it plays fine the **first** time through, and fine after a manual scrub-and-play before the crossfade. **It stalls only after the loop.** At the crossfade there is a flicker, and **the fading-OUT side stays frozen while the incoming side moves** — so it is the B-tail element that is not running after a lap, not the phase machine's timing.
 
 **Where to look:** `startSlicePreview`'s phase machine and the A/B pre-roll in `clip-editor.js` — the B-head keeps `vB` pre-seeked to `inA`, and the resume condition is `v.currentTime >= inA + cfSec - 0.06`. A stall that ends exactly at the crossfade points at that condition or at the pre-roll seek not having landed. **Also worth ruling out decoder contention**: the slice preview runs two `<video>` elements beside the native decode, and three concurrent sessions is the shape of B501.
 

@@ -6,6 +6,33 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🧩 v0.25.17 (Build 607) — 2026-08-14 — The cache could only fill from what we happened to send
+
+**⚠️ NEEDS `npx cap sync ios` + AN XCODE BUILD.**
+
+### Shipped
+
+- **Fixed: the head cache is now filled independently of the fan-out.** `cacheHeadFrame` rode behind `server.send`, so it only ever saw frames a client wanted. While the head window is still missing, the tick now takes the buffer whether or not anyone wants it; `cacheNeedsFill` goes false once the window spans ~0, so the extra encode is paid once per clip.
+- **`headSeconds` 0.30 → 0.22**, bounding 4K to ~7 frames ≈ 87MB against the measured 141-158ms lap.
+- **`loopCache.why` now names the specific failure**: *"the cache starts at 115ms, not 0 — it can only repeat content the decoder was going to deliver anyway."*
+
+### ✅ VERIFIED SEAMLESS AT FHD (Daniel, B606)
+
+*"the short FHD clip i just baked loops seamlessly now with no visible frame hold"*, at the default 64MB — **and turning the cache off brings the stall straight back.** That is the A/B, in one sitting, both arms.
+
+```
+FHD  loopCache: { firstPts: 0,     lastReplayFrames: 4 }   takeGaps [32,43,44,40,43,40]
+4K   loopCache: { firstPts: 0.115, lastReplayFrames: 4 }   takeGaps [46,36,131,64,42,46]
+```
+
+**One field separates them.** At FHD the cache begins at pts 0 and covers the lap. At 4K it begins at 0.115 — which is where the decoder resumes anyway — so the replay could only ever repeat content that was coming regardless. **It filled nothing, precisely**, while reporting four frames replayed and `covering the lap`.
+
+**Why 4K and not FHD:** the cache was filled from *sent* frames. At FHD `ticksNoTaker` is 6; at 4K it is 4116. The frames near pts 0 are produced once, on the opening pass, while both clients are busy with 12.4MB sends — exactly the ones the fan-out passes over.
+
+### ⚠️ The 4K run at 256MB was in genuine distress
+
+`maxSwapGapMs: 2201`, a 2105ms take gap, `srcArrive.max: 1479`, the external view at **7 arriving/s** with a 789ms p95, `governor.target: 7`. **83MB of cache beside a 4K decode and two webviews is the jetsam pressure the single-decode architecture exists to avoid.** The bound on `headSeconds` is a response to that, and 4K remains the open edge.
+
 ## 🔍 v0.25.16 (Build 606) — 2026-08-14 — The panel's most important line has never been readable
 
 **⚠️ NEEDS `npx cap sync ios` + AN XCODE BUILD.**
