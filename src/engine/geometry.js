@@ -44,6 +44,41 @@ export function sliceVecToSourceUV(vx, vy, state, sourceAspect) {
   return { dx: x, dy: -y };
 }
 
+// CENTRE THE FORM IN THE SOURCE (Daniel, B615). His rule, stated geometrically:
+//
+//   "draw an imaginary box around the form, including the centre/offset point, then centre that
+//    box within the aspect ratio of the source."
+//
+// This replaces the old behaviour of parking the ORIGIN at (0.5, 0.5), which only ever looked
+// right for the rectangle — whose origin IS its centre. Every wedge form grows outward FROM its
+// origin, so an origin at the middle pushes the sampled region off to one side.
+//
+// Derived from each form's own `buildPolygon` rather than per-form constants, so it stays correct
+// for forms that do not exist yet, and it automatically tracks sliceScale, sizeNorm, sliceRotation
+// and the source aspect — every one of which moves the box.
+//
+// The origin (0,0) is always included: it is the apex for the wedge forms and the point Daniel
+// means by "the centre offset point". Forms whose polygon already surrounds it (rectangle, droste)
+// are unaffected by its inclusion, which is why they stay centred and the wedges move.
+export function centerFormInSource(form, state, sourceAspect) {
+  const pts = form?.buildPolygon?.(state);
+  if (!pts?.length) return { sliceCx: 0.5, sliceCy: 0.5 };
+  let minX = 0, maxX = 0, minY = 0, maxY = 0;   // seeded with the origin
+  for (const p of pts) {
+    const { dx, dy } = sliceVecToSourceUV(p.vx, p.vy, state, sourceAspect);
+    if (dx < minX) minX = dx;
+    if (dx > maxX) maxX = dx;
+    if (dy < minY) minY = dy;
+    if (dy > maxY) maxY = dy;
+  }
+  // put the box's midpoint on the source's midpoint
+  return { sliceCx: 0.5 - (minX + maxX) / 2, sliceCy: 0.5 - (minY + maxY) / 2 };
+}
+
+// The form's long edge should follow the SOURCE's long edge, so a portrait source turns every
+// form 90° clockwise (Daniel, B615). Returns the default sliceRotation for an orientation.
+export const defaultSliceRotation = (sourceAspect) => (sourceAspect < 1 ? 90 : 0);
+
 // ray-from-center boundary radius: shoot a ray from (cx, cy) at angle theta,
 // return the distance to the first polygon edge it crosses. in display pixels,
 // for use by hit-testing.

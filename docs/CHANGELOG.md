@@ -6,6 +6,29 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🎯 v0.25.25 (Build 615) — 2026-08-14 — Centre the form's BOX, not its origin
+
+**JS only. No `cap sync` needed.**
+
+### Shipped
+
+- **Reset slice now centres the form's bounding box in the source**, instead of parking its origin at (0.5, 0.5). `centerFormInSource()` in `engine/geometry.js`.
+- **A portrait source turns every form 90° clockwise**, so the form's long edge follows the source's long edge. `defaultSliceRotation()`, applied before the centring (the rotation changes the box, so order matters).
+
+### Daniel's rule, and why it is better than the constants I was about to ask for
+
+> *"For each form draw an imaginary box around them including the centre offset point where detached on droste. Then centre that box within the aspect ratio of the source... in the case of the hex wedge this means that the leftmost point has the same distance to the left edge as the rightmost point has to the right edge and same with the top and bottom."*
+
+**I had asked for a hex nudge value. This rule makes that question obsolete** — and every future one like it.
+
+The implementation reads each form's own `buildPolygon`, maps every vertex through `sliceVecToSourceUV`, and centres the resulting box. **Nothing is hardcoded per form**, so it stays correct for forms that do not exist yet and it automatically tracks `sliceScale`, `sizeNorm`, `sliceRotation` and the source aspect — every one of which moves the box.
+
+**The origin (0,0) is always included in the box.** That single detail is what makes the rule produce the right answer for all five forms at once:
+- **Rectangle and droste surround their origin**, so including it changes nothing and they stay centred — which is exactly what Daniel observed empirically and why he singled the rectangle out.
+- **The wedge forms grow outward FROM their origin**, so the box is lopsided and centring it moves the origin off-centre, left in landscape. That is the *"origin off to the left"* he described.
+
+**The old behaviour was only ever right for the rectangle**, and it is now clear why nobody noticed: the rectangle is the one form whose origin IS its centre.
+
 ## 📏 v0.25.24 (Build 614) — 2026-08-14 — The slice-size tuning pass, finally taken
 
 **JS only. No `cap sync` needed.** **First half of the pass; slice ORIGIN and canvas zoom extents still to come.**

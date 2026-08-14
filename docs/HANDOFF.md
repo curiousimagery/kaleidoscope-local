@@ -90,6 +90,16 @@ This retires the confusion, not just a hypothesis. Resolution was free because t
 
 ## current version
 
+**🎯 B615 — CENTRE THE FORM'S BOX, NOT ITS ORIGIN. JS only, no `cap sync`.**
+
+**Daniel's rule, and it made the per-form constants I was about to ask him for unnecessary:** draw a box around the form including its origin, centre that box in the source. `centerFormInSource()` reads each form's own `buildPolygon`, maps the vertices through `sliceVecToSourceUV`, and centres the result — **nothing hardcoded per form**, so it tracks `sliceScale`/`sizeNorm`/`sliceRotation`/aspect automatically and stays right for forms that do not exist yet.
+
+**Including the origin (0,0) in the box is the detail that makes it work for all five at once.** Rectangle and droste surround their origin, so they stay centred; the wedge forms grow outward from theirs, so the box is lopsided and centring it pushes the origin left. **The old "origin at 0.5" was only ever correct for the rectangle** — the one form whose origin IS its centre, which is why the problem went unnoticed.
+
+**A portrait source now turns every form 90° CW** so the form's long edge follows the source's long edge. Applied BEFORE centring, since rotation changes the box.
+
+**▶ STILL OWED: canvas ZOOM EXTENTS** (`zoomCover`/`zoomInFloor`, still undeclared on every form — the one thing gating per-form range normalisation for MIDI and gesture).
+
 **📏 B614 — THE SLICE-SIZE TUNING PASS, FINALLY TAKEN. JS only, no `cap sync`.**
 
 **All five forms carry Daniel-tuned `sizeNorm` values**, measured against a reference source: **radial 2.25, rectangle 1.6, hex 2.35, triangle 2.6, droste 1.82.** Hex and triangle had been deliberately matched at a 1.6 first-pass; the pass separated them. Radial was the 1.0 anchor everything normalised to — the whole set moved to a larger default slice, so the anchor moved with it.

@@ -18,6 +18,7 @@ import { DISCRETE_KEYS } from './kit/tween.js';   // discrete settings are globa
 import { confirmInterrupt } from './shell/interrupt.js';   // non-blocking destructive-interrupt (M3)
 import { zipStore } from './shell/zip.js';                 // clip package (source + motion JSON)
 import { createEngine } from './engine/index.js';
+import { centerFormInSource, defaultSliceRotation } from './engine/geometry.js';   // B615: centre the form's BOX, not its origin
 import { createSourceOverlay } from './components/source-overlay.js';
 import { createOutputGestures } from './components/output-gestures.js';
 import { createPanJoystick } from './components/pan-joystick.js';
@@ -1319,7 +1320,9 @@ function wireControls() {
     env.pushHistory();
     state.segments       = 12;
     state.sliceScale     = 1.0;
-    state.sliceRotation  = 0;
+    // ORIENTATION FIRST, then centre — the rotation changes the bounding box, so computing the
+    // centre before it would centre the wrong shape (Daniel's rule, B615).
+    state.sliceRotation  = defaultSliceRotation(engine.getSourceAspect() || 1);
     state.sliceCx        = 0.5;
     state.sliceCy        = 0.5;
     state.squareAspect   = 1.0;
@@ -1331,6 +1334,10 @@ function wireControls() {
     state.drosteOffsetX  = 0;
     state.drosteOffsetY  = 0;
     applyArmsSnap();
+    // Now that every geometry input is at its default, centre the form's BOUNDING BOX in the
+    // source rather than parking its origin at the middle. Last, because it reads sliceScale,
+    // sizeNorm, sliceRotation and squareAspect/drosteArms — all just set above.
+    Object.assign(state, centerFormInSource(getActiveForm(state), state, engine.getSourceAspect() || 1));
     env.controlsSync.syncAll();
     scheduleRender();
     updateUndoUI();
