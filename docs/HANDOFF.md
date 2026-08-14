@@ -84,6 +84,21 @@ This retires the confusion, not just a hypothesis. Resolution was free because t
 
 ## current version
 
+**🎉 B608 — 4K LOOPS SEAMLESSLY. THE ARC'S RESULT. ⚠️ NEEDS `npx cap sync ios` + AN XCODE BUILD.**
+
+**Daniel-verified at both resolutions.** FHD at 64MB, 4K at 256MB (`loopCache.firstPts: 0`, take gaps **25-42ms**, `heldMB: 94`), and toggling the cache off brings the stall straight back at either. *"maybe this is our first time actually seamlessly looping 4k?"* **First reported B487, closed 121 builds later.**
+
+**📕 `BROADCAST-DELIVERY.md` §6a is the durable record** — what the hold is, whose it is, the eight hypotheses closed with the instrument that killed each, the fix, and the one field (`loopCache.firstPts`) that says whether it is working. **Read that before touching this again.**
+
+**⚠️ DO NOT READ "64 stuttery / 128 stuttery / 256 seamless" AS A MEMORY CURVE.** At 128MB the cache held only 47MB, so the budget was never the constraint. Setting the budget to 0 between arms **discards the head, and a clip's head is produced exactly once, on the opening pass** — every lap afterwards resumes at ~0.109. A clean per-budget comparison needs a clip reload between arms. **The real minimum viable 4K budget is unknown** and is worth finding before the default is trusted.
+
+**Also fixed:** a clip loaded into perform started paused with the button reading "pause" — `refreshPerformSource` synced against the `<video>` before the native decode attached (parked) behind it.
+
+**▶ THE OPEN THREAD IS MEMORY AT 4K, and it is now showing up in the bake.** `encoding task did not complete` twice, and once **the app crashed outright**, losing the uploaded clip while the external display kept showing "baking…". Filed HIGH. Two things worth doing whatever the root cause: the uploaded source should survive a restart, and a dead bake must clear that notification.
+
+**Carried, unfixed:** the Loop Builder slice-preview stall (the fading-OUT side of the crossfade is frozen after a lap while the incoming side moves — the B-tail element is not restarting).
+
+
 **🧩 B607 — THE CACHE COULD ONLY FILL FROM WHAT WE HAPPENED TO SEND. ⚠️ NEEDS `npx cap sync ios` + AN XCODE BUILD.**
 
 **✅ THE LOOP HOLD IS FIXED AT FHD AND DANIEL-VERIFIED (B606):** seamless at the default 64MB, and turning the cache off brings the stall straight back. Both arms, one sitting.

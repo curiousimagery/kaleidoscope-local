@@ -178,7 +178,13 @@ The vocabulary Daniel decided on: **keep the UI names** (`source` / `staged` / `
 
 **✅ THE PULL-MODEL HYPOTHESIS IS DEAD WITHOUT A BUILD.** B601 arm B attached the output once and never moved it, and still paid 150ms. A notification cannot deliver data that does not exist, and we already poll at 60Hz. Same reasoning kills pre-attaching an output to the next queued item.
 
-### ✅ FIXED AT FHD (B606, Daniel-verified). 4K IS THE OPEN EDGE.
+### ✅ CLOSED B608 — BOTH RESOLUTIONS LOOP SEAMLESSLY, DANIEL-VERIFIED.
+
+FHD at 64MB and **4K at 256MB (`firstPts: 0`, take gaps 25-42ms, `heldMB: 94`)**. Toggling the cache off brings the stall back at either. **First reported B487; closed 121 builds later.** Full record in `BROADCAST-DELIVERY.md` §6a.
+
+**⚠️ Do not read "64 stuttery / 128 stuttery / 256 seamless" as a memory curve.** At 128MB the cache held only 47MB, so the budget was never the constraint — setting the budget to 0 between arms **discards the head, and a clip's head is produced exactly once, on the opening pass.** A clean per-budget comparison needs a clip reload between arms. **The real minimum viable budget at 4K is unknown**, and finding it is worth doing before the default is trusted: 8 frames × ~11.8MB ≈ 94MB, so 128 should suffice from a cold load.
+
+**Remaining question for a future pass:** whether ~94MB of cache is safe to hold at 4K during a long set. See the bake crash below — the same memory theme.
 
 **FHD loops seamlessly at the default 64MB, and turning the cache off brings the stall straight back** — both arms, one sitting. **`srcFanOut.loopCache.firstPts` is the one field that decides it:** ~0 means the cache covers the lap; 0.115 means it begins where the decoder resumes anyway and fills nothing while reporting healthy counts.
 
@@ -239,6 +245,14 @@ Cache the clip's **head frames** as they arrive on the opening pass, and at the 
 **"there's a brief moment where colors get screwed up and RGB channels seem to be firing weird (glitchy green view)."** First transition only, seen across two builds. A green cast on a YUV path is the classic signature of **sampling a plane texture before all three planes have been uploaded**, or of a plane texture allocated at one size and read at another.
 
 Class 1. Look at the perform engine's `setPlanarSource` / first `updateSourceFrame` ordering, and at whether the PiP engine's reader can return a frame before its textures are sized. **Last member of the source-switch cluster still without a root cause.**
+
+### 🧨 [HIGH — Daniel, B607] THE BAKE THROWS "encoding task did not complete", AND ONCE CRASHED THE APP
+
+Twice in one session on 4K, and **the second time the app genuinely restarted** — the Loop Builder closed and the uploaded clip was dropped, while the external display still showed the "baking … in Loop Builder" notification. A retry in the same session succeeded both times, so it is intermittent rather than deterministic.
+
+**Same theme as everything else at 4K: memory.** A bake runs two WebCodecs readers over a 4K file beside the native decode and (as of B605) a ~94MB head cache. Supersedes the narrower B603 filing of the same string.
+
+**Two things worth doing regardless of root cause**, because a crash mid-bake currently loses the user's work: **the uploaded source should survive an app restart**, and **the external display's "baking…" notification must clear** when the bake dies rather than persisting into a dead state.
 
 ### 🔁 [OPEN — Daniel, B605] THE SLICE PREVIEW STALLS FROM THE LOOP POINT TO THE CROSSFADE
 

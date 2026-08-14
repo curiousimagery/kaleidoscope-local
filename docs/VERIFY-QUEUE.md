@@ -8,34 +8,31 @@ Confirmed results are DELETED from here and recorded in CHANGELOG. Closed sessio
 
 ---
 
-# ▶ THIS SESSION (B607) — "does the cache now start at zero on 4K?"
+# ▶ THIS SESSION (B608) — one fix, and one number worth pinning down
 
-**⚠️ NEEDS `npx cap sync ios` + AN XCODE BUILD.**
-
-**iPad, ~6 minutes.** FHD is verified seamless; this is the 4K edge.
+**⚠️ NEEDS `npx cap sync ios` + AN XCODE BUILD.** **The loop hold is CLOSED and verified — nothing to re-prove.**
 
 **[panel]** = on screen. **[report]** = only in `copy report`.
 
-## 1. FHD regression check (2 minutes)
+## 1. Perform transport on a source swap (1 minute)
 
-1. Loop an FHD clip, **[panel]** `loop cache: 64MB`, broadcast. **It should still be seamless.**
+1. In perform with a clip **playing**, load a different clip.
+2. **It should start playing, and the play/pause button must match.** B607: it loaded paused while the button read "pause", and pressing pause started it.
+3. Do it once more with the first clip **paused** — the button must still match whatever actually happens.
 
-## 2. 4K, at the default first
+## 2. The minimum viable 4K budget (worth pinning before the default is trusted)
 
-2. Load the 20.4s 4K clip. **[panel]** `loop cache: 64MB`. Broadcast, lap 4+ times.
-3. **[report]** `srcFanOut.loopCache`. **The field that decides it is `firstPts` — it must be ~0.** B606 read `0.115`, which is why 4K did not improve.
-   - **`firstPts` ~0 and the hold is gone** → done at 4K too.
-   - **`firstPts` ~0 and the hold remains** → check `coveredMs` against `swapGapMs`; a partial fill needs a bigger budget.
-   - **`firstPts` still >0.02** → `why` now names it, and the fill path is still not catching the opening pass.
+**⚠️ Reload the clip between arms.** Setting the budget to 0 discards the head, and a clip's head is only produced on its opening pass — that is why B607's sweep looked like a memory curve when it was not.
 
-## 3. Only if 64MB is not enough
+4. **[panel]** Set `loop cache: 128MB`. **Load the 4K clip fresh.** Broadcast, lap 4+ times.
+5. **[report]** `loopCache.firstPts` must be ~0 and `heldMB` should read ~94. **Is the loop seamless at 128?**
+6. If yes, repeat at **64MB** from a fresh load. 64 is below the ~94MB the window needs, so expect a partial fill — **the question is whether a partial fill still reads as acceptable**, since that is the safer default.
 
-4. **[panel]** Step up to 128MB. **⚠️ Watch for trouble rather than just the loop point.** B606's 256MB run was in real distress (`maxSwapGapMs: 2201`, the display down to 7 arriving/s). **If the session degrades, drop back and say so — that is a more important finding than the loop point.**
-5. **[report]** `loopCache.heldMB` is the honest memory number; report it with whatever you see.
+## 3. Anything about the app being under memory strain
 
-## 4. Carried, unfixed
+7. Note **anything** that smells like memory during these runs: a bake failing, a graphics context loss, the app restarting. **That is now the open thread, not the loop.**
 
-6. The Loop Builder slice-preview stall. **No fix this build.** New detail from B605 is filed: it plays fine the first time and after a manual scrub, and stalls only after the loop, with the fading side of the crossfade frozen while the incoming side moves.
+# 🅿️ PREVIOUS SESSION (B607) — 4K VERIFIED SEAMLESS at 256MB. FHD seamless at 64MB. Loop hold CLOSED.
 
 # 🅿️ PREVIOUS SESSION (B606) — panel note readable ✓; FHD loop VERIFIED SEAMLESS ✓; 4K still stalls (cache started at 0.115).
 

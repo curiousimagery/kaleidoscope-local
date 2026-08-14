@@ -6,6 +6,43 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🎉 v0.25.18 (Build 608) — 2026-08-14 — 4K loops seamlessly. The arc's result.
+
+**⚠️ NEEDS `npx cap sync ios` + AN XCODE BUILD.**
+
+### Shipped
+
+- **Fixed: a new clip loaded into perform started paused with the button reading "pause".** `refreshPerformSource` runs during `loadVideo`, which does not await the native attach, so it synced against the `<video>` and the decode then attached behind it, parked. The attach now re-syncs perform; it is identity-guarded, so it is a no-op unless the source really changed.
+- **`loopCache.why` now explains the un-rebuildable case**: the head of a clip is produced once, on the opening pass, so a cache cleared mid-session (budget 0) cannot refill itself — reload the clip.
+
+### ✅ 4K LOOPS SEAMLESSLY. Daniel: *"maybe this is our first time actually seamlessly looping 4k?"*
+
+```
+4K @ 256MB   loopCache: { firstPts: 0, frames: 8, coveredMs: 200, heldMB: 94, why: "covering the lap" }
+             extJitter.loop.recentTakeGaps: [37, 25, 42, 39, 38, 41]     ← one frame interval
+```
+
+**Both resolutions now loop clean, and toggling the cache off brings the stall straight back at either.** That closes an item first reported at **B487** and never fixed in the 120 builds since.
+
+### Answering the budget question: no, 256MB is not lying
+
+Two different bounds, and only one is a target:
+
+- **`headSeconds` (0.22) is the target** — how much head to keep, sized to the measured 141-158ms lap.
+- **`budgetMB` is a ceiling** — the most it may ever cost.
+
+`heldMB: 94` against `budgetMB: 256` is the window being covered and the fill stopping, well under the ceiling. The earlier ~87MB estimate was arithmetic on a nominal 12.4MB frame; 94MB is the real number.
+
+### ⚠️ What the 64/128MB arms actually showed, and it is not what it looks like
+
+At 128MB the report reads `firstPts: 0.108`, `frames: 4`, `heldMB: 47` — **well under budget, so the budget was not the constraint.** The cause is the test order: setting the budget to 0 **discards the cache**, and the head of a clip is produced exactly once, on the opening pass. After that, every lap resumes at ~0.109 and the 0-0.108 window is simply never produced again.
+
+**So "64MB is stuttery, 128MB is stuttery, 256MB is seamless" is an artifact of the sequence, not a memory curve.** A clean per-budget comparison needs a clip reload between arms. `why` now says this outright.
+
+### ⚠️ Still open, and it is the same theme: memory at 4K
+
+The Loop Builder threw `encoding task did not complete` twice, and once **crashed the app outright** — losing the uploaded clip while the external display still showed the "baking…" notification. Both times a retry in the same session succeeded. Filed; this is the jetsam pressure the single-decode architecture exists to avoid, now showing up in the bake.
+
 ## 🧩 v0.25.17 (Build 607) — 2026-08-14 — The cache could only fill from what we happened to send
 
 **⚠️ NEEDS `npx cap sync ios` + AN XCODE BUILD.**

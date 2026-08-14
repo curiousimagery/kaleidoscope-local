@@ -1,6 +1,8 @@
 # broadcast delivery — the durable reference
 
-**What is true about getting frames from a source to an external display, as of B593.** Written to close the 4K frame-rate arc (B549-B593) so its conclusions survive without re-deriving them.
+**What is true about getting frames from a source to an external display, as of B608.** Written to close the 4K frame-rate arc (B549-B593) and extended through the loop-hold arc (B593-B608) so their conclusions survive without re-deriving them.
+
+**If you are picking this up cold: §6a is the loop hold, start to finish.**
 
 `CHANGELOG.md` is the narrative — how each conclusion was reached, build by build. **This file is the answer sheet.** If the two disagree, the CHANGELOG entry with the later build number wins.
 
@@ -110,8 +112,7 @@ AVPlayer (native, iOS)
 
 ## 6. Open, with the evidence that frames each
 
-- **The loop-restart hold is OURS.** The decoder is exonerated by measurement; frames arrive on time across the wrap. **Root cause found at B595 by reading: we were rewinding a clip AVPlayerLooper had already wrapped.** Both playback ticks seek to the trim in-point every lap, and `seek()` opened a 120ms `seeking` window during which perform's tick skips its entire body — four frames at 30fps. `clock.rewind()` now defers to the looper when it owns the wrap. **Unconfirmed on device**; `loopStall.rewinds`/`suppressed` decide it.
-  - **⚠️ B594 recorded "ruled out by reading: `seekUntil` is set only by an explicit `seek()`, so the wrap does not trip the settle window." The reading was right and the inference was wrong** — the trim rewind *is* an explicit seek, called from the playback tick. **Filed here as a worked example of the failure this document exists to prevent: a correct fact about one code path, generalised to a claim about a behaviour.**
+- ~~**The loop-restart hold**~~ **CLOSED B608 — see §6a**, which is the full record. It was AVFoundation, ~150ms, fixed by a head-frame cache and verified seamless at both resolutions.
 - **A faster app loop makes the broadcast worse.** Panels off: app 8x cheaper and 1.9x faster, delivery 29 → 20/s. Nothing measured explains it. Leading hypothesis is that the app's rAF *rate itself* competes for the shared GPU process, which would make a **frame-rate cap while broadcasting** a real lever and is categorically different from shedding surfaces. **The governor should not be deleted until this is answered.**
 - **The WebKit GPU process is shared** across both webviews and its crash takes every context at once. Same suspect as the above.
 - ~~**Motion-mode start-of-broadcast autoplays**~~ **CLOSED B595.** Not a gate problem. The plugin's `start()` plays the AVPlayer so the first frame can arrive and nothing ever paused it again, so `clock.paused` had been false since load. The clip is now parked after its first frame. **B593's `isPlaying` was reading the right property off a value that had never been true**, which is the same shape as the wrong-noun failure: the field named the right thing and did not mean it.
@@ -153,7 +154,13 @@ The plugin keeps the clip's first `headSeconds` of **encoded** frames and replay
 
 **The one field that says whether it works is `srcFanOut.loopCache.firstPts`.** It must be ~0. If it is 0.115 the cache begins where the decoder resumes anyway and can only repeat content that was coming regardless — it fills nothing while reporting healthy frame counts.
 
-**Budget: the need is a duration, the risk is bytes.** Live knob in the panel (`loop cache`), capped by megabytes because 4K frames are ~12.4MB and this project has a jetsam history. **Verified seamless at FHD (B606).** 4K is memory-bound and is the open edge.
+**Budget: the need is a duration, the risk is bytes.** `headSeconds` (0.22) is the TARGET — how much head to keep, sized to the measured lap. `budgetMB` is a CEILING, live-adjustable in the panel. At 4K the window costs ~94MB (8 frames), well under a 256MB ceiling.
+
+**✅ VERIFIED SEAMLESS AT BOTH RESOLUTIONS (B608).** FHD at 64MB, 4K at 256MB: `firstPts: 0`, take gaps **25-42ms**, one frame interval. Cache off restores the stall at either. **First reported B487, closed 121 builds later.**
+
+**⚠️ Two traps for whoever reads a budget comparison next.** Setting the budget to 0 **discards the head, and a clip's head is produced exactly once, on the opening pass** — every lap afterwards resumes at ~0.109, so the cache can never rebuild itself without a clip reload. That makes an off → 64 → 128 → 256 sweep look like a memory curve when it is a sequencing artifact. **Reload the clip between arms.** And the real minimum viable 4K budget is still unknown.
+
+**The open risk is memory at 4K**, not the loop: holding ~94MB beside a 4K decode and two webviews is the pressure the single-decode architecture exists to avoid, and it is now showing up as intermittent bake failures and one outright app crash.
 
 ## 7. How to measure so the answer survives
 

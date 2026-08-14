@@ -546,7 +546,7 @@ public class FoldNativeVideoPlugin: CAPPlugin, CAPBridgedPlugin {
             "lastReplayFrames": lastReplayFrames,
             "why": cacheBudget == 0 ? "disabled from the frame-cost panel"
                  : held == 0 ? "no head frames stored yet (the clip has not played through 0-0.3s)"
-                 : firstPts > 0.02 ? "the cache starts at \(Int(firstPts * 1000))ms, not 0 — it can only repeat content the decoder was going to deliver anyway"
+                 : firstPts > 0.02 ? "the cache starts at \(Int(firstPts * 1000))ms, not 0 — it can only repeat content the decoder was going to deliver anyway. The head of a clip is produced ONCE, on the opening pass, so if the cache was cleared (budget set to 0) mid-session it cannot rebuild itself: reload the clip."
                  : lastReplayFrames == 0 && lapsCovered > 0 ? "held frames but fed none on the last lap"
                  : swapGapMs > 0 && Int((lastPts - firstPts) * 1000) < swapGapMs ? "partial fill — \(Int((lastPts - firstPts) * 1000))ms of a \(swapGapMs)ms lap; raise the budget"
                  : "covering the lap",

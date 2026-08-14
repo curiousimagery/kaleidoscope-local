@@ -1223,6 +1223,13 @@ export function createSourceHost(env) {
     // frame rather than holding the stale one until the next render.
     try { await src.clock.seekSettled(Math.max(0, v.currentTime || 0)); } catch { /* the fallback is a stale first frame, not a broken one */ }
     console.info(`[fold] native video decode active on port ${src.port} — <video> parked for authoring`);
+    // RE-SYNC PERFORM AFTER THE HAND-OFF (B608). `refreshPerformSource` runs during loadVideo,
+    // which does not await this function, so it syncs against the `<video>` and then the native
+    // decode attaches behind it — parked, because B595 parks a freshly loaded clip. Perform was
+    // left showing the previous clip's transport state over a clock that was not running: the new
+    // clip sat paused while the button read "pause", and pressing it started playback (Daniel,
+    // B607). It is identity-guarded, so this is a no-op unless the source really changed.
+    env.refreshPerformSource?.();
     env.scheduleRender?.();
   }
   // THE INVARIANT IS GLOBAL, not per-caller: no clip may be staged while a teardown is in
