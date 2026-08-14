@@ -371,6 +371,19 @@ export function buildFormGrid(env) {
     div.dataset.formId = form.id;
     div.onclick = () => {
       env.pushHistory?.();
+      // CANVAS PAN NEVER CARRIES ACROSS A FORM SWITCH (Daniel, B612 — "never carry, even across
+      // tiling forms that theoretically could map to each other"). The offset is a lattice pan in
+      // square/hex/triangle, a centre shift in radial, and a log-polar centre in droste: three
+      // different meanings behind one field, so a value from one form is nonsense in the next.
+      //
+      // ⚠️ AND CLAMPING IT AT THE UNIFORM (B611) WAS NOT ENOUGH — that bounded what STAGED renders
+      // while the perform follower kept chasing the raw state value, so live still travelled the
+      // whole way. Daniel's B612 report: return to droste and "live view is caught flailing on a
+      // loop... panning down very fast". Same staged-looks-fine-while-live-travels shape as the
+      // droste phase. **A bound that is not in STATE is not a bound.**
+      env.state.canvasOffsetX = 0;
+      env.state.canvasOffsetY = 0;
+      env.panRecenter?.();   // stop any flick-drift too, or it re-accumulates immediately
       env.state.form = form.id;
       // In motion, `form` is a DISCRETE key pinned to keyframe 0, so setting live state alone is
       // re-asserted (old form) on the next tick and the keyframes keep their original geometry.

@@ -1125,8 +1125,18 @@ function wireLocks() {
   if (panRowEl) {
     panRowEl.classList.add('has-lock');
     const panPad = makeLockToggle(env, 'pan', () => {
+      // UNLOCKING MUST NEVER INHERIT A POSITION (Daniel, B612). The old contract was
+      // "non-destructive: the stored offset is ignored while locked, not cleared, so unlocking
+      // restores exactly where you were" — which sounds right and is the trapdoor. The stored
+      // value can easily belong to a DIFFERENT FORM, where it meant something else entirely, and
+      // it then applies in full the instant the padlock opens. That is the whole of Daniel's
+      // "unlock pan on droste and the canvas leaps to a tiny sample". Unlocking now always starts
+      // centred, which is also the only reading of the padlock that is not a surprise.
+      env.state.canvasOffsetX = 0;
+      env.state.canvasOffsetY = 0;
+      env.panRecenter?.();
       env.applyFormControls?.();     // the joystick's progressive disclosure follows the lock
-      scheduleRender();              // re-centre (locked) or restore the offset (unlocked)
+      scheduleRender();
       env.scheduleOverlayDraw?.();
     });
     panRowEl.appendChild(panPad);

@@ -6,6 +6,33 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🚫 v0.25.23 (Build 613) — 2026-08-14 — A bound that is not in STATE is not a bound
+
+**JS only. No `cap sync` needed.**
+
+### Shipped
+
+- **Canvas pan no longer carries across a form switch.** `canvasOffsetX/Y` resets to 0 on every form change (Daniel's B612 decision: *"never carry, even across tiling forms that theoretically could map to each other"*). One field, three meanings — lattice pan, centre shift, log-polar centre.
+- **Unlocking pan always starts centred.** The old contract was *"non-destructive: the stored offset is ignored while locked, not cleared, so unlocking restores exactly where you were"*, which sounds right and is the trapdoor: **the stored value can belong to a different form**, and it applies in full the instant the padlock opens. Daniel: *"on unlock it shouldn't ever inherit a new position."*
+
+### ⚠️ B611's clamp was in the wrong place, and this is the correction
+
+B611 bounded the offset **at the uniform**. That bounded what STAGED renders while the perform follower kept chasing the **raw state value**, so live still travelled the whole distance. Daniel's B612 report is the symptom exactly:
+
+> *"after unlocking droste I went back and edited a different form and returned to droste and it did the superzoom thing again and the live view is caught flailing on a loop... panning down very fast, and as before recentering just flips the lateral pan loop into an infinite zoom loop."*
+
+**This is the same shape as the droste-phase bug diagnosed one build earlier** — staged renders a bounded/wrapped value and looks fine, live chases the raw one and travels. **The lesson generalises: a bound applied at render time is a cosmetic bound. If the follower can see the raw value, the bound has to be in state.**
+
+### Corrected: droste's two offsets are NOT duplicates
+
+B612 proposed routing droste's pan to `drosteOffsetX/Y` on the grounds that `canvasOffset` was "a strictly worse duplicate". **Daniel corrected that and he is right:**
+
+> *"the center offset never was fully implemented in the way we wanted but it still has some value as does pan which has value to reposition the center without distorting the effect."*
+
+They do genuinely different things. `drosteOffsetX/Y` is a **Möbius disc automorphism — it warps** the spiral. `canvasOffset` is a **rigid translation — it moves** the composition without warping it (the rings stay concentric circles, just centred elsewhere on the canvas). **Both are legitimate and the proposal to merge them is withdrawn.**
+
+**Left open, and it needs a closer read than it has had:** [droste.js:79-80](../src/engine/forms/droste.js#L79-L80) gives the Möbius offset's scale-variance as the reason `canvasOffset` is pan-locked by default. **Those are two different offsets, so that reasoning may not transfer.** A rigid translation just moves where the zoom is centred, which is plausibly still seamless. Unresolved.
+
 ## 🔭 v0.25.22 (Build 612) — 2026-08-14 — Staged and live were never disagreeing about the picture, only the distance
 
 **JS only. No `cap sync` needed.**
