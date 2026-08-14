@@ -168,7 +168,13 @@ The vocabulary Daniel decided on: **keep the UI names** (`source` / `staged` / `
 1. **A decoder stall.** B593: `maxGapMs 17`, `after1s 29`. Three sessions running, the wire is clean across the wrap.
 2. **Our own trim rewind's 120ms settle window.** B595: `rewinds: 0, suppressed: 0`. The boundary test never fires on a full-range trim — the last frame's pts falls 0.037s short of a 0.03s window.
 
-**Dead, each by its own instrument** (3 and 4 added at B598/B599):
+**✅ ROOT CAUSE FOUND AT B599, natively: AVFoundation's item swap.** `swapGapMs 141`, `maxSwapGapMs 150`, `swapFromPts 20.4 → swapToPts 0.1159`, measured inside the plugin before anything touches the socket. **The new item's clock runs through the silence, so the content skipped equals the stall** — which is why the earlier 1.8s content gap and the 150ms hold were always the same event. All three vantage points agree: decode 141, wall 136-157, app 91-162.
+
+**Open: which half of the swap.** B600 reuses the `AVPlayerItemVideoOutput` across the lap instead of allocating a fresh one, since a new output must prime before `hasNewPixelBuffer` says yes. If `swapGapMs` does not drop, the cost is AVFoundation's own item swap and **the fix is to stop swapping items: one `AVPlayerItem`, `actionAtItemEnd = .none`, seek to zero on `AVPlayerItemDidPlayToEndTime`, output never moves.** Note that a seek-based loop reintroduces seek cost at the boundary, which is what AVPlayerLooper was chosen to avoid — so measure before committing.
+
+**Dead, each by its own instrument** (3 and 4 added at B598/B599, 5 at B599):
+
+5. **Our backpressure.** `skipped: 0` on both clients across the lap. The fan-out declined nothing.
 
 3. **The external view's render.** `wrapRenders` after a lap: `ren` 8-15ms, `up` 0-4ms, `sched` 0-12ms, `gap` 9-28ms. **All fast.** The view renders normally through the hold and has nothing new to draw — so it is not a shader rebuild, not a texture reallocation, and not a blocked thread.
 4. **"The app does not hold, only the wall does."** That was my instrument, not the app: `paintLatest` counted re-blits of the same buffer as clock events, and only the app calls `refreshFrame()`. Fixed B599.

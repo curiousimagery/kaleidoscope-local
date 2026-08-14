@@ -99,6 +99,11 @@ public class FoldNativeVideoPlugin: CAPPlugin, CAPBridgedPlugin {
     // ticks where the output had NOTHING NEW to give, which is the direct test of "did the
     // decoder stop producing across the swap" as opposed to "did the fan-out decline to take"
     private var ticksNoBuffer = 0
+    // watchdog for the reused output (see attachOutput): if a lap produces nothing for this
+    // long, rebuild the output from scratch and SAY SO, so a rescue can never read as normal
+    private var swapAt: TimeInterval = 0
+    private var swapRecoveries = 0
+    private let swapStallSeconds: TimeInterval = 0.5
 
     // path: a file:// URL or plain filesystem path to the clip. loop: seamless repeat (default true).
     @objc func start(_ call: CAPPluginCall) {
@@ -157,6 +162,7 @@ public class FoldNativeVideoPlugin: CAPPlugin, CAPBridgedPlugin {
                     guard let item = current else { return }
                     self.itemSwaps += 1
                     self.pendingSwap = true     // the next pushed frame closes the measurement
+                    self.swapAt = CACurrentMediaTime()
                     self.attachOutput(to: item)
                 }
             }
@@ -173,13 +179,27 @@ public class FoldNativeVideoPlugin: CAPPlugin, CAPBridgedPlugin {
     // Attach a FRESH video output to `item`, detaching from whatever held the last one.
     // An AVPlayerItemVideoOutput belongs to one item at a time, and AVPlayerLooper hands us
     // a new item every lap (see the observer in start()).
-    private func attachOutput(to item: AVPlayerItem) {
-        if outputItem === item, output != nil { return }
+    // REUSE THE OUTPUT ACROSS THE LAP (B600). B599 measured the loop hold here, natively:
+    // `swapGapMs` 141, `maxSwapGapMs` 150, `swapFromPts 20.4 → swapToPts 0.116`. The decode
+    // itself goes ~150ms without producing a frame at the item swap, and the new item's clock
+    // runs through the silence, so the content skipped equals the stall.
+    //
+    // A fresh AVPlayerItemVideoOutput has to prime before `hasNewPixelBuffer` says yes, and we
+    // were allocating one every lap. Whether that priming IS the 150ms is a question about
+    // AVFoundation that only a measurement can answer, so this reuses the object and lets
+    // `swapGapMs` report the result: it either drops or it does not, and if it does not the
+    // cost is AVFoundation's own item swap and the next move is to stop swapping items at all
+    // (one item, `actionAtItemEnd = .none`, seek to zero on end — the output never moves).
+    //
+    // `force` is the watchdog's escape hatch: reuse is the risky half of this, and a reused
+    // output that never delivers would freeze the picture permanently at the first lap.
+    private func attachOutput(to item: AVPlayerItem, force: Bool = false) {
+        if outputItem === item, output != nil, !force { return }
         if let old = output, let prev = outputItem { prev.remove(old) }
         let attrs: [String: Any] = [
             kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_420YpCbCr8BiPlanarFullRange
         ]
-        let out = AVPlayerItemVideoOutput(pixelBufferAttributes: attrs)
+        let out = (force ? nil : output) ?? AVPlayerItemVideoOutput(pixelBufferAttributes: attrs)
         item.add(out)
         output = out
         outputItem = item
@@ -197,7 +217,19 @@ public class FoldNativeVideoPlugin: CAPPlugin, CAPBridgedPlugin {
         guard let out = output, server.wantsFrame() else { return }
         let hostTime = CACurrentMediaTime()
         let itemTime = out.itemTime(forHostTime: hostTime)
-        guard out.hasNewPixelBuffer(forItemTime: itemTime) else { ticksNoBuffer &+= 1; return }
+        guard out.hasNewPixelBuffer(forItemTime: itemTime) else {
+            ticksNoBuffer &+= 1
+            // a reused output that never delivers would freeze the picture for good, so give
+            // the lap half a second and then rebuild from scratch
+            if pendingSwap, swapAt > 0, hostTime - swapAt > swapStallSeconds,
+               let item = player?.currentItem {
+                swapRecoveries += 1
+                swapAt = hostTime
+                attachOutput(to: item, force: true)
+                print("[FoldVideo] reused output produced nothing across the lap — rebuilt (\(swapRecoveries))")
+            }
+            return
+        }
         var displayTime = CMTime.invalid
         guard let pb = out.copyPixelBuffer(forItemTime: itemTime, itemTimeForDisplay: &displayTime) else { return }
         // the buffer's own display time when the output reports one, else the time we asked for
@@ -311,6 +343,7 @@ public class FoldNativeVideoPlugin: CAPPlugin, CAPBridgedPlugin {
         out["swapFromPts"] = swapFromPts
         out["swapToPts"] = swapToPts
         out["ticksNoBuffer"] = ticksNoBuffer
+        out["swapRecoveries"] = swapRecoveries
         call.resolve(out)
     }
 
@@ -357,5 +390,6 @@ public class FoldNativeVideoPlugin: CAPPlugin, CAPBridgedPlugin {
         lastPushAt = 0; lastPushPts = -1
         swapGapMs = -1; maxSwapGapMs = -1; swapFromPts = -1; swapToPts = -1
         ticksNoBuffer = 0
+        swapAt = 0; swapRecoveries = 0
     }
 }

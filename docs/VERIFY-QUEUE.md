@@ -8,29 +8,36 @@ Confirmed results are DELETED from here and recorded in CHANGELOG. Closed sessio
 
 ---
 
-# ▶ THIS SESSION (B599) — "does the DECODER skip the lap, or do we?"
+# ▶ THIS SESSION (B600) — "does reusing the video output close the 150ms lap?"
 
 **⚠️ NEEDS `npx cap sync ios` + AN XCODE BUILD.**
 
-**iPad, ~5 minutes. One reading, no new behaviour to check.** B598's render breakdown came back clean (every render after the lap 8-15ms), which rules out the view's render and leaves one unexplained fact: **1.8 seconds of footage is missing at the lap** (`fromPts 19.4 → toPts 0.833` on a 20.4s clip). This build measures the lap inside the plugin, which is the only place that sees AVPlayerLooper swap items.
+**iPad, ~5 minutes.** B599 answered whose the hold is: the decode's own item swap, 141-150ms, measured natively. This tests the one cheap explanation for it.
 
 ## ⚠️ SET THE SCENARIO TAG TO `hdmi-broadcast` FIRST.
 
-## Steps
+## Part 1 — the load frame (regression from B599)
 
-1. Broadcast an **unbaked** clip (the hold is more visible there) and let it lap **four or more times**.
-2. `copy report`. **The new fields are in `srcFanOut`:** `itemSwaps`, `swapGapMs`, `maxSwapGapMs`, `swapFromPts`, `swapToPts`, `ticksNoBuffer`.
+1. Load a 4K clip. **The source panel must show the first frame** — scrubbing should not change it.
 
-**Compare the decode's account against what JS received (`loopStall.last`):**
+## Part 2 — the lap
 
-| reading | meaning | where the fix goes |
+2. Broadcast an **unbaked** clip, let it lap **four or more times**. Watch the hold.
+3. `copy report`. **The number is `srcFanOut.swapGapMs`, against B599's 141 / max 150.**
+
+| reading | meaning | next |
 |---|---|---|
-| `swapFromPts`/`swapToPts` ≈ the clip's end and 0, but JS shows a big skip | the decode produced the frames and **the wire dropped them** | our backpressure — `wantsFrame()` declining while both clients are busy |
-| `swapFromPts`/`swapToPts` skip the same 1.8s JS sees | **AVFoundation itself loses the content at the item swap** | the looping strategy, natively |
-| `swapGapMs` in the hundreds | the decoder stops producing across the swap | same, natively |
-| `swapGapMs` ~33ms with content intact | the swap is clean and the loss is entirely ours | back to the JS side with a much smaller search |
+| **`swapGapMs` drops to ~33ms** | output priming WAS the hold | done; the fix is shipped |
+| **`swapGapMs` still ~150** | the cost is AVFoundation's item swap itself | stop swapping items: one item, `actionAtItemEnd = .none`, seek to zero on end |
+| **`swapRecoveries` > 0** | the reused output stalled and the watchdog rebuilt it | reuse is not safe; revert that half and go straight to the single-item loop |
 
-3. `loopStall.recentTakeGaps` should now be **comparable to** `extJitter.loop.recentTakeGaps` — B598's app-side number was inflated by counting re-paints as arrivals, and that is fixed. **If the app now also shows ~150ms, the hold is shared** and the asymmetry I reported at B598 was my instrument's, not the app's.
+**⚠️ If the picture freezes permanently at the first lap, that is the reuse failing and the watchdog not catching it. Say so and I will revert it immediately.**
+
+4. `loopStall.recentTakeGaps` and `extJitter.loop.recentTakeGaps` should track `swapGapMs` in both directions. They agreed at B599 (91-162 and 136-157 against a native 141), so a drop there and not here would mean the instruments have diverged.
+
+# 🅿️ PREVIOUS SESSION (B599) — "does the DECODER skip the lap, or do we?" — ANSWERED: the decode's own item swap, 141-150ms, content skipped equals the stall.
+
+Detail in `CHANGELOG.md` B599/B600 and `BACKLOG.md`.
 
 # 🅿️ NEXT UP after this — pick one
 

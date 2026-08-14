@@ -6,6 +6,42 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🏁 v0.25.10 (Build 600) — 2026-08-13 — The loop hold is AVFoundation's item swap, and our code is exonerated
+
+**⚠️ NEEDS `npx cap sync ios` + AN XCODE BUILD.**
+
+### Shipped
+
+- **The native decode reuses its `AVPlayerItemVideoOutput` across the lap** instead of allocating a fresh one, with a **watchdog** that rebuilds from scratch if a reused output produces nothing for 500ms and publishes the rescue as `srcFanOut.swapRecoveries`.
+- **The native attach adopts the `<video>`'s position** (`seekSettled(v.currentTime)`), so the decode lands on the frame the app is parked at instead of whichever one it happened to produce.
+
+### The answer: measured inside the plugin, before anything touches the socket
+
+```
+itemSwaps: 7 · swapGapMs: 141 · maxSwapGapMs: 150
+swapFromPts: 20.4 → swapToPts: 0.1159
+```
+
+**The decode itself goes ~150ms without producing a frame at the item swap.** The new item's clock runs through that silence, which is why the content skipped equals the stall: 141ms of silence, 0.116s of footage gone. B598's worse lap (1.8s missing) was the same mechanism with a longer stall, not the re-join artifact recorded at the time.
+
+**Every number now agrees, which is the point of having taken it in three places:**
+
+| | gap across the lap | content |
+|---|---|---|
+| **decode** (`srcFanOut`) | 141ms, max 150 | 20.4 → 0.1159 |
+| **wall** (`extJitter.loop`) | 136ms, recent [143, 154, 157, 149, 149, 136] | 20.4 → 0.116 |
+| **app** (`loopStall`) | 122ms, recent [100, 91, 135, 103, 162, 122] | 20.4 → 0.133 |
+
+**And the app holds too, which confirms B599's correction.** B598 reported 19ms for the app against 150ms for the wall; with `paintLatest` no longer counting re-blits as arrivals, the app reads 91-162ms — the same event, on both surfaces, exactly as Daniel had been describing it from the start.
+
+`skipped: 0` on both clients. **The wire, the fan-out, the backpressure, the external view's render and our own trim rewind are all exonerated.** Six hypotheses, all dead by measurement, and the survivor was never ours.
+
+### What is being tested now, honestly labelled
+
+We allocated a fresh `AVPlayerItemVideoOutput` on every lap, and a new output has to prime before `hasNewPixelBuffer` says yes. **Whether that priming IS the 150ms is a question about AVFoundation that only a measurement can answer**, so this build reuses the object and lets `swapGapMs` report the result.
+
+**If `swapGapMs` does not drop, the cost is AVFoundation's own item swap** and the next move is to stop swapping items at all: one `AVPlayerItem`, `actionAtItemEnd = .none`, seek to zero on `AVPlayerItemDidPlayToEndTime` — the output never moves. That is a bigger change to the looping strategy, which is why it is second.
+
 ## 🎬 v0.25.9 (Build 599) — 2026-08-13 — Measure the lap where the lap happens
 
 **⚠️ NEEDS `npx cap sync ios` + AN XCODE BUILD.**

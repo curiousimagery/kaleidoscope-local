@@ -84,6 +84,18 @@ This retires the confusion, not just a hypothesis. Resolution was free because t
 
 ## current version
 
+**🏁 B600 — THE LOOP HOLD IS AVFOUNDATION'S ITEM SWAP. ⚠️ NEEDS `npx cap sync ios` + AN XCODE BUILD.**
+
+**Measured inside the plugin, before anything touches the socket:** `swapGapMs 141`, `maxSwapGapMs 150`, `swapFromPts 20.4 → swapToPts 0.1159`. The decode goes ~150ms without producing a frame at the item swap, and **the new item's clock runs through the silence — so the content skipped equals the stall.** That unifies the two things that never fitted together: the 150ms hold and the missing footage were always the same event.
+
+**All three vantage points agree** (decode 141 · wall 136-157 · app 91-162), and **the app holds too**, confirming B599's correction that B598's app/wall asymmetry was an instrument artifact. `skipped: 0` on both clients.
+
+**Six hypotheses dead by measurement, and the survivor was never ours:** the decoder stalling, our trim rewind, the external view's render, the wire, the fan-out's backpressure, and the app/wall asymmetry.
+
+**▶ OPEN — which half of the swap.** B600 reuses the `AVPlayerItemVideoOutput` across the lap (a fresh one must prime before `hasNewPixelBuffer` says yes), with a watchdog publishing `swapRecoveries` if reuse stalls. **If `swapGapMs` does not drop, stop swapping items:** one `AVPlayerItem`, `actionAtItemEnd = .none`, seek to zero on end, output never moves. Measure first — a seek-based loop reintroduces the cost AVPlayerLooper was chosen to avoid.
+
+**Also fixed:** the native attach now adopts the `<video>`'s position (`seekSettled(v.currentTime)`). `attachNativeVideo` is fired without await from `loadVideo`, so the load's own scrub finished first and the decode then painted whatever frame it had.
+
 **🎬 B599 — MEASURE THE LAP WHERE THE LAP HAPPENS. ⚠️ NEEDS `npx cap sync ios` + AN XCODE BUILD.**
 
 **B598's render breakdown cleared the view's render:** six renders after the lap at `ren` 8-15ms, `up` 0-4ms, `sched` 0-12ms, `gap` 9-28ms. The view renders normally through the hold and has no new frame to draw. Shader rebuild, texture realloc and blocked thread all die in one reading.

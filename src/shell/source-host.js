@@ -1202,6 +1202,18 @@ export function createSourceHost(env) {
       engine.updateSourceFrame();
     } catch { /* not ready */ }
     env.nativeStageSource = () => mod.createNativeStageSource(env);
+    // ADOPT THE POSITION THE APP IS ALREADY PARKED AT (B600).
+    //
+    // `attachNativeVideo` is fired without await from loadVideo, so the rest of the load runs
+    // to completion — including the scrub that parks the timeline at the head — and the decode
+    // then attaches behind it and paints whichever frame it happened to produce. The `<video>`
+    // is the authoring clock and it holds the truth, so the decode takes its position rather
+    // than asserting one. Daniel, B599: "the image in the source panel is now incorrect at
+    // first; scrubbing corrects it" — the scrub was re-asserting what this now does directly.
+    //
+    // seekSettled pumps refreshFrame while it waits, so the preview canvas lands on the same
+    // frame rather than holding the stale one until the next render.
+    try { await src.clock.seekSettled(Math.max(0, v.currentTime || 0)); } catch { /* the fallback is a stale first frame, not a broken one */ }
     console.info(`[fold] native video decode active on port ${src.port} — <video> parked for authoring`);
     env.scheduleRender?.();
   }
