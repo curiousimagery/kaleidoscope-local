@@ -84,6 +84,19 @@ This retires the confusion, not just a hypothesis. Resolution was free because t
 
 ## current version
 
+**📦 B609 — THE UPLOAD WAS CLOSING THE SOCKET BEFORE IT DRAINED. JS only, no `cap sync`.**
+
+**✅ THE LOOP HOLD IS CLOSED AND VERIFIED AT BOTH RESOLUTIONS (B608).** FHD at 64MB, 4K at 256/128MB: `loopCache.firstPts: 0`, take gaps **25-42ms**, and cache-off restores the stall. **First reported B487, closed 121 builds later.** `BROADCAST-DELIVERY.md` §6a is the durable record — read it before touching this again.
+
+**⚠️ THE 64MB READING IS VOID.** `nativeAttach.why: failed at "upload": upload short by 11161254 bytes` — that session had **no native decode and therefore no loop cache at all**, so the hold seen at 64MB was the `<video>` path, not a partial fill. **The minimum viable 4K budget is still unmeasured**; ~94MB is what the window costs, so 128 should suffice from a cold load.
+
+**The upload bug:** the slice loop lets four slices (16MB) sit in the socket's send buffer and `close()` does not promise to flush them. 10.6MB short is squarely inside that window. The consequence is not a slow load — the upload "succeeds", `AVURLAsset` gets a truncated file, and **the session falls back to `<video>` for good.** Now drains before closing. **Third time `nativeAttach` has caught a silent fallback before it became a false conclusion.**
+
+**▶ THE OPEN THREAD: the bake fails on the FIRST attempt and succeeds on the SECOND**, every time, on **FHD as well as 4K** — so the earlier "4K memory pressure" framing is retracted. `encoding task did not complete` is WebCodecs', and a first-attempt-only failure points at a **hardware session still held** when the bake asks for one. At first-bake time we hold the native decode, two preview `<video>` elements and a thumbnail image generator, then ask for two readers and an encoder. **Same shape as B501.** Cheapest thing to try: release what the bake does not need before it starts.
+
+**Also carried:** the source panel lost its image after a bake → perform switch (broadcast unaffected); and the Loop Builder slice-preview stall, where the fading-OUT side of the crossfade freezes after a lap while the incoming side moves.
+
+
 **🎉 B608 — 4K LOOPS SEAMLESSLY. THE ARC'S RESULT. ⚠️ NEEDS `npx cap sync ios` + AN XCODE BUILD.**
 
 **Daniel-verified at both resolutions.** FHD at 64MB, 4K at 256MB (`loopCache.firstPts: 0`, take gaps **25-42ms**, `heldMB: 94`), and toggling the cache off brings the stall straight back at either. *"maybe this is our first time actually seamlessly looping 4k?"* **First reported B487, closed 121 builds later.**

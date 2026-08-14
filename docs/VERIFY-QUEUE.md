@@ -8,29 +8,33 @@ Confirmed results are DELETED from here and recorded in CHANGELOG. Closed sessio
 
 ---
 
-# ▶ THIS SESSION (B608) — one fix, and one number worth pinning down
+# ▶ THIS SESSION (B609) — does the upload survive, and what is the real 4K budget?
 
-**⚠️ NEEDS `npx cap sync ios` + AN XCODE BUILD.** **The loop hold is CLOSED and verified — nothing to re-prove.**
+**JS only. No `cap sync` needed.**
 
 **[panel]** = on screen. **[report]** = only in `copy report`.
 
-## 1. Perform transport on a source swap (1 minute)
+## ⚠️ FIRST, EVERY TIME
 
-1. In perform with a clip **playing**, load a different clip.
-2. **It should start playing, and the play/pause button must match.** B607: it loaded paused while the button read "pause", and pressing pause started it.
-3. Do it once more with the first clip **paused** — the button must still match whatever actually happens.
+**[panel]** The `source` row must read `planar · native decode · ~30 in/s`. If it says `⚠ NO NATIVE DECODE`, **that report cannot be compared to anything** — which is exactly what happened to B608's 64MB arm.
 
-## 2. The minimum viable 4K budget (worth pinning before the default is trusted)
+## 1. The upload fix
 
-**⚠️ Reload the clip between arms.** Setting the budget to 0 discards the head, and a clip's head is only produced on its opening pass — that is why B607's sweep looked like a memory curve when it was not.
+1. Load the 4K clip. **[panel]** Confirm `native decode`. B608 failed here with `upload short by 11161254 bytes`.
+2. Load it a few times, and a large FHD clip too. **Any `NO NATIVE DECODE` is a failure — send the report, `why` names the stage.**
 
-4. **[panel]** Set `loop cache: 128MB`. **Load the 4K clip fresh.** Broadcast, lap 4+ times.
-5. **[report]** `loopCache.firstPts` must be ~0 and `heldMB` should read ~94. **Is the loop seamless at 128?**
-6. If yes, repeat at **64MB** from a fresh load. 64 is below the ~94MB the window needs, so expect a partial fill — **the question is whether a partial fill still reads as acceptable**, since that is the safer default.
+## 2. The real minimum 4K budget (needs a clip RELOAD between arms)
 
-## 3. Anything about the app being under memory strain
+**⚠️ Setting the budget to 0 discards the head, and a clip's head is only produced on its opening pass.** Reload between arms or the comparison is meaningless.
 
-7. Note **anything** that smells like memory during these runs: a bake failing, a graphics context loss, the app restarting. **That is now the open thread, not the loop.**
+3. **[panel]** `loop cache: 128MB` → **load the 4K clip fresh** → broadcast → lap 4+ times. **[report]** `loopCache.firstPts` must be ~0, `heldMB` ~94. Seamless?
+4. Repeat at **64MB from a fresh load**. 64 is below the ~94MB the window needs, so expect a partial fill — **the question is whether a partial fill still reads as acceptable**, since it is the safer default.
+
+## 3. The bake retry pattern
+
+5. **Does the first bake still fail and the second succeed?** No fix this build. If it now passes first time, the upload drain was involved and that is worth knowing.
+
+# 🅿️ PREVIOUS SESSION (B608) — 4K + FHD loops VERIFIED SEAMLESS. 64MB arm void (no native decode).
 
 # 🅿️ PREVIOUS SESSION (B607) — 4K VERIFIED SEAMLESS at 256MB. FHD seamless at 64MB. Loop hold CLOSED.
 

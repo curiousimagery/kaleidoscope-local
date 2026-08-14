@@ -6,6 +6,36 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 📦 v0.25.19 (Build 609) — 2026-08-14 — The upload was closing the socket before it drained
+
+**JS only. No `cap sync` needed.**
+
+### Shipped
+
+- **Fixed: a clip upload could silently lose up to 16MB of its tail.** The slice loop deliberately lets four slices sit in the socket's send buffer, and `close()` does not promise to flush what is queued. It now drains `bufferedAmount` to zero (30s bound) before closing, and warns if it cannot.
+
+### ⚠️ The 64MB reading is void, and the report says why
+
+```
+nativeAttach: { why: 'the decode did not start — failed at "upload": upload short by 11161254 bytes' }
+source: from <video> · ⚠ GL CONTEXT RESTORED ×3 · ⚠ NO NATIVE DECODE
+extJitter.loop: null · ownClock: false
+```
+
+**That session had no native decode and therefore no loop cache at all** — the hold Daniel saw at 64MB was the `<video>` path, not a partial fill. **The minimum viable 4K budget is still unmeasured.**
+
+**10.6MB short is squarely inside the 16MB the loop allows to stay buffered**, which is what named the bug. The consequence is not a slow load: the upload "succeeds", `AVURLAsset` gets a truncated file, no frames are ever produced, and the session falls back for good.
+
+**This is the third time `nativeAttach` has caught a silent fallback before it became a false conclusion.** B597 built it for exactly this.
+
+### Filed, not fixed: the bake fails on the first attempt and succeeds on the second
+
+Daniel, B608: *"each failure has been a first attempt and each second attempt has been successful."* Seen on **FHD as well as 4K**, so the earlier "4K memory pressure" framing was too narrow and is retracted.
+
+`encoding task did not complete` is not our string — it comes from WebCodecs. **The retry pattern is the diagnostic**: it points at a hardware session that is still held when the first bake asks for one, and released by the failed attempt's teardown. At first-bake time the app holds the native decode, the Loop Builder's two preview `<video>` elements, an image generator for thumbnails, and then asks for two WebCodecs readers and an encoder. iOS limits concurrent sessions.
+
+Also seen once: **the source panel lost its image after a bake → perform switch** while the broadcast kept working.
+
 ## 🎉 v0.25.18 (Build 608) — 2026-08-14 — 4K loops seamlessly. The arc's result.
 
 **⚠️ NEEDS `npx cap sync ios` + AN XCODE BUILD.**

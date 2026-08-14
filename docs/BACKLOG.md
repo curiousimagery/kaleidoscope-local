@@ -248,6 +248,12 @@ Class 1. Look at the perform engine's `setPlanarSource` / first `updateSourceFra
 
 ### 🧨 [HIGH — Daniel, B607] THE BAKE THROWS "encoding task did not complete", AND ONCE CRASHED THE APP
 
+**⚠️ THE PATTERN IS THE DIAGNOSTIC (Daniel, B608): every FIRST attempt fails and every SECOND succeeds.** Seen on **FHD as well as 4K**, so "4K memory pressure" is too narrow and is retracted as the framing.
+
+`encoding task did not complete` is not our string — it is WebCodecs. A first-attempt-only failure points at **a hardware session still held when the bake asks for one**, and released by the failed attempt's own teardown. At first-bake time the app holds: the native decode, the Loop Builder's two preview `<video>` elements, the thumbnail image generator — and then asks for two WebCodecs readers plus an encoder. **iOS limits concurrent sessions, and B501 was the same shape.**
+
+**Cheapest thing to try:** release what the bake does not need before it starts (the preview elements, and possibly the native decode, which the bake does not read from) rather than leaving them loaded.
+
 Twice in one session on 4K, and **the second time the app genuinely restarted** — the Loop Builder closed and the uploaded clip was dropped, while the external display still showed the "baking … in Loop Builder" notification. A retry in the same session succeeded both times, so it is intermittent rather than deterministic.
 
 **Same theme as everything else at 4K: memory.** A bake runs two WebCodecs readers over a 4K file beside the native decode and (as of B605) a ~94MB head cache. Supersedes the narrower B603 filing of the same string.

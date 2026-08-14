@@ -91,6 +91,16 @@ async function uploadClip(blob, name, onProgress) {
       onProgress?.(Math.min(1, (off + UPLOAD_SLICE) / blob.size));
     }
   } finally {
+    // DRAIN BEFORE CLOSING (B609). The loop above deliberately lets up to four slices (16MB) sit
+    // in the socket's send buffer, and `close()` does not promise to flush what is queued — so the
+    // tail of the clip could simply be dropped. Daniel's B608 report caught it in the act:
+    // `failed at "upload": upload short by 11161254 bytes`, which is 10.6MB, squarely inside that
+    // window. The consequence is not a slow load, it is **no native decode for the whole session**
+    // — the upload "succeeds", AVURLAsset gets a truncated file, and everything falls back to
+    // `<video>` (which is what made that session's 64MB cache reading meaningless).
+    const until = performance.now() + 30000;
+    while (ws.bufferedAmount > 0 && performance.now() < until) await new Promise((r) => setTimeout(r, 8));
+    if (ws.bufferedAmount > 0) console.warn(`[fold] upload drain timed out with ${ws.bufferedAmount} bytes queued`);
     try { ws.close(); } catch { /* already gone */ }
   }
   // the bridge and the socket are different channels — `bytes` lets native wait for the
