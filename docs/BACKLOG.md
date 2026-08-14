@@ -178,7 +178,18 @@ The vocabulary Daniel decided on: **keep the UI names** (`source` / `staged` / `
 
 **▶ AND ONE READING THAT NEEDS NO BUILD:** every measurement here is one 20.4s 4K clip. **A short 1080p clip separates a fixed pipeline cost from decode work.** If `swapGapMs` scales with pixels, resolution becomes a lever for the first time since B590.
 
-**STOPPING RULE (agreed shape, B602):** if the pull model does not move it and the gap does not scale with resolution, **stop investigating** and design around a ~150ms platform cost. Options, none costed yet: hold the last frame deliberately so it reads as a decision rather than a stutter; pre-roll the head of the clip at reduced resolution and cross-fade across the lap; or make the Loop Builder's bake choose a loop point whose content survives a 5-frame hold.
+**⚠️ THE B602 FHD READING IS VOID** — that run fell back to `<video>` (`nativeAttach.why: failed at "frame socket"`), so it cannot be compared to any 4K number. Re-run at B603. **Check the source row says `native decode` before trusting any measurement.**
+
+### 🚫 PRODUCT CONSTRAINTS ON ANY FIX (Daniel, B602) — these rule out most of the obvious options
+
+- **A deliberate hold is a non-starter.** Seamless looping is non-negotiable for perform mode.
+- **The fix cannot live in the Loop Builder.** **The majority of loops are built elsewhere and imported**, so anything that depends on our bake choosing a friendly loop point only helps the minority case.
+
+**What survives those constraints: fill the gap with frames we already have.** Cache the first N encoded frames of the clip on the opening pass, and at the lap feed them from the cache while AVFoundation restarts — the wire and both clients see continuous frames with correct pts, and nothing about the clip's origin matters. Trigger the rewind ~150ms early and the content is continuous rather than merely unfrozen.
+
+**Cost to weigh before building:** ~6 frames of cache is **~74MB at 4K** (12.4MB per frame) and ~19MB at FHD. This project has a jetsam history at 4K, so the memory has to be measured, not assumed — and if the gap turns out to scale with resolution, N can be much smaller at 4K than the worst case suggests.
+
+**STOPPING RULE (agreed shape, B602):** if the pull model does not move the number and the gap does not scale with resolution, **stop investigating** and build the frame cache.
 
 **Dead, each by its own instrument** (3 and 4 added at B598/B599, 5 at B599):
 

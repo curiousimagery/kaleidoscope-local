@@ -6,6 +6,35 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🛟 v0.25.13 (Build 603) — 2026-08-14 — Parking the clip could cost us the decode
+
+**⚠️ NEEDS `npx cap sync ios` + AN XCODE BUILD.**
+
+### Shipped
+
+- **Fixed: `startPaused` could lose the native decode entirely.** B598 parked by pausing, seeking to zero and pushing nothing, assuming a paused player would produce another buffer. When it does not, no frame ever reaches the socket, the 8s `requireFrame` window expires, and the whole session silently falls back to `<video>`. The park now pushes the frame it has, rewinds while still playing, and pauses only once the seek lands.
+
+### The FHD experiment did not measure what it looks like it measured
+
+**⚠️ The result is void, and the report says so in its own words:**
+
+```
+"nativeAttach": { "why": "the decode did not start — failed at \"frame socket\":
+                          no native frames on port 8900 (nothing streaming)" }
+"source" note: from <video> · ⚠ NO NATIVE DECODE: …
+"extJitter.loop": null · "extPosts.ownClock": false · app fps 59.9
+```
+
+**That run was the `<video>` path.** Every 4K measurement in this arc is the native decode. The two cannot be compared, so **"the loop hold scales with resolution" is not supported by this data** — and neither is the opposite. The question is still open.
+
+**The judder Daniel saw was a different phenomenon on a different code path**, which is exactly why the comparison cannot stand.
+
+### What this run is genuinely good for
+
+**B597's `nativeAttach` earned itself back in one report.** Before it, this would have been an invisible silent fallback: a healthy-looking report, a plausible-sounding conclusion, and a false fact entering the record as settled. Instead the report named the failure, the stage (`frame socket`, so the upload and the plugin start both succeeded) and the time.
+
+**Absence is not evidence, and this is the second time in four builds that the rule has caught a wrong answer before it was written down.**
+
 ## 🎚 v0.25.12 (Build 602) — 2026-08-13 — The A/B is a tie, and the perform playhead reads the clock
 
 **JS only. No `cap sync` needed.**

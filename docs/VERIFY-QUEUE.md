@@ -8,27 +8,33 @@ Confirmed results are DELETED from here and recorded in CHANGELOG. Closed sessio
 
 ---
 
-# ▶ THIS SESSION (B602) — one fix to confirm, and one reading only Daniel can take
+# ▶ THIS SESSION (B603) — the FHD experiment, re-run on the right code path
 
-**JS only. No `cap sync` needed.**
+**⚠️ NEEDS `npx cap sync ios` + AN XCODE BUILD.**
 
-## 1. The perform playhead (30 seconds)
+## ⚠️ CHECK THIS BEFORE TRUSTING ANY MEASUREMENT, EVERY TIME
 
-Perform mode, video source, press play then pause. **The playhead must stay where it is**, not jump to the start. On play it should continue from there.
+Look at the `source` row in the frame-cost panel. **It must say `planar · native decode · ~30 in/s`.**
+If it says `from <video>` or `⚠ NO NATIVE DECODE: …`, the run is on the fallback path and **nothing in that report can be compared to any other report.** That is what happened to B602's FHD run.
 
-## 2. ▶ THE DISCRIMINATING EXPERIMENT — a short 1080p clip
+## The re-run
 
-**This is the highest-value thing left and it needs no build.** Every measurement in this arc has been on one 20.4s 4K clip, so we cannot tell a fixed pipeline cost from decode work.
-
-1. Load a **short 1080p clip** (a few seconds is fine). Broadcast, let it lap 4+ times.
-2. `copy report`. **The number is `srcFanOut.swapGapMs`, against the 4K baseline of 141-150.**
+1. **Load the SAME 1:23 FHD loop.** Confirm the source row says `native decode`.
+2. Broadcast, let it lap 4+ times.
+3. `copy report`. **The number is `srcFanOut.swapGapMs`, against the 4K baseline of 141-150.**
 
 | reading | meaning | consequence |
 |---|---|---|
-| **still ~150ms** | a fixed cost to restart delivery, independent of resolution and length | resolution is not a lever; the fix is to hide the gap, not shrink it |
-| **drops proportionally (~40ms)** | it is decode work and it scales with pixels | a real lever for the first time in this arc: pre-roll at lower resolution, or accept the cost only at 4K |
+| **still ~150ms** | a fixed cost to restart delivery, independent of resolution | resolution is not a lever; the gap has to be filled, not shrunk |
+| **drops to ~40ms** | it scales with pixels | first new lever since B590 |
 
-**Either answer closes something.** The second would be the first genuinely new lever since B590.
+4. **If it falls back to `<video>` again**, send the report anyway — `nativeAttach.why` names the stage and that is its own finding. B603 fixed one way this can happen; if it recurs there is a second.
+
+## Also confirm (30 seconds, since B603 touched the load path)
+
+5. Load a 4K clip. The source panel shows the **first** frame, and the source row says `native decode`.
+
+# 🅿️ PREVIOUS SESSION (B602) — perform playhead FIXED (verified). FHD experiment VOID: it ran on the <video> fallback.
 
 # 🅿️ PREVIOUS SESSION (B601) — "is rewinding one item cheaper than swapping items?" — ANSWERED: a tie. 141 vs 150; ~150ms is the platform floor for resuming at zero by any route.
 

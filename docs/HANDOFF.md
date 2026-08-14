@@ -84,6 +84,16 @@ This retires the confusion, not just a hypothesis. Resolution was free because t
 
 ## current version
 
+**🛟 B603 — PARKING THE CLIP COULD COST US THE DECODE. ⚠️ NEEDS `npx cap sync ios` + AN XCODE BUILD.**
+
+**⚠️ THE B602 FHD EXPERIMENT IS VOID.** That run reported `nativeAttach.why: the decode did not start — failed at "frame socket"`, `from <video>`, `extJitter.loop: null`, app fps 59.9. **It measured the `<video>` fallback**, and every 4K number in this arc is the native decode. Neither "the hold scales with resolution" nor its opposite is supported. **Re-run pending.**
+
+**The cause, and it is a B598 regression:** `startPaused` parked by pausing, seeking to zero and pushing NOTHING, assuming a paused player produces another buffer. When it does not, no frame ever reaches the socket, the 8s `requireFrame` window expires and the session falls back for good. The park now pushes the frame it has, rewinds while still playing, and pauses once the seek lands. Landing on the exact head frame is `attachNativeVideo`'s `seekSettled` (B600), which re-asserts it either way.
+
+**📏 STANDING RULE, now at the top of every verification:** check the `source` row says `planar · native decode` before trusting any measurement. A report from the fallback path cannot be compared to one from the native path.
+
+**🚫 PRODUCT CONSTRAINTS ON ANY FIX (Daniel, B602):** a deliberate hold is a **non-starter** (seamless looping is non-negotiable for perform), and **the fix cannot live in the Loop Builder** because most loops are built elsewhere and imported. That leaves **filling the gap with cached head frames** — see BACKLOG for the shape and the memory cost.
+
 **🎚 B602 — THE A/B IS A TIE, AND THAT IS THE ANSWER. JS only, no `cap sync`.**
 
 | arm | mechanism | `swapGapMs` |

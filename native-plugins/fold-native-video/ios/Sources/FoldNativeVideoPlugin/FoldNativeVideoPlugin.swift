@@ -249,20 +249,25 @@ public class FoldNativeVideoPlugin: CAPPlugin, CAPBridgedPlugin {
         // the CLIP's duration (position within the clip), not the queue's — which is
         // exactly the span the timeline is scaled to.
         let dur = CMTimeGetSeconds(player?.currentItem?.duration ?? .indefinite)
-        // ONE FRAME, AND IT MUST BE THE FIRST ONE (B598). B597 parked on the tick that saw a
-        // buffer, which stopped the preview hopping through several frames but left it parked
-        // on whichever frame the display link happened to catch — a few frames in, not the head
-        // of the clip. Daniel: "the initial image that loads in output is wrong but after
-        // scrubbing it corrects to the right frame."
+        // NEVER LET PARKING COST US THE DECODE (B603).
         //
-        // So park AND rewind, and push nothing yet: the frame worth showing is the one at zero,
-        // which the next tick picks up. A seek on a paused player still produces a buffer, and
-        // that is the same mechanism a scrub has always relied on.
+        // B598 parked by pausing, seeking to zero and returning WITHOUT pushing, on the reasoning
+        // that the frame worth showing is the one at zero. That reasoning assumed a paused player
+        // reliably produces another buffer, and it does not always: Daniel's FHD run reported
+        // `failed at "frame socket": no native frames on port 8900` — the socket opened, nothing
+        // ever came down it, and the 8s requireFrame window expired into the `<video>` fallback.
+        // **The park had swallowed the only frame the decode was going to offer.**
+        //
+        // The order is now: PUSH this frame (the socket must see traffic, or JS has no reason to
+        // believe the decode is alive), rewind while still playing so the output keeps producing,
+        // and pause only once the seek has landed. Landing on the exact head frame is not this
+        // code's job any more — `attachNativeVideo` seek-settles to the `<video>`'s position after
+        // the attach (B600), which is the authoritative answer and re-asserts it either way.
         if pauseAfterFirstFrame {
             pauseAfterFirstFrame = false
-            player?.pause()
-            player?.seek(to: .zero, toleranceBefore: .zero, toleranceAfter: .zero)
-            return
+            player?.seek(to: .zero, toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
+                self?.player?.pause()
+            }
         }
         // close the swap measurement on the first frame produced after the item changed
         if pendingSwap {
