@@ -23,6 +23,7 @@
 import { applyUnifiedZoom } from '../kit/zoom.js';   // shared: EVERY zoom entry point routes through this
 import { panToOffset, panDelta } from '../kit/pan.js';   // shared: EVERY pan entry point routes through these
 import { formCanvasNorm } from '../engine/forms/index.js';   // the shader's effective zoom includes it
+import { LEAD_CAP } from '../kit/follow.js';         // the follower's own bound — never duplicate it here
 
 export function createOutputGestures(canvas, ctx) {
   const { state } = ctx;
@@ -122,7 +123,18 @@ export function createOutputGestures(canvas, ctx) {
     if (zoomIsPhase()) {
       // guard the write itself too: an unwrapped accumulator that ever takes NaN/±Infinity is
       // stuck there for the session, and the follower chases it forever.
-      const next = manip.startPhase + Math.log(dist / manip.startDist) / loopLog();
+      // BOUND THE COMMANDED TRAVEL, not just the arithmetic (B611). The shader renders
+      // `phase mod 1`, so STAGED looks identical at phase 0.4 and phase 200.4 — while the perform
+      // follower chases the RAW value and has to travel every loop in between. That is exactly
+      // "staged is correct, live is stuck zooming forever": the two views were never disagreeing
+      // about the picture, only about how far away it is.
+      //
+      // The bound is the follower's own LEAD_CAP, imported rather than duplicated. Anything past
+      // it is DISCARDED by the follower anyway, so commanding more can only ever create divergence
+      // — it can never produce motion the operator gets to see.
+      const cap = LEAD_CAP.drosteZoomPhase || 1;
+      const d = Math.log(dist / manip.startDist) / loopLog();
+      const next = manip.startPhase + Math.max(-cap, Math.min(cap, d));
       if (Number.isFinite(next)) state.drosteZoomPhase = next;
     } else {
       applyUnifiedZoom(state, dist / manip.prevDist);   // slice-first-then-canvas (incremental)

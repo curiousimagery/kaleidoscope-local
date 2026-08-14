@@ -274,6 +274,37 @@ Daniel's B611 repro, final step: after the droste blowup he goes to canvas setti
 
 **Cross-ref:** `canvasReset` already zeroes `drosteZoomPhase` and calls `panRecenter`, so it is closer to correct than the settings recentre — but it still does not jump the follower.
 
+### 🔭 [B612 DIG — three of Daniel's four droste invariants now have MECHANISMS]
+
+**1. ✅ ROOT-CAUSED — "you should never be able to zoom non-proportionally to the slice overlay."**
+`overlay.js` and `geometry.js` reference `canvasOffset` **nowhere**. The overlay is computed from `sliceCx/Cy`, `sliceScale`, `sliceRotation`, `sizeNorm` and the source aspect only.
+- **On a tiling form that is CORRECT.** A lattice translation is a symmetry of the tiling, so the sampled source region genuinely does not move. The overlay stays true for free.
+- **On radial and droste it is WRONG.** No lattice means the offset really does move which source region is hit, and the overlay keeps drawing the old one.
+- **Fixing it properly is hard**: the offset applies before the fold, so its effect on the source region is not a translation and cannot be mirrored by shifting the overlay. **Realistic options: keep the offset small enough that the overlay stays approximately true (B611's ±1 clamp does some of this), or give the overlay an honest "the sample has moved" state.**
+
+**2. ✅ ROOT-CAUSED — droste's seamless zoom has two preconditions, documented and enforced NOWHERE.**
+[droste.js:79-84](../src/engine/forms/droste.js#L79-L84) states them plainly: **offset centered** (*"the Möbius pre-comp is NOT scale-invariant — why the offset is default-locked"*) and **spiral = 0** (*"a seamless spiral zoom must couple canvasRotation to cancel it — the Droste screw motion, not yet wired"*). Both are only DEFAULTS. Unlock pan or move the spiral and the form's headline feature silently stops being seamless, with nothing said.
+- `panLockedByDefault: true` is the closest thing to enforcement, and it is a default, not a contract.
+
+**3. ✅ MECHANISM FOUND, partly fixed B612 — "staged is correct, live is stuck."**
+The shader renders `phase mod 1` while `state.drosteZoomPhase` is a deliberately UNWRAPPED accumulator (the motion tween needs it that way for multi-loop keyframes). **So staged looks identical at phase 0.4 and 200.4, and the follower has to travel every loop between.** The two views never disagreed about the picture, only the distance. B612 bounds gesture travel to the follower's `LEAD_CAP`; it does not establish the general invariant.
+
+**4. Understood since B611** — the translation carry. See the `canvasOffset` entry below.
+
+### 🎯 [PROPOSAL — B612] ROUTE DROSTE'S PAN TO `drosteOffsetX/Y`, NOT `canvasOffset`
+
+**Three independent arguments converge on the same conclusion**, which is why this is worth doing properly rather than clamping harder:
+
+1. **Geometric** (Daniel, B611): translating an offset from a wallpaper form to a form with a known centre is nonsense.
+2. **The form's own code** (droste.js:79-80): seamless infinite zoom REQUIRES a centred offset, because the Möbius pre-composition is not scale-invariant.
+3. **The overlay** (item 1 above): a raw `canvasOffset` moves the sampled region and the overlay cannot show it.
+
+**And droste already HAS a correct off-centre control.** `drosteOffsetX/Y` is a disc automorphism — it keeps the unit circle fixed and maps each tier ring to another circle, which is exactly what preserves the seamless loop. **`canvasOffset` on droste is a strictly worse duplicate of a control that already exists.**
+
+**So the proposal is not "remove the capability" but "point it at the right parameter."** Unlocking pan on droste would drive `drosteOffsetX/Y`, so the gesture still pans, off-centre composition still works, value-sharing across forms still behaves — and the blow-up class disappears rather than being bounded.
+
+**Needs Daniel's call** because it changes what a pan gesture does on one form, and because `drosteOffsetX/Y` is currently gated behind the `manual` toggle for a reason.
+
 ### 🧭 [INVARIANTS PROPOSED — Daniel, B611] FOUR RULES THE INPUT/FORM LAYER SHOULD HOLD
 
 Daniel, B611, reading across the whole cluster: *"it seems like there are a number of compounding issues."* He is right, and each of these is stated as an invariant so a violation is a bug rather than a judgement call.

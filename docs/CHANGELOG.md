@@ -6,6 +6,30 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🔭 v0.25.22 (Build 612) — 2026-08-14 — Staged and live were never disagreeing about the picture, only the distance
+
+**JS only. No `cap sync` needed.**
+
+### Shipped
+
+- **Fixed: a pinch could command more droste zoom than the operator can ever see.** The shader renders `phase mod 1`, so **staged looks identical at phase 0.4 and phase 200.4** — while the perform follower chases the RAW value and must travel every loop in between. Gesture travel is now bounded by the follower's own `LEAD_CAP` (imported, not duplicated). **Anything past that cap is discarded by the follower anyway, so commanding more could only ever create divergence, never visible motion.**
+
+### 🔍 This is the mechanism behind "staged is correct, live is stuck"
+
+Daniel, B611: *"the staged canvas is correct. Now the live canvas is stuck in an infinite zoom loop that never stops."*
+
+**The two views were never disagreeing about the picture — only about how far away it is.** `state.drosteZoomPhase` is a deliberately UNWRAPPED accumulator (so the motion tween can keyframe multi-loop zooms), and the shader wraps it at render. Staged therefore looks fine the instant the value lands. Live has to walk there.
+
+**And it explains why recentring "fixed" staged and not live:** recentring corrects the offset, staged re-renders `mod 1` and looks right, and the follower is still mid-journey. Nothing about recentring touches the distance.
+
+### Investigated, with root causes, NOT yet fixed — see BACKLOG
+
+Three of Daniel's four "this should never have been possible" items now have mechanisms:
+
+1. **The slice overlay does not know about `canvasOffset`.** `overlay.js` and `geometry.js` reference it nowhere. **On a tiling form that is correct** — a lattice translation is a symmetry, so the sampled source region genuinely does not move. **On radial and droste it is not**: the offset moves which source region is hit and the overlay silently keeps drawing the old one. That is the invariant *"you should never be able to zoom non-proportionally to the slice overlay"*, root-caused.
+2. **Droste's seamless zoom has two documented preconditions and enforces neither.** [droste.js:79-84](../src/engine/forms/droste.js#L79-L84) states them outright: *offset centered* (the Möbius pre-composition is not scale-invariant) and *spiral = 0* (otherwise a seamless zoom must couple `canvasRotation` to cancel a residual rotation — "not yet wired"). Both are merely defaults a user can leave.
+3. **Live can still outlive the state that produced it.** The bound above shrinks the worst case; it does not establish that live always follows staged.
+
 ## 🌀 v0.25.21 (Build 611) — 2026-08-14 — One pan gain for every surface; the loop stopped having an edge
 
 **JS only. No `cap sync` needed.**

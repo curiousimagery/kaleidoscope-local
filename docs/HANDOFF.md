@@ -90,6 +90,17 @@ This retires the confusion, not just a hypothesis. Resolution was free because t
 
 ## current version
 
+**🔭 B612 — STAGED AND LIVE WERE NEVER DISAGREEING ABOUT THE PICTURE, ONLY THE DISTANCE. JS only, no `cap sync`.**
+
+**The shader renders `phase mod 1`; `state.drosteZoomPhase` is a deliberately UNWRAPPED accumulator** (the motion tween needs that for multi-loop keyframes). **So staged looks identical at phase 0.4 and phase 200.4, while the follower must travel every loop in between.** That is the whole of *"staged is correct, live is stuck zooming forever"* — and why recentring fixed staged and not live: recentring never touches the distance. Gesture travel is now bounded by the follower's own `LEAD_CAP` (imported, not duplicated), on the argument that **anything past the cap is discarded by the follower anyway, so commanding more can only create divergence, never visible motion.**
+
+**🔍 THREE OF DANIEL'S FOUR DROSTE INVARIANTS NOW HAVE MECHANISMS (see BACKLOG):**
+- **The slice overlay does not know about `canvasOffset`** — nowhere in `overlay.js` or `geometry.js`. Correct on a tiling form (a lattice translation is a symmetry, so the sample really does not move); **wrong on radial/droste**, where it silently keeps drawing the old region.
+- **Droste's seamless zoom documents two preconditions and enforces neither** ([droste.js:79-84](../src/engine/forms/droste.js#L79-L84)): offset centred, and spiral 0. Both are only defaults.
+- **Live can still outlive the state that produced it.** B612 shrinks the worst case; it does not establish the invariant.
+
+**🎯 AND ONE PROPOSAL WORTH READING: route droste's pan to `drosteOffsetX/Y` rather than `canvasOffset`.** Three independent arguments converge, and droste already has the mathematically correct off-centre control (a disc automorphism that preserves the seamless loop). **`canvasOffset` on droste is a strictly worse duplicate.** Needs Daniel's call.
+
 **🌀 B611 — ONE PAN GAIN FOR EVERY SURFACE; THE LOOP STOPPED HAVING AN EDGE. JS only, no `cap sync`.**
 
 **✅ THE GESTURE AND DIRECT-MANIPULATION PAN PATHS ARE MERGED** (Daniel-approved). `kit/pan.js`'s new `panDelta` takes a displacement as a **fraction of the gesture surface's own short side** and folds in the `1/zoom`. **Both hand-tuned constants are gone** (`× 3` in remote-input, `PAN_GESTURE_SENS 1.2` in input-bus). **Contract: drag across the short side of whatever you touch, content travels the short side of the canvas — any device, any size.**

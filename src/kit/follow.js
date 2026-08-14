@@ -48,7 +48,7 @@ const cycDelta = (a, b, P) => ((b - a + 1.5 * P) % P) - 0.5 * P;
 // where you are, at most one lap behind; never replay stacked laps"). Rotation keeps
 // the tight 1-lap cap; the droste infinite-zoom phase is raised so a VIGOROUS multi-
 // loop pinch is honored in full instead of truncated to one loop (Daniel).
-const LEAD_CAP = { drosteZoomPhase: 4 };
+export const LEAD_CAP = { drosteZoomPhase: 4 };
 // Per-field CATCH-UP boost: the field's spring speeds up the farther behind it is, so
 // a big backlog (a fast multi-loop droste zoom) rushes to catch up and settles quickly
 // rather than crawling the whole distance at the transition rate — with minimal drift
