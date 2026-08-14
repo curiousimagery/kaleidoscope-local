@@ -174,9 +174,27 @@ The vocabulary Daniel decided on: **keep the UI names** (`source` / `staged` / `
 
 **✅ AND THE MECHANISM DOES NOT MATTER (B601/B602 A/B, one sitting).** Item swap 141ms, seek-to-zero 150ms, `swapToPts` equal to the gap in both. **~150ms is what AVFoundation costs to resume delivering frames after the playhead returns to zero, by any route.** `loopBySeek` stays as a flag; it is a second road to the same floor.
 
-**▶ ONE HYPOTHESIS LEFT, and it is a conformance question rather than a measurement.** We poll `hasNewPixelBuffer(forItemTime:)` blind every display tick. Apple's pull model is `requestNotificationOfMediaDataChange(withAdvanceInterval:)` + `AVPlayerItemOutputPullDelegate.outputMediaDataWillChange`, and the documented guidance is to use it after a seek or a stall instead of polling. **Never checked.** Cheap to try, and it is the last thing that could make the number move.
+**✅ AND IT IS A FIXED COST (B604).** FHD `swapGapMs` **141 / max 150**, identical to 4K's 141/150 at four times the pixels. Not decode work. The FHD run is also the cleanest isolation of the arc: app at 59.9fps, 30 new pictures/s on the display, every counter healthy, **and the hold still exactly 145ms.**
 
-**▶ AND ONE READING THAT NEEDS NO BUILD:** every measurement here is one 20.4s 4K clip. **A short 1080p clip separates a fixed pipeline cost from decode work.** If `swapGapMs` scales with pixels, resolution becomes a lever for the first time since B590.
+**✅ THE PULL-MODEL HYPOTHESIS IS DEAD WITHOUT A BUILD.** B601 arm B attached the output once and never moved it, and still paid 150ms. A notification cannot deliver data that does not exist, and we already poll at 60Hz. Same reasoning kills pre-attaching an output to the next queued item.
+
+### ✅ SHIPPED B605 — THE HEAD CACHE. Verification pending; the open risk is memory.
+
+The plugin holds the clip's first 0.3s of encoded frames and feeds them back at the lap. Budget is a **live knob** in the panel (`loop cache`, 64/128/256/off/32 MB), so arms are compared in one sitting. `srcFanOut.loopCache` publishes `coveredMs` against `swapGapMs` and names a partial fill.
+
+**⚠️ THE OPEN RISK IS JETSAM AT 4K.** 128MB and 256MB are the memory pressure that made the single-decode architecture necessary in the first place. If a higher budget costs a GL context mid-set it is not worth it, and the honest answer becomes a partial fill.
+
+**If a partial fill is where this lands**, the remaining ideas are: store the head frames at reduced resolution (a brief softness at the lap instead of a hold — needs a taste call from Daniel), or trigger the rewind early enough that the cache only has to cover what it can.
+
+<details><summary>Original proposal (B604), kept for the reasoning</summary>
+
+Cache the clip's **head frames** as they arrive on the opening pass, and at the lap feed them from the cache while AVFoundation restarts. The wire and both clients see continuous frames with correct pts, so nothing downstream changes and **the clip's origin is irrelevant** — which is required, since most loops are built elsewhere.
+
+**Cap the cache by BYTES, not frames.** A 64MB budget self-scales in exactly the right direction: the gap is fixed in *time*, and frames are cheaper at lower resolution, so the budget buys ~5 frames (0.17s) at 4K and ~20 (0.66s) at FHD. Even a partial fill turns a 150ms hold into a ~20ms one.
+
+**Resolved in the design pass:** rewinding early buys nothing on top of filling in place (withdrawn); the cache lives in the **plugin**, so there is one copy of the memory and the two webviews stay frame-identical by construction. Memory headroom at 4K stayed open and is now the verification's job.
+
+</details>
 
 **⚠️ THE B602 FHD READING IS VOID** — that run fell back to `<video>` (`nativeAttach.why: failed at "frame socket"`), so it cannot be compared to any 4K number. Re-run at B603. **Check the source row says `native decode` before trusting any measurement.**
 
@@ -211,6 +229,12 @@ The vocabulary Daniel decided on: **keep the UI names** (`source` / `staged` / `
 **"there's a brief moment where colors get screwed up and RGB channels seem to be firing weird (glitchy green view)."** First transition only, seen across two builds. A green cast on a YUV path is the classic signature of **sampling a plane texture before all three planes have been uploaded**, or of a plane texture allocated at one size and read at another.
 
 Class 1. Look at the perform engine's `setPlanarSource` / first `updateSourceFrame` ordering, and at whether the PiP engine's reader can return a frame before its textures are sized. **Last member of the source-switch cluster still without a root cause.**
+
+### 🧨 [OPEN — Daniel, B603] BAKE FAILED WITH "Decoding task did not complete" AT ~3/4
+
+A 30s seamless loop taken from the **middle** of a long FHD clip, roughly three quarters through the bake. Not reproduced since; the same trim taken from the head of the file baked cleanly.
+
+**No root cause.** The string is not ours, so it comes from WebCodecs or AVAssetImageGenerator. **Plausibly a symptom of the forward-walk fixed at B604** — that path held a decoder open for minutes decoding frames it discarded, which is exactly the shape that trips a decode watchdog. If it recurs after B604, it is its own bug and needs the failure percentage and whether the trim was mid-file.
 
 ### 🎚 [OPEN — Daniel, B594] THE LOOP BUILDER'S CROSSFADE PREVIEW CANNOT KEEP UP ON M1 AT 4K
 
@@ -368,7 +392,19 @@ Starting a broadcast shows nothing on HDMI until the timeline moves, **even thou
 
 ### 🔴 REGRESSION — A 4K CLIP HOLDS A FRAME FOR A FEW BEATS ON EVERY LOOP RESTART (Daniel, B580)
 
-In-app, no broadcast needed. **This was fixed a long time ago and has come back.** Loop restart is a seek to zero, so this belongs with the 4K first-frame cluster: the scrubber jitter at playback start, the intermittent "loads but will not play", and the mode-switch-during-attach theory are all "the first frame after a seek costs something we do not pay elsewhere". **Four symptoms, one likely mechanism, and the loop restart is the only one that reproduces on demand — which makes it the way in.**
+In-app, no broadcast needed. Daniel filed this as *"fixed a long time ago and has come back."*
+
+**⚠️ IT WAS NEVER FIXED (history checked at B605, on Daniel's ask).** No build ever closed it:
+
+- **B487** — first report, on the `<video>` path, filed as a watch item with *"should vanish under S3-A's seamless native `AVPlayerLooper`"*. **A prediction, not a fix.**
+- **B490** — re-test: happens **100% of the time on 4K sources, including a 12.6s baked seamless loop.**
+- **B491** — fixed the external-view **seek thrash**, a different and much worse stutter. Its own verify still asked *"does the trimmed-clip loop still lurch every lap?"*, so it was open then.
+- **B498-B506** — S3-A shipped AVPlayerLooper. Nothing ever verified the prediction.
+- **B580** — re-reported as a regression.
+
+**Why it feels new: we made everything around it smooth.** Before B590 the broadcast was clocked by the app's rAF at ~20-25/s, where a 150ms hold is three frames of an already-choppy stream. B590 took delivery to 29-30/s with `fresh p50 33ms`. **A fixed 150ms defect becomes conspicuous exactly when its surroundings stop being noisy.** Nothing in the B593-B604 session could have introduced it — it is measured inside the plugin, before any of our JS runs, on both loop mechanisms, at 4K and FHD identically.
+
+**Standing lesson: a predicted fix filed as a watch item reads like a closed item three months later.** If we predict a fix, the prediction gets a verification step or it stays open.
 
 **⚠️ THE "SEEK TO ZERO" PREMISE IS FALSE ON THE NATIVE PATH (B595/B596).** `rewinds: 0, suppressed: 0` — our rewind never fires on a full-range trim, and AVPlayerLooper wraps the item without any seek at all. Whatever this is, it is not a seek cost. See the B596 loop item above; the live question is `takeGapMs`.
 

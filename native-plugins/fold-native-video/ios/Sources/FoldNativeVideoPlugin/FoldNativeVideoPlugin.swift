@@ -49,7 +49,8 @@ public class FoldNativeVideoPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "beginUpload", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "finishUpload", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "frameAt", returnType: CAPPluginReturnPromise),
-        CAPPluginMethod(name: "frameStats", returnType: CAPPluginReturnPromise)
+        CAPPluginMethod(name: "frameStats", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "setLoopCache", returnType: CAPPluginReturnPromise)
     ]
 
     private let server = FrameSocketServer(port: 8900)
@@ -106,6 +107,44 @@ public class FoldNativeVideoPlugin: CAPPlugin, CAPBridgedPlugin {
     private var ticksNoBuffer = 0
     // when the current lap began, so `swapGapMs` can be closed by the next pushed frame
     private var swapAt: TimeInterval = 0
+
+    // ---- THE LOOP HEAD CACHE (B605) -----------------------------------------------------
+    //
+    // B599-B604 established what this is for and closed every alternative. The lap costs a FIXED
+    // ~150ms of no frames — 141/150 at 4K and 141/150 at FHD, four times the pixels — because
+    // that is what AVFoundation takes to resume delivering after the playhead returns to zero.
+    // It is not decode work, not the item swap (a single-item seek costs the same), not output
+    // priming (reuse changed nothing), and not anything a notification API can hurry along.
+    //
+    // So stop trying to remove the gap and fill it. We already receive the head of the clip on
+    // the opening pass; keeping those frames lets us feed them back at the lap while the decoder
+    // restarts. The wire carries real frames with real timestamps the whole way through, so both
+    // webviews, the motion clock and every downstream consumer are unaware anything happened —
+    // and it works on any clip, which matters because most loops are authored elsewhere.
+    //
+    // CACHED FRAMES ARE SOURCE FOOTAGE, NOT RENDERED OUTPUT. The kaleidoscope is applied by each
+    // engine at render time from live state, so the slice keeps animating through the lap and a
+    // performer moving it across the loop point sees no difference (Daniel's question, B604).
+    //
+    // BUDGET: the NEED is a duration (the gap is fixed in time), the RISK is bytes (this project
+    // has a 4K jetsam history). So the cache holds `headSeconds` worth, capped by a byte budget
+    // that is live-adjustable from the frame-cost panel. At 4K a frame is ~12.4MB, so 64MB buys
+    // ~5 frames ≈ 0.17s, just over the gap; at FHD the same budget buys ~20. Under-budget is not
+    // a failure — a partial fill still turns a 150ms hold into a short one — but it must SAY so,
+    // which is what `coveredMs` in the stats is for.
+    private struct CachedFrame { let pts: Double; let data: Data }
+    private var headCache: [CachedFrame] = []
+    private var headBytes = 0
+    private var cacheBudget = 64 * 1024 * 1024
+    private let headSeconds = 0.30
+    private let cacheLock = NSLock()
+    // replay state — `replayFedPts` also suppresses live frames we have already shown from cache,
+    // so the content never goes backwards when the decoder finally catches up
+    private var replaying = false
+    private var replayStartedAt: TimeInterval = 0
+    private var replayFedPts: Double = -1
+    private var lapsCovered = 0
+    private var lastReplayFrames = 0
 
     // path: a file:// URL or plain filesystem path to the clip. loop: seamless repeat (default true).
     @objc func start(_ call: CAPPluginCall) {
@@ -238,6 +277,11 @@ public class FoldNativeVideoPlugin: CAPPlugin, CAPBridgedPlugin {
     @objc private func tick() {
         guard let out = output, server.wantsFrame() else { return }
         let hostTime = CACurrentMediaTime()
+        // FILL THE LAP BEFORE ASKING THE DECODER (B605). During the ~150ms after the playhead
+        // returns to zero there is nothing to ask for, so this is the only place the gap can be
+        // covered — and it has to run ahead of the hasNewPixelBuffer guard, which returns early
+        // for the whole duration of it.
+        if feedFromCache(hostTime) { return }
         let itemTime = out.itemTime(forHostTime: hostTime)
         guard out.hasNewPixelBuffer(forItemTime: itemTime) else { ticksNoBuffer &+= 1; return }
         var displayTime = CMTime.invalid
@@ -277,13 +321,64 @@ public class FoldNativeVideoPlugin: CAPPlugin, CAPBridgedPlugin {
             swapFromPts = lastPushPts
             swapToPts = pts
         }
+        // THE DECODER IS BACK. Close the replay, and drop anything the cache already showed so
+        // the content never runs backwards at the hand-off.
+        if replaying { replaying = false; lapsCovered += 1 }
+        if replayFedPts >= 0 {
+            if pts <= replayFedPts + 0.001 { return }   // already on screen, from cache
+            replayFedPts = -1                            // live has caught up; normal service
+        }
         lastPushAt = hostTime
         lastPushPts = pts
         encodeQueue.async { [weak self] in
             guard let self = self,
                   let data = FrameSocketServer.encode(pb, pts: pts, duration: dur) else { return }
             self.server.send(data)
+            self.cacheHeadFrame(pts: pts, data: data)
         }
+    }
+
+    // Keep the head of the clip while there is budget for it. Called off the encode queue, so
+    // everything it touches is behind `cacheLock`. Frames arrive in order on the opening pass and
+    // roughly in order on later ones; the pts proximity test is what stops a second lap from
+    // storing duplicates, and what lets a RAISED budget top the cache up on the next pass instead
+    // of requiring a reload.
+    private func cacheHeadFrame(pts: Double, data: Data) {
+        guard pts >= 0, pts <= headSeconds else { return }
+        cacheLock.lock(); defer { cacheLock.unlock() }
+        guard headBytes + data.count <= cacheBudget else { return }
+        if headCache.contains(where: { abs($0.pts - pts) < 0.008 }) { return }
+        headCache.append(CachedFrame(pts: pts, data: data))
+        headCache.sort { $0.pts < $1.pts }
+        headBytes += data.count
+    }
+
+    // Feed the next cached frame if this moment of the lap calls for one. Paced by PTS against
+    // wall-clock elapsed since the lap began, so the replay runs at the clip's own rate rather
+    // than the display link's — 30fps content stays 30fps content.
+    //
+    // Returns true when it fed a frame, which tells `tick` to stand down for this tick.
+    private func feedFromCache(_ hostTime: TimeInterval) -> Bool {
+        guard pendingSwap else { return false }
+        cacheLock.lock()
+        let frames = headCache
+        cacheLock.unlock()
+        guard !frames.isEmpty else { return false }
+        if !replaying { replaying = true; replayStartedAt = hostTime; replayFedPts = -1; lastReplayFrames = 0 }
+        let elapsed = hostTime - replayStartedAt
+        guard let next = frames.first(where: { $0.pts > replayFedPts && $0.pts <= elapsed + 0.001 }) else { return false }
+        replayFedPts = next.pts
+        lastReplayFrames += 1
+        let payload = next.data
+        encodeQueue.async { [weak self] in self?.server.send(payload) }
+        return true
+    }
+
+    // A SCRUB ABANDONS THE REPLAY. The cached frames are the head of the clip; if the operator has
+    // jumped somewhere else, they are the wrong content and feeding them would fight the seek.
+    private func endReplay() {
+        replaying = false
+        replayFedPts = -1
     }
 
     @objc func stop(_ call: CAPPluginCall) {
@@ -306,6 +401,7 @@ public class FoldNativeVideoPlugin: CAPPlugin, CAPBridgedPlugin {
     @objc func seek(_ call: CAPPluginCall) {
         let t = call.getDouble("time") ?? 0
         DispatchQueue.main.async {
+            self.endReplay()   // the cache holds the HEAD of the clip; a scrub is going elsewhere
             self.player?.seek(to: CMTime(seconds: t, preferredTimescale: 600),
                               toleranceBefore: .zero, toleranceAfter: .zero)
             call.resolve()
@@ -348,6 +444,25 @@ public class FoldNativeVideoPlugin: CAPPlugin, CAPBridgedPlugin {
     // THE FAN-OUT'S OWN ACCOUNT OF WHO GOT WHAT (B584). Cheap enough to poll once a second; it
     // takes the socket lock and copies counters. See FrameSocketServer.stats() for why this rides
     // the JS bridge rather than the frame socket it describes.
+    // LIVE, and deliberately so (Daniel, B605): the whole point of a tunable budget is comparing
+    // 64MB against 128MB while the same clip loops, rather than across a pair of builds. Raising
+    // it lets the cache top itself up on the next pass; lowering it trims immediately.
+    @objc func setLoopCache(_ call: CAPPluginCall) {
+        let mb = max(0, call.getInt("mb") ?? 64)
+        DispatchQueue.main.async {
+            self.cacheBudget = mb * 1024 * 1024
+            self.cacheLock.lock()
+            while self.headBytes > self.cacheBudget, let last = self.headCache.popLast() {
+                self.headBytes -= last.data.count
+            }
+            if self.cacheBudget == 0 { self.headCache.removeAll(); self.headBytes = 0 }
+            let n = self.headCache.count
+            self.cacheLock.unlock()
+            print("[FoldVideo] loop cache budget \(mb)MB — holding \(n) frames")
+            call.resolve()
+        }
+    }
+
     @objc func frameStats(_ call: CAPPluginCall) {
         var out = server.stats()
         // the DECODE's own account of the lap, beside the SOCKET's account of the wire —
@@ -358,6 +473,26 @@ public class FoldNativeVideoPlugin: CAPPlugin, CAPBridgedPlugin {
         out["swapFromPts"] = swapFromPts
         out["swapToPts"] = swapToPts
         out["ticksNoBuffer"] = ticksNoBuffer
+        // THE CACHE'S OWN ACCOUNT. `coveredMs` against `swapGapMs` is the whole reading: equal or
+        // greater means the lap is fully filled, less means a partial fill and a shorter hold, and
+        // zero with a budget set means it never got to store anything and must say so.
+        cacheLock.lock()
+        let held = headCache.count
+        let bytes = headBytes
+        let covered = headCache.last.map { Int($0.pts * 1000) } ?? 0
+        cacheLock.unlock()
+        out["loopCache"] = [
+            "budgetMB": cacheBudget / (1024 * 1024),
+            "frames": held,
+            "heldMB": bytes / (1024 * 1024),
+            "coveredMs": covered,
+            "lapsCovered": lapsCovered,
+            "lastReplayFrames": lastReplayFrames,
+            "why": cacheBudget == 0 ? "disabled from the frame-cost panel"
+                 : held == 0 ? "no head frames stored yet (the clip has not played through 0-0.3s)"
+                 : swapGapMs > 0 && covered < swapGapMs ? "partial fill — \(covered)ms of a \(swapGapMs)ms lap; raise the budget"
+                 : "covering the lap",
+        ] as [String: Any]
         call.resolve(out)
     }
 
@@ -407,5 +542,8 @@ public class FoldNativeVideoPlugin: CAPPlugin, CAPBridgedPlugin {
         swapGapMs = -1; maxSwapGapMs = -1; swapFromPts = -1; swapToPts = -1
         ticksNoBuffer = 0
         swapAt = 0
+        endReplay()
+        cacheLock.lock(); headCache.removeAll(); headBytes = 0; cacheLock.unlock()
+        lapsCovered = 0; lastReplayFrames = 0
     }
 }

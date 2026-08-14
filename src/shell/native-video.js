@@ -51,6 +51,18 @@ function sourceCap() {
 let lastStartError = null;
 export function getNativeStartError() { return lastStartError; }
 
+// THE LOOP-CACHE BUDGET, in MB. Lives here rather than in the plugin's `start` because the whole
+// point is comparing 64 against 128 while the same clip loops (Daniel, B605) — read live, pushed
+// over the bridge on every change. 0 disables the cache, which is the A/B's off arm.
+export function loopCacheMB() {
+  try { const v = localStorage.getItem('foldLoopCacheMB'); return v == null ? 64 : Math.max(0, parseInt(v, 10) || 0); }
+  catch { return 64; }
+}
+export function pushLoopCacheBudget() {
+  if (!nativeVideoAvailable()) return;
+  FoldNativeVideo.setLoopCache({ mb: loopCacheMB() }).catch(() => {});
+}
+
 export function nativeVideoAvailable() {
   try {
     return Capacitor?.isNativePlatform?.() && Capacitor.getPlatform() === 'ios';
@@ -357,6 +369,7 @@ export async function createNativeVideoSource(env, blob, { name, loop = true, on
     // that is the first call that ever reaches the plugin's pause().
     state.paused = true;
     await FoldNativeVideo.pause().catch(() => {});
+    pushLoopCacheBudget();   // the plugin's own default is 64MB; make the panel authoritative
   } catch (e) {
     // the STAGE is the whole diagnostic value here (upload / plugin start / frame socket
     // point at three completely different faults), and until B597 it only ever reached the

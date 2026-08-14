@@ -1032,6 +1032,8 @@ const LINK_PARAMS = [
   { group: 'Related: localStorage switches  ·  not URL params, same class of thing', items: [
     ['foldNativeVideoCap', 'source detail for the native video decode (0 / 2560 / 1920 / 1280)',
       'Bounds the long edge of the engine\'s source texture; 0 = native. The decode and the frame socket stay full-res either way, so this trades detail for fill rate. Has a real toggle in settings → diagnostics ("source detail"), so you rarely need to set it by hand.'],
+    ['foldLoopCacheMB', 'memory the native decode may hold for the loop head (0 / 32 / 64 / 128 / 256, default 64)',
+      'A lap costs a fixed ~150ms of no frames — measured identically at 4K and FHD, so it is a pipeline restart cost rather than decode work. These cached head frames fill it. A 4K frame is ~12.4MB, so 64MB buys about 5 frames; 0 disables the cache and is the A/B control arm. Toggle in settings → diagnostics ("loop cache"), and it applies LIVE so a budget can be compared mid-loop.'],
     ['foldHdmiVideoUncap', 'lift the 1080p-over-HDMI guard for video sources ("1" / "0")',
       'Also a toggle in settings → diagnostics ("4K/QHD over HDMI"). Largely historical now that the single native decode removed the second decoder that made the guard necessary.'],
     ['foldNdiClockVideo', 'NDI clock_video ("0" disables; default on)',

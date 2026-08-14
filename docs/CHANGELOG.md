@@ -6,6 +6,67 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🧊 v0.25.15 (Build 605) — 2026-08-14 — Fill the lap from a head-frame cache
+
+**⚠️ NEEDS `npx cap sync ios` + AN XCODE BUILD.**
+
+### Shipped
+
+- **The loop head cache.** The plugin keeps the clip's first 0.3s of encoded frames and feeds them back at the lap while AVFoundation restarts. The wire carries real frames with real timestamps throughout, so both webviews, the motion clock and every downstream consumer are unaware anything happened.
+- **A live budget knob: `loop cache: 64MB`** in settings → diagnostics, cycling 64 / 128 / 256 / off / 32. **Applies immediately** — raise it while a clip loops and compare, no reload, no rebuild. `off` is the A/B's control arm.
+- **`srcFanOut.loopCache`** in the report: `budgetMB`, `frames`, `heldMB`, `coveredMs`, `lapsCovered`, `lastReplayFrames`, and a `why` that names a partial fill as a partial fill.
+- **A scrub abandons the replay**, since the cached frames are the head of the clip and the operator has gone somewhere else. Cleared on teardown with the rest of the per-clip state.
+- **The loop hold's history, corrected in BACKLOG.** It was never fixed — see below.
+
+### The design, and why the budget is the tunable
+
+**The need is a duration and the risk is bytes.** The gap is fixed in *time* (~150ms, identical at 4K and FHD), so what the cache must hold is a number of *seconds*; what can hurt us is *megabytes*, because this project has a 4K jetsam history. So the cache holds `headSeconds` worth, capped by a byte budget — and the byte cap is the thing worth playing with, which is exactly what Daniel asked for.
+
+At 4K a frame is ~12.4MB, so **64MB buys ~5 frames ≈ 0.17s**, just over the gap. At FHD the same budget buys ~20. A partial fill is not a failure — it still turns a 150ms hold into a short one — but `coveredMs` against `swapGapMs` says plainly which it is.
+
+**Cached frames are source footage, not rendered output.** Each engine applies the kaleidoscope at render time from live state, so **the slice keeps animating through the lap** and a performer moving it across the loop point sees no difference. That was Daniel's question and it is the reason this design works at all.
+
+### ⚠️ The loop hold was never fixed, and that changes how to read its history
+
+Daniel filed it at B580 as *"fixed a long time ago and has come back"*. The history says otherwise:
+
+- **B487** — first report, on the `<video>` path, filed as a watch item with *"should vanish under S3-A's seamless native AVPlayerLooper"*. **A prediction, not a fix.**
+- **B490** — re-test: 100% of the time on 4K sources, **including a 12.6s baked seamless loop**.
+- **B491** — fixed the external-view seek thrash, a different and much worse stutter. Its own verify still asked *"does the trimmed-clip loop still lurch every lap?"*
+- **B498-B506** — S3-A shipped AVPlayerLooper. **The prediction was never checked.**
+
+**It feels new because we made everything around it smooth.** Before B590 the broadcast ran at 20-25/s, where 150ms is three frames of an already-choppy stream; B590 took it to 29-30/s with a 33ms new-picture interval. A fixed defect becomes conspicuous exactly when its surroundings stop being noisy.
+
+**Standing lesson: a predicted fix filed as a watch item reads like a closed item three months later.** Predictions get a verification step or the item stays open.
+
+## 🧭 v0.25.14 (Build 604) — 2026-08-14 — Fixed cost, not decode work: the investigation closes
+
+**JS only. No `cap sync` needed.**
+
+### Shipped
+
+- **Fixed: the bake decoded the whole file up to the trim in-point.** `createSequentialFrameReader.frameAt` walks forward from sample 0, so a 30s loop taken from the middle of a long clip decoded every frame before it. A forward jump past the next keyframe now seeks (`resetTo`, which already existed for the backward path) instead of walking. Daniel: *"it felt like it might have taken 10+ minutes"*, against seconds for the same trim from the head of the file.
+- **Verify-queue convention:** every instruction now says **[panel]** or **[report]** so there is no hunting for a number that was never on screen.
+
+### THE ANSWER: the loop gap is a fixed cost, and resolution is not a lever
+
+| source | pixels | `swapGapMs` | `maxSwapGapMs` |
+|---|---|---|---|
+| 4K (3840×2160) | 8.29MP | 141 | 150 |
+| **FHD (1920×1080)** | **2.07MP** | **141** | **150** |
+
+**Four times the pixels, identical gap.** So the ~150ms is not decode work. It is a fixed cost for AVFoundation to resume delivering frames after the playhead returns to zero.
+
+**And the FHD run is the cleanest isolation of the arc:** app at 59.9fps, `30 NEW PICTURES/s ON THE DISPLAY`, `fresh p50 33ms`, `ticksNoTaker: 16` (against thousands at 4K), every counter healthy — **and the loop hold is still exactly 145ms.** It is the only defect left standing, and nothing about system load touches it.
+
+### The last hypothesis is dead too, and B601 already killed it
+
+The remaining idea was Apple's pull model (`requestNotificationOfMediaDataChange`) instead of polling `hasNewPixelBuffer` blind. **B601's arm B rules it out:** with `loopBySeek`, the output is attached once and never moves, and the gap was still 150ms. A notification cannot deliver data that does not exist yet, and we already poll at 60Hz. **No build needed to close it.**
+
+That also kills pre-attaching an output to the next queued item, for the same reason.
+
+**The stopping rule is met.** The gap does not scale with resolution, and no API change we can make moves it. **Stop investigating; fill the gap.**
+
 ## 🛟 v0.25.13 (Build 603) — 2026-08-14 — Parking the clip could cost us the decode
 
 **⚠️ NEEDS `npx cap sync ios` + AN XCODE BUILD.**

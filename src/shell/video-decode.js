@@ -143,6 +143,9 @@ export async function createSequentialFrameReader(url, { maxBytes = 1_500_000_00
   let i = 0;              // next sample (decode order) to feed
   let flushing = false, flushDone = false;
   let lastTargetUs = -Infinity;
+  // how far ahead a target has to be before we SEEK to it rather than decode our way there.
+  // 2s is comfortably longer than any sane GOP, so the ordinary forward march never trips it.
+  const FORWARD_SEEK_US = 2_000_000;
   let closed = false;
 
   // REVERSE-WALK CACHE — the bounce bake's real cost. `frameAt` is monotonic-friendly:
@@ -277,6 +280,24 @@ export async function createSequentialFrameReader(url, { maxBytes = 1_500_000_00
         resetTo(target);   // window didn't cover it (end of stream / timeout) — normal path
       } else if (revCache.length) {
         revClear();        // moving forward again: the window is dead weight
+      }
+      // A LONG FORWARD JUMP IS A SEEK, NOT A WALK (B604).
+      //
+      // This reader starts at sample 0 and `frameAt` walks forward to the target, which is right
+      // for the frame-by-frame march a bake does — and catastrophic for the FIRST call, because
+      // the trim's in-point can be minutes into the file. Baking a 30s loop from the middle of a
+      // long clip decoded every frame from 0 to the in-point before producing anything: Daniel,
+      // B603, "at the rate it started it felt like it might have taken 10+ minutes", against
+      // seconds for the same trim taken from the head of the file.
+      //
+      // `resetTo` already binary-searches the sync points and re-configures the decoder — it was
+      // just only ever used on the backward path. A forward jump past the next keyframe is the
+      // same operation, and skipping to it costs one keyframe re-decode instead of thousands of
+      // discarded frames. The threshold keeps the ordinary frame-to-frame march on the walk,
+      // where it belongs, since a reset there would re-decode a GOP per frame.
+      if (target > lastTargetUs + FORWARD_SEEK_US) {
+        const nextKey = syncPoints.find((p) => p.us > lastTargetUs && p.us <= target);
+        if (nextKey) resetTo(target);
       }
       lastTargetUs = target;
       const deadline = performance.now() + 10_000;   // a wedged decoder must not hang the render

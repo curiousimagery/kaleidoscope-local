@@ -1617,6 +1617,27 @@ function wireGlobalSheets() {
     syncCap();
   }
 
+  // THE LOOP CACHE'S BUDGET (B605). Same cycling-button pattern as source detail, and live for
+  // the same reason it is a knob at all: Daniel's ask was to raise it mid-loop and watch what
+  // changes, rather than bisect it across builds. `off` is the A/B's control arm.
+  const CACHE_MB = [64, 128, 256, 0, 32];
+  const cacheBtn = document.getElementById('loopCacheBudget');
+  if (cacheBtn) {
+    const readMB = () => { try { const v = localStorage.getItem('foldLoopCacheMB'); return v == null ? 64 : Math.max(0, parseInt(v, 10) || 0); } catch { return 64; } };
+    const syncCache = () => {
+      const v = readMB();
+      cacheBtn.classList.toggle('active', v > 0);
+      cacheBtn.textContent = `loop cache: ${v > 0 ? v + 'MB' : 'off'}`;
+    };
+    cacheBtn.addEventListener('click', async () => {
+      const next = CACHE_MB[(CACHE_MB.indexOf(readMB()) + 1) % CACHE_MB.length] ?? 64;
+      try { localStorage.setItem('foldLoopCacheMB', String(next)); } catch { /* private mode */ }
+      try { (await import('./shell/native-video.js')).pushLoopCacheBudget(); } catch { /* not on iOS */ }
+      syncCache();
+    });
+    syncCache();
+  }
+
   const hdmiUncapBtn = document.getElementById('hdmiVideoUncap');
   if (hdmiUncapBtn) {
     const read = () => { try { return localStorage.getItem('foldHdmiVideoUncap') === '1'; } catch { return false; } };

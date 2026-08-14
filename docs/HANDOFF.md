@@ -84,6 +84,35 @@ This retires the confusion, not just a hypothesis. Resolution was free because t
 
 ## current version
 
+**🧊 B605 — FILL THE LAP FROM A HEAD-FRAME CACHE. ⚠️ NEEDS `npx cap sync ios` + AN XCODE BUILD.**
+
+The investigation closed at B604 (fixed ~150ms, identical at 4K and FHD, every alternative measured dead). **This is the fix.** The plugin keeps the clip's first 0.3s of encoded frames and feeds them back at the lap while AVFoundation restarts — real frames, real timestamps, so both webviews and the motion clock never notice. **Works on any clip**, which is required since most loops are authored elsewhere.
+
+**The need is a duration, the risk is bytes.** The cache holds `headSeconds` worth capped by a byte budget, and **the budget is a live knob** (`loop cache` in settings → diagnostics, 64/128/256/off/32, applies immediately — Daniel's ask was to raise it mid-loop and watch). 4K frame ≈ 12.4MB, so 64MB ≈ 5 frames ≈ 0.17s. `srcFanOut.loopCache.why` names a partial fill as a partial fill.
+
+**⚠️ THE JETSAM QUESTION IS THE OPEN RISK.** 128MB and 256MB at 4K are exactly the memory pressure that made the single-decode architecture necessary. Default is deliberately conservative; verification watches for a lost context at the higher budgets.
+
+**Cached frames are SOURCE FOOTAGE, not rendered output** — each engine applies the kaleidoscope at render time from live state, so the slice keeps animating through the lap. That was Daniel's design question and it is why this works.
+
+**⚠️ AND THE LOOP HOLD WAS NEVER FIXED** (history checked at B605 on Daniel's ask). B487 filed it with *"should vanish under S3-A's AVPlayerLooper"* — **a prediction, never verified**; B490 confirmed it 100% on 4K including a baked seamless loop; B580 re-reported it as a regression. **It feels new because B590 made everything around it smooth.** Standing lesson, now in BACKLOG: a predicted fix filed as a watch item reads like a closed item three months later.
+
+
+**🧭 B604 — THE LOOP-GAP INVESTIGATION IS CLOSED. JS only, no `cap sync`.**
+
+**FHD `swapGapMs` 141 / max 150 — identical to 4K at four times the pixels.** The gap is a **fixed cost** for AVFoundation to resume delivering frames after the playhead returns to zero, not decode work. **Resolution is not a lever.**
+
+The FHD run is the arc's cleanest isolation: app 59.9fps, 30 new pictures/s on the display, `fresh p50 33ms`, `ticksNoTaker: 16`, every counter healthy — **and the hold still exactly 145ms.** Nothing about system load touches it.
+
+**The last hypothesis died without a build.** The pull model (`requestNotificationOfMediaDataChange`) cannot help: B601's arm B attached the output once and never moved it and still paid 150ms, and we already poll at 60Hz. Same reasoning kills pre-attaching an output to the next queued item.
+
+**▶ NEXT IS A BUILD, NOT AN INVESTIGATION: fill the gap from a head-frame cache.** Proposed in BACKLOG, **awaiting Daniel's go-ahead** because it is native and it costs memory. Cap by BYTES not frames, so the budget self-scales (~5 frames at 4K, ~20 at FHD, for the same fixed 150ms).
+
+**🚫 Constraints that shaped it (Daniel, B602):** a deliberate hold is a non-starter, and the fix cannot live in the Loop Builder because most loops are built elsewhere and imported.
+
+**Also fixed:** the bake decoded the entire file up to the trim in-point (`frameAt` walked forward from sample 0); a long forward jump now seeks to the preceding keyframe.
+
+**📍 Convention (Daniel, B603):** verification steps now mark **[panel]** vs **[report]** so he is never hunting for a number that was never on screen.
+
 **🛟 B603 — PARKING THE CLIP COULD COST US THE DECODE. ⚠️ NEEDS `npx cap sync ios` + AN XCODE BUILD.**
 
 **⚠️ THE B602 FHD EXPERIMENT IS VOID.** That run reported `nativeAttach.why: the decode did not start — failed at "frame socket"`, `from <video>`, `extJitter.loop: null`, app fps 59.9. **It measured the `<video>` fallback**, and every 4K number in this arc is the native decode. Neither "the hold scales with resolution" nor its opposite is supported. **Re-run pending.**

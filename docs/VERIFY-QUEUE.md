@@ -8,31 +8,54 @@ Confirmed results are DELETED from here and recorded in CHANGELOG. Closed sessio
 
 ---
 
-# ▶ THIS SESSION (B603) — the FHD experiment, re-run on the right code path
+# ▶ THIS SESSION (B605) — "does the head cache fill the lap?"
 
 **⚠️ NEEDS `npx cap sync ios` + AN XCODE BUILD.**
 
-## ⚠️ CHECK THIS BEFORE TRUSTING ANY MEASUREMENT, EVERY TIME
+**iPad, ~10 minutes.** The knob is live, so this is one sitting and several arms.
 
-Look at the `source` row in the frame-cost panel. **It must say `planar · native decode · ~30 in/s`.**
-If it says `from <video>` or `⚠ NO NATIVE DECODE: …`, the run is on the fallback path and **nothing in that report can be compared to any other report.** That is what happened to B602's FHD run.
+**[panel]** = on screen in the frame-cost panel. **[report]** = only in `copy report`.
 
-## The re-run
+## ⚠️ BEFORE TRUSTING ANY MEASUREMENT, EVERY TIME
 
-1. **Load the SAME 1:23 FHD loop.** Confirm the source row says `native decode`.
-2. Broadcast, let it lap 4+ times.
-3. `copy report`. **The number is `srcFanOut.swapGapMs`, against the 4K baseline of 141-150.**
+**[panel]** The `source` row must read `planar · native decode · ~30 in/s`. If it says `from <video>` or `⚠ NO NATIVE DECODE`, that report cannot be compared to any other.
 
-| reading | meaning | consequence |
-|---|---|---|
-| **still ~150ms** | a fixed cost to restart delivery, independent of resolution | resolution is not a lever; the gap has to be filled, not shrunk |
-| **drops to ~40ms** | it scales with pixels | first new lever since B590 |
+## The control is `loop cache` in settings → diagnostics
 
-4. **If it falls back to `<video>` again**, send the report anyway — `nativeAttach.why` names the stage and that is its own finding. B603 fixed one way this can happen; if it recurs there is a second.
+**[panel]** A cycling button: `64MB → 128MB → 256MB → off → 32MB`. **It applies immediately** — no reload, no clip re-load. Raising it lets the cache top up on the next lap; lowering it trims at once.
 
-## Also confirm (30 seconds, since B603 touched the load path)
+## Part 1 — does it work at all (FHD first, where the budget is generous)
 
-5. Load a 4K clip. The source panel shows the **first** frame, and the source row says `native decode`.
+1. Broadcast a **looping FHD clip**, let it lap 4+ times at the default **64MB**.
+2. **Watch the loop point. The hold should be gone.**
+3. **[report]** `srcFanOut.loopCache` — `coveredMs` should be **≥ `swapGapMs`** (~150) and `why` should read `covering the lap`.
+
+## Part 2 — the A/B, same sitting
+
+4. **[panel]** Set `loop cache: off`. Keep looping. **The hold should come straight back.** That is the control arm and it proves the cache is what changed.
+5. **[panel]** Back to `64MB`. It should disappear again within a lap or two (the cache refills as the head plays).
+
+## Part 3 — 4K, where the budget is tight
+
+6. Load a **4K** clip, broadcast, lap 4+ times at **64MB**.
+7. **[report]** Read `loopCache.coveredMs` against `swapGapMs`, and `why`.
+   - `covering the lap` → done at 4K too.
+   - `partial fill — Nms of a 150ms lap` → **[panel]** raise to `128MB`, keep looping, read again.
+8. **Tell me how it LOOKS at each budget, not just what the numbers say.** A partial fill should read as a much shorter hitch; the question is whether it still reads as a defect.
+
+## ⚠️ Watch for the thing that would make this a bad trade
+
+9. **At 128MB and 256MB on a 4K clip, watch for a graphics context loss or the app being killed.** That is the jetsam risk and it is the reason the default is conservative. If it happens, drop back to 64MB and tell me — the cache is not worth a lost context mid-set.
+
+## Part 4 — the behaviours the cache could plausibly break
+
+10. **Scrub during playback** on a looping clip — the replay is meant to abandon on a seek, so scrubbing should feel exactly as before.
+11. **Pause across the loop point** — a paused clip should not lap at all.
+12. **Move the slice through the loop point** while broadcasting. **This should be unaffected** — the cache holds source footage, not rendered output, so the kaleidoscope keeps animating live. If the look freezes at the lap, the design assumption is wrong and I need to know immediately.
+
+# 🅿️ PREVIOUS SESSION (B604) — bake seek + [panel]/[report] convention; loop-gap investigation CLOSED.
+
+# 🅿️ PREVIOUS SESSION (B603) — ANSWERED: FHD `swapGapMs` 141/150, identical to 4K. The loop gap is a FIXED cost; resolution is not a lever.
 
 # 🅿️ PREVIOUS SESSION (B602) — perform playhead FIXED (verified). FHD experiment VOID: it ran on the <video> fallback.
 
