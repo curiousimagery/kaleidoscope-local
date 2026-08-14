@@ -70,6 +70,8 @@ public class FoldNativeVideoPlugin: CAPPlugin, CAPBridgedPlugin {
     // encode + socket send off the main thread — copyPixelBuffer hands us an owned
     // buffer, so it's safe to carry to another queue; keeps 4K encode off the UI/decode tick
     private let encodeQueue = DispatchQueue(label: "fold.video.encode")
+    // set by start(startPaused:), cleared by the tick that pushes the first frame
+    private var pauseAfterFirstFrame = false
 
     // path: a file:// URL or plain filesystem path to the clip. loop: seamless repeat (default true).
     @objc func start(_ call: CAPPluginCall) {
@@ -77,6 +79,16 @@ public class FoldNativeVideoPlugin: CAPPlugin, CAPBridgedPlugin {
             call.reject("no path"); return
         }
         let loop = call.getBool("loop") ?? true
+        // PARK AFTER EXACTLY ONE FRAME (B597). The player has to run for the output to
+        // produce anything, so a clip used to decode however many frames fitted in the
+        // round trip before JS could pause it over the bridge. Two symptoms, one cause:
+        // the preview "hunts around a couple frames" on load, and a client joining the
+        // socket is primed with whichever of those frames happened to be last rather than
+        // the one the app is showing (Daniel, B596: "the external display is showing a
+        // different frame than the output panel"). Pausing HERE, on the tick that pushed
+        // the first frame, closes the window instead of racing it.
+        let startPaused = call.getBool("startPaused") ?? false
+        self.pauseAfterFirstFrame = startPaused
         let url = path.hasPrefix("file://") ? (URL(string: path) ?? URL(fileURLWithPath: path))
                                             : URL(fileURLWithPath: path)
         DispatchQueue.main.async {
@@ -166,6 +178,8 @@ public class FoldNativeVideoPlugin: CAPPlugin, CAPBridgedPlugin {
         // the CLIP's duration (position within the clip), not the queue's — which is
         // exactly the span the timeline is scaled to.
         let dur = CMTimeGetSeconds(player?.currentItem?.duration ?? .indefinite)
+        // one frame is all a parked clip owes anyone — see start(startPaused:)
+        if pauseAfterFirstFrame { pauseAfterFirstFrame = false; player?.pause() }
         encodeQueue.async { [weak self] in
             guard let self = self,
                   let data = FrameSocketServer.encode(pb, pts: pts, duration: dur) else { return }

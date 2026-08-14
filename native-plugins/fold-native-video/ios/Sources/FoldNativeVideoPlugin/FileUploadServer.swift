@@ -101,9 +101,27 @@ final class FileUploadServer {
     }
 
     // Drop every staged clip. Called before staging a new one and on plugin teardown.
+    // NEVER PURGE OUT FROM UNDER AN IN-FLIGHT UPLOAD (B597).
+    //
+    // `stop()` purges on the principle that the staged copy dies with the decode that used
+    // it, which is right when stopping is the last thing that happens. A Loop Builder bake
+    // makes it the FIRST thing: B595 taught the bake to re-attach the native decode, so JS
+    // now tears the old decode down and immediately begins staging the baked clip. The stop
+    // hops through the main queue on its way here, so it can land AFTER `begin()` has
+    // created the new file — and `purgeLocked` deletes everything in the directory
+    // unconditionally.
+    //
+    // Writes to an unlinked file still succeed on Unix, so nothing failed loudly: the upload
+    // "completed", `finishUpload` returned a path with no file behind it, AVURLAsset produced
+    // no frames, and the receiver's 8s requireFrame window expired into the `<video>`
+    // fallback. Daniel's B596 report is that state — `from <video>` with the staged panel dark.
+    //
+    // `begin()` already purges the directory before creating its file, so standing down here
+    // when an upload owns the directory costs nothing and makes either ordering safe.
     func purge() {
         queue.async { [weak self] in
             guard let self = self else { return }
+            if self.handle != nil { return }
             self.closeFileLocked()
             self.purgeLocked(FileManager.default.temporaryDirectory
                 .appendingPathComponent("fold-video", isDirectory: true))

@@ -1157,21 +1157,37 @@ export function createSourceHost(env) {
   // Capability-gated end to end: `createNativeVideoSource` returns null rather than
   // throwing on any failure, and everything below simply doesn't happen — leaving the
   // proven `<video>` path exactly as it was.
+  // EVERY EXIT SAYS WHY (B597). This function has seven ways to decline and all of them
+  // used to be silent returns, so "the native decode is not running" reached Daniel as the
+  // absence of the words `native decode` in the source note and nothing else. The B596
+  // post-bake failure presented as a dark panel with a healthy-looking report; the reason
+  // existed only in a console he cannot read on a Capacitor device.
+  //
+  // `null` = attached fine. Anything else rides the source note AND the exported report.
+  function noteAttach(why) {
+    env.nativeAttach = why ? { why, at: new Date().toISOString() } : null;
+    if (why) console.warn(`[fold] native video not attached: ${why}`);
+    return null;
+  }
   async function attachNativeVideo(v, file) {
-    detachNativeVideo();
+    // AWAITED, because the teardown purges the staging directory this is about to write
+    // into — ours, and any that an earlier caller left running
+    await detachNativeVideo();
+    await pendingTeardown;
     const blob = env.media.sourceVideoBlob;
-    if (!blob) return;                                    // transcoded file:// path — stay on <video>
+    if (!blob) return noteAttach('no blob for this source (a file:// or transcoded path) — staying on <video>');
     let mod;
-    try { mod = await import('./native-video.js'); } catch { return; }   // not bundled on web
-    if (!mod.nativeVideoAvailable()) return;
-    if (env.sourceVideo !== v) return;                    // a newer source landed while we imported
+    try { mod = await import('./native-video.js'); } catch { return noteAttach('native-video module is not bundled on this platform'); }
+    if (!mod.nativeVideoAvailable()) return noteAttach('native video decode is iOS-only');
+    if (env.sourceVideo !== v) return noteAttach('a newer source landed while the module loaded');
     statusEl.textContent = 'preparing the clip for native playback…';
     statusEl.classList.add('busy');
     const src = await mod.createNativeVideoSource(env, blob, { name: file?.name || 'clip.mp4' });
     statusEl.textContent = '';
     statusEl.classList.remove('busy');
-    if (!src) return;                                     // fallback stays intact
-    if (env.sourceVideo !== v) { src.stop(); return; }     // source swapped mid-upload
+    if (!src) return noteAttach(`the decode did not start — ${mod.getNativeStartError?.() || 'reason not recorded'}`);
+    if (env.sourceVideo !== v) { src.stop(); return noteAttach('the source was swapped while the clip was uploading'); }
+    noteAttach(null);
     env.nativeVideo = src;
     env.sourceClock = src.clock;                          // motion + perform now drive the native player
     try { v.pause(); } catch { /* ignore */ }              // the <video> is authoring-only from here
@@ -1189,14 +1205,32 @@ export function createSourceHost(env) {
     console.info(`[fold] native video decode active on port ${src.port} — <video> parked for authoring`);
     env.scheduleRender?.();
   }
+  // THE INVARIANT IS GLOBAL, not per-caller: no clip may be staged while a teardown is in
+  // flight, because the teardown purges the staging directory. Most callers detach as a
+  // fire-and-forget step long before the matching attach (a new clip load detaches at the
+  // top of loadVideo and attaches ~40 lines later), so making only `attachNativeVideo`'s
+  // own detach awaitable would close the bake's race and leave the load's open.
+  let pendingTeardown = Promise.resolve();
+  // Returns a promise so a caller that is about to STAGE A NEW CLIP can wait for the
+  // teardown (which purges the staging directory) to finish first.
   function detachNativeVideo() {
     const src = env.nativeVideo;
-    if (!src) return;
+    if (!src) return Promise.resolve();
     env.nativeVideo = null;
     env.nativeStageSource = null;
     env.sourceClock = videoElementClock;
-    try { engine.setPlanarSource(null); } catch { /* engine may be mid-reinit */ }
-    try { src.stop(); } catch { /* already stopped */ }
+    // HAND THE ENGINE BACK, or the fallback is not intact (B597). Clearing the planar
+    // provider left the engine still pointed at the decode's PREVIEW CANVAS — which
+    // nothing paints once the receiver is stopped. On the success path the re-attach
+    // immediately re-pointed it and hid this; on the failure path the engine sat on a
+    // dead canvas and the panel went black with no error anywhere. That is Daniel's B596
+    // "the staged panel goes dark". `stgStopVideo` has always done exactly this restore.
+    try {
+      if (env.sourceVideo) { engine.setSource(env.sourceVideo); engine.updateSourceFrame(); }
+      else engine.setPlanarSource(null);
+    } catch { /* engine may be mid-reinit */ }
+    try { pendingTeardown = src.stop() || Promise.resolve(); } catch { pendingTeardown = Promise.resolve(); }
+    return pendingTeardown;
   }
   env.detachNativeVideo = detachNativeVideo;
   // A BAKE PRODUCES A NEW CLIP, so it needs the same native hand-off a loaded file gets

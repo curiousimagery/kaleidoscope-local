@@ -84,6 +84,18 @@ This retires the confusion, not just a hypothesis. Resolution was free because t
 
 ## current version
 
+**🧹 B597 — THE BAKE DELETED THE CLIP IT HAD JUST STAGED. ⚠️ NEEDS `npx cap sync ios` + AN XCODE BUILD.**
+
+**The B596 post-bake failure was a file race, not a memory event.** `FoldNativeVideo.stop()` purges the staging directory; B595 made the bake tear down and immediately re-stage, and the stop hops through the main queue on its way to the upload server's serial queue, so it can land after `begin()` created the new file. **Writes to an unlinked file still succeed**, so the upload "completed" into nothing, AVURLAsset produced no frames, and the 8s `requireFrame` window expired into the `<video>` fallback. Closed natively (`purge()` stands down when an upload owns the directory) and in JS (`attachNativeVideo` awaits **any** teardown in flight, not just its own — most callers detach fire-and-forget long before the matching attach, so the new-clip-load path was racing identically. **Candidate for the long-standing intermittent "loads but will not play".**)
+
+**The dark staged panel was a fallback that was never intact.** `detachNativeVideo` left the engine pointed at the decode's preview canvas, which nothing paints once the receiver stops. Invisible on the success path because the re-attach re-pointed it. Detach now hands the engine back to the `<video>`.
+
+**⚠️ THE STANDING RULE GOT BROKEN AGAIN AND IS NOW ENFORCED HERE:** `attachNativeVideo` had **seven silent returns**, so "no native decode" was readable only as an ABSENCE. Every exit now names itself into `env.nativeAttach` → the source note (`⚠ NO NATIVE DECODE: …`) and the export, carrying `createNativeVideoSource`'s stage breadcrumb (`upload` / `plugin start` / `frame socket` are three different faults).
+
+**Also: one frame on load, decided natively.** `start({ startPaused: true })` parks the player on the tick that pushes the first frame. Fixes both the preview "hunting" on load and B596's joiner being primed with the wrong frame.
+
+**▶ STILL UNREAD: the loop-hold localization.** `loopStall.takeGapMs` vs `extJitter.loop` was shipped at B596 and returned `null` because the decode had already fallen over. That measurement is the open question.
+
 **🎯 B596 — THE B595 LOOP MECHANISM IS DEAD, KILLED BY ITS OWN COUNTER. ⚠️ NEEDS `npx cap sync ios` + AN XCODE BUILD.**
 
 `rewinds: 0, suppressed: 0` — the rewind never fired, so its settle window cannot be the hold. The last frame of the baked loop sits at pts 17.633 against a 17.7s duration and the boundary test is `>= outSec - 0.03`, so it falls 0.037s short of a 0.03s window and AVPlayerLooper wraps without us. **The `rewind` change stays** (correct, inert on a full-range trim, removes a real 120ms stall on trimmed clips) but it is not this bug.

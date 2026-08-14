@@ -8,7 +8,44 @@ Confirmed results are DELETED from here and recorded in CHANGELOG.
 
 ---
 
-# ▶ THIS SESSION (B596) — "where between the socket and the screen does the loop hold live?"
+# ▶ THIS SESSION (B597) — "does the bake survive, and can we finally get a loop reading?"
+
+**⚠️ NEEDS `npx cap sync ios` + AN XCODE BUILD.** Two Swift files changed.
+
+**iPad, ~8 minutes.** B596's loop instrument returned `null` because the native decode had fallen over before it could read anything. This build fixes the falling over. **Part 3 is the measurement B596 was supposed to produce.**
+
+## ⚠️ SET THE SCENARIO TAG TO `hdmi-broadcast` FIRST.
+
+## Part 1 — load and broadcast-start
+
+1. Load a 4K clip. **Watch for the hunting.** It should now settle on one frame instead of stepping through a few.
+2. Still paused, connect the display and start the broadcast.
+3. **The wall must show the SAME frame as the output panel** — B596 primed it with the wrong one.
+
+## Part 2 — bake while broadcasting (the B596 failure)
+
+4. Still broadcasting, bake the clip into a seamless loop.
+5. **It must come back on the native decode.** The tell is in the source note: it should read `planar · native decode · ~30 in/s`, **not** `from <video>`.
+6. **If it does fall back, the note now says why** — `⚠ NO NATIVE DECODE: …` naming the stage. Send the report; that line is the whole diagnosis.
+7. The staged panel must not go dark.
+
+## Part 3 — the loop hold, localized (carried from B596, never read)
+
+8. Let the baked loop run **four or more times** while broadcasting. Watch the hold.
+9. `copy report`. Compare **`loopStall`** (the app's receiver) with **`extJitter.loop`** (the external view's own receiver, the one driving the display). In each, `last.gapMs` against `last.takeGapMs`:
+
+| reading | meaning |
+|---|---|
+| both gaps small, in both receivers | nothing holds at the frame boundary and the hold is param-side, not picture-side |
+| `takeGapMs` large in `extJitter.loop` | the wall received frames and did not draw them. Fix is in `output-view.js` |
+| `takeGapMs` large in `loopStall` only | the app's engine stalls and the wall is fine — so what you are seeing is the iPad preview |
+| `takeGapMs` large in **both** | a shared cause, which points at the GPU process the two webviews share |
+
+**10. Tell me which surface holds — the iPad preview, the external display, or both.** One sentence, and it halves the search.
+
+**If `extJitter.loop` is `null` again**, the external view is not on the native path and part 2 did not hold. That reading is still useful; send it.
+
+# 🅿️ PREVIOUS SESSION (B596) — "where between the socket and the screen does the loop hold live?"
 
 **⚠️ NEEDS `npx cap sync ios` + AN XCODE BUILD.** The Swift plugin changed.
 

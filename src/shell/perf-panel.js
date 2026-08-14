@@ -252,6 +252,11 @@ export function mountPerfPanel(env, { container = null, onClose = null } = {}) {
       // `last.gapMs` means the decoder never stopped and the hold is on our side; a large one
       // means it did and the fix is native. This is the reading that decides which.
       loopStall: env.nativeVideo?.loopStall?.() || undefined,
+      // WHY THERE IS NO NATIVE DECODE (B597). Present ONLY when the attach declined, and it
+      // names which of the seven exits was taken. Without it, a fallback and a decode that
+      // was never attempted produce the identical report: no `loopStall`, no `srcSocket`,
+      // no `srcFanOut`, and a `from <video>` tag that could mean either.
+      nativeAttach: env.nativeAttach || undefined,
       srcSocket: env.nativeVideo?.socketState?.() || undefined,
       srcFanOut: env.nativeVideo?.fanOut || undefined,
       // WHAT THIS DEVICE HAS BEEN MEASURED SUSTAINING, per destination + resolution tier (B585).

@@ -44,6 +44,12 @@ function sourceCap() {
   catch { return 0; }
 }
 
+// WHY THE LAST ATTEMPT FELL BACK, kept module-level so the caller can publish it after
+// `createNativeVideoSource` has returned its deliberate null. See the catch in that
+// function for why the STAGE is the diagnostic and not the message.
+let lastStartError = null;
+export function getNativeStartError() { return lastStartError; }
+
 export function nativeVideoAvailable() {
   try {
     return Capacitor?.isNativePlatform?.() && Capacitor.getPlatform() === 'ios';
@@ -319,7 +325,10 @@ export async function createNativeVideoSource(env, blob, { name, loop = true, on
   try {
     const path = await uploadClip(blob, name, onProgress);
     stage = 'plugin start';
-    const { port } = await FoldNativeVideo.start({ path, loop });
+    // startPaused parks the player natively on the tick that pushes the first frame, which
+    // is the only place the window can actually be closed. The JS pause below stays as the
+    // fallback for a webview running ahead of an older plugin build.
+    const { port } = await FoldNativeVideo.start({ path, loop, startPaused: true });
     console.info(`[fold] native video: decode started, serving port ${port || 8900}`);
     stage = 'frame socket';
     // the preview canvas is bounded hard: nothing samples it for output any more (the
@@ -344,11 +353,16 @@ export async function createNativeVideoSource(env, blob, { name, loop = true, on
     state.paused = true;
     await FoldNativeVideo.pause().catch(() => {});
   } catch (e) {
+    // the STAGE is the whole diagnostic value here (upload / plugin start / frame socket
+    // point at three completely different faults), and until B597 it only ever reached the
+    // console — which on a Capacitor device is nowhere
+    lastStartError = `failed at "${stage}": ${e?.message || e}`;
     console.warn(`[fold] native video source unavailable at "${stage}", using <video>:`, e?.message || e);
     try { receiver?.stop(); } catch { /* not started */ }
     try { await FoldNativeVideo.stop(); } catch { /* nothing running */ }
     return null;
   }
+  lastStartError = null;
   const clock = createNativeClock(receiver, state);
 
   // WHERE THE TIME GOES. Every field here exists because a guess about it cost a device
@@ -438,9 +452,12 @@ export async function createNativeVideoSource(env, blob, { name, loop = true, on
     notePreview: (ms) => { pvMs += ms; pvs++; },
     get width() { return lastDims.w || receiver.frameSource().width; },
     get height() { return lastDims.h || receiver.frameSource().height; },
+    // AWAITABLE, because the teardown purges the staging directory and the next thing the
+    // caller does may be staging a new clip into it (the Loop Builder bake). See
+    // FileUploadServer.purge for the race this closes from the other side.
     stop() {
       try { receiver.stop(); } catch { /* already closed */ }
-      FoldNativeVideo.stop().catch(() => {});
+      return FoldNativeVideo.stop().catch(() => {});
     },
   };
 }

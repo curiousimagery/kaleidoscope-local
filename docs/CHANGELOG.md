@@ -4,6 +4,30 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🧹 v0.25.7 (Build 597) — 2026-08-13 — The bake deleted the clip it had just staged
+
+**⚠️ NEEDS `npx cap sync ios` + AN XCODE BUILD.** Two Swift files changed.
+
+### The post-bake failure was a file being purged out from under its own upload
+
+`FoldNativeVideo.stop()` purges the staging directory on the principle that the staged copy dies with the decode that used it. That is right when stopping is the last thing that happens. **B595 made it the first thing:** the bake now tears the old decode down and immediately stages the baked clip. The stop hops through the main queue on its way to the upload server's serial queue, so it can land **after** `begin()` has created the new file, and `purgeLocked` deletes the directory unconditionally.
+
+**Nothing failed loudly, because writes to an unlinked file still succeed on Unix.** The upload "completed", `finishUpload` returned a path with no file behind it, `AVURLAsset` produced no frames, and the receiver's 8s `requireFrame` window expired into the `<video>` fallback. Daniel's B596 report is exactly that state: `from <video>`, `extPosts.ownClock: false`, no `loopStall`, no `srcSocket`.
+
+Closed from both sides. **Native:** `purge()` stands down when an upload owns the directory, which `begin()` already clears anyway. **JS:** `detachNativeVideo` returns its teardown promise and `attachNativeVideo` awaits it — **and awaits any teardown an earlier caller left in flight**, because most callers detach as a fire-and-forget step long before the matching attach. Fixing only the bake's ordering would have left the new-clip-load path racing exactly the same way, which is a candidate for the long-standing intermittent "loads but will not play".
+
+### The dark staged panel: the fallback was never actually intact
+
+`detachNativeVideo` cleared the planar provider and left the engine **still pointed at the decode's preview canvas** — which nothing paints once the receiver is stopped. On the success path the re-attach immediately re-pointed it, which is why this never showed. On the failure path the engine sat on a dead canvas and the panel went black with nothing anywhere saying why. Detach now hands the engine back to the `<video>`, which is what `stgStopVideo` has always done.
+
+### Every way of declining to attach now says so, in the report
+
+`attachNativeVideo` had **seven silent returns.** "There is no native decode" reached Daniel as the *absence* of the words `native decode` in the source note, so a fallback and a decode that was never attempted produced identical reports. Each exit now names itself into `env.nativeAttach`, which rides both the source note (`⚠ NO NATIVE DECODE: …`) and the export. The failure path carries the stage breadcrumb from `createNativeVideoSource` with it — `upload`, `plugin start` and `frame socket` are three completely different faults, and that distinction had only ever gone to a console Daniel cannot read on a Capacitor device.
+
+### One frame on load, decided natively
+
+The player has to run for the output to produce anything, so a clip decoded however many frames fitted inside the bridge round trip before JS could park it. Two symptoms, one cause: the preview **"hunts around a couple frames" on load**, and B596's primed joiner got whichever of those frames happened to be last rather than the one the app is showing (*"the external display is showing a different frame than the output panel"*). `start({ startPaused: true })` parks the player on the tick that pushes the first frame, closing the window instead of racing it. The JS pause stays as the fallback for a webview running ahead of an older plugin build.
+
 ## 🎯 v0.25.6 (Build 596) — 2026-08-13 — The instrument falsified my own fix, and a paused source now has a picture
 
 **⚠️ NEEDS `npx cap sync ios` + AN XCODE BUILD** (`FrameSocketServer` gained a primed-join path).

@@ -171,6 +171,9 @@ const sourceSurface = perf.surface({
       sourceStallNote(),
       gen > 0 && `⚠ GL CONTEXT RESTORED ×${gen}`,
       degraded && '⚠ NOT ON THE PLANAR PATH — sampling the preview canvas',
+      // WHY WE ARE ON <video> (B597). "no native decode" was previously readable only as the
+      // ABSENCE of the words above, which is exactly the failure this project keeps hitting.
+      !env.nativeVideo && env.nativeAttach && `⚠ NO NATIVE DECODE: ${env.nativeAttach.why}`,
       derr && `⚠ DECODE FAILING ×${derr.count}: ${derr.message}`].filter(Boolean).join(' · ');
   },
 });

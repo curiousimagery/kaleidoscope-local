@@ -284,7 +284,7 @@ Resolved on Daniel's design rather than by picking one vocabulary, because **the
 1. **A decoder stall.** B593: `maxGapMs 17`, `after1s 29`. Three sessions running, the wire is clean across the wrap.
 2. **Our own trim rewind's 120ms settle window.** B595: `rewinds: 0, suppressed: 0`. The boundary test never fires on a full-range trim — the last frame's pts falls 0.037s short of a 0.03s window.
 
-**Open measurement (B596):** `loopStall.takeGapMs` and `extJitter.loop`. Arrival has been measured three times; **take never has.** The pair localizes the hold to a consumer, and the two receivers say which one.
+**Open measurement (B596, still unread):** `loopStall.takeGapMs` and `extJitter.loop`. Arrival has been measured three times; **take never has.** The pair localizes the hold to a consumer, and the two receivers say which one. **B596's attempt returned `null`** because the native decode had fallen over first (the B597 staging race); the reading itself has never been taken.
 
 **If take gaps come back small too**, the hold is not at the frame boundary at all and the next suspects are param-side: `p` snapping from 1 to 0 at the wrap, and whatever the timeline/playhead UI does when it scrolls back to the start.
 
@@ -480,6 +480,10 @@ source: 1280×720 · "from canvas · native decode"   (no `planar`)   refresh 0m
 ### 🔴 REGRESSION — A 4K CLIP HOLDS A FRAME FOR A FEW BEATS ON EVERY LOOP RESTART (Daniel, B580)
 
 In-app, no broadcast needed. **This was fixed a long time ago and has come back.** Loop restart is a seek to zero, so this belongs with the 4K first-frame cluster: the scrubber jitter at playback start, the intermittent "loads but will not play", and the mode-switch-during-attach theory are all "the first frame after a seek costs something we do not pay elsewhere". **Four symptoms, one likely mechanism, and the loop restart is the only one that reproduces on demand — which makes it the way in.**
+
+**⚠️ THE "SEEK TO ZERO" PREMISE IS FALSE ON THE NATIVE PATH (B595/B596).** `rewinds: 0, suppressed: 0` — our rewind never fires on a full-range trim, and AVPlayerLooper wraps the item without any seek at all. Whatever this is, it is not a seek cost. See the B596 loop item above; the live question is `takeGapMs`.
+
+**✅ ONE OF THE FOUR MAY BE OFF THE LIST.** The intermittent "loads but will not play" has a concrete candidate mechanism as of B597: `FoldNativeVideo.stop()`'s staging purge racing the next `beginUpload`, which stages a clip into a file that is then deleted, with writes still succeeding. Fixed from both sides. **If it stops recurring, that symptom is closed and this cluster is three.**
 
 ### 🟠 THE PRESSURE TARGET CAN HALVE ITSELF UNDER LOAD, AND THAT IS CIRCULAR (Daniel's B580 report)
 
