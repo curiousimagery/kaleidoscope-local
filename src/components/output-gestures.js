@@ -22,11 +22,7 @@
 
 import { applyUnifiedZoom } from '../kit/zoom.js';   // shared: EVERY zoom entry point routes through this
 import { panToOffset } from '../kit/pan.js';         // shared: EVERY pan entry point routes through this
-
-// TOUCH pan gain — a raw finger-centroid travel reads as only ~¼ of the gesture (iPad, Daniel),
-// because the trackpad's wheel path is OS-accelerated ~3× while touch is raw. Boost the touch
-// centroid to match (≈ the remote surface's effective gain). Wheel/trackpad pan is UNCHANGED. TUNE.
-const PAN_TOUCH_GAIN = 3.5;
+import { formCanvasNorm } from '../engine/forms/index.js';   // the shader's effective zoom includes it
 
 export function createOutputGestures(canvas, ctx) {
   const { state } = ctx;
@@ -51,6 +47,32 @@ export function createOutputGestures(canvas, ctx) {
   // finger. The transform (rotation + X-negation + Y-flip) lives in kit/pan.js so the remote
   // gesture surface (input-bus) pans identically; here we just pass the current canvas rotation.
   const pan = (fx, fy) => panToOffset(fx, fy, state.canvasRotation);
+
+  // PAN GAIN — derived from the shader, not tuned by feel.
+  //
+  // `u_canvasOffset` is subtracted AFTER `p /= u_canvasZoom` (shader-builder), so one offset
+  // unit moves content on screen IN PROPORTION TO THE ZOOM. A constant gain therefore
+  // accelerates as you zoom in and crawls as you zoom out. Daniel measured exactly that on
+  // iPad: content crossed the whole canvas on ~60% of a finger sweep at 1×, and on ~20% at
+  // 2.48× — a 3× error for a 2.48× zoom change, which is the signature of a missing 1/zoom.
+  //
+  // Solving the shader's transform for "content stays under the finger":
+  //   δp = 2·(pixels)/H/Z   (p-space is isotropic in PIXELS — that is what the aspect
+  //                          correction buys), while fx/fy are normalized by half-WIDTH and
+  //                          half-HEIGHT respectively — so x carries the aspect and y does not.
+  //   → gain_x = aspect/Z        gain_y = 1/Z
+  //
+  // The old flat 3.5 was a feel-fudge marked TUNE; it could only ever be right at one zoom.
+  // NOTE: during a simultaneous pinch+pan the accumulated travel is scaled by the CURRENT
+  // zoom rather than integrated across the gesture, so content can drift slightly under the
+  // fingers while both change at once. Exact anchoring needs a content-space centroid; the
+  // pinch itself is unaffected and reads correct (Daniel).
+  // The REMOTE gesture surface has its own reference frame (the phone's screen, not this
+  // canvas) and its own gain in input-bus.js — deliberately not changed from here.
+  const panGain = (rect) => {
+    const z = Math.max(1e-4, state.canvasZoom * formCanvasNorm(state));
+    return [(rect.height > 0 ? rect.width / rect.height : 1) / z, 1 / z];
+  };
 
   function onStart(e) {
     if (locked()) return;
@@ -92,12 +114,13 @@ export function createOutputGestures(canvas, ctx) {
       // centroid travel → tiling pan; content follows the two fingers' midpoint.
       const rect = canvas.getBoundingClientRect(), now = performance.now();
       const cx = (t0.clientX + t1.clientX) / 2, cy = (t0.clientY + t1.clientY) / 2;
-      const [cdx, cdy] = pan(PAN_TOUCH_GAIN * (cx - manip.cx0) / (rect.width / 2), PAN_TOUCH_GAIN * (cy - manip.cy0) / (rect.height / 2));
+      const [gx, gy] = panGain(rect);
+      const [cdx, cdy] = pan(gx * (cx - manip.cx0) / (rect.width / 2), gy * (cy - manip.cy0) / (rect.height / 2));
       state.canvasOffsetX = manip.ox + cdx;
       state.canvasOffsetY = manip.oy + cdy;
       const dtms = now - manip.lastT;   // centroid velocity (same transform) → flick-to-drift on release
       if (dtms > 0) {
-        const [vx, vy] = pan(PAN_TOUCH_GAIN * (cx - manip.lastCx) / (rect.width / 2), PAN_TOUCH_GAIN * (cy - manip.lastCy) / (rect.height / 2));
+        const [vx, vy] = pan(gx * (cx - manip.lastCx) / (rect.width / 2), gy * (cy - manip.lastCy) / (rect.height / 2));
         manip.vx = vx / (dtms / 1000); manip.vy = vy / (dtms / 1000);
       }
       manip.lastCx = cx; manip.lastCy = cy; manip.lastT = now;
@@ -135,7 +158,13 @@ export function createOutputGestures(canvas, ctx) {
       // Natural-scroll trackpad: a two-finger scroll delta is the NEGATED finger travel, so the
       // fingers' content displacement is (−deltaX, −deltaY). Same transform → content follows the
       // fingers at any rotation. At 0° this reduces to (+deltaX, +deltaY) — the confirmed behavior.
-      const [cdx, cdy] = pan(-e.deltaX / (rect.width / 2), -e.deltaY / (rect.height / 2));
+      // Same missing-1/zoom defect as the touch path above, so the /z is applied here too.
+      // The BASE gain is deliberately left alone: wheel deltas arrive OS-accelerated by an
+      // unknown factor, so there is no derivable "correct" constant the way there is for raw
+      // touch. That makes this a NO-OP at 1× and a fix only where pan was already wrong —
+      // the zoomed-in runaway and the zoomed-out crawl.
+      const wz = Math.max(1e-4, state.canvasZoom * formCanvasNorm(state));
+      const [cdx, cdy] = pan(-e.deltaX / (rect.width / 2) / wz, -e.deltaY / (rect.height / 2) / wz);
       state.canvasOffsetX += cdx;
       state.canvasOffsetY += cdy;
       ctx.onChange?.();

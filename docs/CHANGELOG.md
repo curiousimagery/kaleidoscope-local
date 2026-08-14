@@ -6,6 +6,29 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🤏 v0.25.20 (Build 610) — 2026-08-14 — Canvas pan ignored the zoom, so it accelerated as you zoomed in
+
+**JS only. No `cap sync` needed.**
+
+### Shipped
+
+- **Fixed: two-finger canvas pan now tracks the finger at any zoom.** `u_canvasOffset` is subtracted *after* `p /= u_canvasZoom`, so one offset unit moves content in proportion to the zoom — and the pan gain was a flat constant. Panning therefore accelerated as you zoomed in and crawled as you zoomed out. The gain is now derived from the shader's own transform: **`aspect/Z` on x, `1/Z` on y**.
+- **Removed `PAN_TOUCH_GAIN = 3.5`**, a feel-tuned constant marked `TUNE` that could only ever be right at one zoom level. Its original justification (*"touch reads as only ~¼ of the gesture"*) was the missing `1/Z` seen at a zoomed-in state.
+- **Fixed the same defect on the trackpad/wheel pan path**, applying the `/Z` only. Wheel deltas arrive OS-accelerated by an unknown factor, so there is no derivable base constant. **This is a no-op at 1× and a fix only where pan was already wrong.**
+- **The remote gesture surface is deliberately unchanged** (Daniel: it behaves correctly today). It has its own reference frame — the phone's screen, not the host canvas — and its own gain in `input-bus.js`.
+- **Debugging protocol is now tiered** (`DEBUGGING-PROTOCOL.md` §0 + `CLAUDE.md`). Full protocol only for invisible quantities where being wrong costs a device session; two named things for architectural work; **nothing at all for local, visible, cheap-to-check changes.** Daniel, B609: the always-on reading was costing more velocity than it bought.
+
+### The measurement that identified it, and it was Daniel's
+
+*"at default... the part i started touching will creep ahead of me and hit the far side of the canvas when my fingers are maybe 55-65% of the way across... at canvas zoom 2.48x... only about 20%."*
+
+**A 3× error for a 2.48× zoom change is the signature of a missing 1/zoom**, and solving the shader's transform predicts ~20% at 2.48× on a 16:9 canvas. The report and the arithmetic agree to within the precision of the observation. **The pinch reading correct throughout is the control** that isolates it to the pan path.
+
+### Filed, not fixed
+
+- **Simultaneous pinch+pan** scales accumulated travel by the *current* zoom rather than integrating across the gesture, so content can drift slightly under the fingers while both change at once. Exact anchoring needs a content-space centroid.
+- **The remote surface almost certainly has the same defect**, masked because it was verified at default zoom. Test: zoom in on the host, then drag from the phone.
+
 ## 📦 v0.25.19 (Build 609) — 2026-08-14 — The upload was closing the socket before it drained
 
 **JS only. No `cap sync` needed.**

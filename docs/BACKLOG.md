@@ -260,6 +260,31 @@ from canvas · planar · native decode · 0.0 in/s
 
 **Cross-ref:** this is very likely the same defect as the long-standing "source panel lost its image after a bake → perform switch", now with a root-cause branch rather than a symptom.
 
+### ♾️ [HIGH — Daniel, B609] INFINITE ZOOM RUNS AWAY IN PERFORM: THE FOLLOWER NEVER SETTLES
+
+**Symptom (Daniel, B609, iPad gesture perform mode):** *"our infinite zoom control actually got locked into an infinite loop... the accumulated follow just kept following and following forever."* No repro steps known at report time.
+
+**✅ ROOT CAUSE FOUND BY READING (Class 1, no device time). It is two deliberate designs composing into a behaviour nobody asked for.**
+
+1. **The autoplay walker never settles, on purpose.** [kit/drift.js:80-87](../src/kit/drift.js#L80-L87) treats `drosteZoomPhase` as a **continuous-velocity walker rather than a spring** — Daniel's own tuning call: *"once it picks a direction it KEEPS MOVING that way (no settle/pause between picks); only the SPEED varies."* So the target advances forever while autoplay is on.
+2. **The follower is uniquely amplified for this one field.** [kit/follow.js:51-57](../src/kit/follow.js#L51-L57), `drosteZoomPhase` is the ONLY field opting into both a raised `LEAD_CAP` (**4 periods**, vs 1 for rotation) and a `BOOST` (omega up to **4x**). Both were added so a vigorous multi-loop pinch is honoured in full.
+
+**Together: a target that never stops moving, chased by a permanently boosted spring.** `isSettled()` can never return true.
+
+**The consequences are worse than the zoom itself**, because `isSettled` gates other things in [perform-runtime.js:536-541](../src/shell/perform-runtime.js#L536-L541):
+- the **onion-skin ghost trail never fades** and keeps accumulating (`settleFadeT` is reset every frame)
+- the live/staged **"showing the same thing" affordance can never fire**
+- omega stays elevated, so everything about the chase reads frantic
+
+**▶ NEEDS DANIEL'S CALL, because both underlying behaviours were his:**
+- **(a) Exclude `drosteZoomPhase` from the settle test.** Surgical, and the principle is sound: **a field that is deliberately always-moving must not be allowed to answer "are we in sync?"** Fixes the ghost trail and the affordance without changing either design.
+- **(b) Exclude infinite zoom from autoplay by default.** Already filed as an option under the droste entry; a bigger product change.
+- **(c) Cap the walker.** Contradicts the "keeps moving" design directly.
+
+**Recommendation: (a).** It is the only one that treats the real defect, which is that a never-settling field was allowed into a settle test.
+
+**Also observed while reading, filed not fixed:** `follow.js step(dtMs)` has **no upper clamp on `dt`**, unlike its sibling motion loop in `input-bus.js` which clamps at 100ms. On a device that demonstrably hitches for 150ms to 2s (loop laps, bakes, GL restores), a large `dt` feeds an exact critically-damped formula that assumes constant omega across the step. It resolves to a teleport rather than a runaway, so it is not this bug, but it is worth a deliberate decision rather than an accident.
+
 ### 🌈 [OPEN — Daniel, B594] GREEN/RGB CHANNEL GLITCH ON THE FIRST MOTION → PERFORM TRANSITION
 
 **"there's a brief moment where colors get screwed up and RGB channels seem to be firing weird (glitchy green view)."** First transition only, seen across two builds. A green cast on a YUV path is the classic signature of **sampling a plane texture before all three planes have been uploaded**, or of a plane texture allocated at one size and read at another.
@@ -840,7 +865,9 @@ Shipped: the addon now links **two** rpaths (dev-SDK path + `@loader_path`, bind
 **Daniel's framing, and it is the right one: these belong together.** They are all the same unfinished business — the zoom/slice/canvas normalization work (B440 semantic roles, B477 `sizeNorm`, B483 `canvasNorm`, B462 unified zoom) landed for the *touch* surfaces and was never carried across to the other input paths or reconciled with per-form extents. Fixing any one in isolation would be tuning against a moving target. **Sequence this with the tiling-density item directly below, as one pass.**
 
 - **🔴 [HIGH] Game controller / MIDI mappings no longer map correctly across forms.** Daniel performed live on the Electron build with a PlayStation controller and found the mappings "caught looking for the wrong inputs and aren't normalized across forms." The touch/gesture path was normalized; the hardware path was not. **This is what Stage 1 of the control-registry work (B440, semantic `zoom` role in `PARAM_TARGETS`) was supposed to generalize** — see "Perform-mode input — controller mapping" above. Strong evidence that Stages 2-3 are now load-bearing rather than a nice-to-have.
-- **🟠 [MED] The finger joystick is rotated ~45° from the direction it moves.** Daniel: "the finger joystick inputs aren't actually directionally mapped correctly but seem to be off by 45 degrees or so in all directions." A constant angular offset points at an axis convention mismatch (screen-space vs slice-space, or a swapped/negated pair reading as a rotation), not at a tuning value. Check where the joystick vector is converted into a pan delta and whether it is passing through the same slice-vs-canvas basis the gesture path uses.
+- **🟢 [NOT REPRODUCING on iPad — Daniel, B609] The finger joystick is rotated ~45° from the direction it moves.** **Do not "fix" this blind.** Daniel re-tested on iPad at B609 and it does not reproduce. Either it was resolved by one of the intervening normalization changes (B462 unified zoom, B477/B483 norms, B442/B443 rotation-compensated pan) or it is platform-specific. **Next step is a check on Electron/desktop and iPhone to decide which** — if it reproduces there, it is a platform-path divergence and that is more informative than the original bug. Original report kept below.
+  - Daniel: "the finger joystick inputs aren't actually directionally mapped correctly but seem to be off by 45 degrees or so in all directions." A constant angular offset points at an axis convention mismatch (screen-space vs slice-space, or a swapped/negated pair reading as a rotation), not at a tuning value. Check where the joystick vector is converted into a pan delta and whether it is passing through the same slice-vs-canvas basis the gesture path uses.
+- **✅ [FIXED B610] Canvas pan accelerated with zoom (iPad/iPhone direct manipulation).** `u_canvasOffset` is subtracted after `p /= u_canvasZoom`, so a flat pan gain accelerates as you zoom in and crawls as you zoom out. Gain is now derived from the shader (`aspect/Z` on x, `1/Z` on y) and the feel-tuned `PAN_TOUCH_GAIN = 3.5` is gone. **Two tails:** simultaneous pinch+pan scales accumulated travel by the *current* zoom rather than integrating, so content can drift under the fingers when both change at once (exact anchoring needs a content-space centroid); and **the remote gesture surface almost certainly has the same defect, masked because it was only verified at default zoom** — test by zooming the host in, then dragging from the phone.
 - **🟠 [MED] Panning LEFT is not honored from the iPhone gesture surface** on an infinitely-repeating form (triangle). The finger joystick can move that direction; the gesture input cannot. A direction-specific failure on one axis suggests a clamp or a wrap boundary rather than a mapping error.
 - **🟠 [MED] Switching between the mobile gesture surface and the finger joystick JERKS.** Each reverts to its own remembered position rather than continuing from where the other left off. **Expected behaviour: whichever input takes over should adopt the current value and move relative to it** — the per-field ownership pattern the input bus already uses for exactly this. Two inputs holding independent absolute position state is the bug.
 - **🟠 [MED] Droste's accumulated zoom leaks into other forms.** Droste zoom accumulates deliberately (so a progressive zoom-in can be animated and the follower remembers it), but switching back to another form retains that accumulated extent and lands on an undesired visual extreme. **Two candidate resolutions and Daniel should pick:** reconcile the extents so the accumulated droste value maps sensibly onto the other forms' ranges, or decouple the parameter per form so each keeps its own zoom state. Pairs directly with the per-form zoom-extent tuning task.

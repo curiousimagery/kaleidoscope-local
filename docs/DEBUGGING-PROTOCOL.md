@@ -8,6 +8,38 @@ This doc exists because a review of the last 50 builds found a repeating failure
 
 ---
 
+## 0. HOW MUCH OF THIS APPLIES (added B609, Daniel's ask)
+
+**This protocol was written for one situation: quantities you cannot see, on a device, where the feedback loop is a build.** Audio drift, frame timing, thermal, memory. Every rule below is aimed at that, and there it has paid for itself repeatedly.
+
+**It was then applied to everything, and that trade is not worth making.** Daniel, B609: *"the cost has been velocity, which we truly need... I don't think we can achieve our goals if we only take on tiny increments of work at a time with careful verification for each. We need to reserve this for hard to measure and risky surfaces."* **He is right, and under-applying this doc on a visible, local, cheap-to-check change is not a lapse. It is correct.**
+
+### The two questions that pick the tier
+
+1. **Can you directly observe the thing you are changing?**
+2. **What does being wrong cost?**
+
+| tier | when | what applies |
+| --- | --- | --- |
+| **1 — full protocol** | Being wrong costs a device session or more. **Invisible quantities**: frame timing, audio, thermal, memory, GPU. On-device only. Feedback loop measured in builds | **Everything in this document**, unchanged |
+| **2 — name two things** | Architectural or spanning several files, but verifiable locally | Name the **uncertainty state** and the **stopping rule**. Nothing else. No pre-flight, no instrument ceremony |
+| **3 — just work** | Local, visible, verifiable by looking. Most UI, most refactors, most single-file fixes, most input and layout work | **Nothing. Batch freely.** Ship several related changes together and check them in one pass |
+
+**If you are unsure of the tier, the tell is whether you would know it was wrong by looking at the screen.** If yes, it is tier 3.
+
+### Three rules that recover the most velocity
+
+- **This protocol governs the INVESTIGATION, not the FIX.** Once the cause is known, building the fix is ordinary work. A meaningful share of the ceremony in builds 593-609 was applied to fixes, where it bought nothing.
+- **Batching is the default when builds are cheap.** The one-question-per-build discipline exists because *a device session is expensive*. On a browser reload it is pure overhead. Batch, then verify the batch.
+- **Class 1 versus Class 2 (§1) is a SPEED rule, not a caution rule.** "Never spend device time on a question a grep answers" is the highest-velocity line in this document. Read §1 as the thing that makes you fast, not the thing that slows you down.
+
+### Two rules that apply at every tier, because they are free
+
+- **Anything that can decline to act must publish why** (§6). This is a code-quality rule that happens to live in a debugging doc. `nativeAttach` caught three silent fallbacks in one arc, each of which would otherwise have become a false conclusion.
+- **The Class 1 gate.** Never spend a device session on a question that reading answers.
+
+---
+
 ## 1. The two classes of question
 
 **This is the single highest-leverage distinction in this document.**

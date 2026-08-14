@@ -90,6 +90,23 @@ This retires the confusion, not just a hypothesis. Resolution was free because t
 
 ## current version
 
+**🤏 B610 — CANVAS PAN IGNORED THE ZOOM. JS only, no `cap sync`.**
+
+**`u_canvasOffset` is subtracted AFTER `p /= u_canvasZoom`, so one offset unit moves content in proportion to the zoom — and the pan gain was a flat 3.5.** Pan therefore accelerated as you zoomed in and crawled as you zoomed out. Gain is now derived from the shader: **`aspect/Z` on x, `1/Z` on y.** The flat `PAN_TOUCH_GAIN`, marked `TUNE`, is gone; its original justification ("touch reads as ¼ of the gesture") was this bug seen at one zoom level.
+
+**Daniel's measurement identified it without a single instrument:** content crossing the canvas on ~60% of a finger sweep at 1× and ~20% at 2.48×. **A 3× error for a 2.48× zoom change is the signature of a missing 1/zoom**, and the shader's transform predicts ~20% at 2.48× on 16:9. **Pinch reading correct throughout is the control** that isolated it to pan.
+
+**⚠️ The remote gesture surface is deliberately UNCHANGED** (Daniel: it behaves correctly today) — different reference frame, own gain in `input-bus.js`. **But it almost certainly has the same defect, masked because it was checked at default zoom.** Test: zoom the host in, then drag from the phone.
+
+**⚖️ AND THE DEBUGGING PROTOCOL IS NOW TIERED** (`DEBUGGING-PROTOCOL.md` §0 + `CLAUDE.md`): full protocol only for invisible quantities where being wrong costs a device session; two named things for architectural work; **nothing for local, visible, cheap-to-check changes.** Daniel, B609: always-on was costing more velocity than it bought. **Under-applying the protocol on a tier-3 change is now correct, not a lapse.**
+
+**📕 THE ARC PLAN IS `PLAN-LIVE-READINESS.md`** — read it before picking anything up.
+
+**Also settled this session, by reading:**
+- **The infinite-zoom runaway is autoplay + the follower's settle test.** Autoplay drives `drosteZoomPhase` as a never-settling walker (deliberate); the follower is the only field with both a 4-period lead cap and a 4× boost (also deliberate). Together `isSettled()` can never be true, so **the onion-skin ghost trail never fades and the in-sync affordance never fires.** Needs Daniel's call — see BACKLOG.
+- **The joystick 45° offset does NOT reproduce on iPad (B609).** Do not fix it blind; check Electron and iPhone to decide whether it is resolved or platform-specific.
+- **The MIDI-vs-gesture rotation asymmetry is NOT a bug — retracted.** The gesture path negates slice rotation to reconcile a finger's screen direction with the overlay Y-flip. A knob has no screen direction; its direction is a declared convention with a per-mapping `invert`. Applying the negation to MIDI would introduce a bug.
+
 **📦 B609 — THE UPLOAD WAS CLOSING THE SOCKET BEFORE IT DRAINED. JS only, no `cap sync`.**
 
 **✅ THE LOOP HOLD IS CLOSED AND VERIFIED AT BOTH RESOLUTIONS (B608).** FHD at 64MB, 4K at 256/128MB: `loopCache.firstPts: 0`, take gaps **25-42ms**, and cache-off restores the stall. **First reported B487, closed 121 builds later.** `BROADCAST-DELIVERY.md` §6a is the durable record — read it before touching this again.

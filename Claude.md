@@ -33,11 +33,24 @@ If the change is docs-only (no code touched), none of the above applies.
 
 A forensic review at B575 found that ~11 investigations in this arc measured something semantically adjacent to the phenomenon, and that roughly a third of device sessions went to questions a `grep` would have answered. The protocol doc owns the detail. These are the parts that are non-negotiable and must survive into every session:
 
-- **Class 1 vs Class 2.** Class 1 = "does our code do what we think" (resolved by reading code or one local run). Class 2 = "what does the platform do" (needs a device). **Never spend a device session on a Class 1 question.**
+**⚖️ FIRST, PICK THE TIER (B609). The protocol is not always-on, and applying it everywhere costs more velocity than it buys.** `DEBUGGING-PROTOCOL.md` §0 owns this. Two questions decide it: *can you directly observe the thing you are changing*, and *what does being wrong cost?*
+
+- **Tier 3 — just work.** Local, visible, verifiable by looking. Most UI, refactors, single-file fixes, input and layout work. **No ceremony. Batch freely.** If you would know it was wrong by looking at the screen, you are here.
+- **Tier 2 — name two things.** Architectural or multi-file, but locally verifiable. Name the uncertainty state and the stopping rule. Nothing else.
+- **Tier 1 — everything below applies.** Being wrong costs a device session. **Invisible quantities**: frame timing, audio, thermal, memory, GPU.
+
+**The protocol governs the INVESTIGATION, not the FIX** — once the cause is known, building the fix is ordinary work.
+
+**Tier 1 rules:**
+
 - **Name the uncertainty state before proposing anything: A** (don't know what) **/ B** (know what, not why) **/ C** (know why, not which lever) **/ D** (enough evidence, no stopping rule). **In state A the only legal move is instrumentation, never a fix.** State D is the invisible one: it feels productive.
 - **The wrong-noun test.** Before shipping an instrument, complete: *"this counts X, which equals what I care about only if ___ holds."* Activity counters (batches, chunks, calls, render counts) may ride along; they may never conclude. Prefer a **conserved quantity** that must survive the boundary.
-- **Anything that can decline to act must publish why.** An absence is not evidence.
 - **State the five-line pre-flight in the response**, not just internally. Goal + exit criterion; uncertainty state; Class 1 resolved?; what the measurement cannot distinguish; the stopping rule. **Writing it in the response is also what makes it survive compaction.**
+
+**At EVERY tier, because they are free:**
+
+- **Class 1 vs Class 2 — this is a SPEED rule, not a caution rule.** Class 1 = "does our code do what we think" (resolved by reading code or one local run). Class 2 = "what does the platform do" (needs a device). **Never spend a device session on a Class 1 question.**
+- **Anything that can decline to act must publish why.** An absence is not evidence.
 
 ## codebase conventions you must internalize
 
