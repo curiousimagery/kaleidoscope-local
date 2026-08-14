@@ -6,6 +6,28 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🎯 v0.25.26 (Build 616) — 2026-08-14 — B615 centred the box in one place out of three
+
+**JS only. No `cap sync` needed.** **This is the fix that makes B615 actually visible.**
+
+### Shipped
+
+- **A new source now centres the active form's box and orients it to the source's long edge.** Wired into the image and video load paths, right after `engine.setSource` — the first moment the aspect, and therefore the box, is knowable.
+- **A form switch now carries the BOX CENTRE rather than the origin.** Capture the old form's box centre, switch, then re-solve the new form's origin to preserve it.
+- **`placeFormBox` / `formBoxCenter`** in `engine/geometry.js`; `centerFormInSource` is now the `(0.5, 0.5)` case of `placeFormBox`.
+
+### Daniel caught that B615 did nothing
+
+> *"this didn't actually work because the origin is only in the center of the rectangular form so the others are still offset to the right from an origin in the center of the image"*
+
+**He was right, and the description names the cause exactly.** B615 wired the centring to the **reset slice button only**. The state defaults are `sliceCx/Cy = 0.5`, so on load and on every form switch the origin was still parked at the middle — the exact behaviour B615 set out to replace. The geometry was correct and reached almost nothing.
+
+### The form-switch half also fixes a flaw in the carry-over decision
+
+`sliceCx/Cy` was decided **CARRY** on the reading *"which part of the image is sampled"*. That reading is right; the stored number does not match it. **The stored value is the ORIGIN, which means different things per form** — an apex for the wedge forms, the centre for the rectangle. Carrying it verbatim carries a different semantic into the destination.
+
+**The box centre is the thing that means the same everywhere**, so that is what now carries. Origin is re-solved per form. Same class of error as `canvasOffset`, caught before it could produce a second blow-up: **the value that is safe to carry is rarely the value that happens to be stored.**
+
 ## 🎯 v0.25.25 (Build 615) — 2026-08-14 — Centre the form's BOX, not its origin
 
 **JS only. No `cap sync` needed.**

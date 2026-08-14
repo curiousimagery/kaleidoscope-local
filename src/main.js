@@ -339,6 +339,16 @@ const env = {
   scheduleOverlayDraw: null,
   syncControls: () => controlsSync.syncAll(),
   applyFormControls: () => applyFormControls(env),
+  // Centre the ACTIVE form's bounding box in the source, and orient it to the source's long edge.
+  // Called when a NEW source arrives, because that is when the aspect (and therefore the box)
+  // first becomes knowable — the state defaults of sliceCx/Cy = 0.5 park the ORIGIN at the middle,
+  // which only ever looked right for the rectangle. See engine/geometry.js.
+  centerSliceInSource: () => {
+    const aspect = engine?.getSourceAspect?.() || 1;
+    state.sliceRotation = defaultSliceRotation(aspect);
+    Object.assign(state, centerFormInSource(getActiveForm(state), state, aspect));
+    env.controlsSync?.syncAll?.();
+  },
   resizePreviewCanvas: null,
   arrangeSlots: null,
   pushHistory: () => historyPush(state, motion, env.clip.trim),

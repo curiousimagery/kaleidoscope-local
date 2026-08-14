@@ -11,7 +11,8 @@
 // none of these reach into the engine — they only mutate state and call
 // env.scheduleRender() when they need a redraw.
 
-import { FORMS, getActiveFormIndex, formPanLocked } from '../engine/forms/index.js';
+import { FORMS, getActiveFormIndex, formPanLocked, getActiveForm } from '../engine/forms/index.js';
+import { formBoxCenter, placeFormBox } from '../engine/geometry.js';   // B615: carry the BOX centre, not the origin
 
 // ===========================================================================
 // scrub fields — DAW-style numeric inputs
@@ -384,7 +385,19 @@ export function buildFormGrid(env) {
       env.state.canvasOffsetX = 0;
       env.state.canvasOffsetY = 0;
       env.panRecenter?.();   // stop any flick-drift too, or it re-accumulates immediately
+
+      // CARRY THE BOX CENTRE, NOT THE ORIGIN (B615 fix). `sliceCx/Cy` was decided as CARRY on the
+      // reading "which part of the image is sampled" — but the stored number is the ORIGIN, and
+      // the origin means different things per form (an apex for the wedges, the centre for the
+      // rectangle). Carrying it verbatim is why every non-rectangle form still sat off to the
+      // right of centre (Daniel, B615): the rectangle's origin is its box centre, so 0.5 looked
+      // right there and nowhere else. The BOX CENTRE is the thing that means the same everywhere,
+      // so capture it before the switch and re-solve the new form's origin to preserve it.
+      const aspect = env.engine?.getSourceAspect?.() || 1;
+      const keep = formBoxCenter(getActiveForm(env.state), env.state, aspect);
       env.state.form = form.id;
+      Object.assign(env.state, placeFormBox(getActiveForm(env.state), env.state, aspect,
+        keep ? keep.x : 0.5, keep ? keep.y : 0.5));
       // In motion, `form` is a DISCRETE key pinned to keyframe 0, so setting live state alone is
       // re-asserted (old form) on the next tick and the keyframes keep their original geometry.
       // Switching form (only reachable when unlocked) is the destructive "apply to ALL keyframes":

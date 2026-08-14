@@ -55,6 +55,7 @@ export function createSourceHost(env) {
     img.onload = () => {
       try {
         engine.setSource(img);
+        env.centerSliceInSource?.();      // B615: new source → centre the form's box, orient to its long edge
       } catch (e) {
         // Engine throws with a descriptive message (e.g. "image too large for
         // GPU: 18000×18000 (max 16384×16384 on this device)"). Surface near
@@ -189,6 +190,7 @@ export function createSourceHost(env) {
       loaded = true;
       try {
         engine.setSource(v);            // videoWidth is known now (a frame is decoded)
+        env.centerSliceInSource?.();    // B615: new source → centre the form's box, orient to its long edge
       } catch (e) {
         if (uploadErrorEl) uploadErrorEl.textContent = e.message;
         statusEl.textContent = '';

@@ -60,10 +60,12 @@ export function sliceVecToSourceUV(vx, vy, state, sourceAspect) {
 // The origin (0,0) is always included: it is the apex for the wedge forms and the point Daniel
 // means by "the centre offset point". Forms whose polygon already surrounds it (rectangle, droste)
 // are unaffected by its inclusion, which is why they stay centred and the wedges move.
-export function centerFormInSource(form, state, sourceAspect) {
+// The box's midpoint in ABSOLUTE source UV, i.e. "which part of the image is being sampled".
+// Returns null when the form has no polygon to measure.
+export function formBoxCenter(form, state, sourceAspect) {
   const pts = form?.buildPolygon?.(state);
-  if (!pts?.length) return { sliceCx: 0.5, sliceCy: 0.5 };
-  let minX = 0, maxX = 0, minY = 0, maxY = 0;   // seeded with the origin
+  if (!pts?.length) return null;
+  let minX = 0, maxX = 0, minY = 0, maxY = 0;   // seeded with the origin — see above
   for (const p of pts) {
     const { dx, dy } = sliceVecToSourceUV(p.vx, p.vy, state, sourceAspect);
     if (dx < minX) minX = dx;
@@ -71,9 +73,29 @@ export function centerFormInSource(form, state, sourceAspect) {
     if (dy < minY) minY = dy;
     if (dy > maxY) maxY = dy;
   }
-  // put the box's midpoint on the source's midpoint
-  return { sliceCx: 0.5 - (minX + maxX) / 2, sliceCy: 0.5 - (minY + maxY) / 2 };
+  return {
+    x: (state.sliceCx ?? 0.5) + (minX + maxX) / 2,
+    y: (state.sliceCy ?? 0.5) + (minY + maxY) / 2,
+    halfW: (maxX - minX) / 2,
+    halfH: (maxY - minY) / 2,
+  };
 }
+
+// Put the form's BOX midpoint on (tx, ty) and return the origin that achieves it. Solving for the
+// origin rather than storing it is what lets `sliceCx/Cy` keep meaning "which part of the image",
+// which is the only reading under which carrying it across a form switch makes sense: the ORIGIN
+// means different things per form (apex for the wedges, centre for the rectangle) but the BOX
+// CENTRE means the same thing everywhere.
+export function placeFormBox(form, state, sourceAspect, tx = 0.5, ty = 0.5) {
+  const c = formBoxCenter(form, state, sourceAspect);
+  if (!c) return { sliceCx: tx, sliceCy: ty };
+  return {
+    sliceCx: (state.sliceCx ?? 0.5) + (tx - c.x),
+    sliceCy: (state.sliceCy ?? 0.5) + (ty - c.y),
+  };
+}
+
+export const centerFormInSource = (form, state, sourceAspect) => placeFormBox(form, state, sourceAspect, 0.5, 0.5);
 
 // The form's long edge should follow the SOURCE's long edge, so a portrait source turns every
 // form 90° clockwise (Daniel, B615). Returns the default sliceRotation for an orientation.

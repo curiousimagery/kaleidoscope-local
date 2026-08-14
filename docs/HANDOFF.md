@@ -90,6 +90,12 @@ This retires the confusion, not just a hypothesis. Resolution was free because t
 
 ## current version
 
+**🎯 B616 — B615 CENTRED THE BOX IN ONE PLACE OUT OF THREE. JS only, no `cap sync`.**
+
+**Daniel caught that B615 did nothing visible.** The geometry was correct and was wired to the **reset slice button only** — so with state defaults of `sliceCx/Cy = 0.5`, load and form-switch both still parked the ORIGIN at the middle, which is the behaviour B615 existed to replace. Now wired to **new-source load** (right after `engine.setSource`, the first moment the aspect is knowable) and to **form switch**.
+
+**⚠️ AND THE FORM-SWITCH HALF CORRECTS THE CARRY-OVER DECISION.** `sliceCx/Cy` was decided CARRY on the reading *"which part of the image is sampled"* — that reading is right, but **the stored number is the ORIGIN, which means different things per form** (apex for the wedges, centre for the rectangle). **The BOX CENTRE is what means the same everywhere**, so that is what carries now; the origin is re-solved per form. Same class of error as `canvasOffset`. **Standing lesson: the value that is safe to carry is rarely the value that happens to be stored.**
+
 **🎯 B615 — CENTRE THE FORM'S BOX, NOT ITS ORIGIN. JS only, no `cap sync`.**
 
 **Daniel's rule, and it made the per-form constants I was about to ask him for unnecessary:** draw a box around the form including its origin, centre that box in the source. `centerFormInSource()` reads each form's own `buildPolygon`, maps the vertices through `sliceVecToSourceUV`, and centres the result — **nothing hardcoded per form**, so it tracks `sliceScale`/`sizeNorm`/`sliceRotation`/aspect automatically and stays right for forms that do not exist yet.
