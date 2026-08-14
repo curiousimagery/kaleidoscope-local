@@ -138,10 +138,23 @@ export function createNativeFrameReceiver({ port = 8899, mirror = false, cap = 0
   // Paint the latest received frame into the RGB PREVIEW canvas. Called each render
   // tick (refreshFrame) so the YUV->RGB blit is synced to the render loop — one blit
   // per rendered frame, not one per socket message.
+  let paintedSeq = -1;
   function paintLatest() {
     const frame = parseLatest();
     if (!frame) return;
-    noteClock(frame);
+    // ONLY A NEW FRAME IS A CLOCK EVENT (B599). This ran on every call, including the many
+    // that re-blit the SAME buffer because no new message had arrived — so `lastTakeT` was
+    // refreshed by looking at a frame rather than by receiving one.
+    //
+    // That invalidated B598's headline. The app appeared not to hold at the loop boundary
+    // (19ms against the external view's 150ms), but the app calls refreshFrame() from its
+    // playback tick and the external view does not call it at all on the planar path. The
+    // two numbers were never the same measurement, and the asymmetry was the instrument's,
+    // not the app's. This is the third time in this arc that a counter has counted activity
+    // where the question was about arrival.
+    const fresh = seq !== paintedSeq;
+    paintedSeq = seq;
+    if (fresh) noteClock(frame);
     // the blitter uploads the planes at their TRUE size and lets the viewport scale, so
     // a capped canvas is a downscale. (Allocating the plane textures at the CAPPED size
     // instead reads a top-left crop of the frame — what Build 500's cap actually did.)

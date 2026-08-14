@@ -2,9 +2,42 @@
 
 Newest first. Format: `version (Build N) — date — summary`. Each version section captures what shipped relative to the previous version. Builds are a global monotonic counter; see `src/version.js` for the convention.
 
+**Every entry opens with a `Shipped` list (Daniel, B599):** what actually changed in the product, one line each, before any reasoning. What we *learned* is valuable and stays, but it goes after — it had been crowding out the answer to "what did you do".
+
 ---
 
+## 🎬 v0.25.9 (Build 599) — 2026-08-13 — Measure the lap where the lap happens
+
+**⚠️ NEEDS `npx cap sync ios` + AN XCODE BUILD.**
+
+### Shipped
+
+- **Fixed a flaw in our own instrument:** `paintLatest` was calling `noteClock` on every re-blit of the same buffer, so the app's loop-boundary "take gap" counted *looking at* a frame rather than *receiving* one. Now gated on the frame being new.
+- **New native measurement of the item swap** (`srcFanOut.itemSwaps` / `swapGapMs` / `maxSwapGapMs` / `swapFromPts` / `swapToPts` / `ticksNoBuffer`): the decode's own account of what it produced either side of a lap.
+- **Native per-clip counters reset on teardown**, so an attach can no longer be reported as a lap.
+- **Docs process (Daniel's ask):** every CHANGELOG entry now opens with this `Shipped` list; 24 closed verification sessions moved to `archive/VERIFY-QUEUE-b573-b597.md` (676 lines → 64); BACKLOG pruned to future work only.
+
+### Why: B598's instrument cleared the view's render, and left one fact unexplained
+
+The render breakdown came back **uniformly fast** — six renders after the lap at `ren` 8-15ms, `up` 0-4ms, `sched` 0-12ms, `gap` 9-28ms. **So the view is rendering normally through the hold and simply has no new frame to draw.** That rules out a shader rebuild, a texture reallocation and a blocked thread in one reading.
+
+What it leaves is the number nobody has explained: **`fromPts 19.4 → toPts 0.833` on a 20.4s clip — 1.8 seconds of footage absent at the lap**, with the receiver reporting a 7ms wire gap. Those two cannot both describe the same event.
+
+### And B598's headline was wrong, for a reason worth recording
+
+I reported that the app does not hold at the lap (19ms) while the external view does (150ms). **That asymmetry was my instrument's, not the app's.** The app calls `refreshFrame()` from its playback tick and the external view does not call it at all on the planar path, so the app's clock was being refreshed by re-paints. The two numbers were never the same measurement.
+
+**Third time in this arc that a counter has counted activity where the question was about arrival.** The rule in `DEBUGGING-PROTOCOL.md` exists precisely for this and I did not apply it to my own new field.
+
 ## 📍 v0.25.8 (Build 598) — 2026-08-13 — The loop hold is the external view's, measured
+
+### Shipped
+
+- **`extJitter.wrapRenders`** — the six renders after each lap, split into `sched` / `up` / `ren` / `gap`.
+- **`recentTakeGaps`** on both receivers (last six laps), so one contaminated lap stops masquerading as the norm.
+- **Load parks on frame 0**: the native park now rewinds to zero and pushes nothing until the tick after, so both webviews show the head of the clip instead of whichever frame the display link caught.
+
+### Why
 
 **⚠️ NEEDS `npx cap sync ios` + AN XCODE BUILD.**
 
@@ -47,7 +80,14 @@ B597 stopped the preview hopping through several frames but left it parked a few
 
 **⚠️ NEEDS `npx cap sync ios` + AN XCODE BUILD.** Two Swift files changed.
 
-### The post-bake failure was a file being purged out from under its own upload
+### Shipped
+
+- **Fixed the bake-while-broadcasting failure.** `purge()` stands down when an upload owns the staging directory, and `attachNativeVideo` awaits any teardown in flight (its own and any an earlier caller left running).
+- **Detach hands the engine back to the `<video>`**, so a failed re-attach no longer leaves it drawing a canvas nobody paints.
+- **All seven ways of declining to attach now publish a reason** into `env.nativeAttach`, the source note (`⚠ NO NATIVE DECODE: …`) and the exported report, carrying the stage breadcrumb.
+- **`start({ startPaused: true })`**: the plugin parks the player on the tick that pushes the first frame.
+
+### Why: the post-bake failure was a file being purged out from under its own upload
 
 `FoldNativeVideo.stop()` purges the staging directory on the principle that the staged copy dies with the decode that used it. That is right when stopping is the last thing that happens. **B595 made it the first thing:** the bake now tears the old decode down and immediately stages the baked clip. The stop hops through the main queue on its way to the upload server's serial queue, so it can land **after** `begin()` has created the new file, and `purgeLocked` deletes the directory unconditionally.
 
@@ -71,7 +111,13 @@ The player has to run for the output to produce anything, so a clip decoded howe
 
 **⚠️ NEEDS `npx cap sync ios` + AN XCODE BUILD** (`FrameSocketServer` gained a primed-join path).
 
-### B595's loop-hold mechanism is dead, killed by the counter shipped to test it
+### Shipped
+
+- **A client joining a paused source now gets the current picture.** `FrameSocketServer` retains the last encoded frame and primes a joiner on `.ready`, cleared on `stop()`.
+- **`loopStall` gains `takeGapMs` / `maxTakeGapMs` / `taken1s`** — when a frame reached a render target, the twin of the arrival fields.
+- **`extJitter.loop`**: the external view reports the same measurement about itself, riding the existing jitter channel.
+
+### Why: B595's loop-hold mechanism is dead, killed by the counter shipped to test it
 
 ```
 "loopStall": { "wraps": 9, "maxGapMs": 8, "last": { "gapMs": 2, "fromPts": 17.633, "toPts": 0.109 },
@@ -102,9 +148,18 @@ It rides the existing `jitter` bag deliberately. That is view-side timing, so it
 
 ## 🔁 v0.25.5 (Build 595) — 2026-08-13 — Three root causes, all found by reading
 
+### Shipped
+
+- **Autoplay fixed:** the native player is parked after its first frame, so a freshly loaded clip behaves like a `<video>` that has loaded and never played.
+- **A bake re-runs the native hand-off**, so the baked clip gets its own decode instead of leaving the pre-bake one attached.
+- **`clock.rewind(inSec, outSec)`** replaces `clock.seek()` at all three loop boundaries: defers to AVPlayerLooper when it owns the wrap, and rewinds without opening the settle window when we own it.
+- **`loopStall` gains `rewinds` / `suppressed` / `why`.**
+
+### Why
+
 Daniel's B594 verification produced three symptoms. **None of them needed a device session; all three resolved by reading code.**
 
-### The autoplay was a flag that had been lying since load
+#### The autoplay was a flag that had been lying since load
 
 The plugin's `start()` calls `qp.play()` so a first frame can arrive — which is what makes the `requireFrame` assertion mean anything — and **nothing ever paused it again**, while the JS clock initialised `state.paused = false`. So the native player had been rolling from the moment the clip loaded, with the transport UI showing it parked.
 

@@ -84,6 +84,16 @@ This retires the confusion, not just a hypothesis. Resolution was free because t
 
 ## current version
 
+**🎬 B599 — MEASURE THE LAP WHERE THE LAP HAPPENS. ⚠️ NEEDS `npx cap sync ios` + AN XCODE BUILD.**
+
+**B598's render breakdown cleared the view's render:** six renders after the lap at `ren` 8-15ms, `up` 0-4ms, `sched` 0-12ms, `gap` 9-28ms. The view renders normally through the hold and has no new frame to draw. Shader rebuild, texture realloc and blocked thread all die in one reading.
+
+**⚠️ AND B598's HEADLINE WAS WRONG.** I reported the app not holding (19ms) while the wall did (150ms). **That asymmetry was my instrument's**: `paintLatest` called `noteClock` on every re-blit of the same buffer, and the app calls `refreshFrame()` from its playback tick while the external view does not call it at all on the planar path. The two numbers were never the same measurement. Fixed; **B599's reading will say whether the app holds too.**
+
+**▶ THE UNEXPLAINED FACT, and the reason this build is native:** `fromPts 19.4 → toPts 0.833` on a 20.4s clip. **1.8 seconds of footage absent at the lap**, with a 7ms wire gap. Both cannot be true of the same event. `srcFanOut` now carries the decode's own account — `itemSwaps`, `swapGapMs`, `swapFromPts`/`swapToPts`, `ticksNoBuffer` — from the only code that sees AVPlayerLooper swap items.
+
+**📚 Docs process (Daniel, B599):** CHANGELOG entries now open with a **Shipped** list before any reasoning. VERIFY-QUEUE holds the current session only (676 → 64 lines); BACKLOG holds future work only. Closed material is in `archive/VERIFY-QUEUE-b573-b597.md` and `archive/BACKLOG-resolved-b560-b598.md`.
+
 **📍 B598 — THE LOOP HOLD IS THE EXTERNAL VIEW'S RENDER PATH, MEASURED. ⚠️ NEEDS `npx cap sync ios` + AN XCODE BUILD.**
 
 **The two receivers disagree by 7x across the same wrap.** App: arrive 0ms, take 18ms, worst-of-25 37ms. Wall: arrive 0ms, **take 131ms**. The wire delivers into both processes with a 0ms gap; the app makes pictures out of them and the external view does not. **131ms is four frames, and it is the hold.** First reading in the investigation that is not about arrival.

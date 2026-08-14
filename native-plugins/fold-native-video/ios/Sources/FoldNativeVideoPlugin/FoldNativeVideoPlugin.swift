@@ -73,6 +73,33 @@ public class FoldNativeVideoPlugin: CAPPlugin, CAPBridgedPlugin {
     // set by start(startPaused:), cleared by the tick that pushes the first frame
     private var pauseAfterFirstFrame = false
 
+    // THE LOOP BOUNDARY, MEASURED WHERE THE BOUNDARY ACTUALLY IS (B599).
+    //
+    // Every JS-side reading of the lap has been taken downstream of a wire we do not control
+    // the far end of, and it keeps producing the same shape: the frames look continuous and a
+    // large slab of CONTENT is missing. Daniel's B598 lap went `fromPts 19.4 → toPts 0.833` on
+    // a 20.4s clip — **1.8 seconds of footage absent** — with the receiver reporting a 7ms wire
+    // gap. Those two cannot both describe the same event, so at least one of them is measuring
+    // the wrong thing, and the only place that can settle it is here: AVPlayerLooper swaps in a
+    // fresh copy of the template item each lap and this is the only code that sees the swap.
+    //
+    // `swapGapMs` is the wall-clock silence between the last frame PUSHED before the swap and
+    // the first pushed after. `swapFromPts`/`swapToPts` are the content either side. Compare
+    // them against what JS received: if native pushed 20.37 → 0.03 and JS took 19.4 → 0.833,
+    // the loss is in the wire and the backpressure. If native itself skips, the loss is
+    // AVFoundation's and the fix is a different looping strategy.
+    private var itemSwaps = 0
+    private var pendingSwap = false
+    private var lastPushAt: TimeInterval = 0
+    private var lastPushPts: Double = -1
+    private var swapGapMs = -1
+    private var maxSwapGapMs = -1
+    private var swapFromPts: Double = -1
+    private var swapToPts: Double = -1
+    // ticks where the output had NOTHING NEW to give, which is the direct test of "did the
+    // decoder stop producing across the swap" as opposed to "did the fan-out decline to take"
+    private var ticksNoBuffer = 0
+
     // path: a file:// URL or plain filesystem path to the clip. loop: seamless repeat (default true).
     @objc func start(_ call: CAPPluginCall) {
         guard let path = call.getString("path"), !path.isEmpty else {
@@ -128,6 +155,8 @@ public class FoldNativeVideoPlugin: CAPPlugin, CAPBridgedPlugin {
                 let current = p.currentItem
                 DispatchQueue.main.async {
                     guard let item = current else { return }
+                    self.itemSwaps += 1
+                    self.pendingSwap = true     // the next pushed frame closes the measurement
                     self.attachOutput(to: item)
                 }
             }
@@ -168,7 +197,7 @@ public class FoldNativeVideoPlugin: CAPPlugin, CAPBridgedPlugin {
         guard let out = output, server.wantsFrame() else { return }
         let hostTime = CACurrentMediaTime()
         let itemTime = out.itemTime(forHostTime: hostTime)
-        guard out.hasNewPixelBuffer(forItemTime: itemTime) else { return }
+        guard out.hasNewPixelBuffer(forItemTime: itemTime) else { ticksNoBuffer &+= 1; return }
         var displayTime = CMTime.invalid
         guard let pb = out.copyPixelBuffer(forItemTime: itemTime, itemTimeForDisplay: &displayTime) else { return }
         // the buffer's own display time when the output reports one, else the time we asked for
@@ -193,6 +222,16 @@ public class FoldNativeVideoPlugin: CAPPlugin, CAPBridgedPlugin {
             player?.seek(to: .zero, toleranceBefore: .zero, toleranceAfter: .zero)
             return
         }
+        // close the swap measurement on the first frame produced after the item changed
+        if pendingSwap {
+            pendingSwap = false
+            swapGapMs = lastPushAt > 0 ? Int((hostTime - lastPushAt) * 1000) : -1
+            if swapGapMs > maxSwapGapMs { maxSwapGapMs = swapGapMs }
+            swapFromPts = lastPushPts
+            swapToPts = pts
+        }
+        lastPushAt = hostTime
+        lastPushPts = pts
         encodeQueue.async { [weak self] in
             guard let self = self,
                   let data = FrameSocketServer.encode(pb, pts: pts, duration: dur) else { return }
@@ -263,7 +302,16 @@ public class FoldNativeVideoPlugin: CAPPlugin, CAPBridgedPlugin {
     // takes the socket lock and copies counters. See FrameSocketServer.stats() for why this rides
     // the JS bridge rather than the frame socket it describes.
     @objc func frameStats(_ call: CAPPluginCall) {
-        call.resolve(server.stats())
+        var out = server.stats()
+        // the DECODE's own account of the lap, beside the SOCKET's account of the wire —
+        // the pair is what separates "AVFoundation skipped it" from "we did not take it"
+        out["itemSwaps"] = itemSwaps
+        out["swapGapMs"] = swapGapMs
+        out["maxSwapGapMs"] = maxSwapGapMs
+        out["swapFromPts"] = swapFromPts
+        out["swapToPts"] = swapToPts
+        out["ticksNoBuffer"] = ticksNoBuffer
+        call.resolve(out)
     }
 
     @objc func frameAt(_ call: CAPPluginCall) {
@@ -303,5 +351,11 @@ public class FoldNativeVideoPlugin: CAPPlugin, CAPBridgedPlugin {
         player?.pause(); player = nil
         looper = nil
         stills = nil
+        // per-clip counters: carrying them across a source swap is how B597's `maxTakeGapMs`
+        // ended up reporting an attach cost as if it were a lap
+        itemSwaps = 0; pendingSwap = false
+        lastPushAt = 0; lastPushPts = -1
+        swapGapMs = -1; maxSwapGapMs = -1; swapFromPts = -1; swapToPts = -1
+        ticksNoBuffer = 0
     }
 }
