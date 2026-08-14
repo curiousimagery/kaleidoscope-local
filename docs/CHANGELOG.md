@@ -6,6 +6,43 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🌀 v0.25.21 (Build 611) — 2026-08-14 — One pan gain for every surface; the loop stopped having an edge
+
+**JS only. No `cap sync` needed.**
+
+### Shipped
+
+- **The gesture and direct-manipulation pan paths are MERGED** (Daniel-approved). `kit/pan.js` gains `panDelta`, which takes a displacement as a **fraction of the gesture surface's own short side** and returns the offset delta with the `1/zoom` folded in. The phone, the tablet and the app's own canvas now run the identical gain. **Two hand-tuned constants are gone** — `× 3` in `remote-input.js` and `PAN_GESTURE_SENS = 1.2` in `input-bus.js` — which together were covering for the missing zoom term. **The contract is now device-size independent by construction:** drag across the short side of whatever you are touching, content travels the short side of the canvas.
+- **Fixed: panning a tileable form hit an invisible wall.** `canvasOffsetX/Y` were declared as a flat ±2 with a hard clamp in `glideBy`/`writeParam`. On a lattice form that is simply wrong — it loops forever by construction — so an accumulating gesture must be allowed to accumulate. They now resolve **per form: unbounded where a lattice makes them periodic, ±1 where they are a centre shift.**
+- **Fixed: per-form target resolution now happens at the single lookup point.** Only `applyMapping` used to resolve, so the contextual gesture path and the motion loop both saw raw flat ranges. **That divergence was the edge**, and it would have bitten every future per-form target the same way.
+- **Fixed: switching to droste after panning on a tiling form could slam the canvas to an extreme zoom.** `canvasOffsetX/Y` is **one global value shared by every form**. On a tiling form it accumulates UNWRAPPED and is only kept sane by being wrapped mod the lattice period at the uniform. Droste has no lattice, so it read the raw accumulated value verbatim — and in droste that is not a translation but a shift of the **log-polar centre**, which squeezes the whole visible field into a thin annulus. Now clamped to ±1 for non-lattice forms, the range droste itself declares sane for a centre shift.
+
+### The edge, in Daniel's words
+
+> *"start with a rectangle, pan left a bit, zoom out, keep panning. Expected: our loopability should let you keep panning forever. Actual: we hit a sort of edge where it doesn't move... but you can pan right."*
+
+**"But you can pan right" is the tell.** A symmetric failure would be a scale problem; a one-directional one means you are pinned against a bound. The local touch path never had it, because it writes state directly and only the uniform wraps — **the two surfaces disagreed about whether pan was bounded**, which is exactly the redundancy the merge removes.
+
+### Daniel's droste repro, which is what made that one findable
+
+> *"play with panning around and scaling zoom in some other forms (square for example)... then navigate to droste. At first all looks good. Then unlock pan. The droste canvas then zooms way in beyond to a tiny tiny sample much smaller than the slice overlay."*
+
+**"At first all looks good" is the load-bearing detail.** Droste is `panLockedByDefault: true`, and a locked form renders centred — so the bad value sits there invisibly until the lock comes off. The offset was never droste's; it was square's, carried across.
+
+**This also explains why B610's `startDist` floor helped but did not cure it.** Two independent routes into a runaway phase: a stray touch (fixed B610) and this one. Both were real.
+
+### ⚠️ Still open, and the important one: live can get stuck with no recovery
+
+Daniel's step 6: recentre fixes the STAGED canvas, but **the LIVE view keeps zooming.** `panRecenter` resets the pan and nothing resets the follower, so live is still chasing an accumulated `drosteZoomPhase` target.
+
+**The existing escape hatch is CUT** — `pfCut` calls `follower.jump(state)`, which hard-lands live on the staged state. That works today and is the thing to reach for mid-set.
+
+**But "the operator must know to press cut" is not a fix.** A reset action that visibly corrects staged while live keeps misbehaving is a broken affordance, and it is the highest-value item left in this cluster. Filed.
+
+### Filed: `canvasOffset` means different things in different forms
+
+The clamp bounds the damage; it does not resolve that **one global field is a lattice pan in square, a centre shift in radial, and a log-polar centre in droste** — with droste additionally having its own `drosteOffsetX/Y` for the same concept. This is exactly the *"which properties carry over between forms, and when"* decision Daniel raised at B609, now with a concrete failure attached.
+
 ## 🤏 v0.25.20 (Build 610) — 2026-08-14 — Canvas pan ignored the zoom; a stray touch could launch the droste phase
 
 **JS only. No `cap sync` needed.**

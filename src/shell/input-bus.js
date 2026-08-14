@@ -29,10 +29,14 @@ import { createTrackpadInput } from './trackpad-input.js';
 import { createRemoteInput } from './remote-input.js';
 import qrcode from 'qrcode-generator';   // QR pairing (Daniel-approved dependency, MIT, zero-dep)
 import { applyUnifiedZoom } from '../kit/zoom.js';   // shared unified zoom — the canvas pinch routes here too
-import { panToOffset } from '../kit/pan.js';         // shared canvas-pan transform — the remote drag pans identically
-import { getActiveForm, formPanLocked } from '../engine/forms/index.js';   // pannability check for the remote canvas drag
+import { panDelta } from '../kit/pan.js';            // shared canvas-pan gain — the remote drag pans identically to touch
+import { getActiveForm, formPanLocked, formCanvasNorm } from '../engine/forms/index.js';   // pannability + the shader's effective zoom
 
 const STORE_KEY = 'fold-inputs-v1';
+
+// Does the ACTIVE form tile? A lattice period means canvasOffset is periodic (and so unbounded);
+// its absence means canvasOffset is a centre shift and must stay bounded. See the pan targets.
+const latticePeriodOf = (s) => getActiveForm(s)?.latticePeriod?.(s) || null;
 
 // Mappable targets: continuous params (full slider range; wrap = angular) and
 // transport ACTIONS. `dir` names the low → high direction for the invert read.
@@ -50,11 +54,23 @@ const PARAM_TARGETS = [
       ? { key: 'drosteZoomPhase', min: 0, max: 1, wrap: true, wrapPeriod: 1 }
       : { key: 'canvasZoom', min: 0.05, max: 4 } },
   { key: 'canvasRotation', label: 'canvas rotation', min: 0, max: 360, wrap: true, dir: '0° → 360°' },
-  // TILING PAN (tileable forms). Absolute maps to ±2 units (~one lattice period); RATE/REL modes
-  // (a stick/encoder) drift it like the joystick. The shader wraps the visual, so it loops
-  // regardless. (True infinite-loop-per-knob-sweep needs lattice-aligned wrap — a later refinement.)
-  { key: 'canvasOffsetX', label: 'pan x', min: -2, max: 2, dir: 'left → right' },
-  { key: 'canvasOffsetY', label: 'pan y', min: -2, max: 2, dir: 'up → down' },
+  // TILING PAN. `abs` maps a fader across ±2 units (~one lattice period); REL/RATE drift it.
+  //
+  // ⚠️ B611 — THE ±2 USED TO BE A HARD WALL, AND ON A TILEABLE FORM THAT IS WRONG. A lattice form
+  // loops forever by construction (the shader wraps the offset mod the period), so an accumulating
+  // gesture must be allowed to accumulate. Clamping it produced Daniel's "edge": pan left on
+  // rectangle, zoom out, keep going, and you hit a wall you cannot cross — while panning back
+  // right still works, because you are pinned at the min. The LOCAL touch path never had this,
+  // since it writes state directly and only the uniform wraps; the two surfaces disagreed.
+  //
+  // So it resolves per form: UNBOUNDED where a lattice makes it periodic, and bounded to ±1 where
+  // it does not. On radial/droste this is not a tiling pan at all but a CENTRE shift — and in
+  // droste specifically a log-polar centre, where a large value squeezes the field into a thin
+  // annulus (the B611 blow-up). ±1 is the range droste itself declares for `drosteOffsetX/Y`.
+  { key: 'canvasOffsetX', label: 'pan x', min: -2, max: 2, dir: 'left → right',
+    resolve: (s) => (latticePeriodOf(s) ? { unbounded: true } : { min: -1, max: 1 }) },
+  { key: 'canvasOffsetY', label: 'pan y', min: -2, max: 2, dir: 'up → down',
+    resolve: (s) => (latticePeriodOf(s) ? { unbounded: true } : { min: -1, max: 1 }) },
   { key: 'squareAspect', label: 'square aspect', min: 0.25, max: 4, dir: 'tall → wide' },
   { key: 'drosteZoom', label: 'droste thickness', min: 1.1, max: 16, dir: 'thin → thick' },
   { key: 'drosteSpiral', label: 'droste spiral', min: -3, max: 3, dir: 'wind left → wind right' },
@@ -199,9 +215,15 @@ export function createInputBus(env) {
     // compensated independently — exact at 0°, mildly skewed when the canvas is rotated (the local
     // touch path gets both axes in one event and is exact; acceptable for the remote surface).
     if (!overSrc && (kind === 'dragx' || kind === 'dragy') && panDrivableNow()) {
+      // B611 — MERGED WITH DIRECT MANIPULATION. The remote sends travel as a fraction of ITS OWN
+      // short side, which is exactly the unit `panDelta` takes, so the phone and the app's own
+      // canvas now run the identical gain and the same 1/zoom. The old `× 3` (remote-input) and
+      // `PAN_GESTURE_SENS × 1.2` (here) were two hand-tuned constants covering for a missing zoom
+      // term; both are gone. Any device of any size now honours one contract: drag across the
+      // short side of the surface you are touching, content travels the short side of the canvas.
       const [dx, dy] = kind === 'dragx'
-        ? panToOffset(value * PAN_GESTURE_SENS, 0, state.canvasRotation)
-        : panToOffset(0, value * PAN_GESTURE_SENS, state.canvasRotation);
+        ? panDelta(value, 0, state.canvasRotation, effZoom())
+        : panDelta(0, value, state.canvasRotation, effZoom());
       glideBy(targetOf('canvasOffsetX'), dx, REMOTE_GLIDE_TAU);
       glideBy(targetOf('canvasOffsetY'), dy, REMOTE_GLIDE_TAU);
       return;
@@ -230,7 +252,15 @@ export function createInputBus(env) {
     if (dot) { dot.classList.add('hot'); setTimeout(() => dot.classList.remove('hot'), 160); }
   }
 
-  const targetOf = (key) => PARAM_TARGETS.find((t) => t.key === key);
+  // Resolve semantic / per-form targets at the SINGLE lookup point, so every consumer — stored
+  // mappings, the contextual gesture path, and the motion loop — sees the same per-form range and
+  // bounds. Before B611 only `applyMapping` resolved, so a gesture-driven pan still met the flat
+  // ±2 wall even though the active form was periodic. That divergence WAS Daniel's pan "edge".
+  const targetOf = (key) => {
+    const t = PARAM_TARGETS.find((x) => x.key === key);
+    return t && t.resolve ? { ...t, ...t.resolve(state) } : t;
+  };
+  const effZoom = () => state.canvasZoom * formCanvasNorm(state);   // what the shader actually uses
   // pannable = tileable (has a lattice period) OR radial (pans via canvasOffset, no lattice).
   // Mirrors main.js / mobile chrome's ctx.panDrivable — a candidate for the shared helper when
   // the "one fn per input axis" hardening lands (the same duplication kit/pan.js just resolved).
@@ -283,7 +313,10 @@ export function createInputBus(env) {
 
   function writeParam(t, v) {
     if (t.wrap) { const P = t.wrapPeriod || 360; v = ((v % P) + P) % P; }
-    else v = Math.max(t.min, Math.min(t.max, v));
+    // `unbounded` = periodic in the shader but stored raw (tiling pan). Not wrapped HERE on
+    // purpose: state stays continuous so the follower / tween / autoplay never see a seam blip,
+    // exactly as the local touch path already does. The uniform does the wrapping.
+    else if (!t.unbounded) v = Math.max(t.min, Math.min(t.max, v));
     state[t.key] = v;
     env.scheduleRender?.();
     env.sourceOverlay?.scheduleDraw?.();
@@ -298,13 +331,13 @@ export function createInputBus(env) {
   // a touch of capture latency beats WS-burst choppiness in the staged panel).
   const REMOTE_GLIDE_TAU = 0.35;
   const PINCH_ZOOM_SENS = 0.5;    // WS scale-delta → unified-zoom factor exponent. TUNE: bigger = zoomier. (3 → 1.05 → 0.5; Daniel: still too enthusiastic)
-  const PAN_GESTURE_SENS = 1.2;   // remote canvas-drag → canvasOffset delta scalar. TUNE: bigger = faster pan. (0.3 → 1.2; Daniel: felt ~¼ of the gesture)
+  // (PAN_GESTURE_SENS retired B611 — the pan gain is derived in kit/pan.js and shared with touch.)
   function glideBy(t, d, tau = 0.18) {
     let g = glide.get(t.key);
     if (!g) { g = { cur: state[t.key] ?? 0, vel: 0, goal: state[t.key] ?? 0, tau }; glide.set(t.key, g); }
     g.goal += d;
     g.tau = tau;
-    if (!t.wrap) g.goal = Math.max(t.min, Math.min(t.max, g.goal));
+    if (!t.wrap && !t.unbounded) g.goal = Math.max(t.min, Math.min(t.max, g.goal));
     startMotionLoop();
   }
 

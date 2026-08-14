@@ -24,3 +24,22 @@ export function panToOffset(fx, fy, canvasRotationDeg = 0) {
   const c = Math.cos(r), s = Math.sin(r);
   return [-c * fx - s * fy, s * fx - c * fy];
 }
+
+// THE ONE PAN GAIN, shared by every surface (B611). Takes a finger displacement expressed as a
+// FRACTION OF THE GESTURE SURFACE'S SHORT SIDE — which makes it screen-size independent by
+// construction, so a phone, a tablet and the app's own canvas all speak the same units — and
+// returns the canvasOffset delta, rotation folded in.
+//
+// The contract: drag across the short side of whatever you are touching, and content travels the
+// short side of the host canvas. Any device, any size.
+//
+// The 1/zoom is the whole reason this exists. `u_canvasOffset` is subtracted AFTER
+// `p /= u_canvasZoom` (shader-builder), so one offset unit moves content on screen in PROPORTION
+// to the zoom. Every surface previously carried its own hand-tuned constant to paper over that
+// (3.5 locally, 3 × 1.2 on the remote) and none of them divided by the zoom, so all of them
+// accelerated as you zoomed in and crawled as you zoomed out. Derived, not tuned:
+//   δ = 2 · fShort / Z      (2 because fShort is a full-side fraction, offsets are half-side units)
+export function panDelta(fShortX, fShortY, canvasRotationDeg = 0, zoom = 1) {
+  const g = 2 / Math.max(1e-4, zoom);
+  return panToOffset(fShortX * g, fShortY * g, canvasRotationDeg);
+}

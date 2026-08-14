@@ -45,7 +45,21 @@ const COMMON_UNIFORMS = {
     // X negated so pushing the joystick RIGHT pans the pattern right (Daniel: X read backwards);
     // Y already reads correctly. This is the single sign-convention point for canvasOffset.
     const ox = -(state.canvasOffsetX || 0), oy = state.canvasOffsetY || 0;
-    if (!period) return [ox, oy];
+    // NON-LATTICE forms (radial, droste) have no periodicity to make a large offset meaningful,
+    // and the offset is ONE GLOBAL VALUE shared by every form. On a tiling form it accumulates
+    // UNWRAPPED and is only kept sane by the wrap below — so a long pan on square leaves a large
+    // raw value that means nothing here, and droste then reads it verbatim.
+    //
+    // In droste that is not a translation, it is a shift of the LOG-POLAR CENTRE: a large offset
+    // squeezes the whole visible field into a thin annulus, which reads as an extreme zoom into a
+    // tiny sample. Daniel's B610 repro exactly — pan around on square, switch to droste, unlock
+    // pan, and the canvas leaps to a sample far smaller than the slice overlay.
+    //
+    // Bounded to the range droste itself declares sane for a centre shift (drosteOffsetX/Y, ±1)
+    // rather than the tiling range (±2), because for these forms it IS a centre shift. Clamped
+    // rather than cleared, to keep the non-destructive contract above.
+    const clamp1 = (v) => Math.max(-1, Math.min(1, v));
+    if (!period) return [clamp1(ox), clamp1(oy)];
     const wrap = (v, p) => (p > 0 ? ((v % p) + p) % p : v);
     return [wrap(ox, period[0]), wrap(oy, period[1])];
   } },

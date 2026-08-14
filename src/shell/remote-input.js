@@ -256,8 +256,12 @@ export function createRemoteInput(onSignal, onDevices, host, env) {
         if (msg.t === 'tt') { dispatchSliceTouch(msg.k, msg.c, msg.a); return; }
         const z = msg.z === 'slice' ? 'slice' : 'canvas';
         if (msg.t === 'd') {
-          if (msg.x) onSignal(`mob:mobile.${z}.dragx`, msg.x * 3, meta(`${z} drag x`));
-          if (msg.y) onSignal(`mob:mobile.${z}.dragy`, msg.y * 3, meta(`${z} drag y`));
+          // B611: sent RAW as a fraction of this device's short side. The old `× 3` was half of a
+          // hand-tuned pair (with input-bus's × 1.2) covering for a missing 1/zoom term; the gain
+          // now lives once, in kit/pan.js, shared with direct manipulation. Keeping the wire unit
+          // device-relative is what makes any phone or tablet behave identically.
+          if (msg.x) onSignal(`mob:mobile.${z}.dragx`, msg.x, meta(`${z} drag x`));
+          if (msg.y) onSignal(`mob:mobile.${z}.dragy`, msg.y, meta(`${z} drag y`));
         } else if (msg.t === 'p') {
           onSignal(`mob:mobile.${z}.pinch`, msg.v * 2, meta(`${z} pinch`));
         } else if (msg.t === 'r') {

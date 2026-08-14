@@ -21,7 +21,7 @@
 //   }) → { destroy() }
 
 import { applyUnifiedZoom } from '../kit/zoom.js';   // shared: EVERY zoom entry point routes through this
-import { panToOffset } from '../kit/pan.js';         // shared: EVERY pan entry point routes through this
+import { panToOffset, panDelta } from '../kit/pan.js';   // shared: EVERY pan entry point routes through these
 import { formCanvasNorm } from '../engine/forms/index.js';   // the shader's effective zoom includes it
 
 export function createOutputGestures(canvas, ctx) {
@@ -82,9 +82,13 @@ export function createOutputGestures(canvas, ctx) {
   // pinch itself is unaffected and reads correct (Daniel).
   // The REMOTE gesture surface has its own reference frame (the phone's screen, not this
   // canvas) and its own gain in input-bus.js — deliberately not changed from here.
-  const panGain = (rect) => {
-    const z = Math.max(1e-4, state.canvasZoom * formCanvasNorm(state));
-    return [(rect.height > 0 ? rect.width / rect.height : 1) / z, 1 / z];
+  // B611: the gain itself now lives in kit/pan.js as `panDelta`, shared with the remote gesture
+  // surface, so both speak "fraction of the surface's short side" and there is ONE place the
+  // zoom term can be wrong. Mathematically identical to B610's per-axis aspect/Z and 1/Z.
+  const effZoom = () => state.canvasZoom * formCanvasNorm(state);
+  const panFrom = (dx, dy, rect) => {
+    const short = Math.max(1, Math.min(rect.width, rect.height));
+    return panDelta(dx / short, dy / short, state.canvasRotation, effZoom());
   };
 
   function onStart(e) {
@@ -130,13 +134,12 @@ export function createOutputGestures(canvas, ctx) {
       // centroid travel → tiling pan; content follows the two fingers' midpoint.
       const rect = canvas.getBoundingClientRect(), now = performance.now();
       const cx = (t0.clientX + t1.clientX) / 2, cy = (t0.clientY + t1.clientY) / 2;
-      const [gx, gy] = panGain(rect);
-      const [cdx, cdy] = pan(gx * (cx - manip.cx0) / (rect.width / 2), gy * (cy - manip.cy0) / (rect.height / 2));
+      const [cdx, cdy] = panFrom(cx - manip.cx0, cy - manip.cy0, rect);
       state.canvasOffsetX = manip.ox + cdx;
       state.canvasOffsetY = manip.oy + cdy;
       const dtms = now - manip.lastT;   // centroid velocity (same transform) → flick-to-drift on release
       if (dtms > 0) {
-        const [vx, vy] = pan(gx * (cx - manip.lastCx) / (rect.width / 2), gy * (cy - manip.lastCy) / (rect.height / 2));
+        const [vx, vy] = panFrom(cx - manip.lastCx, cy - manip.lastCy, rect);
         manip.vx = vx / (dtms / 1000); manip.vy = vy / (dtms / 1000);
       }
       manip.lastCx = cx; manip.lastCy = cy; manip.lastT = now;

@@ -90,6 +90,24 @@ This retires the confusion, not just a hypothesis. Resolution was free because t
 
 ## current version
 
+**🌀 B611 — ONE PAN GAIN FOR EVERY SURFACE; THE LOOP STOPPED HAVING AN EDGE. JS only, no `cap sync`.**
+
+**✅ THE GESTURE AND DIRECT-MANIPULATION PAN PATHS ARE MERGED** (Daniel-approved). `kit/pan.js`'s new `panDelta` takes a displacement as a **fraction of the gesture surface's own short side** and folds in the `1/zoom`. **Both hand-tuned constants are gone** (`× 3` in remote-input, `PAN_GESTURE_SENS 1.2` in input-bus). **Contract: drag across the short side of whatever you touch, content travels the short side of the canvas — any device, any size.**
+
+**✅ AND THE PAN "EDGE" IS FIXED.** `canvasOffsetX/Y` were a flat ±2 with a hard clamp, which is simply wrong on a lattice form that loops forever. They now resolve **per form: unbounded when periodic, ±1 when a centre shift.** Daniel's tell was *"but you can pan right"* — one-directional failure means pinned against a bound, not a scale error.
+
+**⚠️ THE DEEPER FIX WAS AT THE LOOKUP POINT:** only `applyMapping` resolved per-form targets, so the gesture path and the motion loop saw raw flat ranges. `targetOf` now resolves. **That divergence was the edge, and it would have bitten every future per-form target identically.**
+
+**✅ B610'S PAN FIX IS DANIEL-VERIFIED** on every form except droste, at all scales and directions: *"core issue addressed!"*
+
+**The droste exception had its own cause.** `canvasOffsetX/Y` is **one global value shared by every form**, accumulating UNWRAPPED and kept sane only by being wrapped mod the lattice period at the uniform. Droste has no lattice, so it read the raw accumulated value — and in droste that is not a translation but a shift of the **log-polar centre**, squeezing the visible field into a thin annulus. Clamped to ±1 for non-lattice forms.
+
+**"At first all looks good" is the load-bearing part of Daniel's repro:** droste is `panLockedByDefault`, and a locked form renders centred, so square's offset sits there invisibly until the lock comes off. **This is also why B610's `startDist` floor helped without curing it — two independent routes into a runaway phase, both real.**
+
+**🚨 STILL OPEN, AND THE HIGHEST-VALUE ITEM LEFT: live can get stuck with no recovery.** Recentre fixes the STAGED canvas while the LIVE view keeps zooming, because `panRecenter` resets pan and nothing resets the follower. **The escape hatch that works today is CUT** (`pfCut` → `follower.jump(state)`). But "the operator must know to press cut" is not a fix — a reset that visibly corrects staged while live misbehaves is a broken affordance.
+
+**📋 AND THE PRODUCT DECISION NOW HAS A CONCRETE FAILURE ATTACHED:** one global `canvasOffset` is a lattice pan in square, a centre shift in radial, and a log-polar centre in droste — which also has its own `drosteOffsetX/Y` for the same concept. This is Daniel's B609 "which properties carry over between forms" question, no longer hypothetical.
+
 **🤏 B610 — CANVAS PAN IGNORED THE ZOOM. JS only, no `cap sync`.**
 
 **`u_canvasOffset` is subtracted AFTER `p /= u_canvasZoom`, so one offset unit moves content in proportion to the zoom — and the pan gain was a flat 3.5.** Pan therefore accelerated as you zoomed in and crawled as you zoomed out. Gain is now derived from the shader: **`aspect/Z` on x, `1/Z` on y.** The flat `PAN_TOUCH_GAIN`, marked `TUNE`, is gone; its original justification ("touch reads as ¼ of the gesture") was this bug seen at one zoom level.

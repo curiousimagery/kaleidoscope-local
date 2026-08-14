@@ -260,7 +260,49 @@ from canvas · planar · native decode · 0.0 in/s
 
 **Cross-ref:** this is very likely the same defect as the long-standing "source panel lost its image after a bake → perform switch", now with a root-cause branch rather than a symptom.
 
-### ✅ [FIXED B610] THE DROSTE RUNAWAY WAS A STRAY TOUCH, NOT AUTOPLAY
+### 🚨 [HIGH — Daniel, B611] A RESET FIXES THE STAGED CANVAS AND LEAVES LIVE STUCK, WITH NO OBVIOUS RECOVERY
+
+**The most damaging thing in the whole input cluster, because it happens mid-set and looks unrecoverable.**
+
+Daniel's B611 repro, final step: after the droste blowup he goes to canvas settings and recentres. **The staged canvas is correct. The live canvas keeps zooming and never stops.** `env.panRecenter` resets the pan; **nothing resets the follower**, so live is still chasing an accumulated `drosteZoomPhase`.
+
+**The escape hatch that works TODAY is CUT** — `pfCut` calls `follower.jump(state)` ([perform-runtime.js:659](../src/shell/perform-runtime.js#L659)), which hard-lands live on the staged state. Worth knowing mid-show.
+
+**But requiring the operator to know that is not a fix.** A reset action that visibly corrects staged while live misbehaves is a broken affordance, and "live is stuck and I cannot get it back" is the worst possible failure during a performance.
+
+**The shape of the fix, needing a decision:** which actions should SETTLE the follower rather than let it chase? A recentre and a canvas-reset are corrections, not performance gestures — the operator is saying "put it back", not "travel there". **Candidate rule: any RESET action jumps; any PARAMETER change eases.** That is a clean line and it generalises past this bug.
+
+**Cross-ref:** `canvasReset` already zeroes `drosteZoomPhase` and calls `panRecenter`, so it is closer to correct than the settings recentre — but it still does not jump the follower.
+
+### 🧭 [INVARIANTS PROPOSED — Daniel, B611] FOUR RULES THE INPUT/FORM LAYER SHOULD HOLD
+
+Daniel, B611, reading across the whole cluster: *"it seems like there are a number of compounding issues."* He is right, and each of these is stated as an invariant so a violation is a bug rather than a judgement call.
+
+1. **You should never be able to zoom non-proportionally to the slice overlay.** The overlay's job is to show what is being sampled. If the canvas can zoom past it, the overlay is lying — an exit-criterion-2 (honest labels) failure on the one surface whose entire purpose is telling the truth about the sample.
+2. **There should be no state the app cannot get out of.** Any runaway needs a bound or a recovery, and preferably both.
+3. **Live must always follow staged and must never get caught doing its own thing.** The strongest of the four, and the current design violates it: the follower holds its own accumulator that can diverge permanently. See the recovery item above.
+4. **Positional X/Y must not carry from an infinitely-mirroring form to a form with a known centre.** Daniel: *"that carry over is nonsense."* Correct — see the entry below.
+
+**On his broader question — should form properties carry over between forms at all?** He noted the tension himself: at B609 he wanted basics like slice position and scale to persist during a live form switch, and at B611 he wondered whether never carrying is cleaner. **Proposed resolution, which satisfies both: carry a property iff it means the SAME THING in both forms.**
+- **Carry** the slice family (`sliceCx/Cy`, `sliceScale`, `sliceRotation`) — these describe how the SOURCE is sampled, identical in every form, and they are what makes a live form switch feel continuous.
+- **Carry** framing (`canvasZoom`, `canvasRotation`) — same meaning, and `canvasNorm` already normalises the per-form difference.
+- **Do NOT carry** `canvasOffset` — it is three different things (below).
+- **Harmless either way:** form-private params (`droste*`, `squareAspect`) are ignored by forms that do not declare them.
+
+**The line to remember: it is not "carry vs don't carry", it is "does this word mean the same thing over there".** Pan is the first parameter where it genuinely does not.
+
+### 📐 [DECISION NEEDED — Daniel, B609/B611] `canvasOffset` MEANS A DIFFERENT THING IN EVERY FORM
+
+**No longer hypothetical: it produced the B611 droste blowup.** One global `canvasOffsetX/Y` is:
+- a **lattice pan** in square/hex/triangle (wrapped mod the period, loops seamlessly, accumulates unwrapped)
+- a **centre shift** in radial (no lattice, raw)
+- a **log-polar centre** in droste (no lattice, raw) — where droste ALSO has its own `drosteOffsetX/Y` for the same concept, with its own joystick and its own ±1 range
+
+B611 clamps the non-lattice case to ±1, which bounds the damage without resolving the design. **The real question is Daniel's own from B609: which properties carry over between forms, and when.** His stated intuition — persist basics like slice position and scale when switching forms during a performance, do not persist discrete changes across still/motion modes — needs extending to say what happens when a value has **no meaningful translation** into the destination form. Pan is the first case where it genuinely does not.
+
+**Options:** per-form offset storage; convert on switch (wrap into the old form's period first, so the carried value is the smallest equivalent); or declare pan non-carrying and reset it on a form change. **Stage A/C of the input plan.**
+
+### ✅ [FIXED B610] ONE OF TWO DROSTE RUNAWAY ROUTES WAS A STRAY TOUCH (the other was B611's, above)
 
 **⚠️ THE ENTRY BELOW DIAGNOSED THE WRONG BUG. Daniel corrected it: he was NOT in autoplay.** Both are real; only one was his.
 
