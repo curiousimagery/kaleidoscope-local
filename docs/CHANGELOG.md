@@ -6,6 +6,32 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## ⚖️ v0.25.32 (Build 622) — 2026-08-14 — Droste's zoom press was six times too small; transition speed defaults to 0.5s
+
+**JS only. No `cap sync` needed.** Both Daniel's calls from live setup.
+
+### Shipped
+
+- **A droste infinite-zoom press now moves about as much as one on any other form.** New `relSpan` on the target scales the NUDGE without touching the fader's range.
+- **Perform transition speed defaults to 0.5s** (was 0.35). Daniel's call after rehearsal: 0.35 read closer to a cut than a move.
+
+### The two spans were measuring different things
+
+Daniel: *"3-4 presses on droste does the same or less than a single press on other forms."* He was right, and the factor is about six.
+
+A press moves `span × sens`, and the spans are not comparable quantities:
+
+| target | span | 5% press | actual visual change |
+|---|---|---|---|
+| `canvasZoom` | 3.95 | 0.198 **absolute** | ~20% bigger from 1.0× |
+| `drosteZoomPhase` | 1 (one loop) | 0.05 of a loop | a loop is a factor of `drosteZoom` (2× default), so 2^0.05 ≈ **3.5%** |
+
+**The span of 1 is correct for `abs`** — a fader should sweep exactly one seamless loop, which is the whole point of the phase being cyclic — so it could not simply be enlarged. `relSpan` splits the two questions: the absolute range stays 1 for the fader, and nudges measure against 3.5 loops, putting a 5% press at ~13% scale. Same perceptual bracket as the other forms, fader unchanged.
+
+**⚠️ Five fallback copies of the 0.35 default existed** (`state.js`, `perform-runtime.js` twice, `motion-runtime.js`, `follow.js`, `mobile/chrome.js`). All six sites now read 0.5, and `state.js` carries a comment naming the others — **a sixth instance of the same shared-value-in-many-copies pattern this arc keeps finding.**
+
+---
+
 ## 🎮 v0.25.31 (Build 621) — 2026-08-14 — Discrete controls step, they don't scale; and alt-tab for forms
 
 **JS only. No `cap sync` needed.** All from Daniel's B620 DualSense session.

@@ -576,7 +576,7 @@ export function createPerformRuntime(env) {
       // leaving motion for perform goes through motion's own exit path
       if (env.motionRT.active) byId('stillBtn')?.click();
       document.activeElement?.blur?.();   // enter with clean focus — the keys work from keypress one
-      follower = createFollower(state, { response: session.performResponse ?? 0.35 });
+      follower = createFollower(state, { response: session.performResponse ?? 0.5 });
       env.performRT.active = true;
       env.performRT.followed = { ...state };
       env.performRT.hold = false;
@@ -639,7 +639,7 @@ export function createPerformRuntime(env) {
     if (speedVal) speedVal.textContent = fmtResponse(v);
   }
   if (speedInput) {
-    speedInput.value = String(session.performResponse ?? 0.35);
+    speedInput.value = String(session.performResponse ?? 0.5);
     applyResponse(parseFloat(speedInput.value));
     speedInput.addEventListener('input', () => applyResponse(parseFloat(speedInput.value) || 0));
   }

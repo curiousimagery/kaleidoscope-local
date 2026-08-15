@@ -479,7 +479,7 @@ settingsEl.appendChild(motionSec);
     follower?.setResponse(v);
     val.textContent = fmt(v);
   };
-  inp.value = String(session.performResponse ?? 0.35);
+  inp.value = String(session.performResponse ?? 0.5);
   apply(parseFloat(inp.value));
   inp.addEventListener('input', () => apply(parseFloat(inp.value) || 0));
 })();
@@ -1735,7 +1735,7 @@ function startLiveLoop() {
       // record video: the OUTPUT (PiP + recording) eases toward the edited
       // state through the follower; the big panel stays the immediate PREVIEW.
       // While settled the two are identical — one render serves both.
-      if (!follower) follower = createFollower(state, { response: session.performResponse ?? 0.35 });
+      if (!follower) follower = createFollower(state, { response: session.performResponse ?? 0.5 });
       const dt = lastTickT ? Math.min(now - lastTickT, 100) : 16;
       if (autoOn) {
         drift.tick(now, dt);                   // wander writes state like a hand

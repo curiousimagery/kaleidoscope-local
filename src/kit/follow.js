@@ -77,7 +77,7 @@ export const FOLLOW_SPANS = {
 //   remaining()        max normalized |target − current| across fields (0 = in sync)
 //   isSettled(eps)     remaining() below eps AND velocities damped — drives the
 //                      live/staged "showing the same thing" affordance
-export function createFollower(initial, { response = 0.35 } = {}) {
+export function createFollower(initial, { response = 0.5 } = {}) {
   const cur = {}, vel = {}, tgt = {};      // spring state, UNWRAPPED for angular fields
   const snapshot = { ...initial };         // full state; non-continuous fields ride verbatim
   for (const k of CONTINUOUS_KEYS) { cur[k] = tgt[k] = initial[k] ?? 0; vel[k] = 0; }

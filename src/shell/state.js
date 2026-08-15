@@ -76,7 +76,10 @@ export const session = {
                       // user's aspect choice always sticks.
   stageSrcPct: 32,    // source panel's share of the stage split (percent). Output-dominant
                       // by default (the artwork is the show); the stage divider drags it.
-  performResponse: 0.35,  // perform-mode transition speed (the follower's response, seconds):
+  performResponse: 0.5,   // perform-mode transition speed (the follower's response, seconds):
+                      // B621, Daniel's call after live rehearsal: 0.5 not 0.35. The follower is the
+                      // difference between an edit and a MOVE, and 0.35 read closer to a cut.
+                      // ⚠️ THE FALLBACKS BELOW MUST MATCH: perform-runtime (x2), motion-runtime, follow.js.
                       // ~0 = instant, bigger = slower easing of the live output toward edits.
   performVideoSpeed: 1,   // perform-mode source playback rate (a video source loops while
                       // performing; presets 50–200%, separate from motion's retime).

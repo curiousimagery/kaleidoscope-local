@@ -840,7 +840,7 @@ function endStaging(how, { resume = true } = {}) {   // 'take' | 'cut' | 'discar
     // live is PRE-SEEDED with the exact on-air look: an unseeded first frame
     // fell through to the NEW state for one frame (Daniel read the flash as a
     // hard cut).
-    const dur = Math.max(120, (env.session?.performResponse ?? 0.35) * 2500);
+    const dur = Math.max(120, (env.session?.performResponse ?? 0.5) * 2500);
     stg.blend = {
       from: committed, t0: performance.now(), dur, playing: wasPlaying, p: pNow,
       clock0: performance.now() - pNow * motion.durationMs,

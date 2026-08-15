@@ -90,6 +90,12 @@ This retires the confusion, not just a hypothesis. Resolution was free because t
 
 ## current version
 
+**⚖️ B622 — DROSTE ZOOM PRESS SIZE + TRANSITION-SPEED DEFAULT. JS only.**
+
+**Droste's infinite-zoom press was ~6× too small.** `canvasZoom` at 5% moves 0.198 absolute (~20% from 1.0×); phase at 5% moves 0.05 of a loop, and a loop is a factor of `drosteZoom` (2× default), so 2^0.05 ≈ 3.5%. **The span of 1 is correct for `abs`** (a fader should sweep one seamless loop), so the fix is the new **`relSpan`**, which scales nudges only. Droste phase gets `relSpan: 3.5`.
+
+**Perform transition speed defaults to 0.5s** (was 0.35). ⚠️ **Six sites carried that fallback** — `state.js`, `perform-runtime.js` ×2, `motion-runtime.js`, `follow.js`, `mobile/chrome.js`. All updated; `state.js` now names the others in a comment.
+
 **🎮 B621 — DISCRETE CONTROLS STEP, THEY DON'T SCALE. JS only.** All from Daniel's DualSense session.
 
 **Segments steps one legal value per press on every form.** The `span × sens` arithmetic is wrong against a snap: at 5% radial nudged 2.3 (looked fine) while droste nudged 0.55 and **the first press did nothing**, which is the 2x/4x tapping he reported. **No sensitivity fixes both**, so discrete targets now declare `nudge` and use the form's own snap as the authority. Sens column reads `1 step`; `rate` mode is withdrawn for discrete targets.

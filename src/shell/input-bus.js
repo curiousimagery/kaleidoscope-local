@@ -95,8 +95,21 @@ const PARAM_TARGETS = [
   // overlays correctly stay put. **Same input, two honest answers, because the forms differ.**
   // The label now says which control this is, so the expectation is set before the test.
   { key: 'canvasZoom', label: 'canvas zoom  (droste: infinite zoom)', min: 0.05, max: 4, dir: 'zoomed out → zoomed in',
+    // ⚠️ B621 — `relSpan` exists because THE ABSOLUTE RANGE AND THE NUDGE SIZE ARE DIFFERENT
+    // QUESTIONS on this target, and only here does the difference bite.
+    //
+    // Daniel: *"3-4 presses on droste does the same or less than a single press on other forms."*
+    // He is right, and the factor is roughly six. A press moves `span × sens`, and the two spans
+    // measure incomparable things:
+    //   canvasZoom — span 3.95, so 5% = 0.198 ABSOLUTE, i.e. ~20% bigger from 1.0×.
+    //   phase      — span 1 (one loop), so 5% = 0.05 of a loop. A loop is a factor of `drosteZoom`
+    //                (default 2×), so that is 2^0.05 ≈ **3.5% scale**. Six times weaker.
+    // The full-range span of 1 is CORRECT for `abs` — a fader should sweep exactly one seamless
+    // loop — so it cannot simply be enlarged. `relSpan` scales the nudge only, leaving the fader
+    // alone: 3.5 loops at 100% puts a 5% press at ~0.175 of a loop ≈ 13% scale, in the same
+    // perceptual bracket as the other forms without making the fader nonsense.
     resolve: (s) => s.form === 'droste'
-      ? { key: 'drosteZoomPhase', min: 0, max: 1, wrap: true, wrapPeriod: 1 }
+      ? { key: 'drosteZoomPhase', min: 0, max: 1, wrap: true, wrapPeriod: 1, relSpan: 3.5 }
       : { key: 'canvasZoom', min: 0.05, max: 4 } },
   { key: 'canvasRotation', label: 'canvas rotation', min: 0, max: 360, wrap: true, dir: '0° → 360°' },
   // TILING PAN. `abs` maps a fader across ±2 units (~one lattice period); REL/RATE drift it.
@@ -359,6 +372,10 @@ export function createInputBus(env) {
     // one mapping drives the right param per form (Stage 1 of the registry unification).
     const t = t0.resolve ? { ...t0, ...t0.resolve(state) } : t0;
     const span = t.max - t.min;
+    // the span a NUDGE is measured against. Identical to the absolute range for every target
+    // except droste's infinite zoom, where a loop is the right fader sweep but far too small a
+    // press — see `relSpan` on the canvasZoom target (B621).
+    const relSpan = t.relSpan ?? span;
     const sens = m.sens ?? 0.05;
     // a DISCRETE target stored as `rate` by an older rig falls back to stepping (B620). The mode
     // dropdown no longer offers rate here, but a mapping saved before that still says so, and the
@@ -371,7 +388,7 @@ export function createInputBus(env) {
     if (m.mode === 'rate') {
       let d = value;
       if (m.invert) d = -d;
-      rate.set(m.sig + '→' + m.target, { key: t.key, d, span, sens });
+      rate.set(m.sig + '→' + m.target, { key: t.key, d, span: relSpan, sens });
       startRateLoop();
       return;
     }
@@ -391,7 +408,7 @@ export function createInputBus(env) {
       }
       // one event = one nudge of sensitivity × range (buttons send 1; encoders
       // send signed fractions) — sens is the whole step-size story
-      let d = (meta.momentary ? Math.sign(value) : value) * span * sens;
+      let d = (meta.momentary ? Math.sign(value) : value) * relSpan * sens;
       if (m.invert) d = -d;
       if (!d) return;
       // a BUTTON nudge eases like a gentle joystick (Daniel: an abrupt jump
