@@ -6,7 +6,32 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
-## 🎯 v0.25.42 (Build 632) — 2026-08-15 — The droste loop's ACTUAL root cause, and the origin keeps a foot in the image
+## 🛡 v0.25.43 (Build 633) — 2026-08-15 — The origin guardrail, made durable
+
+**JS only. No `cap sync` needed** (though the phone is where the second fix shows).
+
+### Shipped
+
+- **The bound is re-asserted after EVERY drag mode**, not just `move`.
+- **Overlap is measured against the VISIBLE source rect**, so the phone's `cover` crop counts.
+
+### Two holes, and Daniel's report named one each
+
+**1. *"when i make a slice larger i can still consistently move the entire slice off canvas."*** B632 clamped inside the `move` branch. `scale`, `square-edge` and the rest change the box and **nothing re-checked the bound** — so grow the slice after positioning it and the constraint was silently void.
+
+Now enforced at **one site every branch falls through to**. That distinction is the fix: a per-branch call is something each future drag mode has to remember, and this one already proved that does not hold. (The rotate branch keeps its own call because it returns early.)
+
+**2. *"at the default size the iphone out of view source canvas doesn't catch."*** B632 measured overlap against the FULL source and I flagged the phone as a known limitation. It took one session to bite. The phone mounts the overlay with `fit: 'cover'`, so the panel shows a crop — a slice can satisfy "25% inside the source" while sitting entirely in a part of the source the panel never displays, which to the operator is exactly the same as being off-canvas.
+
+The visible rect turned out to be derivable from geometry the overlay already computes: `_geom`'s image rect intersected with the canvas. Under `contain` it returns [0,1] and nothing changes; under `cover` it returns the crop. **One derivation, both chromes** — deliberately not a bound each chrome computes for itself, which is the divergence class this arc keeps paying for.
+
+Verified across scales 0.667 / 2.0 / 4.0 and both rects: the box holds exactly 25% overlap in every case, where before it could reach zero.
+
+### On the semantic flip
+
+Daniel: *"actually flipping the part of the shape that's mirrored feels like it introduces complexity isn't worth it yet."* Agreed and filed. The guardrail is the whole feature for now.
+
+ — 2026-08-15 — The droste loop's ACTUAL root cause, and the origin keeps a foot in the image
 
 **JS only. No `cap sync` needed.**
 

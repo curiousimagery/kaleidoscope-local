@@ -53,27 +53,51 @@ import { perfFlags } from './perf-flags.js';
 // own bound — precisely the two-chrome divergence class that has cost this arc seven bugs — so the
 // full source is the single honest reference until there is a shared one.
 const OOB_MIRROR = 1;
-const MIN_OVERLAP = 0.25;   // a quarter of the box's own extent, or of the source, whichever is smaller
+const MIN_OVERLAP = 0.25;   // a quarter of the box's own extent, or of the visible source, whichever is smaller
+
+// ⚠️ B633 — THE OVERLAP MUST BE AGAINST WHAT YOU CAN SEE, NOT AGAINST THE WHOLE SOURCE.
+//
+// B632 measured against the full source and flagged the phone as a known limitation. Daniel hit it
+// immediately: *"at the default size the iphone out of view source canvas doesn't catch."* The phone
+// mounts this overlay with `fit: 'cover'`, so the panel shows a CROP — a slice can satisfy "25%
+// inside the source" while sitting entirely in the part of the source the panel never displays,
+// which to the operator is indistinguishable from being off-canvas.
+//
+// The visible rect is already derivable from geometry the overlay computes anyway: `_geom`'s image
+// rect intersected with the canvas. Under `contain` this returns [0,1] and nothing changes; under
+// `cover` it returns the crop. **One derivation, both chromes** — which is why this lives here and
+// not in either chrome's own bound.
+function visibleUVRect(env) {
+  const cv = env.sourceOverlayCanvas;
+  const g = cv?._geom;
+  if (!cv || !g || !g.imgW || !g.imgH) return null;
+  const w = cv.clientWidth, h = cv.clientHeight;
+  if (!w || !h) return null;
+  const u0 = Math.max(0, -g.imgX / g.imgW), u1 = Math.min(1, (w - g.imgX) / g.imgW);
+  const v0 = Math.max(0, -g.imgY / g.imgH), v1 = Math.min(1, (h - g.imgY) / g.imgH);
+  // a degenerate rect (mid-layout, zero-size panel) must not become a bound
+  return (u1 - u0 > 0.05 && v1 - v0 > 0.05) ? { u0, u1, v0, v1 } : null;
+}
 
 // Clamp the ORIGIN by way of the BOX, since the box is what has to stay partly visible and the
 // origin means something different per form (apex vs centre). The origin→box offset is fixed for a
 // given scale/rotation, so we solve in box space and convert back.
-function clampOriginToSource(state, sourceAspect) {
-  if (state.oobMode !== OOB_MIRROR) {
-    state.sliceCx = Math.max(0, Math.min(1, state.sliceCx));
-    state.sliceCy = Math.max(0, Math.min(1, state.sliceCy));
-    return;
-  }
+function clampOriginToSource(env) {
+  const state = env.state;
+  const sourceAspect = env.engine?.getSourceAspect?.() || 1;
   const box = formBoxCenter(getActiveForm(state), state, sourceAspect);
   if (!box) return;
-  const axis = (c, half, origin) => {
-    const need = MIN_OVERLAP * Math.min(2 * half, 1);
-    const lo = -half + need, hi = 1 + half - need;
-    const delta = origin - c;                       // origin relative to the box centre
-    return Math.max(lo, Math.min(hi, c)) + delta;   // clamp the CENTRE, carry the origin with it
+  const r = state.oobMode === OOB_MIRROR ? (visibleUVRect(env) || { u0: 0, u1: 1, v0: 0, v1: 1 }) : null;
+  const axis = (c, half, origin, lo0, hi0) => {
+    const span = hi0 - lo0;
+    if (!r) return Math.max(lo0, Math.min(hi0, origin));   // non-mirror: the ORIGIN itself stays in
+    const need = MIN_OVERLAP * Math.min(2 * half, span);
+    const lo = lo0 - half + need, hi = hi0 + half - need;
+    const delta = origin - c;                              // origin relative to the box centre
+    return Math.max(lo, Math.min(hi, c)) + delta;          // clamp the CENTRE, carry the origin
   };
-  state.sliceCx = axis(box.x, box.halfW, state.sliceCx);
-  state.sliceCy = axis(box.y, box.halfH, state.sliceCy);
+  state.sliceCx = axis(box.x, box.halfW, state.sliceCx, r ? r.u0 : 0, r ? r.u1 : 1);
+  state.sliceCy = axis(box.y, box.halfH, state.sliceCy, r ? r.v0 : 0, r ? r.v1 : 1);
 }
 
 // touch-surface detection — used to decide whether to render always-visible
@@ -1234,7 +1258,7 @@ export function setupSourceInteraction(env, wrap) {
           const dy = drag.startCy - drag.startPivotUV.v;
           state.sliceCx = curMid.u + dx * cosA - dy * sinA;
           state.sliceCy = curMid.v + dx * sinA + dy * cosA;
-          clampOriginToSource(state, env.engine?.getSourceAspect?.() || 1);
+          clampOriginToSource(env);
         }
       }
       env.syncControls();
@@ -1257,7 +1281,6 @@ export function setupSourceInteraction(env, wrap) {
         if (!uv) return;
         state.sliceCx = uv.u;
         state.sliceCy = uv.v;
-        clampOriginToSource(state, env.engine?.getSourceAspect?.() || 1);
       } else if (drag.mode === 'scale') {
         if (!g) return;
         const r = Math.hypot(x - g.cx, y - g.cy);
@@ -1370,6 +1393,13 @@ export function setupSourceInteraction(env, wrap) {
         state.drosteOffsetX = (x - g.cx) / g.rOut;
         state.drosteOffsetY = -((y - g.cy) / g.rOut);
       }
+      // ⚠️ B633 — ENFORCED ONCE, AFTER EVERY DRAG MODE, not per branch. B632 clamped inside the
+      // `move` branch only, so SCALE and the square-edge drags grew the box past the bound with
+      // nothing re-checking it: Daniel *"when i make a slice larger i can still consistently move
+      // the entire slice off canvas."* Any mutation that changes the box has to re-assert the
+      // bound, and the only durable way to guarantee that is a single site every branch falls
+      // through to — not a call each branch has to remember.
+      clampOriginToSource(env);
       env.syncControls();
       env.scheduleRender();
       e.preventDefault();

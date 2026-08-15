@@ -90,6 +90,17 @@ This retires the confusion, not just a hypothesis. Resolution was free because t
 
 ## current version
 
+**🛡 B633 — THE ORIGIN GUARDRAIL, MADE DURABLE. JS only.**
+
+Two holes in B632's guardrail, one per symptom Daniel reported.
+
+1. **The bound was only asserted in the `move` branch**, so `scale` / `square-edge` grew the box past it with nothing re-checking — *"make a slice larger and I can still move the entire slice off canvas."* Now enforced at **one site every drag branch falls through to.** A per-branch call is something each future mode must remember, and that already failed once.
+2. **Overlap was measured against the FULL source**, but the phone mounts the overlay `fit: 'cover'` so its panel shows a crop — a slice could satisfy the bound while sitting entirely in a part of the source the panel never shows. **Now measured against the visible rect**, derived from `_geom` ∩ canvas: `contain` returns [0,1] (no change), `cover` returns the crop. One derivation, both chromes.
+
+Verified at scales 0.667 / 2.0 / 4.0 against both the full source and a simulated crop: 25% overlap holds in every case.
+
+**Semantic flip: DEFERRED by Daniel** — *"introduces complexity isn't worth it yet."* The guardrail is the feature.
+
 **🎯 B632 — THE DROSTE LOOP'S ACTUAL ROOT CAUSE. JS only.**
 
 **`cycDelta` had a sign bug and that is the whole thing.** JS `%` keeps the DIVIDEND's sign, so `((b - a + 1.5P) % P) - 0.5P` left its own ±P/2 range as soon as `b` (the RAW state) drifted negative — which autoplay's walker does constantly:
