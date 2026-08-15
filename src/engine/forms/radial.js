@@ -1,3 +1,5 @@
+import { formCanvasNorm } from './index.js';   // effective zoom = canvasZoom × canvasNorm (see buildPolygon)
+
 // forms/radial.js
 //
 // FORM 0 — radial wedge (classic kaleidoscope).
@@ -9,6 +11,11 @@
 
 export default {
   id: 'radial',
+  // ✅ ZOOM EXTENTS TUNED B618 by Daniel with the ?tune=forms range sweep.
+  // the wedge samples a larger ring as the canvas zooms out, so the overflow is real here.
+  zoomCover: 2.0,
+  zoomInFloor: 0.5,
+
   label: 'Radial',
   fileCode: 'r',
 
@@ -66,7 +73,12 @@ export default {
     // is the shared geometry, the overlay + seam + hit-test + (future) SVG export all inherit this.
     // (Output ASPECT reshaping the arc per-angle is the next sub-step; this captures the zoom magnitude.)
     const wedge = (Math.PI * 2) / state.segments;
-    const R = 1 / Math.max(0.0001, state.canvasZoom || 1);
+    // ⚠️ The EFFECTIVE zoom, not the raw state value: the shader renders
+    // `u_canvasZoom = canvasZoom × formCanvasNorm`, so a polygon built from the raw number desyncs
+    // the overlay from the render on any form declaring a canvasNorm. Invisible today only because
+    // radial's norm is 1.0 — which is exactly the kind of latent mismatch that surfaces the first
+    // time someone tunes this form. (B617; same class as droste's missing sizeNorm at B614.)
+    const R = 1 / Math.max(0.0001, (state.canvasZoom || 1) * formCanvasNorm(state));
     const pts = [];
     pts.push({ vx: 0, vy: 0 });
     const STEPS = 16;

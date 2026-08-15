@@ -90,6 +90,20 @@ This retires the confusion, not just a hypothesis. Resolution was free because t
 
 ## current version
 
+**📐 B618 — ZOOM EXTENTS LANDED; THE NORMALISATION PASS IS CLOSED. JS only, no `cap sync`.**
+
+**All five forms now declare all four normalisation numbers.** Extents: **radial 2.0/0.5 · square 0.65/1.0 · hex 0.65/0.6 · triangle 0.65/0.3 · droste 2.2/0.15.**
+
+**A cover below 1 never engages the zoom-out overflow** (sliceScale starts at 1, so `s < cover` is false) — which is the right answer for a tiling form: zooming out should buy more repeats, not a bigger slice. **The three tiling forms are effectively declaring "the slice is mine, the canvas is yours"**, while radial and droste, whose folds genuinely rescale the sampled region, keep a live overflow on both sides.
+
+**⚠️ The `zoom cover` slider floor was 1**, so everything below was unreachable and Daniel had to GUESS three of five values. Now 0.2 — **those three are worth re-checking now that they can actually be measured.**
+
+**Also fixed: radial's `buildPolygon` used raw `canvasZoom`** against the shader's `canvasZoom × canvasNorm`. Invisible today (radial's norm is 1.0) but the same class as droste's missing `sizeNorm` at B614 — **a normalised quantity with a consumer that never got the norm. Third instance in this arc; worth an audit rather than another one-off.**
+
+**🚧 OPEN: the slice overlay reads inaccurate while sweeping the tuner** (Daniel, B618). The radial fix is unlikely to be the whole story since its norm is 1.0. Needs the specific form and sweep position.
+
+**▶ NOTHING IS OWED NOW. The MIDI/gamepad cluster is fully unblocked.**
+
 **🎚 B617 — YOU CANNOT JUDGE AN EXTENT YOU CAN NEVER STAND AT. JS only, no `cap sync`.**
 
 **`?tune=forms` now HUGS the bound being dragged** (cover pins fully OUT, in-floor pins fully IN) and gains a **`range sweep`** that walks the form's whole zoom range across both slice↔canvas handoffs, with a live `slice · canvas` readout.

@@ -57,7 +57,12 @@ const FIELDS = [
     'scales the SLICE sample. Target: sliceScale 1.0 samples a comparable amount of source on every form.'],
   ['canvasNorm', 'canvas norm', [0.2, 4, 0.05], 1,
     'redefines what canvasZoom 1× MEANS for this form. Target: a form does not open absurdly dense or sparse at 1×.'],
-  ['zoomCover', 'zoom cover', [1, 6, 0.1], 3,
+  // ⚠️ min was 1, which made everything below it unreachable — Daniel had to GUESS three of the
+  // five cover values at B617 ("guessing but slider doesn't go lower than 1"). Below 1 is a real
+  // and meaningful setting: sliceScale starts at 1, so `s < cover` is false and the zoom-OUT
+  // overflow simply never engages. That is the right answer for a TILING form, where zooming out
+  // should buy more repeats rather than a bigger slice.
+  ['zoomCover', 'zoom cover', [0.2, 6, 0.05], 3,
     'how far a zoom-OUT may grow the slice once the canvas hits its wall. Target: it stops right about where the slice covers the source. Too low re-creates the zoom trap; too high lets the slice get unwieldy.'],
   ['zoomInFloor', 'zoom-in floor', [0.1, 1.5, 0.05], 0.7,
     'how far a zoom-IN may shrink the slice once the canvas hits its wall. Target: the canvas stops before it starts doing the slice control\'s job.'],

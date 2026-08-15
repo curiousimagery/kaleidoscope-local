@@ -54,6 +54,11 @@ const TAU = Math.PI * 2;
 
 export default {
   id: 'droste',
+  // ✅ ZOOM EXTENTS TUNED B618 by Daniel with the ?tune=forms range sweep.
+  // for droste these really measure the SLICE SCALE range limits (Daniel), since its composition zoom is the phase.
+  zoomCover: 2.2,
+  zoomInFloor: 0.15,
+
   label: 'Droste',
   fileCode: 'd',
 

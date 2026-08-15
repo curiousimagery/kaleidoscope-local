@@ -14,6 +14,11 @@
 
 export default {
   id: 'hex',
+  // ✅ ZOOM EXTENTS TUNED B618 by Daniel with the ?tune=forms range sweep.
+  // cover < 1 disables the zoom-out overflow (tiling: more repeats, not a bigger slice).
+  zoomCover: 0.65,
+  zoomInFloor: 0.6,
+
   label: 'Hex',
   fileCode: 'h',
 

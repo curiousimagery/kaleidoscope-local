@@ -8,6 +8,11 @@
 
 export default {
   id: 'square',
+  // ✅ ZOOM EXTENTS TUNED B618 by Daniel with the ?tune=forms range sweep.
+  // cover < 1 DISABLES the zoom-out overflow: a tiling form should buy more repeats, not a bigger slice. floor 1 likewise stops the canvas shrinking the slice at all.
+  zoomCover: 0.65,
+  zoomInFloor: 1.0,
+
   label: 'Square',
   fileCode: 's',
 

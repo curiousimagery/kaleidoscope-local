@@ -6,6 +6,35 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 📐 v0.25.28 (Build 618) — 2026-08-14 — Zoom extents landed; the normalisation pass is closed
+
+**JS only. No `cap sync` needed.**
+
+### Shipped
+
+- **All five forms now declare `zoomCover` / `zoomInFloor`.** The last of the four per-form normalisation numbers, and **the thing that was gating per-form range resolution for MIDI and gesture.**
+
+| form | cover | floor |
+|---|---|---|
+| radial | 2.0 | 0.5 |
+| square | 0.65 | 1.0 |
+| hex | 0.65 | 0.6 |
+| triangle | 0.65 | 0.3 |
+| droste | 2.2 | 0.15 |
+
+- **`zoom cover`'s slider floor was 1, making everything below it unreachable** — Daniel had to guess three of the five values. Now 0.2.
+- **Fixed: radial's `buildPolygon` used the RAW `canvasZoom`** while the shader renders `canvasZoom × formCanvasNorm`. Invisible today only because radial's norm is 1.0. **Same class as droste's missing `sizeNorm` at B614** — a second consumer of a normalised quantity that never got the norm.
+
+### What the sub-1 covers mean, and why the slider floor mattered
+
+`sliceScale` starts at 1, so `s < cover` is false and **a cover below 1 simply never engages the zoom-out overflow.** That is the correct answer for a tiling form: zooming out should buy more repeats, not a bigger slice. Square's floor of 1.0 says the same thing from the other side — the canvas may not shrink the slice at all.
+
+**So the three tiling forms are declaring "the slice is mine, the canvas is yours"**, and only radial and droste — the two forms whose fold genuinely rescales the sampled region — keep a live overflow on both sides. **That is a coherent result, and it was unreachable through the tool until this build.**
+
+### ⚠️ Open: the overlay is inaccurate while sweeping
+
+Daniel: *"when testing the tool the slice overlay becomes inaccurate which makes it trickier to preview."* **Filed, not fixed, and the radial fix above is unlikely to be the whole of it** — radial's norm is 1.0, so that correction changes nothing visible today. Needs the specific form and sweep position to chase properly.
+
 ## 🎚 v0.25.27 (Build 617) — 2026-08-14 — You cannot judge an extent you can never stand at
 
 **JS only. No `cap sync` needed.**
