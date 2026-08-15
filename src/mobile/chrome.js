@@ -48,15 +48,51 @@ const resetSlice = () =>
 // ⚠️ The camera path is NOT a plain "new source". attachCameraSource() also runs on every flip and
 // every lens / resolution re-acquire, and an unconditional reset there would throw away a
 // composition the user just framed. So it re-centres only when the source SHAPE actually changed —
-// which is the only thing that invalidates the centring. First attach counts (no prior aspect);
-// a front/back flip at the same aspect does not.
+// which is the only thing that invalidates the centring.
+//
+// ⚠️⚠️ B626 — TWO DEFECTS FIXED HERE, BOTH INTRODUCED BY B619'S VERSION OF THIS FUNCTION.
+//
+// 1. **IT COULD KILL THE CAMERA.** It was called from inside `attachCameraSource()` with nothing
+//    catching it, so anything that threw in here took the camera attach down with it. That is
+//    Daniel's *"first 'capture still' gives a 'could not start' camera error, second attempt works"*
+//    — on the second call the aspect latch early-returns BEFORE the throwing line, so it succeeds.
+//    First-fails-then-works is the signature of exactly this shape. **A cosmetic re-placement must
+//    never be able to break source acquisition**, so the whole body is now guarded and any failure
+//    is published to the report rather than thrown.
+//
+// 2. **IT LATCHED ON AN ASPECT THAT WAS NOT REAL YET.** The camera's frameSource is a CANVAS
+//    ("from canvas · planar · native cam" in Daniel's B625 report) whose dimensions are a
+//    placeholder at attach time and only become 768×1024 once frames flow. The old code latched
+//    that placeholder and never looked again, which is why his iPhone reported `origin [0.5, 0.5]`
+//    and `boxC [1.0625, 0.5]` — the default, never re-placed, box centre off the right edge.
+//    Now the render loop re-checks; whatever the early bogus value, the settled one wins.
+//
+// The re-check is safe to run continuously because of the OWNERSHIP TEST: we only re-place the
+// slice while it is still EXACTLY where we last put it. The moment a hand (or a mapping, or
+// autoplay) moves any of those fields, the slice is theirs and the aspect can change freely
+// without us stamping over their composition.
 let centredForAspect = null;
+let placedSnapshot = null;
+const SLICE_FIELDS = ['sliceCx', 'sliceCy', 'sliceScale', 'sliceRotation'];
+const sliceUntouched = () =>
+  !placedSnapshot || SLICE_FIELDS.every((k) => Math.abs((state[k] ?? 0) - placedSnapshot[k]) < 1e-6);
+
 function recentreIfSourceShapeChanged() {
-  const a = engine.getSourceAspect() || 1;
+  const a = engine.getSourceAspect() || 0;
+  if (!a) return;                                                   // no real dimensions yet — wait
   if (centredForAspect !== null && Math.abs(a - centredForAspect) < 1e-3) return;
-  centredForAspect = a;
-  resetSlice();
-  controlsSync.syncAll(); scheduleRender(); sourceOverlay?.scheduleDraw?.();
+  if (!sliceUntouched()) { centredForAspect = a; return; }          // the user owns it now; adopt the aspect, leave the slice
+  try {
+    centredForAspect = a;
+    resetSlice();
+    placedSnapshot = Object.fromEntries(SLICE_FIELDS.map((k) => [k, state[k] ?? 0]));
+    controlsSync.syncAll(); scheduleRender(); sourceOverlay?.scheduleDraw?.();
+    env.lastSliceError = null;
+  } catch (e) {
+    // NEVER let this reach the caller: it runs on the camera-attach path. Publish instead —
+    // the exported report is the only device channel we have (see DEVICE-TESTING.md).
+    env.lastSliceError = { at: 'recentreIfSourceShapeChanged', aspect: a, message: String(e && e.message || e) };
+  }
 }
 import { zipStore } from '../shell/zip.js';
 import { createTestFrame } from 'conduit/test-pattern';
@@ -404,7 +440,12 @@ function attachCameraSource() {
   engine.setSource(camera.frameSource());
   if (useNativeCam && camera.planeReader) engine.setPlanarSource(camera.planeReader(), 0);
   else engine.setPlanarSource(null);
-  recentreIfSourceShapeChanged();   // B619 — first attach centres the form's box; a flip/re-acquire at the same aspect leaves the composition alone
+  // B626 — the attach call is now a best-effort HEAD START, not the mechanism. The render loop's
+  // per-frame check is what actually lands it, because the camera has no real aspect yet here.
+  // Guarded twice over (this try plus the one inside) because NOTHING on this line may be allowed
+  // to abort camera acquisition — that regression cost Daniel a "could not start" on every first
+  // capture-still.
+  try { recentreIfSourceShapeChanged(); } catch { /* never block the camera */ }
 }
 
 const sourceOverlay = createSourceOverlay({
@@ -953,6 +994,7 @@ function loadImage(file, sourceType = 'file') {
     engine.setSource(img);
     centredForAspect = engine.getSourceAspect() || 1;
     resetSlice();                              // B619 — an explicitly opened file is a new composition, so it resets unconditionally (matches source-host.js on desktop)
+    placedSnapshot = Object.fromEntries(SLICE_FIELDS.map((k) => [k, state[k] ?? 0]));   // B626: we own this placement until a hand moves it
     setSourceIcon(sourceType);                 // folder (file) or camera (still)
     emptyEl.classList.add('m-hidden');
     setContext(false);                         // show SOURCE state
@@ -1734,6 +1776,11 @@ function startLiveLoop() {
     engine.setElementUploadElision?.(perfFlags.elideElementUploads);
     const newPixels = engine.updateSourceFrame();
     srcUpload.end();
+    // B626 — the camera's real aspect only exists once frames flow, so the attach-time check
+    // latched a placeholder. This is idempotent (it early-returns unless the aspect actually
+    // changed AND the slice is still exactly where we put it), so running it per frame costs a
+    // compare and fixes the case the attach hook structurally cannot see.
+    if (newPixels) recentreIfSourceShapeChanged();
     if (videoMode) {
       // record video: the OUTPUT (PiP + recording) eases toward the edited
       // state through the follower; the big panel stays the immediate PREVIEW.

@@ -241,6 +241,9 @@ export function mountPerfPanel(env, { container = null, onClose = null } = {}) {
       // still overflows because the box is wider than a portrait source. Simulated on desktop the
       // box centre lands at 0.500 for every form, so the code is right and the question is what the
       // DEVICE actually holds. Three numbers settle it — `boxC` at 0.5 means centring ran.
+      // B626 — a re-placement that FAILED. It is caught so it can never abort camera acquisition,
+      // which means without this line it would fail completely silently.
+      sliceError: env.lastSliceError || undefined,
       slice: (() => {
         try {
           const s = env.state, a = env.engine?.getSourceAspect?.() || 0;

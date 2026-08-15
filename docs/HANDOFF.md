@@ -90,6 +90,17 @@ This retires the confusion, not just a hypothesis. Resolution was free because t
 
 ## current version
 
+**🚑 B626 — THE RE-CENTRE COULD KILL THE CAMERA. ⚠️ `cap sync` REQUIRED. Fixes a B619 regression.**
+
+**Two defects in one function, both introduced at B619.**
+
+1. **A cosmetic slice re-placement could abort CAMERA ACQUISITION.** It was called from inside `attachCameraSource()` unguarded. Daniel: *"first 'capture still' gives a could-not-start error, second attempt works."* **The second attempt works because the aspect latch early-returns BEFORE the throwing line** — first-fails-then-works is the signature. Now guarded twice; the attach call is a head start, not the mechanism.
+2. **It latched an aspect that was not real yet.** The camera's frameSource is a CANVAS whose dimensions are a placeholder at attach time. The render loop now re-checks once frames flow.
+
+**▶ B625's INSTRUMENT IS WHAT SETTLED IT.** Two explanations were indistinguishable by reading; one `copy report` decided it in a line — `origin [0.5, 0.5]` (the default, never re-placed) against a desktop simulation giving −0.063. **The maths was never wrong. The wiring was.**
+
+**The per-frame re-check is safe because of the OWNERSHIP TEST:** the slice is only re-placed while it is still exactly where we last put it (a four-field snapshot). Once a hand, mapping, or autoplay moves any of them, it is theirs.
+
 **🎚 B624 — ONE BUTTON, TWO FORMS, NO HIDDEN WRITES. JS only.**
 
 **A target that does not apply to the active form now DECLINES instead of writing.** Square aspect + droste thickness can share a d-pad. **There was never a routing blocker** (two rows always fired on one signal) **but there WAS a silent bug** — the inactive form's parameter got written anyway, accumulating into undo history and motion keyframes and surfacing only on the next form switch.

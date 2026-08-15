@@ -6,7 +6,36 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
-## 🔍 v0.25.35 (Build 625) — 2026-08-15 — Slice geometry in the exported report
+## 🚑 v0.25.36 (Build 626) — 2026-08-15 — The re-centre could kill the camera, and it latched an aspect that was not real yet
+
+**⚠️ `cap sync` REQUIRED. Fixes a regression I introduced at B619.**
+
+### Shipped
+
+- **Camera acquisition can no longer be aborted by the slice re-centring.** Fixes *"first 'capture still' gives a could-not-start error, second attempt works"*.
+- **The slice now actually centres on iPhone**, because the aspect is re-checked once frames flow.
+- **A failed re-placement publishes `sliceError` to the report** instead of vanishing.
+
+### Two defects, one function, both mine
+
+**1. A cosmetic re-placement could break source acquisition.** B619 called `recentreIfSourceShapeChanged()` from inside `attachCameraSource()` with nothing catching it, so anything that threw took the camera down too. **The second attempt worked because the aspect latch early-returns BEFORE the throwing line.** First-fails-then-works is the signature of exactly that shape. Now guarded twice over, and the attach call is a best-effort head start rather than the mechanism.
+
+**2. It latched an aspect that did not exist yet.** Daniel's B625 report was decisive:
+
+```
+origin: [0.5, 0.5]      ← the DEFAULT: centring never ran
+boxC:   [1.0625, 0.5]   ← box centre off the right edge
+```
+
+Desktop simulation at the same 0.75 aspect gives origin −0.063 and boxC 0.500, so the maths was never the problem. **The camera's frameSource is a CANVAS** (his report: *"from canvas · planar · native cam"*) whose dimensions are a placeholder at attach time and only become 768×1024 once frames flow. The old code latched the placeholder and never looked again. The render loop now re-checks, so the settled aspect wins whatever the early value was.
+
+### The ownership test is what makes a per-frame re-check safe
+
+Re-placing the slice whenever the aspect changes would stamp over a composition mid-set. So it only re-places **while the slice is still exactly where we last put it** — a four-field snapshot compared each time. The moment a hand, a mapping, or autoplay moves any of them, the slice is theirs and the aspect may change freely without us touching it.
+
+**Method note:** the two candidate explanations at B625 were indistinguishable by reading, and one report settled it in a single line. The instrument was worth more than the next three hypotheses would have been.
+
+ — 2026-08-15 — Slice geometry in the exported report
 
 **⚠️ `cap sync` REQUIRED — the whole point is reading it off the iPhone.**
 
