@@ -282,11 +282,24 @@ Daniel's B611 repro, final step: after the droste blowup he goes to canvas setti
 
 **⛔ RULED OUT — autoplay drift.** `drift.tick` is gated behind `autoOn` in both chromes ([perform-runtime.js](../src/shell/perform-runtime.js), [mobile/chrome.js](../src/mobile/chrome.js)) and Daniel confirmed the loop happens with autoplay off. Note for whoever looks next: drift's `drosteZoomPhase` branch is a **constant-velocity walker** that writes `state[k]` every frame with no settle, so it matches the symptom exactly *if* it ever ticks unexpectedly. Worth one check that `autoOn` cannot be true while the button reads off.
 
-**🔍 THE LIVE LEAD — a PINCH can start a PAN drift, and in droste that is a zoom.** [output-gestures.js](../src/components/output-gestures.js) `onMove` accumulates centroid velocity (`manip.vx/vy`) during **any** two-finger gesture, and release hands it to `panDrift`. A pinch's centroid moves, so a fast pinch releases with real velocity. **In droste `canvasOffset` is the log-polar centre**, and a drifting log-polar centre reads exactly as an unstoppable zoom — which is why "quickly" and "from the corner" are both load-bearing in the repro.
+**✅ THE STRONGEST EVIDENCE WE HAVE IS A NECESSARY CONDITION: UNLOCKING PAN. Daniel raised it at B619 and the record confirms it exactly.**
 
-**What the lead does NOT explain:** `onStart` calls `ctx.panDrift()?.stop?.()`, so a fresh grab should cancel it, yet Daniel's re-pan does not. Either `stop()` is not reached on this path, or the drift is not the thing moving.
+| occurrence | pan unlocked? | status |
+|---|---|---|
+| B609/B610 iPad perform loop | **no** — cause was a stray touch flooring `startDist` | **FIXED B610** (40px floor + non-finite guard) |
+| B611 "navigate to droste, then unlock pan, canvas zooms way in" | **yes, explicitly** | open |
+| B612 "live view caught flailing on a loop" | **yes** (same droste pan thread) | open |
+| B619 "unlock droste pan → corner → fast pinch out" | **yes, explicitly** | open |
 
-**▶ NEXT MOVE IS AN INSTRUMENT, NOT A FIX** (uncertainty state B; a speculative fix here is exactly what cost a build at B611 and again at B612). **Publish per frame into the exported report** — Daniel does not run Web Inspector — the two candidate drivers **`drosteZoomPhase`** and **`canvasOffsetX/Y`**, plus whether `panDrift` is running. These are the conserved quantities actually being rendered, not activity counters, and **which of the two is moving decides the question in a single reading.**
+**Every UNFIXED occurrence required unlocking pan. The single occurrence that did not is the one already cured.** That is a real discriminator, not a coincidence, and it should drive the investigation.
+
+**▶ WHAT IT NARROWS TO:** `canPan` gates the entire pan block in `onMove` ([output-gestures.js](../src/components/output-gestures.js)). With droste pan locked, that block never runs and **`canvasOffsetX/Y` is never written by a gesture at all.** So the culprit is on the `canPan` path, and in droste `canvasOffset` is the **log-polar centre** — the field B612 already root-caused as the "superzoom" driver when read raw. **Instrument `canvasOffsetX/Y` first; `drosteZoomPhase` is now the secondary suspect, not the primary.**
+
+**⚠️ DOWNGRADED — the flick-to-drift lead.** `onEnd` hands `manip.vx/vy` to `panDrift`, and the joystick drift is CONSTANT-velocity (it runs while `hx||hy` and only stops on `centerHandle`), which would fit the symptom perfectly. **But `pd?.on?.()` gates it behind DRIFT MODE being switched on**, which is not part of Daniel's repro and he has never mentioned enabling it. Worth one question ("was drift mode on?") before spending anything on it. If it was off, this is dead.
+
+**▶ NEXT MOVE IS AN INSTRUMENT, NOT A FIX** (uncertainty state B; a speculative fix here is exactly what cost a build at B611 and again at B612). **Publish per frame into the exported report** — Daniel does not run Web Inspector — **`canvasOffsetX/Y`** and **`drosteZoomPhase`**, plus whether `panDrift` is running. These are the conserved quantities actually being rendered, not activity counters, and **which one is moving decides the question in a single reading.**
+
+**🛡 MITIGATION AVAILABLE TONIGHT, NO CODE: do not unlock pan on droste.** Droste already ships `panLockedByDefault: true`, so the safe configuration is the default one and the guardrail costs nothing. **Given that pan-unlock is a necessary condition across every open occurrence, this is a complete mitigation, not a partial one.** If a hard guardrail is later wanted in code, the honest options are to keep droste's pan lock non-overridable in perform mode, or to bound `canvasOffset` in STATE for centre-shift forms (not at the uniform — see B611's correction).
 
 ### 🔭 [B612 DIG — three of Daniel's four droste invariants now have MECHANISMS]
 
