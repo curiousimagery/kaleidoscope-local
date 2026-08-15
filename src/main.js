@@ -909,8 +909,14 @@ function clearBusy() {
 // component). These thin wrappers bind it to this chrome's `state` so all
 // existing call sites + the `env.snapDrosteSpiral`/`env.applyArmsSnap` exports
 // keep their signatures.
-function snapSpiralValue(v) { return kitSnapSpiral(state, v); }
-function applyArmsSnap()    { kitApplyArmsSnap(state); }
+// ⚠️ B628 — NAMED `...Local` ON PURPOSE. These used to be called `snapSpiralValue` / `applyArmsSnap`,
+// SHADOWING the kit exports of the same names with DIFFERENT signatures (kit takes `state`, these
+// close over it). Both chromes were internally consistent, so nothing looked wrong — until a SHARED
+// module took one by injection and had to pick a signature. That is exactly the B627 iPhone bug:
+// `resetSliceState` called it zero-arg, which suited main.js and threw in the mobile chrome, and the
+// throw was swallowed. The names now differ from the kit's, so the two can never be confused again.
+function snapSpiralLocal(v) { return kitSnapSpiral(state, v); }
+function applyArmsSnapLocal() { kitApplyArmsSnap(state); }
 
 // segments slider — shared DOM, form-aware routing. radial drives state.segments
 // (2..48 step 2); droste drives state.drosteArms (valid set {1, 2, 4, 6, 8, 10,
@@ -938,7 +944,7 @@ function setupSegmentsSlider() {
   function setSeg(v) {
     state[segmentsKey()] = segmentsSnap(v);
     // changing drosteArms cascades into the twist snap step.
-    if (state.form === 'droste') applyArmsSnap();
+    if (state.form === 'droste') applyArmsSnapLocal();
     env.commitDiscreteToKeyframes();   // discrete → all keyframes (else playback reverts to kf0)
   }
   function applyRange() {
@@ -1011,8 +1017,8 @@ function setupSegmentsSlider() {
 }
 
 // Exposed for overlay.js's seam-drag + boundary-drag handlers.
-env.snapDrosteSpiral = snapSpiralValue;
-env.applyArmsSnap = applyArmsSnap;
+env.snapDrosteSpiral = snapSpiralLocal;
+env.applyArmsSnap = applyArmsSnapLocal;
 
 // ============================================================================
 // per-control LOCKS (M3 guardrails) — inject the padlock into each lockable control's row
@@ -1272,11 +1278,11 @@ function wireControls() {
       const n = parseFloat(cleaned);
       return isNaN(n) ? null : n;
     },
-    snap: snapSpiralValue,
+    snap: snapSpiralLocal,
   });
 
   // initialize the slider snap to the current arms.
-  applyArmsSnap();
+  applyArmsSnapLocal();
 
   // droste tier mirror toggle (on/off buttons). registered with controlsSync
   // so undo/redo updates the button highlight along with state.
@@ -1293,7 +1299,7 @@ function wireControls() {
       // tier mirror affects the spiral snap step (even multiples when on),
       // so any currently-odd snap value would land in a misaligned tier.
       // re-snap and refresh the slider display.
-      applyArmsSnap();
+      applyArmsSnapLocal();
       env.commitDiscreteToKeyframes();   // discrete → all keyframes (else playback reverts to kf0)
       env.controlsSync.syncAll();
       syncMirrorToggle();
@@ -1347,7 +1353,8 @@ function wireControls() {
   // B625 — the exported report reads slice geometry through this (see perf-panel `slice`).
   env.formBoxCenter = (st, aspect) => formBoxCenter(getActiveForm(st), st, aspect);
   env.resetSlice = () => {
-    resetSliceState(state, getActiveForm(state), engine.getSourceAspect() || 1, session.frameAspect || 1, applyArmsSnap);
+    // hand SHARED code the KIT function, which takes state explicitly — never the local wrapper.
+    resetSliceState(state, getActiveForm(state), engine.getSourceAspect() || 1, session.frameAspect || 1, kitApplyArmsSnap);
     env.controlsSync?.syncAll?.();
   };
 

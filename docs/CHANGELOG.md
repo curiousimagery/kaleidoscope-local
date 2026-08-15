@@ -6,7 +6,40 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
-## ✅ v0.25.37 (Build 627) — 2026-08-15 — The iPhone slice centring, found by the error it was finally allowed to report
+## 📏 v0.25.38 (Build 628) — 2026-08-15 — Fit the box, not just centre it; and the divergence rule moves into the instructions
+
+**⚠️ `cap sync` REQUIRED.**
+
+### Shipped
+
+- **The default slice now FITS the source before it is centred**, leaving a 5% buffer each side. Droste is exempt.
+- **`main.js`'s local wrappers renamed** `snapSpiralLocal` / `applyArmsSnapLocal` so they can no longer shadow the kit exports.
+- **The two-chrome divergence rules moved into `CLAUDE.md` and `ARCHITECTURE.md`** — Daniel's call, and the right one.
+
+### Centring was only half the job
+
+Daniel's iPhone: *"instead of having some buffer to the left and right we actually have some overage."* Measuring the default box extent across aspects shows why:
+
+| form | 1.78 | 1.00 | 0.75 | 0.46 |
+|---|---|---|---|---|
+| radial | 0.632 | **1.125** | **1.125** | **1.125** |
+| hex | 0.587 | **1.018** | **1.018** | **1.018** |
+| triangle | 0.751 | **1.300** | **1.300** | **1.300** |
+| square | 0.800 | 0.800 | 0.800 | 0.800 |
+
+**The wedge forms' horizontal extent does not depend on source aspect at all below 1.0.** `sliceVecToSourceUV` divides x by the aspect only when the source is LANDSCAPE; for portrait it shrinks y and leaves x full size. So a `sizeNorm` tuned against the 1.78 desktop reference measures 0.632 there and 1.125 on any portrait source. **A box wider than the source is off-image however you place it** — centring could never have fixed it.
+
+The fit scales down only, never up, so **every value Daniel tuned is untouched**: at 1.78 all four fitting forms are already inside the margin and come out at `scale = 1.000`. Portrait now spans `[0.05, 0.95]`.
+
+**Droste is exempt** via `defaultOverflow: true`. Its default is deliberately larger than the frame — Daniel tuned `sizeNorm` 1.82 → 1.65 at B617 to stop it *touching* the right edge, not to make it fit, and `zoomCover: 2.2` says the same from the zoom side. Fitting it would have silently undone that.
+
+### The rule was in the wrong file, and Daniel caught it
+
+He pushed back on filing *"a function injected into shared code must take everything it needs as arguments"* in BACKLOG: **that is a working-process change, not a planned feature, and BACKLOG is where it would quietly die.** Correct. It now lives in `CLAUDE.md` (read every session) and `ARCHITECTURE.md` (the layering section that owns the chrome split), stated with the reason rather than as an edict, alongside the repeatable audit method and the fact that **the input bus is desktop-only**.
+
+The rename is the same lesson in code: `main.js` had `applyArmsSnap()` and `snapSpiralValue(v)` shadowing kit exports of the same names with different signatures. Both chromes were internally consistent, which is exactly why it survived review — it only broke when shared code had to pick a signature. Shared code is now handed `kitApplyArmsSnap` directly.
+
+ — 2026-08-15 — The iPhone slice centring, found by the error it was finally allowed to report
 
 **⚠️ `cap sync` REQUIRED.**
 

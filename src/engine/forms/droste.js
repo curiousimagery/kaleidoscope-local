@@ -70,6 +70,14 @@ export default {
 
   controls: ['segments', 'zoom', 'spiral', 'mirror', 'wedgeMirror', 'infiniteZoom'],
 
+  // ⚠️ B628 — EXEMPT FROM THE DEFAULT FIT-TO-SOURCE. Every other form's default box is scaled down
+  // at reset until it sits inside the source with a margin; droste's is not, because its default
+  // is DELIBERATELY larger than the frame. Daniel tuned exactly this at B617, reducing sizeNorm
+  // 1.82 → 1.65 to stop it touching the right edge rather than to make it fit — the log-polar fold
+  // wants to run past the boundary, and `zoomCover: 2.2` says the same thing from the zoom side.
+  // Fitting it would silently undo that tuning.
+  defaultOverflow: true,
+
   // the spiral's eye IS the composition, and seamless infinite zoom depends on staying on it —
   // pan locked (centered) by default. See formPanLockedByDefault.
   panLockedByDefault: true,

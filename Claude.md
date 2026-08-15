@@ -56,6 +56,16 @@ A forensic review at B575 found that ~11 investigations in this arc measured som
 
 Read `docs/ARCHITECTURE.md` before working on anything you haven't worked on recently. The architecture doc is authoritative for: forms registry, engine/shell separation, state location, the `env` runtime container, GLSL composition, and the slot/divider mechanics. Don't restate any of that here; just follow it.
 
+**⚠️ THERE ARE TWO CHROMES AND THEY SHARE NO `env`.** `src/main.js` (desktop, which iPad runs) and `src/mobile/chrome.js` (phone) each build their own `env` object and wire their own controls. **A helper added to one does not exist in the other.** This single fact has produced seven bugs in this arc, four of them found only by a device session or a live show, and every one of them was invisible on the machine it was written on.
+
+So, whenever you touch anything both chromes use:
+
+- **A function injected into shared code must take everything it needs as arguments.** If a shared module calls a callback you passed in, that callback cannot rely on closing over one chrome's variables. **Why it matters:** the chrome whose shape happens to match keeps working, so the bug only appears on the *other* one — and often silently, because callers guard these paths. B627 was exactly this: `resetSliceState` called an injected `applyArmsSnap()` with no arguments, which suited the desktop wrapper and threw in the mobile chrome, and the iPhone quietly never centred its slice for four builds.
+- **Never give a local wrapper the same name as the shared function it wraps.** Same name plus different signature is what makes the above invisible in review. Suffix it (`applyArmsSnapLocal`), and hand shared code the shared function.
+- **When you fix something in one chrome, grep the other for the same behaviour before you call it done.** "Verified on desktop" is not verified.
+
+When a value or behaviour genuinely needs to exist in both, prefer moving it to `kit/` or `engine/` and importing it, over writing it twice. `kit/pan.js` and `engine/geometry.js` `resetSliceState` are the pattern.
+
 Two specific rules worth flagging because violating them costs hours:
 
 - **Don't put backticks inside a form's `glsl` string.** It's a JS template literal and a backtick inside breaks parsing silently. If a future form's GLSL needs a backtick, escape it carefully or restructure the surrounding string.

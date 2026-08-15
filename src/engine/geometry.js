@@ -119,6 +119,11 @@ export const defaultSliceRotation = (frameAspect) => (frameAspect < 1 ? 90 : 0);
 // Ordering is load-bearing: every geometry input has to be at its default BEFORE the box is
 // measured, and the ORIENTATION has to be set before the centring, because rotating the form
 // changes the box it is centred by (Daniel's rule, B615).
+// How much of the source the DEFAULT slice box may span, leaving the rest as buffer. 0.9 gives a
+// 5% margin on each side — Daniel's "some buffer to the left and right". Only ever shrinks a form
+// that would overflow; a form already inside this stays exactly where its tuning put it.
+const FIT_EXTENT = 0.9;
+
 export function resetSliceState(state, form, sourceAspect, frameAspect, applyArmsSnap) {
   state.segments       = 12;
   state.sliceScale     = 1.0;
@@ -142,6 +147,26 @@ export function resetSliceState(state, form, sourceAspect, frameAspect, applyArm
   // Passing state makes the contract explicit and satisfiable by both (the wrapper ignores it).
   // **Seventh instance of one behaviour living in two chromes with two answers.**
   applyArmsSnap?.(state);
+  // ⚠️ B628 — FIT THE BOX TO THE SOURCE BEFORE CENTRING IT. Centring alone was only half the job:
+  // a box wider than the source is off-image however you place it, which is Daniel's iPhone report
+  // (*"instead of having some buffer to the left and right we actually have some overage"*).
+  //
+  // The measured cause is that **the wedge forms' horizontal extent does not depend on source
+  // aspect below 1.0.** `sliceVecToSourceUV` divides x by the aspect only when the source is
+  // LANDSCAPE; for portrait it shrinks y instead and leaves x at full size. So the same `sizeNorm`
+  // that measured 0.632 on the 1.78 desktop reference measures 1.125 on any portrait source:
+  //
+  //   form      1.78    1.00    0.75    0.46
+  //   radial    0.632   1.125   1.125   1.125
+  //   hex       0.587   1.018   1.018   1.018
+  //   triangle  0.751   1.300   1.300   1.300
+  //
+  // Scaling to fit here (never up, only down) keeps every value Daniel tuned intact — at 1.78 all
+  // four fitting forms are already below the margin, so **the desktop defaults do not move at all**
+  // — and only engages where the form would otherwise run off the image.
+  const box = form?.defaultOverflow ? null : formBoxCenter(form, state, sourceAspect);
+  const extent = box ? 2 * Math.max(box.halfW, box.halfH) : 0;
+  if (extent > FIT_EXTENT) state.sliceScale *= FIT_EXTENT / extent;
   Object.assign(state, centerFormInSource(form, state, sourceAspect));
   return state;
 }

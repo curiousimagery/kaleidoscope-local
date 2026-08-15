@@ -345,6 +345,36 @@ This is a capability question, not a bug in our code: the native camera path (`n
 
 **Cross-ref:** `reference_ios_camera_webkit_capabilities` records what `getUserMedia` exposes on iOS 26 — relevant, because if the web path covers the kiosk needs, the fallback is the whole feature.
 
+### 🔬 [AUDIT RESULT — B627] THE TWO-CHROME DIVERGENCE AUDIT: one real defect, one live trap, and a lot of correct absences
+
+**Ran after the seventh instance. The headline is better than expected, and the one remaining risk is specific.**
+
+**METHOD** (repeat this when the surface changes): diff the `env` keys each chrome assigns; diff the module import sets; for every shared component, diff which `ctx` keys each chrome supplies; and compare CALL ARITY for every function exported by a shared module against both chromes' call sites. The last check is the one that finds signature traps, and it is the one that would have caught B627 before a device session.
+
+**✅ THE INJECTION SURFACE IS HEALTHIER THAN THE BUG SUGGESTED.** Every `ctx` key mobile omits was checked individually and every one is a CORRECT absence:
+- `editLocked` — desktop's is `isMotionDriven`, and **mobile has no motion timeline** (`env.motionRT` is desktop-only). Nothing to lock against.
+- `onCommitStart` / `onCommitEnd` — mobile documents *"mobile undo/redo is out of scope: no pushHistory / updateUndoUI."* Deliberate.
+- `getPaintSource` / `getSourceVideo` — mobile paints through `getLiveVideo` with `fit: 'cover'`.
+- `env.setSegments` / `segmentsRange` / `segmentsValue` — **the input bus is DESKTOP-ONLY** (`createInputBus` is called once, in `main.js`), so there is no mobile consumer. Worth remembering before assuming a mapping feature reaches the phone.
+
+**⚠️ THE LIVE TRAP, AND IT IS THE ROOT OF B627: `main.js` DEFINES LOCAL WRAPPERS THAT SHADOW THE KIT EXPORTS BY NAME.**
+
+```js
+// main.js — imports the kit functions under aliases, then shadows their names:
+function snapSpiralValue(v) { return kitSnapSpiral(state, v); }   // kit is (state, v)
+function applyArmsSnap()    { kitApplyArmsSnap(state); }          // kit is (state)
+```
+
+**So the same identifier means a one-arg function in `main.js` and a two-arg function everywhere else.** Both chromes are internally consistent today, which is exactly why this survives review — it only breaks when a SHARED module receives one of them by injection and picks a signature, which is precisely what `resetSliceState` did.
+
+`env.applyArmsSnap` (the local wrapper) is exported onto `env` and called zero-arg from `shell/overlay.js:1305`. **Verified desktop-only, so it is safe today** — but it is safe by accident of module reachability, not by design.
+
+**The shared component gets it RIGHT and is the model to copy:** `components/source-overlay.js:70` does `snapDrosteSpiral: (v) => snapSpiralValue(view.state, v)` — imports the kit function, passes state explicitly, no wrapper.
+
+**✅ FIXED B628** — renamed `snapSpiralLocal` / `applyArmsSnapLocal`, and `resetSliceState` is now handed `kitApplyArmsSnap` directly. The shadowing class is gone from `main.js`.
+
+**▶ THE STANDING RULE THIS EARNED HAS MOVED (B628, Daniel's call).** *A function injected into shared code must take everything it needs as arguments* is a working-process change, not a planned feature, so it now lives in **`CLAUDE.md`** and **`ARCHITECTURE.md`** rather than here. **The audit METHOD above stays** — that is a procedure to re-run, which is backlog-shaped.
+
 ### ⌨️ [Daniel, B624] A MODIFIER / SHIFT LAYER FOR THE CONTROLLER — the honest answer to form switching
 
 His problem: five forms, four face buttons. Left-stick-press works but is *"an unexpected input location"*. He proposed chords: `X + O` = droste where `O` alone = radial.

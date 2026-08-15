@@ -90,6 +90,14 @@ This retires the confusion, not just a hypothesis. Resolution was free because t
 
 ## current version
 
+**📏 B628 — FIT THE BOX, NOT JUST CENTRE IT. ⚠️ `cap sync` REQUIRED.**
+
+**Centring was only half the job.** Daniel's iPhone still showed overage because **the wedge forms' horizontal extent does not depend on source aspect below 1.0** — `sliceVecToSourceUV` divides x by the aspect only for LANDSCAPE sources, so a `sizeNorm` tuned on the 1.78 desktop reference measures 0.632 there and **1.125 on any portrait source** (hex 1.018, triangle 1.300). A box wider than the source is off-image however you place it.
+
+`resetSliceState` now scales the default slice to fit within 90% of the source before centring. **Scales DOWN only, so every tuned value is untouched** — at 1.78 all four fitting forms come out at `scale = 1.000`. Portrait spans `[0.05, 0.95]`. **Droste is exempt** (`defaultOverflow: true`) because its default is deliberately larger than the frame.
+
+**▶ PROCESS CHANGE, Daniel's call and the right one.** The two-chrome divergence rules were in BACKLOG, where a working-process change would quietly die. They now live in **`CLAUDE.md`** (read every session) and **`ARCHITECTURE.md`** (the layering section that owns the chrome split), with the reasoning and the repeatable audit method. `main.js`'s shadowing wrappers are renamed `...Local`, and shared code is handed the kit function directly.
+
 **✅ B627 — THE iPHONE SLICE CENTRING IS FIXED. ⚠️ `cap sync` REQUIRED.**
 
 **It was one missing argument.** `resetSliceState` called `applyArmsSnap?.()` with no argument, an implicit contract only ONE of two callers satisfied: `main.js` injects a zero-arg wrapper closing over its own `state`; `mobile/chrome.js` injects `kit/snaps.js`'s `applyArmsSnap(state)` directly and threw on `state.drosteSpiral`. Because B626 guards that function so it can never abort camera acquisition, **the iPhone silently never centred at all** — which is why the bug survived B619, B623, B625 and B626.
