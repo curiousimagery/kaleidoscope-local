@@ -39,46 +39,57 @@ import { CONTINUOUS_KEYS, DISCRETE_KEYS } from './tween.js';
 // reuse the identical directional-unwrap without a second code path.)
 const CYCLE = { sliceRotation: 360, canvasRotation: 360, drosteZoomPhase: 1 };
 const wrapTo = (v, P) => ((v % P) + P) % P;
-// signed shortest-path delta a→b within one period, in (−P/2, +P/2]. b may be
+// signed shortest-path delta a→b within one period, in [−P/2, +P/2). b may be
 // unwrapped (trackpad writes phase raw) or wrapped (mobile writeParam wraps it);
 // reducing mod P here handles both. For P=360 this is exactly the old angDelta.
-const cycDelta = (a, b, P) => ((b - a + 1.5 * P) % P) - 0.5 * P;
+//
+// ⚠️ B632 — THE DOUBLE MODULO IS THE FIX FOR THE DROSTE INFINITE-ZOOM LOOP AT ITS ROOT.
+//
+// **JavaScript's `%` keeps the sign of the DIVIDEND**, so the old single-modulo form returned
+// values far outside ±P/2 as soon as `b` (the RAW state) had drifted negative — which is exactly
+// what autoplay's walker does, and what a multi-loop pinch downward does:
+//
+//   b = −3.2, a = 0    → old −1.200   (should be −0.200)
+//   b = −6.05, a = 0   → old −1.050   (should be −0.050)
+//   b = −12.4, a = 0.6 → old −1.000   (should be  0.000)
+//
+// Each of those injects a WHOLE PERIOD of error into the target, every frame, silently. That is
+// the `state −1.004 / tgt −2.004` from the B623 frame trace: the follower was not misbehaving,
+// it was being handed a target one full loop away from the truth and chasing it faithfully.
+//
+// **B623 treated the symptom** by dropping `LEAD_CAP.drosteZoomPhase` from 4 to 1, which kept the
+// error too small to self-sustain and cost the accumulated multi-loop follow (Daniel, B631: *"on a
+// quick pressure test it's easier than i'd like to get to a state where it quits following
+// accumulated zooms, especially if the transition speed is cranked up"*). With the arithmetic
+// fixed the cap goes back to 4 and that behaviour returns.
+//
+// Also latent for ROTATION (P=360) wherever a raw negative angle reached here — the gesture path
+// writes rotation unwrapped, so this was one unwrapped negative angle away from the same failure.
+const cycDelta = (a, b, P) => ((((b - a + 1.5 * P) % P) + P) % P) - 0.5 * P;
 
 // How many PERIODS of accumulated lead a cyclic field may hold (default 1 — "chase
 // where you are, at most one lap behind; never replay stacked laps").
 //
-// ⚠️ B623 — drosteZoomPhase WAS 4 AND THAT IS THE DROSTE INFINITE-ZOOM LOOP. Root-caused by
-// simulation after Daniel found the autoplay repro (B622: droste + autoplay, loop within ~15s,
-// only a canvas reset recovers). Wiring `drift.js` → state → this follower headless reproduces it
-// in about 5 seconds of simulated time, and a seeded A/B over 300 trials is unambiguous:
+// ⚠️ RESTORED TO 4 AT B632 — read the cycDelta note above first. B623 dropped this to 1 believing
+// the raised cap caused the droste infinite-zoom loop. **It did not.** The cause was the sign bug
+// in `cycDelta`, and the cap merely governed how much room that error had to hide in before it
+// self-sustained. With the arithmetic correct, a seeded 300-trial sweep is flat across every cap:
 //
-//   cap  boost   blow-ups/300   worst |vel|   worst LAG (loops)
-//    1    on         0/300          0.4            0.14
-//    2    on       134/300         12.6           17.15
-//    4    on       134/300         27.9           15.43        ← the shipped value
-//    4    off      134/300          7.1           15.11
+//   cap  tau    blow-ups/300   worst |vel|   worst LAG (loops)
+//    1   0.5s       0/300         0.36           0.14
+//    4   0.5s       0/300         0.36           0.14
+//    8   3.0s       0/300         0.36           0.53
 //
-// Two things that table settles. **BOOST is only an amplifier** — it scales the severity and does
-// not change the rate, so it stays. And **the raised cap never delivered its own contract**: it is
-// supposed to bound the lag to `cap` loops, and at cap 4 the lag reaches FIFTEEN. It was not a
-// working feature with a risk, it was a broken one.
+// The lag now stays FAR below the cap instead of reaching 15 — which is the cap finally doing what
+// it always claimed to do. So 4 comes back, and with it the accumulated multi-loop follow Daniel
+// lost at B623: *"it's easier than i'd like to get to a state where it quits following accumulated
+// zooms, especially if the transition speed is cranked up."*
 //
-// The mechanism, caught in a frame trace: under a CONTINUOUSLY MOVING cyclic target the
-// accumulation in setTarget loses whole periods, and `tgt` ends up a full period from `state`
-// (traced: state −1.004, tgt −2.004). That mis-set target hands the spring y ≈ 1.07, BOOST reads
-// the large |y| and quadruples omega, velocity runs to −27, and it self-sustains. **A larger cap
-// simply gives the error more room to hide in before anything notices.**
-//
-// ⚠️ AND THIS IS WHY THE B619 DISPROOF WAS WRONG. That simulation held state CONSTANT after a
-// finger lift and correctly found the follower settles. The instability requires a target that
-// keeps moving — autoplay, or a sustained gesture — which the test never provided. **The result
-// was right and the experiment was the wrong one.**
-//
-// Cost of going back to 1: a vigorous multi-loop pinch truncates to one loop rather than four,
-// which is exactly what the raise was for. That is a real loss and a smaller one than an
-// unrecoverable live output mid-set. **The deeper fix is the period loss in setTarget; this bounds
-// the damage until that is understood.** Do not raise it again without re-running the sweep.
-export const LEAD_CAP = { drosteZoomPhase: 1 };
+// **The lesson worth keeping: B623's A/B was correct and its conclusion was wrong.** Varying the cap
+// genuinely changed the failure rate, so the cap looked causal — but it was only gating a defect
+// that lived somewhere else. A lever that suppresses a symptom is not evidence that the lever is
+// the cause.
+export const LEAD_CAP = { drosteZoomPhase: 4 };
 // Per-field CATCH-UP boost: the field's spring speeds up the farther behind it is, so
 // a big backlog (a fast multi-loop droste zoom) rushes to catch up and settles quickly
 // rather than crawling the whole distance at the transition rate — with minimal drift

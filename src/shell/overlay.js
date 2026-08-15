@@ -17,34 +17,63 @@
 // — assembled by main.js and threaded through. this avoids module-level
 // mutable globals while keeping the call sites readable.
 
-import { sliceVecToSourceUV, polygonRadiusAt, pointInPolygon } from '../engine/geometry.js';
+import { sliceVecToSourceUV, polygonRadiusAt, pointInPolygon, formBoxCenter } from '../engine/geometry.js';
 import { getActiveForm } from '../engine/forms/index.js';
 import { rotateCursorForAngle, scaleCursorForAngle } from './cursors.js';
 import { perfFlags } from './perf-flags.js';
 
-// ⚠️ B630 — THE ORIGIN MAY LEAVE THE IMAGE, IN MIRROR MODE ONLY (Daniel's proposal, approved).
+// ⚠️ B632 — THE ORIGIN MAY LEAVE THE IMAGE IN MIRROR MODE, BUT THE FORM MUST KEEP A FOOT IN IT.
 //
-// The slice origin used to be hard-clamped to the image. Letting it travel past the edge is a
-// COMPOSITIONAL tool rather than a bug: past the boundary the mirror OOB mode keeps folding, so
-// pushing the origin out swaps which part of the slice is being reflected back — a look that is
-// simply unreachable while the origin is pinned inside.
+// B630 allowed the origin out to ±1 period. Daniel found the failure that creates: *"we can get
+// into a state where the entire slice is removed from the source and only the reflection is
+// visible, and gesture interactions do the opposite of what you'd expect because what you're
+// visually responding to is mirrored."* Correct, and it is the important half of the feature.
 //
-// **Gated to mirror because mirror is the only mode where it means anything.** Under `clamp` the
-// out-of-range region smears the edge pixel, and under `transparent` it is empty; in both, an
-// origin outside the image degrades rather than composes. Daniel: *"99% of everything I do is in
-// mirror mode, so gating this to only mirror mode and changing the behavior in other OOBs should
-// be fine."*
+// **His preferred fix — the SEMANTIC FLIP — is feasible but is a real feature, not a clamp.** When
+// the slice leaves the image entirely, the pixels you see are its reflection, so the honest move is
+// to re-express the state AS that reflection: fold the origin back across the boundary and mirror
+// the slice's handedness, after which gestures act on what you are actually looking at. Folding the
+// position is trivial; **mirroring the handedness is not**, because nothing in state can express a
+// mirrored slice today. It needs a `sliceMirrorX/Y` flag threaded through the shader's toSourceUV,
+// `sliceVecToSourceUV`, the overlay, the tween/follow key lists and the mapping registry — five or
+// six files, and a new piece of state that every input surface has to agree about. Worth doing, and
+// worth doing deliberately rather than inside a clamp.
 //
-// The bound is deliberately generous rather than absent. Mirror is periodic with period 2 in UV,
-// so ±1 reaches every distinct reflection — beyond that you are repeating looks you already had,
-// while the numbers keep growing and the overlay drifts further from what you can see. One period
-// out is "everything reachable" and not one step more.
+// So this is his own fallback, which costs nothing and removes the bad state completely: **the
+// origin may travel off-canvas, but the form's BOX must keep MIN_OVERLAP of itself inside the
+// source.** You can never reach "entirely outside", so the thing you are dragging is always partly
+// the real slice, and the gesture never inverts. The compositional win of B630 survives — pushing
+// out still swaps which part of the slice reflects back — while the disorienting end state does not
+// exist.
+//
+// ⚠️ KNOWN LIMITATION, flagged rather than silently handled: the overlap is measured against the
+// FULL source, but the phone chrome mounts the source overlay with `fit: 'cover'`, so its panel
+// shows a cropped view. On that device the slice can legally sit in a part of the source the panel
+// does not show. Measuring against a per-chrome visible rect would mean each chrome computing its
+// own bound — precisely the two-chrome divergence class that has cost this arc seven bugs — so the
+// full source is the single honest reference until there is a shared one.
 const OOB_MIRROR = 1;
-const ORIGIN_FREE_RANGE = 1;
-function clampOrigin(v, state) {
-  return state.oobMode === OOB_MIRROR
-    ? Math.max(-ORIGIN_FREE_RANGE, Math.min(1 + ORIGIN_FREE_RANGE, v))
-    : Math.max(0, Math.min(1, v));
+const MIN_OVERLAP = 0.25;   // a quarter of the box's own extent, or of the source, whichever is smaller
+
+// Clamp the ORIGIN by way of the BOX, since the box is what has to stay partly visible and the
+// origin means something different per form (apex vs centre). The origin→box offset is fixed for a
+// given scale/rotation, so we solve in box space and convert back.
+function clampOriginToSource(state, sourceAspect) {
+  if (state.oobMode !== OOB_MIRROR) {
+    state.sliceCx = Math.max(0, Math.min(1, state.sliceCx));
+    state.sliceCy = Math.max(0, Math.min(1, state.sliceCy));
+    return;
+  }
+  const box = formBoxCenter(getActiveForm(state), state, sourceAspect);
+  if (!box) return;
+  const axis = (c, half, origin) => {
+    const need = MIN_OVERLAP * Math.min(2 * half, 1);
+    const lo = -half + need, hi = 1 + half - need;
+    const delta = origin - c;                       // origin relative to the box centre
+    return Math.max(lo, Math.min(hi, c)) + delta;   // clamp the CENTRE, carry the origin with it
+  };
+  state.sliceCx = axis(box.x, box.halfW, state.sliceCx);
+  state.sliceCy = axis(box.y, box.halfH, state.sliceCy);
 }
 
 // touch-surface detection — used to decide whether to render always-visible
@@ -1203,8 +1232,9 @@ export function setupSourceInteraction(env, wrap) {
           const sinA = Math.sin(da_rad);
           const dx = drag.startCx - drag.startPivotUV.u;
           const dy = drag.startCy - drag.startPivotUV.v;
-          state.sliceCx = clampOrigin(curMid.u + dx * cosA - dy * sinA, state);
-          state.sliceCy = clampOrigin(curMid.v + dx * sinA + dy * cosA, state);
+          state.sliceCx = curMid.u + dx * cosA - dy * sinA;
+          state.sliceCy = curMid.v + dx * sinA + dy * cosA;
+          clampOriginToSource(state, env.engine?.getSourceAspect?.() || 1);
         }
       }
       env.syncControls();
@@ -1225,8 +1255,9 @@ export function setupSourceInteraction(env, wrap) {
         const newCyPx = y + drag.dragOffsetY;
         const uv = uvFromXY(newCxPx, newCyPx);
         if (!uv) return;
-        state.sliceCx = clampOrigin(uv.u, state);
-        state.sliceCy = clampOrigin(uv.v, state);
+        state.sliceCx = uv.u;
+        state.sliceCy = uv.v;
+        clampOriginToSource(state, env.engine?.getSourceAspect?.() || 1);
       } else if (drag.mode === 'scale') {
         if (!g) return;
         const r = Math.hypot(x - g.cx, y - g.cy);

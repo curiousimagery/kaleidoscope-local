@@ -6,7 +6,55 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
-## 🔧 v0.25.41 (Build 631) — 2026-08-15 — The duplicate prompt was real, and invisible, and pre-empted
+## 🎯 v0.25.42 (Build 632) — 2026-08-15 — The droste loop's ACTUAL root cause, and the origin keeps a foot in the image
+
+**JS only. No `cap sync` needed.**
+
+### Shipped
+
+- **`cycDelta` sign bug fixed.** This is the real cause of the droste infinite-zoom loop.
+- **`LEAD_CAP.drosteZoomPhase` restored to 4**, returning the accumulated multi-loop follow B623 traded away.
+- **The slice origin must keep 25% of its box inside the source** in mirror mode.
+
+### B623 was right about the A/B and wrong about the cause
+
+Daniel, B631: *"on a quick pressure test it's easier than i'd like to get to a state where it quits following accumulated zooms, especially if the transition speed is cranked up."* That is the cost B623 paid, so I went back for the root.
+
+**JavaScript's `%` keeps the sign of the DIVIDEND.** `cycDelta` computed `((b - a + 1.5P) % P) - 0.5P`, which silently leaves its own ±P/2 range as soon as `b` — the RAW state — has drifted negative:
+
+| b (raw state) | a | returned | should be |
+|---|---|---|---|
+| −3.2 | 0 | **−1.200** | −0.200 |
+| −6.05 | 0 | **−1.050** | −0.050 |
+| −12.4 | 0.6 | **−1.000** | 0.000 |
+
+Every one of those injects a **whole period of error into the target, every frame.** That is exactly the `state −1.004 / tgt −2.004` from the B623 frame trace: **the follower was never misbehaving — it was handed a target a full loop from the truth and chased it faithfully.** Autoplay's walker drifts negative constantly, which is why autoplay reproduced it in seconds.
+
+A double modulo fixes it, and the sweep is now flat across every cap:
+
+| cap | tau | blow-ups | worst lag |
+|---|---|---|---|
+| 1 | 0.5s | 0/300 | 0.14 |
+| 4 | 0.5s | 0/300 | 0.14 |
+| 8 | 3.0s | 0/300 | 0.53 |
+
+**The lag stays far below the cap instead of reaching 15 — the cap finally doing what it always claimed.** So 4 comes back and the accumulated follow returns.
+
+**⚠️ THE METHOD LESSON, and it is the sharpest one this arc has produced.** B623's A/B was executed correctly and its conclusion was wrong. Varying `LEAD_CAP` genuinely changed the failure rate, so the cap looked causal — **but it was only gating how much room a defect elsewhere had to hide in. A lever that suppresses a symptom is not evidence that the lever is the cause.**
+
+This was also latent for **rotation** (P=360) on any raw negative angle, and the gesture path writes rotation unwrapped.
+
+### The origin keeps a foot in the image
+
+Daniel: *"we can get into a state where the entire slice is removed from the source and only the reflection is visible, and gesture interactions do the opposite of what you'd expect."*
+
+**His preferred fix, the semantic flip, is feasible but is a feature rather than a clamp.** Folding the origin back across the boundary is trivial; **mirroring the slice's handedness to match is not**, because nothing in state can express a mirrored slice. It needs a `sliceMirrorX/Y` flag threaded through the shader's `toSourceUV`, `sliceVecToSourceUV`, the overlay, the tween/follow key lists and the mapping registry — six files and a new piece of state every input surface must agree about. Filed, not smuggled into a clamp.
+
+So this ships **his own fallback**, which removes the bad state entirely at no cost: the origin may travel off-canvas, but the form's box must keep a quarter of itself inside the source. "Entirely outside" becomes unreachable, so what you drag is always partly the real slice and the gesture never inverts — while B630's compositional win survives intact.
+
+**⚠️ Known limitation, flagged rather than silently handled:** overlap is measured against the FULL source, but the phone chrome mounts the overlay with `fit: 'cover'`, so its panel shows a crop. On that device the slice can legally sit in a part of the source the panel does not show. Measuring against a per-chrome visible rect would have each chrome computing its own bound — the exact divergence class that has cost this arc seven bugs — so the full source stays the single reference until there is a shared one.
+
+ — 2026-08-15 — The duplicate prompt was real, and invisible, and pre-empted
 
 **JS only. No `cap sync` needed.**
 

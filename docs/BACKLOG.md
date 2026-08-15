@@ -377,6 +377,16 @@ function applyArmsSnap()    { kitApplyArmsSnap(state); }          // kit is (sta
 
 ### ✅ [SHIPPED B629] A MODIFIER / SHIFT LAYER — kept for the reasoning
 
+### 🪞 [Daniel, B632] THE SEMANTIC FLIP — make the reflection the form you are holding
+
+**Deferred deliberately at B632; B632 shipped his fallback (25% box overlap) instead.**
+
+His model: *"the moment the origin gets pushed off and reflects back, the reflection becomes the new main form that listens for gestures."* Right, and it is the correct end state — what you see should be what you drag.
+
+**Why it is a feature and not a clamp.** Folding the origin back across the boundary is trivial. **Mirroring the slice's handedness to match is not**: nothing in state can express a mirrored slice today. It needs a `sliceMirrorX/Y` flag threaded through the shader's `toSourceUV`, `sliceVecToSourceUV`, `formBoxCenter`, the overlay's hit-testing, `CONTINUOUS_KEYS`/`DISCRETE_KEYS`, the follower and the mapping registry — six files and a new piece of state every input surface has to agree about.
+
+**One thing that may make it much cheaper, worth checking first:** the fold is exact only when the box is ENTIRELY outside, and in that case the rendered image equals a slice at the reflected position with mirrored handedness. **Most forms' folds are already mirror-symmetric** (radial uses `abs()`, square is p4m, hex p6m, triangle p3m1) — so for those the mirrored slice may render IDENTICALLY to the unmirrored one, which would mean the flip needs no new state at all for them. **Verify that in the shader before scoping the full version**; if it holds, the flag is only needed for droste with a non-zero spiral and asymmetric arm configurations.
+
 ### ⌨️ [Daniel, B624] A MODIFIER / SHIFT LAYER FOR THE CONTROLLER — the honest answer to form switching
 
 His problem: five forms, four face buttons. Left-stick-press works but is *"an unexpected input location"*. He proposed chords: `X + O` = droste where `O` alone = radial.

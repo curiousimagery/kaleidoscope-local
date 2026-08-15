@@ -90,6 +90,23 @@ This retires the confusion, not just a hypothesis. Resolution was free because t
 
 ## current version
 
+**🎯 B632 — THE DROSTE LOOP'S ACTUAL ROOT CAUSE. JS only.**
+
+**`cycDelta` had a sign bug and that is the whole thing.** JS `%` keeps the DIVIDEND's sign, so `((b - a + 1.5P) % P) - 0.5P` left its own ±P/2 range as soon as `b` (the RAW state) drifted negative — which autoplay's walker does constantly:
+
+| b | a | returned | should be |
+|---|---|---|---|
+| −3.2 | 0 | **−1.200** | −0.200 |
+| −12.4 | 0.6 | **−1.000** | 0.000 |
+
+Each injects a **whole period of error into the target every frame.** That is the traced `state −1.004 / tgt −2.004`: **the follower was never misbehaving — it was handed a target a full loop from the truth.** Fixed with a double modulo. Also latent for ROTATION (P=360) on any raw negative angle.
+
+**`LEAD_CAP.drosteZoomPhase` is BACK TO 4** — the sweep is now flat across caps 1/2/4/8 (0/300 blow-ups, lag ≤0.53 even at tau=3s), so Daniel's accumulated multi-loop follow returns.
+
+**⚠️ THE METHOD LESSON — the sharpest of this arc.** B623's A/B was executed correctly and concluded wrongly. Varying `LEAD_CAP` genuinely changed the failure rate, so it looked causal — **but it only gated how much room a defect elsewhere had to hide in. A lever that suppresses a symptom is not evidence that the lever is the cause.**
+
+**Origin off-canvas now requires 25% box overlap** with the source (Daniel's own fallback). His preferred **semantic flip is feasible but is a feature**: folding the position is trivial, mirroring the slice's handedness needs a new `sliceMirrorX/Y` state threaded through shader + geometry + overlay + tween + mapping. Filed, not smuggled into a clamp.
+
 **🔧 B631 — THE DUPLICATE PROMPT WAS INVISIBLE AND PRE-EMPTED. JS only.**
 
 Daniel: *"it still just highlights the existing mapping without asking."* **Two bugs, and his sentence named both.**

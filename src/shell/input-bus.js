@@ -102,10 +102,14 @@ const PARAM_TARGETS = [
   // B630 — the origin may leave the image in MIRROR mode (see overlay.js clampOrigin). The mapping
   // range resolves the same way, because a bound the pointer honours and the hardware does not is
   // exactly the divergence this arc keeps paying for.
+  // B632 — mirror mode lets the origin leave the image, but the overlay's rule is that the form's
+  // BOX must keep a quarter of itself inside the source (see clampOriginToSource). That exact bound
+  // is box-dependent, so the mapping range is the generous envelope rather than a second, subtly
+  // different formula — one bound, one owner. ±0.5 covers every form's legal travel.
   { key: 'sliceCx', label: 'slice position x', min: 0, max: 1, dir: 'left → right',
-    resolve: (s) => (s.oobMode === 1 ? { min: -1, max: 2 } : { min: 0, max: 1 }) },
+    resolve: (s) => (s.oobMode === 1 ? { min: -0.5, max: 1.5 } : { min: 0, max: 1 }) },
   { key: 'sliceCy', label: 'slice position y', min: 0, max: 1, dir: 'top → bottom',
-    resolve: (s) => (s.oobMode === 1 ? { min: -1, max: 2 } : { min: 0, max: 1 }) },
+    resolve: (s) => (s.oobMode === 1 ? { min: -0.5, max: 1.5 } : { min: 0, max: 1 }) },
   // SEMANTIC "zoom" — one mapping point that RESOLVES to the active form's zoom control, so a
   // single knob works across forms (droste → infinite zoom, else composition zoom) and existing
   // hardware never needs reprogramming on a form switch (Daniel). `resolve(state)` returns the
