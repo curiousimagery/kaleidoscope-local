@@ -90,6 +90,16 @@ This retires the confusion, not just a hypothesis. Resolution was free because t
 
 ## current version
 
+**✅ B627 — THE iPHONE SLICE CENTRING IS FIXED. ⚠️ `cap sync` REQUIRED.**
+
+**It was one missing argument.** `resetSliceState` called `applyArmsSnap?.()` with no argument, an implicit contract only ONE of two callers satisfied: `main.js` injects a zero-arg wrapper closing over its own `state`; `mobile/chrome.js` injects `kit/snaps.js`'s `applyArmsSnap(state)` directly and threw on `state.drosteSpiral`. Because B626 guards that function so it can never abort camera acquisition, **the iPhone silently never centred at all** — which is why the bug survived B619, B623, B625 and B626.
+
+**▶ B626's `sliceError` channel found it on its first run.** The error message named the field. Verified by running the exact mobile injection: origin −0.0625, boxC 0.5000.
+
+**⚠️ SEVENTH INSTANCE of one-behaviour-two-copies**, and **four of the seven were found by a device session or a live show, not by reading.** The shared-quantity audit in PLAN-LIVE-READINESS is no longer tidy-up; it is the highest-yield reliability work available. **Start with `main.js` vs `mobile/chrome.js`: they share no `env`, so every helper injected into both is a candidate.**
+
+**NOT a bug, expect it:** `boxVsSource` 1.125 means radial's default box is 12.5% wider than a 0.75 source, so even perfectly centred it overflows ~6% on EACH side, symmetrically. If that reads wrong the lever is radial's `sizeNorm` for portrait sources, not the centring.
+
 **🚑 B626 — THE RE-CENTRE COULD KILL THE CAMERA. ⚠️ `cap sync` REQUIRED. Fixes a B619 regression.**
 
 **Two defects in one function, both introduced at B619.**

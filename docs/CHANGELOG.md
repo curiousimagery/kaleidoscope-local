@@ -6,7 +6,44 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
-## 🚑 v0.25.36 (Build 626) — 2026-08-15 — The re-centre could kill the camera, and it latched an aspect that was not real yet
+## ✅ v0.25.37 (Build 627) — 2026-08-15 — The iPhone slice centring, found by the error it was finally allowed to report
+
+**⚠️ `cap sync` REQUIRED.**
+
+### Shipped
+
+- **`resetSliceState` passes `state` to the injected `applyArmsSnap`.** One argument. That was the whole iPhone bug.
+
+### An implicit contract only one of two callers satisfied
+
+B626's `sliceError` channel earned its keep on the first run:
+
+```
+"message": "undefined is not an object (evaluating 'state.drosteSpiral')"
+```
+
+`resetSliceState` called `applyArmsSnap?.()` with no argument. That carried an implicit contract — *zero-arg, closes over its own state* — and **only one of the two callers satisfied it**:
+
+| chrome | what it injects | result |
+|---|---|---|
+| `main.js` | a local zero-arg wrapper closing over its `state` | worked |
+| `mobile/chrome.js` | `kit/snaps.js`'s `applyArmsSnap(state)` **directly** | threw on `state.drosteSpiral` |
+
+Because B626 (correctly) guards this function so it can never abort camera acquisition, the throw meant the iPhone **silently never centred its slice at all** — which is precisely the symptom, and precisely why it survived B619, B623, B625 and B626.
+
+**Verified by running the exact mobile injection** (the kit function passed directly): origin `−0.0625`, box centre `0.5000`.
+
+### ⚠️ SEVENTH INSTANCE, and the shape is now unmistakable
+
+Every one of these is *one behaviour, two copies, the copies disagree*: droste's overlay missing `sizeNorm` (B614), radial's polygon missing `canvasNorm` (B618), the overlay missing `canvasOffset` (B612), the B616 centring hook reaching only desktop (B619), six copies of the `0.35` transition default (B622), `env.panDrift` covering one of two joystick instances (B620), and now an injected callback with two incompatible signatures.
+
+**Four of the seven were found by a device session or a live show, not by reading.** The audit is no longer a tidy-up; it is the highest-yield reliability work available.
+
+### One thing to expect, which is NOT a bug
+
+`boxVsSource` is 1.125 — radial's default box is 12.5% wider than a 0.75 source, so even perfectly centred it overflows about 6% on **each** side, symmetrically. That is the mirror doing its job, and it is a different question from placement. If the symmetric overflow reads wrong, the lever is radial's `sizeNorm` for portrait sources, not the centring.
+
+ — 2026-08-15 — The re-centre could kill the camera, and it latched an aspect that was not real yet
 
 **⚠️ `cap sync` REQUIRED. Fixes a regression I introduced at B619.**
 

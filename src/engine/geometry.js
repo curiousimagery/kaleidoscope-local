@@ -133,7 +133,15 @@ export function resetSliceState(state, form, sourceAspect, frameAspect, applyArm
   state.drosteWedgeMirror = true;
   state.drosteOffsetX  = 0;
   state.drosteOffsetY  = 0;
-  applyArmsSnap?.();
+  // ⚠️ B627 — PASS STATE. This used to be `applyArmsSnap?.()` with no argument, which carried an
+  // implicit contract only ONE of the two callers satisfied: `main.js` injects a zero-arg wrapper
+  // that closes over its own `state`, while `mobile/chrome.js` injects `kit/snaps.js`'s
+  // `applyArmsSnap(state)` directly. So desktop worked and mobile threw
+  // `undefined is not an object (evaluating 'state.drosteSpiral')` — which, because the caller
+  // guards this whole function, meant the iPhone silently never centred its slice at all.
+  // Passing state makes the contract explicit and satisfiable by both (the wrapper ignores it).
+  // **Seventh instance of one behaviour living in two chromes with two answers.**
+  applyArmsSnap?.(state);
   Object.assign(state, centerFormInSource(form, state, sourceAspect));
   return state;
 }
