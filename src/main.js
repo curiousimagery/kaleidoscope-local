@@ -18,7 +18,7 @@ import { DISCRETE_KEYS } from './kit/tween.js';   // discrete settings are globa
 import { confirmInterrupt } from './shell/interrupt.js';   // non-blocking destructive-interrupt (M3)
 import { zipStore } from './shell/zip.js';                 // clip package (source + motion JSON)
 import { createEngine } from './engine/index.js';
-import { resetSliceState } from './engine/geometry.js';   // B619: the shared slice reset (box centring + frame-relative orientation), also used by the mobile chrome
+import { resetSliceState, formBoxCenter } from './engine/geometry.js';   // B619: the shared slice reset (box centring + frame-relative orientation), also used by the mobile chrome
 import { createMotionProbe } from './kit/motion-probe.js';   // B619: droste-runaway probe, armed by ?probe=motion
 import { createSourceOverlay } from './components/source-overlay.js';
 import { createOutputGestures } from './components/output-gestures.js';
@@ -1344,6 +1344,8 @@ function wireControls() {
   // the DEFAULT box. One path, one result.
   // B619 — the body of this moved to geometry.js `resetSliceState` so the MOBILE chrome runs the
   // identical reset. It had a divergent four-line copy that skipped box centring entirely.
+  // B625 — the exported report reads slice geometry through this (see perf-panel `slice`).
+  env.formBoxCenter = (st, aspect) => formBoxCenter(getActiveForm(st), st, aspect);
   env.resetSlice = () => {
     resetSliceState(state, getActiveForm(state), engine.getSourceAspect() || 1, session.frameAspect || 1, applyArmsSnap);
     env.controlsSync?.syncAll?.();

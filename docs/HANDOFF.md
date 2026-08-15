@@ -90,6 +90,32 @@ This retires the confusion, not just a hypothesis. Resolution was free because t
 
 ## current version
 
+**🎚 B624 — ONE BUTTON, TWO FORMS, NO HIDDEN WRITES. JS only.**
+
+**A target that does not apply to the active form now DECLINES instead of writing.** Square aspect + droste thickness can share a d-pad. **There was never a routing blocker** (two rows always fired on one signal) **but there WAS a silent bug** — the inactive form's parameter got written anyway, accumulating into undo history and motion keyframes and surfacing only on the next form switch.
+
+**The gate reuses each form's own `controls` array**, the same data that decides which controls appear in the panel. No new configuration. A declined row dims for 400ms, because declining silently is the exact sin the standing rule forbids.
+
+**▶ FILED, NOT BUILT:** a **held-modifier (SHIFT) layer** is the real answer to Daniel's five-forms-four-buttons problem. Chords as he described them need a detection window on every unshifted press; a held modifier does not, and it doubles every binding rather than solving forms alone. **`last form` does NOT cover this** — he is right that oscillation is not addressing.
+
+**🎯 B623 — THE DROSTE INFINITE-ZOOM LOOP IS ROOT-CAUSED AND FIXED. JS only.**
+
+**✅ Daniel ran a full show on B621 and the app "behaved beautifully."** First real-world validation this arc has had.
+
+**THE LOOP WAS `LEAD_CAP.drosteZoomPhase = 4`.** Dropped to 1. Verified over 300 seeded trials wiring `drift.js` → `follow.js` headless: **0/300 blow-ups at cap 1, 134/300 at cap 2, 3 and 4.** BOOST is only an amplifier (scales severity, not rate) and stays.
+
+**⚠️ THE RAISED CAP NEVER DELIVERED ITS OWN CONTRACT** — it exists to bound the lag to `cap` loops and at cap 4 the lag reached **fifteen**. Broken feature, not a risky one.
+
+**Mechanism (frame-traced):** under a continuously moving cyclic target, `setTarget`'s accumulation loses whole periods — `state = −1.004` while `tgt = −2.004`. That hands the spring `y ≈ 1.07`, BOOST quadruples omega, velocity runs to −27 and self-sustains. **The period loss is STILL OPEN; cap 1 only bounds the damage. Do not raise the cap again without re-running the sweep.**
+
+**⚠️ TWO CORRECTIONS TO THE RECORD, both mine:**
+1. **B619's disproof was wrong.** It held state CONSTANT after a finger lift and found the follower settles. **The instability requires a target that keeps MOVING.** Right result, wrong experiment. *A stability test must reproduce the forcing, not just the initial condition.*
+2. **The pan-unlock "necessary condition" was a red herring.** Daniel found the loop in autoplay with pan apparently locked. Pan-unlock and autoplay are both just ways to keep the target moving. **The droste pan-lock guardrail is no longer needed.**
+
+**Also shipped:** `reset slice` / `reset canvas` are mappable (Daniel hands the controller to audience members and every recovery affordance was on a screen he is not standing at); canvas zoom nudges are **geometric**, a constant 16.6% at every zoom instead of 5% at 4× and 198% at 0.1×.
+
+**🚨 NEW HIGH-SEVERITY, UNFIXED:** a live camera running ~10 minutes then swapping to a file is a **silent dead end** needing an app restart. Filed in BACKLOG with four candidate causes, all Class 1. **Highest-severity open item: silent, unrecoverable, and on the source-swap path mid-performance.**
+
 **⚖️ B622 — DROSTE ZOOM PRESS SIZE + TRANSITION-SPEED DEFAULT. JS only.**
 
 **Droste's infinite-zoom press was ~6× too small.** `canvasZoom` at 5% moves 0.198 absolute (~20% from 1.0×); phase at 5% moves 0.05 of a loop, and a loop is a factor of `drosteZoom` (2× default), so 2^0.05 ≈ 3.5%. **The span of 1 is correct for `abs`** (a fader should sweep one seamless loop), so the fix is the new **`relSpan`**, which scales nudges only. Droste phase gets `relSpan: 3.5`.

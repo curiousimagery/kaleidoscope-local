@@ -45,10 +45,40 @@ const wrapTo = (v, P) => ((v % P) + P) % P;
 const cycDelta = (a, b, P) => ((b - a + 1.5 * P) % P) - 0.5 * P;
 
 // How many PERIODS of accumulated lead a cyclic field may hold (default 1 — "chase
-// where you are, at most one lap behind; never replay stacked laps"). Rotation keeps
-// the tight 1-lap cap; the droste infinite-zoom phase is raised so a VIGOROUS multi-
-// loop pinch is honored in full instead of truncated to one loop (Daniel).
-export const LEAD_CAP = { drosteZoomPhase: 4 };
+// where you are, at most one lap behind; never replay stacked laps").
+//
+// ⚠️ B623 — drosteZoomPhase WAS 4 AND THAT IS THE DROSTE INFINITE-ZOOM LOOP. Root-caused by
+// simulation after Daniel found the autoplay repro (B622: droste + autoplay, loop within ~15s,
+// only a canvas reset recovers). Wiring `drift.js` → state → this follower headless reproduces it
+// in about 5 seconds of simulated time, and a seeded A/B over 300 trials is unambiguous:
+//
+//   cap  boost   blow-ups/300   worst |vel|   worst LAG (loops)
+//    1    on         0/300          0.4            0.14
+//    2    on       134/300         12.6           17.15
+//    4    on       134/300         27.9           15.43        ← the shipped value
+//    4    off      134/300          7.1           15.11
+//
+// Two things that table settles. **BOOST is only an amplifier** — it scales the severity and does
+// not change the rate, so it stays. And **the raised cap never delivered its own contract**: it is
+// supposed to bound the lag to `cap` loops, and at cap 4 the lag reaches FIFTEEN. It was not a
+// working feature with a risk, it was a broken one.
+//
+// The mechanism, caught in a frame trace: under a CONTINUOUSLY MOVING cyclic target the
+// accumulation in setTarget loses whole periods, and `tgt` ends up a full period from `state`
+// (traced: state −1.004, tgt −2.004). That mis-set target hands the spring y ≈ 1.07, BOOST reads
+// the large |y| and quadruples omega, velocity runs to −27, and it self-sustains. **A larger cap
+// simply gives the error more room to hide in before anything notices.**
+//
+// ⚠️ AND THIS IS WHY THE B619 DISPROOF WAS WRONG. That simulation held state CONSTANT after a
+// finger lift and correctly found the follower settles. The instability requires a target that
+// keeps moving — autoplay, or a sustained gesture — which the test never provided. **The result
+// was right and the experiment was the wrong one.**
+//
+// Cost of going back to 1: a vigorous multi-loop pinch truncates to one loop rather than four,
+// which is exactly what the raise was for. That is a real loss and a smaller one than an
+// unrecoverable live output mid-set. **The deeper fix is the period loss in setTarget; this bounds
+// the damage until that is understood.** Do not raise it again without re-running the sweep.
+export const LEAD_CAP = { drosteZoomPhase: 1 };
 // Per-field CATCH-UP boost: the field's spring speeds up the farther behind it is, so
 // a big backlog (a fast multi-loop droste zoom) rushes to catch up and settles quickly
 // rather than crawling the whole distance at the transition rate — with minimal drift

@@ -274,7 +274,17 @@ Daniel's B611 repro, final step: after the droste blowup he goes to canvas setti
 
 **Cross-ref:** `canvasReset` already zeroes `drosteZoomPhase` and calls `panRecenter`, so it is closer to correct than the settings recentre — but it still does not jump the follower.
 
-### 🚨 [HIGH — Daniel, B619] THE DROSTE LOOP HAS A CLEAN REPRO, AND THE TWO OBVIOUS CAUSES ARE BOTH DEAD
+### ✅ [ROOT-CAUSED + FIXED B623] THE DROSTE INFINITE-ZOOM LOOP — was `LEAD_CAP.drosteZoomPhase = 4`
+
+**FIXED at B623 by dropping the cap to 1.** Verified over 300 seeded trials of `drift.js` → `follow.js` (0/300 blow-ups at cap 1; 134/300 at cap 2, 3 and 4). **BOOST is only an amplifier** and stays. Full evidence table in CHANGELOG B623.
+
+**⚠️ THE UNDERLYING DEFECT IS STILL OPEN and this only bounds it.** Under a continuously moving cyclic target, `setTarget`'s accumulation loses whole periods — traced with `state = -1.004` while `tgt = -2.004`. Cap 1 keeps the resulting error too small to self-sustain; it does not stop the period loss. **Anyone raising `LEAD_CAP` again must re-run the sweep first**, and the real fix is to make the cyclic accumulation period-exact so a vigorous multi-loop pinch can be honoured again (its loss is the cost of this fix).
+
+**▶ THE METHOD LESSON, because it cost three builds:** B619 simulated the follower with state held CONSTANT after a finger lift, found it settles, and declared runaway disproven. That was right about its own experiment and wrong about the phenomenon — **the instability requires a target that keeps MOVING**, which the test never supplied. *A stability test must reproduce the forcing, not just the initial condition.* Daniel's autoplay repro is what supplied it.
+
+**⚠️ AND THE PAN-UNLOCK CORRELATION WAS A RED HERRING.** B619 recorded it as a necessary condition across every open occurrence. Daniel then found the loop in autoplay with pan apparently locked. The correlation was real in the reports and not causal — **pan-unlock and autoplay are both just ways to keep the target moving.**
+
+### 🗒 [SUPERSEDED B623 — kept for the eliminations, which are still valid] earlier droste-loop investigation
 
 **Daniel's B619 repro, which is cleaner than B611's and should be the one used from here:** unlock droste pan → pan to any corner of the image → **quickly** pinch zoom out **from the corner**. Staged behaves as expected. **Live starts looping an infinite follow.** Panning back to centre and zooming in recentres live but neither stops the loop nor reverses its direction. **`reset canvas` is the only recovery.**
 
@@ -309,7 +319,55 @@ Daniel's B611 repro, final step: after the droste blowup he goes to canvas setti
 
 **🛡 MITIGATION AVAILABLE TONIGHT, NO CODE: do not unlock pan on droste.** Droste already ships `panLockedByDefault: true`, so the safe configuration is the default one and the guardrail costs nothing. **Given that pan-unlock is a necessary condition across every open occurrence, this is a complete mitigation, not a partial one.** If a hard guardrail is later wanted in code, the honest options are to keep droste's pan lock non-overridable in perform mode, or to bound `canvasOffset` in STATE for centre-shift forms (not at the uniform — see B611's correction).
 
-### 🎛 [B621, Daniel's open question] CAN ONE BUTTON MEAN DIFFERENT THINGS ON DIFFERENT FORMS?
+### 🚨 [HIGH — Daniel, B623 post-show] A LIVE CAMERA RUNNING ~10 MINUTES BLOCKS THE NEXT SOURCE, AND ONLY AN APP RESTART RECOVERS
+
+**Daniel's report, desktop/Electron, during a show.** iPhone via Continuity Camera as the live source for roughly 10 minutes, then he picks a file. **Nothing happens — no error, no visible attempt to load.** Manually quitting the camera did not help. He had to kill the app and reboot it to recover.
+
+**Why this is the highest-severity item on the list.** It is silent (no error surfaces anywhere), it is unrecoverable in-app, and it happens on the source-swap path *during a performance*. Every other open bug has a workaround the operator can reach.
+
+**What makes it tractable:** it is almost certainly Class 1 — readable in code. The file-open path is `source-host.js`, and the question is what a long-running camera leaves behind that blocks `setSource`. Candidates worth reading before any device time:
+- the file picker's `img.onload` never firing because the object URL / decode is queued behind something the camera holds
+- a camera-owned `engine.setPlanarSource` still attached, so the engine keeps sampling planes and ignores the new element
+- `stopCameraStream()` not awaited, so the swap races the teardown
+- `cameraMode` left in a state the file path guards against and returns early from
+
+**⚠️ ANYTHING THAT CAN DECLINE TO ACT MUST PUBLISH WHY.** A dead end with no error is the exact failure the standing rule exists for. Whatever the cause, the swap path needs a reason string on every early return.
+
+**Duration matters and is a clue** — 10 minutes, not 10 seconds. Suspect something that accumulates (frame buffers, object URLs, a growing plane queue) rather than a plain state bug.
+
+### 📷 [Daniel, B623] USB WEBCAM: THE WEB APP FINDS IT, THE NATIVE CAPACITOR APP DOES NOT
+
+Testing the iPad as a kaleidoscope selfie kiosk with a USB webcam attachment. **The web app enumerated it fine; the native Capacitor build could not find it.**
+
+This is a capability question, not a bug in our code: the native camera path (`native-camera.js` / the Capacitor plugin) enumerates through AVFoundation, and external/USB cameras need `AVCaptureDeviceTypeExternal` (iPadOS 17+) to appear in a discovery session — the default device-type list does not include it. The web path goes through `getUserMedia`, which WebKit already handles.
+
+**Two honest options.** Extend the native discovery session's device types and test on the actual hardware; or **fall back to the web camera path when the native enumerator returns nothing**, which is cheaper and also covers future device classes we have not met. **The kiosk use case is a real product direction** (Daniel raised it unprompted) so this is worth scoping rather than filing and forgetting.
+
+**Cross-ref:** `reference_ios_camera_webkit_capabilities` records what `getUserMedia` exposes on iOS 26 — relevant, because if the web path covers the kiosk needs, the fallback is the whole feature.
+
+### ⌨️ [Daniel, B624] A MODIFIER / SHIFT LAYER FOR THE CONTROLLER — the honest answer to form switching
+
+His problem: five forms, four face buttons. Left-stick-press works but is *"an unexpected input location"*. He proposed chords: `X + O` = droste where `O` alone = radial.
+
+**Chords as literally described have a latency problem that rules them out.** If `O` alone means radial and `X + O` means droste, then pressing `O` must WAIT to see whether `X` follows — so the common single press pays a detection window on every use. Live controls cannot afford that.
+
+**A HELD MODIFIER has no such cost and is how every hardware controller solves this.** Designate one button (L1, or left-stick-press, which he already finds unobtrusive) as SHIFT. Held + any face button = a second layer. Unambiguous, zero added latency to the unshifted press, and it **doubles every binding on the controller** rather than solving forms alone.
+
+**Why `last form` does not cover it, and he is right:** *"if you were on square previously and want to go to droste or radial wedge, back sends you to neither."* Last-form is for oscillating between two; it is not addressing, and addressing is what he needs for five forms.
+
+**Scope:** the bus is stateless per signal today, so this needs a held-signal set (a button's press/release already both arrive, so the state is available) plus a per-row `shifted` flag and a UI affordance for assigning the modifier. Not trivial, not large. **Worth doing — it is the general fix for "I have run out of buttons", which will recur as targets keep being added.**
+
+### 📱 [Daniel, B624] THE PHONE/TABLET GESTURE SURFACE SHOULD REACH ACTIONS TOO, NOT JUST AXES
+
+*"the ipad/iphone gesture input surface would also benefit from being able to tie into some of the midi controls to change forms, reset canvas, etc."*
+
+**Sanity check confirmed: no technical blocker.** The remote surface already emits `mob:mobile.<zone>.<kind>` signals over the WS, and `onSignal` routes them through exactly the same mapping layer as MIDI and gamepad. Adding buttons means new signal names and nothing else in the pipeline. **His read is right — the work is entirely UI: what controls, in which zone, and how they avoid competing with the gesture areas.**
+
+Worth pairing with the modifier-layer item, since both are "the surface has run out of room" problems.
+
+### 🎛 [B621, Daniel's open question] CAN ONE BUTTON MEAN DIFFERENT THINGS ON DIFFERENT FORMS? — ✅ ANSWERED + SHIPPED B624
+
+**Yes, and it now works properly.** There was never a routing blocker (two rows could always share a signal) but there WAS a silent bug: the inactive form's parameter was being written anyway. B624 gates on the form's own `controls` array and dims the declining row. Detail in CHANGELOG B624. **The legibility caution below still stands and is now partly addressed by the dimming.**
 
 His framing: *"e.g. dpad arrows could control droste thickness on droste form and segments on radial wedge. that's a bad e.g. bc we'd want segment controls mapping to both, but you understand the Q?"*
 

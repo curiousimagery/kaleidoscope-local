@@ -6,6 +6,99 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🔍 v0.25.35 (Build 625) — 2026-08-15 — Slice geometry in the exported report
+
+**⚠️ `cap sync` REQUIRED — the whole point is reading it off the iPhone.**
+
+### Shipped
+
+- **`slice` block in the frame-cost panel's `copy report`**, always on: form, source aspect, frame aspect, rotation, scale, origin, **box centre**, box half-extents, and `boxVsSource`.
+
+### Why
+
+Daniel's iPhone still shows the pre-B619 default slice after a full rebuild and `cap sync`. Simulating the maths on desktop across iPhone aspects shows **the box centre landing at exactly 0.500 for every form and every aspect** — so `resetSliceState` is correct, and the hooks are demonstrably in both mobile source paths.
+
+That leaves two explanations that **cannot be told apart from here**:
+
+1. The centring is not running on his device (something upstream, or a path neither hook covers).
+2. It IS running, and the result still reads wrong because **the box is wider than the source.** Radial on an iPhone portrait source computes `halfW 0.563` — a box 1.13 wide against a source 1.0 wide — so it overflows both edges no matter where it is centred. That would look a lot like "no change".
+
+**`boxC` settles it in one reading: 0.5 means the centring ran.** And `boxVsSource > 1` says the overflow is geometric rather than a placement bug — which would make this a normalisation question (radial's `sizeNorm` of 2.25 was tuned against a LANDSCAPE reference, and the aspect correction in `sliceVecToSourceUV` does not shrink the long axis on a portrait source) rather than a centring one.
+
+Kept always-on rather than behind a param, because a Capacitor build cannot receive a URL parameter.
+
+ — 2026-08-15 — One button, two forms, no hidden writes
+
+**JS only. No `cap sync` needed.**
+
+### Shipped
+
+- **A mapping target that does not apply to the active form now DECLINES instead of writing.** Square aspect and droste thickness can share a d-pad, and each acts only on its own form.
+- **The declining row dims for 400ms**, so which of two shared bindings is listening is visible rather than inferred.
+- **The activity flash now paints every row on a signal**, not just the first.
+
+### Answering the question that was actually asked
+
+Daniel, twice: *"is there any technical reason we can't map the same keys and just listen for the valid input based on active form?"* My previous answer talked about legibility and never answered it. **The answer is no, there was no blocker — and yes, there was a real bug.**
+
+Two rows could already share a signal, because `onSignal` applies every match. What it *also* did was **silently write the inactive form's parameter.** Fifty d-pad presses on square would walk `drosteZoom` to its ceiling behind your back, surfacing only on the next form switch, and it fed undo history and every motion keyframe on the way. Working, with a side effect nobody would connect to the cause.
+
+**The gate reuses `controls`** — the array each form already declares, which already drives which controls appear in the panel. No new configuration, nothing to keep in sync, and **the same rule that hides a control now silences its mapping.** `formControl` on a target deliberately mirrors the field name in `shell/params.js` so the two registries read alike; `forms: ['droste']` covers the two droste-offset targets, which have no control token.
+
+Declining silently would have repeated the sin the standing rule exists for, so a declined row dims. That is also what makes a shared d-pad legible in use: you can see which binding is live.
+
+---
+
+## 🎯 v0.25.33 (Build 623) — 2026-08-15 — The droste infinite-zoom loop is ROOT-CAUSED and fixed
+
+**JS only. No `cap sync` needed.** From Daniel's post-show notes.
+
+### Shipped
+
+- **`LEAD_CAP.drosteZoomPhase` 4 → 1.** This is the droste infinite-zoom loop, root-caused by simulation and verified over 300 seeded trials.
+- **`reset slice` and `reset canvas` are mappable.** Daniel hands the controller to audience members; every recovery affordance was on a screen he is not standing at.
+- **Canvas zoom nudges are GEOMETRIC.** A press now moves a constant 16.6% at every zoom level instead of 5% at 4× and 198% at 0.1×.
+
+### The loop, finally
+
+**Daniel's correction unlocked it.** He clarified that his earlier "not autoplay" meant he had *never tested* autoplay, not that autoplay was excluded — then found the loop in autoplay within ~15 seconds, apparently without unlocking pan. **That killed the pan-unlock necessary condition and handed over something far better: a repro that needs no hands.**
+
+Wiring `drift.js` → `state` → `follow.js` headless reproduces it in ~5 seconds of simulated time. A seeded A/B (identical autoplay sequence per variant, 300 trials each):
+
+| cap | boost | blow-ups | worst \|vel\| | worst LAG (loops) |
+|---|---|---|---|---|
+| **1** | on | **0/300** | 0.4 | **0.14** |
+| 2 | on | 134/300 | 12.6 | 17.15 |
+| 4 | on | 134/300 | 27.9 | 15.43 |
+| 4 | off | 134/300 | 7.1 | 15.11 |
+
+**Two things that settles.** BOOST is only an amplifier — it scales severity, not rate, so it stays. And **the raised cap never delivered its own contract**: it exists to bound the lag to `cap` loops, and at cap 4 the lag reaches *fifteen*. It was not a working feature carrying a risk; it was broken.
+
+**The mechanism, from a frame trace:** under a continuously moving cyclic target, `setTarget`'s accumulation loses whole periods and `tgt` ends up a full period from `state` (traced: state −1.004, tgt −2.004). That mis-set target hands the spring `y ≈ 1.07`; BOOST reads the large `y` and quadruples omega; velocity runs to −27 and self-sustains. **A larger cap just gives the error more room to hide before anything notices.**
+
+**⚠️ Why B619's disproof was wrong, stated plainly.** That simulation held state CONSTANT after a finger lift and correctly found the follower settles. **The instability requires a target that keeps moving** — autoplay, or a sustained gesture — which the test never provided. The result was right; the experiment was the wrong one. The lesson is specific and worth keeping: *a stability test must reproduce the forcing, not just the initial condition.*
+
+**Cap 1 is a real loss:** a vigorous multi-loop pinch truncates to one loop, which is exactly what the raise was for. It is a smaller loss than an unrecoverable live output mid-set. **The deeper fix is the period loss in `setTarget`; this bounds the damage until that is understood.** Filed.
+
+### Panic buttons
+
+Daniel: *"sometimes I will let audience members use the game controller... it's easy for them to make the slice massive, rotate most of the overlay off canvas, and not understand where the slice is or how to get it back."* Both resets fire the existing DOM buttons, so history push, control sync and the canvas reset's droste-phase zeroing all stay attached.
+
+### Zoom-out steps were 16× stronger at the bottom of the range
+
+Daniel: *"when zooming out the amount each step zooms out becomes increasingly disproportional the further out you are."* The linear nudge again — a press added a fixed 0.198 to a multiplicatively-perceived quantity:
+
+| zoom | old step | new |
+|---|---|---|
+| 4.0× | −5% | −16.6% |
+| 1.0× | −20% | −16.6% |
+| 0.25× | −79% | −16.6% |
+| 0.1× | −198% (floor slam) | −16.6% |
+
+`GEO_K` is set so 1.0× keeps its old feel. The delta still runs through the same glide, so spring smoothing and chained-press velocity continuity are unchanged; only its size is now proportional.
+
+---
+
 ## ⚖️ v0.25.32 (Build 622) — 2026-08-14 — Droste's zoom press was six times too small; transition speed defaults to 0.5s
 
 **JS only. No `cap sync` needed.** Both Daniel's calls from live setup.

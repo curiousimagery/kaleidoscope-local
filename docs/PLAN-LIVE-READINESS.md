@@ -77,7 +77,37 @@ All three questions are answered. **Do not extend this session; it is done.**
 
 ---
 
-### ▶ ITEM 1.5 STATUS ROLL-UP — CURRENT AS OF B619
+### ▶ ITEM 1.5 STATUS ROLL-UP — CURRENT AS OF B623 (post-show)
+
+**Daniel ran a full show on B621. The app "behaved beautifully."** That is the first real-world validation this arc has had, and it moves item 1.5 from "being built" to "being refined against use."
+
+**Everything he reported afterwards is a REFINEMENT of shipped behaviour, not a hole in it** — with one exception (the camera source-swap dead end, filed HIGH in BACKLOG, which is a source-host bug rather than an input one).
+
+| # | item | state |
+|---|---|---|
+| 1 | learn defaults to `sliceRotation` | ✅ B619 |
+| 2 | semantic `zoom` resolves key but not MODE | 🟡 **open — top unblocked item** |
+| 2b | **no target reaches the UNIFIED zoom** | 🟡 **open — the clearest unfinished stage-B gap** |
+| 2c | discrete targets stepped by a percentage | ✅ B621 (`nudge`) |
+| 3 | per-form ranges for `sliceScale` | 🟡 open, unblocked since B618 |
+| 4 | `slice position x/y` address the ORIGIN, not the box centre | 🟡 open — `write` hook (B619) makes it implementable |
+| 5 | missing targets (form, segments, oob, droste toggles) | ✅ B619 + B621 (`last form`) + B623 (resets) |
+| 6 | trackpad zoom judder | 🟡 open |
+| 7 | transition-speed floor (~0.05s) | 🟡 open. Default itself moved to 0.5s at B622 |
+| 8 | iPhone pan-lock parity | 🟡 open — **and Daniel owes a verification on the iPhone slice-centring fix (B619)** |
+| 9 | the SHARED-QUANTITY audit | 🟡 open, and now **six** instances |
+| 10 | droste infinite-zoom loop | ✅ **ROOT-CAUSED + FIXED B623.** Underlying period loss in `setTarget` still open |
+| 11 | droste zoom press ~6× too small | ✅ B622 (`relSpan`) |
+| 12 | canvas zoom steps disproportional when zoomed out | ✅ B623 (`geometric`) |
+| — | **stage C: ownership and handoff** | 🔴 **NOT STARTED. Largest remaining piece of 1.5** |
+
+**▶ WHAT I WOULD DO NEXT, in order.** (2b) unified-zoom target, because Daniel's own controller layout depends on it and it is the last piece of stage B. Then (2) zoom mode. Then (4) box-centre semantics, which is small now that `write` exists. Then **stage C**, which is the real remaining architecture and also the answer to the B621 open question about one button meaning different things per form — "which input owns this field" and "which mapping row is live" are one problem.
+
+**⚠️ THE AUDIT ITEM IS NOW THE MOST-EVIDENCED THING ON THIS LIST — SIX instances of one value or behaviour living in multiple copies:** droste's overlay missing `sizeNorm` (B614), radial's polygon missing `canvasNorm` (B618), the overlay missing `canvasOffset` (B612), the B616 centring hook reaching only the desktop chrome (B619), the six copies of the `0.35` transition default (B622), and `env.panDrift` covering only one of two joystick instances (B620). **It has stopped being a hypothesis.**
+
+---
+
+### ▶ ITEM 1.5 STATUS ROLL-UP — AS OF B619 (superseded, kept for the stage framing)
 
 **Stage A (per-form target resolution) and stage B (one transform per input axis) are substantially DONE. Stage C (ownership and handoff) has not started and is now the largest remaining piece of 1.5.**
 

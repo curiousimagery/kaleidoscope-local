@@ -235,6 +235,27 @@ export function mountPerfPanel(env, { container = null, onClose = null } = {}) {
       // names the offending field outright, and `quietMovingMs` is the number that matters —
       // time a value spent travelling while every known writer was idle.
       motion: env.motionProbe?.report?.() || undefined,
+      // B625 — SLICE GEOMETRY, always on. Daniel's iPhone still shows the pre-B619 default slice
+      // after a full rebuild + cap sync, and the two live explanations are indistinguishable from
+      // here: either the centring is not running on his device, or it IS running and the result
+      // still overflows because the box is wider than a portrait source. Simulated on desktop the
+      // box centre lands at 0.500 for every form, so the code is right and the question is what the
+      // DEVICE actually holds. Three numbers settle it — `boxC` at 0.5 means centring ran.
+      slice: (() => {
+        try {
+          const s = env.state, a = env.engine?.getSourceAspect?.() || 0;
+          const c = env.formBoxCenter?.(s, a);
+          return {
+            form: s.form, sourceAspect: +a.toFixed(4), frameAspect: +(env.session?.frameAspect ?? 0).toFixed(4),
+            sliceRotation: s.sliceRotation, sliceScale: s.sliceScale,
+            origin: [+s.sliceCx.toFixed(4), +s.sliceCy.toFixed(4)],
+            boxC: c ? [+c.x.toFixed(4), +c.y.toFixed(4)] : null,
+            boxHalf: c ? [+c.halfW.toFixed(4), +c.halfH.toFixed(4)] : null,
+            // >1 means the slice is WIDER than the source and must overflow however it is placed
+            boxVsSource: c ? +(2 * Math.max(c.halfW, c.halfH)).toFixed(3) : null,
+          };
+        } catch (e) { return { error: String(e && e.message || e) }; }
+      })(),
       // the external view's own warnings/errors, which reach no console we can read (B559).
       // Omitted entirely when empty so a report from a session with no HDMI stays uncluttered.
       extLogs: env.externalDisplay?.logs?.length ? env.externalDisplay.logs : undefined,

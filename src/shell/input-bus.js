@@ -75,6 +75,27 @@ const NUDGE_SEGMENTS = (state, dir, env) => {
   }
   env.setSegments?.(cur);   // already at the end of the ladder — restore, don't drift
 };
+// ⚠️ B624 — IS A TARGET EVEN APPLICABLE TO THE ACTIVE FORM?
+//
+// Daniel's question: *"square aspect and droste thickness are each unique variables that could map
+// to Dpad keys so that the arrows adjust whatever form you're on. Is there any technical reason we
+// can't map the same keys and just listen for the valid input based on active form?"*
+//
+// Two rows CAN already share a signal — `onSignal` applies every match — so it "worked" before this.
+// What it also did was **silently write the inactive form's parameter**: fifty d-pad presses on
+// square would walk `drosteZoom` to its ceiling behind your back, and you would find out on the next
+// form switch. It also fed undo history and every motion keyframe. Working, with a side effect
+// nobody would connect to the cause.
+//
+// The gate reuses `controls` — the array each form ALREADY declares and which already drives UI
+// visibility — so there is no new configuration to keep in sync, and **the same rule that hides a
+// control in the panel now silences its mapping.** `formControl` deliberately mirrors the field name
+// in `shell/params.js` so the two registries read the same.
+const appliesToForm = (t, s) => {
+  if (t.forms) return t.forms.includes(s.form);
+  if (!t.formControl) return true;
+  return !!getActiveForm(s)?.controls?.includes(t.formControl);
+};
 const PARAM_TARGETS = [
   { key: 'sliceRotation', label: 'slice rotation', min: 0, max: 360, wrap: true, dir: '0° → 360° counterclockwise' },
   { key: 'sliceScale', label: 'slice scale', min: 0.05, max: 5, dir: 'small → large' },   // the slice control's OWN max (independent of the zoom gesture's Z_SLICE_COVER overflow cap)
@@ -108,9 +129,20 @@ const PARAM_TARGETS = [
     // loop — so it cannot simply be enlarged. `relSpan` scales the nudge only, leaving the fader
     // alone: 3.5 loops at 100% puts a 5% press at ~0.175 of a loop ≈ 13% scale, in the same
     // perceptual bracket as the other forms without making the fader nonsense.
+    //
+    // ⚠️ B623 — `geometric` fixes the OTHER half of the same complaint. Daniel: *"when zooming out
+    // the amount each step zooms out becomes increasingly disproportional the further out you are."*
+    // Exactly right, and it is the linear nudge again: a press adds a FIXED 0.198 to a quantity
+    // that is perceived multiplicatively.
+    //   at 4.0×  → 3.80   a 5% change, barely visible
+    //   at 1.0×  → 0.80   a 20% change, about right
+    //   at 0.25× → 0.05   an 80% change, and it slams into the floor
+    // The same press is 16× more powerful at the bottom of the range than the top. A geometric
+    // step is constant in the only unit that matters perceptually: each press multiplies.
+    geometric: true,
     resolve: (s) => s.form === 'droste'
-      ? { key: 'drosteZoomPhase', min: 0, max: 1, wrap: true, wrapPeriod: 1, relSpan: 3.5 }
-      : { key: 'canvasZoom', min: 0.05, max: 4 } },
+      ? { key: 'drosteZoomPhase', min: 0, max: 1, wrap: true, wrapPeriod: 1, relSpan: 3.5, geometric: false }
+      : { key: 'canvasZoom', min: 0.05, max: 4, geometric: true } },
   { key: 'canvasRotation', label: 'canvas rotation', min: 0, max: 360, wrap: true, dir: '0° → 360°' },
   // TILING PAN. `abs` maps a fader across ±2 units (~one lattice period); REL/RATE drift it.
   //
@@ -129,11 +161,11 @@ const PARAM_TARGETS = [
     resolve: (s) => (latticePeriodOf(s) ? { unbounded: true } : { min: -1, max: 1 }) },
   { key: 'canvasOffsetY', label: 'pan y', min: -2, max: 2, dir: 'up → down',
     resolve: (s) => (latticePeriodOf(s) ? { unbounded: true } : { min: -1, max: 1 }) },
-  { key: 'squareAspect', label: 'square aspect', min: 0.25, max: 4, dir: 'tall → wide' },
-  { key: 'drosteZoom', label: 'droste thickness', min: 1.1, max: 16, dir: 'thin → thick' },
-  { key: 'drosteSpiral', label: 'droste spiral', min: -3, max: 3, dir: 'wind left → wind right' },
-  { key: 'drosteOffsetX', label: 'droste offset x', min: -1, max: 1, dir: 'left → right' },
-  { key: 'drosteOffsetY', label: 'droste offset y', min: -1, max: 1, dir: 'up → down' },
+  { key: 'squareAspect', label: 'square aspect', min: 0.25, max: 4, dir: 'tall → wide', formControl: 'aspect' },
+  { key: 'drosteZoom', label: 'droste thickness', min: 1.1, max: 16, dir: 'thin → thick', formControl: 'zoom' },
+  { key: 'drosteSpiral', label: 'droste spiral', min: -3, max: 3, dir: 'wind left → wind right', formControl: 'spiral' },
+  { key: 'drosteOffsetX', label: 'droste offset x', min: -1, max: 1, dir: 'left → right', forms: ['droste'] },
+  { key: 'drosteOffsetY', label: 'droste offset y', min: -1, max: 1, dir: 'up → down', forms: ['droste'] },
   // INFINITE ZOOM phase — cyclic like rotation, but its period is 1 (not 360), so it carries
   // an explicit wrapPeriod. Pinch over the canvas maps here in droste (see the pinch mapping).
   // kept as a target so targetOf() (the pinch reroute) resolves it, but HIDDEN from the mapping
@@ -179,6 +211,14 @@ const ACTION_TARGETS = [
   // DROSTE TOGGLES + OOB — cycles rather than absolute values, because the thing on the other
   // end of a mapping is a momentary pad. Each fires the existing DOM control, so the snap
   // cascade, keyframe commit, undo entry, and button highlight all still happen exactly once.
+  // ⚠️ B623 — THE PANIC BUTTONS, and they earn their place from a real use. Daniel hands the game
+  // controller to audience members during a set: *"it's easy for them to make the slice massive,
+  // rotate most of the overlay off canvas, etc., and not understand where the slice is or how to
+  // get it back."* Every recovery affordance lived on screen, behind menus, on a machine he is not
+  // standing at. A mapped reset is the difference between handing someone the controller and
+  // hovering over them. Also the honest answer to "live got stuck" for the operator.
+  { key: 'action:resetSlice', label: '↺ reset slice' },
+  { key: 'action:resetCanvas', label: '↺ reset canvas' },
   { key: 'action:mirror', label: '◈ droste mirror' },
   { key: 'action:wedgeMirror', label: '◈ droste wedge mirror' },
   { key: 'action:oob', label: '◈ out of bounds (cycle)' },
@@ -368,6 +408,10 @@ export function createInputBus(env) {
     }
     const t0 = targetOf(m.target);
     if (!t0) return;
+    // NOT APPLICABLE TO THIS FORM → decline, and SAY SO rather than writing a hidden parameter
+    // (B624). The row dims live, which is what makes a shared d-pad legible: you can see which of
+    // the two bindings is the one currently listening.
+    if (!appliesToForm(t0, state)) { markInactive(m.sig, m.target); return; }
     // a SEMANTIC target (e.g. "zoom") resolves to the active form's key + range each apply, so
     // one mapping drives the right param per form (Stage 1 of the registry unification).
     const t = t0.resolve ? { ...t0, ...t0.resolve(state) } : t0;
@@ -410,6 +454,15 @@ export function createInputBus(env) {
       // send signed fractions) — sens is the whole step-size story
       let d = (meta.momentary ? Math.sign(value) : value) * relSpan * sens;
       if (m.invert) d = -d;
+      // GEOMETRIC targets multiply instead of add (B623). The delta is still handed to the same
+      // glide below, so the spring smoothing and chained-press velocity continuity are unchanged —
+      // only its SIZE is now proportional to where you already are. GEO_K is set so a 5% press
+      // still moves ~20% at 1.0×, matching the old feel at the middle of the range while fixing
+      // both ends.
+      if (t.geometric) {
+        const base = state[t.key] ?? 1;
+        d = base * (Math.exp(d * GEO_K) - 1);
+      }
       if (!d) return;
       // a BUTTON nudge eases like a gentle joystick (Daniel: an abrupt jump
       // reads wrong for scale steps) — the step becomes a spring GOAL; the
@@ -453,6 +506,10 @@ export function createInputBus(env) {
   // the snappy 0.18s; phone gestures get a longer response (Daniel's call —
   // a touch of capture latency beats WS-burst choppiness in the staged panel).
   const REMOTE_GLIDE_TAU = 0.35;
+  // exp() rate for GEOMETRIC targets, chosen so the mid-range feel is unchanged: at canvasZoom 1.0
+  // a 5% press moved 0.198 additively, and exp(0.198 × 0.92) − 1 ≈ 0.20. Same press at 1.0×, but
+  // now proportional everywhere instead of 16× stronger at the bottom of the range.
+  const GEO_K = 0.92;
   const PINCH_ZOOM_SENS = 0.5;    // WS scale-delta → unified-zoom factor exponent. TUNE: bigger = zoomier. (3 → 1.05 → 0.5; Daniel: still too enthusiastic)
   // (PAN_GESTURE_SENS retired B611 — the pan gain is derived in kit/pan.js and shared with touch.)
   function glideBy(t, d, tau = 0.18) {
@@ -524,6 +581,10 @@ export function createInputBus(env) {
     return go(FORMS[(((a === 'formNext' ? i + 1 : i - 1) % n) + n) % n].id);
   }
   function fireAction(a) {
+    // the reset buttons carry their own history push, control sync and (for canvas) the droste
+    // phase zeroing — firing the DOM control is what keeps all three attached.
+    if (a === 'resetSlice') return void (clickEl('#sliceReset') || clickEl('#m-reset'));
+    if (a === 'resetCanvas') return void (clickEl('#canvasReset') || clickEl('#m-canvas-reset'));
     if (a === 'mirror') return void clickEl(`#mirrorToggle button[data-mirror="${state.drosteMirror ? '0' : '1'}"]`);
     if (a === 'wedgeMirror') return void clickEl(`#wedgeMirrorToggle button[data-wedgemirror="${state.drosteWedgeMirror ? '0' : '1'}"]`);
     if (a === 'oob') return void clickEl(`#oobModes button[data-oob="${((state.oobMode | 0) + 1) % 3}"]`);
@@ -550,8 +611,20 @@ export function createInputBus(env) {
   }
   function paintActivity(sig) {
     if (byId('settingsSheet')?.hidden !== false) return;
-    const row = document.querySelector(`[data-sig="${CSS.escape(sig)}"]`);
-    if (row) { row.classList.add('in-live'); setTimeout(() => row.classList.remove('in-live'), 150); }
+    // ALL rows on this signal, not just the first — two rows can share a button (B624), and
+    // flashing only one of them would misreport which binding just acted.
+    document.querySelectorAll(`[data-sig="${CSS.escape(sig)}"]`).forEach((row) => {
+      row.classList.add('in-live'); setTimeout(() => row.classList.remove('in-live'), 150);
+    });
+  }
+
+  // A row that DECLINED because its target does not apply to the active form. Distinct from the
+  // activity flash on purpose: this is "I heard you and this is not my form", which is the honest
+  // answer to a shared binding and the thing that makes the arrangement readable.
+  function markInactive(sig, target) {
+    if (byId('settingsSheet')?.hidden !== false) return;
+    const row = document.querySelector(`[data-sig="${CSS.escape(sig)}"][data-target="${CSS.escape(target)}"]`);
+    if (row) { row.classList.add('in-idle'); setTimeout(() => row.classList.remove('in-idle'), 400); }
   }
 
   // ---- app-bar presence: one green dot per online device ------------------------
@@ -671,6 +744,7 @@ export function createInputBus(env) {
     const row = document.createElement('div');
     row.className = 'in-map';
     row.dataset.sig = m.sig;
+    row.dataset.target = m.target;   // B624: two rows can share a signal, so the pair identifies a row
     const isNote = !!midi.parseNoteSig(m.sig);
     const momentary = /\.(n|b)\d/.test(m.sig);
     const isAction = m.target.startsWith('action:');
