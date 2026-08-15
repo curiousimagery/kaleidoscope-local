@@ -119,10 +119,13 @@ export const defaultSliceRotation = (frameAspect) => (frameAspect < 1 ? 90 : 0);
 // Ordering is load-bearing: every geometry input has to be at its default BEFORE the box is
 // measured, and the ORIENTATION has to be set before the centring, because rotating the form
 // changes the box it is centred by (Daniel's rule, B615).
-// How much of the source the DEFAULT slice box may span, leaving the rest as buffer. 0.9 gives a
-// 5% margin on each side — Daniel's "some buffer to the left and right". Only ever shrinks a form
-// that would overflow; a form already inside this stays exactly where its tuning put it.
-const FIT_EXTENT = 0.9;
+// How much of the source the DEFAULT slice box may span, leaving the rest as buffer. Only ever
+// shrinks a form that would overflow; a form already inside this keeps exactly what its tuning gave
+// it. 0.9 (B628) landed correctly on device but read tight to Daniel, so 0.75 — a 12.5% margin each
+// side. Note this bites ONLY where a form overflows: at the 1.78 desktop reference radial (0.632),
+// hex (0.587) and triangle (0.751) are all still inside it and remain untouched at scale 1.0;
+// square (0.800) now fits down slightly on every aspect.
+const FIT_EXTENT = 0.75;
 
 export function resetSliceState(state, form, sourceAspect, frameAspect, applyArmsSnap) {
   state.segments       = 12;

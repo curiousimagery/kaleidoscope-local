@@ -6,7 +6,45 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
-## 📏 v0.25.38 (Build 628) — 2026-08-15 — Fit the box, not just centre it; and the divergence rule moves into the instructions
+## ⌨️ v0.25.39 (Build 629) — 2026-08-15 — A second binding per control, and the modifier layer
+
+**JS only. No `cap sync` needed** (the fit change below does want one).
+
+### Shipped
+
+- **Learn now ASKS when a control is already mapped** — edit the existing binding, or add a second one — instead of silently flashing the existing row.
+- **The MODIFIER layer.** Any row can be flagged `mod`; hold it while learning another control to record a chord.
+- **The default slice fit is 75%** (was 90%), Daniel's call after seeing it on device.
+
+### The feature I shipped at B624 had no way in
+
+Daniel: *"I attempted to map multiple controls onto the same Dpad arrows and realize our UI won't let us."*
+
+He is right, and it is worth naming plainly: **B624's form-gating requires two rows on one signal, and learn refused to create the second one** — it saw an already-mapped signal and flashed the existing row. So the capability shipped, was documented, and was unreachable. **A capability with no path through the UI is not shipped.**
+
+The prompt names the tradeoff rather than just warning, because a second binding is genuinely correct in exactly two cases — targets belonging to **different forms** (only the active one acts, per B624) or one sitting behind a **modifier** — and is a mistake otherwise. Two bindings on the same form both fire and fight, which is the B619 "several rows all claiming slice rotation" problem in a new outfit.
+
+### The modifier layer, and why it is a held modifier and not a chord
+
+Daniel's straw man was `X + O`, with a three-second window to tell "assigning X" from "assigning X+O".
+
+**Chords as literally described cannot work for live use.** If `O` alone means radial and `X + O` means droste, pressing `O` must WAIT to see whether `X` follows — so every unshifted press pays a detection window. A **held** modifier has no such cost, is how hardware controllers solve this, and doubles every binding rather than solving forms alone.
+
+His other correction was adopted directly: **no fixed slots.** Shift/ctrl/alt/cmd are only meaningful on a labelled keyboard; on a DualSense they are arbitrary. Any row can be flagged `mod`, and more than one may be.
+
+**The timer became a release**, which is faster in both directions and cannot feel broken: hold the modifier and press the second control → the chord is recorded; release it alone → nothing is. No window to wait out when reassigning.
+
+Two details that keep it unsurprising. A modifier **drives no target of its own** (flagging a row clears its target and disables the select). And holding a modifier **only masks bindings that have a shifted alternative** — scoped per signal, so a held modifier never deadens unrelated controls.
+
+### The fit is 75%
+
+⚠️ **One side effect worth knowing:** square's default box is 0.800, just over the new threshold, so **square now scales to 0.938 on desktop** — a 6% shrink to a previously untouched default. Radial, hex and triangle are all still inside 0.75 at the 1.78 reference and remain at scale 1.0. Say if square should be exempted instead.
+
+### ⚠️ OWED: the UI Lab entry
+
+`.in-dupask` is a new component and the `in-map` row gained a column. **Per the UI Lab discipline in CLAUDE.md both should have landed in the Lab in this same increment and did not.** Filed in BACKLOG rather than left implicit.
+
+ — 2026-08-15 — Fit the box, not just centre it; and the divergence rule moves into the instructions
 
 **⚠️ `cap sync` REQUIRED.**
 

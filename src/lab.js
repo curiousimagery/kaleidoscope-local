@@ -1090,9 +1090,10 @@ function inMapRowEl(kindChip, label, target, mode, opts = {}) {
     <span class="in-grip" title="drag to reorder">≡</span>
     <span class="in-kind">${kindChip}</span>
     <input class="in-name in-label" value="${label}">
-    <select class="in-target"><option>${target}</option></select>
-    <select class="in-mode"${opts.noMode ? ' disabled' : ''}><option>${mode}</option></select>
-    <select class="in-sens"${opts.noMode ? ' disabled' : ''}><option>${opts.sens || '5%'}</option></select>
+    <button class="toggle in-mod${opts.mod ? ' active' : ''}">mod</button>
+    <select class="in-target"${opts.mod ? ' disabled' : ''}><option>${target}</option></select>
+    <select class="in-mode"${opts.noMode || opts.mod ? ' disabled' : ''}><option>${mode}</option></select>
+    <select class="in-sens"${opts.noMode || opts.mod ? ' disabled' : ''}><option>${opts.sens || '5%'}</option></select>
     <button class="toggle in-inv${opts.inv ? ' active' : ''}">inv</button>
     ${opts.led ? `<button class="in-led" style="background:${opts.led}"></button>` : '<span></span>'}
     <button class="vid-x in-del">✕</button>`;
@@ -1127,6 +1128,21 @@ function fingerEchoCard() {
   }
   return c;
 }
+// B629 — the inline duplicate-binding prompt. Shown when LEARN captures a control that already has
+// a mapping: the choice belongs in the list you are looking at, so it is not a modal.
+function inDupAskEl() {
+  const box = el('div', { class: 'in-dupask' });
+  box.innerHTML = `
+    <div class="in-dupask-msg"><b>d-pad up</b> is already mapped to <b>square aspect</b>.</div>
+    <div class="in-dupask-note">A second binding is right when the two targets belong to <b>different forms</b>
+      (only the active form's acts) or when one is behind a <b>modifier</b>. Two bindings on the same form
+      will both fire and fight.</div>
+    <div class="in-dupask-btns">
+      <button class="toggle">edit the existing one</button>
+      <button class="primary">add a second binding</button>
+    </div>`;
+  return box;
+}
 function inputsSection() {
   const tabs = el('div', { class: 'set-tabs' }, [
     el('button', { class: 'toggle', text: 'about' }),
@@ -1142,6 +1158,15 @@ function inputsSection() {
   const dragging = el('div', { class: 'in-maps', style: 'max-height:none' }, [
     inMapRowEl('stick', 'left stick x', 'slice position x', 'rate', { cls: 'in-dragging' }),
     inMapRowEl('tp', 'trackpad rotate', 'slice rotation', 'rel', { cls: 'in-drop-before' }),
+  ]);
+  // B624/B629 states: a row that DECLINED because its target does not apply to the active form,
+  // a MODIFIER row, and the SHIFTED row that only acts while that modifier is held.
+  const states = el('div', { class: 'in-maps', style: 'max-height:none' }, [
+    inMapRowEl('btn', 'd-pad up', 'square aspect', 'rel', { sens: '1 step' }),
+    inMapRowEl('btn', 'd-pad up', 'droste thickness', 'rel', { cls: 'in-idle' }),
+    inMapRowEl('btn', 'x / square', '— modifier —', 'rel', { mod: 1 }),
+    inMapRowEl('+x / sq', 'b / circle', '◈ form: droste', 'rel', { noMode: 1 }),
+    inMapRowEl('btn', 'right bumper', '— pick a target —', 'rel'),
   ]);
   return section('inputs-surface', 'Inputs & settings (control bus)',
     'The settings-sheet vocabulary from the Arc 6 input surface, as static specimens (input-bus.js renders the real, wired version — these are hand-synced copies, so drift here means the specimen needs updating). The mapping row is a 9-column grid: grip · kind chip · editable name · target · mode · sensitivity · invert · LED swatch (pads only) · remove. Device headers carry the presence dot (var(--ok), the same token as the output traffic light), the editable device name, and the collapse chevron. The presence lights beside the app-bar gear stack in pairs like the output LEDs. Finger echo circles are drawn by the overlay itself (slice zone) and a glued sibling canvas (output panel) with the styles shown. The rig persists to localStorage fold-inputs-v1 everywhere + fold-config.json in userData under Electron.', [

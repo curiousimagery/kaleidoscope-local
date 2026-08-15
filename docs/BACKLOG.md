@@ -375,6 +375,16 @@ function applyArmsSnap()    { kitApplyArmsSnap(state); }          // kit is (sta
 
 **▶ THE STANDING RULE THIS EARNED HAS MOVED (B628, Daniel's call).** *A function injected into shared code must take everything it needs as arguments* is a working-process change, not a planned feature, so it now lives in **`CLAUDE.md`** and **`ARCHITECTURE.md`** rather than here. **The audit METHOD above stays** — that is a procedure to re-run, which is backlog-shaped.
 
+### 🧪 [OWED — B629] UI LAB ENTRIES FOR THE MAPPING-ROW CHANGES
+
+**The UI Lab discipline in `CLAUDE.md` says a new component lands in the Lab in the same increment. B629 did not.** Owed:
+- **`.in-dupask`** — the inline duplicate-binding prompt (new component: message, note, two buttons).
+- **`.in-map` row** — gained a 10th grid column and the `.in-mod` toggle, with an active state and a `+mod` kind chip on shifted rows. The existing Lab entry, if any, is now stale.
+
+Small, and the point of the rule is that it does not get to accumulate.
+
+### ✅ [SHIPPED B629] A MODIFIER / SHIFT LAYER — kept for the reasoning
+
 ### ⌨️ [Daniel, B624] A MODIFIER / SHIFT LAYER FOR THE CONTROLLER — the honest answer to form switching
 
 His problem: five forms, four face buttons. Left-stick-press works but is *"an unexpected input location"*. He proposed chords: `X + O` = droste where `O` alone = radial.

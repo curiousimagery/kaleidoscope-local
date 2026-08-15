@@ -90,6 +90,16 @@ This retires the confusion, not just a hypothesis. Resolution was free because t
 
 ## current version
 
+**⌨️ B629 — A SECOND BINDING PER CONTROL, AND THE MODIFIER LAYER. JS only.**
+
+**⚠️ B624's form-gating had NO WAY IN and nobody noticed until Daniel tried it.** Mapping the d-pad to both square aspect and droste thickness needs two rows on one signal, and learn refused to make the second — it flashed the existing row instead. **A capability with no path through the UI is not shipped.** Learn now asks: edit the existing, or add a second.
+
+**The MODIFIER layer** is in. Any row can be flagged `mod` (no fixed slots — Daniel's correction). Hold it while learning another control to record a chord; **release it alone and nothing is recorded**, which replaced his proposed 3s window and is faster both ways. A modifier drives no target of its own, and holding one **only masks bindings that have a shifted alternative**, so it never deadens unrelated controls.
+
+**Fit is now 75%** (was 90%). ⚠️ Side effect: **square's default shrinks 6% on desktop** (its box is 0.800, just over the line). Radial/hex/triangle are unaffected at the 1.78 reference. Exempt square if that reads wrong.
+
+**⚠️ OWED: UI Lab entries** for `.in-dupask` and the changed `.in-map` row — filed in BACKLOG.
+
 **📏 B628 — FIT THE BOX, NOT JUST CENTRE IT. ⚠️ `cap sync` REQUIRED.**
 
 **Centring was only half the job.** Daniel's iPhone still showed overage because **the wedge forms' horizontal extent does not depend on source aspect below 1.0** — `sliceVecToSourceUV` divides x by the aspect only for LANDSCAPE sources, so a `sizeNorm` tuned on the 1.78 desktop reference measures 0.632 there and **1.125 on any portrait source** (hex 1.018, triangle 1.300). A box wider than the source is off-image however you place it.

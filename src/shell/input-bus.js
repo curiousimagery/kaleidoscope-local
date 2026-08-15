@@ -289,17 +289,57 @@ export function createInputBus(env) {
     else if (meta.deviceName && d.name !== meta.deviceName) { d.name = meta.deviceName; save(); }
   }
 
+  // ⚠️ B629 — THE MODIFIER (SHIFT) LAYER. Daniel's problem: five forms, four face buttons, and
+  // left-stick-press works but is *"an unexpected input location"*.
+  //
+  // **Chords as literally described could not work.** If `O` alone means radial and `X + O` means
+  // droste, then pressing `O` must WAIT to see whether `X` follows — every unshifted press pays a
+  // detection window, which live controls cannot afford. **A HELD modifier has no such cost**, is
+  // how every hardware controller solves this, and doubles every binding rather than solving forms
+  // alone. Daniel approved this shape over his own straw man.
+  //
+  // Any row can be flagged `mod: true` — no fixed slots (his correction: four named slots is
+  // overkill, and shift/ctrl/alt are only meaningful on a labelled keyboard). A flagged row routes
+  // nowhere itself; it just reports held/released.
+  const heldMods = new Set();
+  const modSigs = () => new Set(store.maps.filter((m) => m.mod).map((m) => m.sig));
+  let pendingMod = null;
+
   function onSignal(sig, value, meta) {
+    // MODIFIER BOOKKEEPING FIRST, and outside the learn branch, so a modifier is trackable even
+    // while learning (that is the whole assignment mechanism below).
+    const mods = modSigs();
+    if (mods.has(sig)) {
+      const down = value > 0.5;
+      if (down) heldMods.add(sig); else heldMods.delete(sig);
+      if (learnCb) {
+        // HOLD the modifier and press the second control → that chord is what gets recorded.
+        // Release it alone and nothing is recorded — instant in both directions, no timer.
+        // (Daniel's straw man used a 3s window; a release is faster and cannot feel broken.)
+        pendingMod = down ? sig : (pendingMod === sig ? null : pendingMod);
+        paintActivity(sig);
+        return;
+      }
+      paintActivity(sig);
+      return;   // a modifier never drives its own target
+    }
     if (learnCb) {
       if (meta.momentary && value === 0) return;   // learn on press, not release
       const cb = learnCb; learnCb = null;
       rememberDevice(meta);
-      cb(sig, meta);
+      const withMod = pendingMod; pendingMod = null;
+      cb(sig, meta, withMod);
       return;
     }
+    // A SHIFTED row exists for this signal and its modifier is down → the unshifted rows step
+    // aside. Scoped to signals that actually HAVE a shifted alternative, so holding a modifier
+    // never deadens unrelated bindings (which would be the surprising version).
+    const shifted = store.maps.some((m) => m.sig === sig && m.withMod && heldMods.has(m.withMod));
     let hit = false;
     for (const m of store.maps) {
       if (m.sig !== sig) continue;
+      if (m.withMod && !heldMods.has(m.withMod)) continue;    // its modifier is not held
+      if (!m.withMod && shifted) continue;                     // masked by the shifted binding
       hit = true;
       applyMapping(m, value, meta);
     }
@@ -776,7 +816,10 @@ export function createInputBus(env) {
       <span class="in-grip" draggable="true" title="drag to reorder">≡</span>
       <span class="in-kind">${KIND_CHIP[m.kind] || (isNote ? 'pad' : m.sig.split('.')[1]?.[0] === 'a' ? 'stick' : m.sig.includes('.cc') ? 'cc' : 'btn')}</span>
       <input class="in-name in-label" value="${(m.label || m.sig).replace(/"/g, '&quot;')}" title="${m.sig} — click to rename">
-      <select class="in-target" title="${isAction ? '' : dirTitle(m.target)}">${opts}</select>
+      <button class="toggle in-mod${m.mod ? ' active' : ''}" title="${m.mod
+        ? 'MODIFIER: hold this and press another control to reach that control\'s second binding. Drives no target of its own.'
+        : 'make this a MODIFIER — hold it while learning another control to record a chord'}">mod</button>
+      <select class="in-target" ${m.mod ? 'disabled' : ''} title="${m.mod ? 'a modifier drives no target of its own' : (isAction ? '' : dirTitle(m.target))}">${m.mod ? '<option>— modifier —</option>' : opts}</select>
       <select class="in-mode" ${isAction ? 'disabled' : ''} title="abs: position is the value · rel: nudge per event · rate: deflection is speed">${modes}</select>
       <select class="in-sens" ${isAction || isDiscrete ? 'disabled' : ''} title="${isDiscrete ? 'discrete control — one press moves to the next legal value' : 'sensitivity — step size for rel, speed for rate'}">${sens}</select>
       <button class="toggle in-inv${m.invert ? ' active' : ''}" title="invert${isAction ? '' : ' — ' + dirTitle(m.target)}">inv</button>
@@ -785,7 +828,19 @@ export function createInputBus(env) {
     const ledBtn = row.querySelector('.in-led');
     const paintSwatch = () => { if (ledBtn) ledBtn.style.background = (LED_COLORS.find((c) => c.v === (m.led ?? 0)) || LED_COLORS[0]).css; };
     paintSwatch();
+    // a SHIFTED row says so where the kind chip goes, so a chord is legible at a glance
+    if (m.withMod) {
+      const src = store.maps.find((x) => x.sig === m.withMod);
+      row.querySelector('.in-kind').textContent = `+${(src?.label || 'mod').slice(0, 6)}`;
+      row.querySelector('.in-kind').title = `only acts while ${src?.label || m.withMod} is held`;
+    }
     row.querySelector('.in-label').addEventListener('change', (e) => { m.label = e.target.value.trim() || m.sig; save(); });
+    row.querySelector('.in-mod').addEventListener('click', () => {
+      m.mod = !m.mod;
+      // a modifier drives nothing itself — clear the target so the row cannot half-do both
+      if (m.mod) { m.target = ''; heldMods.delete(m.sig); }
+      save(); renderMaps();
+    });
     row.querySelector('.in-target').addEventListener('change', (e) => { m.target = e.target.value; save(); renderMaps(); });
     row.querySelector('.in-mode').addEventListener('change', (e) => { m.mode = e.target.value; save(); });
     row.querySelector('.in-sens').addEventListener('change', (e) => { m.sens = parseFloat(e.target.value); save(); });
@@ -840,13 +895,66 @@ export function createInputBus(env) {
     return t ? `${t.label}: low → high runs ${t.dir}` : '';
   }
 
+  // ⚠️ B629 — A SECOND BINDING ON THE SAME CONTROL IS NOW REACHABLE. Learn used to see an
+  // already-mapped signal and silently flash the existing row, which meant **B624's whole
+  // form-gating feature had no way in**: mapping the d-pad to both square aspect and droste
+  // thickness requires two rows on one signal, and the UI refused to make the second one.
+  // Daniel found this immediately, which is the useful lesson — a capability with no path
+  // through the UI is not shipped.
+  //
+  // So: ask. The prompt names the tradeoff rather than just warning, because a second binding is
+  // genuinely CORRECT in two cases (per-form targets that never both apply, and a modifier chord)
+  // and genuinely a mistake otherwise — two rows on one control both writing the same form's
+  // params is the "several rows all claiming slice rotation" problem in a new outfit.
+  function askDuplicate(sig, existing, onAdd) {
+    const host = byId('inMaps');
+    if (!host) return onAdd();
+    document.getElementById('inDupAsk')?.remove();
+    const names = existing.map((m) => targetOf(m.target)?.label || m.target || 'unassigned');
+    const box = document.createElement('div');
+    box.id = 'inDupAsk';
+    box.className = 'in-dupask';
+    box.innerHTML = `
+      <div class="in-dupask-msg"><b>${(existing[0].label || sig).replace(/</g, '&lt;')}</b> is already mapped to
+        <b>${names.join(', ').replace(/</g, '&lt;')}</b>.</div>
+      <div class="in-dupask-note">A second binding is right when the two targets belong to <b>different forms</b>
+        (only the active form's acts) or when one is behind a <b>modifier</b>. Two bindings on the same form
+        will both fire and fight.</div>
+      <div class="in-dupask-btns">
+        <button class="toggle" id="inDupEdit">edit the existing one</button>
+        <button class="primary" id="inDupAdd">add a second binding</button>
+      </div>`;
+    host.prepend(box);
+    const close = () => box.remove();
+    box.querySelector('#inDupEdit').addEventListener('click', () => {
+      close();
+      const row = document.querySelector(`[data-sig="${CSS.escape(sig)}"]`);
+      if (row) { row.classList.add('in-live'); setTimeout(() => row.classList.remove('in-live'), 900); row.scrollIntoView({ block: 'nearest' }); }
+    });
+    box.querySelector('#inDupAdd').addEventListener('click', () => { close(); onAdd(); });
+  }
+
   function setLearn(on) {
     const btn = byId('inLearn');
     if (on) {
-      learnCb = (sig, meta) => {
+      learnCb = (sig, meta, withMod) => {
         btn?.classList.remove('active');
-        if (store.maps.some((m) => m.sig === sig)) { renderMaps(); return; }   // already mapped — its row flashes to locate it
+        const dupes = store.maps.filter((m) => m.sig === sig && (m.withMod || null) === (withMod || null));
+        const add = () => { pushMapping(sig, meta, withMod); };
+        if (dupes.length) return askDuplicate(sig, dupes, add);
+        add();
+      };
+      btn?.classList.add('active');
+    } else {
+      learnCb = null;
+      pendingMod = null;
+      btn?.classList.remove('active');
+    }
+  }
+
+  function pushMapping(sig, meta, withMod) {
         store.maps.push({
+          ...(withMod ? { withMod } : {}),
           sig, dev: meta.device || 'unknown', kind: meta.kind,
           label: meta.label || sig,
           // B619 — LEARN NOW LANDS UNASSIGNED. It used to default to `sliceRotation` (or take),
@@ -860,13 +968,7 @@ export function createInputBus(env) {
           invert: false,
           ...(midi.parseNoteSig(sig) ? { led: 21 } : {}),
         });
-        save(); renderMaps(); paintLeds();
-      };
-      btn?.classList.add('active');
-    } else {
-      learnCb = null;
-      btn?.classList.remove('active');
-    }
+    save(); renderMaps(); paintLeds();
   }
 
   // ---- rig save / load (JSON) ------------------------------------------------------
