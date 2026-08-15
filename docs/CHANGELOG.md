@@ -6,7 +6,28 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
-## 🧭 v0.25.40 (Build 630) — 2026-08-15 — The source-swap trace, the off-canvas origin, and the owed Lab entries
+## 🔧 v0.25.41 (Build 631) — 2026-08-15 — The duplicate prompt was real, and invisible, and pre-empted
+
+**JS only. No `cap sync` needed.**
+
+### Shipped
+
+- **The duplicate-binding prompt now appears where you can see it** — outside the scrolling mapping list.
+- **A learned button's RELEASE no longer fires its existing mapping.**
+
+### Two compounding bugs, both mine, and Daniel's report named both symptoms exactly
+
+*"when i went to try and add a second entry for the dpad arrows it still just highlights the existing mapping without asking."* Every word of that is a clue, and the code explains both halves:
+
+**1. The prompt was inserted INTO a scrolled container.** `.in-maps` is `max-height: 62vh; overflow-y: auto`, and B629 used `prepend`. With a rig of any size the list is scrolled, so the prompt landed off-screen above the viewport. **A prompt you cannot see is a prompt that does not exist**, and it tested as "the feature does nothing". It is now inserted *before* the list, plus `scrollIntoView`.
+
+**2. The button's release fired the old binding.** Learn captures on the PRESS and clears `learnCb`; the matching RELEASE then arrived with learning already over and was routed as an ordinary signal — firing the control's existing mapping and flashing its row. **So learning an already-mapped button always triggered its old binding once**, which is precisely the "just highlights the existing mapping" he saw. The release is now swallowed.
+
+That swallow is momentary-only. A continuous control (cc, axis) may never send 0, and latching on one would mute it for the rest of the session — a bug I wrote, caught while re-reading, and fixed before it shipped rather than after.
+
+**The lesson is the same one as B629's:** the mechanism was right both times and the path through the UI was not. I verified the routing and never watched the prompt render in a full-height list.
+
+ — 2026-08-15 — The source-swap trace, the off-canvas origin, and the owed Lab entries
 
 **JS only. No `cap sync` needed.**
 

@@ -307,6 +307,7 @@ export function createInputBus(env) {
   // overkill, and shift/ctrl/alt are only meaningful on a labelled keyboard). A flagged row routes
   // nowhere itself; it just reports held/released.
   const heldMods = new Set();
+  let justLearned = null;   // see the release-swallow in onSignal (B631)
   const modSigs = () => new Set(store.maps.filter((m) => m.mod).map((m) => m.sig));
   let pendingMod = null;
 
@@ -333,9 +334,19 @@ export function createInputBus(env) {
       const cb = learnCb; learnCb = null;
       rememberDevice(meta);
       const withMod = pendingMod; pendingMod = null;
+      // ⚠️ B631 — SWALLOW THIS BUTTON'S RELEASE. Learn fires on the PRESS and clears `learnCb`,
+      // so the matching RELEASE arrived with learning already over and was routed as a normal
+      // signal — firing the control's EXISTING mapping and flashing its row. Learning a button
+      // that was already mapped therefore always triggered the old binding once, which read as
+      // "it just highlights the existing mapping" and hid the prompt entirely.
+      // MOMENTARY ONLY: a button has a release to swallow. A continuous control (cc, axis) may
+      // never send 0, and latching on one would mute that control for the rest of the session.
+      justLearned = meta.momentary ? sig : null;
       cb(sig, meta, withMod);
       return;
     }
+    // the release that closes the press we just learned on — not an input, an echo
+    if (justLearned === sig) { justLearned = null; if (value === 0) return; }
     // A SHIFTED row exists for this signal and its modifier is down → the unshifted rows step
     // aside. Scoped to signals that actually HAVE a shifted alternative, so holding a modifier
     // never deadens unrelated bindings (which would be the surprising version).
@@ -912,8 +923,8 @@ export function createInputBus(env) {
   // and genuinely a mistake otherwise — two rows on one control both writing the same form's
   // params is the "several rows all claiming slice rotation" problem in a new outfit.
   function askDuplicate(sig, existing, onAdd) {
-    const host = byId('inMaps');
-    if (!host) return onAdd();
+    const list = byId('inMaps');
+    if (!list) return onAdd();
     document.getElementById('inDupAsk')?.remove();
     const names = existing.map((m) => targetOf(m.target)?.label || m.target || 'unassigned');
     const box = document.createElement('div');
@@ -929,7 +940,12 @@ export function createInputBus(env) {
         <button class="toggle" id="inDupEdit">edit the existing one</button>
         <button class="primary" id="inDupAdd">add a second binding</button>
       </div>`;
-    host.prepend(box);
+    // ⚠️ B631 — INSERTED BEFORE THE LIST, NOT INSIDE IT. `.in-maps` is `max-height: 62vh;
+    // overflow-y: auto`, so prepending put the prompt at the top of a SCROLLED container — with a
+    // rig of any size it was simply off-screen, and Daniel reported the feature as not working.
+    // A prompt you cannot see is a prompt that does not exist.
+    list.parentNode.insertBefore(box, list);
+    box.scrollIntoView({ block: 'nearest' });
     const close = () => box.remove();
     box.querySelector('#inDupEdit').addEventListener('click', () => {
       close();

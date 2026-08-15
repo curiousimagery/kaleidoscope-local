@@ -71,6 +71,16 @@ Two specific rules worth flagging because violating them costs hours:
 - **Don't put backticks inside a form's `glsl` string.** It's a JS template literal and a backtick inside breaks parsing silently. If a future form's GLSL needs a backtick, escape it carefully or restructure the surrounding string.
 - **Single state object means undo/redo is cheap.** If you're touching state mutations, consider whether the change should integrate with the history stack rather than bypass it.
 
+## verifying UI work (B631, after this happened twice in three builds)
+
+**Verifying the mechanism is not verifying the feature.** Two shipped increments in a row had correct logic and no working path through the UI: B624's per-form mapping could not be reached because learn refused to create a second binding, and B629's prompt for that was inserted into a scrolled container where it rendered off-screen. Both tested fine as code and were broken as features.
+
+So, before calling any UI change done:
+
+- **Walk the user's actual path**, not the code path. Click what they would click, in the state they would be in.
+- **Render it in a REALISTIC state** — a full mapping list, a real rig, a long source name. Empty-state correctness hides overflow, scroll and truncation bugs.
+- **Ask what happens on the second interaction**, not just the first: the release after a press, the reopen, the same control twice.
+
 ## UI Lab discipline
 
 The UI Lab (`lab.html` / `src/lab.js`) is the living inventory of the app's UI surface. Two standing rules so it never becomes whack-a-mole:

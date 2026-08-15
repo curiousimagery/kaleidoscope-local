@@ -90,6 +90,15 @@ This retires the confusion, not just a hypothesis. Resolution was free because t
 
 ## current version
 
+**🔧 B631 — THE DUPLICATE PROMPT WAS INVISIBLE AND PRE-EMPTED. JS only.**
+
+Daniel: *"it still just highlights the existing mapping without asking."* **Two bugs, and his sentence named both.**
+
+1. **The prompt was inserted INTO `.in-maps`**, which is `max-height: 62vh; overflow-y: auto`. With any real rig the list is scrolled, so `prepend` put it off-screen above. Now inserted *before* the list + `scrollIntoView`.
+2. **A learned button's RELEASE fired its existing mapping.** Learn captures on the press and clears `learnCb`; the release then routed normally, firing the old binding and flashing its row. Swallowed now — **momentary only**, since a cc/axis may never send 0 and latching would mute it for the session.
+
+**▶ THE REPEATED LESSON, twice in three builds:** B629 and B631 both had correct mechanisms and broken paths through the UI. **Verifying the routing is not verifying the feature.** Watch it render in a realistic state (a full list, a real rig) before calling it done.
+
 **🧭 B630 — SOURCE-SWAP TRACE, OFF-CANVAS ORIGIN, LAB DEBT PAID. JS only.**
 
 **The source-swap dead end no longer needs catching live.** Every phase from file picker → guard → decode logs a reason on exit; the last 12 attempts ride the exported report as `sourceSwap`. **An 8-second decode watchdog** covers the reported symptom specifically: if the decode neither loads nor errors, that fact is recorded, which is the one outcome that previously left no trace. `"failed to load image"` now names the format and points at `copy report`.
