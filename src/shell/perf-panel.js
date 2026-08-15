@@ -228,6 +228,13 @@ export function mountPerfPanel(env, { container = null, onClose = null } = {}) {
       // diagnostic that only prints to console is a diagnostic we cannot collect, which is how
       // the silent-take bug survived two builds of confident guessing.
       audio: env.lastAudioReport || null,
+      // B619 — WHICH FIELD IS STILL MOVING, AND WAS ANYTHING ALLOWED TO MOVE IT. Armed by
+      // `?probe=motion`; absent otherwise. Built for the droste infinite-zoom loop, where four
+      // mechanisms have been eliminated by reading and the investigation reached a contradiction:
+      // no writer can run, the follower provably settles, and the motion is still real. `verdict`
+      // names the offending field outright, and `quietMovingMs` is the number that matters —
+      // time a value spent travelling while every known writer was idle.
+      motion: env.motionProbe?.report?.() || undefined,
       // the external view's own warnings/errors, which reach no console we can read (B559).
       // Omitted entirely when empty so a report from a session with no HDMI stays uncluttered.
       extLogs: env.externalDisplay?.logs?.length ? env.externalDisplay.logs : undefined,

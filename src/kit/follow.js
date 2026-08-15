@@ -148,6 +148,11 @@ export function createFollower(initial, { response = 0.35 } = {}) {
     return { ...snapshot };
   }
 
+  // B619 — read-only spring internals for the motion probe. The droste-loop investigation needs to
+  // distinguish "state is moving" from "the follower is moving on its own", and those are the same
+  // picture from outside. Returns copies; nothing here is writable.
+  function debugState() { return { cur: { ...cur }, tgt: { ...tgt }, vel: { ...vel } }; }
+
   function remaining() {
     let mx = 0;
     for (const k of CONTINUOUS_KEYS) {
@@ -167,7 +172,7 @@ export function createFollower(initial, { response = 0.35 } = {}) {
     return true;
   }
 
-  return { setTarget, jump, step, setResponse, getResponse, remaining, isSettled };
+  return { setTarget, jump, step, setResponse, getResponse, remaining, isSettled, debugState };
 }
 
 // re-exported so perform consumers need one import

@@ -67,7 +67,9 @@ All three questions are answered. **Do not extend this session; it is done.**
 
 **Bugs that resolve inside these stages:** the joystick 45° offset (axis-convention mismatch, stage B), the handoff jerk (stage C), left-pan not honored on triangle (stage A or B, a clamp or wrap boundary), droste's accumulated zoom leaking into other forms (stage A, and Daniel has already chosen the resolution: decouple per form), and iPad touch hypersensitivity (stage B, and note `PINCH_ZOOM_SENS` has been cut three times already at `3 → 1.05 → 0.5` with Daniel still reporting it too enthusiastic, which suggests the constant is not the real problem).
 
-**⚠️ BLOCKER, and it is Daniel's:** per-form scale normalization needs per-form values, and **no form declares `zoomCover` or `zoomInFloor` today.** Both appear only in `forms/index.js` as the flat fallbacks 3 and 0.7. B511 shipped `?tune=forms` to produce these values and **the tuning pass never happened.** Until it does, "per-form scale bounds" resolves to identical numbers on all five forms.
+**✅ THAT BLOCKER IS CLEARED (B618).** All five forms now declare `zoomCover` and `zoomInFloor`, tuned by Daniel with the `?tune=forms` range sweep. The text below is kept because it explains *why* the blocker mattered. **Nothing in item 1.5 is waiting on a tuning pass any more.**
+
+> ~~**⚠️ BLOCKER, and it is Daniel's:** per-form scale normalization needs per-form values, and no form declares `zoomCover` or `zoomInFloor` today. Both appear only in `forms/index.js` as the flat fallbacks 3 and 0.7. B511 shipped `?tune=forms` to produce these values and the tuning pass never happened.~~
 
 **Also to settle here (Daniel, B609):** which parameters persist across a form switch versus a mode switch. His stated intuition, which stage C should implement: **persist basics like slice position and scale when switching forms during a performance; do not persist discrete changes across still and motion modes.**
 
@@ -75,7 +77,21 @@ All three questions are answered. **Do not extend this session; it is done.**
 
 ---
 
-### ▶ ITEM 1.5 STATUS ROLL-UP (B618, Daniel's ask before compaction)
+### ▶ ITEM 1.5 STATUS ROLL-UP — CURRENT AS OF B619
+
+**Stage A (per-form target resolution) and stage B (one transform per input axis) are substantially DONE. Stage C (ownership and handoff) has not started and is now the largest remaining piece of 1.5.**
+
+| stage | state |
+|---|---|
+| **A. per-form target registry** | **Done for the fields that have per-form meaning.** `resolve(state)` now covers zoom, pan (lattice-aware, unbounded where periodic) and segments. Every form declares all four normalisation numbers. **Remaining: `sliceScale` has no per-form range** (unblocked since B618, item 3 below). |
+| **B. one transform per axis** | **Done for pan and zoom.** `kit/pan.js` `panDelta` is shared by touch, remote and bus; `kit/zoom.js` `applyUnifiedZoom` is shared by touch and remote. **Remaining: no mapping target reaches the UNIFIED zoom** (item 2b below) — hardware can only write `canvasZoom` or `sliceScale` raw, which is not what a pinch does. |
+| **C. ownership and handoff** | **NOT STARTED.** No input adopts another's current value on takeover. This is still the root fix for the gesture/joystick jerk. **Largest remaining piece of 1.5.** |
+
+**Also still unsettled from the original scope:** which parameters persist across a form switch versus a mode switch. B613 answered half of it by decision (canvas pan never carries; the box centre does), but the still-versus-motion half is untouched.
+
+---
+
+### ▶ ITEM 1.5 DETAIL (rolled up B618, revised B619)
 
 **✅ SHIPPED, B610-B618 — stage A and B are substantially done.**
 
@@ -96,6 +112,12 @@ All three questions are answered. **Do not extend this session; it is done.**
 
 1. ~~**MIDI learn defaults to `sliceRotation`**~~ **SHIPPED B619** — learn now lands on `— pick a target —` and is inert until assigned. **The diagnosis of Daniel's crossed-wires symptom is still unconfirmed** (see BLOCKED), but the defect was real either way.
 2. **The semantic `zoom` target resolves the KEY but not the MODE.** `canvasZoom` is bounded/absolute; `drosteZoomPhase` is cyclic/unbounded. An `abs` fader sweeps one wrapping loop on droste and reads as dead. `resolve()` must carry the control mode. **Now the top unblocked item.**
+
+2b. **▶ NEW, B619, AND IT IS THE MOST IMPORTANT MAPPING GAP: no target reaches the UNIFIED zoom.** The `zoom` target writes `canvasZoom` directly; `slice scale` writes `sliceScale` directly. **Neither is what a pinch does** — `applyUnifiedZoom` ([kit/zoom.js](../src/kit/zoom.js)) distributes canvas-primary with bounded slice overflow across three log-space segments. **Daniel found this from the product side while mapping a DualSense** (B619): *"right triggers: rotate canvas (could just as well be canvas scale too but with the unified zoom slice gets at this without needing to use two more controls)"* — his layout only works if one control can drive the unified pair, and today none can. **This is the clearest instance of stage B being unfinished:** the transform is shared between touch and remote, and the hardware path was never connected to it.
+
+2c. ~~**Discrete targets step by `sens × range`**~~ **SHIPPED B621** — discrete targets declare `nudge` and step one legal value per press. Original note kept below for the reasoning.
+
+> **Discrete targets step by `sens × range`, which is wrong for a snapped control.** Segments on droste (arms, range 1–12) at 2% sens moves 0.22 of a step and snaps back to where it started, so a d-pad press does nothing until enough presses accumulate. **Workaround: raise sens to 10–25%.** The real fix is that a snapped/enum target should step exactly one legal notch per event regardless of sens — already filed as Stage 3 of the control-registry item in BACKLOG. **Newly urgent because B619 made segments and form selection mappable, so this now affects controls Daniel is actively binding.**
 3. **Per-form ranges for `sliceScale`** — unblocked as of B618, since `zoomCover`/`zoomInFloor` now exist.
 4. **`slice position x/y` still address the ORIGIN**, but since B616 the app's model is the BOX CENTRE. A fader on slice position now means something different from what the gesture path does. **Found by reading Daniel's B618 target list.** B619 added the `write` hook that makes this implementable without a special case: the target can write through `placeFormBox` the way segments writes through the slider's setter.
 5. ~~**Missing mappable targets**~~ **SHIPPED B619** — form selection (next/prev + one per form), `segments` (form-routed), droste mirror / wedge mirror, and `oob` (cycle). **Still missing and worth a look: droste offset x/y are present but gated behind the `manual` toggle (see DECISIONS), and `sliceScale`'s range is not yet per-form (item 3).**
@@ -104,11 +126,14 @@ All three questions are answered. **Do not extend this session; it is done.**
 8. **iPhone pan-lock parity** — radial forms have no unlock, others have no lock.
 9. **⬆️ PROMOTED B619 — the SHARED-QUANTITY audit, and it is broader than "normalisation".** FOUR instances this arc of a shared thing reaching only some of its consumers: droste's overlay missing `sizeNorm` (B614), radial's polygon missing `canvasNorm` (B618), the overlay missing `canvasOffset` (B612), and **the B616 centring hook reaching only the desktop chrome while the mobile chrome kept a stale partial copy (B619)**. The fourth is the expensive one: it shipped as "fixed", was verified on desktop, and was still broken on the device Daniel actually performs with. **The audit question is not "which values are missing a norm" but "which behaviours exist in more than one copy, and do the copies agree."** Start with the two chromes: `main.js` and `mobile/chrome.js` do not share an `env`, so every `env.*` hook added to one is a candidate.
 
-10. **Droste infinite-zoom loop — INVESTIGATION, NOT A FIX (opened B619).** Uncertainty state **B**: the phenomenon is reproducible and two mechanisms are eliminated, but the cause is not established. **The only legal next move is an instrument.**
-    - **DISPROVEN — follower runaway.** `follow.js` simulated across response 0.35–4s × pinch deltas 0.5–20 loops; with state held constant after the lift, residual motion is zero in every cell. **Do not re-propose.**
-    - **RULED OUT — autoplay drift.** `drift.tick` is gated behind `autoOn` in both chromes; Daniel confirmed autoplay off.
-    - **LEAD — the pinch handler starts a PAN drift.** `output-gestures.js` `onMove` accumulates centroid velocity during any two-finger gesture, and release starts `panDrift`. In droste `canvasOffset` is the **log-polar centre**, so a drifting centre reads as an unstoppable zoom. Explains why "quickly" and "from the corner" both matter in the repro; does **not** explain why a fresh grab fails to cancel it (`onStart` calls `panDrift().stop()`).
-    - **The instrument:** publish, per frame, the two candidate drivers — `state.drosteZoomPhase` and `state.canvasOffsetX/Y` — plus whether `panDrift` is running, into the exported report. **Which of the two is moving decides this in one reading**, and it is a conserved quantity (the actual state being rendered), not an activity counter. Daniel does not run Web Inspector, so it must reach `copy report`.
+10. **Droste infinite-zoom loop — INVESTIGATION, NOT A FIX. Full detail in BACKLOG; this is the summary.** Uncertainty state **B**. Four mechanisms eliminated by reading and simulation, no cause established, **so the only legal next move is an instrument.**
+    - **DISPROVEN — follower runaway.** `follow.js` simulated across response 0.35–8s × pinch deltas 0.5–20 loops, and again over a 65-second horizon measuring the residual RATE (the right noun for a log-polar field, where any nonzero rate is visible zoom). **The tail decays to zero by 30s in every cell.** Do not re-propose.
+    - **RULED OUT — autoplay drift.** Gated behind `autoOn`; Daniel confirmed autoplay off.
+    - **RULED OUT B619 — flick-to-drift.** Gated behind drift mode, and **Daniel confirmed drift mode was off** in his last repro.
+    - **RULED OUT — joystick handle feedback.** The joystick's `syncAll` only moves the position DOT; state never deflects the handle, so a large offset cannot start a drift.
+    - **⚠️ WHAT THAT LEAVES IS A CONTRADICTION, AND IT IS THE MOST USEFUL THING WE HAVE.** With autoplay off, drift mode off, and no fingers down, **an exhaustive grep finds no writer that can move `canvasOffsetX/Y` or `drosteZoomPhase`** — and the follower provably settles against constant state. Yet the motion is real. **So either a writer exists that static reading has missed, or the moving quantity is not the one we think.** One instrument distinguishes those, and no amount of further reading will.
+    - **▶ FOUND ALONG THE WAY, a real defect either way: the droste centre-offset joystick is a SECOND `createPanJoystick` instance** ([mobile/chrome.js](../src/mobile/chrome.js) `mountDrosteOffsetControl`, driving `drosteOffsetX/Y`) with its **own** `driftMode`, `hx/hy` and tick loop. **`env.panDrift` points only at the canvas-pan instance**, so `output-gestures`' "grabbing takes control" stop cannot reach it. **A latched droste-offset drift is uncancellable by any gesture** — recenter or reset only. That is the same shape as the reported bug and is worth fixing regardless of whether it is the cause.
+    - **The instrument:** publish per frame into the exported report `canvasOffsetX/Y`, `drosteZoomPhase`, `drosteOffsetX/Y`, and the follower's own `cur` for each. **Conserved quantities actually being rendered, not activity counters.** Daniel does not run Web Inspector, so `copy report` is the only channel that counts.
 
 **🔴 BLOCKED — needs Daniel.**
 

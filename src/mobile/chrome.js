@@ -35,6 +35,7 @@ import { createAutoDrift } from '../kit/drift.js';
 import { ICONS } from './icons.js';
 import { applyArmsSnap, snapSpiralValue } from '../kit/snaps.js';
 import { resetSliceState } from '../engine/geometry.js';   // B619: the shared slice reset — mobile had a stale partial copy
+import { createMotionProbe } from '../kit/motion-probe.js';   // B619: droste-runaway probe, armed by ?probe=motion
 
 // B619 — every path that establishes a NEW SOURCE calls this, matching what source-host.js does on
 // desktop. B616 wired the centring into the desktop host only, and since this chrome never imports
@@ -634,6 +635,12 @@ mountLoopingControl(canvasPopEl, PARAMS.infiniteZoom, env);
 const mPanJoy = createPanJoystick(env, { periodOf: () => getActiveForm(state)?.latticePeriod?.(state) || null });
 canvasPopEl.appendChild(mPanJoy.root);
 env.panDrift = { on: mPanJoy.driftOn, stop: mPanJoy.stopDrift, set: mPanJoy.setDriftVelocity };
+
+// B619 — the droste-runaway probe. Armed by `?probe=motion`, inert otherwise. The iPad is where
+// the bug actually happens, so this chrome is the one that matters; its output rides the exported
+// report because that is the only device channel Daniel can read.
+env.followerDebug = () => follower?.debugState?.() || null;
+env.motionProbe = createMotionProbe(env, { enabled: new URLSearchParams(location.search).get('probe') === 'motion' });
 env.panRecenter = mPanJoy.recenter;
 // Out-of-bounds mode (clamp / mirror / transparent) — a stateful 3-way toggle,
 // not a range, so it's rendered directly here rather than via mountRangeControl.

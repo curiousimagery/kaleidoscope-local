@@ -90,6 +90,28 @@ This retires the confusion, not just a hypothesis. Resolution was free because t
 
 ## current version
 
+**🎮 B621 — DISCRETE CONTROLS STEP, THEY DON'T SCALE. JS only.** All from Daniel's DualSense session.
+
+**Segments steps one legal value per press on every form.** The `span × sens` arithmetic is wrong against a snap: at 5% radial nudged 2.3 (looked fine) while droste nudged 0.55 and **the first press did nothing**, which is the 2x/4x tapping he reported. **No sensitivity fixes both**, so discrete targets now declare `nudge` and use the form's own snap as the authority. Sens column reads `1 step`; `rate` mode is withdrawn for discrete targets.
+
+**`last form (toggle back)`** replaces the awkward left-stick-press-to-radial. **A two-form toggle would need a default; last-form does not** — whatever you were on before, go back.
+
+**`zoom` renamed `canvas zoom  (droste: infinite zoom)`.** ⚠️ **The asymmetry Daniel found is CORRECT, not a bug: radial's `buildPolygon` genuinely depends on `canvasZoom`** (wedge extent is `1/(canvasZoom × canvasNorm)`) so its overlay moves; the tiling forms' cells do not. `slice scale` is the control he wanted and it works everywhere.
+
+**🔬 B620 — THE DROSTE HUNT GETS AN INSTRUMENT. JS only.**
+
+**`?probe=motion`** arms a read-only probe ([kit/motion-probe.js](../src/kit/motion-probe.js)) that publishes to the frame-cost panel's `copy report`. **Headline number: `quietMovingMs`** — how long a field travelled while every known writer was idle. `verdict` names the field in one line. Follower spring internals ride alongside via the new `follower.debugState()`.
+
+**▶ HOW TO USE IT:** load with `?probe=motion`, reproduce the loop, then `copy report`. **If a field shows `quietMovingMs` above a few hundred, that field is the bug and a writer was missed by static reading. If everything is flat while live still moves, every hypothesis so far is wrong and the motion is downstream of both state and the follower.** Either answer closes the question.
+
+**FOUR HYPOTHESES ARE NOW DEAD** — follower runaway (disproven by simulation over 65s measuring rate, not displacement), autoplay drift (gated), flick-to-drift (gated behind drift mode, **Daniel confirmed it was off**), joystick handle feedback (`syncAll` moves only the dot). **Do not re-propose any of them.**
+
+**⚠️ AND WHAT REMAINS IS A CONTRADICTION.** With autoplay off, drift mode off and no fingers down, an exhaustive grep finds **no writer that can move `canvasOffsetX/Y` or `drosteZoomPhase`**, and the follower provably settles against constant state — yet the motion is real. Either a writer was missed, or the moving quantity is not one of those two. **Instrument, do not read.**
+
+**🐛 FOUND WHILE INVESTIGATING, UNFIXED:** the droste centre-offset joystick is a **second `createPanJoystick` instance** with its own drift state, and `env.panDrift` points only at the canvas-pan one — **so a latched droste-offset drift cannot be cancelled by any gesture.** Same shape as the reported bug. Left unfixed deliberately: unconfirmed as the cause, and the fix changes behaviour on a path needing device verification.
+
+**🛡 MITIGATION THAT WORKS TODAY, NO CODE: do not unlock pan on droste.** Every unfixed occurrence (B611, B612, B619) required it; the one that did not (B610, stray touch) is already cured. Droste ships pan-locked by default, so the safe configuration is the default one.
+
 **🎛️ B619 — MAPPING GAPS CLOSED; THE iOS CENTRING THAT NEVER RAN. ⚠️ `cap sync` REQUIRED — the iOS fix is the point of this build.**
 
 **MIDI learn now lands UNASSIGNED (`— pick a target —`).** It used to default every learned control to `slice rotation`, which compounds: a rig built in one pass ends up with several rows all claiming slice rotation and all fighting, with nothing on screen saying so. **This is the suspected cause of Daniel's "crossed wires" symptom and is still UNCONFIRMED — the confirming observation is a count of how many of his existing rows say `slice rotation` that he did not choose.**

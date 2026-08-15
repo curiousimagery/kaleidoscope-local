@@ -295,11 +295,33 @@ Daniel's B611 repro, final step: after the droste blowup he goes to canvas setti
 
 **▶ WHAT IT NARROWS TO:** `canPan` gates the entire pan block in `onMove` ([output-gestures.js](../src/components/output-gestures.js)). With droste pan locked, that block never runs and **`canvasOffsetX/Y` is never written by a gesture at all.** So the culprit is on the `canPan` path, and in droste `canvasOffset` is the **log-polar centre** — the field B612 already root-caused as the "superzoom" driver when read raw. **Instrument `canvasOffsetX/Y` first; `drosteZoomPhase` is now the secondary suspect, not the primary.**
 
-**⚠️ DOWNGRADED — the flick-to-drift lead.** `onEnd` hands `manip.vx/vy` to `panDrift`, and the joystick drift is CONSTANT-velocity (it runs while `hx||hy` and only stops on `centerHandle`), which would fit the symptom perfectly. **But `pd?.on?.()` gates it behind DRIFT MODE being switched on**, which is not part of Daniel's repro and he has never mentioned enabling it. Worth one question ("was drift mode on?") before spending anything on it. If it was off, this is dead.
+**⛔ RULED OUT — flick-to-drift. Daniel confirmed drift mode was OFF** in his B619 repro, and `onEnd` gates the velocity handoff behind `pd?.on?.()`. Dead.
+
+**⛔ RULED OUT — joystick handle feedback.** `syncAll` only calls `layout()`, which moves the position DOT. State never deflects the handle, so a large `canvasOffset` cannot start a drift.
+
+**⚠️ WHAT REMAINS IS A CONTRADICTION, AND IT IS THE MOST USEFUL THING IN THIS ENTRY.** With autoplay off, drift mode off, and no fingers on the glass, an exhaustive grep for writers of `canvasOffsetX/Y` and `drosteZoomPhase` finds **only** the pan-joystick tick (needs `hx||hy`), `drift.js` (needs `autoOn`), the input bus (needs a mapping or remote gesture), and the gesture handlers (need fingers). **None of them can run.** And `follow.js` provably settles against constant state — re-simulated at B619 over a 65-second horizon measuring the residual RATE rather than a displacement threshold, which is the right noun for a log-polar field where any nonzero rate is visible zoom; the tail reaches zero by 30s in every cell tested.
+
+**So either a writer exists that static reading has missed, or the moving quantity is not one of the two we assumed.** Further reading will not settle it. **Instrument.**
+
+**▶ FOUND WHILE INVESTIGATING — a real defect regardless of whether it is this bug.** `mountDrosteOffsetControl()` ([mobile/chrome.js](../src/mobile/chrome.js), and the desktop equivalent) creates a **SECOND `createPanJoystick` instance** driving `drosteOffsetX/Y`, with its own `driftMode`, its own `hx/hy`, and its own tick loop. **`env.panDrift` is assigned only the canvas-pan instance**, so `output-gestures`' `onStart` "grabbing takes control → stop the drift" **cannot reach the droste one**. A latched droste-offset drift keeps writing until recenter or reset, and no canvas gesture will cancel it. **Same shape as the reported bug; worth fixing on its own merits.** The fix is either to expose both instances through `env.panDrift` (make it a list) or to have the joystick register itself into a drift registry the gesture layer can stop wholesale.
 
 **▶ NEXT MOVE IS AN INSTRUMENT, NOT A FIX** (uncertainty state B; a speculative fix here is exactly what cost a build at B611 and again at B612). **Publish per frame into the exported report** — Daniel does not run Web Inspector — **`canvasOffsetX/Y`** and **`drosteZoomPhase`**, plus whether `panDrift` is running. These are the conserved quantities actually being rendered, not activity counters, and **which one is moving decides the question in a single reading.**
 
 **🛡 MITIGATION AVAILABLE TONIGHT, NO CODE: do not unlock pan on droste.** Droste already ships `panLockedByDefault: true`, so the safe configuration is the default one and the guardrail costs nothing. **Given that pan-unlock is a necessary condition across every open occurrence, this is a complete mitigation, not a partial one.** If a hard guardrail is later wanted in code, the honest options are to keep droste's pan lock non-overridable in perform mode, or to bound `canvasOffset` in STATE for centre-shift forms (not at the uniform — see B611's correction).
+
+### 🎛 [B621, Daniel's open question] CAN ONE BUTTON MEAN DIFFERENT THINGS ON DIFFERENT FORMS?
+
+His framing: *"e.g. dpad arrows could control droste thickness on droste form and segments on radial wedge. that's a bad e.g. bc we'd want segment controls mapping to both, but you understand the Q?"*
+
+**Two mechanisms, and choosing between them per control is the actual design work.**
+
+**1. SEMANTIC ROLES — preferred wherever a meaning transfers.** Already how `segments` and `canvas zoom` work: one target, `resolve(state)` picks the per-form key and range, so the button needs no reprogramming and the operator's mental model stays "this is the segments button". **His own counter-example proves the rule** — segments *should* map to both, and it already does. **Default to this. Reach for a conditional only when the meanings genuinely do not correspond.**
+
+**2. FORM-CONDITIONAL ROWS — needed for the genuine case** (droste thickness has no radial counterpart). The mechanism is nearly free: `onSignal` already applies EVERY row matching a signal, so two rows can share a button today — they just both fire. Adding an optional `when form is X` filter per row is a small change to `applyMapping`.
+
+**The real cost is not code, it is legibility mid-set.** A button whose meaning depends on invisible state is how an operator loses the plot under lights. **If this ships, the mapping row must show its condition, and inactive rows must be visibly inactive** — the input panel already flashes rows on activity, so the affordance exists.
+
+**Not scheduled.** Worth raising with Daniel as a product decision once the stage-C ownership work lands, since "which input owns this field right now" and "which row is live right now" are the same question wearing two hats.
 
 ### 🔭 [B612 DIG — three of Daniel's four droste invariants now have MECHANISMS]
 

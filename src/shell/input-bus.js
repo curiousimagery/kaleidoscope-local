@@ -46,6 +46,35 @@ const latticePeriodOf = (s) => getActiveForm(s)?.latticePeriod?.(s) || null;
 // snap and every motion keyframe. Routing it through the slider's own setter is what stops the
 // hardware path and the pointer path from drifting apart.
 const SET_SEGMENTS = (_state, v, env) => env.setSegments?.(v);
+
+// ⚠️ B620 — A SNAPPED CONTROL CANNOT BE NUDGED BY A PERCENTAGE OF ITS RANGE. `nudge` is how a
+// DISCRETE target steps: one press, one legal value, sensitivity irrelevant.
+//
+// Daniel's B620 report: *"the control works but it is wonky: i have to tap 2x or 4x to get it to
+// change. radial wedge works as expected: droste segments does not."* That is the generic rel-mode
+// arithmetic (`span × sens`) meeting a snap, and the two form ranges explain the split exactly:
+//   radial — span 46, 5% → 2.3, snaps to the next even number. One press, one step. Looks fine.
+//   droste — span 11, 5% → 0.55, and `Math.round(v/2)*2` swallows it. **The first press does
+//            nothing at all**; the glide accumulates until the second or fourth crosses a boundary.
+// A bigger sens would paper over droste and make radial jump four segments at a time. There is no
+// percentage that is right for both, because the quantity is not continuous.
+//
+// So step to the NEXT LEGAL VALUE, using the form's own snap as the authority rather than
+// re-deriving the legal set here (droste's is 1, 2, 4, 6 … 12 — irregular at the bottom, which is
+// exactly the kind of thing a duplicated table gets wrong later).
+const NUDGE_SEGMENTS = (state, dir, env) => {
+  const cur = env.segmentsValue?.() ?? 0;
+  const r = env.segmentsRange?.() || { min: 1, max: 48, step: 1 };
+  // walk outward until the snap actually lands somewhere new, so an irregular ladder still
+  // advances by exactly one rung per press. Bounded by the range, so it always terminates.
+  for (let i = 1; i <= Math.ceil((r.max - r.min) / (r.step || 1)) + 1; i++) {
+    const probe = cur + dir * i * (r.step || 1);
+    if (probe < r.min || probe > r.max) break;
+    env.setSegments?.(probe);
+    if ((env.segmentsValue?.() ?? cur) !== cur) return;
+  }
+  env.setSegments?.(cur);   // already at the end of the ladder — restore, don't drift
+};
 const PARAM_TARGETS = [
   { key: 'sliceRotation', label: 'slice rotation', min: 0, max: 360, wrap: true, dir: '0° → 360° counterclockwise' },
   { key: 'sliceScale', label: 'slice scale', min: 0.05, max: 5, dir: 'small → large' },   // the slice control's OWN max (independent of the zoom gesture's Z_SLICE_COVER overflow cap)
@@ -55,7 +84,17 @@ const PARAM_TARGETS = [
   // single knob works across forms (droste → infinite zoom, else composition zoom) and existing
   // hardware never needs reprogramming on a form switch (Daniel). `resolve(state)` returns the
   // per-form key + range; applyMapping/writeParam use it. (Stage 1 of the registry unification.)
-  { key: 'canvasZoom', label: 'zoom', min: 0.05, max: 4, dir: 'zoomed out → zoomed in',
+  // ⚠️ B620 — RENAMED FROM THE BARE "zoom", which was genuinely ambiguous next to `slice scale` and
+  // cost Daniel a testing round. He mapped "zoom" expecting the slice to resize, saw the overlay
+  // move on radial and not on square/hex/triangle/droste, and reasonably read that as a bug.
+  //
+  // It is not one, and the asymmetry is worth keeping straight: **radial's `buildPolygon` genuinely
+  // depends on canvasZoom** (its wedge extent is `1 / (canvasZoom × canvasNorm)`, see radial.js), so
+  // the region it samples really does change when you zoom the canvas. The tiling forms' cells do
+  // not — a lattice is translation- and scale-symmetric in the way that matters here — so their
+  // overlays correctly stay put. **Same input, two honest answers, because the forms differ.**
+  // The label now says which control this is, so the expectation is set before the test.
+  { key: 'canvasZoom', label: 'canvas zoom  (droste: infinite zoom)', min: 0.05, max: 4, dir: 'zoomed out → zoomed in',
     resolve: (s) => s.form === 'droste'
       ? { key: 'drosteZoomPhase', min: 0, max: 1, wrap: true, wrapPeriod: 1 }
       : { key: 'canvasZoom', min: 0.05, max: 4 } },
@@ -92,17 +131,17 @@ const PARAM_TARGETS = [
   // and it writes through `env.setSegments` rather than the generic state writer because the
   // value snaps and cascades (see setupSegmentsSlider). `write` is the escape hatch for exactly
   // this shape: a param whose assignment is not `state[key] = v`.
-  { key: 'segments', label: 'segments', min: 2, max: 48, dir: 'few → many',
+  { key: 'segments', label: 'segments', min: 2, max: 48, dir: 'few → many', discrete: true,
     resolve: (s) => (s.form === 'droste'
       ? { key: 'drosteArms', min: 1, max: 12 }
       : { key: 'segments', min: 2, max: 48 }),
-    write: SET_SEGMENTS },
+    write: SET_SEGMENTS, nudge: NUDGE_SEGMENTS },
   // the droste half of the semantic `segments` above. Present so targetOf() can resolve the
   // RESOLVED key — the rate loop and the glide spring both look their target back up by
   // `t.key`, so a resolve that returns a key with no entry here would write nowhere. Same
   // reason `drosteZoomPhase` exists as a hidden entry beside the semantic `zoom`.
   { key: 'drosteArms', label: 'droste arms', min: 1, max: 12, dir: 'few → many', hidden: true,
-    write: SET_SEGMENTS },
+    discrete: true, write: SET_SEGMENTS, nudge: NUDGE_SEGMENTS },
 ];
 const ACTION_TARGETS = [
   { key: 'action:stage', label: '⏻ stage (hold)' },
@@ -116,6 +155,13 @@ const ACTION_TARGETS = [
   // steps through, and a pad grid gets one pad per form (the APC40 case).
   { key: 'action:formNext', label: '◈ next form' },
   { key: 'action:formPrev', label: '◈ previous form' },
+  // ⚠️ B620 — ALT-TAB FOR FORMS, and the answer to Daniel's "left stick press to get back to radial
+  // doesn't feel good". A TOGGLE between two named forms would need a default ("which one do I go to
+  // first?"), and picking one makes the button asymmetric. **Last-form has no default to pick.**
+  // Whatever you were on before, go back — so if you are working radial ↔ droste it toggles those,
+  // and if you wander to hex it toggles hex ↔ wherever you came from, with no reprogramming. One
+  // button, no mode to remember, and the pair follows what you are actually doing.
+  { key: 'action:formLast', label: '◈ last form (toggle back)' },
   ...FORMS.map((f) => ({ key: 'action:form:' + f.id, label: '◈ form: ' + f.label.toLowerCase() })),
   // DROSTE TOGGLES + OOB — cycles rather than absolute values, because the thing on the other
   // end of a mapping is a momentary pad. Each fires the existing DOM control, so the snap
@@ -314,6 +360,14 @@ export function createInputBus(env) {
     const t = t0.resolve ? { ...t0, ...t0.resolve(state) } : t0;
     const span = t.max - t.min;
     const sens = m.sens ?? 0.05;
+    // a DISCRETE target stored as `rate` by an older rig falls back to stepping (B620). The mode
+    // dropdown no longer offers rate here, but a mapping saved before that still says so, and the
+    // rate loop against a snap is a stutter rather than a control.
+    if (m.mode === 'rate' && t.nudge) {
+      const dir = Math.sign(value) * (m.invert ? -1 : 1);
+      if (dir) { t.nudge(state, dir, env); env.scheduleRender?.(); env.syncControls?.(); }
+      return;
+    }
     if (m.mode === 'rate') {
       let d = value;
       if (m.invert) d = -d;
@@ -322,6 +376,19 @@ export function createInputBus(env) {
       return;
     }
     if (m.mode === 'rel') {
+      // DISCRETE targets step one legal value per event and ignore sens entirely (B620). A
+      // percentage of the range is meaningless against a snap — see NUDGE_SEGMENTS.
+      if (t.nudge) {
+        // `Math.sign(value)` and NOT `value || 1`: a momentary button sends 1 on press and 0 on
+        // RELEASE, so coercing 0 to a direction would step twice per tap. Same guard the
+        // continuous branch below gets from its `if (!d) return`.
+        const dir = Math.sign(value) * (m.invert ? -1 : 1);
+        if (dir) t.nudge(state, dir, env);
+        env.scheduleRender?.();
+        env.sourceOverlay?.scheduleDraw?.();
+        env.syncControls?.();
+        return;
+      }
       // one event = one nudge of sensitivity × range (buttons send 1; encoders
       // send signed fractions) — sens is the whole step-size story
       let d = (meta.momentary ? Math.sign(value) : value) * span * sens;
@@ -421,14 +488,23 @@ export function createInputBus(env) {
   // keyframes, and refreshes the form-aware sliders; the droste toggles re-snap the spiral. All of
   // that lives on the click handler. Reproducing it here is how the two paths would drift.
   const clickEl = (sel) => { const el = document.querySelector(sel); if (el && !el.disabled) { el.click(); return true; } return false; };
+  // remembered across form changes however they were made (hardware, the picker, a preset), because
+  // it is sampled at fire time from the CURRENT form rather than tracked at the switch site. That
+  // keeps `formLast` honest even when the switch did not come through this module.
+  let prevForm = null;
   function fireFormAction(a) {
-    if (a.startsWith('form:')) return clickEl(`.form-thumb[data-form-id="${CSS.escape(a.slice(5))}"]`);
+    const go = (id) => {
+      if (!id || id === state.form) return true;   // already there — do not record a self-toggle
+      prevForm = state.form;
+      return clickEl(`.form-thumb[data-form-id="${CSS.escape(id)}"]`);
+    };
+    if (a.startsWith('form:')) return go(a.slice(5));
+    if (a === 'formLast') return go(prevForm || 'radial');   // first press with no history falls back to radial
     if (a !== 'formNext' && a !== 'formPrev') return false;
     const i = FORMS.findIndex((f) => f.id === state.form);
     const n = FORMS.length;
     // wraps both ways, so a single button can walk the whole set
-    const next = FORMS[(((a === 'formNext' ? i + 1 : i - 1) % n) + n) % n];
-    return clickEl(`.form-thumb[data-form-id="${CSS.escape(next.id)}"]`);
+    return go(FORMS[(((a === 'formNext' ? i + 1 : i - 1) % n) + n) % n].id);
   }
   function fireAction(a) {
     if (a === 'mirror') return void clickEl(`#mirrorToggle button[data-mirror="${state.drosteMirror ? '0' : '1'}"]`);
@@ -592,16 +668,26 @@ export function createInputBus(env) {
     // abs is position-is-value — meaningless for momentary controls, so they
     // omit it; gesture signals are pure deltas, so they're rel by definition
     const isDelta = m.kind === 'gesture' || m.kind === 'touch' || m.sig.startsWith('tp:') || m.sig.startsWith('mob:');
-    const modes = (isDelta ? ['rel'] : momentary ? ['rel', 'rate'] : ['abs', 'rel', 'rate'])
+    // DISCRETE targets drop `rate` (B620): the rate loop integrates a velocity into the field every
+    // frame, which against a snap is a stuttering ramp rather than a control. `abs` stays — a fader
+    // across the legal range is a legitimate way to drive segments — and `rel` is the button case.
+    const isDiscreteT = !!targetOf(m.target)?.discrete;
+    const modes = (isDelta ? ['rel'] : isDiscreteT ? (momentary ? ['rel'] : ['abs', 'rel']) : momentary ? ['rel', 'rate'] : ['abs', 'rel', 'rate'])
       .map((md) => `<option value="${md}"${m.mode === md ? ' selected' : ''}>${md}</option>`).join('');
-    const sens = SENS_OPTS.map((s) => `<option value="${s}"${(m.sens ?? 0.05) === s ? ' selected' : ''}>${Math.round(s * 100)}%</option>`).join('');
+    // B620 — a DISCRETE target steps one legal value per press, so a percentage here would be a
+    // lie. Daniel: *"segments shouldn't be a percentage, they're abs integers."* The column shows
+    // what actually happens instead of an inert control.
+    const isDiscrete = isDiscreteT;
+    const sens = isDiscrete
+      ? '<option>1 step</option>'
+      : SENS_OPTS.map((s) => `<option value="${s}"${(m.sens ?? 0.05) === s ? ' selected' : ''}>${Math.round(s * 100)}%</option>`).join('');
     row.innerHTML = `
       <span class="in-grip" draggable="true" title="drag to reorder">≡</span>
       <span class="in-kind">${KIND_CHIP[m.kind] || (isNote ? 'pad' : m.sig.split('.')[1]?.[0] === 'a' ? 'stick' : m.sig.includes('.cc') ? 'cc' : 'btn')}</span>
       <input class="in-name in-label" value="${(m.label || m.sig).replace(/"/g, '&quot;')}" title="${m.sig} — click to rename">
       <select class="in-target" title="${isAction ? '' : dirTitle(m.target)}">${opts}</select>
       <select class="in-mode" ${isAction ? 'disabled' : ''} title="abs: position is the value · rel: nudge per event · rate: deflection is speed">${modes}</select>
-      <select class="in-sens" ${isAction ? 'disabled' : ''} title="sensitivity — step size for rel, speed for rate">${sens}</select>
+      <select class="in-sens" ${isAction || isDiscrete ? 'disabled' : ''} title="${isDiscrete ? 'discrete control — one press moves to the next legal value' : 'sensitivity — step size for rel, speed for rate'}">${sens}</select>
       <button class="toggle in-inv${m.invert ? ' active' : ''}" title="invert${isAction ? '' : ' — ' + dirTitle(m.target)}">inv</button>
       ${isNote ? '<button class="in-led" title="pad LED color — tap to cycle"></button>' : '<span></span>'}
       <button class="vid-x in-del" title="remove mapping">✕</button>`;

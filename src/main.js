@@ -19,6 +19,7 @@ import { confirmInterrupt } from './shell/interrupt.js';   // non-blocking destr
 import { zipStore } from './shell/zip.js';                 // clip package (source + motion JSON)
 import { createEngine } from './engine/index.js';
 import { resetSliceState } from './engine/geometry.js';   // B619: the shared slice reset (box centring + frame-relative orientation), also used by the mobile chrome
+import { createMotionProbe } from './kit/motion-probe.js';   // B619: droste-runaway probe, armed by ?probe=motion
 import { createSourceOverlay } from './components/source-overlay.js';
 import { createOutputGestures } from './components/output-gestures.js';
 import { createPanJoystick } from './components/pan-joystick.js';
@@ -2036,6 +2037,10 @@ if (engine) {
   };
   const perfBtn = document.getElementById('perfPanelBtn');
   if (new URLSearchParams(location.search).has('perf')) openPerfPanel();
+  // B619 — `?probe=motion` arms the droste-runaway probe. Inert (and unallocated) without it, so
+  // it costs nothing in a normal session. Its output rides the exported report, which is the only
+  // device channel that actually reaches Daniel.
+  env.motionProbe = createMotionProbe(env, { enabled: new URLSearchParams(location.search).get('probe') === 'motion' });
   if (perfBtn) perfBtn.addEventListener('click', () => {
     if (perfPanel) perfPanel.destroy(); else openPerfPanel();
   });

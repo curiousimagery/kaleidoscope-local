@@ -6,6 +6,81 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🎮 v0.25.31 (Build 621) — 2026-08-14 — Discrete controls step, they don't scale; and alt-tab for forms
+
+**JS only. No `cap sync` needed.** All from Daniel's B620 DualSense session.
+
+### Shipped
+
+- **Segments now steps one legal value per press**, on every form. Sensitivity is ignored and the column reads `1 step` instead of a percentage.
+- **`last form (toggle back)`** — one button returns to whichever form you were on before.
+- **`zoom` renamed to `canvas zoom  (droste: infinite zoom)`.** The bare label was ambiguous next to `slice scale` and cost a testing round.
+- **`rate` mode is no longer offered for discrete targets**, and an older rig that stored it falls back to stepping.
+
+### Why droste segments needed two or four taps and radial did not
+
+Daniel: *"the control works but it is wonky: i have to tap 2x or 4x to get it to change. radial wedge works as expected: droste segments does not."*
+
+Generic `rel` mode nudges by `span × sens`. Put that against a snap and the two form ranges split:
+
+| form | span | 5% nudge | snap result |
+|---|---|---|---|
+| radial | 46 (2–48) | **2.3** | next even number. One press, one step. Looks correct |
+| droste | 11 (1–12) | **0.55** | `Math.round(v/2)*2` swallows it — **the first press does nothing**; the glide accumulates until the second or fourth crosses a boundary |
+
+**No sensitivity value fixes both**, because the quantity is not continuous — raising it to help droste makes radial jump four segments at a time. Discrete targets now declare `nudge`, which steps to the next legal value using the form's own snap as the authority rather than re-deriving the legal set (droste's ladder is 1, 2, 4, 6 … 12, irregular at the bottom, which is exactly what a duplicated table gets wrong later).
+
+**Two bugs caught while writing it, both worth naming.** A momentary button sends 1 on press and **0 on release**, so coercing that 0 into a direction would have stepped twice per tap. And `abs` mode survives for discrete targets because a fader across the legal range is a legitimate way to drive segments; only `rate` had to go, since integrating a velocity into a snapped field is a stutter, not a control.
+
+### `zoom` was ambiguous, and the asymmetry it exposed is correct
+
+Daniel mapped `zoom` expecting the slice to resize, saw the overlay move on radial but not on square, hex, triangle or droste, and reasonably read it as a bug. **It is not one.** Radial's `buildPolygon` genuinely depends on `canvasZoom` (its wedge extent is `1 / (canvasZoom × canvasNorm)`), so the region it samples really does change when the canvas zooms. The tiling forms' cells do not. **Same input, two honest answers, because the forms differ.** He found `slice scale` works everywhere, which is the correct control for what he wanted. The label now sets the expectation before the test rather than after.
+
+### Alt-tab, not a toggle
+
+Daniel mapped left-stick-press to return to radial and reported it *"doesn't feel good"*, then asked whether one button could toggle radial ↔ droste.
+
+**A two-form toggle needs a default** — which one do you land on first? — and picking one makes the button asymmetric. `last form` has no default to pick: whatever you were on before, go back. Work radial ↔ droste and it toggles those; wander to hex and it toggles hex ↔ wherever you came from, with no reprogramming. The previous form is sampled at fire time from current state rather than tracked at the switch site, so it stays honest even when the form changed through the picker instead of hardware.
+
+---
+
+## 🔬 v0.25.30 (Build 620) — 2026-08-14 — The droste hunt reached a contradiction, so it gets an instrument
+
+**JS only. No `cap sync` needed** for the probe itself, but it only helps on a build you can reproduce the bug on.
+
+### Shipped
+
+- **`?probe=motion`** — a read-only runaway-motion probe ([kit/motion-probe.js](../src/kit/motion-probe.js)). Samples the state fields a droste runaway could live in, plus the follower's own spring internals for the same fields, and publishes to the frame-cost panel's `copy report`. **Inert and unallocated without the param.**
+- **`follower.debugState()`** — read-only spring internals (`cur` / `tgt` / `vel`), returning copies.
+- Listed in the Lab's URL-parameter cheat sheet.
+
+### Why an instrument and not a fix
+
+Four mechanisms are now eliminated, and the last two went down this build:
+
+| hypothesis | verdict | how |
+|---|---|---|
+| Follower runaway | **disproven** | simulated `follow.js` at response 0.35–8s × deltas 0.5–20 loops over 65s, measuring residual RATE; tail reaches zero by 30s in every cell |
+| Autoplay drift | **ruled out** | `drift.tick` gated behind `autoOn`; Daniel confirmed autoplay off |
+| Flick-to-drift | **ruled out** | gated behind drift mode; **Daniel confirmed drift mode off** |
+| Joystick handle feedback | **ruled out** | `syncAll` moves only the position dot; state never deflects the handle |
+
+**What is left is a contradiction, and stating it plainly is the finding.** With autoplay off, drift mode off, and no fingers on the glass, an exhaustive grep finds no writer that *can* move `canvasOffsetX/Y` or `drosteZoomPhase`, and the follower provably settles against constant state. **Yet the motion is real and only a reset clears it.** So either a writer exists that static reading has missed, or the moving quantity is not one of the two we assumed. **No further reading distinguishes those**, which is precisely the condition the protocol names for instrumenting instead of guessing.
+
+The probe's headline number is **`quietMovingMs`**: time a value spent travelling while every known writer was idle. `verdict` names the offending field in one line. The follower's `cur` is sampled *alongside* state rather than instead of it, because that is the pair that separates "state is moving" from "the follower is moving on its own" — from outside they are the same picture.
+
+**The wrong-noun test, completed before it shipped:** *this samples the state fields the shader actually reads, which equals what I care about only if the motion is in state rather than in the render.* That is exactly the disjunction under test, which is why both halves are sampled. These are conserved quantities, never activity counters — a count of writes would have said nothing here, since the question is not whether writes occur but which value is travelling.
+
+**The probe observes touches itself** rather than asking either chrome for a `gesturesActive`. Inventing that hook in two chromes to serve a probe would have repeated the exact "wired to one of N paths" mistake this arc has now made four times.
+
+### Found while investigating: a second joystick no gesture can stop
+
+`mountDrosteOffsetControl()` creates a **second `createPanJoystick` instance** driving `drosteOffsetX/Y`, with its own drift mode, its own deflection and its own tick loop. **`env.panDrift` is assigned only the canvas-pan instance**, so `output-gestures`' "grabbing takes control, stop the drift" cannot reach the droste one. **A latched droste-offset drift is uncancellable by any gesture** — recenter or reset only.
+
+That is the same shape as the reported bug and a real defect either way. **Not fixed here:** it is unconfirmed as the cause, Daniel is mid-session testing mappings, and the fix changes behaviour on a path that needs device verification. Filed in BACKLOG with both candidate fixes.
+
+---
+
 ## 🎛️ v0.25.29 (Build 619) — 2026-08-14 — Mapping targets that were missing; the iOS slice centring that never ran
 
 **JS only. No `cap sync` needed** for the mapping work — but the iOS centring fix is the whole point of this build, so **`cap sync` before testing on device.**
