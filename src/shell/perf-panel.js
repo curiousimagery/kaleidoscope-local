@@ -244,6 +244,10 @@ export function mountPerfPanel(env, { container = null, onClose = null } = {}) {
       // B626 — a re-placement that FAILED. It is caught so it can never abort camera acquisition,
       // which means without this line it would fail completely silently.
       sliceError: env.lastSliceError || undefined,
+      // B630 — the last few SOURCE-SWAP attempts, each phase with a reason on every exit. Built for
+      // Daniel's mid-show dead end (live camera ~10min, picked a file, nothing happened, app restart
+      // required). A slippery repro does not have to be caught live if the attempt records itself.
+      sourceSwap: env.sourceSwapLog?.length ? env.sourceSwapLog : undefined,
       slice: (() => {
         try {
           const s = env.state, a = env.engine?.getSourceAspect?.() || 0;

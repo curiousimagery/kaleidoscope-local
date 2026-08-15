@@ -531,14 +531,20 @@ env.saveActiveClip = async () => {
 // Gate a source SWAP behind the data-loss warning. `proceed` runs the actual load. Empty slot / no
 // authored work → straight through (no nag). This is the reusable "into the active slot" chokepoint.
 env.guardSourceSwap = (proceed) => {
-  if (!env.hasUnsavedClipWork()) { proceed(); return; }
+  // B630 — the swap guard is upstream of loadImage, so a decline here looks identical to the
+  // silent dead end. Record which branch ran; `cancel` is a legitimate outcome that should still
+  // be distinguishable from a hang in the report.
+  const trace = (phase) => env.sourceSwapLog?.push({ t: new Date().toISOString().slice(11, 23), phase });
+  if (!env.hasUnsavedClipWork()) { trace('guard:clear'); proceed(); return; }
+  trace('guard:asking');
   confirmInterrupt({
     title: 'replace current clip?',
     body: 'loading a new source replaces the clip you’re working on, including its animation. save it first if you want to keep it.',
     confirmLabel: 'save current and load new', secondaryLabel: 'discard and load new', cancelLabel: 'cancel',
     danger: false,   // save-first is the safe primary — red is reserved for destructive/live (the discard action carries the danger accent)
-    onConfirm: async () => { await env.saveActiveClip(); proceed(); },
-    onSecondary: () => proceed(),
+    onConfirm: async () => { trace('guard:save-then-load'); await env.saveActiveClip(); proceed(); },
+    onSecondary: () => { trace('guard:discard-then-load'); proceed(); },
+    onCancel: () => trace('guard:cancelled'),
   });
 };
 
@@ -1464,6 +1470,7 @@ function wireControls() {
   });
   document.getElementById('fileInput').addEventListener('change', e => {
     const f = e.target.files[0];
+    env.sourceSwapLog?.push({ t: new Date().toISOString().slice(11, 23), phase: 'picker:change', picked: !!f, name: f?.name, type: f?.type });
     if (f) env.guardSourceSwap(() => (f.type.startsWith('video/') ? env.loadVideo : env.loadImage)(f));
   });
 

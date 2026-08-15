@@ -99,8 +99,13 @@ const appliesToForm = (t, s) => {
 const PARAM_TARGETS = [
   { key: 'sliceRotation', label: 'slice rotation', min: 0, max: 360, wrap: true, dir: '0° → 360° counterclockwise' },
   { key: 'sliceScale', label: 'slice scale', min: 0.05, max: 5, dir: 'small → large' },   // the slice control's OWN max (independent of the zoom gesture's Z_SLICE_COVER overflow cap)
-  { key: 'sliceCx', label: 'slice position x', min: 0, max: 1, dir: 'left → right' },
-  { key: 'sliceCy', label: 'slice position y', min: 0, max: 1, dir: 'top → bottom' },
+  // B630 — the origin may leave the image in MIRROR mode (see overlay.js clampOrigin). The mapping
+  // range resolves the same way, because a bound the pointer honours and the hardware does not is
+  // exactly the divergence this arc keeps paying for.
+  { key: 'sliceCx', label: 'slice position x', min: 0, max: 1, dir: 'left → right',
+    resolve: (s) => (s.oobMode === 1 ? { min: -1, max: 2 } : { min: 0, max: 1 }) },
+  { key: 'sliceCy', label: 'slice position y', min: 0, max: 1, dir: 'top → bottom',
+    resolve: (s) => (s.oobMode === 1 ? { min: -1, max: 2 } : { min: 0, max: 1 }) },
   // SEMANTIC "zoom" — one mapping point that RESOLVES to the active form's zoom control, so a
   // single knob works across forms (droste → infinite zoom, else composition zoom) and existing
   // hardware never needs reprogramming on a form switch (Daniel). `resolve(state)` returns the

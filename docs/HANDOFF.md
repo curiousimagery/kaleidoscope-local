@@ -90,6 +90,16 @@ This retires the confusion, not just a hypothesis. Resolution was free because t
 
 ## current version
 
+**🧭 B630 — SOURCE-SWAP TRACE, OFF-CANVAS ORIGIN, LAB DEBT PAID. JS only.**
+
+**The source-swap dead end no longer needs catching live.** Every phase from file picker → guard → decode logs a reason on exit; the last 12 attempts ride the exported report as `sourceSwap`. **An 8-second decode watchdog** covers the reported symptom specifically: if the decode neither loads nor errors, that fact is recorded, which is the one outcome that previously left no trace. `"failed to load image"` now names the format and points at `copy report`.
+
+Two things checked rather than assumed: **`img.onerror` already existed** (I had guessed it was missing — wrong), and `confirmInterrupt` supports `onCancel`, so a cancelled swap is distinguishable from a hang.
+
+**The slice origin may leave the image in MIRROR mode**, bounded at ±1 period. That answers the open question I had put to Daniel: **mirror is periodic with period 2 in UV, so one period out already reaches every distinct reflection** — unbounded would only repeat looks while the numbers grow. Mirror-only because `clamp` smears and `transparent` is empty out there. **Mapping targets resolve to the same range** so hardware and pointer cannot disagree.
+
+**UI Lab debt from B629 is paid:** `.in-dupask` specimen, the `mod` column (section text now says 10-column, not 9), and a state row showing two rows sharing one d-pad with the inactive one dimmed.
+
 **⌨️ B629 — A SECOND BINDING PER CONTROL, AND THE MODIFIER LAYER. JS only.**
 
 **⚠️ B624's form-gating had NO WAY IN and nobody noticed until Daniel tried it.** Mapping the d-pad to both square aspect and droste thickness needs two rows on one signal, and learn refused to make the second — it flashed the existing row instead. **A capability with no path through the UI is not shipped.** Learn now asks: edit the existing, or add a second.

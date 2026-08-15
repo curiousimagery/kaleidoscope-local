@@ -35,8 +35,38 @@ export function createSourceHost(env) {
   // image / video loading
   // ============================================================================
 
+  // ⚠️ B630 — THE SOURCE-SWAP TRACE. Daniel, mid-show: a live camera ran ~10 minutes, he picked a
+  // file, and **nothing happened — no error, no visible attempt to load** — recoverable only by
+  // killing and relaunching the app. It has happened once, so it may well be a slippery repro; the
+  // point of this is that we do not need to catch it live. Every attempt records its phase and
+  // every exit records a REASON, so `copy report` after the next occurrence names the step it died
+  // on. This is the standing rule (anything that can decline to act must publish why) applied to
+  // the one path where a silent decline costs a performance.
+  const SWAP_LOG_MAX = 12;
+  env.sourceSwapLog = [];
+  function swapTrace(phase, detail) {
+    const e = { t: new Date().toISOString().slice(11, 23), phase, ...(detail || {}) };
+    env.sourceSwapLog.push(e);
+    if (env.sourceSwapLog.length > SWAP_LOG_MAX) env.sourceSwapLog.shift();
+    return e;
+  }
+  // A DEAD END IS THE ONE OUTCOME THE OPERATOR MUST SEE. Anything that stops the swap without
+  // producing a source says so next to the upload control, and names the report as the way to
+  // hand it over — the message is useless if it only reaches a console nobody attaches to.
+  function swapFailed(reason, hint) {
+    swapTrace('failed', { reason });
+    if (uploadErrorEl) {
+      uploadErrorEl.textContent = `could not load that source: ${reason}.${hint ? ' ' + hint : ''} `
+        + 'Open diagnostics → frame cost → "copy report" and send it — the trace of this attempt is in it.';
+    }
+    console.warn('[fold] source swap failed:', reason);
+  }
+  env.swapFailed = swapFailed;
+
   function loadImage(file) {
-    if (!engine) return;
+    swapTrace('loadImage:start', { name: file?.name, type: file?.type, size: file?.size,
+      live: !!env.live?.isLive, frozen: !!env.live?.frozen, hasVideo: !!env.sourceVideo });
+    if (!engine) return swapFailed('the render engine is not available');
     if (env.live.isLive || env.live.frozen) stopCameraMode({ keepSource: true });  // uploading exits the camera workflow
     stopSourceVideoPlayback();                          // stop a loaded video's loop before switching
     env.haltPlayback();                                 // stop motion playback before swapping the source
@@ -52,7 +82,19 @@ export function createSourceHost(env) {
     // Clear any prior upload error before attempting this load.
     if (uploadErrorEl) uploadErrorEl.textContent = '';
 
+    // A WATCHDOG, because the reported symptom is that NEITHER callback fires. If the decode
+    // neither loads nor errors within this window the attempt is silently dead, which is exactly
+    // what Daniel saw — and without this nothing would ever record that fact.
+    let settled = false;
+    const watchdog = setTimeout(() => {
+      if (settled) return;
+      swapFailed('the image never finished decoding (no load and no error in 8s)',
+        'This is the silent hang from the B630 report.');
+    }, 8000);
+
     img.onload = () => {
+      settled = true; clearTimeout(watchdog);
+      swapTrace('loadImage:decoded', { w: img.naturalWidth, h: img.naturalHeight });
       try {
         engine.setSource(img);
         env.centerSliceInSource?.();      // B615: new source → centre the form's box, orient to its long edge
@@ -66,6 +108,7 @@ export function createSourceHost(env) {
         if (env.capabilities.firefoxTextureCapped && /too large/i.test(msg)) {
           msg += ' Firefox limits WebGL to 8K — try Safari for full-size images on Apple Silicon.';
         }
+        swapTrace('failed', { reason: 'engine.setSource threw', message: e.message });
         if (uploadErrorEl) uploadErrorEl.textContent = msg;
         statusEl.textContent = '';
         statusEl.classList.remove('error', 'busy', 'success');
@@ -90,10 +133,13 @@ export function createSourceHost(env) {
       else if (env.performRT?.active) env.refreshPerformSource?.();  // performing → swap source in place, no mode change
     };
     img.onerror = () => {
-      if (uploadErrorEl) uploadErrorEl.textContent = 'failed to load image';
+      settled = true; clearTimeout(watchdog);
+      // "failed to load image" alone told the operator nothing they could act on or hand over.
+      swapFailed('the browser could not decode the file', `Format reported as "${file?.type || 'unknown'}".`);
       statusEl.textContent = '';
       statusEl.classList.remove('error', 'busy', 'success');
     };
+    swapTrace('loadImage:decoding');
     img.src = url;
   }
 

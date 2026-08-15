@@ -1169,7 +1169,7 @@ function inputsSection() {
     inMapRowEl('btn', 'right bumper', '— pick a target —', 'rel'),
   ]);
   return section('inputs-surface', 'Inputs & settings (control bus)',
-    'The settings-sheet vocabulary from the Arc 6 input surface, as static specimens (input-bus.js renders the real, wired version — these are hand-synced copies, so drift here means the specimen needs updating). The mapping row is a 9-column grid: grip · kind chip · editable name · target · mode · sensitivity · invert · LED swatch (pads only) · remove. Device headers carry the presence dot (var(--ok), the same token as the output traffic light), the editable device name, and the collapse chevron. The presence lights beside the app-bar gear stack in pairs like the output LEDs. Finger echo circles are drawn by the overlay itself (slice zone) and a glued sibling canvas (output panel) with the styles shown. The rig persists to localStorage fold-inputs-v1 everywhere + fold-config.json in userData under Electron.', [
+    'The settings-sheet vocabulary from the Arc 6 input surface, as static specimens (input-bus.js renders the real, wired version — these are hand-synced copies, so drift here means the specimen needs updating). The mapping row is a 10-column grid: grip · kind chip · editable name · MOD toggle · target · mode · sensitivity · invert · LED swatch (pads only) · remove. (It was 9 columns until B629 added the modifier toggle.) Device headers carry the presence dot (var(--ok), the same token as the output traffic light), the editable device name, and the collapse chevron. The presence lights beside the app-bar gear stack in pairs like the output LEDs. Finger echo circles are drawn by the overlay itself (slice zone) and a glued sibling canvas (output panel) with the styles shown. The rig persists to localStorage fold-inputs-v1 everywhere + fold-config.json in userData under Electron.', [
     el('div', { class: 'lab-matrix' }, [
       matrixRow('Sheet tabs · .set-tabs', [['.toggle / .active', tabs]]),
       matrixRow('Presence lights · .in-lights', [
@@ -1183,6 +1183,10 @@ function inputsSection() {
     devices,
     el('div', { class: 'lab-note', text: 'Drag-reorder states: .in-dragging dims the moving row; .in-drop-before/.in-drop-after paint the insertion line in the gap (a real line, not a box outline — Daniel):' }),
     dragging,
+    el('div', { class: 'lab-note', text: 'Per-form + modifier states (B624/B629). Row 1 and row 2 share ONE control: only the one whose target belongs to the active form acts, and the other dims (.in-idle) for 400ms so you can see which is listening. Row 3 is a MODIFIER — flagged with .in-mod.active, it drives no target of its own so target/mode/sens are disabled. Row 4 is the SHIFTED binding it unlocks; its kind chip reads +<modifier> instead of the signal kind. Row 5 is a freshly learned row, which lands unassigned (B619) rather than defaulting to a live parameter:' }),
+    states,
+    el('div', { class: 'lab-note', text: 'Duplicate-binding prompt (.in-dupask). LEARN shows this inline at the top of the mapping list when the captured control is already mapped — not a modal, because the decision is about the list you are looking at. It names when a second binding is CORRECT rather than only warning:' }),
+    inDupAskEl(),
   ]);
 }
 

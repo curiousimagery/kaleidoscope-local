@@ -101,6 +101,8 @@ All three questions are answered. **Do not extend this session; it is done.**
 | 12 | canvas zoom steps disproportional when zoomed out | ✅ B623 (`geometric`) |
 | — | **stage C: ownership and handoff** | 🔴 **NOT STARTED. Largest remaining piece of 1.5** |
 
+**▶ B630 STATUS: every item Daniel approved is now shipped.** The modifier layer (B629), the duplicate-binding prompt (B629), the source-swap diagnostic (B630) and the off-canvas origin (B630) are all in. **Stage C (ownership and handoff) is now the only unstarted piece of 1.5**, and the shared-quantity audit ran at B627.
+
 **▶ WHAT I WOULD DO NEXT, in order.** (2b) unified-zoom target, because Daniel's own controller layout depends on it and it is the last piece of stage B. Then (2) zoom mode. Then (4) box-centre semantics, which is small now that `write` exists. Then **stage C**, which is the real remaining architecture and also the answer to the B621 open question about one button meaning different things per form — "which input owns this field" and "which mapping row is live" are one problem.
 
 **⚠️ THE AUDIT ITEM IS NOW THE MOST-EVIDENCED THING ON THIS LIST — SIX instances of one value or behaviour living in multiple copies:** droste's overlay missing `sizeNorm` (B614), radial's polygon missing `canvasNorm` (B618), the overlay missing `canvasOffset` (B612), the B616 centring hook reaching only the desktop chrome (B619), the six copies of the `0.35` transition default (B622), and `env.panDrift` covering only one of two joystick instances (B620). **It has stopped being a hypothesis.**

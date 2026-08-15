@@ -22,6 +22,31 @@ import { getActiveForm } from '../engine/forms/index.js';
 import { rotateCursorForAngle, scaleCursorForAngle } from './cursors.js';
 import { perfFlags } from './perf-flags.js';
 
+// ⚠️ B630 — THE ORIGIN MAY LEAVE THE IMAGE, IN MIRROR MODE ONLY (Daniel's proposal, approved).
+//
+// The slice origin used to be hard-clamped to the image. Letting it travel past the edge is a
+// COMPOSITIONAL tool rather than a bug: past the boundary the mirror OOB mode keeps folding, so
+// pushing the origin out swaps which part of the slice is being reflected back — a look that is
+// simply unreachable while the origin is pinned inside.
+//
+// **Gated to mirror because mirror is the only mode where it means anything.** Under `clamp` the
+// out-of-range region smears the edge pixel, and under `transparent` it is empty; in both, an
+// origin outside the image degrades rather than composes. Daniel: *"99% of everything I do is in
+// mirror mode, so gating this to only mirror mode and changing the behavior in other OOBs should
+// be fine."*
+//
+// The bound is deliberately generous rather than absent. Mirror is periodic with period 2 in UV,
+// so ±1 reaches every distinct reflection — beyond that you are repeating looks you already had,
+// while the numbers keep growing and the overlay drifts further from what you can see. One period
+// out is "everything reachable" and not one step more.
+const OOB_MIRROR = 1;
+const ORIGIN_FREE_RANGE = 1;
+function clampOrigin(v, state) {
+  return state.oobMode === OOB_MIRROR
+    ? Math.max(-ORIGIN_FREE_RANGE, Math.min(1 + ORIGIN_FREE_RANGE, v))
+    : Math.max(0, Math.min(1, v));
+}
+
 // touch-surface detection — used to decide whether to render always-visible
 // direct-manipulation handles (touch) vs cursor-only affordances (mouse).
 const IS_TOUCH = matchMedia('(hover: none)').matches;
@@ -1178,8 +1203,8 @@ export function setupSourceInteraction(env, wrap) {
           const sinA = Math.sin(da_rad);
           const dx = drag.startCx - drag.startPivotUV.u;
           const dy = drag.startCy - drag.startPivotUV.v;
-          state.sliceCx = Math.max(0, Math.min(1, curMid.u + dx * cosA - dy * sinA));
-          state.sliceCy = Math.max(0, Math.min(1, curMid.v + dx * sinA + dy * cosA));
+          state.sliceCx = clampOrigin(curMid.u + dx * cosA - dy * sinA, state);
+          state.sliceCy = clampOrigin(curMid.v + dx * sinA + dy * cosA, state);
         }
       }
       env.syncControls();
@@ -1200,8 +1225,8 @@ export function setupSourceInteraction(env, wrap) {
         const newCyPx = y + drag.dragOffsetY;
         const uv = uvFromXY(newCxPx, newCyPx);
         if (!uv) return;
-        state.sliceCx = Math.max(0, Math.min(1, uv.u));
-        state.sliceCy = Math.max(0, Math.min(1, uv.v));
+        state.sliceCx = clampOrigin(uv.u, state);
+        state.sliceCy = clampOrigin(uv.v, state);
       } else if (drag.mode === 'scale') {
         if (!g) return;
         const r = Math.hypot(x - g.cx, y - g.cy);

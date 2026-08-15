@@ -6,7 +6,39 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
-## ⌨️ v0.25.39 (Build 629) — 2026-08-15 — A second binding per control, and the modifier layer
+## 🧭 v0.25.40 (Build 630) — 2026-08-15 — The source-swap trace, the off-canvas origin, and the owed Lab entries
+
+**JS only. No `cap sync` needed.**
+
+### Shipped
+
+- **Source-swap tracing**, with a reason on every exit, an **8-second decode watchdog**, and an in-UI message that names the report as the way to hand it over.
+- **The slice origin may travel off-canvas in MIRROR mode**, ±1 period.
+- **The owed Lab entries** for `.in-dupask` and the changed `.in-map` row.
+
+### The dead end does not have to be caught live
+
+Daniel's mid-show failure — live camera ~10 minutes, picked a file, **nothing happened, no error**, app restart required — has happened once and may well be a slippery repro. **So the attempt records itself instead.** Every phase from the file picker through the guard to the decode is logged with a reason on each exit, and the last twelve attempts ride the exported report as `sourceSwap`.
+
+The **watchdog** is the part aimed squarely at the reported symptom: if the decode neither loads nor errors within 8 seconds, that fact is itself recorded. Without it a hang is the one outcome that leaves no trace at all, which is precisely what he saw.
+
+Two things I checked rather than assumed: `img.onerror` **does** already exist (I guessed it was missing and was wrong), and `confirmInterrupt` **does** support `onCancel`, so a cancelled swap is now distinguishable in the log from a hang. `"failed to load image"` also became a message with the format in it and an instruction — the old text told the operator nothing they could act on or hand over.
+
+### The off-canvas origin, gated to mirror
+
+Past the image boundary the mirror fold keeps going, so pushing the origin out **swaps which part of the slice is reflected back** — a look that is unreachable while the origin is pinned inside.
+
+**Mirror-only, because mirror is the only mode where it means anything.** Under `clamp` the out-of-range region smears the edge pixel; under `transparent` it is empty. In both, an origin outside the image degrades rather than composes. Daniel's call, and it also keeps the change small enough to revert cleanly if he hates it.
+
+**Bounded at ±1 rather than unbounded**, answering my own open question: mirror is periodic with period 2 in UV, so **one period out already reaches every distinct reflection.** Past that you are repeating looks you have already seen while the numbers grow and the overlay drifts further from what is on screen. Generous, not infinite.
+
+The mapping targets resolve to the same range, because a bound the pointer honours and the hardware does not is the exact divergence this arc keeps paying for.
+
+### The Lab entries, paid
+
+`.in-dupask` gets a specimen; `inMapRowEl` gained the `mod` column (the section text said "9-column grid" and now says 10); and a new state row shows the pair that share one d-pad — one live, one dimmed `.in-idle` — plus a modifier row, the shifted row it unlocks with its `+mod` kind chip, and a freshly-learned unassigned row.
+
+ — 2026-08-15 — A second binding per control, and the modifier layer
 
 **JS only. No `cap sync` needed** (the fit change below does want one).
 
