@@ -30,7 +30,7 @@ import { createRemoteInput } from './remote-input.js';
 import qrcode from 'qrcode-generator';   // QR pairing (Daniel-approved dependency, MIT, zero-dep)
 import { applyUnifiedZoom } from '../kit/zoom.js';   // shared unified zoom — the canvas pinch routes here too
 import { panDelta } from '../kit/pan.js';            // shared canvas-pan gain — the remote drag pans identically to touch
-import { getActiveForm, formPanLocked, formCanvasNorm } from '../engine/forms/index.js';   // pannability + the shader's effective zoom
+import { FORMS, getActiveForm, formPanLocked, formCanvasNorm } from '../engine/forms/index.js';   // pannability + the shader's effective zoom; FORMS builds the per-form mapping actions
 
 const STORE_KEY = 'fold-inputs-v1';
 
@@ -40,6 +40,12 @@ const latticePeriodOf = (s) => getActiveForm(s)?.latticePeriod?.(s) || null;
 
 // Mappable targets: continuous params (full slider range; wrap = angular) and
 // transport ACTIONS. `dir` names the low → high direction for the invert read.
+//
+// `write` (B619) — the escape hatch for a param whose assignment is NOT `state[key] = v`.
+// Segments is the first: it routes by form, snaps to legal values, and cascades into the spiral
+// snap and every motion keyframe. Routing it through the slider's own setter is what stops the
+// hardware path and the pointer path from drifting apart.
+const SET_SEGMENTS = (_state, v, env) => env.setSegments?.(v);
 const PARAM_TARGETS = [
   { key: 'sliceRotation', label: 'slice rotation', min: 0, max: 360, wrap: true, dir: '0° → 360° counterclockwise' },
   { key: 'sliceScale', label: 'slice scale', min: 0.05, max: 5, dir: 'small → large' },   // the slice control's OWN max (independent of the zoom gesture's Z_SLICE_COVER overflow cap)
@@ -81,6 +87,22 @@ const PARAM_TARGETS = [
   // kept as a target so targetOf() (the pinch reroute) resolves it, but HIDDEN from the mapping
   // dropdown — the semantic "zoom" above is the one mapping point for infinite zoom.
   { key: 'drosteZoomPhase', label: 'infinite zoom', min: 0, max: 1, wrap: true, wrapPeriod: 1, dir: 'zoom loop', hidden: true },
+  // SEGMENTS — B619. The most performable discrete control in the app had no hardware route at
+  // all. Form-routed like the slider it shadows (radial → segments 2..48, droste → arms 1..12),
+  // and it writes through `env.setSegments` rather than the generic state writer because the
+  // value snaps and cascades (see setupSegmentsSlider). `write` is the escape hatch for exactly
+  // this shape: a param whose assignment is not `state[key] = v`.
+  { key: 'segments', label: 'segments', min: 2, max: 48, dir: 'few → many',
+    resolve: (s) => (s.form === 'droste'
+      ? { key: 'drosteArms', min: 1, max: 12 }
+      : { key: 'segments', min: 2, max: 48 }),
+    write: SET_SEGMENTS },
+  // the droste half of the semantic `segments` above. Present so targetOf() can resolve the
+  // RESOLVED key — the rate loop and the glide spring both look their target back up by
+  // `t.key`, so a resolve that returns a key with no entry here would write nowhere. Same
+  // reason `drosteZoomPhase` exists as a hidden entry beside the semantic `zoom`.
+  { key: 'drosteArms', label: 'droste arms', min: 1, max: 12, dir: 'few → many', hidden: true,
+    write: SET_SEGMENTS },
 ];
 const ACTION_TARGETS = [
   { key: 'action:stage', label: '⏻ stage (hold)' },
@@ -88,6 +110,19 @@ const ACTION_TARGETS = [
   { key: 'action:cut', label: '⏻ cut' },
   { key: 'action:auto', label: '⏻ autoplay' },
   { key: 'action:play', label: '⏻ play / pause' },
+  // FORM SELECTION — B619. Previously unmappable, which for a live rig was the largest single
+  // gap on the mapping screen: you could reshape a form from hardware but never change it.
+  // Both shapes are offered because both are real rig layouts: an encoder or a pair of buttons
+  // steps through, and a pad grid gets one pad per form (the APC40 case).
+  { key: 'action:formNext', label: '◈ next form' },
+  { key: 'action:formPrev', label: '◈ previous form' },
+  ...FORMS.map((f) => ({ key: 'action:form:' + f.id, label: '◈ form: ' + f.label.toLowerCase() })),
+  // DROSTE TOGGLES + OOB — cycles rather than absolute values, because the thing on the other
+  // end of a mapping is a momentary pad. Each fires the existing DOM control, so the snap
+  // cascade, keyframe commit, undo entry, and button highlight all still happen exactly once.
+  { key: 'action:mirror', label: '◈ droste mirror' },
+  { key: 'action:wedgeMirror', label: '◈ droste wedge mirror' },
+  { key: 'action:oob', label: '◈ out of bounds (cycle)' },
 ];
 const SENS_OPTS = [0.01, 0.02, 0.05, 0.1, 0.25, 0.5];
 // APC40 MK2 pad-LED palette (velocity = color index) — a curated set; full
@@ -267,6 +302,7 @@ export function createInputBus(env) {
   const panDrivableNow = () => !formPanLocked(state);
 
   function applyMapping(m, value, meta) {
+    if (!m.target) return;   // learned but not yet assigned — inert, and its row says so
     if (m.target.startsWith('action:')) {
       if (value > 0.5) fireAction(m.target.slice(7));
       return;
@@ -317,7 +353,10 @@ export function createInputBus(env) {
     // purpose: state stays continuous so the follower / tween / autoplay never see a seam blip,
     // exactly as the local touch path already does. The uniform does the wrapping.
     else if (!t.unbounded) v = Math.max(t.min, Math.min(t.max, v));
-    state[t.key] = v;
+    // a target whose assignment ISN'T `state[key] = v` supplies its own writer (segments snaps
+    // and cascades). Everything downstream — render, overlay, control sync — still runs here.
+    if (t.write) t.write(state, v, env);
+    else state[t.key] = v;
     env.scheduleRender?.();
     env.sourceOverlay?.scheduleDraw?.();
     const now = performance.now();
@@ -377,7 +416,25 @@ export function createInputBus(env) {
   const startRateLoop = startMotionLoop;   // rate entries share the loop
 
   // transport actions press the same buttons the keyboard does, mode-aware
+  // B619 — every non-transport action fires the EXISTING DOM control rather than writing state.
+  // That is deliberate: a form switch resets canvas pan, carries the box centre, rewrites motion
+  // keyframes, and refreshes the form-aware sliders; the droste toggles re-snap the spiral. All of
+  // that lives on the click handler. Reproducing it here is how the two paths would drift.
+  const clickEl = (sel) => { const el = document.querySelector(sel); if (el && !el.disabled) { el.click(); return true; } return false; };
+  function fireFormAction(a) {
+    if (a.startsWith('form:')) return clickEl(`.form-thumb[data-form-id="${CSS.escape(a.slice(5))}"]`);
+    if (a !== 'formNext' && a !== 'formPrev') return false;
+    const i = FORMS.findIndex((f) => f.id === state.form);
+    const n = FORMS.length;
+    // wraps both ways, so a single button can walk the whole set
+    const next = FORMS[(((a === 'formNext' ? i + 1 : i - 1) % n) + n) % n];
+    return clickEl(`.form-thumb[data-form-id="${CSS.escape(next.id)}"]`);
+  }
   function fireAction(a) {
+    if (a === 'mirror') return void clickEl(`#mirrorToggle button[data-mirror="${state.drosteMirror ? '0' : '1'}"]`);
+    if (a === 'wedgeMirror') return void clickEl(`#wedgeMirrorToggle button[data-wedgemirror="${state.drosteWedgeMirror ? '0' : '1'}"]`);
+    if (a === 'oob') return void clickEl(`#oobModes button[data-oob="${((state.oobMode | 0) + 1) % 3}"]`);
+    if (fireFormAction(a)) return;
     const perform = !!env.performRT?.active;
     const map = {
       stage: perform ? 'pfHold' : 'mfStage',
@@ -525,6 +582,7 @@ export function createInputBus(env) {
     const momentary = /\.(n|b)\d/.test(m.sig);
     const isAction = m.target.startsWith('action:');
     const opts = [
+      `<option value=""${m.target ? '' : ' selected'}>— pick a target —</option>`,
       '<optgroup label="parameters">',
       ...PARAM_TARGETS.filter((t) => !t.hidden || m.target === t.key).map((t) => `<option value="${t.key}"${m.target === t.key ? ' selected' : ''}>${t.label}</option>`),
       '</optgroup><optgroup label="transport">',
@@ -614,7 +672,12 @@ export function createInputBus(env) {
         store.maps.push({
           sig, dev: meta.device || 'unknown', kind: meta.kind,
           label: meta.label || sig,
-          target: meta.momentary ? 'action:take' : 'sliceRotation',
+          // B619 — LEARN NOW LANDS UNASSIGNED. It used to default to `sliceRotation` (or take),
+          // which is silently wrong in a way that compounds: every knob you touch while learning
+          // lands on the same target, so a rig built in one pass has several rows all claiming
+          // slice rotation and all fighting each other, and nothing on screen says so. An empty
+          // target is inert until you pick one, which is the only honest default.
+          target: '',
           mode: meta.relative ? 'rel' : meta.momentary ? 'rel' : meta.bipolar ? 'rate' : 'abs',
           sens: meta.relative || meta.bipolar ? 0.25 : 0.05,
           invert: false,

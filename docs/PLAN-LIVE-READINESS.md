@@ -73,6 +73,63 @@ All three questions are answered. **Do not extend this session; it is done.**
 
 **Done when:** a mapped control behaves the same way on every form, an input that takes over from another does not jump, and a mapping that cannot act on the current form says so rather than writing silently.
 
+---
+
+### ▶ ITEM 1.5 STATUS ROLL-UP (B618, Daniel's ask before compaction)
+
+**✅ SHIPPED, B610-B618 — stage A and B are substantially done.**
+
+| build | what landed |
+|---|---|
+| B610 | Pan gain derived from the shader (`aspect/Z`, `1/Z`); droste pinch `startDist` floor + finite guard |
+| B611 | **Gesture and direct-manipulation pan paths MERGED** (`panDelta`, one gain, both magic constants gone); pan "edge" fixed via per-form resolve; `targetOf` resolves at the single lookup point |
+| B612 | Droste gesture travel bounded by the follower's own `LEAD_CAP` |
+| B613 | `canvasOffset` never carries across a form switch; pan-unlock always starts centred |
+| B614 | `sizeNorm` tuned on all five forms; **droste's overlay never applied it** |
+| B615 | `centerFormInSource` — centre the form's BOX, not its origin; portrait sources rotate 90° CW |
+| B616 | Wired centring to load + form switch; **form switch carries the BOX CENTRE, not the origin** |
+| B617 | Tuner hugs the bound being dragged + `range sweep`; source swap runs the full slice reset |
+| B618 | **Zoom extents on all five forms** — the last normalisation number; radial's polygon missing `canvasNorm` |
+| B619 | **Learn lands unassigned**; form selection / segments / droste toggles / oob mappable; **iOS box centring + frame-relative orientation**; `resetSliceState` shared by both chromes |
+
+**🟢 UNBLOCKED — nothing waiting on Daniel. Safe to work autonomously.**
+
+1. ~~**MIDI learn defaults to `sliceRotation`**~~ **SHIPPED B619** — learn now lands on `— pick a target —` and is inert until assigned. **The diagnosis of Daniel's crossed-wires symptom is still unconfirmed** (see BLOCKED), but the defect was real either way.
+2. **The semantic `zoom` target resolves the KEY but not the MODE.** `canvasZoom` is bounded/absolute; `drosteZoomPhase` is cyclic/unbounded. An `abs` fader sweeps one wrapping loop on droste and reads as dead. `resolve()` must carry the control mode. **Now the top unblocked item.**
+3. **Per-form ranges for `sliceScale`** — unblocked as of B618, since `zoomCover`/`zoomInFloor` now exist.
+4. **`slice position x/y` still address the ORIGIN**, but since B616 the app's model is the BOX CENTRE. A fader on slice position now means something different from what the gesture path does. **Found by reading Daniel's B618 target list.** B619 added the `write` hook that makes this implementable without a special case: the target can write through `placeFormBox` the way segments writes through the slider's setter.
+5. ~~**Missing mappable targets**~~ **SHIPPED B619** — form selection (next/prev + one per form), `segments` (form-routed), droste mirror / wedge mirror, and `oob` (cycle). **Still missing and worth a look: droste offset x/y are present but gated behind the `manual` toggle (see DECISIONS), and `sliceScale`'s range is not yet per-form (item 3).**
+6. **Trackpad zoom judder** — the spasm before direction is detected. Investigate BEFORE the transition floor, or the filter hides it.
+7. **Transition-speed floor** (~0.05s instead of true zero). At response 0 the follower hard-snaps, which switches the spring's low-pass filtering off entirely. Daniel proposed it; agreed.
+8. **iPhone pan-lock parity** — radial forms have no unlock, others have no lock.
+9. **⬆️ PROMOTED B619 — the SHARED-QUANTITY audit, and it is broader than "normalisation".** FOUR instances this arc of a shared thing reaching only some of its consumers: droste's overlay missing `sizeNorm` (B614), radial's polygon missing `canvasNorm` (B618), the overlay missing `canvasOffset` (B612), and **the B616 centring hook reaching only the desktop chrome while the mobile chrome kept a stale partial copy (B619)**. The fourth is the expensive one: it shipped as "fixed", was verified on desktop, and was still broken on the device Daniel actually performs with. **The audit question is not "which values are missing a norm" but "which behaviours exist in more than one copy, and do the copies agree."** Start with the two chromes: `main.js` and `mobile/chrome.js` do not share an `env`, so every `env.*` hook added to one is a candidate.
+
+10. **Droste infinite-zoom loop — INVESTIGATION, NOT A FIX (opened B619).** Uncertainty state **B**: the phenomenon is reproducible and two mechanisms are eliminated, but the cause is not established. **The only legal next move is an instrument.**
+    - **DISPROVEN — follower runaway.** `follow.js` simulated across response 0.35–4s × pinch deltas 0.5–20 loops; with state held constant after the lift, residual motion is zero in every cell. **Do not re-propose.**
+    - **RULED OUT — autoplay drift.** `drift.tick` is gated behind `autoOn` in both chromes; Daniel confirmed autoplay off.
+    - **LEAD — the pinch handler starts a PAN drift.** `output-gestures.js` `onMove` accumulates centroid velocity during any two-finger gesture, and release starts `panDrift`. In droste `canvasOffset` is the **log-polar centre**, so a drifting centre reads as an unstoppable zoom. Explains why "quickly" and "from the corner" both matter in the repro; does **not** explain why a fresh grab fails to cancel it (`onStart` calls `panDrift().stop()`).
+    - **The instrument:** publish, per frame, the two candidate drivers — `state.drosteZoomPhase` and `state.canvasOffsetX/Y` — plus whether `panDrift` is running, into the exported report. **Which of the two is moving decides this in one reading**, and it is a conserved quantity (the actual state being rendered), not an activity counter. Daniel does not run Web Inspector, so it must reach `copy report`.
+
+**🔴 BLOCKED — needs Daniel.**
+
+- **The rotation "crossed wires" symptom.** His B618 screenshot showed the AVAILABLE TARGET LIST, not his mapping rows — so the learn-default diagnosis is still unconfirmed. **Needed: how many of his existing rows say "slice rotation" that he did not choose.** ⚠️ B619 fixed the learn default, which stops NEW rows landing there — it does **not** repair rows already stored in `localStorage`. If the count comes back high, those existing rows need re-picking (or clearing the rig).
+- **Overlay reads inaccurate while sweeping the tuner.** No repro detail; the radial fix is unlikely to be the cause since its norm is 1.0. **Needed: which form, and roughly where in the sweep.**
+- **Three guessed `zoomCover` values** (square/hex/triangle, all 0.65) were set when the slider floor was 1 and they were unreachable. Behaviour is identical anywhere below 1, so this only matters if one actually wants to be **above** 1.
+- **Segments-as-performance-control** needs definition: step size and bounds. A count that runs to 64 mid-set is a different instrument from one that walks 6→8→12.
+
+**⚖️ DECISIONS FILED, NOT GUESSED** (all in BACKLOG with reasoning):
+
+- **Live-follows-staged:** should a RESET action jump the follower rather than chase? The unrecoverable-live bug. **Most consequential open call.**
+- **Autoplay's settle test:** exclude `drosteZoomPhase` from `isSettled` so the ghost trail can fade?
+- **Droste's seamless preconditions:** enforce, warn, or accept silently?
+- **Why is `drosteOffsetX/Y` gated behind the `manual` toggle?** Needed before touching droste pan.
+
+**⚠️ FRAGILE / LIGHTLY VERIFIED — worth knowing after a compaction:**
+
+- **Every normalisation number changed in the last five builds** and has had one pass of eyes. Scale and position are coupled through the bounding box (droste already needed 1.82 → 1.65 after centring moved it), so a change to one can invalidate the other.
+- **`canvasOffset` now resets on EVERY form switch** (B613). Deliberate and Daniel-approved, but aggressive — if the tiling-pan workflow starts feeling lossy, this is why.
+- **`env.resetSlice()` runs on every new source** (B617, Daniel's ask), explicitly flagged by him as "revisit if this doesn't feel right over sustained actual use."
+
 ### 2. Real-world pressure testing and hardening
 
 **The arc's actual unmet target**, and Daniel's framing is the right one: this is one cluster, not a list of separate bugs. **The bake failure, the source-panel blackout, the GL context loss, the slice-preview stall and the green glitch are all downstream of a single question: how many decode, encode and GL sessions we hold at once, and whether we release them.** Fixing them individually means deriving the same audit three times.

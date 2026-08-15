@@ -97,9 +97,46 @@ export function placeFormBox(form, state, sourceAspect, tx = 0.5, ty = 0.5) {
 
 export const centerFormInSource = (form, state, sourceAspect) => placeFormBox(form, state, sourceAspect, 0.5, 0.5);
 
-// The form's long edge should follow the SOURCE's long edge, so a portrait source turns every
-// form 90° clockwise (Daniel, B615). Returns the default sliceRotation for an orientation.
-export const defaultSliceRotation = (sourceAspect) => (sourceAspect < 1 ? 90 : 0);
+// The form's long edge should follow the long edge of the FRAME YOU CAN SEE.
+//
+// ⚠️ B619 — THE REFERENCE IS THE OUTPUT FRAME, NOT THE SOURCE. B615 keyed this off the source
+// aspect, which is wrong wherever the two disagree, and on iOS they always disagree: the mobile
+// chrome opens at frameAspect 1 (a square canvas) while the camera hands it a portrait source. The
+// old rule turned every form 90° to match an image nobody sees the shape of, so the wedges stood
+// vertical inside a square frame with dead space either side. Daniel called it as an iOS exception;
+// it generalises cleanly, because "orient to what is visible" is the rule he actually wants
+// everywhere, and on desktop (landscape source, landscape frame) it returns the same answer B615
+// did. A SQUARE frame has no long edge, so it takes the horizontal default.
+export const defaultSliceRotation = (frameAspect) => (frameAspect < 1 ? 90 : 0);
+
+// THE SLICE RESET — one definition, both chromes.
+//
+// ⚠️ Mobile had its own four-line copy that reset scale/rotation/centre and nothing else: no
+// box centring, no orientation, no droste params, no segments. That is why iOS still opened with
+// every form parked on its origin after B616 "fixed" it — the fix landed on the desktop path and
+// the mobile chrome does not import main.js at all. Two chromes, two answers, one of them stale.
+//
+// Ordering is load-bearing: every geometry input has to be at its default BEFORE the box is
+// measured, and the ORIENTATION has to be set before the centring, because rotating the form
+// changes the box it is centred by (Daniel's rule, B615).
+export function resetSliceState(state, form, sourceAspect, frameAspect, applyArmsSnap) {
+  state.segments       = 12;
+  state.sliceScale     = 1.0;
+  state.sliceRotation  = defaultSliceRotation(frameAspect);
+  state.sliceCx        = 0.5;
+  state.sliceCy        = 0.5;
+  state.squareAspect   = 1.0;
+  state.drosteZoom     = 2.0;
+  state.drosteSpiral   = 0;
+  state.drosteMirror   = true;
+  state.drosteArms     = 6;   // match the state default (a relatable kaleidoscopic shape, not the lone arms=1 spiral)
+  state.drosteWedgeMirror = true;
+  state.drosteOffsetX  = 0;
+  state.drosteOffsetY  = 0;
+  applyArmsSnap?.();
+  Object.assign(state, centerFormInSource(form, state, sourceAspect));
+  return state;
+}
 
 // ray-from-center boundary radius: shoot a ray from (cx, cy) at angle theta,
 // return the distance to the first polygon edge it crosses. in display pixels,

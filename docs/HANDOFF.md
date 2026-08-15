@@ -90,6 +90,27 @@ This retires the confusion, not just a hypothesis. Resolution was free because t
 
 ## current version
 
+**🎛️ B619 — MAPPING GAPS CLOSED; THE iOS CENTRING THAT NEVER RAN. ⚠️ `cap sync` REQUIRED — the iOS fix is the point of this build.**
+
+**MIDI learn now lands UNASSIGNED (`— pick a target —`).** It used to default every learned control to `slice rotation`, which compounds: a rig built in one pass ends up with several rows all claiming slice rotation and all fighting, with nothing on screen saying so. **This is the suspected cause of Daniel's "crossed wires" symptom and is still UNCONFIRMED — the confirming observation is a count of how many of his existing rows say `slice rotation` that he did not choose.**
+
+**Newly mappable: form selection** (`next` / `previous` plus one direct target per form — previously you could reshape a form from hardware but never change it, the largest single gap on that screen), **`segments`** (form-routed: radial 2–48, droste arms 1–12), **droste mirror / wedge mirror**, and **out of bounds** (as a cycle).
+
+**⚠️ THE iOS CENTRING BUG WAS TWO DEFECTS WEARING ONE SYMPTOM.**
+
+1. **The mobile chrome does not import `main.js`.** It is a genuinely separate chrome that builds its own `env`, so `env.centerSliceInSource` — added at B616 — never existed there at all. **B616 was verified on desktop and shipped believing it was done. It had reached one of two chromes.** Mobile also carried its own four-line `reset slice` that skipped box centring, orientation, segments and every droste param.
+2. **`defaultSliceRotation` keyed off the SOURCE aspect, and on iOS the source and the frame always disagree.** Mobile opens at `frameAspect: 1` (a square canvas) while the camera hands it a portrait source, so every form turned 90° to match an image whose shape nobody can see. **The reference is now the OUTPUT FRAME: orient to what is visible.** Daniel called it as an iOS exception; it generalises, and on desktop (landscape source, landscape frame) it returns the same answer B615 did.
+
+The reset now lives once, as `geometry.js` → `resetSliceState`, called by both chromes. **The camera path guards on an actual source-shape change**, because `attachCameraSource()` also fires on every flip and lens re-acquire and an unconditional reset there would destroy a composition the user just framed.
+
+**▶ THIS IS THE THIRD INSTANCE THIS ARC of a shared quantity reaching only some of its consumers** (droste's overlay missing `sizeNorm` at B614, radial's polygon missing `canvasNorm` at B618, the centring hook now). **The audit item in `PLAN-LIVE-READINESS.md` is no longer speculative — promote it.**
+
+**🚧 OPEN — DROSTE INFINITE-ZOOM LOOP. Deliberately NOT fixed at B619; the cause is not established.** Daniel's cleaner repro: unlock droste pan → pan to a corner → **fast** pinch out **from the corner** → staged behaves, live loops forever; panning back and zooming in recentres live but neither stops the loop nor reverses it; only `reset canvas` recovers.
+
+- **Follower runaway — DISPROVEN.** `follow.js` simulated directly across response 0.35–4s × pinch deltas 0.5–20 loops: with state held constant after the lift, residual motion is zero in every cell. The lead cap and the catch-up boost are not producing a limit cycle. **Do not re-propose this.**
+- **Autoplay drift — RULED OUT.** `drift.tick` is gated behind `autoOn` in both chromes and Daniel confirmed autoplay was off.
+- **LIVE LEAD: the pinch handler's flick-to-drift.** `output-gestures.js` `onMove` accumulates centroid velocity during a two-finger gesture and starts a **pan** drift on release, so a *pinch* can start a *pan* inertia. In droste `canvasOffset` is the **log-polar centre**, and a drifting log-polar centre reads exactly as an unstoppable zoom. It explains why both "quickly" and "from the corner" are load-bearing. **It does NOT yet explain why a fresh grab fails to cancel it** (`onStart` calls `panDrift().stop()`), so it is a lead, not a conclusion. **Uncertainty state B — the legal next move is an instrument, not a fix.**
+
 **📐 B618 — ZOOM EXTENTS LANDED; THE NORMALISATION PASS IS CLOSED. JS only, no `cap sync`.**
 
 **All five forms now declare all four normalisation numbers.** Extents: **radial 2.0/0.5 · square 0.65/1.0 · hex 0.65/0.6 · triangle 0.65/0.3 · droste 2.2/0.15.**

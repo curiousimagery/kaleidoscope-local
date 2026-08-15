@@ -6,6 +6,46 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🎛️ v0.25.29 (Build 619) — 2026-08-14 — Mapping targets that were missing; the iOS slice centring that never ran
+
+**JS only. No `cap sync` needed** for the mapping work — but the iOS centring fix is the whole point of this build, so **`cap sync` before testing on device.**
+
+### Shipped
+
+- **MIDI learn now lands UNASSIGNED.** It used to default every learned control to `slice rotation` (or `take` for pads). That is wrong in a compounding way: build a rig in one pass and several rows all claim slice rotation, all fight each other, and nothing on screen says so. Rows now read `— pick a target —` and are inert until assigned.
+- **Form selection is mappable.** Previously impossible: you could reshape a form from hardware but never change it, which for a live rig was the largest single gap on the mapping screen. Two shapes, because both are real rig layouts — `next form` / `previous form` for an encoder or button pair, and one direct target per form for a pad grid.
+- **`segments` is mappable** — the most performable discrete control in the app had no hardware route. Form-routed like the slider it shadows (radial → segments 2–48, droste → arms 1–12).
+- **Droste `mirror`, `wedge mirror`, and `out of bounds` are mappable** as cycles, since the thing on the other end of a mapping is a momentary pad.
+- **Fixed: iOS opened with every form parked on its origin.** B616's box centring only ever reached the desktop chrome.
+- **Fixed: forms oriented to the SOURCE's long edge instead of the visible frame's.** On iOS those always disagree.
+- **Fixed: mobile's `reset slice` was a stale partial copy** — it reset four fields and skipped box centring, orientation, segments and every droste param.
+
+### The iOS centring bug was one line of wiring and one wrong noun
+
+Two independent defects that read as one symptom.
+
+**The wiring.** The mobile chrome does not import `main.js` — it is a genuinely separate chrome that builds its own `env`. So `env.centerSliceInSource`, added at B616, never existed there. The fix landed on `source-host.js`, the desktop host, and the iOS builds went on opening exactly as they had before. **This is the third instance this arc of a shared quantity reaching only some of its consumers** (droste's overlay missing `sizeNorm`, radial's polygon missing `canvasNorm`, and now this). The audit item is no longer speculative.
+
+**The wrong noun.** `defaultSliceRotation` keyed off the SOURCE aspect. The mobile chrome opens at `frameAspect: 1` — a square canvas — while the camera hands it a portrait source. Orienting to the source turned every form 90° to match an image whose shape nobody can see, standing the wedges vertical inside a square frame with dead space either side. The reference is now the **output frame**: orient to what is visible. Daniel called it as an iOS exception; it generalises, and on desktop (landscape source, landscape frame) it returns the same answer B615 did.
+
+The reset itself moved to `geometry.js` as `resetSliceState` so both chromes run one definition. The camera path guards on an actual **source-shape change** rather than re-centring unconditionally, because `attachCameraSource()` also fires on every flip and every lens re-acquire — an unconditional reset there would throw away a composition the user just framed.
+
+### `write` hooks: the escape hatch for params that aren't `state[key] = v`
+
+Segments could not go through the input bus's generic writer. Its key ROUTES by form, its value SNAPS to legal steps, and a change CASCADES into the spiral snap and every motion keyframe. A target may now supply `write`, and segments routes to the slider's own setter — which is what stops the hardware path and the pointer path from drifting apart. The rate loop and the glide spring both already went through `writeParam`, so both inherit it.
+
+Every non-transport ACTION fires the existing DOM control rather than writing state, for the same reason: a form switch resets canvas pan, carries the box centre, rewrites motion keyframes and refreshes the form-aware sliders. Reproducing that in the input bus is how the two paths would drift.
+
+### Droste infinite-zoom loop: two hypotheses killed, not yet fixed
+
+Daniel's cleaner repro (unlock droste pan → pan to a corner → fast pinch out from the corner → live loops forever, only `reset canvas` recovers). **Deliberately NOT fixed in this build** — the cause is not established and a speculative fix here is how B611 and B612 each cost a build.
+
+- **Follower runaway — DISPROVEN.** Simulated `follow.js` directly across response 0.35–4s and pinch deltas 0.5–20 loops: with state held constant after the lift it settles to zero residual motion in every cell. The lead cap and the catch-up boost are not producing a limit cycle.
+- **Autoplay drift — RULED OUT.** `drift.tick` is gated behind `autoOn` in both chromes, and Daniel confirmed the loop happens with autoplay off.
+- **Live lead: the pinch handler's flick-to-drift.** `onMove` accumulates centroid velocity during a two-finger gesture and starts a pan drift on release — so a *pinch* can start a *pan* inertia. In droste `canvasOffset` is the log-polar centre, and a drifting log-polar centre reads exactly as an unstoppable zoom. It explains why "quickly" and "from the corner" are both load-bearing in the repro. It does **not** yet explain why a fresh grab fails to cancel it (`onStart` calls `panDrift().stop()`), so it is a lead and not a conclusion.
+
+---
+
 ## 📐 v0.25.28 (Build 618) — 2026-08-14 — Zoom extents landed; the normalisation pass is closed
 
 **JS only. No `cap sync` needed.**

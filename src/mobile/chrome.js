@@ -34,6 +34,29 @@ import { createFollower } from '../kit/follow.js';
 import { createAutoDrift } from '../kit/drift.js';
 import { ICONS } from './icons.js';
 import { applyArmsSnap, snapSpiralValue } from '../kit/snaps.js';
+import { resetSliceState } from '../engine/geometry.js';   // B619: the shared slice reset — mobile had a stale partial copy
+
+// B619 — every path that establishes a NEW SOURCE calls this, matching what source-host.js does on
+// desktop. B616 wired the centring into the desktop host only, and since this chrome never imports
+// main.js the iOS builds kept opening with the form on its origin. `frameAspect` (1 on mobile, a
+// square canvas) is what the orientation keys off, NOT the portrait camera source — see
+// defaultSliceRotation. Deliberately NOT hooked to camera-frame updates, only to source ESTABLISH.
+const resetSlice = () =>
+  resetSliceState(state, getActiveForm(state), engine.getSourceAspect() || 1, session.frameAspect || 1, applyArmsSnap);
+
+// ⚠️ The camera path is NOT a plain "new source". attachCameraSource() also runs on every flip and
+// every lens / resolution re-acquire, and an unconditional reset there would throw away a
+// composition the user just framed. So it re-centres only when the source SHAPE actually changed —
+// which is the only thing that invalidates the centring. First attach counts (no prior aspect);
+// a front/back flip at the same aspect does not.
+let centredForAspect = null;
+function recentreIfSourceShapeChanged() {
+  const a = engine.getSourceAspect() || 1;
+  if (centredForAspect !== null && Math.abs(a - centredForAspect) < 1e-3) return;
+  centredForAspect = a;
+  resetSlice();
+  controlsSync.syncAll(); scheduleRender(); sourceOverlay?.scheduleDraw?.();
+}
 import { zipStore } from '../shell/zip.js';
 import { createTestFrame } from 'conduit/test-pattern';
 import { EDITION, editionAllows, detectRuntime } from '../kit/capabilities.js';
@@ -380,6 +403,7 @@ function attachCameraSource() {
   engine.setSource(camera.frameSource());
   if (useNativeCam && camera.planeReader) engine.setPlanarSource(camera.planeReader(), 0);
   else engine.setPlanarSource(null);
+  recentreIfSourceShapeChanged();   // B619 — first attach centres the form's box; a flip/re-acquire at the same aspect leaves the composition alone
 }
 
 const sourceOverlay = createSourceOverlay({
@@ -426,9 +450,11 @@ const resetBtn = document.createElement('button');
 resetBtn.id = 'm-reset';
 resetBtn.textContent = 'reset slice';
 resetBtn.addEventListener('click', () => {
-  // slice-scoped only — the canvas menu has its own reset now
-  state.sliceScale = 1.0; state.sliceRotation = 0; state.sliceCx = 0.5; state.sliceCy = 0.5;
-  state.squareAspect = 1.0; state.drosteZoom = 2.0;
+  // slice-scoped only — the canvas menu has its own reset now.
+  // B619: was a divergent four-line copy that skipped box centring, orientation, segments and the
+  // droste params, so mobile's "reset slice" left every wedge form parked on its origin. Now the
+  // same function the desktop chrome calls.
+  resetSlice();
   controlsSync.syncAll(); scheduleRender(); sourceOverlay.scheduleDraw();
 });
 settingsEl.appendChild(resetBtn);
@@ -915,6 +941,8 @@ function loadImage(file, sourceType = 'file') {
   const img = new Image();
   img.onload = () => {
     engine.setSource(img);
+    centredForAspect = engine.getSourceAspect() || 1;
+    resetSlice();                              // B619 — an explicitly opened file is a new composition, so it resets unconditionally (matches source-host.js on desktop)
     setSourceIcon(sourceType);                 // folder (file) or camera (still)
     emptyEl.classList.add('m-hidden');
     setContext(false);                         // show SOURCE state

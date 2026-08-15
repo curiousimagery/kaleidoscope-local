@@ -18,7 +18,7 @@ import { DISCRETE_KEYS } from './kit/tween.js';   // discrete settings are globa
 import { confirmInterrupt } from './shell/interrupt.js';   // non-blocking destructive-interrupt (M3)
 import { zipStore } from './shell/zip.js';                 // clip package (source + motion JSON)
 import { createEngine } from './engine/index.js';
-import { centerFormInSource, defaultSliceRotation } from './engine/geometry.js';   // B615: centre the form's BOX, not its origin
+import { resetSliceState } from './engine/geometry.js';   // B619: the shared slice reset (box centring + frame-relative orientation), also used by the mobile chrome
 import { createSourceOverlay } from './components/source-overlay.js';
 import { createOutputGestures } from './components/output-gestures.js';
 import { createPanJoystick } from './components/pan-joystick.js';
@@ -992,6 +992,21 @@ function setupSegmentsSlider() {
     applyRange();
     sync();
   });
+
+  // B619 — exposed for the INPUT BUS (MIDI / gamepad / gesture). Segments was previously
+  // unmappable, which meant the single most performable discrete control on radial and droste
+  // had no hardware route. It cannot go through input-bus's generic `state[key] = v` writer:
+  // the key ROUTES by form (segments vs drosteArms), the value SNAPS (even numbers on radial,
+  // even-or-1 on droste), and a change CASCADES into the spiral snap plus every motion keyframe.
+  // Exposing the slider's own setter is what keeps those four behaviours in one place.
+  env.setSegments = (v) => {
+    setSeg(v);
+    sync();
+    if (state.form === 'droste') env.controlsSync.syncAll();
+    env.scheduleRender();
+  };
+  env.segmentsRange = segmentsRange;
+  env.segmentsValue = getSeg;
 }
 
 // Exposed for overlay.js's seam-drag + boundary-drag handlers.
@@ -1326,28 +1341,10 @@ function wireControls() {
   // off-centre on load: B616's load hook only re-centred, leaving sliceScale / squareAspect /
   // droste params at whatever the previous source had left them, so the box it centred was not
   // the DEFAULT box. One path, one result.
+  // B619 — the body of this moved to geometry.js `resetSliceState` so the MOBILE chrome runs the
+  // identical reset. It had a divergent four-line copy that skipped box centring entirely.
   env.resetSlice = () => {
-    const aspect = engine.getSourceAspect() || 1;
-    state.segments       = 12;
-    state.sliceScale     = 1.0;
-    // ORIENTATION FIRST, then centre — the rotation changes the bounding box, so computing the
-    // centre before it would centre the wrong shape (Daniel's rule, B615).
-    state.sliceRotation  = defaultSliceRotation(aspect);
-    state.sliceCx        = 0.5;
-    state.sliceCy        = 0.5;
-    state.squareAspect   = 1.0;
-    state.drosteZoom     = 2.0;
-    state.drosteSpiral   = 0;
-    state.drosteMirror   = true;
-    state.drosteArms     = 6;   // match the state default (a relatable kaleidoscopic shape, not the lone arms=1 spiral)
-    state.drosteWedgeMirror = true;
-    state.drosteOffsetX  = 0;
-    state.drosteOffsetY  = 0;
-    applyArmsSnap();
-    // Now that every geometry input is at its default, centre the form's BOUNDING BOX in the
-    // source rather than parking its origin at the middle. Last, because it reads sliceScale,
-    // sizeNorm, sliceRotation and squareAspect/drosteArms — all just set above.
-    Object.assign(state, centerFormInSource(getActiveForm(state), state, aspect));
+    resetSliceState(state, getActiveForm(state), engine.getSourceAspect() || 1, session.frameAspect || 1, applyArmsSnap);
     env.controlsSync?.syncAll?.();
   };
 

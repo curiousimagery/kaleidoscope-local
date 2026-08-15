@@ -274,6 +274,20 @@ Daniel's B611 repro, final step: after the droste blowup he goes to canvas setti
 
 **Cross-ref:** `canvasReset` already zeroes `drosteZoomPhase` and calls `panRecenter`, so it is closer to correct than the settings recentre — but it still does not jump the follower.
 
+### 🚨 [HIGH — Daniel, B619] THE DROSTE LOOP HAS A CLEAN REPRO, AND THE TWO OBVIOUS CAUSES ARE BOTH DEAD
+
+**Daniel's B619 repro, which is cleaner than B611's and should be the one used from here:** unlock droste pan → pan to any corner of the image → **quickly** pinch zoom out **from the corner**. Staged behaves as expected. **Live starts looping an infinite follow.** Panning back to centre and zooming in recentres live but neither stops the loop nor reverses its direction. **`reset canvas` is the only recovery.**
+
+**⛔ DISPROVEN — the follower is not running away.** `follow.js` was simulated directly (it is pure, so this cost no device time and no build): response 0.35 / 1 / 2 / 4s × pinch deltas of 0.5 / 2 / 4 / 8 / 20 loops, injected over 10 frames then held constant. **Residual motion 8 seconds after the lift is zero in every cell.** The `LEAD_CAP` re-anchoring and the `BOOST` catch-up do not produce a limit cycle. **Do not re-propose this hypothesis.**
+
+**⛔ RULED OUT — autoplay drift.** `drift.tick` is gated behind `autoOn` in both chromes ([perform-runtime.js](../src/shell/perform-runtime.js), [mobile/chrome.js](../src/mobile/chrome.js)) and Daniel confirmed the loop happens with autoplay off. Note for whoever looks next: drift's `drosteZoomPhase` branch is a **constant-velocity walker** that writes `state[k]` every frame with no settle, so it matches the symptom exactly *if* it ever ticks unexpectedly. Worth one check that `autoOn` cannot be true while the button reads off.
+
+**🔍 THE LIVE LEAD — a PINCH can start a PAN drift, and in droste that is a zoom.** [output-gestures.js](../src/components/output-gestures.js) `onMove` accumulates centroid velocity (`manip.vx/vy`) during **any** two-finger gesture, and release hands it to `panDrift`. A pinch's centroid moves, so a fast pinch releases with real velocity. **In droste `canvasOffset` is the log-polar centre**, and a drifting log-polar centre reads exactly as an unstoppable zoom — which is why "quickly" and "from the corner" are both load-bearing in the repro.
+
+**What the lead does NOT explain:** `onStart` calls `ctx.panDrift()?.stop?.()`, so a fresh grab should cancel it, yet Daniel's re-pan does not. Either `stop()` is not reached on this path, or the drift is not the thing moving.
+
+**▶ NEXT MOVE IS AN INSTRUMENT, NOT A FIX** (uncertainty state B; a speculative fix here is exactly what cost a build at B611 and again at B612). **Publish per frame into the exported report** — Daniel does not run Web Inspector — the two candidate drivers **`drosteZoomPhase`** and **`canvasOffsetX/Y`**, plus whether `panDrift` is running. These are the conserved quantities actually being rendered, not activity counters, and **which of the two is moving decides the question in a single reading.**
+
 ### 🔭 [B612 DIG — three of Daniel's four droste invariants now have MECHANISMS]
 
 **1. ✅ ROOT-CAUSED — "you should never be able to zoom non-proportionally to the slice overlay."**
