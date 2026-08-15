@@ -23,6 +23,11 @@ export default {
   // ✅ TUNED B614 by Daniel against a reference source (was 1.6 first-pass).
   sizeNorm: 2.35,
 
+  // ✅ TUNED B617 by Daniel. Redefines what composition zoom "1×" means for hex, the same lever
+  // triangle already used. Radial and rectangle stay at the 1.0 anchor; droste is deliberately
+  // left alone (its zoom is relative, so a norm there is meaningless — Daniel).
+  canvasNorm: 1.5,
+
   // p6m radiates from a point the eye locks onto, so hex reads CENTERED even though it tiles —
   // drifting off that point while pinching to zoom is disconcerting (Daniel, 2026-08-03). Locked
   // by default like radial/droste; unlock to translate. square/triangle read as wallpaper and stay free.

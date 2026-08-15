@@ -25,7 +25,31 @@
 // which is the right default for a tuner (you cannot accidentally leave the app in a tuned state).
 // `copy` emits a paste-ready block of everything you changed, which is how values get committed.
 
-import { FORMS, getActiveForm } from '../engine/forms/index.js';
+import { FORMS, getActiveForm, formZoomBounds } from '../engine/forms/index.js';
+import { Z_CANVAS_MIN, Z_CANVAS_MAX } from '../kit/zoom.js';
+
+// DRIVE THE ZOOM TO A POINT IN ITS FULL RANGE (B617, Daniel: the extents were "a variable moving
+// target" to measure, because the unified zoom hands off between the canvas and the slice, so what
+// a bound MEANS depends on where you currently are).
+//
+// The whole range is three segments in log space, in zoom-IN order:
+//   A  slice overflow OUT   cover → 1     with the canvas pinned at its min wall
+//   B  canvas travel        min → max     with the slice at 1
+//   C  slice overflow IN    1 → inFloor   with the canvas pinned at its max wall
+//
+// t = 0 is as far OUT as the form can go, t = 1 as far IN. Sweeping t therefore walks the exact
+// path a pinch would, including both handoffs, which is the thing that was impossible to hold
+// still long enough to judge.
+function applyZoomSweep(state, t) {
+  const { cover, inFloor } = formZoomBounds(state);
+  const outLog = Math.log(Math.max(1.0001, cover));          // 1 → cover
+  const canLog = Math.log(Z_CANVAS_MAX / Z_CANVAS_MIN);
+  const inLog = Math.log(1 / Math.min(0.9999, inFloor));     // 1 → inFloor
+  const d = Math.max(0, Math.min(1, t)) * (outLog + canLog + inLog);
+  if (d < outLog) { state.canvasZoom = Z_CANVAS_MIN; state.sliceScale = cover / Math.exp(d); }
+  else if (d < outLog + canLog) { state.sliceScale = 1; state.canvasZoom = Z_CANVAS_MIN * Math.exp(d - outLog); }
+  else { state.canvasZoom = Z_CANVAS_MAX; state.sliceScale = Math.exp(-(d - outLog - canLog)); }
+}
 
 // key, label, [min, max, step], default when a form declares nothing, and what you are judging.
 const FIELDS = [
@@ -97,6 +121,15 @@ export function mountFormTuner(env) {
     slider.addEventListener('input', () => {
       const form = getActiveForm(state);
       form[key] = parseFloat(slider.value);
+      // HUG THE BOUND YOU ARE SETTING (Daniel, B617). A zoom extent is only judgeable from the
+      // extreme it defines, and the unified zoom's handoff means you are almost never standing
+      // there. So dragging `zoom cover` pins the view fully OUT and `zoom-in floor` pins it fully
+      // IN — you see the thing you are dialling, live, instead of inferring it.
+      if (key === 'zoomCover' || key === 'zoomInFloor') {
+        const t = key === 'zoomCover' ? 0 : 1;
+        applyZoomSweep(state, t);
+        if (sweep) sweep.value = String(t);
+      }
       // every consumer reads through the accessors, so one write reaches the shader, the overlay
       // geometry and the sharpness hint together
       env.scheduleRender?.();
@@ -108,6 +141,28 @@ export function mountFormTuner(env) {
     panel.appendChild(row);
     return { key, dflt, slider, val };
   });
+
+  // THE RANGE SWEEP — walk the whole zoom range between the two bounds, including both handoffs.
+  // Not a form field: it drives live state rather than a form declaration, so it is deliberately
+  // excluded from `emit()` and from the dirty marking.
+  const sweepRow = document.createElement('div'); sweepRow.className = 'ft-row';
+  const sweepLab = document.createElement('div'); sweepLab.className = 'ft-lab';
+  const sweepName = document.createElement('span'); sweepName.textContent = 'range sweep';
+  const sweepVal = document.createElement('span'); sweepVal.className = 'ft-val';
+  sweepLab.append(sweepName, sweepVal);
+  const sweep = document.createElement('input');
+  sweep.type = 'range'; sweep.min = 0; sweep.max = 1; sweep.step = 0.005; sweep.value = '0.5';
+  const sweepWhy = document.createElement('div'); sweepWhy.className = 'ft-why';
+  sweepWhy.textContent = 'walks the FULL zoom range for this form: 0 = as far out as it can go, 1 = as far in. Crosses both slice↔canvas handoffs, so you can see where the bounds actually bite.';
+  sweep.addEventListener('input', () => {
+    applyZoomSweep(state, parseFloat(sweep.value));
+    env.scheduleRender?.();
+    env.scheduleOverlayDraw?.();
+    env.syncControls?.();
+    sync();
+  });
+  sweepRow.append(sweepLab, sweep, sweepWhy);
+  panel.appendChild(sweepRow);
 
   const foot = document.createElement('div'); foot.className = 'ft-foot';
   const copyBtn = document.createElement('button'); copyBtn.textContent = 'copy all values';
@@ -167,6 +222,9 @@ export function mountFormTuner(env) {
       const committed = (ORIGINALS.get(form.id) || {})[r.key] ?? r.dflt;
       r.val.classList.toggle('dirty', v !== committed);
     }
+    // the sweep reads out the actual zoom state it produced, so a bound can be read off the
+    // numbers as well as judged by eye
+    sweepVal.textContent = `slice ${round(state.sliceScale)} · canvas ${round(state.canvasZoom)}×`;
     if (!out.hidden) out.value = emit();
   }
 

@@ -343,12 +343,7 @@ const env = {
   // Called when a NEW source arrives, because that is when the aspect (and therefore the box)
   // first becomes knowable — the state defaults of sliceCx/Cy = 0.5 park the ORIGIN at the middle,
   // which only ever looked right for the rectangle. See engine/geometry.js.
-  centerSliceInSource: () => {
-    const aspect = engine?.getSourceAspect?.() || 1;
-    state.sliceRotation = defaultSliceRotation(aspect);
-    Object.assign(state, centerFormInSource(getActiveForm(state), state, aspect));
-    env.controlsSync?.syncAll?.();
-  },
+  centerSliceInSource: () => env.resetSlice?.(),
   resizePreviewCanvas: null,
   arrangeSlots: null,
   pushHistory: () => historyPush(state, motion, env.clip.trim),
@@ -1326,13 +1321,18 @@ function wireControls() {
   // slice reset — single button that resets all form-specific + slice-section
   // params to their defaults. does NOT change which form is selected or any
   // global state (canvas zoom/rotation, OOB mode, export size).
-  document.getElementById('sliceReset').addEventListener('click', () => {
-    env.pushHistory();
+  // The slice reset, extracted so a NEW SOURCE runs exactly the same path (Daniel, B617:
+  // "on source swap please do reset values"). Sharing it is also what fixed the rectangle sitting
+  // off-centre on load: B616's load hook only re-centred, leaving sliceScale / squareAspect /
+  // droste params at whatever the previous source had left them, so the box it centred was not
+  // the DEFAULT box. One path, one result.
+  env.resetSlice = () => {
+    const aspect = engine.getSourceAspect() || 1;
     state.segments       = 12;
     state.sliceScale     = 1.0;
     // ORIENTATION FIRST, then centre — the rotation changes the bounding box, so computing the
     // centre before it would centre the wrong shape (Daniel's rule, B615).
-    state.sliceRotation  = defaultSliceRotation(engine.getSourceAspect() || 1);
+    state.sliceRotation  = defaultSliceRotation(aspect);
     state.sliceCx        = 0.5;
     state.sliceCy        = 0.5;
     state.squareAspect   = 1.0;
@@ -1347,8 +1347,13 @@ function wireControls() {
     // Now that every geometry input is at its default, centre the form's BOUNDING BOX in the
     // source rather than parking its origin at the middle. Last, because it reads sliceScale,
     // sizeNorm, sliceRotation and squareAspect/drosteArms — all just set above.
-    Object.assign(state, centerFormInSource(getActiveForm(state), state, engine.getSourceAspect() || 1));
-    env.controlsSync.syncAll();
+    Object.assign(state, centerFormInSource(getActiveForm(state), state, aspect));
+    env.controlsSync?.syncAll?.();
+  };
+
+  document.getElementById('sliceReset').addEventListener('click', () => {
+    env.pushHistory();
+    env.resetSlice();
     scheduleRender();
     updateUndoUI();
   });

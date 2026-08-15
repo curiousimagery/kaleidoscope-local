@@ -6,6 +6,38 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🎚 v0.25.27 (Build 617) — 2026-08-14 — You cannot judge an extent you can never stand at
+
+**JS only. No `cap sync` needed.**
+
+### Shipped
+
+- **`?tune=forms` now HUGS the bound you are dragging.** Moving `zoom cover` pins the view fully zoomed OUT; moving `zoom-in floor` pins it fully IN. You see the thing you are dialling instead of inferring it.
+- **A `range sweep` control** walks the form's entire zoom range, 0 (as far out as it goes) to 1 (as far in), **crossing both slice↔canvas handoffs.** It reads out the live `slice` / `canvas` pair so a bound can be read off numbers as well as judged by eye. Not a form field — it drives live state, so it is excluded from `emit()` and from dirty marking.
+- **A new source now runs the full slice RESET**, not just a re-centre (Daniel: *"on source swap please do reset values"*).
+- **`sizeNorm` droste 1.82 → 1.65**; at 1.82 the annulus touched the right edge on landscape content once B616 centred the box properly.
+- **`canvasNorm` hex → 1.5.** Radial and rectangle stay at the 1.0 anchor; triangle keeps 1.8; **droste deliberately untouched** — its zoom is relative, so a norm there is meaningless (Daniel).
+
+### Why the extents were "a variable moving target"
+
+Daniel: *"the zoom extents are tricky to measure due to how we handoff zoom extent between the slice and canvas."*
+
+**He is describing a real property of the design, not a UI shortcoming.** The unified zoom is three segments in log space, in zoom-IN order:
+
+| segment | what moves | what is pinned |
+|---|---|---|
+| A | slice `cover → 1` | canvas at its min wall |
+| B | canvas `min → max` | slice at 1 |
+| C | slice `1 → inFloor` | canvas at its max wall |
+
+**So what a bound MEANS depends on which segment you are standing in**, and the bounds live at the two far ends — the two places you are least likely to be. The sweep makes the path walkable and the hug puts you at the end you are editing.
+
+### The rectangle-on-load bug, and why sharing one path fixed it
+
+Daniel: *"the rectangular form is actually now offset by default... when I click reset form it centers, so this seems like an omission rather than bad design."*
+
+**Exactly right.** B616's load hook only re-centred, leaving `sliceScale`, `squareAspect` and the droste params wherever the previous source had left them — so it centred a box that was not the DEFAULT box. The reset path set those first, which is why the button worked and the load did not. **`env.resetSlice()` is now the single path both use.**
+
 ## 🎯 v0.25.26 (Build 616) — 2026-08-14 — B615 centred the box in one place out of three
 
 **JS only. No `cap sync` needed.** **This is the fix that makes B615 actually visible.**

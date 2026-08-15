@@ -90,6 +90,16 @@ This retires the confusion, not just a hypothesis. Resolution was free because t
 
 ## current version
 
+**🎚 B617 — YOU CANNOT JUDGE AN EXTENT YOU CAN NEVER STAND AT. JS only, no `cap sync`.**
+
+**`?tune=forms` now HUGS the bound being dragged** (cover pins fully OUT, in-floor pins fully IN) and gains a **`range sweep`** that walks the form's whole zoom range across both slice↔canvas handoffs, with a live `slice · canvas` readout.
+
+**Daniel's "the extents are a variable moving target" was describing the DESIGN, not a UI gap.** The unified zoom is three log-space segments — slice `cover→1` with the canvas pinned out, then canvas `min→max` with the slice at 1, then slice `1→inFloor` with the canvas pinned in. **What a bound means depends which segment you are in, and the bounds live at the two ends you are least likely to be standing at.**
+
+**Also:** a new source now runs the **full slice reset** (Daniel's ask) — which is what fixed the rectangle sitting off-centre on load, since B616's hook re-centred a box whose `sliceScale`/`squareAspect` were still the previous source's. One shared `env.resetSlice()`. **`sizeNorm` droste → 1.65** (1.82 touched the right edge once the box was centred). **`canvasNorm` hex → 1.5**; radial/rectangle stay 1.0, triangle 1.8, **droste deliberately untouched** (relative zoom, so a norm is meaningless).
+
+**▶ ZOOM EXTENTS ARE NOW THE ONLY THING OWED**, and the tool to measure them exists.
+
 **🎯 B616 — B615 CENTRED THE BOX IN ONE PLACE OUT OF THREE. JS only, no `cap sync`.**
 
 **Daniel caught that B615 did nothing visible.** The geometry was correct and was wired to the **reset slice button only** — so with state defaults of `sliceCx/Cy = 0.5`, load and form-switch both still parked the ORIGIN at the middle, which is the behaviour B615 existed to replace. Now wired to **new-source load** (right after `engine.setSource`, the first moment the aspect is knowable) and to **form switch**.

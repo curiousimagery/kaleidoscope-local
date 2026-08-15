@@ -74,7 +74,9 @@ export default {
   // norm at all (fixed in the same build) so the slider appeared to do nothing to the overlay.
   // The value is still correct: the shader reads `sliceScale × sizeNorm`, so the two are
   // interchangeable for the RENDER — only the overlay was out of step.
-  sizeNorm: 1.82,
+  // 1.82 → 1.65 (Daniel, B617): at 1.82 the annulus touched the right edge on standard landscape
+  // content once the box was centred properly, so the value had to come down after B616 moved it.
+  sizeNorm: 1.65,
 
   uniforms: {
     // log(drosteZoom) — precomputed to spare the shader a log() per pixel.
