@@ -6,6 +6,57 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🪞 v0.25.45 (Build 635) — 2026-08-17 — The geometry flip: the origin guardrail becomes a fold
+
+**JS + GLSL. `cap sync` needed for device builds.**
+
+### Shipped
+
+- **The origin guardrail is gone, replaced by a FOLD.** Push the slice off the source and the reflection you can see becomes the primary slice, handedness and all. Gestures act on what you are looking at.
+- **New state: `sliceMirrorX/Y`** — the slice's handedness, ±1 per axis. Set by the fold, not by a control.
+- **The bound is now measured on the SAMPLED region, not the declared polygon** — which closes droste's leak, where the origin sits far from the wedge you see.
+- **The `sliceCx/Cy` mapping envelope goes back to ±0.5.** B634's ±0.25 was an admitted mitigation; the range no longer carries any safety load.
+- **Reports gained `slice.mirror`, `slice.sampleC`, `slice.sampleHalf`** so a device session can tell "the fold misfired" from "I placed it there".
+
+### The guardrail was the wrong shape, and five leaks said so
+
+B630→B634 defended the bound from inside the overlay's drag handler. It leaked five times from five different writers: the `scale` branch, the phone's `cover` crop, the bus's translation mapping, droste's centre-offset handle, and the original move drag. Each was patched where it was found.
+
+**The pattern was the finding.** A bound enforced in the view can only govern the one writer it sits inside, and autoplay, the tween, the follower, the bus and the remote all write `sliceCx/Cy` without ever passing through there. This was **B611's lesson repeating verbatim — *a bound that is not in STATE is not a bound*** — written during the droste investigation and then violated by the guardrail built right after it.
+
+### What replaces it is an identity, not a defence
+
+Mirror-mode sampling repeats with period 2 and reflects about every source edge, so these describe **the same pixels, exactly**:
+
+    (cx, mirrorX)   ≡   (cx + 2k, mirrorX)   ≡   (2m − cx, −mirrorX)
+
+Fold into the representative that keeps the slice visible and "the slice is off the image" stops being defended and becomes **unrepresentable**. Nothing can leak, because the fold runs on the state about to be shown rather than at each point of write — two sites, both meaning "we are about to show someone this": after a drag, and each chrome's render schedule.
+
+**The fold is pixel-preserving by construction**, which is what makes it safe to apply anywhere, at any time, as often as you like. Verified rather than asserted: 144,000 sampled-UV probes across all five forms and four source aspects, 1,622 folds, **worst drift 8.9e-16** — float noise. Also verified idempotent, and that the slice is never left invisible when a better representative exists.
+
+### Measurement caught the naive rule being wrong
+
+The tidy version of this folds when the sampled box's CENTRE crosses an edge. **It is wrong, and droste proves it:** on a square or portrait source droste's default wedge centres at u = 1.091, so a freshly reset droste would fold on sight and open with its origin off the right of the panel.
+
+Daniel named the risk before a line was written — *"with droste in particular the origin is often some distance from the slice and it would be strange to clip the overlay into a reflection before it even reaches the edge of the source"* — and `defaultOverflow` is droste saying out loud that overflowing IS its look. So the trigger is **his own 25% overlap threshold from B631**, measured against the VISIBLE source; what changed is the response, not the number. A check across every form × five aspect pairs confirms **the fold is inert at rest on all of them.**
+
+### Three couplings that would each have been a bug
+
+1. **Rotation inverts under a reflection.** `sliceRotation` is applied before the handedness flip, so an odd number of mirrors turns the wedge counter to the finger. Multiplying the angular delta by the determinant is the fix — and skipping it would have re-created *"gestures do the opposite of what you'd expect"*, the exact report this feature exists to answer.
+2. **`move` had to start dragging the sampled box instead of the origin.** Writing the origin straight from the pointer fights the fold: the fold reflects it, the next pointer event puts it back, and they alternate at frame rate. Both the drag and the pinch also re-anchor on a fold, so it behaves like letting go and re-grabbing.
+3. **Perform's follower had to be told.** A fold rewrites `sliceCx` without changing what it means; the spring cannot tell that from a real move, and on droste the reflection can be an origin jump of most of the image — chased naively, a full sweep of the LIVE output mid-show. `follower.remap` carries the spring into the new frame, so the lag is identical and nothing is visible.
+
+### Droste mirrors through its angles
+
+Droste is the one form that does not draw itself through `sliceVecToSourceUV`, so the handedness flip does not arrive for free — it would have kept drawing the unmirrored wedge, putting the overlay at odds with the render. A reflection of the plane about the origin is an angle map, **a → det·a + φ**, and folding it into the two angular quantities everything else derives from mirrors the drawing, the OOB probe, the seams and the hit-test geometry in one place. Verified exact to 9.2e-16.
+
+### Known limitations, flagged not hidden
+
+- **Motion mode locks handedness to keyframe 0.** It is the first discrete field COUPLED to a continuous one, so folding between two keyframes plays the second one's position with the first one's handedness. Expressing every keyframe in kf0's fold frame needs the reflection each came through, which the ±1 flag alone does not carry. In BACKLOG.
+- **Clamp and transparent modes keep the origin inside [0,1]**, the pre-B630 rule — neither has the symmetry the fold relies on.
+
+---
+
 ## 🔩 v0.25.44 (Build 634) — 2026-08-17 — Reorder, modifier rows, droste thickness; and the guardrail's real problem
 
 **JS only. No `cap sync` needed.**

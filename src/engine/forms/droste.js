@@ -49,6 +49,7 @@
 // Imported at CALL time inside drawOverlay (a live binding), so the forms↔index cycle is safe —
 // the same pattern engine/geometry.js uses for exactly this reason.
 import { formSizeNorm } from './index.js';
+import { sliceMirror } from '../geometry.js';
 
 const TAU = Math.PI * 2;
 
@@ -369,7 +370,22 @@ export default {
     // sin(-θ)=-sin(θ) — flips the y component). Without this, the rotate-drag
     // delta inversion from Build 61 makes the Droste wedge rotate opposite to
     // cursor direction.
-    const seamPhaseRad = -state.sliceRotation * Math.PI / 180;
+    // ⚠️ B635 — DROSTE MIRRORS THROUGH ITS ANGLES, because it is the one form that does not draw
+    // itself through `sliceVecToSourceUV`. Every other form's overlay is the polygon transformed by
+    // that shared function, so the handedness flip arrives for free; droste builds its annulus from
+    // cos/sin in screen space and would silently keep drawing the UNMIRRORED wedge — the overlay
+    // then disagrees with the render, which is the exact failure the fold exists to remove.
+    //
+    // A reflection of the plane about the slice origin is an angle map. Working it out per case:
+    //   (+1,+1) → a        (−1,+1) → π − a        (+1,−1) → −a        (−1,−1) → a + π
+    // which is one expression: **a → det·a + φ**, det = mx·my, φ = π when mx < 0. Because the
+    // annulus is centred on the origin, radii are untouched — so folding the map into the two
+    // angular quantities everything else is derived from (the wedge centre and the twist) mirrors
+    // the whole drawing, the OOB probe, the seams and the hit-test geometry in one place.
+    const { mx: sMX, my: sMY } = sliceMirror(state);
+    const mirrorDet = sMX * sMY;
+    const mirrorPhase = sMX < 0 ? Math.PI : 0;
+    const seamPhaseRad = mirrorDet * (-state.sliceRotation * Math.PI / 180) + mirrorPhase;
     // Source-theta shift across one tier under generalized Lenstra:
     // theta_src = θ_canvas + b·logr, so at canvas inner (logr = −logS) the
     // shift relative to canvas outer is −b·logS = spiral·logS²/(2π).
@@ -378,7 +394,8 @@ export default {
     // spiral, twistRad < 0 — the inner-ring probes sweep in the +θ direction
     // (matching the actual sample region).
     const _logSv = Math.log(Math.max(1.0001, state.drosteZoom));
-    const twistRad = -(state.drosteSpiral || 0) * _logSv * _logSv / (2 * Math.PI);
+    // twist is a RELATIVE angle, so it takes the reflection's sign (det) and none of its phase.
+    const twistRad = mirrorDet * -(state.drosteSpiral || 0) * _logSv * _logSv / (2 * Math.PI);
     const wedgeStart = seamPhaseRad - halfWedge;
     const wedgeEnd   = seamPhaseRad + halfWedge;
 
@@ -581,7 +598,7 @@ export default {
           const screen_r = rOut * Math.pow(state.drosteZoom, -t);  // rOut → rIn
           const logr_canvas = -t * logS;                            // 0 → -logS
           const theta_rel = thetaCanvas + b * logr_canvas;
-          const a = seamPhaseRad + theta_rel;
+          const a = seamPhaseRad + mirrorDet * theta_rel;   // relative angle → takes the reflection's sign (B635)
           const px = cx + screen_r * Math.cos(a);
           const py = cy + screen_r * Math.sin(a);
           if (i === 0) ctx.moveTo(px, py);
@@ -653,10 +670,13 @@ export default {
     // canvas-NDC y-up (drosteOffset is in canvas-NDC fold-space).
 
     // offset diamond.
+    // B635 — the diamond is a POSITION on the overlay, so it reflects with everything else. Its
+    // drag branch (overlay.js 'droste-offset') multiplies by the same signs to invert this, which
+    // is why they ride in _geom rather than being recomputed there.
     const ox = state.drosteOffsetX || 0;
     const oy = state.drosteOffsetY || 0;
-    const offsetHandleX = cx + rOut * ox;
-    const offsetHandleY = cy - rOut * oy;
+    const offsetHandleX = cx + rOut * ox * sMX;
+    const offsetHandleY = cy - rOut * oy * sMY;
     const offsetHL = env.hoverMode === 'droste-offset' || env.overlayDragMode === 'droste-offset';
     const offsetDiamondR = offsetHL ? 7 : 5;
     ctx.fillStyle = oobOut ? 'rgba(255, 196, 80, 1)' : '#ffffff';   /* white (was light-blue #aadcff) — tidier; distinct from the center dot by SHAPE; amber when OOB */
@@ -746,6 +766,7 @@ export default {
       sliceRotationRad: seamPhaseRad,
       isFullCircle,
       seams: drosteSeams,
+      mx: sMX, my: sMY,   // B635 — for the offset-handle drag, the only hit path that has to un-mirror
     };
   },
 

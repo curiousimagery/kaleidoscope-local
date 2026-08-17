@@ -189,6 +189,29 @@ export function createFollower(initial, { response = 0.5 } = {}) {
     return { ...snapshot };
   }
 
+  // B635 — RE-EXPRESS THE SPRING IN A NEW COORDINATE FRAME. `map` is { key: {a, b} } meaning the
+  // caller has just rewritten `state[key]` as `a·v + b` WITHOUT changing what it means.
+  //
+  // The slice fold does exactly that: when the sampled box crosses a source edge, geometry.js
+  // reflects `sliceCx` and flips the handedness, which is the same picture described differently.
+  // The follower cannot see that. Left alone it would read the reflected target as a genuine move
+  // and sweep the live output all the way across — and on droste, where the origin can sit far from
+  // the wedge, "all the way across" is most of the image, mid-show.
+  //
+  // Applying the same map to cur/tgt keeps the LAG identical, so the audience sees nothing at all:
+  // position and velocity are carried into the new frame instead of being chased in the old one.
+  // (vel is a rate, so it takes `a` and not `b`.)
+  function remap(map) {
+    for (const k in map) {
+      const m = map[k];
+      if (!m || !(k in cur)) continue;
+      const a = m.a ?? 1, b = m.b ?? 0;
+      cur[k] = a * cur[k] + b;
+      tgt[k] = a * tgt[k] + b;
+      vel[k] = a * vel[k];
+    }
+  }
+
   // B619 — read-only spring internals for the motion probe. The droste-loop investigation needs to
   // distinguish "state is moving" from "the follower is moving on its own", and those are the same
   // picture from outside. Returns copies; nothing here is writable.
@@ -213,7 +236,7 @@ export function createFollower(initial, { response = 0.5 } = {}) {
     return true;
   }
 
-  return { setTarget, jump, step, setResponse, getResponse, remaining, isSettled, debugState };
+  return { setTarget, jump, step, setResponse, getResponse, remaining, isSettled, debugState, remap };
 }
 
 // re-exported so perform consumers need one import

@@ -90,6 +90,27 @@ This retires the confusion, not just a hypothesis. Resolution was free because t
 
 ## current version
 
+**🪞 B635 — THE GEOMETRY FLIP. THE ORIGIN GUARDRAIL IS GONE. JS + GLSL — `cap sync` for device builds.**
+
+Push the slice off the source and the reflection you can see **becomes** the primary slice. New state `sliceMirrorX/Y` (±1 handedness) threaded through the shader, geometry, overlay, droste, tween and follow.
+
+- **The bound is measured on the SAMPLED region now**, not the declared polygon — which is what closes droste's leak, where the origin sits far from the wedge you actually see.
+- **Trigger is Daniel's own 25% overlap threshold from B631**, against the VISIBLE source. The response changed, not the number.
+- **`sliceCx/Cy` mapping envelope back to ±0.5.** B634's ±0.25 was an admitted mitigation and the range carries no safety load any more.
+- **Report gained `slice.mirror` / `slice.sampleC` / `slice.sampleHalf`.**
+
+**Why this and not a sixth patch:** the guardrail leaked five times from five different writers because `clampOriginToSource` lived in the overlay's drag handler and could only bound the writer it sat inside. The fold makes the bad state *unrepresentable* instead of defended, and runs on the state about to be shown — two sites, both chromes' render schedules plus the post-drag site.
+
+**VERIFIED BY HARNESS, NOT BY ASSERTION:** 144,000 sampled-UV probes over 5 forms × 4 source aspects, 1,622 folds, **worst pixel drift 8.9e-16**; idempotent; slice never left invisible where a better representative exists. Droste's angle-map exact to 9.2e-16. Every form's default is inert under the fold on all five aspect pairs.
+
+**⚠️ MEASUREMENT KILLED THE TIDY VERSION.** Folding when the box CENTRE crosses an edge is cleaner arithmetic and wrong: droste's default wedge centres at u=1.091 on a square/portrait source, so a fresh droste would fold on sight and open with its origin off-panel. `defaultOverflow` is droste declaring that overflowing IS its look. **Daniel predicted this exact failure in the spec; the harness is what proved it.**
+
+**▶ NEEDS DANIEL ON DEVICE — the parts a harness cannot answer, all about FEEL:**
+1. **The teleport at fold.** When the slice drops below 25% visible it jumps back mirrored. The render never changes (pixel-identical), only the overlay outline moves. Legible as "it comes back", or jarring?
+2. **Post-fold drag direction.** After a reflection, pushing further in the same direction moves the visible slice the other way. That is honest mirror behaviour and matches the output, but it is the thing that felt wrong before — worth a deliberate try.
+3. **iPhone `cover` crop** — the trigger uses the visible rect, so B633's complaint should be gone. Confirm.
+4. **Droste specifically**: origin off-panel while the wedge stays put; the offset diamond after a flip; rotation direction after a flip.
+
 **🔩 B634 — REORDER, MODIFIER ROWS, DROSTE THICKNESS. JS only.**
 
 - **Mapping drag-reorder works again** — `dataTransfer.setData` was never called, so `dragover` fired (line appeared) but `drop` never did. Missing since B278; a long-standing bug, not a regression.
@@ -97,19 +118,6 @@ This retires the confusion, not just a hypothesis. Resolution was free because t
 - **Droste thickness steps are GEOMETRIC.** It is the tier RATIO, so perception tracks log(drosteZoom): a fixed step was a 68% change at 1.1 and 4.9% at 16.
 
 **▶ VERIFIED BY DANIEL AT B633:** d-pad double mapping, the modifier layer, and droste accumulated follow all working. **The B632 cycDelta fix holds up in real use.**
-
-**🚨 DECISION OWED — THE OFF-CANVAS ORIGIN GUARDRAIL IS STRUCTURALLY WRONG, AND PATCHING IT IS NOT WORKING.**
-
-Five leaks, five different writers: the `scale` drag branch (B633), the phone's `cover` crop (B633), the bus's translation mapping (B634), and droste's centre-offset joystick (open). **`clampOriginToSource` lives in the overlay's drag handler, so it can only ever bound the one writer it sits inside** — the bus, the joystick, autoplay, the tween and the follower all write `sliceCx/Cy` or `drosteOffsetX/Y` without passing it.
-
-**This is B611's lesson repeating verbatim: *a bound that is not in STATE is not a bound.*** I wrote that sentence during the droste investigation and then built a guardrail that violates it.
-
-**Three honest options, in my order of preference:**
-1. **REVERT the off-canvas origin.** Cheapest, loses a feature Daniel likes, and removes the whole class. Restores a hard `[0,1]` clamp that every writer already respected.
-2. **NORMALISE ON WRITE (the flip).** Fold the origin back into range so out-of-range is *unrepresentable* rather than defended. Structurally correct and the only version that cannot leak. Needs the `sliceMirrorX/Y` state (shader + geometry + overlay + tween + mapping) — Daniel deferred this at B632 as not worth the complexity *yet*, before knowing the clamp would leak five times.
-3. **Keep patching per writer.** Not recommended. It has cost four builds and there is no reason to think the bus and the joystick are the last two.
-
-**Do not spend another build on option 3 without deciding.**
 
 **🛡 B633 — THE ORIGIN GUARDRAIL, MADE DURABLE. JS only.**
 

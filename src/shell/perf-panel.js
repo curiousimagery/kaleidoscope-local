@@ -256,6 +256,15 @@ export function mountPerfPanel(env, { container = null, onClose = null } = {}) {
             form: s.form, sourceAspect: +a.toFixed(4), frameAspect: +(env.session?.frameAspect ?? 0).toFixed(4),
             sliceRotation: s.sliceRotation, sliceScale: s.sliceScale,
             origin: [+s.sliceCx.toFixed(4), +s.sliceCy.toFixed(4)],
+            // B635 — the fold's two outputs. `mirror` is the slice's handedness (−1 = this axis has
+            // been reflected back onto the image); `sampleC`/`sampleHalf` is the box the fold
+            // actually bounds, which is the SAMPLED region and differs from `boxC` on droste. A
+            // device report showing a slice that looks misplaced is answered by these two lines:
+            // if mirror is ±1 and sampleC is on the image, the fold did its job and the complaint
+            // is about placement, not about the bound.
+            mirror: [s.sliceMirrorX === -1 ? -1 : 1, s.sliceMirrorY === -1 ? -1 : 1],
+            sampleC: (() => { const k = env.sliceBoxCenter?.(s, a); return k ? [+k.x.toFixed(4), +k.y.toFixed(4)] : null; })(),
+            sampleHalf: (() => { const k = env.sliceBoxCenter?.(s, a); return k ? [+k.halfW.toFixed(4), +k.halfH.toFixed(4)] : null; })(),
             boxC: c ? [+c.x.toFixed(4), +c.y.toFixed(4)] : null,
             boxHalf: c ? [+c.halfW.toFixed(4), +c.halfH.toFixed(4)] : null,
             // >1 means the slice is WIDER than the source and must overflow however it is placed

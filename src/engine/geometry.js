@@ -21,6 +21,21 @@ import { formSizeNorm } from './forms/index.js';
 // convention, same scale factor, same aspect-correction direction. when you
 // add a new form whose buildPolygon returns folded-space vertices, this
 // function will correctly place those vertices in source-UV.
+// The slice's HANDEDNESS, sanitised. Sessions saved before B635 (and any snapshot assembled by
+// hand) have no mirror fields at all, and an undefined here would reach the shader as NaN and
+// blank the canvas — so every read goes through this, never through `state.sliceMirrorX` directly.
+export function sliceMirror(state) {
+  return {
+    mx: state?.sliceMirrorX === -1 ? -1 : 1,
+    my: state?.sliceMirrorY === -1 ? -1 : 1,
+  };
+}
+
+// Orientation of the slice frame: +1 = same handedness as the source, −1 = reflected. Everything
+// that reads as a DIRECTION rather than a position inverts with it — most visibly rotation, which
+// is why the drag handlers multiply their angular delta by this.
+export const sliceDet = (state) => sliceMirror(state).mx * sliceMirror(state).my;
+
 export function sliceVecToSourceUV(vx, vy, state, sourceAspect) {
   // apply slice rotation (CW positive on screen, y-down)
   const c = Math.cos(state.sliceRotation * Math.PI / 180);
@@ -41,7 +56,13 @@ export function sliceVecToSourceUV(vx, vy, state, sourceAspect) {
   // from where the GPU actually samples — visible on forms without bilateral
   // mirror symmetry across the horizontal (radial/hex/square/triangle when
   // sliceRotation is not on a horizontal axis).
-  return { dx: x, dy: -y };
+  //
+  // B635 — the HANDEDNESS flip is applied LAST, on the finished source-UV offset, because that is
+  // the space the mirror-tiling symmetry lives in: negating the offset about the slice centre is
+  // exactly the reflection that leaves the sampled pixels untouched. Applying it any earlier
+  // (before rotation, say) would not compose with `foldSliceIntoSource`'s arithmetic.
+  const { mx, my } = sliceMirror(state);
+  return { dx: x * mx, dy: -y * my };
 }
 
 // CENTRE THE FORM IN THE SOURCE (Daniel, B615). His rule, stated geometrically:
@@ -97,6 +118,183 @@ export function placeFormBox(form, state, sourceAspect, tx = 0.5, ty = 0.5) {
 
 export const centerFormInSource = (form, state, sourceAspect) => placeFormBox(form, state, sourceAspect, 0.5, 0.5);
 
+// ===========================================================================
+// THE SAMPLED BOX — "the slice you can actually see" (B635)
+// ===========================================================================
+//
+// ⚠️ THIS IS A DIFFERENT BOX FROM `formBoxCenter` ABOVE, ON PURPOSE. Two questions, two answers:
+//
+//   formBoxCenter  → the form's DECLARED polygon, with the ORIGIN seeded in. Answers "where should
+//                    a freshly reset form sit", which is why it includes the origin (Daniel's B615
+//                    rule) and why droste, whose declared polygon is a placeholder full circle,
+//                    centres its annulus on the frame.
+//   sliceBoxCenter → the region the shader ACTUALLY samples, with NO origin seed. Answers "is the
+//                    thing on screen still on the image", which is the only question a bound may
+//                    ask.
+//
+// **Collapsing them would break droste in the exact way Daniel reported:** *"because the droste
+// origin is far away from the slice, you can drag near the origin and push the slice itself
+// entirely off canvas."* Droste's declared polygon is a unit circle centred on the origin, so a
+// bound measured from it is really a bound on the origin — and the annular WEDGE, which is what
+// you see, was free to leave. `ghostPaths` is already the form's own statement of its true sampled
+// outline (it exists for the perform onion skin), so the bound reuses it rather than inventing a
+// second description that could drift from the render.
+//
+// Forms with no ghostPaths fall back to buildPolygon, which for every wedge form already has the
+// apex at (0,0) as a real vertex — so dropping the origin seed changes nothing for them.
+function sampleOutlines(form, state) {
+  const paths = form?.ghostPaths?.(state);
+  if (paths?.length) return paths.filter((p) => p?.length);
+  const poly = form?.buildPolygon?.(state);
+  return poly?.length ? [poly] : [];
+}
+
+export function sliceBoxCenter(form, state, sourceAspect) {
+  const paths = sampleOutlines(form, state);
+  if (!paths.length) return null;
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  for (const pts of paths) {
+    for (const p of pts) {
+      const { dx, dy } = sliceVecToSourceUV(p.vx, p.vy, state, sourceAspect);
+      if (dx < minX) minX = dx;
+      if (dx > maxX) maxX = dx;
+      if (dy < minY) minY = dy;
+      if (dy > maxY) maxY = dy;
+    }
+  }
+  if (!isFinite(minX) || !isFinite(minY)) return null;
+  return {
+    x: (state.sliceCx ?? 0.5) + (minX + maxX) / 2,
+    y: (state.sliceCy ?? 0.5) + (minY + maxY) / 2,
+    halfW: (maxX - minX) / 2,
+    halfH: (maxY - minY) / 2,
+  };
+}
+
+// Solve for the origin that puts the SAMPLED box's midpoint on (tx, ty). The origin→box offset is
+// fixed for a given scale/rotation/handedness, so this is an exact one-step solve, not an iteration.
+export function placeSliceBox(form, state, sourceAspect, tx, ty) {
+  const c = sliceBoxCenter(form, state, sourceAspect);
+  if (!c) return { sliceCx: tx, sliceCy: ty };
+  return {
+    sliceCx: (state.sliceCx ?? 0.5) + (tx - c.x),
+    sliceCy: (state.sliceCy ?? 0.5) + (ty - c.y),
+  };
+}
+
+// ===========================================================================
+// THE FOLD (B635) — this is what replaces the origin guardrail
+// ===========================================================================
+//
+// **A bound that is not in STATE is not a bound.** B611 learned it, the B630→B634 guardrail
+// violated it, and it leaked five times from five different writers (the scale drag, the phone's
+// cover crop, the bus's translation mapping, droste's centre-offset handle, the original move
+// drag). The reason is structural, not sloppiness: `clampOriginToSource` lived inside the overlay's
+// drag handler, so it could only ever bound the one writer it sat inside — and autoplay, the tween,
+// the follower, the bus and the remote all write `sliceCx/Cy` without passing through it.
+//
+// So the bound stops being a defence and becomes an IDENTITY. In mirror mode the source repeats
+// with period 2 and reflects about every integer, so these three states sample **the same pixels,
+// exactly**:
+//
+//     (cx, mirrorX)      ≡      (cx + 2k, mirrorX)      ≡      (2m − cx, −mirrorX)
+//
+// Fold the state into the representative whose SAMPLED BOX centre lands in [0,1] and the
+// out-of-range state is not defended, it is *unrepresentable*. There is nothing left for a writer
+// to escape, because the fold runs on the state that is about to be shown rather than at the point
+// of each write.
+//
+// **The fold is pixel-preserving by construction**, which is the property that makes it safe to
+// apply anywhere, at any time, as often as you like: it never changes the render, only which of
+// several identical descriptions of the render we are holding. What it changes is which copy the
+// overlay draws as PRIMARY — so the outline you are dragging is always the one you can see, and a
+// gesture can no longer act on a reflection while you watch the original. That was the whole point
+// (Daniel: *"when the slice overlay closest to the origin gets reflected it becomes the main slice
+// instead of the reflection"*).
+//
+// ⚠️ MIRROR MODE ONLY. `clamp` smears its edge pixels and `transparent` is empty out there, so
+// neither has the symmetry this relies on — those modes keep the origin itself inside [0,1], the
+// pre-B630 behaviour.
+//
+// Returns the affine map it applied, `{ x: {a, b}, y: {a, b} }` with `v → a·v + b`, or null if the
+// state was already canonical. Callers that hold an INTERPOLATOR over sliceCx/Cy (perform's
+// follower) must push the same map through it — see follow.js `remap` — or the follower keeps
+// easing toward a target that has moved out from under it.
+// How much of the slice has to stay in view before the fold takes over. Daniel's own number from
+// B631, kept deliberately: *"we must keep some % of the original slice overlapping with the visible
+// source area."* What changed at B635 is the RESPONSE, not the threshold — falling below it used to
+// hit a clamp that fought the drag, and now re-expresses the state as the reflection you can see.
+const MIN_OVERLAP = 0.25;
+
+// The canonical representative: which repeat of the mirrored plane the box centre fell into, and
+// how to get home. The PARITY decides translation vs reflection; both are symmetries of the
+// triangle wave, which is why either leaves the pixels alone. Null when already home.
+const foldMap = (c) => {
+  if (!(c < 0) && !(c > 1)) return null;
+  const k = Math.floor(c);
+  return (k % 2 === 0)
+    ? { a: 1, b: -k }            // even repeat → slide back
+    : { a: -1, b: k + 1 };       // odd repeat  → reflect about (k+1)/2
+};
+
+// ⚠️ THE TRIGGER IS "HAS IT LEFT", NOT "HAS ITS CENTRE CROSSED" — and measurement is what settled
+// that. Folding on the centre alone is tidier arithmetic and it is WRONG, because droste's default
+// fails it: on a square or portrait source its sampled wedge centres at u = 1.091, so a freshly
+// reset droste would fold on sight and open with its origin off the right of the panel. Daniel
+// named this exact risk before a line was written — *"with droste in particular the origin is often
+// some distance from the slice and it would be strange to clip the overlay into a reflection before
+// it even reaches the edge of the source"* — and `defaultOverflow` is droste saying out loud that
+// overflowing the source IS its look.
+//
+// So the fold waits until the slice has genuinely stopped being visible, then adopts the
+// representative that brings it back. Two guards keep that terminating:
+//   1. only fold when coverage is below the threshold, so a slice merely hanging over an edge is
+//      left exactly where the operator put it;
+//   2. only adopt the canonical representative when it is strictly BETTER, so a slice larger than
+//      the source (which can never reach 25% anywhere) settles instead of flipping every frame.
+const axisFold = (c, half, lo, hi) => {
+  const span = 2 * half;
+  if (!(span > 0)) return null;
+  const cover = (cc) => Math.max(0, Math.min(cc + half, hi) - Math.max(cc - half, lo)) / span;
+  const now = cover(c);
+  if (now >= MIN_OVERLAP) return null;
+  const m = foldMap(c);
+  if (!m) return null;                          // already canonical — nothing better exists
+  return cover(m.a * c + m.b) > now ? m : null;
+};
+
+// `view` is the part of the source the operator can actually SEE, as {u0,u1,v0,v1} — the phone
+// mounts its source panel `fit: 'cover'`, so a slice can sit inside the source and outside the
+// panel, which to the operator is indistinguishable from off-canvas (Daniel, B633). It is the
+// reference for the TRIGGER only. The FOLD is always into the source's own [0,1] domain, because
+// that is where the mirror symmetry lives — a crop has no symmetry to exploit. Two questions, two
+// references; conflating them is what made the old bound wrong on one chrome.
+export function foldSliceIntoSource(state, form, sourceAspect, view = null) {
+  if (!state) return null;
+  if (state.oobMode !== 1) {
+    // No symmetry to exploit: `clamp` smears its edge and `transparent` is empty, so a reflection
+    // out there is not the same picture. Keep the ORIGIN on the image, the pre-B630 rule.
+    state.sliceCx = Math.max(0, Math.min(1, state.sliceCx ?? 0.5));
+    state.sliceCy = Math.max(0, Math.min(1, state.sliceCy ?? 0.5));
+    return null;
+  }
+  const box = sliceBoxCenter(form, state, sourceAspect);
+  if (!box || !isFinite(box.x) || !isFinite(box.y)) return null;
+  const v = view || { u0: 0, u1: 1, v0: 0, v1: 1 };
+  const fx = axisFold(box.x, box.halfW, v.u0, v.u1);
+  const fy = axisFold(box.y, box.halfH, v.v0, v.v1);
+  if (!fx && !fy) return null;
+  if (fx) {
+    state.sliceCx = fx.a * (state.sliceCx ?? 0.5) + fx.b;
+    state.sliceMirrorX = sliceMirror(state).mx * fx.a;
+  }
+  if (fy) {
+    state.sliceCy = fy.a * (state.sliceCy ?? 0.5) + fy.b;
+    state.sliceMirrorY = sliceMirror(state).my * fy.a;
+  }
+  return { x: fx, y: fy };
+}
+
 // The form's long edge should follow the long edge of the FRAME YOU CAN SEE.
 //
 // ⚠️ B619 — THE REFERENCE IS THE OUTPUT FRAME, NOT THE SOURCE. B615 keyed this off the source
@@ -133,6 +331,8 @@ export function resetSliceState(state, form, sourceAspect, frameAspect, applyArm
   state.sliceRotation  = defaultSliceRotation(frameAspect);
   state.sliceCx        = 0.5;
   state.sliceCy        = 0.5;
+  state.sliceMirrorX   = 1;   // B635 — handedness is geometry, so it resets with the rest of it,
+  state.sliceMirrorY   = 1;   // and BEFORE the box below is measured (a mirrored box is a different box)
   state.squareAspect   = 1.0;
   state.drosteZoom     = 2.0;
   state.drosteSpiral   = 0;

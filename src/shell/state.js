@@ -16,6 +16,14 @@ export const state = {
   sliceCy: 0.5,
   sliceScale: 1.0,      // BIGGER value = BIGGER slice = covers more of source
   sliceRotation: 0,     // degrees, can be any value (loops modulo 360)
+  sliceMirrorX: 1,      // ±1 — the slice's HANDEDNESS in source-UV space (B635). Mirror-mode
+  sliceMirrorY: 1,      // sampling is periodic with period 2 and symmetric about every integer,
+                        // so reflecting the slice about a source edge AND negating the matching
+                        // handedness samples exactly the same pixels. That symmetry is what lets
+                        // the origin travel off-canvas without the visible slice leaving: when
+                        // the sampled box crosses an edge, geometry.js `foldSliceIntoSource`
+                        // re-expresses the state as its own reflection, so the copy you can see
+                        // is always the PRIMARY one. Set by the fold, not by a control.
   squareAspect: 1.0,    // square form only: cell width/height ratio.
                         // area-preserving normalization (W=√aspect, H=1/√aspect).
   drosteZoom: 2.0,      // droste form only: outer/inner radius ratio = scale per tier.

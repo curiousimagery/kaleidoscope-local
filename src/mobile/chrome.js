@@ -18,6 +18,7 @@ import './styles.css';
 import { createEngine, getActiveForm } from '../engine/index.js';
 import { FORMS, formPanLocked } from '../engine/forms/index.js';
 import { state, session } from '../shell/state.js';
+import { normalizeSliceMirror } from '../shell/overlay.js';   // B635 — the slice fold, called at the render schedule
 import { makeControlsSync } from '../shell/controls.js';
 import { lockState, setLock, makeLockToggle } from '../shell/locks.js';   // M3 locks — reused on mobile
 import { createSourceOverlay } from '../components/source-overlay.js';
@@ -34,7 +35,7 @@ import { createFollower } from '../kit/follow.js';
 import { createAutoDrift } from '../kit/drift.js';
 import { ICONS } from './icons.js';
 import { applyArmsSnap, snapSpiralValue } from '../kit/snaps.js';
-import { resetSliceState, formBoxCenter } from '../engine/geometry.js';   // B619: the shared slice reset — mobile had a stale partial copy
+import { resetSliceState, formBoxCenter, sliceBoxCenter } from '../engine/geometry.js';   // B619: the shared slice reset — mobile had a stale partial copy
 import { createMotionProbe } from '../kit/motion-probe.js';   // B619: droste-runaway probe, armed by ?probe=motion
 
 // B619 — every path that establishes a NEW SOURCE calls this, matching what source-host.js does on
@@ -232,6 +233,7 @@ function scheduleRender() {
   renderScheduled = true;
   requestAnimationFrame(() => {
     renderScheduled = false;
+    normalizeSliceMirror(env);   // B635 — the slice fold; see the twin call in main.js for why it lives at the render schedule
     if (engine.getSourceImage()) engine.render(state);
     sourceOverlay.render();
   });
@@ -684,6 +686,7 @@ env.followerDebug = () => follower?.debugState?.() || null;
 // B625 — the exported report reads slice geometry through this (see perf-panel `slice`). The
 // iPhone default-slice question cannot be answered from a desktop simulation; this is the channel.
 env.formBoxCenter = (st, aspect) => formBoxCenter(getActiveForm(st), st, aspect);
+env.sliceBoxCenter = (st, aspect) => sliceBoxCenter(getActiveForm(st), st, aspect);   // B635 — the box the fold bounds; see main.js
 env.motionProbe = createMotionProbe(env, { enabled: new URLSearchParams(location.search).get('probe') === 'motion' });
 env.panRecenter = mPanJoy.recenter;
 // Out-of-bounds mode (clamp / mirror / transparent) — a stateful 3-way toggle,

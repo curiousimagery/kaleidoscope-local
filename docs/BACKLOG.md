@@ -377,15 +377,24 @@ function applyArmsSnap()    { kitApplyArmsSnap(state); }          // kit is (sta
 
 ### ✅ [SHIPPED B629] A MODIFIER / SHIFT LAYER — kept for the reasoning
 
-### 🪞 [Daniel, B632] THE SEMANTIC FLIP — make the reflection the form you are holding
+### ✅ [SHIPPED B635] THE SEMANTIC FLIP — the reflection becomes the form you are holding
 
-**Deferred deliberately at B632; B632 shipped his fallback (25% box overlap) instead.**
+Shipped as `sliceMirrorX/Y` + `foldSliceIntoSource`. Details in CHANGELOG v0.25.45. Two notes worth keeping, both corrections to what this entry predicted:
 
-His model: *"the moment the origin gets pushed off and reflects back, the reflection becomes the new main form that listens for gestures."* Right, and it is the correct end state — what you see should be what you drag.
+- **The "it may be free for symmetric forms" hope was wrong to build on.** Most forms' folds ARE mirror-symmetric, but the flip is not about the fold's symmetry — it is about the SOURCE-UV offset, which reflects for every form regardless. The flag was needed everywhere.
+- **The trigger is not "entirely outside".** That reads well and produces a large teleport; the shipped trigger is the 25% overlap threshold measured against the VISIBLE source, which is Daniel's own number from B631.
 
-**Why it is a feature and not a clamp.** Folding the origin back across the boundary is trivial. **Mirroring the slice's handedness to match is not**: nothing in state can express a mirrored slice today. It needs a `sliceMirrorX/Y` flag threaded through the shader's `toSourceUV`, `sliceVecToSourceUV`, `formBoxCenter`, the overlay's hit-testing, `CONTINUOUS_KEYS`/`DISCRETE_KEYS`, the follower and the mapping registry — six files and a new piece of state every input surface has to agree about.
+### 🎞 [B635] MOTION MODE LOCKS SLICE HANDEDNESS TO KEYFRAME 0
 
-**One thing that may make it much cheaper, worth checking first:** the fold is exact only when the box is ENTIRELY outside, and in that case the rendered image equals a slice at the reflected position with mirrored handedness. **Most forms' folds are already mirror-symmetric** (radial uses `abs()`, square is p4m, hex p6m, triangle p3m1) — so for those the mirrored slice may render IDENTICALLY to the unmirrored one, which would mean the flip needs no new state at all for them. **Verify that in the shader before scoping the full version**; if it holds, the flag is only needed for droste with a non-zero spiral and asymmetric arm configurations.
+**The one known limitation of the geometry flip, flagged rather than half-handled.**
+
+`sliceMirrorX/Y` is the first DISCRETE field coupled to a CONTINUOUS one (`sliceCx/Cy`). Motion locks discrete fields to keyframe 0, so if the operator folds the slice between two keyframes, the second keyframe's POSITION plays back with the first one's HANDEDNESS — the wrong picture at that end of the loop.
+
+**Why it was not fixed in the same build:** the honest fix is to express every keyframe in kf0's fold frame, which needs the reflection each keyframe came through. The ±1 flag does not carry that — a reflection about u=1 and one about u=3 both read as `-1`. Recovering it means choosing, per keyframe, the representative nearest kf0's box centre, which is a small optimisation, not an arithmetic identity.
+
+**Reproduce:** in motion, place kf0 with the slice centred; drag the slice off an edge until it folds; place kf1. Play. Expect kf1's end of the loop to show a mirrored slice.
+
+**Not urgent** — it needs the operator to cross a fold boundary mid-authoring, and perform (which is where the fold actually gets exercised) is handled correctly via `follower.remap`.
 
 ### ⌨️ [Daniel, B624] A MODIFIER / SHIFT LAYER FOR THE CONTROLLER — the honest answer to form switching
 

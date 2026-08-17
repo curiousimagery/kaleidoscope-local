@@ -577,6 +577,13 @@ export function createPerformRuntime(env) {
       if (env.motionRT.active) byId('stillBtn')?.click();
       document.activeElement?.blur?.();   // enter with clean focus — the keys work from keypress one
       follower = createFollower(state, { response: session.performResponse ?? 0.5 });
+      // B635 — the slice fold re-expresses sliceCx/Cy without changing what they mean (it reflects
+      // the slice and flips its handedness, which samples the identical pixels). The follower has
+      // no way to tell that from a real move, and on droste — where the origin can sit well outside
+      // the wedge you are looking at — the reflection can be an origin jump of most of the image.
+      // Chased naively that is a full sweep of the LIVE output, in front of an audience. Carrying
+      // the spring into the new frame keeps the lag identical, so nothing is visible at all.
+      env.onSliceFold = (fold) => follower?.remap(fold);
       env.performRT.active = true;
       env.performRT.followed = { ...state };
       env.performRT.hold = false;
@@ -602,6 +609,7 @@ export function createPerformRuntime(env) {
       env.performRT.hold = false;
       setAuto(false);                  // the drift is a perform behavior — off with the mode
       follower = null;
+      env.onSliceFold = null;          // nothing left to keep in step (B635)
       if (raf) { cancelAnimationFrame(raf); raf = 0; }
       applyLayout();   // hides the live view, panel + divider; re-homes the PiP
       const sl = byId('stageLabel'); if (sl) sl.textContent = 'output';

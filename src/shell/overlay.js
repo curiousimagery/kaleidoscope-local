@@ -17,56 +17,47 @@
 // — assembled by main.js and threaded through. this avoids module-level
 // mutable globals while keeping the call sites readable.
 
-import { sliceVecToSourceUV, polygonRadiusAt, pointInPolygon, formBoxCenter } from '../engine/geometry.js';
+import { sliceVecToSourceUV, polygonRadiusAt, pointInPolygon, sliceBoxCenter, placeSliceBox, sliceDet, foldSliceIntoSource } from '../engine/geometry.js';
 import { getActiveForm } from '../engine/forms/index.js';
 import { rotateCursorForAngle, scaleCursorForAngle } from './cursors.js';
 import { perfFlags } from './perf-flags.js';
 
-// ⚠️ B632 — THE ORIGIN MAY LEAVE THE IMAGE IN MIRROR MODE, BUT THE FORM MUST KEEP A FOOT IN IT.
+// ⚠️ B635 — THE ORIGIN GUARDRAIL IS GONE. IT IS A FOLD NOW, AND THE DIFFERENCE IS THE WHOLE POINT.
 //
-// B630 allowed the origin out to ±1 period. Daniel found the failure that creates: *"we can get
-// into a state where the entire slice is removed from the source and only the reflection is
-// visible, and gesture interactions do the opposite of what you'd expect because what you're
-// visually responding to is mirrored."* Correct, and it is the important half of the feature.
+// B630→B634 defended the bound from inside this file's drag handler, and it leaked five times from
+// five different writers (the scale branch, the phone's cover crop, the bus's translation mapping,
+// droste's centre-offset handle, the original move drag). Each was patched where it was found. The
+// pattern was the finding: **a bound enforced in the view can only govern the one writer it sits
+// inside**, and autoplay, the tween, the follower, the bus and the remote all write `sliceCx/Cy`
+// without ever passing through here.
 //
-// **His preferred fix — the SEMANTIC FLIP — is feasible but is a real feature, not a clamp.** When
-// the slice leaves the image entirely, the pixels you see are its reflection, so the honest move is
-// to re-express the state AS that reflection: fold the origin back across the boundary and mirror
-// the slice's handedness, after which gestures act on what you are actually looking at. Folding the
-// position is trivial; **mirroring the handedness is not**, because nothing in state can express a
-// mirrored slice today. It needs a `sliceMirrorX/Y` flag threaded through the shader's toSourceUV,
-// `sliceVecToSourceUV`, the overlay, the tween/follow key lists and the mapping registry — five or
-// six files, and a new piece of state that every input surface has to agree about. Worth doing, and
-// worth doing deliberately rather than inside a clamp.
+// `foldSliceIntoSource` (engine/geometry.js) replaces the clamp with an IDENTITY. Mirror-mode
+// sampling repeats with period 2 and reflects about every source edge, so the state can be
+// re-expressed as its own reflection with the pixels bit-identical — and folding into the
+// representative whose SAMPLED box centre lies in [0,1] makes "the slice is off the image"
+// unrepresentable rather than defended. There is nothing left to leak through, because the fold
+// runs on the state about to be shown rather than at each point of write.
 //
-// So this is his own fallback, which costs nothing and removes the bad state completely: **the
-// origin may travel off-canvas, but the form's BOX must keep MIN_OVERLAP of itself inside the
-// source.** You can never reach "entirely outside", so the thing you are dragging is always partly
-// the real slice, and the gesture never inverts. The compositional win of B630 survives — pushing
-// out still swaps which part of the slice reflects back — while the disorienting end state does not
-// exist.
-//
-// ⚠️ KNOWN LIMITATION, flagged rather than silently handled: the overlap is measured against the
-// FULL source, but the phone chrome mounts the source overlay with `fit: 'cover'`, so its panel
-// shows a cropped view. On that device the slice can legally sit in a part of the source the panel
-// does not show. Measuring against a per-chrome visible rect would mean each chrome computing its
-// own bound — precisely the two-chrome divergence class that has cost this arc seven bugs — so the
-// full source is the single honest reference until there is a shared one.
-const OOB_MIRROR = 1;
-const MIN_OVERLAP = 0.25;   // a quarter of the box's own extent, or of the visible source, whichever is smaller
+// It is called from exactly two kinds of place, both meaning "we are about to show this to
+// someone": here after a drag, and each chrome's render schedule. Read the long note in
+// geometry.js for the arithmetic.
+export function normalizeSliceMirror(env) {
+  const state = env?.state;
+  if (!state) return null;
+  const fold = foldSliceIntoSource(state, getActiveForm(state),
+    env.engine?.getSourceAspect?.() || 1, visibleUVRect(env));
+  // Perform holds a spring over sliceCx/Cy. A fold rewrites those numbers without changing what
+  // they mean, so the spring has to be carried into the new frame or it chases a target that moved
+  // out from under it — a full sweep of the live output, mid-show. See follow.js `remap`.
+  if (fold) env.onSliceFold?.(fold);
+  return fold;
+}
 
-// ⚠️ B633 — THE OVERLAP MUST BE AGAINST WHAT YOU CAN SEE, NOT AGAINST THE WHOLE SOURCE.
-//
-// B632 measured against the full source and flagged the phone as a known limitation. Daniel hit it
-// immediately: *"at the default size the iphone out of view source canvas doesn't catch."* The phone
-// mounts this overlay with `fit: 'cover'`, so the panel shows a CROP — a slice can satisfy "25%
-// inside the source" while sitting entirely in the part of the source the panel never displays,
-// which to the operator is indistinguishable from being off-canvas.
-//
-// The visible rect is already derivable from geometry the overlay computes anyway: `_geom`'s image
-// rect intersected with the canvas. Under `contain` this returns [0,1] and nothing changes; under
-// `cover` it returns the crop. **One derivation, both chromes** — which is why this lives here and
-// not in either chrome's own bound.
+// What the operator can SEE of the source: the drawn image rect intersected with the panel. Under
+// `contain` this is [0,1] and changes nothing; under the phone's `cover` it is the crop. Kept from
+// B633 — the derivation was always right, it was being used for the wrong job. It fed a per-chrome
+// BOUND then (which is what leaked); it feeds the fold's TRIGGER now, while the fold itself works
+// in the source's own domain. One derivation, both chromes, which is why it lives here.
 function visibleUVRect(env) {
   const cv = env.sourceOverlayCanvas;
   const g = cv?._geom;
@@ -75,29 +66,8 @@ function visibleUVRect(env) {
   if (!w || !h) return null;
   const u0 = Math.max(0, -g.imgX / g.imgW), u1 = Math.min(1, (w - g.imgX) / g.imgW);
   const v0 = Math.max(0, -g.imgY / g.imgH), v1 = Math.min(1, (h - g.imgY) / g.imgH);
-  // a degenerate rect (mid-layout, zero-size panel) must not become a bound
+  // a degenerate rect (mid-layout, zero-size panel) must not become a reference
   return (u1 - u0 > 0.05 && v1 - v0 > 0.05) ? { u0, u1, v0, v1 } : null;
-}
-
-// Clamp the ORIGIN by way of the BOX, since the box is what has to stay partly visible and the
-// origin means something different per form (apex vs centre). The origin→box offset is fixed for a
-// given scale/rotation, so we solve in box space and convert back.
-function clampOriginToSource(env) {
-  const state = env.state;
-  const sourceAspect = env.engine?.getSourceAspect?.() || 1;
-  const box = formBoxCenter(getActiveForm(state), state, sourceAspect);
-  if (!box) return;
-  const r = state.oobMode === OOB_MIRROR ? (visibleUVRect(env) || { u0: 0, u1: 1, v0: 0, v1: 1 }) : null;
-  const axis = (c, half, origin, lo0, hi0) => {
-    const span = hi0 - lo0;
-    if (!r) return Math.max(lo0, Math.min(hi0, origin));   // non-mirror: the ORIGIN itself stays in
-    const need = MIN_OVERLAP * Math.min(2 * half, span);
-    const lo = lo0 - half + need, hi = hi0 + half - need;
-    const delta = origin - c;                              // origin relative to the box centre
-    return Math.max(lo, Math.min(hi, c)) + delta;          // clamp the CENTRE, carry the origin
-  };
-  state.sliceCx = axis(box.x, box.halfW, state.sliceCx, r ? r.u0 : 0, r ? r.u1 : 1);
-  state.sliceCy = axis(box.y, box.halfH, state.sliceCy, r ? r.v0 : 0, r ? r.v1 : 1);
 }
 
 // touch-surface detection — used to decide whether to render always-visible
@@ -1238,7 +1208,12 @@ export function setupSourceInteraction(env, wrap) {
       // wedge graphic rotating in the same screen direction as the fingers.
       // The apex-orbit below uses da_rad as-is (it's a position rotation in
       // screen y-down, unaffected by the wedge-direction flip).
-      state.sliceRotation = ((drag.startRotation - da) % 360 + 360) % 360;
+      //
+      // B635 — and the determinant on top, for the same reason as the one-finger rotate: a
+      // reflected wedge turns the other way for the same `sliceRotation` step. The ORBIT below
+      // takes no determinant, because it moves a point in UV and UV→screen has no mirror in it —
+      // only slice→UV does.
+      state.sliceRotation = ((drag.startRotation - sliceDet(state) * da) % 360 + 360) % 360;
       // Rotate the apex around the finger midpoint — the standard two-finger
       // rigid-body transform. This keeps the midpoint as the true pivot so the
       // wedge tracks naturally under the fingers. Without this, rotation orbits
@@ -1254,11 +1229,28 @@ export function setupSourceInteraction(env, wrap) {
           const da_rad = da * Math.PI / 180;
           const cosA = Math.cos(da_rad);
           const sinA = Math.sin(da_rad);
-          const dx = drag.startCx - drag.startPivotUV.u;
-          const dy = drag.startCy - drag.startPivotUV.v;
-          state.sliceCx = curMid.u + dx * cosA - dy * sinA;
-          state.sliceCy = curMid.v + dx * sinA + dy * cosA;
-          clampOriginToSource(env);
+          // B635 — orbit the SAMPLED BOX, not the origin, for the same reason `move` does: the
+          // fold rewrites the origin mid-gesture, so a transform anchored on `startCx` would fight
+          // it every frame. The box centre is absolute and re-solved from the current scale and
+          // handedness each frame, so a fold partway through a pinch costs nothing.
+          const dx = drag.startBoxU - drag.startPivotUV.u;
+          const dy = drag.startBoxV - drag.startPivotUV.v;
+          Object.assign(state, placeSliceBox(getActiveForm(state), state, env.engine.getSourceAspect(),
+            curMid.u + dx * cosA - dy * sinA,
+            curMid.v + dx * sinA + dy * cosA));
+          // Re-baseline the pinch on a fold, for the same reason the move drag re-anchors: this
+          // branch recomputes its target from `startBox`/`startPivot` every frame, so a stale
+          // baseline would undo the fold on the very next touch event. Rebasing on the current
+          // fingers is "let go and re-pinch", which is what the operator perceives anyway.
+          if (normalizeSliceMirror(env)) {
+            const nb = sliceBoxCenter(getActiveForm(state), state, env.engine.getSourceAspect());
+            if (nb) { drag.startBoxU = nb.x; drag.startBoxV = nb.y; }
+            drag.startPivotUV = curMid;
+            drag.startAngle = angle;
+            drag.startDist = dist;
+            drag.startScale = state.sliceScale;
+            drag.startRotation = state.sliceRotation;
+          }
         }
       }
       env.syncControls();
@@ -1279,8 +1271,17 @@ export function setupSourceInteraction(env, wrap) {
         const newCyPx = y + drag.dragOffsetY;
         const uv = uvFromXY(newCxPx, newCyPx);
         if (!uv) return;
-        state.sliceCx = uv.u;
-        state.sliceCy = uv.v;
+        // ⚠️ B635 — MOVE DRAGS THE SAMPLED BOX, NOT THE ORIGIN. Writing the origin straight from
+        // the pointer fights the fold: the fold reflects the origin, the next pointer event puts it
+        // straight back, and the two alternate every frame — a strobing slice. Worse, after a
+        // reflection the origin and the box travel in OPPOSITE directions, so an origin-space drag
+        // would send the visible slice away from the finger, which is the exact disorientation the
+        // fold exists to remove.
+        //
+        // The box centre is the thing the operator is actually pointing at and the thing the fold
+        // bounds, so targeting it makes the two agree by construction. `placeSliceBox` solves for
+        // the origin in one step, so this stays a direct manipulation, not a search.
+        Object.assign(state, placeSliceBox(getActiveForm(state), state, env.engine.getSourceAspect(), uv.u, uv.v));
       } else if (drag.mode === 'scale') {
         if (!g) return;
         const r = Math.hypot(x - g.cx, y - g.cy);
@@ -1352,7 +1353,12 @@ export function setupSourceInteraction(env, wrap) {
         if (delta > Math.PI)  delta -= 2 * Math.PI;
         if (delta < -Math.PI) delta += 2 * Math.PI;
         drag.prevAngle = a;
-        state.sliceRotation = state.sliceRotation - delta * 180 / Math.PI;
+        // B635 — a reflected slice turns the other way. `sliceRotation` is applied BEFORE the
+        // handedness flip, so under an odd number of mirrors a positive step rotates the drawn
+        // wedge counter to the finger. Multiplying by the determinant is the whole correction, and
+        // skipping it would re-create the "gestures do the opposite of what you'd expect" report
+        // that motivated this feature in the first place.
+        state.sliceRotation = state.sliceRotation - sliceDet(state) * delta * 180 / Math.PI;
       } else if (drag.mode === 'droste-ratio') {
         // inner-ring radial drag — feel matches outer-ring scale-drag (relative,
         // r_now / r_start), but moves the inner ring instead of the outer.
@@ -1390,16 +1396,28 @@ export function setupSourceInteraction(env, wrap) {
         // applied: diamond's overlay-screen position corresponds directly to
         // the spiral pole's canvas-screen position regardless of wedge angle.
         if (!g || g.rOut < 1) return;
-        state.drosteOffsetX = (x - g.cx) / g.rOut;
-        state.drosteOffsetY = -((y - g.cy) / g.rOut);
+        // B635 — invert droste's own mirrored placement of the diamond (see its drawOverlay). The
+        // signs are ±1 and self-inverse, so the same multiply serves both directions.
+        state.drosteOffsetX = ((x - g.cx) / g.rOut) * (g.mx ?? 1);
+        state.drosteOffsetY = -((y - g.cy) / g.rOut) * (g.my ?? 1);
       }
-      // ⚠️ B633 — ENFORCED ONCE, AFTER EVERY DRAG MODE, not per branch. B632 clamped inside the
-      // `move` branch only, so SCALE and the square-edge drags grew the box past the bound with
-      // nothing re-checking it: Daniel *"when i make a slice larger i can still consistently move
-      // the entire slice off canvas."* Any mutation that changes the box has to re-assert the
-      // bound, and the only durable way to guarantee that is a single site every branch falls
-      // through to — not a call each branch has to remember.
-      clampOriginToSource(env);
+      // ONE site every drag branch falls through to (kept from B633 — a call each branch has to
+      // remember is a call some future branch forgets, and that already happened once). What runs
+      // here changed at B635: no longer a clamp fighting the drag, but the fold, which re-expresses
+      // the state as the reflection you can actually see.
+      // ⚠️ RE-ANCHOR THE DRAG ON A FOLD, or the gesture strobes. `move` derives its target from the
+      // pointer every frame, so without this the next event would put the slice straight back where
+      // the fold just took it from, and the two would alternate at frame rate. Re-deriving the grab
+      // offset from where the slice now IS makes the fold behave exactly like letting go and
+      // re-grabbing at the same finger position — the drag simply continues.
+      if (normalizeSliceMirror(env) && drag.mode === 'move') {
+        const gg = env.sourceOverlayCanvas?._geom;
+        const box = gg && sliceBoxCenter(getActiveForm(state), state, env.engine.getSourceAspect());
+        if (box) {
+          drag.dragOffsetX = (gg.imgX + box.x * gg.imgW) - x;
+          drag.dragOffsetY = (gg.imgY + box.y * gg.imgH) - y;
+        }
+      }
       env.syncControls();
       env.scheduleRender();
       e.preventDefault();
@@ -1456,6 +1474,9 @@ export function setupSourceInteraction(env, wrap) {
         startRotation: env.state.sliceRotation,
         startCx:       env.state.sliceCx,
         startCy:       env.state.sliceCy,
+        // B635 — the pinch orbits this, not the origin (see onMove's pinch branch).
+        startBoxU:     sliceBoxCenter(getActiveForm(env.state), env.state, env.engine.getSourceAspect())?.x ?? env.state.sliceCx,
+        startBoxV:     sliceBoxCenter(getActiveForm(env.state), env.state, env.engine.getSourceAspect())?.y ?? env.state.sliceCy,
         startPivotUV:  uvFromXY((t0.clientX + t1.clientX) / 2 - rect.left,
                                 (t0.clientY + t1.clientY) / 2 - rect.top),
       };
@@ -1479,10 +1500,17 @@ export function setupSourceInteraction(env, wrap) {
     const form = getActiveForm(state);
 
     if (cls.mode === 'move') {
+      // B635 — the grab offset is measured to the SAMPLED BOX centre, matching what onMove now
+      // drives. `g.cx/cy` is the ORIGIN in screen px, which is a different point on droste (its
+      // origin sits at the middle of the annulus while the wedge you grabbed is off to one side)
+      // and after a fold moves the opposite way. Falling back to the origin keeps a form with no
+      // measurable outline behaving exactly as before.
+      const box = sliceBoxCenter(form, state, env.engine.getSourceAspect());
+      const boxPx = box ? { x: g.imgX + box.x * g.imgW, y: g.imgY + box.y * g.imgH } : { x: g.cx, y: g.cy };
       drag = {
         mode: 'move',
-        dragOffsetX: g.cx - x,
-        dragOffsetY: g.cy - y,
+        dragOffsetX: boxPx.x - x,
+        dragOffsetY: boxPx.y - y,
       };
       setCursor('grabbing');
     } else if (cls.mode === 'scale' && cls.onSpoke && form.spokeRule === 'radial' && allowDiscrete && !env.isLocked?.('segments')?.locked) {

@@ -99,26 +99,21 @@ const appliesToForm = (t, s) => {
 const PARAM_TARGETS = [
   { key: 'sliceRotation', label: 'slice rotation', min: 0, max: 360, wrap: true, dir: '0° → 360° counterclockwise' },
   { key: 'sliceScale', label: 'slice scale', min: 0.05, max: 5, dir: 'small → large' },   // the slice control's OWN max (independent of the zoom gesture's Z_SLICE_COVER overflow cap)
-  // B630 — the origin may leave the image in MIRROR mode (see overlay.js clampOrigin). The mapping
-  // range resolves the same way, because a bound the pointer honours and the hardware does not is
-  // exactly the divergence this arc keeps paying for.
-  // B632 — mirror mode lets the origin leave the image, but the overlay's rule is that the form's
-  // BOX must keep a quarter of itself inside the source (see clampOriginToSource). That exact bound
-  // is box-dependent, so the mapping range is the generous envelope rather than a second, subtly
-  // different formula — one bound, one owner. ±0.5 covers every form's legal travel.
-  // ⚠️ B634 — TIGHTENED FROM ±0.5 TO ±0.25. Daniel: *"using the translation control on the
-  // midi/gamepad input bypasses your barrier."* Correct, and it is not a range bug — the overlay's
-  // real guardrail (25% box overlap with the VISIBLE source) lives in the drag handler, so nothing
-  // the bus writes ever meets it. A generous mapping envelope was safe only while the overlay was
-  // the sole writer.
+  // B630 — the origin may leave the image in MIRROR mode. The mapping range resolves the same way,
+  // because a bound the pointer honours and the hardware does not is exactly the divergence this
+  // arc keeps paying for.
   //
-  // This narrows the envelope to roughly the tightest legal travel across forms, which stops the
-  // reported escape. **It is a mitigation, not the fix** — see the note on `clampOriginToSource`
-  // in overlay.js. A bound enforced in the view cannot govern state that five writers touch.
+  // ⚠️ B635 — BACK TO ±0.5, AND THE RANGE IS NO LONGER LOAD-BEARING. B634 squeezed this to ±0.25 as
+  // an admitted mitigation, because the real bound lived inside the overlay's drag handler and
+  // nothing the bus wrote ever met it — Daniel: *"using the translation control on the midi/gamepad
+  // input bypasses your barrier."* The bound is now a FOLD in geometry.js, applied at each chrome's
+  // render schedule, so a value written from here is canonicalised exactly like one written by a
+  // finger. Nothing can be pushed off the image through this path regardless of the envelope, which
+  // frees the range to be what it should have been all along: how far the knob travels.
   { key: 'sliceCx', label: 'slice position x', min: 0, max: 1, dir: 'left → right',
-    resolve: (s) => (s.oobMode === 1 ? { min: -0.25, max: 1.25 } : { min: 0, max: 1 }) },
+    resolve: (s) => (s.oobMode === 1 ? { min: -0.5, max: 1.5 } : { min: 0, max: 1 }) },
   { key: 'sliceCy', label: 'slice position y', min: 0, max: 1, dir: 'top → bottom',
-    resolve: (s) => (s.oobMode === 1 ? { min: -0.25, max: 1.25 } : { min: 0, max: 1 }) },
+    resolve: (s) => (s.oobMode === 1 ? { min: -0.5, max: 1.5 } : { min: 0, max: 1 }) },
   // SEMANTIC "zoom" — one mapping point that RESOLVES to the active form's zoom control, so a
   // single knob works across forms (droste → infinite zoom, else composition zoom) and existing
   // hardware never needs reprogramming on a form switch (Daniel). `resolve(state)` returns the

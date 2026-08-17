@@ -17,6 +17,7 @@
 // uniform locations and pushing values per-frame.
 
 import { FORMS, formSizeNorm, formCanvasNorm, formPanLocked } from './forms/index.js';
+import { sliceMirror } from './geometry.js';
 
 // uniforms common to ALL forms. these are the shared scaffolding the shader
 // preamble depends on. order matters only for readability of the generated
@@ -66,6 +67,10 @@ const COMMON_UNIFORMS = {
   u_sliceFactor:   { type: '1f', get: (state) => state.sliceScale * formSizeNorm(state) },   // per-form perceived-size norm
   u_sliceRot:      { type: '1f', get: (state) => state.sliceRotation * Math.PI / 180 },
   u_sliceCenter:   { type: '2f', get: (state) => [state.sliceCx, state.sliceCy] },
+  // B635 — slice HANDEDNESS (±1 per axis). Read through `sliceMirror` rather than off state
+  // directly: a pre-B635 saved session has neither field, and an undefined here reaches the GPU as
+  // NaN, which blanks the canvas rather than failing loudly.
+  u_sliceMirror:   { type: '2f', get: (state) => { const m = sliceMirror(state); return [m.mx, m.my]; } },
   u_sourceAspect:  { type: '1f', get: (state, ctx) => ctx.sourceAspect },
   u_oobMode:       { type: '1i', get: (state) => state.oobMode },
   // output framebuffer aspect (width/height). 1.0 for the square preview; the FBO
@@ -100,6 +105,7 @@ uniform vec2 u_canvasOffset;
 uniform float u_sliceFactor;
 uniform float u_sliceRot;
 uniform vec2  u_sliceCenter;
+uniform vec2  u_sliceMirror;
 uniform float u_sourceAspect;
 uniform float u_outputAspect;
 uniform int   u_oobMode;
@@ -138,7 +144,14 @@ vec2 toSourceUV(vec2 v) {
   // (texture-up) to keep canvas-top sampling source-top. Without this, source
   // appears upside-down at default state on forms without mirror symmetry
   // (e.g. Droste at arms=1). Invisible on mirror-symmetric forms.
-  return vec2(v.x, -v.y) + u_sliceCenter;
+  //
+  // u_sliceMirror (B635) is the slice's HANDEDNESS, ±1 per axis, applied to the finished offset.
+  // Mirror-mode sampling is symmetric about every source edge, so (centre + off) and
+  // (2·edge − centre − off) are the same texel — which is what lets the JS side fold the origin
+  // back onto the image without the picture changing. Both halves of that identity have to agree,
+  // so this line and geometry.js sliceVecToSourceUV must stay in lockstep.
+  // (No backticks in here — this is a JS template literal and one would break the parse silently.)
+  return vec2(v.x, -v.y) * u_sliceMirror + u_sliceCenter;
 }
 `;
 

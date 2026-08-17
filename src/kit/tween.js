@@ -38,6 +38,14 @@ export const ANGULAR_KEYS = ['sliceRotation', 'canvasRotation'];
 // from `a` is what keeps the loop continuous (no hard cut mid-tween).
 export const DISCRETE_KEYS = [
   'form', 'segments', 'drosteArms', 'oobMode', 'drosteMirror', 'drosteWedgeMirror', 'drosteSpiral',
+  // B635 — slice HANDEDNESS. Discrete because ±1 has no meaningful midpoint; a tweened 0 would
+  // collapse the slice to a line. It is the one discrete field that is COUPLED TO A CONTINUOUS ONE
+  // (sliceCx/Cy), so motion mode locking it to keyframe 0 is a real limitation, not a formality:
+  // if the operator folds the slice between two keyframes, the second keyframe's position plays
+  // back with the first's handedness. Documented in BACKLOG rather than silently half-handled —
+  // expressing every keyframe in kf0's fold frame needs the reflection each one came through,
+  // which the ±1 flag alone does not carry.
+  'sliceMirrorX', 'sliceMirrorY',
 ];
 
 // Easing functions, t in [0,1] → eased [0,1]. easeInOut is the default: zero

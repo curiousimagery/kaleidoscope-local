@@ -18,7 +18,8 @@ import { DISCRETE_KEYS } from './kit/tween.js';   // discrete settings are globa
 import { confirmInterrupt } from './shell/interrupt.js';   // non-blocking destructive-interrupt (M3)
 import { zipStore } from './shell/zip.js';                 // clip package (source + motion JSON)
 import { createEngine } from './engine/index.js';
-import { resetSliceState, formBoxCenter } from './engine/geometry.js';   // B619: the shared slice reset (box centring + frame-relative orientation), also used by the mobile chrome
+import { normalizeSliceMirror } from './shell/overlay.js';   // B635 — the slice fold, called at the render schedule
+import { resetSliceState, formBoxCenter, sliceBoxCenter } from './engine/geometry.js';   // B619: the shared slice reset (box centring + frame-relative orientation), also used by the mobile chrome
 import { createMotionProbe } from './kit/motion-probe.js';   // B619: droste-runaway probe, armed by ?probe=motion
 import { createSourceOverlay } from './components/source-overlay.js';
 import { createOutputGestures } from './components/output-gestures.js';
@@ -557,6 +558,13 @@ function scheduleRender() {
   env.sched.renderScheduled = true;
   requestAnimationFrame(() => {
     env.sched.renderScheduled = false;
+    // B635 — canonicalise the slice before anything looks at it. This is the site that makes the
+    // fold leak-proof where the old clamp was not: every writer that changes the slice ends up
+    // asking for a frame, so the bus, the joystick, autoplay, the tween and the remote are all
+    // covered without any of them knowing the rule exists. **Both chromes need this line** — see
+    // the same call in mobile/chrome.js. It is pixel-preserving, so it can never change what is
+    // about to be drawn, only which of several identical descriptions of it we are holding.
+    normalizeSliceMirror(env);
     if (engine && engine.getSourceImage()) {
       // the switchboard mutates perfFlags in place, so the engine is told each render rather
       // than at construction (the setter is idempotent — see engine/index.js)
@@ -1358,6 +1366,9 @@ function wireControls() {
   // identical reset. It had a divergent four-line copy that skipped box centring entirely.
   // B625 — the exported report reads slice geometry through this (see perf-panel `slice`).
   env.formBoxCenter = (st, aspect) => formBoxCenter(getActiveForm(st), st, aspect);
+  // B635 — the SAMPLED box, which is what the fold bounds (and differs from the declared box on
+  // droste). Both chromes publish it so the exported report can be read the same way from either.
+  env.sliceBoxCenter = (st, aspect) => sliceBoxCenter(getActiveForm(st), st, aspect);
   env.resetSlice = () => {
     // hand SHARED code the KIT function, which takes state explicitly — never the local wrapper.
     resetSliceState(state, getActiveForm(state), engine.getSourceAspect() || 1, session.frameAspect || 1, kitApplyArmsSnap);
