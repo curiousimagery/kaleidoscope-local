@@ -41,9 +41,27 @@ import { perfFlags } from './perf-flags.js';
 // It is called from exactly two kinds of place, both meaning "we are about to show this to
 // someone": here after a drag, and each chrome's render schedule. Read the long note in
 // geometry.js for the arithmetic.
+// ⚠️ B636 — WHEN THE FOLD FIRES. Daniel expected it at the END of a gesture and B635 did it live:
+// *"the direction you're moving an overlay reverses midway through a movement when the flip occurs,
+// which isn't desirable."* Correct — mid-drag the reflection takes over under a moving finger, so
+// the slice starts travelling against you for the rest of the stroke.
+//
+// Deferring to release keeps the whole stroke in one frame of reference, and because the fold is
+// pixel-preserving there is nothing to catch up on: the render was already showing the reflection
+// the entire time. Only the outline's identity settles late.
+//
+// **The gate is DRAGS ONLY.** A knob, an encoder, autoplay and the tween have no "release", so
+// suppressing the fold for them would restore exactly the leak this whole build removed. That is
+// why the test is `overlayDragging` and not a mode flag.
+//
+//   ?fold=live     fold continuously, the B635 behaviour, for A/B
+//   ?fold=release  (default) fold when the gesture ends
+const FOLD_LIVE = new URLSearchParams(location.search).get('fold') === 'live';
+
 export function normalizeSliceMirror(env) {
   const state = env?.state;
   if (!state) return null;
+  if (env.overlayDragging && !FOLD_LIVE) return null;
   const fold = foldSliceIntoSource(state, getActiveForm(state),
     env.engine?.getSourceAspect?.() || 1, visibleUVRect(env));
   // Perform holds a spring over sliceCx/Cy. A fold rewrites those numbers without changing what
@@ -62,7 +80,14 @@ function visibleUVRect(env) {
   const cv = env.sourceOverlayCanvas;
   const g = cv?._geom;
   if (!cv || !g || !g.imgW || !g.imgH) return null;
-  const w = cv.clientWidth, h = cv.clientHeight;
+  // ⚠️ B636 — `canvas.width`, NOT `clientWidth`. This function used to run only inside a drag, and
+  // B635 moved it onto every frame via the render-schedule fold — where `clientWidth` forces a
+  // LAYOUT FLUSH before each render. That is Daniel's iPad report: *"the slice now has a bit of a
+  // stutter and latency compared to before."* The backing-store size is an attribute read with no
+  // layout cost, and `drawSourceOverlayInner` sets it from the same measurement this used to take,
+  // so the value is identical — it is the reflow that is gone, not the accuracy.
+  const dpr = overlayDpr();
+  const w = cv.width / dpr, h = cv.height / dpr;
   if (!w || !h) return null;
   const u0 = Math.max(0, -g.imgX / g.imgW), u1 = Math.min(1, (w - g.imgX) / g.imgW);
   const v0 = Math.max(0, -g.imgY / g.imgH), v1 = Math.min(1, (h - g.imgY) / g.imgH);
@@ -430,6 +455,19 @@ function drawSourceOverlayInner(env) {
       ctx.setLineDash([4, 3]);
       ctx.lineWidth = 1 * sw;
       ctx.stroke();
+      // ⚠️ B636 — THE ORIGIN REFLECTS TOO, AND WE WERE NOT DRAWING IT. Daniel: *"we don't draw the
+      // slice origin in the reflection and we need to now since that is an element that can be
+      // reflected."* Right, and the fold is what made it matter: the origin is no longer just the
+      // apex of the shape you are holding, it is the thing that leaves the image and comes back as
+      // one of these copies. Without its dot, a reflected wedge has no visible apex, so there is no
+      // way to see WHICH copy is about to become primary.
+      const ro = tf({ u: state.sliceCx, v: state.sliceCy });
+      const rp = uvToScreen(ro.u, ro.v);
+      ctx.setLineDash([]);
+      ctx.beginPath();
+      ctx.arc(rp.x, rp.y, 3, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(255, 196, 80, ${0.85 * reflectFade})`;
+      ctx.fill();
     }
     ctx.restore();
   }
@@ -1466,6 +1504,7 @@ export function setupSourceInteraction(env, wrap) {
       const rect = wrap.getBoundingClientRect();
       env.overlayDragging = true;
       env.overlayDragMode = 'pinch';
+      const pinchBox = sliceBoxCenter(getActiveForm(env.state), env.state, env.engine.getSourceAspect());
       drag = {
         mode: 'pinch',
         startDist:     Math.hypot(t1.clientX - t0.clientX, t1.clientY - t0.clientY),
@@ -1474,9 +1513,10 @@ export function setupSourceInteraction(env, wrap) {
         startRotation: env.state.sliceRotation,
         startCx:       env.state.sliceCx,
         startCy:       env.state.sliceCy,
-        // B635 — the pinch orbits this, not the origin (see onMove's pinch branch).
-        startBoxU:     sliceBoxCenter(getActiveForm(env.state), env.state, env.engine.getSourceAspect())?.x ?? env.state.sliceCx,
-        startBoxV:     sliceBoxCenter(getActiveForm(env.state), env.state, env.engine.getSourceAspect())?.y ?? env.state.sliceCy,
+        // B635 — the pinch orbits this, not the origin (see onMove's pinch branch). Measured ONCE
+        // (B636): the two axes came from two separate calls, which built the polygon twice.
+        startBoxU:     pinchBox?.x ?? env.state.sliceCx,
+        startBoxV:     pinchBox?.y ?? env.state.sliceCy,
         startPivotUV:  uvFromXY((t0.clientX + t1.clientX) / 2 - rect.left,
                                 (t0.clientY + t1.clientY) / 2 - rect.top),
       };
@@ -1620,7 +1660,12 @@ export function setupSourceInteraction(env, wrap) {
     env.overlayDragging = false;
     env.overlayDragMode = null;
     setCursor('default');
+    // THE FOLD LANDS HERE (B636), after the flag clears so it is no longer suppressed. This is the
+    // one call that makes deferring safe: a stroke may end anywhere, so if the gesture left the
+    // slice off the image it is re-expressed now, before the next input reads the state.
+    normalizeSliceMirror(env);
     env.updateUndoUI?.();
+    env.scheduleRender?.();
     env.scheduleOverlayDraw?.();
   }
 

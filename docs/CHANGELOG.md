@@ -6,6 +6,88 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🎞 v0.25.47 (Build 637) — 2026-08-17 — Motion keyframes reconcile their fold frame
+
+**JS only. No `cap sync` needed.**
+
+### Shipped
+
+- **Motion no longer plays a mirrored keyframe.** Folding the slice between laying two keyframes used to make the second end of the loop come back reflected.
+- **New `COUPLED_DISCRETE_KEYS`** — discrete fields that are coupled to a continuous one and must not be propagated between keyframes on their own.
+
+### Why holding handedness to keyframe 0 was wrong
+
+Motion treats every discrete field as a global setting: `segments` and `oobMode` mean the same thing wherever the playhead is, so an edit propagates to all keyframes and playback holds them to kf0. `sampleKeyframes` even starts each frame from `{...list[0].snap}`, so kf0's handedness is pinned whatever the others say.
+
+**`sliceMirrorX/Y` is the first discrete field COUPLED to a continuous one**, and that breaks the assumption: handedness only means something alongside the position it was captured with. Copying kf0's handedness onto kf1 without moving kf1 renders a slice the operator never posed.
+
+### The fix is to make the pin true, not to stop pinning
+
+The symmetry group gives it for free: `(cx, m)` and `(2n − cx, −m)` are the same picture, so **there is always a description of kf1 that carries kf0's handedness**, and adopting it does not change how that keyframe looks.
+
+**Choosing WHICH reflection is the whole difficulty, and it is why the ±1 flag alone could not solve this** — a `−1` does not record whether it came from a reflection about u=1 or u=3. Rather than trying to recover history, pick the representative whose sampled box lands nearest the reference's: `n = round((ref + cur) / 2)` is exactly the integer that puts `2n − cur` closest to `ref`. That is also what a tween wants — the shortest honest travel, which plays as the slice running out to the edge and reflecting back. Which is precisely what the operator watched happen when they dragged it there.
+
+### Reconciled at the READ point, which is the B635 lesson applied
+
+`alignKeyframeFrames()` runs at the two places the keyframe list is consumed (`sampleAt`, `stgEval`) plus `selectKeyframe`, **not at the five places a snapshot is written**. A rule enforced per-writer is a rule some future writer forgets, and this arc has paid for that five times. The propagation loops in `main.js` and the gesture-capture path now skip coupled keys instead of stomping them.
+
+`alignSliceFrame` compares handedness first and bails on two integer reads, so the overwhelmingly common already-aligned case never measures a box — it runs on every sampled frame of playback.
+
+### Verified
+
+Across all five forms × three source aspects: walk the slice right until the fold fires, pose kf1, align, then check.
+
+- **the aligned keyframe still renders exactly as posed** — worst pixel drift **2.2e-16**
+- **handedness mismatches remaining: 0**
+- **worst tween travel: 0.81 source-widths** (the short way, not a sweep)
+
+---
+
+## 🔧 v0.25.46 (Build 636) — 2026-08-17 — Fold on release, the iPad stutter, reflected origins, and the droste step (properly this time)
+
+**JS only. No `cap sync` needed.**
+
+### Shipped
+
+- **The fold waits for gesture release.** `?fold=live` restores B635's continuous behaviour for A/B.
+- **iPad stutter fixed** — the per-frame fold was forcing a layout flush on every frame.
+- **The reflected copies now draw the ORIGIN**, on the polygon forms and on droste.
+- **Onion-skin trail clears on a fold**, so ghosts never trace a reflection the slice has left behind.
+- **Droste thickness steps are proportional — for real.** B634's fix was wrong twice over.
+
+### Fold on release
+
+Daniel: *"the direction you're moving an overlay reverses midway through a movement when the flip occurs, which isn't desirable."* Right. Deferring to release keeps a whole stroke in one frame of reference, and costs nothing because **the fold is pixel-preserving** — the render was already showing the reflection the entire time; only the outline's identity settles late.
+
+**The gate is drags only.** A knob, an encoder, autoplay and the tween have no release, so suppressing the fold for them would restore the exact leak B635 removed. The test is `overlayDragging`, not a mode flag.
+
+### The iPad stutter was a forced reflow, not the fold's arithmetic
+
+Measured before guessing: a box measurement costs **1µs**, so even four per pointer event is nothing. The real cause is that `visibleUVRect` reads `clientWidth`/`clientHeight`, and B635 promoted it from drag-only to **every frame** — a layout flush before every render. Reading the canvas backing store instead gives an identical number with no reflow. Also removed a doubled box measurement in the pinch capture, and the per-vertex `{mx,my}` allocation in `sliceVecToSourceUV` (thousands of short-lived objects a second during a drag).
+
+### The reflected origin
+
+Daniel: *"we don't draw the slice origin in the reflection and we need to now since that is an element that can be reflected."* The fold is what made it matter — the origin is no longer just the apex of the shape you hold, it is the thing that leaves the image and returns as one of these copies. Without its dot a reflected wedge has no visible apex, so there is no way to see which copy is about to become primary. Drawn on the polygon forms and inside droste's own mirror transform, where it matters most since droste's origin sits far from the wedge.
+
+### ⚠️ B634's droste fix was wrong in BOTH directions
+
+Daniel: *"it doesn't seem to be working, the behavior seems unchanged."* Two independent bugs, and his word "unchanged" named the bigger one:
+
+1. **`geometric` only ever touched the `rel` branch.** A knob or fader mapped in ABSOLUTE mode still walked thickness linearly from 1.1 to 16, so his mapping never reached the code B634 changed. It really was unchanged.
+2. **Where it did apply, it made things worse.** The step was sized by the ARITHMETIC span, which is meaningless for a ratio. `relSpan` is 14.9 for droste against canvas zoom's 3.95, so the same 5% press came out as `exp(0.745 × 0.92) − 1` ≈ **98% per press** — nearly doubling the tier ratio every tap.
+
+The honest span for a quantity perceived as a ratio is **log(max/min)**, which makes the step a constant percentage everywhere. Applied to all three paths (rel, rate, absolute). `GEO_K` re-tuned 0.92 → 0.83 to hold canvas zoom at the ~20%-per-press feel Daniel already confirmed:
+
+| value | B633 fixed-add | B634 "geometric" | B636 log-geometric |
+|---|---|---|---|
+| 1.10 | 67.7% | 98.5% | **11.8%** |
+| 4.28 | 17.4% | 98.5% | **11.8%** |
+| 16.00 | 4.7% | 98.5% | **11.8%** |
+
+**The lesson worth keeping:** B634 shipped a fix for a target whose mapping mode it never checked, and calibrated a constant against one target's span while applying it to another's. Neither would have survived printing the table above — which took two minutes.
+
+---
+
 ## 🪞 v0.25.45 (Build 635) — 2026-08-17 — The geometry flip: the origin guardrail becomes a fold
 
 **JS + GLSL. `cap sync` needed for device builds.**

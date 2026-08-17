@@ -18,7 +18,9 @@
 // ensureSeededSelection / lockVideoDuration / stopPlayback / fmtClock / renderRuler /
 // scheduleFilmstrip) and wires its own DOM (wireMotion + setupVideoExport).
 
-import { sampleKeyframes, DISCRETE_KEYS, CONTINUOUS_KEYS, ANGULAR_KEYS, angDelta } from '../kit/tween.js';
+import { sampleKeyframes, DISCRETE_KEYS, CONTINUOUS_KEYS, ANGULAR_KEYS, angDelta, isCoupledKey } from '../kit/tween.js';
+import { alignSliceFrame } from '../engine/geometry.js';   // B637 — express every keyframe in kf0's fold frame
+import { getActiveForm } from '../engine/forms/index.js';
 import { FOLLOW_SPANS } from '../kit/follow.js';
 import { ICONS } from '../mobile/icons.js';
 import { pToMediaSec, seekVideoTo } from './video-source.js';
@@ -190,9 +192,34 @@ function renderSourcePreviewFrame(snap, size) {
 // turning points — no per-keyframe stutter), with motion.smoothing relaxing jaggy
 // keyframe values. Loop-aware (kf0 is the return target at t=1). Discrete fields
 // are locked to kf0. Math lives in kit/tween.js (sampleKeyframes).
+// ⚠️ B637 — RECONCILE THE FOLD FRAME AT THE READ POINT, NOT AT EVERY WRITE.
+//
+// Keyframes are captured from live state, and the fold may have flipped the slice's handedness
+// between two of them. `sampleKeyframes` pins kf0's handedness onto every sampled frame, so unless
+// the others are expressed in kf0's frame the loop plays a picture nobody posed.
+//
+// This lives at the two places the list is READ rather than at each of the five places a snapshot
+// is written, which is the lesson B635 paid for: a rule enforced per-writer is a rule some future
+// writer forgets. `alignSliceFrame` bails on two integer reads when the frames already agree, so
+// the normal case costs nothing per frame.
+function alignKeyframeFrames() {
+  const list = kfList();
+  if (list.length < 2) return;
+  const ref = list[0]?.snap;
+  if (!ref) return;
+  // kf0's form: motion already holds `form` to keyframe 0, so this is the form every sampled
+  // frame is rendered with, and therefore the one whose geometry defines the box being aligned.
+  const form = getActiveForm(ref);
+  const aspect = env.engine?.getSourceAspect?.() || 1;
+  for (let i = 1; i < list.length; i++) {
+    if (list[i]?.snap) alignSliceFrame(list[i].snap, ref, form, aspect);
+  }
+}
+
 function sampleAt(p) {
   const list = kfList();
   if (list.length === 0) return { ...state };
+  alignKeyframeFrames();
   const out = sampleKeyframes(list, p, { smoothing: motion.smoothing, loop: motion.loop });
   for (const k of DISCRETE_KEYS) out[k] = list[0].snap[k];   // lock discrete to kf0
   return out;
@@ -613,7 +640,7 @@ function finishGesture() {
   const kf = kfList()[motion.selected];
   if (!kf) return;
   kf.snap = { ...final };
-  for (const dk of DISCRETE_KEYS) kf.snap[dk] = kfList()[0].snap[dk];   // the timeline invariant
+  for (const dk of DISCRETE_KEYS) if (!isCoupledKey(dk)) kf.snap[dk] = kfList()[0].snap[dk];   // the timeline invariant (coupled keys align instead — B637)
   // winding rides the keyframe for fields that traveled meaningfully; the
   // sampler snaps it to the class that lands exactly on the keyframe's angle
   const w = {};
@@ -734,6 +761,7 @@ function stgParkOrFollow() {
 }
 
 function stgEval(list, p) {
+  alignKeyframeFrames();   // B637 — the staging read point needs the same reconciliation as sampleAt
   const out = sampleKeyframes(list, p, { smoothing: motion.smoothing, loop: motion.loop });
   for (const k of DISCRETE_KEYS) out[k] = list[0].snap[k];
   return out;
@@ -978,6 +1006,7 @@ function selectKeyframe(i) {
   if (motion.playing) stopPlayback();
   motion.selected = i;
   setPlayhead(kfList()[i].t);
+  alignKeyframeFrames();   // B637 — so the kf0 discrete hold below is a no-op on handedness, not a stomp
   Object.assign(state, kfList()[i].snap);
   // keep discrete fields consistent with keyframe 0 even if this keyframe was
   // captured under a different form (the animation already ignores its discrete;

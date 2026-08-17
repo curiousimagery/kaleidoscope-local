@@ -583,7 +583,21 @@ export function createPerformRuntime(env) {
       // the wedge you are looking at — the reflection can be an origin jump of most of the image.
       // Chased naively that is a full sweep of the LIVE output, in front of an audience. Carrying
       // the spring into the new frame keeps the lag identical, so nothing is visible at all.
-      env.onSliceFold = (fold) => follower?.remap(fold);
+      env.onSliceFold = (fold) => {
+        follower?.remap(fold);
+        // B636 — DROP THE TRAIL ON A FOLD. Daniel: *"when the slice itself flips the onion skin
+        // doesn't — especially with faster more dramatic movements with a slower transition speed
+        // this can get visually noisy and confusing."* The ghosts are honest history, but history
+        // recorded in the PREVIOUS frame of reference: they trace where the reflection was, drawn
+        // against a slice that has since become its own mirror image, so the trail reads as the
+        // output doing something it never did. His own call on the remedy, and the conservative one.
+        //
+        // (The alternative is re-folding each ghost into the new frame, which keeps the trail and
+        // makes it bounce off the edge the way the render actually did. Kept in reserve — it is
+        // more information but also more to read, and this is the low-noise answer he asked for.)
+        trail = [];
+        settleFadeT = 0;
+      };
       env.performRT.active = true;
       env.performRT.followed = { ...state };
       env.performRT.hold = false;

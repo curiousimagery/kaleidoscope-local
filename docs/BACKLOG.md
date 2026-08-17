@@ -384,17 +384,19 @@ Shipped as `sliceMirrorX/Y` + `foldSliceIntoSource`. Details in CHANGELOG v0.25.
 - **The "it may be free for symmetric forms" hope was wrong to build on.** Most forms' folds ARE mirror-symmetric, but the flip is not about the fold's symmetry — it is about the SOURCE-UV offset, which reflects for every form regardless. The flag was needed everywhere.
 - **The trigger is not "entirely outside".** That reads well and produces a large teleport; the shipped trigger is the 25% overlap threshold measured against the VISIBLE source, which is Daniel's own number from B631.
 
-### 🎞 [B635] MOTION MODE LOCKS SLICE HANDEDNESS TO KEYFRAME 0
+### 🎬 [B636] COMPANION VIDEO + SLICE OVERLAY UNDER THE FOLD — UNVERIFIED
 
-**The one known limitation of the geometry flip, flagged rather than half-handled.**
+The one B635/B636 surface Daniel has not smoke-tested: the rendered companion video that burns the slice overlay in. It borrows `drawSourceOverlay` with `overlayStrokeScale` bumped, so it inherits the handedness and the reflected-origin dot for free **in principle** — but it renders from a state stream rather than live interaction, and nothing has watched a fold happen inside a recorded take.
 
-`sliceMirrorX/Y` is the first DISCRETE field coupled to a CONTINUOUS one (`sliceCx/Cy`). Motion locks discrete fields to keyframe 0, so if the operator folds the slice between two keyframes, the second keyframe's POSITION plays back with the first one's HANDEDNESS — the wrong picture at that end of the loop.
+**What to look for:** an outline that mirrors mid-take without the render changing (correct), versus an outline that jumps to a position the render never showed (wrong). Also whether ghost/onion-skin passes appear in the burn.
 
-**Why it was not fixed in the same build:** the honest fix is to express every keyframe in kf0's fold frame, which needs the reflection each keyframe came through. The ±1 flag does not carry that — a reflection about u=1 and one about u=3 both read as `-1`. Recovering it means choosing, per keyframe, the representative nearest kf0's box centre, which is a small optimisation, not an arithmetic identity.
+### 🌀 [B636] ONION-SKIN TRAIL: DROP vs RE-FOLD
 
-**Reproduce:** in motion, place kf0 with the slice centred; drag the slice off an edge until it folds; place kf1. Play. Expect kf1's end of the loop to show a mirrored slice.
+Shipped the conservative option — the trail clears on a fold, per Daniel's own recommendation. The alternative is to re-fold each ghost into the new frame, which keeps the history and makes the trail visibly bounce off the source edge exactly as the render did. More information, more to read. **Revisit only if losing the trail on every fold turns out to be the more annoying of the two.**
 
-**Not urgent** — it needs the operator to cross a fold boundary mid-authoring, and perform (which is where the fold actually gets exercised) is handled correctly via `follower.remap`.
+### ✅ [SHIPPED B637] MOTION MODE LOCKS SLICE HANDEDNESS TO KEYFRAME 0
+
+Fixed by `alignSliceFrame` — keyframes are re-expressed in kf0's fold frame at the read points. Details in CHANGELOG v0.25.47. **The prediction in this entry was right about the difficulty and wrong about the conclusion:** recovering *which* reflection a keyframe came through is indeed impossible from the ±1 flag, but it turned out not to be needed — choosing the representative nearest kf0's sampled box gives both a correct picture and the shortest tween travel.
 
 ### ⌨️ [Daniel, B624] A MODIFIER / SHIFT LAYER FOR THE CONTROLLER — the honest answer to form switching
 

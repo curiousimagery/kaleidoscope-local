@@ -34,7 +34,8 @@ export function sliceMirror(state) {
 // Orientation of the slice frame: +1 = same handedness as the source, −1 = reflected. Everything
 // that reads as a DIRECTION rather than a position inverts with it — most visibly rotation, which
 // is why the drag handlers multiply their angular delta by this.
-export const sliceDet = (state) => sliceMirror(state).mx * sliceMirror(state).my;
+export const sliceDet = (state) =>
+  (state?.sliceMirrorX === -1 ? -1 : 1) * (state?.sliceMirrorY === -1 ? -1 : 1);
 
 export function sliceVecToSourceUV(vx, vy, state, sourceAspect) {
   // apply slice rotation (CW positive on screen, y-down)
@@ -61,7 +62,11 @@ export function sliceVecToSourceUV(vx, vy, state, sourceAspect) {
   // the space the mirror-tiling symmetry lives in: negating the offset about the slice centre is
   // exactly the reflection that leaves the sampled pixels untouched. Applying it any earlier
   // (before rotation, say) would not compose with `foldSliceIntoSource`'s arithmetic.
-  const { mx, my } = sliceMirror(state);
+  // Read the two signs INLINE rather than through `sliceMirror`, which returns a fresh object: this
+  // runs once per polygon vertex, on every overlay draw and every box measurement, so an allocation
+  // here is thousands of short-lived objects a second during a drag. Same sanitising, no garbage.
+  const mx = state?.sliceMirrorX === -1 ? -1 : 1;
+  const my = state?.sliceMirrorY === -1 ? -1 : 1;
   return { dx: x * mx, dy: -y * my };
 }
 
@@ -229,6 +234,55 @@ const MIN_OVERLAP = 0.25;
 // The canonical representative: which repeat of the mirrored plane the box centre fell into, and
 // how to get home. The PARITY decides translation vs reflection; both are symmetries of the
 // triangle wave, which is why either leaves the pixels alone. Null when already home.
+// ===========================================================================
+// ALIGNING TWO SNAPSHOTS INTO ONE FRAME (B637) — what makes motion mode correct
+// ===========================================================================
+//
+// Motion holds every DISCRETE field to keyframe 0, and `sampleKeyframes` starts each frame from
+// `{...list[0].snap}` — so kf0's handedness is pinned whatever the other keyframes say. That is
+// fine for `segments` or `form`, and **wrong for the slice mirror, because it is the first discrete
+// field COUPLED to a continuous one**: pinning kf0's handedness onto kf1's position renders a
+// picture the operator never posed. Fold the slice between laying two keyframes and the second end
+// of the loop comes back mirrored.
+//
+// The fix is not to stop pinning — it is to make the pin TRUE, by re-expressing the later keyframe
+// in kf0's frame before anyone reads it. The symmetry group gives that for free: `(cx, m)` and
+// `(2n − cx, −m)` are the same picture, so there is always a description of kf1 that carries kf0's
+// handedness, and adopting it does not change how that keyframe looks.
+//
+// **WHICH reflection, though — that is the whole difficulty, and it is why the ±1 flag alone cannot
+// solve this.** A flag of −1 does not record whether it came from a reflection about u=1 or u=3.
+// So rather than trying to recover the history, pick the representative whose SAMPLED BOX lands
+// nearest the reference's: `n = round((ref + cur) / 2)` is exactly the integer that puts
+// `2n − cur` closest to `ref`. That is also what a tween wants — the shortest honest travel between
+// the two looks, which plays as the slice running out to the edge and reflecting back. Which is
+// precisely what the operator watched happen when they dragged it there.
+//
+// Returns true if it changed anything. **The handedness comparison comes first and costs two
+// integer reads**, so the overwhelmingly common already-aligned case never measures a box — this
+// runs on every sampled frame of playback.
+export function alignSliceFrame(snap, ref, form, sourceAspect) {
+  if (!snap || !ref) return false;
+  const smx = snap.sliceMirrorX === -1 ? -1 : 1, smy = snap.sliceMirrorY === -1 ? -1 : 1;
+  const rmx = ref.sliceMirrorX === -1 ? -1 : 1,  rmy = ref.sliceMirrorY === -1 ? -1 : 1;
+  if (smx === rmx && smy === rmy) return false;
+  const c = sliceBoxCenter(form, snap, sourceAspect);
+  const r = sliceBoxCenter(form, ref, sourceAspect);
+  if (!c || !r || !isFinite(c.x) || !isFinite(r.x)) return false;
+  // Axes are independent: reflecting x negates only the x offsets, so `c.y` stays valid below.
+  if (smx !== rmx) {
+    const n = Math.round((r.x + c.x) / 2);
+    snap.sliceCx = 2 * n - (snap.sliceCx ?? 0.5);
+    snap.sliceMirrorX = rmx;
+  }
+  if (smy !== rmy) {
+    const n = Math.round((r.y + c.y) / 2);
+    snap.sliceCy = 2 * n - (snap.sliceCy ?? 0.5);
+    snap.sliceMirrorY = rmy;
+  }
+  return true;
+}
+
 const foldMap = (c) => {
   if (!(c < 0) && !(c > 1)) return null;
   const k = Math.floor(c);

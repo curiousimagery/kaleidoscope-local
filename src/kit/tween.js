@@ -39,14 +39,26 @@ export const ANGULAR_KEYS = ['sliceRotation', 'canvasRotation'];
 export const DISCRETE_KEYS = [
   'form', 'segments', 'drosteArms', 'oobMode', 'drosteMirror', 'drosteWedgeMirror', 'drosteSpiral',
   // B635 — slice HANDEDNESS. Discrete because ±1 has no meaningful midpoint; a tweened 0 would
-  // collapse the slice to a line. It is the one discrete field that is COUPLED TO A CONTINUOUS ONE
-  // (sliceCx/Cy), so motion mode locking it to keyframe 0 is a real limitation, not a formality:
-  // if the operator folds the slice between two keyframes, the second keyframe's position plays
-  // back with the first's handedness. Documented in BACKLOG rather than silently half-handled —
-  // expressing every keyframe in kf0's fold frame needs the reflection each one came through,
-  // which the ±1 flag alone does not carry.
+  // collapse the slice to a line. See COUPLED_DISCRETE_KEYS below for the rule that makes holding
+  // it to keyframe 0 correct rather than merely consistent.
   'sliceMirrorX', 'sliceMirrorY',
 ];
+
+// ⚠️ B637 — DISCRETE, BUT NOT GLOBAL. These are the discrete fields COUPLED to a continuous one,
+// and the distinction is the difference between a working loop and a broken one.
+//
+// Every other discrete field is a global setting: `segments` or `oobMode` mean the same thing
+// wherever the playhead is, so motion propagates an edit to all keyframes and holds them to kf0.
+// **Doing that to the slice mirror changes the picture**, because handedness only means anything
+// alongside the position it was captured with — copying kf0's handedness onto kf1 without moving
+// kf1 renders a slice the operator never posed.
+//
+// So these are excluded from every propagation loop, and reconciled instead by
+// `alignSliceFrame` (engine/geometry.js), which re-expresses a keyframe in kf0's frame by the
+// reflection that leaves its picture untouched. After that the kf0 hold is a no-op on them, which
+// is why the rest of the machinery needs no special case.
+export const COUPLED_DISCRETE_KEYS = ['sliceMirrorX', 'sliceMirrorY'];
+export const isCoupledKey = (k) => k === 'sliceMirrorX' || k === 'sliceMirrorY';
 
 // Easing functions, t in [0,1] → eased [0,1]. easeInOut is the default: zero
 // velocity at both ends, so an A→B→A loop has no visible "bounce" at the joins.

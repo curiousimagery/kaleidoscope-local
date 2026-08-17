@@ -502,7 +502,7 @@ export function createInputBus(env) {
     if (m.mode === 'rate') {
       let d = value;
       if (m.invert) d = -d;
-      rate.set(m.sig + '→' + m.target, { key: t.key, d, span: relSpan, sens });
+      rate.set(m.sig + '→' + m.target, { key: t.key, d, span: t.geometric ? geoSpan(t) * GEO_K : relSpan, sens });
       startRateLoop();
       return;
     }
@@ -522,17 +522,22 @@ export function createInputBus(env) {
       }
       // one event = one nudge of sensitivity × range (buttons send 1; encoders
       // send signed fractions) — sens is the whole step-size story
-      let d = (meta.momentary ? Math.sign(value) : value) * relSpan * sens;
+      // ⚠️ B636 — A GEOMETRIC TARGET'S STEP IS SIZED BY ITS *LOG* SPAN. B634 sized it by the
+      // arithmetic span, which is meaningless for a ratio parameter and made droste thickness far
+      // WORSE, not better: `relSpan` is 14.9 there against canvas zoom's 3.95, so the same 5% press
+      // came out as `exp(0.745 × 0.92) − 1` ≈ **98% per press** — every tap nearly doubling the
+      // tier ratio. Daniel: *"the steps between thinner droste thickness levels result in massive
+      // steps still."*
+      //
+      // log(max/min) is the honest span for a quantity you perceive as a ratio, and it makes the
+      // step a CONSTANT PERCENTAGE everywhere in the range, which is what "proportional" means
+      // here. GEO_K is re-tuned to 0.83 so canvas zoom keeps the ~20%-per-5%-press feel Daniel
+      // already confirmed; droste thickness lands at ~12% per press, flat from 1.1 to 16.
+      let d = (meta.momentary ? Math.sign(value) : value) * (t.geometric ? geoSpan(t) * GEO_K : relSpan) * sens;
       if (m.invert) d = -d;
-      // GEOMETRIC targets multiply instead of add (B623). The delta is still handed to the same
-      // glide below, so the spring smoothing and chained-press velocity continuity are unchanged —
-      // only its SIZE is now proportional to where you already are. GEO_K is set so a 5% press
-      // still moves ~20% at 1.0×, matching the old feel at the middle of the range while fixing
-      // both ends.
-      if (t.geometric) {
-        const base = state[t.key] ?? 1;
-        d = base * (Math.exp(d * GEO_K) - 1);
-      }
+      // ...then convert the log-step into the additive delta the glide below expects, so spring
+      // smoothing and chained-press velocity continuity are untouched.
+      if (t.geometric) d = (state[t.key] ?? 1) * (Math.exp(d) - 1);
       if (!d) return;
       // a BUTTON nudge eases like a gentle joystick (Daniel: an abrupt jump
       // reads wrong for scale steps) — the step becomes a spring GOAL; the
@@ -549,9 +554,16 @@ export function createInputBus(env) {
       return;
     }
     // absolute: position IS the value across the target's full range
+    //
+    // ⚠️ B636 — AND FOR A GEOMETRIC TARGET THAT SWEEP IS LOGARITHMIC. This is the half B634 missed
+    // entirely: `geometric` only ever touched the `rel` branch, so a knob or fader mapped in
+    // ABSOLUTE mode still walked droste thickness linearly from 1.1 to 16 — which is why Daniel
+    // reported the behaviour *"seems unchanged as before the adjustment"*. It was unchanged; his
+    // mapping never reached the code B634 fixed. Equal knob travel is equal RATIO now, so the thin
+    // end stops lurching.
     let v01 = meta.bipolar ? (value + 1) / 2 : value;
     if (m.invert) v01 = 1 - v01;
-    writeParam(t, t.min + v01 * span);
+    writeParam(t, t.geometric && t.min > 0 ? t.min * Math.exp(v01 * geoSpan(t)) : t.min + v01 * span);
   }
 
   function writeParam(t, v) {
@@ -579,7 +591,12 @@ export function createInputBus(env) {
   // exp() rate for GEOMETRIC targets, chosen so the mid-range feel is unchanged: at canvasZoom 1.0
   // a 5% press moved 0.198 additively, and exp(0.198 × 0.92) − 1 ≈ 0.20. Same press at 1.0×, but
   // now proportional everywhere instead of 16× stronger at the bottom of the range.
-  const GEO_K = 0.92;
+  // Re-tuned from 0.92 at B636 when the step basis moved from the arithmetic span to the log span
+  // (see the rel branch). Chosen to hold canvas zoom at the ~20%-per-5%-press feel Daniel confirmed.
+  const GEO_K = 0.83;
+  // The honest span for a quantity perceived as a RATIO. Falls back to the arithmetic span if a
+  // future geometric target ever has a non-positive min, where log is undefined.
+  const geoSpan = (t) => (t.min > 0 && t.max > 0 ? Math.log(t.max / t.min) : (t.max - t.min));
   const PINCH_ZOOM_SENS = 0.5;    // WS scale-delta → unified-zoom factor exponent. TUNE: bigger = zoomier. (3 → 1.05 → 0.5; Daniel: still too enthusiastic)
   // (PAN_GESTURE_SENS retired B611 — the pan gain is derived in kit/pan.js and shared with touch.)
   function glideBy(t, d, tau = 0.18) {
@@ -606,7 +623,11 @@ export function createInputBus(env) {
       for (const [k, r] of rate) {
         if (!r.d) { rate.delete(k); continue; }
         live = true;
-        writeParam(targetOf(r.key), (state[r.key] ?? 0) + r.d * r.span * r.sens * 2.4 * dt);
+        // B636 — a geometric target ramps by a constant RATIO per second, not a constant amount,
+        // so a held deflection feels the same at the thin and thick ends of the range.
+        const rt = targetOf(r.key);
+        const step = r.d * r.span * r.sens * 2.4 * dt;
+        writeParam(rt, rt?.geometric ? (state[r.key] ?? 1) * Math.exp(step) : (state[r.key] ?? 0) + step);
       }
       for (const [k, g] of glide) {
         const t2 = targetOf(k);

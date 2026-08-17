@@ -14,7 +14,7 @@
 
 import { state, session, motion } from './shell/state.js';
 import { lockState, setLock, makeLockToggle } from './shell/locks.js';
-import { DISCRETE_KEYS } from './kit/tween.js';   // discrete settings are global (held to kf0)
+import { DISCRETE_KEYS, isCoupledKey } from './kit/tween.js';   // discrete settings are global (held to kf0) — except the COUPLED ones, see B637
 import { confirmInterrupt } from './shell/interrupt.js';   // non-blocking destructive-interrupt (M3)
 import { zipStore } from './shell/zip.js';                 // clip package (source + motion JSON)
 import { createEngine } from './engine/index.js';
@@ -506,7 +506,10 @@ env.setLock = (key, locked) => {
 // "OOB reads clamp though the UI says mirror"). This is ungated on selection.
 env.commitDiscreteToKeyframes = () => {
   if (!env.motionRT.active) return;
-  for (const kf of motion.keyframes) if (kf?.snap) for (const dk of DISCRETE_KEYS) kf.snap[dk] = state[dk];
+  // B637 — COUPLED keys are skipped. Handedness only means anything next to the position it was
+  // captured with, so copying the live one onto every keyframe would change pictures the operator
+  // posed. Those reconcile via alignSliceFrame at the read point instead.
+  for (const kf of motion.keyframes) if (kf?.snap) for (const dk of DISCRETE_KEYS) if (!isCoupledKey(dk)) kf.snap[dk] = state[dk];
 };
 
 // ---- ACTIVE-CLIP / STAGING seams (M3 source-swap guard → future staging area) ------------------
@@ -594,7 +597,8 @@ function scheduleRender() {
         // discrete edit is global by construction. (Continuous fields stay per-keyframe.)
         for (const other of motion.keyframes) {
           if (other === kf || !other.snap) continue;
-          for (const dk of DISCRETE_KEYS) other.snap[dk] = state[dk];
+          // COUPLED keys excluded (B637) — see commitDiscreteToKeyframes.
+          for (const dk of DISCRETE_KEYS) if (!isCoupledKey(dk)) other.snap[dk] = state[dk];
         }
         env.scheduleFilmstrip();
       }

@@ -542,6 +542,13 @@ export default {
           else { ctx.arc(cx, cy, rOut, wedgeStart, wedgeEnd, false); ctx.arc(cx, cy, rIn, wedgeEnd, wedgeStart, true); ctx.closePath(); }
           ctx.fillStyle = 'rgba(255, 196, 80, 0.10)'; ctx.fill('evenodd');
           ctx.strokeStyle = 'rgba(255, 196, 80, 0.6)'; ctx.setLineDash([6, 4]); ctx.lineWidth = 1 * strokeScale; ctx.stroke();
+          // B636 — the reflected ORIGIN. It matters most here of all the forms: droste's origin sits
+          // at the middle of the annulus, well away from the wedge you are holding, so it is the
+          // copy of the origin that tells you which reflection is about to become primary. Drawn
+          // inside the same mirror transform, so it lands wherever the reflected annulus centres.
+          ctx.setLineDash([]);
+          ctx.beginPath(); ctx.arc(cx, cy, 3, 0, TAU);
+          ctx.fillStyle = 'rgba(255, 196, 80, 0.85)'; ctx.fill();
           ctx.restore();
         }
         const lo = Math.max(e.lo, Math.min(...hits)), hi = Math.min(e.hi, Math.max(...hits));

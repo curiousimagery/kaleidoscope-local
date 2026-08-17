@@ -90,6 +90,26 @@ This retires the confusion, not just a hypothesis. Resolution was free because t
 
 ## current version
 
+**🎞 B637 — MOTION KEYFRAMES RECONCILE THEIR FOLD FRAME. JS only.** Closes the one limitation B635 shipped knowingly.
+
+Handedness is the first DISCRETE field COUPLED to a continuous one, so motion's "hold discrete to kf0" rule rendered kf1's position with kf0's handedness. **Fixed by making the pin true rather than removing it:** `alignSliceFrame` re-expresses each keyframe in kf0's frame via the reflection that leaves its picture untouched, choosing the representative nearest kf0's sampled box (`n = round((ref + cur) / 2)`) — the shortest honest travel, which plays as the slice reflecting off the edge.
+
+**Reconciled at the READ points** (`sampleAt`, `stgEval`, `selectKeyframe`), not at the five write sites — B635's lesson applied deliberately. New `COUPLED_DISCRETE_KEYS` in tween.js; the propagation loops in main.js and the gesture-capture path skip them.
+
+**Verified across 5 forms × 3 aspects:** aligned keyframe renders as posed (drift 2.2e-16), zero handedness mismatches, worst travel 0.81 source-widths.
+
+**🔧 B636 — FOLD ON RELEASE + THE B635 SMOKE-TEST ROUND. JS only.**
+
+**▶ DANIEL VERIFIED B635 BROADLY:** desktop mouse + MIDI, iPad gesture surface → Electron, iPhone/iPad direct manipulation, desktop perform + autoplay. *"No major showstoppers."* **Still untested: the rendered companion video with the slice overlay.**
+
+- **The fold waits for gesture RELEASE** (`?fold=live` restores B635's continuous fold for A/B). Drags only — knobs, encoders, autoplay and the tween have no release and still fold live, which is what keeps the leak closed.
+- **iPad stutter FIXED, and it was not the fold's arithmetic.** A box measurement is 1µs; the cause was `visibleUVRect` reading `clientWidth` — B635 promoted that from drag-only to EVERY FRAME, so every render was preceded by a layout flush. Now reads the canvas backing store. Also killed a doubled measurement in the pinch capture and the per-vertex `{mx,my}` allocation.
+- **Reflected copies draw the ORIGIN** — polygon forms and droste.
+- **Onion-skin trail clears on a fold** (Daniel's own call). The alternative — re-folding each ghost so the trail bounces off the edge the way the render did — is noted in the code if the lost history ever bothers him.
+- **Droste thickness genuinely proportional now.** B634 was wrong twice: `geometric` never applied to ABSOLUTE-mode mappings at all (so his mapping never reached it — *"seems unchanged"* was literally true), and where it did apply it sized the step by the ARITHMETIC span, giving ~98% per press. Now log(max/min); canvas zoom's confirmed feel preserved.
+
+**⚠️ THE METHOD NOTE:** B634 shipped a fix for a target whose mapping MODE it never checked, and calibrated a constant against one target's span while applying it to another's. Printing the step-size table across the range would have caught both in two minutes, and is now in the changelog.
+
 **🪞 B635 — THE GEOMETRY FLIP. THE ORIGIN GUARDRAIL IS GONE. JS + GLSL — `cap sync` for device builds.**
 
 Push the slice off the source and the reflection you can see **becomes** the primary slice. New state `sliceMirrorX/Y` (±1 handedness) threaded through the shader, geometry, overlay, droste, tween and follow.
