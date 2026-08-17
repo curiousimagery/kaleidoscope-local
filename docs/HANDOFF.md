@@ -90,6 +90,16 @@ This retires the confusion, not just a hypothesis. Resolution was free because t
 
 ## current version
 
+**🩹 B638 — THE FOLD GATE WAS READING A FLAG ON THE WRONG OBJECT. JS only.**
+
+B636's fold-on-release gate tested `env.overlayDragging`, which lives on the **private `view` object** `components/source-overlay.js` builds ("replaces the global desktop env"). Each chrome's render schedule passes its OWN env, where the flag is `undefined` — so the gate held at the drag site and did nothing at the render site, and the fold ran every frame mid-drag.
+
+**`move` re-derives its target from the pointer each event**, so pointer-writes and folds alternated at frame rate; half those frames put a folded handedness on an unfolded position, which is a genuinely different picture. **That is why the OUTPUT flickered, and that detail is what diagnosed it — a fold is pixel-preserving and cannot change the output, so output flicker meant state was oscillating.**
+
+Reproduced then fixed: **77–90 handedness flips per drag → 0**, with exactly one flip on release. Gate is now a module-level flag (setupSourceInteraction is already a module singleton), cleared on re-mount so it can never strand.
+
+**⚠️ THE TWO-`env` DIVERGENCE, NEW ACTORS:** not desktop vs mobile this time but **chrome vs component**. Worth adding to the standing audit — the overlay component owning a private view is good design, and it means any flag there is invisible to the chrome.
+
 **🎞 B637 — MOTION KEYFRAMES RECONCILE THEIR FOLD FRAME. JS only.** Closes the one limitation B635 shipped knowingly.
 
 Handedness is the first DISCRETE field COUPLED to a continuous one, so motion's "hold discrete to kf0" rule rendered kf1's position with kf0's handedness. **Fixed by making the pin true rather than removing it:** `alignSliceFrame` re-expresses each keyframe in kf0's frame via the reflection that leaves its picture untouched, choosing the representative nearest kf0's sampled box (`n = round((ref + cur) / 2)`) — the shortest honest travel, which plays as the slice reflecting off the edge.

@@ -64,6 +64,8 @@ So, whenever you touch anything both chromes use:
 - **Never give a local wrapper the same name as the shared function it wraps.** Same name plus different signature is what makes the above invisible in review. Suffix it (`applyArmsSnapLocal`), and hand shared code the shared function.
 - **When you fix something in one chrome, grep the other for the same behaviour before you call it done.** "Verified on desktop" is not verified.
 
+**⚠️ AND IT IS NOT ONLY THE TWO CHROMES (B638).** `src/components/source-overlay.js` builds its own private `view` object — its comment says it *"replaces the global desktop `env`"* — so there are at least THREE env-shaped objects in play, and a flag set on one is invisible to the others. B638 was exactly this: a gate written as `env.overlayDragging` held at the drag site (component view) and silently did nothing at the render site (chrome env), which is worse than not having it. **Before writing `env.someFlag` in shared code, ask which object the CALLER will be holding.** A fact about the one shared surface — is a gesture in flight, is a drag active — is usually module-global, and belongs in a module variable that every caller sees regardless of which env it passes. If you do put it on `env`, it must be set on every env that will be asked about it.
+
 When a value or behaviour genuinely needs to exist in both, prefer moving it to `kit/` or `engine/` and importing it, over writing it twice. `kit/pan.js` and `engine/geometry.js` `resetSliceState` are the pattern.
 
 Two specific rules worth flagging because violating them costs hours:

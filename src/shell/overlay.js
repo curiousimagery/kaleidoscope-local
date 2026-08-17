@@ -58,10 +58,34 @@ import { perfFlags } from './perf-flags.js';
 //   ?fold=release  (default) fold when the gesture ends
 const FOLD_LIVE = new URLSearchParams(location.search).get('fold') === 'live';
 
+// ⚠️ B638 — MODULE-LEVEL, NOT `env.overlayDragging`, AND THAT DISTINCTION IS THE ENTIRE BUG.
+//
+// B636 gated the fold on `env.overlayDragging`. That flag is real, but it lives on the PRIVATE
+// `view` object `components/source-overlay.js` builds — which its own comment describes as
+// *"replaces the global desktop env"*. The drag sets it there; each chrome's render schedule calls
+// `normalizeSliceMirror(env)` with the CHROME's env, where the flag is permanently `undefined`. So
+// the gate held at the drag site and did nothing at the render site, and the fold ran every frame
+// mid-drag after all.
+//
+// That produced Daniel's report exactly: `move` re-derives its target from the pointer each event,
+// so the pointer wrote the unfolded position, the next frame's fold reflected it, the next pointer
+// event wrote it straight back — **alternating at frame rate**. Half those frames carried a folded
+// handedness on an unfolded position, which is a genuinely different picture, which is why the
+// flicker reached the OUTPUT panel too: *"the orientation of the slice flips back and forth 180
+// degrees very quickly... sometimes perceptibly showing two solid wedges at the same time."* A fold
+// alone can never do that — it is pixel-preserving — so the output flickering was the evidence that
+// state was oscillating rather than merely being re-described.
+//
+// **This is the two-`env` divergence CLAUDE.md warns about, in a new disguise:** not desktop vs
+// mobile this time, but chrome vs component. The durable answer is that a gesture on THE one source
+// overlay is a module-global fact — `setupSourceInteraction` is already a module singleton — so it
+// belongs in a module variable that every caller sees regardless of which object it is holding.
+let gestureActive = false;
+
 export function normalizeSliceMirror(env) {
   const state = env?.state;
   if (!state) return null;
-  if (env.overlayDragging && !FOLD_LIVE) return null;
+  if (gestureActive && !FOLD_LIVE) return null;
   const fold = foldSliceIntoSource(state, getActiveForm(state),
     env.engine?.getSourceAspect?.() || 1, visibleUVRect(env));
   // Perform holds a spring over sliceCx/Cy. A fold rewrites those numbers without changing what
@@ -1190,6 +1214,10 @@ let _attachedHandlers = null;
 
 export function setupSourceInteraction(env, wrap) {
   if (_attachedHandlers) {
+    // A re-mount mid-gesture never delivers the pointerup that would clear this, and a stranded
+    // `true` would disable the fold for the whole session with nothing said — the "anything that
+    // can decline to act must publish why" rule, answered by making it unable to strand.
+    gestureActive = false;
     const h = _attachedHandlers;
     h.wrap.removeEventListener('mousedown', h.onDown);
     h.wrap.removeEventListener('mousemove', h.onMove);
@@ -1503,6 +1531,7 @@ export function setupSourceInteraction(env, wrap) {
       const t0 = e.touches[0], t1 = e.touches[1];
       const rect = wrap.getBoundingClientRect();
       env.overlayDragging = true;
+      gestureActive = true;          // B638 — the gate every caller can see; see normalizeSliceMirror
       env.overlayDragMode = 'pinch';
       const pinchBox = sliceBoxCenter(getActiveForm(env.state), env.state, env.engine.getSourceAspect());
       drag = {
@@ -1535,6 +1564,7 @@ export function setupSourceInteraction(env, wrap) {
     if ((!allowDiscrete || env.isLocked?.('segments')?.locked) && cls.mode === 'droste-arms') return;
 
     env.overlayDragging = true;
+    gestureActive = true;            // B638
     const g = env.sourceOverlayCanvas._geom;
     const { state } = env;
     const form = getActiveForm(state);
@@ -1658,6 +1688,7 @@ export function setupSourceInteraction(env, wrap) {
     if (!drag) return;
     drag = null;
     env.overlayDragging = false;
+    gestureActive = false;           // B638 — cleared BEFORE the fold below, or it gates itself out
     env.overlayDragMode = null;
     setCursor('default');
     // THE FOLD LANDS HERE (B636), after the flag clears so it is no longer suppressed. This is the

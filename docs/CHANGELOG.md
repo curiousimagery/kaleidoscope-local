@@ -6,6 +6,45 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🩹 v0.25.48 (Build 638) — 2026-08-17 — The fold gate was reading a flag on the wrong object
+
+**JS only. No `cap sync` needed.**
+
+### Shipped
+
+- **Fold-on-release actually works now.** B636's gate held at one call site and did nothing at the other.
+- **The mid-drag strobe is gone** — up to 90 handedness flips in a single drag, reproduced and fixed.
+
+### The gate was real and it was reading the wrong object
+
+B636 suppressed the fold during a gesture with `env.overlayDragging`. The flag is real, but it lives on the **private `view` object** `components/source-overlay.js` builds — whose own comment says it *"replaces the global desktop env"*. The drag sets it there; each chrome's render schedule calls `normalizeSliceMirror(env)` with the CHROME's env, where the flag is permanently `undefined`.
+
+So the gate held at the drag site and was a no-op at the render site, and the fold ran every frame mid-drag regardless.
+
+### Why that flickered the OUTPUT, which is what named the bug
+
+`move` re-derives its target from the pointer on every event. So: pointer wrote the unfolded position → next frame's fold reflected it → next pointer event wrote it straight back. **Alternating at frame rate.** Half those frames carried a folded handedness on an unfolded position, which is a genuinely different picture.
+
+That detail is what made the report diagnosable. Daniel: *"the orientation of the slice flips back and forth 180 degrees very quickly... sometimes perceptibly showing two solid wedges at the same time"* — and crucially, in **both** the source and output panels. **A fold alone can never change the output; it is pixel-preserving.** So output flicker was proof that state was oscillating rather than merely being re-described, which pointed straight at a fold firing where it had been gated off.
+
+Reproduced in a harness before touching anything — one left-to-right drag of 1.6 source-widths:
+
+| form | B636 (gate missed) | B638 (gate honoured) |
+|---|---|---|
+| radial | 77 flips | **0** |
+| square | 84 flips | **0** |
+| droste | 90 flips | **0** |
+
+...and a drag ending in an odd repeat still flips **exactly once, on release**, on every form.
+
+### ⚠️ THE TWO-`env` DIVERGENCE AGAIN, IN A NEW DISGUISE
+
+CLAUDE.md warns that desktop and mobile build separate `env` objects and a helper added to one does not exist in the other. **This was the same class with different actors: chrome versus component.** The overlay component deliberately owns a private view, which is good design — and it means any flag living there is invisible to the chrome, which is exactly what a cross-cutting gate cannot tolerate.
+
+The durable fix is that a gesture on THE one source overlay is a **module-global fact** — `setupSourceInteraction` is already a module singleton — so the flag belongs in a module variable every caller sees whatever object it holds. It is also cleared on re-mount, because a re-bind mid-gesture never delivers the pointerup that would clear it, and a stranded `true` would disable the fold for the rest of the session with nothing said.
+
+---
+
 ## 🎞 v0.25.47 (Build 637) — 2026-08-17 — Motion keyframes reconcile their fold frame
 
 **JS only. No `cap sync` needed.**
