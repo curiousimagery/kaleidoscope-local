@@ -24,6 +24,7 @@
 // mode (decaying offsets on top of the base), not a v1 mode.
 
 import { createMidiInput } from './midi-input.js';
+import { touchGesture } from '../kit/gesture-gate.js';   // B639 — a held knob/stick is a gesture too
 import { createGamepadInput } from './gamepad-input.js';
 import { createTrackpadInput } from './trackpad-input.js';
 import { createRemoteInput } from './remote-input.js';
@@ -567,6 +568,18 @@ export function createInputBus(env) {
   }
 
   function writeParam(t, v) {
+    // ⚠️ B639 — EVERY WRITE FROM HARDWARE COUNTS AS "STILL MOVING". A MIDI CC knob never says it
+    // is done, so there is no release to wait for; a short idle window is the honest substitute.
+    //
+    // Deliberately NOT scoped to slice-position targets. Over-suppressing costs nothing — the fold
+    // is pixel-preserving, so postponing it changes no pixel, only which description of an
+    // identical picture we hold — while under-suppressing reverses a gesture the operator is in the
+    // middle of. The failure modes are not symmetric, so this errs toward the free one.
+    //
+    // Autoplay is unaffected and must be: `kit/drift.js` writes `state[k]` directly and never comes
+    // through here, so a continuous drift can still fold. That is exactly where the fold earns its
+    // keep, so a gate that swallowed it would be worse than no gate.
+    touchGesture();
     if (t.wrap) { const P = t.wrapPeriod || 360; v = ((v % P) + P) % P; }
     // `unbounded` = periodic in the shader but stored raw (tiling pan). Not wrapped HERE on
     // purpose: state stays continuous so the follower / tween / autoplay never see a seam blip,
@@ -620,6 +633,9 @@ export function createInputBus(env) {
       const dt = Math.min(t - rateLastT, 100) / 1000;
       rateLastT = t;
       let live = false;
+      // a deflected stick or a settling nudge is still moving the slice — keep the fold waiting
+      // until the motion loop itself goes quiet (B639)
+      if (rate.size || glide.size) touchGesture();
       for (const [k, r] of rate) {
         if (!r.d) { rate.delete(k); continue; }
         live = true;
@@ -739,8 +755,33 @@ export function createInputBus(env) {
   }
 
   let dragIdx = -1;   // store.maps index being dragged
-  const clearDropLine = () => document.querySelectorAll('.in-drop-before, .in-drop-after')
-    .forEach((el) => el.classList.remove('in-drop-before', 'in-drop-after'));
+  // ⚠️ B639 — A REAL SKELETON SLOT, NOT A LINE. Daniel: *"it would be helpful... to replace the
+  // single line with a skeleton version of the row you're dragging so the rows that will be above
+  // and below float out of the way proportionally."* Standard list-DnD practice, and it also fixes
+  // an ambiguity the line had: the line was painted ON a row, so the actual drop target was the row
+  // under the cursor rather than the gap you were aiming at. The slot IS the destination, which
+  // makes the preview and the result the same object. No library — one div, sized to the row it
+  // stands in for.
+  let dropSlot = null;
+  let dragHeight = 44;   // the dragged row's measured height, so the slot matches it exactly
+  function clearDropLine() {
+    dropSlot?.remove();
+    dropSlot = null;
+  }
+  // `beforeEl` may legitimately be null — that means "at the end", which is what insertBefore's
+  // null already does. Bailing when it would land on itself keeps dragover from re-inserting the
+  // slot on every event, which would restart its transition and read as a flicker.
+  function showDropSlot(parent, beforeEl, h) {
+    if (!parent || beforeEl === dropSlot) return;
+    if (!dropSlot) {
+      dropSlot = document.createElement('div');
+      dropSlot.className = 'in-drop-slot';
+    }
+    dropSlot.style.height = h + 'px';
+    if (dropSlot.parentNode !== parent || dropSlot.nextSibling !== beforeEl) {
+      parent.insertBefore(dropSlot, beforeEl);
+    }
+  }
   function renderMaps() {
     const wrap = byId('inMaps');
     if (!wrap) return;
@@ -911,6 +952,7 @@ export function createInputBus(env) {
     const grip = row.querySelector('.in-grip');
     grip.addEventListener('dragstart', (e) => {
       dragIdx = store.maps.indexOf(m);
+      dragHeight = row.getBoundingClientRect().height;
       e.dataTransfer.effectAllowed = 'move';
       // ⚠️ B634 — setData IS REQUIRED. A drag whose dataTransfer carries no payload is not a valid
       // drag in Chromium or WebKit: `dragover` still fires (so the insertion line appeared) but
@@ -926,6 +968,11 @@ export function createInputBus(env) {
     });
     row.addEventListener('dragover', (e) => {
       if (dragIdx < 0) return;
+      // ⚠️ B639 — SAME DEVICE ONLY. The list is GROUPED BY DEVICE (see renderMaps), so a mapping
+      // dropped into another device's group is re-sorted straight back into its own on the next
+      // render. The reorder "worked" and looked like nothing happened — the same symptom as the
+      // real bug, from a different cause. Refusing the drop says so instead.
+      if (store.maps[dragIdx]?.dev !== m.dev) { e.dataTransfer.dropEffect = 'none'; return; }
       e.preventDefault();
       e.dataTransfer.dropEffect = 'move';
       // measured against the ROW, not `e.offsetY`: over a child (the name input, a select) offsetY
@@ -933,23 +980,28 @@ export function createInputBus(env) {
       // pointer happened to cross.
       const r = row.getBoundingClientRect();
       const before = (e.clientY - r.top) < r.height / 2;
-      if (!row.classList.contains(before ? 'in-drop-before' : 'in-drop-after')) {
-        clearDropLine();
-        row.classList.add(before ? 'in-drop-before' : 'in-drop-after');
-      }
+      showDropSlot(row.parentNode, before ? row : row.nextSibling, dragHeight);
     });
     row.addEventListener('drop', (e) => {
       e.preventDefault();
       e.stopPropagation();
-      // recompute from the pointer rather than trusting the class to have survived the last
-      // dragover/dragleave — the class is a HINT for the user, not the source of truth.
+      // ⚠️ B639 — THE SOURCE INDEX COMES OFF `dataTransfer`, NOT THE CLOSURE.
+      //
+      // This is why B634's fix did not take. `dragIdx` is cleared by `dragend`, and the spec's
+      // drop-then-dragend order is not honoured everywhere — where dragend lands first, `drop` ran
+      // with `dragIdx === -1` and hit the no-op guard below. That is EXACTLY the reported symptom,
+      // twice: *"drop space highlights but on release nothing is updated."* B634 added `setData`
+      // for a different reason and then still read the closure, so the payload it wrote went
+      // unused. Reading it back removes the ordering dependency entirely.
+      const carried = parseInt(e.dataTransfer.getData('text/plain'), 10);
+      const from = Number.isInteger(carried) ? carried : dragIdx;
       const r = row.getBoundingClientRect();
       const before = (e.clientY - r.top) < r.height / 2;
       clearDropLine();
       let to = store.maps.indexOf(m) + (before ? 0 : 1);
-      if (dragIdx < 0 || dragIdx === to || dragIdx === to - 1) { dragIdx = -1; return; }
-      const [moved] = store.maps.splice(dragIdx, 1);
-      if (dragIdx < to) to--;
+      if (from < 0 || !store.maps[from] || from === to || from === to - 1) { dragIdx = -1; return; }
+      const [moved] = store.maps.splice(from, 1);
+      if (from < to) to--;
       store.maps.splice(to, 0, moved);
       dragIdx = -1; save(); renderMaps();
     });

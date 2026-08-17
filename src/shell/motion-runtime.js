@@ -19,7 +19,7 @@
 // scheduleFilmstrip) and wires its own DOM (wireMotion + setupVideoExport).
 
 import { sampleKeyframes, DISCRETE_KEYS, CONTINUOUS_KEYS, ANGULAR_KEYS, angDelta, isCoupledKey } from '../kit/tween.js';
-import { alignSliceFrame } from '../engine/geometry.js';   // B637 — express every keyframe in kf0's fold frame
+import { alignSliceFrame, foldSliceIntoSource } from '../engine/geometry.js';   // B637 — express every keyframe in kf0's fold frame
 import { getActiveForm } from '../engine/forms/index.js';
 import { FOLLOW_SPANS } from '../kit/follow.js';
 import { ICONS } from '../mobile/icons.js';
@@ -211,8 +211,15 @@ function alignKeyframeFrames() {
   // frame is rendered with, and therefore the one whose geometry defines the box being aligned.
   const form = getActiveForm(ref);
   const aspect = env.engine?.getSourceAspect?.() || 1;
+  // ⚠️ B639 — CHAIN, NOT STAR. B637 aligned every keyframe to kf0, which picks the reflection
+  // nearest KEYFRAME ZERO — but what the tween travels is the gap to the PREVIOUS keyframe, and
+  // with three or more keyframes those are different answers. Daniel: *"it results in a weird jog
+  // back and then forward."* Aligning each keyframe to its predecessor minimises the distance the
+  // tween actually covers, and still lands the whole chain on kf0's handedness, because the
+  // predecessor already carries it.
   for (let i = 1; i < list.length; i++) {
-    if (list[i]?.snap) alignSliceFrame(list[i].snap, ref, form, aspect);
+    const prev = list[i - 1]?.snap;
+    if (list[i]?.snap && prev) alignSliceFrame(list[i].snap, prev, form, aspect);
   }
 }
 
@@ -222,6 +229,14 @@ function sampleAt(p) {
   alignKeyframeFrames();
   const out = sampleKeyframes(list, p, { smoothing: motion.smoothing, loop: motion.loop });
   for (const k of DISCRETE_KEYS) out[k] = list[0].snap[k];   // lock discrete to kf0
+  // ⚠️ B639 — FOLD THE SAMPLED FRAME. Daniel: *"it would be more intuitive to have the animation
+  // switch from reflection to solid... so that we don't ever visually have a state where the
+  // entire shape is a reflection."* Playback interpolates position linearly between two keyframes,
+  // so the path between them can pass through the region where the primary has left the image
+  // even though neither endpoint had. Folding each sampled frame keeps the solid outline on the
+  // image throughout, and costs nothing to the render — the fold is pixel-preserving, so this
+  // changes which copy is drawn solid and not one pixel of the output.
+  foldSliceIntoSource(out, getActiveForm(out), env.engine?.getSourceAspect?.() || 1);
   return out;
 }
 function keyframeAt(p) {
@@ -764,6 +779,7 @@ function stgEval(list, p) {
   alignKeyframeFrames();   // B637 — the staging read point needs the same reconciliation as sampleAt
   const out = sampleKeyframes(list, p, { smoothing: motion.smoothing, loop: motion.loop });
   for (const k of DISCRETE_KEYS) out[k] = list[0].snap[k];
+  foldSliceIntoSource(out, getActiveForm(out), env.engine?.getSourceAspect?.() || 1);   // B639 — as sampleAt
   return out;
 }
 function stgAdvance(now) {

@@ -90,6 +90,18 @@ This retires the confusion, not just a hypothesis. Resolution was free because t
 
 ## current version
 
+**🧵 B639 — THE GATE GENERALISES; DRAG-DROP FIXED FOR REAL. JS + CSS.**
+
+**▶ DANIEL VERIFIED AT B638:** the flip *"is working mostly as expected — a massive improvement"*, no A/B needed, the approach is settled. Gesture inputs *"feel excellent"*. Clamp/transparent OOB correct. Droste thickness proportional. Undo passes smoke tests. Companion video good apart from the origin dot.
+
+- **`kit/gesture-gate.js`** — HOLDS (pointer drag, held button: real begin/end) vs TOUCHES (MIDI CC: no end event, short idle window). The joystick mid-push flip was a genuine gap: B636 asked "is a pointer down" when the question is "is an input still moving this". **Autoplay deliberately still folds** — drift writes state directly and never passes through the bus.
+- **Drag-drop: the third report, the first correct diagnosis.** `dragend` clears `dragIdx` and the drop-then-dragend order is not universal, so `drop` ran with `-1` and hit the no-op guard. B634 wrote the `setData` payload and then still read the closure. Now read back off `dataTransfer`. Cross-device drops refused (the list is grouped by device, so they were silently undone).
+- **Skeleton drop slot** replaces the 2px line (in the Lab).
+- **Keyframes align to the PREDECESSOR, not kf0** — fixes the tween jog. Playback also folds each sampled frame so an animation never sits fully reflected.
+- **Origin dot scales with `sw`** — it was 3px at every scale, invisible in the companion video.
+
+**🔴 STILL OPEN — iPAD GESTURE-SURFACE LATENCY. MY B636 FIX WAS NOT THE CAUSE.** Removing the per-frame `clientWidth` reflow was a real improvement to a real problem and **did not fix what Daniel reports**, so the cause is still unidentified. **Do not guess a third time** — this is Tier 1 (invisible quantity, device-only, and a wrong guess costs a device session). The next move is INSTRUMENTATION that reaches the exported report, not another candidate fix. Suggested conserved quantity: timestamp each remote event from arrival → state write → render commit and report the distribution, so "the network is bursty" and "our frame is late" stop being the same picture.
+
 **🩹 B638 — THE FOLD GATE WAS READING A FLAG ON THE WRONG OBJECT. JS only.**
 
 B636's fold-on-release gate tested `env.overlayDragging`, which lives on the **private `view` object** `components/source-overlay.js` builds ("replaces the global desktop env"). Each chrome's render schedule passes its OWN env, where the flag is `undefined` — so the gate held at the drag site and did nothing at the render site, and the fold ran every frame mid-drag.

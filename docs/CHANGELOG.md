@@ -6,6 +6,53 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🧵 v0.25.49 (Build 639) — 2026-08-17 — The gate generalises to every input; drag-drop, for real this time
+
+**JS + CSS. No `cap sync` needed.**
+
+### Shipped
+
+- **The fold no longer fires mid-push on a gamepad joystick or a MIDI knob.** New `kit/gesture-gate.js`.
+- **Mapping drag-and-drop works.** Third attempt, and the first one that identified the actual cause.
+- **Drop preview is a skeleton slot**, sized to the row being dragged.
+- **Cross-device drops are refused** instead of silently undone by the grouped render.
+- **Motion keyframes align to their PREDECESSOR**, not to keyframe 0 — kills the tween jog.
+- **Playback folds each sampled frame**, so an animation never sits on a fully-reflected slice.
+- **The origin dot scales with the overlay**, so it survives the companion video render.
+
+### The joystick was a real gap, not a missing special case
+
+Daniel asked the right question: *is this a technical gap, or would fixing it require shimming in guards that create inelegant exceptions?* **It is a gap.** B636 asked "is a pointer down" when the question that matters is "is an input still moving this". A held joystick is a gesture in exactly the sense the fold cares about — it just arrives as a stream of discrete writes instead of pointer events.
+
+So the gate generalises rather than growing a branch per device. `kit/gesture-gate.js` distinguishes the two kinds of input that genuinely exist:
+
+- **HOLDS** — a real beginning and end (pointer drag, held button). They must bracket themselves, because a finger resting motionless mid-drag emits no events and any timer would expire underneath it.
+- **TOUCHES** — no end event at all. A MIDI CC knob simply stops sending. These keep a short idle window alive.
+
+**Over-suppressing is free and under-suppressing is not**, which is why the window is generous: the fold is pixel-preserving, so delaying it changes no pixel — only which description of an identical picture we hold — while folding early reverses a gesture in progress. Autoplay is deliberately unaffected: `kit/drift.js` writes state directly and never passes through the bus, so a continuous drift still folds, which is exactly where the fold earns its keep.
+
+### ⚠️ Drag-and-drop: B634 wrote the payload and then ignored it
+
+Third report, and the first correct diagnosis. `dragend` clears `dragIdx`, and **the spec's drop-then-dragend order is not honoured everywhere** — where `dragend` lands first, `drop` ran with `dragIdx === -1` and fell straight into the no-op guard. That is the reported symptom exactly, twice: *"drop space highlights but on release nothing is updated."*
+
+B634 added `setData` for a different reason (a payload-less drag is invalid in Chromium/WebKit) and then **still read the closure variable**, so the payload it wrote went unused. Reading the index back off `dataTransfer` removes the ordering dependency entirely.
+
+A second, independent cause was also live: the list is **grouped by device**, so a mapping dropped into another device's group is re-sorted back into its own on the next render — the reorder "worked" and looked like nothing happened. Those drops are now refused rather than silently undone.
+
+**The lesson:** B634 found a real defect, fixed it, and shipped without confirming the symptom was gone — two different bugs produced identical symptoms, and the first fix was verified against the code rather than against the behaviour.
+
+### Motion: chain, not star
+
+B637 aligned every keyframe to kf0, which picks the reflection nearest *keyframe zero* — but what a tween travels is the gap to the **previous** keyframe, and with three or more keyframes those are different answers. Daniel: *"it results in a weird jog back and then forward."* Aligning each keyframe to its predecessor minimises the distance actually covered and still lands the whole chain on kf0's handedness, because the predecessor already carries it.
+
+Separately, playback now folds each sampled frame. Interpolating position linearly between two keyframes can pass through the region where the primary has left the image even though neither endpoint did — Daniel: *"we don't ever visually have a state where the entire shape is a reflection."*
+
+### The origin dot was 3px at every scale
+
+It was hardcoded while every stroke around it multiplies by `sw`, so on the companion video render (which bumps `overlayStrokeScale` to read at 1920²) the primary origin shrank to an invisible speck. Daniel saw the reflected one and not this one and reasonably read that as us drawing only the reflection. Both scale now, on the polygon forms and on droste.
+
+---
+
 ## 🩹 v0.25.48 (Build 638) — 2026-08-17 — The fold gate was reading a flag on the wrong object
 
 **JS only. No `cap sync` needed.**

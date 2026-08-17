@@ -1157,9 +1157,12 @@ function inputsSection() {
     inMapRowEl('pad', 'clip stop 3', '⏻ take', 'rel', { noMode: 1, led: '#3c3' }),
     inDevHeadEl('DualSense', false, '1 mapping', true),
   ]);
+  // B639 — the drop preview is a SKELETON SLOT sized to the row being dragged, not a 2px line.
+  // Rendered from the real class so it cannot drift from the shipped component.
   const dragging = el('div', { class: 'in-maps', style: 'max-height:none' }, [
     inMapRowEl('stick', 'left stick x', 'slice position x', 'rate', { cls: 'in-dragging' }),
-    inMapRowEl('tp', 'trackpad rotate', 'slice rotation', 'rel', { cls: 'in-drop-before' }),
+    el('div', { class: 'in-drop-slot', style: 'height:34px' }),
+    inMapRowEl('tp', 'trackpad rotate', 'slice rotation', 'rel'),
   ]);
   // B624/B629 states: a row that DECLINED because its target does not apply to the active form,
   // a MODIFIER row, and the SHIFTED row that only acts while that modifier is held.
@@ -1183,7 +1186,7 @@ function inputsSection() {
     ]),
     el('div', { class: 'lab-note', text: 'Device groups + mapping rows (states: connected/offline header, pad row with LED swatch, action row with mode disabled):' }),
     devices,
-    el('div', { class: 'lab-note', text: 'Drag-reorder states: .in-dragging dims the moving row; .in-drop-before/.in-drop-after paint the insertion line in the gap (a real line, not a box outline — Daniel):' }),
+    el('div', { class: 'lab-note', text: 'Drag-reorder states: .in-dragging dims the moving row, and .in-drop-slot is a skeleton the exact height of the row being dragged, so the neighbours part by the space the row will actually occupy (B639 — the previous 2px insertion line showed WHERE but not HOW MUCH, and was painted on a neighbouring row rather than in the gap you were aiming at):' }),
     dragging,
     el('div', { class: 'lab-note', text: 'Per-form + modifier states (B624/B629). Row 1 and row 2 share ONE control: only the one whose target belongs to the active form acts, and the other dims (.in-idle) for 400ms so you can see which is listening. Row 3 is a MODIFIER — flagged with .in-mod.active, it drives no target of its own so target/mode/sens are disabled. Row 4 is the SHIFTED binding it unlocks; its kind chip reads +<modifier> instead of the signal kind. Row 5 is a freshly learned row, which lands unassigned (B619) rather than defaulting to a live parameter:' }),
     states,

@@ -547,7 +547,7 @@ export default {
           // copy of the origin that tells you which reflection is about to become primary. Drawn
           // inside the same mirror transform, so it lands wherever the reflected annulus centres.
           ctx.setLineDash([]);
-          ctx.beginPath(); ctx.arc(cx, cy, 3, 0, TAU);
+          ctx.beginPath(); ctx.arc(cx, cy, 3 * strokeScale, 0, TAU);   // matches the primary dot (B639)
           ctx.fillStyle = 'rgba(255, 196, 80, 0.85)'; ctx.fill();
           ctx.restore();
         }
@@ -660,10 +660,11 @@ export default {
       }
     }
 
-    // center dot.
+    // center dot. Radius scales with strokeScale (B639) so it survives the companion video render,
+    // where every other line is multiplied up to read at 1920².
     ctx.fillStyle = '#ffffff';
     ctx.beginPath();
-    ctx.arc(cx, cy, 3, 0, TAU);
+    ctx.arc(cx, cy, 3 * strokeScale, 0, TAU);
     ctx.fill();
 
     // direct-manipulation handle: offset (filled blue diamond). Drives the

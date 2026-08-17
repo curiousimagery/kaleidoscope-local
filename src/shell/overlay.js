@@ -21,6 +21,7 @@ import { sliceVecToSourceUV, polygonRadiusAt, pointInPolygon, sliceBoxCenter, pl
 import { getActiveForm } from '../engine/forms/index.js';
 import { rotateCursorForAngle, scaleCursorForAngle } from './cursors.js';
 import { perfFlags } from './perf-flags.js';
+import { holdGesture, releaseGesture, clearGestures, gestureSettling } from '../kit/gesture-gate.js';
 
 // ⚠️ B635 — THE ORIGIN GUARDRAIL IS GONE. IT IS A FOLD NOW, AND THE DIFFERENCE IS THE WHOLE POINT.
 //
@@ -78,14 +79,21 @@ const FOLD_LIVE = new URLSearchParams(location.search).get('fold') === 'live';
 //
 // **This is the two-`env` divergence CLAUDE.md warns about, in a new disguise:** not desktop vs
 // mobile this time, but chrome vs component. The durable answer is that a gesture on THE one source
-// overlay is a module-global fact — `setupSourceInteraction` is already a module singleton — so it
-// belongs in a module variable that every caller sees regardless of which object it is holding.
-let gestureActive = false;
+// overlay is a module-global fact, so it belongs somewhere every caller sees regardless of which
+// object it is holding.
+//
+// ⚠️ B639 GENERALISED THAT AGAIN, and the reason is worth keeping: **a held gamepad joystick is a
+// gesture too** — it just arrives as a stream of writes rather than pointer events. Daniel:
+// *"when translating the slice location using a gamepad joystick the switch still occurs mid-push
+// causing the direction to reverse."* B636 asked "is a pointer down" when the question that
+// matters is "is an input still moving this". `kit/gesture-gate` owns that fact for every input
+// surface now, so the bus and the overlay answer the same question instead of the overlay's answer
+// being the only one that counts.
 
 export function normalizeSliceMirror(env) {
   const state = env?.state;
   if (!state) return null;
-  if (gestureActive && !FOLD_LIVE) return null;
+  if (gestureSettling() && !FOLD_LIVE) return null;
   const fold = foldSliceIntoSource(state, getActiveForm(state),
     env.engine?.getSourceAspect?.() || 1, visibleUVRect(env));
   // Perform holds a spring over sliceCx/Cy. A fold rewrites those numbers without changing what
@@ -489,7 +497,7 @@ function drawSourceOverlayInner(env) {
       const rp = uvToScreen(ro.u, ro.v);
       ctx.setLineDash([]);
       ctx.beginPath();
-      ctx.arc(rp.x, rp.y, 3, 0, Math.PI * 2);
+      ctx.arc(rp.x, rp.y, 3 * sw, 0, Math.PI * 2);   // matches the primary dot at every scale (B639)
       ctx.fillStyle = `rgba(255, 196, 80, ${0.85 * reflectFade})`;
       ctx.fill();
     }
@@ -632,10 +640,13 @@ function drawSourceOverlayInner(env) {
     ctx.stroke();
   }
 
-  // center dot
+  // center dot — ⚠️ B639 SCALES IT. The radius was a hardcoded 3px while every stroke around it
+  // multiplies by `sw`, so on the companion video render (which bumps overlayStrokeScale so the
+  // lines read at 1920²) the origin shrank to an invisible speck. Daniel saw the reflected origin
+  // and not this one and reasonably read that as us drawing only the reflection.
   ctx.fillStyle = '#ffffff';
   ctx.beginPath();
-  ctx.arc(cxPx, cyPx, 3, 0, Math.PI * 2);
+  ctx.arc(cxPx, cyPx, 3 * sw, 0, Math.PI * 2);
   ctx.fill();
 
   // Touch-only persistent affordances — drawn at ~60% opacity, fading to ~25%
@@ -1217,7 +1228,7 @@ export function setupSourceInteraction(env, wrap) {
     // A re-mount mid-gesture never delivers the pointerup that would clear this, and a stranded
     // `true` would disable the fold for the whole session with nothing said — the "anything that
     // can decline to act must publish why" rule, answered by making it unable to strand.
-    gestureActive = false;
+    clearGestures();
     const h = _attachedHandlers;
     h.wrap.removeEventListener('mousedown', h.onDown);
     h.wrap.removeEventListener('mousemove', h.onMove);
@@ -1531,7 +1542,7 @@ export function setupSourceInteraction(env, wrap) {
       const t0 = e.touches[0], t1 = e.touches[1];
       const rect = wrap.getBoundingClientRect();
       env.overlayDragging = true;
-      gestureActive = true;          // B638 — the gate every caller can see; see normalizeSliceMirror
+      holdGesture('overlay');        // B638/B639 — see kit/gesture-gate
       env.overlayDragMode = 'pinch';
       const pinchBox = sliceBoxCenter(getActiveForm(env.state), env.state, env.engine.getSourceAspect());
       drag = {
@@ -1564,7 +1575,7 @@ export function setupSourceInteraction(env, wrap) {
     if ((!allowDiscrete || env.isLocked?.('segments')?.locked) && cls.mode === 'droste-arms') return;
 
     env.overlayDragging = true;
-    gestureActive = true;            // B638
+    holdGesture('overlay');          // B638/B639
     const g = env.sourceOverlayCanvas._geom;
     const { state } = env;
     const form = getActiveForm(state);
@@ -1688,7 +1699,7 @@ export function setupSourceInteraction(env, wrap) {
     if (!drag) return;
     drag = null;
     env.overlayDragging = false;
-    gestureActive = false;           // B638 — cleared BEFORE the fold below, or it gates itself out
+    releaseGesture('overlay');       // released BEFORE the fold below, or it gates itself out
     env.overlayDragMode = null;
     setCursor('default');
     // THE FOLD LANDS HERE (B636), after the flag clears so it is no longer suppressed. This is the

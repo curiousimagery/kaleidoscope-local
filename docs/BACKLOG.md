@@ -384,6 +384,20 @@ Shipped as `sliceMirrorX/Y` + `foldSliceIntoSource`. Details in CHANGELOG v0.25.
 - **The "it may be free for symmetric forms" hope was wrong to build on.** Most forms' folds ARE mirror-symmetric, but the flip is not about the fold's symmetry — it is about the SOURCE-UV offset, which reflects for every form regardless. The flag was needed everywhere.
 - **The trigger is not "entirely outside".** That reads well and produces a large teleport; the shipped trigger is the 25% overlap threshold measured against the VISIBLE source, which is Daniel's own number from B631.
 
+### 🪞 [B639, Daniel] SECOND-ORDER REFLECTIONS — reflect the reflection
+
+On iPad, dragging continuously can pull the solid outline out of view and then the reflection out of view too, at which point nothing is drawn. Daniel: *"acceptable, but it would be preferable to reflect the reflection visibly here."*
+
+The overlay currently draws only FIRST-order copies — reflections about u=0 and u=1 plus the four diagonals. The mirrored plane's full symmetry group also contains **translations by 2**, which is what covers a slice out past u=2. Generating copies for k ∈ {−1,0,1} per axis and keeping only those whose bounding box intersects the visible rect would be both more general and simpler than the current hand-listed eight transforms, and the existing REFLECT_FADE LOD already bounds how many actually paint.
+
+**Deferred, not forgotten** — and lower value since B639, because with the fold now gated for gamepad and knob input as well as pointer drags, this state is transient during a gesture and self-corrects on release.
+
+### 🎚 [B639] SHOULD A MOMENTARY BUTTON DEFAULT TO `rate`?
+
+Daniel asked whether a held button can send continuous input like a joystick. **It already can — set the mapping's mode to `rate`** (offered for momentary signals; `rel` is the default). Press sets the deflection, release clears it, and the rate loop integrates in between.
+
+The open question is whether `rate` should be the DEFAULT for a momentary button on a continuous target. It would suit droste infinite zoom and canvas zoom; it would be wrong for anything people tap once. Wants Daniel's call, not a guess.
+
 ### 🎬 [B636] COMPANION VIDEO + SLICE OVERLAY UNDER THE FOLD — UNVERIFIED
 
 The one B635/B636 surface Daniel has not smoke-tested: the rendered companion video that burns the slice overlay in. It borrows `drawSourceOverlay` with `overlayStrokeScale` bumped, so it inherits the handedness and the reflected-origin dot for free **in principle** — but it renders from a state stream rather than live interaction, and nothing has watched a fold happen inside a recorded take.
