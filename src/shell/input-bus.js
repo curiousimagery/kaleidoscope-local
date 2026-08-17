@@ -106,10 +106,19 @@ const PARAM_TARGETS = [
   // BOX must keep a quarter of itself inside the source (see clampOriginToSource). That exact bound
   // is box-dependent, so the mapping range is the generous envelope rather than a second, subtly
   // different formula — one bound, one owner. ±0.5 covers every form's legal travel.
+  // ⚠️ B634 — TIGHTENED FROM ±0.5 TO ±0.25. Daniel: *"using the translation control on the
+  // midi/gamepad input bypasses your barrier."* Correct, and it is not a range bug — the overlay's
+  // real guardrail (25% box overlap with the VISIBLE source) lives in the drag handler, so nothing
+  // the bus writes ever meets it. A generous mapping envelope was safe only while the overlay was
+  // the sole writer.
+  //
+  // This narrows the envelope to roughly the tightest legal travel across forms, which stops the
+  // reported escape. **It is a mitigation, not the fix** — see the note on `clampOriginToSource`
+  // in overlay.js. A bound enforced in the view cannot govern state that five writers touch.
   { key: 'sliceCx', label: 'slice position x', min: 0, max: 1, dir: 'left → right',
-    resolve: (s) => (s.oobMode === 1 ? { min: -0.5, max: 1.5 } : { min: 0, max: 1 }) },
+    resolve: (s) => (s.oobMode === 1 ? { min: -0.25, max: 1.25 } : { min: 0, max: 1 }) },
   { key: 'sliceCy', label: 'slice position y', min: 0, max: 1, dir: 'top → bottom',
-    resolve: (s) => (s.oobMode === 1 ? { min: -0.5, max: 1.5 } : { min: 0, max: 1 }) },
+    resolve: (s) => (s.oobMode === 1 ? { min: -0.25, max: 1.25 } : { min: 0, max: 1 }) },
   // SEMANTIC "zoom" — one mapping point that RESOLVES to the active form's zoom control, so a
   // single knob works across forms (droste → infinite zoom, else composition zoom) and existing
   // hardware never needs reprogramming on a form switch (Daniel). `resolve(state)` returns the
@@ -171,7 +180,13 @@ const PARAM_TARGETS = [
   { key: 'canvasOffsetY', label: 'pan y', min: -2, max: 2, dir: 'up → down',
     resolve: (s) => (latticePeriodOf(s) ? { unbounded: true } : { min: -1, max: 1 }) },
   { key: 'squareAspect', label: 'square aspect', min: 0.25, max: 4, dir: 'tall → wide', formControl: 'aspect' },
-  { key: 'drosteZoom', label: 'droste thickness', min: 1.1, max: 16, dir: 'thin → thick', formControl: 'zoom' },
+  // ⚠️ B634 — GEOMETRIC, same class as canvas zoom (B623). Daniel: *"the thicker the droste slice
+  // the less a step change actually moves things visually — steps between 2.5 and 1.1 are especially
+  // massive."* Exactly right: `drosteZoom` is the RATIO between successive tiers, so what you
+  // perceive tracks log(drosteZoom). A fixed additive step of 0.745 (5% of the 1.1–16 span) is a
+  // 68% change at 1.1 and a 4.9% change at 16 — a 14× difference in visual effect across the range.
+  { key: 'drosteZoom', label: 'droste thickness', min: 1.1, max: 16, dir: 'thin → thick', formControl: 'zoom',
+    geometric: true },
   { key: 'drosteSpiral', label: 'droste spiral', min: -3, max: 3, dir: 'wind left → wind right', formControl: 'spiral' },
   { key: 'drosteOffsetX', label: 'droste offset x', min: -1, max: 1, dir: 'left → right', forms: ['droste'] },
   { key: 'drosteOffsetY', label: 'droste offset y', min: -1, max: 1, dir: 'up → down', forms: ['droste'] },
@@ -840,8 +855,8 @@ export function createInputBus(env) {
         ? 'MODIFIER: hold this and press another control to reach that control\'s second binding. Drives no target of its own.'
         : 'make this a MODIFIER — hold it while learning another control to record a chord'}">mod</button>
       <select class="in-target" ${m.mod ? 'disabled' : ''} title="${m.mod ? 'a modifier drives no target of its own' : (isAction ? '' : dirTitle(m.target))}">${m.mod ? '<option>— modifier —</option>' : opts}</select>
-      <select class="in-mode" ${isAction ? 'disabled' : ''} title="abs: position is the value · rel: nudge per event · rate: deflection is speed">${modes}</select>
-      <select class="in-sens" ${isAction || isDiscrete ? 'disabled' : ''} title="${isDiscrete ? 'discrete control — one press moves to the next legal value' : 'sensitivity — step size for rel, speed for rate'}">${sens}</select>
+      <select class="in-mode" ${isAction || m.mod ? 'disabled' : ''} title="${m.mod ? 'a modifier has no mode — it is held, not read' : 'abs: position is the value · rel: nudge per event · rate: deflection is speed'}">${m.mod ? '<option>—</option>' : modes}</select>
+      <select class="in-sens" ${isAction || isDiscrete || m.mod ? 'disabled' : ''} title="${m.mod ? 'a modifier has no sensitivity' : (isDiscrete ? 'discrete control — one press moves to the next legal value' : 'sensitivity — step size for rel, speed for rate')}">${m.mod ? '<option>—</option>' : sens}</select>
       <button class="toggle in-inv${m.invert ? ' active' : ''}" title="invert${isAction ? '' : ' — ' + dirTitle(m.target)}">inv</button>
       ${isNote ? '<button class="in-led" title="pad LED color — tap to cycle"></button>' : '<span></span>'}
       <button class="vid-x in-del" title="remove mapping">✕</button>`;
@@ -862,8 +877,8 @@ export function createInputBus(env) {
       save(); renderMaps();
     });
     row.querySelector('.in-target').addEventListener('change', (e) => { m.target = e.target.value; save(); renderMaps(); });
-    row.querySelector('.in-mode').addEventListener('change', (e) => { m.mode = e.target.value; save(); });
-    row.querySelector('.in-sens').addEventListener('change', (e) => { m.sens = parseFloat(e.target.value); save(); });
+    row.querySelector('.in-mode').addEventListener('change', (e) => { if (!m.mod) { m.mode = e.target.value; save(); } });
+    row.querySelector('.in-sens').addEventListener('change', (e) => { if (!m.mod) { m.sens = parseFloat(e.target.value); save(); } });
     row.querySelector('.in-inv').addEventListener('click', (e) => { m.invert = !m.invert; e.target.classList.toggle('active', m.invert); save(); });
     ledBtn?.addEventListener('click', () => {
       const c = LED_COLORS.findIndex((x) => x.v === (m.led ?? 0));
@@ -881,6 +896,11 @@ export function createInputBus(env) {
     grip.addEventListener('dragstart', (e) => {
       dragIdx = store.maps.indexOf(m);
       e.dataTransfer.effectAllowed = 'move';
+      // ⚠️ B634 — setData IS REQUIRED. A drag whose dataTransfer carries no payload is not a valid
+      // drag in Chromium or WebKit: `dragover` still fires (so the insertion line appeared) but
+      // `drop` never does. That is Daniel's exact report — *"a line appears on the drop target but
+      // on release nothing happens."* It has been missing since the reorder shipped at B278.
+      try { e.dataTransfer.setData('text/plain', String(dragIdx)); } catch { /* older WebKit */ }
       row.classList.add('in-dragging');
     });
     grip.addEventListener('dragend', () => {
@@ -891,7 +911,12 @@ export function createInputBus(env) {
     row.addEventListener('dragover', (e) => {
       if (dragIdx < 0) return;
       e.preventDefault();
-      const before = e.offsetY < row.offsetHeight / 2;
+      e.dataTransfer.dropEffect = 'move';
+      // measured against the ROW, not `e.offsetY`: over a child (the name input, a select) offsetY
+      // is relative to THAT child, so the half-height test flipped depending on which control the
+      // pointer happened to cross.
+      const r = row.getBoundingClientRect();
+      const before = (e.clientY - r.top) < r.height / 2;
       if (!row.classList.contains(before ? 'in-drop-before' : 'in-drop-after')) {
         clearDropLine();
         row.classList.add(before ? 'in-drop-before' : 'in-drop-after');
@@ -899,7 +924,11 @@ export function createInputBus(env) {
     });
     row.addEventListener('drop', (e) => {
       e.preventDefault();
-      const before = row.classList.contains('in-drop-before');
+      e.stopPropagation();
+      // recompute from the pointer rather than trusting the class to have survived the last
+      // dragover/dragleave — the class is a HINT for the user, not the source of truth.
+      const r = row.getBoundingClientRect();
+      const before = (e.clientY - r.top) < r.height / 2;
       clearDropLine();
       let to = store.maps.indexOf(m) + (before ? 0 : 1);
       if (dragIdx < 0 || dragIdx === to || dragIdx === to - 1) { dragIdx = -1; return; }

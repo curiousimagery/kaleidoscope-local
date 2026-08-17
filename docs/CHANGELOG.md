@@ -6,7 +6,36 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
-## 🛡 v0.25.43 (Build 633) — 2026-08-15 — The origin guardrail, made durable
+## 🔩 v0.25.44 (Build 634) — 2026-08-17 — Reorder, modifier rows, droste thickness; and the guardrail's real problem
+
+**JS only. No `cap sync` needed.**
+
+### Shipped
+
+- **Mapping drag-reorder works again.** `dataTransfer.setData` was never called.
+- **Modifier rows no longer show a mode or a sensitivity.**
+- **Droste thickness steps are geometric.**
+- **The `sliceCx/Cy` mapping envelope narrowed** to stop the reported bus escape.
+
+### The reorder never had `setData`
+
+Daniel: *"a line appears on the drop target but on release nothing happens."* **A drag whose `dataTransfer` carries no payload is not a valid drag** in Chromium or WebKit — `dragover` still fires, so the insertion line appeared, but `drop` never does. Missing since the reorder shipped at B278, so this is a long-standing bug rather than a regression.
+
+Two related fixes while in there: the before/after test used `e.offsetY`, which is relative to whatever CHILD the pointer is over (a select, the name input) rather than the row — so the insertion side flipped depending on which control you crossed. And `drop` now recomputes the side from the pointer instead of trusting the CSS class to have survived the last `dragover`.
+
+### Droste thickness is a ratio, so its steps must multiply
+
+Daniel: *"the thicker the droste slice the less a step change actually moves things visually — steps between 2.5 and 1.1 are especially massive."* `drosteZoom` is the RATIO between successive tiers, so perception tracks `log(drosteZoom)`. A fixed additive step of 0.745 (5% of the 1.1–16 span) is a **68% change at 1.1 and a 4.9% change at 16** — 14× different across the range. Same class as canvas zoom at B623, now using the same `geometric` flag.
+
+### ⚠️ The guardrail's problem is structural, and this build does not fix it
+
+Daniel found two more escapes, and **both are writers that are not the overlay**: the bus's translation mapping, and (for droste) the centre-offset joystick, which moves the visible shape via `drosteOffsetX/Y` while the clamp only governs `sliceCx/Cy`.
+
+That is now **five leaks from five different writers** — the `scale` branch, the phone's cover crop, the bus, and the droste offset. Each was patched where it was found. **The pattern is the finding: `clampOriginToSource` lives in the drag handler, so it can only bound the one writer it sits inside.** This is B611's lesson arriving again, and it was written down at the time: *a bound that is not in STATE is not a bound.*
+
+The narrowed mapping envelope stops the reported bus escape and is honestly labelled a mitigation. **Recommendation in HANDOFF; this is a decision for Daniel, not a thing to keep patching.**
+
+ — 2026-08-15 — The origin guardrail, made durable
 
 **JS only. No `cap sync` needed** (though the phone is where the second fix shows).
 

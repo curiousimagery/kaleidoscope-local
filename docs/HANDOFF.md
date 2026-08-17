@@ -90,6 +90,27 @@ This retires the confusion, not just a hypothesis. Resolution was free because t
 
 ## current version
 
+**🔩 B634 — REORDER, MODIFIER ROWS, DROSTE THICKNESS. JS only.**
+
+- **Mapping drag-reorder works again** — `dataTransfer.setData` was never called, so `dragover` fired (line appeared) but `drop` never did. Missing since B278; a long-standing bug, not a regression.
+- **Modifier rows no longer show mode/sensitivity** (both meaningless for a held modifier).
+- **Droste thickness steps are GEOMETRIC.** It is the tier RATIO, so perception tracks log(drosteZoom): a fixed step was a 68% change at 1.1 and 4.9% at 16.
+
+**▶ VERIFIED BY DANIEL AT B633:** d-pad double mapping, the modifier layer, and droste accumulated follow all working. **The B632 cycDelta fix holds up in real use.**
+
+**🚨 DECISION OWED — THE OFF-CANVAS ORIGIN GUARDRAIL IS STRUCTURALLY WRONG, AND PATCHING IT IS NOT WORKING.**
+
+Five leaks, five different writers: the `scale` drag branch (B633), the phone's `cover` crop (B633), the bus's translation mapping (B634), and droste's centre-offset joystick (open). **`clampOriginToSource` lives in the overlay's drag handler, so it can only ever bound the one writer it sits inside** — the bus, the joystick, autoplay, the tween and the follower all write `sliceCx/Cy` or `drosteOffsetX/Y` without passing it.
+
+**This is B611's lesson repeating verbatim: *a bound that is not in STATE is not a bound.*** I wrote that sentence during the droste investigation and then built a guardrail that violates it.
+
+**Three honest options, in my order of preference:**
+1. **REVERT the off-canvas origin.** Cheapest, loses a feature Daniel likes, and removes the whole class. Restores a hard `[0,1]` clamp that every writer already respected.
+2. **NORMALISE ON WRITE (the flip).** Fold the origin back into range so out-of-range is *unrepresentable* rather than defended. Structurally correct and the only version that cannot leak. Needs the `sliceMirrorX/Y` state (shader + geometry + overlay + tween + mapping) — Daniel deferred this at B632 as not worth the complexity *yet*, before knowing the clamp would leak five times.
+3. **Keep patching per writer.** Not recommended. It has cost four builds and there is no reason to think the bus and the joystick are the last two.
+
+**Do not spend another build on option 3 without deciding.**
+
 **🛡 B633 — THE ORIGIN GUARDRAIL, MADE DURABLE. JS only.**
 
 Two holes in B632's guardrail, one per symptom Daniel reported.
