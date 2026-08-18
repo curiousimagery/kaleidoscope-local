@@ -22,6 +22,16 @@ Archived at B658. It was marked superseded at B609 and kept for the reasoning be
 
 ## current version
 
+**🎯 B659 — THE FOLD ASKS WHETHER THE SLICE IS REACHABLE. JS only.**
+
+Daniel found radial's slice folding away at deep canvas zoom-out. **No radial exception was needed — it was the wrong-noun trap inside the fold's own trigger.** Radial's wedge extent is `1 / (canvasZoom × canvasNorm)`, so zoom-out grows the polygon without bound; across a sweep the intersection with the view stays **constant at 0.500** while the slice's span runs 0.63 → 12.66. `inter / span` stops meaning "can I reach it" once the slice outgrows the screen. The trigger now takes `max(inter / span, inter / viewSpan)` — unreachable requires BOTH ratios low. Nothing else changes: for a normally-sized slice `inter / span` is still the larger term.
+
+**⚠️ ACCEPTED CONSEQUENCE (Daniel is living with it deliberately, and will confirm):** a very large radial wedge can have its ORIGIN pushed off screen with nothing pulling it back. Recovery is zoom in or reset slice. **Do not "fix" this by reinstating a span-only test.**
+
+**▶ THE HARNESS LESSON, AND IT IS THE BIGGER ONE. `fold-check.mjs` passed before AND after** — `canvasZoom` was pinned at 1 in its base state, and zoom-out is the only way to make a slice larger than the view. **B644's lesson recurring in the same file: a null result from a sweep that cannot reach the state is not evidence.** Now sweeps `canvasZoom` log-uniformly 0.05 → 4 (fold count moved 1535 → 1500, which is the evidence the states are reached), and its own visibility assertion had the pre-B659 definition baked in. New `reach-check.mjs` asserts the rule directly: 30 cases where the slice covers ≥25% of the view while being <25% of itself, **all 30 folded by the old test, none by the new one.**
+
+**▶ DANIEL VERIFIED AT B659:** slice min/max on every form, the modifier fix, and the perform ruler scrub.
+
 ## 🧹 B658 — DOCUMENTATION CLEANUP (item 3, docs half). No code touched.
 
 Daniel bumped the documentation half of item 3 ahead of item 2. **The code half cannot move** — the plan's hard dependency is that the flags being deleted are the instruments item 2 needs.

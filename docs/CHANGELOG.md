@@ -6,6 +6,44 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🎯 v0.25.68 (Build 659) — 2026-08-18 — The fold asks whether the slice is REACHABLE
+
+**JS only. No `cap sync` needed.** *(Build 658 was the documentation cleanup — docs only, no code, so no version.)*
+
+### Shipped
+
+- **The fold's trigger normalises by whichever denominator is meaningful**, so a slice larger than the view is never folded away.
+
+### The wrong-noun trap inside the fold's own trigger
+
+Daniel, testing the new slice extents on radial: *"if we zoom out very very far on the canvas with the radial wedge selected, the part with the origin that includes the meaningful part of the slice disappears since it is less than 25% even though it's the only thing not being reflected."*
+
+He also guessed it might need a radial exception. It does not, and the measurement is why. Radial's wedge extent is `1 / (canvasZoom × canvasNorm)`, so zooming the canvas out grows the sampled polygon without bound. Across a zoom-out sweep **the intersection with the view is constant at 0.500** while the slice's own span runs 0.63 → 12.66:
+
+| canvasZoom | span | inter | inter/span | folded? |
+|---|---|---|---|---|
+| 1 | 0.63 | 0.500 | 0.790 | no |
+| 0.25 | 2.53 | 0.500 | 0.198 | **yes** |
+| 0.05 | 12.66 | 0.500 | 0.040 | **yes** |
+
+**Nothing you can see or grab changed. Only the denominator exploded.** `inter / span` asks *"what fraction of the slice is on screen"*, which stops meaning *"can I reach the slice"* the moment the slice outgrows the screen. Radial is simply the only form whose polygon grows without bound, so it is the only one that exposed it.
+
+**The fold's actual job is to keep the slice reachable**, and unreachable means BOTH that hardly any of the slice is on screen AND that the slice is hardly any of what is on screen. If either is false you can see it and grab it. So the trigger takes `max(inter / span, inter / viewSpan)`. No form knowledge, no per-form threshold, no exception — and nothing else changes, because for any normally-sized slice `inter / span` is the larger term and still governs.
+
+**Three alternatives were considered and rejected**, all Daniel's: decoupling radial's overlay max from the canvas (makes the overlay lie about the region actually sampled), fading the reflections instead of growing them (a rendering change downstream of the decision — the roles would still swap wrongly), and a hard-coded radial + zoom-threshold exception (a magic number, and "origin over the source" is wrong as a general veto since droste's origin is routinely far from its slice).
+
+**⚠️ Accepted consequence, which Daniel is deliberately living with:** a very large radial wedge can now have its ORIGIN pushed off screen with nothing pulling it back, because the wedge still covers the view and the fold correctly reports it reachable. Recovery is zoom in or reset slice.
+
+### The harness could not have caught this, and that is the more useful finding
+
+`fold-check.mjs` passed before and after the change — because **`canvasZoom` was pinned at 1 in its base state and never swept.** Zoom-out is the only way to produce a slice larger than the view, so the harness could not reach the state the rule is about. **That is B644's lesson recurring in the same file: a null result from a sweep that cannot reach the state is not evidence.**
+
+Fixed by sweeping `canvasZoom` log-uniformly from 0.05 to 4 (the fold count moved 1535 → 1500 over 144,000 probes, which is the evidence the new states are reached), and by updating the harness's own "slice always visible" assertion, which had the pre-B659 definition baked into it and would have demanded a better representative for slices that are already everywhere.
+
+New `reach-check.mjs` asserts the rule directly instead of inferring it from a pass: across forms, zooms, positions and aspects it finds **30 cases where the slice covers ≥25% of the view while being <25% of itself — all 30 of which the pre-B659 test would have folded, and none of which the current engine folds.**
+
+---
+
 ## 📐 v0.25.67 (Build 657) — 2026-08-18 — One slice-scale range, and the glide yields the field
 
 **JS only. No `cap sync` needed.** **⚠️ Item 1.5 is CLOSED.**

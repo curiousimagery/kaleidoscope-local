@@ -306,10 +306,47 @@ const foldMap = (c) => {
 //      left exactly where the operator put it;
 //   2. only adopt the canonical representative when it is strictly BETTER, so a slice larger than
 //      the source (which can never reach 25% anywhere) settles instead of flipping every frame.
+// ⚠️ B659 — REACHABILITY, NOT "WHAT FRACTION OF THE SLICE IS VISIBLE". Daniel, testing radial:
+// *"if we zoom out very very far on the canvas with the radial wedge selected, the part with the
+// origin that includes the meaningful part of the slice disappears since it is less than 25% even
+// though it's the only thing not being reflected."*
+//
+// **This was the wrong-noun trap inside the fold's own trigger, and the measurement says so.**
+// Radial's wedge extent is `1 / (canvasZoom × canvasNorm)`, so zooming the canvas OUT grows the
+// sampled polygon without bound. Measured across a zoom-out sweep, the intersection with the view
+// is CONSTANT at 0.500 while `span` runs 0.63 → 12.66:
+//
+//   canvasZoom   span    inter   inter/span
+//   1            0.63    0.500       0.790
+//   0.25         2.53    0.500       0.198   ← folds, and nothing visible has changed
+//   0.05        12.66    0.500       0.040
+//
+// Nothing about what you can see or grab moved. Only the denominator exploded. `inter / span` asks
+// "what fraction of the slice is on screen", which stops meaning "can I reach the slice" the moment
+// the slice outgrows the screen — and radial is simply the only form whose polygon grows without
+// bound, so it is the only one that exposes it.
+//
+// **The fold's actual job is to guarantee the slice stays REACHABLE.** Unreachable means BOTH that
+// hardly any of the slice is on screen AND that the slice is hardly any of what is on screen. If
+// either is false you can see it and grab it. So normalise by whichever denominator is meaningful
+// and take the better of the two. No form knowledge, no threshold per form, no exception.
+//
+// Nothing else changes: for any normally-sized slice `inter / span` is the larger term and still
+// governs, and a slice genuinely pushed off the edge has both ratios near zero and still folds.
+//
+// ⚠️ ACCEPTED CONSEQUENCE (Daniel, B659 — he is living with it deliberately): a very large radial
+// wedge can now have its ORIGIN pushed off screen with nothing pulling it back, because the wedge
+// still covers the view and the fold correctly reports it reachable. Recovery is zoom in or reset
+// slice. Allowing the origin off-canvas was the point of B635 and the overlay draws its reflection,
+// so this is consistent rather than a hole — but do not "fix" it by reinstating a span-only test.
 const axisFold = (c, half, lo, hi) => {
   const span = 2 * half;
   if (!(span > 0)) return null;
-  const cover = (cc) => Math.max(0, Math.min(cc + half, hi) - Math.max(cc - half, lo)) / span;
+  const viewSpan = hi - lo;
+  const cover = (cc) => {
+    const inter = Math.max(0, Math.min(cc + half, hi) - Math.max(cc - half, lo));
+    return viewSpan > 0 ? Math.max(inter / span, inter / viewSpan) : inter / span;
+  };
   const now = cover(c);
   if (now >= MIN_OVERLAP) return null;
   const m = foldMap(c);
