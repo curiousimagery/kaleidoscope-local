@@ -70,6 +70,10 @@ const CSS = `
 /* full-width sentence inside the wrapping stat row — a title tooltip is not a channel on iPad */
 #perfPanel .pf-why { flex-basis: 100%; color: var(--text-faint, #666); }
 #perfPanel .pf-why.bad { color: var(--danger, #e2685a); }
+#perfPanel .pf-why.warn { color: var(--warn, #e0a33a); }
+/* B660 — the session button reads as ARMED while recording, because the one failure mode of an
+   explicit session is forgetting it is running (or forgetting it is not). */
+#perfPanel .pf-rec { color: var(--danger, #e2685a); border-color: var(--danger, #e2685a); }
 #perfPanel .pf-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 4px 0; border-bottom: 1px solid rgba(255,255,255,.05); }
 #perfPanel .pf-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #perfPanel .pf-name em { font-style: normal; color: var(--text-faint, #666); }
@@ -199,13 +203,49 @@ export function mountPerfPanel(env, { container = null, onClose = null } = {}) {
   let baseline = loadBaseline();
   scenarioSel.addEventListener('change', () => { baseline = loadBaseline(); paint(ledger.report); });
 
+  // the last finished session, kept so `copy report` still carries it after you press stop —
+  // otherwise the run you just completed vanishes at the moment you go to report it
+  let lastSession = null;
+  const fmtDur = (sec) => (sec < 60 ? `${sec}s` : sec < 3600 ? `${Math.floor(sec / 60)}m${String(sec % 60).padStart(2, '0')}` : `${Math.floor(sec / 3600)}h${String(Math.floor((sec % 3600) / 60)).padStart(2, '0')}`);
+
   const foot = document.createElement('div'); foot.className = 'pf-foot';
   const saveBtn = document.createElement('button'); saveBtn.textContent = 'save baseline';
   const clearBtn = document.createElement('button'); clearBtn.textContent = 'clear';
   const copyBtn = document.createElement('button'); copyBtn.textContent = 'copy report';
   const out = document.createElement('textarea'); out.readOnly = true; out.hidden = true;
-  foot.append(saveBtn, clearBtn, copyBtn);
-  panel.append(foot, out);
+
+  // ⚠️ B660 — START A SESSION, THEN GO AND WORK. Daniel's shape: *"i'd still go into the frame cost
+  // diagnostic, but to 'start a session' where we begin recording then shift to the workflow."*
+  //
+  // The button is the whole point of the instrument. The panel's other numbers are instantaneous —
+  // copying a report at minute nine says what minute nine looked like and cannot say it is worse
+  // than minute one. A session gives the samples a known t=0 and keeps recording while the panel is
+  // closed, which is the only way the long-run questions get answered.
+  const vitals = env.vitals || null;
+  const sessBtn = document.createElement('button');
+  const sessNote = document.createElement('div'); sessNote.className = 'pf-why';
+  function paintSession() {
+    if (!vitals) { sessBtn.hidden = true; sessNote.hidden = true; return; }
+    const on = vitals.recording;
+    sessBtn.textContent = on ? `stop session · ${fmtDur(vitals.elapsedSec)}` : 'start session';
+    sessBtn.classList.toggle('pf-rec', on);
+    // ⚠️ THE GLANCEABLE STATE (Daniel asked for it explicitly). During an 8-hour run nobody is
+    // reading JSON, so the panel has to say "something changed" from across a room — and it has to
+    // say WHY, or it is just an ominous colour. `reasons` is what makes it actionable.
+    const w = vitals.warning?.();
+    sessNote.className = 'pf-why' + (w ? (w.level === 'bad' ? ' bad' : ' warn') : '');
+    sessNote.textContent = w ? `⚠ ${w.reasons.join(' · ')}`
+      : on ? `recording · ${vitals.report()?.samples || 0} samples`
+      : 'records thermal, memory headroom and frame cost over time';
+    sessNote.hidden = false;
+  }
+  sessBtn.addEventListener('click', () => {
+    if (!vitals) return;
+    if (vitals.recording) { lastSession = vitals.stop(); } else { vitals.start(scenarioSel.value); lastSession = null; }
+    paintSession();
+  });
+  foot.append(saveBtn, clearBtn, copyBtn, sessBtn);
+  panel.append(foot, sessNote, out);
 
   saveBtn.addEventListener('click', () => {
     baseline = { ...ledger.report, savedAt: new Date().toISOString(), scenario: scenarioSel.value };
@@ -228,6 +268,12 @@ export function mountPerfPanel(env, { container = null, onClose = null } = {}) {
       // diagnostic that only prints to console is a diagnostic we cannot collect, which is how
       // the silent-take bug survived two builds of confident guessing.
       audio: env.lastAudioReport || null,
+      // B660 — THE SESSION, when one is running or has just finished. A sibling key rather than a
+      // second report, because `copy report` is the only channel that demonstrably works (see the
+      // note above) and a second button is one more thing to forget. Carries the trajectory the
+      // frame ledger structurally cannot: aggregates, every discontinuity as a timestamped event,
+      // and the last hour of samples.
+      vitals: (env.vitals?.recording ? env.vitals.report() : lastSession) || undefined,
       // B619 — WHICH FIELD IS STILL MOVING, AND WAS ANYTHING ALLOWED TO MOVE IT. Armed by
       // `?probe=motion`; absent otherwise. Built for the droste infinite-zoom loop, where four
       // mechanisms have been eliminated by reading and the investigation reached a contradiction:
@@ -349,6 +395,7 @@ export function mountPerfPanel(env, { container = null, onClose = null } = {}) {
   }
 
   function paint(r) {
+    paintSession();   // B660 — the elapsed clock and the warning line refresh with everything else
     top.innerHTML = '';
     // fps is graded against the DECLARED TARGET where there is one. The old fixed 50/25 cut
     // points silently assumed 60, so a take running at a correct 30 read amber and a 4K camera
@@ -444,10 +491,28 @@ export function mountPerfPanel(env, { container = null, onClose = null } = {}) {
     for (const s of r.surfaces) {
       const row = document.createElement('div'); row.className = 'pf-row';
 
+      // ⚠️ B660 — A TOGGLE NOTHING HONOURS IS WORSE THAN NO TOGGLE. Daniel: *"see if there are
+      // some fields in there that we can at least hide for now to make it more usable."*
+      //
+      // `source` is the confirmed case, already on the liars list: only `engine/index.js` checks
+      // `perf.skip`, which covers the RENDER surfaces. The source path calls `.pass()` for TIMING
+      // and no consumer ever reads its enabled flag, so switching it off changed the label and
+      // nothing else — and an A/B run against a lever that does not move is worse than no A/B,
+      // because it produces a confident null.
+      //
+      // Disabled rather than deleted: the ROW is the most valuable line in the panel (it is the
+      // 4K upload cost), and it must keep reporting. Only the control that lies goes away, and it
+      // says why on hover rather than vanishing without explanation.
+      const skipHonoured = s.id !== 'source';
       const onBtn = document.createElement('button');
       onBtn.textContent = s.enabled ? 'on' : 'off';
       onBtn.classList.toggle('off', !s.enabled);
-      onBtn.addEventListener('click', () => { ledger.setSurfaceEnabled(s.id, !s.enabled); paint(ledger.report); });
+      if (!skipHonoured) {
+        onBtn.disabled = true;
+        onBtn.title = 'no consumer honours this surface\u2019s skip flag \u2014 switching it off would change the label and nothing else';
+      } else {
+        onBtn.addEventListener('click', () => { ledger.setSurfaceEnabled(s.id, !s.enabled); paint(ledger.report); });
+      }
 
       const name = document.createElement('span');
       name.className = 'pf-name';

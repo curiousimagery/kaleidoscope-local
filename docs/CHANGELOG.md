@@ -6,6 +6,48 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🩺 v0.26.0 (Build 660) — 2026-08-18 — The session recorder
+
+**MINOR BUMP at Daniel's call, marking the close of the slice-hardening arc** — extents, the origin flip, the fold, and the MIDI/gamepad work. **JS only. No `cap sync` needed.**
+
+### Shipped
+
+- **`start session` in the frame-cost panel** — records thermal, memory headroom, fps and frame cost over time; keeps running while the panel is closed.
+- **A glanceable warning line** that says what is wrong, not just that something is.
+- **`vitals` in `copy report`** — aggregates, timestamped events, and the last hour of samples.
+- **The `source` row's on/off switch is disabled**, because nothing honours it.
+- New `conduit/vitals.js`, wired into **both** chromes.
+
+### A snapshot cannot answer a curve question
+
+The two questions gating the pressure-testing arc are trajectories: *does 4K → 4K hold for ten minutes*, and *does an eight-hour exhibit degrade*. **Copying a report at minute nine says what minute nine looked like; it cannot say it is worse than minute one.** So this is a separate instrument from the frame ledger rather than more fields on it — different clock, different lifetime, and merging them would make the frame report lie about its own timebase.
+
+Daniel's shape: *"i'd still go into the frame cost diagnostic, but to 'start a session' where we begin recording then shift to the workflow."* The explicit start is not tidiness — it gives the samples a known t=0, so "forty minutes in" is a fact rather than an estimate, and the recording covers the workflow rather than the fiddling before it.
+
+**Memory is recorded as HEADROOM first.** What ends a long run is the OS killing us, so the conserved quantity is how much room is left before that happens — a boundary we do not own. Footprint is what we spent: it rises for good reasons and bad alike and never says how close the wall is. Both are recorded; conclusions come from headroom.
+
+**Thermal is recorded as transitions.** *"It went serious at 6m12s"* is a finding; *"it is serious now"* is a readout. Every transition is a timestamped event, so a degradation can be lined up against the moment the device changed state. GL context losses go into the same timeline.
+
+**Bounded payload, stated honestly:** samples every 10s into a ring holding one hour, plus unbounded events (they are discontinuities, and tiny), plus running aggregates. Past an hour the curve decimates into the summary — the report says `truncated` so nobody reads a short series as a short run.
+
+**Absent readings are recorded as absent.** `nativeReadings: false` until the iOS thermal/memory plugin lands, because a run with no native reading must never look like a run that was nominal throughout.
+
+### The warning had to be live, and a harness caught that it was not
+
+First cut read the last *sample* while recording and read live when idle — so the same indicator meant two different things depending on a mode the reader cannot see, and could be up to ten seconds stale exactly when it matters. It now always reads live; only the trend reasons (`fps 60 → 15`) come from the session, because a trend is not a thing you can read instantly.
+
+### One field hidden, and why that one
+
+Daniel: *"see if there are some fields in there that we can at least hide for now to make it more usable."* The `source` surface's on/off switch is the confirmed case, already on the liars list — only `engine/index.js` checks `perf.skip`, which covers the *render* surfaces. The source path calls `.pass()` for timing and no consumer reads its enabled flag, so switching it off changed the label and nothing else.
+
+**A toggle nothing honours is worse than no toggle:** an A/B against a lever that does not move produces a confident null. Disabled rather than deleted, because the row itself is the most valuable line in the panel (it is the 4K upload cost) and must keep reporting; only the control that lies goes away, and it says why on hover.
+
+### Not yet, and deliberately
+
+`native` is a seam with nothing behind it. The iOS plugin (`ProcessInfo.thermalState` + `thermalStateDidChangeNotification`, `os_proc_available_memory`, `phys_footprint`, `didReceiveMemoryWarning`) is proposed and awaiting Daniel's go, and batches with the two outstanding instrument fixes so one Xcode cycle covers all three. **Everything above works today on desktop**, which is what lets the crawl phase start without waiting for a native build.
+
+---
+
 ## 🎯 v0.25.68 (Build 659) — 2026-08-18 — The fold asks whether the slice is REACHABLE
 
 **JS only. No `cap sync` needed.** *(Build 658 was the documentation cleanup — docs only, no code, so no version.)*

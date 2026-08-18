@@ -101,6 +101,7 @@ import { EDITION, editionAllows, detectRuntime } from '../kit/capabilities.js';
 import { webHost } from 'conduit/host';
 import { createCapacitorHost } from '../shell/capacitor-host.js';
 import { createPerfLedger, PRIORITY } from 'conduit/perf-ledger';
+import { createVitals } from 'conduit/vitals';
 import { perfFlags } from '../shell/perf-flags.js';
 import { createPressureSource } from 'conduit/pressure';
 
@@ -168,6 +169,9 @@ outputEl.appendChild(outputCanvas);
 // the desktop/iPad one. iPhone is the case the whole exercise matters most for.
 const perfPressure = createPressureSource({ native: () => host?.thermalState?.() ?? null });
 const perf = createPerfLedger({ pressure: perfPressure });
+// B660 — the session recorder, on the phone too. A diagnostic that exists on one chrome and not the
+// other is the two-chromes trap, and this one is specifically for device runs.
+const vitals = createVitals({ pressure: perfPressure, ledger: perf, native: () => host?.vitals?.() ?? null });
 const outputSurface = perf.surface({
   id: 'output', label: 'output canvas', serves: 'program', priority: PRIORITY.PROGRAM,
   size: () => ({ w: outputCanvas.width, h: outputCanvas.height }),
@@ -189,6 +193,7 @@ const controlsSync = makeControlsSync();
 const env = {
   state, session, engine,
   perf,
+  vitals,                                     // B660 — session recorder (parity with the desktop chrome)
   perfSurfaces: { output: outputSurface },
   buildLabel: formatVersion(),
   controlsSync,

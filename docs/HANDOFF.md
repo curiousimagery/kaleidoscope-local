@@ -22,6 +22,18 @@ Archived at B658. It was marked superseded at B609 and kept for the reasoning be
 
 ## current version
 
+**🩺 v0.26.0 · B660 — THE SESSION RECORDER. JS only.** Minor bump at Daniel's call, marking the close of the slice-hardening arc (extents, origin flip, fold, MIDI/gamepad).
+
+`start session` in the frame-cost panel records thermal, memory headroom, fps and frame cost every 10s, keeps running while the panel is closed, and lands in `copy report` under `vitals`. **A separate instrument from the frame ledger on purpose** — the ledger is a snapshot and the arc's questions are curves. **Memory is recorded as HEADROOM first** (what is left before the OS kills us — the boundary we do not own); footprint is recorded but never concluded from. **Thermal is recorded as timestamped transitions**, alongside GL context losses, so a degradation can be lined up against the moment the device changed state. Ring holds one hour; past that the report says `truncated`. `nativeReadings: false` until the plugin lands, because absent must never read as nominal.
+
+**Glanceable warning line** with the reasons, per Daniel's ask. It reads LIVE — a first cut read the last sample while recording and live when idle, which made one indicator mean two things; the harness caught it.
+
+**The `source` row's on/off switch is now disabled.** Nothing honours it: only `engine/index.js` checks `perf.skip` (the render surfaces), and the source path calls `.pass()` for timing only. **A toggle nothing honours is worse than no toggle** — an A/B against a dead lever produces a confident null. The row still reports; only the lying control went.
+
+**▶ NEXT: the iOS vitals plugin, proposed and awaiting Daniel's go.** `ProcessInfo.thermalState` + `thermalStateDidChangeNotification`, `os_proc_available_memory`, `phys_footprint`, `didReceiveMemoryWarning`, behind `env.host.vitals()` — the seam already exists and is wired on both chromes. **Batch it with the two outstanding instrument fixes** (`coveredMs` under-reporting, the manual `scenario` tag) so one Xcode cycle covers all three. **Everything shipped here works on desktop today**, which is what lets Daniel's "crawl" phase start without waiting on a native build.
+
+**▶ THE TEST PLAN, agreed at B660.** Crawl (works today) → walk (pressure-test extreme cases) → run (8h autoplay 4K broadcast with 4K source transitions). **The single most valuable device pairing is his two M1 iPads: the 12.9" Pro at 1TB is 16GB, the Air is 8GB, same silicon** — a controlled A/B on the one named open risk (memory at 4K). The plan's "the Air is a control, not a second data point" is true on the pixel axis and backwards on the memory axis. Air first (it is the floor), Pro only if the Air fails.
+
 **🎯 B659 — THE FOLD ASKS WHETHER THE SLICE IS REACHABLE. JS only.**
 
 Daniel found radial's slice folding away at deep canvas zoom-out. **No radial exception was needed — it was the wrong-noun trap inside the fold's own trigger.** Radial's wedge extent is `1 / (canvasZoom × canvasNorm)`, so zoom-out grows the polygon without bound; across a sweep the intersection with the view stays **constant at 0.500** while the slice's span runs 0.63 → 12.66. `inter / span` stops meaning "can I reach it" once the slice outgrows the screen. The trigger now takes `max(inter / span, inter / viewSpan)` — unreachable requires BOTH ratios low. Nothing else changes: for a normally-sized slice `inter / span` is still the larger term.

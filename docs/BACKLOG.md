@@ -374,6 +374,25 @@ The mapping targets `sliceCx` / `sliceCy` write the slice ORIGIN, but since B616
 
 **Implementable without a special case** — B619 added the `write` hook, so the target can write through `placeSliceBox` the way `segments` writes through its setter. Small.
 
+### 🩺 [B660 — PROPOSED, AWAITING DANIEL'S GO] THE iOS DEVICE-VITALS PLUGIN
+
+**The JS half shipped at B660** (`conduit/vitals.js`, the panel's session recorder, both chromes). The `native` seam is wired and returns null everywhere, which is recorded as `nativeReadings: false` rather than looking healthy. **What is missing is the reading itself, and it is the arc's largest instrumentation hole:** confirmed by grep, there is NO thermal and NO memory reporting anywhere in the three native plugins, while `BROADCAST-DELIVERY.md` names memory at 4K as the one open risk.
+
+**What to add, behind `env.host.vitals()`:**
+
+- `ProcessInfo.processInfo.thermalState` + **`thermalStateDidChangeNotification`** — transitions with timestamps, not a level.
+- **`os_proc_available_memory()`** — headroom before jetsam. **The conserved quantity**: a boundary we do not own, and the thing that actually ends a long run.
+- `phys_footprint` via `task_info`/`TASK_VM_INFO` — what we cost. Recorded, never concluded from on its own.
+- `didReceiveMemoryWarning` — an event that must publish itself, or a jetsam kill is indistinguishable from a random crash.
+
+**A NEW small plugin (`fold-device-vitals`), not bolted onto `fold-native-video`.** Vitals have to work when no video is loaded — the exhibit case may be camera-driven — and coupling them to the video plugin means the instrument disappears in half the scenarios worth measuring. It is also a **conduit** concern by Daniel's own framing: every future consumer app wants device vitals, and `conduit/pressure.js` already has the `native:` hook waiting for exactly this shape.
+
+**Batch with the two outstanding instrument fixes so one Xcode cycle covers all three:**
+- `loopCache.coveredMs` under-reports coverage by one frame interval (Swift), so its `why` advises raising a budget that is already sufficient.
+- The `scenario` tag is a manual dropdown and read `idle-still` during a 4K broadcast at B609, which invalidates any baseline diff from that session. Wants a guard that notices it disagrees with what is running.
+
+**First use, before any long run:** `pressure.js` shipped inert on purpose, *"to find out whether the inferred signal actually tracks the native one, BEFORE anything starts degrading the app based on it."* Native thermal is what makes that check possible — and it matters beyond iOS, because the inferred drift signal is all the desktop arm will ever have.
+
 ### 🔒 [Daniel, B655 — DESIGN ITEM, DELIBERATELY NOT BUILT] LOCKS DO NOT BLOCK MIDI / GAMEPAD INPUT
 
 *"Currently our settings locks don't block MIDI/gamepad inputs. e.g. if the form selection input is locked in the app, the dualsense gamepad can change forms without any resistance."*

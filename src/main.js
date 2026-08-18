@@ -55,6 +55,7 @@ import { mountFormTuner } from './shell/form-tuner.js';
 import { mountPerfPanel } from './shell/perf-panel.js';
 import { perfFlags } from './shell/perf-flags.js';
 import { createPerfLedger, PRIORITY } from 'conduit/perf-ledger';
+import { createVitals } from 'conduit/vitals';
 import { createPressureSource } from 'conduit/pressure';
 import { createGovernor } from 'conduit/governor';
 import { getNativeDecodeError } from './shell/native-video.js';
@@ -130,6 +131,16 @@ const perfPressure = createPressureSource({
   },
 });
 const perf = createPerfLedger({ pressure: perfPressure });
+// ⚠️ B660 — THE SESSION RECORDER (conduit/vitals). The ledger is a snapshot instrument; the
+// questions gating the pressure-testing arc are curves ("does 4K→4K hold for ten minutes", "does an
+// eight-hour exhibit degrade"). Inert until the panel starts a session, so it costs nothing in
+// normal use. `native` is the seam the iOS thermal/memory plugin will fill — absent today, and
+// absent is RECORDED as absent so a run with no native reading never reads as a nominal one.
+const vitals = createVitals({
+  pressure: perfPressure,
+  ledger: perf,
+  native: () => env.host?.vitals?.() ?? null,
+});
 // Surfaces register themselves rather than being enumerated here — see the layout-agnostic
 // constraint in perf-ledger.js. A merged or removed panel re-registers a different set and the
 // readout, the switchboard and any future governor keep working untouched.
@@ -295,6 +306,7 @@ if (engine) {
   previewCanvas.addEventListener('webglcontextlost', (ev) => {
     ev.preventDefault();
     console.warn('[fold] WebGL context LOST (preview canvas)');
+    vitals.mark('gl-context-lost', { surface: 'preview' });   // B660 — a discontinuity a long run must record
     if (statusEl) { statusEl.textContent = 'graphics context lost — recovering…'; statusEl.classList.add('error'); }
   });
   // AUTO-RECOVER (the mobile chrome's proven engine.reinitGL pattern — Daniel hit
@@ -326,6 +338,10 @@ const env = {
   state,
   session,
   motion,
+
+  // B660 — the session recorder, read by the perf panel. On BOTH chromes: a diagnostic that
+  // exists on one and not the other is the two-chromes trap, and this one is for device runs.
+  vitals,
 
   // engine handle
   engine,
