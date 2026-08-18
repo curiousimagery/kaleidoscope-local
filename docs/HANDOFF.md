@@ -90,6 +90,16 @@ This retires the confusion, not just a hypothesis. Resolution was free because t
 
 ## current version
 
+**🏷 B641 — set/step/ramp, THE DEFERRED FOLD RE-ARMS, MOTION RE-ENTRY. JS only.**
+
+**▶ DANIEL VERIFIED AT B640:** mapping reorder *"looks and functions as expected"*, droste off-canvas reflection correct, undo *"continues to perform exactly as expected"*.
+
+- **`abs`/`rel`/`rate` now display as `set`/`step`/`ramp`.** Stored values UNCHANGED — no migration, saved rigs untouched. Lab specimens follow.
+- **The fold lands after a MIDI/gamepad move.** The render loop is ON-DEMAND: a knob has no release, so its last write rendered inside the idle window, was gated, and nothing ever asked again. Declining now schedules the retry and re-arms until the hardware goes quiet. **A deferred bound that nothing re-requests is not deferred, it is dropped.**
+- **Motion re-entry assigns the sampled frame**, so the form picker follows kf0 instead of the previous mode's edit. Selection deliberately not restored.
+
+**🚧 PROPOSED, NOT BUILT — PER-MODE STATE MEMORY.** Daniel named the general rule behind the motion bug. **It is not a safe universal change**: one `state` object is why undo is a snapshot swap and why the engine is stateless. The cheap version that delivers the behaviour is a SNAPSHOT LEDGER (store on leave, restore on enter, inherit on first entry) — one object, three snapshots, no consumer changes. **Four product questions need Daniel's answer first** (what is global vs per-mode, what motion's snapshot means, whether undo crosses a mode switch, whether snapshots survive a source swap). Full write-up in BACKLOG.
+
 **🎯 B640 — DRAG-DROP: THE ACTUAL CAUSE. JS + CSS.**
 
 **▶ DANIEL VERIFIED AT B639:** the gesture-detection pause *"works great"*. Droste thickness proportional. The flip settled — no A/B needed.

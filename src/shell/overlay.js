@@ -21,7 +21,7 @@ import { sliceVecToSourceUV, polygonRadiusAt, pointInPolygon, sliceBoxCenter, pl
 import { getActiveForm } from '../engine/forms/index.js';
 import { rotateCursorForAngle, scaleCursorForAngle } from './cursors.js';
 import { perfFlags } from './perf-flags.js';
-import { holdGesture, releaseGesture, clearGestures, gestureSettling } from '../kit/gesture-gate.js';
+import { holdGesture, releaseGesture, clearGestures, gestureSettling, IDLE_MS } from '../kit/gesture-gate.js';
 
 // ⚠️ B635 — THE ORIGIN GUARDRAIL IS GONE. IT IS A FOLD NOW, AND THE DIFFERENCE IS THE WHOLE POINT.
 //
@@ -90,10 +90,33 @@ const FOLD_LIVE = new URLSearchParams(location.search).get('fold') === 'live';
 // surface now, so the bus and the overlay answer the same question instead of the overlay's answer
 // being the only one that counts.
 
+// ⚠️ B641 — A DEFERRED FOLD MUST RE-ARM, OR IT IS A FOLD THAT NEVER HAPPENS.
+//
+// Daniel: *"on release, specifically when using the MIDI/gamepad input, the reflection doesn't flip
+// to the solid form... this is corrected if using a mouse."* Exactly the split you would expect
+// once you notice **the render loop is ON-DEMAND**. A pointer drag ends with `onUp`, which calls
+// this again explicitly. A knob has no release: its final write renders immediately, that render
+// lands INSIDE the idle window and is gated — and then nothing ever asks again, because nothing
+// changed. The gate was not wrong, it was terminal.
+//
+// So declining schedules the retry. One timer for the module, re-armed if the input is still live
+// when it fires, which converges by itself the moment the hardware goes quiet. This is the project
+// rule about anything that can decline to act — an absence is not evidence, and here it was not
+// even a decision, just a dropped intention.
+let refoldTimer = 0;
+
 export function normalizeSliceMirror(env) {
   const state = env?.state;
   if (!state) return null;
-  if (gestureSettling() && !FOLD_LIVE) return null;
+  if (gestureSettling() && !FOLD_LIVE) {
+    if (!refoldTimer) {
+      refoldTimer = setTimeout(() => {
+        refoldTimer = 0;
+        env.scheduleRender?.();       // the render schedule is where the fold runs; see main.js
+      }, IDLE_MS + 20);
+    }
+    return null;
+  }
   const fold = foldSliceIntoSource(state, getActiveForm(state),
     env.engine?.getSourceAspect?.() || 1, visibleUVRect(env));
   // Perform holds a spring over sliceCx/Cy. A fold rewrites those numbers without changing what

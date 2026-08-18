@@ -384,6 +384,28 @@ Shipped as `sliceMirrorX/Y` + `foldSliceIntoSource`. Details in CHANGELOG v0.25.
 - **The "it may be free for symmetric forms" hope was wrong to build on.** Most forms' folds ARE mirror-symmetric, but the flip is not about the fold's symmetry — it is about the SOURCE-UV offset, which reflects for every form regardless. The flag was needed everywhere.
 - **The trigger is not "entirely outside".** That reads well and produces a large teleport; the shipped trigger is the 25% overlap threshold measured against the VISIBLE source, which is Daniel's own number from B631.
 
+### 🧠 [Daniel, B641] PER-MODE STATE MEMORY — a rule worth having, and a real change
+
+**His rule, and it is a good one:** *"current parameters get carried over when entering a mode for the first time, but when edits are made in a different mode, they shouldn't be carried back. If I set the form to triangle in still, then switch to motion, we should start with what I entered in still — but if I override it in motion, still should remember its last state."*
+
+**▶ MY READ: NOT a safe universal change, and the reason is structural.** There is ONE `state` object, and that is load-bearing well beyond convenience — it is why undo/redo is a snapshot swap, why the engine is stateless, why broadcast/record/export all take the same currency, and why motion keyframes and perform's follower can both be plain snapshots of it. Giving each mode its own state means every one of those has to say WHICH state it means. That is not a patch.
+
+**The cheap version that delivers the whole behaviour, though, is a SNAPSHOT LEDGER, not separate state:**
+
+- on LEAVING mode M, store `{...state}` under M
+- on ENTERING mode M, restore M's snapshot if one exists; otherwise inherit the live state (first entry) and record that
+
+One object, three saved snapshots, no change to the engine, undo, or any consumer. **Roughly the shape `motion.keyframes[0]` already has** — motion is halfway there by accident, which is exactly why B641's bug looked like a UI sync problem rather than a missing rule.
+
+**The parts that need deciding before anyone writes it, because they are product calls and not implementation details:**
+
+1. **What is NOT per-mode?** The source, the frame aspect, the output rig and the input mappings are surely global. Slice geometry and form are surely per-mode. `oobMode`? Canvas zoom? Undecided.
+2. **What does motion's snapshot even mean**, given its real state is the keyframe list and its live `state` is a sampled frame? Probably "the timeline", in which case motion already stores it and only needs the restore.
+3. **Does undo cross a mode switch?** Today it can. If modes remember separately, an undo that reaches back past a switch is either a surprise or a feature.
+4. **Does a snapshot survive a source swap or a reload?** Session-scoped is the cheap answer.
+
+**Recommended sequencing:** answer 1 and 2 with Daniel, then ship the ledger for form + slice geometry only, and widen it once the rule has been lived with. Shipping it for everything at once makes every "why did that not carry over" question a debugging session.
+
 ### 🐢 [B636→B640, Daniel] iPAD GESTURE-SURFACE LATENCY — UX POLISH
 
 **Daniel's call: polish, not a blocker.** *"Still functional and adequate but shows increased latency and choppiness compared to earlier states."*

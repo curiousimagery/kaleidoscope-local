@@ -6,6 +6,44 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🏷 v0.25.51 (Build 641) — 2026-08-17 — set / step / ramp; the deferred fold re-arms; motion re-entry
+
+**JS only. No `cap sync` needed.**
+
+### Shipped
+
+- **Mapping modes are named `set` / `step` / `ramp`.** Display only — stored values are unchanged.
+- **The fold now lands after a MIDI/gamepad move.** It was being deferred and then never asked for again.
+- **Returning to motion restores the timeline's look**, instead of showing the previous mode's edits.
+
+### ⚠️ A deferred fold that nothing re-requests is a fold that never happens
+
+Daniel: *"on release, specifically when using the MIDI/gamepad input, the reflection doesn't flip to the solid form... this is corrected if using a mouse."*
+
+The split is the whole diagnosis, once you notice **the render loop is on-demand**. A pointer drag ends with `onUp`, which calls the fold again explicitly. A knob has no release: its final write renders immediately, that render lands *inside* the gesture idle window and is correctly gated — and then nothing ever asks again, because nothing further changed. **The gate was not wrong, it was terminal.**
+
+Declining now schedules the retry, re-arming if the input is still live when it fires, so it converges the moment the hardware goes quiet. This is the standing rule about anything that can decline to act, in its sharpest form yet: it was not even a decision that went unpublished, it was a dropped intention.
+
+### set / step / ramp
+
+`abs` / `rel` / `rate` described **what the incoming number is** — the implementer's question — and hid the distinction that actually matters: `rel` and `rate` are *both* relative, one a displacement per event and the other a velocity. The new names say what the control **does**, which is the operator's question:
+
+| stored | shown | meaning |
+|---|---|---|
+| `abs` | **set** | the control's position IS the value (a knob, a fader) |
+| `rel` | **step** | one nudge per event (a button, an endless encoder) |
+| `rate` | **ramp** | deflection is SPEED — hold to keep moving |
+
+**Display only.** Stored values stay `abs`/`rel`/`rate`, so every saved rig and every `m.mode` comparison is untouched; a rename needing a migration would not be worth a clearer label. Lab specimens updated to match.
+
+### Motion re-entry adopted the wrong look
+
+Both halves of Daniel's report were true, which is what made it confusing: the keyframes were intact and the RENDER was correct, because playback pins discrete fields to kf0 — but **nothing re-asserted that into `state`** on re-entry, so the controls kept reading perform's edit. Re-entry now assigns the sampled frame, which is what every other entry into an existing timeline already did. Selection is deliberately not restored; the toggle clears it on purpose so post-exit edits cannot write through to a stale keyframe.
+
+**This is a symptom of a broader rule Daniel named, and the general version is NOT shipped here** — see BACKLOG "per-mode state memory". It is a real architectural change and it deserves a plan, not a patch smuggled in behind a UI sync fix.
+
+---
+
 ## 🎯 v0.25.50 (Build 640) — 2026-08-17 — Drag-drop: the actual cause, four reports later
 
 **JS + CSS. No `cap sync` needed.**

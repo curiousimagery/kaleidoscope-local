@@ -1153,25 +1153,25 @@ function inputsSection() {
   ]);
   const devices = el('div', { class: 'in-maps', style: 'max-height:none' }, [
     inDevHeadEl('APC40 mkII', true, '2 mappings'),
-    inMapRowEl('cc', 'top knob 1', 'slice rotation', 'rel', { inv: 1 }),
-    inMapRowEl('pad', 'clip stop 3', '⏻ take', 'rel', { noMode: 1, led: '#3c3' }),
+    inMapRowEl('cc', 'top knob 1', 'slice rotation', 'step', { inv: 1 }),
+    inMapRowEl('pad', 'clip stop 3', '⏻ take', 'step', { noMode: 1, led: '#3c3' }),
     inDevHeadEl('DualSense', false, '1 mapping', true),
   ]);
   // B639 — the drop preview is a SKELETON SLOT sized to the row being dragged, not a 2px line.
   // Rendered from the real class so it cannot drift from the shipped component.
   const dragging = el('div', { class: 'in-maps', style: 'max-height:none' }, [
-    inMapRowEl('stick', 'left stick x', 'slice position x', 'rate', { cls: 'in-dragging' }),
+    inMapRowEl('stick', 'left stick x', 'slice position x', 'ramp', { cls: 'in-dragging' }),
     el('div', { class: 'in-drop-slot', style: 'height:34px' }),
-    inMapRowEl('tp', 'trackpad rotate', 'slice rotation', 'rel'),
+    inMapRowEl('tp', 'trackpad rotate', 'slice rotation', 'step'),
   ]);
   // B624/B629 states: a row that DECLINED because its target does not apply to the active form,
   // a MODIFIER row, and the SHIFTED row that only acts while that modifier is held.
   const states = el('div', { class: 'in-maps', style: 'max-height:none' }, [
-    inMapRowEl('btn', 'd-pad up', 'square aspect', 'rel', { sens: '1 step' }),
-    inMapRowEl('btn', 'd-pad up', 'droste thickness', 'rel', { cls: 'in-idle' }),
-    inMapRowEl('btn', 'x / square', '— modifier —', 'rel', { mod: 1 }),
-    inMapRowEl('+x / sq', 'b / circle', '◈ form: droste', 'rel', { noMode: 1 }),
-    inMapRowEl('btn', 'right bumper', '— pick a target —', 'rel'),
+    inMapRowEl('btn', 'd-pad up', 'square aspect', 'step', { sens: '1 step' }),
+    inMapRowEl('btn', 'd-pad up', 'droste thickness', 'step', { cls: 'in-idle' }),
+    inMapRowEl('btn', 'x / square', '— modifier —', 'step', { mod: 1 }),
+    inMapRowEl('+x / sq', 'b / circle', '◈ form: droste', 'step', { noMode: 1 }),
+    inMapRowEl('btn', 'right bumper', '— pick a target —', 'step'),
   ]);
   return section('inputs-surface', 'Inputs & settings (control bus)',
     'The settings-sheet vocabulary from the Arc 6 input surface, as static specimens (input-bus.js renders the real, wired version — these are hand-synced copies, so drift here means the specimen needs updating). The mapping row is a 10-column grid: grip · kind chip · editable name · MOD toggle · target · mode · sensitivity · invert · LED swatch (pads only) · remove. (It was 9 columns until B629 added the modifier toggle.) Device headers carry the presence dot (var(--ok), the same token as the output traffic light), the editable device name, and the collapse chevron. The presence lights beside the app-bar gear stack in pairs like the output LEDs. Finger echo circles are drawn by the overlay itself (slice zone) and a glued sibling canvas (output panel) with the styles shown. The rig persists to localStorage fold-inputs-v1 everywhere + fold-config.json in userData under Electron.', [

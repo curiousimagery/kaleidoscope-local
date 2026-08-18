@@ -606,6 +606,15 @@ export function createInputBus(env) {
   // now proportional everywhere instead of 16× stronger at the bottom of the range.
   // Re-tuned from 0.92 at B636 when the step basis moved from the arithmetic span to the log span
   // (see the rel branch). Chosen to hold canvas zoom at the ~20%-per-5%-press feel Daniel confirmed.
+  // ⚠️ B641 — DISPLAY NAMES ONLY. The stored values stay `abs`/`rel`/`rate`, so every saved rig
+  // and every `m.mode` comparison in this file is untouched — a rename that needed a migration
+  // would not be worth a clearer label.
+  //
+  // The old names described WHAT THE INCOMING NUMBER IS, which is the implementer's question, and
+  // they hid the important distinction: `rel` and `rate` are both "relative" — one is a
+  // displacement per event, the other a velocity. The new names say what the control DOES, which
+  // is the operator's question: the knob SETS it, the button STEPS it, hold to RAMP it.
+  const MODE_LABEL = { abs: 'set', rel: 'step', rate: 'ramp' };
   const GEO_K = 0.83;
   // The honest span for a quantity perceived as a RATIO. Falls back to the arithmetic span if a
   // future geometric target ever has a non-positive min, where log is undefined.
@@ -966,7 +975,7 @@ export function createInputBus(env) {
     // across the legal range is a legitimate way to drive segments — and `rel` is the button case.
     const isDiscreteT = !!targetOf(m.target)?.discrete;
     const modes = (isDelta ? ['rel'] : isDiscreteT ? (momentary ? ['rel'] : ['abs', 'rel']) : momentary ? ['rel', 'rate'] : ['abs', 'rel', 'rate'])
-      .map((md) => `<option value="${md}"${m.mode === md ? ' selected' : ''}>${md}</option>`).join('');
+      .map((md) => `<option value="${md}"${m.mode === md ? ' selected' : ''}>${MODE_LABEL[md]}</option>`).join('');
     // B620 — a DISCRETE target steps one legal value per press, so a percentage here would be a
     // lie. Daniel: *"segments shouldn't be a percentage, they're abs integers."* The column shows
     // what actually happens instead of an inert control.
@@ -982,7 +991,7 @@ export function createInputBus(env) {
         ? 'MODIFIER: hold this and press another control to reach that control\'s second binding. Drives no target of its own.'
         : 'make this a MODIFIER — hold it while learning another control to record a chord'}">mod</button>
       <select class="in-target" ${m.mod ? 'disabled' : ''} title="${m.mod ? 'a modifier drives no target of its own' : (isAction ? '' : dirTitle(m.target))}">${m.mod ? '<option>— modifier —</option>' : opts}</select>
-      <select class="in-mode" ${isAction || m.mod ? 'disabled' : ''} title="${m.mod ? 'a modifier has no mode — it is held, not read' : 'abs: position is the value · rel: nudge per event · rate: deflection is speed'}">${m.mod ? '<option>—</option>' : modes}</select>
+      <select class="in-mode" ${isAction || m.mod ? 'disabled' : ''} title="${m.mod ? 'a modifier has no mode — it is held, not read' : 'set: the control&apos;s position IS the value (a knob or fader) · step: one nudge per event (a button or endless encoder) · ramp: deflection is SPEED — hold to keep moving'}">${m.mod ? '<option>—</option>' : modes}</select>
       <select class="in-sens" ${isAction || isDiscrete || m.mod ? 'disabled' : ''} title="${m.mod ? 'a modifier has no sensitivity' : (isDiscrete ? 'discrete control — one press moves to the next legal value' : 'sensitivity — step size for rel, speed for rate')}">${m.mod ? '<option>—</option>' : sens}</select>
       <button class="toggle in-inv${m.invert ? ' active' : ''}" title="invert${isAction ? '' : ' — ' + dirTitle(m.target)}">inv</button>
       ${isNote ? '<button class="in-led" title="pad LED color — tap to cycle"></button>' : '<span></span>'}

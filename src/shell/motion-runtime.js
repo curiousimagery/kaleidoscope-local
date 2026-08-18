@@ -1553,7 +1553,25 @@ function toggleMotionMode() {
   }
   if (!env.motionRT.active) haltPlayback();
   else if (!kfList().length) addKeyframe({ seed: true });   // QoL: enter motion mode with a keyframe of the current look
-  else renderTimeline();                       // (re-entry keeps existing keyframes)
+  else {
+    // ⚠️ B641 — RE-ENTRY MUST ADOPT THE TIMELINE'S LOOK, NOT WHATEVER THE LAST MODE LEFT BEHIND.
+    //
+    // Daniel: *"if i start on radial wedge in motion, go into perform and change forms, then return
+    // to motion, the form selector shows droste even though the initial keyframe correctly
+    // remembers radial."* Both halves were true, which is what made it confusing: the keyframes
+    // were intact and the RENDER was right, because playback pins discrete fields to kf0 — but
+    // nothing re-asserted that into `state`, so the controls kept reading perform's edit.
+    //
+    // Assigning the sampled frame is what every other entry into an existing timeline already does
+    // (see loadMotionFromJSON). Selection is deliberately NOT restored: the toggle just cleared it
+    // on purpose, so post-exit edits cannot write through to a stale keyframe.
+    Object.assign(state, sampleAt(motion.playhead));
+    env.syncControls?.();
+    env.applyFormControls?.();          // the form picker + form-specific controls follow `form`
+    env.scheduleOverlayDraw?.();
+    env.scheduleRender?.();
+    renderTimeline();                   // (re-entry keeps existing keyframes)
+  }
   if (!env.motionRT.active && env.sourceVideo) {
     // exiting motion on a video: STILL MODE DOESN'T AUTOPLAY (Arc 2c) — stay parked
     // on the playhead's frame; the source panel's mini scrubber picks frames.
