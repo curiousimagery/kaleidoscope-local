@@ -6,6 +6,38 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🩻 v0.25.56 (Build 646) — 2026-08-18 — The fill crosses through zero; the VIDEO swap finally has a trace
+
+**JS only. No `cap sync` needed.**
+
+### Shipped
+
+- **The tinted fill crossfades through 0%** — the last property that was still switching.
+- **`loadVideo` gets the swap trace and the 8-second watchdog** that `loadImage` has had since B630.
+
+### The fill was easing on only one side of the swap
+
+Daniel: *"the reflection has a low opacity fill but we turn it off and on abruptly. Can we have the fill crossfade through 0% to truly ease out and in across layers?"*
+
+It switched because **only the reflection CLASS drew a fill at all**, so the copy being promoted lost its tint in a single frame. The fill is now a function of the role — full at `p=0`, gone at `p=1` — and the primary draws a transient tint on its way in. The outgoing copy grows its tint as the incoming one loses it, and both pass through zero rather than blinking.
+
+### ⚠️ I told Daniel the swap trace covered this. It did not.
+
+B630 built the source-swap trace and the decode watchdog and wired both to **`loadImage` only**. So "every phase from picker → guard → decode logs a reason on exit" was true for stills and false for clips — and the reported dead end is a `.m4v`. His report stops at `guard:discard-then-load` with nothing after it **because nothing after it logs.**
+
+The report still ruled things in and out, which is worth recording:
+
+- `nativeAttach` is stamped 74ms after the guard, so `loadVideo` DID run and reached the native-decode check, which declined correctly (iOS-only on Electron/macOS).
+- The `source` surface still reads **camera**, at 1080×1920, and `slice.sourceAspect` is 0.5625 — matching the camera, not the clip.
+
+So the swap started and the camera remained the source. **What is NOT knowable from this report is whether `loadeddata` ever fired**, which is the branch that decides everything, and that is exactly the gap.
+
+`loadVideo` now traces `start` (recording whether we came from the camera), `loadeddata`, `source-set`, `error` and `timeout`. **The watchdog matters most here**: `stopCameraMode({ keepSource: true })` deliberately leaves the camera's last frame standing, so a decode that never resolves looks like "nothing happened" rather than like a broken source — the most confusing possible presentation of a failure.
+
+**No fix attempted.** Uncertainty state A — we do not yet know which branch fails, and the only legal move in state A is instrumentation.
+
+---
+
 ## 🖌 v0.25.55 (Build 645) — 2026-08-18 — The whole style crossfades; the overlay stops at the image edge
 
 **JS only. No `cap sync` needed.**

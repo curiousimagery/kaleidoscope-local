@@ -207,6 +207,18 @@ export function createSourceHost(env) {
     // uploading a new clip while in Loop Builder resets the process — warn on unsaved
     // first (exitLoopBuilder); if the user backs out, abort the load
     if (env.loopIsActive?.() && !opts.srcUrl && !env.exitLoopBuilder?.()) return;
+    // ⚠️ B646 — THE VIDEO PATH HAD NO TRACE AND NO WATCHDOG. B630 built both and wired them to
+    // `loadImage` only, so the claim that the swap trace covered "picker → guard → decode" was true
+    // for stills and false for clips. Daniel's dead end — *"switching from live camera back to a
+    // video source won't load the video"* — is on THIS path, which is why his report stops at
+    // `guard:discard-then-load` with nothing after it. An uncollectable diagnostic is no
+    // diagnostic; that was the whole lesson of B630 and half the code missed it.
+    //
+    // `wasLive` is recorded because the reported repro always comes FROM the camera, and
+    // `keepSource: true` deliberately leaves the camera's last frame standing as the source — so a
+    // silent failure here looks exactly like "nothing happened" rather than like a broken source.
+    const wasLive = !!(env.live.isLive || env.live.frozen);
+    swapTrace('loadVideo:start', { name: file?.name, type: file?.type, size: file?.size, wasLive });
     if (env.live.isLive || env.live.frozen) stopCameraMode({ keepSource: true });   // uploading exits the camera workflow
     stopSourceVideoPlayback();                           // stop any previously loaded video's loop
     env.detachNativeVideo?.();                           // a new clip means a new native decode
@@ -231,19 +243,31 @@ export function createSourceHost(env) {
     v.disablePictureInPicture = true;
     v.setAttribute('disablepictureinpicture', '');
     let loaded = false;
+    // The one outcome that previously left NO trace: the decode neither loads nor errors. Same
+    // 8-second budget the image path uses, and the same visible failure, so a hung clip reports
+    // itself instead of looking like a no-op.
+    const decodeWatchdog = setTimeout(() => {
+      if (loaded) return;
+      swapTrace('loadVideo:timeout', { readyState: v.readyState, networkState: v.networkState, wasLive });
+      swapFailed('the video never finished decoding', 'Try a different file or re-encode it as H.264 mp4.');
+    }, 8000);
 
     v.addEventListener('loadeddata', () => {
       loaded = true;
+      clearTimeout(decodeWatchdog);
+      swapTrace('loadVideo:loadeddata', { w: v.videoWidth, h: v.videoHeight, dur: +(v.duration || 0).toFixed(2) });
       try {
         engine.setSource(v);            // videoWidth is known now (a frame is decoded)
         env.centerSliceInSource?.();    // B615: new source → centre the form's box, orient to its long edge
       } catch (e) {
+        swapTrace('failed', { reason: 'engine.setSource threw', message: e.message });
         if (uploadErrorEl) uploadErrorEl.textContent = e.message;
         statusEl.textContent = '';
         statusEl.classList.remove('error', 'busy', 'success');
         console.error(e);
         return;
       }
+      swapTrace('loadVideo:source-set', { w: v.videoWidth, h: v.videoHeight });
       env.sourceVideo = v;              // mountSourceView mounts this element
       env.liveVideo = null;
       attachNativeVideo(v, file);       // iOS: hand PLAYBACK to the single native decode (no-op elsewhere)
@@ -338,6 +362,8 @@ export function createSourceHost(env) {
     }, { once: true });
 
     v.addEventListener('error', async () => {
+      clearTimeout(decodeWatchdog);
+      swapTrace('loadVideo:error', { code: v.error?.code, message: v.error?.message, afterLoad: loaded, wasLive });
       if (loaded) {
         // a decode hiccup AFTER the clip already loaded (seen on some Firefox .mov) —
         // not a codec-support problem, so don't blame ProRes. (Firefox .mov decode

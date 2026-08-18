@@ -154,6 +154,15 @@ function roleStyle(p, strokeScale) {
     width: (1.0 + 0.5 * p) * strokeScale,
     alpha: 0.6 + 0.3 * p,
     dash: gap < 0.05 ? [] : [DASH_LEN, gap],
+    // B646 — the tinted FILL rides the same ramp and passes through zero. Daniel: *"the reflection
+    // has a low opacity fill but we turn it off and on abruptly. Can we have the fill crossfade
+    // through 0% to truly ease out and in across layers?"*
+    //
+    // It was the last property still switching, and it switched because only the reflection CLASS
+    // drew a fill at all — so the copy being promoted lost its tint in one frame. Making the fill a
+    // function of the role (full at p=0, gone at p=1) means the outgoing primary grows its tint in
+    // as the incoming one loses it, and both pass through 0 rather than blinking.
+    fill: 0.10 * (1 - p),
   };
 }
 
@@ -622,7 +631,7 @@ function drawSourceOverlayInner(env) {
       // ...and the reflections run the SAME ramp backwards, since one of them was the primary a
       // moment ago. One function, two directions — so the two can never drift apart (B645).
       const rs = roleStyle(1 - refFadeP, sw);
-      ctx.fillStyle = `rgba(${rs.rgb[0]}, ${rs.rgb[1]}, ${rs.rgb[2]}, ${0.10 * reflectFade})`;
+      ctx.fillStyle = `rgba(${rs.rgb[0]}, ${rs.rgb[1]}, ${rs.rgb[2]}, ${rs.fill * reflectFade})`;
       ctx.fill();
       ctx.strokeStyle = `rgba(${rs.rgb[0]}, ${rs.rgb[1]}, ${rs.rgb[2]}, ${rs.alpha * reflectFade})`;
       ctx.setLineDash(rs.dash);
@@ -695,6 +704,21 @@ function drawSourceOverlayInner(env) {
     ctx.stroke();
     ctx.lineJoin = prevJoin;
     ctx.setLineDash([]);
+  }
+
+  // B646 — the promoted copy keeps the reflection's tint until the crossfade retires it. Without
+  // this the fill only ever eased on ONE side of the swap: the copy gaining the primary role lost
+  // its tint instantly, which is the abrupt half Daniel could still see.
+  const primaryFill = roleStyle(foldFade, sw).fill * reflectFade;
+  if (primaryFill > 0.002) {
+    ctx.save();
+    ctx.beginPath();
+    screenPts.forEach((p, i) => { if (i === 0) ctx.moveTo(p.x, p.y); else ctx.lineTo(p.x, p.y); });
+    ctx.closePath();
+    const pf = mixRGB(REFLECT_RGB, PRIMARY_RGB, foldFade);
+    ctx.fillStyle = `rgba(${pf[0]}, ${pf[1]}, ${pf[2]}, ${primaryFill})`;
+    ctx.fill();
+    ctx.restore();
   }
 
   const isRotateHover = env.hoverMode === 'rotate';

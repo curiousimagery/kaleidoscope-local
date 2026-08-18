@@ -90,6 +90,17 @@ This retires the confusion, not just a hypothesis. Resolution was free because t
 
 ## current version
 
+**🩻 B646 — FILL CROSSES THROUGH ZERO; loadVideo GETS THE TRACE IT NEVER HAD. JS only.**
+
+- **Tinted fill now rides the role ramp** (full at p=0, gone at p=1) and the primary draws a transient tint on its way in, so both sides pass through 0 instead of one blinking.
+- **⚠️ `loadVideo` had NO swapTrace and NO watchdog.** B630 wired both to `loadImage` only — so the "picker → guard → decode" coverage I claimed was stills-only, and Daniel's dead end is a `.m4v`. Now traces start/loadeddata/source-set/error/timeout (8s), recording `wasLive`.
+
+**🔴 OPEN — VIDEO SWAP DEAD END, INSTRUMENTED NOT FIXED. Uncertainty state A.**
+
+From the B643 report: `nativeAttach` stamped 74ms after `guard:discard-then-load`, so `loadVideo` ran and reached the native-decode check (declined correctly, iOS-only). The `source` surface still reads **camera** at 1080×1920 and `slice.sourceAspect` 0.5625 matches the camera, not the clip. **So the swap started and the camera stayed the source — but whether `loadeddata` ever fired is NOT knowable from that report**, and it is the branch that decides everything.
+
+**Next occurrence answers it outright:** `loadVideo:loadeddata` present → the decode worked and something later re-asserted the camera (suspect `keepSource: true` plus the live loop). Absent, with `loadVideo:timeout` → the decode itself hung. **Do not guess between those two.**
+
 **🖌 B645 — THE WHOLE STYLE CROSSFADES; OVERLAY CLIPPED TO THE IMAGE. JS only.**
 
 **▶ DANIEL CONFIRMED AT B644: the crossfade renders.** Remaining complaint was that only COLOUR animated.
