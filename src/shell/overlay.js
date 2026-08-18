@@ -116,8 +116,13 @@ let refoldTimer = 0;
 //
 // Colour and alpha only. Dash patterns do not interpolate meaningfully, and the colour is what
 // Daniel named. 900ms sits in the middle of the range he gave.
-const FOLD_FADE_MS = 900;
+export const FOLD_FADE_MS = 900;
 let foldFadeT = 0;
+// Stamp a fold that happened somewhere other than normalizeSliceMirror — motion's sampler folds
+// each played frame itself, so without this a fold during playback would swap colours with no
+// transition even though the live overlay is perfectly capable of animating it (B643).
+export function markSliceFold() { foldFadeT = performance.now(); }
+
 // PURE — expiry is done once per draw in drawSourceOverlayInner. A read that also cleared the
 // timer would be a trap here, because the draw both reads it and decides whether to schedule the
 // next frame from it: whichever call site happened to run first would end the animation.
@@ -382,8 +387,21 @@ export function drawSourceOverlay(env, { force = false } = {}) {
 function drawSourceOverlayInner(env) {
   const { state, engine } = env;
   // THE one expiry point for the fold crossfade (see foldFadeP).
-  const foldFade = foldFadeP();
-  if (foldFade >= 1) foldFadeT = 0;
+  //
+  // ⚠️ B643 — `env.foldFadeP` OVERRIDES THE CLOCK, because a BAKED render has no clock to read.
+  // The companion source video is composed frame by frame at whatever speed the encoder manages,
+  // so `performance.now()` says nothing about where that frame sits in the take — every frame
+  // would read almost the same elapsed time, or race past the window entirely. Daniel: *"the
+  // crossfade doesn't show on the companion video, the color swap is still instant."*
+  //
+  // So the baker supplies progress derived from the TIMELINE (see renderSourcePreviewFrame), and
+  // the live overlay keeps the wall clock. The override must not expire the shared timer either —
+  // that belongs to the live overlay, and a bake would otherwise cancel a fade running on screen.
+  const overrideFade = env.foldFadeP;
+  const foldFade = (typeof overrideFade === 'number')
+    ? Math.max(0, Math.min(1, overrideFade))
+    : foldFadeP();
+  if (overrideFade == null && foldFade >= 1) foldFadeT = 0;
   if (!env.sourceOverlayCanvas || !engine.getSourceImage()) return;
   // outline stroke multiplier — 1 for the live overlay; the companion source-preview
   // render bumps it so the wedge lines read at 1920² instead of hairline.

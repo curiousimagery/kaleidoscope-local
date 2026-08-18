@@ -6,6 +6,67 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🔬 v0.25.54 (Build 644) — 2026-08-17 — The crossfade, reproduced locally and actually fixed
+
+**JS only. No `cap sync` needed.**
+
+### Shipped
+
+- **The fold crossfade renders as a ramp** in the companion video and in live motion playback. Third attempt, first one reproduced before shipping.
+
+### ⚠️ The wrong-noun trap, in its own house
+
+B643 stamped the fade whenever `foldSliceIntoSource` returned a fold. **That is an ACTIVITY COUNTER, and the quantity that matters is a CHANGE OF STATE.**
+
+`out` is rebuilt from the keyframes on every frame, and the keyframes are aligned, so it always arrives *unfolded* and the fold re-applies from scratch. "A fold happened this frame" is therefore true **continuously** for as long as the tween sits past the threshold — measured here, **55 consecutive frames out of 180**. Stamping the fade on each of them pinned "time since the last fold" at zero, so the primary snapped to the reflection's colour and stayed there for the rest of the take. Daniel: *"the state switches over a single frame."*
+
+The handedness is the honest quantity: it flips **once**, at the crossing, and holds. The crossfade now starts on that change.
+
+Guarded so only consecutive frames of an ordered pass can witness a transition — filmstrip thumbnails and keyframe selection call the sampler at arbitrary `p`, and comparing against an unrelated previous frame would invent transitions that never play.
+
+### The method note, which matters more than the fix
+
+**This was reproduced locally before anything was changed**, which is what the previous two attempts skipped. A harness drove the real sampler and the real fold through a full bake and printed the fade value per frame:
+
+| frame | mirrorX | B643 fade | B644 fade |
+|---|---|---|---|
+| 124 | 1 | 1.00 | 1.00 |
+| 125 | −1 | **0.00** | **0.00** |
+| 135 | −1 | **0.00** | 0.37 |
+| 147 | −1 | **0.00** | 0.82 |
+
+One distinct fade value across the swap before; twenty-eight after.
+
+**It also cost two wrong scenarios to get there** — the first two authored animations never folded at all, because B639's keyframe alignment keeps both ends in one frame and the tween between them stays visible. That is correct behaviour, and it means *a crossfade bug is only reachable for animations pushed far enough that the path itself leaves the image.* Worth knowing: **the feature under test was harder to trigger than the bug report implied**, and assuming otherwise is what made the first two harness runs useless.
+
+**Class 1 all along** — "does our code do what we think" — so it never needed a device, only a run.
+
+---
+
+## 🎞 v0.25.53 (Build 643) — 2026-08-17 — The crossfade reaches the companion video
+
+**JS only. No `cap sync` needed.**
+
+### Shipped
+
+- **The fold crossfade now renders in the companion source video**, driven by the timeline.
+- **A fold during motion playback fades on screen too**, instead of only folds made by hand.
+- **The OOB warning copy is lowercase and shorter**, and is now the worked example in the copy/tone pass.
+
+### Two reasons the crossfade could not have worked in a bake
+
+**A baked frame has no clock to read.** The companion video is composed frame by frame at whatever speed the encoder manages, so `performance.now()` says nothing about where a frame sits in the take — every frame reads almost the same elapsed time, or races past the 900ms window entirely. Progress has to come from the **timeline**: how far past the fold that frame sits, measured in playback time. `env.foldFadeP` overrides the clock for exactly this, and deliberately does not expire the shared timer, so baking cannot cancel a fade running on screen.
+
+**And the fold was never being announced.** Motion's sampler folds each played frame itself, via `foldSliceIntoSource` rather than `normalizeSliceMirror` — so the fade timer was only ever started by a hand-driven fold. Playback and baking both swapped colours with nothing told to animate them. `markSliceFold()` closes that, with the bake passing `{ bake: true }` so an encoder running flat out cannot leave a stray fade on the live overlay afterwards.
+
+Verified the timeline ramp is real and encoder-independent: a fold at the midpoint spans **~900ms of playback in every case** — 27 frames on a 30s/30fps loop, 54 on 5s/60fps, 22 on 120s/24fps. Progress reads 0.00 at the fold, 0.50 at +450ms, 1.00 at +3s.
+
+### Copy
+
+The OOB warning was explaining the MECHANISM — mirror versus clamp, what playback would do — when the reader only needs the consequence and the choice. It also mixed sentence case with an ALL-CAPS mode name mid-sentence. Lowercased and cut to consequence + choice, and **cited in BACKLOG's UI/brand pass as the worked example**, with the observation that every `confirmInterrupt` in the app was written one at a time and reads like it. Interrupt copy wants a shape, not a fresh draft each time.
+
+---
+
 ## 🎨 v0.25.52 (Build 642) — 2026-08-17 — The role swap crossfades; leaving mirror mode asks about stranded keyframes
 
 **JS only. No `cap sync` needed.**

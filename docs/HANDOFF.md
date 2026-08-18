@@ -90,6 +90,21 @@ This retires the confusion, not just a hypothesis. Resolution was free because t
 
 ## current version
 
+**🔬 B644 — THE CROSSFADE, REPRODUCED LOCALLY AND ACTUALLY FIXED. JS only.**
+
+**⚠️ THE WRONG-NOUN TRAP, IN OUR OWN HOUSE.** B643 stamped the fade whenever the fold RETURNED A FOLD — an activity counter. `out` is rebuilt from aligned keyframes every frame, so it always arrives unfolded and the fold re-applies: *"a fold happened"* is true **continuously**, 55 frames of 180 in the measured case. That pinned "time since last fold" at zero, so the primary snapped to amber and stayed. **The handedness is the conserved quantity — it flips once and holds.** The fade now starts on that change, guarded to consecutive frames of an ordered pass (the filmstrip samples at arbitrary p).
+
+**▶ THE PRACTICE THAT FOUND IT, worth reusing:** the bake is fully reproducible in Node — `sampleKeyframes` + `foldSliceIntoSource` are pure, so a harness can drive a whole take and print the fade per frame without a canvas. Scratch harness pattern is in the B644 changelog. **Two earlier harness runs were useless because the authored animation never folded** — B639's alignment keeps both keyframe ends in one frame, so only animations pushed far enough for the PATH to leave the image can fold mid-tween. Build the scenario that exercises the bug before trusting a null result.
+
+**🎞 B643 — THE CROSSFADE REACHES THE COMPANION VIDEO. JS only.**
+
+**▶ DANIEL VERIFIED AT B642:** the OOB keyframe guard works functionally (copy was the complaint, now fixed).
+
+- **A baked frame has no clock**, so `env.foldFadeP` supplies TIMELINE-derived progress; the wall clock stays for the live overlay and a bake cannot expire it.
+- **The fold was never announced from motion's sampler** — it folds via `foldSliceIntoSource`, not `normalizeSliceMirror`, so nothing started the fade during playback OR baking. `markSliceFold()` fixes both; the bake passes `{ bake: true }` so it cannot leave a stray fade on the live overlay.
+- Verified encoder-independent: ~900ms of playback in every case (27 frames at 30s/30fps, 54 at 5s/60fps, 22 at 120s/24fps).
+- **OOB warning copy lowercased + shortened**, and cited in the BACKLOG UI/brand pass as the worked example for interrupt copy.
+
 **🎨 B642 — THE ROLE SWAP CROSSFADES; LEAVING MIRROR MODE GUARDS KEYFRAMES. JS only.**
 
 **▶ DANIEL VERIFIED AT B641:** MIDI translate + release *"feels great"*, motion→perform→motion round trip validated, keyframe animation correct, **companion video renders as expected**.

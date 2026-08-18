@@ -19,7 +19,8 @@
 // scheduleFilmstrip) and wires its own DOM (wireMotion + setupVideoExport).
 
 import { sampleKeyframes, DISCRETE_KEYS, CONTINUOUS_KEYS, ANGULAR_KEYS, angDelta, isCoupledKey } from '../kit/tween.js';
-import { alignSliceFrame, foldSliceIntoSource } from '../engine/geometry.js';   // B637 — express every keyframe in kf0's fold frame
+import { alignSliceFrame, foldSliceIntoSource } from '../engine/geometry.js';
+import { markSliceFold, FOLD_FADE_MS } from './overlay.js';   // B643 — the fold crossfade   // B637 — express every keyframe in kf0's fold frame
 import { getActiveForm } from '../engine/forms/index.js';
 import { FOLLOW_SPANS } from '../kit/follow.js';
 import { ICONS } from '../mobile/icons.js';
@@ -144,7 +145,7 @@ function makeThumbCanvas() {
 // droste's bespoke overlay) renders through its existing path with no per-form code.
 // Swap+restore is synchronous (no yield), so a stray live overlay draw can't land on
 // the temp canvas. Returns a reused canvas (wrapped in a VideoFrame before reuse).
-function renderSourcePreviewFrame(snap, size) {
+function renderSourcePreviewFrame(snap, size, foldFadeP = null) {
   const sp = env.sourcePreview;
   const img = engine.getSourceImage();
   if (!img) return null;
@@ -171,16 +172,20 @@ function renderSourcePreviewFrame(snap, size) {
   else { ih = size; iw = size * sa; ix = (size - iw) / 2; iy = 0; }
   fctx.drawImage(img, ix, iy, iw, ih);
 
-  const saved = { canvas: view.sourceOverlayCanvas, state: view.state, hover: view.hoverMode, hide: view.hideAffordances, sw: view.overlayStrokeScale };
+  const saved = { canvas: view.sourceOverlayCanvas, state: view.state, hover: view.hoverMode, hide: view.hideAffordances, sw: view.overlayStrokeScale, fade: view.foldFadeP };
   view.sourceOverlayCanvas = sp.overlay;
   view.state = snap;
   view.hoverMode = null;
   view.hideAffordances = () => true;
   view.overlayStrokeScale = size / 540;            // ~5px wedge lines at 1920² (vs hairline)
+  // B643 — hand the overlay TIMELINE-derived fade progress. A bake has no usable wall clock (see
+  // the note at the override in drawSourceOverlayInner), so without this the role swap cuts.
+  view.foldFadeP = foldFadeP;
   try { drawSourceOverlay(view); }
   finally {
     view.sourceOverlayCanvas = saved.canvas; view.state = saved.state;
     view.hoverMode = saved.hover; view.hideAffordances = saved.hide; view.overlayStrokeScale = saved.sw;
+    view.foldFadeP = saved.fade;
   }
   fctx.drawImage(sp.overlay, 0, 0, size, size);
   return sp.frame;
@@ -223,7 +228,11 @@ function alignKeyframeFrames() {
   }
 }
 
-function sampleAt(p) {
+// Where on the timeline the last fold landed, so a BAKED frame can derive its own crossfade
+// progress (the wall clock is meaningless during a bake — see renderSourcePreviewFrame).
+let lastFoldP = null;
+let prevSampleMirror = null, prevSampleP = null;
+function sampleAt(p, opts) {
   const list = kfList();
   if (list.length === 0) return { ...state };
   alignKeyframeFrames();
@@ -237,7 +246,41 @@ function sampleAt(p) {
   // image throughout, and costs nothing to the render — the fold is pixel-preserving, so this
   // changes which copy is drawn solid and not one pixel of the output.
   foldSliceIntoSource(out, getActiveForm(out), env.engine?.getSourceAspect?.() || 1);
+  // ⚠️ B644 — THE CROSSFADE STARTS WHEN THE ROLE CHANGES, NOT WHEN A FOLD HAPPENS. Those are not
+  // the same event, and assuming they were is why B643's fade never appeared.
+  //
+  // `out` is rebuilt from the keyframes on EVERY frame, and the keyframes are aligned, so it always
+  // arrives unfolded and the fold re-applies from scratch. "A fold happened this frame" is
+  // therefore true CONTINUOUSLY for as long as the tween sits past the threshold — measured here,
+  // 55 consecutive frames of 180. Stamping the fade on each of them pinned "time since the last
+  // fold" at zero, so the primary snapped to the reflection's colour and stayed there. Which is
+  // exactly what Daniel saw: *"the state switches over a single frame."*
+  //
+  // **This is the wrong-noun trap in DEBUGGING-PROTOCOL, in its own house.** I counted an ACTIVITY
+  // (folds occurred) when the quantity that matters is a CHANGE OF STATE (which copy is primary).
+  // The handedness is that quantity — it flips once, at the crossing, and holds.
+  const mk = `${out.sliceMirrorX},${out.sliceMirrorY}`;
+  // Only consecutive frames of an ordered pass can witness a transition. Filmstrip thumbnails and
+  // keyframe selection call this at arbitrary p, and comparing against an unrelated previous frame
+  // would invent transitions that never play.
+  const sequential = prevSampleP != null && Math.abs(p - prevSampleP) < 0.02;
+  if (sequential && prevSampleMirror && mk !== prevSampleMirror) {
+    lastFoldP = p;
+    // A role change during LIVE playback should animate on screen too; during a bake it must not,
+    // or the encoder's pace would leave a stray fade running on the live overlay afterwards.
+    if (!opts?.bake) markSliceFold();
+  }
+  prevSampleMirror = mk;
+  prevSampleP = p;
   return out;
+}
+// Crossfade progress for a baked frame at timeline position p: how far past the last fold it sits,
+// measured in real playback time rather than in frames, so the fade lasts the same ~900ms whatever
+// the loop duration or the encoder's speed.
+function bakeFoldFade(p) {
+  if (lastFoldP == null) return 1;
+  const elapsed = Math.max(0, p - lastFoldP) * (motion.durationMs || 0);
+  return Math.min(1, elapsed / FOLD_FADE_MS);
 }
 function keyframeAt(p) {
   const list = kfList();
@@ -2285,8 +2328,8 @@ function setupVideoExport() {
         // a video source seeks the footage to p BEFORE capturing, so the clip
         // actually advances frame-by-frame in the render (frame-accurate export).
         frameAt: env.sourceVideo
-          ? async (p) => { await advanceSourceToP(p); return selCap === 'gl' ? engine.captureFrameGL(sampleAt(p)) : engine.captureFrame(sampleAt(p)); }
-          : (p) => selCap === 'gl' ? engine.captureFrameGL(sampleAt(p)) : engine.captureFrame(sampleAt(p)),
+          ? async (p) => { await advanceSourceToP(p); const s2 = sampleAt(p, { bake: true }); return selCap === 'gl' ? engine.captureFrameGL(s2) : engine.captureFrame(s2); }
+          : (p) => { const s2 = sampleAt(p, { bake: true }); return selCap === 'gl' ? engine.captureFrameGL(s2) : engine.captureFrame(s2); },
         onEnd: () => engine.endCapture(),
         onProgress: (p) => { bar.style.width = Math.round(p * (wantSource ? 50 : 100)) + '%'; },
         shouldCancel: () => cancelRender,
@@ -2295,12 +2338,15 @@ function setupVideoExport() {
       const extras = [];
       if (wantSource) {
         status.textContent = 'rendering source preview…';
+        // B643 — start the pass with no fold on record, or a fold left over from live playback
+        // would make the opening frames crossfade out of nothing.
+        lastFoldP = null; prevSampleMirror = null; prevSampleP = null;
         const SP = 1920;   // square, capped
         const { blob: sblob } = await exportVideo({
           width: SP, height: SP, fps: selFps, durationMs: motion.durationMs,
           frameAt: env.sourceVideo
-            ? async (p) => { await advanceSourceToP(p); return renderSourcePreviewFrame(sampleAt(p), SP); }
-            : (p) => renderSourcePreviewFrame(sampleAt(p), SP),
+            ? async (p) => { await advanceSourceToP(p); const s2 = sampleAt(p, { bake: true }); return renderSourcePreviewFrame(s2, SP, bakeFoldFade(p)); }
+            : (p) => { const s2 = sampleAt(p, { bake: true }); return renderSourcePreviewFrame(s2, SP, bakeFoldFade(p)); },
           onProgress: (p) => { bar.style.width = Math.round(50 + p * 50) + '%'; },
           shouldCancel: () => cancelRender,
         });

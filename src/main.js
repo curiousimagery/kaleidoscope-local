@@ -1453,12 +1453,15 @@ function wireControls() {
       const stranded = strandedByOOB(mode);
       if (!stranded.length) return applyOOB(btn, mode, []);
       const n = stranded.length;
+      // ⚠️ COPY IS A PLACEHOLDER — lowercased and simplified at B643 (Daniel: *"the ux copy on the
+      // warning is pretty confusing and isn't consistently lowercase"*). It is cited in BACKLOG's
+      // copy/tone pass as an example of the genre: a message that explains the MECHANISM when the
+      // reader only needs the consequence and the choice.
       confirmInterrupt({
-        title: 'move keyframes back onto the source?',
-        body: `${n} keyframe${n === 1 ? ' has' : 's have'} the slice origin off the source. Only MIRROR can hold it there — `
-            + `${btn.textContent.trim()} would clamp ${n === 1 ? 'it' : 'them'} to the edge on playback anyway. `
-            + `Continuing moves ${n === 1 ? 'that keyframe' : 'those keyframes'} onto the source now, so what you see is what plays. One undo entry.`,
-        confirmLabel: `move ${n === 1 ? 'it' : 'them'} & switch`,
+        title: 'move slices back onto the source?',
+        body: `${n} keyframe${n === 1 ? '' : 's'} put the slice off the edge of the source. `
+            + `only mirror can show it there, so switching will pull ${n === 1 ? 'it' : 'them'} back onto the image.`,
+        confirmLabel: 'move and switch',
         danger: false,
         onConfirm: () => applyOOB(btn, mode, stranded),
       });
