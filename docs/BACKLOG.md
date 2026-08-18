@@ -180,41 +180,9 @@ The vocabulary Daniel decided on: **keep the UI names** (`source` / `staged` / `
 
 **✅ THE PULL-MODEL HYPOTHESIS IS DEAD WITHOUT A BUILD.** B601 arm B attached the output once and never moved it, and still paid 150ms. A notification cannot deliver data that does not exist, and we already poll at 60Hz. Same reasoning kills pre-attaching an output to the next queued item.
 
-### ✅ CLOSED B608 — BOTH RESOLUTIONS LOOP SEAMLESSLY, DANIEL-VERIFIED.
+### ✅ CLOSED B608 — THE LOOP HOLD → `BROADCAST-DELIVERY.md` §6a
 
-FHD at 64MB and **4K at 256MB (`firstPts: 0`, take gaps 25-42ms, `heldMB: 94`)**. Toggling the cache off brings the stall back at either. **First reported B487; closed 121 builds later.** Full record in `BROADCAST-DELIVERY.md` §6a.
-
-**⚠️ Do not read "64 stuttery / 128 stuttery / 256 seamless" as a memory curve.** At 128MB the cache held only 47MB, so the budget was never the constraint — setting the budget to 0 between arms **discards the head, and a clip's head is produced exactly once, on the opening pass.** A clean per-budget comparison needs a clip reload between arms. **The real minimum viable budget at 4K is unknown**, and finding it is worth doing before the default is trusted: 8 frames × ~11.8MB ≈ 94MB, so 128 should suffice from a cold load.
-
-**Remaining question for a future pass:** whether ~94MB of cache is safe to hold at 4K during a long set. See the bake crash below — the same memory theme.
-
-**FHD loops seamlessly at the default 64MB, and turning the cache off brings the stall straight back** — both arms, one sitting. **`srcFanOut.loopCache.firstPts` is the one field that decides it:** ~0 means the cache covers the lap; 0.115 means it begins where the decoder resumes anyway and fills nothing while reporting healthy counts.
-
-**4K, open.** B607 fixed the fill path (the cache was only seeing frames the fan-out wanted, and at 4K `ticksNoTaker` is in the thousands). Unverified.
-
-**⚠️ MEMORY IS THE REAL 4K CONSTRAINT.** B606's 256MB run was in genuine distress: `maxSwapGapMs: 2201`, the external view at 7 arriving/s with a 789ms p95, `governor.target: 7`. 83MB of cache beside a 4K decode and two webviews is the jetsam pressure the single-decode architecture exists to avoid. **If 4K needs more memory than is safe, the honest answer is a partial fill (a much shorter hitch) rather than a bigger budget.**
-
-<details><summary>Original design notes (B605)</summary>
-
-The plugin holds the clip's first 0.3s of encoded frames and feeds them back at the lap. Budget is a **live knob** in the panel (`loop cache`, 64/128/256/off/32 MB), so arms are compared in one sitting. `srcFanOut.loopCache` publishes `coveredMs` against `swapGapMs` and names a partial fill.
-
-**⚠️ THE OPEN RISK IS JETSAM AT 4K.** 128MB and 256MB are the memory pressure that made the single-decode architecture necessary in the first place. If a higher budget costs a GL context mid-set it is not worth it, and the honest answer becomes a partial fill.
-
-**If a partial fill is where this lands**, the remaining ideas are: store the head frames at reduced resolution (a brief softness at the lap instead of a hold — needs a taste call from Daniel), or trigger the rewind early enough that the cache only has to cover what it can.
-
-</details>
-
-<details><summary>Original proposal (B604), kept for the reasoning</summary>
-
-Cache the clip's **head frames** as they arrive on the opening pass, and at the lap feed them from the cache while AVFoundation restarts. The wire and both clients see continuous frames with correct pts, so nothing downstream changes and **the clip's origin is irrelevant** — which is required, since most loops are built elsewhere.
-
-**Cap the cache by BYTES, not frames.** A 64MB budget self-scales in exactly the right direction: the gap is fixed in *time*, and frames are cheaper at lower resolution, so the budget buys ~5 frames (0.17s) at 4K and ~20 (0.66s) at FHD. Even a partial fill turns a 150ms hold into a ~20ms one.
-
-**Resolved in the design pass:** rewinding early buys nothing on top of filling in place (withdrawn); the cache lives in the **plugin**, so there is one copy of the memory and the two webviews stay frame-identical by construction. Memory headroom at 4K stayed open and is now the verification's job.
-
-</details>
-
-**⚠️ THE B602 FHD READING IS VOID** — that run fell back to `<video>` (`nativeAttach.why: failed at "frame socket"`), so it cannot be compared to any 4K number. Re-run at B603. **Check the source row says `native decode` before trusting any measurement.**
+Collapsed to a pointer at B658. That section is a strictly better record than the 36 lines that were here: what the hold was (AVFoundation, ~150ms, fixed cost, iPad-only), **eight hypotheses each closed by its own instrument**, the head-frame-cache fix, the one field that says whether it works (`loopCache.firstPts` must be ~0), and two traps for whoever reads a budget comparison next. First reported B487, closed 121 builds later.
 
 ### 🚫 PRODUCT CONSTRAINTS ON ANY FIX (Daniel, B602) — these rule out most of the obvious options
 

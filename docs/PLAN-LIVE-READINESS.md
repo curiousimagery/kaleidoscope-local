@@ -48,7 +48,7 @@ All three questions are answered. **Do not extend this session; it is done.**
 
 - **Upload drain holds.** Multiple clip loads across three sessions, no `NO NATIVE DECODE`.
 - **The minimum viable 4K budget is 64MB, the current default.** `heldMB 59`, 5 frames, `firstPts 0`, and the wall's worst lap gap was 52ms against a 33ms interval, a 19ms overhang on one frame. At 256MB it was 42ms. **Four times the memory buys 10ms on one frame per lap.** The default is right and the 4K memory risk is smaller than feared.
-- **The bake pattern inverted.** Not "first attempt fails" but **"the second bake within a session fails"**, with two fresh-session first bakes succeeding. Points at something a completed bake does not release, rather than something held at startup.
+- **The bake pattern inverted.** Not "first attempt fails" but **"the second bake within a session fails"**, with two fresh-session first bakes succeeding. Points at something a completed bake does not release, rather than something held at startup. **⚠️ Confound to separate on the next device session (rescued from VERIFY-QUEUE at B658): a GL context loss happened between the good bake and the bad one. Do a second bake in a session where nothing was lost.**
 
 **Two instrument defects to fix in the next native build, not now:**
 - `loopCache.coveredMs` measures the span between first and last cached pts, which under-reports real coverage by one frame interval, so `why` advises raising a budget that is already sufficient.

@@ -110,6 +110,24 @@ AVPlayer (native, iOS)
 
 ---
 
+## 5a. The one structural cost never attacked — THREE GL uploads of every frame
+
+**Rescued from HANDOFF at B658, where it was the only copy.** It is the strongest remaining lead and it must not live in an archived narrative.
+
+**One source frame is uploaded as a 4K texture into THREE GL contexts every frame:** the staged engine, the live engine, and the external view's engine in its own process. The record/broadcast bus is **not** among them — confirmed by its absence from every report.
+
+**Every lever this arc pulled makes one of the three cheaper. None asked why there are three.** That single fact is consistent with every dead hypothesis in §5:
+
+- shrinking a surface does not help, because the upload is a fixed cost per context;
+- killing the PiP does not help, because it removes the cheapest of the three;
+- the external view jumped to 45fps the moment the app stopped uploading (B583).
+
+**This is an architecture change and deserves its own design pass with Daniel, not a smuggled performance fix.**
+
+**⚠️ And do not re-propose 2560 as a free win.** Daniel's display is a real 4K panel (Dell P2415Q). The `preferredMode`/`nativeBounds` 2560×1440 reading was a per-device iOS quirk, so rendering the external view at 2560 **is** broadcasting at QHD — a genuine quality reduction, shipped at B585 as an informed operator choice rather than an automatic rung.
+
+---
+
 ## 6. Open, with the evidence that frames each
 
 - ~~**The loop-restart hold**~~ **CLOSED B608 — see §6a**, which is the full record. It was AVFoundation, ~150ms, fixed by a head-frame cache and verified seamless at both resolutions.
@@ -158,7 +176,7 @@ The plugin keeps the clip's first `headSeconds` of **encoded** frames and replay
 
 **✅ VERIFIED SEAMLESS AT BOTH RESOLUTIONS (B608).** FHD at 64MB, 4K at 256MB: `firstPts: 0`, take gaps **25-42ms**, one frame interval. Cache off restores the stall at either. **First reported B487, closed 121 builds later.**
 
-**⚠️ Two traps for whoever reads a budget comparison next.** Setting the budget to 0 **discards the head, and a clip's head is produced exactly once, on the opening pass** — every lap afterwards resumes at ~0.109, so the cache can never rebuild itself without a clip reload. That makes an off → 64 → 128 → 256 sweep look like a memory curve when it is a sequencing artifact. **Reload the clip between arms.** And the real minimum viable 4K budget is still unknown.
+**⚠️ Two traps for whoever reads a budget comparison next.** Setting the budget to 0 **discards the head, and a clip's head is produced exactly once, on the opening pass** — every lap afterwards resumes at ~0.109, so the cache can never rebuild itself without a clip reload. That makes an off → 64 → 128 → 256 sweep look like a memory curve when it is a sequencing artifact. **Reload the clip between arms.** ~~And the real minimum viable 4K budget is still unknown.~~ **ANSWERED B609: it is 64MB, the current default** — `heldMB 59`, 5 frames, `firstPts 0`, worst lap gap 52ms against a 33ms interval (a 19ms overhang on one frame); at 256MB it was 42ms. **Four times the memory buys 10ms on one frame per lap**, so the default is right and the 4K memory risk is smaller than this section feared.
 
 **The open risk is memory at 4K**, not the loop: holding ~94MB beside a 4K decode and two webviews is the pressure the single-decode architecture exists to avoid, and it is now showing up as intermittent bake failures and one outright app crash.
 
