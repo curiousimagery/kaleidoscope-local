@@ -22,6 +22,67 @@ Archived at B658. It was marked superseded at B609 and kept for the reasoning be
 
 ## current version
 
+## ▶▶ PHASE 2 IS RUNNING. READ THIS BLOCK FIRST IF YOU ARE PICKING UP COLD.
+
+**State:** item 1.5 CLOSED (B657), docs cleanup done (B658), the session recorder + flight recorder shipped (B660-B662). Daniel is mid pressure-testing on an M1 iPad Pro (12.9", 1TB = 16GB). **Builds 635-662 are UNCOMMITTED.**
+
+### The three findings that must survive compaction
+
+**1. THE fps COLLAPSE IS NOT THERMAL, AND WE HAVE NO THERMAL DATA ANYWAY.** Two sessions, both bimodal rather than monotonic. Run 1 (12min, 6:39 4K clip): **9 crossings between a ~22fps state and a ~10fps state, with its best sustained reading (25fps) arriving four minutes AFTER its first collapse to 10fps.** Run 2 (150s, 106s clip): collapsed 22.2 → 10.0 at t=10 and recovered to 21.4 by t=20 — **ten seconds apart.** Heat does not do that. **Something switches on and off.** A snapshot at the end of either run would have said "10fps, critical" and sent the next session chasing temperature.
+
+**⚠️ AND `nativeReadings: false` IN BOTH — every `thermal` field is null.** The vitals plugin does not exist. **No conclusion about heat is available from any run so far**, and Daniel must state device temperature explicitly until it lands.
+
+**▶ THE DECISIVE NEXT EXPERIMENT, AND IT IS CHEAP: A HANDS-OFF RUN.** Daniel was interacting throughout both, and independently reports that pan/zoom stutters visibly while fps does not move. If the ~10fps episodes vanish when nobody touches the device, the mode is INTERACTION-driven rather than thermal or load-driven, and the whole ceiling question reframes.
+
+**2. THE PAUSES DANIEL SEES ON THE WALL ARE OURS, THEY ARE THE LOOP WRAP, AND THEY ARE VISIBLE IN THE REPORT.** Run 2: `extJitter.loop.maxTakeGapMs 1596` / `loopStall.maxTakeGapMs 1589` / `srcFanOut.maxSwapGapMs 1700`, against a routine `swapGapMs` of 325. `recentTakeGaps: [1596, 125]` over 2 wraps — **the first wrap cost 1.6 SECONDS, the second 125ms.**
+
+**⚠️ CORRECTED AT B663 — DO NOT CARRY THIS AS A REGRESSION.** Daniel: *"the clip i'm using hasn't been built into a loop but even so when i watch it loop i don't visibly see the frame hold issue."* And the shape agrees with him rather than me: `recentTakeGaps` is `[1596, 125]` over TWO wraps, so the huge gap is the FIRST transition — clip start / initial seek — and the only real loop cost 125ms, which is in family with B608's measured 141-158ms. **I read a startup cost as a steady-state regression and filed it as one; his eyes were the better instrument.** What remains genuinely open is the 325ms routine `swapGapMs` against the 141-158ms on record, which is worth one look but is not what he was seeing. The original text follows for the numbers: `BROADCAST-DELIVERY.md` §6a closed it at B608 with a measured 141-158ms lap, and `headSeconds: 0.22` was sized to exactly that. The lap is now 325ms routinely and 1700ms at worst, so **the cache covers 41% of a normal lap and 8% of a bad one** — while `loopCache.why` still advises *"raise the budget"*, which is the known B609 under-report giving bad advice. **Do not raise the budget on its say-so.** The real question is why the lap grew 2-10x, and it is a different question from the one B608 answered.
+
+**3. THE HDMI DONGLE CHANGE IMPROVED DELIVERY, MEASURABLY.** Run 1 (old): `delivered 24/30`, note `⚠ UNEVEN: 39ms typical, 63ms p95`. Run 2 (new): `delivered 29/30`, note `steady (34/54ms)`. `broadcastCeiling.hdmi:3840` moved 24 → 29 over 63k samples. **Daniel's separate report of brief BLACKOUTS is not the same event as the held frames** — a held frame is ours (finding 2); a truly black frame is more consistent with the dongle renegotiating link, and the two separate cleanly because our counters show a take gap only for the former.
+
+### ⭐ THE CRASH IS SOLVED, AND IT IS A 4K TAKE ON TOP OF A 4K BROADCAST (B663)
+
+**Daniel ran the discriminator and the flight recorder caught it exactly.** One variable, same clip, same destination, same session:
+
+```
+FHD  22:19:01.246  take:arm 1920x1080  broadcasting=true
+     22:19:02.351  take:started                          -> SURVIVED
+4K   22:24:22.714  take:arm 3840x2160  broadcasting=true
+     22:24:23.396  take:started
+     22:24:23.876  gl-context-lost                        -> 480ms after the take started
+     22:24:35.080  gl-context-lost                        -> again; recovery re-armed and died too
+```
+
+fps was **34.0 at t=70**, one sample before. At t=84 it is **1.0**, `frameP50 163ms`, `frameP95 3419ms`.
+
+**This is not thermal, not memory-over-time, not gradual. Arming a 4K encode while broadcasting 4K over HDMI kills the shared WebKit GPU process in under half a second.** It is the same suspect `BROADCAST-DELIVERY.md` names twice — the GPU process is shared across both webviews and its loss takes every context at once — now with an exact trigger and a working negative control (FHD).
+
+**⚠️ CORRECTION TO WHAT THE VARIABLE WAS (B664, read from the code, not guessed).** I described the survivor as an "FHD broadcast" because Daniel said he lowered the broadcast resolution. **He did not lower it, and could not have** — the HDMI sink is `needsBus: false` (`external-display.js:451`), self-rendering at the DISPLAY's native size, and the resolution tier only ever reaches `outputBus.setResolution`, which that sink never calls. **This is B587's finding verbatim** (`output-panel.js:558-561`: *"Daniel switched 4K→QHD, saw no change, and the reason was that nothing changed"*), and I failed to apply it while reading his report.
+
+**So the experiment was CLEANER than filed, not dirtier: the 4K HDMI broadcast was constant across both runs, and the only variable was the TAKE resolution.** The conclusion stands and gets stronger. But two consequences follow:
+
+- **The `take:arm` breadcrumb cannot distinguish the cells of the matrix it is being used to fill.** It records `broadcasting: true` and the bus dimensions, never the wall's resolution or the source's. **The wrong noun, in the instrument built to end wrong nouns** — the flight recorder is currently blind to two of the three axes of the only question it exists to answer.
+- **"Lower the broadcast resolution" is not an available mitigation on HDMI.** Any gate we design cannot offer it. The levers that exist are: the take resolution, the source resolution, and the display itself.
+
+**The failure mode Daniel described matches the report precisely:** *"individual elements dropped off one by one: source, thumbnails, output, then the app reset with a blank interface and no source, yet the broadcast continues."* The final report shows `preview 300x150` (the default canvas size — torn down), `source "no source" 0x0`, `overlay 0x0`, `external 0x0`, `broadcasting: false`, governor `"no live output — nothing to protect"`, and **fps 118.9 with accountedMs 0** — rendering nothing, very fast. **The external view survives because it is a separate process**, which is why the wall kept going.
+
+**▶ THIS IS NOW ITEM 2's HEADLINE AND IT IS A CAPABILITY EDGE, NOT A BUG TO FIX BLIND.** The honest reading is that an M1 iPad cannot hold a 4K decode + 4K broadcast + 4K encode at once. **The session audit (still unstarted, Class 1, free) is exactly the work that turns this into a rule we can gate on** rather than a crash we rediscover. Candidate product answers, in order of honesty: cap the take resolution when a 4K broadcast is live; refuse the combination with a clear message; or make the take the priority and shed the broadcast.
+
+**▶ RELATED, AND IT SHARPENS THE SAME POINT: the FHD take that survived produced a bad recording.** Daniel: *"the fps of the saved recording is terrible — certainly worse than the broadcast (as designed) but it feels even worse than in app fps (which isn't the prioritization we want here)."* **A take is a deliverable; an editor surface is not.** The recorder pulls from the output bus, and nothing today prioritises it over the preview and PiP. That is a priority inversion worth its own decision, and it is the cheap half of the same question.
+
+### Instrument defects to fix BEFORE the next long run
+
+1. **`pressure` cannot be read as a trend** — its baseline re-learns per workload, so both series print `"warming up"` MID-RUN and label the same fps differently at different times (22fps "nominal" at t=301, 23fps "fair" at t=20). **Ignore the pressure column in every report so far.** Record the raw baseline beside it or stop carrying it.
+2. **`scenario` is manual and was wrong on run 2** — tagged `idle-still` for an HDMI broadcast, so its `baseline` block (saved 2026-08-13, also `idle-still`) is a different world and **the deltas in that report are meaningless.**
+3. `loopStall.why` reads `"no loop boundary reached yet"` while reporting `wraps: 2` in the same object.
+4. `loopCache.why` advises raising a budget B609 proved sufficient (see finding 2).
+
+### What is queued, in order
+
+1. **The vitals plugin** (BACKLOG, proposed, awaiting go) — thermal + memory headroom. **Batch in ONE Xcode cycle with:** the `coveredMs` fix, the `scenario` guard, and **`listCameras`** for external/USB cameras on iPad (BACKLOG, also proposed).
+2. **Daniel's own next test:** broadcast + record simultaneously, FHD first, then one variable at a time to 4K. He expects the crash to reproduce.
+3. Item 2's session audit (Class 1, free, no device) — still the highest-value unstarted work and the direct route to the crash cluster.
+
 **👆 B662 — ALWAYS-ON BREADCRUMBS + A REAL TOUCH TARGET. JS + CSS.** B661 required a session for breadcrumbs too, which asked the operator to predict which action would be fatal; they now persist unconditionally as `priorTrail`. And the perform ruler was unresponsive on iPad because `.mf-ruler` is **16px** — the handler fires for touch, there is nothing to land on. 30px hit area on coarse pointers, applied to the shared class so motion gets it too. **Unconfirmed; discriminator in the changelog.**
 
 **📊 DANIEL'S FIRST REAL SESSION (B660, iPad Pro, 12min, 6:39 4K clip → 4K HDMI) — AND THE HEADLINE IS THAT IT IS NOT HEAT.**
@@ -607,15 +668,33 @@ Builds 19–187 (early kaleidoscope through Fold Live Phase 0) live in [`archive
 
 ## environment / hardware
 
-Refreshed B547 — the previous list still said "M1 Max", "Chrome primary" and "iPad untested until on a public URL", all long false.
+Refreshed B664 (Daniel's own list, and the previous version was missing the M1 Max and collapsed two different iPads into one line). **Phase 2 is a hardware question, so this section is now an instrument: what we can measure on, and what we CANNOT, stated so a gap never gets mistaken for a clean bill of health.**
 
-- **M5 Max MacBook Pro** (the Syphon benchmarks in the archive are from this machine)
-- **iPhone 17 Pro** and **iPhone 14 Pro** — both in rotation for the thermal arc, and NOT interchangeable: the 14 Pro outperforms the 17 Pro on the sustained record path and nobody knows why. See CAPABILITIES.md; it is the reason for "probe, never classify."
-- **iPad** — Capacitor build, primary touch target, and the only surface where HDMI-out video has been exercised
-- **Movink touch display + a second monitor** — the desktop rehearsal rig for perform-mode ergonomics
-- Akai APC40 MK2 — Perform mode (the input/control-bus lane); MIDI is gated behind the M1 gauntlet
-- **Browsers:** Brave/Chromium and Safari both in regular rotation; Electron via the local shell. Firefox is tested least.
-- Daniel does **not** run Safari Web Inspector on device — see `DEVICE-TESTING.md` before adding any diagnostic.
+### In hand
+
+| device | why it matters to phase 2 |
+|---|---|
+| **M1 iPad Pro 12.9", 1TB (16GB)** | the phase-2 workhorse; every report so far is from this. The 4K/4K crash is ITS ceiling, not "iPad's". |
+| **M1 iPad Air (8GB)** | **the controlled A/B on the one named open risk.** Same silicon, half the memory. The only pair we own that isolates memory from GPU generation. |
+| **iPhone 14 Pro** | outperforms the 17 Pro on the sustained record path and nobody knows why (CAPABILITIES.md — the reason for "probe, never classify"). |
+| **iPhone 17 Pro** | current-gen ceiling. |
+| **M1 Max MBP, 64GB** | the demanding-desktop-workflow target. **Not a stand-in for a low-power Mac** — see the gap list. |
+| **M5 Max MBP, 64GB** | current-gen desktop ceiling; the Syphon benchmarks in the archive are from here. |
+| **Movink touch display + second monitor** | perform-mode ergonomics rehearsal rig. |
+| **Akai APC40 MK2** | Perform mode / control bus. |
+| **HDMI dongle (new, since B663)** | ⚠️ **A MEASURED VARIABLE, NOT A CONSTANT.** It moved `delivered` 24 → 29 and `UNEVEN` → `steady`. **Pin it in any comparison against a pre-B663 report.** |
+
+### NOT in hand — and what each one would answer
+
+**These are gaps in the evidence, not "untested platforms".** Naming them stops the in-hand devices from being read as representative.
+
+- **iPhone 12 mini / SE2** — *the floor of "modern".* **The most valuable single gap.** Without it, the 14 Pro is our weakest phone, and a graceful-degradation path tuned against a 14 Pro almost certainly does not degrade far enough. Everything we call a "mobile default" is currently an untested guess below the Pro tier.
+- **Non-Pro iPhone 13 / 14 / 15** — the actual volume hardware. No ProMotion, fewer GPU cores, smaller thermal envelope than the Pro of the same year. **Our two phones are both Pros**, so the entire non-Pro column is unmeasured.
+- **M2–M5 MacBook Air** — *the realistic desktop user.* **The M1 Max is a bad proxy in the wrong direction on every axis at once:** more GPU cores, 64GB, and a fan. An Air is fanless, memory-constrained, and thermally throttled — **the one Mac configuration where the iPad's failure modes could plausibly reappear on desktop**, and the one we cannot see.
+- **A non-Apple-silicon path** — Windows/Intel/AMD. Out of scope by Daniel's stated goal (Apple-silicon parity), recorded so its absence is deliberate rather than forgotten.
+- **A second DualSense** — the shared vendor-product device key was reasoned about at B650 and never exercised with two identical pads.
+
+**▶ THE RULE THIS TABLE EXISTS TO ENFORCE:** we own the top of the range and none of the bottom. **Every ceiling we measure is a ceiling for good hardware.** Gates must therefore be computed from what the device reports at runtime, never from a table of models — which is also Daniel's stated requirement.
 
 ## context from prior sessions worth preserving
 

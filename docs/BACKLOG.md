@@ -366,6 +366,44 @@ Shipped as `sliceMirrorX/Y` + `foldSliceIntoSource`. Details in CHANGELOG v0.25.
 
 **The one thing worth carrying forward:** B642's OOB guard is the same shape of problem in miniature — a global setting changed in one place invalidating snapshots held somewhere else. Per-mode state does not remove that class, it multiplies it. Whatever the design, it needs an answer for "this change makes some stored look unrepresentable" that is not written once per setting.
 
+### 📋 ITEM 1.5 EXIT REPORT — everything the slice/input arc left open, grouped (B663)
+
+**Daniel's ask:** *"we were going to file an exit report on 1.5 capturing known issues... even though this doc should prob go into archive it will be a helpful paper trail that may help us identify when and how certain issues were introduced."*
+
+**Nothing here is new** — every item was filed as it was found. What was missing is that they were scattered in build order, so the shape of what the arc left behind was invisible. This is an INDEX, not a move: the entries keep their detail where they are. **Archive this section with the arc; keep the entries.**
+
+**Arc scope, for the record:** builds 635-662 — the geometry flip and fold (B635-B645), the crossfade (B642-B652), rig portability (B649-B651), the unified zoom and stage C (B655-B657), and the instrumentation that opened phase 2 (B660-B662). Item 1.5 closed at B657.
+
+---
+
+**A. INPUT / CONTROL BUS — the arc's own subject, and what it did not finish**
+- `slice position x/y` still address the ORIGIN, not the box centre (below) — the last named 1.5 sub-item, carried out deliberately as semantics rather than architecture.
+- **Locks do not block MIDI / gamepad input** — a lock that holds for one hand and not the other. Carries a persistence decision that overlaps stage manager.
+- **Rig portability: MIDI still keys on port name**, so a MIDI rig remains non-portable across OSes; and an import that cannot bind still looks like it loaded fine.
+- Should a momentary button default to `rate`?
+
+**B. SLICE GEOMETRY / FOLD — shipped behaviour with known edges**
+- **The reachability trade-off** (B659): a very large radial wedge can have its origin pushed off screen with nothing pulling it back. Daniel is living with it deliberately. **The note there names the wrong fix explicitly**, which is the point of filing it.
+- **Droste with mirroring OFF** can put the origin on-source with no slice on-source. Working as designed; filed so it is not re-reported.
+- Second-order reflections; onion-skin trail under the fold; **companion video + slice overlay under the fold is UNVERIFIED.**
+
+**C. PLATFORM EDGES — intermittent, low, watch rather than chase**
+- Firefox cursors over the source (intermittent, likely fixed B648, unconfirmed).
+- iPad gesture-surface latency (instrument-first, never instrumented).
+
+**D. NATIVE WORK, BATCHED INTO ONE XCODE CYCLE — the arc's real debt**
+- The **device-vitals plugin** (thermal + memory headroom). **The single largest instrumentation hole**, and phase 2 is already blocked on it: every run so far reports `nativeReadings: false`.
+- **`listCameras`** for external/USB cameras on iPad.
+- Plus the two instrument fixes: `loopCache.coveredMs` under-reporting, and the manual `scenario` tag.
+
+**E. DEFERRED BY DECISION, NOT BY OVERSIGHT**
+- **Stage manager / per-mode state** — parked with Daniel's own straw man recorded.
+- Colour management — named as new-feature-shaped, belongs with stage manager.
+
+---
+
+**⚠️ THE PATTERN WORTH CARRYING FORWARD, since a paper trail is the point.** The arc's recurring defect was **one behaviour with two implementations**, and it appeared SEVEN times: droste's overlay missing `sizeNorm` (B614), radial's polygon missing `canvasNorm` (B618), the overlay missing `canvasOffset` (B612), the centring hook reaching only one chrome (B619), six copies of the transition default (B622), `env.panDrift` covering one of two joysticks (B620), and the slice-scale clamp written six times at three different maxima (B657). **Two more arrived as fresh instances during the arc itself** — B653's ruler re-implementing the scrub instead of calling it, and B638's flag set on the wrong `env`-shaped object. It is not a hypothesis; it is the shape of this codebase's bugs, and `CLAUDE.md` now leads with it.
+
 ### 🎯 [B619 → carried out of item 1.5 at B657] `slice position x/y` STILL ADDRESS THE ORIGIN
 
 The mapping targets `sliceCx` / `sliceCy` write the slice ORIGIN, but since B616 the app's model is the BOX CENTRE — which is what a drag moves, what `placeSliceBox` solves for, and what the fold bounds. **So a fader on slice position means something different from what your hand does**, which is the one-behaviour-two-surfaces class this arc keeps paying for.
