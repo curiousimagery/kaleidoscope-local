@@ -715,9 +715,23 @@ export function createOutputPanel(env, outputBus) {
         // written after `recorder.start` resolves would not have existed; one written here names
         // the operation that was in flight when the process went away, and it is already on disk
         // by the time the encoder is asked for anything.
+        // ⚠️ B663 — RECORD ALL THREE RESOLUTIONS, NOT ONE. Until now this wrote the bus size
+        // and `broadcasting: true`, which cannot tell the cells of the matrix apart — and the
+        // matrix is the only question this breadcrumb exists to answer. Worse, it invited the
+        // reading that a survivor run had a smaller BROADCAST, which is not something the
+        // operator can even do: a self-rendering destination (`needsBus:false` — HDMI/AirPlay)
+        // renders at the DISPLAY's native size and never sees the tier (B587). The wall's real
+        // size and the source's real size are both knowable here, so record them.
+        const wall = (env.externalDisplay?.active ? env.externalDisplay.renderDims : null) || env.externalDisplayDims || null;
+        const src = env.engine?.getSourceSize?.() || null;
         env.vitals?.mark('take:arm', {
           w: outputBus.width, h: outputBus.height,
           broadcasting: !!broadcasting, dest: selectedDest()?.id || null, mic: !!micTrack,
+          wallW: wall?.width || null, wallH: wall?.height || null,
+          srcW: src?.w || null, srcH: src?.h || null,
+          // clip length is inside the crash trigger (a ~20s 4K clip survived what a 6:39 one
+          // did not), so the breadcrumb has to carry it or the next report repeats the gap
+          clipSec: env.sourceVideo?.duration ? Math.round(env.sourceVideo.duration) : null,
         });
         wantRecord = true;
         syncBusRunning();

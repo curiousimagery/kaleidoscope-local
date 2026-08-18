@@ -26,6 +26,14 @@ Archived at B658. It was marked superseded at B609 and kept for the reasoning be
 
 **State:** item 1.5 CLOSED (B657), docs cleanup done (B658), the session recorder + flight recorder shipped (B660-B662). Daniel is mid pressure-testing on an M1 iPad Pro (12.9", 1TB = 16GB). **Builds 635-662 are UNCOMMITTED.**
 
+### 🌡 B663 SHIPPED THE VITALS PLUGIN — ⚠️ IT NEEDS AN XCODE BUILD BEFORE IT READS ANYTHING
+
+`fold-device-vitals` (thermal, memory headroom, memory warnings) is written, `npx cap sync ios` is run, the SPM manifest regenerated, and the web/Electron builds are clean. **Until Daniel builds in Xcode, `nativeReadings` stays `false` and every report is the same as the ones before it.** Say so rather than treating a null column as a reading.
+
+**Batched into the same Xcode cycle, still TODO:** `listCameras` (external/USB cameras on iPad), the `loopCache.coveredMs` under-report, and the `scenario` guard. **None of those are built yet** — only the vitals plugin is.
+
+**The trap that was caught before the cycle, because it will recur in any future host seam:** Capacitor calls are async, `conduit/vitals.js` reads `native()` sync. A Promise there makes every field undefined and the report says `nativeReadings: false` — *identical to no plugin*. The host caches; `read()` is synchronous. Proven in `vitals-native-check.mjs`.
+
 ### The three findings that must survive compaction
 
 **1. THE fps COLLAPSE IS NOT THERMAL, AND WE HAVE NO THERMAL DATA ANYWAY.** Two sessions, both bimodal rather than monotonic. Run 1 (12min, 6:39 4K clip): **9 crossings between a ~22fps state and a ~10fps state, with its best sustained reading (25fps) arriving four minutes AFTER its first collapse to 10fps.** Run 2 (150s, 106s clip): collapsed 22.2 → 10.0 at t=10 and recovered to 21.4 by t=20 — **ten seconds apart.** Heat does not do that. **Something switches on and off.** A snapshot at the end of either run would have said "10fps, critical" and sent the next session chasing temperature.
@@ -36,11 +44,11 @@ Archived at B658. It was marked superseded at B609 and kept for the reasoning be
 
 **2. THE PAUSES DANIEL SEES ON THE WALL ARE OURS, THEY ARE THE LOOP WRAP, AND THEY ARE VISIBLE IN THE REPORT.** Run 2: `extJitter.loop.maxTakeGapMs 1596` / `loopStall.maxTakeGapMs 1589` / `srcFanOut.maxSwapGapMs 1700`, against a routine `swapGapMs` of 325. `recentTakeGaps: [1596, 125]` over 2 wraps — **the first wrap cost 1.6 SECONDS, the second 125ms.**
 
-**⚠️ CORRECTED AT B663 — DO NOT CARRY THIS AS A REGRESSION.** Daniel: *"the clip i'm using hasn't been built into a loop but even so when i watch it loop i don't visibly see the frame hold issue."* And the shape agrees with him rather than me: `recentTakeGaps` is `[1596, 125]` over TWO wraps, so the huge gap is the FIRST transition — clip start / initial seek — and the only real loop cost 125ms, which is in family with B608's measured 141-158ms. **I read a startup cost as a steady-state regression and filed it as one; his eyes were the better instrument.** What remains genuinely open is the 325ms routine `swapGapMs` against the 141-158ms on record, which is worth one look but is not what he was seeing. The original text follows for the numbers: `BROADCAST-DELIVERY.md` §6a closed it at B608 with a measured 141-158ms lap, and `headSeconds: 0.22` was sized to exactly that. The lap is now 325ms routinely and 1700ms at worst, so **the cache covers 41% of a normal lap and 8% of a bad one** — while `loopCache.why` still advises *"raise the budget"*, which is the known B609 under-report giving bad advice. **Do not raise the budget on its say-so.** The real question is why the lap grew 2-10x, and it is a different question from the one B608 answered.
+**⚠️ CORRECTED AT 2026-08-18 docs — DO NOT CARRY THIS AS A REGRESSION.** Daniel: *"the clip i'm using hasn't been built into a loop but even so when i watch it loop i don't visibly see the frame hold issue."* And the shape agrees with him rather than me: `recentTakeGaps` is `[1596, 125]` over TWO wraps, so the huge gap is the FIRST transition — clip start / initial seek — and the only real loop cost 125ms, which is in family with B608's measured 141-158ms. **I read a startup cost as a steady-state regression and filed it as one; his eyes were the better instrument.** What remains genuinely open is the 325ms routine `swapGapMs` against the 141-158ms on record, which is worth one look but is not what he was seeing. The original text follows for the numbers: `BROADCAST-DELIVERY.md` §6a closed it at B608 with a measured 141-158ms lap, and `headSeconds: 0.22` was sized to exactly that. The lap is now 325ms routinely and 1700ms at worst, so **the cache covers 41% of a normal lap and 8% of a bad one** — while `loopCache.why` still advises *"raise the budget"*, which is the known B609 under-report giving bad advice. **Do not raise the budget on its say-so.** The real question is why the lap grew 2-10x, and it is a different question from the one B608 answered.
 
 **3. THE HDMI DONGLE CHANGE IMPROVED DELIVERY, MEASURABLY.** Run 1 (old): `delivered 24/30`, note `⚠ UNEVEN: 39ms typical, 63ms p95`. Run 2 (new): `delivered 29/30`, note `steady (34/54ms)`. `broadcastCeiling.hdmi:3840` moved 24 → 29 over 63k samples. **Daniel's separate report of brief BLACKOUTS is not the same event as the held frames** — a held frame is ours (finding 2); a truly black frame is more consistent with the dongle renegotiating link, and the two separate cleanly because our counters show a take gap only for the former.
 
-### ⭐ THE CRASH IS SOLVED, AND IT IS A 4K TAKE ON TOP OF A 4K BROADCAST (B663)
+### ⭐ THE CRASH IS SOLVED, AND IT IS A 4K TAKE ON TOP OF A 4K BROADCAST (2026-08-18 docs)
 
 **Daniel ran the discriminator and the flight recorder caught it exactly.** One variable, same clip, same destination, same session:
 
@@ -57,7 +65,13 @@ fps was **34.0 at t=70**, one sample before. At t=84 it is **1.0**, `frameP50 16
 
 **This is not thermal, not memory-over-time, not gradual. Arming a 4K encode while broadcasting 4K over HDMI kills the shared WebKit GPU process in under half a second.** It is the same suspect `BROADCAST-DELIVERY.md` names twice — the GPU process is shared across both webviews and its loss takes every context at once — now with an exact trigger and a working negative control (FHD).
 
-**⚠️ CORRECTION TO WHAT THE VARIABLE WAS (B664, read from the code, not guessed).** I described the survivor as an "FHD broadcast" because Daniel said he lowered the broadcast resolution. **He did not lower it, and could not have** — the HDMI sink is `needsBus: false` (`external-display.js:451`), self-rendering at the DISPLAY's native size, and the resolution tier only ever reaches `outputBus.setResolution`, which that sink never calls. **This is B587's finding verbatim** (`output-panel.js:558-561`: *"Daniel switched 4K→QHD, saw no change, and the reason was that nothing changed"*), and I failed to apply it while reading his report.
+**⚠️⚠️ AND THE HEADLINE IS NOW NARROWER THAN "4K TAKE KILLS IT" (Daniel, 2026-08-18). A 4K TAKE ON A 4K WALL SURVIVED — with a ~20s clip.** *"starting in a best case scenario with the shorter ~20s 4k clip looping I* **am** *able to record... albeit at a terrible 10-12fps... but at a real 4k resolution."*
+
+**So the fatal ingredient is not the 4K encode by itself.** The kill used a 6:39 clip; the survivor used ~20s. **Clip length, or something that scales with it (the loop cache, the decode working set, total resident video memory), is inside the trigger** and the earlier one-variable reading was one variable too few. Do not carry "4K take + 4K broadcast = death" as a rule; carry it as *a* fatal combination whose other terms are not yet named.
+
+**▶ AND THE PRODUCT ANSWER MAY NOT NEED THE MECHANISM AT ALL.** Daniel: *"the common sense metric is that a 10 fps recording isn't usable regardless."* **He is right, and it reprioritises the whole lane.** A 4K take on this device is not a capability we are one fix away from — it is unusable when it works and fatal when it does not. That makes the gate a **product decision available today** (do not offer 4K takes on this device class; offer the resolution that records well) and demotes the crash-mechanism hunt from urgent to interesting. **The reason to keep chasing the mechanism is the GATE'S GENERALITY, not this device's 4K take.**
+
+**⚠️ CORRECTION TO WHAT THE VARIABLE WAS (2026-08-18 docs, read from the code, not guessed).** I described the survivor as an "FHD broadcast" because Daniel said he lowered the broadcast resolution. **He did not lower it, and could not have** — the HDMI sink is `needsBus: false` (`external-display.js:451`), self-rendering at the DISPLAY's native size, and the resolution tier only ever reaches `outputBus.setResolution`, which that sink never calls. **This is B587's finding verbatim** (`output-panel.js:558-561`: *"Daniel switched 4K→QHD, saw no change, and the reason was that nothing changed"*), and I failed to apply it while reading his report.
 
 **So the experiment was CLEANER than filed, not dirtier: the 4K HDMI broadcast was constant across both runs, and the only variable was the TAKE resolution.** The conclusion stands and gets stronger. But two consequences follow:
 
@@ -668,7 +682,7 @@ Builds 19–187 (early kaleidoscope through Fold Live Phase 0) live in [`archive
 
 ## environment / hardware
 
-Refreshed B664 (Daniel's own list, and the previous version was missing the M1 Max and collapsed two different iPads into one line). **Phase 2 is a hardware question, so this section is now an instrument: what we can measure on, and what we CANNOT, stated so a gap never gets mistaken for a clean bill of health.**
+Refreshed 2026-08-18 docs (Daniel's own list, and the previous version was missing the M1 Max and collapsed two different iPads into one line). **Phase 2 is a hardware question, so this section is now an instrument: what we can measure on, and what we CANNOT, stated so a gap never gets mistaken for a clean bill of health.**
 
 ### In hand
 
@@ -682,7 +696,7 @@ Refreshed B664 (Daniel's own list, and the previous version was missing the M1 M
 | **M5 Max MBP, 64GB** | current-gen desktop ceiling; the Syphon benchmarks in the archive are from here. |
 | **Movink touch display + second monitor** | perform-mode ergonomics rehearsal rig. |
 | **Akai APC40 MK2** | Perform mode / control bus. |
-| **HDMI dongle (new, since B663)** | ⚠️ **A MEASURED VARIABLE, NOT A CONSTANT.** It moved `delivered` 24 → 29 and `UNEVEN` → `steady`. **Pin it in any comparison against a pre-B663 report.** |
+| **HDMI dongle (new, since 2026-08-18 docs)** | ⚠️ **A MEASURED VARIABLE, NOT A CONSTANT.** It moved `delivered` 24 → 29 and `UNEVEN` → `steady`. **Pin it in any comparison against a pre-2026-08-18 docs report.** |
 
 ### NOT in hand — and what each one would answer
 

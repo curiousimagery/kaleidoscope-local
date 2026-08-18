@@ -6,6 +6,47 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🌡 v0.26.3 (Build 663) — 2026-08-18 — The device gets to say how close it is to a limit
+
+**JS + Swift. ⚠️ NEEDS AN XCODE BUILD** — a new Capacitor plugin. `npx cap sync ios` already run and the SPM manifest regenerated cleanly.
+
+### Shipped
+
+- **`fold-device-vitals`, a new iOS plugin**: thermal state, thermal-change and memory-warning pushes, memory HEADROOM before jetsam, process footprint, physical memory, low-power-mode flag.
+- **`host.vitals` is now a declared seam** in `conduit/host.js` (it never was — the call sites were optional-chained into a shape the interface did not describe).
+- **One seam, not two.** `host.thermalState()` is retired; `pressure.js` and `vitals.js` now read the same call.
+- **Thermal transitions and memory warnings land as breadcrumbs the moment they happen**, on both chromes, session or no session.
+- **`take:arm` records the wall's resolution, the source's resolution and the clip length**, not just the bus size.
+
+### The bug that would have cost an Xcode cycle, caught before the first one
+
+Capacitor plugin calls are Promises. `conduit/vitals.js` reads `native()` **synchronously** inside its sampler and dereferences the result immediately. A Promise is truthy, so every field resolves to `undefined`, and the report prints `nativeReadings: false` — **which is exactly what a missing plugin looks like.** Build it, install it, run a session, and the report is bit-for-bit the report you already have.
+
+**Proven rather than asserted** (`vitals-native-check.mjs`, Class 1, no device): a naive Promise-returning `native()` produced `nativeReadings: false` and `warning() === null` **for a device at thermal `serious` with 180MB of headroom.** The instrument would have reported a device three steps from death as perfectly healthy, and the sync-cache shape reports `{level:'bad', reasons:['thermal serious','180MB headroom']}` from identical data.
+
+So the host refreshes asynchronously and `read()` returns the last known reading synchronously. **No timer:** a read older than 4s kicks a refresh and returns immediately, so polling exists only while something is asking. Thermal transitions arrive as pushes regardless, which is the reading whose onset matters.
+
+### An unavailable reading declines; it never reads as zero
+
+`os_proc_available_memory()` returns 0 when the process is not memory-limited or the call is unsupported. **A literal 0 would arrive in the report as "0MB headroom" — indistinguishable from a device about to be killed**, and it would trip the low-memory event on a perfectly healthy machine. Zero becomes `null` plus `availableWhy`. Same for footprint when `task_info` fails.
+
+And a **stale cache declines too**: readings carry `ageMs`, and past 30s `read()` returns null rather than presenting a memory as a measurement. A wedged instrument must not look like a calm device.
+
+### Why transitions are pushed, not sampled
+
+The sampler runs every 10s, so it notices a thermal change up to ten seconds after it happened and would miss a memory warning arriving three seconds before a jetsam kill entirely. Subscribed, the onset is recorded when it occurred — and because breadcrumbs are always-on (B662), **a device killed for memory now leaves a `memory-warning` crumb in `priorTrail` for the next launch to find.** Without it, a jetsam kill and a random crash stay indistinguishable after the fact.
+
+### `take:arm` could not tell apart the cells of the matrix it exists to fill
+
+It recorded the bus size and `broadcasting: true`. It could not say how big the wall was, how big the source was, or how long the clip ran — and **all three are inside the crash question**, since a ~20s 4K clip survived what a 6:39 one did not. It also invited the reading that a survivor run had a smaller *broadcast*, which is not something the operator can do: a self-rendering destination renders at the display's native size and never sees the tier (B587).
+
+### Learned
+
+- **`ios/App/CapApp-SPM/Package.swift` is generated, not hand-maintained.** Its "DO NOT MODIFY" banner is accurate and was never violated: plugins are discovered from `package.json` via each package's `capacitor.ios.src` marker, and `npx cap sync ios` rewrites the manifest. Adding this plugin took a `file:` dependency and a sync; the entry appeared on its own. **The real hazard is the inverse** — hand-adding an entry *without* the npm dependency, which the next sync would silently delete.
+- **`webHost` did not declare `vitals` or `thermalState`.** The seam was described in the backlog as already existing; the call sites existed, the interface did not. A service that is not in `host.js` is invisible to anyone reading the contract.
+
+---
+
 ## 👆 v0.26.2 (Build 662) — 2026-08-18 — Breadcrumbs are always on; 16px is not a touch target
 
 **JS + CSS. No `cap sync` needed.**

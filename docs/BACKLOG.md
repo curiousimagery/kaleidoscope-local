@@ -366,7 +366,7 @@ Shipped as `sliceMirrorX/Y` + `foldSliceIntoSource`. Details in CHANGELOG v0.25.
 
 **The one thing worth carrying forward:** B642's OOB guard is the same shape of problem in miniature — a global setting changed in one place invalidating snapshots held somewhere else. Per-mode state does not remove that class, it multiplies it. Whatever the design, it needs an answer for "this change makes some stored look unrepresentable" that is not written once per setting.
 
-### 📋 ITEM 1.5 EXIT REPORT — everything the slice/input arc left open, grouped (B663)
+### 📋 ITEM 1.5 EXIT REPORT — everything the slice/input arc left open, grouped (2026-08-18 docs)
 
 **Daniel's ask:** *"we were going to file an exit report on 1.5 capturing known issues... even though this doc should prob go into archive it will be a helpful paper trail that may help us identify when and how certain issues were introduced."*
 
@@ -423,7 +423,7 @@ Long-deferred and re-raised: the web app enumerates a USB webcam, the Capacitor 
 
 **⚠️ CONTINUITY CAMERA TO AN iPAD IS UNVERIFIED AND MAY NOT EXIST.** Apple documents Continuity Camera with Mac and Apple TV as the receivers; an iPhone acting as a camera *for an iPad* is not something to promise. **The enumeration answers it for free** — once `listCameras` exists, the DiscoverySession either returns a continuity device or it does not, which is a runtime probe rather than a guess. Ship the enumeration, then report what the device actually says.
 
-### 🩺 [B660 — PROPOSED, AWAITING DANIEL'S GO] THE iOS DEVICE-VITALS PLUGIN
+### ✅ [SHIPPED B663 — the plugin half. The three batched items below are still OPEN] THE iOS DEVICE-VITALS PLUGIN
 
 **The JS half shipped at B660** (`conduit/vitals.js`, the panel's session recorder, both chromes). The `native` seam is wired and returns null everywhere, which is recorded as `nativeReadings: false` rather than looking healthy. **What is missing is the reading itself, and it is the arc's largest instrumentation hole:** confirmed by grep, there is NO thermal and NO memory reporting anywhere in the three native plugins, while `BROADCAST-DELIVERY.md` names memory at 4K as the one open risk.
 
@@ -436,7 +436,9 @@ Long-deferred and re-raised: the web app enumerates a USB webcam, the Capacitor 
 
 **A NEW small plugin (`fold-device-vitals`), not bolted onto `fold-native-video`.** Vitals have to work when no video is loaded — the exhibit case may be camera-driven — and coupling them to the video plugin means the instrument disappears in half the scenarios worth measuring. It is also a **conduit** concern by Daniel's own framing: every future consumer app wants device vitals, and `conduit/pressure.js` already has the `native:` hook waiting for exactly this shape.
 
-**Batch with the two outstanding instrument fixes so one Xcode cycle covers all three:**
+**✅ SHIPPED B663:** the plugin, the `host.vitals` seam declared in `conduit/host.js`, the retirement of the duplicate `host.thermalState()` call, thermal/memory-warning pushes wired to breadcrumbs on both chromes, and `take:arm` carrying the wall + source resolutions and clip length. **Awaiting an Xcode build to read anything.**
+
+**⚠️ STILL OPEN, and they were meant to ride the same Xcode cycle — they did NOT get built:**
 - `loopCache.coveredMs` under-reports coverage by one frame interval (Swift), so its `why` advises raising a budget that is already sufficient.
 - The `scenario` tag is a manual dropdown and read `idle-still` during a 4K broadcast at B609, which invalidates any baseline diff from that session. Wants a guard that notices it disagrees with what is running.
 

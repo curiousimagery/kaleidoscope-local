@@ -103,7 +103,11 @@ const uploadErrorEl = document.getElementById('uploadError');
 // in but DELIBERATELY has no consumer yet beyond the readout, which is how we find out whether
 // the inferred signal tracks a real one before anything degrades the app based on it.
 const perfPressure = createPressureSource({
-  native: () => env.host?.thermalState?.() ?? null,   // iOS ProcessInfo.thermalState, when a host provides it
+  // ⚠️ ONE SEAM, NOT TWO (B663). This read and the session recorder's used to be different host
+  // calls (`host.thermalState()` here, `host.vitals()` there) for the same underlying reading —
+  // the one-behaviour-two-implementations pattern arriving BEFORE the behaviour existed. Both now
+  // read the vitals seam; pressure takes the thermal LEVEL from it (pressure.js maps the string).
+  native: () => env.host?.vitals?.read?.()?.thermal ?? null,
   // Declared only where we genuinely know the rate: a take is 30 by the recorder's encoder config
   // (recorder.js `framerate: 30`), and a LIVE CAMERA is bounded by the sensor rate it was
   // acquired at. Everything else stays UNDECLARED rather than guessing 60 — pressure then falls
@@ -139,7 +143,7 @@ const perf = createPerfLedger({ pressure: perfPressure });
 const vitals = createVitals({
   pressure: perfPressure,
   ledger: perf,
-  native: () => env.host?.vitals?.() ?? null,
+  native: () => env.host?.vitals?.read?.() ?? null,
 });
 // Surfaces register themselves rather than being enumerated here — see the layout-agnostic
 // constraint in perf-ledger.js. A merged or removed panel re-registers a different set and the
@@ -465,6 +469,16 @@ env.governor = createGovernor({
   onNotice: (text) => { env.governorNotice = text; if (text) env.saveFlow?.status?.('busy', text, { ttl: 3200 }); },
 });
 perf.onReport(() => env.governor.tick(performance.now()));
+
+// ⚠️ B663 — A THERMAL TRANSITION AND A MEMORY WARNING ARE PUSHES, NOT POLL RESULTS. The sampler
+// notices a thermal change up to ten seconds after it happened, and a memory warning arriving
+// three seconds before a jetsam kill would never be sampled at all. Subscribing means the ONSET
+// is recorded at the moment it occurred, and — because breadcrumbs are always-on (B662) — a
+// device killed for memory leaves a `memory-warning` crumb in `priorTrail` for the next launch to
+// find. Without this, a jetsam kill and a random crash stay indistinguishable after the fact.
+env.host?.vitals?.onEvent?.((kind, r) => vitals.mark(kind, {
+  thermal: r?.thermal ?? null, availableMB: r?.availableMB ?? null, footprintMB: r?.footprintMB ?? null,
+}));
 
 // the program frame — the committed "what the audience sees" snapshot every
 // output consumer reads (defines env.programFrame / env.commitFrame /

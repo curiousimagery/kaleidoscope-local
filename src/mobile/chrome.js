@@ -167,11 +167,22 @@ outputEl.appendChild(outputCanvas);
 // THE FRAME-COST LEDGER on the phone. This chrome does not mount createApp, so it builds its
 // own — same module, same registry contract, so a measurement here is directly comparable to
 // the desktop/iPad one. iPhone is the case the whole exercise matters most for.
-const perfPressure = createPressureSource({ native: () => host?.thermalState?.() ?? null });
+// B663 — one seam for the native reading, same as the desktop chrome (see main.js).
+const perfPressure = createPressureSource({ native: () => host?.vitals?.read?.()?.thermal ?? null });
 const perf = createPerfLedger({ pressure: perfPressure });
 // B660 — the session recorder, on the phone too. A diagnostic that exists on one chrome and not the
 // other is the two-chromes trap, and this one is specifically for device runs.
-const vitals = createVitals({ pressure: perfPressure, ledger: perf, native: () => host?.vitals?.() ?? null });
+const vitals = createVitals({ pressure: perfPressure, ledger: perf, native: () => host?.vitals?.read?.() ?? null });
+
+// ⚠️ B663 — A THERMAL TRANSITION AND A MEMORY WARNING ARE PUSHES, NOT POLL RESULTS. The sampler
+// notices a thermal change up to ten seconds after it happened, and a memory warning arriving
+// three seconds before a jetsam kill would never be sampled at all. Subscribing means the ONSET
+// is recorded at the moment it occurred, and — because breadcrumbs are always-on (B662) — a
+// device killed for memory leaves a `memory-warning` crumb in `priorTrail` for the next launch to
+// find. Without this, a jetsam kill and a random crash stay indistinguishable after the fact.
+host?.vitals?.onEvent?.((kind, r) => vitals.mark(kind, {
+  thermal: r?.thermal ?? null, availableMB: r?.availableMB ?? null, footprintMB: r?.footprintMB ?? null,
+}));
 const outputSurface = perf.surface({
   id: 'output', label: 'output canvas', serves: 'program', priority: PRIORITY.PROGRAM,
   size: () => ({ w: outputCanvas.width, h: outputCanvas.height }),

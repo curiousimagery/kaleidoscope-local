@@ -43,6 +43,71 @@ export function createCapacitorHost() {
       available: true,
     },
 
+    // DEVICE VITALS — thermal + memory headroom off the fold-device-vitals plugin.
+    //
+    // ⚠️ THE WHOLE DESIGN OF THIS BLOCK IS THE ASYNC/SYNC MISMATCH. Capacitor plugin
+    // calls are Promises; conduit/vitals.js reads `native()` synchronously inside its
+    // sampler and immediately dereferences the result. Hand it a Promise and every
+    // field is undefined, the report says `nativeReadings: false`, and that is exactly
+    // what a MISSING plugin looks like — a silent failure wearing the clothes of the
+    // problem it was built to solve. So: refresh asynchronously, read from cache.
+    //
+    // No timer. `read()` kicks a refresh when the cache is older than REFRESH_MS and
+    // returns immediately, so polling exists only while something is actually asking —
+    // and thermal transitions arrive as pushes regardless, which is the reading whose
+    // onset matters. The first read after boot returns null and the second is warm.
+    vitals: (() => {
+      const REFRESH_MS = 4000;    // under vitals.js's 10s cadence, so a sample is never a cycle behind
+      const STALE_MS = 30000;     // past this the cache is not a reading, it is a memory
+      const RETRY_MS = 5000;      // after a failed read, back off rather than retry on every call
+      let last = null;            // { ...snapshot, at }
+      let inFlight = false;
+      let failedAt = 0;
+      let plugin = null;
+      let listeners = [];
+      const emit = (kind, reading) => { for (const fn of listeners) { try { fn(kind, reading); } catch { /* a bad listener is not our problem */ } } };
+
+      async function load() {
+        if (plugin) return plugin;
+        const { registerPlugin } = await import('@capacitor/core');
+        plugin = registerPlugin('FoldDeviceVitals');
+        // Pushes update the cache directly, which is why a device that goes `serious`
+        // between two reads is recorded at the moment it happened rather than up to
+        // four seconds later.
+        try {
+          plugin.addListener('thermalChanged', (r) => { last = r; emit('thermal', r); });
+          plugin.addListener('memoryWarning', (r) => { last = r; emit('memory-warning', r); });
+        } catch { /* listeners are a bonus; the poll is the floor */ }
+        return plugin;
+      }
+
+      async function refresh() {
+        if (inFlight) return;
+        if (failedAt && Date.now() - failedAt < RETRY_MS) return;
+        inFlight = true;
+        try { last = await (await load()).read(); failedAt = 0; }
+        catch { failedAt = Date.now(); }   // plugin absent or wedged — `last` ages out below
+        finally { inFlight = false; }
+      }
+
+      return {
+        available: true,
+        read() {
+          const age = last?.at ? Date.now() - last.at : Infinity;
+          if (age > REFRESH_MS) refresh();          // fire and forget; this call still returns now
+          if (!last) return null;
+          // ⚠️ DECLINE RATHER THAN LIE. A wedged refresh must not read as a calm device.
+          if (age > STALE_MS) return null;
+          return { ...last, ageMs: Math.round(age) };
+        },
+        onEvent(fn) {
+          listeners.push(fn);
+          refresh();                                 // a subscriber implies someone is watching
+          return () => { listeners = listeners.filter((f) => f !== fn); };
+        },
+      };
+    })(),
+
     // Native file round-trip. save() writes the blob into the app cache, then opens
     // the iOS SHARE SHEET (Save to Files / Save to Photos / AirDrop / share apps) —
     // the native equivalent of the browser download. This also SIDESTEPS the parked

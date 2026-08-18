@@ -49,6 +49,30 @@ export const webHost = {
     onChange(/* handler(connected) */) { return () => {}; },   // attach/detach; returns unsubscribe
   },
 
+  // DEVICE VITALS — thermal state and memory HEADROOM, the two readings that decide
+  // whether a long run survives and neither of which the browser can see.
+  //
+  // ⚠️ `read()` IS SYNCHRONOUS AND RETURNS A CACHE, ON PURPOSE, AND A NATIVE
+  // IMPLEMENTATION MUST KEEP IT THAT WAY. conduit/vitals.js samples on a timer and
+  // uses the result immediately (`nat?.thermal`); a Promise there is truthy, so every
+  // field resolves to undefined and the report prints `nativeReadings: false` —
+  // IDENTICAL to having no plugin at all. A whole native build cycle can be spent
+  // discovering that. The native host therefore refreshes asynchronously and hands
+  // back the last known reading here.
+  //
+  // ⚠️ AND A STALE CACHE MUST DECLINE, NOT LIE. If the async refresh stops resolving,
+  // returning the last reading forever makes a wedged instrument look like a calm
+  // device. Readings carry `ageMs`; past a staleness bound `read()` returns null.
+  //
+  // Shape: { thermal, availableMB, footprintMB, physicalMB, memoryWarnings,
+  //          lowPowerMode, ageMs } — availableMB null (with availableWhy) when the
+  // platform declines, never 0.
+  vitals: {
+    available: false,
+    read() { return null; },       // last known reading, or null when there is none
+    onEvent(/* handler(kind, reading) */) { return () => {}; },   // thermal / memory-warning pushes
+  },
+
   // NDI output (network video, the wireless sibling of Syphon) — the native app
   // publishes the program output as an NDI source that Resolume Arena lists like a
   // camera. NDI is a native SDK over UDP/multicast; browsers can't speak it, so this

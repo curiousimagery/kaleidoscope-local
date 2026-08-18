@@ -8,15 +8,25 @@ Confirmed results are DELETED from here and recorded in CHANGELOG. Closed sessio
 
 ---
 
-# ▶ OPEN SESSION (B664) — "WHERE IS THE CEILING, AND IS IT A NUMBER WE CAN COMPUTE?"
+# ▶ OPEN SESSION (2026-08-18 docs) — "WHERE IS THE CEILING, AND IS IT A NUMBER WE CAN COMPUTE?"
 
-**Standing ask (Daniel, B664):** *"keep a running list of highest value tests and verification tasks... we don't want to waste exchanges with me asking what is most helpful if you already knew."* **This list is that list.** It is kept ranked and current every turn; the top item is always the one to do next. Spontaneous tests are welcome and get folded in.
+**Standing ask (Daniel, 2026-08-18 docs):** *"keep a running list of highest value tests and verification tasks... we don't want to waste exchanges with me asking what is most helpful if you already knew."* **This list is that list.** It is kept ranked and current every turn; the top item is always the one to do next. Spontaneous tests are welcome and get folded in.
 
 **The session's question, in Daniel's framing:** not *what can this iPad do*, but **which constraint is being hit**, so the gate is computed from what any device reports at runtime rather than hardcoded per model. We own the top of the hardware range and none of the bottom (HANDOFF "environment / hardware"), so **a model table would be calibrated entirely on good hardware.**
 
 **⚠️ TWO READING RULES FOR EVERY REPORT IN THIS SESSION.** Both are known instrument defects, not fresh doubt:
 1. **Ignore the `pressure` column.** Its baseline re-learns per workload; it has called 22fps "nominal" and 23fps "fair" in the same run.
 2. **Check the `scenario` tag before trusting any `baseline` delta.** It is manual and was wrong on run 2, which made that report's deltas meaningless.
+
+---
+
+## ⏸ SESSION ON HOLD — DANIEL'S CALL, AND IT IS THE RIGHT ONE (2026-08-18)
+
+*"on the zero thermal and memory data that feels like it blocks us from being able to maximize the value of capturing any reports and should take precedence over any on device testing."*
+
+**Agreed. Every device test below spends a real session producing a report with two null columns**, and both of those columns are load-bearing for the questions this session asks. **The vitals plugin now outranks T1-T5.** T0 (JS-only) rides along in the same cycle.
+
+**One reprioritisation inside the hold, from Daniel's 4K-take result:** a 4K take now *works* on a short clip at 10-12fps, which is unusable. **T1's job was to decide which gate to build; the product answer no longer waits on it.** T1 stays because it generalises the gate, but it is no longer the top device test. **T2 (hands-off) is, because the bimodal collapse is unexplained and affects every workflow, not just recording.**
 
 ---
 
