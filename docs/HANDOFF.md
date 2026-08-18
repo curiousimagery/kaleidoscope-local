@@ -22,6 +22,31 @@ Archived at B658. It was marked superseded at B609 and kept for the reasoning be
 
 ## current version
 
+**👆 B662 — ALWAYS-ON BREADCRUMBS + A REAL TOUCH TARGET. JS + CSS.** B661 required a session for breadcrumbs too, which asked the operator to predict which action would be fatal; they now persist unconditionally as `priorTrail`. And the perform ruler was unresponsive on iPad because `.mf-ruler` is **16px** — the handler fires for touch, there is nothing to land on. 30px hit area on coarse pointers, applied to the shared class so motion gets it too. **Unconfirmed; discriminator in the changelog.**
+
+**📊 DANIEL'S FIRST REAL SESSION (B660, iPad Pro, 12min, 6:39 4K clip → 4K HDMI) — AND THE HEADLINE IS THAT IT IS NOT HEAT.**
+
+The trajectory is **bimodal, not monotonic**: 9 crossings between a ~22fps state and a ~10fps state, and **its highest sustained reading of the whole run (25fps) came at t=441s, four minutes AFTER the first collapse to 10fps.** Thermal throttling does not let you recover to your best number four minutes later. **Something switches on and off, and a snapshot at t=690 would have said "10fps, critical, degraded" and sent us chasing heat.** This is precisely what the session recorder was built to reveal, on its first use.
+
+**⚠️ THERE IS NO THERMAL DATA IN THAT REPORT.** `nativeReadings: false`, every `thermal: null`. Daniel assumed it was captured. Until the vitals plugin lands he must state device temperature explicitly, and no conclusion about heat can be drawn from these runs.
+
+**Standing reads from the same report:**
+- **His visual-stutter observation is real and the instrument already agrees.** `extJitter.draw p50 39 / p95 58`, and the external note says `⚠ UNEVEN: new picture every 39ms typical, 63ms at p95`. The 26/s mean hides it — B576's lesson, now reproduced.
+- **The unaccounted time is what doubles.** 22fps → 10fps takes accounted 36.8 → 49.5ms but unaccounted 24.2 → 39.5ms. The invisible term grows most, which is the three-GL-uploads suspect (`BROADCAST-DELIVERY.md` §5a).
+- **⚠️ POSSIBLE LOOP-HOLD REGRESSION UNDER LOAD.** `maxSwapGapMs: 341` against the 141-158ms in the B608 record, with `loopCache.coveredMs: 133` — the cache covers 39% of the lap. `headSeconds` was sized to a 150ms lap. Not diagnosed; needs its own look.
+- `srcArrive.max: 1198ms` — a 1.2s source stall somewhere in the run.
+
+**▶ INSTRUMENT DEFECTS THIS REPORT EXPOSED (fix before the next long run):**
+1. **`pressure` is not readable as a trend.** Its baseline re-learns per workload, so the series prints "warming up" twice MID-RUN (t=291, t=341) and calls 22fps "nominal" at t=301 while calling 23fps "fair" at t=20. **Same speed, different labels.** The vitals series should record the raw baseline alongside it, or stop carrying pressure at all.
+2. `loopStall.why` reads `"no loop boundary reached yet"` while `wraps: 24` in the same object.
+3. `loopCache.why` advises `"raise the budget"` — the known B609 under-report giving bad advice on a budget already proven sufficient.
+
+**▶ THE DECISIVE NEXT EXPERIMENT IS CHEAP: a HANDS-OFF run.** Daniel was interacting throughout, and reports pan/zoom stuttering visibly. If the ~10fps episodes vanish when nobody touches the device, the mode is interaction-driven rather than thermal or load-driven, and that reframes the whole ceiling question.
+
+**🛰 B661 — THE FLIGHT RECORDER. JS only.** B660 held the session in memory and wrote on stop, so it could report every run except the fatal ones. Now write-through on every sample and breadcrumb (synchronous `localStorage` — Capacitor Preferences is async, and async is the write that does not land when the process is dying), a `clean` flag set only on an orderly stop, and recovery on the next launch into the panel and the export as `crashed`. **Breadcrumbs go in BEFORE the risky call** — `take:arm` carries resolution, whether a broadcast was already running, destination and mic.
+
+**▶ DANIEL'S FIRST FATAL, B661, NOT YET DIAGNOSED — DO NOT FIX AHEAD OF A REPORT.** iPad Pro, 6:39 4K clip, 4K broadcast, Xbox controller mapped and in use, autoplay on, all healthy — died **instantly on starting a recording**, black and unrecoverable without a reload. **The shape points hard at concurrent sessions** (a second encode arming while a 4K decode + 4K broadcast are live), which is the session-audit hypothesis arriving on its own. The next report will carry `crashed.lastBreadcrumb`.
+
 **🩺 v0.26.0 · B660 — THE SESSION RECORDER. JS only.** Minor bump at Daniel's call, marking the close of the slice-hardening arc (extents, origin flip, fold, MIDI/gamepad).
 
 `start session` in the frame-cost panel records thermal, memory headroom, fps and frame cost every 10s, keeps running while the panel is closed, and lands in `copy report` under `vitals`. **A separate instrument from the frame ledger on purpose** — the ledger is a snapshot and the arc's questions are curves. **Memory is recorded as HEADROOM first** (what is left before the OS kills us — the boundary we do not own); footprint is recorded but never concluded from. **Thermal is recorded as timestamped transitions**, alongside GL context losses, so a degradation can be lined up against the moment the device changed state. Ring holds one hour; past that the report says `truncated`. `nativeReadings: false` until the plugin lands, because absent must never read as nominal.

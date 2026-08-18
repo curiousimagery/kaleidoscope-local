@@ -6,6 +6,59 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 👆 v0.26.2 (Build 662) — 2026-08-18 — Breadcrumbs are always on; 16px is not a touch target
+
+**JS + CSS. No `cap sync` needed.**
+
+### Shipped
+
+- **Breadcrumbs record without a session running**, into their own always-on ring, exported as `priorTrail`.
+- **The time rulers get a 30px hit area on touch devices** (both perform and motion).
+
+### The instrument was asking the operator to predict the crash
+
+Daniel: *"to clarify i still need to start a session to capture yes?"* Under B661 the answer was yes — for the trajectory *and* for the breadcrumbs. **That is the wrong answer for the breadcrumbs.** A crash does not wait for the recorder to be armed, and requiring an operator to guess which action will be fatal is the instrument failing at its job.
+
+The last twelve risky operations now persist on every mark whether or not a session exists, and survive into the next launch as `priorTrail` — present even when the previous run ended cleanly, since a clean exit after a wedged UI still leaves a useful trail. The trajectory still needs an explicit session; that part is by design.
+
+### 16px against 44pt
+
+*"Our timeline ruler scrubber in perform mode works great on desktop now, but i just tested for the first time on ipad and it's not responsive at all."*
+
+The handler is pointer-based and fires for touch, and nothing intercepts touch anywhere near it (checked). What it does not have is anywhere to land: `.mf-ruler` is **16px tall** against Apple's 44pt guidance. Ticks and labels are bottom-anchored, so extra height lands above them as pure hit area and nothing moves.
+
+**Applied to the shared class, so motion's ruler gets it too** — it has exactly the same target and Daniel simply has not tried it on the iPad yet.
+
+**⚠️ Hypothesis, not confirmed** — it is a Class 2 question that needs his device. **Discriminator:** if the target is the cause, a deliberate press exactly on the tick row works today, and the 30px version works anywhere. If neither works, it is not the target and the next suspect is pointer capture under iOS Safari.
+
+---
+
+## 🛰 v0.26.1 (Build 661) — 2026-08-18 — The flight recorder: a fatal session reports itself
+
+**JS only. No `cap sync` needed.**
+
+### Shipped
+
+- **The session writes through to storage on every sample and every breadcrumb**, so a kill cannot take the evidence with it.
+- **An unclean session is recovered on the next launch**, surfaced at the top of the panel and exported as `crashed`.
+- **Breadcrumbs at the operations that kill**: `bus:start`, `take:arm` (written *before* the encoder is asked for anything), `take:started`.
+
+### Daniel's question was the right one, and the answer was that the instrument was wrong
+
+His first real run: 4K clip, 4K broadcast, Xbox controller mapped and playing, autoplay running, all healthy — *"as soon as i tried to start recording is when it died basically instantly."* Black, unrecoverable without a reload. Then: *"is there a good way to capture fatal crashes like this since it seems that your report output relies on a more or less stable session?"*
+
+**It did, and that is a defect in the recorder rather than a limit of the situation.** B660 held the session in memory and wrote it only when you pressed stop — so it could report every run except the ones worth reporting. On an arc whose open questions are fatal failures, that is exactly backwards.
+
+**Now:** every sample and every breadcrumb is written synchronously to `localStorage` (chosen over Capacitor Preferences deliberately — that API is async, and an async write is precisely the one that does not land when the process is about to die). A `clean` flag is set **only** on an orderly stop, so anything else — crash, jetsam kill, force-quit — leaves a record marked unclean and findable. The next launch reads it before anything can overwrite it.
+
+**The breadcrumb is written before the risky call, not after.** Daniel's kill landed between arming a recording and the next frame; a breadcrumb written after `recorder.start()` resolves would never have existed. `take:arm` now records the resolution, whether a broadcast was already running, the destination and whether a mic was attached — which is the difference between "it died" and "it died arming a second encode session while already broadcasting 4K."
+
+The recovered record carries aggregates, every event, the last five minutes of samples, and `lastBreadcrumb`. It is exported **whether or not** the panel is open or the note has been dismissed, because the session it describes could not report itself.
+
+Harness (`crash-check`): a run that never stops is recoverable, marked unclean, names its last operation with the state that framed it, and preserves headroom at death; a clean stop leaves nothing to recover and never masquerades as a crash.
+
+---
+
 ## 🩺 v0.26.0 (Build 660) — 2026-08-18 — The session recorder
 
 **MINOR BUMP at Daniel's call, marking the close of the slice-hardening arc** — extents, the origin flip, the fold, and the MIDI/gamepad work. **JS only. No `cap sync` needed.**

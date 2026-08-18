@@ -1176,6 +1176,17 @@ button .btn-spinner {
    1px border). relative keyframe position is the focus; the labels give a sense of
    absolute time, which fixed-duration media (video) needs. */
 .mf-ruler { position: relative; height: 16px; flex-shrink: 0; margin: 0 1px; overflow: hidden; cursor: pointer; touch-action: none; }
+/* ⚠️ B662 — 16px IS NOT A TOUCH TARGET. Daniel: the perform ruler *"works great on desktop now, but
+   i just tested for the first time on ipad and it's not responsive at all."* The handler is
+   pointer-based and fires for touch; what it does not have is anywhere to land — 16px against
+   Apple's 44pt guidance, and no touch interception anywhere near it (checked).
+   Ticks and labels are BOTTOM-anchored, so extra height lands above them as pure hit area and
+   nothing moves. Applied to the shared class: motion's ruler has exactly the same target and
+   Daniel simply has not tried it on the iPad yet. */
+@media (pointer: coarse) {
+  .mf-ruler { height: 30px; }
+  .pf-center .pf-ruler { flex: 0 0 30px; }
+}
 .mf-tick { position: absolute; bottom: 0; width: 1px; transform: translateX(-50%); }
 .mf-tick.minor { height: 4px; background: var(--c-neutral-650); }
 .mf-tick.major { height: 7px; background: var(--c-neutral-500); }

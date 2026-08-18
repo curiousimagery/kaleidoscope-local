@@ -612,7 +612,7 @@ export function createOutputPanel(env, outputBus) {
     // session never starts the bus's read-back loop. Recording or Syphon do need it.
     const destNeedsBus = broadcasting && selectedDest()?.sink.needsBus !== false;
     const need = wantRecord || destNeedsBus;
-    if (need && !outputBus.running) outputBus.start();
+    if (need && !outputBus.running) { env.vitals?.mark('bus:start', { w: outputBus.width, h: outputBus.height }); outputBus.start(); }
     else if (!need && outputBus.running) outputBus.stop();
     env.syncLocks?.();   // output-live changed → refresh the resolution/aspect contextual padlocks
   }
@@ -710,9 +710,19 @@ export function createOutputPanel(env, outputBus) {
       }
       try {
         applyResolution();
+        // ⚠️ B661 — BREADCRUMB BEFORE THE RISKY PART, NOT AFTER. Daniel's kill happened between
+        // arming a recording and the next frame, while already broadcasting 4K. A breadcrumb
+        // written after `recorder.start` resolves would not have existed; one written here names
+        // the operation that was in flight when the process went away, and it is already on disk
+        // by the time the encoder is asked for anything.
+        env.vitals?.mark('take:arm', {
+          w: outputBus.width, h: outputBus.height,
+          broadcasting: !!broadcasting, dest: selectedDest()?.id || null, mic: !!micTrack,
+        });
         wantRecord = true;
         syncBusRunning();
         await recorder.start(outputBus.width, outputBus.height, micTrack);
+        env.vitals?.mark('take:started', { w: outputBus.width, h: outputBus.height });
         clearInterval(takeWatch);
         takeNote = '';
         startPolling();

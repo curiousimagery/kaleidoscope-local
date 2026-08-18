@@ -374,6 +374,17 @@ The mapping targets `sliceCx` / `sliceCy` write the slice ORIGIN, but since B616
 
 **Implementable without a special case** — B619 added the `write` hook, so the target can write through `placeSliceBox` the way `segments` writes through its setter. Small.
 
+### 📷 [Daniel, B661 — NATIVE, BATCHES WITH THE VITALS PLUGIN] iPAD CANNOT SEE EXTERNAL CAMERAS
+
+Long-deferred and re-raised: the web app enumerates a USB webcam, the Capacitor build cannot. **Confirmed by reading the plugin:** `fold-native-camera` discovers only `.builtInUltraWideCamera` / `.builtInWideAngleCamera` / `.builtInTelephotoCamera` filtered by `position`, and exposes **no list method at all** — `pluginMethods` is start/stop/exposure/zoom/WB/focus/photo. There is nothing for JS to call, so this cannot be fixed on the JS side.
+
+**What it needs:**
+- A `listCameras` method running `AVCaptureDevice.DiscoverySession` with **`.external`** (iPadOS 17+, covers USB/UVC webcams) and **`.continuityCamera`**, at `position: .unspecified` — external devices report no position, so the current position filter would exclude them even if the types were listed.
+- `start` to accept a `deviceId` so a discovered device can be selected, rather than only lens + facing.
+- A JS picker in camera settings, and the `?url` param / Lab entries that come with it.
+
+**⚠️ CONTINUITY CAMERA TO AN iPAD IS UNVERIFIED AND MAY NOT EXIST.** Apple documents Continuity Camera with Mac and Apple TV as the receivers; an iPhone acting as a camera *for an iPad* is not something to promise. **The enumeration answers it for free** — once `listCameras` exists, the DiscoverySession either returns a continuity device or it does not, which is a runtime probe rather than a guess. Ship the enumeration, then report what the device actually says.
+
 ### 🩺 [B660 — PROPOSED, AWAITING DANIEL'S GO] THE iOS DEVICE-VITALS PLUGIN
 
 **The JS half shipped at B660** (`conduit/vitals.js`, the panel's session recorder, both chromes). The `native` seam is wired and returns null everywhere, which is recorded as `nativeReadings: false` rather than looking healthy. **What is missing is the reading itself, and it is the arc's largest instrumentation hole:** confirmed by grep, there is NO thermal and NO memory reporting anywhere in the three native plugins, while `BROADCAST-DELIVERY.md` names memory at 4K as the one open risk.

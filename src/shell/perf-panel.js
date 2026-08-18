@@ -222,10 +222,31 @@ export function mountPerfPanel(env, { container = null, onClose = null } = {}) {
   // than minute one. A session gives the samples a known t=0 and keeps recording while the panel is
   // closed, which is the only way the long-run questions get answered.
   const vitals = env.vitals || null;
+  let crashDismissed = false;
+  const crashNote = document.createElement('div');
+  crashNote.className = 'pf-why bad'; crashNote.hidden = true;
+  crashNote.style.cursor = 'pointer';
+  crashNote.title = 'click to dismiss — it stays in the exported report either way';
+  crashNote.addEventListener('click', () => { crashDismissed = true; vitals?.clearCrashed?.(); paintSession(); });
   const sessBtn = document.createElement('button');
   const sessNote = document.createElement('div'); sessNote.className = 'pf-why';
   function paintSession() {
     if (!vitals) { sessBtn.hidden = true; sessNote.hidden = true; return; }
+    // ⚠️ B661 — A RECOVERED CRASH OUTRANKS EVERYTHING ELSE IN THIS PANEL. The previous run died
+    // without an orderly stop, and the operator is the only one who can say what they were doing.
+    // Shown until dismissed, and carried in the export regardless, because the whole reason it
+    // exists is that the session it describes could not report itself.
+    const c = vitals.crashed;
+    if (c && !crashDismissed) {
+      crashNote.hidden = false;
+      const bc = c.lastBreadcrumb;
+      crashNote.textContent = `⚠ previous session ended UNCLEANLY after ${fmtDur(c.durationSec || 0)}`
+        + (bc ? ` · last op: ${bc.kind} @ ${fmtDur(bc.t)}` : ' · no breadcrumb')
+        + (c.agg?.availMB ? ` · headroom ${c.agg.availMB.last}MB` : '')
+        + ' — in the report as `crashed`';
+    } else {
+      crashNote.hidden = true;
+    }
     const on = vitals.recording;
     sessBtn.textContent = on ? `stop session · ${fmtDur(vitals.elapsedSec)}` : 'start session';
     sessBtn.classList.toggle('pf-rec', on);
@@ -245,7 +266,7 @@ export function mountPerfPanel(env, { container = null, onClose = null } = {}) {
     paintSession();
   });
   foot.append(saveBtn, clearBtn, copyBtn, sessBtn);
-  panel.append(foot, sessNote, out);
+  panel.append(foot, crashNote, sessNote, out);
 
   saveBtn.addEventListener('click', () => {
     baseline = { ...ledger.report, savedAt: new Date().toISOString(), scenario: scenarioSel.value };
@@ -274,6 +295,13 @@ export function mountPerfPanel(env, { container = null, onClose = null } = {}) {
       // frame ledger structurally cannot: aggregates, every discontinuity as a timestamped event,
       // and the last hour of samples.
       vitals: (env.vitals?.recording ? env.vitals.report() : lastSession) || undefined,
+      // B661 — the PREVIOUS run, if it died. Always exported when present, never gated on the
+      // panel being open or the note being dismissed: the session this describes could not report
+      // itself, which is the entire reason the record exists.
+      crashed: env.vitals?.crashed || undefined,
+      // B662 — the previous run's breadcrumbs even if it had no session running. A crash does not
+      // wait for the recorder to be armed.
+      priorTrail: env.vitals?.priorTrail || undefined,
       // B619 — WHICH FIELD IS STILL MOVING, AND WAS ANYTHING ALLOWED TO MOVE IT. Armed by
       // `?probe=motion`; absent otherwise. Built for the droste infinite-zoom loop, where four
       // mechanisms have been eliminated by reading and the investigation reached a contradiction:

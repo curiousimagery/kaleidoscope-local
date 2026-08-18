@@ -49,6 +49,37 @@ const RING = 360;
 // shout before the app dies, not to model the OS.
 const LOW_MEM_MB = 220;
 
+// ⚠️ B661 — THE FLIGHT RECORDER. Daniel's first real run ended in a hard kill: 4K clip, 4K
+// broadcast, autoplay, gamepad — then *"as soon as i tried to start recording is when it died
+// basically instantly"*, black, unrecoverable without a reload. His question is the right one:
+// *"is there a good way to capture fatal crashes like this since it seems that your report output
+// relies on a more or less stable session?"*
+//
+// **It did, and that is a defect in the instrument, not a limit of the situation.** A recorder that
+// only survives an orderly stop cannot report the failures worth reporting — and on this arc the
+// fatal ones are the whole question. Everything held in memory dies with the process.
+//
+// So the session WRITES THROUGH on every sample and every event, and carries a `clean` flag that is
+// only set on an orderly stop. On the next launch an unclean record is recovered and surfaced. The
+// last breadcrumb before the silence names the operation that killed it, which for Daniel's crash
+// is the difference between "it died" and "it died arming a second encode session while already
+// broadcasting 4K".
+//
+// Kept deliberately small (TAIL samples, not the full ring) because it is written every 10s to
+// synchronous storage, and because the minutes before death are the ones that matter.
+const TAIL = 30;              // ~5 minutes at the sample cadence
+const STORE_KEY = 'fold-vitals-last';
+// ⚠️ B662 — BREADCRUMBS ARE ALWAYS ON, SESSIONS ARE NOT. Daniel: *"to clarify i still need to start
+// a session to capture yes?"* — and under B661 the answer was yes for breadcrumbs too, which is
+// the wrong answer. A crash does not wait for you to have armed the recorder, and requiring an
+// operator to predict which action will be fatal is exactly the instrument failing at its job.
+//
+// So the last few risky operations are kept in their own always-on ring, written on every mark
+// whether or not a session exists. It is twelve short objects; it costs nothing and it means the
+// question "what was it doing when it died" always has an answer.
+const TRAIL_KEY = 'fold-vitals-trail';
+const TRAIL = 12;
+
 const nowMs = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
 const mb = (bytes) => (bytes > 0 ? Math.round(bytes / 1048576) : null);
 
@@ -60,9 +91,31 @@ function webMemory() {
   return { usedMB: mb(m.usedJSHeapSize), limitMB: mb(m.jsHeapSizeLimit) };
 }
 
+// Synchronous, survives a process kill, present in every runtime we ship. Deliberately NOT the
+// Capacitor Preferences API: that is async, and an async write is exactly the one that does not
+// land when the process is about to die.
+const store = {
+  read() { try { return JSON.parse(localStorage.getItem(STORE_KEY) || 'null'); } catch { return null; } },
+  write(v) { try { localStorage.setItem(STORE_KEY, JSON.stringify(v)); } catch { /* full / private mode */ } },
+  clear() { try { localStorage.removeItem(STORE_KEY); } catch { /* ignore */ } },
+};
+
+// What the LAST run left behind, read once at construction. `clean: false` means the process went
+// away without an orderly stop — a crash, a jetsam kill, or a force-quit, and the record cannot
+// tell those apart on its own. The breadcrumbs can.
+export function recoverLastSession() {
+  const prev = store.read();
+  if (!prev || prev.clean) return null;
+  return prev;
+}
+
 export function createVitals({ pressure = null, ledger = null, native = null } = {}) {
   let session = null;   // null = not recording
   let timer = 0;
+  const crashed = recoverLastSession();   // captured before anything can overwrite it
+  // the previous run's breadcrumbs, whether or not it had a session. Read once, same reason.
+  const priorTrail = (() => { try { return JSON.parse(localStorage.getItem(TRAIL_KEY) || 'null'); } catch { return null; } })();
+  const trail = [];
 
   // `native()` is the host seam — the iOS plugin's thermal + memory reading when one exists, null
   // everywhere else. Absent is a legitimate answer and is recorded as such: a run with no native
@@ -127,14 +180,43 @@ export function createVitals({ pressure = null, ledger = null, native = null } =
       session.lastThermal = s.thermal;
     }
     if (reason !== 'tick') s.reason = reason;
+    persist();
     return s;
   }
 
   // Events are unbounded because they are discontinuities and each one is the thing you came to
   // find. They are also tiny. A run that drops nothing records nothing here.
+  //
+  // ⚠️ B661 — AN EVENT PERSISTS IMMEDIATELY, not on the next sample. The whole point of a
+  // breadcrumb is that it survives what happens next, and "what happens next" can be a kill three
+  // milliseconds later — which is roughly what Daniel saw when he armed a recording.
   function event(kind, detail = {}) {
+    // the always-on trail first, so it records even with no session running
+    const crumb = { at: new Date().toISOString(), kind, ...detail };
+    trail.push(crumb);
+    if (trail.length > TRAIL) trail.shift();
+    try { localStorage.setItem(TRAIL_KEY, JSON.stringify(trail)); } catch { /* full / private mode */ }
     if (!session) return;
     session.events.push({ t: Math.round((nowMs() - session.t0) / 1000), kind, ...detail });
+    persist();
+  }
+
+  // The durable tail. Small on purpose: written synchronously every 10s and on every breadcrumb,
+  // and the minutes before death are the ones worth keeping.
+  function persist() {
+    if (!session) return;
+    store.write({
+      clean: false,
+      label: session.label || undefined,
+      startedAt: session.startedAt,
+      durationSec: Math.round((nowMs() - session.t0) / 1000),
+      samples: session.samples,
+      agg: session.agg,
+      thermalMs: Object.keys(session.thermalMs).length ? session.thermalMs : undefined,
+      events: session.events,
+      lastBreadcrumb: session.events.length ? session.events[session.events.length - 1] : null,
+      tail: session.ring.slice(-TAIL),
+    });
   }
 
   return {
@@ -158,9 +240,21 @@ export function createVitals({ pressure = null, ledger = null, native = null } =
       sample('stop');
       clearInterval(timer); timer = 0;
       const done = this.report();
+      // the ONLY place `clean` is set. Anything that skips this path — a crash, a jetsam kill, a
+      // force-quit — leaves the record marked unclean, which is exactly what makes it findable.
+      store.write({ clean: true, endedAt: new Date().toISOString(), ...done, series: undefined, tail: done.series.slice(-TAIL) });
       session = null;
       return done;
     },
+
+    // ⚠️ THE PREVIOUS RUN, IF IT DIED. Null when the last session stopped cleanly or there was
+    // none. This is the crash report: aggregates, every event, the last five minutes of samples,
+    // and `lastBreadcrumb` — the operation in flight when the process went away.
+    get crashed() { return crashed; },
+    // What the app was DOING last time, session or not. Present even when the previous run ended
+    // cleanly — a clean exit after a wedged UI still leaves the useful trail.
+    get priorTrail() { return priorTrail?.length ? priorTrail : null; },
+    clearCrashed() { store.clear(); try { localStorage.removeItem(TRAIL_KEY); } catch { /* ignore */ } },
 
     // Anything the app knows is notable — a GL context loss, a take starting, a source swap, an
     // OS memory warning arriving through the host. Callers should NOT gate these on "is it
