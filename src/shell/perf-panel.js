@@ -298,6 +298,10 @@ export function mountPerfPanel(env, { container = null, onClose = null } = {}) {
       // B661 — the PREVIOUS run, if it died. Always exported when present, never gated on the
       // panel being open or the note being dismissed: the session this describes could not report
       // itself, which is the entire reason the record exists.
+      // ⚠️ B664 — the seam's own health, always exported. B663 shipped a native reading that
+      // landed on 3 of 56 samples and the report could not say why; a null column has to be
+      // able to distinguish "no plugin" from "plugin present, read path broken".
+      vitalsSeam: env.host?.vitals?.diagnostics?.() || undefined,
       crashed: env.vitals?.crashed || undefined,
       // B662 — the previous run's breadcrumbs even if it had no session running. A crash does not
       // wait for the recorder to be armed.

@@ -60,9 +60,18 @@ export function createCapacitorHost() {
       const REFRESH_MS = 4000;    // under vitals.js's 10s cadence, so a sample is never a cycle behind
       const STALE_MS = 30000;     // past this the cache is not a reading, it is a memory
       const RETRY_MS = 5000;      // after a failed read, back off rather than retry on every call
+      const CALL_MS = 3000;       // a bridge call that never settles must not wedge the poller
       let last = null;            // { ...snapshot, at }
       let inFlight = false;
       let failedAt = 0;
+      // ⚠️ B664 — THE SEAM PUBLISHES WHY IT HAS NOTHING. B663's first device run came back with
+      // `nativeReadings: true` and native values on exactly THREE samples out of 56 — the three
+      // following a thermal push. The pushes worked; `read()` never landed once in nine minutes,
+      // and the report could not say whether it was throwing, hanging, or resolving empty, because
+      // a failed refresh left `last` null and said nothing. That is the project's own rule broken
+      // in the instrument that cites it: anything that can decline to act must publish why.
+      const seam = { attempts: 0, resolved: 0, empty: 0, errors: 0, timeouts: 0, pushes: 0,
+                     lastError: null, lastOkAt: null, lastPushAt: null, loaded: false };
       let plugin = null;
       let listeners = [];
       const emit = (kind, reading) => { for (const fn of listeners) { try { fn(kind, reading); } catch { /* a bad listener is not our problem */ } } };
@@ -75,9 +84,10 @@ export function createCapacitorHost() {
         // between two reads is recorded at the moment it happened rather than up to
         // four seconds later.
         try {
-          plugin.addListener('thermalChanged', (r) => { last = r; emit('thermal', r); });
-          plugin.addListener('memoryWarning', (r) => { last = r; emit('memory-warning', r); });
-        } catch { /* listeners are a bonus; the poll is the floor */ }
+          plugin.addListener('thermalChanged', (r) => { last = r; seam.pushes++; seam.lastPushAt = Date.now(); emit('thermal', r); });
+          plugin.addListener('memoryWarning', (r) => { last = r; seam.pushes++; seam.lastPushAt = Date.now(); emit('memory-warning', r); });
+        } catch (e) { seam.lastError = `addListener: ${e?.message || e}`; }
+        seam.loaded = true;
         return plugin;
       }
 
@@ -85,9 +95,24 @@ export function createCapacitorHost() {
         if (inFlight) return;
         if (failedAt && Date.now() - failedAt < RETRY_MS) return;
         inFlight = true;
-        try { last = await (await load()).read(); failedAt = 0; }
-        catch { failedAt = Date.now(); }   // plugin absent or wedged — `last` ages out below
-        finally { inFlight = false; }
+        seam.attempts++;
+        try {
+          const p = load().then((pl) => pl.read());
+          // The race is the point: a bridge call that never settles would otherwise leave
+          // `inFlight` true forever and silently disable polling for the rest of the run —
+          // one of the three candidate explanations for B663's device result, and the only
+          // one that is a bug in THIS file regardless of which turns out to be true.
+          const r = await Promise.race([
+            p,
+            new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), CALL_MS)),
+          ]);
+          if (r && r.at) { last = r; seam.resolved++; seam.lastOkAt = Date.now(); failedAt = 0; }
+          else { seam.empty++; seam.lastError = `resolved without .at: ${JSON.stringify(r)?.slice(0, 120)}`; failedAt = Date.now(); }
+        } catch (e) {
+          if (String(e?.message) === 'timeout') seam.timeouts++; else seam.errors++;
+          seam.lastError = `read: ${e?.message || e}`;
+          failedAt = Date.now();
+        } finally { inFlight = false; }
       }
 
       return {
@@ -104,6 +129,17 @@ export function createCapacitorHost() {
           listeners.push(fn);
           refresh();                                 // a subscriber implies someone is watching
           return () => { listeners = listeners.filter((f) => f !== fn); };
+        },
+        // Read by the perf panel's export. Names the seam's own health so a run with no native
+        // numbers says WHICH failure it was instead of looking like a missing plugin.
+        diagnostics() {
+          return { ...seam, ageMs: last?.at ? Date.now() - last.at : null,
+                   why: seam.resolved ? null
+                      : seam.timeouts ? 'read() never settles — bridge call hangs'
+                      : seam.errors ? 'read() rejects — see lastError'
+                      : seam.empty ? 'read() resolves without a payload'
+                      : seam.attempts ? 'refresh in flight, no result yet'
+                      : 'refresh never attempted' };
         },
       };
     })(),

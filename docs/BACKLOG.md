@@ -404,6 +404,20 @@ Shipped as `sliceMirrorX/Y` + `foldSliceIntoSource`. Details in CHANGELOG v0.25.
 
 **⚠️ THE PATTERN WORTH CARRYING FORWARD, since a paper trail is the point.** The arc's recurring defect was **one behaviour with two implementations**, and it appeared SEVEN times: droste's overlay missing `sizeNorm` (B614), radial's polygon missing `canvasNorm` (B618), the overlay missing `canvasOffset` (B612), the centring hook reaching only one chrome (B619), six copies of the transition default (B622), `env.panDrift` covering one of two joysticks (B620), and the slice-scale clamp written six times at three different maxima (B657). **Two more arrived as fresh instances during the arc itself** — B653's ruler re-implementing the scrub instead of calling it, and B638's flag set on the wrong `env`-shaped object. It is not a hypothesis; it is the shape of this codebase's bugs, and `CLAUDE.md` now leads with it.
 
+### 🧭 [Daniel, B663 — REGRESSION FOUND ON DEVICE, NOT DIAGNOSED] RADIAL PAN IS NOT ZOOM-PROPORTIONAL
+
+*"One of the items we fixed in this phase was to ensure that panning is proportional across all zoom levels. This seems to be true for all forms except the radial wedge. At first panning seems to work fine but then if you zoom out it gets sluggish and seems to hit invisible walls, and if you zoom back in it doesn't correct. If I reset canvas it does self-correct until I zoom out again."*
+
+**Not diagnosed. Filed with the suspicion so the investigation starts warm, and explicitly NOT fixed blind.**
+
+**What is already ruled out by reading:** `kit/pan.js` `panDelta` is the single shared gain, divides by zoom, and is form-agnostic — **the pan math itself cannot be radial-specific.** So the asymmetry is downstream of the gain.
+
+**The suspect, and it is the B659 neighbourhood.** Radial's wedge extent is `1 / (canvasZoom × canvasNorm)` (geometry.js:315), so canvas zoom-OUT grows the slice box without bound — this run reported `boxHalf [0.64, 0.77]`, `boxVsSource 1.548` at `sliceScale 2.06`. The fold (`foldSliceIntoSource`, via `normalizeSliceMirror`) is evaluated **on the render schedule**, so it re-runs continuously during a pan. A fold translates the box by its own span; when the span is enormous, that is an enormous jump. **A fold firing intermittently mid-pan would read exactly as "sluggish, invisible walls, does not correct on the way back", and reset-canvas clearing it fits too.**
+
+**⚠️ The discriminator is local and free — this is a Class 1 question and must not cost a device session.** Zoom out with radial on desktop, pan, and watch whether `foldSliceIntoSource` returns non-null during the drag. If it does, the trigger is the bug; if it does not, the cause is elsewhere and the suspicion above should be discarded rather than defended.
+
+**Do not "fix" this by reinstating a span-only fold test** — that is the trap B659's note names.
+
 ### 🎯 [B619 → carried out of item 1.5 at B657] `slice position x/y` STILL ADDRESS THE ORIGIN
 
 The mapping targets `sliceCx` / `sliceCy` write the slice ORIGIN, but since B616 the app's model is the BOX CENTRE — which is what a drag moves, what `placeSliceBox` solves for, and what the fold bounds. **So a fader on slice position means something different from what your hand does**, which is the one-behaviour-two-surfaces class this arc keeps paying for.

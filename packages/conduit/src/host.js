@@ -71,6 +71,7 @@ export const webHost = {
     available: false,
     read() { return null; },       // last known reading, or null when there is none
     onEvent(/* handler(kind, reading) */) { return () => {}; },   // thermal / memory-warning pushes
+    diagnostics() { return null; },   // the seam's OWN health — why it has nothing, when it has nothing
   },
 
   // NDI output (network video, the wireless sibling of Syphon) — the native app

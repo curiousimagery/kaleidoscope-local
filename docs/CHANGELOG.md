@@ -6,6 +6,33 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🔍 v0.26.4 (Build 664) — 2026-08-18 — The vitals seam says why it has nothing
+
+**JS only. No `cap sync`, no Xcode rebuild needed** — the Swift from B663 is unchanged.
+
+### Shipped
+
+- **`vitalsSeam` in the exported report**: attempts, resolved, empty, errors, timeouts, pushes, `lastError`, and a plain-language `why`.
+- **A 3s timeout on the bridge call**, so a call that never settles cannot wedge the poller for the rest of a run.
+- **A resolve without a payload is now counted as a failure**, not silently stored.
+
+### B663's first device run reported native values on 3 samples out of 56
+
+`nativeReadings: true`, one thermal transition at t=441, and native numbers at t=441/451/461 only — **exactly the three samples inside the 30s staleness window following a thermal PUSH.** The pushes work. `read()` did not land once in nine minutes, and the staleness rule correctly dropped the cache afterwards rather than presenting a stale reading as live.
+
+**Three candidate explanations fit that trace equally well** — the bridge call rejects, the bridge call never settles (leaving `inFlight` true forever, which permanently disables polling), or it resolves without a payload. **The report could not distinguish them, because a failed refresh left `last` null and said nothing.** That is this project's own rule broken inside the instrument that cites it: anything that can decline to act must publish why. Uncertainty state B, so the legal move is instrumentation, not a guess at the fix.
+
+**The one change made blind is the timeout**, because a hung call wedging the poller is a defect in this file whichever explanation turns out to be true, and the counters record a timeout distinctly so it cannot mask the diagnosis.
+
+### Learned from the same run — and none of it is about memory
+
+- **`availMB: 4969`, `footprintMB: 150`.** ~5GB of headroom, 150MB used. **Memory is not the constraint in the 4K broadcast scenario**, and the first native reading we have ever taken says so.
+- **The first fps collapse (t=210, 10.9fps) precedes the thermal transition (t=441) by nearly four minutes.** Consistent with the bimodal finding: the ~10fps state is not heat.
+- **The PiP costs 16.6ms to render 0.09MP while the preview costs 25.1ms for 1.57MP** — 17x fewer pixels for two-thirds the cost. Per-render cost is dominated by sampling the 8.29MP source, not by output resolution, **which means the governor's resolution ladder buys far less than its shape implies.** Shedding renders should beat shedding pixels.
+- **The governor is deliberately blind to the app's own frame rate:** `signal: "display"`, `shortfall: 0.04`, `appShortfall: 1`, verdict *"keeping up"* — while the editor ran at 12.3fps. The display was genuinely fine (28 new pictures/s of 29 arriving). **This is the mechanism behind "it stutters but the report says it is fine."**
+
+---
+
 ## 🌡 v0.26.3 (Build 663) — 2026-08-18 — The device gets to say how close it is to a limit
 
 **JS + Swift. ⚠️ NEEDS AN XCODE BUILD** — a new Capacitor plugin. `npx cap sync ios` already run and the SPM manifest regenerated cleanly.

@@ -34,6 +34,16 @@ Archived at B658. It was marked superseded at B609 and kept for the reasoning be
 
 **The trap that was caught before the cycle, because it will recur in any future host seam:** Capacitor calls are async, `conduit/vitals.js` reads `native()` sync. A Promise there makes every field undefined and the report says `nativeReadings: false` — *identical to no plugin*. The host caches; `read()` is synchronous. Proven in `vitals-native-check.mjs`.
 
+### 🌡 B663/B664 — THE PLUGIN IS ON DEVICE AND THE FIRST NATIVE NUMBERS ARE IN
+
+**`nativeReadings: true`. Three things are now known that were not:**
+
+1. **MEMORY IS NOT THE CONSTRAINT.** `availMB 4969`, `footprintMB 150` — ~5GB headroom, 150MB used, during a 4K source → 4K HDMI broadcast on the M1 iPad Pro. **The named "open risk" of memory at 4K is, for this scenario, answered and negative.** The Air (8GB) is still worth running, but the hypothesis is now much weaker.
+2. **THE COLLAPSE IS NOT HEAT.** First collapse at t=210 (10.9fps); first thermal transition to `serious` at t=441. **Nearly four minutes apart, in that order.** The bimodal finding survives contact with real thermal data.
+3. **⚠️ THE READ PATH IS BROKEN AND ONLY THE PUSHES WORK.** Native values landed on 3 of 56 samples — exactly the three inside the staleness window after a thermal push. B664 makes the seam publish `vitalsSeam.why`; **the next report names the cause.** Until then, expect thermal only at transitions and no memory series.
+
+**▶ AND THE MOST ACTIONABLE FINDING IS ABOUT THE GOVERNOR, NOT THE DEVICE.** `signal: "display"`, `shortfall: 0.04`, verdict *"keeping up"* — while `appShortfall: 1` and the editor ran at 12.3fps. **The governor watches the wall and is blind to the app.** That is the mechanism behind every "it stutters but the instrument says fine" report in this arc. Paired with: the PiP costs 16.6ms for 0.09MP against the preview's 25.1ms for 1.57MP, **so per-render cost is dominated by sampling the 8.29MP source, not by output pixels — the resolution ladder buys much less than its shape implies.** Shedding RENDERS should beat shedding pixels, and that is a testable change to the governor rather than a device limit.
+
 ### The three findings that must survive compaction
 
 **1. THE fps COLLAPSE IS NOT THERMAL, AND WE HAVE NO THERMAL DATA ANYWAY.** Two sessions, both bimodal rather than monotonic. Run 1 (12min, 6:39 4K clip): **9 crossings between a ~22fps state and a ~10fps state, with its best sustained reading (25fps) arriving four minutes AFTER its first collapse to 10fps.** Run 2 (150s, 106s clip): collapsed 22.2 → 10.0 at t=10 and recovered to 21.4 by t=20 — **ten seconds apart.** Heat does not do that. **Something switches on and off.** A snapshot at the end of either run would have said "10fps, critical" and sent the next session chasing temperature.
