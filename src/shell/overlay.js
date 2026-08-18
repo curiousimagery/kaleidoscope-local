@@ -132,6 +132,31 @@ const mixRGB = (a, b, t) => a.map((v, i) => Math.round(v + (b[i] - v) * t));
 const PRIMARY_RGB = [255, 255, 255];
 const REFLECT_RGB = [255, 196, 80];
 
+// ⚠️ B645 — THE WHOLE STYLE CROSSFADES, NOT JUST THE COLOUR. Daniel, with a screenshot: *"the lines
+// have different shapes and different thicknesses... the smooth transition only applies to the
+// color but the shape still changes instantly so visually it still feels quite abrupt."*
+//
+// Right, and it was half a feature. The two classes differ in four ways — colour, WEIGHT, DASH and
+// opacity — and animating one of four leaves the other three cutting on the same frame, which is
+// all the eye needs to read it as a jump.
+//
+// The dash is the one that looks impossible and is not: a dash pattern cannot be interpolated, but
+// its GAP can go to zero, and `[len, 0]` renders solid. So dashed→solid is a continuous morph
+// through shrinking gaps rather than a swap between two states.
+//
+// `p` runs 0 → 1 as a copy becomes PRIMARY, so a copy losing the role passes the same ramp
+// backwards and the two cross in the middle.
+const DASH_LEN = 4, DASH_GAP = 3;
+function roleStyle(p, strokeScale) {
+  const gap = DASH_GAP * (1 - p);
+  return {
+    rgb: mixRGB(REFLECT_RGB, PRIMARY_RGB, p),
+    width: (1.0 + 0.5 * p) * strokeScale,
+    alpha: 0.6 + 0.3 * p,
+    dash: gap < 0.05 ? [] : [DASH_LEN, gap],
+  };
+}
+
 export function normalizeSliceMirror(env) {
   const state = env?.state;
   if (!state) return null;
@@ -447,6 +472,12 @@ function drawSourceOverlayInner(env) {
   if (form.drawOverlay) {
     const cxPx = imgX + state.sliceCx * imgW;
     const cyPx = imgY + state.sliceCy * imgH;
+    // B645 — droste paints its own geometry across the whole canvas; clip it to the image for the
+    // same reason the polygon path is clipped (the companion frame letterboxes into a square).
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(imgX, imgY, imgW, imgH);
+    ctx.clip();
     form.drawOverlay(env, ctx, {
       w, h, imgX, imgY, imgW, imgH,
       cx: cxPx, cy: cyPx,
@@ -454,6 +485,7 @@ function drawSourceOverlayInner(env) {
       IS_TOUCH: IS_TOUCH || !!env.forceTouchAffordances,   // the phone-frame render forces touch styling
       strokeScale: sw,
     });
+    ctx.restore();
     if (env.performGhosts?.length) drawGhostWedges(env, env.performGhosts);
     drawRemoteFingers(env);
     return;
@@ -490,11 +522,31 @@ function drawSourceOverlayInner(env) {
     });
   }
 
+  // ⚠️ B645 — THE OVERLAY STOPS AT THE IMAGE EDGE. Daniel, on the companion video: *"in our actual
+  // app we don't show the overlay as it extends off the canvas, we only show the slice up to the
+  // edge and its reflection. this makes it easier for your brain to complete the shape and see the
+  // reflection for what it is. somehow in the companion video we didn't do the same and it's
+  // visually noisy to see the full shape and the reflected portion."*
+  //
+  // The reflections were always clipped; the PRIMARY outline never was. It goes unnoticed on the
+  // live panel, where the image fills nearly the whole box — and it is glaring in the companion
+  // frame, which letterboxes a non-square source into a square, so the wedge draws its off-image
+  // half across the black bars. Same code, different container, and only one of them told us.
+  //
+  // Affordances are drawn AFTER the restore on purpose: a rotation arc legitimately sits outside
+  // the shape, and clipping it would hide the handle just as the slice reaches the edge.
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(imgX, imgY, imgW, imgH);
+  ctx.clip();
+
   // dim background
   ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
   ctx.fillRect(0, 0, w, h);
 
-  // cut hole for slice region (the primary wedge)
+  // cut hole for slice region (the primary wedge). The hole DISSOLVES with the role swap (B645) —
+  // it was the loudest of the instant changes, since it is a filled region rather than a line.
+  ctx.globalAlpha = foldFade;
   ctx.beginPath();
   screenPts.forEach((p, i) => {
     if (i === 0) ctx.moveTo(p.x, p.y);
@@ -516,6 +568,7 @@ function drawSourceOverlayInner(env) {
     ctx.fill();
   }
   ctx.globalCompositeOperation = 'source-over';
+  ctx.globalAlpha = 1;
 
   // DENSITY-LOD: fade the reflected copies as the sampled region outgrows the source, so extreme
   // zoom-out doesn't fill the panel with overlapping amber (Daniel). coverage = the wedge's UV
@@ -557,27 +610,24 @@ function drawSourceOverlayInner(env) {
         else ctx.lineTo(p.x, p.y);
       });
       ctx.closePath();
-      // ...and the reflections ease OUT from white, since one of them was the primary a moment ago.
-      const rc = mixRGB(PRIMARY_RGB, REFLECT_RGB, refFadeP);
-      ctx.fillStyle = `rgba(${rc[0]}, ${rc[1]}, ${rc[2]}, ${0.10 * reflectFade})`;
+      // the copy LOSING the primary role keeps its hole for the length of the fade, so the two
+      // regions dissolve past each other instead of one blinking out (B645)
+      if (foldFade < 1) {
+        ctx.save();
+        ctx.globalCompositeOperation = 'destination-out';
+        ctx.globalAlpha = 1 - foldFade;
+        ctx.fill();
+        ctx.restore();
+      }
+      // ...and the reflections run the SAME ramp backwards, since one of them was the primary a
+      // moment ago. One function, two directions — so the two can never drift apart (B645).
+      const rs = roleStyle(1 - refFadeP, sw);
+      ctx.fillStyle = `rgba(${rs.rgb[0]}, ${rs.rgb[1]}, ${rs.rgb[2]}, ${0.10 * reflectFade})`;
       ctx.fill();
-      ctx.strokeStyle = `rgba(${rc[0]}, ${rc[1]}, ${rc[2]}, ${0.6 * reflectFade})`;
-      ctx.setLineDash([4, 3]);
-      ctx.lineWidth = 1 * sw;
+      ctx.strokeStyle = `rgba(${rs.rgb[0]}, ${rs.rgb[1]}, ${rs.rgb[2]}, ${rs.alpha * reflectFade})`;
+      ctx.setLineDash(rs.dash);
+      ctx.lineWidth = rs.width;
       ctx.stroke();
-      // ⚠️ B636 — THE ORIGIN REFLECTS TOO, AND WE WERE NOT DRAWING IT. Daniel: *"we don't draw the
-      // slice origin in the reflection and we need to now since that is an element that can be
-      // reflected."* Right, and the fold is what made it matter: the origin is no longer just the
-      // apex of the shape you are holding, it is the thing that leaves the image and comes back as
-      // one of these copies. Without its dot, a reflected wedge has no visible apex, so there is no
-      // way to see WHICH copy is about to become primary.
-      const ro = tf({ u: state.sliceCx, v: state.sliceCy });
-      const rp = uvToScreen(ro.u, ro.v);
-      ctx.setLineDash([]);
-      ctx.beginPath();
-      ctx.arc(rp.x, rp.y, 3 * sw, 0, Math.PI * 2);   // matches the primary dot at every scale (B639)
-      ctx.fillStyle = `rgba(255, 196, 80, ${0.85 * reflectFade})`;
-      ctx.fill();
     }
     ctx.restore();
   }
@@ -619,12 +669,12 @@ function drawSourceOverlayInner(env) {
     // fact that the wedge crosses the source edge is communicated by the reflected copies
     // (dashed amber + fill) and the dashed EDGE SEAM on the source boundary (drawn below), not
     // by dashing the whole primary. Reads honestly + form-agnostically.
-    // B642 — during a fold crossfade the primary eases in FROM the reflection's amber, which is the
-    // colour this same copy was wearing a moment ago as a reflection.
-    const pc = mixRGB(REFLECT_RGB, PRIMARY_RGB, fadeP);
-    ctx.strokeStyle = `rgba(${pc[0]}, ${pc[1]}, ${pc[2]}, ${highlighted ? 1.0 : 0.9})`;
-    ctx.setLineDash([]);
-    ctx.lineWidth = (highlighted ? 2.5 : 1.5) * sw;
+    // B642/B645 — the primary eases in FROM the reflection's whole look (colour, weight, dash,
+    // opacity), which is what this same copy was wearing a moment ago as a reflection.
+    const st = roleStyle(fadeP, sw);
+    ctx.strokeStyle = `rgba(${st.rgb[0]}, ${st.rgb[1]}, ${st.rgb[2]}, ${highlighted ? 1.0 : st.alpha})`;
+    ctx.setLineDash(st.dash);
+    ctx.lineWidth = highlighted ? 2.5 * sw : st.width;
     const prevJoin = ctx.lineJoin;
     ctx.beginPath();
     if (closed) {
@@ -722,14 +772,17 @@ function drawSourceOverlayInner(env) {
     ctx.stroke();
   }
 
-  // center dot — ⚠️ B639 SCALES IT. The radius was a hardcoded 3px while every stroke around it
-  // multiplies by `sw`, so on the companion video render (which bumps overlayStrokeScale so the
-  // lines read at 1920²) the origin shrank to an invisible speck. Daniel saw the reflected origin
-  // and not this one and reasonably read that as us drawing only the reflection.
-  ctx.fillStyle = '#ffffff';
-  ctx.beginPath();
-  ctx.arc(cxPx, cyPx, 3 * sw, 0, Math.PI * 2);
-  ctx.fill();
+  // ⚠️ B645 — NO ORIGIN DOTS. They were added at B636 to answer "which copy is about to become
+  // primary", and scaling them at B639 so they survived the video made the answer worse than the
+  // question: *"we can land in a state with both origin points showing at the same time and their
+  // colors are mismatched to the colors of the lines that connect them. also the origin points are
+  // conspicuously huge. lets just remove them entirely."*
+  //
+  // The mismatch was structural rather than a tuning miss — a dot is a fill and the outline is a
+  // stroke, so they were being crossfaded by two different rules and could not agree mid-swap. With
+  // the whole outline style now morphing, the dot has nothing left to tell you.
+
+  ctx.restore();   // end the image-rect clip opened before the dim (B645) — affordances follow it
 
   // Touch-only persistent affordances — drawn at ~60% opacity, fading to ~25%
   // during active drag so they don't compete with the active-state stroke highlights.

@@ -90,6 +90,15 @@ This retires the confusion, not just a hypothesis. Resolution was free because t
 
 ## current version
 
+**🖌 B645 — THE WHOLE STYLE CROSSFADES; OVERLAY CLIPPED TO THE IMAGE. JS only.**
+
+**▶ DANIEL CONFIRMED AT B644: the crossfade renders.** Remaining complaint was that only COLOUR animated.
+
+- **All four properties cross** — colour, weight, opacity, and the dash (via a gap that shrinks to zero; `[len,0]` renders solid). One `roleStyle(p)`, run backwards for reflections, so they cannot drift apart. Verified zero change in all four at the swap instant, monotonic ramp.
+- **The filled hole dissolves** via `destination-out` at partial alpha on both regions.
+- **Overlay clipped to the image rect** (polygon path + droste). The reflections were always clipped, the PRIMARY never was — invisible on the live panel where the image fills the box, glaring in the letterboxed square companion frame. Affordances draw AFTER the restore so rotation arcs are not cut.
+- **Origin dots removed everywhere** — a fill and a stroke crossfaded by two different rules could not agree mid-swap.
+
 **🔬 B644 — THE CROSSFADE, REPRODUCED LOCALLY AND ACTUALLY FIXED. JS only.**
 
 **⚠️ THE WRONG-NOUN TRAP, IN OUR OWN HOUSE.** B643 stamped the fade whenever the fold RETURNED A FOLD — an activity counter. `out` is rebuilt from aligned keyframes every frame, so it always arrives unfolded and the fold re-applies: *"a fold happened"* is true **continuously**, 55 frames of 180 in the measured case. That pinned "time since last fold" at zero, so the primary snapped to amber and stayed. **The handedness is the conserved quantity — it flips once and holds.** The fade now starts on that change, guarded to consecutive frames of an ordered pass (the filmstrip samples at arbitrary p).

@@ -556,13 +556,6 @@ export default {
           else { ctx.arc(cx, cy, rOut, wedgeStart, wedgeEnd, false); ctx.arc(cx, cy, rIn, wedgeEnd, wedgeStart, true); ctx.closePath(); }
           ctx.fillStyle = 'rgba(255, 196, 80, 0.10)'; ctx.fill('evenodd');
           ctx.strokeStyle = 'rgba(255, 196, 80, 0.6)'; ctx.setLineDash([6, 4]); ctx.lineWidth = 1 * strokeScale; ctx.stroke();
-          // B636 — the reflected ORIGIN. It matters most here of all the forms: droste's origin sits
-          // at the middle of the annulus, well away from the wedge you are holding, so it is the
-          // copy of the origin that tells you which reflection is about to become primary. Drawn
-          // inside the same mirror transform, so it lands wherever the reflected annulus centres.
-          ctx.setLineDash([]);
-          ctx.beginPath(); ctx.arc(cx, cy, 3 * strokeScale, 0, TAU);   // matches the primary dot (B639)
-          ctx.fillStyle = 'rgba(255, 196, 80, 0.85)'; ctx.fill();
           ctx.restore();
         }
         if (hits.length < 2) continue;   // no crossing = no seam SPAN to draw (the reflection above still drew)
@@ -675,12 +668,8 @@ export default {
       }
     }
 
-    // center dot. Radius scales with strokeScale (B639) so it survives the companion video render,
-    // where every other line is multiplied up to read at 1920².
-    ctx.fillStyle = '#ffffff';
-    ctx.beginPath();
-    ctx.arc(cx, cy, 3 * strokeScale, 0, TAU);
-    ctx.fill();
+    // B645 — no centre dot. Removed alongside the polygon forms' (see overlay.js): with the outline
+    // style itself crossfading, a dot drawn by a different rule could only disagree with it.
 
     // direct-manipulation handle: offset (filled blue diamond). Drives the
     // combined center-offset effect — Möbius pre-comp + source-side per-tier

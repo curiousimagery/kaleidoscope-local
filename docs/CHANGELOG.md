@@ -6,6 +6,45 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🖌 v0.25.55 (Build 645) — 2026-08-18 — The whole style crossfades; the overlay stops at the image edge
+
+**JS only. No `cap sync` needed.**
+
+### Shipped
+
+- **All four style properties cross**, not just colour: weight, opacity and the dash morph too.
+- **The hole dissolves** instead of jumping — it was the loudest instant change, being a filled region.
+- **The overlay is clipped to the image**, so the slice reads as "up to the edge, then reflected".
+- **Origin dots removed** from every form.
+
+### Animating one of four properties leaves three cutting
+
+Daniel, with a screenshot: *"the lines have different shapes and different thicknesses... the smooth transition only applies to the color but the shape still changes instantly so visually it still feels quite abrupt."*
+
+Correct, and it was half a feature. Primary and reflection differ in **colour, weight, dash and opacity**, and animating one of four leaves the other three landing on the same frame — which is all the eye needs to read a jump.
+
+**The dash is the one that looks impossible and is not.** A dash pattern cannot be interpolated, but its GAP can go to zero, and `[len, 0]` renders solid. Dashed→solid becomes a continuous morph through shrinking gaps rather than a swap between two states.
+
+One `roleStyle(p)` now returns all four, and the reflection class runs the same function **backwards** — so the two can never drift apart. Verified: at the swap instant a copy losing the role and a copy gaining it both show **zero change in all four properties**, and the ramp is monotonic.
+
+The filled hole crossfades too, via `destination-out` at partial alpha on both regions, so they dissolve past each other rather than one blinking out.
+
+### The overlay stops at the image edge
+
+Daniel: *"in our actual app we only show the slice up to the edge and its reflection. this makes it easier for your brain to complete the shape... somehow in the companion video we didn't do the same."*
+
+**The reflections were always clipped; the primary outline never was.** It goes unnoticed on the live panel, where the image fills nearly the whole box — and it is glaring in the companion frame, which letterboxes a non-square source into a square, so the wedge draws its off-image half across the black bars. **Same code, different container, and only one of them told us.** Applied to droste's bespoke overlay as well.
+
+Affordances are drawn after the clip is released, on purpose: a rotation arc legitimately sits outside the shape, and clipping it would hide the handle exactly when the slice reaches the edge.
+
+### Origin dots removed
+
+*"We can land in a state with both origin points showing at the same time and their colors are mismatched to the colors of the lines that connect them... lets just remove them entirely."*
+
+**The mismatch was structural, not a tuning miss** — a dot is a fill and the outline is a stroke, so they were being crossfaded by two different rules and could not agree mid-swap. They were added at B636 to answer "which copy is about to become primary"; with the outline style itself now morphing, that question is answered by the line.
+
+---
+
 ## 🔬 v0.25.54 (Build 644) — 2026-08-17 — The crossfade, reproduced locally and actually fixed
 
 **JS only. No `cap sync` needed.**
