@@ -379,6 +379,24 @@ export const defaultSliceRotation = (frameAspect) => (frameAspect < 1 ? 90 : 0);
 // square (0.800) now fits down slightly on every aspect.
 const FIT_EXTENT = 0.75;
 
+// ⚠️ B657 — THE ONE SLICE-SCALE RANGE. Daniel: *"as folks test they'll shrink a slice till it's
+// impossible to use our affordances or they increase it until the entire source is reflected and
+// they won't know what happened."* Both are states you cannot recover from by feel, which is what
+// makes a bound the right answer rather than a preference.
+//
+// **The range was already being enforced — SIX times in overlay.js alone, at THREE different
+// maxima.** The slider stopped at 5, the two-finger pinch and the wheel let you reach 10, and the
+// handle drags stopped at 5. So "what is the largest legal slice" had four answers depending on
+// which hand you used, and the audit item this arc keeps re-finding gets one more instance.
+//
+// Per-form maxima were scoped and Daniel chose against them: *"let's pick an even simpler approach
+// and just set a shared max of 3 across forms. the per form differences are interesting but i think
+// this captures 99% of the real use cases while still blocking insanely large samples."* One shared
+// number also removes the form-switch question entirely — nothing to clamp on a switch, because the
+// bound does not move.
+export const SLICE_MIN = 0.1, SLICE_MAX = 3;
+export const clampSliceScale = (v) => Math.max(SLICE_MIN, Math.min(SLICE_MAX, v));
+
 export function resetSliceState(state, form, sourceAspect, frameAspect, applyArmsSnap) {
   state.segments       = 12;
   state.sliceScale     = 1.0;

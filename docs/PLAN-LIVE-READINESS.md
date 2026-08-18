@@ -27,6 +27,7 @@ So 4K at 10 minutes is **the ceiling to design toward, not the floor to require*
 | # | item | status |
 |---|---|---|
 | 1 | Frame cadence / broadcast delivery | **Closed B594.** 29 of 30 at full 4K. Record in `BROADCAST-DELIVERY.md` |
+| 1.5 | Input normalization across modalities | **CLOSED B657.** Stage A B618-B619, stage B B655, stage C B657 |
 | 2 | The 4K source-attach cluster | **Headline closed B608** (the loop hold). Tails open |
 | 3 | NDI | Not started. One specific bug already diagnosed and waiting |
 | 4 | iPad limits, sustained load | **Not reached. This is the arc's real unmet target** |
@@ -89,7 +90,7 @@ All three questions are answered. **Do not extend this session; it is done.**
 | 2 | semantic `zoom` resolves key but not MODE | ✅ **SHIPPED B621+B623, confirmed by reading the registry at B653.** `resolve()` returns `wrap`/`wrapPeriod`/`relSpan`/`geometric` per form, which IS the control mode. The `abs`-fader-sweeps-one-loop behaviour was settled as CORRECT by decision; the real defect was the nudge size, fixed by `relSpan: 3.5` |
 | 2b | **no target reaches the UNIFIED zoom** | ✅ **SHIPPED B655.** A third target (`unified zoom`) drives the pair as a pinch does; `canvas zoom` and `slice scale` untouched by Daniel's instruction. Step/ramp only — the model has no absolute position to hold. **This closes stage B** |
 | 2c | discrete targets stepped by a percentage | ✅ B621 (`nudge`) |
-| 3 | per-form ranges for `sliceScale` | 🟡 open, unblocked since B618. **Confirmed still flat at B653** (`min: 0.05, max: 5`, no `resolve`) though every form has declared `zoomCover`/`zoomInFloor` since B618 |
+| 3 | per-form ranges for `sliceScale` | ✅ **CLOSED B657, and NOT per-form.** Daniel chose one shared range (0.1 → 3) over per-form maxima: *"this captures 99% of the real use cases while still blocking insanely large samples."* The find was that the range was already enforced **six times at three different maxima** — audit instance seven |
 | 4 | `slice position x/y` address the ORIGIN, not the box centre | 🟡 open — `write` hook (B619) makes it implementable |
 | 5 | missing targets (form, segments, oob, droste toggles) | ✅ B619 + B621 (`last form`) + B623 (resets) |
 | 6 | trackpad zoom judder | 🟡 open |
@@ -99,11 +100,13 @@ All three questions are answered. **Do not extend this session; it is done.**
 | 10 | droste infinite-zoom loop | ✅ **ROOT-CAUSED + FIXED B623.** Underlying period loss in `setTarget` still open |
 | 11 | droste zoom press ~6× too small | ✅ B622 (`relSpan`) |
 | 12 | canvas zoom steps disproportional when zoomed out | ✅ B623 (`geometric`) |
-| — | **stage C: ownership and handoff** | 🟠 **The SYMPTOM is gone, the architecture is not built.** Daniel at B654: *"i've attempted to repo and the handoffs are feeling smooth now."* The B636-B640 gesture gate answered "is some input still moving this", which is most of the practical jerk. **What stage C still owes is the product question**, now filed concretely: locks not blocking MIDI/gamepad (BACKLOG, B655) is "may this input write this field", the same question |
+| — | **stage C: ownership and handoff** | ✅ **CLOSED B657.** Daniel could not reproduce the jerk (the B636-B640 gesture gate fixed it on the way past). An audit of every holder of independent per-field state found **one** real gap: a settling glide overwrote any other input for ~0.5s. Now yields, using `kit/drift.js`'s own mismatch test. Rate loop, drift, follower and pointer drags already adopted correctly |
 
 **▶ B630 STATUS: every item Daniel approved is now shipped.** The modifier layer (B629), the duplicate-binding prompt (B629), the source-swap diagnostic (B630) and the off-canvas origin (B630) are all in. **Stage C (ownership and handoff) is now the only unstarted piece of 1.5**, and the shared-quantity audit ran at B627.
 
-**▶ WHAT I WOULD DO NEXT, in order.** ~~(2b) unified-zoom target~~ (shipped B655 — stage B closed). ~~Then (2) zoom mode.~~ (shipped B621/B623). **Remaining in 1.5: (3) per-form `sliceScale` extents — Daniel called this *"low effort/complexity and high value"* at B655 and the tuner already has the mechanism. Then (4) box-centre semantics**, which is small now that `write` exists. Then **stage C**, which is the real remaining architecture and also the answer to the B621 open question about one button meaning different things per form — "which input owns this field" and "which mapping row is live" are one problem.
+**▶ ITEM 1.5 IS CLOSED AT B657.** Stage A closed B618-B619, stage B closed B655 (the unified-zoom target), stage C closed B657 (the glide yield). The remaining named sub-item, (4) `slice position x/y` addressing the ORIGIN rather than the box centre, is **filed to BACKLOG rather than held here** — it is a semantics correction to one target, not architecture, and holding 1.5 open for it misrepresents where the work stands.
+
+**▶ NEXT PER DANIEL (B657): the DOCUMENTATION half of item 3 (cruft cleanup), which is unblocked now.** The CODE half stays behind item 2 — the flags being deleted are the instruments.
 
 **⚠️ THE AUDIT ITEM IS NOW THE MOST-EVIDENCED THING ON THIS LIST — SIX instances of one value or behaviour living in multiple copies:** droste's overlay missing `sizeNorm` (B614), radial's polygon missing `canvasNorm` (B618), the overlay missing `canvasOffset` (B612), the B616 centring hook reaching only the desktop chrome (B619), the six copies of the `0.35` transition default (B622), and `env.panDrift` covering only one of two joystick instances (B620). **It has stopped being a hypothesis.**
 

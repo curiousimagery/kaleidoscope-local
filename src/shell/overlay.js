@@ -17,7 +17,7 @@
 // — assembled by main.js and threaded through. this avoids module-level
 // mutable globals while keeping the call sites readable.
 
-import { sliceVecToSourceUV, polygonRadiusAt, pointInPolygon, sliceBoxCenter, placeSliceBox, sliceDet, foldSliceIntoSource } from '../engine/geometry.js';
+import { sliceVecToSourceUV, polygonRadiusAt, pointInPolygon, sliceBoxCenter, placeSliceBox, sliceDet, foldSliceIntoSource, clampSliceScale } from '../engine/geometry.js';
 import { getActiveForm } from '../engine/forms/index.js';
 import { rotateCursorForAngle, scaleCursorForAngle } from './cursors.js';
 import { perfFlags } from './perf-flags.js';
@@ -1470,7 +1470,7 @@ export function setupSourceInteraction(env, wrap) {
       const dist  = Math.hypot(t1.clientX - t0.clientX, t1.clientY - t0.clientY);
       const angle = Math.atan2(t1.clientY - t0.clientY, t1.clientX - t0.clientX);
       const { state } = env;
-      state.sliceScale    = Math.max(0.05, Math.min(10, drag.startScale * (dist / drag.startDist)));
+      state.sliceScale    = clampSliceScale(drag.startScale * (dist / drag.startDist));
       let da = (angle - drag.startAngle) * 180 / Math.PI;
       // Y-flip in overlay means sliceRotation must be negated to keep the
       // wedge graphic rotating in the same screen direction as the fingers.
@@ -1554,9 +1554,7 @@ export function setupSourceInteraction(env, wrap) {
         if (!g) return;
         const r = Math.hypot(x - g.cx, y - g.cy);
         if (drag.startR < 1) return;
-        let newScale = drag.startScale * (r / drag.startR);
-        newScale = Math.max(0.05, Math.min(5, newScale));
-        state.sliceScale = newScale;
+        state.sliceScale = clampSliceScale(drag.startScale * (r / drag.startR));
       } else if (drag.mode === 'square-edge') {
         if (!g) return;
         const perpNow = (x - g.cx) * drag.nx + (y - g.cy) * drag.ny;
@@ -1568,7 +1566,7 @@ export function setupSourceInteraction(env, wrap) {
           : drag.startAspect / r;
         const newScale  = drag.startSliceScale * Math.sqrt(r);
         state.squareAspect = Math.max(0.25, Math.min(4, newAspect));
-        state.sliceScale   = Math.max(0.05, Math.min(5, newScale));
+        state.sliceScale   = clampSliceScale(newScale);
       } else if (drag.mode === 'square-corner') {
         if (!g) return;
         const startDx = drag.startVx - drag.startCx;
@@ -1583,14 +1581,14 @@ export function setupSourceInteraction(env, wrap) {
           const newAspect = drag.startAspect * (rx2 / ry2);
           const newScale  = drag.startSliceScale * Math.sqrt(rx2 * ry2);
           state.squareAspect = Math.max(0.25, Math.min(4, newAspect));
-          state.sliceScale   = Math.max(0.05, Math.min(5, newScale));
+          state.sliceScale   = clampSliceScale(newScale);
         } else {
           const startD = Math.hypot(startDx, startDy);
           const nowD   = Math.hypot(nowDx, nowDy);
           if (startD < 1) return;
           let r = nowD / startD;
           r = Math.max(0.05, r);
-          state.sliceScale = Math.max(0.05, Math.min(5, drag.startSliceScale * r));
+          state.sliceScale = clampSliceScale(drag.startSliceScale * r);
         }
       } else if (drag.mode === 'segments') {
         if (!g) return;
@@ -1913,7 +1911,7 @@ export function setupSourceInteraction(env, wrap) {
     e.preventDefault();
     if (!wheelTimer) env.pushHistory?.();
     const factor = Math.exp(-e.deltaY * 0.01);
-    env.state.sliceScale = Math.max(0.05, Math.min(10, env.state.sliceScale * factor));
+    env.state.sliceScale = clampSliceScale(env.state.sliceScale * factor);
     env.syncControls?.();
     env.scheduleRender?.();
     env.scheduleOverlayDraw?.();

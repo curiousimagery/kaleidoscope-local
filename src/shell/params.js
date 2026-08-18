@@ -99,7 +99,11 @@ export const PARAMS = {
     sliderId: 'scale', valId: 'scaleVal', key: 'sliceScale',
     formControl: null, declarative: true,
     opts: {
-      min: 0.05, max: 5, step: 0.005, scrubStep: 0.01,   // the slice's own resize range (how much source you sample); the zoom gesture is canvas-primary and only overflows into slice up to Z_SLICE_COVER
+      // B657 — SLICE_MIN/SLICE_MAX (engine/geometry.js). Kept as literals because this registry is
+      // a static declaration, but they are the SAME numbers every other writer clamps to; if they
+      // move, they move there. Below 0.1 the affordances become ungrabbable, above 3 the slice
+      // samples more than the whole source (Daniel, B657).
+      min: 0.1, max: 3, step: 0.005, scrubStep: 0.01,
       fmt: v => v.toFixed(2) + '×',
       parse: parseTimes,
     },

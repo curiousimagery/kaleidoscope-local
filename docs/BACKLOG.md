@@ -398,6 +398,14 @@ Shipped as `sliceMirrorX/Y` + `foldSliceIntoSource`. Details in CHANGELOG v0.25.
 
 **The one thing worth carrying forward:** B642's OOB guard is the same shape of problem in miniature — a global setting changed in one place invalidating snapshots held somewhere else. Per-mode state does not remove that class, it multiplies it. Whatever the design, it needs an answer for "this change makes some stored look unrepresentable" that is not written once per setting.
 
+### 🎯 [B619 → carried out of item 1.5 at B657] `slice position x/y` STILL ADDRESS THE ORIGIN
+
+The mapping targets `sliceCx` / `sliceCy` write the slice ORIGIN, but since B616 the app's model is the BOX CENTRE — which is what a drag moves, what `placeSliceBox` solves for, and what the fold bounds. **So a fader on slice position means something different from what your hand does**, which is the one-behaviour-two-surfaces class this arc keeps paying for.
+
+**Filed here rather than held open in the plan (B657):** it is a semantics correction to two targets, not architecture, and keeping item 1.5 open for it misrepresents where the input work actually stands.
+
+**Implementable without a special case** — B619 added the `write` hook, so the target can write through `placeSliceBox` the way `segments` writes through its setter. Small.
+
 ### 🔒 [Daniel, B655 — DESIGN ITEM, DELIBERATELY NOT BUILT] LOCKS DO NOT BLOCK MIDI / GAMEPAD INPUT
 
 *"Currently our settings locks don't block MIDI/gamepad inputs. e.g. if the form selection input is locked in the app, the dualsense gamepad can change forms without any resistance."*

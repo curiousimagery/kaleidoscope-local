@@ -29,7 +29,8 @@ import { createGamepadInput } from './gamepad-input.js';
 import { createTrackpadInput } from './trackpad-input.js';
 import { createRemoteInput } from './remote-input.js';
 import qrcode from 'qrcode-generator';   // QR pairing (Daniel-approved dependency, MIT, zero-dep)
-import { applyUnifiedZoom, Z_CANVAS_MIN, Z_CANVAS_MAX } from '../kit/zoom.js';   // shared unified zoom — the canvas pinch routes here too
+import { applyUnifiedZoom, Z_CANVAS_MIN, Z_CANVAS_MAX } from '../kit/zoom.js';
+import { SLICE_MIN, SLICE_MAX } from '../engine/geometry.js';   // the one slice-scale range (B657)   // shared unified zoom — the canvas pinch routes here too
 import { panDelta } from '../kit/pan.js';            // shared canvas-pan gain — the remote drag pans identically to touch
 import { FORMS, getActiveForm, formPanLocked, formCanvasNorm } from '../engine/forms/index.js';   // pannability + the shader's effective zoom; FORMS builds the per-form mapping actions
 
@@ -99,7 +100,10 @@ const appliesToForm = (t, s) => {
 };
 const PARAM_TARGETS = [
   { key: 'sliceRotation', label: 'slice rotation', min: 0, max: 360, wrap: true, dir: '0° → 360° counterclockwise' },
-  { key: 'sliceScale', label: 'slice scale', min: 0.05, max: 5, dir: 'small → large' },   // the slice control's OWN max (independent of the zoom gesture's Z_SLICE_COVER overflow cap)
+  // B657 — the SHARED slice range (SLICE_MIN/SLICE_MAX, engine/geometry.js). Independent of the
+  // zoom gesture's overflow cap, which is a different quantity (how far a canvas zoom-OUT may grow
+  // the slice at the wall) and stays per-form.
+  { key: 'sliceScale', label: 'slice scale', min: SLICE_MIN, max: SLICE_MAX, dir: 'small → large' },
   // B630 — the origin may leave the image in MIRROR mode. The mapping range resolves the same way,
   // because a bound the pointer honours and the hardware does not is exactly the divergence this
   // arc keeps paying for.
@@ -355,13 +359,41 @@ export function createInputBus(env) {
   const modSigs = () => new Set(store.maps.filter((m) => m.mod).map((m) => m.sig));
   let pendingMod = null;
 
+  // ⚠️ B656 — A MODIFIER CHANGING STATE MUST STOP WHAT IT WAS ROUTING. Daniel, on a DualSense:
+  // right-stick press as the modifier, d-pad to zoom — *"if i release the joystick BEFORE the dpad
+  // press then it carries the motion forward instead of stopping."* A runaway zoom, and he read the
+  // cause correctly: it is about modifiers, not about zoom.
+  //
+  // **A `ramp` mapping is stopped by its own release**, which arrives as value 0 and clears the rate
+  // entry. But routing is decided at ARRIVAL: a shifted row is skipped once its modifier is up
+  // (`m.withMod && !heldMods.has(...)`), so releasing the modifier first means **the release that
+  // was going to stop the ramp is never delivered to the row that started it.** The rate loop keeps
+  // integrating with nothing left that can zero it.
+  //
+  // The mirror case is just as real and would have been the next report: press d-pad on an
+  // UNSHIFTED row, then press the modifier, and that row becomes masked by the shifted one — so its
+  // release is swallowed the same way.
+  //
+  // So the rule is symmetric and applies on press AND release: when a modifier changes state, every
+  // ramp on a signal whose routing that modifier affects is stopped. It cannot strand, and it
+  // matches the model Daniel stated — both have to be held for the input to count.
+  function stopRatesForMod(modSig) {
+    const affected = new Set(store.maps.filter((m) => m.withMod === modSig).map((m) => m.sig));
+    if (!affected.size) return;
+    for (const m of store.maps) {
+      if (affected.has(m.sig)) rate.delete(m.sig + '→' + m.target);
+    }
+  }
+
   function onSignal(sig, value, meta) {
     // MODIFIER BOOKKEEPING FIRST, and outside the learn branch, so a modifier is trackable even
     // while learning (that is the whole assignment mechanism below).
     const mods = modSigs();
     if (mods.has(sig)) {
       const down = value > 0.5;
+      const was = heldMods.has(sig);
       if (down) heldMods.add(sig); else heldMods.delete(sig);
+      if (was !== down) stopRatesForMod(sig);   // B656 — never strand a ramp whose routing just changed
       if (learnCb) {
         // HOLD the modifier and press the second control → that chord is what gets recorded.
         // Release it alone and nothing is recorded — instant in both directions, no timer.
@@ -672,7 +704,7 @@ export function createInputBus(env) {
   // (PAN_GESTURE_SENS retired B611 — the pan gain is derived in kit/pan.js and shared with touch.)
   function glideBy(t, d, tau = 0.18) {
     let g = glide.get(t.key);
-    if (!g) { g = { cur: state[t.key] ?? 0, vel: 0, goal: state[t.key] ?? 0, tau }; glide.set(t.key, g); }
+    if (!g) { g = { cur: state[t.key] ?? 0, vel: 0, goal: state[t.key] ?? 0, tau, last: state[t.key] ?? 0 }; glide.set(t.key, g); }
     g.goal += d;
     g.tau = tau;
     if (!t.wrap && !t.unbounded) g.goal = Math.max(t.min, Math.min(t.max, g.goal));
@@ -682,7 +714,22 @@ export function createInputBus(env) {
   // the MOTION LOOP: rate deflections (full deflection sweeps sens × range ×
   // 2.4/s) and button-nudge glides (critically damped spring, ~0.18s response —
   // the gentle-joystick ease) integrate here; alive only while something moves.
-  const glide = new Map();       // stateKey → { cur, vel, goal }
+  // ⚠️ B657 — THE STAGE-C GAP, AND IT WAS THE LAST ONE. A settling glide holds `cur` as the
+  // authoritative value and writes it every frame, so for the ~0.5s a button nudge takes to settle
+  // (~1s for a phone gesture) **any other input touching the same field was silently overwritten**
+  // — a knob, a drag, autoplay. That is the textbook shape item 1.5 stage C names: two inputs
+  // holding independent absolute position state for the same field.
+  //
+  // Every other holder in the system already yields correctly, which is why this survived: the rate
+  // loop re-reads `state` each tick so it adopts by construction, `kit/drift.js` compares what it
+  // wrote against what is there and RELOCATES its wander on a mismatch, the follower chases state,
+  // and a pointer drag re-seeds on pointerdown. Only the glide assumed it was alone.
+  //
+  // It now uses drift's test — `last` is what actually landed after the write (read back, so a
+  // wrap or a snapping `write` hook counts as ours) — and YIELDS rather than relocating: a button
+  // nudge is a small finished gesture, so when another hand takes the field the honest answer is to
+  // stop, not to keep pushing toward a goal nobody is asking for any more.
+  const glide = new Map();       // stateKey → { cur, vel, goal, last }
   function startMotionLoop() {
     if (rateRaf) return;
     rateLastT = performance.now();
@@ -706,6 +753,8 @@ export function createInputBus(env) {
       }
       for (const [k, g] of glide) {
         const t2 = targetOf(k);
+        // another input moved this field out from under us → yield it (B657)
+        if (Math.abs((state[k] ?? 0) - g.last) > 1e-6) { glide.delete(k); continue; }
         const y = g.cur - g.goal;
         if (Math.abs(y) < 1e-4 && Math.abs(g.vel) < 1e-3) { glide.delete(k); continue; }
         live = true;
@@ -715,6 +764,7 @@ export function createInputBus(env) {
         g.cur = g.goal + (y + tmp) * decay;
         g.vel = (g.vel - omega * tmp) * decay;
         writeParam(t2, g.cur);
+        g.last = state[k] ?? 0;   // what actually LANDED (post clamp / wrap / write hook)
       }
       if (live) rateRaf = requestAnimationFrame(tick);
     };

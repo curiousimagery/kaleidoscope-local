@@ -26,6 +26,7 @@
 // it on the way back — a benign, deep-excursion-only stickiness, not a normal-use effect.
 
 import { formZoomBounds } from '../engine/forms/index.js';
+import { clampSliceScale } from '../engine/geometry.js';
 
 // The zoom-IN floor guards how far the CANVAS zoom may shrink the SLICE. Growing the slice on
 // zoom-OUT (the cover bound) reads naturally, but shrinking it on zoom-IN felt unexpected (Daniel:
@@ -51,6 +52,9 @@ export function applyUnifiedZoom(state, factor) {
     if (z > Z_CANVAS_MIN) z = Math.max(Z_CANVAS_MIN, z * factor);  // PRIMARY: more repeats (slice held)
     else if (s < cover)   s = Math.min(cover, s / factor);         // overflow past the wall: grow the slice until it covers the source for this form
   }
-  state.sliceScale = s;
+  // B657 — the overflow may never exceed the SHARED slice range, whatever a form declares. `cover`
+  // and `inFloor` are per-form tuning of how far the CANVAS gesture reaches into the slice; they are
+  // not licence to leave the slice's own legal range.
+  state.sliceScale = clampSliceScale(s);
   state.canvasZoom = z;
 }

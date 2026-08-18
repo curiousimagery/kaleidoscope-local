@@ -6,6 +6,61 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 📐 v0.25.67 (Build 657) — 2026-08-18 — One slice-scale range, and the glide yields the field
+
+**JS only. No `cap sync` needed.** **⚠️ Item 1.5 is CLOSED.**
+
+### Shipped
+
+- **One shared slice-scale range, 0.1 → 3**, enforced by a single clamp every writer calls.
+- **A settling glide yields the field** when another input takes it, instead of overwriting.
+
+### The range already existed. It existed four times, with different answers
+
+Daniel: *"as folks test they'll shrink a slice till it's impossible to use our affordances or they increase it until the entire source is reflected and they won't know what happened."* Both are states you cannot recover from by feel, which is what makes a bound the right answer rather than a preference.
+
+**It was being enforced six times in `overlay.js` alone, at three different maxima** — the slider stopped at 5, the two-finger pinch and the wheel reached 10, the handle drags stopped at 5. So "what is the largest legal slice" had a different answer depending on which hand you used. **That is instance seven of the shared-quantity audit**, and the first one found by adding a feature rather than by a bug report.
+
+Per-form maxima were scoped and Daniel chose against them: *"let's pick an even simpler approach and just set a shared max of 3 across forms. the per form differences are interesting but i think this captures 99% of the real use cases while still blocking insanely large samples."* One number also removes the form-switch question entirely — there is nothing to clamp on a switch, because the bound does not move.
+
+`SLICE_MIN` / `SLICE_MAX` / `clampSliceScale` live in `engine/geometry.js`; the slider, the mapping target, all six overlay writers and the unified zoom's overflow now agree by construction. **The per-form `zoomCover` / `zoomInFloor` are a different quantity and stay per-form** — they tune how far a canvas zoom-*out* may grow the slice at the wall, which is why hex's cover is 0.65 while its slice may legitimately reach 3.
+
+### Stage C: one real gap, and it was hiding behind a spring
+
+Daniel: *"i'm not reproducing the issues i was seeing before... are there gaps in code that you're aware of still?"* Audited every holder of independent per-field state. **One had a real defect.**
+
+A settling glide held `cur` as authoritative and wrote it every frame, so for the ~0.5s a button nudge takes to settle (~1s for a phone gesture) **any other input touching that field was silently overwritten** — a knob, a drag, autoplay. That is exactly the shape stage C names: two inputs holding independent absolute position state for one field.
+
+**Everything else already yielded correctly, which is why this survived.** The rate loop re-reads `state` every tick so it adopts by construction; `kit/drift.js` compares what it wrote against what is there and relocates its wander on a mismatch; the follower chases state; a pointer drag re-seeds on pointerdown. Only the glide assumed it was alone.
+
+It now uses drift's test — `last` is what actually *landed* after the write, read back so a wrap or a snapping `write` hook still counts as ours — and **yields** rather than relocating. A button nudge is a small finished gesture; when another hand takes the field, the honest answer is to stop rather than keep pushing toward a goal nobody is asking for.
+
+**Daniel's read was right:** the practical jerk he reported was fixed on the way past, by the B636-B640 gesture gate. What remained was this narrower window, which needed looking for rather than reproducing.
+
+---
+
+## 🎚 v0.25.66 (Build 656) — 2026-08-18 — Releasing a modifier stops what it was routing
+
+**JS only. No `cap sync` needed.**
+
+### Shipped
+
+- **A `ramp` mapping behind a modifier stops when the modifier is released**, in either release order.
+
+### The runaway was about modifiers, not about zoom
+
+Daniel, on a DualSense with right-stick-press as the modifier and the d-pad zooming: *"if i release the joystick BEFORE the dpad press then it carries the motion forward instead of stopping."* He also read the cause correctly — *"i think it's actually about how we listen for modifier keys"* — and it is.
+
+**A ramp is stopped by its own release.** The release arrives as value 0 and clears the rate entry. But **routing is decided at arrival**: a shifted row is skipped when its modifier is up. Release the modifier first and the release that was going to stop the ramp is never delivered to the row that started it, so the rate loop integrates on with nothing left that can zero it.
+
+**The mirror case is just as real and would have been the next report:** press the d-pad on an *unshifted* row, then press the modifier, and that row becomes masked by the shifted one — its release is swallowed exactly the same way.
+
+So the rule is symmetric and fires on press *and* release: when a modifier changes state, every ramp on a signal whose routing that modifier affects is stopped. It cannot strand, and it matches the model Daniel stated — both have to be held for the input to count.
+
+**Not scoped to zoom.** It was found with the new unified-zoom target because that is what he was mapping, but any `ramp` mapping behind a modifier had it.
+
+---
+
 ## 🔎 v0.25.65 (Build 655) — 2026-08-18 — The unified zoom is mappable
 
 **JS only. No `cap sync` needed.**
