@@ -37,7 +37,11 @@ export function padKey(id) {
 // Display name. Strips Chromium's parenthetical AND Gecko's leading vendor-product, so the same
 // controller reads the same in both engines instead of "DualSense Wireless Controlle" in one and
 // "054c-0ce6-DualSense Wireless" in the other — which is how Daniel noticed the split.
-const shortName = (id) => String(id || 'controller').replace(/\s*\(.*$/, '').replace(VP_LEAD, '').slice(0, 28);
+//
+// 28 → 32 at B651. Daniel: *"note the name is literally 'DualSense Wireless Controlle' with no r
+// at the end."* The full name is 29 characters, so the old cap decapitated the commonest
+// controller in the project by one letter.
+const shortName = (id) => String(id || 'controller').replace(/\s*\(.*$/, '').replace(VP_LEAD, '').slice(0, 32);
 
 // the W3C 'standard' gamepad layout — friendly defaults for learn
 const STD_AXES = ['left stick x', 'left stick y', 'right stick x', 'right stick y'];

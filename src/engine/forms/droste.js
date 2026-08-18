@@ -332,6 +332,32 @@ export default {
   drawOverlay(env, ctx, geom) {
     const { state } = env;
     const { w, h, imgX, imgY, imgW, imgH, cx, cy, sourceAspect, IS_TOUCH, strokeScale = 1 } = geom;
+    // ⚠️ B652 — ROLE-SWAP CROSSFADE PARITY WITH THE POLYGON FORMS. Daniel: *"while the current
+    // droste UI is totally acceptable, it would be better to have parity across forms."*
+    //
+    // Only THREE marks here are role-dependent — the two ring arcs, the wedge sides, and the
+    // reflection. Everything else this file paints white (the edge seam, the spiral preview, the
+    // handles, the arms) describes the SOURCE boundary or an affordance, not which copy is
+    // currently primary, and must stay fixed: fading them would say a swap happened to things that
+    // did not swap.
+    //
+    // The endpoints already agreed before this change — droste's primary was alpha 0.9 / width
+    // 1.5×, which is exactly `roleStyle(1)`, and its reflection was amber / 0.6 / 1×, exactly
+    // `roleStyle(0)`. So at rest the picture is unchanged; only the journey between them is new.
+    // The one real difference is the dash, which was [6,4] here and [4,3] in the shared helper —
+    // now unified, which is the parity Daniel asked for.
+    //
+    // The fallback is deliberately STATIC (two states, no ramp) rather than a copy of the ramp:
+    // shell/overlay.js is the only caller and always passes the real one, so this exists purely so
+    // a future caller that forgets cannot crash the draw — and a duplicated ramp would be free to
+    // drift into a second, subtly different look, which is the failure it is guarding against.
+    const roleStyle = geom.roleStyle || ((p, s) => (p >= 0.5
+      ? { rgb: [255, 255, 255], width: 1.5 * s, alpha: 0.9, dash: [], fill: 0 }
+      : { rgb: [255, 196, 80], width: 1.0 * s, alpha: 0.6, dash: [4, 3], fill: 0.10 }));
+    const foldFade = typeof geom.foldFade === 'number' ? geom.foldFade : 1;
+    const stPrimary = roleStyle(foldFade, strokeScale);
+    const stReflect = roleStyle(1 - foldFade, strokeScale);
+    const rgba = (st, a) => `rgba(${st.rgb[0]}, ${st.rgb[1]}, ${st.rgb[2]}, ${a})`;
     // segments (arm count) locked → suppress the "grab & pull" grippy so the seam doesn't read as
     // draggable (the structural seam LINE / rotation tell stays). Matches the overlay's spoke gate.
     const segLocked = !!env.isLocked?.('segments')?.locked;
@@ -477,9 +503,12 @@ export default {
     function strokeRingArc(r, highlighted) {
       // primary ring outline ALWAYS solid white (matches the polygon forms' M4 restyle) — the
       // off-source crossing is shown by the dashed EDGE SEAM below, not by dashing the whole ring.
-      ctx.strokeStyle = highlighted ? 'rgba(255, 255, 255, 1.0)' : 'rgba(255, 255, 255, 0.9)';
-      ctx.setLineDash([]);
-      ctx.lineWidth = (highlighted ? 2.5 : 1.5) * strokeScale;
+      // highlight overrides opacity and weight, the role owns colour and dash — the same
+      // resolution order shell/overlay.js `strokeEdges` uses, so hover reads identically on
+      // every form mid-fade.
+      ctx.strokeStyle = rgba(stPrimary, highlighted ? 1.0 : stPrimary.alpha);
+      ctx.setLineDash(stPrimary.dash);
+      ctx.lineWidth = highlighted ? 2.5 * strokeScale : stPrimary.width;
       ctx.beginPath();
       if (isFullCircle) {
         ctx.arc(cx, cy, r, 0, TAU);
@@ -554,8 +583,9 @@ export default {
           ctx.beginPath();
           if (isFullCircle) { ctx.arc(cx, cy, rOut, 0, Math.PI * 2); ctx.arc(cx, cy, rIn, 0, Math.PI * 2, true); }
           else { ctx.arc(cx, cy, rOut, wedgeStart, wedgeEnd, false); ctx.arc(cx, cy, rIn, wedgeEnd, wedgeStart, true); ctx.closePath(); }
-          ctx.fillStyle = 'rgba(255, 196, 80, 0.10)'; ctx.fill('evenodd');
-          ctx.strokeStyle = 'rgba(255, 196, 80, 0.6)'; ctx.setLineDash([6, 4]); ctx.lineWidth = 1 * strokeScale; ctx.stroke();
+          // the reflection runs the SAME ramp backwards — it was the primary a moment ago (B652)
+          ctx.fillStyle = rgba(stReflect, stReflect.fill); ctx.fill('evenodd');
+          ctx.strokeStyle = rgba(stReflect, stReflect.alpha); ctx.setLineDash(stReflect.dash); ctx.lineWidth = stReflect.width; ctx.stroke();
           ctx.restore();
         }
         if (hits.length < 2) continue;   // no crossing = no seam SPAN to draw (the reflection above still drew)
@@ -574,9 +604,9 @@ export default {
     // angular boundary). dashed amber when OOB, white otherwise.
     if (!isFullCircle) {
       const sideHL = ringHL;  // sides highlight with the rest of the ring outline
-      ctx.strokeStyle = sideHL ? 'rgba(255, 255, 255, 1.0)' : 'rgba(255, 255, 255, 0.9)';   // always solid white (M4 restyle)
-      ctx.lineWidth = (sideHL ? 2.5 : 1.5) * strokeScale;
-      ctx.setLineDash([]);
+      ctx.strokeStyle = rgba(stPrimary, sideHL ? 1.0 : stPrimary.alpha);   // role-carried (B652)
+      ctx.lineWidth = sideHL ? 2.5 * strokeScale : stPrimary.width;
+      ctx.setLineDash(stPrimary.dash);
       for (const a of [wedgeStart, wedgeEnd]) {
         ctx.beginPath();
         ctx.moveTo(cx + rIn  * Math.cos(a), cy + rIn  * Math.sin(a));

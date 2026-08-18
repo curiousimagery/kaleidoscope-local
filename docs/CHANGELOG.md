@@ -6,6 +6,69 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## ⏩ v0.25.63 (Build 653) — 2026-08-18 — The perform time ruler scrubs
+
+**JS only. No `cap sync` needed.**
+
+### Shipped
+
+- **Drag anywhere on perform's time ruler to scrub the footage**, as motion's ruler already did.
+
+### It was advertising the affordance and not honouring it
+
+Daniel, longstanding: *"the time ruler in perform can't get scrubbed like motion."* `#pfRuler` had **not one listener** — while `.mf-ruler`, the class it shares with motion's scrubbable ruler, already declares `cursor: pointer; touch-action: none`. The surface has been showing a scrub cursor for as long as it has existed and then doing nothing, which reads worse than looking inert.
+
+It scrubs in the frame the ruler already labels — the **trimmed, retimed** span — so playback speed rescales the numbers and the scrub together and a press always lands under the time printed above it. Seeking goes through `env.sourceClock`, not the `<video>`, so it is correct on the native decode path too. No pinch/pan twin of motion's gesture: perform's ruler has no zoom to drive, so a second finger just keeps scrubbing.
+
+---
+
+## 🌗 v0.25.62 (Build 652) — 2026-08-18 — Droste crossfades its role swap, like every other form
+
+**JS only. No `cap sync` needed.**
+
+### Shipped
+
+- **Droste's primary outline and reflection now crossfade** through colour, weight, dash and fill, matching the polygon forms.
+- Bespoke overlays receive `foldFade` + `roleStyle` from the shell.
+
+### It was three marks, not twelve
+
+Daniel: *"besides complexity of initial implementation is there a reason not to do this?"* — no, and the earlier count was pessimistic. Droste sets a colour in about a dozen places, but only **three** of them describe *which copy is currently primary*: the two ring arcs, the wedge sides, and the reflection. The rest — the edge seam, the spiral preview, the arms grippy, the offset handle — describe the SOURCE boundary or an affordance state. **Those must stay fixed**; fading them would announce a swap to things that did not swap.
+
+The endpoints already agreed, which is the strongest argument that this was the right refactor rather than a re-style: droste's primary was alpha 0.9 / width 1.5×, exactly `roleStyle(1)`, and its reflection was amber / 0.6 / 1×, exactly `roleStyle(0)`. **At rest the picture is unchanged** — only the journey between the two is new. The single real difference was the dash pattern, `[6, 4]` here against `[4, 3]` in the shared helper, now unified. That *is* the parity.
+
+`shell/overlay.js` passes `foldFade` and the `roleStyle` function into `form.drawOverlay`'s geom object, beside `strokeScale` and `IS_TOUCH`. Passing the function rather than resolved styles keeps one source of the ramp without the engine layer reaching into the shell. Highlight still overrides opacity and weight while the role owns colour and dash — the same resolution order `strokeEdges` uses, so hover reads identically on every form mid-fade.
+
+**On maintainability, since it was asked:** this removes hardcoded role colours rather than adding any, and costs one small object per draw. The one thing to keep an eye on is the static fallback in `droste.js` for a caller that omits `roleStyle` — it is deliberately two-state with no ramp, because a duplicated ramp would be free to drift into a second, subtly different look.
+
+---
+
+## 🔀 v0.25.61 (Build 651) — 2026-08-18 — Re-home an offline device's mappings onto a connected one
+
+**JS only. No `cap sync` needed.**
+
+### Shipped
+
+- **An offline device holding mappings offers “move mappings to…”** when a connected device of the same kind exists.
+- **Controller names keep their last letter** (28 → 32 chars).
+- **The inputs help text says set / step / ramp**, matching the menus.
+
+### B650 fixed the future; this fixes the file he already had
+
+Daniel imported a pre-B650 rig and got exactly the stranded state the screenshot shows — two DualSense rows, one offline holding 24 mappings, one connected holding one: *"i still have no way to use the loaded values if the system registers the loaded dualsense as different hardware."* Correct, and B650 could not have helped: Chromium's old slug is truncated at 40 characters *before* the vendor digits appear, so there is nothing in that file to recover the key from.
+
+**The real defect is that three affordances looked like they should fix it and all three silently did nothing** — rename (a display string), delete (removes the mappings with them), drag (reorders within a list). The device KEY is invisible, uneditable, and the only thing that matters. This adds the missing verb at the granularity the problem actually has; nobody is dragging 24 rows one at a time.
+
+Restricted to the same signal kind, because control names are not comparable across them — a pad's `.a0` means nothing to a MIDI port that speaks `.cc1`. Rows are selected by `m.dev` and rewritten **positionally** within the sig, because the two are not guaranteed to agree (the v1→v2 migration wrote `dev: 'unknown'` for anything non-MIDI); matching by prefix would quietly move nothing. Duplicates are collapsed **only on the target device**, since two rows sharing a sig is legitimate elsewhere. A move that finds nothing says so instead of deleting the row.
+
+**The missing letter:** *"note the name is literally 'DualSense Wireless Controlle' with no r at the end."* The full name is 29 characters against a 28-character cap — the commonest controller in the project, decapitated by exactly one letter.
+
+**The help text** still read `abs` / `rel` / `rate` under the menus B641 relabelled to set / step / ramp. Stored values are unchanged; this was display copy that never got the memo.
+
+**Lab:** the device header specimen gains the picker, rendered in the confusing state (two identically-named rows) rather than a tidy one.
+
+---
+
 ## 🎛 v0.25.60 (Build 650) — 2026-08-18 — A gamepad rig is now portable across browsers and machines
 
 **JS only. No `cap sync` needed.**

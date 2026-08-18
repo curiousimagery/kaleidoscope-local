@@ -518,6 +518,13 @@ function drawSourceOverlayInner(env) {
       sourceAspect,
       IS_TOUCH: IS_TOUCH || !!env.forceTouchAffordances,   // the phone-frame render forces touch styling
       strokeScale: sw,
+      // B652 — the role-swap crossfade, handed to bespoke overlays. A form draws its PRIMARY with
+      // roleStyle(foldFade) and its REFLECTIONS with roleStyle(1 - foldFade); one function, two
+      // directions, so the two classes can never drift apart. Passing the function rather than
+      // resolved styles keeps this the single source of the ramp without the engine layer reaching
+      // into the shell for it.
+      foldFade,
+      roleStyle,
     });
     ctx.restore();
     if (env.performGhosts?.length) drawGhostWedges(env, env.performGhosts);

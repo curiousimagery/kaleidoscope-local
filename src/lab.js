@@ -1101,11 +1101,14 @@ function inMapRowEl(kindChip, label, target, mode, opts = {}) {
     <button class="vid-x in-del">✕</button>`;
   return row;
 }
-function inDevHeadEl(name, on, count, closed = false) {
+// `move` renders the B651 re-home picker — the real app shows it ONLY on an offline device that
+// still holds mappings while a connected device of the same kind exists.
+function inDevHeadEl(name, on, count, closed = false, move = null) {
   const head = el('div', { class: 'in-devhead' });
   head.innerHTML = `<button class="in-chev">${closed ? '▸' : '▾'}</button>
     <i class="in-dot${on ? ' on' : ''}"></i>
     <input class="in-name" value="${name}">
+    ${move ? `<select class="in-devmove"><option>move mappings to…</option><option>${move}</option></select>` : ''}
     <span class="in-devcount">${count}</span>
     <span class="in-devstate">${on ? 'connected' : 'offline'}</span>
     <button class="vid-x in-devdel">✕</button>`;
@@ -1156,6 +1159,10 @@ function inputsSection() {
     inMapRowEl('cc', 'top knob 1', 'slice rotation', 'step', { inv: 1 }),
     inMapRowEl('pad', 'clip stop 3', '⏻ take', 'step', { noMode: 1, led: '#3c3' }),
     inDevHeadEl('DualSense', false, '1 mapping', true),
+    // B651 — the state an imported pre-B650 rig lands in: an OFFLINE device holding every mapping
+    // beside a connected one of the same hardware. The picker is the only way out of it, so the
+    // specimen shows the confusing case (two identically named rows) rather than a tidy one.
+    inDevHeadEl('DualSense Wireless Controller', false, '24 mappings', true, 'DualSense Wireless Controller'),
   ]);
   // B639 — the drop preview is a SKELETON SLOT sized to the row being dragged, not a 2px line.
   // Rendered from the real class so it cannot drift from the shipped component.
@@ -1174,7 +1181,7 @@ function inputsSection() {
     inMapRowEl('btn', 'right bumper', '— pick a target —', 'step'),
   ]);
   return section('inputs-surface', 'Inputs & settings (control bus)',
-    'The settings-sheet vocabulary from the Arc 6 input surface, as static specimens (input-bus.js renders the real, wired version — these are hand-synced copies, so drift here means the specimen needs updating). The mapping row is a 10-column grid: grip · kind chip · editable name · MOD toggle · target · mode · sensitivity · invert · LED swatch (pads only) · remove. (It was 9 columns until B629 added the modifier toggle.) Device headers carry the presence dot (var(--ok), the same token as the output traffic light), the editable device name, and the collapse chevron. The presence lights beside the app-bar gear stack in pairs like the output LEDs. Finger echo circles are drawn by the overlay itself (slice zone) and a glued sibling canvas (output panel) with the styles shown. The rig persists to localStorage fold-inputs-v1 everywhere + fold-config.json in userData under Electron.', [
+    'The settings-sheet vocabulary from the Arc 6 input surface, as static specimens (input-bus.js renders the real, wired version — these are hand-synced copies, so drift here means the specimen needs updating). The mapping row is a 10-column grid: grip · kind chip · editable name · MOD toggle · target · mode · sensitivity · invert · LED swatch (pads only) · remove. (It was 9 columns until B629 added the modifier toggle.) Device headers carry the presence dot (var(--ok), the same token as the output traffic light), the editable device name, and the collapse chevron \u2014 plus, on an OFFLINE device that still holds mappings while a connected device of the same kind exists, the B651 \u201cmove mappings to\u2026\u201d picker that re-homes them (the only repair for a rig imported with a device key this browser does not produce). The presence lights beside the app-bar gear stack in pairs like the output LEDs. Finger echo circles are drawn by the overlay itself (slice zone) and a glued sibling canvas (output panel) with the styles shown. The rig persists to localStorage fold-inputs-v1 everywhere + fold-config.json in userData under Electron.', [
     el('div', { class: 'lab-matrix' }, [
       matrixRow('Sheet tabs · .set-tabs', [['.toggle / .active', tabs]]),
       matrixRow('Presence lights · .in-lights', [

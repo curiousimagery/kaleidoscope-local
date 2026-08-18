@@ -295,6 +295,11 @@ export function createInputBus(env) {
   const tp = createTrackpadInput(onSignal, refreshDevices, env.host);   // Electron shell only
   const rem = createRemoteInput(onSignal, refreshDevices, env.host, env);   // Electron shell only
   const online = () => new Map([...midi.devices(), ...pads.devices(), ...tp.devices(), ...rem.devices()].map((d) => [d.key, d.name]));
+  // Which adapter a connected device came from, as the SIG PREFIX it emits. A connected device with
+  // no mappings yet cannot have its kind inferred from `store.maps`, so it has to be asked — this is
+  // what keeps the re-home (B651) from offering to hand pad mappings to a MIDI port.
+  const ADAPTERS = [['midi', midi], ['pad', pads], ['tp', tp], ['mob', rem]];
+  const onlineKinds = () => new Map(ADAPTERS.flatMap(([kind, a]) => a.devices().map((d) => [d.key, kind])));
 
   // ---- signal routing ------------------------------------------------------------
   let learnCb = null;
@@ -785,6 +790,54 @@ export function createInputBus(env) {
     if (changed) save();
   }
 
+  // ⚠️ B651 — HAND AN OFFLINE DEVICE'S MAPPINGS TO A CONNECTED ONE. B650 made a rig portable going
+  // FORWARD; it cannot rescue a file exported before it, because Chromium's old slug is truncated
+  // at 40 characters before the vendor digits appear. Daniel imported such a file and got what the
+  // screenshot shows: two DualSense rows, one offline holding all 24 mappings, one connected holding
+  // one — *"i still have no way to use the loaded values if the system registers the loaded
+  // dualsense as different hardware."*
+  //
+  // **Three affordances already looked like they should fix that and all three silently did
+  // nothing** — rename (a display string), delete (removes the mappings with it), drag (reorders
+  // within a list). That is the actual defect: the device KEY is invisible, uneditable, and the only
+  // thing that matters. This is the missing verb, at the granularity the problem has — nobody is
+  // dragging 24 rows one at a time.
+  //
+  // Restricted to the same sig prefix, because control names are not comparable across kinds: a
+  // pad's `.a0` means nothing to a MIDI port that speaks `.cc1`.
+  const devKind = (dev) => String(store.maps.find((m) => m.dev === dev)?.sig || '').split(':')[0];
+  // Swap the DEVICE segment of a sig — `<kind>:<device>.<control>` → `<kind>:<to>.<control>`. Done
+  // positionally rather than by matching `<from>`, because `m.dev` and the slug embedded in the sig
+  // are not guaranteed to agree (the v1→v2 migration wrote `dev: 'unknown'` for anything non-MIDI).
+  // Selecting rows by `m.dev` and rewriting by position is correct under that drift; doing either
+  // by prefix match would quietly move nothing.
+  const withDevice = (sig, to) => {
+    const i = String(sig).indexOf(':'), j = String(sig).indexOf('.', i + 1);
+    return (i < 0 || j < 0) ? sig : `${sig.slice(0, i)}:${to}${sig.slice(j)}`;
+  };
+  function moveDevice(from, to) {
+    if (!from || !to || from === to) return;
+    const moving = store.maps.filter((m) => m.dev === from);
+    if (!moving.length) { alert('nothing to move — that device has no mappings.'); return; }
+    const remap = new Map(moving.map((m) => [m.sig, withDevice(m.sig, to)]));   // old sig → new sig
+    for (const m of moving) { m.sig = remap.get(m.sig) ?? m.sig; m.dev = to; }
+    // a modifier reference points at another row's sig — follow it only if that row moved too
+    for (const m of store.maps) if (m.withMod && remap.has(m.withMod)) m.withMod = remap.get(m.withMod);
+    // A merge must not leave the same control bound to the same target twice. Scoped to the TARGET
+    // device only — elsewhere, two rows sharing a sig is legitimate (see the duplicate-binding
+    // prompt), and a global dedupe here would quietly eat rows this move never touched.
+    const seen = new Set();
+    store.maps = store.maps.filter((m) => {
+      if (m.dev !== to) return true;
+      const k = `${m.sig}→${m.target}`;
+      if (seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    });
+    delete store.devices[from];   // it existed only to hold those mappings
+    save(); renderMaps(); renderLights(); paintLeds();
+  }
+
   // ---- the inputs tab -------------------------------------------------------------
   function refreshDevices() {
     migratePadKeys();
@@ -899,6 +952,7 @@ export function createInputBus(env) {
     if (!wrap) return;
     wrap.innerHTML = '';
     const on = online();
+    const kinds = onlineKinds();
     const devKeys = [...new Set([...Object.keys(store.devices), ...store.maps.map((m) => m.dev)])].filter(Boolean);
     if (!devKeys.length) {
       wrap.innerHTML = '<div class="in-dev none">no devices yet — connect MIDI (Chromium/Electron) or press a button on a game controller, then “+ map”</div>';
@@ -912,9 +966,18 @@ export function createInputBus(env) {
       const nMaps = store.maps.filter((m) => m.dev === dev).length;
       const closed = !!d.closed;
       head.dataset.dev = dev;
+      // offline + holding mappings + a connected device of the same kind to hand them to (B651)
+      const adoptable = (!on.has(dev) && nMaps)
+        ? [...kinds].filter(([k, kind]) => k !== dev && kind === devKind(dev)).map(([k]) => k)
+        : [];
+      const devLabel = (k) => (store.devices[k]?.friendly || on.get(k) || store.devices[k]?.name || k);
       head.innerHTML = `<button class="in-chev" title="${closed ? 'expand' : 'collapse'}">${closed ? '▸' : '▾'}</button>
         <i class="in-dot${on.has(dev) ? ' on' : ''}" title="${on.has(dev) ? 'connected' : 'offline'}"></i>
         <input class="in-name" value="${(d.friendly || d.name || dev).replace(/"/g, '&quot;')}" title="device name — click to rename">
+        ${adoptable.length ? `<select class="in-devmove" title="this device is offline — hand its mappings to a connected one">
+          <option value="">move mappings to…</option>
+          ${adoptable.map((k) => `<option value="${k}">${devLabel(k).replace(/"/g, '&quot;')}</option>`).join('')}
+        </select>` : ''}
         <span class="in-devcount">${nMaps ? `${nMaps} mapping${nMaps === 1 ? '' : 's'}` : ''}</span>
         <span class="in-devstate">${on.has(dev) ? 'connected' : 'offline'}</span>
         <button class="vid-x in-devdel" title="remove this device and its mappings">✕</button>`;
@@ -925,6 +988,13 @@ export function createInputBus(env) {
       head.querySelector('.in-name').addEventListener('change', (e) => {
         (store.devices[dev] ??= { name: dev }).friendly = e.target.value.trim();
         save();
+      });
+      head.querySelector('.in-devmove')?.addEventListener('change', (e) => {
+        const to = e.target.value;
+        e.target.value = '';
+        if (!to) return;
+        if (!window.confirm(`move ${nMaps} mapping${nMaps === 1 ? '' : 's'} onto “${devLabel(to)}”? this offline copy is removed.`)) return;
+        moveDevice(dev, to);
       });
       head.querySelector('.in-devdel').addEventListener('click', () => {
         if (nMaps && !window.confirm(`Remove ${d.friendly || d.name || dev} and its ${nMaps} mapping${nMaps === 1 ? '' : 's'}?`)) return;

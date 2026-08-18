@@ -720,6 +720,47 @@ export function createPerformRuntime(env) {
     }
   });
 
+  // ⚠️ B653 — THE PERFORM RULER SCRUBS. Daniel, longstanding: *"the time ruler in perform can't get
+  // scrubbed like motion."* It never had a single listener, while `.mf-ruler` — the class it shares
+  // with motion's scrubbable ruler — already declares `cursor: pointer; touch-action: none`. So the
+  // surface has been *advertising* that it is draggable for as long as it has existed and then
+  // doing nothing, which is worse than looking inert.
+  //
+  // It reads in the RETIMED, TRIMMED frame the ruler labels (`renderPfRuler`): the fraction along
+  // the ruler is a fraction of the trimmed span, so playback speed rescales the labels and the
+  // scrub together and a click always lands under the number printed above it. Seeking uses the
+  // source clock rather than the <video> directly, so it is correct on the native decode path too.
+  //
+  // No pinch/pan twin of motion's gesture here — perform's ruler has no zoom to drive; a second
+  // finger simply keeps scrubbing from the first.
+  const pfRuler = byId('pfRuler');
+  if (pfRuler) {
+    let rScrub = false;
+    const seekToX = (clientX) => {
+      const sp = trimSpan(), clock = env.sourceClock;
+      if (!sp || !clock?.present) return;
+      const r = pfRuler.getBoundingClientRect();
+      const p = Math.min(1, Math.max(0, (clientX - r.left) / (r.width || 1)));
+      clock.seek(sp.inSec + p * sp.span);
+      env.updateSrcScrub?.();
+    };
+    pfRuler.addEventListener('pointerdown', (e) => {
+      if (pfRuler.hidden) return;
+      rScrub = true;
+      pfRuler.setPointerCapture?.(e.pointerId);
+      seekToX(e.clientX);
+      e.preventDefault();
+    });
+    pfRuler.addEventListener('pointermove', (e) => { if (rScrub) seekToX(e.clientX); });
+    const endScrub = (e) => {
+      if (!rScrub) return;
+      rScrub = false;
+      pfRuler.releasePointerCapture?.(e.pointerId);
+    };
+    pfRuler.addEventListener('pointerup', endScrub);
+    pfRuler.addEventListener('pointercancel', endScrub);
+  }
+
   // source transport (video-loop play/pause + playback speed)
   byId('pfPlay')?.addEventListener('click', toggleVideoPlayback);
   byId('pfSpeed')?.querySelectorAll('[data-pspd]').forEach((b) =>
