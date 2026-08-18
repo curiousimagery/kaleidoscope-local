@@ -34,6 +34,35 @@ Archived at B658. It was marked superseded at B609 and kept for the reasoning be
 
 **The trap that was caught before the cycle, because it will recur in any future host seam:** Capacitor calls are async, `conduit/vitals.js` reads `native()` sync. A Promise there makes every field undefined and the report says `nativeReadings: false` — *identical to no plugin*. The host caches; `read()` is synchronous. Proven in `vitals-native-check.mjs`.
 
+### ⭐⭐ T2 ANSWERED — THE COLLAPSE IS INTERACTION-DRIVEN, AND THE 4K BROADCAST ITSELF IS STABLE (2026-08-18)
+
+**11-minute hands-off run, M1 iPad Pro, 20.4s 4K clip looping to a 4K HDMI wall, nothing touched.**
+
+```
+67 samples · fps 19.6 – 25.0 · frameP50 44–48ms · events: [] · zero collapses
+```
+
+Against the interactive run of the **same clip on the same hardware minutes earlier**, which crossed repeatedly into a ~10fps state and bottomed at 9.8fps.
+
+**▶ THIS RETIRES HEAT, MEMORY DRIFT, AND LOAD-OVER-TIME as explanations for the bimodal collapse.** Every one of them predicts degradation in a hands-off run, and there is none. **The device sustains a 4K → 4K broadcast indefinitely. What it cannot sustain is that broadcast plus a human editing.**
+
+**▶ AND THAT IS A BETTER PROBLEM THAN THE ONE IT CLOSED.** The ceiling is not a device limit we have to gate around; **it is the cost of an interaction, which is ours.** The first cut is Class 1 and runs on desktop: with the ledger open, diff idle against a sustained canvas drag. Suspects already in view — the overlay redraw, `foldSliceIntoSource` re-running on every render inside a drag (**also the radial-pan suspect, so the two threads converge**), and per-pointermove state writes.
+
+### ⚠️ THE GOVERNOR RAN ITS OWN EXPERIMENT AND PUBLISHED A NULL. BELIEVE IT.
+
+```
+futile: true
+"shedding every editor view did not move the delivered rate
+ (31% under before, 31% after) — panels restored.
+ Whatever the wall is, it is not the editor surfaces."
+```
+
+**It shed every editor surface and the wall did not improve.** So the display's ~21-23-of-30 ceiling is NOT editor contention; the loss is in the decode → fan-out → external path (`30 arriving/s · 25 drawn/s · 21 new pictures/s`).
+
+**⚠️ THIS PARTLY CORRECTS THE B664 NOTE ABOVE.** "Shedding renders should beat shedding pixels" was inferred from the PiP costing 16.6ms for 0.09MP. That inference is about **the app's own frame cost** and may still hold there. **For DELIVERY it is now disproven by the app's own measurement** — do not carry it as a delivery optimization.
+
+**No native readings in this run** (`nativeReadings: false`, no thermal transition, so no push and the read path still never landed). B664's `vitalsSeam.why` names the cause in the next report.
+
 ### 🌡 B663/B664 — THE PLUGIN IS ON DEVICE AND THE FIRST NATIVE NUMBERS ARE IN
 
 **`nativeReadings: true`. Three things are now known that were not:**

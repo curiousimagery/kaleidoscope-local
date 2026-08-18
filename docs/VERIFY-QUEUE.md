@@ -20,56 +20,50 @@ Confirmed results are DELETED from here and recorded in CHANGELOG. Closed sessio
 
 ---
 
-## ⏸ SESSION ON HOLD — DANIEL'S CALL, AND IT IS THE RIGHT ONE (2026-08-18)
+## ✅ T2 ANSWERED (2026-08-18, 11-min hands-off run, iPad Pro, 4K→4K HDMI)
 
-*"on the zero thermal and memory data that feels like it blocks us from being able to maximize the value of capturing any reports and should take precedence over any on device testing."*
+**THE BIMODAL ~10fps STATE IS INTERACTION-DRIVEN.** 67 samples, `fps` band **19.6–25.0**, `frameP50` 44–48ms, **zero collapses, zero thermal events.** The interactive run of the same clip on the same hardware minutes earlier crossed into a ~10fps state repeatedly and bottomed at 9.8.
 
-**Agreed. Every device test below spends a real session producing a report with two null columns**, and both of those columns are load-bearing for the questions this session asks. **The vitals plugin now outranks T1-T5.** T0 (JS-only) rides along in the same cycle.
+**What this retires:** heat, memory drift, and load-over-time as explanations for the collapse. **The device sustains a 4K source → 4K HDMI broadcast indefinitely.** What it cannot sustain is that broadcast *plus a human editing*.
 
-**One reprioritisation inside the hold, from Daniel's 4K-take result:** a 4K take now *works* on a short clip at 10-12fps, which is unusable. **T1's job was to decide which gate to build; the product answer no longer waits on it.** T1 stays because it generalises the gate, but it is no longer the top device test. **T2 (hands-off) is, because the bimodal collapse is unexplained and affects every workflow, not just recording.**
-
----
-
-## 🔧 BLOCKER — do this before the next crash run (JS only, no Xcode, ~20 min)
-
-**T0. Make `take:arm` record all three resolutions.** Today it records the bus dimensions and `broadcasting: true`. **It does not record the wall's resolution or the source's** — so the flight recorder cannot tell the cells of the matrix apart in the one question it exists to answer. Every crash report from here is worth roughly double with this in. **Do this first; it is cheap and it is the difference between a data point and a data set.**
+**What it opens, and it is a better question than the one it closed:** the ceiling is not a device limit, it is **the cost of an interaction**. That is ours, and most of it is measurable without a device.
 
 ---
 
-## Ranked, most decisive first
+## ▶ T3 — RECORDING-PRIORITY A/B (next on device, ~6 min)
 
-**T1. 4K TAKE WITH THE BROADCAST OFF.** *(~2 min, expect a crash, iPad Pro)*
-Unplug HDMI or stop the broadcast. Same 4K source. Start a session, arm a 4K recording.
-- **Survives** → the encode is fine alone; the killer is **concurrency**, and the honest gate counts simultaneous full-resolution surfaces. Device-independent, computable at arm time.
-- **Dies** → the M1 iPad cannot 4K-encode our output at all, and the gate is a **hard take-resolution cap** independent of broadcast state.
-**This single bit decides which gate we build**, which is why it outranks everything else including the hands-off run.
+**The question:** is the saved take bad because the recorder path has a fixed cost, or because it is losing a contention it should be winning? *"The fps of the saved recording is terrible... it feels even worse than in app fps, which isn't the prioritization we want here."*
 
-**T2. HANDS-OFF RUN.** *(10 min, no touching, iPad Pro)*
-4K source → 4K HDMI, start session, **do not touch the device for 10 minutes**, stop, export.
-- **Bimodal ~10fps episodes vanish** → the collapse is **interaction-driven**, and the whole ceiling question reframes: we are not at a load ceiling, we have a cost in the input/render path.
-- **They persist at the same rate** → load-driven, and heat is back on the table (but still unmeasurable until the plugin lands).
-Free, no build. Daniel was interacting throughout both prior runs, so **every fps number we have is confounded by input.**
+**Steps, one sitting:**
+1. Set the scenario tag to `hdmi-broadcast` **before** starting the session (the session label freezes at start; the last two runs disagreed with the report's own tag).
+2. Broadcast the 20.4s 4K clip to the 4K wall. Start a session.
+3. **Take A:** record ~60s at FHD **while broadcasting**. Stop the take.
+4. Stop the broadcast. Wait ~20s.
+5. **Take B:** record ~60s at FHD with **no broadcast**.
+6. Stop the session, export, and note the two files' actual frame rates (QuickTime inspector or the Files preview is fine).
 
-**T3. RECORDING-PRIORITY A/B.** *(~4 min, two 60s takes, iPad Pro)*
-Record FHD **while** broadcasting, then record FHD with **broadcast off**. Compare the saved files' actual frame rates.
-- **Both bad** → the recorder path has a fixed cost and the inversion is ours to fix outright.
-- **Only the concurrent one is bad** → it is contention, and the fix is priority, not throughput.
-Answers *"the saved take is worse than in-app fps, which isn't the prioritization we want"* with two files instead of an argument.
+**What each outcome means:**
+- **Both files bad** → fixed cost in the recorder path. Ours to fix outright, no priority question.
+- **Only Take A bad** → contention, and the fix is priority, not throughput. A take is a deliverable; an editor surface is not.
+- **Both fine** → the problem is specific to 4K takes and the FHD path is healthy, which is a gate we can write today.
 
-**T4. M1 iPad AIR (8GB), SAME 4K RUN.** *(~15 min)*
-The controlled A/B on memory: same silicon, half the RAM. **Run it now for the fps and crash axes** — those work today. The memory axis needs the plugin, so this gets re-run later; that is fine, the crash axis alone is worth the trip.
-- **Air dies at combinations the Pro survives** → memory is implicated without needing the plugin to say so.
-- **Identical behaviour** → the ceiling is GPU/encoder, not memory, and the plugin's priority drops.
-**Air before Pro from here on: it is the floor we actually own.**
-
-**T5. M1 MAX DESKTOP, MOST DEMANDING WORKFLOW.** *(open-ended)*
-Different question entirely — no jetsam, no thermal cliff of the same shape. What we want is whether the *same* stutter signature appears at all under 4K source + Syphon/NDI + aggressive canvas work. **If it does, it is our code and not the iPad.** That is the cheapest possible test of "is this a platform ceiling or an architecture cost."
+**Also captured for free:** B664's `vitalsSeam.why` names the native read-path failure, and `take:arm` now carries the wall size, source size and clip length.
 
 ---
 
-## Parked until the vitals plugin lands
+## ▶ T6 — WHAT DOES AN INTERACTION ACTUALLY COST (mostly NOT a device test)
 
-Anything whose answer is a temperature or a memory-headroom curve. **No conclusion about heat is available from any run so far** (`nativeReadings: false` in every report) and stating one would be inventing data.
+Promoted straight to second place by T2's answer. **The first cut is Class 1 and runs on desktop**: with the ledger open, compare idle against a sustained canvas drag and read which surfaces and passes move. Candidates already in view — the overlay redraw, `foldSliceIntoSource` re-running on every render inside a drag (which is also the radial-pan suspect), history/state writes per pointermove.
+
+**Only the confirmation belongs on device.** Do not spend a session on the enumeration.
+
+---
+
+## 🅿️ T1 / T4 / T5 — repositioned by what T2 and the native readings said
+
+- **T1 (4K take, broadcast off)** — still generalises the gate, no longer urgent. A 10-12fps 4K take is unusable whether or not it crashes.
+- **T4 (M1 iPad Air)** — **demoted.** Its main question was memory, and the first native reading answered it: `availMB 4969`, `footprintMB 150`. Worth doing eventually as a GPU-class floor, not as a memory test.
+- **T5 (M1 Max desktop)** — unchanged, and T6 will likely give it a sharper question to answer.
 
 # 🅿️ CLOSED SESSIONS → `archive/VERIFY-QUEUE-b599-b609.md`
 
