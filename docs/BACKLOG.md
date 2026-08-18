@@ -404,6 +404,25 @@ The fold's primary/reflection colour crossfade (B642) covers the polygon forms, 
 
 **Deliberately not half-threaded** — a form where only the reflection crossfades would read worse than one that cuts cleanly. The fix is to route droste's outline colours through a shared helper that takes the fade, which is a tidy-up of that file worth doing on its own terms rather than inside a polish change.
 
+### 👻 [Daniel, B647] TRANSPARENT OOB REVEALS THUMBNAIL GENERATION
+
+*"Transparent lets us see the thumbnail generation job in the background... we shouldn't see the rapid sequence of thumbnails getting generated even when the canvas OOB is set to transparent."*
+
+**Not fixed — the mechanism is not confirmed and there are two candidates that need OPPOSITE fixes.** `previewCanvas` already carries `style.background = '#1a1a1a'`, so a transparent pixel should reveal that, not a thumbnail. So either:
+
+1. **Thumbnail renders land on the VISIBLE GL canvas** (`captureFrame` → `renderToCanvas`) and are normally overwritten too fast to notice, becoming visible only where the output is transparent. Fix: render thumbs to an FBO, never to the presented canvas.
+2. **Something behind the canvas is showing through** — in which case the CSS background is being defeated (a transparent parent, or the canvas being composited differently under blending). Fix: an opaque layer, as Daniel suggested.
+
+**The discriminator is one look:** does the thumbnail flash occupy the whole canvas or only the transparent regions? Whole canvas → cause 1. Only the holes → cause 2. **Do not ship a fix before that is answered** — this session has already spent three builds on fixes aimed at the wrong cause.
+
+### 🖱 [Daniel, B647→B648] FIREFOX: CURSORS OVER THE SOURCE ARE PLAIN ARROWS — INTERMITTENT, LIKELY FIXED
+
+Firefox only; Brave is fine. **The symptom discriminates and it points AWAY from the cursor art:** if the SVG data-URI failed to load, Firefox would fall back to the keyword in each declaration (`move`, `ew-resize`, `ns-resize`) — visibly different cursors. A plain ARROW is `default`, which is what `cursorForMode` returns when `classifyPointer` yields `mode: null` — and that happens when `sourceOverlayCanvas._geom` is missing.
+
+**▶ B648 FOUND A REAL MECHANISM AND FIXED IT — but it is unconfirmed as THE cause.** Daniel's follow-up that it stopped reproducing is what pointed the way: an encoding failure is deterministic, so intermittency argues for lifecycle. The overlay's change gate could skip a draw on a freshly re-mounted canvas (signature unchanged → no draw → `_geom` never written → every hit test null → `default` cursor), and it would stay that way until an unrelated value moved. The gate now refuses to skip when there is no cached geometry.
+
+**If it recurs on B648+**, the discriminator still stands: any resize-style cursor over the outline means the cursor ART is failing; a plain arrow everywhere means hit-testing, and the next place to look is why `_geom` is stale rather than absent.
+
 ### 🐢 [B636→B640, Daniel] iPAD GESTURE-SURFACE LATENCY — UX POLISH
 
 **Daniel's call: polish, not a blocker.** *"Still functional and adequate but shows increased latency and choppiness compared to earlier states."*

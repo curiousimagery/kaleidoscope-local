@@ -116,8 +116,7 @@ let refoldTimer = 0;
 //
 // Colour and alpha only. Dash patterns do not interpolate meaningfully, and the colour is what
 // Daniel named. 900ms sits in the middle of the range he gave.
-export const FOLD_FADE_MS = 900;
-let foldFadeT = 0;
+export let foldFadeT = 0;
 // Stamp a fold that happened somewhere other than normalizeSliceMirror — motion's sampler folds
 // each played frame itself, so without this a fold during playback would swap colours with no
 // transition even though the live overlay is perfectly capable of animating it (B643).
@@ -126,7 +125,7 @@ export function markSliceFold() { foldFadeT = performance.now(); }
 // PURE — expiry is done once per draw in drawSourceOverlayInner. A read that also cleared the
 // timer would be a trap here, because the draw both reads it and decides whether to schedule the
 // next frame from it: whichever call site happened to run first would end the animation.
-const foldFadeP = () => (foldFadeT ? Math.min(1, (performance.now() - foldFadeT) / FOLD_FADE_MS) : 1);
+const foldFadeP = () => (foldFadeT ? Math.min(1, (performance.now() - foldFadeT) / LIVE_FOLD_FADE_MS) : 1);
 // eased, and mixed toward the OTHER class's look at p=0
 const mixRGB = (a, b, t) => a.map((v, i) => Math.round(v + (b[i] - v) * t));
 const PRIMARY_RGB = [255, 255, 255];
@@ -146,6 +145,19 @@ const REFLECT_RGB = [255, 196, 80];
 //
 // `p` runs 0 → 1 as a copy becomes PRIMARY, so a copy losing the role passes the same ramp
 // backwards and the two cross in the middle.
+// ⚠️ B647 — TWO DURATIONS, AND THE DISTINCTION IS THE POINT. Daniel: *"it should be near instant
+// when you're actually manipulating the slice. the slow ease transition is specifically for the
+// companion video."*
+//
+// Right, and the reason they differ is not taste. While you are working the slice, the swap is
+// FEEDBACK — you caused it, you already know why it happened, and a long ease just delays the
+// overlay agreeing with your hands. In a rendered take there is no hand: the viewer needs the
+// transition to explain a change nobody performed. Same event, opposite jobs.
+//
+// The baked value is exported because motion's baker derives its own progress from the TIMELINE
+// (see bakeFoldFade) and must use the same window the fade was designed around.
+export const FOLD_FADE_MS = 900;    // baked / companion render
+const LIVE_FOLD_FADE_MS = 130;      // on-screen manipulation — present, not slow
 const DASH_LEN = 4, DASH_GAP = 3;
 function roleStyle(p, strokeScale) {
   const gap = DASH_GAP * (1 - p);
@@ -403,8 +415,21 @@ export function drawSourceOverlay(env, { force = false } = {}) {
   // the perform ghost trail animates independently of state (it fades and shifts every frame),
   // so it opts out of the gate rather than trying to sign a moving array of snapshots
   // a fold crossfade animates on the CLOCK, not on state — so it opts out of the change gate for
-  // its ~900ms the same way the perform ghost trail does (B642)
-  if (!force && !env.performGhosts && !foldFadeT && perfFlags.overlayGated) {
+  // its window the same way the perform ghost trail does (B642)
+  //
+  // ⚠️ B648 — AND THE GATE MAY NEVER SKIP WHEN THERE IS NO CACHED GEOMETRY. The gate's whole premise
+  // is "the pixels would be identical, so the draw is waste" — which is false on a canvas that has
+  // never been drawn. `_geom` is written at the END of a draw and read by `classifyPointer`, so a
+  // canvas without it hit-tests as `mode: null` and every cursor falls back to `default`.
+  //
+  // That is the shape of Daniel's Firefox report — *"only seeing a pointer most of the time"* — and
+  // his follow-up that it has since stopped reproducing is what makes this the likely cause rather
+  // than a cursor-encoding problem: **an encoding failure is deterministic, and this is not.** A
+  // re-mount hands over a fresh canvas with no `_geom`; if state has not changed since the last
+  // draw, the signature matches and the draw is skipped, so the new canvas never gets geometry —
+  // and it stays that way until something unrelated moves a value. Intermittent, and self-healing
+  // the moment you touch a control, which is exactly what was described.
+  if (!force && !env.performGhosts && !foldFadeT && env.sourceOverlayCanvas?._geom && perfFlags.overlayGated) {
     const sig = overlaySignature(env);
     if (sig === env.lastOverlaySig) return;
     env.lastOverlaySig = sig;

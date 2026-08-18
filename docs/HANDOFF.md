@@ -90,6 +90,18 @@ This retires the confusion, not just a hypothesis. Resolution was free because t
 
 ## current version
 
+**🎯 B648 — THE CHANGE GATE MAY NOT SKIP A CANVAS IT HAS NEVER DRAWN. JS only.**
+
+Daniel's Firefox cursor report **stopped reproducing**, and that is the finding: an encoding failure would be deterministic, so intermittency moves it to lifecycle. `_geom` is written at the END of a draw and read by `classifyPointer` — without it every hit test is `mode: null` and every cursor is `default` (a plain arrow, NOT the `move`/`ew-resize` a failed cursor URL would give). A re-mount hands over a fresh canvas; if state has not changed the signature matches, the draw is skipped, and the new canvas never gets geometry — until something unrelated moves. **The gate now requires cached geometry before it may skip.** A real contract violation regardless; unconfirmed as Daniel's exact case.
+
+**⏱ B647 — TWO FADE DURATIONS. JS only.** Live crossfade 130ms (feedback — you caused it), companion render 900ms (explanation — no hand caused it). Baked window stays exported for motion's timeline-derived progress.
+
+**▶ DANIEL CONFIRMED AT B646:** companion video *"looks excellent"*; clamp + transparent OOB function correctly.
+
+**🔴 TWO NEW REPORTS, BOTH INSTRUMENTED-NOT-FIXED (see BACKLOG):**
+- **Transparent OOB reveals thumbnail generation.** Two candidate mechanisms needing OPPOSITE fixes; the discriminator is whether the flash covers the whole canvas or only the transparent regions.
+- **Firefox shows plain arrows over the source.** The symptom points AWAY from cursor art: a failed data-URI would fall back to `move`/`ew-resize`, not `default`. `default` means `classifyPointer` returned null, i.e. `_geom` missing.
+
 **🩻 B646 — FILL CROSSES THROUGH ZERO; loadVideo GETS THE TRACE IT NEVER HAD. JS only.**
 
 - **Tinted fill now rides the role ramp** (full at p=0, gone at p=1) and the primary draws a transient tint on its way in, so both sides pass through 0 instead of one blinking.

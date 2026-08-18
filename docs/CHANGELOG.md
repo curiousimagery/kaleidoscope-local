@@ -6,6 +6,44 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🎯 v0.25.58 (Build 648) — 2026-08-18 — The overlay's change gate may not skip a canvas it has never drawn
+
+**JS only. No `cap sync` needed.**
+
+### Shipped
+
+- **The change gate now requires cached geometry before it is allowed to skip a draw.**
+
+### Intermittency was the evidence
+
+Daniel reported Firefox showing plain arrows over the source, then reported it had stopped reproducing. **That second message is the more useful one.** A cursor data-URI that Gecko rejects would fail *every* time — encoding is deterministic. Something that comes and goes is a lifecycle problem, which moves the suspicion decisively onto `_geom`.
+
+`_geom` is written at the END of a draw and read by `classifyPointer`; without it every hit test returns `mode: null` and every cursor falls back to `default` — a plain arrow, which is exactly what was described, and notably **not** what a failed cursor URL would produce (that falls back to `move` / `ew-resize`).
+
+**The gate's premise is "the pixels would be identical, so this draw is waste."** That is false on a canvas which has never been drawn. A re-mount hands over a fresh canvas with no `_geom`; if state has not changed since the last draw, the signature matches, the draw is skipped, and the new canvas never receives geometry. It stays that way until something unrelated moves a value — intermittent, and self-healing the moment you touch a control.
+
+**Not claimed as confirmed.** It is a genuine violation of the gate's own contract and worth fixing on those terms alone; whether it is Daniel's exact Firefox case is still open, and the discriminator in BACKLOG stands if it recurs.
+
+---
+
+## ⏱ v0.25.57 (Build 647) — 2026-08-18 — Two fade durations: feedback vs explanation
+
+**JS only. No `cap sync` needed.**
+
+### Shipped
+
+- **The live crossfade is 130ms; the companion render keeps 900ms.**
+
+### Same event, opposite jobs
+
+Daniel: *"it should be near instant when you're actually manipulating the slice. the slow ease transition is specifically for the companion video."*
+
+The reason they differ is not taste. **While you are working the slice, the swap is FEEDBACK** — you caused it, you already know why it happened, and a long ease only delays the overlay agreeing with your hands. **In a rendered take there is no hand**: the viewer needs the transition to explain a change nobody performed.
+
+The baked window stays exported, because motion's baker derives its progress from the TIMELINE and has to use the window the fade was designed around.
+
+---
+
 ## 🩻 v0.25.56 (Build 646) — 2026-08-18 — The fill crosses through zero; the VIDEO swap finally has a trace
 
 **JS only. No `cap sync` needed.**
