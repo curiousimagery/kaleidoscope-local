@@ -90,6 +90,18 @@ This retires the confusion, not just a hypothesis. Resolution was free because t
 
 ## current version
 
+**🎨 B642 — THE ROLE SWAP CROSSFADES; LEAVING MIRROR MODE GUARDS KEYFRAMES. JS only.**
+
+**▶ DANIEL VERIFIED AT B641:** MIDI translate + release *"feels great"*, motion→perform→motion round trip validated, keyframe animation correct, **companion video renders as expected**.
+
+- **Fold colour flip is a ~900ms crossfade.** No identity tracking needed: at the fold the primary and one reflection SWAP membership, so fading the two CLASS styles past each other is the crossfade. Verified continuous — each copy's colour changes by 0 at the swap instant, then eases to its new role.
+- **The overlay's change gate had to be opted out of** for the fade's duration (it animates on the clock, not on state), and `foldFadeP` is a PURE read with one expiry point — a self-clearing read would have ended the animation early depending on which call site ran first.
+- **Leaving mirror mode now warns** when keyframes hold an origin off the source, and offers to move them (one undo entry; cancel is safe). A lock-out would be a dead end when the offending keyframe is one of twenty and only reachable by scrubbing. Desktop-only BY FACT — mobile has no motion authoring.
+
+**⚠️ DROSTE DOES NOT CROSSFADE** — its overlay paints its own colours in ~12 places instead of going through `strokeEdges`. Left cutting rather than half-threaded, in BACKLOG.
+
+**🎛 STAGE MANAGER QUEUE OPENED** — Daniel's per-mode-state direction is recorded in BACKLOG with his answers to Q2 and Q4. **His straw man is more decoupled than mine**: a new state per mode with its own undo and canvas, not a snapshot ledger over one shared state. Nothing built; queued deliberately.
+
 **🏷 B641 — set/step/ramp, THE DEFERRED FOLD RE-ARMS, MOTION RE-ENTRY. JS only.**
 
 **▶ DANIEL VERIFIED AT B640:** mapping reorder *"looks and functions as expected"*, droste off-canvas reflection correct, undo *"continues to perform exactly as expected"*.

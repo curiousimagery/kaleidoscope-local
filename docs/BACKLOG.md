@@ -384,27 +384,25 @@ Shipped as `sliceMirrorX/Y` + `foldSliceIntoSource`. Details in CHANGELOG v0.25.
 - **The "it may be free for symmetric forms" hope was wrong to build on.** Most forms' folds ARE mirror-symmetric, but the flip is not about the fold's symmetry — it is about the SOURCE-UV offset, which reflects for every form regardless. The flag was needed everywhere.
 - **The trigger is not "entirely outside".** That reads well and produces a large teleport; the shipped trigger is the 25% overlap threshold measured against the VISIBLE source, which is Daniel's own number from B631.
 
-### 🧠 [Daniel, B641] PER-MODE STATE MEMORY — a rule worth having, and a real change
+### 🎛 [Daniel, B642] STAGE MANAGER QUEUE — per-mode state, scenes, and source as a stage object
 
-**His rule, and it is a good one:** *"current parameters get carried over when entering a mode for the first time, but when edits are made in a different mode, they shouldn't be carried back. If I set the form to triangle in still, then switch to motion, we should start with what I entered in still — but if I override it in motion, still should remember its last state."*
+**▶ QUEUED DELIBERATELY. Daniel: *"we don't touch anything now but we add this to our stage manager queue as something to handle thoughtfully."* Nothing here is committed; this records the framing while it is fresh.**
 
-**▶ MY READ: NOT a safe universal change, and the reason is structural.** There is ONE `state` object, and that is load-bearing well beyond convenience — it is why undo/redo is a snapshot swap, why the engine is stateless, why broadcast/record/export all take the same currency, and why motion keyframes and perform's follower can both be plain snapshots of it. Giving each mode its own state means every one of those has to say WHICH state it means. That is not a patch.
+**His straw man is MORE decoupled than mine was.** I proposed a snapshot ledger over one shared `state`. He wants: **each mode instantiates a NEW state derived from wherever you came from, and gets its own undo, canvas, and so on.** Entering a mode inherits; leaving it does not write back. Worth stating plainly because it is the more expensive answer and he chose it with the tradeoff in view — a ledger preserves "one state object" and its consequences (undo as a snapshot swap, a stateless engine, one currency for record/broadcast/export); genuinely separate state per mode means each of those has to name which state it means.
 
-**The cheap version that delivers the whole behaviour, though, is a SNAPSHOT LEDGER, not separate state:**
+**What is shared, per Daniel:** broadcast destination, MIDI input, and source. **Source is negotiable** and probably becomes a stage object rather than a global — see below.
 
-- on LEAVING mode M, store `{...state}` under M
-- on ENTERING mode M, restore M's snapshot if one exists; otherwise inherit the live state (first entry) and record that
+**Q2 (what motion derives from), answered:** we do not support transitioning form / segment count mid-animation, but might later, so a new mode's state should derive from **the first or nearest keyframe** — canvas aspect, form type, form properties, canvas settings. (This is also exactly what B641 fixed the narrow version of: motion re-entry now re-adopts the sampled frame instead of the previous mode's edits.)
 
-One object, three saved snapshots, no change to the engine, undo, or any consumer. **Roughly the shape `motion.keyframes[0]` already has** — motion is halfway there by accident, which is exactly why B641's bug looked like a UI sync problem rather than a missing rule.
+**Q4 (source swap), reframed rather than answered:** it only makes sense alongside the scene manager, where a keyframed loop, a newly added source and a live camera are all things you can cut between side by side. In that world, changing source in motion is a choice between **sending the current keyframed motion to the queue/stage**, **discarding it and starting fresh**, or (least likely viable) **keeping the keyframe parameters and swapping the source under them**. Decisions to make then, not now.
 
-**The parts that need deciding before anyone writes it, because they are product calls and not implementation details:**
+**The one thing worth carrying forward:** B642's OOB guard is the same shape of problem in miniature — a global setting changed in one place invalidating snapshots held somewhere else. Per-mode state does not remove that class, it multiplies it. Whatever the design, it needs an answer for "this change makes some stored look unrepresentable" that is not written once per setting.
 
-1. **What is NOT per-mode?** The source, the frame aspect, the output rig and the input mappings are surely global. Slice geometry and form are surely per-mode. `oobMode`? Canvas zoom? Undecided.
-2. **What does motion's snapshot even mean**, given its real state is the keyframe list and its live `state` is a sampled frame? Probably "the timeline", in which case motion already stores it and only needs the restore.
-3. **Does undo cross a mode switch?** Today it can. If modes remember separately, an undo that reaches back past a switch is either a surprise or a feature.
-4. **Does a snapshot survive a source swap or a reload?** Session-scoped is the cheap answer.
+### 🌀 [B642] DROSTE DOES NOT CROSSFADE ITS ROLE SWAP
 
-**Recommended sequencing:** answer 1 and 2 with Daniel, then ship the ledger for form + slice geometry only, and widen it once the rule has been lived with. Shipping it for everything at once makes every "why did that not carry over" question a debugging session.
+The fold's primary/reflection colour crossfade (B642) covers the polygon forms, which all stroke through `strokeEdges`. Droste's overlay is bespoke and paints `rgba(255,255,255,…)` and `rgba(255,196,80,…)` in about a dozen places, so it still cuts.
+
+**Deliberately not half-threaded** — a form where only the reflection crossfades would read worse than one that cuts cleanly. The fix is to route droste's outline colours through a shared helper that takes the fade, which is a tidy-up of that file worth doing on its own terms rather than inside a polish change.
 
 ### 🐢 [B636→B640, Daniel] iPAD GESTURE-SURFACE LATENCY — UX POLISH
 

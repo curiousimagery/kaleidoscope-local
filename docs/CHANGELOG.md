@@ -6,6 +6,42 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🎨 v0.25.52 (Build 642) — 2026-08-17 — The role swap crossfades; leaving mirror mode asks about stranded keyframes
+
+**JS only. No `cap sync` needed.**
+
+### Shipped
+
+- **The fold's colour flip is a ~900ms crossfade** instead of a hard cut.
+- **Switching out of mirror mode warns when keyframes have the origin off the source**, and offers to move them.
+
+### The crossfade needs no identity tracking, which is the nice part
+
+Daniel: *"the color flip is a bit jarring... even a ~.5-1.5 second fade between states would improve the visual feel and clarify what's happening."*
+
+At the fold, the primary copy and one reflection **swap membership**: what was solid white becomes amber-dashed and vice versa. So fading the two CLASS STYLES past each other reproduces the crossfade exactly — the incoming primary starts amber and resolves to white, the outgoing starts white and resolves to amber, because each is drawn by the class it now belongs to. **No need to track which copy was which.**
+
+Verified continuous: at the swap instant each copy's colour changes by **0**, then eases to its new role over the window. The flip stops being an event and becomes a transition.
+
+Two details that would each have been a bug:
+
+- **The overlay is change-gated**, and a clock-driven fade changes no state — so it opts out of the gate for its ~900ms, the same way the perform ghost trail does, and re-schedules itself each frame.
+- **`foldFadeP` is a pure read**, with expiry done at exactly one place in the draw. A read that also cleared the timer would be a trap, because the draw both reads it *and* decides whether to schedule the next frame from it: whichever call site ran first would end the animation early.
+
+**Not yet crossfading: droste.** Its overlay is bespoke and paints its own colours in a dozen places rather than going through `strokeEdges`. Flagged in BACKLOG rather than half-threaded, since a form where only the reflection crossfades would read worse than one that cuts cleanly.
+
+### Leaving mirror mode can strand keyframes, so it asks first
+
+Daniel: *"I save a keyframe animation in motion mode and then unlock the canvas OOB — any keyframe with the origin off source canvas is now in an unsupported state."*
+
+It follows from the fold's own rule: the origin may leave the image ONLY in mirror mode, because that is the only mode where the reflection is the same picture. `foldSliceIntoSource` pulls the origin back into `[0,1]` for the other two — but it does that to LIVE state every frame, and **keyframes are snapshots nothing sweeps**, so they keep an origin the new mode cannot express and playback silently clamps into a composition nobody authored.
+
+**A warning with a way through, not a lock.** Daniel offered both; blocking the change until every keyframe is hand-moved is a dead end when the offending keyframe may be one of twenty and is only reachable by scrubbing to it. The interrupt names the count, moving them is one click, cancel leaves everything untouched, and either way it is a single undo entry.
+
+**Desktop-only by fact, not by omission:** mobile has no motion authoring (`keyframeCount: 0`, no timeline), so there are no keyframes to strand there.
+
+---
+
 ## 🏷 v0.25.51 (Build 641) — 2026-08-17 — set / step / ramp; the deferred fold re-arms; motion re-entry
 
 **JS only. No `cap sync` needed.**

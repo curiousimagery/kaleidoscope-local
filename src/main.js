@@ -1408,14 +1408,60 @@ function wireControls() {
   });
 
   // OOB modes
+  //
+  // ⚠️ B642 — LEAVING MIRROR MODE CAN STRAND KEYFRAMES, SO ASK FIRST. Daniel: *"I save a keyframe
+  // animation in motion mode and then unlock the canvas OOB — it creates a weird state where any
+  // keyframe with the origin off source canvas is now in an unsupported state."*
+  //
+  // Exactly right, and it follows from the fold's own rule: the origin may leave the image ONLY in
+  // mirror mode, because that is the only mode where the reflection is the same picture. `clamp`
+  // smears its edge and `transparent` is empty, so `foldSliceIntoSource` pulls the origin back into
+  // [0,1] there. It does that to LIVE state every frame — but keyframes are snapshots nothing
+  // sweeps, so they keep an origin the new mode cannot express, and playback then clamps each
+  // sampled frame into a composition the operator never authored.
+  //
+  // ⚠️ THE FIX IS A WARNING WITH A WAY THROUGH, NOT A LOCK. Daniel offered both; blocking the change
+  // until every keyframe is hand-moved is a dead end when the offending keyframe may be one of
+  // twenty and is only reachable by scrubbing to it. Naming the count, then moving them, is the
+  // same information with an exit. Cancel leaves everything untouched, and the whole thing is one
+  // undo entry either way.
+  //
+  // Mobile has no motion authoring (`keyframeCount: 0`, no timeline), so this guard is
+  // desktop-only BY FACT rather than by omission — there are no keyframes to strand there.
+  const strandedByOOB = (mode) => (mode === 1 ? [] : motion.keyframes.filter((k) => {
+    const cx = k?.snap?.sliceCx ?? 0.5, cy = k?.snap?.sliceCy ?? 0.5;
+    return cx < 0 || cx > 1 || cy < 0 || cy > 1;
+  }));
+  const applyOOB = (btn, mode, fixList) => {
+    env.pushHistory();
+    for (const k of fixList) {
+      k.snap.sliceCx = Math.max(0, Math.min(1, k.snap.sliceCx ?? 0.5));
+      k.snap.sliceCy = Math.max(0, Math.min(1, k.snap.sliceCy ?? 0.5));
+    }
+    state.oobMode = mode;
+    env.commitDiscreteToKeyframes();   // discrete → all keyframes (else playback reverts to kf0)
+    document.querySelectorAll('#oobModes button').forEach(b => b.classList.toggle('active', b === btn));
+    // the snaps changed under the timeline — refresh its thumbnails, and re-adopt the (possibly
+    // moved) look at the playhead so the panel matches what will play
+    if (fixList.length) { env.scheduleFilmstrip?.(); env.reloadPlayhead?.(); }
+    scheduleRender();
+    updateUndoUI();
+  };
   document.querySelectorAll('#oobModes button').forEach(btn => {
     btn.addEventListener('click', () => {
-      env.pushHistory();
-      state.oobMode = parseInt(btn.dataset.oob);
-      env.commitDiscreteToKeyframes();   // discrete → all keyframes (else playback reverts to kf0)
-      document.querySelectorAll('#oobModes button').forEach(b => b.classList.toggle('active', b === btn));
-      scheduleRender();
-      updateUndoUI();
+      const mode = parseInt(btn.dataset.oob);
+      const stranded = strandedByOOB(mode);
+      if (!stranded.length) return applyOOB(btn, mode, []);
+      const n = stranded.length;
+      confirmInterrupt({
+        title: 'move keyframes back onto the source?',
+        body: `${n} keyframe${n === 1 ? ' has' : 's have'} the slice origin off the source. Only MIRROR can hold it there — `
+            + `${btn.textContent.trim()} would clamp ${n === 1 ? 'it' : 'them'} to the edge on playback anyway. `
+            + `Continuing moves ${n === 1 ? 'that keyframe' : 'those keyframes'} onto the source now, so what you see is what plays. One undo entry.`,
+        confirmLabel: `move ${n === 1 ? 'it' : 'them'} & switch`,
+        danger: false,
+        onConfirm: () => applyOOB(btn, mode, stranded),
+      });
     });
   });
 

@@ -105,6 +105,28 @@ const FOLD_LIVE = new URLSearchParams(location.search).get('fold') === 'live';
 // even a decision, just a dropped intention.
 let refoldTimer = 0;
 
+// ⚠️ B642 — CROSSFADE THE ROLE SWAP. Daniel: *"the color flip is a bit jarring... even a ~.5-1.5
+// second fade between states would improve the visual feel and clarify what's happening."*
+//
+// The elegant part is that **no identity tracking is needed**. At the fold, the primary copy and
+// one reflection swap membership: what was solid white becomes amber-dashed and vice versa. So
+// fading the two CLASS STYLES past each other reproduces the crossfade exactly — the incoming
+// primary starts amber and resolves to white, the outgoing one starts white and resolves to amber,
+// because each is drawn by the class it now belongs to.
+//
+// Colour and alpha only. Dash patterns do not interpolate meaningfully, and the colour is what
+// Daniel named. 900ms sits in the middle of the range he gave.
+const FOLD_FADE_MS = 900;
+let foldFadeT = 0;
+// PURE — expiry is done once per draw in drawSourceOverlayInner. A read that also cleared the
+// timer would be a trap here, because the draw both reads it and decides whether to schedule the
+// next frame from it: whichever call site happened to run first would end the animation.
+const foldFadeP = () => (foldFadeT ? Math.min(1, (performance.now() - foldFadeT) / FOLD_FADE_MS) : 1);
+// eased, and mixed toward the OTHER class's look at p=0
+const mixRGB = (a, b, t) => a.map((v, i) => Math.round(v + (b[i] - v) * t));
+const PRIMARY_RGB = [255, 255, 255];
+const REFLECT_RGB = [255, 196, 80];
+
 export function normalizeSliceMirror(env) {
   const state = env?.state;
   if (!state) return null;
@@ -122,7 +144,11 @@ export function normalizeSliceMirror(env) {
   // Perform holds a spring over sliceCx/Cy. A fold rewrites those numbers without changing what
   // they mean, so the spring has to be carried into the new frame or it chases a target that moved
   // out from under it — a full sweep of the live output, mid-show. See follow.js `remap`.
-  if (fold) env.onSliceFold?.(fold);
+  if (fold) {
+    env.onSliceFold?.(fold);
+    foldFadeT = performance.now();     // B642 — start the role-swap crossfade
+    env.scheduleOverlayDraw?.();
+  }
   return fold;
 }
 
@@ -337,19 +363,27 @@ function overlaySignature(env) {
 export function drawSourceOverlay(env, { force = false } = {}) {
   // the perform ghost trail animates independently of state (it fades and shifts every frame),
   // so it opts out of the gate rather than trying to sign a moving array of snapshots
-  if (!force && !env.performGhosts && perfFlags.overlayGated) {
+  // a fold crossfade animates on the CLOCK, not on state — so it opts out of the change gate for
+  // its ~900ms the same way the perform ghost trail does (B642)
+  if (!force && !env.performGhosts && !foldFadeT && perfFlags.overlayGated) {
     const sig = overlaySignature(env);
     if (sig === env.lastOverlaySig) return;
     env.lastOverlaySig = sig;
   } else {
     env.lastOverlaySig = null;   // a forced/ghost draw leaves no valid cache to compare against
   }
-  if (env.perfItem) { env.perfItem.begin(); try { drawSourceOverlayInner(env); } finally { env.perfItem.end(); } return; }
-  drawSourceOverlayInner(env);
+  if (env.perfItem) { env.perfItem.begin(); try { drawSourceOverlayInner(env); } finally { env.perfItem.end(); } }
+  else drawSourceOverlayInner(env);
+  // keep the crossfade running. Terminates because Inner clears foldFadeT the moment the progress
+  // reaches 1, so this cannot become a permanent redraw loop even if a form draws nothing.
+  if (foldFadeT) env.scheduleOverlayDraw?.();
 }
 
 function drawSourceOverlayInner(env) {
   const { state, engine } = env;
+  // THE one expiry point for the fold crossfade (see foldFadeP).
+  const foldFade = foldFadeP();
+  if (foldFade >= 1) foldFadeT = 0;
   if (!env.sourceOverlayCanvas || !engine.getSourceImage()) return;
   // outline stroke multiplier — 1 for the live overlay; the companion source-preview
   // render bumps it so the wedge lines read at 1920² instead of hairline.
@@ -481,6 +515,7 @@ function drawSourceOverlayInner(env) {
   // ACTUALLY pulls color from in mirror mode). drawn faintly + dashed, and
   // faded out (reflectFade) once the sampled region sprawls past the source.
   if (state.oobMode === 1 && oobAnyAxis && reflectFade > 0.01) {
+    const refFadeP = foldFade;
     const transforms = [];
     if (oobLeft)   transforms.push(({ u, v }) => ({ u: -u, v }));
     if (oobRight)  transforms.push(({ u, v }) => ({ u: 2 - u, v }));
@@ -504,9 +539,11 @@ function drawSourceOverlayInner(env) {
         else ctx.lineTo(p.x, p.y);
       });
       ctx.closePath();
-      ctx.fillStyle = `rgba(255, 196, 80, ${0.10 * reflectFade})`;
+      // ...and the reflections ease OUT from white, since one of them was the primary a moment ago.
+      const rc = mixRGB(PRIMARY_RGB, REFLECT_RGB, refFadeP);
+      ctx.fillStyle = `rgba(${rc[0]}, ${rc[1]}, ${rc[2]}, ${0.10 * reflectFade})`;
       ctx.fill();
-      ctx.strokeStyle = `rgba(255, 196, 80, ${0.6 * reflectFade})`;
+      ctx.strokeStyle = `rgba(${rc[0]}, ${rc[1]}, ${rc[2]}, ${0.6 * reflectFade})`;
       ctx.setLineDash([4, 3]);
       ctx.lineWidth = 1 * sw;
       ctx.stroke();
@@ -558,12 +595,16 @@ function drawSourceOverlayInner(env) {
   // around the loop (e[i].b === e[i+1].a), which holds for the slice polygon boundary.
   // REVERT: drop the `closed` branch + the `true` arg at the outerEdges call.
   function strokeEdges(edges, highlighted, closed) {
+    const fadeP = foldFade;
     if (edges.length === 0) return;
     // primary outline is ALWAYS solid white — "as if there were no reflection" (Daniel). The
     // fact that the wedge crosses the source edge is communicated by the reflected copies
     // (dashed amber + fill) and the dashed EDGE SEAM on the source boundary (drawn below), not
     // by dashing the whole primary. Reads honestly + form-agnostically.
-    ctx.strokeStyle = highlighted ? 'rgba(255, 255, 255, 1.0)' : 'rgba(255, 255, 255, 0.9)';
+    // B642 — during a fold crossfade the primary eases in FROM the reflection's amber, which is the
+    // colour this same copy was wearing a moment ago as a reflection.
+    const pc = mixRGB(REFLECT_RGB, PRIMARY_RGB, fadeP);
+    ctx.strokeStyle = `rgba(${pc[0]}, ${pc[1]}, ${pc[2]}, ${highlighted ? 1.0 : 0.9})`;
     ctx.setLineDash([]);
     ctx.lineWidth = (highlighted ? 2.5 : 1.5) * sw;
     const prevJoin = ctx.lineJoin;

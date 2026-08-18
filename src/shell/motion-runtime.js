@@ -2349,6 +2349,9 @@ function setupVideoExport() {
   env.renderTimeline = renderTimeline;
   env.renderRuler = renderRuler;
   env.scheduleFilmstrip = scheduleFilmstrip;
+  // B642 — re-adopt the look at the playhead after something OUTSIDE motion edits keyframe snaps
+  // (the OOB-mode guard moves stranded origins), so the panel shows what will actually play.
+  env.reloadPlayhead = () => { if (kfList().length) loadPlayheadIntoState(); };
   env.updateMotionUI = updateMotionUI;
   env.ensureSeededSelection = ensureSeededSelection;
   env.lockVideoDuration = lockVideoDuration;
