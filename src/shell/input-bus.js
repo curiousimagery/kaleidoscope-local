@@ -752,8 +752,42 @@ export function createInputBus(env) {
     el.hidden = !on.size;
   }
 
+  // ⚠️ B650 — MIGRATE A RIG WHOSE DEVICE KEY CHANGED UNDER IT. The pad key became vendor+product
+  // (shell/gamepad-input.js), which renames the device half of every `pad:` signal. Mappings match
+  // on exact sig equality, so without this an existing rig would simply stop binding on upgrade —
+  // the exact failure the change is meant to end, arriving from the other direction.
+  //
+  // Runs against CONNECTED pads only and only when the old key actually has maps and the new one
+  // does not, so it cannot fire twice, cannot invent a device, and cannot clobber a rig already
+  // built on the new key. Silent by design: nothing about it is a decision for the operator.
+  function migratePadKeys() {
+    const renames = pads.renames?.();
+    if (!renames?.size) return;
+    let changed = false;
+    for (const [old, key] of renames) {
+      const from = `pad:${old}.`, to = `pad:${key}.`;
+      // Match on the SIG, not on `dev` — the sig is what decides binding, so repairing from it also
+      // heals a row whose `dev` drifted, and cannot miss a row that has one.
+      if (!store.maps.some((m) => m.sig?.startsWith(from))) continue;
+      if (store.maps.some((m) => m.sig?.startsWith(to))) continue;   // already on the new key
+      for (const m of store.maps) {
+        if (!m.sig?.startsWith(from)) continue;
+        m.sig = to + m.sig.slice(from.length);
+        m.dev = key;
+        if (m.withMod?.startsWith(from)) m.withMod = to + m.withMod.slice(from.length);
+      }
+      if (store.devices[old]) {
+        store.devices[key] = { ...store.devices[old], ...(store.devices[key] || {}) };
+        delete store.devices[old];
+      }
+      changed = true;
+    }
+    if (changed) save();
+  }
+
   // ---- the inputs tab -------------------------------------------------------------
   function refreshDevices() {
+    migratePadKeys();
     // remember every device we see, so it lists (offline) after disconnect
     for (const [key, name] of online()) {
       if (!store.devices[key]) { store.devices[key] = { name }; save(); }

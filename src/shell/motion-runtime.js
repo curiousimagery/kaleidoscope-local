@@ -1122,11 +1122,24 @@ function freezePreview() {
   const c = document.createElement('canvas');
   c.width = previewCanvas.width; c.height = previewCanvas.height;
   try { c.getContext('2d').drawImage(previewCanvas, 0, 0); } catch { return; }
-  c.style.cssText = `position:fixed;left:${r.left}px;top:${r.top}px;width:${r.width}px;height:${r.height}px;z-index:6;pointer-events:none`;
+  // ⚠️ B649 — HIDE THE LIVE CANVAS, DON'T MERELY COVER IT. The snapshot inherits the output's
+  // ALPHA, so under transparent OOB it is not an occluder at all: Daniel saw the borrowed canvas
+  // cycling thumbnails through the transparent regions (*"the bottom layer is the solid fill, then
+  // the thumbnails, then the actual output content"*). Under opaque OOB the same bug exists and is
+  // simply invisible, which is why it survived this long. The canvas carries its own CSS background
+  // (main.js), so the snapshot inherits that too — hiding the real canvas would otherwise drop the
+  // backdrop out of the composite for the length of the build.
+  const bg = getComputedStyle(previewCanvas).backgroundColor;
+  c.style.cssText = `position:fixed;left:${r.left}px;top:${r.top}px;width:${r.width}px;height:${r.height}px;z-index:6;pointer-events:none;background:${bg}`;
   document.body.appendChild(c);
   env.filmstrip.freezeEl = c;
+  previewCanvas.style.visibility = 'hidden';
 }
-function unfreezePreview() { if (env.filmstrip.freezeEl) { env.filmstrip.freezeEl.remove(); env.filmstrip.freezeEl = null; } }
+function unfreezePreview() {
+  if (!env.filmstrip.freezeEl) return;
+  previewCanvas.style.visibility = '';   // restore BEFORE lifting the cover, so there is no bare frame
+  env.filmstrip.freezeEl.remove(); env.filmstrip.freezeEl = null;
+}
 
 // Filmstrip async-build state lives in `env.filmstrip`: timer (debounce), lastSig
 // (content signature → skip unchanged rebuilds), gen (cancellation token, also bumped

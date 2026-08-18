@@ -6,6 +6,64 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🎛 v0.25.60 (Build 650) — 2026-08-18 — A gamepad rig is now portable across browsers and machines
+
+**JS only. No `cap sync` needed.**
+
+### Shipped
+
+- **Gamepad mappings key on the controller's vendor+product pair** instead of the browser's name for it, so a rig saved in one engine binds in another.
+- **Existing rigs migrate themselves** on first sight of the controller — silently, in place, once.
+- **Device names read the same in every engine** (Gecko's `054c-0ce6-` prefix is stripped for display).
+- **Two identical controllers now MERGE onto their shared mapping** instead of fighting over it.
+
+### `gp.id` is browser-specific by spec
+
+Daniel saved a DualSense rig out of Electron, loaded it into Firefox web, and nothing bound. The cause is a one-line fact with a long tail: mappings match on exact `m.sig` equality, a pad signal is `pad:<device>.a0`, and the device half came from `gp.id` — which the engines report differently on purpose:
+
+```
+Chromium  DualSense Wireless Controller (STANDARD GAMEPAD Vendor: 054c Product: 0ce6)
+Gecko     054c-0ce6-DualSense Wireless Controller
+```
+
+Different slug → different signal name → no match. **Every repair he reached for was doomed for a different reason**, which is worth recording because each one is a UI affordance that lied: renaming the device does nothing (the editable name is a display string; the key was never editable), deleting the stale device does nothing (the imported *mappings* carry the wrong prefix, not the device row), and dragging a row onto the other device does nothing (that drag reorders within a list and has no notion of re-homing).
+
+Keying on vendor+product makes portability structural rather than something to reconcile. When neither id shape parses we fall back to the old slug, so an exotic controller is exactly as well off as before.
+
+**One honest limit: his existing exported `fold-rig.json` will still not bind.** A rig exported before B650 carries the old slug, and Chromium's slug is truncated at 40 characters *before* the vendor digits appear — there is nothing in that file to recover the numbers from. Re-export from the updated app once and it travels from then on. Rigs already in `localStorage` migrate in place and need no action.
+
+### Two identical controllers were already fighting
+
+Daniel, on the shared key: *"if they shared a vendor-product device key would they both just necessarily have to use the same mapping? that actually feels like a benefit that forces them to sync."*
+
+They do share — and **they already did**, because `gp.id` carries no serial number, so two DualSenses collapsed to one slug before this change too. What they did not do is *merge*. Each pad emitted the same signal name with its own value every frame, and the change filter passed both, so the bus saw a **60Hz alternation between two controllers** rather than one shared control. The intended behaviour was never reachable; this is a latent bug the new key exposed, not a cost it introduced.
+
+Now merged per shared key: a button is down if **any** unit holds it, an axis takes the **largest deflection by magnitude**. Both mean "either controller drives it", and neither lets a resting stick at 0 fight one being pushed. Two identical pads also list as one device row rather than two.
+
+Verified by harness across all three engine id shapes (`padkey-check`) and against a stubbed two-pad poll (`padmerge-check`): merge on any-press and largest-deflection, a single emit per change, no alternation while both are held, and a clean return to 0 when both release.
+
+---
+
+## 🫥 v0.25.59 (Build 649) — 2026-08-18 — A transparent snapshot is not an occluder
+
+**JS only. No `cap sync` needed.**
+
+### Shipped
+
+- **The live canvas is now hidden while the filmstrip borrows it**, instead of merely being covered by a snapshot of itself.
+
+### Transparent OOB made a long-standing bug visible
+
+Daniel, on transparent OOB: *"the thumbnails only show behind the content on the output canvas. the bottom layer is the solid fill, then the thumbnails, then the actual output content."* That layer order is the whole diagnosis, and it is a **Class 1** question — answered by reading code, with no device session spent.
+
+The video filmstrip builds asynchronously (a seek per cell), so the browser paints between cells. `engine.captureFrame` renders into **the live preview canvas** — the engine comment says so plainly: *"The GL canvas IS the live preview canvas."* `freezePreview()` was written to cover that with a 2D snapshot at `z-index: 6`.
+
+**A snapshot of a transparent output is transparent.** It occludes nothing where the output has alpha, so the borrowed canvas cycling thumbnails shows straight through. Under opaque OOB the same borrow happens and is simply invisible — the bug predates transparent OOB, which only made it observable.
+
+Fixed by hiding the real canvas (`visibility: hidden`) for the duration of the build. The canvas carries its own CSS background (`main.js`), so the snapshot now carries that background too — otherwise hiding the canvas would drop the backdrop out of the composite for the length of the build. Every other capture caller (`controls.js`, video export) already used `display: none` and was never affected; this was the single instance relying on a snapshot to hide something.
+
+---
+
 ## 🎯 v0.25.58 (Build 648) — 2026-08-18 — The overlay's change gate may not skip a canvas it has never drawn
 
 **JS only. No `cap sync` needed.**

@@ -404,16 +404,13 @@ The fold's primary/reflection colour crossfade (B642) covers the polygon forms, 
 
 **Deliberately not half-threaded** — a form where only the reflection crossfades would read worse than one that cuts cleanly. The fix is to route droste's outline colours through a shared helper that takes the fade, which is a tidy-up of that file worth doing on its own terms rather than inside a polish change.
 
-### 👻 [Daniel, B647] TRANSPARENT OOB REVEALS THUMBNAIL GENERATION
+### 🎛 [Daniel, B649 → part 1 SHIPPED B650] RE-HOMING A MAPPING TO A DIFFERENT DEVICE
 
-*"Transparent lets us see the thumbnail generation job in the background... we shouldn't see the rapid sequence of thumbnails getting generated even when the canvas OOB is set to transparent."*
+**B650 shipped the canonical vendor+product device key**, which fixes the common case: same controller, different browser or machine. Whole-rig export stays as-is — Daniel: *"lets keep the current behavior to copy everything in one go."*
 
-**Not fixed — the mechanism is not confirmed and there are two candidates that need OPPOSITE fixes.** `previewCanvas` already carries `style.background = '#1a1a1a'`, so a transparent pixel should reveal that, not a thumbnail. So either:
+**Still open: the case a canonical key cannot fix** — a *different* controller model inheriting a rig (Xbox pad onto a DualSense layout), or MIDI ports named differently per OS (MIDI still keys on `slug(input.name)`). Daniel's instinct was to drag a mapping row onto the other device, which is the argument for building exactly that: **drop a row on a device header to rewrite the device half of its sig.** Cheap, and it is the affordance he already expected to exist.
 
-1. **Thumbnail renders land on the VISIBLE GL canvas** (`captureFrame` → `renderToCanvas`) and are normally overwritten too fast to notice, becoming visible only where the output is transparent. Fix: render thumbs to an FBO, never to the presented canvas.
-2. **Something behind the canvas is showing through** — in which case the CSS background is being defeated (a transparent parent, or the canvas being composited differently under blending). Fix: an opaque layer, as Daniel suggested.
-
-**The discriminator is one look:** does the thumbnail flash occupy the whole canvas or only the transparent regions? Whole canvas → cause 1. Only the holes → cause 2. **Do not ship a fix before that is answered** — this session has already spent three builds on fixes aimed at the wrong cause.
+Worth pairing with it: the device key is invisible and uneditable, and three separate affordances silently did nothing when it mismatched (rename, delete, drag). Whatever ships here should make the mismatch *legible* — an imported rig referencing a device that is not connected should say so rather than appear to have loaded fine.
 
 ### 🖱 [Daniel, B647→B648] FIREFOX: CURSORS OVER THE SOURCE ARE PLAIN ARROWS — INTERMITTENT, LIKELY FIXED
 
@@ -421,7 +418,7 @@ Firefox only; Brave is fine. **The symptom discriminates and it points AWAY from
 
 **▶ B648 FOUND A REAL MECHANISM AND FIXED IT — but it is unconfirmed as THE cause.** Daniel's follow-up that it stopped reproducing is what pointed the way: an encoding failure is deterministic, so intermittency argues for lifecycle. The overlay's change gate could skip a draw on a freshly re-mounted canvas (signature unchanged → no draw → `_geom` never written → every hit test null → `default` cursor), and it would stay that way until an unrelated value moved. The gate now refuses to skip when there is no cached geometry.
 
-**If it recurs on B648+**, the discriminator still stands: any resize-style cursor over the outline means the cursor ART is failing; a plain arrow everywhere means hit-testing, and the next place to look is why `_geom` is stale rather than absent.
+**▶ B649 — Daniel: *"hasn't repo'd and this seems to have been a one of state issue. i'll watch it."*** Left open at LOW rather than closed, because the fix is unconfirmed and a bug that stopped reproducing is not a bug that was proven fixed. **If it recurs on B648+**, the discriminator still stands: any resize-style cursor over the outline means the cursor ART is failing; a plain arrow everywhere means hit-testing, and the next place to look is why `_geom` is stale rather than absent.
 
 ### 🐢 [B636→B640, Daniel] iPAD GESTURE-SURFACE LATENCY — UX POLISH
 

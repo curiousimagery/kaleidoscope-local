@@ -90,6 +90,26 @@ This retires the confusion, not just a hypothesis. Resolution was free because t
 
 ## current version
 
+**🎛 B650 — A GAMEPAD RIG IS PORTABLE NOW. JS only.**
+
+Pad mappings key on the controller's **vendor+product** pair, not the browser's name for it. `gp.id` is browser-specific by spec (Chromium `...(STANDARD GAMEPAD Vendor: 054c Product: 0ce6)` vs Gecko `054c-0ce6-...`), mappings match on exact sig equality, so an Electron rig could not bind in Firefox. Unparseable ids fall back to the old slug. Existing `localStorage` rigs migrate themselves in place on first sight of the controller, keyed off the sig prefix (so a drifted `dev` heals too), guarded so it cannot fire twice or clobber a rig already on the new key.
+
+**⚠️ Daniel's already-exported `fold-rig.json` will still not bind** — it carries the old slug, and Chromium's is truncated at 40 chars before the vendor digits, so there is nothing in the file to recover. **Re-export once from B650+ and it travels.** Say this if he reports the old file still failing; it is expected, not a regression.
+
+**Two identical controllers now MERGE** (any-press for buttons, largest-deflection for axes) and list as one device row. They already shared a key — `gp.id` has no serial — but each emitted the same signal with its own value every frame, so the bus saw a 60Hz alternation. That was a latent bug, not a cost of the new key. Daniel's read was right: *"that actually feels like a benefit that forces them to sync."*
+
+**Harnesses:** `padkey-check` (all three engine id shapes agree per controller; unknown shapes stay distinct), `padmerge-check` (merge semantics, single emit per change, clean return to 0).
+
+**Still open, in BACKLOG:** re-homing a mapping to a *different* device (different controller model; MIDI still keys on port name, which differs per OS) — drop a row on a device header. Whole-rig export stays as-is by Daniel's call.
+
+**🫥 B649 — A TRANSPARENT SNAPSHOT IS NOT AN OCCLUDER. JS only.**
+
+Daniel's layer order settled it in one line: *"the bottom layer is the solid fill, then the thumbnails, then the actual output content."* The video filmstrip builds async (a seek per cell), `engine.captureFrame` renders into **the live preview canvas** (the engine says so: *"The GL canvas IS the live preview canvas"*), and `freezePreview()` covered that with a 2D snapshot — which, being a snapshot of a transparent output, occludes nothing where the output has alpha. **The live canvas is now hidden outright for the build**, with the canvas's own CSS background carried onto the snapshot so the composite is unchanged. The bug predates transparent OOB; opaque OOB only hid it. Every other capture caller already used `display: none`.
+
+**▶ MY OWN DISCRIMINATOR WAS WRONG, AND THAT IS THE LESSON.** BACKLOG predicted "whole canvas → renders land on the visible canvas / only the holes → something shows through". The answer was *only the holes* and the cause was *renders landing on the visible canvas* — because I had enumerated two mechanisms without checking whether a third thing (the freeze layer) sat between them. **A discriminator built from an unverified list of causes can point confidently at the wrong one.** Daniel's observation was still what solved it; the prediction attached to it was not.
+
+**▶ DANIEL CONFIRMED AT B649:** the fast live transition between primary and reflected states *"feels fantastic"*. Firefox cursors have not recurred (watching, not closed).
+
 **🎯 B648 — THE CHANGE GATE MAY NOT SKIP A CANVAS IT HAS NEVER DRAWN. JS only.**
 
 Daniel's Firefox cursor report **stopped reproducing**, and that is the finding: an encoding failure would be deterministic, so intermittency moves it to lifecycle. `_geom` is written at the END of a draw and read by `classifyPointer` — without it every hit test is `mode: null` and every cursor is `default` (a plain arrow, NOT the `move`/`ew-resize` a failed cursor URL would give). A re-mount hands over a fresh canvas; if state has not changed the signature matches, the draw is skipped, and the new canvas never gets geometry — until something unrelated moves. **The gate now requires cached geometry before it may skip.** A real contract violation regardless; unconfirmed as Daniel's exact case.
