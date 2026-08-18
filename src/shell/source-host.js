@@ -1177,6 +1177,31 @@ export function createSourceHost(env) {
     }
     if (srcSeekNext != null) { const n = srcSeekNext; srcSeekNext = null; scrubStillFrame(n); }
   }
+  // ⚠️ B654 — THE ONE SCRUB ENTRY POINT. Daniel on B653's perform ruler: *"scrubbing on the
+  // timeline in perform updates near instantly and scrubbing via the ruler pauses a beat before
+  // updating. it doesn't seem like there should need to be any gap in perf parity."*
+  //
+  // He is right, and there was no reason for a gap except that B653 wrote its OWN seek instead of
+  // calling this one. `scrubStillFrame` is not just `clock.seek` — it **coalesces latest-wins** so a
+  // drag never queues a backlog of seeks, uses `seekSettled` + `refreshFrame` on the native path,
+  // cancels a running thumb pass that would fight it, and repaints the engine and overlay
+  // synchronously. A bare `seek()` per pointermove has none of that, which is exactly a beat of lag.
+  //
+  // So the scrub is exported as ONE function taking a normalised position, and every surface that
+  // scrubs the source calls it. This is the project's standing rule (a behaviour needed in two
+  // places moves to a shared home rather than being written twice) applied to the thing that just
+  // broke it.
+  env.scrubSourceTo = (p) => {
+    const q = Math.max(0, Math.min(1, p));
+    const head = document.getElementById('srcScrubHead');
+    if (head) head.style.left = (q * 100) + '%';   // the playhead tracks the pointer immediately
+    scrubStillFrame(q);                            // the frame lands via the coalesced seek
+  };
+  // a scrub owns the decoder — let a surface finish the thumb pass it interrupted
+  env.scrubSourceSettle = () => {
+    if (srcStrip.dirty) setTimeout(() => { if (!srcSeekBusy && !srcStrip.building && srcStrip.dirty) buildSrcStrip(); }, 300);
+  };
+
   // drag anywhere on the mini timeline — the playhead line tracks the pointer
   // immediately; the actual frame lands via the coalesced seek.
   (function wireSrcScrub() {
@@ -1185,10 +1210,7 @@ export function createSourceHost(env) {
     let down = false;
     const at = (e) => {
       const r = track.getBoundingClientRect();
-      const p = Math.max(0, Math.min(1, (e.clientX - r.left) / Math.max(1, r.width)));
-      const head = document.getElementById('srcScrubHead');
-      if (head) head.style.left = (p * 100) + '%';
-      scrubStillFrame(p);
+      env.scrubSourceTo((e.clientX - r.left) / Math.max(1, r.width));
     };
     track.addEventListener('pointerdown', (e) => {
       down = true;
@@ -1200,9 +1222,7 @@ export function createSourceHost(env) {
     const up = (e) => {
       down = false;
       track.releasePointerCapture?.(e.pointerId);
-      // finish a thumb pass the scrub cut short — after the coalesced seek settles,
-      // so the rebuild's seeks never race the scrub's
-      if (srcStrip.dirty) setTimeout(() => { if (!srcSeekBusy && !srcStrip.building && srcStrip.dirty) buildSrcStrip(); }, 300);
+      env.scrubSourceSettle();   // finish a thumb pass the scrub cut short (shared with the ruler)
     };
     track.addEventListener('pointerup', up);
     track.addEventListener('pointercancel', up);

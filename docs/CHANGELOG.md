@@ -6,6 +6,51 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🔎 v0.25.65 (Build 655) — 2026-08-18 — The unified zoom is mappable
+
+**JS only. No `cap sync` needed.**
+
+### Shipped
+
+- **A third zoom target, `unified zoom`**, driving canvas and slice together exactly as a pinch does.
+- `canvas zoom` and `slice scale` are **unchanged** and remain the direct one-axis controls.
+- A `delta` target hook, and `deltaOnly` so a target that has no position never offers `set`.
+
+### The last unfinished piece of item 1.5 stage B
+
+Daniel first hit this from the product side at B619 mapping a DualSense, and restated it at B654: *"there's absolutely value in being able to add the third, in particular with a rotary control on a midi interface that can control both seamlessly."* `applyUnifiedZoom` was shared between the canvas pinch and the remote pinch, and **the hardware path was never connected to it** — a knob could drive `canvasZoom` or `sliceScale` but never what a pinch actually does.
+
+**Additive by explicit instruction:** *"discrete slice and canvas zoom inputs are more valuable than unified zoom so we don't want to get rid of them."* Both stay exactly as they were.
+
+**Step and ramp only, and that is the model rather than a shortcut.** Unified zoom is a multiplicative delta distributed across two fields whose overflow excursions are deliberately path-dependent, so there is no well-defined position → (`sliceScale`, `canvasZoom`) mapping for a fader to hold. A pot resting at its maximum would keep re-applying the overflow and walk the slice on its own. `deltaOnly` says so in the UI instead of offering a mode that cannot work; a rig that somehow stores `abs` falls back to stepping, the same shape as the existing discrete/rate fallback.
+
+A press is sized by the same log span as canvas zoom (both 0.05 → 4), so **the same press is the same perceived percentage on either target** — measured at 19%, matching the ~20% Daniel confirmed at B623.
+
+Harness (`unified-target-check`): a press matches canvas zoom's size; mid-range drives the canvas with the slice held; a step out exactly undoes a step in; both walls overflow into the slice rather than dead-ending; the overflow is bounded, not runaway; a zero step changes nothing.
+
+**One extraction worth noting:** `writeParam`'s tail (schedule render, schedule overlay, rate-limited control sync) is now `afterParamWrite()`, because the `delta` path never goes through `writeParam` and the two would otherwise have been two copies of the same four lines.
+
+---
+
+## 🏃 v0.25.64 (Build 654) — 2026-08-18 — One scrub entry point
+
+**JS only. No `cap sync` needed.**
+
+### Shipped
+
+- **The perform ruler scrubs at the same speed as the footer timeline**, by calling the same function instead of its own.
+- `env.scrubSourceTo(p)` / `env.scrubSourceSettle()` — the shared source scrub.
+
+### B653 wrote its own seek, and that was the whole bug
+
+Daniel: *"scrubbing on the timeline in perform updates near instantly and scrubbing via the ruler pauses a beat before updating. it doesn't seem like there should need to be any gap in perf parity."*
+
+He is right that there is no reason for a gap, and the cause is the project's own standing rule broken by the build that shipped two days of work around it. **`scrubStillFrame` is not `clock.seek`.** It coalesces latest-wins so a drag never queues a backlog of seeks, uses `seekSettled` + `refreshFrame` on the native path, stands down a running thumb pass that would otherwise fight it for the decoder, and repaints engine and overlay synchronously. B653 called a bare `seek()` per `pointermove` and got none of that — which is exactly a beat of lag, and gets worse the faster you drag.
+
+The fix is not to copy those four behaviours across. It is that **a behaviour needed in two places moves to a shared home**: both surfaces now call `env.scrubSourceTo(p)` with a normalised position in the same trimmed frame, and both hand the thumb pass back through `env.scrubSourceSettle()`.
+
+---
+
 ## ⏩ v0.25.63 (Build 653) — 2026-08-18 — The perform time ruler scrubs
 
 **JS only. No `cap sync` needed.**

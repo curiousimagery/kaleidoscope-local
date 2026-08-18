@@ -728,8 +728,14 @@ export function createPerformRuntime(env) {
   //
   // It reads in the RETIMED, TRIMMED frame the ruler labels (`renderPfRuler`): the fraction along
   // the ruler is a fraction of the trimmed span, so playback speed rescales the labels and the
-  // scrub together and a click always lands under the number printed above it. Seeking uses the
-  // source clock rather than the <video> directly, so it is correct on the native decode path too.
+  // scrub together and a click always lands under the number printed above it.
+  //
+  // ⚠️ B654 — IT CALLS `env.scrubSourceTo`, THE SAME FUNCTION THE FOOTER TIMELINE USES. B653 wrote
+  // its own `clock.seek()` per pointermove and Daniel felt the difference immediately: *"scrubbing
+  // on the timeline in perform updates near instantly and scrubbing via the ruler pauses a beat."*
+  // The shared scrub coalesces latest-wins, uses `seekSettled` + `refreshFrame` on the native path,
+  // stands the thumb pass down and repaints synchronously; a bare seek has none of that. Both
+  // surfaces take a normalised position in the same trimmed frame, so there is nothing to convert.
   //
   // No pinch/pan twin of motion's gesture here — perform's ruler has no zoom to drive; a second
   // finger simply keeps scrubbing from the first.
@@ -737,12 +743,8 @@ export function createPerformRuntime(env) {
   if (pfRuler) {
     let rScrub = false;
     const seekToX = (clientX) => {
-      const sp = trimSpan(), clock = env.sourceClock;
-      if (!sp || !clock?.present) return;
       const r = pfRuler.getBoundingClientRect();
-      const p = Math.min(1, Math.max(0, (clientX - r.left) / (r.width || 1)));
-      clock.seek(sp.inSec + p * sp.span);
-      env.updateSrcScrub?.();
+      env.scrubSourceTo?.((clientX - r.left) / (r.width || 1));
     };
     pfRuler.addEventListener('pointerdown', (e) => {
       if (pfRuler.hidden) return;
@@ -756,6 +758,7 @@ export function createPerformRuntime(env) {
       if (!rScrub) return;
       rScrub = false;
       pfRuler.releasePointerCapture?.(e.pointerId);
+      env.scrubSourceSettle?.();   // finish the thumb pass this scrub cut short
     };
     pfRuler.addEventListener('pointerup', endScrub);
     pfRuler.addEventListener('pointercancel', endScrub);

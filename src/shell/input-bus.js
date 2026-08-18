@@ -29,7 +29,7 @@ import { createGamepadInput } from './gamepad-input.js';
 import { createTrackpadInput } from './trackpad-input.js';
 import { createRemoteInput } from './remote-input.js';
 import qrcode from 'qrcode-generator';   // QR pairing (Daniel-approved dependency, MIT, zero-dep)
-import { applyUnifiedZoom } from '../kit/zoom.js';   // shared unified zoom — the canvas pinch routes here too
+import { applyUnifiedZoom, Z_CANVAS_MIN, Z_CANVAS_MAX } from '../kit/zoom.js';   // shared unified zoom — the canvas pinch routes here too
 import { panDelta } from '../kit/pan.js';            // shared canvas-pan gain — the remote drag pans identically to touch
 import { FORMS, getActiveForm, formPanLocked, formCanvasNorm } from '../engine/forms/index.js';   // pannability + the shader's effective zoom; FORMS builds the per-form mapping actions
 
@@ -157,6 +157,30 @@ const PARAM_TARGETS = [
     resolve: (s) => s.form === 'droste'
       ? { key: 'drosteZoomPhase', min: 0, max: 1, wrap: true, wrapPeriod: 1, relSpan: 3.5, geometric: false }
       : { key: 'canvasZoom', min: 0.05, max: 4, geometric: true } },
+  // ⚠️ B655 — THE UNIFIED ZOOM AS A MAPPING TARGET. Daniel (B619, restated B654): his DualSense
+  // layout only works if ONE control can drive the pair — *"there's absolutely value in being able
+  // to add the third, in particular with a rotary control on a midi interface that can control both
+  // seamlessly."* This was the last unfinished piece of item 1.5 stage B: `applyUnifiedZoom` was
+  // shared between the canvas pinch and the remote pinch, and the HARDWARE path was never connected
+  // to it, so a knob could drive `canvasZoom` or `sliceScale` but never what a pinch actually does.
+  //
+  // **ADDITIVE. `canvas zoom` and `slice scale` are untouched and stay the direct one-axis
+  // controls** — Daniel: *"discrete slice and canvas zoom inputs are more valuable than unified zoom
+  // so we don't want to get rid of them."* This is a third option, not a replacement.
+  //
+  // ⚠️ STEP AND RAMP ONLY, and that is a property of the model rather than a shortcut. Unified zoom
+  // is defined as a multiplicative DELTA distributed across two fields, and its overflow excursions
+  // are deliberately path-dependent (see kit/zoom.js). There is therefore no well-defined position →
+  // (sliceScale, canvasZoom) mapping for a fader to hold: a pot resting at its maximum would keep
+  // re-applying the overflow and walk the slice on its own. `deltaOnly` is what says so in the UI
+  // instead of offering a mode that cannot work.
+  //
+  // `delta` receives the LOG step the geometric machinery already computes, so a press here is the
+  // same perceived percentage as the same press on canvas zoom (identical `geoSpan`, both 0.05→4).
+  { key: 'unifiedZoom', label: 'unified zoom  (canvas + slice, like a pinch)',
+    min: Z_CANVAS_MIN, max: Z_CANVAS_MAX, dir: 'zoomed out → zoomed in',
+    geometric: true, deltaOnly: true,
+    delta: (s, logStep) => applyUnifiedZoom(s, Math.exp(logStep)) },
   { key: 'canvasRotation', label: 'canvas rotation', min: 0, max: 360, wrap: true, dir: '0° → 360°' },
   // TILING PAN. `abs` maps a fader across ±2 units (~one lattice period); REL/RATE drift it.
   //
@@ -500,6 +524,11 @@ export function createInputBus(env) {
     // a DISCRETE target stored as `rate` by an older rig falls back to stepping (B620). The mode
     // dropdown no longer offers rate here, but a mapping saved before that still says so, and the
     // rate loop against a snap is a stutter rather than a control.
+    // a DELTA-ONLY target stored as `abs` falls back to stepping (B655) — the same shape as the
+    // discrete/rate fallback below. The dropdown never offers it, but a hand-edited or
+    // forward-migrated rig could still say so, and writing an absolute value would invent a state
+    // field that nothing reads.
+    if (m.mode === 'abs' && t.delta) m = { ...m, mode: 'rel' };
     if (m.mode === 'rate' && t.nudge) {
       const dir = Math.sign(value) * (m.invert ? -1 : 1);
       if (dir) { t.nudge(state, dir, env); env.scheduleRender?.(); env.syncControls?.(); }
@@ -541,6 +570,14 @@ export function createInputBus(env) {
       // already confirmed; droste thickness lands at ~12% per press, flat from 1.1 to 16.
       let d = (meta.momentary ? Math.sign(value) : value) * (t.geometric ? geoSpan(t) * GEO_K : relSpan) * sens;
       if (m.invert) d = -d;
+      // A target that owns its own RELATIVE application takes the LOG step directly, before the
+      // additive conversion below — because it is not an assignment to one field at all (B655).
+      // No spring glide here: the goal would have to be an absolute value, and this target has
+      // none. A pinch has no easing either, so a step reads the same as the gesture it mirrors.
+      if (t.delta) {
+        if (d) { t.delta(state, d, env); touchGesture(); afterParamWrite(); }
+        return;
+      }
       // ...then convert the log-step into the additive delta the glide below expects, so spring
       // smoothing and chained-press velocity continuity are untouched.
       if (t.geometric) d = (state[t.key] ?? 1) * (Math.exp(d) - 1);
@@ -594,6 +631,13 @@ export function createInputBus(env) {
     // and cascades). Everything downstream — render, overlay, control sync — still runs here.
     if (t.write) t.write(state, v, env);
     else state[t.key] = v;
+    afterParamWrite();
+  }
+
+  // the tail every param write shares: schedule the render + overlay, and sync the controls at a
+  // bounded rate. Extracted at B655 so a `delta` target (which never goes through writeParam)
+  // cannot drift from it — the two would otherwise be two copies of the same four lines.
+  function afterParamWrite() {
     env.scheduleRender?.();
     env.sourceOverlay?.scheduleDraw?.();
     const now = performance.now();
@@ -657,6 +701,7 @@ export function createInputBus(env) {
         // so a held deflection feels the same at the thin and thick ends of the range.
         const rt = targetOf(r.key);
         const step = r.d * r.span * r.sens * 2.4 * dt;
+        if (rt?.delta) { rt.delta(state, step, env); afterParamWrite(); continue; }   // B655
         writeParam(rt, rt?.geometric ? (state[r.key] ?? 1) * Math.exp(step) : (state[r.key] ?? 0) + step);
       }
       for (const [k, g] of glide) {
@@ -1078,7 +1123,10 @@ export function createInputBus(env) {
     // frame, which against a snap is a stuttering ramp rather than a control. `abs` stays — a fader
     // across the legal range is a legitimate way to drive segments — and `rel` is the button case.
     const isDiscreteT = !!targetOf(m.target)?.discrete;
-    const modes = (isDelta ? ['rel'] : isDiscreteT ? (momentary ? ['rel'] : ['abs', 'rel']) : momentary ? ['rel', 'rate'] : ['abs', 'rel', 'rate'])
+    // B655 — a target whose write is a multiplicative DELTA has no position to hold, so it never
+    // offers `set` (see the unified-zoom entry for why that is the model, not a gap).
+    const deltaOnlyT = !!targetOf(m.target)?.deltaOnly;
+    const modes = (isDelta ? ['rel'] : isDiscreteT ? (momentary ? ['rel'] : ['abs', 'rel']) : deltaOnlyT ? ['rel', 'rate'] : momentary ? ['rel', 'rate'] : ['abs', 'rel', 'rate'])
       .map((md) => `<option value="${md}"${m.mode === md ? ' selected' : ''}>${MODE_LABEL[md]}</option>`).join('');
     // B620 — a DISCRETE target steps one legal value per press, so a percentage here would be a
     // lie. Daniel: *"segments shouldn't be a percentage, they're abs integers."* The column shows

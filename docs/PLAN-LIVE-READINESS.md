@@ -86,10 +86,10 @@ All three questions are answered. **Do not extend this session; it is done.**
 | # | item | state |
 |---|---|---|
 | 1 | learn defaults to `sliceRotation` | ✅ B619 |
-| 2 | semantic `zoom` resolves key but not MODE | 🟡 **open — top unblocked item** |
-| 2b | **no target reaches the UNIFIED zoom** | 🟡 **open — the clearest unfinished stage-B gap** |
+| 2 | semantic `zoom` resolves key but not MODE | ✅ **SHIPPED B621+B623, confirmed by reading the registry at B653.** `resolve()` returns `wrap`/`wrapPeriod`/`relSpan`/`geometric` per form, which IS the control mode. The `abs`-fader-sweeps-one-loop behaviour was settled as CORRECT by decision; the real defect was the nudge size, fixed by `relSpan: 3.5` |
+| 2b | **no target reaches the UNIFIED zoom** | ✅ **SHIPPED B655.** A third target (`unified zoom`) drives the pair as a pinch does; `canvas zoom` and `slice scale` untouched by Daniel's instruction. Step/ramp only — the model has no absolute position to hold. **This closes stage B** |
 | 2c | discrete targets stepped by a percentage | ✅ B621 (`nudge`) |
-| 3 | per-form ranges for `sliceScale` | 🟡 open, unblocked since B618 |
+| 3 | per-form ranges for `sliceScale` | 🟡 open, unblocked since B618. **Confirmed still flat at B653** (`min: 0.05, max: 5`, no `resolve`) though every form has declared `zoomCover`/`zoomInFloor` since B618 |
 | 4 | `slice position x/y` address the ORIGIN, not the box centre | 🟡 open — `write` hook (B619) makes it implementable |
 | 5 | missing targets (form, segments, oob, droste toggles) | ✅ B619 + B621 (`last form`) + B623 (resets) |
 | 6 | trackpad zoom judder | 🟡 open |
@@ -99,11 +99,11 @@ All three questions are answered. **Do not extend this session; it is done.**
 | 10 | droste infinite-zoom loop | ✅ **ROOT-CAUSED + FIXED B623.** Underlying period loss in `setTarget` still open |
 | 11 | droste zoom press ~6× too small | ✅ B622 (`relSpan`) |
 | 12 | canvas zoom steps disproportional when zoomed out | ✅ B623 (`geometric`) |
-| — | **stage C: ownership and handoff** | 🔴 **NOT STARTED. Largest remaining piece of 1.5** |
+| — | **stage C: ownership and handoff** | 🟠 **The SYMPTOM is gone, the architecture is not built.** Daniel at B654: *"i've attempted to repo and the handoffs are feeling smooth now."* The B636-B640 gesture gate answered "is some input still moving this", which is most of the practical jerk. **What stage C still owes is the product question**, now filed concretely: locks not blocking MIDI/gamepad (BACKLOG, B655) is "may this input write this field", the same question |
 
 **▶ B630 STATUS: every item Daniel approved is now shipped.** The modifier layer (B629), the duplicate-binding prompt (B629), the source-swap diagnostic (B630) and the off-canvas origin (B630) are all in. **Stage C (ownership and handoff) is now the only unstarted piece of 1.5**, and the shared-quantity audit ran at B627.
 
-**▶ WHAT I WOULD DO NEXT, in order.** (2b) unified-zoom target, because Daniel's own controller layout depends on it and it is the last piece of stage B. Then (2) zoom mode. Then (4) box-centre semantics, which is small now that `write` exists. Then **stage C**, which is the real remaining architecture and also the answer to the B621 open question about one button meaning different things per form — "which input owns this field" and "which mapping row is live" are one problem.
+**▶ WHAT I WOULD DO NEXT, in order.** ~~(2b) unified-zoom target~~ (shipped B655 — stage B closed). ~~Then (2) zoom mode.~~ (shipped B621/B623). **Remaining in 1.5: (3) per-form `sliceScale` extents — Daniel called this *"low effort/complexity and high value"* at B655 and the tuner already has the mechanism. Then (4) box-centre semantics**, which is small now that `write` exists. Then **stage C**, which is the real remaining architecture and also the answer to the B621 open question about one button meaning different things per form — "which input owns this field" and "which mapping row is live" are one problem.
 
 **⚠️ THE AUDIT ITEM IS NOW THE MOST-EVIDENCED THING ON THIS LIST — SIX instances of one value or behaviour living in multiple copies:** droste's overlay missing `sizeNorm` (B614), radial's polygon missing `canvasNorm` (B618), the overlay missing `canvasOffset` (B612), the B616 centring hook reaching only the desktop chrome (B619), the six copies of the `0.35` transition default (B622), and `env.panDrift` covering only one of two joystick instances (B620). **It has stopped being a hypothesis.**
 
