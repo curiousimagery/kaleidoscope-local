@@ -768,6 +768,75 @@ export function createInputBus(env) {
     dropSlot?.remove();
     dropSlot = null;
   }
+  // ⚠️ B640 — THE LIST HANDLES THE DROP, NOT THE ROWS. THIS IS WHY THREE FIXES DID NOT TAKE.
+  //
+  // `drop` only fires on the element the pointer is actually over, and it bubbles to that
+  // element's ANCESTORS. Rows are siblings of each other and of the drop slot, and `.in-maps` is a
+  // flex column with a 5px `gap` — so releasing in the gap between two rows, or on the slot itself
+  // (which is placed exactly where you are aiming, by construction), targets the CONTAINER. No
+  // row's handler was an ancestor of that, so none ran. `document.body`'s file-drop handler caught
+  // it instead, found no `dataTransfer.files`, and returned. Silence.
+  //
+  // **That was true of the original insertion line too**: it added `margin-top: 13px` to part the
+  // rows, which opened a gap right where the operator was aiming. So every version of this feature
+  // has been most likely to fail exactly where it told you to drop. B634's `setData` and B639's
+  // `getData` were both real defects correctly fixed — they just were not this one.
+  //
+  // Moving dragover/drop to the container makes the whole list a single valid drop target and the
+  // insertion point a function of pointer position, which is what it always should have been.
+  function listRowsFor(wrap, dev) {
+    return [...wrap.querySelectorAll('.in-map')].filter((r) => r.dataset.dev === dev);
+  }
+  // The row the slot goes BEFORE, or the position just past this device's last row. Never null-at-
+  // end-of-list: appending past the final group would silently move the mapping into another
+  // device's section, which the grouped render then undoes (looking, again, like nothing happened).
+  function slotAnchor(rows, y) {
+    for (const r of rows) {
+      const b = r.getBoundingClientRect();
+      if (y < b.top + b.height / 2) return r;
+    }
+    return rows[rows.length - 1].nextSibling;
+  }
+  function wireListDnD(wrap) {
+    // ONCE per element, not once per render: renderMaps only clears innerHTML, so the container
+    // itself survives and listeners would stack on every re-render.
+    if (wrap._dndWired) return;
+    wrap._dndWired = true;
+    wrap.addEventListener('dragover', (e) => {
+      if (dragIdx < 0) return;
+      const rows = listRowsFor(wrap, store.maps[dragIdx]?.dev || '');
+      if (!rows.length) return;
+      e.preventDefault();                       // REQUIRED, or `drop` never fires
+      e.dataTransfer.dropEffect = 'move';
+      showDropSlot(wrap, slotAnchor(rows, e.clientY), dragHeight);
+    });
+    wrap.addEventListener('dragleave', (e) => {
+      if (!wrap.contains(e.relatedTarget)) clearDropLine();
+    });
+    wrap.addEventListener('drop', (e) => {
+      e.preventDefault();
+      e.stopPropagation();                      // keep it away from body's file-drop handler
+      // The source index rides on dataTransfer (B639): `dragend` clears the closure variable and
+      // the drop-then-dragend order is not universal, so the closure cannot be trusted here.
+      const carried = parseInt(e.dataTransfer.getData('text/plain'), 10);
+      const from = Number.isInteger(carried) ? carried : dragIdx;
+      const dev = store.maps[from]?.dev || '';
+      const rows = listRowsFor(wrap, dev);
+      clearDropLine();
+      dragIdx = -1;
+      if (from < 0 || !store.maps[from] || !rows.length) return;
+      const anchor = slotAnchor(rows, e.clientY);
+      let to = anchor?.dataset?.mi != null
+        ? parseInt(anchor.dataset.mi, 10)
+        : parseInt(rows[rows.length - 1].dataset.mi, 10) + 1;
+      if (!Number.isInteger(to) || from === to || from === to - 1) return;
+      const [moved] = store.maps.splice(from, 1);
+      if (from < to) to--;
+      store.maps.splice(to, 0, moved);
+      save(); renderMaps();
+    });
+  }
+
   // `beforeEl` may legitimately be null — that means "at the end", which is what insertBefore's
   // null already does. Bailing when it would land on itself keeps dragover from re-inserting the
   // slot on every event, which would restart its transition and read as a flicker.
@@ -827,6 +896,7 @@ export function createInputBus(env) {
       if (!closed) store.maps.forEach((m, i) => { if (m.dev === dev) wrap.appendChild(mapRow(m, i)); });
     }
     renderPairing(wrap);
+    wireListDnD(wrap);   // B640 — the container owns dragover/drop (see the note there)
   }
 
   // "+ add this iPhone/iPad" — the mobile gesture surface pairs from HERE (it
@@ -949,6 +1019,9 @@ export function createInputBus(env) {
     // drag-to-reorder. The affordance is an INSERTION LINE: neighbors part a
     // little and an accent line marks where the row will land (above or below
     // the hovered row by cursor half) — not an outline on the hovered row.
+    // B640 — the LIST owns the drop, so rows must be identifiable from it.
+    row.dataset.dev = m.dev || '';
+    row.dataset.mi = String(store.maps.indexOf(m));
     const grip = row.querySelector('.in-grip');
     grip.addEventListener('dragstart', (e) => {
       dragIdx = store.maps.indexOf(m);
@@ -965,45 +1038,6 @@ export function createInputBus(env) {
       row.classList.remove('in-dragging');
       clearDropLine();
       dragIdx = -1;
-    });
-    row.addEventListener('dragover', (e) => {
-      if (dragIdx < 0) return;
-      // ⚠️ B639 — SAME DEVICE ONLY. The list is GROUPED BY DEVICE (see renderMaps), so a mapping
-      // dropped into another device's group is re-sorted straight back into its own on the next
-      // render. The reorder "worked" and looked like nothing happened — the same symptom as the
-      // real bug, from a different cause. Refusing the drop says so instead.
-      if (store.maps[dragIdx]?.dev !== m.dev) { e.dataTransfer.dropEffect = 'none'; return; }
-      e.preventDefault();
-      e.dataTransfer.dropEffect = 'move';
-      // measured against the ROW, not `e.offsetY`: over a child (the name input, a select) offsetY
-      // is relative to THAT child, so the half-height test flipped depending on which control the
-      // pointer happened to cross.
-      const r = row.getBoundingClientRect();
-      const before = (e.clientY - r.top) < r.height / 2;
-      showDropSlot(row.parentNode, before ? row : row.nextSibling, dragHeight);
-    });
-    row.addEventListener('drop', (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      // ⚠️ B639 — THE SOURCE INDEX COMES OFF `dataTransfer`, NOT THE CLOSURE.
-      //
-      // This is why B634's fix did not take. `dragIdx` is cleared by `dragend`, and the spec's
-      // drop-then-dragend order is not honoured everywhere — where dragend lands first, `drop` ran
-      // with `dragIdx === -1` and hit the no-op guard below. That is EXACTLY the reported symptom,
-      // twice: *"drop space highlights but on release nothing is updated."* B634 added `setData`
-      // for a different reason and then still read the closure, so the payload it wrote went
-      // unused. Reading it back removes the ordering dependency entirely.
-      const carried = parseInt(e.dataTransfer.getData('text/plain'), 10);
-      const from = Number.isInteger(carried) ? carried : dragIdx;
-      const r = row.getBoundingClientRect();
-      const before = (e.clientY - r.top) < r.height / 2;
-      clearDropLine();
-      let to = store.maps.indexOf(m) + (before ? 0 : 1);
-      if (from < 0 || !store.maps[from] || from === to || from === to - 1) { dragIdx = -1; return; }
-      const [moved] = store.maps.splice(from, 1);
-      if (from < to) to--;
-      store.maps.splice(to, 0, moved);
-      dragIdx = -1; save(); renderMaps();
     });
     return row;
   }

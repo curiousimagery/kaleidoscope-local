@@ -1569,6 +1569,11 @@ body.loop-active #outputToolbar { display: none; }
    insertion line, which showed WHERE but not HOW MUCH, and was painted on a neighbouring row
    rather than in the gap you were aiming at. */
 .in-drop-slot {
+  /* ⚠️ flex: none IS LOAD-BEARING. `.in-maps` is a scrolling flex COLUMN, so once the list
+     overflows, flex items with the default shrink factor collapse toward min-content — an empty
+     div collapses to its borders, which is why the slot rendered as a bare dashed LINE in the app
+     while looking correct in the Lab (whose specimen sets max-height:none, so nothing overflows). */
+  flex: none;
   border: 1px dashed var(--accent); border-radius: 6px;
   background: color-mix(in srgb, var(--accent) 10%, transparent);
   margin: 4px 0; box-sizing: border-box; pointer-events: none;

@@ -90,6 +90,17 @@ This retires the confusion, not just a hypothesis. Resolution was free because t
 
 ## current version
 
+**🎯 B640 — DRAG-DROP: THE ACTUAL CAUSE. JS + CSS.**
+
+**▶ DANIEL VERIFIED AT B639:** the gesture-detection pause *"works great"*. Droste thickness proportional. The flip settled — no A/B needed.
+
+- **Mapping reorder FIXED.** `drop` bubbles to the target's ANCESTORS, and rows are SIBLINGS of each other and of the slot; `.in-maps` is a flex column with a 5px gap. Releasing in a gap — or on the slot, which sits exactly where you aim — targeted the CONTAINER, whose ancestor chain contains no row handler. body's file-drop handler swallowed it. **dragover/drop now live on the container**, wired once per element (renderMaps only clears innerHTML).
+- **Skeleton slot needed `flex: none`** — a scrolling flex column shrinks items to min-content, and an empty div collapses to its borders. That is why the Lab (which sets `max-height:none`) looked right while the app showed a bare dashed line.
+- **Droste reflection** was gated on boundary CROSSINGS, so it vanished once the wedge was wholly past an edge — exactly when it is all there is to see. Now a point test; the seam line keeps the crossing test.
+- **Idle window 220 → 100ms.**
+
+**⚠️ THE METHOD LESSON, THREE BUILDS RUNNING: I fixed what I found instead of what was reported.** B634 (`setData`), B639 (`getData`/dragend ordering) and B640 (event target) were each a real defect in this feature, correctly diagnosed and correctly fixed. Only the third was the reported bug. **A plausible defect at the scene is not the cause** — before shipping a fix, name the mechanism that would distinguish "this was the cause" from "this was *a* cause", and if there is none, say so.
+
 **🧵 B639 — THE GATE GENERALISES; DRAG-DROP FIXED FOR REAL. JS + CSS.**
 
 **▶ DANIEL VERIFIED AT B638:** the flip *"is working mostly as expected — a massive improvement"*, no A/B needed, the approach is settled. Gesture inputs *"feel excellent"*. Clamp/transparent OOB correct. Droste thickness proportional. Undo passes smoke tests. Companion video good apart from the origin dot.
@@ -99,8 +110,6 @@ This retires the confusion, not just a hypothesis. Resolution was free because t
 - **Skeleton drop slot** replaces the 2px line (in the Lab).
 - **Keyframes align to the PREDECESSOR, not kf0** — fixes the tween jog. Playback also folds each sampled frame so an animation never sits fully reflected.
 - **Origin dot scales with `sw`** — it was 3px at every scale, invisible in the companion video.
-
-**🔴 STILL OPEN — iPAD GESTURE-SURFACE LATENCY. MY B636 FIX WAS NOT THE CAUSE.** Removing the per-frame `clientWidth` reflow was a real improvement to a real problem and **did not fix what Daniel reports**, so the cause is still unidentified. **Do not guess a third time** — this is Tier 1 (invisible quantity, device-only, and a wrong guess costs a device session). The next move is INSTRUMENTATION that reaches the exported report, not another candidate fix. Suggested conserved quantity: timestamp each remote event from arrival → state write → render commit and report the distribution, so "the network is bursty" and "our frame is late" stop being the same picture.
 
 **🩹 B638 — THE FOLD GATE WAS READING A FLAG ON THE WRONG OBJECT. JS only.**
 

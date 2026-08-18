@@ -384,6 +384,16 @@ Shipped as `sliceMirrorX/Y` + `foldSliceIntoSource`. Details in CHANGELOG v0.25.
 - **The "it may be free for symmetric forms" hope was wrong to build on.** Most forms' folds ARE mirror-symmetric, but the flip is not about the fold's symmetry — it is about the SOURCE-UV offset, which reflects for every form regardless. The flag was needed everywhere.
 - **The trigger is not "entirely outside".** That reads well and produces a large teleport; the shipped trigger is the 25% overlap threshold measured against the VISIBLE source, which is Daniel's own number from B631.
 
+### 🐢 [B636→B640, Daniel] iPAD GESTURE-SURFACE LATENCY — UX POLISH
+
+**Daniel's call: polish, not a blocker.** *"Still functional and adequate but shows increased latency and choppiness compared to earlier states."*
+
+**What is known, so the next attempt does not restart:** B636 removed a genuine per-frame forced reflow (`visibleUVRect` reading `clientWidth`, promoted from drag-only to every frame by B635). That was a real improvement to a real problem and **did not fix this**, so the cause is unidentified. A box measurement is ~1µs, so the fold's arithmetic is not a plausible candidate either.
+
+**⚠️ DO NOT GUESS A THIRD TIME.** Tier 1 by DEBUGGING-PROTOCOL: the quantity is invisible, it is device-only, and a wrong guess costs a device session. The next move is INSTRUMENTATION that reaches the exported report — not another candidate fix.
+
+**Suggested conserved quantity:** timestamp each remote event at arrival → state write → render commit, and report the distribution. That separates "the network is delivering in bursts" from "our frame is late", which are currently the same picture from outside. The `reportAudio` → `env.lastAudioReport` → perf-panel shape is the established pattern.
+
 ### 🪞 [B639, Daniel] SECOND-ORDER REFLECTIONS — reflect the reflection
 
 On iPad, dragging continuously can pull the solid outline out of view and then the reflection out of view too, at which point nothing is drawn. Daniel: *"acceptable, but it would be preferable to reflect the reflection visibly here."*

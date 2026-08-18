@@ -528,11 +528,25 @@ export default {
             hits.push(e.axis === 'x' ? p.y + t * (q.y - p.y) : p.x + t * (q.x - p.x));
           }
         }
-        if (hits.length < 2) continue;
-        // REFLECTION — mirror the sampled annulus across this crossed edge (where the kaleidoscope
+        // ⚠️ B640 — THE REFLECTION IS GATED ON BEING OUTSIDE, THE SEAM ON CROSSING. They are not
+        // the same test, and conflating them is Daniel's bug: *"if i push it entirely across a
+        // canvas edge but keep the origin over the source, the reflection doesn't render at all."*
+        //
+        // Exactly right, and the reason is that `hits` counts boundary CROSSINGS. Once the sampled
+        // wedge is wholly past an edge there are none — nothing straddles the line any more — so
+        // the old `continue` skipped the reflection precisely when the reflection is the only thing
+        // left to see. The seam line genuinely needs crossings (it is drawn along the crossing
+        // span); the reflection only needs "is any of it beyond this edge", which is a point test.
+        //
+        // The polygon forms never had this bug because they test their vertices directly
+        // (`u < 0`, `u > 1`), which stays true when the whole shape is outside.
+        const beyond = arc.some((p) => (e.axis === 'x'
+          ? (e.at === imgX ? p.x < e.at : p.x > e.at)
+          : (e.at === imgY ? p.y < e.at : p.y > e.at)));
+        // REFLECTION — mirror the sampled annulus across this edge (where the kaleidoscope
         // ACTUALLY pulls color in mirror mode). Faint amber + dashed, clipped to the source rect —
-        // the same "reflected region" language the polygon forms use. Droste never drew this before.
-        if (state.oobMode === 1) {
+        // the same "reflected region" language the polygon forms use.
+        if (beyond && state.oobMode === 1) {
           ctx.save();
           ctx.beginPath(); ctx.rect(imgX, imgY, imgW, imgH); ctx.clip();
           if (e.axis === 'x') { ctx.translate(2 * e.at, 0); ctx.scale(-1, 1); }
@@ -551,6 +565,7 @@ export default {
           ctx.fillStyle = 'rgba(255, 196, 80, 0.85)'; ctx.fill();
           ctx.restore();
         }
+        if (hits.length < 2) continue;   // no crossing = no seam SPAN to draw (the reflection above still drew)
         const lo = Math.max(e.lo, Math.min(...hits)), hi = Math.min(e.hi, Math.max(...hits));
         if (hi <= lo) continue;
         const p0 = e.axis === 'x' ? { x: e.at, y: lo } : { x: lo, y: e.at };

@@ -44,7 +44,13 @@ let lastTouch = 0;
 // How long after the last write from a source that cannot say "I'm done" we keep treating the
 // input as live. Long enough to bridge the gap between two turns of a knob or two frames of a
 // held joystick; short enough that the fold still lands promptly once you let go.
-export const IDLE_MS = 220;
+//
+// 220 → 100 at B640. Daniel: *"it does feel a bit too spacious... we could safely reduce the pause
+// by 50% or more."* The original was sized for the failure that costs something (folding early
+// reverses a live gesture) without measuring the one that does not, and 100ms still clears both
+// real gaps by a wide margin: a gamepad rate loop writes every frame (~8-16ms) and even a slowly
+// turned MIDI CC sends far inside this. Only a genuine STOP crosses it.
+export const IDLE_MS = 100;
 
 // An input with a real beginning and end. `id` is any stable token — reuse it to release.
 export function holdGesture(id) { holds.add(id); }

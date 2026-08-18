@@ -6,6 +6,41 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🎯 v0.25.50 (Build 640) — 2026-08-17 — Drag-drop: the actual cause, four reports later
+
+**JS + CSS. No `cap sync` needed.**
+
+### Shipped
+
+- **Mapping reorder works.** The drop was landing on the container, and no row handler was an ancestor of it.
+- **The skeleton slot renders at full height** — it was collapsing in a scrolling flex column.
+- **Droste draws its reflection when the wedge is fully past an edge**, not only when it straddles one.
+- **Gesture idle window 220ms → 100ms.**
+
+### ⚠️ Drag-and-drop: three correct fixes, none of them the bug
+
+`drop` fires on the element under the pointer and bubbles to **that element's ancestors**. Rows are siblings of each other and of the drop slot, and `.in-maps` is a flex column with a 5px `gap`. So releasing in the gap between rows — or on the slot itself, which sits exactly where you are aiming, by construction — targets the **container**. No row's handler was an ancestor of that, so none ran; `document.body`'s file-drop handler caught it, found no files, and returned.
+
+**Every version of this feature has been most likely to fail exactly where it told you to drop.** The original insertion line added `margin-top: 13px` to part the rows, which opened a gap precisely at the aim point. B634's missing `setData` and B639's `dragend`-ordering `getData` were both real defects, correctly fixed — neither was this one.
+
+Moving `dragover`/`drop` to the container makes the whole list one valid drop target and the insertion point a function of pointer position. Wired once per element rather than per render, since `renderMaps` only clears `innerHTML`.
+
+**The method lesson, and it is the same one as B639:** I fixed what I found instead of what was reported. Three times a plausible defect was located, corrected, and shipped without a mechanism that would have distinguished "this was the cause" from "this was *a* cause".
+
+### The skeleton was collapsing, which is why the Lab disagreed with the app
+
+`.in-maps` is a scrolling flex **column**, so once the list overflows, items with the default shrink factor collapse toward min-content — and an empty div collapses to its borders. That is Daniel's *"just a dotted line instead of a solid line"*. The Lab specimen sets `max-height:none`, so nothing overflowed and it rendered correctly there. `flex: none` fixes it.
+
+**Worth noting for the Lab's own discipline:** the specimen was faithful to the component and still hid the bug, because the bug lived in the *container* the component sits in. A specimen can only be as honest as its surroundings.
+
+### Droste: the reflection was gated on the wrong test
+
+Daniel: *"if i push it entirely across a canvas edge but keep the origin over the source, the reflection doesn't render at all."*
+
+`hits` counts boundary **crossings**. Once the sampled wedge is wholly past an edge there are none — nothing straddles the line any more — so the bail skipped the reflection precisely when the reflection is the only thing left to see. The seam line genuinely needs crossings (it is drawn along the crossing span); the reflection only needs "is any of it beyond this edge", which is a point test. The polygon forms never had this bug because they test vertices directly, which stays true when the whole shape is outside.
+
+---
+
 ## 🧵 v0.25.49 (Build 639) — 2026-08-17 — The gate generalises to every input; drag-drop, for real this time
 
 **JS + CSS. No `cap sync` needed.**
