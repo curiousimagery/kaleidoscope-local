@@ -6,6 +6,53 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🚧 v0.26.26 (Build 686) — 2026-08-19 — A duplicate object key had been disabling two UI gates
+
+**⚠️ NEEDS AN XCODE BUILD** (one Swift change; parses clean against the iOS 26.5 SDK).
+
+### Shipped
+
+- **`getDeviceId` returns the real value.** A second `getDeviceId: () => null` was shadowing it.
+- **`flip` resets EV/WB again.** A second `flip:` was shadowing that too.
+- **A lens the hardware lacks falls back instead of failing the whole camera start.**
+- **Switching cameras clears the lens**, which is what made "switch back to built-in" a dead end.
+
+### The root cause of Daniel's first two reports
+
+```js
+getDeviceId: () => deviceId,   // line 384, added B684
+...
+getDeviceId: () => null,       // line 404, pre-existing — and THIS one wins
+```
+
+**A JS object literal takes the last duplicate key.** It is not a syntax error, it does not warn, and twenty lines apart it reads as ordinary code.
+
+Every caller got `null`. **The gates that hide front/rear and lens for an external camera read exactly this**, so they never fired — Daniel: *"if i select the webcam, it persists all the native camera options... these show up and don't actually do anything except rear/front mirroring the image of the single lens."* The picker's selected-row highlight reads it too, so it always showed `built-in` regardless of what was running.
+
+**B685's structural fix was correct and had no effect**, because the value it gated on was hardcoded `null` one screen further down.
+
+### An AST scan, because the same mistake was already in the file twice
+
+A regex over indentation produced 184 candidates, all false positives from sibling objects. **Parsing properly found three, and one was real:**
+
+```
+src/shell/native-camera.js:417  "flip" SHADOWS line 335
+packages/conduit/src/governor.js:220   "enabled" — get/set pair, legitimate
+packages/conduit/src/perf-ledger.js:253 "enabled" — get/set pair, legitimate
+```
+
+The `flip` shadow replaced the local function (which calls `resetControls()` first) with an inline one that does not — **so flipping the native camera silently stopped resetting EV/WB, which every comment in the file says it does.** Now zero across 100 files.
+
+### Daniel's third report, which he could not reproduce
+
+> *"I opened the usb camera first, adjusted some of the erroneously visible built-in camera settings, and then tried to switch to the native camera and it wouldn't switch."*
+
+**Explained, and it took both halves.** A lens picked while an external camera was selected stayed in `lens`. On the way back, `pickCamera` asked for that exact built-in lens — and the three named cases returned `AVCaptureDevice.default(...)` **including nil**, which makes `configureSession` throw `"no camera device"` and fails the entire start. Asking an iPad for a telephoto it does not have turned a camera switch into a dead end.
+
+Both ends fixed: `setDevice` clears `lens` (it is meaningless for an external camera and must not survive the trip either way), and a named lens that is absent now falls through to the normal chain. **Asking for a lens the hardware lacks is a reason to pick another lens, never a reason to have no camera.**
+
+---
+
 ## 🚧 v0.26.25 (Build 685) — 2026-08-19 — The camera picker: one list, in the right place
 
 **Fixes a regression B684 introduced, and adopts Daniel's structure for the menu.**

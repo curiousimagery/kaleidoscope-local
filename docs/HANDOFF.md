@@ -34,6 +34,21 @@ Archived at B658. It was marked superseded at B609 and kept for the reasoning be
 
 **The trap that was caught before the cycle, because it will recur in any future host seam:** Capacitor calls are async, `conduit/vitals.js` reads `native()` sync. A Promise there makes every field undefined and the report says `nativeReadings: false` — *identical to no plugin*. The host caches; `read()` is synchronous. Proven in `vitals-native-check.mjs`.
 
+### 🪤 B686 — A DUPLICATE OBJECT KEY, AND IT HAD BEEN DISABLING TWO UI GATES
+
+```js
+getDeviceId: () => deviceId,   // B684 added this
+getDeviceId: () => null,       // ...20 lines below, pre-existing, and it WINS
+```
+
+**A JS object literal takes the last duplicate key. Not a syntax error, no warning, invisible in review.** Every caller got `null`, so the B684/B685 gates that hide front/rear and lens for an external camera never fired, and the picker always highlighted `built-in`. **B685's structural fix was correct and had no effect.**
+
+**An AST scan (`scratchpad/dupkeys.mjs`, acorn) found a SECOND one in the same file**: `flip` was shadowed by an inline version missing `resetControls()`, so flipping the native camera stopped resetting EV/WB. Zero across 100 files now. A regex version produced 184 false positives; parsing properly is the only way this check is worth anything.
+
+**⚠️ WORTH ASKING DANIEL ABOUT: a linter would have caught both instantly**, and `no-dupe-keys` is on by default in every JS linter there is. CLAUDE.md says do not add build steps without asking — so it stays asked, not added.
+
+**Daniel's un-reproducible third report is also explained:** a lens chosen while an external camera was selected survived the switch back, and `pickCamera`'s three named-lens cases returned `AVCaptureDevice.default(...)` **including nil**, which throws `"no camera device"` and fails the whole start. Fixed at both ends.
+
 ### 🐛 B685 — THE CAMERA PICKER (a B684 regression, found on device by Daniel)
 
 **B684 taught the native camera to enumerate, and `refreshCameraDevices()` was already consuming that function under the OTHER shape.** Web returns `{ deviceId, label }`; native returns `{ id, label, kind }`. Every native option got `value = undefined`, and the native `start()` ignores `deviceId` anyway, so **every selection re-acquired the default camera.**

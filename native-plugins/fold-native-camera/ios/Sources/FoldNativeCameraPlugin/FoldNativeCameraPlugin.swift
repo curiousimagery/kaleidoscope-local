@@ -137,19 +137,25 @@ public class FoldNativeCameraPlugin: CAPPlugin, CAPBridgedPlugin, AVCaptureVideo
             return AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .front)
                 ?? AVCaptureDevice.default(.builtInTrueDepthCamera, for: .video, position: .front)
         }
-        switch lens {
-        case "ultraWide": return AVCaptureDevice.default(.builtInUltraWideCamera, for: .video, position: .back)
-        case "wide": return AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back)
-        case "tele": return AVCaptureDevice.default(.builtInTelephotoCamera, for: .video, position: .back)
-        default:
-            let types: [AVCaptureDevice.DeviceType] = [
-                .builtInTripleCamera, .builtInDualWideCamera, .builtInDualCamera, .builtInWideAngleCamera
-            ]
-            for t in types {
-                if let d = AVCaptureDevice.default(t, for: .video, position: .back) { return d }
-            }
-            return AVCaptureDevice.default(for: .video)
+        // ⚠️ B686 — A NAMED LENS THAT IS NOT PRESENT MUST FALL BACK, NOT RETURN nil.
+        // These three cases used to `return` whatever `AVCaptureDevice.default` gave, including
+        // nil — and a nil here makes `configureSession` throw "no camera device", which fails the
+        // whole `start`. Daniel hit it coming BACK from an external camera with a stale lens
+        // selected: asking an iPad for `.builtInTelephotoCamera` it does not have turned a camera
+        // switch into a dead end. Asking for a lens the hardware lacks is a reason to pick another
+        // lens, never a reason to have no camera.
+        let named: AVCaptureDevice.DeviceType? = lens == "ultraWide" ? .builtInUltraWideCamera
+            : lens == "wide" ? .builtInWideAngleCamera
+            : lens == "tele" ? .builtInTelephotoCamera
+            : nil
+        if let t = named, let d = AVCaptureDevice.default(t, for: .video, position: .back) { return d }
+        let types: [AVCaptureDevice.DeviceType] = [
+            .builtInTripleCamera, .builtInDualWideCamera, .builtInDualCamera, .builtInWideAngleCamera
+        ]
+        for t in types {
+            if let d = AVCaptureDevice.default(t, for: .video, position: .back) { return d }
         }
+        return AVCaptureDevice.default(for: .video)
     }
 
     // The physical lenses present, each with its UI zoom multiple relative to the 1x

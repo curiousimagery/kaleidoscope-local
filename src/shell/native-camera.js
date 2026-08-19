@@ -391,6 +391,13 @@ export function createNativeCamera() {
     setDevice: async (id) => {
       if ((id || '') === deviceId) return;
       deviceId = id || '';
+      // ⚠️ B686 — DROP THE LENS TOO, and this is Daniel's third report: *"I opened the usb camera
+      // first, adjusted some of the erroneously visible built-in camera settings, and then tried to
+      // switch to the native camera and it wouldn't switch."* A lens chosen while an external
+      // camera was selected stayed set, and on the way back the plugin asked for that exact
+      // built-in lens — which the device may not have. `lens` is meaningless for an external
+      // camera and must not survive the trip either way.
+      lens = 'auto';
       resetControls();
       return start({ facingMode: facing });
     },
@@ -401,11 +408,22 @@ export function createNativeCamera() {
     // from arrival time so cinematic stabilization's buffering does not push recorded video
     // behind recorded audio. 0 when the plugin predates the timestamped wire format.
     getCaptureLatency: () => lastLatencySec,
-    getDeviceId: () => null,
+    // ⚠️ B686 — THIS USED TO BE A SECOND `getDeviceId: () => null` AND IT SILENTLY WON.
+    // B684 added the real one ~20 lines above; a JS object literal takes the LAST duplicate key,
+    // so every caller got `null`. **The gates that hide front/rear and lens for an external camera
+    // read this**, so they never fired — Daniel: *"if i select the webcam, it persists all the
+    // native camera options... these show up and don't actually do anything except rear/front
+    // mirroring the image of the single lens."* The picker's selected-row highlight reads it too,
+    // so it always showed `built-in` no matter what was running.
+    //
+    // A duplicate key is not a syntax error and reads as ordinary code in review. This one was
+    // added and shadowed in the same file, twenty lines apart, by me.
     isFront: () => facing === 'user',
     isActive: () => active,
-    // interface parity with shell/camera.js (the desktop chrome's flip button)
-    flip: () => start({ facingMode: facing === 'user' ? 'environment' : 'user' }),
+    // (B686 — a second `flip:` used to sit here and SHADOW the `flip` exported above, which is how
+    // an object literal works. The local one calls `resetControls()` first, so the shadow quietly
+    // removed the EV/WB reset that every comment in this file says a flip performs. Found by an
+    // AST scan after the same mistake was found by hand on `getDeviceId`.)
     // for the external-display view: where to join the frame stream as a second
     // socket client, whether to bake the selfie mirror (we bake ours the same
     // way), and the acquisition generation (a changed gen = a NEW socket stream —
