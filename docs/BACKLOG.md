@@ -418,11 +418,56 @@ The `bus` surface registers and reports `calls: 0, msPerFrame: 0` with the note 
 
 This is why "the take is slow" read as a priority problem for three builds: the cost was real and unattributable, so it looked like starvation. **Class 1 — no device needed to find out why an async capture path reports nothing.**
 
-### 🧨 [B667, RE-SCOPED B668 — DO NOT BUILD THE GATE YET] ARMING A TAKE WHILE BROADCASTING LOSES THE GL CONTEXT
+### 🪜 [Daniel, 2026-08-19 — SPEC GIVEN, NOT BUILT] THE CAPABILITY LADDER: WHAT GETS GATED, WARNED, OR FLAGGED
+
+**Daniel's rubric, verbatim in shape, tied to consequences rather than to features:**
+
+| consequence | response | where |
+|---|---|---|
+| high risk of the app crashing | **don't allow it** | — |
+| fairly certain the broadcast will run <15fps | **don't offer it as supported** | — |
+| happy path 25-30fps, but aggressive input could pull it to 10-20 | **warn proactively, with hints to improve output** | inline, at the choice |
+| actually broadcasting at <20fps for more than a few seconds | **red health indicator, prompting a lever to pull** | live PiP, or the planned notification bar under the app bar |
+
+**Placement examples he gave:** record is a **disabled button with a tooltip** during a broadcast; selecting 4K broadcast on this class of hardware (**detected by capability, never hardcoded to a device**) gets an **amber inline warning in the output dialog**.
+
+**His principles:** *"I don't like automatically forcing a failure or settings change, but this is preferable to a full crash."* And: *"build in preventive guardrails where full failure scenarios are basically nonexistent and poor perf scenarios are adequately instrumented to detect issues and let folks throttle settings in exchange for fps as needed."* **The user pulls the lever; we make sure they can see it.**
+
+**⚠️ THE ONE THING THE SPEC HAS TO RESOLVE BEFORE IT CAN BE BUILT: which fps.** Rows 2-4 are about the BROADCAST's rate; the model we can predict from is the APP's rate, and the two are decoupled (the governor's own null result, plus a run holding 29-of-30 on the wall at 12fps in-app). **`wallFps` shipped at B670 so the broadcast rate is finally a time series** — the mapping from predicted app cost to expected wall rate is the missing link, and it is measurable now rather than assumable.
+
+**Ladder rungs, in build order:**
+1. **Measure this device's costs** — needs a deliberate quiet baseline (see the idle-baseline caveat below), then each output's marginal frame cost.
+2. **Predict a combination before it runs.** Already validated once: FHD broadcast + FHD take predicted ~13fps, measured 11.2 and 12.0.
+3. **Act** — the table above.
+
+**⚠️ RUNG 1's WEAK LINK:** the idle baseline is not stable. It read 60fps in one run and 37-41fps in another, because "idle" was a gap between two takes with the external view still tearing down. **A cost measured against a moving baseline has error bars**, and the baseline is also vsync-capped, so a fast device's true headroom is invisible. **Rung 1 needs its own quiet measurement, not a gap in a script.**
+
+### 📐 [2026-08-19 — THE GATE IS NOW COMPUTABLE] OUTPUT COSTS ADD IN FRAME TIME
+
+Measured on the M1 iPad Pro across two B669 runs: broadcast **+25.9ms/frame**, take **+35.1ms/frame**, both together **+72.6ms** against a predicted 61ms. **Slightly super-additive, close enough to predict from.**
+
+**This is the answer to Daniel's standing requirement** — *"ideally we wouldn't have to hard code these limits by device but we'd understand which constraints were being hit and gate/warn accordingly based on any permutation of devices."* A device measures each output's cost once, at runtime, and any combination is a sum against the frame budget. **No model table, and it reaches hardware we do not own.**
+
+**The shape to copy is `broadcastCeiling`** — a learned per-destination number already persisted the same way.
+
+**What has to be decided before building it** (Daniel's call, not mine):
+- **Warn or refuse?** A predicted 11fps is honest to warn about; refusing removes a capability someone may knowingly want.
+- **Where does it surface?** The tier picker is the one moment the choice is safe to make (`locks.js` freezes it while live), which argues for a sentence there.
+- **Does it ever act on its own** — auto-capping the take tier — or only ever advise?
+
+**⚠️ AND THE FIRST OPTIMIZATION TARGET CHANGED.** A take costs MORE than a 4K broadcast (+35 vs +26ms). The whole arc assumed the broadcast was the expensive thing.
+
+### 🧨 [B667, RE-SCOPED B668, DOWNGRADED 2026-08-19 — INTERMITTENT, NOT DETERMINISTIC] ARMING A TAKE WHILE BROADCASTING LOSES THE GL CONTEXT
 
 **⚠️ B667 SCOPED THIS TO 4K AND THAT WAS WRONG.** B668 lost the context arming an **FHD** take (`bus:start 1920x1080` at t=20, `gl-context-lost` at t=21). Five occurrences now — B661 fatal, B663 fatal, B666 twice, B668 once — at both resolutions. In the survivable form the take runs its full minute and encodes **zero frames**.
 
-**What is actually common is that the output BUS starts while the external view holds a live GL context.** **T3b (B668) is the discriminator and must run before any gate is built** — reversing the order separates "cannot coexist" from "cannot start the bus underneath a live external view", and only the first justifies a capability gate.
+**✅ T3b RAN AND THE ORDER MATTERS: starting the broadcast UNDER a running take lost no context at all.**
+
+**⚠️ BUT B667's "deterministic" was WRONG, and the same session's T3 also survived.** Five runs: three lost the context, two did not. **It is intermittent.**
+
+**The new candidate, from what the five reports differ on:** every failing run began with a broadcast ALREADY LIVE that the script then stopped, re-tiered and restarted. Both clean runs began with none (`"why": "already off"` in the log). **So the suspect is the stop→retier→start cycle leaving the external view stale, not arming a take as such.** n=5, hypothesis only.
+
+**Next discriminator, cheap:** run T3 twice back to back without touching anything between, so the second run's broadcast is one the script itself created. **Do not build a capability gate on this until it is isolated** — the additive cost model above is a better basis anyway, and it is measured rather than inferred.
 
 **And the 4K take is unusable even unopposed** — 13.4fps against a declared 30 with nothing else running and the app at 59fps.
 

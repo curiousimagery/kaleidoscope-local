@@ -145,6 +145,18 @@ const vitals = createVitals({
   pressure: perfPressure,
   ledger: perf,
   native: () => env.host?.vitals?.read?.() ?? null,
+  // The wall's OWN rate: new pictures per second on the display, derived from the external view's
+  // freshness p50 — the same pair the broadcast ceiling learns from, and deliberately NOT the app's
+  // fps or the frames we sent (B571/B576 both caught those moving opposite to the picture).
+  outputs: () => {
+    const ext = env.externalDisplay;
+    const p50 = ext?.active ? (ext.jitter?.fresh?.p50 || 0) : 0;
+    return {
+      wallFps: p50 > 0 ? +(1000 / p50).toFixed(1) : null,
+      broadcasting: !!env.outputActions?.isBroadcasting?.(),
+      recording: !!env.outputActions?.isRecording?.(),
+    };
+  },
 });
 // Surfaces register themselves rather than being enumerated here — see the layout-agnostic
 // constraint in perf-ledger.js. A merged or removed panel re-registers a different set and the

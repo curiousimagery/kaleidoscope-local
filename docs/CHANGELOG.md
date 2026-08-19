@@ -6,6 +6,47 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 📡 v0.26.10 (Build 670) — 2026-08-19 — The session records the WALL's rate, which is the number the rubric is about
+
+**JS only.**
+
+### Shipped
+
+- **`wallFps` in every vitals sample** — new pictures per second on the display, alongside `broadcasting` and `recording` flags, on both chromes.
+
+### The criterion we intend to gate on has never once been recorded
+
+Daniel's rubric: *"dropping to poor fps in app is acceptable but dropping broadcast fps warrants a warning."*
+
+**Every series in this arc has recorded the APP's fps, and the two are decoupled.** The governor proved it by shedding every editor surface without moving the delivered rate, and these runs held 29-30 of 30 on the wall while the app sat at 12fps. **A report copied after a run cannot recover it either** — by then the broadcast is off and the external surface reads `0x0`.
+
+Derived from the external view's freshness p50, the same pair `broadcastCeiling` learns from, and deliberately not the app's fps or frames-sent — B571 and B576 both caught those moving in the opposite direction to the picture.
+
+### ⚠️ CORRECTION: the "pre-existing broadcast" hypothesis is disproven
+
+Filed one turn ago from n=5. **Daniel ran T3 back to back and both were clean — including one that stopped a live broadcast, re-tiered, and restarted it, which is exactly the sequence the hypothesis blamed.**
+
+Standing: **four clean runs on B669, three losses before it, no isolated variable.** Not the take resolution (disproven B668), not thermal (it failed cool and survived hot), not the restart cycle (disproven here). **It is intermittent and unexplained**, and with the B669 dead-take watchdog it is at least no longer silent. Chasing it further is now lower value than the cost model.
+
+### The cost model predicted this run before it happened
+
+From the previous session's numbers, FHD broadcast + FHD take was predicted at **~13fps**. Two independent runs since: **11.2 and 12.0**.
+
+Both runs also add a stable super-additive factor: `cost(A+B) ≈ 1.17 × (cost(A) + cost(B))`, holding across two independent sessions.
+
+**And the take-matches-app result is now confirmed six times:**
+
+```
+take A encoded 12.0 fps   app during A 12.0
+take B encoded 20.2 fps   app during B 20.2
+```
+
+### ⚠️ The idle baseline is the model's weak link, and this run shows it
+
+"Idle" between takes read **37-41fps**, not the 60 seen earlier — the external view was still tearing down. **A cost measured against a moving baseline is a cost with error bars**, and rung 1 of the ladder needs a deliberate, quiet baseline rather than a gap between two takes.
+
+---
+
 ## 🚨 v0.26.9 (Build 669) — 2026-08-19 — A take that records nothing now says so
 
 **JS only. No Swift change** — but you still need an Xcode Run to get it on the device.

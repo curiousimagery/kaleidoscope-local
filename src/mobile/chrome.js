@@ -173,7 +173,24 @@ const perfPressure = createPressureSource({ native: () => host?.vitals?.read?.()
 const perf = createPerfLedger({ pressure: perfPressure });
 // B660 — the session recorder, on the phone too. A diagnostic that exists on one chrome and not the
 // other is the two-chromes trap, and this one is specifically for device runs.
-const vitals = createVitals({ pressure: perfPressure, ledger: perf, native: () => host?.vitals?.read?.() ?? null });
+// The phone chrome has no output panel; `outputs` reports what it can and nulls the rest, so a
+// phone session is honestly blank on the wall rather than silently absent (two-chromes rule).
+const vitals = createVitals({
+  pressure: perfPressure, ledger: perf,
+  native: () => host?.vitals?.read?.() ?? null,
+  // The wall's OWN rate: new pictures per second on the display, derived from the external view's
+  // freshness p50 — the same pair the broadcast ceiling learns from, and deliberately NOT the app's
+  // fps or the frames we sent (B571/B576 both caught those moving opposite to the picture).
+  outputs: () => {
+    const ext = env.externalDisplay;
+    const p50 = ext?.active ? (ext.jitter?.fresh?.p50 || 0) : 0;
+    return {
+      wallFps: p50 > 0 ? +(1000 / p50).toFixed(1) : null,
+      broadcasting: !!env.outputActions?.isBroadcasting?.(),
+      recording: !!env.outputActions?.isRecording?.(),
+    };
+  },
+});
 
 // ⚠️ B663 — A THERMAL TRANSITION AND A MEMORY WARNING ARE PUSHES, NOT POLL RESULTS. The sampler
 // notices a thermal change up to ten seconds after it happened, and a memory warning arriving

@@ -109,7 +109,7 @@ export function recoverLastSession() {
   return prev;
 }
 
-export function createVitals({ pressure = null, ledger = null, native = null } = {}) {
+export function createVitals({ pressure = null, ledger = null, native = null, outputs = null } = {}) {
   let session = null;   // null = not recording
   let timer = 0;
   const crashed = recoverLastSession();   // captured before anything can overwrite it
@@ -121,11 +121,20 @@ export function createVitals({ pressure = null, ledger = null, native = null } =
   // everywhere else. Absent is a legitimate answer and is recorded as such: a run with no native
   // reading must not look like a run that was nominal throughout.
   const readNative = () => { try { return native?.() || null; } catch { return null; } };
+  // ⚠️ 2026-08-19 — THE WALL'S OWN RATE, WHICH IS THE NUMBER DANIEL'S RUBRIC IS ACTUALLY ABOUT.
+  // *"Dropping to poor fps in app is acceptable but dropping broadcast fps warrants a warning."*
+  // Every series so far has recorded the APP's fps, and the two are decoupled — the governor
+  // proved it by shedding every editor surface without moving the delivered rate, and a run has
+  // held 29-of-30 on the wall while the app sat at 12fps. **So the criterion we intend to gate on
+  // has never once been recorded as a time series.** A report copied after a run cannot recover it
+  // either: by then the broadcast is off and the external surface reads 0x0.
+  const readOutputs = () => { try { return outputs?.() || null; } catch { return null; } };
 
   function sample(reason = 'tick') {
     if (!session) return null;
     const t = Math.round((nowMs() - session.t0) / 1000);
     const nat = readNative();
+    const out = readOutputs();
     // pressure exposes getters (value / label / source), not a snapshot method
     const p = pressure ? { level: pressure.value, label: pressure.label, source: pressure.source } : null;
     const r = ledger?.report || null;
@@ -141,6 +150,10 @@ export function createVitals({ pressure = null, ledger = null, native = null } =
       // supply cannot keep up with the draw, which ends an exhibit for reasons fps never shows.
       batteryPct: nat?.batteryPct ?? null,
       power: nat?.power ?? null,
+      // new pictures per second ON THE DISPLAY — not frames we sent, not frames we rendered
+      wallFps: out?.wallFps ?? null,
+      broadcasting: out?.broadcasting ?? null,
+      recording: out?.recording ?? null,
       // headroom first — it is the number that decides whether the run survives
       availMB: nat?.availableMB ?? null,
       footprintMB: nat?.footprintMB ?? null,
@@ -165,6 +178,7 @@ export function createVitals({ pressure = null, ledger = null, native = null } =
     track('footprintMB', s.footprintMB);
     track('webUsedMB', s.web?.usedMB);
     track('batteryPct', s.batteryPct);
+    track('wallFps', s.wallFps);
     if (s.pressure?.level != null) track('pressure', s.pressure.level);
 
     // time spent at each thermal level, which is what an exhibit post-mortem actually wants

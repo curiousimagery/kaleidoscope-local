@@ -34,6 +34,51 @@ Archived at B658. It was marked superseded at B609 and kept for the reasoning be
 
 **The trap that was caught before the cycle, because it will recur in any future host seam:** Capacitor calls are async, `conduit/vitals.js` reads `native()` sync. A Promise there makes every field undefined and the report says `nativeReadings: false` — *identical to no plugin*. The host caches; `read()` is synchronous. Proven in `vitals-native-check.mjs`.
 
+### 📡 B670 — THE WALL'S RATE IS NOW IN THE SERIES, AND THE RESTART HYPOTHESIS IS DEAD
+
+**⚠️ CORRECTION, one turn old:** the "pre-existing broadcast, stopped and restarted" hypothesis is **disproven**. Daniel ran T3 back to back; both clean, including one that stopped a live broadcast, re-tiered and restarted it — the exact sequence blamed. **Four clean runs on B669, three losses before it, no isolated variable.** Not resolution, not thermal, not the restart. It is intermittent and unexplained, and the dead-take watchdog means it is no longer silent. **Chasing it is now lower value than the cost model.**
+
+**▶ THE MODEL PREDICTED A RUN BEFORE IT HAPPENED.** FHD broadcast + FHD take predicted **~13fps**; two independent runs measured **11.2** and **12.0**. Super-additive factor `cost(A+B) ≈ 1.17 × (cost(A) + cost(B))`, stable across two sessions. **Take-matches-app is now confirmed six times.**
+
+**▶ AND THE GAP THAT MATTERED MOST: we have never recorded the number Daniel's rubric is about.** His criterion is the BROADCAST's rate; every series records the APP's. They are decoupled — 29-of-30 on the wall while the app sat at 12fps. **`wallFps` now rides in every vitals sample.** A post-run report could never recover it: the broadcast is off by then and the external surface reads `0x0`.
+
+**▶ RUNG 1 NEEDS A REAL BASELINE.** "Idle" read 60fps in one run and 37-41 in another, because it was a gap between takes with the external view still tearing down. A cost measured against a moving, vsync-capped baseline has error bars.
+
+### ⭐⭐⭐ THE COST MODEL IS ADDITIVE IN FRAME TIME, AND THAT IS THE COMPUTABLE GATE (2026-08-19, T3b + T3)
+
+**Two runs, B669, same device, same clip, thermal `serious` throughout T3.** Read the app's fps in each state and convert to frame time:
+
+| state | app fps | frame time | cost over idle |
+|---|---|---|---|
+| idle | ~60 | 16.7ms | — |
+| broadcast only | 23.5 | 42.6ms | **+25.9ms** |
+| take only | 19.3 | 51.8ms | **+35.1ms** |
+| both | 11.2 | 89.3ms | **+72.6ms** (predicted 61ms) |
+
+**The costs add.** Slightly super-additive at the top end, but close enough that a device can measure each output's cost ONCE and predict any combination. **That is the gate Daniel asked for and it needs no device table:** measure, add, compare against the frame budget, warn or refuse. We own the top of the hardware range and none of the bottom — an additive model calibrated at runtime is the only honest way to reach the hardware we cannot test.
+
+**▶ AND A TAKE COSTS MORE THAN A 4K BROADCAST DOES.** +35ms against +26ms. Every instinct in this arc pointed at the broadcast; the recorder is the more expensive output.
+
+### ⭐ THE TAKE IS NEVER STARVED. CONFIRMED FOUR TIMES, AND THE ARITHMETIC IS EXACT.
+
+```
+T3  take A   11.2 fps encoded   app during A   ~11.1 fps
+T3  take B   19.2 fps encoded   app during B   ~19.3 fps
+T3b take     13.9 fps encoded   app: 20s @ ~19.5 then 40s @ ~11.8  ->  14.4 predicted
+```
+
+**The take's frame count is the integral of the app's frame rate.** There is no priority inversion to fix: the recorder faithfully captures every frame the app produces, and **the app is the whole story.** The optimization target is the app's render path under recording, not the recorder's share of it.
+
+### ✅ T3b ANSWERED — no context loss when the take starts FIRST
+
+`record on` at t=0, `bus:start`, `take:started` at t=1, broadcast joined at t=21. **No `gl-context-lost` event anywhere**, take ran its full 60s and encoded 836 frames.
+
+**⚠️ BUT THE SAME RUN'S T3 ALSO SURVIVED, so the failure is INTERMITTENT, not deterministic — and B667's filing that called it deterministic was wrong.** Five runs now: three lost the context, two did not.
+
+**The difference the reports show, and it is the new candidate:** every failing run began with a broadcast ALREADY LIVE, which the script then stopped, re-tiered, and restarted. The two clean runs began with no broadcast — B669's T3 logs step 0 as `"why": "already off"`. **So the suspect is now the stop→retier→start cycle leaving the external view stale, not the plain act of arming a take.** Hypothesis with n=5. **Do not build the gate on it yet.**
+
+**▶ NEXT DISCRIMINATOR, and it is a one-line script change:** run T3 twice in a row without touching anything between — the second run begins with a broadcast the script itself started and stopped. If the failure follows the restart rather than the operator's setup, that isolates it.
+
 ### 🚨 B669 — A TAKE CAN RUN A FULL MINUTE, REPORT SUCCESS, AND RECORD NOTHING
 
 **The worst thing in the B668 report was not the context loss.** `take:started` fired at t=26, the app recovered to 30-37fps, no error appeared anywhere, and the file had **zero frames**. Nothing on screen suggested a problem. **Shipped a six-second dead-take watchdog** that says so and writes a `take:dead` breadcrumb.
