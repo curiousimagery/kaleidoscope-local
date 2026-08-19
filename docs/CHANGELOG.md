@@ -6,6 +6,37 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🚧 v0.26.27 (Build 687) — 2026-08-19 — A stale camera selection was disabling the built-in's own controls
+
+**⚠️ NEEDS AN XCODE BUILD** (one Swift change; parses clean).
+
+### Shipped
+
+- **Unplugging the selected camera falls back to built-in**, instead of leaving its controls hidden.
+- **The exposure row hides on a camera that cannot honour it**, and `setExposureBias` reports the read-back.
+
+### 1 — the stale selection
+
+Daniel: *"after removing the USB camera and returning to the built in, we lose our ability to switch front/back and select lens."*
+
+Nothing cleared `deviceId` when the device left the bus, so it kept naming a camera that was gone — and **every gate that asks "is an external camera selected?" kept answering yes**, on a session that was running the built-in. `refreshCameraDevices` now checks the active id against the list it just fetched and falls back to built-in when it is absent.
+
+**A stale selection is worse than no selection: it silently disables real controls.**
+
+**⚠️ THE RECOVERY IS TIED TO A LIST REFRESH** (opening the picker, or a `devicechange` event) rather than to the unplug itself. `navigator.mediaDevices`'s `devicechange` does not necessarily fire for a device the native path owns. Daniel's report says the picker does notice, so the real path is covered — but this is not instant, and pretending otherwise would be the same class of overclaim as the gate it fixes.
+
+### 2 — the exposure control that moved nothing
+
+The row was gated on `max > min`, and **Daniel's UVC webcam advertises a bias range it cannot honour.** Exposure bias only means anything under an AUTO exposure mode — it biases the metering — so a device that cannot run continuous auto exposure cannot apply it whatever its range says.
+
+`controlRanges` now reports `supported` (the mode predicate AND a real range) plus the current `mode`, and the row is gated on that. **`ev.supported !== false`, not `=== true`** — on a pre-B687 plugin build the field is absent, and an unknown must not silently remove a control that works on every built-in camera.
+
+`setExposureBias` also resolves with `applied`, the device's actual `exposureTargetBias` after the write. **A camera that accepts the call and ignores it is now visible in a report** rather than looking like a working control.
+
+**Can EV work on a USB camera? Probably not through this API.** UVC exposes its own controls, and AVFoundation surfaces very little of them. If `supported` comes back `true` on Daniel's webcam and the slider still does nothing, `applied` will say so and the answer is a UVC-specific path, not a tweak here.
+
+---
+
 ## 🚧 v0.26.26 (Build 686) — 2026-08-19 — A duplicate object key had been disabling two UI gates
 
 **⚠️ NEEDS AN XCODE BUILD** (one Swift change; parses clean against the iOS 26.5 SDK).

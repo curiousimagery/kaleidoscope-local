@@ -328,7 +328,15 @@ public class FoldNativeCameraPlugin: CAPPlugin, CAPBridgedPlugin, AVCaptureVideo
                 let clamped = max(device.minExposureTargetBias, min(device.maxExposureTargetBias, Float(value)))
                 device.setExposureTargetBias(clamped, completionHandler: nil)
                 device.unlockForConfiguration()
-                call.resolve(["value": Double(clamped)])
+                // ⚠️ REPORT WHAT THE DEVICE ACTUALLY HOLDS, not what we asked for. `applied` is the
+                // read-back, so a camera that accepts the call and ignores it is visible in a report
+                // instead of looking like a working control. (B687: `supported` should already keep
+                // the row off such a device; this is the check on that claim.)
+                call.resolve([
+                    "value": Double(clamped),
+                    "applied": Double(device.exposureTargetBias),
+                    "supported": device.isExposureModeSupported(.continuousAutoExposure),
+                ])
             } catch { call.reject("ev failed: \(error.localizedDescription)") }
         }
     }
@@ -499,8 +507,19 @@ public class FoldNativeCameraPlugin: CAPPlugin, CAPBridgedPlugin, AVCaptureVideo
         let wideCustomWB = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back)?
             .isLockingWhiteBalanceWithCustomDeviceGainsSupported ?? false
         return [
+            // ⚠️ B687 — A RANGE IS NOT SUPPORT, AND A USB CAMERA PROVES IT.
+            // Daniel's UVC webcam reports a non-degenerate min/max here, so the menu offered an
+            // exposure slider that moved nothing. Bias only has meaning under an AUTO exposure
+            // mode — it biases the metering — so a device that cannot run continuous auto exposure
+            // cannot honour it whatever its advertised range says. `supported` is what the row is
+            // gated on now; the range alone was the wrong question.
             "exposureBias": ["min": Double(device.minExposureTargetBias),
-                             "max": Double(device.maxExposureTargetBias)],
+                             "max": Double(device.maxExposureTargetBias),
+                             "supported": device.isExposureModeSupported(.continuousAutoExposure)
+                                 && device.maxExposureTargetBias > device.minExposureTargetBias,
+                             "mode": device.exposureMode == .continuousAutoExposure ? "continuousAuto"
+                                 : device.exposureMode == .autoExpose ? "auto"
+                                 : device.exposureMode == .locked ? "locked" : "custom"],
             "zoom": ["min": Double(device.minAvailableVideoZoomFactor),
                      "max": Double(device.maxAvailableVideoZoomFactor),
                      "lensFactors": lensFactors],

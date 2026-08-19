@@ -94,7 +94,12 @@ export function createCameraSettings(env, { getCamera, isNative, reacquire }) {
     // EV / WB — per what the physical lens reports
     const caps = camera.capabilities?.() || {};
     const ev = caps.exposureBias;
-    if (ev && ev.max > ev.min) {
+    // ⚠️ B687 — `supported` beats the range. A UVC webcam advertises a bias range it cannot honour
+    // (bias only means anything under an auto exposure mode), so `max > min` offered a slider that
+    // moved nothing. `!== false` keeps the row on a pre-B687 plugin build, where the field is absent
+    // and the old test is the only one available — an unknown must not silently remove a control
+    // that works on every built-in camera.
+    if (ev && ev.max > ev.min && ev.supported !== false) {
       rows.push(sliderRow('exposure', ev.min, ev.max, 0.1, camera.getExposureBias(),
         (v) => (v > 0 ? '+' : '') + v.toFixed(1), (v) => camera.setExposureBias(v)));
     }

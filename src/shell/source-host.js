@@ -591,6 +591,16 @@ export function createSourceHost(env) {
     let devices = [];
     try { devices = await camera.listDevices(); } catch { /* enumeration unsupported */ }
     const choices = cameraChoices(devices);
+    // ⚠️ B687 — THE SELECTED CAMERA CAN BE UNPLUGGED, AND THE APP HAS TO NOTICE.
+    // Daniel: *"after removing the USB camera and returning to the built in, we lose our ability to
+    // switch front/back and select lens."* Nothing cleared `deviceId`, so it kept naming a camera
+    // that was no longer on the bus — and every gate that asks "is an external camera selected?"
+    // kept answering yes. The built-in's own controls stayed hidden on a device that WAS the
+    // built-in. **A stale selection is worse than no selection: it silently disables real controls.**
+    const activeNow = camera.getDeviceId?.() || '';
+    if (activeNow && !choices.some((c) => c.id === activeNow)) {
+      try { await camera.setDevice(''); attachCameraSource(); } catch { /* falls through to the list */ }
+    }
     const multi = choices.length >= 2;
     // The dropdown is the camera IDENTITY while in camera (Daniel's camera-module
     // spec): always visible, current camera selected, every camera listed, "quit

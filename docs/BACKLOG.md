@@ -570,7 +570,35 @@ A 4K NV12 frame is ~12MB. Covering 325ms needs ~10 frames ≈ **124MB, roughly d
 
 **⚠️ DO NOT TREAT THIS AS URGENT.** It does not reach the wall: the external view's worst take gap across the whole run was **132ms, once every 6:39**. Daniel described the run as uneventful, and that is an accurate description of a 132ms hitch every six and a half minutes.
 
-**Options, cheapest first, none costed yet:** cache at a REDUCED resolution (the replay is covering a wrap, not a look), cache fewer frames but hold them longer with a repeat, or pre-roll the next item earlier so the swap gap shrinks at source. **The last one attacks the cause rather than the symptom** and is the only one that also helps a device with less memory.
+**⚠️ REDUCED RESOLUTION IS OFF THE TABLE (Daniel, 2026-08-19) and the reason is one I had not weighed.** The cache feeds the same pipeline as the broadcast: *"if a syphon broadcast is started at 4k but flips to QHD the actual scale of the clip will reduce in the arena composition which would be extremely jarring."* **A composition that jumps size at the loop point is far worse than a 132ms hold.** Do not re-propose it.
+
+### ⚠️ THE BUDGET HISTORY, CHECKED AGAINST THE RECORD (2026-08-19) — AND IT DOES NOT SAY WHAT WE REMEMBERED
+
+Daniel's recollection was *"we tested increased sizes and ran into stability and performance issues with larger buffers."* **The changelog does not support that.** What B605-B608 actually recorded:
+
+- **B608: 4K looped SEAMLESSLY at a 256MB budget.** `frames: 8, coveredMs: 200, heldMB: 94, why: "covering the lap"`, take gaps `[37, 25, 42, 39, 38, 41]` — one frame interval. Daniel at the time: *"maybe this is our first time actually seamlessly looping 4k?"*
+- **`heldMB: 94` against a 256MB ceiling.** The budget is a CEILING, not an allocation; the fill stopped well under it because `headSeconds` (0.22) is the real target.
+- **The "64 stuttery / 128 stuttery / 256 seamless" reading was RETRACTED at B608 as an artifact of test order** — setting the budget to 0 discards the cache, and a clip's head is produced exactly once on the opening pass, so later arms could never refill. At 128MB it read `heldMB: 47`: **well under budget, so the budget was not the constraint.**
+
+**There is no recorded instance of a larger buffer causing instability or a performance problem.** The jetsam history in the code comments is about 4K decode memory generally, not about this cache.
+
+**What IS true, and it is the part that matters for T9:** at 64MB the long clip held `5 frames / 59MB` — **the budget WAS binding there** (a sixth frame would be 71MB). So T9 is the first case where raising it would actually change anything. **But there are TWO limiters and raising one alone does nothing:** `headSeconds = 0.22` caps the fill at ~7 frames ≈ 231ms, still short of the 325ms lap. **Covering it needs `headSeconds ≈ 0.36` AND a budget ≈ 128MB.**
+
+### 🪜 [OPEN QUESTION — Daniel, 2026-08-19] SHOULD THE CACHE SIZE RIDE THE CAPABILITY LADDER?
+
+*"on our most constrained supported devices the current behavior is by design, but on devices with more headroom we can increase the buffer... can you assess if this feels over-engineered?"*
+
+**The principle is right and the first move is wrong, for one specific reason: we would be sizing against a signal we have PROVEN does not predict the failure.** The 2026-08-19 GL death happened with `availableMB: 5094` — over 5GB free. **The ceiling that kills this app is the WebKit GPU process's, and `availMB` does not see it.** A ladder keyed on free memory would be confident and uninformed.
+
+**Two more reasons to hold:**
+- **A budget raised mid-session does nothing.** The head is produced once, on the opening pass (B608). Any ladder must decide at CLIP LOAD, not dynamically — which removes most of what makes a ladder attractive.
+- **The benefit is bounded and small**: a 132ms hitch once every 6:39. The short-clip case is already invisible at 25ms.
+
+**The cheaper move that is not a ladder:** size the fill from the MEASURED lap (`swapGapMs` is already reported) rather than from a fixed `headSeconds`, capped by a budget that stays a ceiling. That is one variable, uses a number we already have, and needs no capability model at all. **If that lands the gap under ~100ms the question closes and the ladder is never needed.**
+
+**The genuinely cheapest move is still pre-roll** — start opening the next item earlier so the gap shrinks at source. No extra memory, no dimension change, no capability guess.
+
+
 
 ### 🎚 [T9, 2026-08-19 — THE GOVERNOR QUESTION, NOW WITH A CLEAN DEMONSTRATION]
 
