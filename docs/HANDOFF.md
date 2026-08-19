@@ -34,6 +34,38 @@ Archived at B658. It was marked superseded at B609 and kept for the reasoning be
 
 **The trap that was caught before the cycle, because it will recur in any future host seam:** Capacitor calls are async, `conduit/vitals.js` reads `native()` sync. A Promise there makes every field undefined and the report says `nativeReadings: false` — *identical to no plugin*. The host caches; `read()` is synchronous. Proven in `vitals-native-check.mjs`.
 
+### 🔨 B684 — THE NATIVE BATCH IS IN. ⚠️ IT NEEDS AN XCODE BUILD.
+
+Two Swift files changed (`fold-native-camera`, `fold-native-video`), `npx cap sync ios` is run, both parse clean against the iOS 26.5 SDK. **Until Daniel builds in Xcode, `listCameras` does not exist and `coveredMs` reports the old number.**
+
+- **External cameras.** Every discovery session asked only for the three built-in lens types, so a USB camera (`.external`, iPadOS 17+) or an iPhone-as-webcam (`.continuityCamera`) could not be found — and `listDevices()` returned a hardcoded `[]`, indistinguishable from "nothing plugged in". Built end to end: `listCameras()` + `start({ deviceId })` in Swift, `listDevices`/`setDevice`/`getDeviceWhy` in JS, and a **camera source** row using the existing `segRow`. The menu enumerates on every open (so hot-plug works); facing and lens rows hide while an external is selected.
+- **`loopCache.coveredMs`** was `last.pts` — a timestamp, not a duration — so it under-reported by one frame interval and its `why` advised raising an already-sufficient budget. Now `(lastPts - firstPts) + frameInterval`, shared with the advice.
+- **The scenario tag.** `airplay-broadcast` added (there was no option at all, so AirPlay runs were filed as HDMI), plus `scenarioObserved` and `scenarioMismatch` derived from what is live.
+
+**⚠️ THE LIMIT WORTH REMEMBERING: iOS presents HDMI and AirPlay identically as an external UIScreen. No API separates them.** The report now says so via `scenarioUnverifiable`. **The tag is the only record of the wire, and NOTHING observes the power path** — so a power comparison still depends on Daniel writing down the rig.
+
+### ▶ ONE DEVICE PASS COVERS B683 + B684 — they touch disjoint surfaces
+
+| what | how to exercise it |
+|---|---|
+| `bus.publish` pass | start a take; the frame-cost panel gains a `publish` row |
+| bus zero explains itself | take with a STILL source → note reads `ELIDING` |
+| radial pan | radial form, unlock pan, drag at zoom 1 — it no longer stops half way |
+| break-glass | diagnostics → reset session; status now names how many surfaces rebuilt |
+| external camera | iPad Air + USB camera → camera menu → **camera source** row |
+| `coveredMs` | any native-decode loop; compare against `swapGapMs` in the report |
+| scenario guard | tag `idle-still` while broadcasting → `scenarioMismatch` appears |
+
+**The one thing that cannot be verified on demand: break-glass RECOVERY.** Pressing it in a healthy state proves it now touches all three contexts and reports them; it does not prove recovery from a real loss. **Verifying the mechanism is not verifying the feature (B631)** — so treat that row as half-verified until a context loss happens on its own.
+
+### ✅ B683 — THREE CLASS 1 BUGS CLEARED BY READING (no device time)
+
+- **B668 closed.** The `bus` surface measured render + readback; a take's cost is in `sink.publish`, which was timed into `diag.ops` (a ring the panel does not show). Publish is now a ledger pass. **The zero was honest too** — a still source elides the render entirely — and the note now names the elision.
+- **Radial pan.** The gain was always proportional; the **bound** was not. `u_canvasOffset` clamped every non-lattice form to ±1, so at zoom 1 a full-side drag asked for 2.0, kept 1.0, and stopped dead. The bound is per-form now (`formOffsetBound`): droste keeps ±1 (it is a log-polar centre shift, B610), radial gets `2/zoom`. **Screen travel is constant 2.0 at every zoom instead of 0.5/1.0/2.0/2.0.**
+- **Break-glass reset.** It rebuilt the PREVIEW engine only, while perform mode shows the **PiP's** context — so it was broken precisely in the state it is reached for. Walks `allEngines()` now and reports which surfaces recovered.
+
+**⚠️ FILED, NOT BUILT: the phone chrome has no break-glass control at all.**
+
 ### 🔬 B681 — THE FIX AND THE COUNTER SHIPPED. NEXT REPORT ANSWERS A QUESTION NO REPORT COULD BEFORE
 
 Audit steps 1 and 2 are done. **What to read in the next device report, in order:**

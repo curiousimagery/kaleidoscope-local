@@ -39,8 +39,49 @@ const BASELINE_KEY = 'foldPerfBaseline';
 // of being ad hoc. Picking one before you measure is the entire discipline.
 const SCENARIOS = [
   'idle-still', 'camera-live', 'video-playback',
-  'recording', 'hdmi-broadcast', 'ndi-broadcast',
+  'recording', 'hdmi-broadcast', 'airplay-broadcast', 'ndi-broadcast',
 ];
+
+// ⚠️ WHAT IS ACTUALLY RUNNING, DERIVED — because the tag above is typed by a human and has now
+// invalidated two measurements. It read `idle-still` during a 4K broadcast at B609, and on
+// 2026-08-19 a forty-minute run came back with the battery flat where the previous one had drained
+// 22.5%/hr, **and nothing in the report could say which power path or which video path it used**:
+// there was no `airplay-broadcast` option at all, so an AirPlay run was necessarily filed as HDMI.
+//
+// The dropdown stays authoritative (a human may be measuring something the app cannot name), but a
+// disagreement is now stated in the report instead of silently corrupting the comparison. Naming
+// beats blocking: a guard that refuses to export would have cost that run entirely.
+function observedScenario(env) {
+  if (env.outputActions?.isRecording?.()) return 'recording';
+  if (env.outputActions?.isBroadcasting?.()) {
+    const dest = env.outputDestId?.() || '';
+    if (dest === 'ndi') return 'ndi-broadcast';
+    if (dest === 'syphon') return 'syphon-broadcast';
+    if (dest === 'window') return 'window-broadcast';
+    // ⚠️ AND HERE IS THE HONEST LIMIT: **iOS presents an HDMI panel and an AirPlay receiver
+    // identically**, as an external UIScreen. There is no API that distinguishes them, so the app
+    // genuinely cannot derive which wire is in use — the hand-picked tag stays the only record of
+    // it, which is exactly why `airplay-broadcast` had to be added to the list above.
+    if (env.externalDisplay?.active) return 'external-broadcast';
+    return 'broadcast';
+  }
+  if (env.live?.isLive) return 'camera-live';
+  const playing = env.nativeVideo ? !env.nativeVideo.clock?.paused
+    : !!(env.sourceVideo && !env.sourceVideo.paused);
+  return playing ? 'video-playback' : 'idle-still';
+}
+
+// Does the hand-picked tag CONTRADICT what the app can see? Deliberately not a strict equality:
+// `hdmi-broadcast` and `airplay-broadcast` are both honest labels for `external-broadcast`, and
+// flagging those as a mismatch would train the reader to ignore the flag — which is worse than not
+// having one. Only a genuine contradiction (tagged idle while broadcasting) is worth saying.
+function scenarioMismatch(tag, observed) {
+  if (tag === observed) return null;
+  const externalOk = observed === 'external-broadcast'
+    && (tag === 'hdmi-broadcast' || tag === 'airplay-broadcast');
+  if (externalOk) return null;
+  return `tagged "${tag}" while the app observed "${observed}" — treat any baseline diff across this as void`;
+}
 
 const CSS = `
 #perfPanel { font: 11px/1.4 var(--font-ui, system-ui); color: var(--text-secondary, #bbb); }
@@ -331,6 +372,16 @@ export function mountPerfPanel(env, { container = null, onClose = null } = {}) {
   copyBtn.addEventListener('click', async () => {
     const text = JSON.stringify({
       build: env.buildLabel || '', scenario: scenarioSel.value, device: deviceKey(),
+      // ⚠️ The tag is hand-picked; this is what the app OBSERVED. When they disagree, believe this
+      // one, and treat any baseline diff across the mismatch as void.
+      scenarioObserved: observedScenario(env),
+      scenarioMismatch: scenarioMismatch(scenarioSel.value, observedScenario(env)) || undefined,
+      // ⚠️ WHAT NO INSTRUMENT CAN ANSWER, said out loud so the next reader does not spend a run
+      // finding out: iOS reports HDMI and AirPlay identically. The tag is the only record of the
+      // wire, and of the power path, which nothing observes at all.
+      scenarioUnverifiable: observedScenario(env) === 'external-broadcast'
+        ? 'HDMI vs AirPlay is not distinguishable from inside the app — the tag is the only record'
+        : undefined,
       ua: navigator.userAgent, report: ledger.report, baseline,
       // THE CONSOLE IS NOT A CHANNEL WE ACTUALLY HAVE (B532). Reading console output on a
       // Capacitor device needs Safari Web Inspector attached; the exported report is the path

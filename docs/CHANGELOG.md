@@ -6,14 +6,66 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
-## 🚧 v0.26.23 (Build 683) — 2026-08-19 — The record bus was not lying, it was measuring the wrong two things
+## 🚧 v0.26.24 (Build 684) — 2026-08-19 — The native batch: external cameras, and two instruments that were lying
 
-**B668 closed. Class 1, no device time.**
+**⚠️ NEEDS AN XCODE BUILD.** Two Swift files changed; `npx cap sync ios` is run and both parse clean against the iOS 26.5 SDK.
 
 ### Shipped
 
-- **Publishing is a ledger pass.** `bus.publish` now appears in the frame-cost panel.
+- **The iPad can see external cameras** — USB and Continuity — and can select one.
+- **`loopCache.coveredMs` reports a duration instead of a timestamp**, so its advice stops being wrong.
+- **The report says what scenario the app OBSERVED**, next to the hand-picked tag.
+
+### 1 — external cameras (Daniel: *"the ipad can't detect cameras besides its own yet"*)
+
+**It could not, because nothing ever asked.** Every discovery session in the camera plugin requested only `.builtInUltraWide / .builtInWideAngle / .builtInTelephoto`. A USB camera on an iPad reports as **`.external`** (iPadOS 17+) and an iPhone-as-webcam as **`.continuityCamera`**; neither type was ever in the list, so neither could be found. `host.nativeCamera.listDevices()` returned a hardcoded `[]`, which was indistinguishable from "nothing is plugged in".
+
+**Built as a whole path, deliberately, because half of it is the B631 trap** — a list nobody can select from is a mechanism that verifies and a feature that does not work:
+
+| layer | change |
+|---|---|
+| Swift | `listCameras()` — every video device, with `kind` / `position` / `connected` / `authorized` / `why` |
+| Swift | `start({ deviceId })` — an explicit `uniqueID` beats facing/lens, the only way to reach an external camera |
+| JS | `listDevices()` / `setDevice()` / `getDeviceWhy()` on the camera, and the host seam |
+| UI | a **camera source** row in the camera menu, using the existing `segRow` (no new component) |
+
+**Three details that are the difference between working and demoable:**
+- **Something has to ask.** `getDevices()` is a cache, and a row gated on it would never have appeared. The menu enumerates on every open, which also covers hot-plug: plug in, reopen, it is there.
+- **Front/back and lens rows HIDE while an external camera is selected.** They mean nothing for it, and an inert control that silently does nothing is worse than no control.
+- **`why` distinguishes three states a bare empty list cannot:** not authorized yet, no externals connected, or an OS too old to enumerate them (needs iOS 17).
+
+### 2 — `loopCache.coveredMs` was a timestamp
+
+```swift
+let covered = headCache.last.map { Int($0.pts * 1000) } ?? 0
+```
+
+That is the PTS of the newest cached frame. Coverage is a **duration**, and it is neither the span (wrong whenever the cache does not start at 0) nor the playable length — **a frame covers the interval AFTER its own timestamp**, so N frames at 33ms cover N×33, not (N−1)×33.
+
+It therefore under-reported by exactly one frame interval, and the `why` string compared that short figure against `swapGapMs` and **told you to raise a budget that was already sufficient.** Now `(lastPts - firstPts) + frameInterval`, and the `why` uses the same number so the reading and the advice cannot disagree.
+
+### 3 — the scenario tag, and what no instrument can answer
+
+The hand-picked tag has now invalidated two measurements: `idle-still` during a 4K broadcast at B609, and a forty-minute run on 2026-08-19 whose power path and video path **no field in the report could identify**.
+
+- `airplay-broadcast` added to the list. **There was no option for it at all**, so an AirPlay run was necessarily filed as HDMI.
+- `scenarioObserved` is derived from what is actually live, and `scenarioMismatch` states a genuine contradiction in words.
+- **Not a strict equality, on purpose.** `hdmi-broadcast` and `airplay-broadcast` are both honest labels for an external display, and flagging those would train the reader to ignore the flag.
+
+**⚠️ AND THE HONEST LIMIT, WHICH IS THE POINT OF THE FIELD: iOS presents an HDMI panel and an AirPlay receiver identically, as an external UIScreen.** No API distinguishes them. So `scenarioUnverifiable` says outright that the tag is the only record of the wire — and nothing observes the power path at all. Better to state it in every report than to let the next reader spend a run rediscovering it.
+
+---
+
+## 🚧 v0.26.23 (Build 683) — 2026-08-19 — Three Class 1 bugs, all found by reading
+
+**No device time on any of them.**
+
+### Shipped
+
+- **Publishing is a ledger pass.** `bus.publish` now appears in the frame-cost panel (B668 closed).
 - **A zero on the bus surface explains itself** — it names the idle elision instead of looking broken.
+- **Radial pan is proportional at every zoom.** A fixed offset bound was saturating a full-side drag when zoomed out.
+- **Break-glass reset rebuilds ALL the GL contexts**, not one of three, and says which it recovered.
 
 ### What was actually wrong
 
@@ -36,6 +88,36 @@ capture: readpixels · ELIDING: the program is static, every frame republished (
 **Publish is still measured on elided frames**, deliberately — it is exactly the cost that remains when the render is skipped.
 
 `busPass` is optional and resolved lazily, since the surface is registered on the bus's first render and the bus is constructed before that. 7 assertions in `bus-check.mjs`, including both the live and the elided path.
+
+### Radial pan: the gain was always right, the BOUND was wrong
+
+Daniel, weeks ago: *"panning is proportional across all zoom levels. this seems to be true for all forms except the radial wedge."*
+
+`canvasOffset` is subtracted **after** `p /= u_canvasZoom`, so one offset unit moves content by `zoom` half-canvas widths on screen. `panDelta` already compensates by asking for `2/zoom` units per full-side drag — that part was correct. **But `u_canvasOffset` clamped every NON-LATTICE form to ±1**, so:
+
+```
+zoom   a full-side drag asks for   kept   screen travel
+ 0.5            4.00               1.00        0.50
+ 1              2.00               1.00        1.00
+ 2              1.00               1.00        2.00
+ 4              0.50               0.50        2.00
+```
+
+**At zoom 1 the drag asks for 2.0 and gets 1.0** — it travels half way and stops dead. At zoom 4 it is untouched. That is the non-proportionality, and it is arithmetic rather than feel.
+
+**The ±1 was written for droste**, where the offset is not a translation but a shift of the log-polar CENTRE, and a large value inherited from a tiling form squeezes the field into a thin annulus (B610). Radial was swept in for being non-lattice. The bound is now per-form (`formOffsetBound`); droste keeps ±1 exactly, radial gets `2/zoom`. Screen travel is now a constant 2.00 at every zoom in the table above.
+
+**⚠️ The `max(1, …)` in radial's bound is a deliberate compromise and it is worth knowing about.** The pure `2/zoom` form would also NARROW the bound past 2× — taking away reach that works today. It only ever widens. If constant-range-at-every-zoom is what you actually want, drop the max, but that is a product call about losing reach when zoomed in, not a bug fix.
+
+### Break-glass reset was rebuilding one context out of three
+
+Daniel hit a context loss **in perform mode** and reported the control as not working. **It was doing exactly what it was written to do** — rebuilding `main.js`'s PREVIEW engine. But perform mode's visible surface is the **live PiP's** context, and the output/bus engine is a third. From the seat, a recovery that rebuilds one of three and a recovery that does nothing are the same thing.
+
+It now walks a new `allEngines()` registry, and **reports which surfaces recovered and which failed** rather than saying "session reset" regardless. It also only falls back to a reload when *nothing* recovered, instead of on the first throw.
+
+**Checked, not assumed:** the planar source needs no re-arming here — `reinitGL` stashes `planarFrame`/`planarCap` across the rebuild and restores them (B580). A re-arm line would have looked like a fix and not been one, so it was removed after being written.
+
+**⚠️ The phone chrome has no break-glass control at all.** Filed, not built — adding one is a UI addition, not a bug fix.
 
 ---
 

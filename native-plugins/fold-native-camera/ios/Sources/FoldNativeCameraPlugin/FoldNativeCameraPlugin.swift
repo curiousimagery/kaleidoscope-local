@@ -30,7 +30,8 @@ public class FoldNativeCameraPlugin: CAPPlugin, CAPBridgedPlugin, AVCaptureVideo
         CAPPluginMethod(name: "setWhiteBalance", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "getWhiteBalance", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "setFocusPoint", returnType: CAPPluginReturnPromise),
-        CAPPluginMethod(name: "capturePhoto", returnType: CAPPluginReturnPromise)
+        CAPPluginMethod(name: "capturePhoto", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "listCameras", returnType: CAPPluginReturnPromise)
     ]
 
     private let session = AVCaptureSession()
@@ -52,7 +53,85 @@ public class FoldNativeCameraPlugin: CAPPlugin, CAPBridgedPlugin, AVCaptureVideo
 
     // `lens`: "auto" = best virtual multi-lens device (seamless zoom, no custom WB);
     // "ultraWide"/"wide"/"tele" = a single physical lens (full manual control).
-    private func pickCamera(_ lens: String, _ facing: String) -> AVCaptureDevice? {
+    // ⚠️ EVERY VIDEO DEVICE THIS OS CAN SEE, INCLUDING THE ONES THAT ARE NOT OURS.
+    //
+    // Daniel: *"the ipad can't detect cameras besides its own yet."* It could not, because every
+    // discovery session in this file asked only for the three BUILT-IN lens types. A USB camera on
+    // an iPad reports as `.external` (iPadOS 17+) and an iPhone used as a webcam as
+    // `.continuityCamera` (iOS 16+); neither type was ever requested, so neither could be found.
+    //
+    // Availability-gated rather than assumed: asking for a device type the running OS does not
+    // define is a compile error, and a device type it defines but the hardware cannot produce is
+    // simply absent from the results, which is the correct answer.
+    private static func discoveryTypes() -> [AVCaptureDevice.DeviceType] {
+        var types: [AVCaptureDevice.DeviceType] = [
+            .builtInUltraWideCamera, .builtInWideAngleCamera, .builtInTelephotoCamera, .builtInTrueDepthCamera
+        ]
+        if #available(iOS 17.0, *) { types.append(.external) }
+        if #available(iOS 17.0, *) { types.append(.continuityCamera) }
+        return types
+    }
+
+    // A stable id for a device across calls. `uniqueID` is AVFoundation's own handle and is what
+    // `start({ deviceId })` takes back, so the list and the selection cannot drift apart.
+    private static func describe(_ d: AVCaptureDevice) -> [String: Any] {
+        var kind = "builtin"
+        if #available(iOS 17.0, *) {
+            if d.deviceType == .external { kind = "external" }
+            else if d.deviceType == .continuityCamera { kind = "continuity" }
+        }
+        let pos = d.position == .front ? "front" : d.position == .back ? "back" : "unspecified"
+        return [
+            "id": d.uniqueID,
+            "label": d.localizedName,
+            "kind": kind,
+            "position": pos,
+            "connected": d.isConnected,
+        ]
+    }
+
+    // ⚠️ LISTING A CAMERA YOU CANNOT SELECT WOULD BE THE B631 TRAP — a mechanism that verifies and
+    // a feature that does not work. `start` therefore takes a `deviceId` (see pickCamera), so the
+    // id this returns is directly usable. Do not ship one half of this without the other.
+    @objc func listCameras(_ call: CAPPluginCall) {
+        // Enumerating does not require authorization, but the LABELS are empty until it is granted,
+        // and a picker full of blank rows is worse than an honest prompt. So ask first, and say
+        // outright when we are answering unauthorized.
+        let authorized = AVCaptureDevice.authorizationStatus(for: .video) == .authorized
+        let ds = AVCaptureDevice.DiscoverySession(
+            deviceTypes: Self.discoveryTypes(), mediaType: .video, position: .unspecified)
+        let devices = ds.devices.map { Self.describe($0) }
+        call.resolve([
+            "devices": devices,
+            "authorized": authorized,
+            // WHY a short list is short. Without this, "no external camera" and "not asked for
+            // permission yet" and "this OS is too old to name external cameras" are one answer.
+            "why": !authorized ? "camera access not granted yet — labels and some devices stay hidden until it is"
+                 : devices.contains(where: { ($0["kind"] as? String) != "builtin" }) ? "external devices present"
+                 : externalTypesSupported ? "only built-in cameras are connected"
+                 : "this iOS version cannot enumerate external cameras (needs iOS 17)",
+            "externalTypesSupported": externalTypesSupported,
+        ] as [String: Any])
+    }
+
+    private var externalTypesSupported: Bool {
+        if #available(iOS 17.0, *) { return true }
+        return false
+    }
+
+    private func pickCamera(_ lens: String, _ facing: String, _ deviceId: String? = nil) -> AVCaptureDevice? {
+        // An explicit device wins over facing/lens: it is the only way to reach an external camera,
+        // which has no meaningful `position` to select by. Falls through when the id no longer
+        // resolves (unplugged between the list and the start) rather than failing the whole start.
+        if let id = deviceId, !id.isEmpty {
+            let ds = AVCaptureDevice.DiscoverySession(
+                deviceTypes: Self.discoveryTypes(), mediaType: .video, position: .unspecified)
+            if let d = ds.devices.first(where: { $0.uniqueID == id }) { return d }
+        }
+        return pickBuiltIn(lens, facing)
+    }
+
+    private func pickBuiltIn(_ lens: String, _ facing: String) -> AVCaptureDevice? {
         if facing == "front" {
             // front is a single sensor — no lens choice (TrueDepth is the fallback name)
             return AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .front)
@@ -179,6 +258,7 @@ public class FoldNativeCameraPlugin: CAPPlugin, CAPBridgedPlugin, AVCaptureVideo
         let lens = call.getString("lens") ?? "auto"
         let stillMode = call.getBool("stillMode") ?? true
         let facing = call.getString("facing") ?? "back"
+        let deviceId = call.getString("deviceId")          // explicit device (the external-camera path)
         let videoStabilization = call.getString("videoStabilization") ?? "standard"
         AVCaptureDevice.requestAccess(for: .video) { [weak self] granted in
             guard let self = self else { return }
@@ -191,7 +271,7 @@ public class FoldNativeCameraPlugin: CAPPlugin, CAPBridgedPlugin, AVCaptureVideo
                 }
                 let info: SessionInfo
                 do {
-                    info = try self.configureSession(presetName: preset, targetFps: fps, lens: lens, stillMode: stillMode, facing: facing, videoStabilization: videoStabilization)
+                    info = try self.configureSession(presetName: preset, targetFps: fps, lens: lens, stillMode: stillMode, facing: facing, videoStabilization: videoStabilization, deviceId: deviceId)
                 } catch {
                     call.reject("configure failed: \(error.localizedDescription)")
                     return
@@ -457,7 +537,7 @@ public class FoldNativeCameraPlugin: CAPPlugin, CAPBridgedPlugin, AVCaptureVideo
         let stabilization: String
     }
 
-    private func configureSession(presetName: String, targetFps: Double, lens: String, stillMode: Bool, facing: String, videoStabilization: String = "standard") throws -> SessionInfo {
+    private func configureSession(presetName: String, targetFps: Double, lens: String, stillMode: Bool, facing: String, videoStabilization: String = "standard", deviceId: String? = nil) throws -> SessionInfo {
         var target: (w: Int, h: Int)
         switch presetName {
         case "hd720": target = (1280, 720)
@@ -467,7 +547,7 @@ public class FoldNativeCameraPlugin: CAPPlugin, CAPBridgedPlugin, AVCaptureVideo
         default: target = (1920, 1080)
         }
 
-        guard let device = pickCamera(lens, facing) else {
+        guard let device = pickCamera(lens, facing, deviceId) else {
             throw NSError(domain: "fold", code: 1, userInfo: [NSLocalizedDescriptionKey: "no camera device"])
         }
         self.device = device

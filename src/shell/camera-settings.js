@@ -37,22 +37,55 @@ export function createCameraSettings(env, { getCamera, isNative, reacquire }) {
     if (!show && !pop.hidden) { pop.hidden = true; btn.classList.remove('open'); stopWbPoll(); }
   }
 
+  // ⚠️ SOMETHING HAS TO ASK. `getDevices()` returns a CACHE, and until B684 nothing ever filled
+  // it — so a "camera source" row gated on that cache would never have appeared, which is the same
+  // shape of bug as the enumeration it is meant to expose. Enumerating on every open also covers
+  // hot-plug: plugging a USB camera in and reopening the menu is how a person would expect to find
+  // it. `enumerating` guards the re-entry, since the refresh ends in another rebuild().
+  let enumerating = false;
+  function enumerateThenRebuild(camera) {
+    if (enumerating || typeof camera?.listDevices !== 'function') return;
+    enumerating = true;
+    const before = (camera.getDevices?.() || []).length;
+    camera.listDevices()
+      .then((list) => { if ((list || []).length !== before) rebuild(); })
+      .catch(() => { /* getDeviceWhy() carries the reason; the menu stays usable */ })
+      .finally(() => { enumerating = false; });
+  }
+
   function rebuild() {
     stopWbPoll();
     pop.innerHTML = '';
     const camera = getCamera();
     const rows = isNative() ? buildNativeRows(camera) : buildWebRows(camera);
     for (const r of rows) pop.appendChild(r);
+    if (isNative()) enumerateThenRebuild(camera);
   }
 
   // ---- native camera (Capacitor) --------------------------------------------
 
   function buildNativeRows(camera) {
     const rows = [];
+    // ⚠️ EXTERNAL CAMERAS — 2026-08-19, Daniel: *"the ipad can't detect cameras besides its own
+    // yet."* This row is what makes the enumeration a FEATURE rather than a mechanism: listing a
+    // camera nobody can select is the B631 trap exactly. Only shown when something other than the
+    // built-ins is actually attached, so the common case gains no clutter.
+    //
+    // Uses `segRow`, the same component the facing and lens rows use — no new pattern, nothing new
+    // for the Lab. The built-in entry is always present so there is a way back.
+    const devices = camera.getDevices?.() || [];
+    const externals = devices.filter((d) => d.kind && d.kind !== 'builtin');
+    if (externals.length) {
+      const opts = [{ id: '', label: 'built-in' }, ...externals.map((d) => ({ id: d.id, label: d.label || d.kind }))];
+      rows.push(segRow('camera source', opts, camera.getDeviceId?.() || '', (id) =>
+        reacquire(() => camera.setDevice(id)).then(rebuild)));
+    }
     // camera (facing) — the flip toggle lives at the TOP of this menu (Daniel:
     // the iPhone camera-menu position), replacing the toolbar flip button on
     // the native path. flip() resets EV/WB by construction (per-sensor gains).
-    if (camera.flip) {
+    // ⚠️ Front/back is meaningless for an EXTERNAL camera, so it hides when one is selected —
+    // an inert control that silently does nothing is worse than no control.
+    if (camera.flip && !(camera.getDeviceId?.() || '')) {
       rows.push(segRow('camera', [{ id: 'environment', label: 'rear' }, { id: 'user', label: 'front' }],
         camera.isFront?.() ? 'user' : 'environment',
         () => reacquire(() => camera.flip()).then(rebuild)));
@@ -60,7 +93,7 @@ export function createCameraSettings(env, { getCamera, isNative, reacquire }) {
     // lens — rear only, and only when the device has more than one. a lens
     // change re-acquires AND resets EV/WB (per-sensor gains don't carry).
     const lenses = camera.getLenses?.() || [];
-    if (!camera.isFront?.() && lenses.length > 1) {
+    if (!camera.isFront?.() && !(camera.getDeviceId?.() || '') && lenses.length > 1) {
       rows.push(segRow('lens', lenses, camera.getLens(), (id) =>
         reacquire(() => camera.setLens(id)).then(rebuild)));
     }

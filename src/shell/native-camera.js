@@ -41,6 +41,9 @@ export function createNativeCamera() {
   let lastLatencySec = 0;
   let controlRanges = {};     // EV/zoom/WB ranges the device reported (for the UI)
   let lenses = [];            // [{id,label}] physical lenses on the current facing
+  let deviceId = '';          // explicit AVFoundation uniqueID; '' = pick by facing/lens (built-in)
+  let devices = [];           // the last listCameras result — built-in AND external
+  let lastDeviceWhy = 'not enumerated yet';   // why the list is what it is (see getDeviceWhy)
   let lens = 'wide';          // the chosen physical lens (never 'auto' — the virtual
                               // device disables custom WB + 48MP; a single sensor allows both)
   let resolutions = [];       // [{id,label,maxFps}] the current lens actually offers
@@ -155,6 +158,9 @@ export function createNativeCamera() {
       preset, fps: targetFps, lens, stillMode,
       videoStabilization: videoStab,
       facing: facing === 'user' ? 'front' : 'back',
+      // An explicit device beats facing/lens on the native side — the only way to reach an
+      // external camera, which has no meaningful front/back to select by. Empty = built-in.
+      deviceId: deviceId || '',
     });
     console.info('[native-camera] plugin.start resolved', JSON.stringify(res));
     port = res.port || 8899;
@@ -360,7 +366,34 @@ export function createNativeCamera() {
     setFocusPoint,
     capturePhoto,
     capabilities,
-    listDevices: async () => [],
+    // ⚠️ EVERY camera the OS can see, external ones included. Empty was not "there are none" —
+    // nothing ever asked. Cached so a picker can render without a bridge round-trip, and refreshed
+    // by calling it; a hot-plugged USB camera only appears on a refresh.
+    listDevices: async () => {
+      try {
+        const res = await FoldNativeCamera.listCameras();
+        devices = res?.devices || [];
+        lastDeviceWhy = res?.why || '';
+        return devices;
+      } catch (e) {
+        lastDeviceWhy = `the plugin could not enumerate cameras: ${e?.message || e}`;
+        return [];
+      }
+    },
+    getDevices: () => devices,
+    getDeviceId: () => deviceId,
+    // WHY the list looks the way it does — unauthorized, no externals connected, or an OS too old
+    // to name them. Three states that a bare empty array cannot tell apart.
+    getDeviceWhy: () => lastDeviceWhy,
+    // Select a camera by AVFoundation uniqueID and re-acquire. '' returns to the built-in path.
+    // Re-acquires exactly like `setLens` — same shape, same reset. EV/WB are per-sensor and a
+    // different camera is emphatically a different sensor.
+    setDevice: async (id) => {
+      if ((id || '') === deviceId) return;
+      deviceId = id || '';
+      resetControls();
+      return start({ facingMode: facing });
+    },
     mirrorsInSource: true,           // the front-camera selfie-flip is baked into the canvas
     getVideo: () => canvas,          // duck-types as a drawable; has no srcObject (audio paths degrade)
     getFacing: () => facing,

@@ -242,6 +242,18 @@ export function createCapacitorHost() {
     nativeCamera: {
       ...webHost.nativeCamera,
       available: true,
+      // ⚠️ THE HOST SEAM FOR EXTERNAL CAMERAS. `webHost.nativeCamera.listDevices` returns `[]`,
+      // and on Capacitor that empty array was indistinguishable from "this iPad has no USB camera
+      // attached" — nothing had ever asked the OS. The live implementation is on the camera
+      // instance (shell/native-camera.js `listDevices`), which is what the picker reads; this
+      // exists so a consumer holding only the HOST can still enumerate before a camera is started.
+      async listDevices() {
+        try {
+          const { registerPlugin } = await import('@capacitor/core');
+          const res = await registerPlugin('FoldNativeCamera').listCameras();
+          return res?.devices || [];
+        } catch { return []; }
+      },
     },
 
     // NDI network output — the conduit-ndi-capacitor plugin owns the Vizrt sender; frames

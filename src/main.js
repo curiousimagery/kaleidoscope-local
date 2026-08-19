@@ -679,11 +679,10 @@ env.scheduleRender = scheduleRender;
 // which this ever touched. From the seat, a recovery that rebuilds one of three contexts and a
 // recovery that does nothing are the same thing. It now walks `allEngines()`.
 //
-// **And it must re-arm the PLANAR SOURCE.** `reinitGL` nulls `planar` (its FBO and blit program
-// died with the context) and re-uploads from the source ELEMENT — which on the native-decode path
-// is a small bounded preview canvas, not the decode's planes. So a "successful" reset left the
-// native path rendering from the wrong surface, which is the source-panel symptom this control is
-// most often reached for.
+// **The planar source needs nothing here** — checked rather than assumed. `reinitGL` stashes
+// `planarFrame`/`planarCap` across the rebuild and restores them (B580, the fix for exactly the
+// "recovery caused the damage" case), so a reset does not drop the native decode onto its bounded
+// preview canvas. Re-arming it from here would be a line that looks like a fix and is not one.
 //
 // **It also reports what it did.** A recovery that cannot say which half worked is the thing that
 // sent this investigation to the wrong place for a build.
@@ -705,15 +704,6 @@ env.resetSession = () => {
       }
     } catch (e) { failed.push(`${tag}: ${e?.message || e}`); }
   }
-  // Re-establish the native decode's planes on the preview engine. reinitGL re-uploads from the
-  // source element, which for a native decode is the bounded preview canvas rather than the planes.
-  try {
-    if (env.nativeVideo && engine) {
-      engine.setPlanarSource(env.nativeVideo.planeReader(), env.nativeVideo.cap);
-      done.push('planar source re-armed');
-    }
-  } catch (e) { failed.push(`planar: ${e?.message || e}`); }
-
   env.vitals?.mark('session-reset', { done, failed });
   if (failed.length && !done.length) {
     console.warn('[fold] session reset — nothing recovered, reloading', failed);

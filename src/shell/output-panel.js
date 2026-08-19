@@ -1072,6 +1072,9 @@ export function createOutputPanel(env, outputBus) {
   //
   // Both report WHY they declined. The operator has walked away by then, so a silent no-op would
   // produce a report describing a test that did not happen.
+  // Which destination is selected — read by the perf panel to derive the scenario rather than
+  // trusting the hand-picked tag (which has now invalidated two measurements).
+  env.outputDestId = () => destination;
   env.outputActions = {
     isBroadcasting: () => !!broadcasting,
     isRecording: () => !!recorder?.recording,

@@ -422,7 +422,11 @@ Shipped as `sliceMirrorX/Y` + `foldSliceIntoSource`. Details in CHANGELOG v0.25.
 
 *"Under our diagnostics I tried the 'reset session (break glass)' control and it doesn't seem to be working anymore."*
 
-Reported after a GL-context loss in perform mode. **Not investigated — filed rather than fixed blind**, because the interesting question is whether it is broken generally or broken specifically after a context loss, and those have different causes. **The second reading would matter a lot**: break-glass is precisely the control an operator reaches for when the app has gone wrong, so a version of it that fails in exactly that state is worse than none.
+Reported after a GL-context loss in perform mode.
+
+**✅ ANSWERED AND FIXED B683 — it was neither of the two candidates.** It rebuilt `main.js`'s PREVIEW engine and nothing else, while **perform mode's visible surface is the live PiP's context** and the output/bus engine is a third. So it was broken specifically in the state Daniel was in, for a reason that had nothing to do with the context loss itself. It now walks `allEngines()` and reports which surfaces recovered.
+
+**⚠️ STILL OPEN: the phone chrome has no break-glass control at all.** `resetSession` is defined only in `main.js`. Adding one to `mobile/chrome.js` is a UI addition (needs a Lab entry), not a bug fix, so it was filed rather than folded into B683.
 
 **Class 1 first:** read the handler and check what it does with a lost/restored context before spending any device time.
 
@@ -577,7 +581,8 @@ Daniel: *"is this iOS only or does this work carry over to electron... ideally o
 - **⚠️ Do step 3 only after a B681 report shows real numbers.** The audit says what the code CAN hold; a shed rule written against what it can hold rather than what it does is a guess with a table in it.
 
 **⚠️ STILL OPEN, and they were meant to ride the same Xcode cycle — they did NOT get built:**
-- `loopCache.coveredMs` under-reports coverage by one frame interval (Swift), so its `why` advises raising a budget that is already sufficient.
+- ~~`loopCache.coveredMs` under-reports coverage by one frame interval (Swift), so its `why` advises raising a budget that is already sufficient.~~ **✅ FIXED B684** — it was reporting `last.pts`, a timestamp rather than a duration. Now `(lastPts - firstPts) + frameInterval`, shared with the `why` so reading and advice cannot disagree.
+- ~~`listCameras` for external/USB cameras on iPad.~~ **✅ SHIPPED B684**, end to end (Swift enumeration + `deviceId` selection + JS seam + a `camera source` row). Needs an Xcode build.
 - The `scenario` tag is a manual dropdown and read `idle-still` during a 4K broadcast at B609, which invalidates any baseline diff from that session. Wants a guard that notices it disagrees with what is running.
   - **⚠️ PROMOTED 2026-08-19 — IT HAS NOW COST A SECOND COMPARISON, AND THE SECOND ONE IS EXPENSIVE.** A clean 40-minute T7 came back with the battery flat where the previous run drained 22.5%/hr, **and the report cannot say which power path or which video path it used.** The list in `shell/perf-panel.js` (`SCENARIOS`) has **no AirPlay entry at all**, so an AirPlay broadcast is necessarily filed as `hdmi-broadcast`. Forty minutes of device time is now pending an answer no instrument recorded. **Derive the tag from the live destination** (`selectedDest()` already knows) and let the dropdown override rather than originate. Do this before the next power run.
 

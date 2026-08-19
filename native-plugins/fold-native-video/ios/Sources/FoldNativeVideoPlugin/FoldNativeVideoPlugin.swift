@@ -528,9 +528,18 @@ public class FoldNativeVideoPlugin: CAPPlugin, CAPBridgedPlugin {
         cacheLock.lock()
         let held = headCache.count
         let bytes = headBytes
-        let covered = headCache.last.map { Int($0.pts * 1000) } ?? 0
         let firstPts = headCache.first?.pts ?? -1
         let lastPts = headCache.last?.pts ?? -1
+        // ⚠️ COVERAGE IS A DURATION, AND THIS USED TO REPORT A TIMESTAMP.
+        // It was `Int(last.pts * 1000)` — the PTS of the newest cached frame, which is neither the
+        // span (wrong whenever the cache does not start at 0) nor the playable duration (a frame
+        // covers the interval AFTER its own timestamp, so N frames at 33ms cover N*33, not
+        // (N-1)*33). It therefore under-reported by exactly one frame interval, and the `why`
+        // string below compared that short figure against `swapGapMs` and **advised raising a
+        // budget that was already sufficient.** An instrument that gives a wrong instruction is
+        // worse than one that stays quiet.
+        let span = held > 0 ? (lastPts - firstPts) + frameInterval : 0
+        let covered = Int((span * 1000).rounded())
         cacheLock.unlock()
         out["loopCache"] = [
             "budgetMB": cacheBudget / (1024 * 1024),
@@ -548,7 +557,8 @@ public class FoldNativeVideoPlugin: CAPPlugin, CAPBridgedPlugin {
                  : held == 0 ? "no head frames stored yet (the clip has not played through 0-0.3s)"
                  : firstPts > 0.02 ? "the cache starts at \(Int(firstPts * 1000))ms, not 0 — it can only repeat content the decoder was going to deliver anyway. The head of a clip is produced ONCE, on the opening pass, so if the cache was cleared (budget set to 0) mid-session it cannot rebuild itself: reload the clip."
                  : lastReplayFrames == 0 && lapsCovered > 0 ? "held frames but fed none on the last lap"
-                 : swapGapMs > 0 && Int((lastPts - firstPts) * 1000) < swapGapMs ? "partial fill — \(Int((lastPts - firstPts) * 1000))ms of a \(swapGapMs)ms lap; raise the budget"
+                 // the SAME number the report carries, so the advice and the reading cannot disagree
+                 : swapGapMs > 0 && covered < swapGapMs ? "partial fill — \(covered)ms of a \(swapGapMs)ms lap; raise the budget"
                  : "covering the lap",
         ] as [String: Any]
         call.resolve(out)
