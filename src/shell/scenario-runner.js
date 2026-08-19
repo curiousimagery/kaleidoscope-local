@@ -56,6 +56,16 @@ export const SCRIPTS = [
     needs: ['vitals', 'outputActions'],
     blurb: 'take A while broadcasting, take B alone — compares the two SAVED takes',
     steps: [
+      // ⚠️ FHD, SET EXPLICITLY, AND FOR A MEASURED REASON. A 4K take armed while broadcasting 4K
+      // has now killed the GL context on this device three times (B661 fatal, B663 fatal, B666
+      // twice non-fatal with take A encoding ZERO frames). Asking for it again does not produce a
+      // priority measurement, it produces another context loss — the question T3 asks needs a take
+      // that can actually run. The 4K case is its own test, and it already has its answer.
+      // Broadcast OFF first, because the tier is frozen while output is live (locks.js) — Daniel
+      // starts these runs already broadcasting, so a script that set the tier first would decline
+      // at step one. Turning it off is a no-op when it already is.
+      { do: 'broadcast', arg: 'off' },
+      { do: 'resolution', px: 1920 },
       { do: 'play' },
       { do: 'session', arg: 'start', label: 't3-record-priority' },
       { do: 'broadcast', arg: 'on' },
@@ -194,6 +204,10 @@ export function createScenarioRunner(env) {
       const entry = {
         tag: step.tag || null,
         videoFrames: frames, videoSpanSec: span, wallSec: wall,
+        // B667 — WHAT WAS ACTUALLY RECORDED, not what the written test intended. B666's takes were
+        // 4K because that was the selected tier; the test doc said FHD, and nothing in the report
+        // could have told them apart.
+        tierPx: env.outputActions?.tier?.() ?? null,
         engine: r.engine || null,
         // A MediaRecorder fallback take has no frame count. That must read as "not measurable
         // here", never as a zero frame rate — a fallback rescue must not look like a failure.
@@ -216,6 +230,12 @@ export function createScenarioRunner(env) {
     //
     // Goes through `env.sourceClock`, the same transport motion-runtime drives, so a scripted run
     // plays the clip the way the app does.
+    async resolution(step) {
+      const a = env.outputActions;
+      if (!a?.setTier) return { ok: false, why: 'no output panel on this chrome' };
+      return a.setTier(step.px);
+    },
+
     async play(step) {
       const c = env.sourceClock;
       if (!c?.present) return { ok: false, why: 'no source clock — is a video loaded?' };
@@ -329,6 +349,11 @@ export function createScenarioRunner(env) {
         abortedAtStep: run.abortedAt ?? null,
         abortWhy: run.abortWhy || null,
         sessionStillRunning: run.sessionStillRunning || undefined,
+        // ⚠️ B667 — THE SESSION THE RUN RECORDED, AND B666 LOST IT ENTIRELY. The panel exports
+        // `vitals` from either a LIVE session or the one ITS OWN button stopped; a session the
+        // RUNNER stopped is neither, so B666's report carried no `vitals` block at all — the whole
+        // fps/thermal series for the run, gone, from the instrument built to capture exactly that.
+        session: run.session || undefined,
         takes: run.takes || undefined,
         log: run.log,
       };

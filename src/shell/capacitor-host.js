@@ -105,7 +105,7 @@ export function createCapacitorHost() {
         inFlight = true;
         seam.attempts++;
         try {
-          const p = load().then((pl) => pl.read());
+          const p = load().then((pl) => pl.readVitals());
           // The race is the point: a bridge call that never settles would otherwise leave
           // `inFlight` true forever and silently disable polling for the rest of the run —
           // one of the three candidate explanations for B663's device result, and the only

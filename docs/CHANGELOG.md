@@ -6,6 +6,39 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🧨 v0.26.7 (Build 667) — 2026-08-19 — Arming a 4K take during a 4K broadcast kills the GL context, reproducibly
+
+**JS + Swift. ⚠️ NEEDS AN XCODE BUILD.**
+
+### Shipped
+
+- **T3 sets the take tier to FHD explicitly** (and stops the broadcast first, since the tier is frozen while output is live).
+- **`env.outputActions.setTier` / `.tier`**, and every take now records the `tierPx` it was made at.
+- **The runner exports the session it stopped.** B666 lost the entire vitals series.
+- **The native `read` is renamed `readVitals`** — on evidence, not a guess.
+
+### The finding: it is deterministic, and it is not the runner
+
+Daniel: *"as soon as you move on from 'let the broadcast settle' the source panel and timeline go dark with a graphics context lost error."* The report agrees exactly — `⚠ GL CONTEXT RESTORED ×1`, arming took **6 seconds** against ~1s normally, and **take A ran a full 60 seconds and encoded ZERO frames** (`videoFrames: 0`, `videoSpanSec: 0`, `wallSec: 60.1`).
+
+**This is the B663 crash, in a survivable form.** Four occurrences now: B661 fatal, B663 fatal, and two here where the context was lost and restored. **It is no longer an edge case, it is a reproducible property of the combination.** So T3 no longer asks for it — a 4K take on a 4K broadcast does not produce a priority measurement, it produces a context loss, and the 4K case already has its answer.
+
+**⚠️ AND THE FIRST HONEST TAKE NUMBER IS BAD ON ITS OWN.** Take B, no broadcast, nothing competing, app at 59fps: **804 frames over 60.1s = 13.4fps at 4K**, against the recorder's declared 30. `wallSec 60.4` vs `videoSpanSec 60.1` agree to 0.3s, which is the B666 clock fix working. **A 4K take is not merely losing a contention; it cannot hit its own target unopposed.**
+
+### `read` was the problem, and `ping` proved it
+
+`pingOk: true` · `pushes: 57` · `read`: 28 attempts, **28 timeouts, 0 errors, 0 empty**. The discriminator shipped one build earlier did exactly its job: the bridge, the registration and the plugin instance are all fine, and the failure is specific to the method NAME. Renamed to `readVitals`. **The push channel already carries real data** — `pressure.source` reads `native+inferred` and thermal `serious` for the first time.
+
+### The runner lost the session, which is the instrument losing its own subject
+
+B666's report had **no `vitals` block at all.** The panel exports `vitals` from either a live session or the one ITS OWN button stopped; a session the RUNNER stopped is neither. So the fps and thermal series for the whole scripted run — the thing the session recorder exists to produce — was silently dropped. Now carried inside `scenarioRun.session`.
+
+### And the script did not control the variable it was written to hold constant
+
+B666 recorded both takes at **4K**, because that was the selected tier, while the written test said FHD. Nothing in the report could have told them apart. Takes now carry `tierPx`, and T3 sets it.
+
+---
+
 ## 🩹 v0.26.6 (Build 666) — 2026-08-19 — The first scripted run was valid as a run and invalid as a test
 
 **JS + Swift. ⚠️ NEEDS AN XCODE BUILD** for the native push; the JS half works without it.

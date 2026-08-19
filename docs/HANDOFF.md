@@ -34,6 +34,18 @@ Archived at B658. It was marked superseded at B609 and kept for the reasoning be
 
 **The trap that was caught before the cycle, because it will recur in any future host seam:** Capacitor calls are async, `conduit/vitals.js` reads `native()` sync. A Promise there makes every field undefined and the report says `nativeReadings: false` — *identical to no plugin*. The host caches; `read()` is synchronous. Proven in `vitals-native-check.mjs`.
 
+### 🧨 B667 — THE 4K-TAKE-ON-4K-BROADCAST GL DEATH IS DETERMINISTIC. FOUR OCCURRENCES.
+
+B661 fatal · B663 fatal · B666 twice, survivable. **Same trigger every time: arm a 4K take while broadcasting 4K.** In B666 the context was lost and restored, arming took 6s instead of ~1s, and **take A ran 60 seconds and encoded ZERO frames.**
+
+**▶ THIS IS ENOUGH EVIDENCE TO GATE ON.** It is not an edge case any more. The honest product answers, in order: cap the take tier while a 4K broadcast is live, refuse the combination with a clear message, or make the take the priority and shed the broadcast. **Daniel's own framing applies — understand the constraint, gate on it, do not hardcode the device.**
+
+**▶ AND THE 4K TAKE IS BAD EVEN UNOPPOSED.** Take B, no broadcast, app at 59fps: **13.4fps at 4K** (804 frames / 60.1s) against a declared 30. Wall and span agree to 0.3s, so the number is trustworthy now. **A 4K take is not losing a contention; it cannot hit its own target alone.** T3's real question — is the FHD take a priority inversion — is still unanswered and now runs at FHD by construction.
+
+**▶ NATIVE VITALS ARE LIVE VIA THE PUSH CHANNEL.** `pushes: 57`, `pressure.source: native+inferred`, thermal `serious` read for the first time. `pingOk: true` against `read`'s 28/28 timeouts proved the failure was the method NAME; renamed `readVitals` at B667.
+
+**▶ THE RUNNER IS NOT THE PROBLEM.** Daniel asked whether it would be easier to test manually. **No** — the run executed 17/17 steps correctly, and its report is the only reason we know take A encoded zero frames rather than "the take didn't work". Two real runner defects found and fixed (lost session, uncontrolled tier); neither is a reason to go back to hand-driving.
+
 ### 🩹 B666 — THE FIRST SCRIPTED RUN WAS VALID AS A RUN AND INVALID AS A TEST
 
 **`outcome: complete`, 16/16 steps, and it measured nothing** — both takes were of a still frame, because the script never started playback and a freshly loaded clip parks paused (B595). **"Complete" and "meaningful" came apart, which is the exact failure a scripted test exists to prevent.** Fixed with a `play` step (verified, not assumed) and a pre-flight that names every knowable precondition before the operator walks away.

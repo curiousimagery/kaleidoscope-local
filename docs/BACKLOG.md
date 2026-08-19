@@ -404,6 +404,27 @@ Shipped as `sliceMirrorX/Y` + `foldSliceIntoSource`. Details in CHANGELOG v0.25.
 
 **⚠️ THE PATTERN WORTH CARRYING FORWARD, since a paper trail is the point.** The arc's recurring defect was **one behaviour with two implementations**, and it appeared SEVEN times: droste's overlay missing `sizeNorm` (B614), radial's polygon missing `canvasNorm` (B618), the overlay missing `canvasOffset` (B612), the centring hook reaching only one chrome (B619), six copies of the transition default (B622), `env.panDrift` covering one of two joysticks (B620), and the slice-scale clamp written six times at three different maxima (B657). **Two more arrived as fresh instances during the arc itself** — B653's ruler re-implementing the scrub instead of calling it, and B638's flag set on the wrong `env`-shaped object. It is not a hypothesis; it is the shape of this codebase's bugs, and `CLAUDE.md` now leads with it.
 
+### 🚧 [Daniel, B667 — REPORTED, NOT DIAGNOSED] "RESET SESSION (BREAK GLASS)" NO LONGER WORKS
+
+*"Under our diagnostics I tried the 'reset session (break glass)' control and it doesn't seem to be working anymore."*
+
+Reported after a GL-context loss in perform mode. **Not investigated — filed rather than fixed blind**, because the interesting question is whether it is broken generally or broken specifically after a context loss, and those have different causes. **The second reading would matter a lot**: break-glass is precisely the control an operator reaches for when the app has gone wrong, so a version of it that fails in exactly that state is worse than none.
+
+**Class 1 first:** read the handler and check what it does with a lost/restored context before spending any device time.
+
+### 🧨 [B667 — ENOUGH EVIDENCE TO ACT ON] GATE THE 4K TAKE WHILE A 4K BROADCAST IS LIVE
+
+**Four occurrences of the same trigger** (B661 fatal, B663 fatal, B666 twice survivable): arming a 4K take while broadcasting 4K kills the shared WebKit GPU process. In the survivable form the take runs its full minute and encodes **zero frames**.
+
+**And the 4K take is unusable even unopposed** — 13.4fps against a declared 30 with nothing else running and the app at 59fps.
+
+**Three candidate answers, most honest first:**
+1. **Cap the take tier while a broadcast is live**, and say so where the tier is chosen. Cheap, and it matches the existing `videoHdmiCapped` precedent for a memory guard.
+2. **Refuse the combination** with a clear message. Blunter but unambiguous.
+3. **Make the take the priority and shed the broadcast** — right for a deliverable, wrong for a live show, so it cannot be the default.
+
+**⚠️ THE GATE MUST BE COMPUTED, NOT A DEVICE TABLE** (Daniel's standing requirement). We own the top of the hardware range and none of the bottom, so a limit calibrated here would be calibrated on good hardware. The learned-ceiling pattern (`broadcastCeiling`) is the shape to copy, and the flight recorder already persists the exact combination that preceded a context loss.
+
 ### ✅ [SHIPPED B665] SCENARIO RUNNER — the app performs the device test
 
 Daniel's ask, and the answer to him being the sole chokepoint on device work: *"I build the latest on device, open an agreed upon source, click 'run test', come back, copy and paste the results."* Shipped as `run scenario` in the frame-cost panel (`shell/scenario-runner.js`), exported as `scenarioRun`.

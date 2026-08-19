@@ -1035,6 +1035,19 @@ export function createOutputPanel(env, outputBus) {
   env.outputActions = {
     isBroadcasting: () => !!broadcasting,
     isRecording: () => !!recorder?.recording,
+    // ⚠️ B667 — THE TAKE'S RESOLUTION IS THE VARIABLE T3 EXISTS TO HOLD CONSTANT, and B666's run
+    // recorded at whatever tier happened to be selected (4K) while the written test said FHD. A
+    // script that cannot set the thing it is controlling for is not running the test it claims to.
+    // Same path as the tier buttons, `tierTouched` included, so the choice sticks the way a
+    // hand-picked one does (B588).
+    tier: () => tier,
+    setTier(px) {
+      if (broadcasting || recorder?.recording) return { ok: false, why: 'cannot change the tier while output is live' };
+      if (!TIERS.includes(px)) return { ok: false, why: `no such tier ${px} — have ${TIERS.join('/')}` };
+      tier = px; tierTouched = true;
+      applyResolution(); renderStatus(); reflect();
+      return { ok: true };
+    },
     async setBroadcast(on) {
       if (!!broadcasting === !!on) return { ok: true, why: `already ${on ? 'on' : 'off'}` };
       if (on && !canArm()) return { ok: false, why: statusEl?.textContent || 'cannot arm output — no source?' };

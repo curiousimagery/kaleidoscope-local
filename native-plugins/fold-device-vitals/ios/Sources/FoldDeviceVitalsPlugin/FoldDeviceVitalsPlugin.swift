@@ -38,7 +38,12 @@ public class FoldDeviceVitalsPlugin: CAPPlugin, CAPBridgedPlugin {
     public let identifier = "FoldDeviceVitalsPlugin"
     public let jsName = "FoldDeviceVitals"
     public let pluginMethods: [CAPPluginMethod] = [
-        CAPPluginMethod(name: "read", returnType: CAPPluginReturnPromise),
+        // ⚠️ B667 — RENAMED FROM `read`, ON EVIDENCE. B666 shipped `ping` purely to discriminate,
+        // and it came back `pingOk: true` alongside `read`: 28 attempts, 28 timeouts, 0 errors.
+        // So the bridge, the registration and the plugin instance are all fine and the failure is
+        // specific to the NAME `read` — which is generic enough to collide. Renaming is now a
+        // lever the evidence points at rather than a guess at one.
+        CAPPluginMethod(name: "readVitals", returnType: CAPPluginReturnPromise),
         // ⚠️ B666 — A DISCRIMINATOR, NOT A FEATURE. `read` never settled once in 34 attempts on
         // device (34 timeouts, 0 errors, 0 empty resolves) while `notifyListeners` worked
         // perfectly in the same build. `ping` has a trivial body and a different name, so ONE
@@ -100,7 +105,7 @@ public class FoldDeviceVitalsPlugin: CAPPlugin, CAPBridgedPlugin {
         notifyListeners("memoryWarning", data: snapshot())
     }
 
-    @objc func read(_ call: CAPPluginCall) {
+    @objc func readVitals(_ call: CAPPluginCall) {
         call.resolve(snapshot())
     }
 
