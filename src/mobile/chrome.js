@@ -103,7 +103,7 @@ import { createCapacitorHost } from '../shell/capacitor-host.js';
 import { createPerfLedger, PRIORITY } from 'conduit/perf-ledger';
 import { createVitals } from 'conduit/vitals';
 import { createScenarioRunner } from '../shell/scenario-runner.js';
-import { setWakeLockHost, noteIdleTimerState } from '../kit/wake-lock.js';
+import { setWakeLockHost, noteIdleTimerState, keepAwake } from '../kit/wake-lock.js';
 import { perfFlags } from '../shell/perf-flags.js';
 import { createPressureSource } from 'conduit/pressure';
 
@@ -1770,15 +1770,17 @@ function paintPip() {
   pipEl.addEventListener('pointercancel', () => { dragging = false; pipEl.style.transform = ''; placePip(); });
 })();
 
-// ---- screen wake lock while a take rolls (auto-lock would kill the recording)
-let recWakeLock = null;
-async function acquireRecWakeLock() {
-  try { recWakeLock = await navigator.wakeLock?.request('screen'); } catch { recWakeLock = null; }
-}
-function releaseRecWakeLock() {
-  try { recWakeLock?.release(); } catch { /* already released */ }
-  recWakeLock = null;
-}
+// ---- screen wake lock while a take rolls or a broadcast is live
+// ⚠️ B680 — THESE USED TO CALL `navigator.wakeLock` DIRECTLY, WHICH IS THE ONE API THAT DOES NOT
+// WORK HERE: WKWebView refuses it with NotAllowedError, so every phone take and every phone NDI
+// broadcast has been running with NO lock at all while reporting success (the request was in a
+// try/catch that swallowed the refusal). Only the native idle timer holds an iOS screen, and
+// `keepAwake` is what reaches it. The desktop chrome got this at B674 and the phone did not —
+// the two-chromes trap again, found by grepping the other chrome rather than by a device session.
+// Kept as named wrappers because the callers below pair them with their own "is the other
+// consumer still live" guards.
+function acquireRecWakeLock() { keepAwake(true); }
+function releaseRecWakeLock() { keepAwake(false); }
 
 let lastTickT = 0;
 function startLiveLoop() {

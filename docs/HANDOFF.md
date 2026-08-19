@@ -34,6 +34,31 @@ Archived at B658. It was marked superseded at B609 and kept for the reasoning be
 
 **The trap that was caught before the cycle, because it will recur in any future host seam:** Capacitor calls are async, `conduit/vitals.js` reads `native()` sync. A Promise there makes every field undefined and the report says `nativeReadings: false` — *identical to no plugin*. The host caches; `read()` is synchronous. Proven in `vitals-native-check.mjs`.
 
+### ✅ B680 — THE WAKE LOCK HOLDS (and the phone never had it)
+
+**Confirmed on device 2026-08-19: a full 40-minute T7 ran uninterrupted.** The head-of-line theory is confirmed by the fix. `readVitals` stays retired; do not reinstate a pull, and do not add a boot probe.
+
+**Scope of the lock: `broadcasting || wantRecord`.** Driven from `syncBusRunning()` in `shell/output-panel.js` — deliberately not from `need`, because a self-rendering destination (HDMI, `needsBus:false`) never starts the bus and is the case that most needs the screen held. **Ordinary editing does not hold the screen**, by design.
+
+**B680 fixed the same gap on the phone chrome**, which mounts no output panel and had its own `acquireRecWakeLock()` calling `navigator.wakeLock` directly — the one API WKWebView refuses, inside a `catch` that swallowed the refusal. **Every phone take and every phone NDI broadcast has run with no lock at all.** Both helpers now delegate to `keepAwake`. B675 had already wired `setWakeLockHost` there; nothing ever called it. **Two-chromes trap, found by grepping rather than by a device session.**
+
+### 📊 T7 · 2026-08-19 · 40 MINUTES, HANDS OFF, 4K→4K — NOTHING DEGRADES
+
+241 samples, `outcome: complete`, no suspended gaps.
+
+```
+fps          19.7 → 20.6   (min 17.5, max 27)
+wallFps      21.3 → 20.8   (min 14.5, max 27.8)
+footprintMB  140  → 140    (min 128, max 171)
+availMB      4979 → 4979
+thermal      serious for 2410s of 2410s
+battery      95% → 95%, charging, FLAT
+```
+
+**The wall held ~19 new pictures/s the whole time.** Memory is not a constraint, thermal `serious` is simply where this device lives and does not predict anything, and **40 minutes of 4K HDMI broadcast is sustainable at ~20fps app / ~19fps wall.**
+
+**⚠️ THE POWER CEILING DID NOT REPRODUCE, AND THE RIG IS NOT RECORDED.** The previous T7 fell 70% → 55% in 40 minutes; this one held 95% flat. **State of charge does not explain it**: if supply is capped below draw, the battery discharges at the deficit regardless of SoC. Same fps, same thermal, so the draw did not change — **the supply almost certainly did.** The report cannot say: the `scenario` tag is hand-picked and has no AirPlay option, so an AirPlay run is filed as `hdmi-broadcast`. **Ask Daniel which power path this run used before concluding anything, and build the scenario guard.**
+
 ### 🚧 B679 — THE PULL IS RETIRED, AND THE FIX IS THE EXPERIMENT
 
 **B678's fix produced the decisive number:** `osIdleTimerDisabled: false` while the app asked for `true`. **So `setIdleTimerDisabled` does not merely fail to resolve — it never performs its write.** Its body is a resolve plus a one-line UIKit assignment; nothing in it can fail halfway. **The call is not reaching native.**

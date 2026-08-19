@@ -55,7 +55,30 @@ Confirmed results are DELETED from here and recorded in CHANGELOG. Closed sessio
 
 ---
 
-## ▶ T8 — AIRPLAY + DIRECT CHARGE (the next device test, and it is the one that matters)
+## ⚠️ T8 — POWER: A CLEAN 40 MINUTES RAN, AND WE CANNOT TELL WHICH RIG IT WAS
+
+**2026-08-19, on B679: a full T7 completed uninterrupted — 241 samples, `outcome: complete`, no suspended gaps. The wake lock holds.** Everything held flat (fps 19.7 → 20.6, memory 140MB, thermal `serious` throughout) **and battery held 95% → 95% while charging.**
+
+**That is the power ceiling not reproducing.** The previous run fell 70% → 55% over the same 40 minutes.
+
+**⚠️ BEFORE CONCLUDING ANYTHING, ESTABLISH THE RIG. The report cannot say.** The `scenario` tag is hand-picked from a fixed list in `shell/perf-panel.js` that **has no AirPlay option**, so an AirPlay run and an HDMI run are both filed as `hdmi-broadcast`. `wallW/wallH` read 3840x2160, which *suggests* HDMI (a mirrored AirPlay screen usually presents 1920x1080), but that is inference, not a reading.
+
+**What the physics does rule out: state of charge.** If the supply is capped below the draw, the battery discharges at the deficit regardless of whether it sits at 95% or 73%. Same fps and same thermal in both runs, so the draw did not change. **The supply almost certainly did.**
+
+- **If this was AirPlay + direct charge:** T8 is ANSWERED, and there is a supported eight-hour configuration. Then run **HDMI + direct charge** (a power-passthrough dongle) to separate the two variables the workaround moves at once.
+- **If this was still HDMI via the Magic Keyboard:** the earlier 22.5%/hr drain is unexplained and T8 has not run. Suspect the first run's sleep/wake cycles or a different charger.
+
+**⚠️ T8 IS NOT A NEW SCRIPT — it is the T7 script with a different rig.** Pick **T7 · warm long run** in the dropdown. Nothing to build.
+
+**⚠️ KEEP THE 20.4s CLIP** for any power comparison. T7 is its only baseline.
+
+**Two amplifiers Daniel named that belong in the reading, not in the conclusion:** ambient ~75°F with the device already hot, and iOS is known to throttle charge rate when hot.
+
+### ▶ BUILD THE SCENARIO GUARD BEFORE THE NEXT POWER RUN
+
+This is the second time a hand-picked tag has cost a comparison. The list needs an `airplay-broadcast` entry at minimum, and better, the tag should be **derived from the live destination** rather than typed. Filed in BACKLOG.
+
+## 🅿️ T8 — original framing (superseded by the run above)
 
 **T7 found the only ceiling that actually ends a run: power.** 70% → 55% in 40 minutes while plugged in, because **HDMI-out occupies the USB-C port and charging falls back to the Magic Keyboard's slower passthrough.**
 

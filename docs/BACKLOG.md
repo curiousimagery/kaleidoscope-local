@@ -553,6 +553,7 @@ Long-deferred and re-raised: the web app enumerates a USB webcam, the Capacitor 
 **⚠️ STILL OPEN, and they were meant to ride the same Xcode cycle — they did NOT get built:**
 - `loopCache.coveredMs` under-reports coverage by one frame interval (Swift), so its `why` advises raising a budget that is already sufficient.
 - The `scenario` tag is a manual dropdown and read `idle-still` during a 4K broadcast at B609, which invalidates any baseline diff from that session. Wants a guard that notices it disagrees with what is running.
+  - **⚠️ PROMOTED 2026-08-19 — IT HAS NOW COST A SECOND COMPARISON, AND THE SECOND ONE IS EXPENSIVE.** A clean 40-minute T7 came back with the battery flat where the previous run drained 22.5%/hr, **and the report cannot say which power path or which video path it used.** The list in `shell/perf-panel.js` (`SCENARIOS`) has **no AirPlay entry at all**, so an AirPlay broadcast is necessarily filed as `hdmi-broadcast`. Forty minutes of device time is now pending an answer no instrument recorded. **Derive the tag from the live destination** (`selectedDest()` already knows) and let the dropdown override rather than originate. Do this before the next power run.
 
 **First use, before any long run:** `pressure.js` shipped inert on purpose, *"to find out whether the inferred signal actually tracks the native one, BEFORE anything starts degrading the app based on it."* Native thermal is what makes that check possible — and it matters beyond iOS, because the inferred drift signal is all the desktop arm will ever have.
 

@@ -6,6 +6,28 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🚧 v0.26.20 (Build 680) — 2026-08-19 — The wake lock, on the chrome that never had it
+
+### Shipped
+
+- **The phone chrome now holds the NATIVE wake lock** while a take rolls or an NDI broadcast is live. It was calling `navigator.wakeLock` directly, which is the one API WKWebView refuses.
+
+### What was wrong
+
+B674 fixed the wake lock in `shell/output-panel.js`, which **only `src/main.js` mounts**. The phone chrome has its own record/broadcast path and its own `acquireRecWakeLock()`:
+
+```js
+try { recWakeLock = await navigator.wakeLock?.request('screen'); } catch { recWakeLock = null; }
+```
+
+`navigator.wakeLock.request` is exactly the call that returns `NotAllowedError` inside WKWebView — the refusal this whole arc was about. It sat inside a `catch` that swallowed it, so **every phone take and every phone broadcast has run with no lock at all while reporting nothing.** B675 had even wired `setWakeLockHost` on this chrome; nothing ever called `keepAwake`, so the host it registered was never used.
+
+Both helpers now delegate to `keepAwake`, which drives the native idle timer and the web lock together. Their call sites and their "is the other consumer still live" guards are unchanged.
+
+**Found by grepping the other chrome, not by a device session** — which is the rule in CLAUDE.md, applied five builds later than it should have been.
+
+---
+
 ## 🚧 v0.26.19 (Build 679) — 2026-08-19 — Retiring the pull, because it may be what wedges the plugin
 
 **JS only. No Swift change.**
