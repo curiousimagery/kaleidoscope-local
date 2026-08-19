@@ -34,6 +34,18 @@ Archived at B658. It was marked superseded at B609 and kept for the reasoning be
 
 **The trap that was caught before the cycle, because it will recur in any future host seam:** Capacitor calls are async, `conduit/vitals.js` reads `native()` sync. A Promise there makes every field undefined and the report says `nativeReadings: false` — *identical to no plugin*. The host caches; `read()` is synchronous. Proven in `vitals-native-check.mjs`.
 
+### 🪤 B678 — THREE BUILDS OF SUBSCRIPTIONS THAT WERE NEVER REGISTERED (my bug)
+
+`env.host` is assigned by `createApp` at **main.js:2026**. Both `host.vitals.onEvent` subscriptions were written at **504 and 512**, where it is `undefined`. **`env.host?.vitals?.onEvent?.(fn)` on an undefined host does nothing and says nothing.**
+
+**What it cost:** B677's wake-lock read-back never arrived (`osIdleTimerDisabled: null` beside `pushes: 37` — the pair that made it findable); **B663's claim that thermal transitions were recorded at their onset was false** (the 10s sampler was detecting them, which is why it looked true); and a `memory-warning` would never have left a breadcrumb, which was the entire reason to subscribe.
+
+**⚠️ THE PHONE CHROME WAS FINE** — its `host` is a const created before the wiring. **Two-chromes trap, and the broken one is the chrome the iPad runs.**
+
+**▶ THIRD TIME THIS SESSION AN ABSENCE COULD NOT ANNOUNCE ITSELF** — B664's hung `read()`, B676's ambiguous `not requested`, and now this. **Optional chaining is the specific hazard: it turns an ordering bug into a silent no-op.** A missing seam now writes `vitals:no-events`.
+
+**▶ PREDICTION WORTH CHECKING FIRST ON THE NEXT REPORT:** if `osIdleTimerDisabled` reads `true` while `wakeLock.native` still reports a timeout, **the native write is working and only its resolve is broken** — the screen is already staying awake and the timeout is a reporting fault. Different problem, one push from visible.
+
 ### 🧩 B677 — THE SWIFT IS BUILT. THE CALL SHAPE IS THE VARIABLE.
 
 **⚠️ CORRECTS MY OWN GUESS.** I said the Swift half was probably not on the device. **It is:** `FoldDeviceVitalsPlugin.o` stamped 22:28:28, source edited 22:14:45. Checking the build products settled in one command what reasoning had gotten wrong.

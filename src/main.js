@@ -500,8 +500,6 @@ env.scenarioRunner = createScenarioRunner(env);
 // WKWebView (Daniel's iPad slept mid-broadcast with it held), so on device this is the one that
 // works. Injected rather than imported so kit/wake-lock.js stays free of `env`.
 setWakeLockHost((on) => env.host?.vitals?.setIdleTimerDisabled?.(on) ?? false);
-// B677 — the wake lock's read-back rides the vitals push, the one channel that has never failed.
-env.host?.vitals?.onEvent?.((_kind, r) => noteIdleTimerState(r?.idleTimerDisabled));
 
 // ⚠️ B663 — A THERMAL TRANSITION AND A MEMORY WARNING ARE PUSHES, NOT POLL RESULTS. The sampler
 // notices a thermal change up to ten seconds after it happened, and a memory warning arriving
@@ -509,9 +507,6 @@ env.host?.vitals?.onEvent?.((_kind, r) => noteIdleTimerState(r?.idleTimerDisable
 // is recorded at the moment it occurred, and — because breadcrumbs are always-on (B662) — a
 // device killed for memory leaves a `memory-warning` crumb in `priorTrail` for the next launch to
 // find. Without this, a jetsam kill and a random crash stay indistinguishable after the fact.
-env.host?.vitals?.onEvent?.((kind, r) => kind !== 'sample' && vitals.mark(kind, {
-  thermal: r?.thermal ?? null, availableMB: r?.availableMB ?? null, footprintMB: r?.footprintMB ?? null,
-}));
 
 // the program frame — the committed "what the audience sees" snapshot every
 // output consumer reads (defines env.programFrame / env.commitFrame /
@@ -2024,6 +2019,34 @@ if (engine) {
     ? mockSyphonHost
     : (window.foldHost || (detectRuntime().isCapacitor ? createCapacitorHost() : undefined));
   createApp(env, { capabilities, host });
+
+  // ⚠️ B678 — THESE LIVE HERE BECAUSE `env.host` DOES NOT EXIST UNTIL THE LINE ABOVE, and for three
+  // builds they were wired ~1500 lines earlier where it was `undefined`. Optional chaining made
+  // that a silent no-op: `env.host?.vitals?.onEvent?.(...)` on an undefined host does nothing and
+  // says nothing, so **neither subscription has ever been registered on this chrome.**
+  //
+  // What that actually cost: B663 claimed thermal transitions were recorded "at the moment they
+  // occurred". They were not — they were still being detected by the 10s sampler comparing against
+  // the previous sample, which is what made the claim look true. **And a `memory-warning` would
+  // never have left a breadcrumb at all**, which was the entire point of subscribing: telling a
+  // jetsam kill apart from a random crash after the fact.
+  //
+  // ⚠️ THE PHONE CHROME WAS FINE, because its `host` is a plain const created before the wiring —
+  // the two-chromes trap again, and once again the broken one is the chrome the iPad runs.
+  //
+  // A missing seam now PUBLISHES rather than no-ops, so this cannot recur silently.
+  if (env.host?.vitals?.onEvent) {
+    // the wake lock's read-back: the native call's own resolve hangs on this plugin, so the truth
+    // arrives on the 5s push instead
+    env.host.vitals.onEvent((_kind, r) => noteIdleTimerState(r?.idleTimerDisabled));
+    // and the breadcrumb writer, which ignores the heartbeat kind so `priorTrail` keeps its twelve
+    // entries for the operations that matter
+    env.host.vitals.onEvent((kind, r) => kind !== 'sample' && vitals.mark(kind, {
+      thermal: r?.thermal ?? null, availableMB: r?.availableMB ?? null, footprintMB: r?.footprintMB ?? null,
+    }));
+  } else {
+    vitals.mark('vitals:no-events', { why: 'host.vitals.onEvent absent at wiring time' });
+  }
 
   // Perform mode (Arc 4) — wired AFTER createApp on purpose: its still/motion
   // segment listeners must run after motion-runtime's own, so a mode switch

@@ -404,6 +404,18 @@ Shipped as `sliceMirrorX/Y` + `foldSliceIntoSource`. Details in CHANGELOG v0.25.
 
 **⚠️ THE PATTERN WORTH CARRYING FORWARD, since a paper trail is the point.** The arc's recurring defect was **one behaviour with two implementations**, and it appeared SEVEN times: droste's overlay missing `sizeNorm` (B614), radial's polygon missing `canvasNorm` (B618), the overlay missing `canvasOffset` (B612), the centring hook reaching only one chrome (B619), six copies of the transition default (B622), `env.panDrift` covering one of two joysticks (B620), and the slice-scale clamp written six times at three different maxima (B657). **Two more arrived as fresh instances during the arc itself** — B653's ruler re-implementing the scrub instead of calling it, and B638's flag set on the wrong `env`-shaped object. It is not a hypothesis; it is the shape of this codebase's bugs, and `CLAUDE.md` now leads with it.
 
+### 🎞 [Daniel, 2026-08-19 — REPORTED, NOT DIAGNOSED] THE SOURCE PANEL'S FIRST FRAME IS NOT THE CLIP'S FIRST FRAME
+
+*"Regression: initial frame on source panel isn't actually the first frame on load."*
+
+**Not investigated, and deliberately not guessed at.** `source-host.js` and `engine/` are **untouched this session** (last commits B659 and earlier), so nothing in the pressure-testing arc is an obvious cause — which makes it more likely to be either older than it looks or a second-order effect of something else. **A wrong guess here would send the next session at the wrong file.**
+
+**What the fix path already looks like:** loading parks a clip paused (B595), and painting the first frame relies on the nudge at `source-host.js:184` — `await dv.play(); await nextFrame(); dv.pause();` — plus the native decode's `seekSettled(0)` hand-off at ~line 1318. **A frame that is close-but-not-first points at the seek settling late; a black or stale frame points at the nudge not landing.** Those are different bugs.
+
+**⚠️ THE ONE QUESTION THAT SPLITS IT, and it costs Daniel a sentence:** is the shown frame *a slightly later frame of the same clip*, *black/empty*, or *the previous clip's frame*? Ask before touching anything.
+
+**Class 1 and desktop-reproducible either way — do not spend a device session on it.**
+
 ### 🚧 [Daniel, B667 — REPORTED, NOT DIAGNOSED] "RESET SESSION (BREAK GLASS)" NO LONGER WORKS
 
 *"Under our diagnostics I tried the 'reset session (break glass)' control and it doesn't seem to be working anymore."*

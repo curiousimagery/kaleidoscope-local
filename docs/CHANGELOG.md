@@ -6,6 +6,39 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🪤 v0.26.18 (Build 678) — 2026-08-19 — Three builds of push subscriptions that were never registered
+
+**JS only. No Swift change** — `swiftBuild: 677` already matches.
+
+### Shipped
+
+- **The desktop chrome's two `host.vitals.onEvent` subscriptions moved to after `createApp`**, where `env.host` exists.
+- **A missing seam publishes** (`vitals:no-events`) instead of no-opping.
+
+### The bug was mine, and optional chaining hid it for three builds
+
+`env.host` is assigned by `createApp(env, { capabilities, host })` at **main.js:2026**. Both subscriptions were written at **main.js:504 and 512** — about fifteen hundred lines earlier, where `env.host` is `undefined`.
+
+**`env.host?.vitals?.onEvent?.(fn)` on an undefined host does nothing and says nothing.** Neither listener has ever been registered on this chrome.
+
+**What it actually cost:**
+
+- **B677's wake-lock read-back never arrived** — `osIdleTimerDisabled: null` with 37 pushes in the same report, which is what made this findable.
+- **B663 claimed thermal transitions were recorded "at the moment they occurred". They were not.** They were still being detected by the 10s sampler comparing against the previous sample — which is exactly why the claim looked true in every report since.
+- **A `memory-warning` would never have left a breadcrumb**, and that was the whole point of subscribing: telling a jetsam kill apart from a random crash after the fact.
+
+**⚠️ THE PHONE CHROME WAS FINE.** Its `host` is a plain const created at line 122, before the wiring at 210 and 250. **The two-chromes trap again — and once again the broken one is the chrome the iPad runs.**
+
+### The pattern, stated plainly
+
+This is the third time this session that **an absence could not announce itself**: the vitals `read()` that hung silently (B664), the wake lock's `not requested` that meant two things (B676), and now a subscription that never happened. Optional chaining is the specific hazard here — it turns an ordering bug into a silent no-op. **A missing seam now writes `vitals:no-events` instead.**
+
+### ▶ WHAT THIS PREDICTS FOR THE NEXT REPORT
+
+`osIdleTimerDisabled` should start reporting a real boolean. **If it reads `true` while `wakeLock.native` still says the call never settled, then the native write is working and only its resolve is broken** — the screen would already be staying awake, and the timeout is a reporting fault rather than a functional one. That is a genuinely different situation from the one we have been assuming, and it is one push away from being visible.
+
+---
+
 ## 🧩 v0.26.17 (Build 677) — 2026-08-19 — The Swift IS built; two methods hang and one does not
 
 **JS + Swift. ⚠️ NEEDS AN XCODE BUILD.**
