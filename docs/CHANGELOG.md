@@ -6,6 +6,30 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🚧 v0.26.29 (Build 689) — 2026-08-19 — The slice is re-solved when the source aspect changes
+
+**JS only. High priority — Daniel reported the shape rendering off-centre.**
+
+### Shipped
+
+- **A camera swap re-solves the slice origin** for the new source aspect.
+
+### An old bug that nothing could reach until B684
+
+Daniel: *"the slices are now rendering with the origin in the center instead of the entire shape in the center."*
+
+`sliceCx/Cy` stores the **ORIGIN** — an apex for the wedge forms, not a centre. The origin that puts the shape's **box centre** in the middle is a function of the **source aspect**: `formBoxCenter(form, state, sourceAspect)` takes it as an argument. So an origin solved under 4:3 leaves the shape off-centre under 16:9.
+
+`attachCameraSource()` called `engine.setSource()` and stopped. **It never re-solved.**
+
+**The bug is old; the feature that reaches it is new.** Flipping front/back keeps the aspect. Changing lens keeps the aspect. A file load runs `resetSliceState`, which re-centres from scratch. **Until B684 made an external camera selectable, nothing in the app could change the source aspect without also re-centring** — so a latent hole sat behind a door that had never been opened. A USB webcam walked through it immediately.
+
+The fix is the same three-line dance `controls.js` already performs on a form switch (B615): measure the box centre under the OLD aspect, set the source, re-solve the origin that preserves it under the new one. **A no-op on every path where the aspect does not move.**
+
+**⚠️ This is the same class as B615 and B628** — three separate bugs now, all of the form "the stored number is an origin and the meaningful quantity is a box centre". The conversion belongs at every point where either input changes, and the inputs are: form, source aspect, frame aspect, mirror, and slice scale.
+
+---
+
 ## 🚧 v0.26.28 (Build 688) — 2026-08-19 — Radial pan, the reset's leftover error text, and where the native attach spends its time
 
 **JS only.**

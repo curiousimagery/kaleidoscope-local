@@ -24,6 +24,7 @@ import { seekVideoTo, createVideoElementClock } from './video-source.js';
 import { zipStore } from './zip.js';
 import { createSaveFlow } from './save-flow.js';
 import { getActiveForm } from '../engine/index.js';
+import { formBoxCenter, placeFormBox } from '../engine/geometry.js';
 import { acquireSession, releaseSession } from 'conduit/sessions';
 
 // The token lives on the element itself so a release cannot be aimed at the wrong one when two
@@ -508,10 +509,30 @@ export function createSourceHost(env) {
   // before the first plane arrives — then hand over the planes. Re-attaching on every acquisition
   // matters: each restart is a NEW socket, so a reader bound to the old one would sit at
   // "nothing new" forever and the source would freeze.
+  // ⚠️ B689 — RE-SOLVE THE SLICE WHEN THE SOURCE ASPECT CHANGES. Daniel: *"the slices are now
+  // rendering with the origin in the center instead of the entire shape in the center."*
+  //
+  // `sliceCx/Cy` stores the ORIGIN — an apex for the wedge forms — and the origin that puts the
+  // shape's BOX centre at the middle is a function of the SOURCE ASPECT (`formBoxCenter` takes it
+  // as an argument). So an origin solved for 4:3 leaves the shape off-centre under 16:9, which is
+  // exactly the B615 bug the form switch already guards against with this same three-line dance.
+  //
+  // **The bug is old and the feature is new.** Flipping front/back or changing lens keeps the same
+  // aspect, and a file load re-centres from scratch — so until B684 made an external camera
+  // selectable, **nothing in the app could change the source aspect without also re-centring.**
+  // The USB webcam is the first source that can, and it found this immediately.
   function attachCameraSource() {
+    const before = formBoxCenter(getActiveForm(env.state), env.state,
+      engine.getSourceAspect?.() || 1);
     engine.setSource(camera.frameSource());
     if (cameraIsNative && camera.planeReader) engine.setPlanarSource(camera.planeReader(), 0);
     else engine.setPlanarSource(null);
+    const after = engine.getSourceAspect?.() || 1;
+    // Keep the box centre where it was, and re-solve the origin that achieves it under the new
+    // aspect. A no-op when the aspect did not move, which is every path except a camera swap.
+    if (before) {
+      Object.assign(env.state, placeFormBox(getActiveForm(env.state), env.state, after, before.x, before.y));
+    }
   }
 
   const CAMERA_DEVICE_KEY = 'fold.cameraDeviceId';   // last-picked camera, persisted across sessions
