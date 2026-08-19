@@ -490,6 +490,8 @@ Measured on the M1 iPad Pro across two B669 runs: broadcast **+25.9ms/frame**, t
 2. **Refuse the combination** with a clear message. Blunter but unambiguous.
 3. **Make the take the priority and shed the broadcast** — right for a deliverable, wrong for a live show, so it cannot be the default.
 
+**✅ B681 SHIPPED THE INPUT IT NEEDS: `conduit/sessions.js`.** The gate could not be computed before because nothing knew what the app was holding. `sessions.peak.decode` / `.gl` / `.encode` is now in every report, so a rule like *"refuse a 4K take while a 4K broadcast is live"* can carry the count that justifies it instead of a device name. **Still to decide: which fps each rung keys on** (T7/T8 give real numbers now: ~20 app / ~19 wall sustained at 4K, indefinitely, on adequate power).
+
 **⚠️ THE GATE MUST BE COMPUTED, NOT A DEVICE TABLE** (Daniel's standing requirement). We own the top of the hardware range and none of the bottom, so a limit calibrated here would be calibrated on good hardware. The learned-ceiling pattern (`broadcastCeiling`) is the shape to copy, and the flight recorder already persists the exact combination that preceded a context loss.
 
 ### ✅ [SHIPPED B665] SCENARIO RUNNER — the app performs the device test
@@ -549,6 +551,11 @@ Long-deferred and re-raised: the web app enumerates a USB webcam, the Capacitor 
 **A NEW small plugin (`fold-device-vitals`), not bolted onto `fold-native-video`.** Vitals have to work when no video is loaded — the exhibit case may be camera-driven — and coupling them to the video plugin means the instrument disappears in half the scenarios worth measuring. It is also a **conduit** concern by Daniel's own framing: every future consumer app wants device vitals, and `conduit/pressure.js` already has the `native:` hook waiting for exactly this shape.
 
 **✅ SHIPPED B663:** the plugin, the `host.vitals` seam declared in `conduit/host.js`, the retirement of the duplicate `host.thermalState()` call, thermal/memory-warning pushes wired to breadcrumbs on both chromes, and `take:arm` carrying the wall + source resolutions and clip length. **Awaiting an Xcode build to read anything.**
+
+**⚠️ SESSION AUDIT STEPS 3 AND 4 ARE THE OPEN HALF (B681 shipped 1 and 2).**
+- **Step 3 — shed before acquiring at the three unguarded transitions**: change source while broadcasting, enter perform mid-broadcast, arm a take during a broadcast. **The precedent exists and works**: the Loop Builder and the bake post a `notice` to the external view, which tears down its own decoder outright *"because a 4K bake and a 4K external render at the same time is what restarted the app"*. It was simply never extended to the other three.
+- **Step 4 — gate**, using the live count rather than a device table. See the capability-ladder item.
+- **⚠️ Do step 3 only after a B681 report shows real numbers.** The audit says what the code CAN hold; a shed rule written against what it can hold rather than what it does is a guess with a table in it.
 
 **⚠️ STILL OPEN, and they were meant to ride the same Xcode cycle — they did NOT get built:**
 - `loopCache.coveredMs` under-reports coverage by one frame interval (Swift), so its `why` advises raising a budget that is already sufficient.

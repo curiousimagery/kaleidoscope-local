@@ -6,6 +6,46 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🚧 v0.26.21 (Build 681) — 2026-08-19 — The orphaned decoder, and a count of what we hold
+
+**Session audit steps 1 and 2 (`docs/SESSION-AUDIT.md`).**
+
+### Shipped
+
+- **The source `<video>` is released on every swap.** It used to only be paused, which is not a release.
+- **`conduit/sessions.js`** — a live count of held decode / encode / GL sessions, in the report as `sessions`.
+- **The CURRENT run's breadcrumbs are in the report** as `trail`. They never were.
+
+### 1 — the orphan
+
+`stopSourceVideoPlayback()` only called `pause()`. A paused `<video>` at readyState 4 still holds its decode pipeline: dropping the reference does not free it, `mountSourceView`'s `innerHTML = ''` only DETACHES it, and revoking the object URL does nothing to an element that already loaded it.
+
+**The overlap was not merely deferred to the GC.** `loadVideo` sets the incoming element's `src` and does not reassign `env.sourceVideo` until that element's `loadeddata` fires — so the outgoing decoder was **guaranteed** alive for the whole decode of the incoming one. Two 4K decoders, every swap, at exactly the transition where the context losses happen.
+
+**⚠️ THE FIX IS A NEW FUNCTION, NOT A CHANGE TO THAT ONE — and grepping the callers is what caught it.** `motion-runtime.js:1607` calls `stopSourceVideoPlayback()` on entry to motion mode *precisely* to stop the free-run loop while the timeline keeps driving the SAME element. Releasing there would have destroyed the source on a mode switch. `releaseSourceVideo()` is now separate and the three swap paths call it; `stopSourceVideoPlayback` is untouched.
+
+The three-call idiom (`pause` + `removeAttribute('src')` + `load()`) was already written six times in this codebase. It was missing on the one path the user hits constantly.
+
+### 2 — the count
+
+`conduit/sessions.js`. Every acquisition site registers a kind (`decode` / `encode` / `gl`) and a label; the report carries `now`, `peak`, `acquired`/`released`, and `live` (what is held **right now**, named, with an age).
+
+Wired at: the source clip, the loop-detect probe, the native AVPlayer decode, the staging seek decoder, the Loop Builder's three, every WebGL2 context (labelled `preview` / `output-bus` / `live PiP` / `external view` / `phone output`), and the take's video + audio encoders.
+
+- **`acquired - released === now.total` is the conserved quantity**, not an activity counter — an orphan is arithmetic, not a judgement call.
+- **`covers` publishes which sites register**, so a gap in the wiring reads as "not instrumented" rather than as zero. An under-count must never read as "we are fine".
+- **Registered in `createEngine`, not `createGLContext`** — `reinitGL` calls the latter again on the same canvas, and a canvas only ever has one context, so registering there would count a *recovery* as a new resource. That is the wrong-noun test applied before shipping rather than after.
+
+17 assertions in `sessions-check.mjs`, including the swap regression itself.
+
+### 3 — the report could not describe the error you had just hit
+
+Daniel asked whether the instrumentation after a context loss is adequate. **It was not, and the reason is a one-line omission.**
+
+`priorTrail` is read from storage **once at construction**, so it is always the PREVIOUS run. Every breadcrumb written during the current run went to `trail`, which nothing exported. **So the report copied right after a failure was the one report that could not contain the failure.** `gl-context-lost` has been marked since B660 and had never appeared in a report at the moment it mattered. The mark was fine; the window onto it was missing.
+
+---
+
 ## 🚧 v0.26.20 (Build 680) — 2026-08-19 — The wake lock, on the chrome that never had it
 
 ### Shipped

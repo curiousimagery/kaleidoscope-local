@@ -299,6 +299,14 @@ export function createVitals({ pressure = null, ledger = null, native = null, ou
     // What the app was DOING last time, session or not. Present even when the previous run ended
     // cleanly — a clean exit after a wedged UI still leaves the useful trail.
     get priorTrail() { return priorTrail?.length ? priorTrail : null; },
+    // ⚠️ 2026-08-19 — THIS RUN'S BREADCRUMBS, WHICH THE REPORT COULD NOT SEE.
+    // `priorTrail` is read from storage ONCE at construction, so it is always the PREVIOUS run.
+    // Every crumb written during the current run went to `trail`, which nothing exported. The
+    // consequence, and Daniel found it by asking: **a report copied right after an error was the
+    // one report that could not contain the error.** `gl-context-lost` has been marked since B660
+    // and had never once appeared in a report at the time it mattered. The mark was fine; the
+    // window onto it was missing.
+    get trail() { return trail.length ? trail.slice() : null; },
     clearCrashed() { store.clear(); try { localStorage.removeItem(TRAIL_KEY); } catch { /* ignore */ } },
 
     // Anything the app knows is notable — a GL context loss, a take starting, a source swap, an

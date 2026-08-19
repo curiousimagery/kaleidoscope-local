@@ -221,7 +221,7 @@ const outputSurface = perf.surface({
 let engine;
 try {
   // Cap the FBO probe so an iPhone doesn't attempt 8K/16K allocations on init.
-  engine = createEngine({ canvas: outputCanvas, maxProbeSize: 4096, perf: outputSurface.enginePerf('render') });
+  engine = createEngine({ canvas: outputCanvas, maxProbeSize: 4096, perf: outputSurface.enginePerf('render'), label: 'phone output engine' });
 } catch (e) {
   emptyEl.textContent = e.message;
   throw e;

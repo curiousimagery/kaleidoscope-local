@@ -286,7 +286,7 @@ function wireRate() {
 
 let engine, capabilities;
 try {
-  engine = createEngine({ canvas: previewCanvas, perf: previewSurface.enginePerf('render') });
+  engine = createEngine({ canvas: previewCanvas, perf: previewSurface.enginePerf('render'), label: 'preview engine' });
   capabilities = createCapabilities(engine);
   // basic always-on diagnostics. expanded with unmasked renderer and device
   // pixel ratio so cross-device comparisons are easier without invoking the

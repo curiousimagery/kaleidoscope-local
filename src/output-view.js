@@ -34,7 +34,7 @@ try {
   // it ever said hello (the pass-5 crash loop; same reason mobile/chrome.js caps
   // its probe). This view only renders to canvas — it never exports — so it
   // needs no large FBO at all.
-  engine = createEngine({ canvas, maxProbeSize: 2048 });
+  engine = createEngine({ canvas, maxProbeSize: 2048, label: 'external view engine' });
 } catch (e) {
   if (hint) hint.textContent = 'could not start the output engine: ' + e.message;
   throw e;

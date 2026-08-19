@@ -31,6 +31,7 @@
 
 import { Muxer, ArrayBufferTarget, StreamTarget } from 'mp4-muxer';
 import { pickVideoCodec, pickAudioCodec } from './encode.js';
+import { acquireSession, releaseSession } from './sessions.js';
 
 export function webCodecsRecordingSupported() {
   return typeof VideoEncoder !== 'undefined' && typeof VideoFrame !== 'undefined';
@@ -679,6 +680,12 @@ async function startWebCodecsSession({ w, h, audioTrack, onDone, onError, onProg
     },
     error: (e) => { sessionError = e; },
   });
+  // Session audit 2026-08-19: arming a take is one of the three transitions with no shedding guard,
+  // and its encoders were counted by nothing. `${baseCfg.width}x${baseCfg.height}` is the whole
+  // point — a take at the broadcast's resolution and a take at a lower tier are the two sides of
+  // the gate we cannot yet write.
+  const vencToken = acquireSession('encode', `take video ${baseCfg.width}x${baseCfg.height}`);
+  let aencToken = 0;
   // explicit bitrate (~0.2 bits/px/frame at 30fps, the fallback path's
   // long-standing target) keeps fidelity up in realtime mode
   venc.configure({ ...baseCfg, ...latency });
@@ -710,6 +717,7 @@ async function startWebCodecsSession({ w, h, audioTrack, onDone, onError, onProg
   let audioClockUs = null;   // sample-accurate once anchored to the session clock
   let lastVideoTsUs = 0, latMinMs = Infinity, latMaxMs = 0;   // A/V drift instrument — see publish()
   if (acfg) {
+    aencToken = acquireSession('encode', 'take audio');
     aenc = new AudioEncoder({
       output: (chunk, meta) => {
         audioChunks++;
@@ -912,6 +920,7 @@ async function startWebCodecsSession({ w, h, audioTrack, onDone, onError, onProg
     }
     try { venc.close(); } catch { /* closed */ }
     try { aenc?.close(); } catch { /* closed */ }
+    releaseSession(vencToken); releaseSession(aencToken);
     if (dropped) console.info(`[conduit] recorder dropped ${dropped} frames to encoder backpressure`);
     const verdict = !acfg ? 'NO AUDIO TRACK on this take — the sink was handed no mic track at all'
       : !audioBatches ? 'NO MIC DATA — the worklet never delivered (context suspended or tap dead)'

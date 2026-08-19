@@ -29,6 +29,7 @@
 import { registerPlugin, Capacitor } from '@capacitor/core';
 import { createNativeFrameReceiver } from './native-frame-receiver.js';
 import { perfFlags } from './perf-flags.js';
+import { acquireSession, releaseSession } from 'conduit/sessions';
 
 const FoldNativeVideo = registerPlugin('FoldNativeVideo');
 
@@ -391,6 +392,10 @@ export async function createNativeVideoSource(env, blob, { name, loop = true, on
     return null;
   }
   lastStartError = null;
+  // The AVPlayer decode. On iOS this runs ALONGSIDE the source <video>, which the app deliberately
+  // keeps loaded for authoring — two decoders of one clip, by design, and previously counted by
+  // nothing (session audit 2026-08-19).
+  let nativeToken = acquireSession('decode', `native decode: ${name || 'clip'}`);
   const clock = createNativeClock(receiver, state);
 
   // WHERE THE TIME GOES. Every field here exists because a guess about it cost a device
@@ -485,6 +490,7 @@ export async function createNativeVideoSource(env, blob, { name, loop = true, on
     // FileUploadServer.purge for the race this closes from the other side.
     stop() {
       try { receiver.stop(); } catch { /* already closed */ }
+      releaseSession(nativeToken); nativeToken = 0;
       return FoldNativeVideo.stop().catch(() => {});
     },
   };

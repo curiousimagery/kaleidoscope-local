@@ -18,6 +18,12 @@
 import { exportVideo } from './video-export.js';
 import { seekVideoTo } from './video-source.js';
 import { createSequentialFrameReader, probeVideoInfo } from './video-decode.js';
+import { acquireSession, releaseSession } from 'conduit/sessions';
+
+// The Loop Builder holds THREE decoders of the same clip while it is open (visible preview,
+// hidden A-head for the seam crossfade, hidden thumbnail strip). All three are justified and none
+// of them was counted anywhere before the 2026-08-19 session audit.
+const clipTokens = [];
 
 export function createClipEditor(env) {
   // Stable refs (set before this runs, never reassigned) can be captured; cross-
@@ -46,6 +52,7 @@ export function createClipEditor(env) {
     pv.muted = true; pv.playsInline = true; pv.loop = false;
     pv.src = env.media.sourceVideoUrl;
     env.clip.prevVideo = pv;
+    clipTokens.push(acquireSession('decode', 'loop builder: preview'));
     // a second, hidden-but-decoding preview video: plays the A-head during the seam
     // crossfade so the two streams can be alpha-blended live (smooth, no capture).
     const vB = document.createElement('video');
@@ -55,6 +62,7 @@ export function createClipEditor(env) {
     vB.src = env.media.sourceVideoUrl;
     (document.querySelector('.clip-stage') || sheet).appendChild(vB);
     env.clip.prevVideoB = vB;
+    clipTokens.push(acquireSession('decode', 'loop builder: A-head crossfade'));
     // a THIRD hidden video used only for building the thumbnail strip — seeking it never
     // disturbs the visible stage preview (fixes the "plays through the clip on load" tell)
     // and never fights the scrubber's seeks on the shared element (the scrub reliability bug).
@@ -65,6 +73,7 @@ export function createClipEditor(env) {
     vT.src = env.media.sourceVideoUrl;
     (document.querySelector('.clip-stage') || sheet).appendChild(vT);
     env.clip.thumbVideo = vT;
+    clipTokens.push(acquireSession('decode', 'loop builder: thumbnail strip'));
     const nudge = document.getElementById('clipNudge'); if (nudge) nudge.hidden = true;   // clear any prior post-bake nudge
     // open the surface as a fullscreen INTERSTITIAL: the app bar is hidden while it's open
     // (body.loop-active), so there's no mode-switching or new uploads mid-edit. The header
@@ -82,6 +91,7 @@ export function createClipEditor(env) {
     if (env.clip.prevVideo) { try { env.clip.prevVideo.pause(); } catch { /* ignore */ } env.clip.prevVideo.removeAttribute('src'); try { env.clip.prevVideo.load(); } catch { /* ignore */ } env.clip.prevVideo = null; }
     if (env.clip.prevVideoB) { try { env.clip.prevVideoB.pause(); } catch { /* ignore */ } env.clip.prevVideoB.removeAttribute('src'); try { env.clip.prevVideoB.load(); } catch { /* ignore */ } env.clip.prevVideoB.remove(); env.clip.prevVideoB = null; }
     if (env.clip.thumbVideo) { try { env.clip.thumbVideo.pause(); } catch { /* ignore */ } env.clip.thumbVideo.removeAttribute('src'); try { env.clip.thumbVideo.load(); } catch { /* ignore */ } env.clip.thumbVideo.remove(); env.clip.thumbVideo = null; }
+    while (clipTokens.length) releaseSession(clipTokens.pop());
   }
   // re-bind the motion timeline to the current (trimmed / baked) clip + show frame 0.
   function rebindClipToTimeline() {
@@ -945,10 +955,11 @@ export function createClipEditor(env) {
     const old = env.sourceVideo;
     engine.setSource(v);
     env.sourceVideo = v;
+    env.tagSourceVideo?.(v, 'baked clip');   // the bake mints its own element; keep it counted
     if (env.media.sourceVideoUrl) URL.revokeObjectURL(env.media.sourceVideoUrl);   // free the previous source URL (original File kept in env.media.originalSource)
     env.media.sourceVideoUrl = url;
     env.media.sourceVideoBlob = blob;   // the baked bytes are now the working clip (see media.sourceVideoBlob)
-    if (old) { try { old.pause(); old.removeAttribute('src'); old.load(); } catch { /* ignore */ } }
+    if (old) { try { old.pause(); old.removeAttribute('src'); old.load(); } catch { /* ignore */ } env.untagSourceVideo?.(old); }
     env.clip.trim.inT = 0; env.clip.trim.outT = 1; env.clip.trim.mode = 'forward';        // the baked clip is the full processed clip
     // THE BAKED CLIP NEEDS ITS OWN DECODE. Everything above swapped the <video>; on iOS
     // the thing that actually carries the picture is the native decode, and it is still

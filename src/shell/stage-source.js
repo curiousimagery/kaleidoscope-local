@@ -33,10 +33,13 @@
 
 const DEFAULT_CAP = 2048;
 
+import { acquireSession, releaseSession } from 'conduit/sessions';
+
 export function createVideoStageSource(env, { cap = DEFAULT_CAP } = {}) {
   const canvas = document.createElement('canvas');
   const ctx = canvas.getContext('2d');
   let vid = null;                       // the seek-only decoder (created on begin)
+  let token = 0;                        // its entry in the session registry (conduit/sessions)
   let seekBusy = false, seekNext = null;   // latest-wins coalescing (the scrubStillFrame pattern)
   let painted = 0;
 
@@ -71,6 +74,7 @@ export function createVideoStageSource(env, { cap = DEFAULT_CAP } = {}) {
     v.disablePictureInPicture = true; v.setAttribute('disablepictureinpicture', '');
     v.src = url;
     vid = v;
+    token = acquireSession('decode', 'staging seek decoder');
     // seed the canvas from the LIVE element so the stage has pixels before the first
     // seek lands (otherwise the preview is blank for a beat on entering staging)
     followLive();
@@ -84,6 +88,7 @@ export function createVideoStageSource(env, { cap = DEFAULT_CAP } = {}) {
     try { v.pause(); } catch { /* ignore */ }
     v.removeAttribute('src');             // release the decoder; the blob URL stays owned by media
     try { v.load(); } catch { /* ignore */ }
+    releaseSession(token); token = 0;
   }
 
   // Copy the frame the AUDIENCE is currently showing. Used when the editor is following

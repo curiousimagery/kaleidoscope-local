@@ -25,6 +25,7 @@
     "./pressure": "./src/pressure.js",
     "./governor": "./src/governor.js",
     "./recorder": "./src/recorder.js",
+    "./sessions": "./src/sessions.js",
     "./syphon-sink": "./src/syphon-sink.js",
     "./test-pattern": "./src/test-pattern.js",
     "./vitals": "./src/vitals.js"

@@ -74,7 +74,7 @@ export function createPerformRuntime(env) {
         onScale: () => sizePip(),
       }) || null;
       if (pipSurface) env.perfSurfaces.pip = pipSurface;
-      pipEngine = createEngine({ canvas, perf: pipSurface?.enginePerf('render') });
+      pipEngine = createEngine({ canvas, perf: pipSurface?.enginePerf('render'), label: 'live PiP engine' });
       // auto-recover from an OS-initiated context loss (e.g. a 4K display
       // attaching on iPad dropped every GL context in the app — the preview
       // engine heals in main.js; this is the live PiP's half)

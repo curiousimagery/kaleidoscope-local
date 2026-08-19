@@ -17,6 +17,7 @@
 // shell, passed to the engine on demand.
 
 import { createGLContext, uploadTexture, updateTexture, createPlanarUploader, renderToCanvas, renderToFBO, probeMaxFBOSize } from './gl.js';
+import { acquireSession } from 'conduit/sessions';
 import { FORMS, FORMS_BY_ID, getActiveForm, getActiveFormIndex } from './forms/index.js';
 import { sliceVecToSourceUV } from './geometry.js';
 import { createGpuTimer } from 'conduit/gpu-timer';
@@ -30,8 +31,12 @@ export { sliceVecToSourceUV, polygonRadiusAt, pointInPolygon } from './geometry.
 // `perf` is an optional collaborator from the frame-cost ledger (conduit/perf-ledger):
 // { skip, begin(), end() }. It hooks render() — the one place every caller funnels through —
 // so a surface can be measured and (via `skip`) switched off without any call site knowing.
-export function createEngine({ canvas, maxProbeSize, perf = null }) {
+export function createEngine({ canvas, maxProbeSize, perf = null, label = 'engine' }) {
   let glCtx = createGLContext(canvas, { maxProbeSize });
+  // ⚠️ Registered HERE and not in createGLContext, because `reinitGL` calls that again on the same
+  // canvas and a canvas only ever has ONE context — re-registering there would count a recovery as
+  // a new resource. Session audit 2026-08-19: nothing released a GL context and nothing counted one.
+  acquireSession('gl', label);
   let sourceTexture = null;
   let sourceImage = null;     // HTMLImageElement OR HTMLVideoElement (live camera)
   let sourceAspect = 1;

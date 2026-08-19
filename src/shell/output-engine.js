@@ -67,7 +67,7 @@ export function createOutputEngine(env) {
     }) || null;
     if (surface) { env.perfSurfaces.bus = surface; readItem = surface.pass('readback'); }
     try {
-      hidden = createEngine({ canvas, perf: surface?.enginePerf('render') });   // a SECOND WebGL2 context
+      hidden = createEngine({ canvas, perf: surface?.enginePerf('render'), label: 'output/bus engine' });   // a SECOND WebGL2 context
     } catch (e) {
       // The browser couldn't give us another GL context (context limit, GPU fault,
       // WebGL2 unsupported). Throw a clear, surfaceable reason — the bus catches it,

@@ -34,6 +34,56 @@ Archived at B658. It was marked superseded at B609 and kept for the reasoning be
 
 **The trap that was caught before the cycle, because it will recur in any future host seam:** Capacitor calls are async, `conduit/vitals.js` reads `native()` sync. A Promise there makes every field undefined and the report says `nativeReadings: false` — *identical to no plugin*. The host caches; `read()` is synchronous. Proven in `vitals-native-check.mjs`.
 
+### 🔬 B681 — THE FIX AND THE COUNTER SHIPPED. NEXT REPORT ANSWERS A QUESTION NO REPORT COULD BEFORE
+
+Audit steps 1 and 2 are done. **What to read in the next device report, in order:**
+
+```
+sessions.now.decode     how many decoders were held at that moment
+sessions.peak.decode    the high-water mark for the run
+sessions.live[]         WHICH ones, named, with an age
+sessions.acquired/released   conserved: acquired - released MUST equal now.total
+trail[]                 THIS run's breadcrumbs, including gl-context-lost
+```
+
+**⚠️ A `live` entry naming a clip that was closed minutes ago is an orphan, and that is a bug, not a reading.** `ageSec` is what makes it visible.
+
+**The known-and-deliberate double:** on iOS a loaded clip holds BOTH the source `<video>` (kept for authoring) and the native AVPlayer decode. **Two decoders on one clip is expected. Three is not.**
+
+### 🚨 A CONTEXT LOSS ON LOADING THE 6:39 CLIP (2026-08-19, on B680, `docs/temp/8-19-26-gl-context-loss-report.json`)
+
+**The clip is 1,252,687,803 bytes — 1.25GB, 3840x2160, 399.1s.** Roughly the figure predicted for the external staging path, arriving as a source load instead.
+
+**The swap trace COMPLETED.** `picker:change → guard:clear → loadVideo:start → loadeddata (453ms) → source-set`. The `<video>` decode was fine. **The failure is after the source was set**, on the native path:
+
+```
+source: ⚠ SOURCE STALLED 348.5s — socket open, offered 3, took 3, skipped 0 · ⚠ GL CONTEXT RESTORED ×1
+srcFanOut: ticksNoBuffer 41615 · clients[0] offered 3 / taken 3 · srcSocket closes 0
+```
+
+**⚠️ THIS IS THE OPPOSITE BRANCH FROM B580's, AND THE B584 INSTRUMENT IS WHAT SEPARATES THEM.** There it was `offered 222 · took 222` — the frames arrived and we failed to use them. **Here only 3 frames were ever OFFERED.** The socket never closed and the fan-out ticked 41,615 times with no buffer, so **the native decode stopped producing.** Not the wire, not the receiver, not the plane textures.
+
+**⚠️ WHAT THE REPORT CANNOT SAY, AND IT IS THE WHOLE QUESTION: which came first, the stall or the GL loss.** The restore is a bare count on a surface note (`main.js:212`) with no timestamp. **B681's `trail` export is what closes this** — `gl-context-lost` is marked with a time, so the next occurrence orders itself.
+
+**⚠️ AND THERE WAS NO THERMAL OR MEMORY READING ANYWHERE NEAR IT:** `vitalsSeam` says `pushes: 0, loaded: false, why: "refresh never attempted"`. Whether that is the force-quit relaunch or the plugin failing to start, **this event has no memory number at all** — which matters for a 1.25GB clip.
+
+**Do not chase this until a B681 report exists.** Two of the three things needed to read it did not exist when it happened.
+
+### ✅ THE SESSION AUDIT IS DONE — `docs/SESSION-AUDIT.md` (2026-08-19)
+
+**Item 2 step 1, the piece the plan called "what makes the expensive session cheap". Class 1, no device time.** Read that doc before touching the crash cluster.
+
+**Two findings, both one-line-idiom omissions rather than architecture problems:**
+
+- **A — the source `<video>` is orphaned on every swap.** `stopSourceVideoPlayback()` only *pauses*. The correct release (`pause` + `removeAttribute('src')` + `load()`) is written **six times elsewhere in this codebase** and is missing on the one path the user hits constantly. **And the overlap is real, not deferred:** `env.sourceVideo` is not reassigned until the incoming clip's `loadeddata` fires, so the outgoing 4K decoder is alive for the whole decode of the incoming one. **A guaranteed two-decoder spike at exactly the onset Daniel identified.** One function to fix.
+- **B — no WebGL context is ever released.** Up to three in-process (preview, bus, PiP), monotonically increasing. `outputBus.stop()` does not touch the engine; the PiP says outright *"releases never"*. Defensible as written, **invisible is not** — nothing reports the live count.
+
+**Peak concurrency is 5-6 decoders of ONE clip** (source + native + three Loop Builder + staging), each individually justified, none counted anywhere.
+
+**The three transitions with no shedding guard are the three repros Daniel listed from memory, in the same order** — change source, enter perform mid-broadcast, arm a take during a broadcast. The table and his list were derived independently and match.
+
+**▶ NEXT, in order:** (1) fix Finding A, one function; (2) **count the sessions and publish the count** — the audit can only say what the code *can* hold, not what it *did*, and that gap is why it cannot name a cause; (3) shed before acquiring at the three unguarded transitions, copying the `notice` precedent that already works; (4) then gate, with a live count so the rule has a reason rather than a device table.
+
 ### ✅ B680 — THE WAKE LOCK HOLDS (and the phone never had it)
 
 **Confirmed on device 2026-08-19: a full 40-minute T7 ran uninterrupted.** The head-of-line theory is confirmed by the fix. `readVitals` stays retired; do not reinstate a pull, and do not add a boot probe.
@@ -57,7 +107,9 @@ battery      95% → 95%, charging, FLAT
 
 **The wall held ~19 new pictures/s the whole time.** Memory is not a constraint, thermal `serious` is simply where this device lives and does not predict anything, and **40 minutes of 4K HDMI broadcast is sustainable at ~20fps app / ~19fps wall.**
 
-**⚠️ THE POWER CEILING DID NOT REPRODUCE, AND THE RIG IS NOT RECORDED.** The previous T7 fell 70% → 55% in 40 minutes; this one held 95% flat. **State of charge does not explain it**: if supply is capped below draw, the battery discharges at the deficit regardless of SoC. Same fps, same thermal, so the draw did not change — **the supply almost certainly did.** The report cannot say: the `scenario` tag is hand-picked and has no AirPlay option, so an AirPlay run is filed as `hdmi-broadcast`. **Ask Daniel which power path this run used before concluding anything, and build the scenario guard.**
+**✅ THE POWER QUESTION IS ANSWERED (Daniel confirmed the rig 2026-08-19): this run was AirPlay + a charging cable directly into the iPad.** The earlier 70% → 55% run was HDMI in the port with charging through the Magic Keyboard case. **THE RULE: enough watts straight into the device sustains a 4K broadcast indefinitely; the case passthrough cannot.** The cooler room and less-warm start are real confounds but push the same direction. **What is still open is the WIRED variant** — a power-passthrough dongle carrying video and charge at once has never been run long (T10). The paragraph below stands as the reason the scenario guard still matters:
+
+**⚠️ THE RIG WAS NOT RECORDED BY ANY INSTRUMENT.** The previous T7 fell 70% → 55% in 40 minutes; this one held 95% flat. **State of charge does not explain it**: if supply is capped below draw, the battery discharges at the deficit regardless of SoC. Same fps, same thermal, so the draw did not change — **the supply almost certainly did.** The report cannot say: the `scenario` tag is hand-picked and has no AirPlay option, so an AirPlay run is filed as `hdmi-broadcast`. **Ask Daniel which power path this run used before concluding anything, and build the scenario guard.**
 
 ### 🚧 B679 — THE PULL IS RETIRED, AND THE FIX IS THE EXPERIMENT
 

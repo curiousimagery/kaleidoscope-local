@@ -198,7 +198,7 @@ All three questions are answered. **Do not extend this session; it is done.**
 
 **Order within the item:**
 
-1. **The session audit.** Class 1, answerable by reading code, **no device time.** What hardware sessions does the app hold at each moment, and who releases them. This turns three device sessions into one.
+1. **The session audit. ✅ DONE 2026-08-19 → `docs/SESSION-AUDIT.md`.** Class 1, answerable by reading code, **no device time.** What hardware sessions does the app hold at each moment, and who releases them. This turns three device sessions into one. **Result: the source `<video>` is orphaned on every swap, and no GL context is ever released. Peak is 5-6 decoders of one clip, counted by nothing.** The follow-on it names (an actual session counter, published in the report) is what turns the audit into a measurement.
 2. **The thermal signal.** `ProcessInfo.thermalState` reads null. The JS seam already exists at `main.js:102` and `createPressureSource` already consumes it, so this is a small addition to a plugin we rebuild anyway. **It is a prerequisite, not a phase.**
 3. **The long-form run.** 6 to 10 minutes of 4K, broadcasting 4K over HDMI, cold start, fixed slice. Governor pinned off. Readings at start, middle and end.
 4. **The cluster fixes**, aimed by what 1 and 3 found.

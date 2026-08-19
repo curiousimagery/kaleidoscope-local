@@ -24,6 +24,11 @@ import { seekVideoTo, createVideoElementClock } from './video-source.js';
 import { zipStore } from './zip.js';
 import { createSaveFlow } from './save-flow.js';
 import { getActiveForm } from '../engine/index.js';
+import { acquireSession, releaseSession } from 'conduit/sessions';
+
+// The token lives on the element itself so a release cannot be aimed at the wrong one when two
+// elements are briefly alive (which is precisely the state the audit found).
+const SESSION_TOKEN = Symbol('foldSessionToken');
 
 export function createSourceHost(env) {
   const { state, session, engine } = env;
@@ -68,7 +73,7 @@ export function createSourceHost(env) {
       live: !!env.live?.isLive, frozen: !!env.live?.frozen, hasVideo: !!env.sourceVideo });
     if (!engine) return swapFailed('the render engine is not available');
     if (env.live.isLive || env.live.frozen) stopCameraMode({ keepSource: true });  // uploading exits the camera workflow
-    stopSourceVideoPlayback();                          // stop a loaded video's loop before switching
+    releaseSourceVideo();                               // release the outgoing decoder before switching
     env.haltPlayback();                                 // stop motion playback before swapping the source
     env.filmstrip.lastSig = '';                         // any existing keyframe thumbs are from the old source
     env.sourceVideo = null;                            // switching to a still clears any source video
@@ -166,6 +171,7 @@ export function createSourceHost(env) {
     dv.setAttribute('muted', ''); dv.setAttribute('playsinline', '');
     dv.style.cssText = 'position:absolute;left:0;top:0;width:1px;height:1px;opacity:0;pointer-events:none';
     dv.src = srcUrl;
+    const probeToken = acquireSession('decode', 'loop-detect probe');
     document.body.appendChild(dv);
     // resolve on the next PRESENTED frame (rVFC is exact; a timeout is the fallback)
     const nextFrame = () => new Promise((res) => {
@@ -200,7 +206,11 @@ export function createSourceHost(env) {
       if (lum(first) < 2 && lum(last) < 2) return null;   // both frames black → capture unreliable, abstain
       return (sum / (first.length / 4 * 3)) < LOOP_MATCH_THRESHOLD;
     } catch { return null; }
-    finally { try { dv.pause(); } catch { /* ignore */ } dv.removeAttribute('src'); try { dv.load(); } catch { /* ignore */ } dv.remove(); }
+    finally {
+      try { dv.pause(); } catch { /* ignore */ }
+      dv.removeAttribute('src'); try { dv.load(); } catch { /* ignore */ } dv.remove();
+      releaseSession(probeToken);
+    }
   }
   function loadVideo(file, opts = {}) {
     if (!engine) return;
@@ -220,7 +230,7 @@ export function createSourceHost(env) {
     const wasLive = !!(env.live.isLive || env.live.frozen);
     swapTrace('loadVideo:start', { name: file?.name, type: file?.type, size: file?.size, wasLive });
     if (env.live.isLive || env.live.frozen) stopCameraMode({ keepSource: true });   // uploading exits the camera workflow
-    stopSourceVideoPlayback();                           // stop any previously loaded video's loop
+    releaseSourceVideo();                                // release any previously loaded video's decoder
     env.detachNativeVideo?.();                           // a new clip means a new native decode
     env.haltPlayback();                                  // stop motion playback before swapping the source
     env.filmstrip.lastSig = '';                          // any existing keyframe thumbs are from the old source
@@ -268,6 +278,7 @@ export function createSourceHost(env) {
         return;
       }
       swapTrace('loadVideo:source-set', { w: v.videoWidth, h: v.videoHeight });
+      tagSourceVideo(v, `source clip: ${file?.name || 'clip'}`);
       env.sourceVideo = v;              // mountSourceView mounts this element
       env.liveVideo = null;
       attachNativeVideo(v, file);       // iOS: hand PLAYBACK to the single native decode (no-op elsewhere)
@@ -405,9 +416,57 @@ export function createSourceHost(env) {
 
   // Stop a loaded source video's render loop + pause it. When the camera is live it
   // owns the loop, so leave it alone in that case (its own lifecycle stops it).
+  //
+  // ⚠️ THIS PAUSES. IT DOES NOT RELEASE, AND IT MUST NOT — `motion-runtime.js` calls it on entry
+  // to motion mode precisely to stop the free-run loop while the timeline keeps driving the SAME
+  // element. Releasing here would destroy the source on a mode switch. Swapping sources wants
+  // `releaseSourceVideo` below instead.
   function stopSourceVideoPlayback() {
     if (!env.live.isLive) stopLiveLoop();
     if (env.sourceVideo) { try { env.sourceVideo.pause(); } catch { /* ignore */ } }
+  }
+
+  // Give the decoder back. Call this on any path that is DONE with the current source video.
+  //
+  // ⚠️ SESSION AUDIT 2026-08-19 — THE SWAP PATHS USED TO ONLY `pause()`, AND THAT IS NOT A RELEASE.
+  // A paused <video> at readyState 4 still holds its decode pipeline; dropping the reference does
+  // not free it, `innerHTML = ''` in mountSourceView only DETACHES it, and revoking the object URL
+  // does nothing to an element that already loaded it. So every source swap left the outgoing 4K
+  // decoder alive for an unbounded time.
+  //
+  // **And the overlap was not merely deferred to the GC.** `loadVideo` sets the incoming element's
+  // `src` and does not reassign `env.sourceVideo` until that element's `loadeddata` fires, so the
+  // OUTGOING decoder was guaranteed to still be live for the whole decode of the INCOMING one.
+  // Two 4K decode sessions, every swap, landing exactly at the transition where the GL context
+  // losses actually happen — they cluster at onsets, not under accumulated load (T7 held forty
+  // unbroken minutes at thermal `serious` with zero events).
+  //
+  // The three-call idiom is not new: it is already written six times in this codebase
+  // (clip-editor ×4, detectLoopFromFrames, stage-source's `end`). It was missing on the one path
+  // the user hits constantly.
+  function releaseSourceVideo() {
+    stopSourceVideoPlayback();
+    const v = env.sourceVideo;
+    if (!v) return;
+    try { v.removeAttribute('src'); } catch { /* ignore */ }
+    try { v.load(); } catch { /* ignore */ }   // the call that actually tears the pipeline down
+    releaseSession(v[SESSION_TOKEN]);
+    v[SESSION_TOKEN] = 0;
+  }
+
+  // Adopt an element built elsewhere as the source video, so its decode is counted like any other.
+  // The Loop Builder's bake mints its own <video> and assigns `env.sourceVideo` directly; without
+  // this the registry would under-count after every bake, and an under-count reads as "we are
+  // fine", which is the one thing an instrument must never say by omission.
+  function tagSourceVideo(v, label) {
+    if (v) v[SESSION_TOKEN] = acquireSession('decode', label);
+  }
+  // The other half: a caller that released an element itself (the bake) hands it back here so the
+  // count follows the element rather than assuming every release goes through `releaseSourceVideo`.
+  function untagSourceVideo(v) {
+    if (!v) return;
+    releaseSession(v[SESSION_TOKEN]);
+    v[SESSION_TOKEN] = 0;
   }
 
   // ============================================================================
@@ -646,7 +705,7 @@ export function createSourceHost(env) {
       return;
     }
     if (uploadErrorEl) uploadErrorEl.textContent = '';
-    stopSourceVideoPlayback();   // stop a loaded video's loop before the camera takes over
+    releaseSourceVideo();        // release the loaded video's decoder before the camera takes over
     env.detachNativeVideo?.();
     if (env.media.sourceVideoUrl) { URL.revokeObjectURL(env.media.sourceVideoUrl); env.media.sourceVideoUrl = null; }
     env.media.sourceVideoBlob = null;
@@ -1292,7 +1351,11 @@ export function createSourceHost(env) {
     noteAttach(null);
     env.nativeVideo = src;
     env.sourceClock = src.clock;                          // motion + perform now drive the native player
-    try { v.pause(); } catch { /* ignore */ }              // the <video> is authoring-only from here
+    // PAUSE ONLY, DELIBERATELY: the <video> is authoring-only from here but must stay loaded for
+    // the Loop Builder, and its decode session stays registered because it is genuinely still held.
+    // (Not routed through stopSourceVideoPlayback — that also stops the live render loop, which
+    // this path needs running.)
+    try { v.pause(); } catch { /* ignore */ }
     // setSource still takes the preview canvas — it is what carries dimensions, aspect,
     // and the `getSourceImage()` truthiness the rest of the app reads as "there is a
     // source". setPlanarSource then redirects the PER-FRAME pixels to the decode's own
@@ -1370,6 +1433,9 @@ export function createSourceHost(env) {
   const videoElementClock = createVideoElementClock(() => env.sourceVideo);
   env.sourceClock = videoElementClock;
   env.stopSourceVideoPlayback = stopSourceVideoPlayback;
+  env.releaseSourceVideo = releaseSourceVideo;
+  env.tagSourceVideo = tagSourceVideo;
+  env.untagSourceVideo = untagSourceVideo;
   env.startLiveLoop = startLiveLoop;
   env.doExport = doExport;
   env.exportPackage = exportPackage;

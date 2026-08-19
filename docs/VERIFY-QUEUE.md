@@ -55,7 +55,19 @@ Confirmed results are DELETED from here and recorded in CHANGELOG. Closed sessio
 
 ---
 
-## ⚠️ T8 — POWER: A CLEAN 40 MINUTES RAN, AND WE CANNOT TELL WHICH RIG IT WAS
+## ✅ T8 — ANSWERED 2026-08-19. POWER IS A SOLVED PROBLEM, IF THE CABLE GOES INTO THE IPAD
+
+**Daniel confirmed the rig: AirPlay broadcast, charging cable directly into the iPad.** Forty minutes, hands off, 241 samples, `outcome: complete`, **battery 95% → 95% flat.**
+
+Against the earlier run (HDMI cable in the iPad's port, charging through the Magic Keyboard case, hot room, device already warm): **70% → 55% in the same forty minutes.**
+
+**THE RULE: enough watts directly into the device sustains a 4K broadcast indefinitely. The Magic Keyboard's passthrough cannot.**
+
+**Two confounds Daniel named himself and they do not overturn it:** the second run was 3-6°F cooler and started less warm, and iOS may throttle charge acceptance when hot. Both make the case-charging figure *worse* than the port's, not better, and neither explains a supply that cannot cover the draw. **The physics is one-way: if the supply is capped below the draw, the battery discharges at the deficit regardless of state of charge or temperature.**
+
+**⚠️ WHAT IS STILL OPEN IS THE HDMI VARIANT, NOT THE POWER QUESTION.** The winning rig broadcasts over AirPlay because HDMI occupies the only port. **Nobody has yet run a sustained test on a passthrough dongle that carries both video and power.** See T10.
+
+## 🅿️ T8 — pre-answer framing (kept for the reasoning)
 
 **2026-08-19, on B679: a full T7 completed uninterrupted — 241 samples, `outcome: complete`, no suspended gaps. The wake lock holds.** Everything held flat (fps 19.7 → 20.6, memory 140MB, thermal `serious` throughout) **and battery held 95% → 95% while charging.**
 
@@ -93,6 +105,14 @@ This is the second time a hand-picked tag has cost a comparison. The list needs 
 Watch: `batteryPct` slope, `wallFps` over AirPlay against HDMI's ~21, and `wallW/wallH` (B673) to prove which rig the report describes.
 
 **Two amplifiers Daniel named that belong in the reading, not in the conclusion:** ambient ~75°F with the device already hot, and iOS is known to throttle charge rate when hot. **If both are real, they compound** — a hot device charges slower while drawing more — and they make the AirPlay test more valuable rather than less, since a cooler run should charge faster for reasons that have nothing to do with the port.
+
+## ▶ T10 — HDMI WITH POWER PASSTHROUGH (Daniel's Apple dongle, lower priority, but it is the one hardware unknown left)
+
+**T8 proved power is solvable over AirPlay. It did not prove there is a WIRED setup that works**, and a wired signal is what a venue actually wants.
+
+**Daniel's Apple multiport dongle held and dropped frames in an early test.** That was never characterised, and the dongle carries both video and power, so it answers the two remaining questions at once: **does the charge hold, and does the picture stay stable over a long run.**
+
+**Run it as T7 with the same 20.4s clip**, dongle into the iPad, HDMI to the wall, power into the dongle. Watch `batteryPct` slope against T8's flat 95% and the external surface's `new pictures/s` against ~19. **A drop on either axis names a hardware limit, not a software one** — which is a perfectly good answer and belongs in CAPABILITIES.
 
 ## ▶ T9 — THE LONG CLIP (after T8, and it has its own hypothesis)
 
