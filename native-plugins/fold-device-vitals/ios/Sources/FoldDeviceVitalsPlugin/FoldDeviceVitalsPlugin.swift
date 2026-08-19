@@ -108,17 +108,27 @@ public class FoldDeviceVitalsPlugin: CAPPlugin, CAPBridgedPlugin {
     }
 
     @objc func ping(_ call: CAPPluginCall) {
-        call.resolve(["ok": true])
+        // The build stamp ends the "is the Swift actually on the device" question permanently.
+        // Bump it whenever this file changes; the JS compares it against its own build number.
+        call.resolve(["ok": true, "swift": 677])
     }
 
     @objc func setIdleTimerDisabled(_ call: CAPPluginCall) {
         let want = call.getBool("disabled") ?? false
-        // UIApplication is main-thread only, and the resolve reports what the system ACTUALLY holds
-        // rather than what we asked for — the JS side treats a mismatch as a failure to publish.
-        DispatchQueue.main.async {
-            UIApplication.shared.isIdleTimerDisabled = want
-            call.resolve(["disabled": UIApplication.shared.isIdleTimerDisabled])
-        }
+        // ⚠️ B677 — RESOLVE FIRST, THEN DO THE WORK, AND VERIFY THROUGH THE PUSH.
+        //
+        // The measured facts on this plugin: `ping` (resolves immediately, no dispatch) works;
+        // `readVitals` and the B675 form of this method (both resolved AFTER the func returned)
+        // never settle. **We do not know the mechanism** — the obvious suspects do not fit, since
+        // `snapshot()` serialises fine through `notifyListeners` and hung even before any UIKit
+        // call was in it. What we DO have is a shape that demonstrably works and a shape that
+        // demonstrably does not, so this method now uses the working one.
+        //
+        // The read-back has not been abandoned, it has moved: `snapshot()` reports the system's
+        // real `idleTimerDisabled` on the 5s push, which is the channel that has never failed. So
+        // a request that did not take is still visible — one push later instead of immediately.
+        call.resolve(["disabled": want])
+        DispatchQueue.main.async { UIApplication.shared.isIdleTimerDisabled = want }
     }
 
     deinit { pushTimer?.invalidate(); NotificationCenter.default.removeObserver(self) }
@@ -190,6 +200,9 @@ public class FoldDeviceVitalsPlugin: CAPPlugin, CAPBridgedPlugin {
         // Low-power mode changes the CPU/GPU ceiling, so a run under it is a different
         // device from a run without it and the report must be able to say which.
         out["lowPowerMode"] = ProcessInfo.processInfo.isLowPowerModeEnabled
+        // B677 — the wake lock's read-back, carried on the channel that works. `false` here while
+        // the app believes it asked for `true` is the silent-failure case, now visible.
+        out["idleTimerDisabled"] = UIApplication.shared.isIdleTimerDisabled
         // -1 means monitoring is off or the value is unavailable — reported as nil rather than as a
         // flat battery, the same rule the memory reading follows.
         let lvl = UIDevice.current.batteryLevel

@@ -34,6 +34,18 @@ Archived at B658. It was marked superseded at B609 and kept for the reasoning be
 
 **The trap that was caught before the cycle, because it will recur in any future host seam:** Capacitor calls are async, `conduit/vitals.js` reads `native()` sync. A Promise there makes every field undefined and the report says `nativeReadings: false` — *identical to no plugin*. The host caches; `read()` is synchronous. Proven in `vitals-native-check.mjs`.
 
+### 🧩 B677 — THE SWIFT IS BUILT. THE CALL SHAPE IS THE VARIABLE.
+
+**⚠️ CORRECTS MY OWN GUESS.** I said the Swift half was probably not on the device. **It is:** `FoldDeviceVitalsPlugin.o` stamped 22:28:28, source edited 22:14:45. Checking the build products settled in one command what reasoning had gotten wrong.
+
+**So the finding is sharper: in a binary containing all three, `ping` resolves and `readVitals` / B675's `setIdleTimerDisabled` never settle.**
+
+**The pattern is the call SHAPE, not the method:** resolve-immediately works; resolve-after-the-function-returns does not. **Mechanism unknown, and the obvious suspects are ruled out** — `snapshot()` serialises fine through `notifyListeners`, and `readVitals` hung before any UIKit call existed in it. B677 adopts the working shape rather than guessing at the cause, and moves the read-back to the 5s push.
+
+**▶ A TRAP AVOIDED THAT WOULD HAVE COST THE ARC:** delivering the push to subscribers also delivers it to the breadcrumb writer, and **`priorTrail` holds twelve entries** — a 5s heartbeat would have flushed every `take:arm` within a minute and destroyed the flight recorder. It emits as `'sample'` and the breadcrumb writer ignores that kind.
+
+**▶ `ping` NOW CARRIES A SWIFT BUILD STAMP** (`vitalsSeam.swiftBuild`), so "is the native half current" is never a guess again.
+
 ### ⏱ B676 — `not requested` COULD NOT TELL SILENCE FROM A HANG (my bug, twice)
 
 Daniel's report: `native: "not requested"`, `supported: true`, `why: "refused: NotAllowedError Permission was denied"`.

@@ -70,7 +70,7 @@ export function createCapacitorHost() {
       // and the report could not say whether it was throwing, hanging, or resolving empty, because
       // a failed refresh left `last` null and said nothing. That is the project's own rule broken
       // in the instrument that cites it: anything that can decline to act must publish why.
-      const seam = { attempts: 0, resolved: 0, empty: 0, errors: 0, timeouts: 0, pushes: 0, pingOk: undefined,
+      const seam = { attempts: 0, resolved: 0, empty: 0, errors: 0, timeouts: 0, pushes: 0, pingOk: undefined, swiftBuild: undefined,
                      lastError: null, lastOkAt: null, lastPushAt: null, loaded: false };
       let plugin = null;
       let listeners = [];
@@ -88,12 +88,17 @@ export function createCapacitorHost() {
           plugin.addListener('memoryWarning', (r) => { last = r; seam.pushes++; seam.lastPushAt = Date.now(); emit('memory-warning', r); });
           // B666 — the periodic push. This is now the PRIMARY channel; `read()` is kept wired and
           // instrumented so the pull's failure stays visible rather than being papered over.
-          plugin.addListener('vitals', (r) => { last = r; seam.pushes++; seam.lastPushAt = Date.now(); });
+          // ⚠️ EMITTED AS 'sample', AND THE KIND MATTERS. Subscribers include the breadcrumb writer,
+          // whose trail holds twelve entries — emitting a 5s heartbeat as a normal event would
+          // flush every `take:arm` out of `priorTrail` within a minute and destroy the crash
+          // forensics this arc was built on. So the heartbeat gets its own kind and the breadcrumb
+          // writer ignores it; only observers that want a steady reading subscribe to it.
+          plugin.addListener('vitals', (r) => { last = r; seam.pushes++; seam.lastPushAt = Date.now(); emit('sample', r); });
         } catch (e) { seam.lastError = `addListener: ${e?.message || e}`; }
         seam.loaded = true;
         // One trivial round trip, once, purely to separate "every bridge call to this plugin
         // hangs" from "something about `read`". Its answer is the next report's, not this run's.
-        try { plugin.ping().then(() => { seam.pingOk = true; }).catch((e) => { seam.pingOk = `rejected: ${e?.message || e}`; }); }
+        try { plugin.ping().then((r) => { seam.pingOk = true; seam.swiftBuild = r?.swift ?? 'unstamped (pre-B677 Swift)'; }).catch((e) => { seam.pingOk = `rejected: ${e?.message || e}`; }); }
         catch (e) { seam.pingOk = `threw: ${e?.message || e}`; }
         setTimeout(() => { if (seam.pingOk === undefined) seam.pingOk = 'never settled'; }, 5000);
         return plugin;

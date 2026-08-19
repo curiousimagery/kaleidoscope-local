@@ -121,11 +121,22 @@ export function keepAwake(on) {
   try { s?.release?.(); } catch { /* already gone */ }
 }
 
+// ⚠️ B677 — THE TRUTH ARRIVES ON THE PUSH, NOT FROM THE CALL. The native method now resolves
+// immediately (the only shape that settles on this plugin) and the system's REAL idle-timer state
+// rides the 5s vitals push instead. The chrome feeds it here, so a request that did not take is
+// still visible — one push later rather than instantly. Without this the method would be
+// fire-and-forget, which is the silent failure this whole file exists to prevent.
+let observed = null;
+export function noteIdleTimerState(on) { if (typeof on === 'boolean') observed = on; }
+
 // Read by the perf panel's export.
 export function wakeLockState() {
   return {
     // the native lock is the one that decides whether an iPad actually stays awake
     native: nativeState || (nativeHook ? 'not requested yet' : 'no native host on this build'),
+    // what the OS actually reports, via the push — the number to believe
+    osIdleTimerDisabled: observed,
+    agrees: observed === null ? null : observed === want,
     supported: supported(),
     wanted: want,
     held: !!sentinel,

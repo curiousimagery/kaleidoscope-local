@@ -57,7 +57,7 @@ import { perfFlags } from './shell/perf-flags.js';
 import { createPerfLedger, PRIORITY } from 'conduit/perf-ledger';
 import { createVitals } from 'conduit/vitals';
 import { createScenarioRunner } from './shell/scenario-runner.js';
-import { setWakeLockHost } from './kit/wake-lock.js';
+import { setWakeLockHost, noteIdleTimerState } from './kit/wake-lock.js';
 import { createPressureSource } from 'conduit/pressure';
 import { createGovernor } from 'conduit/governor';
 import { getNativeDecodeError } from './shell/native-video.js';
@@ -500,6 +500,8 @@ env.scenarioRunner = createScenarioRunner(env);
 // WKWebView (Daniel's iPad slept mid-broadcast with it held), so on device this is the one that
 // works. Injected rather than imported so kit/wake-lock.js stays free of `env`.
 setWakeLockHost((on) => env.host?.vitals?.setIdleTimerDisabled?.(on) ?? false);
+// B677 — the wake lock's read-back rides the vitals push, the one channel that has never failed.
+env.host?.vitals?.onEvent?.((_kind, r) => noteIdleTimerState(r?.idleTimerDisabled));
 
 // ⚠️ B663 — A THERMAL TRANSITION AND A MEMORY WARNING ARE PUSHES, NOT POLL RESULTS. The sampler
 // notices a thermal change up to ten seconds after it happened, and a memory warning arriving
@@ -507,7 +509,7 @@ setWakeLockHost((on) => env.host?.vitals?.setIdleTimerDisabled?.(on) ?? false);
 // is recorded at the moment it occurred, and — because breadcrumbs are always-on (B662) — a
 // device killed for memory leaves a `memory-warning` crumb in `priorTrail` for the next launch to
 // find. Without this, a jetsam kill and a random crash stay indistinguishable after the fact.
-env.host?.vitals?.onEvent?.((kind, r) => vitals.mark(kind, {
+env.host?.vitals?.onEvent?.((kind, r) => kind !== 'sample' && vitals.mark(kind, {
   thermal: r?.thermal ?? null, availableMB: r?.availableMB ?? null, footprintMB: r?.footprintMB ?? null,
 }));
 

@@ -6,6 +6,37 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🧩 v0.26.17 (Build 677) — 2026-08-19 — The Swift IS built; two methods hang and one does not
+
+**JS + Swift. ⚠️ NEEDS AN XCODE BUILD.**
+
+### Shipped
+
+- **`setIdleTimerDisabled` resolves immediately**, then does the UIKit write — the only call shape that settles on this plugin.
+- **The wake lock's read-back moved to the 5s push** (`idleTimerDisabled` in the snapshot), the channel that has never failed.
+- **`ping` carries a Swift build stamp** (`swift: 677`), reported as `vitalsSeam.swiftBuild`.
+- **The periodic push emits as `'sample'`** so the breadcrumb writer can ignore it.
+
+### ⚠️ CORRECTION: I guessed the Swift was not built. It was.
+
+`FoldDeviceVitalsPlugin.o` in the device DerivedData is stamped **22:28:28**; the Swift source was last edited at **22:14:45**. **The plugin was recompiled after the change and is current on the device.** My previous message's most likely explanation was wrong, and checking the build products settles it in a way no amount of reasoning would have.
+
+**So the real finding is sharper:** `ping` resolves, `readVitals` and B675's `setIdleTimerDisabled` never settle — **in a binary that contains all three.**
+
+**The mechanism is still unknown, and the obvious suspects do not fit.** `snapshot()` serialises fine through `notifyListeners`, and `readVitals` hung even before any UIKit call was in it. What we have is a shape that demonstrably works (resolve immediately, no dispatch) and a shape that demonstrably does not (resolve after the function returns). **So this build uses the working shape rather than guessing at the cause.**
+
+The read-back was not abandoned, it moved: the system's real `isIdleTimerDisabled` now rides the 5s push, so a request that did not take is still visible — one push later instead of immediately. `wakeLock.osIdleTimerDisabled` and `wakeLock.agrees` report it.
+
+### The heartbeat needed its own kind, or it would have destroyed the crash forensics
+
+Emitting the 5s push to subscribers is what delivers the read-back — but the breadcrumb writer is a subscriber, and **`priorTrail` holds twelve entries.** A 5s heartbeat as an ordinary event would have flushed every `take:arm` out of the trail within a minute and quietly destroyed the flight recorder this arc was built on. It emits as `'sample'`; the breadcrumb writer ignores that kind.
+
+### And the web lock's denial is now understood, not just observed
+
+`navigator.wakeLock` exists in the Capacitor WKWebView and answers `NotAllowedError`. **Presence is not usability.** Reported as expected on device rather than as a fault.
+
+---
+
 ## ⏱ v0.26.16 (Build 676) — 2026-08-19 — "not requested" could not tell silence from a hang, and I wrote that bug twice
 
 **JS only. No Swift change** — but the Swift from B675 still needs an Xcode build to exist on device.
