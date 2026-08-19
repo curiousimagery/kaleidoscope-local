@@ -412,7 +412,9 @@ Shipped as `sliceMirrorX/Y` + `foldSliceIntoSource`. Details in CHANGELOG v0.25.
 
 **What the fix path already looks like:** loading parks a clip paused (B595), and painting the first frame relies on the nudge at `source-host.js:184` — `await dv.play(); await nextFrame(); dv.pause();` — plus the native decode's `seekSettled(0)` hand-off at ~line 1318. **A frame that is close-but-not-first points at the seek settling late; a black or stale frame points at the nudge not landing.** Those are different bugs.
 
-**⚠️ THE ONE QUESTION THAT SPLITS IT, and it costs Daniel a sentence:** is the shown frame *a slightly later frame of the same clip*, *black/empty*, or *the previous clip's frame*? Ask before touching anything.
+**✅ ANSWERED 2026-08-19: a later frame of the same clip** — *"source frame was from toward the end of the clip actually, but the issue didn't repro and it loaded correctly."*
+
+**That points at the SEEK settling late, not at the first-frame nudge failing.** The suspect is the native-decode hand-off (`source-host.js` ~1318): `seekSettled(0)` is awaited, but the panel may paint before it lands, leaving whatever frame the decoder had. **Intermittent and currently unreproducible — do not chase it blind.** Recorded so the next occurrence starts from the right file instead of the wrong one.
 
 **Class 1 and desktop-reproducible either way — do not spend a device session on it.**
 

@@ -70,7 +70,7 @@ export function createCapacitorHost() {
       // and the report could not say whether it was throwing, hanging, or resolving empty, because
       // a failed refresh left `last` null and said nothing. That is the project's own rule broken
       // in the instrument that cites it: anything that can decline to act must publish why.
-      const seam = { attempts: 0, resolved: 0, empty: 0, errors: 0, timeouts: 0, pushes: 0, pingOk: undefined, swiftBuild: undefined,
+      const seam = { attempts: 0, resolved: 0, empty: 0, errors: 0, timeouts: 0, pushes: 0, pingOk: undefined, swiftBuild: undefined, probe: 'retired at B679 — the pull is never called',
                      lastError: null, lastOkAt: null, lastPushAt: null, loaded: false };
       let plugin = null;
       let listeners = [];
@@ -104,10 +104,40 @@ export function createCapacitorHost() {
         return plugin;
       }
 
+      // ⚠️ B679 — THE PULL IS RETIRED, AND THE HYPOTHESIS IS THAT IT WAS WEDGING THE PLUGIN.
+      //
+      // The evidence assembled over four builds: `ping` — the FIRST call ever made to this plugin —
+      // resolves and returns its build stamp. **Every call after it hangs**: `readVitals` (0
+      // resolved of 18+ attempts, 0 errors) and `setIdleTimerDisabled`, which now demonstrably does
+      // not even perform its write (`osIdleTimerDisabled: false` while the app asked for true). A
+      // call that never reaches native explains the missing resolve AND the missing write together;
+      // nothing about the method bodies explains either.
+      //
+      // **The shape that fits is a head-of-line block:** the first hung `readVitals` never
+      // completes, and every subsequent call to this plugin queues behind it forever. It fits the
+      // ordering exactly — one success, then nothing, regardless of method.
+      //
+      // So the pull stops. **We never needed it:** the 5s push already delivers the whole snapshot
+      // and has never once failed (39 pushes in the report that had 0 resolves). `read()` returns
+      // the cache the pushes fill. One probe still runs at boot, recorded and never repeated, so
+      // this stays a measured claim rather than a belief.
+      // ⚠️ AND NOT EVEN A BOOT PROBE. A probe would be the SECOND call to the plugin, so if the
+      // head-of-line theory is right it would wedge the queue before `setIdleTimerDisabled` ever
+      // gets asked — confounding the very experiment it was meant to inform, and taking the wake
+      // lock down with it. The evidence is already overwhelming (0 resolved across 18, 26 and 28
+      // attempts in three separate runs) and `pingOk` + `swiftBuild` prove the bridge works for the
+      // first call. **A fourth null result is not worth the risk of proving nothing.**
+      //
+      // So the ONLY calls this host makes are now `ping` at load and `setIdleTimerDisabled` when
+      // output goes live. If the next report shows the wake lock holding, the theory is confirmed
+      // by the fix rather than by another measurement.
+      const PULL_RETIRED = true;
       async function refresh() {
+        if (PULL_RETIRED) return;
         if (inFlight) return;
         if (failedAt && Date.now() - failedAt < RETRY_MS) return;
         inFlight = true;
+        probed = true;
         seam.attempts++;
         try {
           const p = load().then((pl) => pl.readVitals());
@@ -119,10 +149,11 @@ export function createCapacitorHost() {
             p,
             new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), CALL_MS)),
           ]);
-          if (r && r.at) { last = r; seam.resolved++; seam.lastOkAt = Date.now(); failedAt = 0; }
+          if (r && r.at) { last = r; seam.resolved++; seam.lastOkAt = Date.now(); failedAt = 0; seam.probe = 'resolved'; }
           else { seam.empty++; seam.lastError = `resolved without .at: ${JSON.stringify(r)?.slice(0, 120)}`; failedAt = Date.now(); }
         } catch (e) {
-          if (String(e?.message) === 'timeout') seam.timeouts++; else seam.errors++;
+          if (String(e?.message) === 'timeout') { seam.timeouts++; seam.probe = 'timed out — pull retired, push is the only channel'; }
+          else { seam.errors++; seam.probe = `rejected: ${e?.message || e}`; }
           seam.lastError = `read: ${e?.message || e}`;
           failedAt = Date.now();
         } finally { inFlight = false; }
@@ -132,6 +163,7 @@ export function createCapacitorHost() {
         available: true,
         read() {
           const age = last?.at ? Date.now() - last.at : Infinity;
+          // B679 — the push keeps `last` fresh; this only ever fires the single boot probe.
           if (age > REFRESH_MS) refresh();          // fire and forget; this call still returns now
           if (!last) return null;
           // ⚠️ DECLINE RATHER THAN LIE. A wedged refresh must not read as a calm device.
@@ -155,6 +187,7 @@ export function createCapacitorHost() {
         // numbers says WHICH failure it was instead of looking like a missing plugin.
         diagnostics() {
           return { ...seam, ageMs: last?.at ? Date.now() - last.at : null,
+                   pullRetired: true,
                    why: seam.resolved ? null
                       : seam.timeouts ? 'read() never settles — bridge call hangs'
                       : seam.errors ? 'read() rejects — see lastError'

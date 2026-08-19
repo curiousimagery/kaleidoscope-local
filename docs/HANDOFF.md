@@ -34,6 +34,23 @@ Archived at B658. It was marked superseded at B609 and kept for the reasoning be
 
 **The trap that was caught before the cycle, because it will recur in any future host seam:** Capacitor calls are async, `conduit/vitals.js` reads `native()` sync. A Promise there makes every field undefined and the report says `nativeReadings: false` — *identical to no plugin*. The host caches; `read()` is synchronous. Proven in `vitals-native-check.mjs`.
 
+### 🚧 B679 — THE PULL IS RETIRED, AND THE FIX IS THE EXPERIMENT
+
+**B678's fix produced the decisive number:** `osIdleTimerDisabled: false` while the app asked for `true`. **So `setIdleTimerDisabled` does not merely fail to resolve — it never performs its write.** Its body is a resolve plus a one-line UIKit assignment; nothing in it can fail halfway. **The call is not reaching native.**
+
+```
+ping                  FIRST call ever made — resolves, returns swiftBuild 677
+readVitals            0 resolved / 18, 26, 28 attempts · 0 errors
+setIdleTimerDisabled  never settles, never writes
+notifyListeners       39 pushes in the same report that had 0 resolves
+```
+
+**One success, then nothing, regardless of method, while the push channel is untouched.** The shape that fits is a **head-of-line block** — the first hung `readVitals` never completes and every later call queues behind it. The method bodies explain none of it; the ordering explains all of it.
+
+**▶ SO THE PULL STOPS, AND DELIBERATELY WITHOUT A BOOT PROBE** — a probe would be the second call and would wedge the queue before the wake lock is ever asked, confounding the experiment and taking the lock down with it. **The only calls now made are `ping` at load and `setIdleTimerDisabled` when output goes live.** If the lock holds on the next run, the theory is confirmed by the fix.
+
+**⚠️ IF IT STILL DOES NOT HOLD**, the head-of-line theory is dead and the next move is native-side instrumentation (an `os_log` at the top of the method to prove whether it is entered at all) — **not another JS build.**
+
 ### 🪤 B678 — THREE BUILDS OF SUBSCRIPTIONS THAT WERE NEVER REGISTERED (my bug)
 
 `env.host` is assigned by `createApp` at **main.js:2026**. Both `host.vitals.onEvent` subscriptions were written at **504 and 512**, where it is `undefined`. **`env.host?.vitals?.onEvent?.(fn)` on an undefined host does nothing and says nothing.**

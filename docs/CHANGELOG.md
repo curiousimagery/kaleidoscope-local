@@ -6,6 +6,46 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🚧 v0.26.19 (Build 679) — 2026-08-19 — Retiring the pull, because it may be what wedges the plugin
+
+**JS only. No Swift change.**
+
+### Shipped
+
+- **`readVitals` is never called.** The pull is retired; the 5s push is the only channel.
+- **No boot probe either** — a probe would confound the experiment it was meant to inform.
+
+### The evidence finally forms one shape
+
+B678's fix made the read-back real, and the new number is the decisive one: **`osIdleTimerDisabled: false` while the app asked for `true`.**
+
+**So `setIdleTimerDisabled` does not merely fail to resolve — it never performs its write.** Its body is `call.resolve(...)` followed by a one-line UIKit assignment; nothing in it can fail halfway. **The call is not reaching native at all.**
+
+Line that up with everything else:
+
+```
+ping                  — the FIRST call ever made to this plugin — resolves, returns swiftBuild 677
+readVitals            0 resolved / 18, 26, 28 attempts across three runs · 0 errors
+setIdleTimerDisabled  never settles, and never writes
+notifyListeners       39 pushes in the same report that had 0 resolves
+```
+
+**One success, then nothing, regardless of method — while the push channel is untouched.** The shape that fits is a **head-of-line block**: the first hung `readVitals` never completes and every later call to this plugin queues behind it forever. Nothing about the individual method bodies explains the pattern; the ordering does.
+
+### So the pull stops, and the test is the fix
+
+**We never needed it.** The push already delivers the whole snapshot and has never once failed. `read()` returns the cache the pushes fill.
+
+**And deliberately not even a boot probe.** A probe would be the *second* call, so if the theory is right it would wedge the queue before `setIdleTimerDisabled` is ever asked — confounding the experiment and taking the wake lock down with it. A fourth null result is not worth the risk of proving nothing.
+
+**The only calls this host now makes are `ping` at load and `setIdleTimerDisabled` when output goes live.** If the next report shows the lock holding, the theory is confirmed by the fix rather than by another measurement.
+
+### The first-frame regression did not reproduce
+
+Daniel: *"source frame was from toward the end of the clip actually, but the issue didn't repro and it loaded correctly."* **A later frame of the same clip** points at the seek settling late rather than the first-frame nudge failing — recorded in BACKLOG against the day it recurs, and not chased while it is unreproducible.
+
+---
+
 ## 🪤 v0.26.18 (Build 678) — 2026-08-19 — Three builds of push subscriptions that were never registered
 
 **JS only. No Swift change** — `swiftBuild: 677` already matches.
