@@ -412,9 +412,17 @@ Reported after a GL-context loss in perform mode. **Not investigated — filed r
 
 **Class 1 first:** read the handler and check what it does with a lost/restored context before spending any device time.
 
-### 🧨 [B667 — ENOUGH EVIDENCE TO ACT ON] GATE THE 4K TAKE WHILE A 4K BROADCAST IS LIVE
+### 📉 [B668 — CLASS 1, NOT STARTED] THE RECORD BUS IS INVISIBLE TO THE FRAME-COST LEDGER
 
-**Four occurrences of the same trigger** (B661 fatal, B663 fatal, B666 twice survivable): arming a 4K take while broadcasting 4K kills the shared WebKit GPU process. In the survivable form the take runs its full minute and encodes **zero frames**.
+The `bus` surface registers and reports `calls: 0, msPerFrame: 0` with the note `capture: async`. Meanwhile recording measurably costs the app **~25ms per frame** — 59fps down to 23.5fps with nothing else running. **The single most expensive thing in a recording session does not appear in the panel built to say what things cost.**
+
+This is why "the take is slow" read as a priority problem for three builds: the cost was real and unattributable, so it looked like starvation. **Class 1 — no device needed to find out why an async capture path reports nothing.**
+
+### 🧨 [B667, RE-SCOPED B668 — DO NOT BUILD THE GATE YET] ARMING A TAKE WHILE BROADCASTING LOSES THE GL CONTEXT
+
+**⚠️ B667 SCOPED THIS TO 4K AND THAT WAS WRONG.** B668 lost the context arming an **FHD** take (`bus:start 1920x1080` at t=20, `gl-context-lost` at t=21). Five occurrences now — B661 fatal, B663 fatal, B666 twice, B668 once — at both resolutions. In the survivable form the take runs its full minute and encodes **zero frames**.
+
+**What is actually common is that the output BUS starts while the external view holds a live GL context.** **T3b (B668) is the discriminator and must run before any gate is built** — reversing the order separates "cannot coexist" from "cannot start the bus underneath a live external view", and only the first justifies a capability gate.
 
 **And the 4K take is unusable even unopposed** — 13.4fps against a declared 30 with nothing else running and the app at 59fps.
 

@@ -6,6 +6,49 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🔋 v0.26.8 (Build 668) — 2026-08-19 — It is not the take's resolution, and recording halves the app
+
+**JS + Swift. ⚠️ NEEDS AN XCODE BUILD.**
+
+### Shipped
+
+- **Battery level + power state** in the vitals plugin, sampled and aggregated over a session.
+- **T3b, an ordering discriminator**: take first, broadcast second.
+
+### ⚠️ CORRECTION: B667 filed this too narrowly, and Daniel's hunch was right
+
+*"I'm seeing additional graphics context loss errors even without the recording so I have a hunch the issue may be something about the test itself creating the problem not record."*
+
+**B667 called it "arming a 4K take during a 4K broadcast". It is not about 4K.** B668's run armed an **FHD** take — `take:arm 1920x1080`, `bus:start 1920x1080` at t=20 — and lost the context at **t=21**, one second later. Take A encoded **zero frames** again.
+
+What is actually common to every occurrence is that **the output BUS starts while the external view already holds a live GL context.** T3b reverses the order to separate "these two cannot coexist" from "starting the bus underneath a live external view", which are different bugs with different fixes.
+
+### ⚠️ THE RECORDING-PRIORITY QUESTION HAS A DIFFERENT ANSWER THAN EITHER OF US EXPECTED
+
+Take B, no broadcast: **the take ran at 23.5fps and the app ran at 23.4–24.3fps.** They match. **The take is not being starved; it is faithfully recording every frame the app produces.**
+
+The app's own rate is what collapses:
+
+```
+between takes, nothing running   fps 59.0, 57.9
+during take B                    fps 23.4, 24.1, 24.3, 24.1, 23.0, 22.8
+```
+
+**Recording costs the app roughly 25ms per frame and cuts its frame rate by 60%.** So this is not a priority inversion to be re-prioritised — it is a cost to be found and reduced. And it is invisible: the `bus` surface registers in the ledger and reports `calls: 0`, `msPerFrame: 0` (`capture: async`), so **the single most expensive thing in a recording session does not appear in the frame-cost panel at all.**
+
+### Battery, because Daniel found a ceiling nothing was measuring
+
+*"We're a couple hours in on device testing where it's charging and outputting power at about the same rate even when mostly idling, so one limit in our sustained thermal scenario will be if we can't charge as fast as we output power."*
+
+**That is the eight-hour exhibit failing for a reason that has nothing to do with frame rate, and no instrument we had would have seen it — the run would simply end.** `batteryPct` over a long session is the answer: flat or rising means the supply keeps up, falling means a wall the fps series cannot see. `-1` reports as `batteryWhy` rather than as a flat battery, the same rule the memory reading follows.
+
+### Learned
+
+- **Thermal was `nominal` for the entire 200s run**, and the native series is now continuous — `availMB` 4961–4993, `footprintMB` 126–158. The push channel is carrying everything the pull never did.
+- `loopCache.why` is back to advising *"raise the budget"* — the known B609 under-report, still giving bad advice.
+
+---
+
 ## 🧨 v0.26.7 (Build 667) — 2026-08-19 — Arming a 4K take during a 4K broadcast kills the GL context, reproducibly
 
 **JS + Swift. ⚠️ NEEDS AN XCODE BUILD.**

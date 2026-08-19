@@ -86,6 +86,38 @@ export const SCRIPTS = [
     ],
   },
   {
+    id: 't3b-take-first',
+    label: 'T3b · take FIRST, then broadcast (~2 min)',
+    needs: ['vitals', 'outputActions'],
+    blurb: 'the ORDER discriminator — does the context die either way, or only bus-then-view?',
+    // ⚠️ B668 — THE DISCRIMINATOR DANIEL'S HUNCH EARNED. *"I'm seeing additional graphics context
+    // loss errors even without the recording so I have a hunch the issue may be something about
+    // the test itself creating the problem not record."* He is right that it is not about the take
+    // being 4K — B667 lost the context arming an FHD take (`bus:start 1920x1080` at t=20,
+    // `gl-context-lost` at t=21) and take A encoded ZERO frames.
+    //
+    // What is common to every failure is that the OUTPUT BUS starts while the external view
+    // already holds a live GL context. This script reverses the order: bus first, external view
+    // second. If the context still dies, the two simply cannot coexist and the gate is about the
+    // combination. If it survives, the trigger is specifically starting the bus underneath a live
+    // external view, and the fix is an ordering/handshake problem rather than a capability limit.
+    steps: [
+      { do: 'broadcast', arg: 'off' },
+      { do: 'resolution', px: 1920 },
+      { do: 'play' },
+      { do: 'session', arg: 'start', label: 't3b-take-first' },
+      { do: 'record', arg: 'on', tag: 'take first' },
+      { do: 'wait', ms: 20_000, note: 'take running ALONE — establishing it is healthy' },
+      { do: 'broadcast', arg: 'on' },
+      { do: 'wait', ms: 40_000, note: 'broadcast started UNDER a running take' },
+      { do: 'record', arg: 'off' },
+      { do: 'wait', ms: SETTLE_MS, note: 'finalizing' },
+      { do: 'capture', tag: 'take first, broadcast joined at 20s' },
+      { do: 'broadcast', arg: 'off' },
+      { do: 'session', arg: 'stop' },
+    ],
+  },
+  {
     id: 't7-warm-long-run',
     label: 'T7 · warm long run (10 min warm + 40 min hands-off)',
     needs: ['vitals', 'outputActions'],

@@ -137,6 +137,10 @@ export function createVitals({ pressure = null, ledger = null, native = null } =
       unaccountedMs: r?.unaccountedMs ?? null,
       pressure: p,
       thermal: nat?.thermal ?? null,
+      // B668 — the sustained-run limit that is not a frame rate. Falling over hours means the
+      // supply cannot keep up with the draw, which ends an exhibit for reasons fps never shows.
+      batteryPct: nat?.batteryPct ?? null,
+      power: nat?.power ?? null,
       // headroom first — it is the number that decides whether the run survives
       availMB: nat?.availableMB ?? null,
       footprintMB: nat?.footprintMB ?? null,
@@ -160,6 +164,7 @@ export function createVitals({ pressure = null, ledger = null, native = null } =
     track('availMB', s.availMB);
     track('footprintMB', s.footprintMB);
     track('webUsedMB', s.web?.usedMB);
+    track('batteryPct', s.batteryPct);
     if (s.pressure?.level != null) track('pressure', s.pressure.level);
 
     // time spent at each thermal level, which is what an exhibit post-mortem actually wants

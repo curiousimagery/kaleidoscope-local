@@ -34,6 +34,28 @@ Archived at B658. It was marked superseded at B609 and kept for the reasoning be
 
 **The trap that was caught before the cycle, because it will recur in any future host seam:** Capacitor calls are async, `conduit/vitals.js` reads `native()` sync. A Promise there makes every field undefined and the report says `nativeReadings: false` — *identical to no plugin*. The host caches; `read()` is synchronous. Proven in `vitals-native-check.mjs`.
 
+### 🔋 B668 — IT IS NOT THE TAKE'S RESOLUTION, AND RECORDING HALVES THE APP
+
+**⚠️ CORRECTS B667's FILING. Daniel's hunch was right and mine was too narrow.** B667 called it "a 4K take on a 4K broadcast". **B668 lost the context on an FHD take** — `take:arm 1920x1080`, `bus:start 1920x1080` at t=20, `gl-context-lost` at **t=21** — and take A encoded zero frames again.
+
+**What is common to every occurrence is that the OUTPUT BUS starts while the external view already holds a live GL context.** T3b (shipped B668) reverses the order to separate "these two cannot coexist" from "starting the bus underneath a live external view". Different bugs, different fixes; do not build a gate until that run says which.
+
+**▶ AND THE PRIORITY QUESTION HAS A DIFFERENT ANSWER THAN EITHER OF US EXPECTED.**
+
+```
+between takes, nothing running   fps 59.0, 57.9
+during take B                    fps 23.4, 24.1, 24.3, 24.1, 23.0, 22.8
+take B's own encoded rate        23.5fps
+```
+
+**The take matches the app exactly. It is not being starved — it faithfully records every frame the app produces, and the APP is what collapses.** Recording costs ~25ms/frame and cuts the app's rate by 60%. **So this is not a priority inversion to re-prioritise; it is a cost to find and reduce.**
+
+**⚠️ AND THE COST IS INVISIBLE TO THE INSTRUMENT.** The `bus` surface registers in the ledger and reports `calls: 0, msPerFrame: 0` (`capture: async`). **The most expensive thing in a recording session does not appear in the frame-cost panel at all.** That is the next instrument gap to close, and it is Class 1.
+
+**▶ NATIVE VITALS ARE FULLY HEALTHY VIA PUSH.** Continuous series, thermal `nominal` for the whole 200s run, `availMB` 4961-4993, `footprintMB` 126-158. Memory remains a non-issue.
+
+**▶ BATTERY IS NOW INSTRUMENTED, because Daniel found a ceiling nothing measured:** charge rate versus draw over hours. An exhibit that dies from this looks like nothing at all in the fps series.
+
 ### 🧨 B667 — THE 4K-TAKE-ON-4K-BROADCAST GL DEATH IS DETERMINISTIC. FOUR OCCURRENCES.
 
 B661 fatal · B663 fatal · B666 twice, survivable. **Same trigger every time: arm a 4K take while broadcasting 4K.** In B666 the context was lost and restored, arming took 6s instead of ~1s, and **take A ran 60 seconds and encoded ZERO frames.**

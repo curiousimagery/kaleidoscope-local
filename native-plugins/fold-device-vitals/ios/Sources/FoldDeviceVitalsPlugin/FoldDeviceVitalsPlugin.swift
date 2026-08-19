@@ -61,6 +61,14 @@ public class FoldDeviceVitalsPlugin: CAPPlugin, CAPBridgedPlugin {
     private var memoryWarnings = 0
 
     override public func load() {
+        // ⚠️ B668 — BATTERY, BECAUSE DANIEL FOUND A CEILING NOTHING WAS MEASURING. *"We're a couple
+        // hours in on device testing where it's charging and outputting power at about the same rate
+        // even when mostly idling, so one limit in our sustained thermal scenario will be if we
+        // can't charge as fast as we output power."* That is the eight-hour exhibit case failing for
+        // a reason that has nothing to do with frame rate, and no instrument we have would have seen
+        // it — the run just ends. `level` over a long session IS the answer: flat or rising means the
+        // supply is keeping up, falling means there is a wall the fps series cannot see.
+        UIDevice.current.isBatteryMonitoringEnabled = true
         NotificationCenter.default.addObserver(
             self, selector: #selector(thermalChanged),
             name: ProcessInfo.thermalStateDidChangeNotification, object: nil)
@@ -161,6 +169,17 @@ public class FoldDeviceVitalsPlugin: CAPPlugin, CAPBridgedPlugin {
         // Low-power mode changes the CPU/GPU ceiling, so a run under it is a different
         // device from a run without it and the report must be able to say which.
         out["lowPowerMode"] = ProcessInfo.processInfo.isLowPowerModeEnabled
+        // -1 means monitoring is off or the value is unavailable — reported as nil rather than as a
+        // flat battery, the same rule the memory reading follows.
+        let lvl = UIDevice.current.batteryLevel
+        if lvl >= 0 { out["batteryPct"] = Int((lvl * 100).rounded()) }
+        else { out["batteryWhy"] = "batteryLevel unavailable" }
+        switch UIDevice.current.batteryState {
+        case .charging: out["power"] = "charging"
+        case .full: out["power"] = "full"
+        case .unplugged: out["power"] = "unplugged"
+        default: out["power"] = "unknown"
+        }
         return out
     }
 }
