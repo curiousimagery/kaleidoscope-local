@@ -558,6 +558,33 @@ Long-deferred and re-raised: the web app enumerates a USB webcam, the Capacitor 
 
 **✅ SHIPPED B663:** the plugin, the `host.vitals` seam declared in `conduit/host.js`, the retirement of the duplicate `host.thermalState()` call, thermal/memory-warning pushes wired to breadcrumbs on both chromes, and `take:arm` carrying the wall + source resolutions and clip length. **Awaiting an Xcode build to read anything.**
 
+### 🔁 [T9, 2026-08-19 — MEASURED, NOT FIXED] THE LOOP CACHE CANNOT COVER A LONG 4K CLIP'S WRAP
+
+**The item swap scales with clip length**: 325ms on the 6:39 clip against ~25ms on the 20.4s one (a longer clip is a bigger index to re-open). The head cache exists to replay across exactly that gap, and it **structurally cannot**:
+
+```
+loopCache: 5 frames · 133ms held · 59MB of a 64MB budget · "partial fill — raise the budget"
+```
+
+A 4K NV12 frame is ~12MB. Covering 325ms needs ~10 frames ≈ **124MB, roughly double the maximum budget.** So the advice is correct and unfollowable, which is its own small instrument bug.
+
+**⚠️ DO NOT TREAT THIS AS URGENT.** It does not reach the wall: the external view's worst take gap across the whole run was **132ms, once every 6:39**. Daniel described the run as uneventful, and that is an accurate description of a 132ms hitch every six and a half minutes.
+
+**Options, cheapest first, none costed yet:** cache at a REDUCED resolution (the replay is covering a wrap, not a look), cache fewer frames but hold them longer with a repeat, or pre-roll the next item earlier so the swap gap shrinks at source. **The last one attacks the cause rather than the symptom** and is the only one that also helps a device with less memory.
+
+### 🎚 [T9, 2026-08-19 — THE GOVERNOR QUESTION, NOW WITH A CLEAN DEMONSTRATION]
+
+`PLAN-LIVE-READINESS.md` item 3 argues the governor should be scoped to bus destinations because it watches the display and the display rarely has a shortfall. **T9 is that argument as data:**
+
+```
+governor INACTIVE · signal 'display' · shortfall 0 · appShortfall 0.98
+preview rate 1 → 22.73ms/frame     pip rate 1 → 11.47ms/frame     app 15fps
+```
+
+**The wall was flawless and the app was at half its target, and the governor correctly did nothing** — it is not watching the thing that is suffering. By Daniel's rubric that is defensible (*"dropping to poor fps in app is acceptable"*). **But 34ms/frame of editor cost is a free lever**, and the operator is the one looking at the 15fps UI.
+
+**The decision this sharpens:** the governor's signal should probably be *per-surface-class* rather than one global choice — shed EDITOR surfaces on app shortfall, shed PROGRAM surfaces only on display shortfall. That is a different change from "scope it to bus destinations" and may supersede it.
+
 ### 🖥 [OPEN — Daniel, 2026-08-19] THE PERMIT WORK IS PLATFORM-NEUTRAL. THE LIMITS ARE NOT.
 
 Daniel: *"is this iOS only or does this work carry over to electron... ideally our architecture could support an M1 iMac just as well as an M1 iPad."*

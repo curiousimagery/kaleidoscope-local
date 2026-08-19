@@ -34,6 +34,64 @@ Archived at B658. It was marked superseded at B609 and kept for the reasoning be
 
 **The trap that was caught before the cycle, because it will recur in any future host seam:** Capacitor calls are async, `conduit/vitals.js` reads `native()` sync. A Promise there makes every field undefined and the report says `nativeReadings: false` — *identical to no plugin*. The host caches; `read()` is synchronous. Proven in `vitals-native-check.mjs`.
 
+### 🐛 B685 — THE CAMERA PICKER (a B684 regression, found on device by Daniel)
+
+**B684 taught the native camera to enumerate, and `refreshCameraDevices()` was already consuming that function under the OTHER shape.** Web returns `{ deviceId, label }`; native returns `{ id, label, kind }`. Every native option got `value = undefined`, and the native `start()` ignores `deviceId` anyway, so **every selection re-acquired the default camera.**
+
+**⚠️ THE LESSON, AND IT IS NOT THE ONE I ALREADY KNEW:** I grepped the callers of the function I *renamed* and not of the one whose *contract* I changed. The second is easier to miss precisely because the call site looks unchanged. **Changing what a shared function RETURNS needs the same caller sweep as changing its name.**
+
+**Structure fixed too, to Daniel's spec:** the picker beside the upload button is the CAMERA; the gear is that camera's sub-options. iOS enumerates each built-in lens as its own device, so the built-ins collapse to one `built-in` entry and front/rear + lens live in the gear, hidden when an external is selected.
+
+### ✅✅ T9 ANSWERED (2026-08-19, B681, 6:39 4K clip, `docs/temp/8-18-26-T9-report.json`)
+
+**40 minutes, `outcome: complete`, 241 samples, no events, no context loss, memory flat (126-158MB), battery 100% flat.** The long clip is not a problem. Four findings, and two of them invert what we expected.
+
+**1 — THE FIRST SESSION COUNT EVER, AND IT IS EXACTLY WHAT THE AUDIT PREDICTED.**
+
+```
+now  { total 4, gl 2, decode 2 }        peak { total 4, gl 2, decode 2 }
+acquired 5 · released 1                 5 - 1 = 4 = now.total  ✓ conserved
+live: preview engine (gl, 4338s) · source clip <video> (decode, 4053s)
+      native decode (decode, 4044s)     · live PiP engine (gl, 3980s)
+```
+
+**Peak never exceeded steady state**, so nothing ever spiked across a clip load plus 40 minutes. The two decoders are the by-design iOS pair (the `<video>` kept for authoring beside the AVPlayer). **No orphans** — the B681 fix is holding. No `bus` context, correctly, because HDMI self-renders and the bus never ran.
+
+**2 — ⚠️ THE LONG CLIP IS BETTER ON THE WALL, NOT WORSE.**
+
+```
+T9 (6:39)   31 NEW PICTURES/s ON THE DISPLAY · 30 arriving/s · steady (new picture 32/41ms)
+T7 (20.4s)  19 NEW PICTURES/s ON THE DISPLAY · 30 arriving/s · steady (new picture 52/76ms)
+```
+
+**The wrap is the disturbance, and the long clip has ~20x fewer of them** (~6 in 40 minutes against ~120). T9's design note said the short clip stresses the wrap and the long clip stresses the decode working set. **The working set turned out to be a non-issue and the wrap turned out to be the whole story.**
+
+**3 — ⚠️ THE APP IS SLOWER (15 vs 23.5 fps) AND IT IS NOT THE CLIP. IT IS THE GOVERNOR.**
+
+```
+T7   governor ACTIVE level 2   preview rate 2 (8.54ms)  · pip rate 4 (3.67ms)   · shortfall 0.36
+T9   governor INACTIVE          preview rate 1 (22.73ms) · pip rate 1 (11.47ms) · shortfall 0
+                                                                     appShortfall 0.98
+```
+
+**The governor watches the DISPLAY.** T7's display was struggling, so it armed and shed editor surfaces — which is why T7's app fps *looked* better. T9's display is perfect, so it stays inert while **the app carries 34ms/frame of editor cost at a 0.98 app shortfall.** This is `PLAN-LIVE-READINESS.md` item 3's governor question, demonstrated cleanly rather than argued.
+
+**By Daniel's own rubric this is arguably CORRECT** — *"dropping to poor fps in app is acceptable but dropping broadcast fps warrants a warning"* — and the wall is flawless. **But 34ms/frame of editor work is a free lever** that would return the app to ~20fps without touching the wall.
+
+**4 — THE ONE GENUINE LONG-CLIP FINDING: THE WRAP COSTS 325ms AND THE CACHE CANNOT COVER IT.**
+
+```
+swapGapMs 325 · maxSwapGapMs 325          (the 20.4s clip's equivalent gap was ~25ms)
+loopCache: 5 frames · 133ms · 59MB of a 64MB budget
+why: "partial fill — 133ms of a 325ms lap; raise the budget"
+```
+
+**The item swap scales with clip length** (a longer clip is a bigger index to re-open). And the cache is *structurally* unable to close it: a 4K NV12 frame is ~12MB, so covering 325ms needs ~10 frames ≈ **124MB, roughly double the 64MB maximum.** The advice to raise the budget is correct and unfollowable.
+
+**⚠️ IT DID NOT REACH THE WALL, WHICH IS WHY IT FELT UNEVENTFUL.** The external view's own `maxTakeGapMs` is **132ms**, once every 6:39. Visible as a hitch if you are looking for it; invisible otherwise. (B684 makes this read 166ms rather than 133ms — the verdict is unchanged.)
+
+**⚠️ ONE AMBIGUITY, FLAGGED NOT DIAGNOSED: `loopStall.maxTakeGapMs: 24022`** — a 24-second app-side gap with no frames taken. The external view's max over the same run was 132ms, **so the wall never stalled.** Most plausibly the load/attach window, but the instrument carries no timestamp and cannot say. **Do not chase it without one; add the timestamp first.**
+
 ### 🔨 B684 — THE NATIVE BATCH IS IN. ⚠️ IT NEEDS AN XCODE BUILD.
 
 Two Swift files changed (`fold-native-camera`, `fold-native-video`), `npx cap sync ios` is run, both parse clean against the iOS 26.5 SDK. **Until Daniel builds in Xcode, `listCameras` does not exist and `coveredMs` reports the old number.**

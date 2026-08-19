@@ -558,31 +558,55 @@ export function createSourceHost(env) {
   // runs only after a stream is live. Show the picker (replacing the front/rear flip
   // button) only when ≥2 labeled cameras exist — the desktop/installation case (a USB
   // webcam vs the built-in / iPhone Continuity cam); a single-camera device keeps flip.
+  // ⚠️ B685 — TWO SHAPES, AND B684 BROKE THIS BY CHANGING ONE OF THEM.
+  //
+  // The web camera's `listDevices()` returns `{ deviceId, label }`. The native one returned a
+  // hardcoded `[]` until B684 taught it to enumerate — and it returns `{ id, label, kind, ... }`.
+  // This function read `d.deviceId`, which is `undefined` on every native row, so each option got
+  // the value `"undefined"` and **every selection re-acquired the default camera.** Daniel: *"if i
+  // try to select the camera from this list it will always actually pick the back ultra wide."*
+  // My mistake, and the avoidable kind: I grepped the callers of the function I renamed and not of
+  // the one whose CONTRACT I changed, which is the same class of error either way.
+  //
+  // ⚠️ AND THE LIST ITSELF WAS WRONG, per Daniel's spec: this menu is the CAMERA, the gear holds
+  // that camera's sub-options. iOS enumerates every built-in lens as its own AVCaptureDevice
+  // (back, back ultra wide, front, front TrueDepth…), so passing them straight through offered six
+  // top-level "cameras" that are really one camera with lenses. The built-ins collapse to a single
+  // entry here; front/rear and lens live in the gear where they belong, and hide when an external
+  // camera is selected because they mean nothing for it.
+  function cameraChoices(devices) {
+    if (!cameraIsNative) {
+      // unlabeled = no permission yet for that device
+      return devices.filter((d) => d.label).map((d) => ({ id: d.deviceId, label: d.label }));
+    }
+    const ext = devices.filter((d) => d.kind && d.kind !== 'builtin');
+    // '' is the built-in path (native-camera's setDevice reads it as "pick by facing/lens")
+    return [{ id: '', label: 'built-in' }, ...ext.map((d) => ({ id: d.id, label: d.label || d.kind }))];
+  }
+
   async function refreshCameraDevices() {
     const select = document.getElementById('cameraSelect');
     const flip = document.getElementById('flipBtn');
     if (!select) return;
     let devices = [];
     try { devices = await camera.listDevices(); } catch { /* enumeration unsupported */ }
-    const labeled = devices.filter(d => d.label);   // unlabeled = no permission yet for that device
-    const multi = labeled.length >= 2;
+    const choices = cameraChoices(devices);
+    const multi = choices.length >= 2;
     // The dropdown is the camera IDENTITY while in camera (Daniel's camera-module
     // spec): always visible, current camera selected, every camera listed, "quit
     // camera" at the bottom. flip still covers the single-camera facing switch.
     select.hidden = false;
     if (flip) flip.hidden = multi;
-    const activeId = camera.getDeviceId();
+    const activeId = camera.getDeviceId?.() || '';
     select.innerHTML = '';
-    for (const d of labeled) {
+    for (const d of choices) {
       const opt = document.createElement('option');
-      opt.value = d.deviceId;
+      opt.value = d.id;
       opt.textContent = d.label;
-      if (d.deviceId === activeId) opt.selected = true;
+      if (d.id === activeId) opt.selected = true;
       select.appendChild(opt);
     }
-    if (!labeled.length) {
-      // the native camera enumerates nothing (it drives lenses, not devices) —
-      // say what it IS instead of the generic placeholder (Daniel's note)
+    if (!choices.length) {
       const opt = document.createElement('option');
       opt.value = ''; opt.textContent = cameraIsNative ? 'iPad native' : 'camera'; opt.selected = true;
       select.appendChild(opt);
@@ -596,17 +620,24 @@ export function createSourceHost(env) {
   }
 
   // Picker change: re-acquire that exact camera, persist the choice, re-source.
+  // ⚠️ `deviceId` may legitimately be '' on the NATIVE path — that is the built-in entry, and
+  // `setDevice('')` is how you get back to it. So the guard tests for live, not for truthiness.
   async function selectCameraDevice(deviceId) {
-    if (!deviceId || !env.live.isLive) return;
+    if (deviceId == null || !env.live.isLive) return;
     try {
-      const video = await camera.start({ deviceId });
-      env.liveVideo = video;
+      if (cameraIsNative) {
+        // native takes an AVFoundation uniqueID and re-acquires internally (same shape as setLens)
+        await camera.setDevice(deviceId);
+        env.liveVideo = camera.getVideo?.() || env.liveVideo;
+      } else {
+        env.liveVideo = await camera.start({ deviceId });
+      }
       attachCameraSource();
     } catch (e) {
       if (uploadErrorEl) uploadErrorEl.textContent = cameraErrorMessage(e);
       return;
     }
-    localStorage.setItem(CAMERA_DEVICE_KEY, deviceId);
+    if (!cameraIsNative) localStorage.setItem(CAMERA_DEVICE_KEY, deviceId);
     setCameraMeta('live camera');
     updateCameraUI();
     refreshCameraDevices();
@@ -907,10 +938,13 @@ export function createSourceHost(env) {
         else { env.live.frozen = false; updateCameraUI(); }
         return;
       }
-      if (!v) return;
+      // ⚠️ '' IS A REAL CHOICE ON THE NATIVE PATH — it is the built-in entry. Testing truthiness
+      // here would make "go back to the built-in camera" the one option that silently did nothing.
+      if (v == null) return;
+      if (!cameraIsNative && !v) return;
       if (env.live.frozen) {
         // picking a camera while frozen resumes live on that device
-        localStorage.setItem(CAMERA_DEVICE_KEY, v);
+        if (!cameraIsNative) localStorage.setItem(CAMERA_DEVICE_KEY, v);
         startCameraMode();
         return;
       }

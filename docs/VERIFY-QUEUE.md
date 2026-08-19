@@ -114,7 +114,16 @@ Watch: `batteryPct` slope, `wallFps` over AirPlay against HDMI's ~21, and `wallW
 
 **Run it as T7 with the same 20.4s clip**, dongle into the iPad, HDMI to the wall, power into the dongle. Watch `batteryPct` slope against T8's flat 95% and the external surface's `new pictures/s` against ~19. **A drop on either axis names a hardware limit, not a software one** — which is a perfectly good answer and belongs in CAPABILITIES.
 
-## ▶ T9 — THE LONG CLIP (after T8, and it has its own hypothesis)
+## ✅ T9 — ANSWERED 2026-08-19. THE LONG CLIP IS FINE, AND BETTER ON THE WALL.
+
+**40 minutes on the 6:39 4K clip, `outcome: complete`, no events, memory flat, battery flat.** Full reading in `HANDOFF.md`. The four results:
+
+1. **First session count: peak 4 (2 GL + 2 decode), conserved, no orphans.** The audit's prediction, confirmed.
+2. **The wall is BETTER than on the short clip** — 31 new pictures/s against 19. **The wrap is the disturbance and the long clip has ~20x fewer of them.** The hypothesis below had this backwards: the decode working set is a non-issue.
+3. **The app is slower (15 vs 23.5) and it is the GOVERNOR, not the clip.** It watches the display, the display is perfect, so it stays inert while the editor surfaces cost 34ms/frame at a 0.98 app shortfall.
+4. **The wrap costs 325ms on a long clip** (~25ms on the short one) and the loop cache tops out at ~133ms of it, because 4K frames are ~12MB and covering the lap needs ~124MB against a 64MB ceiling. **It does not reach the wall** — the external view's worst hitch was 132ms, once every 6:39.
+
+## 🅿️ T9 — the original hypothesis (kept: half of it was wrong, and that is the useful part)
 
 Daniel: *"we were looping the same 20.4s clip not a more massive file, which would minimize memory pressure."* **Correct, and the flat memory in T7 means "no leak in this configuration", not "memory is fine at any clip length".**
 

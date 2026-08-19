@@ -6,6 +6,37 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🚧 v0.26.25 (Build 685) — 2026-08-19 — The camera picker: one list, in the right place
+
+**Fixes a regression B684 introduced, and adopts Daniel's structure for the menu.**
+
+### Shipped
+
+- **The picker beside the upload button selects the camera again.** B684 broke it: every choice landed on the same device.
+- **One camera list, in the picker.** The gear holds that camera's sub-options only.
+
+### The regression, and it was mine
+
+`refreshCameraDevices()` reads `d.deviceId`. The **web** camera's `listDevices()` returns `{ deviceId, label }`; the **native** one returned a hardcoded `[]` until B684 taught it to enumerate — and it returns `{ id, label, kind, … }`.
+
+So every native row got `opt.value = undefined`, the string `"undefined"` came back on change, and `camera.start({ deviceId })` on the native path ignores `deviceId` entirely (it reads `facingMode`). **Every selection re-acquired the default camera.** Daniel: *"if i try to select the camera from this list it will always actually pick the back ultra wide camera."*
+
+**I grepped the callers of the function I RENAMED and not of the one whose CONTRACT I changed.** Same class of error, and the second one is the easier to miss because nothing about the call site looks different.
+
+### And the structure was wrong, which Daniel called correctly
+
+> *"the list of available cameras should show in the first menu not the camera settings, and if there are sub-options within a camera source these show in the camera settings menu... the camera settings menu should only show options available to the selected camera."*
+
+B684 put a `camera source` row in the gear, which gave **two places to choose a camera and only one of them worked**. The list now lives in the picker and the gear is the selected camera's options.
+
+**iOS enumerates every built-in lens as its own `AVCaptureDevice`** — back, back ultra wide, front, front TrueDepth — so passing the list through offered six top-level "cameras" that are one camera with lenses. **The built-ins collapse to a single `built-in` entry**; front/rear and lens live in the gear and hide when an external camera is selected, because they mean nothing for it.
+
+**`''` is a real choice on the native path** (it is the built-in entry), so the change handler tests `v == null` rather than truthiness — otherwise "go back to the built-in camera" would be the one option that silently did nothing.
+
+The gear's device enumeration went with the row it served; `refreshCameraDevices` owns it now.
+
+---
+
 ## 🚧 v0.26.24 (Build 684) — 2026-08-19 — The native batch: external cameras, and two instruments that were lying
 
 **⚠️ NEEDS AN XCODE BUILD.** Two Swift files changed; `npx cap sync ios` is run and both parse clean against the iOS 26.5 SDK.

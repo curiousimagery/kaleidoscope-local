@@ -37,21 +37,9 @@ export function createCameraSettings(env, { getCamera, isNative, reacquire }) {
     if (!show && !pop.hidden) { pop.hidden = true; btn.classList.remove('open'); stopWbPoll(); }
   }
 
-  // ⚠️ SOMETHING HAS TO ASK. `getDevices()` returns a CACHE, and until B684 nothing ever filled
-  // it — so a "camera source" row gated on that cache would never have appeared, which is the same
-  // shape of bug as the enumeration it is meant to expose. Enumerating on every open also covers
-  // hot-plug: plugging a USB camera in and reopening the menu is how a person would expect to find
-  // it. `enumerating` guards the re-entry, since the refresh ends in another rebuild().
-  let enumerating = false;
-  function enumerateThenRebuild(camera) {
-    if (enumerating || typeof camera?.listDevices !== 'function') return;
-    enumerating = true;
-    const before = (camera.getDevices?.() || []).length;
-    camera.listDevices()
-      .then((list) => { if ((list || []).length !== before) rebuild(); })
-      .catch(() => { /* getDeviceWhy() carries the reason; the menu stays usable */ })
-      .finally(() => { enumerating = false; });
-  }
+  // (B684 enumerated cameras from here for its own "camera source" row. That row moved to the
+  // picker at B685, so nothing in this menu reads the device list any more and the bridge call
+  // went with it — `source-host.js`'s refreshCameraDevices owns enumeration now.)
 
   function rebuild() {
     stopWbPoll();
@@ -59,27 +47,17 @@ export function createCameraSettings(env, { getCamera, isNative, reacquire }) {
     const camera = getCamera();
     const rows = isNative() ? buildNativeRows(camera) : buildWebRows(camera);
     for (const r of rows) pop.appendChild(r);
-    if (isNative()) enumerateThenRebuild(camera);
   }
 
   // ---- native camera (Capacitor) --------------------------------------------
 
   function buildNativeRows(camera) {
     const rows = [];
-    // ⚠️ EXTERNAL CAMERAS — 2026-08-19, Daniel: *"the ipad can't detect cameras besides its own
-    // yet."* This row is what makes the enumeration a FEATURE rather than a mechanism: listing a
-    // camera nobody can select is the B631 trap exactly. Only shown when something other than the
-    // built-ins is actually attached, so the common case gains no clutter.
-    //
-    // Uses `segRow`, the same component the facing and lens rows use — no new pattern, nothing new
-    // for the Lab. The built-in entry is always present so there is a way back.
-    const devices = camera.getDevices?.() || [];
-    const externals = devices.filter((d) => d.kind && d.kind !== 'builtin');
-    if (externals.length) {
-      const opts = [{ id: '', label: 'built-in' }, ...externals.map((d) => ({ id: d.id, label: d.label || d.kind }))];
-      rows.push(segRow('camera source', opts, camera.getDeviceId?.() || '', (id) =>
-        reacquire(() => camera.setDevice(id)).then(rebuild)));
-    }
+    // ⚠️ B685 — THE CAMERA LIST BELONGS IN THE PICKER, NOT HERE (Daniel's spec, and he is right).
+    // B684 put a "camera source" row here, which gave two places to choose a camera and only one of
+    // them worked. **This menu is the SELECTED camera's sub-options; the picker beside the upload
+    // button is the camera identity.** So the list moved up to `source-host.js`'s `cameraSelect`
+    // and every row below is gated on being meaningful for whatever is selected.
     // camera (facing) — the flip toggle lives at the TOP of this menu (Daniel:
     // the iPhone camera-menu position), replacing the toolbar flip button on
     // the native path. flip() resets EV/WB by construction (per-sensor gains).
