@@ -31,6 +31,7 @@
 import { perfFlags, PERF_FLAG_SPECS, PERF_FLAG_DEFAULTS } from './perf-flags.js';
 import { wakeLockState } from '../kit/wake-lock.js';
 import { sessionReport } from 'conduit/sessions';
+import { externalGuardState } from './external-display.js';
 
 const BASELINE_KEY = 'foldPerfBaseline';
 
@@ -447,6 +448,9 @@ export function mountPerfPanel(env, { container = null, onClose = null } = {}) {
       // was never attempted produce the identical report: no `loopStall`, no `srcSocket`,
       // no `srcFanOut`, and a `from <video>` tag that could mean either.
       nativeAttach: env.nativeAttach || undefined,
+      // WHY the external 1080p memory guard did or did not apply. It declining silently is what
+      // made a re-armed crash indistinguishable from a healthy configuration (2026-08-19).
+      extGuard: externalGuardState() || undefined,
       srcSocket: env.nativeVideo?.socketState?.() || undefined,
       srcFanOut: env.nativeVideo?.fanOut || undefined,
       // WHAT THIS DEVICE HAS BEEN MEASURED SUSTAINING, per destination + resolution tier (B585).

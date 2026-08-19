@@ -50,7 +50,32 @@ trail[]                 THIS run's breadcrumbs, including gl-context-lost
 
 **The known-and-deliberate double:** on iOS a loaded clip holds BOTH the source `<video>` (kept for authoring) and the native AVPlayer decode. **Two decoders on one clip is expected. Three is not.**
 
-### 🚨 A CONTEXT LOSS ON LOADING THE 6:39 CLIP (2026-08-19, on B680, `docs/temp/8-19-26-gl-context-loss-report.json`)
+### ✅✅ ROOT CAUSE — AN 8-SECOND TIMER WAS ROUTING BIG CLIPS INTO THE CRASH PATH (B682)
+
+**Three reports, and the third one — Daniel's own idea to relaunch and grab the previous session's trail — carried the ordering.**
+
+```
+20:16:12.968  loadVideo:start          1,252,687,803 bytes · 3840x2160 · 399.1s
+20:16:13.296  loadeddata               the <video> decode was FINE (328ms)
+20:16:26.016  nativeAttach DECLINED    failed at "frame socket": no native frames on port 8900
+              ↓ fallback = OUR <video> + the external view's own copy of the staged 1.25GB file
+20:17:24.263  broadcast on
+20:20:09.675  gl-context-lost (preview)
+20:20:10.753  memory-warning · availableMB 5094 · footprintMB 25
+20:20:20.722  gl-context-lost (preview)
+```
+
+**That message is UNIQUELY the `requireFrame` timeout** (`native-frame-receiver.js:252`) — socket open, no frame inside `timeout`, which was **a flat 8000ms**. **The deadline chose the fallback, not the decode.** Load-start to decline was 13.05s: upload plus an 8s expiry.
+
+**⚠️ `availableMB: 5094` AT THE MEMORY WARNING IS THE NUMBER WE NEVER HAD.** Over 5GB free on the device. **This is the WebKit GPU process's own ceiling, not device RAM** — B580's Xcode log said so and no report had ever shown it.
+
+**B682 scales the deadline (20ms/MB, floor 8s, cap 40s) and names it in the failure message.** The floor means clips under ~400MB are unchanged.
+
+**⚠️ FALSIFIER: if the 6:39 clip still declines, the message now reads `within 23893ms` and that IS the measurement** — raise from there. **If it attaches, the native single-decode path takes over and the double-decode crash configuration never arises.**
+
+**⚠️ ALSO CHECK `extGuard` IN THE NEXT REPORT.** The external surface rendered **3840x2160** when the 1080p memory guard should have applied. `extGuard.uncapToggle` now says outright whether `foldHdmiVideoUncap` is still set from B487's testing — that toggle re-arms this exact crash and would have been invisible forever.
+
+### 🚨 THE FIRST OF THE THREE (on B680, `docs/temp/8-19-26-gl-context-loss-report.json`)
 
 **The clip is 1,252,687,803 bytes — 1.25GB, 3840x2160, 399.1s.** Roughly the figure predicted for the external staging path, arriving as a source load instead.
 

@@ -109,6 +109,12 @@ async function stageVideoForExternal(blobUrl, sourceBlob = null) {
 // blob URL, so a baked clip correctly misses and re-stages.
 let staged = { url: null, served: null };
 
+// The 1080p memory guard's last decision, read by the perf report. Module-global deliberately:
+// this is a fact about the one external surface, and there are three env-shaped objects in this
+// codebase that would each see a different answer if it lived on one of them (CLAUDE.md).
+let lastGuard = null;
+export function externalGuardState() { return lastGuard; }
+
 function clearStagedVideo() {
   staged = { url: null, served: null };
   try { FoldExternalDisplay.clearStaged(); } catch { /* plugin may be down */ }
@@ -157,7 +163,24 @@ function createPoster(opts) {
     let uncap = false;
     try { uncap = localStorage.getItem('foldHdmiVideoUncap') === '1'; } catch {}
     const singleDecode = !!opts.hasNativeVideo?.();
-    const effCap = (opts.hasVideoSource?.() && !uncap && !singleDecode) ? Math.min(cap, 1920) : cap;
+    const videoSrc = !!opts.hasVideoSource?.();
+    const applies = videoSrc && !uncap && !singleDecode;
+    const effCap = applies ? Math.min(cap, 1920) : cap;
+    // ⚠️ THE GUARD MUST SAY WHY IT DID NOT ACT (2026-08-19). A run that lost two GL contexts
+    // reported the external surface at 3840x2160 — meaning this cap was off — and NOTHING anywhere
+    // said which of the three reasons applied. An absence is not evidence, and the difference
+    // between "the single-decode path made it moot" and "a diagnostics toggle is still on from a
+    // test months ago" is the difference between a healthy run and a re-armed crash.
+    lastGuard = {
+      applies,
+      cappedTo: applies ? Math.min(cap, 1920) : null,
+      why: applies ? 'capping the external render to 1080p-class (video source, two decoders)'
+        : !videoSrc ? 'not a video source — stills and camera keep the native size'
+          : singleDecode ? 'moot: the single native decode means the external view runs no decoder of its own'
+            : 'OFF: the foldHdmiVideoUncap diagnostics toggle is set — this re-arms the GPU-memory crash',
+      uncapToggle: uncap,
+      singleDecode,
+    };
     // THE SELECTED OUTPUT RESOLUTION GOVERNS THIS RENDER (Daniel, B587).
     //
     // Until B586 this used the DISPLAY's native size and treated `getOutputDims` (the resolution

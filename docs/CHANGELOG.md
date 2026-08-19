@@ -6,6 +6,49 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🚧 v0.26.22 (Build 682) — 2026-08-19 — An eight-second timer was routing big clips into the crash
+
+**Root cause found for the 6:39 4K failures, with the whole chain evidenced.**
+
+### Shipped
+
+- **The native decode's first-frame deadline scales with clip size** (was a flat 8s). Small clips unchanged.
+- **Timeout messages name the deadline they used.**
+- **The external 1080p memory guard publishes why it did or did not apply** (`extGuard`).
+- **The external note leads with the UNKNOWN** when the view decodes its own copy.
+
+### The chain
+
+```
+20:16:12.968  loadVideo:start          1,252,687,803 bytes · 3840x2160 · 399.1s
+20:16:13.296  loadeddata               the <video> decode was FINE
+20:16:26.016  nativeAttach DECLINED    failed at "frame socket": no native frames on port 8900
+              ↓ falls back to <video> = OUR decoder + the external view's own copy
+20:17:24.263  broadcast on
+20:20:09.675  gl-context-lost (preview)
+20:20:10.753  memory-warning · availableMB 5094 · footprintMB 25
+20:20:20.722  gl-context-lost (preview)      ← 11s after the first
+```
+
+**`no native frames on port 8900 (nothing streaming)` is, uniquely, the `requireFrame` timeout path** (`native-frame-receiver.js:252`) — the socket opened and no frame arrived inside `timeout`. That timeout was **a flat 8000ms**. A 1.25GB / 6:39 4K clip cannot produce a first frame in eight seconds; AVPlayer parses an index proportional to the clip before it decodes anything. **The arithmetic corroborates:** load start to decline was 13.05s, consistent with the upload plus an 8s expiry.
+
+**So the deadline, not the decode, chose the fallback** — and the fallback is the double-decode configuration every memory guard in this codebase exists to avoid.
+
+**⚠️ AND `availableMB: 5094` AT THE MEMORY WARNING SETTLES A LONG-RUNNING QUESTION.** The device had over 5GB free. **This is not the device running out of RAM; it is the WebKit GPU process hitting its own ceiling**, which is what B580's Xcode log said and what no report had ever shown with a number.
+
+### Why scaling, not just raising
+
+**The risk is one-sided.** Waiting too long costs a slow load; falling back too early costs the crash path. So: 20ms per megabyte, floored at the original 8s, capped at 40s. **The floor means clips under ~400MB behave exactly as before** — this cannot regress the path that has always worked.
+
+**⚠️ 20ms/MB IS A FIRST ESTIMATE, NOT A MEASUREMENT.** We know 8s was too short for 1.25GB; we do not know what would have been enough. **That is why the message now names the deadline** — a second failure reports `within 23893ms` and tells us the real requirement instead of repeating the same ambiguity at a different number.
+
+### Two honesty fixes the same run exposed
+
+- **`extGuard`.** The external surface rendered **3840x2160** while the 1080p memory guard should have applied, and nothing anywhere said which of its three exits it took. The guard now publishes `applies`, `why`, `uncapToggle` and `singleDecode`. **If `foldHdmiVideoUncap` is still set from B487's testing, the report now says so outright** — that toggle's own comment says it "re-arms the ~30s crash".
+- **The external note.** With the view decoding its own copy there is no arriving-frame stream, so freshness had `n: 0` and the note read `31 drawn/s · new-picture rate not yet measured`. Daniel read the 31 as healthy while the wall was visibly bursting. **A draw counter counts our loop, not the picture.** The unknown now leads and the draw count is labelled as ours.
+
+---
+
 ## 🚧 v0.26.21 (Build 681) — 2026-08-19 — The orphaned decoder, and a count of what we hold
 
 **Session audit steps 1 and 2 (`docs/SESSION-AUDIT.md`).**

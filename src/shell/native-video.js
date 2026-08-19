@@ -331,6 +331,37 @@ export function createNativeStageSource(env, { cap = 2048 } = {}) {
 
 // The source itself. Returns null (never throws) when native isn't usable, so the
 // caller falls straight through to the <video> path.
+// ⚠️ HOW LONG TO WAIT FOR THE FIRST NATIVE FRAME — 2026-08-19, and this was a REAL FAILURE.
+//
+// This was a flat 8000ms. A 1.25GB / 6:39 4K clip does not produce its first frame inside eight
+// seconds: AVPlayer has to open the asset and parse an index proportional to the clip's length
+// before it can decode anything. So the deadline expired, the decode "failed", and the app fell
+// back to <video> — **which is the DOUBLE-DECODE path** (our <video> plus the external view's own
+// copy of the staged file), the configuration every memory guard in this codebase exists to avoid.
+// Two GL context losses followed within three minutes, with 5GB of device memory still free.
+//
+// **A fixed deadline is the wrong shape**: it is a bet that startup cost does not scale with the
+// input, and here it plainly does. Scaling it is not the same as just raising it — a genuinely
+// dead decode must still fall back FAST on a small clip, which is the case the deadline was
+// written for (B499's looper attached to an item that never played).
+//
+// **THE RISK HERE IS ONE-SIDED, AND THE NUMBERS FOLLOW FROM THAT.** Waiting too long costs a slow
+// load. Falling back too early costs the double-decode path, which is the one that crashes. So on
+// a large clip, be generous: 20ms per megabyte, floored at the original 8s and capped at 40s.
+//
+// **The 8s floor is deliberate**: a small clip's behaviour is unchanged, so this cannot regress the
+// path that has always worked. Only clips past ~400MB see a different deadline at all.
+//
+// ⚠️ THE 20ms/MB IS A FIRST ESTIMATE, NOT A MEASUREMENT. We know 8s was too short for 1.25GB and we
+// do not know what would have been enough. **That is why the timeout message now names the deadline
+// it used** — a second failure reports `within 23904ms` and tells us the real requirement, instead
+// of repeating the same ambiguity at a different number.
+function firstFrameDeadline(bytes) {
+  const perMB = 20;                                     // ms of grace per megabyte
+  const grace = Math.round((bytes / (1024 * 1024)) * perMB);
+  return Math.min(40000, Math.max(8000, grace));
+}
+
 export async function createNativeVideoSource(env, blob, { name, loop = true, onProgress } = {}) {
   if (!nativeVideoAvailable() || !blob) return null;
   // pending = the seek target the clock reports until a painted frame catches up to it
@@ -365,7 +396,7 @@ export async function createNativeVideoSource(env, blob, { name, loop = true, on
     receiver = createNativeFrameReceiver({ port: port || 8900, cap: PREVIEW_CAP });
     // the MAIN path insists on a real frame: if the decode is dead we want the <video>
     // fallback, not a black source (see the requireFrame note in native-frame-receiver)
-    await receiver.start({ requireFrame: true, timeout: 8000 });
+    await receiver.start({ requireFrame: true, timeout: firstFrameDeadline(blob?.size || 0) });
     console.info('[fold] native video: first frame received');
     // A FRESHLY LOADED CLIP IS PARKED, exactly like a <video> that has loaded and never
     // been played (B595). The plugin's start() calls play() so a first frame can arrive —

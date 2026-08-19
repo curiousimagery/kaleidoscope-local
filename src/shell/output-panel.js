@@ -122,7 +122,15 @@ export function createOutputPanel(env, outputBus) {
         // new on screen, and calling it "new/s" was the same wrong noun a second time.
         const arriving = typeof sf === 'number' && sf >= 0 ? ` · ${sf} arriving/s` : '';
         if (shown > 0) return `${shown} NEW PICTURES/s ON THE DISPLAY${arriving} · ${f} drawn/s${even}`;
-        return `${f} drawn/s${arriving} · new-picture rate not yet measured`;
+        // ⚠️ 2026-08-19 — B583's LESSON, ONE LAYER DOWN. When the view runs its OWN decoder (the
+        // <video> fallback, i.e. the native decode declined) there is no arriving-frame stream to
+        // measure freshness from, so `shown` is 0 and this used to read `31 drawn/s · new-picture
+        // rate not yet measured`. Daniel read the 31 and reasonably concluded the broadcast was
+        // healthy while it was visibly bursting and pausing. **A draw counter is an activity
+        // counter: it counts our loop, not the picture.** So the UNKNOWN leads, and the number we
+        // do have is demoted to what it actually is.
+        return `⚠ RATE ON THE DISPLAY UNKNOWN — this view decodes its own copy, so nothing here `
+          + `measures what the audience sees${arriving} · ${f} draw calls/s (ours, not the picture)`;
       }
       return '';
     },

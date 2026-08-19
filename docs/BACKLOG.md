@@ -552,6 +552,23 @@ Long-deferred and re-raised: the web app enumerates a USB webcam, the Capacitor 
 
 **✅ SHIPPED B663:** the plugin, the `host.vitals` seam declared in `conduit/host.js`, the retirement of the duplicate `host.thermalState()` call, thermal/memory-warning pushes wired to breadcrumbs on both chromes, and `take:arm` carrying the wall + source resolutions and clip length. **Awaiting an Xcode build to read anything.**
 
+### 🖥 [OPEN — Daniel, 2026-08-19] THE PERMIT WORK IS PLATFORM-NEUTRAL. THE LIMITS ARE NOT.
+
+Daniel: *"is this iOS only or does this work carry over to electron... ideally our architecture could support an M1 iMac just as well as an M1 iPad."*
+
+**What already carries, with no further work:**
+- **`conduit/sessions.js` is platform-neutral** and registers in shared code. `createEngine` is the same function on every target, so GL contexts are counted on Electron, web and iOS alike.
+- **The Finding A fix is in `shell/source-host.js`, which is the DESKTOP chrome** — the one Electron, the browser and the iPad all run. The orphaned decoder was leaking on macOS too; it just had the headroom to hide it.
+
+**What does NOT carry, and must not be assumed:**
+- **The native decode path is iOS-only.** The 8s deadline, the frame socket and the double-decode fallback have no Electron equivalent — Electron plays a `<video>` and the output window opens a second one. **Structurally the same two-decoders-one-clip shape, without the hard OS cap.**
+- **The ceiling itself.** iOS kills the GPU process; macOS mostly just gets slower. **Same architecture, different failure mode**, so a threshold measured on the iPad must never be copied to the desktop as a limit.
+
+**The open work, and it is small:**
+1. **Wire the Electron/output-window second decoder into the registry** the way the external view's is — `output-view.js` runs in both, so most of this is already done; confirm rather than assume.
+2. **Run T7 on the desktop build** and record `sessions.peak` there. **We have never had a desktop number** — B479's "watch Electron desktop HDMI for the same wall under heavy video" has been open since.
+3. **Keep ONE computed ladder, not two code paths.** The rung is a measured fps and a session count; the M1 iMac and the M1 iPad differ in what they can sustain, not in how we decide. **This is the whole reason the gate must be computed** — a device table would need a row per machine and would still be wrong on the next one.
+
 **⚠️ SESSION AUDIT STEPS 3 AND 4 ARE THE OPEN HALF (B681 shipped 1 and 2).**
 - **Step 3 — shed before acquiring at the three unguarded transitions**: change source while broadcasting, enter perform mid-broadcast, arm a take during a broadcast. **The precedent exists and works**: the Loop Builder and the bake post a `notice` to the external view, which tears down its own decoder outright *"because a 4K bake and a 4K external render at the same time is what restarted the app"*. It was simply never extended to the other three.
 - **Step 4 — gate**, using the live count rather than a device table. See the capability-ladder item.

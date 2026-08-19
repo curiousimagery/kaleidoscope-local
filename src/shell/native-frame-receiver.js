@@ -249,9 +249,12 @@ export function createNativeFrameReceiver({ port = 8899, mirror = false, cap = 0
       setTimeout(() => {
         if (done) return;
         done = true;
+        // ⚠️ NAME THE DEADLINE. Without it "nothing streaming" is indistinguishable between a dead
+        // decode and a decode that was simply slower than a number we chose — and those have
+        // opposite fixes. 2026-08-19 cost a device session to exactly that ambiguity.
         reject(new Error(requireFrame
-          ? `no native frames on port ${port} (nothing streaming)`
-          : `could not open port ${port} (ws blocked or nothing listening)`));
+          ? `no native frames on port ${port} within ${timeout}ms (nothing streaming)`
+          : `could not open port ${port} within ${timeout}ms (ws blocked or nothing listening)`));
       }, timeout);
     });
   }
