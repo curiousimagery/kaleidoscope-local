@@ -34,6 +34,18 @@ Archived at B658. It was marked superseded at B609 and kept for the reasoning be
 
 **The trap that was caught before the cycle, because it will recur in any future host seam:** Capacitor calls are async, `conduit/vitals.js` reads `native()` sync. A Promise there makes every field undefined and the report says `nativeReadings: false` — *identical to no plugin*. The host caches; `read()` is synchronous. Proven in `vitals-native-check.mjs`.
 
+### 😴 B674 — THE iPAD SLEPT AND THE INSTRUMENT SAID "ROCK STEADY" FOR FORTY MINUTES
+
+**217 samples, byte-for-byte identical:** `fps 26.8 · frameP50 35 · unaccountedMs 26.32 · wallFps 19.6 · availMB 5025 · footprintMB 94`. The render loop stopped, so `ledger.report` never flushed and every sample copied the same frozen object. **Only the native values moved** (the plugin's push timer kept running), which is exactly what made the report look plausible instead of obviously broken.
+
+**Sample intervals give it away too:** 10, 10, 10, 11, 14, 11, 14… against a 10s period, and **217 samples where 240 were due**.
+
+**▶ FIXED, AND IT IS THE DEFECT CLASS THIS PROJECT KEEPS HUNTING** — an instrument that cannot tell "nothing changed" from "nothing was measured". Ledger-object identity is an exact staleness test, and timer drift is an exact suspension test. Both free, both now checked; stale samples are recorded but **excluded from aggregates**, and `measuredWhy` says so in words.
+
+**▶ AND THE WAKE LOCK IS A PRODUCT REQUIREMENT, NOT A TEST FIX.** Broadcasting to an external display does **not** keep iOS awake, and nothing was asking it to. **An eight-hour installation that blanks after fifteen minutes is the whole thing not working.** `kit/wake-lock.js`, JS only (WebKit 16.4+), re-acquires on `visibilitychange` because the OS revokes it on every backgrounding, and publishes whether it was granted.
+
+**⚠️ THIS RUN IS NOT A T8 RESULT, IN EITHER DIRECTION.** Battery went 60% → 80% — a 20-point *gain* against T7's 15-point loss — **but the app was suspended for much of it**, so it measures a sleeping iPad charging. And the report cannot say which rig it was: `wallW`/`wallH` shipped at B673 and this is Build 672. **T8 needs a rerun on the current build.**
+
 ### 🏁 T7 RAN — FORTY MINUTES, ZERO DEGRADATION, AND THE HEAT HYPOTHESIS IS FINALLY DEAD
 
 ```

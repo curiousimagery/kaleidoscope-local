@@ -59,9 +59,28 @@ Confirmed results are DELETED from here and recorded in CHANGELOG. Closed sessio
 
 **T7 found the only ceiling that actually ends a run: power.** 70% → 55% in 40 minutes while plugged in, because **HDMI-out occupies the USB-C port and charging falls back to the Magic Keyboard's slower passthrough.**
 
+**⚠️ THE FIRST T8 ATTEMPT (2026-08-19) IS VOID — the iPad slept through much of it.** B674 fixes both halves: the app now holds a screen wake lock while broadcasting, and the report says outright when samples were frozen. **Rerun on B674 or later**; on an older build the report cannot even say which rig it was.
+
+**⚠️ T8 IS NOT A NEW SCRIPT — it is the T7 script with a different rig.** Pick **T7 · warm long run** in the dropdown exactly as before. Nothing to build.
+
 **Daniel's own workaround is the test:** charge directly into the iPad, broadcast over **AirPlay**. **This changes two variables at once** — the power path and the video path — so if it holds, run it again over HDMI-with-direct-charge (a dongle that passes power through, if one is available) to separate them. **A single 40-minute T7 run in the AirPlay configuration answers whether the eight-hour exhibit has a supported setup at all.**
 
-Watch: `batteryPct` slope, and whether `wallFps` over AirPlay is even in the same class as HDMI's ~21.
+**⚠️ KEEP THE 20.4s CLIP.** T8's question is POWER, and T7 is its only baseline. Changing the source as well would move two variables across a 40-minute run and cost the comparison — the one thing that makes T7's forty minutes worth having.
+
+Watch: `batteryPct` slope, `wallFps` over AirPlay against HDMI's ~21, and `wallW/wallH` (B673) to prove which rig the report describes.
+
+**Two amplifiers Daniel named that belong in the reading, not in the conclusion:** ambient ~75°F with the device already hot, and iOS is known to throttle charge rate when hot. **If both are real, they compound** — a hot device charges slower while drawing more — and they make the AirPlay test more valuable rather than less, since a cooler run should charge faster for reasons that have nothing to do with the port.
+
+## ▶ T9 — THE LONG CLIP (after T8, and it has its own hypothesis)
+
+Daniel: *"we were looping the same 20.4s clip not a more massive file, which would minimize memory pressure."* **Correct, and the flat memory in T7 means "no leak in this configuration", not "memory is fine at any clip length".**
+
+**A longer clip is a genuinely different test, not just a bigger one:**
+- **The 6:39 clip is what the first fatal crash used** (B661/B663); the 20.4s clip survived the same operation. Clip length has been a live suspect since and has never been isolated.
+- **Staging to the external view is per-clip.** `external-display.js` ships the file across in base64 chunks — a ~60MB clip today, roughly **1.2GB** for 6:39. That path has never been measured at that size.
+- **Loop-wrap cost inverts.** 40 minutes of a 20.4s clip is ~120 wraps; the same 40 minutes of a 6:39 clip is ~6. **The short clip stresses the wrap; the long clip stresses the decode working set.** They are opposite tests, and T7 only ran one of them.
+
+**Run it as its own T7 with the long clip**, once T8 has settled the power question.
 
 ## ✅ T7 — RAN 2026-08-19, ANSWERED
 

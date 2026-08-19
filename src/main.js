@@ -151,10 +151,18 @@ const vitals = createVitals({
   outputs: () => {
     const ext = env.externalDisplay;
     const p50 = ext?.active ? (ext.jitter?.fresh?.p50 || 0) : 0;
+    // ⚠️ WHICH RIG THIS RUN WAS, because the next test changes the rig and nothing in the report
+    // could tell the two apart. T8 broadcasts over AirPlay instead of HDMI to answer the power
+    // question, and AirPlay presents as an external display just as HDMI does — so without the
+    // destination and the wall's real size recorded per sample, two runs with completely different
+    // hardware paths would produce indistinguishable reports. Comparing those would be the
+    // wrong-noun trap with a forty-minute price tag.
+    const d = (ext?.active ? ext.renderDims : null) || env.externalDisplayDims || null;
     return {
       wallFps: p50 > 0 ? +(1000 / p50).toFixed(1) : null,
       broadcasting: !!env.outputActions?.isBroadcasting?.(),
       recording: !!env.outputActions?.isRecording?.(),
+      wallW: d?.width || null, wallH: d?.height || null,
     };
   },
 });

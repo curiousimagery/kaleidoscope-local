@@ -6,6 +6,62 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 😴 v0.26.14 (Build 674) — 2026-08-19 — The iPad slept, and 217 samples said everything was fine
+
+**JS only.**
+
+### Shipped
+
+- **A screen wake lock while broadcasting or recording** (`kit/wake-lock.js`), reported as `wakeLock` with whether it was granted and how often the OS took it back.
+- **Vitals detects a frozen ledger and a suspended process**, records `stale` per sample, `staleSamples` / `suspendedSec` / `measuredWhy` in the report, and a `suspended` event per gap.
+- **Stale samples no longer feed the aggregates.**
+
+### 217 identical samples
+
+Daniel's second 40-minute run recorded, over and over, byte for byte:
+
+```
+fps 26.8 · frameP50 35 · frameP95 56 · unaccountedMs 26.32 · wallFps 19.6 · availMB 5025 · footprintMB 94
+```
+
+**Every visible sample from t=0 to t=880+ is the same number.** Read as a curve it says *rock steady for forty minutes*. **The iPad was asleep.** The render loop stopped, so `ledger.report` never flushed and each sample copied the same frozen object. Only the native values moved, because the plugin's push timer kept running — which is exactly why the report looked plausible rather than obviously broken.
+
+**The sample clock shows it too:** intervals of 10, 10, 10, 11, 14, 11, 14, 11, 14… against a 10s period, and **217 samples where 240 were due**.
+
+**This is the defect class this project keeps hunting: an instrument that cannot tell "nothing changed" from "nothing was measured".** Two tells were available for free — the ledger hands back the *same object* until it flushes a new window, and our own timer drifting past its period means the process was throttled. Both are now checked.
+
+### The wake lock is a product requirement, not a test fix
+
+**Broadcasting to an external display does not keep iOS awake.** Nothing in the app was asking it to, and an eight-hour gallery installation that blanks after fifteen minutes is not a performance problem to tune.
+
+Screen Wake Lock needs no native plugin (WebKit 16.4+), re-acquires on `visibilitychange` because the OS revokes it on every backgrounding, and **publishes whether it was granted** — a wake lock that fails silently is worse than none, because the operator believes the exhibit is safe.
+
+**Held for broadcasting-or-recording, deliberately not for "the bus is running".** A self-rendering destination never starts the bus, and HDMI is exactly that — the unattended wall is the case that most needs the screen held.
+
+### ⚠️ This run cannot answer the power question, in either direction
+
+Battery went **60% → 80%** — a 20-point *gain*, against T7's 15-point loss. **But the app was suspended for much of it**, so this measures a sleeping iPad charging, not a broadcasting one. It is not a T8 result.
+
+**And the report cannot say which rig it was:** `wallW`/`wallH` shipped at B673 and this run is Build 672. T8 needs a rerun on the current build.
+
+---
+
+## 🧭 v0.26.13 (Build 673) — 2026-08-19 — The session records WHICH rig it was
+
+**JS only. Both chromes.**
+
+### Shipped
+
+- **`wallW` / `wallH` in every vitals sample**, beside `wallFps`.
+
+### Two forty-minute runs that the report could not tell apart
+
+T8 broadcasts over **AirPlay** instead of HDMI to answer the power question. **AirPlay presents as an external display exactly as HDMI does**, and `broadcastCeiling` keys both under the same destination id. So without the wall's real size recorded per sample, the T7 and T8 reports would be indistinguishable — **and comparing them would be the wrong-noun trap with a forty-minute price tag on each side.**
+
+Cheap to add, and impossible to add afterwards: a report copied when the broadcast is already down reads `0x0`.
+
+---
+
 ## 🏁 v0.26.12 (Build 672) — 2026-08-19 — T7: forty minutes, zero degradation, and one hard ceiling
 
 **JS only.**

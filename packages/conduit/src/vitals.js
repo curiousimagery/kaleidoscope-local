@@ -133,6 +133,29 @@ export function createVitals({ pressure = null, ledger = null, native = null, ou
   function sample(reason = 'tick') {
     if (!session) return null;
     const t = Math.round((nowMs() - session.t0) / 1000);
+    // ⚠️ 2026-08-19 — THE INSTRUMENT MUST KNOW WHEN IT WAS NOT MEASURING. Daniel's second T7 ran
+    // 40 minutes and recorded 217 samples that were BYTE-FOR-BYTE IDENTICAL — fps 26.8, frameP50
+    // 35, unaccounted 26.32, wallFps 19.6, availMB 5025 — because the iPad slept, the render loop
+    // stopped, and every sample copied the same frozen `ledger.report`. Read as a series it says
+    // "rock steady for forty minutes". **It was asleep.** Only the native values moved, because
+    // the plugin's push timer kept running.
+    //
+    // This is the defect class the project keeps hunting: an instrument that cannot tell
+    // "nothing changed" from "nothing was measured". Two independent tells, both free:
+    //   • the ledger hands back the SAME OBJECT until it flushes a new window, so identity is an
+    //     exact staleness test that needs no cooperation from the ledger;
+    //   • our own timer drifting past its period means the process was throttled or suspended.
+    const r0 = ledger?.report || null;
+    const stale = !!(r0 && r0 === session.lastReport);
+    session.lastReport = r0;
+    const sinceLast = session.lastSampleAt ? nowMs() - session.lastSampleAt : 0;
+    session.lastSampleAt = nowMs();
+    // 1.5x the period is well clear of ordinary timer jitter and unambiguous about a suspension.
+    if (sinceLast > SAMPLE_MS * 1.5) {
+      event('suspended', { gapSec: Math.round(sinceLast / 1000), expectedSec: SAMPLE_MS / 1000 });
+      session.suspendedMs = (session.suspendedMs || 0) + sinceLast - SAMPLE_MS;
+    }
+    if (stale) session.staleSamples = (session.staleSamples || 0) + 1;
     const nat = readNative();
     const out = readOutputs();
     // pressure exposes getters (value / label / source), not a snapshot method
@@ -154,6 +177,8 @@ export function createVitals({ pressure = null, ledger = null, native = null, ou
       wallFps: out?.wallFps ?? null,
       broadcasting: out?.broadcasting ?? null,
       recording: out?.recording ?? null,
+      wallW: out?.wallW ?? null,
+      wallH: out?.wallH ?? null,
       // headroom first — it is the number that decides whether the run survives
       availMB: nat?.availableMB ?? null,
       footprintMB: nat?.footprintMB ?? null,
@@ -172,13 +197,11 @@ export function createVitals({ pressure = null, ledger = null, native = null, ou
       if (v > a.max) a.max = v;
       a.last = v;
     };
-    track('fps', s.fps);
-    track('frameP50', s.frameP50);
+    if (!stale) { track('fps', s.fps); track('frameP50', s.frameP50); track('wallFps', s.wallFps); }
     track('availMB', s.availMB);
     track('footprintMB', s.footprintMB);
     track('webUsedMB', s.web?.usedMB);
     track('batteryPct', s.batteryPct);
-    track('wallFps', s.wallFps);
     if (s.pressure?.level != null) track('pressure', s.pressure.level);
 
     // time spent at each thermal level, which is what an exhibit post-mortem actually wants
@@ -198,6 +221,9 @@ export function createVitals({ pressure = null, ledger = null, native = null, ou
       event('thermal', { from: session.lastThermal, to: s.thermal });
       session.lastThermal = s.thermal;
     }
+    // ⚠️ A STALE SAMPLE IS RECORDED BUT NEVER AGGREGATED. Feeding a frozen reading into min/max/last
+    // is what turned a sleeping device into a flat, healthy-looking curve.
+    if (stale) s.stale = true;
     if (reason !== 'tick') s.reason = reason;
     persist();
     return s;
@@ -343,6 +369,13 @@ export function createVitals({ pressure = null, ledger = null, native = null, ou
         ringCoversSec: Math.min(session.samples, RING) * (SAMPLE_MS / 1000),
         truncated: session.samples > RING || undefined,
         nativeReadings: session.ring.some((s) => s.thermal != null || s.availMB != null) || false,
+        // ⚠️ HOW MUCH OF THIS RUN WAS REAL. A run with stale samples or a suspension is not a
+        // shorter run — it is a run whose curve lies unless the reader knows.
+        staleSamples: session.staleSamples || undefined,
+        suspendedSec: session.suspendedMs ? Math.round(session.suspendedMs / 1000) : undefined,
+        measuredWhy: session.staleSamples
+          ? `${session.staleSamples} of ${session.samples} samples repeated a frozen reading — the app was suspended or the render loop stopped; those samples are EXCLUDED from the aggregates`
+          : undefined,
         agg: session.agg,
         thermalMs: Object.keys(session.thermalMs).length ? session.thermalMs : undefined,
         events: session.events,

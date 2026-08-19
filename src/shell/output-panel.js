@@ -16,6 +16,7 @@
 // while broadcasting). The test pattern swaps the program for a reference frame.
 
 import { setMicTrimHint, getMicTrimHint, MIC_TARGET_PEAK, MIC_MAX_GAIN, MIC_MIN_GAIN } from 'conduit/recorder';
+import { keepAwake } from '../kit/wake-lock.js';
 import { createBroadcastCeiling } from './broadcast-ceiling.js';
 
 const TIER_DEFAULT = 1920;            // FHD long side — safe live default (never 4K)
@@ -614,6 +615,18 @@ export function createOutputPanel(env, outputBus) {
     const need = wantRecord || destNeedsBus;
     if (need && !outputBus.running) { env.vitals?.mark('bus:start', { w: outputBus.width, h: outputBus.height }); outputBus.start(); }
     else if (!need && outputBus.running) outputBus.stop();
+    // ⚠️ 2026-08-19 — HOLD THE SCREEN AWAKE WHENEVER SOMETHING IS BEING OUTPUT. Nothing was asking
+    // for this, and broadcasting to an external display does not keep iOS awake by itself: Daniel's
+    // 40-minute run was interrupted by the iPad sleeping several times. **An eight-hour exhibit
+    // that blanks after fifteen minutes is not a tuning problem, it is the whole thing not
+    // working.** Driven from here rather than from `isOutputLive` because this is the one function
+    // every state change already passes through — a side effect inside a query would fire only as
+    // often as something happened to ask. Idempotent; see kit/wake-lock.js.
+    //
+    // ⚠️ NOTE IT IS BROADCASTING-OR-RECORDING, NOT `need`. A self-rendering destination never
+    // starts the bus (`needsBus:false` — HDMI is exactly that), and that is the case which most
+    // needs the screen held: an unattended wall.
+    keepAwake(broadcasting || wantRecord);
     env.syncLocks?.();   // output-live changed → refresh the resolution/aspect contextual padlocks
   }
 

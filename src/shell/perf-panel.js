@@ -29,6 +29,7 @@
 // except a baseline you explicitly save.
 
 import { perfFlags, PERF_FLAG_SPECS, PERF_FLAG_DEFAULTS } from './perf-flags.js';
+import { wakeLockState } from '../kit/wake-lock.js';
 
 const BASELINE_KEY = 'foldPerfBaseline';
 
@@ -351,6 +352,7 @@ export function mountPerfPanel(env, { container = null, onClose = null } = {}) {
       // unwritten sequence behind it, which is why two runs of "the same" test were never strictly
       // comparable. An aborted run is exported too: an aborted run is a finding.
       scenarioRun: env.scenarioRunner?.report?.() || undefined,
+      wakeLock: wakeLockState(),
       vitalsSeam: env.host?.vitals?.diagnostics?.() || undefined,
       crashed: env.vitals?.crashed || undefined,
       // B662 — the previous run's breadcrumbs even if it had no session running. A crash does not
