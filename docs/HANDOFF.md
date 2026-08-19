@@ -34,6 +34,18 @@ Archived at B658. It was marked superseded at B609 and kept for the reasoning be
 
 **The trap that was caught before the cycle, because it will recur in any future host seam:** Capacitor calls are async, `conduit/vitals.js` reads `native()` sync. A Promise there makes every field undefined and the report says `nativeReadings: false` — *identical to no plugin*. The host caches; `read()` is synchronous. Proven in `vitals-native-check.mjs`.
 
+### 🩹 B666 — THE FIRST SCRIPTED RUN WAS VALID AS A RUN AND INVALID AS A TEST
+
+**`outcome: complete`, 16/16 steps, and it measured nothing** — both takes were of a still frame, because the script never started playback and a freshly loaded clip parks paused (B595). **"Complete" and "meaningful" came apart, which is the exact failure a scripted test exists to prevent.** Fixed with a `play` step (verified, not assumed) and a pre-flight that names every knowable precondition before the operator walks away.
+
+**⚠️ TWO MEASUREMENT DEFECTS FOUND BY THE SAME RUN, AND ONE IS OLD:**
+- `takeFps: 13770`. B665 asserted `videoFrames / wallSec` was the take's frame rate **from a field name and a comment, without checking the value.** The wrong-noun test, skipped. Denominator is now `videoSpanSec`.
+- **`wallSec` was broken anyway, by a shadowed variable** — `finish()` declared its own `t0` over the take's, so the field documented as *"how long the take really ran"* has reported the FINALIZE duration in every take report this project has ever produced. Fixed in `recorder.js`.
+
+**▶ THE NATIVE PULL HANGS AND THE ANSWER IS DEFINITIVE:** `attempts 34, timeouts 34, errors 0, resolved 0`, `why: "read() never settles — bridge call hangs"`. B664's instrument earned itself on its first run. **B666 routes around it: the plugin now PUSHES every 5s through `notifyListeners`, the channel we know works.** The pull stays wired and instrumented, plus a `ping` method whose only job is to separate "every bridge call hangs" from "something about `read`". **Needs an Xcode build.**
+
+**▶ A LEAD, NOT A FINDING, FROM THE INVALID RUN:** on a STILL source with the app at 59fps, take A (broadcasting) encoded 22.9fps and take B (alone) 26.0fps against a declared 30. Suggestive of fixed cost in the recorder path rather than contention — **confounded by identical-frame elision on a still source**, so T3 still needs its real run.
+
 ### 🤖 B665 — THE SCRIPTED DEVICE TEST IS IN. `run scenario` IN THE FRAME-COST PANEL.
 
 Three scripts: **T2** hands-off (11 min), **T3** recording-priority A/B (~4 min), **T7** warm long run (10 min warm + 40 min measured). The app drives session, broadcast, takes and waits; the operator starts it and copies the report. Lands under `scenarioRun`, **aborted runs included**.

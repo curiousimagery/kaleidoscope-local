@@ -411,7 +411,8 @@ Daniel's ask, and the answer to him being the sole chokepoint on device work: *"
 **Still open, and worth doing when a script needs it:**
 - **Scripts are hardcoded in the module.** Fine while there are three; a fourth kind of test (source switching, form sweeps) may want them to be data the panel can compose.
 - **No scripted INTERACTION step.** T6 wants "drag the canvas for 30s" as a step so the interaction cost can be measured on a script rather than by hand — which is the one thing T2 proved matters most. **This is the highest-value next addition.**
-- **The runner cannot verify the physical preconditions** (HDMI plugged in, right source loaded). It fails honestly at the step that needs them, which is acceptable, but a pre-flight check that names them up front would waste less of a run.
+- **✅ Pre-flight shipped B666** (source loaded / ready / has duration). **Still unchecked: whether a display is actually attached**, because a non-display destination is legitimate and the run should not second-guess the rig.
+- **⚠️ `loopStall.why` still reads `"no loop boundary reached yet"` while reporting wraps in the same object** — four builds of reports now. Cosmetic but it is the kind of lie that costs an hour when someone trusts it.
 
 ### 🧭 [Daniel, B663 — REGRESSION FOUND ON DEVICE, NOT DIAGNOSED] RADIAL PAN IS NOT ZOOM-PROPORTIONAL
 

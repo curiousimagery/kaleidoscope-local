@@ -6,6 +6,39 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🩹 v0.26.6 (Build 666) — 2026-08-19 — The first scripted run was valid as a run and invalid as a test
+
+**JS + Swift. ⚠️ NEEDS AN XCODE BUILD** for the native push; the JS half works without it.
+
+### Shipped
+
+- **A `play` step**, first in every script, verified rather than assumed — plus a **pre-flight** that refuses to start when no clip is loaded, the source is not ready, or it has no duration.
+- **`takeFps` now divides by `videoSpanSec`, not `wallSec`**, and reports `wallVsSpan` so a stall is distinguishable from running slow.
+- **`recorder.js`: the take clock is no longer shadowed.** `wallSec` measures the take again.
+- **The vitals plugin PUSHES on a 5s native timer**, routing around the pull that hangs. Plus `ping`, a discriminator.
+
+### Three defects, and the design one is the worst
+
+**1. The script never started playback.** Daniel: *"both video saves recorded a full minute on a still frame. i'm guessing maybe you needed me to start playback also?"* He did, and the script should never have asked him to — a freshly loaded clip parks paused (B595) and no step ever started it. **The run reported `outcome: complete`, 16/16 steps, and measured nothing.** "Complete" and "meaningful" came apart, which is the exact failure a scripted test is supposed to prevent. Pre-flight now names every knowable precondition BEFORE the operator walks away, and `play` verifies the clip actually started rather than trusting `play()`.
+
+**2. `takeFps: 13770`.** B665 asserted *"videoFrames / wallSec IS the saved take's frame rate"* from a field name and a comment, **without ever checking the value**. This is the wrong-noun test, skipped, in the same breath as claiming the measurement was better than a video inspector. The right denominator is `videoSpanSec` — the span the finished file plays for — which cross-checks against the container's own `seconds` in the same report.
+
+**3. And `wallSec` was broken anyway — a shadowed variable.** `finish()` declared its own `const t0`, hiding the session's take-start `t0`, so the field documented as *"how long the take really ran"* has been reporting **how long the finalize took** — roughly zero — in every take report this project has ever produced. One of "three clocks that should agree", disagreeing silently for dozens of builds. Now `f0`.
+
+### The native pull hangs; the push works, so the push wins
+
+B664's seam instrument did its job exactly: `attempts 34, timeouts 34, errors 0, empty 0, resolved 0`, `why: "read() never settles — bridge call hangs"`. **Definitive, on the first run that carried it.**
+
+Rather than block the arc on diagnosing a bridge quirk, the plugin now pushes a reading every 5s through `notifyListeners` — **the channel we know works, because it is how the only native numbers we have ever seen arrived.** The JS cache already treats a push as authoritative.
+
+**The pull stays wired and instrumented on purpose**, and a new `ping` method with a trivial body rides along: one run separates "every bridge call to this plugin hangs" from "something about `read`". Papering over the question would have cost the answer.
+
+### What the invalid run still told us
+
+Both takes were of a still frame, so they do not answer T3. But with a static source and the app rendering at 59fps, **take A (broadcasting) encoded 1377 frames over 60s = 22.9fps and take B (alone) 1562 = 26.0fps, against the recorder's declared 30.** Suggestive of a fixed cost in the recorder path rather than contention — and confounded by identical-frame elision on a still source, so it is a lead, not a finding.
+
+---
+
 ## 🤖 v0.26.5 (Build 665) — 2026-08-18 — The app runs the test; the operator only starts it
 
 **JS only. No `cap sync`, no Xcode rebuild.**

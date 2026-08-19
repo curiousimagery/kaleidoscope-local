@@ -822,8 +822,14 @@ async function startWebCodecsSession({ w, h, audioTrack, onDone, onError, onProg
   // owes us, so watching it drain is genuine determinate progress rather than a guessed bar.
   // The caller uses the same stream to tell "slow" apart from "stuck" (see chrome.js).
   async function finish() {
-    const t0 = performance.now();
-    const since = () => Math.round(performance.now() - t0);
+    // ⚠️ B666 — NAMED `f0`, NOT `t0`, AND THAT IS THE WHOLE BUG. This local used to be `t0`, which
+    // SHADOWED the session's take-start `t0` above — so `wallSec`, documented three lines from here
+    // as "how long the take really ran", was reporting how long the FINALIZE took. Every take
+    // report in the project has carried a `wallSec` of roughly zero, and B665's scripted A/B
+    // divided by it and produced 13770 fps. A shadowed variable, in the field named as one of the
+    // three clocks that must agree.
+    const f0 = performance.now();
+    const since = () => Math.round(performance.now() - f0);
     const marks = [];
     const step = (phase, frac, extra) => {
       marks.push(`${phase}@${since()}ms`);

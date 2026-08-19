@@ -44,6 +44,7 @@ export const SCRIPTS = [
     needs: ['vitals'],
     blurb: 'broadcast already running; records a session and touches nothing',
     steps: [
+      { do: 'play' },
       { do: 'session', arg: 'start', label: 't2-hands-off' },
       { do: 'wait', ms: 660_000, note: 'hands off — do not touch the device' },
       { do: 'session', arg: 'stop' },
@@ -55,6 +56,7 @@ export const SCRIPTS = [
     needs: ['vitals', 'outputActions'],
     blurb: 'take A while broadcasting, take B alone — compares the two SAVED takes',
     steps: [
+      { do: 'play' },
       { do: 'session', arg: 'start', label: 't3-record-priority' },
       { do: 'broadcast', arg: 'on' },
       { do: 'wait', ms: 20_000, note: 'let the broadcast settle' },
@@ -79,6 +81,7 @@ export const SCRIPTS = [
     needs: ['vitals', 'outputActions'],
     blurb: 'warms the device under load, then measures 40 min untouched',
     steps: [
+      { do: 'play' },
       { do: 'broadcast', arg: 'on' },
       // ⚠️ THE WARM-UP IS DELIBERATELY OUTSIDE THE SESSION. Its job is to remove the thermal
       // headroom a cold start hands you, not to be measured — including it would put ten minutes
@@ -106,6 +109,28 @@ export function createScenarioRunner(env) {
   function missing(sc) {
     const have = { vitals: !!env.vitals, outputActions: !!env.outputActions };
     return (sc.needs || []).filter((n) => !have[n]);
+  }
+
+  // ⚠️ B666 — PRE-FLIGHT, BECAUSE A RUN THAT FAILS AT STEP 3 HAS ALREADY COST THE OPERATOR THE
+  // WALK AWAY. B665's run completed all sixteen steps and produced an invalid test: the physical
+  // preconditions were never checked, so "complete" and "meaningful" came apart. Everything here
+  // is knowable BEFORE the run starts, and each one names itself.
+  function preflight(sc) {
+    const bad = [];
+    const needsClip = (sc.steps || []).some((st) => st.do === 'play');
+    if (needsClip) {
+      const c = env.sourceClock;
+      if (!c?.present) bad.push('no video source loaded');
+      else if (!c.ready) bad.push('the source is not ready to play yet');
+      else if (!(c.duration > 0)) bad.push('the source has no duration');
+    }
+    const needsDest = (sc.steps || []).some((st) => st.do === 'broadcast' && st.arg === 'on');
+    if (needsDest && env.outputActions && !env.externalDisplay?.active && !env.outputActions.isBroadcasting()) {
+      // Not fatal — a non-display destination is legitimate — so this is a WARNING carried into
+      // the report rather than a refusal. The run should not second-guess the operator's rig.
+      bad.push(null);
+    }
+    return bad.filter(Boolean);
   }
 
   function note(text) { if (run) run.note = text; onChange(); }
@@ -155,17 +180,51 @@ export function createScenarioRunner(env) {
       const r = env.lastAudioReport || null;
       if (!r) return { ok: false, why: 'no take report — the take never finalized' };
       const frames = r.videoFrames ?? null;
+      // ⚠️ B666 — THE DENOMINATOR IS THE VIDEO SPAN, NOT THE WALL CLOCK, AND B665 GOT THIS WRONG.
+      // I asserted "videoFrames / wallSec IS the take's frame rate" from a field name and a
+      // comment without ever checking the value. `wallSec` was shadowed in recorder.js (fixed at
+      // B666) and read ~0, so the first scripted A/B reported **13770 fps** for one take and
+      // `null` for the other. The wrong-noun test exists for exactly this and I skipped it.
+      //
+      // `videoSpanSec` is the span of the stamped video timestamps — the duration the finished
+      // file actually plays for, which is what "the take's frame rate" means. It agrees with the
+      // container's own `seconds` in the same report, which is the cross-check.
+      const span = r.videoSpanSec ?? null;
       const wall = r.wallSec ?? null;
       const entry = {
         tag: step.tag || null,
-        videoFrames: frames, wallSec: wall, videoSpanSec: r.videoSpanSec ?? null,
+        videoFrames: frames, videoSpanSec: span, wallSec: wall,
         engine: r.engine || null,
         // A MediaRecorder fallback take has no frame count. That must read as "not measurable
         // here", never as a zero frame rate — a fallback rescue must not look like a failure.
-        takeFps: frames != null && wall > 0 ? +(frames / wall).toFixed(1) : null,
-        why: frames == null ? `no frame count on the ${r.engine || 'unknown'} path — not measurable` : null,
+        takeFps: frames != null && span > 0 ? +(frames / span).toFixed(1) : null,
+        // The two clocks that should agree. A large gap means the encoder stalled rather than ran
+        // slow, which the frame rate alone cannot distinguish.
+        wallVsSpan: wall > 0 && span > 0 ? +(wall - span).toFixed(1) : null,
+        why: frames == null ? `no frame count on the ${r.engine || 'unknown'} path — not measurable`
+           : !(span > 0) ? 'no video span — the take stamped no timestamps' : null,
       };
       (run.takes ||= []).push(entry);
+      return { ok: true };
+    },
+
+    // ⚠️ B666 — THE STEP THE FIRST REAL RUN WAS MISSING, AND ITS ABSENCE INVALIDATED THE TEST.
+    // B665's T3 loaded a clip, turned the broadcast on, and recorded two full minutes of a STILL
+    // FRAME, because a freshly loaded clip parks PAUSED (B595) and no step ever started it.
+    // Daniel: *"both video saves recorded a full minute on a still frame. i'm guessing maybe you
+    // needed me to start playback also?"* He did, and the script should never have asked him to.
+    //
+    // Goes through `env.sourceClock`, the same transport motion-runtime drives, so a scripted run
+    // plays the clip the way the app does.
+    async play(step) {
+      const c = env.sourceClock;
+      if (!c?.present) return { ok: false, why: 'no source clock — is a video loaded?' };
+      if (step.arg === 'pause') { c.pause(); return { ok: true }; }
+      c.play();
+      // Verified, not assumed: `play()` can be refused (autoplay policy, a not-ready element) and
+      // a scripted run that believed it would record another still frame.
+      await new Promise((r) => setTimeout(r, 400));
+      if (c.paused) return { ok: false, why: 'the clip did not start playing' };
       return { ok: true };
     },
 
@@ -237,6 +296,8 @@ export function createScenarioRunner(env) {
       if (!sc) return { ok: false, why: `no script "${id}"` };
       const gaps = missing(sc);
       if (gaps.length) return { ok: false, why: `this chrome cannot run it: missing ${gaps.join(', ')}` };
+      const pre = preflight(sc);
+      if (pre.length) return { ok: false, why: `not ready: ${pre.join(' · ')}` };
       run = {
         scriptId: id, startedAt: new Date().toISOString(), t0: now(),
         index: 0, log: [], running: true, note: 'starting',

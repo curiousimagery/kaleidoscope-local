@@ -38,8 +38,17 @@ public class FoldDeviceVitalsPlugin: CAPPlugin, CAPBridgedPlugin {
     public let identifier = "FoldDeviceVitalsPlugin"
     public let jsName = "FoldDeviceVitals"
     public let pluginMethods: [CAPPluginMethod] = [
-        CAPPluginMethod(name: "read", returnType: CAPPluginReturnPromise)
+        CAPPluginMethod(name: "read", returnType: CAPPluginReturnPromise),
+        // ⚠️ B666 — A DISCRIMINATOR, NOT A FEATURE. `read` never settled once in 34 attempts on
+        // device (34 timeouts, 0 errors, 0 empty resolves) while `notifyListeners` worked
+        // perfectly in the same build. `ping` has a trivial body and a different name, so ONE
+        // run separates "every bridge call to this plugin hangs" from "something about `read`".
+        CAPPluginMethod(name: "ping", returnType: CAPPluginReturnPromise)
     ]
+
+    // The push cadence. Deliberately faster than vitals.js's 10s sampler so a sample is never a
+    // cycle behind, and slower than anything that would cost measurable power.
+    private var pushTimer: Timer?
 
     // Count of memory warnings this process has received. A jetsam kill and a random
     // crash are indistinguishable after the fact unless the warning announced itself,
@@ -53,9 +62,32 @@ public class FoldDeviceVitalsPlugin: CAPPlugin, CAPBridgedPlugin {
         NotificationCenter.default.addObserver(
             self, selector: #selector(memoryWarning),
             name: UIApplication.didReceiveMemoryWarningNotification, object: nil)
+
+        // ⚠️ B666 — THE PLUGIN PUSHES; IT DOES NOT WAIT TO BE ASKED. The JS side pulls through
+        // `read()`, and on device that call hangs (see `ping` above). The PUSH channel works —
+        // it is how the only native numbers we have ever seen arrived. So rather than block the
+        // arc on diagnosing a bridge quirk, the reading now arrives on a native timer through the
+        // channel that is known to work, and the JS cache already treats a push as authoritative.
+        //
+        // The pull stays wired and instrumented on purpose: `vitalsSeam` keeps counting its
+        // timeouts, so we still learn the answer for free instead of papering over the question.
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            let t = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { [weak self] _ in
+                guard let self else { return }
+                self.notifyListeners("vitals", data: self.snapshot())
+            }
+            RunLoop.main.add(t, forMode: .common)   // keeps ticking during scrolling/gestures
+            self.pushTimer = t
+            self.notifyListeners("vitals", data: self.snapshot())   // one immediately, so the cache warms at launch
+        }
     }
 
-    deinit { NotificationCenter.default.removeObserver(self) }
+    @objc func ping(_ call: CAPPluginCall) {
+        call.resolve(["ok": true])
+    }
+
+    deinit { pushTimer?.invalidate(); NotificationCenter.default.removeObserver(self) }
 
     @objc private func thermalChanged() {
         // Pushed rather than polled: a transition's ONSET is the finding, and a 5s poll
