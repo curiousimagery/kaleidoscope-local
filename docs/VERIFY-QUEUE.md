@@ -47,7 +47,23 @@ Confirmed results are DELETED from here and recorded in CHANGELOG. Closed sessio
 - **Only Take A bad** → contention, and the fix is priority, not throughput. A take is a deliverable; an editor surface is not.
 - **Both fine** → the problem is specific to 4K takes and the FHD path is healthy, which is a gate we can write today.
 
+**⚠️ EVERY STEP HERE IS AUTOMATABLE, INCLUDING THE MEASUREMENT — see the scenario-runner note below.** `recorder.js` already counts `videoFrames` and reports `wallSec` and `videoSpanSec` into the take report (exported as `audio`), so **the saved take's real frame rate is `videoFrames / wallSec` and never needed QuickTime.**
+
 **Also captured for free:** B664's `vitalsSeam.why` names the native read-path failure, and `take:arm` now carries the wall size, source size and clip length.
+
+---
+
+## ▶ T7 — THE WARM LONG RUN (Daniel's design, and it is better than mine)
+
+*"Is 10 mins enough to verify there wouldn't be thermal throttling after an hour? I imagine we could pressure test harder using a longer 4k source clip and running for 30min+ with autoplay on after the device is already physically warm."*
+
+**Correct on all three counts, and "indefinitely" was an overclaim on my part.** Eleven minutes bounds nothing beyond eleven minutes, and that run had **no thermal reading at all**, so it cannot even establish what state the device was in while it held 20-25fps.
+
+**One refinement to the design: keep the SAME 20.4s clip for the first long run.** Duration and clip length are two variables and clip length is already implicated in the crash (a ~20s 4K clip survived what a 6:39 one did not). Same clip + longer duration + warm start is a **one-variable** change from the run we just did, so any difference is attributable. The longer-clip run is a separate, equally worthwhile test.
+
+**Prerequisite: the native read path.** Without it a long run reports thermal only at transitions, which is exactly the signal this test is for. **Run T3 first — it is what surfaces `vitalsSeam.why`.**
+
+**Protocol:** warm the device with ~10 min of interactive 4K broadcast, then start a session and go hands-off for 30-60 min with autoplay on. Hands-off matters: T2 established interaction is its own load, so mixing them back in would re-confound the thing this test isolates.
 
 ---
 
