@@ -6,6 +6,45 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🤖 v0.26.5 (Build 665) — 2026-08-18 — The app runs the test; the operator only starts it
+
+**JS only. No `cap sync`, no Xcode rebuild.**
+
+### Shipped
+
+- **`run scenario` in the frame-cost panel**, with three scripts: **T2** hands-off baseline (11 min), **T3** recording-priority A/B (~4 min), **T7** warm long run (10 min warm + 40 min measured).
+- **The run lands in `copy report` under `scenarioRun`** — steps run, per-step log with timings, outcome, and the step it stopped on.
+- **`env.outputActions`** on the output panel: broadcast and take, driven through the same `toggleOutput` / `toggleRecord` the buttons call.
+- **The saved take's real frame rate is now measured in-app.**
+
+### Daniel is the chokepoint, and almost none of a test script needs him
+
+*"Is it possible to point you to files and actually equip you to run some on device tests yourself?"* **No** — thermal, jetsam, HDMI and hardware encode have no faithful simulator, and a Simulator run would produce confident wrong answers about the exact four things being measured. **But the sequence between "start" and "copy" is entirely mechanical.** So the app performs it: *"i build the latest on device, open an agreed upon source, click 'run test', come back, copy and paste."*
+
+### The comparability is worth more than the time
+
+Every device report in this arc has had a different unwritten sequence behind it, which is why two runs of "the same" test were never strictly comparable — the pair that produced the B663 crash finding differed in scenario tag, warm-up, and how much interaction happened while samples accumulated. **A script makes the sequence a recorded artefact.**
+
+### The measurement never needed a video inspector
+
+T3 asks whether the saved take is worse than the app's own frame rate. `recorder.js` already counts `videoFramesEncoded` and reports `wallSec` and `videoSpanSec`; **`videoFrames / wallSec` IS the saved take's frame rate**, and `videoSpanSec` against `wallSec` separates "ran slow throughout" from "stalled partway", which eyeballing a file cannot do.
+
+**A MediaRecorder-fallback take has no frame count, and that reports `takeFps: null` with a reason — never 0.** A take rescued by a fallback must not read as a failure (`CLAUDE.md`, on-device diagnostics).
+
+### Every step publishes why it did not run
+
+The operator has walked away, so a step that silently skips produces a report describing a test that did not happen. A missing capability **aborts by name** rather than continuing: the phone chrome has no output panel, so T3 there refuses with `missing outputActions` instead of running a recording test in which nothing was recorded. **Aborted runs are exported too — an aborted run is a finding, and it names the step it stopped on.**
+
+**Actions go through the real controls, never a re-implementation.** `env.outputActions` wraps the output panel's own toggles, so a scripted run exercises the app's actual path. A parallel implementation would be the one-behaviour-two-implementations defect this codebase keeps paying for, and it would test itself instead of the app.
+
+**Verified** (`runner-check.mjs`, Class 1, no device): 13 assertions over the decline paths — capability refusal by name, no invented run record, frames/wall arithmetic, the fallback null, capture aborting when no take finalized, and a declined take surfacing the panel's own reason verbatim.
+
+### The warm-up is deliberately outside T7's session
+
+Its job is to remove the thermal headroom a cold start hands you, not to be measured. Ten minutes of a different condition inside the same series would flatten the thing the test is looking for.
+
+---
+
 ## 🔍 v0.26.4 (Build 664) — 2026-08-18 — The vitals seam says why it has nothing
 
 **JS only. No `cap sync`, no Xcode rebuild needed** — the Swift from B663 is unchanged.

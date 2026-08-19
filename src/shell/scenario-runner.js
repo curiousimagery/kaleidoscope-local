@@ -1,0 +1,276 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Daniel Nelson
+//
+// shell/scenario-runner.js
+//
+// THE SCRIPTED DEVICE TEST — the app performs the test, the operator only starts it.
+//
+// ⚠️ WHY THIS EXISTS (Daniel, B665). He is the only person who can run a device session, which
+// makes him the chokepoint on every question this arc has left: *"is it possible to point you to
+// files and actually equip you to run some on device tests yourself so you're not reliant on me
+// here?"* The honest answer is no — thermal, jetsam, HDMI and hardware encode have no faithful
+// simulator, and a Simulator run would produce confident wrong answers about exactly the four
+// things being measured. **But almost nothing in a test script actually needs a human.** So:
+// *"i build the latest on device, open an agreed upon source, click 'run test', come back, copy
+// and paste the results."*
+//
+// ⚠️ AND THE TIME SAVED IS THE SMALLER HALF. Every device report in this arc has a different
+// unwritten sequence behind it, which is why two runs of "the same" test have never been strictly
+// comparable — the B663 pair differed in scenario tag, warm-up, and how much interaction happened
+// while the samples accumulated. A script makes the sequence a RECORDED ARTEFACT: the report says
+// which steps ran, when each began, and which one it stopped on. Runs become comparable rather
+// than approximately-similar.
+//
+// ⚠️ EVERY STEP PUBLISHES WHY IT DID NOT RUN. A script that silently skips a step it could not
+// perform produces a report describing a test that did not happen, which is worse than no report —
+// the standing rule (DEBUGGING-PROTOCOL: anything that can decline to act must publish why) has
+// teeth here because the operator has walked away and cannot see it fail. A missing capability
+// ABORTS the run and names itself.
+//
+// ⚠️ THE ACTIONS GO THROUGH THE SAME FUNCTIONS THE BUTTONS DO. `env.outputActions` is exposed by
+// output-panel.js and wraps its own `toggleOutput` / `toggleRecord`, rather than this module
+// reaching into the DOM to click things or re-implementing arming. Re-implementing would be the
+// one-behaviour-two-implementations defect this codebase keeps paying for, and a script that
+// diverged from the real path would be testing itself instead of the app.
+
+const SETTLE_MS = 10_000;     // after a take stops: let finalize + the take report land
+
+// A script is data. Steps run in order; each is small enough that the report can say exactly
+// which one the run stopped on.
+export const SCRIPTS = [
+  {
+    id: 't2-hands-off',
+    label: 'T2 · hands-off baseline (11 min)',
+    needs: ['vitals'],
+    blurb: 'broadcast already running; records a session and touches nothing',
+    steps: [
+      { do: 'session', arg: 'start', label: 't2-hands-off' },
+      { do: 'wait', ms: 660_000, note: 'hands off — do not touch the device' },
+      { do: 'session', arg: 'stop' },
+    ],
+  },
+  {
+    id: 't3-record-priority',
+    label: 'T3 · recording priority A/B (~4 min)',
+    needs: ['vitals', 'outputActions'],
+    blurb: 'take A while broadcasting, take B alone — compares the two SAVED takes',
+    steps: [
+      { do: 'session', arg: 'start', label: 't3-record-priority' },
+      { do: 'broadcast', arg: 'on' },
+      { do: 'wait', ms: 20_000, note: 'let the broadcast settle' },
+      { do: 'record', arg: 'on', tag: 'A · while broadcasting' },
+      { do: 'wait', ms: 60_000, note: 'take A running' },
+      { do: 'record', arg: 'off' },
+      { do: 'wait', ms: SETTLE_MS, note: 'finalizing take A' },
+      { do: 'capture', tag: 'A · while broadcasting' },
+      { do: 'broadcast', arg: 'off' },
+      { do: 'wait', ms: 20_000, note: 'broadcast stopped, settling' },
+      { do: 'record', arg: 'on', tag: 'B · no broadcast' },
+      { do: 'wait', ms: 60_000, note: 'take B running' },
+      { do: 'record', arg: 'off' },
+      { do: 'wait', ms: SETTLE_MS, note: 'finalizing take B' },
+      { do: 'capture', tag: 'B · no broadcast' },
+      { do: 'session', arg: 'stop' },
+    ],
+  },
+  {
+    id: 't7-warm-long-run',
+    label: 'T7 · warm long run (10 min warm + 40 min hands-off)',
+    needs: ['vitals', 'outputActions'],
+    blurb: 'warms the device under load, then measures 40 min untouched',
+    steps: [
+      { do: 'broadcast', arg: 'on' },
+      // ⚠️ THE WARM-UP IS DELIBERATELY OUTSIDE THE SESSION. Its job is to remove the thermal
+      // headroom a cold start hands you, not to be measured — including it would put ten minutes
+      // of a different condition into the same series and flatten the thing we are looking for.
+      { do: 'wait', ms: 600_000, note: 'WARMING UP — interact freely, this part is not measured' },
+      { do: 'session', arg: 'start', label: 't7-warm-long-run' },
+      { do: 'wait', ms: 2_400_000, note: 'hands off — do not touch the device' },
+      { do: 'session', arg: 'stop' },
+    ],
+  },
+];
+
+export function createScenarioRunner(env) {
+  let run = null;         // the live run's record
+  let timer = 0;
+  let resolveWait = null;
+  let onChange = () => {};
+
+  const now = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
+  const script = (id) => SCRIPTS.find((s) => s.id === id) || null;
+
+  // What a script declares it needs, resolved against THIS chrome. The phone chrome has no output
+  // panel, so `outputActions` is genuinely absent there — and a run that quietly skipped its takes
+  // would report a recording test in which nothing was recorded.
+  function missing(sc) {
+    const have = { vitals: !!env.vitals, outputActions: !!env.outputActions };
+    return (sc.needs || []).filter((n) => !have[n]);
+  }
+
+  function note(text) { if (run) run.note = text; onChange(); }
+
+  function mark(kind, detail) { try { env.vitals?.mark(kind, detail); } catch { /* never fatal */ } }
+
+  function wait(ms) {
+    return new Promise((resolve) => {
+      resolveWait = resolve;
+      timer = setTimeout(() => { timer = 0; resolveWait = null; resolve('done'); }, ms);
+    });
+  }
+
+  // Each action returns { ok, why }. `why` is mandatory on failure and ends up in the report.
+  const ACTIONS = {
+    async session(step) {
+      const v = env.vitals;
+      if (!v) return { ok: false, why: 'no vitals recorder on this chrome' };
+      if (step.arg === 'start') {
+        if (v.recording) return { ok: true, why: 'a session was already running — left alone' };
+        v.start(step.label || run.scriptId);
+        return { ok: true };
+      }
+      if (!v.recording) return { ok: true, why: 'no session was running' };
+      run.session = v.stop();
+      return { ok: true };
+    },
+
+    async broadcast(step) {
+      const a = env.outputActions;
+      if (!a) return { ok: false, why: 'no output panel on this chrome' };
+      const want = step.arg === 'on';
+      return a.setBroadcast(want);
+    },
+
+    async record(step) {
+      const a = env.outputActions;
+      if (!a) return { ok: false, why: 'no output panel on this chrome' };
+      return a.setRecord(step.arg === 'on');
+    },
+
+    // ⚠️ THE MEASUREMENT THE WHOLE T3 SCRIPT EXISTS FOR, and it never needed a video inspector.
+    // `recorder.js` already counts encoded video frames and reports the take's wall duration and
+    // the span of its stamped video timestamps. frames/wall is the SAVED take's real frame rate;
+    // span vs wall additionally separates "ran slow throughout" from "stalled partway".
+    async capture(step) {
+      const r = env.lastAudioReport || null;
+      if (!r) return { ok: false, why: 'no take report — the take never finalized' };
+      const frames = r.videoFrames ?? null;
+      const wall = r.wallSec ?? null;
+      const entry = {
+        tag: step.tag || null,
+        videoFrames: frames, wallSec: wall, videoSpanSec: r.videoSpanSec ?? null,
+        engine: r.engine || null,
+        // A MediaRecorder fallback take has no frame count. That must read as "not measurable
+        // here", never as a zero frame rate — a fallback rescue must not look like a failure.
+        takeFps: frames != null && wall > 0 ? +(frames / wall).toFixed(1) : null,
+        why: frames == null ? `no frame count on the ${r.engine || 'unknown'} path — not measurable` : null,
+      };
+      (run.takes ||= []).push(entry);
+      return { ok: true };
+    },
+
+    async wait(step) {
+      const r = await wait(step.ms || 0);
+      return r === 'abort' ? { ok: false, why: 'stopped by the operator' } : { ok: true };
+    },
+  };
+
+  async function execute() {
+    const sc = script(run.scriptId);
+    for (let i = 0; i < sc.steps.length; i++) {
+      if (!run || run.stopped) return;
+      const step = sc.steps[i];
+      run.index = i;
+      run.stepStartedAt = now();
+      run.stepMs = step.ms || 0;
+      note(step.note || `${step.do}${step.arg ? ` ${step.arg}` : ''}`);
+      // BEFORE the action, always — the same discipline as `take:arm` (B661). If the step is the
+      // one that kills the process, the crumb is already on disk.
+      mark('scenario:step', { script: run.scriptId, i, do: step.do, arg: step.arg || null });
+      let res;
+      try { res = await ACTIONS[step.do]?.(step) || { ok: false, why: `unknown step "${step.do}"` }; }
+      catch (e) { res = { ok: false, why: `${step.do} threw: ${e?.message || e}` }; }
+      run.log.push({ i, do: step.do, arg: step.arg || null, atSec: Math.round((now() - run.t0) / 1000), ...res });
+      if (!res.ok) {
+        run.abortedAt = i;
+        run.abortWhy = res.why || 'step failed without a reason';
+        mark('scenario:abort', { script: run.scriptId, i, why: run.abortWhy });
+        finish('aborted');
+        return;
+      }
+    }
+    finish('complete');
+  }
+
+  function finish(outcome) {
+    if (!run) return;
+    run.outcome = outcome;
+    run.durationSec = Math.round((now() - run.t0) / 1000);
+    run.finishedAt = new Date().toISOString();
+    // Leave a session running only if the script never stopped it — but say so, because an
+    // unstopped session means the report's `vitals` block is the LIVE one, not this run's.
+    if (env.vitals?.recording) run.sessionStillRunning = true;
+    note(outcome === 'complete' ? '✅ complete — copy report' : `⚠ ${run.abortWhy}`);
+    run.running = false;
+    onChange();
+  }
+
+  return {
+    scripts: SCRIPTS,
+    get running() { return !!run?.running; },
+    get state() {
+      if (!run) return null;
+      const sc = script(run.scriptId);
+      const elapsed = run.running && run.stepMs ? now() - run.stepStartedAt : 0;
+      return {
+        scriptId: run.scriptId, label: sc?.label || run.scriptId,
+        index: run.index, total: sc?.steps.length || 0,
+        note: run.note, running: run.running, outcome: run.outcome || null,
+        remainSec: run.stepMs ? Math.max(0, Math.round((run.stepMs - elapsed) / 1000)) : 0,
+      };
+    },
+    onChange(fn) { onChange = fn || (() => {}); },
+
+    start(id) {
+      if (run?.running) return { ok: false, why: 'a run is already in progress' };
+      const sc = script(id);
+      if (!sc) return { ok: false, why: `no script "${id}"` };
+      const gaps = missing(sc);
+      if (gaps.length) return { ok: false, why: `this chrome cannot run it: missing ${gaps.join(', ')}` };
+      run = {
+        scriptId: id, startedAt: new Date().toISOString(), t0: now(),
+        index: 0, log: [], running: true, note: 'starting',
+      };
+      mark('scenario:start', { script: id });
+      execute();
+      onChange();
+      return { ok: true };
+    },
+
+    stop() {
+      if (!run?.running) return;
+      run.stopped = true;
+      if (timer) { clearTimeout(timer); timer = 0; }
+      if (resolveWait) { const r = resolveWait; resolveWait = null; r('abort'); }
+      else { run.abortWhy = 'stopped by the operator'; run.abortedAt = run.index; finish('aborted'); }
+    },
+
+    // Exported by the perf panel. Present even for an aborted run — an aborted run is a finding.
+    report() {
+      if (!run) return null;
+      const sc = script(run.scriptId);
+      return {
+        script: run.scriptId, label: sc?.label || run.scriptId,
+        startedAt: run.startedAt, finishedAt: run.finishedAt || null,
+        durationSec: run.durationSec ?? Math.round((now() - run.t0) / 1000),
+        outcome: run.outcome || 'running',
+        stepsRun: run.log.length, stepsTotal: sc?.steps.length || 0,
+        abortedAtStep: run.abortedAt ?? null,
+        abortWhy: run.abortWhy || null,
+        sessionStillRunning: run.sessionStillRunning || undefined,
+        takes: run.takes || undefined,
+        log: run.log,
+      };
+    },
+  };
+}

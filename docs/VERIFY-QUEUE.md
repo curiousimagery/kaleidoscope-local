@@ -34,7 +34,9 @@ Confirmed results are DELETED from here and recorded in CHANGELOG. Closed sessio
 
 **The question:** is the saved take bad because the recorder path has a fixed cost, or because it is losing a contention it should be winning? *"The fps of the saved recording is terrible... it feels even worse than in app fps, which isn't the prioritization we want here."*
 
-**Steps, one sitting:**
+**▶ SHIPPED B665: THIS IS NOW ONE TAP.** Open the frame-cost panel → pick **T3 · recording priority A/B** → **run scenario**. The app does the rest and the take frame rates arrive in the report under `scenarioRun.takes`. **Preconditions it cannot check for you:** the 4K clip loaded, HDMI connected, and the destination selected.
+
+**Manual steps, if you would rather drive it:**
 1. Set the scenario tag to `hdmi-broadcast` **before** starting the session (the session label freezes at start; the last two runs disagreed with the report's own tag).
 2. Broadcast the 20.4s 4K clip to the 4K wall. Start a session.
 3. **Take A:** record ~60s at FHD **while broadcasting**. Stop the take.

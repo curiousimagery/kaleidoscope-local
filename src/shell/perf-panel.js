@@ -222,6 +222,12 @@ export function mountPerfPanel(env, { container = null, onClose = null } = {}) {
   // than minute one. A session gives the samples a known t=0 and keeps recording while the panel is
   // closed, which is the only way the long-run questions get answered.
   const vitals = env.vitals || null;
+
+  // ⚠️ B665 — THE SCRIPTED RUN. Daniel is the only person who can run a device session, which makes
+  // him the chokepoint on every open question in this arc. Almost nothing in a test script needs a
+  // human: the app can drive the sequence and the report can carry which steps ran. See
+  // shell/scenario-runner.js for why the actions go through the real controls.
+  const runner = env.scenarioRunner || null;
   let crashDismissed = false;
   const crashNote = document.createElement('div');
   crashNote.className = 'pf-why bad'; crashNote.hidden = true;
@@ -265,8 +271,48 @@ export function mountPerfPanel(env, { container = null, onClose = null } = {}) {
     if (vitals.recording) { lastSession = vitals.stop(); } else { vitals.start(scenarioSel.value); lastSession = null; }
     paintSession();
   });
+  // The script picker + one button. Reuses the panel's existing control classes — no new
+  // component, so nothing new is owed to the UI Lab beyond the panel's own description.
+  const runSel = document.createElement('select');
+  const runBtn = document.createElement('button');
+  const runNote = document.createElement('div'); runNote.className = 'pf-why';
+  if (runner) {
+    for (const sc of runner.scripts) {
+      const o = document.createElement('option');
+      o.value = sc.id; o.textContent = sc.label; runSel.append(o);
+    }
+    runner.onChange(() => paintRun());
+  } else {
+    runSel.hidden = true; runBtn.hidden = true; runNote.hidden = true;
+  }
+  function paintRun() {
+    if (!runner) return;
+    const st = runner.state;
+    const on = runner.running;
+    runBtn.textContent = on ? 'stop run' : 'run scenario';
+    runBtn.classList.toggle('pf-rec', on);
+    runSel.disabled = on;
+    // ⚠️ PROGRESS HAS TO BE READABLE ON THE DEVICE, not in a console (DEVICE-TESTING.md). The
+    // operator walks away and comes back; the panel is the only surface that can tell them whether
+    // the run is mid-flight, finished, or stopped on a step it could not perform.
+    const sc = runner.scripts.find((x) => x.id === runSel.value);
+    runNote.className = 'pf-why' + (st?.outcome === 'aborted' ? ' bad' : st?.outcome === 'complete' ? ' warn' : '');
+    runNote.textContent = st
+      ? `${st.label} · step ${st.index + 1}/${st.total} · ${st.note}${st.remainSec ? ` · ${fmtDur(st.remainSec)} left` : ''}`
+      : (sc?.blurb || 'runs a scripted device test end to end');
+    runNote.hidden = false;
+  }
+  runBtn.addEventListener('click', () => {
+    if (!runner) return;
+    if (runner.running) { runner.stop(); paintRun(); return; }
+    const r = runner.start(runSel.value);
+    if (!r.ok) { runNote.className = 'pf-why bad'; runNote.textContent = `⚠ ${r.why}`; runNote.hidden = false; return; }
+    paintRun();
+  });
+  paintRun();
+
   foot.append(saveBtn, clearBtn, copyBtn, sessBtn);
-  panel.append(foot, crashNote, sessNote, out);
+  panel.append(foot, crashNote, sessNote, runSel, runBtn, runNote, out);
 
   saveBtn.addEventListener('click', () => {
     baseline = { ...ledger.report, savedAt: new Date().toISOString(), scenario: scenarioSel.value };
@@ -301,6 +347,10 @@ export function mountPerfPanel(env, { container = null, onClose = null } = {}) {
       // ⚠️ B664 — the seam's own health, always exported. B663 shipped a native reading that
       // landed on 3 of 56 samples and the report could not say why; a null column has to be
       // able to distinguish "no plugin" from "plugin present, read path broken".
+      // B665 — WHICH TEST THIS REPORT IS OF. Every device report before this had a different
+      // unwritten sequence behind it, which is why two runs of "the same" test were never strictly
+      // comparable. An aborted run is exported too: an aborted run is a finding.
+      scenarioRun: env.scenarioRunner?.report?.() || undefined,
       vitalsSeam: env.host?.vitals?.diagnostics?.() || undefined,
       crashed: env.vitals?.crashed || undefined,
       // B662 — the previous run's breadcrumbs even if it had no session running. A crash does not
@@ -428,6 +478,7 @@ export function mountPerfPanel(env, { container = null, onClose = null } = {}) {
 
   function paint(r) {
     paintSession();   // B660 — the elapsed clock and the warning line refresh with everything else
+    paintRun();       // B665 — and the scripted run's step + countdown with them
     top.innerHTML = '';
     // fps is graded against the DECLARED TARGET where there is one. The old fixed 50/25 cut
     // points silently assumed 60, so a take running at a correct 30 read amber and a 4K camera

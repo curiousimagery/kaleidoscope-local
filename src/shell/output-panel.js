@@ -1024,6 +1024,36 @@ export function createOutputPanel(env, outputBus) {
   // Break-glass hook (env.resetSession): release ALL output cleanly — stops the recorder + broadcast,
   // which tears down the external view (its second GL context + video decoder are the iPad-HDMI
   // memory-pressure source). Callable when things are wedged, without touching the render loop.
+  // ⚠️ B665 — THE SCRIPTED-TEST ACTION SURFACE. `shell/scenario-runner.js` drives these instead of
+  // clicking DOM buttons or re-implementing arming: the same `toggleOutput` / `toggleRecord` the
+  // real controls call, so a scripted run exercises the app's actual path rather than a parallel
+  // one that can drift from it. Re-implementing would be the one-behaviour-two-implementations
+  // defect this codebase keeps paying for.
+  //
+  // Both report WHY they declined. The operator has walked away by then, so a silent no-op would
+  // produce a report describing a test that did not happen.
+  env.outputActions = {
+    isBroadcasting: () => !!broadcasting,
+    isRecording: () => !!recorder?.recording,
+    async setBroadcast(on) {
+      if (!!broadcasting === !!on) return { ok: true, why: `already ${on ? 'on' : 'off'}` };
+      if (on && !canArm()) return { ok: false, why: statusEl?.textContent || 'cannot arm output — no source?' };
+      if (on && !selectedDest()) return { ok: false, why: 'no destination selected' };
+      toggleOutput();
+      if (!!broadcasting !== !!on) return { ok: false, why: statusEl?.textContent || `broadcast did not turn ${on ? 'on' : 'off'}` };
+      return { ok: true };
+    },
+    async setRecord(on) {
+      if (!recorder) return { ok: false, why: 'no recorder on this build' };
+      if (!!recorder.recording === !!on) return { ok: true, why: `already ${on ? 'recording' : 'stopped'}` };
+      if (on && !recorder.supported) return { ok: false, why: 'recording not supported in this browser' };
+      if (on && !canArm()) return { ok: false, why: statusEl?.textContent || 'cannot arm a take — no source?' };
+      await toggleRecord();
+      if (!!recorder.recording !== !!on) return { ok: false, why: statusEl?.textContent || `take did not ${on ? 'start' : 'stop'}` };
+      return { ok: true };
+    },
+  };
+
   env.stopAllOutput = (reason) => failOutput(reason || 'output stopped', true);
 
   function startPolling() {

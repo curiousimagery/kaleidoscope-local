@@ -34,6 +34,14 @@ Archived at B658. It was marked superseded at B609 and kept for the reasoning be
 
 **The trap that was caught before the cycle, because it will recur in any future host seam:** Capacitor calls are async, `conduit/vitals.js` reads `native()` sync. A Promise there makes every field undefined and the report says `nativeReadings: false` — *identical to no plugin*. The host caches; `read()` is synchronous. Proven in `vitals-native-check.mjs`.
 
+### 🤖 B665 — THE SCRIPTED DEVICE TEST IS IN. `run scenario` IN THE FRAME-COST PANEL.
+
+Three scripts: **T2** hands-off (11 min), **T3** recording-priority A/B (~4 min), **T7** warm long run (10 min warm + 40 min measured). The app drives session, broadcast, takes and waits; the operator starts it and copies the report. Lands under `scenarioRun`, **aborted runs included**.
+
+**The take's real frame rate is measured in-app** — `videoFrames / wallSec` from the recorder's own finalize report. T3 never needed a video inspector.
+
+**Next device action is T3, and it is now one tap.**
+
 ### ⭐⭐ T2 ANSWERED — THE COLLAPSE IS INTERACTION-DRIVEN, AND THE 4K BROADCAST ITSELF IS STABLE (2026-08-18)
 
 **11-minute hands-off run, M1 iPad Pro, 20.4s 4K clip looping to a 4K HDMI wall, nothing touched.**

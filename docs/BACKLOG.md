@@ -404,6 +404,15 @@ Shipped as `sliceMirrorX/Y` + `foldSliceIntoSource`. Details in CHANGELOG v0.25.
 
 **⚠️ THE PATTERN WORTH CARRYING FORWARD, since a paper trail is the point.** The arc's recurring defect was **one behaviour with two implementations**, and it appeared SEVEN times: droste's overlay missing `sizeNorm` (B614), radial's polygon missing `canvasNorm` (B618), the overlay missing `canvasOffset` (B612), the centring hook reaching only one chrome (B619), six copies of the transition default (B622), `env.panDrift` covering one of two joysticks (B620), and the slice-scale clamp written six times at three different maxima (B657). **Two more arrived as fresh instances during the arc itself** — B653's ruler re-implementing the scrub instead of calling it, and B638's flag set on the wrong `env`-shaped object. It is not a hypothesis; it is the shape of this codebase's bugs, and `CLAUDE.md` now leads with it.
 
+### ✅ [SHIPPED B665] SCENARIO RUNNER — the app performs the device test
+
+Daniel's ask, and the answer to him being the sole chokepoint on device work: *"I build the latest on device, open an agreed upon source, click 'run test', come back, copy and paste the results."* Shipped as `run scenario` in the frame-cost panel (`shell/scenario-runner.js`), exported as `scenarioRun`.
+
+**Still open, and worth doing when a script needs it:**
+- **Scripts are hardcoded in the module.** Fine while there are three; a fourth kind of test (source switching, form sweeps) may want them to be data the panel can compose.
+- **No scripted INTERACTION step.** T6 wants "drag the canvas for 30s" as a step so the interaction cost can be measured on a script rather than by hand — which is the one thing T2 proved matters most. **This is the highest-value next addition.**
+- **The runner cannot verify the physical preconditions** (HDMI plugged in, right source loaded). It fails honestly at the step that needs them, which is acceptable, but a pre-flight check that names them up front would waste less of a run.
+
 ### 🧭 [Daniel, B663 — REGRESSION FOUND ON DEVICE, NOT DIAGNOSED] RADIAL PAN IS NOT ZOOM-PROPORTIONAL
 
 *"One of the items we fixed in this phase was to ensure that panning is proportional across all zoom levels. This seems to be true for all forms except the radial wedge. At first panning seems to work fine but then if you zoom out it gets sluggish and seems to hit invisible walls, and if you zoom back in it doesn't correct. If I reset canvas it does self-correct until I zoom out again."*

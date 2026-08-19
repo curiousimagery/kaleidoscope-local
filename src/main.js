@@ -56,6 +56,7 @@ import { mountPerfPanel } from './shell/perf-panel.js';
 import { perfFlags } from './shell/perf-flags.js';
 import { createPerfLedger, PRIORITY } from 'conduit/perf-ledger';
 import { createVitals } from 'conduit/vitals';
+import { createScenarioRunner } from './shell/scenario-runner.js';
 import { createPressureSource } from 'conduit/pressure';
 import { createGovernor } from 'conduit/governor';
 import { getNativeDecodeError } from './shell/native-video.js';
@@ -469,6 +470,10 @@ env.governor = createGovernor({
   onNotice: (text) => { env.governorNotice = text; if (text) env.saveFlow?.status?.('busy', text, { ttl: 3200 }); },
 });
 perf.onReport(() => env.governor.tick(performance.now()));
+
+// B665 — the scripted device test. Both chromes get it; the phone has no output panel, so a
+// script needing `outputActions` declines by name there rather than silently skipping its takes.
+env.scenarioRunner = createScenarioRunner(env);
 
 // ⚠️ B663 — A THERMAL TRANSITION AND A MEMORY WARNING ARE PUSHES, NOT POLL RESULTS. The sampler
 // notices a thermal change up to ten seconds after it happened, and a memory warning arriving
