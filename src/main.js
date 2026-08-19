@@ -348,7 +348,10 @@ if (engine) {
       scheduleRender();
     } catch (e) {
       console.warn('[fold] GL reinit failed', e);
-      if (statusEl) statusEl.textContent = 'graphics context lost — could not recover';
+      // ⚠️ B688 — AND IT MUST BE MARKED AS AN ERROR, not just worded like one. This branch set the
+      // text without adding `.error`, so a failure to recover rendered in the ordinary status
+      // colour while a SUCCESSFUL recovery (the branch above) was the one clearing a red class.
+      if (statusEl) { statusEl.textContent = 'graphics context lost — could not recover'; statusEl.classList.add('error'); }
     }
   });
 }
@@ -705,6 +708,14 @@ env.resetSession = () => {
     } catch (e) { failed.push(`${tag}: ${e?.message || e}`); }
   }
   env.vitals?.mark('session-reset', { done, failed });
+  // ⚠️ B688 — CLEAR THE WRECKAGE. Daniel: *"i pressed the glass break reset button and was greeted
+  // by graphics context loss error text over the source panel... the persisting red error text in
+  // the UI makes it feel like i'm still in a corrupted state."* He is right, and the status line is
+  // not the only place: `swapFailed` writes its own message into the source panel's error slot and
+  // nothing else ever clears it. **A recovery that leaves the failure text on screen has not
+  // recovered as far as the operator is concerned** — the UI is the only thing they can read.
+  if (uploadErrorEl) uploadErrorEl.textContent = '';
+  if (statusEl) statusEl.classList.remove('error');
   if (failed.length && !done.length) {
     console.warn('[fold] session reset — nothing recovered, reloading', failed);
     setTimeout(() => location.reload(), 150);   // last resort: fresh webview + context (native app stays open)

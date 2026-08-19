@@ -6,6 +6,54 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🚧 v0.26.28 (Build 688) — 2026-08-19 — Radial pan, the reset's leftover error text, and where the native attach spends its time
+
+**JS only.**
+
+### Shipped
+
+- **Radial's pan bound no longer changes with zoom**, and the STATE is clamped, not just the uniform.
+- **Break-glass clears the failure text** it was leaving on screen.
+- **A failed native attach reports upload / plugin-start / first-frame separately.**
+
+### 1 — radial pan: B683 fixed the symptom and introduced a worse one
+
+Daniel: *"if i zoom out, pan to an off centered position, and then zoom into an off center corner, zoom drifts me toward the center and pan shudders back and forth and won't move me in any direction."*
+
+**Both halves follow from a bound that shrinks as you zoom in** (`max(1, 2/zoom)`, mine at B683):
+
+- **the drift** — an offset that was legal at zoom 0.5 is out of range at zoom 4, so the render clamps it and the picture slides toward centre **with no input at all**;
+- **the dead pan** — the STATE still holds the out-of-range value, so a drag adds to a number the shader clamps straight back. Nothing moves, and the control reads as broken.
+
+**The reasoning error is worth naming.** `u_canvasOffset` is the source-space position of the screen CENTRE (screen p → p/zoom → minus O), and that is **already zoom-independent**: zooming does not change what sits in the middle. So its bound has no business changing with zoom. I derived the bound from the reachable *travel*, which is the wrong quantity.
+
+Now a constant `2.0` — twice the original ±1, which is what the first complaint was about, and a full-side drag at 1x exactly reaches the edge. **Zoomed further out one drag still crosses the whole range, and that is inherent to a bounded pan rather than a bug:** at low zoom the screen shows more source, so screen-proportional dragging covers it faster.
+
+**And the state is clamped where it is written** (`clampCanvasOffset`, called from both the local gesture and the remote input bus). Bounding only the uniform is what let state and render disagree in the first place. Lattice forms are untouched — their offset wraps mod the lattice period and is meant to accumulate unwrapped.
+
+### 2 — the reset left its own wreckage on screen
+
+Daniel: *"i pressed the glass break reset button and was greeted by graphics context loss error text over the source panel... the persisting red error text makes it feel like i'm still in a corrupted state."*
+
+`swapFailed` writes into the source panel's error slot and **nothing ever cleared it**. `resetSession` now clears that slot and drops the status line's `.error` class. **A recovery that leaves the failure text up has not recovered, as far as the only person who can read it is concerned.**
+
+Also fixed alongside: the "could not recover" branch set its text **without** adding `.error`, so a failed recovery rendered in the ordinary colour while a successful one was the branch clearing red.
+
+### 3 — the native attach could not say where its time went
+
+A known-good FHD clip failed with `no native frames on port 8900 within 12678ms`. **That number covers only the last of three stages** — upload, plugin start, first frame — so it could not distinguish a slow upload from a decoder that never produced. Three causes, three different fixes.
+
+`lastStartError` now reads:
+
+```
+failed at "frame socket": no native frames on port 8900 within 12678ms (nothing streaming)
+  · upload 4210ms · plugin start 180ms · first frame 12678ms · clip 634MB
+```
+
+**Deliberately NOT raising the deadline again.** B682 raised it once on an inference; raising it a second time without knowing which stage is slow would be the same guess at a bigger number.
+
+---
+
 ## 🚧 v0.26.27 (Build 687) — 2026-08-19 — A stale camera selection was disabling the built-in's own controls
 
 **⚠️ NEEDS AN XCODE BUILD** (one Swift change; parses clean).

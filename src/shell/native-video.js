@@ -377,8 +377,16 @@ export async function createNativeVideoSource(env, blob, { name, loop = true, on
   // the fan-out's own counters, refreshed by `pollFanOut()` on the report cadence — the bridge
   // call is async and the report builder is not, so the report reads the last poll
   let lastFanOut = null, fanOutBusy = false;
+  // ⚠️ B688 — WHERE DID THE TIME GO. A known-good FHD clip failed to attach with
+  // `no native frames within 12678ms`, and the report could not say whether that was a slow upload,
+  // a slow plugin start, or a decoder that genuinely never produced — three different causes with
+  // three different fixes. The deadline covers only the LAST of the three, so without the split
+  // the number is unreadable. Raising the deadline again without this would be a guess.
+  const tStart = Date.now();
+  let uploadMs = 0, startMs = 0, firstFrameMs = 0;
   try {
     const path = await uploadClip(blob, name, onProgress);
+    uploadMs = Date.now() - tStart;
     stage = 'plugin start';
     // startPaused parks the player natively on the tick that pushes the first frame, which
     // is the only place the window can actually be closed. The JS pause below stays as the
@@ -388,6 +396,7 @@ export async function createNativeVideoSource(env, blob, { name, loop = true, on
     const { port } = await FoldNativeVideo.start({
       path, loop, startPaused: true, loopBySeek: !!perfFlags.loopBySeek,
     });
+    startMs = Date.now() - tStart - uploadMs;
     console.info(`[fold] native video: decode started, serving port ${port || 8900}`);
     stage = 'frame socket';
     // the preview canvas is bounded hard: nothing samples it for output any more (the
@@ -396,7 +405,11 @@ export async function createNativeVideoSource(env, blob, { name, loop = true, on
     receiver = createNativeFrameReceiver({ port: port || 8900, cap: PREVIEW_CAP });
     // the MAIN path insists on a real frame: if the decode is dead we want the <video>
     // fallback, not a black source (see the requireFrame note in native-frame-receiver)
-    await receiver.start({ requireFrame: true, timeout: firstFrameDeadline(blob?.size || 0) });
+    const deadline = firstFrameDeadline(blob?.size || 0);
+    const tFrame = Date.now();
+    try {
+      await receiver.start({ requireFrame: true, timeout: deadline });
+    } finally { firstFrameMs = Date.now() - tFrame; }
     console.info('[fold] native video: first frame received');
     // A FRESHLY LOADED CLIP IS PARKED, exactly like a <video> that has loaded and never
     // been played (B595). The plugin's start() calls play() so a first frame can arrive —
@@ -416,7 +429,10 @@ export async function createNativeVideoSource(env, blob, { name, loop = true, on
     // the STAGE is the whole diagnostic value here (upload / plugin start / frame socket
     // point at three completely different faults), and until B597 it only ever reached the
     // console — which on a Capacitor device is nowhere
-    lastStartError = `failed at "${stage}": ${e?.message || e}`;
+    // the three-way split is the whole point — see the note above `tStart`
+    lastStartError = `failed at "${stage}": ${e?.message || e}`
+      + ` · upload ${uploadMs}ms · plugin start ${startMs}ms · first frame ${firstFrameMs}ms`
+      + ` · clip ${Math.round((blob?.size || 0) / (1024 * 1024))}MB`;
     console.warn(`[fold] native video source unavailable at "${stage}", using <video>:`, e?.message || e);
     try { receiver?.stop(); } catch { /* not started */ }
     try { await FoldNativeVideo.stop(); } catch { /* nothing running */ }

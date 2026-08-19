@@ -122,6 +122,21 @@ export function formOffsetBound(state) {
   return typeof form.offsetBound === 'function' ? form.offsetBound(state) : 1;
 }
 
+// ⚠️ CLAMP THE STATE, NOT ONLY THE UNIFORM (B688). The shader getter bounds what it RENDERS; if
+// the stored value is allowed to drift outside that, the two disagree and panning goes dead — a
+// drag adds to a number the render is about to clamp straight back, so nothing moves on screen and
+// the operator concludes the control is broken. Call this wherever canvasOffset is written.
+// Lattice forms are untouched: their offset wraps mod the lattice period and is MEANT to accumulate
+// unwrapped so followers and tweens stay smooth.
+export function clampCanvasOffset(state) {
+  const form = getActiveForm(state);
+  if (form?.latticePeriod) return;
+  const b = formOffsetBound(state);
+  const c = (v) => Math.max(-b, Math.min(b, v || 0));
+  state.canvasOffsetX = c(state.canvasOffsetX);
+  state.canvasOffsetY = c(state.canvasOffsetY);
+}
+
 export function formPanLocked(state) {
   const form = getActiveForm(state);
   const override = state.panLock && state.panLock[form.id];
