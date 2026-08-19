@@ -103,6 +103,7 @@ import { createCapacitorHost } from '../shell/capacitor-host.js';
 import { createPerfLedger, PRIORITY } from 'conduit/perf-ledger';
 import { createVitals } from 'conduit/vitals';
 import { createScenarioRunner } from '../shell/scenario-runner.js';
+import { setWakeLockHost } from '../kit/wake-lock.js';
 import { perfFlags } from '../shell/perf-flags.js';
 import { createPressureSource } from 'conduit/pressure';
 
@@ -242,6 +243,9 @@ const env = {
 // B665 — the scripted device test. Both chromes get it; the phone has no output panel, so a
 // script needing `outputActions` declines by name there rather than silently skipping its takes.
 env.scenarioRunner = createScenarioRunner(env);
+
+// B675 — same native wake-lock path on the phone chrome (the two-chromes rule).
+setWakeLockHost((on) => host?.vitals?.setIdleTimerDisabled?.(on) ?? false);
 
 
 // M3 locks on mobile — REUSE the desktop model (shell/locks.js). Mobile has no manual-keyframe

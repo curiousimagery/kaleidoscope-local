@@ -57,6 +57,7 @@ import { perfFlags } from './shell/perf-flags.js';
 import { createPerfLedger, PRIORITY } from 'conduit/perf-ledger';
 import { createVitals } from 'conduit/vitals';
 import { createScenarioRunner } from './shell/scenario-runner.js';
+import { setWakeLockHost } from './kit/wake-lock.js';
 import { createPressureSource } from 'conduit/pressure';
 import { createGovernor } from 'conduit/governor';
 import { getNativeDecodeError } from './shell/native-video.js';
@@ -494,6 +495,11 @@ perf.onReport(() => env.governor.tick(performance.now()));
 // B665 — the scripted device test. Both chromes get it; the phone has no output panel, so a
 // script needing `outputActions` declines by name there rather than silently skipping its takes.
 env.scenarioRunner = createScenarioRunner(env);
+
+// B675 — hand the wake lock its native path. The web Screen Wake Lock is not reliably exposed in a
+// WKWebView (Daniel's iPad slept mid-broadcast with it held), so on device this is the one that
+// works. Injected rather than imported so kit/wake-lock.js stays free of `env`.
+setWakeLockHost((on) => env.host?.vitals?.setIdleTimerDisabled?.(on) ?? false);
 
 // ⚠️ B663 — A THERMAL TRANSITION AND A MEMORY WARNING ARE PUSHES, NOT POLL RESULTS. The sampler
 // notices a thermal change up to ten seconds after it happened, and a memory warning arriving

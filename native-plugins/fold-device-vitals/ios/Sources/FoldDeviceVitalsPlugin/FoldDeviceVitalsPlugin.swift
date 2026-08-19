@@ -48,7 +48,18 @@ public class FoldDeviceVitalsPlugin: CAPPlugin, CAPBridgedPlugin {
         // device (34 timeouts, 0 errors, 0 empty resolves) while `notifyListeners` worked
         // perfectly in the same build. `ping` has a trivial body and a different name, so ONE
         // run separates "every bridge call to this plugin hangs" from "something about `read`".
-        CAPPluginMethod(name: "ping", returnType: CAPPluginReturnPromise)
+        CAPPluginMethod(name: "ping", returnType: CAPPluginReturnPromise),
+        // ⚠️ 2026-08-19 — NAMING COMPROMISE, FLAGGED RATHER THAN HIDDEN. Holding the screen awake
+        // is not a "vital"; it is a device-level app setting. It lives here because this is already
+        // the DEVICE plugin, and a fifth Capacitor package for two lines of Swift would cost an SPM
+        // entry, a sync and a review for no separation anyone benefits from. If a third device
+        // setting shows up, rename the package rather than keep stretching this one.
+        //
+        // **Why native at all:** `navigator.wakeLock` is the cheap path and it shipped first
+        // (kit/wake-lock.js), but Screen Wake Lock is a Safari feature and is not reliably exposed
+        // inside a WKWebView — Daniel's iPad slept 5-10 minutes into a broadcast with the web lock
+        // in place. `UIApplication.isIdleTimerDisabled` is what an iOS app actually uses.
+        CAPPluginMethod(name: "setIdleTimerDisabled", returnType: CAPPluginReturnPromise)
     ]
 
     // The push cadence. Deliberately faster than vitals.js's 10s sampler so a sample is never a
@@ -98,6 +109,16 @@ public class FoldDeviceVitalsPlugin: CAPPlugin, CAPBridgedPlugin {
 
     @objc func ping(_ call: CAPPluginCall) {
         call.resolve(["ok": true])
+    }
+
+    @objc func setIdleTimerDisabled(_ call: CAPPluginCall) {
+        let want = call.getBool("disabled") ?? false
+        // UIApplication is main-thread only, and the resolve reports what the system ACTUALLY holds
+        // rather than what we asked for — the JS side treats a mismatch as a failure to publish.
+        DispatchQueue.main.async {
+            UIApplication.shared.isIdleTimerDisabled = want
+            call.resolve(["disabled": UIApplication.shared.isIdleTimerDisabled])
+        }
     }
 
     deinit { pushTimer?.invalidate(); NotificationCenter.default.removeObserver(self) }

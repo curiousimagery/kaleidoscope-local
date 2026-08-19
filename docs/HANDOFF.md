@@ -34,6 +34,16 @@ Archived at B658. It was marked superseded at B609 and kept for the reasoning be
 
 **The trap that was caught before the cycle, because it will recur in any future host seam:** Capacitor calls are async, `conduit/vitals.js` reads `native()` sync. A Promise there makes every field undefined and the report says `nativeReadings: false` — *identical to no plugin*. The host caches; `read()` is synchronous. Proven in `vitals-native-check.mjs`.
 
+### 🔒 B675 — THE WAKE LOCK NOW HAS A NATIVE PATH (needs an Xcode build)
+
+B674's `navigator.wakeLock` did not hold: **Daniel's iPad still slept 5-10 minutes into a broadcast.** Screen Wake Lock is a Safari feature and is not reliably exposed in a WKWebView. B675 adds `setIdleTimerDisabled` to the device plugin (`UIApplication.isIdleTimerDisabled`) and runs both paths.
+
+**The native call reads the value back after writing it**, so a request that did not take reports `asked true, system reports false` instead of success — the distinction that cost a forty-minute run.
+
+**Scope: broadcasting or recording only**, never "the bus is running" (HDMI self-renders and never starts the bus, and the unattended wall is the case that most needs it).
+
+**⚠️ Naming compromise, deliberate:** an idle timer is not a vital. It lives in `fold-device-vitals` because that is already the device plugin; **if a third device setting appears, rename the package.**
+
 ### 😴 B674 — THE iPAD SLEPT AND THE INSTRUMENT SAID "ROCK STEADY" FOR FORTY MINUTES
 
 **217 samples, byte-for-byte identical:** `fps 26.8 · frameP50 35 · unaccountedMs 26.32 · wallFps 19.6 · availMB 5025 · footprintMB 94`. The render loop stopped, so `ledger.report` never flushed and every sample copied the same frozen object. **Only the native values moved** (the plugin's push timer kept running), which is exactly what made the report look plausible instead of obviously broken.

@@ -6,6 +6,36 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🔒 v0.26.15 (Build 675) — 2026-08-19 — The wake lock gets the path that actually works on iOS
+
+**JS + Swift. ⚠️ NEEDS AN XCODE BUILD.**
+
+### Shipped
+
+- **`setIdleTimerDisabled` on the device plugin** — `UIApplication.isIdleTimerDisabled`, the API an iOS app actually uses.
+- **`kit/wake-lock.js` takes an injected native hook** and now drives both paths; wired on both chromes.
+- **The report names which lock is holding** — `wakeLock.native` alongside the web fields.
+
+### The web API was the cheap bet and it did not hold
+
+B674 shipped `navigator.wakeLock`, and Daniel's iPad still slept **5-10 minutes into a broadcast.** Screen Wake Lock is a Safari feature and is **not reliably exposed inside a WKWebView**, which is the runtime that matters here. The cheap path was worth trying — it needed no Xcode cycle and it is the only option on web and Electron — but it is not the answer on device.
+
+Both paths now run. Neither is trusted to exist.
+
+**And the native call reports what the SYSTEM holds, not what was asked.** `UIApplication.shared.isIdleTimerDisabled` is read back after the write, so a request that silently did not take shows as `asked true, system reports false` rather than as success. **That distinction is what cost a forty-minute run.**
+
+### A naming compromise, flagged rather than hidden
+
+Holding the screen awake is not a "vital" — it is a device-level app setting, and it lives in `fold-device-vitals` because that is already the DEVICE plugin. A fifth Capacitor package for two lines of Swift would cost an SPM entry, a sync and a review for a separation nobody benefits from. **If a third device setting appears, rename the package rather than keep stretching this one.**
+
+It also uses a distinctly-named method on purpose: `read()` still hangs on this plugin while `ping` resolves fine, so short distinct names are the shape known to work here.
+
+### ▶ WHAT THE PREVIOUS REPORT WOULD HAVE TOLD US, AND STILL WILL
+
+`wakeLock.supported` says outright whether the web API was ever available in that build. **If it reads `false`, B674's lock was never holding anything** and the sleep is fully explained. Worth reading once on the next report either way, because it tells us whether the web path is worth keeping as a belt to the native braces.
+
+---
+
 ## 😴 v0.26.14 (Build 674) — 2026-08-19 — The iPad slept, and 217 samples said everything was fine
 
 **JS only.**

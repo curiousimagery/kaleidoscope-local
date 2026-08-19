@@ -72,6 +72,10 @@ export const webHost = {
     read() { return null; },       // last known reading, or null when there is none
     onEvent(/* handler(kind, reading) */) { return () => {}; },   // thermal / memory-warning pushes
     diagnostics() { return null; },   // the seam's OWN health — why it has nothing, when it has nothing
+    // Hold the screen awake. Named on this seam because it is a DEVICE-level app setting and this
+    // is the device host; resolves with what the SYSTEM reports, not with what was asked, so a
+    // request that did not take is visible rather than assumed.
+    async setIdleTimerDisabled(/* on */) { return false; },
   },
 
   // NDI output (network video, the wireless sibling of Syphon) — the native app

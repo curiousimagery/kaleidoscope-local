@@ -133,6 +133,14 @@ export function createCapacitorHost() {
           if (age > STALE_MS) return null;
           return { ...last, ageMs: Math.round(age) };
         },
+        // B675 — the native screen hold. `read()` hangs on this plugin (see the seam counters) but
+        // `ping` proved distinctly-named methods are fine, so this uses the same short round trip.
+        async setIdleTimerDisabled(on) {
+          try {
+            const r = await (await load()).setIdleTimerDisabled({ disabled: !!on });
+            return !!r?.disabled;
+          } catch { return false; }
+        },
         onEvent(fn) {
           listeners.push(fn);
           refresh();                                 // a subscriber implies someone is watching

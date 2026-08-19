@@ -28,6 +28,32 @@ let why = 'not requested';
 let acquiredAt = 0;
 let releases = 0;      // how many times the OS took it back (each one is a visible risk window)
 
+// ⚠️ 2026-08-19 — THE NATIVE PATH, BECAUSE THE WEB ONE DID NOT HOLD. Daniel's iPad slept 5-10
+// minutes into a broadcast with the Screen Wake Lock in place: it is a Safari feature and is not
+// reliably exposed inside a WKWebView. `UIApplication.isIdleTimerDisabled` is what an iOS app
+// actually uses, and the native host injects it here at boot.
+//
+// Injected rather than imported so this module stays free of `env` and works identically in the
+// web build, where it simply has no hook and falls back to the web API.
+let nativeHook = null;   // async (on) => boolean actually applied
+let nativeState = null;  // what the OS reported back, or an error string
+export function setWakeLockHost(fn) { nativeHook = typeof fn === 'function' ? fn : null; }
+
+async function applyNative(on) {
+  if (!nativeHook) return false;
+  try {
+    const got = await nativeHook(on);
+    // ⚠️ REPORT WHAT THE SYSTEM HOLDS, NOT WHAT WE ASKED FOR. A request that silently did not take
+    // is the failure mode that cost a forty-minute run.
+    nativeState = got === on ? (on ? 'held (native idle timer)' : 'released (native idle timer)')
+                             : `asked ${on}, system reports ${got}`;
+    return got === on;
+  } catch (e) {
+    nativeState = `native refused: ${e?.message || e}`;
+    return false;
+  }
+}
+
 const supported = () => typeof navigator !== 'undefined' && !!navigator.wakeLock?.request;
 
 async function acquire() {
@@ -57,6 +83,9 @@ if (typeof document !== 'undefined') {
 // Ask for / drop the lock. Idempotent; callers can call it on every state change.
 export function keepAwake(on) {
   want = !!on;
+  // BOTH paths, deliberately. Native is the one that works on iOS; the web lock costs nothing and
+  // is the only option on the web/Electron builds. Neither is trusted to be present.
+  applyNative(want);
   if (want) { acquire(); return; }
   const s = sentinel;
   sentinel = null;
@@ -67,6 +96,8 @@ export function keepAwake(on) {
 // Read by the perf panel's export.
 export function wakeLockState() {
   return {
+    // the native lock is the one that decides whether an iPad actually stays awake
+    native: nativeState || (nativeHook ? 'not requested' : 'no native host on this build'),
     supported: supported(),
     wanted: want,
     held: !!sentinel,
