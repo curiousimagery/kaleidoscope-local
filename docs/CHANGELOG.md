@@ -6,6 +6,39 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## ⏱ v0.26.16 (Build 676) — 2026-08-19 — "not requested" could not tell silence from a hang, and I wrote that bug twice
+
+**JS only. No Swift change** — but the Swift from B675 still needs an Xcode build to exist on device.
+
+### Shipped
+
+- **A 3s deadline on the native wake-lock call**, and a `native` state that names the likely cause when it expires.
+- **The web lock's `NotAllowedError` is reported as expected on device**, not as a fault.
+
+### The report said `not requested`, and that meant two different things
+
+```
+native:    "not requested"
+supported: true
+wanted:    true
+held:      false
+why:       "refused: NotAllowedError Permission was denied"
+```
+
+`native: "not requested"` only ever meant *"nativeState was never set"* — which is true both when the call was never made **and** when it was made and never settled. **An absence that cannot say which is not evidence.**
+
+**B664 fixed exactly this bug in `capacitor-host.js`** — a hung Capacitor bridge call, fixed by racing it against a deadline — **and B675 then wrote a fresh `await` here with no deadline at all.** Same defect, eleven builds apart, in a file whose whole job is reporting whether something worked.
+
+It matters specifically because **this plugin hangs on unknown methods rather than rejecting** (`read()`: 28 timeouts, 0 errors). So "the JS shipped but the Swift did not" — the most likely state after a sync without a full Xcode build — looks identical to silence. The timeout message now names that possibility outright, because the operator is the only one who can check it.
+
+### And the web path is dead on the runtime that matters
+
+`navigator.wakeLock` **exists** in the Capacitor WKWebView (`supported: true`) and then **denies the request**: `NotAllowedError: Permission was denied`. **The API being present says nothing about it being usable** — B674 read `supported` as good news and it was not.
+
+The web lock stays for web and Electron, where it is the only option, and its denial on device is now reported as expected rather than as something to chase. **The native idle timer is the real one.**
+
+---
+
 ## 🔒 v0.26.15 (Build 675) — 2026-08-19 — The wake lock gets the path that actually works on iOS
 
 **JS + Swift. ⚠️ NEEDS AN XCODE BUILD.**

@@ -34,6 +34,18 @@ Archived at B658. It was marked superseded at B609 and kept for the reasoning be
 
 **The trap that was caught before the cycle, because it will recur in any future host seam:** Capacitor calls are async, `conduit/vitals.js` reads `native()` sync. A Promise there makes every field undefined and the report says `nativeReadings: false` — *identical to no plugin*. The host caches; `read()` is synchronous. Proven in `vitals-native-check.mjs`.
 
+### ⏱ B676 — `not requested` COULD NOT TELL SILENCE FROM A HANG (my bug, twice)
+
+Daniel's report: `native: "not requested"`, `supported: true`, `why: "refused: NotAllowedError Permission was denied"`.
+
+**Two findings and one self-inflicted wound:**
+
+1. **The web wake lock EXISTS in the WKWebView and is DENIED.** `supported: true` then `NotAllowedError`. **API presence says nothing about usability** — B674 read `supported` as good news. The web path is dead on device; it stays only for web/Electron.
+2. **`native: "not requested"` was ambiguous by construction** — it meant "nativeState was never set", which covers both "never called" and "called, never settled". **B664 fixed this exact hung-bridge bug in `capacitor-host.js`; B675 reintroduced it eleven builds later in `kit/wake-lock.js`.** Now raced against a 3s deadline.
+3. **The likely real cause is that the Swift half was never built.** This plugin hangs on unknown methods rather than rejecting (`read()`: 28 timeouts, 0 errors), so JS-shipped-without-Swift is indistinguishable from silence. The timeout message says so outright.
+
+**▶ NEXT: confirm the Xcode build actually rebuilt the plugin, then re-read `wakeLock.native`.** `held (native idle timer)` means done; the timeout message means the Swift is not there; `asked true, system reports false` means iOS refused for a reason worth understanding.
+
 ### 🔒 B675 — THE WAKE LOCK NOW HAS A NATIVE PATH (needs an Xcode build)
 
 B674's `navigator.wakeLock` did not hold: **Daniel's iPad still slept 5-10 minutes into a broadcast.** Screen Wake Lock is a Safari feature and is not reliably exposed in a WKWebView. B675 adds `setIdleTimerDisabled` to the device plugin (`UIApplication.isIdleTimerDisabled`) and runs both paths.

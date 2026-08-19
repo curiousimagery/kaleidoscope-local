@@ -39,17 +39,37 @@ let nativeHook = null;   // async (on) => boolean actually applied
 let nativeState = null;  // what the OS reported back, or an error string
 export function setWakeLockHost(fn) { nativeHook = typeof fn === 'function' ? fn : null; }
 
+// ⚠️ B676 — THE TIMEOUT, AND I SHIPPED THIS EXACT BUG TWO BUILDS AGO. B664 fixed a hung Capacitor
+// bridge call in `capacitor-host.js` by racing it against a deadline, and then B675 wrote a fresh
+// `await` here with no deadline at all. Daniel's report came back `native: "not requested"` — which
+// in this file meant only "nativeState was never set", and that is true both when the call was
+// never made AND when it was made and never settled. **An absence that cannot say which is not
+// evidence**, which is the standing rule this project keeps re-learning.
+//
+// It matters here because this plugin's `read()` hangs rather than rejecting (28 timeouts, 0
+// errors), so an unknown method — the shape you get when the JS shipped but the Swift did not —
+// looks exactly like silence.
+const NATIVE_MS = 3000;
+
 async function applyNative(on) {
-  if (!nativeHook) return false;
+  if (!nativeHook) { nativeState = 'no native host on this build'; return false; }
+  nativeState = 'requesting…';
   try {
-    const got = await nativeHook(on);
+    const got = await Promise.race([
+      Promise.resolve(nativeHook(on)),
+      new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), NATIVE_MS)),
+    ]);
     // ⚠️ REPORT WHAT THE SYSTEM HOLDS, NOT WHAT WE ASKED FOR. A request that silently did not take
     // is the failure mode that cost a forty-minute run.
     nativeState = got === on ? (on ? 'held (native idle timer)' : 'released (native idle timer)')
                              : `asked ${on}, system reports ${got}`;
     return got === on;
   } catch (e) {
-    nativeState = `native refused: ${e?.message || e}`;
+    nativeState = String(e?.message) === 'timeout'
+      // Names the most likely cause in the report itself, because the operator is the only one who
+      // can check it and "timeout" alone would send them looking in the wrong place.
+      ? 'native call never settled — is the Swift half built? (JS can ship without it)'
+      : `native refused: ${e?.message || e}`;
     return false;
   }
 }
@@ -68,7 +88,15 @@ async function acquire() {
     sentinel.addEventListener('release', () => { sentinel = null; releases++; if (want) why = 'released by the OS — will re-acquire when visible'; });
   } catch (e) {
     sentinel = null;
-    why = `refused: ${e?.name || ''} ${e?.message || e}`.trim();
+    // ⚠️ MEASURED, NOT ASSUMED (2026-08-19): in the Capacitor WKWebView `navigator.wakeLock` EXISTS
+    // (`supported: true`) and then denies the request outright — `NotAllowedError: Permission was
+    // denied`. So the API being present says nothing about it being usable, and the web path is
+    // dead on the runtime that matters. It stays for web and Electron, where it is the only option,
+    // and its failure here is expected rather than a fault to chase.
+    const denied = e?.name === 'NotAllowedError';
+    why = denied
+      ? 'web lock denied by WKWebView (expected on device — the native idle timer is the real one)'
+      : `refused: ${e?.name || ''} ${e?.message || e}`.trim();
   }
 }
 
@@ -97,7 +125,7 @@ export function keepAwake(on) {
 export function wakeLockState() {
   return {
     // the native lock is the one that decides whether an iPad actually stays awake
-    native: nativeState || (nativeHook ? 'not requested' : 'no native host on this build'),
+    native: nativeState || (nativeHook ? 'not requested yet' : 'no native host on this build'),
     supported: supported(),
     wanted: want,
     held: !!sentinel,
