@@ -103,6 +103,25 @@ export function formZoomBounds(state) {
 // (formId → boolean); absent means "use this form's default". Lives on STATE rather than in
 // session.locks because the ENGINE needs the answer — the shader zeroes u_canvasOffset while
 // locked, and the engine can see state but not the shell's session.
+// The per-form BOUND on `canvasOffset`, in offset units (see shader-builder's u_canvasOffset).
+//
+// ⚠️ 2026-08-19 — WHY THIS IS PER-FORM NOW. The bound used to be a flat ±1 for every NON-LATTICE
+// form, which meant radial and droste shared it. It was written for **droste**, where the offset
+// is not a translation at all but a shift of the log-polar CENTRE, and a large value inherited
+// from a tiling form squeezes the visible field into a thin annulus (B610). That reasoning does
+// not transfer to radial, where the offset is an ordinary pan.
+//
+// **What it cost on radial:** the offset is subtracted AFTER `p /= u_canvasZoom`, so one offset
+// unit moves content by `zoom` half-canvas widths on screen. A bound of 1 therefore allows a
+// reachable travel of exactly `zoom` — and `panDelta` asks for `2/zoom` units for a full-side
+// drag. **At zoom 1 a single drag asks for 2.0 and is clamped to 1.0**, so the pan travels half
+// the distance and then stops dead, while at zoom 4 the same drag asks for 0.5 and behaves
+// perfectly. That is the non-proportionality Daniel reported, and it is arithmetic, not feel.
+export function formOffsetBound(state) {
+  const form = getActiveForm(state);
+  return typeof form.offsetBound === 'function' ? form.offsetBound(state) : 1;
+}
+
 export function formPanLocked(state) {
   const form = getActiveForm(state);
   const override = state.panLock && state.panLock[form.id];

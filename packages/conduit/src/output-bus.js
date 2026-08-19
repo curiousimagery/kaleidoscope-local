@@ -27,7 +27,15 @@ import { createTestFrame } from './test-pattern.js';
 
 const round1 = (n) => Math.round(n * 10) / 10;
 
-export function createOutputBus({ engineAdapter, host = null, diag = null } = {}) {
+// ⚠️ `busPass(id)` — 2026-08-19, closing the B668 instrument gap. The frame-cost ledger had a
+// `bus` surface measuring RENDER and READBACK, and those are not where a take's cost lives:
+// **publishing is.** The recorder's `publish(f)` builds a VideoFrame and hands it to the encoder,
+// and that was measured only into `diag.ops` — a ring buffer the frame-cost panel does not show.
+// So the panel built to say what things cost was missing the most expensive thing in a recording
+// session, and the surface next to it read `calls: 0`, which looked like a broken counter.
+// Optional and resolved lazily, because the surface it belongs to is created on the bus's first
+// render and this module is constructed before that.
+export function createOutputBus({ engineAdapter, host = null, diag = null, busPass = null } = {}) {
   if (!engineAdapter || typeof engineAdapter.renderFrameAt !== 'function') {
     throw new Error('createOutputBus requires an engineAdapter with renderFrameAt');
   }
@@ -68,6 +76,16 @@ export function createOutputBus({ engineAdapter, host = null, diag = null } = {}
     if (sig == null) return false;                       // adapter says "assume it changed"
     pendingSig = `${sig}|${width}x${height}`;
     return !!lastFrame && pendingSig === lastSig && lastFrame.w === width && lastFrame.h === height;
+  }
+
+  // The ledger pass for publish, fetched once the surface exists. Cached on success only, so a
+  // call before the first render does not poison it with a permanent null.
+  let publishPass = null;
+  function resolvePublishPass() {
+    if (publishPass) return publishPass;
+    if (typeof busPass !== 'function') return null;
+    try { publishPass = busPass('publish') || null; } catch { publishPass = null; }
+    return publishPass;
   }
 
   function resetWindow(now) {
@@ -136,12 +154,15 @@ export function createOutputBus({ engineAdapter, host = null, diag = null } = {}
       if (!running) return;   // could have been stopped during the await
     }
 
+    const pubItem = resolvePublishPass();
+    pubItem?.begin();
     let publishMs = 0;
     for (const sink of sinks.values()) {
       const p0 = performance.now();
       try { sink.publish(f); } catch (e) { console.warn(`output sink "${sink.id}" publish failed`, e); }
       publishMs += performance.now() - p0;
     }
+    pubItem?.end();
 
     const now = performance.now();
     winFrames += 1;
@@ -188,6 +209,11 @@ export function createOutputBus({ engineAdapter, host = null, diag = null } = {}
     },
     unregisterSink(id) { sinks.delete(id); },
     getSink(id) { return sinks.get(id) || null; },
+
+    // ⚠️ WHY THE BUS MAY READ ZERO. With a STILL source the elision is doing its job and the bus
+    // genuinely renders nothing — a true zero, not a broken counter. Without this the two are
+    // indistinguishable in a report, which is what made B668 look like an instrument bug.
+    get elision() { return { frames: winFrames, reused: winReused }; },
 
     start,
     stop,

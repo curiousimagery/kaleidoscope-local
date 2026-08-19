@@ -37,6 +37,24 @@ export default {
   // one focal point by construction — pan is locked (centered) by default. See formPanLockedByDefault.
   panLockedByDefault: true,
 
+  // ⚠️ THE PAN BOUND, AND WHY IT IS NOT THE DEFAULT ±1 (2026-08-19, Daniel: "panning is
+  // proportional across all zoom levels... this seems to be true for all forms except the radial
+  // wedge"). The offset is subtracted after `p /= u_canvasZoom`, so one unit of it moves content
+  // by `zoom` half-canvas widths on screen — which means a FIXED bound gives a reachable travel
+  // that shrinks as you zoom out. `panDelta` asks for `2/zoom` units per full-side drag, so at
+  // zoom 1 one drag asks for 2.0 and the old ±1 clamped it to half, then stopped. The default
+  // exists for droste, where the offset is a log-polar centre shift rather than a translation.
+  //
+  // `2/zoom` is the bound that makes the reachable travel CONSTANT (one canvas each way at any
+  // zoom). **The `max(1, …)` is deliberate and it is a compromise:** the pure form would also
+  // REDUCE reach when zoomed in past 2×, and taking away range that works today to buy tidiness
+  // is not a trade worth making silently. So this only ever widens the bound, never narrows it.
+  // If constant-range-at-every-zoom is what is actually wanted, drop the max — but that is a
+  // product call about losing reach at high zoom, not a bug fix.
+  // formCanvasNorm, not the raw slider: the shader's zoom is `canvasZoom × canvasNorm`, and using
+  // the raw number here is the same desync buildPolygon guards against a few lines down.
+  offsetBound: (state) => Math.max(1, 2 / Math.max(1e-4, (state.canvasZoom || 1) * formCanvasNorm(state))),
+
   // radial uses universal uniforms only (u_segments). no per-form uniforms.
   uniforms: {},
 

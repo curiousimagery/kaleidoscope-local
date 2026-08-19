@@ -63,7 +63,19 @@ export function createOutputEngine(env) {
       // said nothing: it is the difference between "running badly" and "never started", and only
       // the second one explains a broadcast dying. Say which, in the report, since that is the
       // only diagnostic channel that reaches a device.
-      note: () => (cap ? `capture: ${cap.mode || 'probing'}` : 'NOT STARTED — readback path never resolved'),
+      // ⚠️ A ZERO HERE HAS TWO MEANINGS AND THE REPORT MUST SAY WHICH (B668). With a STILL source
+      // the idle elision skips the render AND the readback and republishes the cached frame, so
+      // `calls: 0` is the honest answer — the bus really did nothing. That was indistinguishable
+      // from a broken counter, and it cost three builds of reading "the take is slow" as
+      // starvation. Naming the elision turns the zero into an answer.
+      note: () => {
+        if (!cap) return 'NOT STARTED — readback path never resolved';
+        const e = env.outputBus?.elision;
+        const elided = e && e.frames > 0 && e.reused >= e.frames
+          ? ' · ELIDING: the program is static, every frame republished (render + readback correctly skipped)'
+          : e && e.reused > 0 ? ` · eliding ${e.reused}/${e.frames} frames (static program)` : '';
+        return `capture: ${cap.mode || 'probing'}${elided}`;
+      },
     }) || null;
     if (surface) { env.perfSurfaces.bus = surface; readItem = surface.pass('readback'); }
     try {

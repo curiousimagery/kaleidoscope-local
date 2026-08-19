@@ -67,6 +67,8 @@ trail[]                 THIS run's breadcrumbs, including gl-context-lost
 
 **That message is UNIQUELY the `requireFrame` timeout** (`native-frame-receiver.js:252`) — socket open, no frame inside `timeout`, which was **a flat 8000ms**. **The deadline chose the fallback, not the decode.** Load-start to decline was 13.05s: upload plus an 8s expiry.
 
+**⚠️ CORRECTED SAME DAY. THE 8s DEADLINE IS MARGINAL, NOT ALWAYS TOO SHORT.** A THIRD run of the same clip, **on B681 with the flat 8s still in place, attached natively and ran healthy** (Daniel: app ~18 / broadcast ~33, honest). Three runs, three outcomes: attached-then-stalled, timed out, attached and fine. **So this is a RACE, and what decides it is unmeasured** — plausibly whether the file was already materialised from iCloud and warm in the page cache, i.e. an artifact of the test rig rather than of clip size. B682's scaling still removes the coin flip; do not describe it as the cause of the crash chain beyond the one run that timed out.
+
 **⚠️ `availableMB: 5094` AT THE MEMORY WARNING IS THE NUMBER WE NEVER HAD.** Over 5GB free on the device. **This is the WebKit GPU process's own ceiling, not device RAM** — B580's Xcode log said so and no report had ever shown it.
 
 **B682 scales the deadline (20ms/MB, floor 8s, cap 40s) and names it in the failure message.** The floor means clips under ~400MB are unchanged.
@@ -324,7 +326,7 @@ take B's own encoded rate        23.5fps
 
 **The take matches the app exactly. It is not being starved — it faithfully records every frame the app produces, and the APP is what collapses.** Recording costs ~25ms/frame and cuts the app's rate by 60%. **So this is not a priority inversion to re-prioritise; it is a cost to find and reduce.**
 
-**⚠️ AND THE COST IS INVISIBLE TO THE INSTRUMENT.** The `bus` surface registers in the ledger and reports `calls: 0, msPerFrame: 0` (`capture: async`). **The most expensive thing in a recording session does not appear in the frame-cost panel at all.** That is the next instrument gap to close, and it is Class 1.
+**✅ CLOSED B683 — AND THE COUNTER WAS NEVER BROKEN.** The `bus` surface measured **render** and **readback**; a take's cost is in **`sink.publish(f)`**, which was timed into `diag.ops` (a ring the panel does not show). Publish is now a ledger pass. **The zero was also honest**: with a still source the idle elision skips render and readback outright, so `calls: 0` was true — the note now names the elision so a true zero and a broken counter are no longer the same reading.
 
 **▶ NATIVE VITALS ARE FULLY HEALTHY VIA PUSH.** Continuous series, thermal `nominal` for the whole 200s run, `availMB` 4961-4993, `footprintMB` 126-158. Memory remains a non-issue.
 

@@ -6,6 +6,39 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🚧 v0.26.23 (Build 683) — 2026-08-19 — The record bus was not lying, it was measuring the wrong two things
+
+**B668 closed. Class 1, no device time.**
+
+### Shipped
+
+- **Publishing is a ledger pass.** `bus.publish` now appears in the frame-cost panel.
+- **A zero on the bus surface explains itself** — it names the idle elision instead of looking broken.
+
+### What was actually wrong
+
+The `bus` surface measured **render** and **readback**. Neither is where a take's cost lives.
+
+`renderFrameAt` is the render plus the GPU→CPU readback. **The recorder's cost is in `sink.publish(f)`** — building a `VideoFrame` and handing it to the encoder — and that was timed into `diag.ops.perFrameMs.publish`, **a ring buffer the frame-cost panel does not display.** So the most expensive thing in a recording session was measured, correctly, into a place nobody reads, while the surface beside it read `calls: 0`.
+
+**So the counter was never broken.** It was counting two passes that genuinely did not run, next to a third that was never registered.
+
+### And the zero was honest, which is why it misled
+
+With a **still** source, `frameSignature()` returns a stable value, the bus elides, and it skips the render *and* the readback to republish the cached frame. **`calls: 0` is then the truth: the bus really did nothing.** A live source (camera, playing video, native decode) returns `null` — "assume it changed" — so elision never applies there.
+
+Two opposite meanings, one number, no way to tell them apart. That ambiguity is why "the take is slow" read as **starvation** for three builds: the cost was real, unattributed, and sitting next to a zero. The surface note now says which:
+
+```
+capture: readpixels · ELIDING: the program is static, every frame republished (render + readback correctly skipped)
+```
+
+**Publish is still measured on elided frames**, deliberately — it is exactly the cost that remains when the render is skipped.
+
+`busPass` is optional and resolved lazily, since the surface is registered on the bus's first render and the bus is constructed before that. 7 assertions in `bus-check.mjs`, including both the live and the elided path.
+
+---
+
 ## 🚧 v0.26.22 (Build 682) — 2026-08-19 — An eight-second timer was routing big clips into the crash
 
 **Root cause found for the 6:39 4K failures, with the whole chain evidenced.**
@@ -30,7 +63,11 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 20:20:20.722  gl-context-lost (preview)      ← 11s after the first
 ```
 
-**`no native frames on port 8900 (nothing streaming)` is, uniquely, the `requireFrame` timeout path** (`native-frame-receiver.js:252`) — the socket opened and no frame arrived inside `timeout`. That timeout was **a flat 8000ms**. A 1.25GB / 6:39 4K clip cannot produce a first frame in eight seconds; AVPlayer parses an index proportional to the clip before it decodes anything. **The arithmetic corroborates:** load start to decline was 13.05s, consistent with the upload plus an 8s expiry.
+**`no native frames on port 8900 (nothing streaming)` is, uniquely, the `requireFrame` timeout path** (`native-frame-receiver.js:252`) — the socket opened and no frame arrived inside `timeout`. That timeout was **a flat 8000ms**. **The arithmetic corroborates:** load start to decline was 13.05s, consistent with the upload plus an 8s expiry.
+
+**⚠️ CORRECTED SAME DAY — THE DEADLINE IS MARGINAL, NOT CATEGORICALLY TOO SHORT.** This entry first claimed a 1.25GB clip *cannot* produce a first frame in eight seconds. **A third run on B681, with the flat 8s deadline still in place, attached natively and ran healthy.** Three runs of the same file gave three outcomes: attached-then-stalled, timed out, attached and fine.
+
+**The fix is still right and its justification is now better: it converts a coin flip into a reliable attach.** But "the deadline caused the crash" holds only for the run that actually timed out. **What decides a marginal race is unmeasured** — plausibly whether the file was already materialised from iCloud and warm in the page cache, which would make it an artifact of the test rig rather than of clip size.
 
 **So the deadline, not the decode, chose the fallback** — and the fallback is the double-decode configuration every memory guard in this codebase exists to avoid.
 

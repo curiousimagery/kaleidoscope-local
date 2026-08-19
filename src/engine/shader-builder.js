@@ -16,7 +16,7 @@
 // also collects the union of all uniforms for use by gl.js when looking up
 // uniform locations and pushing values per-frame.
 
-import { FORMS, formSizeNorm, formCanvasNorm, formPanLocked } from './forms/index.js';
+import { FORMS, formSizeNorm, formCanvasNorm, formPanLocked, formOffsetBound } from './forms/index.js';
 import { sliceMirror } from './geometry.js';
 
 // uniforms common to ALL forms. these are the shared scaffolding the shader
@@ -59,8 +59,13 @@ const COMMON_UNIFORMS = {
     // Bounded to the range droste itself declares sane for a centre shift (drosteOffsetX/Y, ±1)
     // rather than the tiling range (±2), because for these forms it IS a centre shift. Clamped
     // rather than cleared, to keep the non-destructive contract above.
-    const clamp1 = (v) => Math.max(-1, Math.min(1, v));
-    if (!period) return [clamp1(ox), clamp1(oy)];
+    // ⚠️ THE BOUND IS PER-FORM (2026-08-19). It was a flat ±1 for every non-lattice form, which
+    // is right for droste (a log-polar centre shift) and wrong for radial (an ordinary pan): see
+    // formOffsetBound. Radial's bound widens as you zoom out, which is what keeps a full-side
+    // drag from saturating at zoom 1.
+    const b = formOffsetBound(state);
+    const clampB = (v) => Math.max(-b, Math.min(b, v));
+    if (!period) return [clampB(ox), clampB(oy)];
     const wrap = (v, p) => (p > 0 ? ((v % p) + p) % p : v);
     return [wrap(ox, period[0]), wrap(oy, period[1])];
   } },

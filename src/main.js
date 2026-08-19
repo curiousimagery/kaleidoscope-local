@@ -17,7 +17,7 @@ import { lockState, setLock, makeLockToggle } from './shell/locks.js';
 import { DISCRETE_KEYS, isCoupledKey } from './kit/tween.js';   // discrete settings are global (held to kf0) — except the COUPLED ones, see B637
 import { confirmInterrupt } from './shell/interrupt.js';   // non-blocking destructive-interrupt (M3)
 import { zipStore } from './shell/zip.js';                 // clip package (source + motion JSON)
-import { createEngine } from './engine/index.js';
+import { createEngine, allEngines } from './engine/index.js';
 import { normalizeSliceMirror } from './shell/overlay.js';   // B635 — the slice fold, called at the render schedule
 import { resetSliceState, formBoxCenter, sliceBoxCenter } from './engine/geometry.js';   // B619: the shared slice reset (box centring + frame-relative orientation), also used by the mobile chrome
 import { createMotionProbe } from './kit/motion-probe.js';   // B619: droste-runaway probe, armed by ?probe=motion
@@ -671,21 +671,66 @@ env.scheduleRender = scheduleRender;
 // This is a recovery short of quitting: RELEASE all output (frees the external view's second
 // context + video decoder — the pressure source), then rebuild the main GL context (restoring it
 // first if it's lost). If even that throws, reload the webview — the native app stays open.
+//
+// ⚠️ 2026-08-19 — IT REBUILT ONE CONTEXT OUT OF THREE, WHICH IS WHY IT "STOPPED WORKING".
+// Daniel hit a context loss **in perform mode** and reported the control as broken. It was doing
+// exactly what it was written to do: rebuilding `engine`, the PREVIEW. But the surface he was
+// looking at is the **live PiP's** context, and the output/bus engine is a third — neither of
+// which this ever touched. From the seat, a recovery that rebuilds one of three contexts and a
+// recovery that does nothing are the same thing. It now walks `allEngines()`.
+//
+// **And it must re-arm the PLANAR SOURCE.** `reinitGL` nulls `planar` (its FBO and blit program
+// died with the context) and re-uploads from the source ELEMENT — which on the native-decode path
+// is a small bounded preview canvas, not the decode's planes. So a "successful" reset left the
+// native path rendering from the wrong surface, which is the source-panel symptom this control is
+// most often reached for.
+//
+// **It also reports what it did.** A recovery that cannot say which half worked is the thing that
+// sent this investigation to the wrong place for a build.
 env.resetSession = () => {
-  try { env.stopAllOutput?.('session reset'); } catch { /* keep going — the point is to recover */ }
-  try {
-    const gl = engine?.glContext;
-    if (gl && gl.isContextLost()) loseCtxExt?.restoreContext?.();   // ask iOS for the context back (restore handler reinits)
-    else engine?.reinitGL?.();
-    scheduleRender();
-    if (statusEl) {
-      statusEl.textContent = 'session reset'; statusEl.classList.remove('error');
-      setTimeout(() => { if (statusEl.textContent === 'session reset') statusEl.textContent = ''; }, 1600);
-    }
-  } catch (e) {
-    console.warn('[fold] session reset — GL rebuild failed, reloading', e);
-    setTimeout(() => location.reload(), 150);   // last resort: fresh webview + context (native app stays open)
+  const done = [], failed = [];
+  try { env.stopAllOutput?.('session reset'); } catch (e) { failed.push(`output: ${e?.message || e}`); }
+  for (const eng of allEngines()) {
+    const tag = eng.label || 'engine';
+    try {
+      const gl = eng.glContext;
+      if (gl && gl.isContextLost()) {
+        // Ask the OS for the context back; the canvas's own `webglcontextrestored` handler reinits.
+        // Only the preview's extension handle exists, so this is best-effort per engine.
+        if (eng === engine) loseCtxExt?.restoreContext?.();
+        done.push(`${tag}: restore requested (was lost)`);
+      } else {
+        eng.reinitGL?.();
+        done.push(`${tag}: rebuilt`);
+      }
+    } catch (e) { failed.push(`${tag}: ${e?.message || e}`); }
   }
+  // Re-establish the native decode's planes on the preview engine. reinitGL re-uploads from the
+  // source element, which for a native decode is the bounded preview canvas rather than the planes.
+  try {
+    if (env.nativeVideo && engine) {
+      engine.setPlanarSource(env.nativeVideo.planeReader(), env.nativeVideo.cap);
+      done.push('planar source re-armed');
+    }
+  } catch (e) { failed.push(`planar: ${e?.message || e}`); }
+
+  env.vitals?.mark('session-reset', { done, failed });
+  if (failed.length && !done.length) {
+    console.warn('[fold] session reset — nothing recovered, reloading', failed);
+    setTimeout(() => location.reload(), 150);   // last resort: fresh webview + context (native app stays open)
+    return;
+  }
+  scheduleRender();
+  if (statusEl) {
+    // SAY WHICH, not just "done" — a partial recovery reads as a full one otherwise.
+    statusEl.textContent = failed.length
+      ? `session reset — ${done.length} recovered, ${failed.length} failed`
+      : `session reset — ${done.length} surfaces rebuilt`;
+    statusEl.classList.toggle('error', failed.length > 0);
+    const shown = statusEl.textContent;
+    setTimeout(() => { if (statusEl.textContent === shown) { statusEl.textContent = ''; statusEl.classList.remove('error'); } }, 2600);
+  }
+  if (failed.length) console.warn('[fold] session reset — partial:', failed);
 };
 
 // Coalesce control-widget syncing to one rAF. The direct-manipulation drag path
@@ -2093,6 +2138,10 @@ if (engine) {
     engineAdapter: createFoldAdapter(env),
     host: env.host,
     diag: env.diag,
+    // B668's gap: publishing (VideoFrame + encode submission) is where a take's cost actually is,
+    // and it was measured only into diag.ops. Lazy because the `bus` surface is registered on the
+    // output engine's first render, which is after this.
+    busPass: (id) => env.perfSurfaces?.bus?.pass?.(id) || null,
   });
   // host-aware save: the recorder's own <a download> is a silent no-op inside
   // Capacitor's webview (Daniel's iPad takes vanished) — env.downloadBlob routes

@@ -31,6 +31,19 @@ export { sliceVecToSourceUV, polygonRadiusAt, pointInPolygon } from './geometry.
 // `perf` is an optional collaborator from the frame-cost ledger (conduit/perf-ledger):
 // { skip, begin(), end() }. It hooks render() — the one place every caller funnels through —
 // so a surface can be measured and (via `skip`) switched off without any call site knowing.
+// ⚠️ EVERY LIVE ENGINE, SO A RECOVERY CAN REACH ALL OF THEM (2026-08-19).
+//
+// The break-glass session reset rebuilt `main.js`'s PREVIEW engine and nothing else. But this app
+// runs up to three GL contexts in-process — preview, the output/bus engine, and the live PiP — and
+// Daniel's report of it "not working anymore" came from **perform mode**, where the surface he was
+// looking at is the PiP's context, which the reset never touched. A recovery that rebuilds one of
+// three contexts is indistinguishable from a recovery that does nothing, from the seat.
+//
+// Weak refs are not used deliberately: engines in this app are never discarded (see the session
+// audit), so a plain list cannot leak anything that was not already permanent.
+const ENGINES = [];
+export function allEngines() { return ENGINES.slice(); }
+
 export function createEngine({ canvas, maxProbeSize, perf = null, label = 'engine' }) {
   let glCtx = createGLContext(canvas, { maxProbeSize });
   // ⚠️ Registered HERE and not in createGLContext, because `reinitGL` calls that again on the same
@@ -78,7 +91,7 @@ export function createEngine({ canvas, maxProbeSize, perf = null, label = 'engin
     };
   }
 
-  return {
+  const engine = {
     // diagnostic info — renderer name, max texture size. used by the shell to
     // populate the diagnostics group.
     diagnostics: glCtx.diagnostics,
@@ -454,4 +467,7 @@ export function createEngine({ canvas, maxProbeSize, perf = null, label = 'engin
       return state.sliceScale * sizeNorm * sourceMin * tilesPerDim * SOFTENING / compZoom;
     },
   };
+  engine.label = label;
+  ENGINES.push(engine);
+  return engine;
 }

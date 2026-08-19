@@ -426,11 +426,13 @@ Reported after a GL-context loss in perform mode. **Not investigated — filed r
 
 **Class 1 first:** read the handler and check what it does with a lost/restored context before spending any device time.
 
-### 📉 [B668 — CLASS 1, NOT STARTED] THE RECORD BUS IS INVISIBLE TO THE FRAME-COST LEDGER
+### ✅ [B668 — CLOSED B683] THE RECORD BUS IS INVISIBLE TO THE FRAME-COST LEDGER
 
 The `bus` surface registers and reports `calls: 0, msPerFrame: 0` with the note `capture: async`. Meanwhile recording measurably costs the app **~25ms per frame** — 59fps down to 23.5fps with nothing else running. **The single most expensive thing in a recording session does not appear in the panel built to say what things cost.**
 
 This is why "the take is slow" read as a priority problem for three builds: the cost was real and unattributable, so it looked like starvation. **Class 1 — no device needed to find out why an async capture path reports nothing.**
+
+**✅ ANSWERED B683, and the counter was never broken.** The surface measured **render** and **readback**; a take's cost is in **`sink.publish(f)`** (VideoFrame construction + encode submission), which was timed into `diag.ops` — a ring the frame-cost panel does not show. Publish is now a ledger pass. **And the zero itself was honest:** with a still source the idle elision skips render and readback entirely, so `calls: 0` was true; the note now says so rather than leaving a true zero and a broken counter indistinguishable.
 
 ### 🪜 [Daniel, 2026-08-19 — SPEC GIVEN, NOT BUILT] THE CAPABILITY LADDER: WHAT GETS GATED, WARNED, OR FLAGGED
 
