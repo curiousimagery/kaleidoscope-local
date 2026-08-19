@@ -34,6 +34,16 @@ Archived at B658. It was marked superseded at B609 and kept for the reasoning be
 
 **The trap that was caught before the cycle, because it will recur in any future host seam:** Capacitor calls are async, `conduit/vitals.js` reads `native()` sync. A Promise there makes every field undefined and the report says `nativeReadings: false` — *identical to no plugin*. The host caches; `read()` is synchronous. Proven in `vitals-native-check.mjs`.
 
+### 🚨 B669 — A TAKE CAN RUN A FULL MINUTE, REPORT SUCCESS, AND RECORD NOTHING
+
+**The worst thing in the B668 report was not the context loss.** `take:started` fired at t=26, the app recovered to 30-37fps, no error appeared anywhere, and the file had **zero frames**. Nothing on screen suggested a problem. **Shipped a six-second dead-take watchdog** that says so and writes a `take:dead` breadcrumb.
+
+**▶ THE COST DECOMPOSITION, from take A failing:** dead take + live broadcast = **30-37fps**; working take, no broadcast = **23-24fps**; idle = **60fps**. **A working take costs more than a live 4K broadcast.** And the take's own rate matches the app's to within a tenth of a frame, twice running — the take is never starved, the app is.
+
+**▶ STILL UNRUN: T3b.** Daniel has now run T3 three times; the ordering discriminator is what decides whether the gate is about coexistence or about start order. **Do not build the gate before it runs.**
+
+**▶ BATTERY WORKS:** 85% flat, `charging`, across 187s. The eight-hour question is T7's.
+
 ### 🔋 B668 — IT IS NOT THE TAKE'S RESOLUTION, AND RECORDING HALVES THE APP
 
 **⚠️ CORRECTS B667's FILING. Daniel's hunch was right and mine was too narrow.** B667 called it "a 4K take on a 4K broadcast". **B668 lost the context on an FHD take** — `take:arm 1920x1080`, `bus:start 1920x1080` at t=20, `gl-context-lost` at **t=21** — and take A encoded zero frames again.

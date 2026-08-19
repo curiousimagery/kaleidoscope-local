@@ -1008,6 +1008,11 @@ async function startWebCodecsSession({ w, h, audioTrack, onDone, onError, onProg
 
   return {
     engine: 'webcodecs',
+    // ⚠️ B669 — LIVE, DURING THE TAKE, so a take that is encoding NOTHING can say so while it is
+    // still happening. B668's take A ran a full 60 seconds after a GL context loss, reported
+    // `take:started`, showed no error, and produced a file with zero frames. A take that silently
+    // records nothing is worse than one that fails: the operator finds out after the show.
+    get framesEncoded() { return videoFramesEncoded; },
     publish(frame) {
       if (sessionError || venc.state !== 'configured') return;
       if (frame.w !== w || frame.h !== h) return;          // bus resized mid-take: skip
@@ -1100,6 +1105,7 @@ function startMediaRecorderSession({ w, h, audioTrack, onDone, onError }) {
   const opts = { videoBitsPerSecond: Math.min(40_000_000, Math.round(w * h * 6)) };
   if (audioTrack) opts.audioBitsPerSecond = 128_000;
   if (mime) opts.mimeType = mime;
+  let published = 0;
   const recorder = new MediaRecorder(stream, opts);
   const finalMime = recorder.mimeType || mime || 'video/webm';
   const chunks = [];
@@ -1115,7 +1121,11 @@ function startMediaRecorderSession({ w, h, audioTrack, onDone, onError }) {
 
   return {
     engine: 'mediarecorder',
+    // MediaRecorder does not expose an encoded-frame count; publishes are the closest honest
+    // proxy, and the watchdog only ever asks "is this still zero".
+    get framesEncoded() { return published; },
     publish(frame) {
+      published++;
       const { pixels, w: fw, h: fh, topDown, canvas: src } = frame;
       if (canvas.width !== fw || canvas.height !== fh) {
         canvas.width = fw; canvas.height = fh;
@@ -1200,6 +1210,9 @@ export function createRecorderSink({ filenamePrefix = 'fold-live', save = null, 
     async releaseTake() { const s = finishing; finishing = null; await s?.cleanupFile?.(); },
     get supported() { return webCodecsRecordingSupported() || pickMime() !== null; },
     get lastResult() { return lastResult; },
+    // B669 — frames encoded so far in the LIVE take, or null when nothing is running. The output
+    // panel's watchdog reads it; see the zero-frame check there.
+    get framesEncoded() { return recording && session ? (session.framesEncoded ?? null) : null; },
 
     // bus calls this every frame; a no-op until a recording session is started.
     publish(frame) {

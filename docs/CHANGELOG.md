@@ -6,6 +6,47 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🚨 v0.26.9 (Build 669) — 2026-08-19 — A take that records nothing now says so
+
+**JS only. No Swift change** — but you still need an Xcode Run to get it on the device.
+
+### Shipped
+
+- **The dead-take watchdog.** Six seconds after a take starts, if zero frames have been encoded, the panel says `take FAILED: no frames are reaching the recorder` and a `take:dead` breadcrumb is written.
+- **`recorder.framesEncoded`** — the live count during a take, on both the WebCodecs and MediaRecorder paths.
+
+### The worst thing in the B668 report was not the context loss
+
+```
+t=20  take:arm 1920x1080 · bus:start 1920x1080
+t=21  gl-context-lost
+t=26  take:started
+      ...60 seconds...
+      videoFrames: 0
+```
+
+**The take ran a full minute, reported that it had started, showed no error anywhere, and produced a file with nothing in it.** Meanwhile the app recovered and ran at 30-37fps, so nothing on screen suggested a problem.
+
+**A take that silently records nothing is worse than one that fails.** The operator finds out after the show. Six seconds is long enough not to accuse a slow start and short enough to abandon a minute rather than lose it.
+
+### The app-halving result reproduced exactly
+
+```
+idle, nothing running        fps 60.6, 59.9
+during take B (FHD)          fps 23.1, 24.0, 24.4, 24.3, 23.8, 24.4
+take B's own encoded rate    23.9fps
+```
+
+Second run, same shape as B668. **The take matches the app to within a tenth of a frame.** It is not being starved; recording costs the app ~25ms/frame and the take faithfully captures what is left.
+
+**And a new decomposition falls out of take A's failure.** With the take dead and the broadcast live the app ran **30-37fps**; with a working take and no broadcast it ran **23-24fps**; idle it ran **60fps**. **A working take costs more than a live 4K broadcast does.**
+
+### Battery, first reading
+
+`batteryPct` held at **85%** across the whole 187s run with `power: charging` throughout. Three minutes proves the instrument works, not the eight-hour question — that is T7's job.
+
+---
+
 ## 🔋 v0.26.8 (Build 668) — 2026-08-19 — It is not the take's resolution, and recording halves the app
 
 **JS + Swift. ⚠️ NEEDS AN XCODE BUILD.**

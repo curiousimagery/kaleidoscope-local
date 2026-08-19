@@ -642,6 +642,8 @@ export function createOutputPanel(env, outputBus) {
   // fps counted fine, stop produced nothing, nobody said a word).
   let takeWatch = 0;
   let takeNote = '';
+  const DEAD_TAKE_MS = 6000;   // see the dead-take watchdog at take:started
+  let deadTakeWatch = 0;
   function watchTakeResult() {
     clearInterval(takeWatch);
     const t0 = Date.now();
@@ -674,6 +676,7 @@ export function createOutputPanel(env, outputBus) {
     if (!recorder) return;
     if (recorder.recording) {
       recorder.stop();
+      clearTimeout(deadTakeWatch);
       stopRecMic();
       wantRecord = false;
       syncBusRunning();
@@ -737,6 +740,22 @@ export function createOutputPanel(env, outputBus) {
         syncBusRunning();
         await recorder.start(outputBus.width, outputBus.height, micTrack);
         env.vitals?.mark('take:started', { w: outputBus.width, h: outputBus.height });
+        // ⚠️ B669 — THE DEAD-TAKE WATCHDOG. B668's take A ran a full 60 seconds and encoded ZERO
+        // frames: the GL context was lost one second after `bus:start`, the recorder still
+        // reported `take:started`, no error appeared anywhere, and the operator got a file with
+        // nothing in it. **A take that silently records nothing is worse than one that fails** —
+        // the show is over by the time anyone finds out. Six seconds is long enough that a slow
+        // start is not accused, and short enough to abandon a minute rather than lose it.
+        clearTimeout(deadTakeWatch);
+        deadTakeWatch = setTimeout(() => {
+          if (!recorder?.recording) return;
+          const n = recorder.framesEncoded;
+          if (n === null || n > 0) return;
+          env.vitals?.mark('take:dead', { afterMs: DEAD_TAKE_MS, w: outputBus.width, h: outputBus.height });
+          takeNote = 'take FAILED: no frames are reaching the recorder — stop and try again';
+          env.saveFlow?.status?.('error', 'this take is recording nothing — the output context was lost', { ttl: 8000 });
+          renderStatus();
+        }, DEAD_TAKE_MS);
         clearInterval(takeWatch);
         takeNote = '';
         startPolling();
