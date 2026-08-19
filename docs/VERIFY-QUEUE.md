@@ -55,7 +55,19 @@ Confirmed results are DELETED from here and recorded in CHANGELOG. Closed sessio
 
 ---
 
-## ▶ T7 — THE WARM LONG RUN (Daniel's design, and it is better than mine)
+## ▶ T8 — AIRPLAY + DIRECT CHARGE (the next device test, and it is the one that matters)
+
+**T7 found the only ceiling that actually ends a run: power.** 70% → 55% in 40 minutes while plugged in, because **HDMI-out occupies the USB-C port and charging falls back to the Magic Keyboard's slower passthrough.**
+
+**Daniel's own workaround is the test:** charge directly into the iPad, broadcast over **AirPlay**. **This changes two variables at once** — the power path and the video path — so if it holds, run it again over HDMI-with-direct-charge (a dongle that passes power through, if one is available) to separate them. **A single 40-minute T7 run in the AirPlay configuration answers whether the eight-hour exhibit has a supported setup at all.**
+
+Watch: `batteryPct` slope, and whether `wallFps` over AirPlay is even in the same class as HDMI's ~21.
+
+## ✅ T7 — RAN 2026-08-19, ANSWERED
+
+Forty minutes hands-off: **fps 20.0 → 20.4, wallFps 21.7 → 20.8, memory flat, no events, thermal `serious` throughout.** Nothing degrades over time. **The heat hypothesis is closed.** The only finding was the power ceiling above.
+
+## 🅿️ T7 — original framing (Daniel's design, and it is better than mine)
 
 *"Is 10 mins enough to verify there wouldn't be thermal throttling after an hour? I imagine we could pressure test harder using a longer 4k source clip and running for 30min+ with autoplay on after the device is already physically warm."*
 
@@ -65,7 +77,15 @@ Confirmed results are DELETED from here and recorded in CHANGELOG. Closed sessio
 
 **Prerequisite: the native read path.** Without it a long run reports thermal only at transitions, which is exactly the signal this test is for. **Run T3 first — it is what surfaces `vitalsSeam.why`.**
 
-**Protocol:** warm the device with ~10 min of interactive 4K broadcast, then start a session and go hands-off for 30-60 min with autoplay on. Hands-off matters: T2 established interaction is its own load, so mixing them back in would re-confound the thing this test isolates.
+**▶ SETUP, ANSWERING DANIEL'S QUESTION (2026-08-19). You do NOT need to start playback or the broadcast — the script does both.**
+
+**Before you tap run:** the 20.4s 4K clip loaded, HDMI connected, the destination selected. That is all.
+
+**What the script then does:** plays the clip (it loops on its own — no autoplay setting needed), starts the broadcast, waits **10 minutes while you interact freely** (this part is deliberately outside the session, its job is to remove the thermal headroom a cold start gives you), then starts the session and runs **40 minutes hands-off**, then stops. **~50 minutes total.**
+
+**What it answers now that it did not before:** `batteryPct` over 50 minutes turns the 10%-per-hour reading into a real slope, and `wallFps` says whether the wall holds its rate over the same window. Those are the two questions with no fps signature.
+
+**Old protocol note:** warm the device with ~10 min of interactive 4K broadcast, then start a session and go hands-off for 30-60 min. Hands-off matters: T2 established interaction is its own load, so mixing them back in would re-confound the thing this test isolates.
 
 ---
 

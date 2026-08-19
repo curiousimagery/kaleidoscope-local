@@ -6,6 +6,101 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🏁 v0.26.12 (Build 672) — 2026-08-19 — T7: forty minutes, zero degradation, and one hard ceiling
+
+**JS only.**
+
+### Shipped
+
+- **`thermal serious` no longer warns on its own.** `critical` always speaks; `serious` speaks only when fps is also falling.
+
+### T7 ran. 241 samples, 40 minutes hands-off, and the trend lines are flat
+
+```
+fps         first 20.0   last 20.4   (min 18.3, max 26.4)
+wallFps     first 21.7   last 20.8   (min 14.5, max 29.4)
+frameP50    first 48     last 49
+availMB     first 4986   last 4985   (min 4965)
+footprintMB first 133    last 134
+events      none — no thermal transition, no context loss, no memory event
+```
+
+**Nothing degraded.** Not the app, not the wall, not memory. The min/max spread is noise around a flat line, not a trajectory.
+
+**▶ AND THE DEVICE WAS AT THERMAL `serious` FOR ALL 2,410,000ms OF IT.** 100% of samples. **`serious` is not a degradation state on this hardware — it is simply where an M1 iPad lives under a 4K broadcast.** That retires the last version of the heat hypothesis: sustained, hot, untouched, and perfectly steady for forty minutes.
+
+**It also exposed an instrument defect, which is why B672 exists.** The glanceable warning fired on `thermal serious` alone, so it would have shouted for the entire duration of a healthy run. **Noise in the one channel we have on device is worse than silence** — the operator learns to ignore the line meant to interrupt them. Level alone says little; level plus a falling trend says something.
+
+**The memory question is now answered for a long run too:** `availMB` moved 4986 → 4985 over 40 minutes, footprint 133 → 134. No leak, no drift.
+
+### ⚡ THE ONE REAL CEILING: 70% → 55% IN 40 MINUTES, PLUGGED IN
+
+**22.5% per hour while charging.** From full that is **~4.4 hours**, not eight — and worse than the ~10%/hr the short runs suggested.
+
+**Daniel's own diagnosis is almost certainly the mechanism, and it is a design constraint rather than a device flaw:** *"I'm charging through the Magic Keyboard case which has much slower power delivery than directly porting into the bottom of the iPad, but that slot is used by the USB-C to HDMI cable."*
+
+**HDMI-out and charging compete for the one port.** The keyboard's passthrough cannot keep up with a 4K broadcast's draw. His own workaround is the right one to test: charge directly and broadcast over **AirPlay** instead. **That is a different power path AND a different video path, so it needs its own measurement rather than an assumption.**
+
+**Caveats worth keeping attached to the number:** a five-year-old iPad with unknown battery health, already warm from an afternoon of testing, starting at 73%. **This is a worst-case reading, which for an exhibit is the useful one.**
+
+### The governor acted, for the first time observed
+
+The live snapshot after the run shows `pip enabled: false` and `preview rate: 3` — it shed the PiP and put the preview on every third frame. Previously it had only ever reported `futile` or `nothing to protect`.
+
+---
+
+## 🔌 v0.26.11 (Build 671) — 2026-08-19 — Losing charge while plugged in, and the wall never noticed the app collapsing
+
+**JS only.**
+
+### Shipped
+
+- **A glanceable warning when battery falls while `power: charging`.** A trend reason, from the session.
+
+### ⚡ DANIEL CALLED THIS CEILING BEFORE ANY INSTRUMENT COULD SEE IT, AND IT IS REAL
+
+```
+01:12  85%   charging
+01:49  80%   charging
+02:10  75%   charging
+```
+
+**10% in 58 minutes, plugged in the whole time.** Straight-lined, that is **empty in about 7.5 hours from full** — the eight-hour exhibit failing for a reason with no fps signature at all. It just stops.
+
+His words, before the reading existed: *"one limit in our sustained thermal scenario will be if we can't charge as fast as we output power."*
+
+**Caveats, and they matter before anyone plans around it:** iOS quantises `batteryLevel` to ~5% steps, so three points is a direction rather than a rate; and these were heavy runs (4K broadcast + a take), not an idle exhibit. **T7 is what turns this into a number.**
+
+### 📡 THE FIRST `wallFps` SERIES, AND IT INVERTS THE GATING QUESTION
+
+```
+t=10  wallFps 25.0   broadcasting        app 23.9
+t=21  wallFps 25.0   broadcasting        app 24.2
+t=31  wallFps 30.3   + take (DEAD)       app 17.5
+t=51  wallFps 31.3   + take (DEAD)       app 17.6
+t=91  wallFps 29.4   + take (DEAD)       app 16.7
+```
+
+**The wall got FASTER when the app collapsed** — 25 to 30 new pictures per second while the app fell from 24 to 17.
+
+They are not merely decoupled, they are **anti-correlated**, and the architecture explains it: the external view is a second webview that **decodes the clip itself** and applies a ~1KB state stream (`external-display.js`). It does not consume our rendered frames. So on the video path, **the broadcast is largely immune to whatever the app is doing** — which is exactly what that design was for, now measured rather than assumed.
+
+**▶ THIS REWRITES THE LADDER'S MIDDLE ROWS.** Daniel's rubric keys rows 2-4 on broadcast fps. **On this evidence those rows would almost never fire on the video path**, including through a GL context loss and a dead take. The failure that actually needs gating is not a slow wall; it is **the take dying and the context dropping**, plus the operator's own view becoming unusable — which he has already called acceptable.
+
+### The dead-take watchdog fired on its first real outing
+
+```
+t=20  bus:start · gl-context-lost
+t=23  take:started
+t=29  take:dead  afterMs 6000
+```
+
+Take A: `videoFrames: 0`. **B669's watchdog caught it exactly as designed**, and the operator saw an error instead of a silent empty file.
+
+**And the context loss recurred**, in a run whose only difference from four clean ones is which minute it happened in. Still unexplained, still intermittent, now at least always announced.
+
+---
+
 ## 📡 v0.26.10 (Build 670) — 2026-08-19 — The session records the WALL's rate, which is the number the rubric is about
 
 **JS only.**

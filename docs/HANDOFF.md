@@ -34,6 +34,48 @@ Archived at B658. It was marked superseded at B609 and kept for the reasoning be
 
 **The trap that was caught before the cycle, because it will recur in any future host seam:** Capacitor calls are async, `conduit/vitals.js` reads `native()` sync. A Promise there makes every field undefined and the report says `nativeReadings: false` — *identical to no plugin*. The host caches; `read()` is synchronous. Proven in `vitals-native-check.mjs`.
 
+### 🏁 T7 RAN — FORTY MINUTES, ZERO DEGRADATION, AND THE HEAT HYPOTHESIS IS FINALLY DEAD
+
+```
+fps      20.0 → 20.4      wallFps  21.7 → 20.8      frameP50  48 → 49
+availMB  4986 → 4985      footprint 133 → 134       events: NONE
+thermal: `serious` for 100% of the run (2,410,000ms)
+```
+
+**241 samples, hands-off, hot the whole time, and flat.** Nothing degraded — not the app, not the wall, not memory. No context loss in 40 minutes of broadcasting, which also localises that failure to **arming a take**, not to broadcast duration.
+
+**▶ `serious` IS NOT A DEGRADATION STATE ON THIS HARDWARE.** It is simply where an M1 iPad lives under a 4K broadcast. **The arc has chased heat since B660; this ends it.** It also exposed the instrument defect fixed at B672: the glanceable warning fired on `serious` alone and would have shouted through forty minutes of a healthy run.
+
+**▶ MEMORY IS ANSWERED FOR LONG RUNS TOO.** 4986 → 4985MB free over 40 minutes. No leak.
+
+### ⚡ THE ONE REAL CEILING IS POWER, AND IT IS A PORT-CONTENTION PROBLEM
+
+**70% → 55% in 40 minutes while charging = 22.5%/hour.** From full, **~4.4 hours**, not eight.
+
+**Daniel's diagnosis is the likely mechanism and it is a design constraint, not a device flaw:** HDMI-out occupies the USB-C port, so charging runs through the Magic Keyboard's slower passthrough. **The two compete for one port.**
+
+**▶ THE NEXT TEST IS HIS OWN WORKAROUND: charge directly + broadcast over AirPlay.** That changes both the power path and the video path, so it needs measuring rather than assuming — and if it holds, the eight-hour exhibit has a supported configuration and a documented unsupported one.
+
+**Caveats to keep attached:** five-year-old iPad, unknown battery health, already warm, started at 73%. **Worst case — which for an exhibit is the useful case.**
+
+**▶ THE GOVERNOR ACTED FOR THE FIRST TIME OBSERVED:** `pip enabled: false`, `preview rate: 3`. It had only ever reported `futile` or `nothing to protect` before.
+
+### 🔌⚡ B671 — TWO FINDINGS THAT CHANGE WHAT THE LADDER IS FOR
+
+**1. THE DEVICE LOSES CHARGE WHILE PLUGGED IN.** 85% → 80% → 75% in 58 minutes, `power: charging` throughout. Straight-lined that is **empty in ~7.5 hours** — the eight-hour exhibit failing with **no fps signature at all.** Daniel predicted this before any instrument could see it. **Caveats: iOS quantises battery to ~5% steps (three points is a direction, not a rate) and these were heavy runs, not an idle exhibit. T7 is what turns it into a number.** A glanceable warning now fires when charge falls while charging.
+
+**2. THE WALL GOT FASTER WHILE THE APP COLLAPSED.**
+
+```
+wallFps 25.0 → 30.3 → 31.3 → 29.4     app fps 24 → 17.5 → 17.6 → 16.7
+```
+
+**Anti-correlated, not merely decoupled.** The external view is a second webview that **decodes the clip itself** and applies a ~1KB state stream; it never consumes our rendered frames. **On the video path the broadcast is largely immune to what the app is doing** — the design working as intended, measured for the first time.
+
+**▶ SO THE LADDER'S MIDDLE ROWS NEED REWRITING.** Daniel's rubric keys "don't offer it" and "warn" on BROADCAST fps. On this evidence **those rows would almost never fire on the video path** — not even through a GL context loss and a dead take. **What actually needs gating is the take dying and the context dropping**, plus the operator's own view becoming unusable, which he has already called acceptable. **Before building row 2 or 3, decide what they key on** — the camera and still paths may behave completely differently and are unmeasured.
+
+**▶ THE WATCHDOG WORKS.** `t=20 gl-context-lost · t=23 take:started · t=29 take:dead`. Take A `videoFrames: 0`, and the operator saw an error instead of a silent empty file.
+
 ### 📡 B670 — THE WALL'S RATE IS NOW IN THE SERIES, AND THE RESTART HYPOTHESIS IS DEAD
 
 **⚠️ CORRECTION, one turn old:** the "pre-existing broadcast, stopped and restarted" hypothesis is **disproven**. Daniel ran T3 back to back; both clean, including one that stopped a live broadcast, re-tiered and restarted it — the exact sequence blamed. **Four clean runs on B669, three losses before it, no isolated variable.** Not resolution, not thermal, not the restart. It is intermittent and unexplained, and the dead-take watchdog means it is no longer silent. **Chasing it is now lower value than the cost model.**

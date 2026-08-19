@@ -285,12 +285,28 @@ export function createVitals({ pressure = null, ledger = null, native = null, ou
     // actionable rather than ominous.
     warning() {
       const reasons = [];
+      // A run that has lost a fifth of its opening frame rate is degrading, whatever the cause.
+      // Shared by the thermal reason above so "serious" and "falling" cannot disagree.
+      const fadingFps = () => {
+        const f = session?.agg?.fps;
+        return !!(f && f.first > 0 && f.last < f.first * 0.8);
+      };
       // ⚠️ ALWAYS READ LIVE, never the last sample. A glanceable warning that is up to one sample
       // period stale while recording — and live when idle — would mean two different things
       // depending on a mode the reader cannot see. The trend reasons below are the only ones that
       // legitimately come from the session, because a trend is not a thing you can read instantly.
       const nat = readNative() || {};
-      if (nat.thermal === 'serious' || nat.thermal === 'critical') reasons.push(`thermal ${nat.thermal}`);
+      // ⚠️ 2026-08-19 — `serious` ALONE IS NOT A FINDING ON THIS HARDWARE, and T7 proved it. The
+      // M1 iPad sat at thermal `serious` for the ENTIRE 40-minute hands-off run — 100% of samples —
+      // while fps went 20.0 → 20.4 and the wall went 21.7 → 20.8. **Dead flat.** A warning that
+      // fires for forty minutes of a perfectly healthy run is noise, and noise in the one glanceable
+      // channel we have on device is worse than silence: the operator learns to ignore the line
+      // that is supposed to interrupt them.
+      //
+      // So `critical` always speaks, and `serious` only speaks when the run is ALSO losing frames.
+      // Level plus trend, which is the pair that actually means something.
+      if (nat.thermal === 'critical') reasons.push('thermal critical');
+      else if (nat.thermal === 'serious' && fadingFps()) reasons.push('thermal serious + fps falling');
       if (nat.availableMB != null && nat.availableMB < LOW_MEM_MB) reasons.push(`${nat.availableMB}MB headroom`);
       if (pressure && pressure.value >= 0.7) reasons.push(`pressure ${pressure.label} (${pressure.source})`);
       if (session) {
@@ -298,7 +314,18 @@ export function createVitals({ pressure = null, ledger = null, native = null, ou
         if (bad.length) reasons.push(`${bad.length} × ${bad.length === 1 ? bad[0].kind : 'device event'}`);
         // a run that has lost a fifth of its opening frame rate is degrading, whatever the cause
         const f = session.agg.fps;
-        if (f && f.first > 0 && f.last < f.first * 0.8) reasons.push(`fps ${f.first} → ${f.last}`);
+        if (fadingFps()) reasons.push(`fps ${f.first} → ${f.last}`);
+        // ⚠️ 2026-08-19 — LOSING CHARGE WHILE PLUGGED IN. Daniel predicted this ceiling before any
+        // instrument could see it: *"it's charging and outputting power at about the same rate even
+        // when mostly idling, so one limit in our sustained thermal scenario will be if we can't
+        // charge as fast as we output power."* Measured across three runs: 85% → 80% → 75% in ~58
+        // minutes, `power: charging` throughout. **An exhibit that ends this way shows nothing at
+        // all in the fps series — it just stops**, which is why this belongs in the glanceable line
+        // and not only in the export. A trend reason, so it legitimately comes from the session.
+        const b = session.agg.batteryPct;
+        if (b && b.last < b.first && nat.power === 'charging') {
+          reasons.push(`battery ${b.first}% → ${b.last}% WHILE CHARGING`);
+        }
       }
       return reasons.length ? { level: reasons.length > 1 ? 'bad' : 'warn', reasons } : null;
     },
