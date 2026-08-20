@@ -613,6 +613,24 @@ preview rate 1 → 22.73ms/frame     pip rate 1 → 11.47ms/frame     app 15fps
 
 **The decision this sharpens:** the governor's signal should probably be *per-surface-class* rather than one global choice — shed EDITOR surfaces on app shortfall, shed PROGRAM surfaces only on display shortfall. That is a different change from "scope it to bus destinations" and may supersede it.
 
+### 🌀 [OPEN — Daniel's question, 2026-08-19] DROSTE IS CENTRED AS A CIRCLE, NOT AS ITS VISIBLE WEDGE
+
+Daniel: *"I know the droste form has some bespoke JS — can you confirm those are all handled in your universal polygon shape detection?... for a droste segment where 1 = the entire circle and a higher count might be a narrow slice."*
+
+**Confirmed and it is worth writing down, because the answer is "by a deliberate design that predates B690, not by the anchor".**
+
+`droste.buildPolygon(state)` **ignores `state` entirely** — it returns a 32-point unit circle at every arm count, zoom and spiral. The true sampled outline lives in `ghostPaths(state)` (the annular wedge with twist-shifted inner arc and log-spiral sides), and **`formBoxCenter` deliberately does not read it.** `geometry.js` says why:
+
+> *"Collapsing them would break droste in the exact way Daniel reported: because the droste origin is far away from the slice, you can drag near the origin and push the slice itself entirely off canvas."*
+
+Two boxes, two questions: `formBoxCenter` (origin-seeded, `buildPolygon`) answers *"where should a freshly reset form sit"*; `sliceBoxCenter` (no seed, `ghostPaths`) answers *"is the visible slice still on screen"*.
+
+**So B690 cannot move droste** — proven in `anchor-check.mjs`: changing arms, droste zoom or spiral returns `false` from `syncSliceAnchor` and leaves the origin byte-identical. Only form / source aspect / frame aspect / mirror re-solve it, exactly as before.
+
+**⚠️ THE LATENT GAP, WHICH IS PRE-EXISTING AND NOT A REGRESSION:** at `arms ≥ 2` the visible annular wedge sits off to one side of that circle, so "centred" for droste means **the circle is centred, not the wedge**. A reset droste at arms=12 is therefore less centred than a reset radial. Daniel's intuition is right.
+
+**Do NOT fix it by pointing `formBoxCenter` at `ghostPaths`** — that is the collapse the note above forbids, and it would re-open the drag-off-canvas bug. The fix, if wanted, is for droste to declare an HONEST `buildPolygon` that tracks arms while still containing the origin, so both consumers stay correct. **That is a droste geometry change with its own verification pass, not a tidy-up.**
+
 ### 🖥 [OPEN — Daniel, 2026-08-19] THE PERMIT WORK IS PLATFORM-NEUTRAL. THE LIMITS ARE NOT.
 
 Daniel: *"is this iOS only or does this work carry over to electron... ideally our architecture could support an M1 iMac just as well as an M1 iPad."*

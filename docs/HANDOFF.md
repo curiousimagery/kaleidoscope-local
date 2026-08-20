@@ -49,6 +49,14 @@ getDeviceId: () => null,       // ...20 lines below, pre-existing, and it WINS
 
 **Daniel's un-reproducible third report is also explained:** a lens chosen while an external camera was selected survived the switch back, and `pickCamera`'s three named-lens cases returned `AVCaptureDevice.default(...)` **including nil**, which throws `"no camera device"` and fails the whole start. Fixed at both ends.
 
+### 🧭 B690 — THE SLICE ANCHOR (and what it deliberately does NOT cover)
+
+`syncSliceAnchor` (geometry.js) is now the ONE place the origin↔box-centre conversion happens. It watches inputs instead of guarding call sites, so B615 / B628 / B689 cannot recur at a call site nobody thought of. **Both chromes call it once per frame**, each with its own anchor object.
+
+**Signature = form · sourceAspect · frameAspect · sliceMirrorX/Y.** Deliberately NOT sliceScale, sliceRotation, segments or canvasZoom — those are live performance controls and motion animates them, so re-centring under them would slide the picture mid-adjustment and fight the timeline. **That line is a product decision, not an oversight.**
+
+**⚠️ DROSTE IS CENTRED AS A CIRCLE, NOT AS ITS VISIBLE WEDGE — and that is pre-existing.** `droste.buildPolygon` ignores state and returns a unit circle; the true outline is `ghostPaths`, which `formBoxCenter` deliberately does not read (collapsing them re-opens the drag-off-canvas bug — see BACKLOG). **B690 provably cannot move droste**: arms / droste zoom / spiral all return `false` from the anchor. See `anchor-check.mjs`.
+
 ### 🐛 B685 — THE CAMERA PICKER (a B684 regression, found on device by Daniel)
 
 **B684 taught the native camera to enumerate, and `refreshCameraDevices()` was already consuming that function under the OTHER shape.** Web returns `{ deviceId, label }`; native returns `{ id, label, kind }`. Every native option got `value = undefined`, and the native `start()` ignores `deviceId` anyway, so **every selection re-acquired the default camera.**
