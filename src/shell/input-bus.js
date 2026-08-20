@@ -31,8 +31,8 @@ import { createRemoteInput } from './remote-input.js';
 import qrcode from 'qrcode-generator';   // QR pairing (Daniel-approved dependency, MIT, zero-dep)
 import { applyUnifiedZoom, Z_CANVAS_MIN, Z_CANVAS_MAX } from '../kit/zoom.js';
 import { SLICE_MIN, SLICE_MAX } from '../engine/geometry.js';   // the one slice-scale range (B657)   // shared unified zoom — the canvas pinch routes here too
-import { panDelta } from '../kit/pan.js';            // shared canvas-pan gain — the remote drag pans identically to touch
-import { FORMS, getActiveForm, formPanLocked, formCanvasNorm, clampCanvasOffset } from '../engine/forms/index.js';   // pannability + the shader's effective zoom; FORMS builds the per-form mapping actions
+import { panFor } from '../kit/pan.js';            // shared canvas-pan gain — the remote drag pans identically to touch
+import { FORMS, getActiveForm, formPanLocked, formCanvasNorm, clampCanvasOffset, formPanBound } from '../engine/forms/index.js';   // pannability + the shader's effective zoom; FORMS builds the per-form mapping actions
 
 const STORE_KEY = 'fold-inputs-v1';
 
@@ -487,9 +487,11 @@ export function createInputBus(env) {
       // `PAN_GESTURE_SENS × 1.2` (here) were two hand-tuned constants covering for a missing zoom
       // term; both are gone. Any device of any size now honours one contract: drag across the
       // short side of the surface you are touching, content travels the short side of the canvas.
+      // B691 — bounded forms pan in RANGE units (kit/pan.js), the same split the local gesture makes
+      const pb = formPanBound(state);
       const [dx, dy] = kind === 'dragx'
-        ? panDelta(value, 0, state.canvasRotation, effZoom())
-        : panDelta(0, value, state.canvasRotation, effZoom());
+        ? panFor(value, 0, state.canvasRotation, effZoom(), pb)
+        : panFor(0, value, state.canvasRotation, effZoom(), pb);
       glideBy(targetOf('canvasOffsetX'), dx, REMOTE_GLIDE_TAU);
       glideBy(targetOf('canvasOffsetY'), dy, REMOTE_GLIDE_TAU);
       clampCanvasOffset(state);   // B688 — the same clamp the local gesture applies (kit rule: one behaviour, both surfaces)

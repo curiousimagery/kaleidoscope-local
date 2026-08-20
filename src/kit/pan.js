@@ -43,3 +43,36 @@ export function panDelta(fShortX, fShortY, canvasRotationDeg = 0, zoom = 1) {
   const g = 2 / Math.max(1e-4, zoom);
   return panToOffset(fShortX * g, fShortY * g, canvasRotationDeg);
 }
+
+// ⚠️ B691 — A BOUNDED PAN NEEDS A DIFFERENT GAIN, AND THE 1/zoom ABOVE IS WHY THE LAST TWO
+// ATTEMPTS FAILED.
+//
+// `panDelta`'s contract — "drag across the short side, content travels the short side" — is right
+// for a LATTICE form, which has no bound and wraps. On a BOUNDED form (radial, droste) the same
+// 1/zoom makes the gain explode as you zoom out:
+//
+//   zoom 0.25 · one full drag asks for 8.0 units against a bound of 2 → the wall arrives after a
+//               QUARTER of a drag, and every pixel of finger travel moves 4 units. **That is
+//               Daniel's "very jerky and barely moves off center": an enormous gain pinned against
+//               a wall it reaches almost immediately.**
+//   zoom 4    · one full drag asks for 0.5 against the same bound → four full drags to cross,
+//               which is his "works better... until it hits a wall".
+//
+// So B688 fixed the bound (it no longer moves under zoom, which killed the drift) and left the
+// gain wrong in the opposite direction at each end. **Both symptoms are one cause.**
+//
+// For a bounded form the natural unit is the RANGE, not the screen: a full-side drag moves you
+// `bound` units — half the total travel — at every zoom. Same feel zoomed in or out, no explosion,
+// and the wall is exactly two drags away instead of a quarter of one.
+export function panDeltaBounded(fShortX, fShortY, canvasRotationDeg = 0, bound = 1) {
+  const g = Math.max(1e-4, bound);
+  return panToOffset(fShortX * g, fShortY * g, canvasRotationDeg);
+}
+
+// The one call every pan surface should make. `bound` null/undefined = an unbounded lattice form,
+// which keeps the screen-proportional contract; a number = a bounded form, which gets range units.
+export function panFor(fShortX, fShortY, canvasRotationDeg = 0, zoom = 1, bound = null) {
+  return bound == null
+    ? panDelta(fShortX, fShortY, canvasRotationDeg, zoom)
+    : panDeltaBounded(fShortX, fShortY, canvasRotationDeg, bound);
+}

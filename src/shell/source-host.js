@@ -24,7 +24,7 @@ import { seekVideoTo, createVideoElementClock } from './video-source.js';
 import { zipStore } from './zip.js';
 import { createSaveFlow } from './save-flow.js';
 import { getActiveForm } from '../engine/index.js';
-import { formBoxCenter, placeFormBox } from '../engine/geometry.js';
+import { formBoxCenter, placeFormBox, centerFormInSource } from '../engine/geometry.js';
 import { acquireSession, releaseSession } from 'conduit/sessions';
 
 // The token lives on the element itself so a release cannot be aimed at the wrong one when two
@@ -522,16 +522,30 @@ export function createSourceHost(env) {
   // selectable, **nothing in the app could change the source aspect without also re-centring.**
   // The USB webcam is the first source that can, and it found this immediately.
   function attachCameraSource() {
-    const before = formBoxCenter(getActiveForm(env.state), env.state,
-      engine.getSourceAspect?.() || 1);
+    // ⚠️ B691 — PRESERVE ONLY IF THERE IS SOMETHING WORTH PRESERVING.
+    // B689 always preserved, which faithfully carried forward the DEFAULT origin when the camera
+    // was the session's first source — and the default origin is 0.5, which centres the APEX, not
+    // the shape. Daniel: *"if, on a new session, i start with the web cam, it loads [off-centre]...
+    // if i upload a new still or motion source to replace the live cam it corrects."* Exactly so:
+    // a file load runs `resetSliceState`, which centres properly, and from then on there was a good
+    // value to carry. **The camera path has never centred on first load** — B689 fixed aspect
+    // CHANGES and left first-load alone, so this was pre-existing and only surfaced now because a
+    // webcam is the first reason to open a session on the camera.
+    const hadSource = !!engine.getSourceImage?.();
+    const before = hadSource
+      ? formBoxCenter(getActiveForm(env.state), env.state, engine.getSourceAspect?.() || 1)
+      : null;
     engine.setSource(camera.frameSource());
     if (cameraIsNative && camera.planeReader) engine.setPlanarSource(camera.planeReader(), 0);
     else engine.setPlanarSource(null);
     const after = engine.getSourceAspect?.() || 1;
-    // Keep the box centre where it was, and re-solve the origin that achieves it under the new
-    // aspect. A no-op when the aspect did not move, which is every path except a camera swap.
+    const form = getActiveForm(env.state);
     if (before) {
-      Object.assign(env.state, placeFormBox(getActiveForm(env.state), env.state, after, before.x, before.y));
+      // an established composition: keep the box where it was, re-solved for the new aspect
+      Object.assign(env.state, placeFormBox(form, env.state, after, before.x, before.y));
+    } else {
+      // the session's FIRST source: centre it, the same thing a file load does
+      Object.assign(env.state, centerFormInSource(form, env.state, after));
     }
   }
 

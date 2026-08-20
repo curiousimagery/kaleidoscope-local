@@ -6,6 +6,47 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🚧 v0.26.31 (Build 691) — 2026-08-19 — The camera's first source centres, and a bounded pan gets a bounded gain
+
+**JS only.**
+
+### Shipped
+
+- **Starting a session on the camera centres the slice.** It never has.
+- **Radial pan uses a range-relative gain**, so the feel is the same at every zoom.
+
+### 1 — preserve only if there is something worth preserving
+
+Daniel: *"if, on a new session, i start with the web cam, it loads [off-centre]... if i upload a new still or motion source to replace the live cam it corrects, and the fix persists."*
+
+**Exactly right, and it names the cause.** B689 made `attachCameraSource` *preserve* the box centre across an aspect change — and when the camera is the session's FIRST source there is nothing worth preserving, so it faithfully carried forward the default origin of 0.5. **The default origin centres the APEX, not the shape.** A file load runs `resetSliceState`, which centres properly; from then on there was a good value to carry, which is why replacing the camera with a file fixed it permanently.
+
+**The camera path has never centred on first load.** B689 fixed aspect *changes* and left first-load alone, so this is pre-existing — surfaced now only because a webcam is the first reason to open a session on the camera.
+
+Now: an established composition is preserved; **the session's first source is centred**, the same thing a file load does.
+
+### 2 — a bounded pan needs a bounded gain, and this is the third attempt
+
+```
+full-side drag on a bounded form — drags needed to reach the wall
+zoom    B688      B691
+0.25    0.25      1.00
+0.5     0.50      1.00
+1       1.00      1.00
+2       2.00      1.00
+4       4.00      1.00
+```
+
+`panDelta`'s contract — *drag across the short side, content travels the short side* — is right for a LATTICE form, which has no bound and wraps. **On a bounded form the same `1/zoom` makes the gain explode as you zoom out:** at 0.25x a full drag asks for 8.0 units against a bound of 2, so the wall arrives after a QUARTER of a drag and every pixel of finger travel moves four units. **That is Daniel's *"very jerky and barely moves off center"*: an enormous gain pinned against a wall it reaches immediately.** At 4x the same drag asks 0.5, needing four drags — his *"works better... until it hits a wall"*.
+
+**Both symptoms, opposite ends, one cause.** B688 fixed the *bound* (it no longer moves under zoom, which killed the drift) and left the *gain* wrong in both directions.
+
+For a bounded form the natural unit is the RANGE, not the screen: `panDeltaBounded` moves `bound` units per full-side drag at every zoom. **Same feel zoomed in or out, and the wall is a consistent distance away instead of anywhere between a quarter of a drag and four.** Lattice forms keep the old gain exactly, asserted in `pan-check.mjs`.
+
+`formPanBound(state)` is the single place a surface asks which gain applies, so the two cannot be picked wrongly. Both the touch path and the wheel path in `output-gestures.js`, plus the remote `input-bus.js`, route through `panFor`.
+
+---
+
 ## 🚧 v0.26.30 (Build 690) — 2026-08-19 — One place keeps the shape centred, and the loop cache sizes itself
 
 **⚠️ NEEDS AN XCODE BUILD** (one Swift change; parses clean).

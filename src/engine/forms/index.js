@@ -128,6 +128,13 @@ export function formOffsetBound(state) {
 // the operator concludes the control is broken. Call this wherever canvasOffset is written.
 // Lattice forms are untouched: their offset wraps mod the lattice period and is MEANT to accumulate
 // unwrapped so followers and tweens stay smooth.
+// The pan BOUND for the active form, or null when it has none (a lattice form wraps instead).
+// The one place a pan surface should ask, so `kit/pan.js`'s two gains cannot be picked wrongly.
+export function formPanBound(state) {
+  const form = getActiveForm(state);
+  return form?.latticePeriod ? null : formOffsetBound(state);
+}
+
 export function clampCanvasOffset(state) {
   const form = getActiveForm(state);
   if (form?.latticePeriod) return;

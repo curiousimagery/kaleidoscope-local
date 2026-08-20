@@ -21,8 +21,8 @@
 //   }) → { destroy() }
 
 import { applyUnifiedZoom } from '../kit/zoom.js';   // shared: EVERY zoom entry point routes through this
-import { panToOffset, panDelta } from '../kit/pan.js';   // shared: EVERY pan entry point routes through these
-import { formCanvasNorm, clampCanvasOffset } from '../engine/forms/index.js';   // the shader's effective zoom includes it
+import { panToOffset, panFor } from '../kit/pan.js';   // shared: EVERY pan entry point routes through these
+import { formCanvasNorm, clampCanvasOffset, formPanBound } from '../engine/forms/index.js';   // the shader's effective zoom includes it
 import { LEAD_CAP } from '../kit/follow.js';         // the follower's own bound — never duplicate it here
 
 export function createOutputGestures(canvas, ctx) {
@@ -89,7 +89,8 @@ export function createOutputGestures(canvas, ctx) {
   const effZoom = () => state.canvasZoom * formCanvasNorm(state);
   const panFrom = (dx, dy, rect) => {
     const short = Math.max(1, Math.min(rect.width, rect.height));
-    return panDelta(dx / short, dy / short, state.canvasRotation, effZoom());
+    // B691 — bounded forms pan in RANGE units, lattice forms keep the screen-proportional gain
+    return panFor(dx / short, dy / short, state.canvasRotation, effZoom(), formPanBound(state));
   };
 
   function onStart(e) {
@@ -195,7 +196,10 @@ export function createOutputGestures(canvas, ctx) {
       // unknown factor, so there is no derivable "correct" constant the way there is for raw
       // touch. That makes this a NO-OP at 1× and a fix only where pan was already wrong —
       // the zoomed-in runaway and the zoomed-out crawl.
-      const wz = Math.max(1e-4, state.canvasZoom * formCanvasNorm(state));
+      // B691 — same split as the touch path: a bounded form pans in range units, so its 1/zoom
+      // gain (which explodes when zoomed out against a fixed bound) does not apply here either.
+      const b = formPanBound(state);
+      const wz = b == null ? Math.max(1e-4, state.canvasZoom * formCanvasNorm(state)) : 2 / Math.max(1e-4, b);
       const [cdx, cdy] = pan(-e.deltaX / (rect.width / 2) / wz, -e.deltaY / (rect.height / 2) / wz);
       state.canvasOffsetX += cdx;
       state.canvasOffsetY += cdy;
