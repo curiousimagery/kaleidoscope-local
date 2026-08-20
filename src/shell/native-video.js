@@ -55,9 +55,14 @@ export function getNativeStartError() { return lastStartError; }
 // THE LOOP-CACHE BUDGET, in MB. Lives here rather than in the plugin's `start` because the whole
 // point is comparing 64 against 128 while the same clip loops (Daniel, B605) — read live, pushed
 // over the bridge on every change. 0 disables the cache, which is the A/B's off arm.
+// ⚠️ B690 — the default is 256 and it is a CEILING, not an allocation. The plugin sizes the fill
+// from the measured lap (`headSeconds`, derived from `maxSwapGapMs`) and stops; B608 measured a
+// 256MB budget holding 94MB. Kept in sync with main.js's CACHE_DEFAULT_MB by hand — two constants,
+// one meaning, and the diagnostics label reads from the same key either way.
+const CACHE_DEFAULT_MB = 256;
 export function loopCacheMB() {
-  try { const v = localStorage.getItem('foldLoopCacheMB'); return v == null ? 64 : Math.max(0, parseInt(v, 10) || 0); }
-  catch { return 64; }
+  try { const v = localStorage.getItem('foldLoopCacheMB'); return v == null ? CACHE_DEFAULT_MB : Math.max(0, parseInt(v, 10) || 0); }
+  catch { return CACHE_DEFAULT_MB; }
 }
 export function pushLoopCacheBudget() {
   if (!nativeVideoAvailable()) return;

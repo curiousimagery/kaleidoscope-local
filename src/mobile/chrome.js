@@ -35,7 +35,7 @@ import { createFollower } from '../kit/follow.js';
 import { createAutoDrift } from '../kit/drift.js';
 import { ICONS } from './icons.js';
 import { applyArmsSnap, snapSpiralValue } from '../kit/snaps.js';
-import { resetSliceState, formBoxCenter, sliceBoxCenter } from '../engine/geometry.js';   // B619: the shared slice reset — mobile had a stale partial copy
+import { resetSliceState, formBoxCenter, sliceBoxCenter, syncSliceAnchor } from '../engine/geometry.js';   // B619: the shared slice reset — mobile had a stale partial copy
 import { createMotionProbe } from '../kit/motion-probe.js';   // B619: droste-runaway probe, armed by ?probe=motion
 
 // B619 — every path that establishes a NEW SOURCE calls this, matching what source-host.js does on
@@ -287,11 +287,17 @@ function scheduleRender() {
   requestAnimationFrame(() => {
     renderScheduled = false;
     normalizeSliceMirror(env);   // B635 — the slice fold; see the twin call in main.js for why it lives at the render schedule
+    // B690 — the slice anchor, the twin of main.js's call. **Both chromes, because a behaviour in
+    // one and not the other is the single most repeated bug in this codebase.** Its state is
+    // caller-owned so the two chromes cannot share a stale signature.
+    syncSliceAnchor(sliceAnchor, state, getActiveForm(state),
+      engine.getSourceAspect?.() || 1, session.frameAspect || 1);
     if (engine.getSourceImage()) engine.render(state);
     sourceOverlay.render();
   });
 }
 env.scheduleRender = scheduleRender;
+const sliceAnchor = {};   // B690 — this chrome's own anchor state (see geometry.js syncSliceAnchor)
 
 // ----------------------------------------------------------------- components
 // Native camera (real AVCaptureSession + EV/WB/lens/48MP) whenever the host offers

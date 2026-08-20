@@ -6,6 +6,50 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🚧 v0.26.30 (Build 690) — 2026-08-19 — One place keeps the shape centred, and the loop cache sizes itself
+
+**⚠️ NEEDS AN XCODE BUILD** (one Swift change; parses clean).
+
+### Shipped
+
+- **`syncSliceAnchor`** — the origin/box-centre conversion happens in ONE place, watching inputs rather than guarding call sites.
+- **The loop cache asks for what the measured lap costs**, floored at today's value, ceilinged at 0.6s, with the budget raised to 256MB as a pure safety bound.
+
+### 1 — the fault line, closed rather than patched again
+
+Daniel: *"we need our controls to be durable to support new forms and revisions to existing forms without manually finding all the possible leaks."*
+
+`sliceCx/Cy` stores the **ORIGIN**; what a person cares about is the **BOX CENTRE**. The conversion depends on several inputs, and **every time one changed at a call site nobody had thought of, the shape went silently off-centre.** Three bugs, one fault line:
+
+```
+B615  a FORM switch carried the origin verbatim — every non-rectangle sat right of centre
+B628  a box wider than the source is off-image however it is placed
+B689  a CAMERA swap changed the source aspect and nothing re-solved
+```
+
+Each was fixed at its own call site, which does not survive the next call site. **`syncSliceAnchor` watches the inputs instead**, from one point both chromes call once per frame. A new form declares `buildPolygon` and inherits this for free — `formBoxCenter` already derives everything from the polygon.
+
+**⚠️ WHAT IS DELIBERATELY EXCLUDED, AND IT IS A PRODUCT DECISION.** The box centre also moves with `sliceScale`, `sliceRotation`, `segments` and (on radial) `canvasZoom`. **Those are live performance controls.** Re-centring under them would slide the picture sideways while a performer adjusts it — a worse bug than the one this fixes — and motion keyframes animate them, so the anchor would fight the timeline every frame. **The line is structural-versus-performed:** what the form IS, what shape the source and frame are, and handedness.
+
+**It tracks; it does not impose.** A deliberate drag changes the origin without changing the signature, so it sticks. 13 assertions in `anchor-check.mjs`, including the three historical bugs, the four non-goals, and "a drag is not undone".
+
+### 2 — the loop cache sizes itself from the lap it has to cover
+
+`headSeconds` was a flat **0.22s**, sized when the measured lap was 141-158ms on a 20.4s clip. **T9 measured a 325ms lap on a 6:39 clip** — the item swap scales with clip length. At 0.22 the cache could never cover it, and the panel advised raising a budget that could not help, **because `headSeconds` was the binding limit rather than the bytes.**
+
+Now derived: `min(0.60, max(0.22, maxSwapGapMs × 1.5))`.
+
+- **Floored at the old constant**, so no clip that works today asks for less.
+- **×1.5 margin** because the gap varies lap to lap.
+- **Ceilinged at 0.6s** so a pathological reading cannot run away.
+- The first lap has no measurement; the floor covers it and the second lap sizes correctly.
+
+**The budget default moves 64MB → 256MB, and it stays a CEILING.** B608 measured a 256MB budget holding 94MB and stopping. Checked against the record rather than memory: **there is no logged instance of a larger budget causing instability**, and the "64 stuttery / 256 seamless" reading was retracted at B608 as a test-order artifact. On the measured device this is ~130MB against ~4.9GB free.
+
+**And the sizing is now visible rather than inferred** — `loopCache.headTargetMs` plus `headTargetFrom` (`"measured lap 325ms x1.5"` or `"floor (no lap measured yet)"`). Without it, `heldMB` well under `budgetMB` is ambiguous between "sized correctly" and "gave up early", and those want opposite responses.
+
+---
+
 ## 🚧 v0.26.29 (Build 689) — 2026-08-19 — The slice is re-solved when the source aspect changes
 
 **JS only. High priority — Daniel reported the shape rendering off-centre.**

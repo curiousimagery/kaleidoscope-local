@@ -19,7 +19,9 @@ import { confirmInterrupt } from './shell/interrupt.js';   // non-blocking destr
 import { zipStore } from './shell/zip.js';                 // clip package (source + motion JSON)
 import { createEngine, allEngines } from './engine/index.js';
 import { normalizeSliceMirror } from './shell/overlay.js';   // B635 — the slice fold, called at the render schedule
-import { resetSliceState, formBoxCenter, sliceBoxCenter } from './engine/geometry.js';   // B619: the shared slice reset (box centring + frame-relative orientation), also used by the mobile chrome
+import { resetSliceState, formBoxCenter, sliceBoxCenter, syncSliceAnchor } from './engine/geometry.js';
+// B690 — this chrome's own anchor state for syncSliceAnchor; the mobile chrome keeps its own.
+const sliceAnchor = {};
 import { createMotionProbe } from './kit/motion-probe.js';   // B619: droste-runaway probe, armed by ?probe=motion
 import { createSourceOverlay } from './components/source-overlay.js';
 import { createOutputGestures } from './components/output-gestures.js';
@@ -629,6 +631,14 @@ function scheduleRender() {
     // the same call in mobile/chrome.js. It is pixel-preserving, so it can never change what is
     // about to be drawn, only which of several identical descriptions of it we are holding.
     normalizeSliceMirror(env);
+    // ⚠️ B690 — ONE PLACE THAT KEEPS THE SHAPE CENTRED. `sliceCx/Cy` is an ORIGIN and the thing a
+    // person cares about is the BOX CENTRE; three bugs (B615 form switch, B628 oversized box, B689
+    // camera aspect) were each fixed at their own call site, which does not survive the next call
+    // site nobody thought of. This watches the structural inputs instead. See geometry.js.
+    if (engine) {
+      syncSliceAnchor(sliceAnchor, state, getActiveForm(state),
+        engine.getSourceAspect?.() || 1, session.frameAspect || 1);
+    }
     if (engine && engine.getSourceImage()) {
       // the switchboard mutates perfFlags in place, so the engine is told each render rather
       // than at construction (the setter is idempotent — see engine/index.js)
@@ -1834,17 +1844,27 @@ function wireGlobalSheets() {
   // THE LOOP CACHE'S BUDGET (B605). Same cycling-button pattern as source detail, and live for
   // the same reason it is a knob at all: Daniel's ask was to raise it mid-loop and watch what
   // changes, rather than bisect it across builds. `off` is the A/B's control arm.
-  const CACHE_MB = [64, 128, 256, 0, 32];
+  // ⚠️ B690 — THE DEFAULT IS NOW THE CEILING, NOT THE ALLOCATION. `budgetMB` was always a ceiling
+  // (B608: a 256MB budget held 94MB and stopped), and pairing it with a `headSeconds` derived from
+  // the measured lap makes it a pure safety bound — the cache asks for what the lap costs and no
+  // more. Checked against the record rather than memory: **there is no logged instance of a larger
+  // budget causing instability**, and the "64 stuttery / 256 seamless" reading was retracted at
+  // B608 as a test-order artifact. On the measured device this is ~130MB against ~4.9GB free.
+  //
+  // 256 leads the cycle so the ladder's top is the default; the smaller rungs stay for A/B, and
+  // `off` remains the control arm.
+  const CACHE_MB = [256, 128, 64, 0, 32];
+  const CACHE_DEFAULT_MB = 256;
   const cacheBtn = document.getElementById('loopCacheBudget');
   if (cacheBtn) {
-    const readMB = () => { try { const v = localStorage.getItem('foldLoopCacheMB'); return v == null ? 64 : Math.max(0, parseInt(v, 10) || 0); } catch { return 64; } };
+    const readMB = () => { try { const v = localStorage.getItem('foldLoopCacheMB'); return v == null ? CACHE_DEFAULT_MB : Math.max(0, parseInt(v, 10) || 0); } catch { return CACHE_DEFAULT_MB; } };
     const syncCache = () => {
       const v = readMB();
       cacheBtn.classList.toggle('active', v > 0);
       cacheBtn.textContent = `loop cache: ${v > 0 ? v + 'MB' : 'off'}`;
     };
     cacheBtn.addEventListener('click', async () => {
-      const next = CACHE_MB[(CACHE_MB.indexOf(readMB()) + 1) % CACHE_MB.length] ?? 64;
+      const next = CACHE_MB[(CACHE_MB.indexOf(readMB()) + 1) % CACHE_MB.length] ?? CACHE_DEFAULT_MB;
       try { localStorage.setItem('foldLoopCacheMB', String(next)); } catch { /* private mode */ }
       try { (await import('./shell/native-video.js')).pushLoopCacheBudget(); } catch { /* not on iOS */ }
       syncCache();

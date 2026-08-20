@@ -124,6 +124,71 @@ export function placeFormBox(form, state, sourceAspect, tx = 0.5, ty = 0.5) {
 export const centerFormInSource = (form, state, sourceAspect) => placeFormBox(form, state, sourceAspect, 0.5, 0.5);
 
 // ===========================================================================
+// THE SLICE ANCHOR — one place that keeps the shape centred (B690)
+// ===========================================================================
+//
+// ⚠️ WHY THIS EXISTS. `sliceCx/Cy` stores the ORIGIN; the quantity a person cares about is the
+// BOX CENTRE ("which part of the image am I sampling"). The conversion between them depends on
+// several inputs, and **every time one of those inputs changed at a call site nobody had thought
+// of, the shape silently went off-centre.** That is three separate bugs on the same fault line:
+//
+//   B615  a FORM switch carried the origin verbatim — every non-rectangle sat right of centre
+//   B628  a box wider than the source is off-image however it is placed
+//   B689  a CAMERA swap changed the source aspect and nothing re-solved
+//
+// Each was fixed at its own call site. **That approach does not survive a new form or a new way
+// of changing a source** — which is Daniel's point: *"we need our controls to be durable to
+// support new forms and revisions to existing forms without manually finding all the possible
+// leaks."*
+//
+// So this does not guard a call site. It watches the INPUTS and re-solves when they move, from one
+// place both chromes call. **A new form gets this for free** — it declares `buildPolygon` and the
+// signature picks it up, because `formBoxCenter` already derives everything from that polygon.
+//
+// ⚠️ WHAT IS DELIBERATELY NOT IN THE SIGNATURE, AND WHY. `formBoxCenter` also moves with
+// `sliceScale`, `sliceRotation`, `segments` and (for radial) `canvasZoom`. Those are LIVE
+// PERFORMANCE CONTROLS. Re-centring under them would slide the picture sideways while a performer
+// is adjusting it, which is a worse bug than the one this fixes — and motion keyframes animate
+// them, so the anchor would fight the timeline every frame. **The line is structural-vs-performed:
+// what the form IS, what shape the source and frame are, and handedness.** A change to that line
+// is a product decision, not a bug fix.
+function anchorSignature(state, sourceAspect, frameAspect) {
+  return [
+    state.form,
+    Math.round((sourceAspect || 1) * 1e4),
+    Math.round((frameAspect || 1) * 1e4),
+    state.sliceMirrorX ?? 1,
+    state.sliceMirrorY ?? 1,
+  ].join('|');
+}
+
+// Call once per frame, before render. Cheap: a string compare on the common path.
+// `anchor` is caller-owned state ({} is fine) so each chrome keeps its own, and a fresh object
+// simply adopts whatever is on screen rather than jumping on the first frame.
+export function syncSliceAnchor(anchor, state, form, sourceAspect, frameAspect) {
+  const sig = anchorSignature(state, sourceAspect, frameAspect);
+  const box = formBoxCenter(form, state, sourceAspect);
+  if (!box) return false;
+  // First sight, or an unchanged signature: just remember where the box is. This is what lets a
+  // deliberate pan/drag stick — we track the centre, we do not impose one.
+  if (anchor.sig !== sig) {
+    const had = anchor.sig !== undefined;
+    if (had && anchor.x != null) {
+      Object.assign(state, placeFormBox(form, state, sourceAspect, anchor.x, anchor.y));
+      anchor.sig = sig;
+      const moved = formBoxCenter(form, state, sourceAspect);
+      anchor.x = moved ? moved.x : anchor.x;
+      anchor.y = moved ? moved.y : anchor.y;
+      return true;                     // re-solved
+    }
+    anchor.sig = sig;
+  }
+  anchor.x = box.x;
+  anchor.y = box.y;
+  return false;
+}
+
+// ===========================================================================
 // THE SAMPLED BOX — "the slice you can actually see" (B635)
 // ===========================================================================
 //

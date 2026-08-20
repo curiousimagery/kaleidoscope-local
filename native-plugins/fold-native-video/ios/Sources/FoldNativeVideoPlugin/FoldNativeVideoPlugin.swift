@@ -136,9 +136,24 @@ public class FoldNativeVideoPlugin: CAPPlugin, CAPBridgedPlugin {
     private var headCache: [CachedFrame] = []
     private var headBytes = 0
     private var cacheBudget = 64 * 1024 * 1024
-    // 0.22 bounds the 4K cost: the measured lap is 141-158ms, and a 4K frame is ~12.4MB, so this
-    // is ~7 frames ≈ 87MB rather than the ~112MB that 0.30 was asking for.
-    private let headSeconds = 0.22
+    // ⚠️ B690 — HOW MUCH HEAD TO KEEP IS NOW DERIVED FROM THE MEASURED LAP, NOT A CONSTANT.
+    //
+    // This was a flat 0.22s, sized when the measured lap was 141-158ms on a 20.4s clip. **T9 then
+    // measured a 325ms lap on a 6:39 clip** — the AVPlayerLooper item swap scales with clip length
+    // (a longer movie is a bigger index to re-open). At 0.22 the cache could never cover it, and
+    // the panel correctly advised raising a budget that could not help, because `headSeconds` was
+    // the binding limit rather than the bytes.
+    //
+    // So: **ask for what the lap actually costs**, floored at the old constant so no clip that
+    // works today asks for less, and ceilinged so a pathological reading cannot run away.
+    // `swapGapMs` is already measured every lap; the first lap has none, so the floor covers it and
+    // the second lap sizes correctly. +1.5x margin because the gap varies lap to lap.
+    private let headSecondsFloor = 0.22
+    private let headSecondsCeil = 0.60
+    private var headSeconds: Double {
+        guard maxSwapGapMs > 0 else { return headSecondsFloor }
+        return min(headSecondsCeil, max(headSecondsFloor, Double(maxSwapGapMs) * 1.5 / 1000.0))
+    }
     private let cacheLock = NSLock()
     // replay state — `replayFedPts` also suppresses live frames we have already shown from cache,
     // so the content never goes backwards when the decoder finally catches up
@@ -551,6 +566,11 @@ public class FoldNativeVideoPlugin: CAPPlugin, CAPBridgedPlugin {
             "firstPts": (firstPts * 1000).rounded() / 1000,
             "lastPts": (lastPts * 1000).rounded() / 1000,
             "frameIntervalMs": Int(frameInterval * 1000),
+            // B690 — WHAT THE CACHE ASKED FOR AND WHY. Without this, a budget that is no longer
+            // binding is indistinguishable from one that is: `heldMB` well under `budgetMB` could
+            // mean "sized correctly" or "gave up early", and those want opposite responses.
+            "headTargetMs": Int(headSeconds * 1000),
+            "headTargetFrom": maxSwapGapMs > 0 ? "measured lap \(maxSwapGapMs)ms x1.5" : "floor (no lap measured yet)",
             "lapsCovered": lapsCovered,
             "lastReplayFrames": lastReplayFrames,
             "why": cacheBudget == 0 ? "disabled from the frame-cost panel"
