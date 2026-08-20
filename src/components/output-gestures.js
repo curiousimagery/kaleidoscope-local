@@ -21,7 +21,7 @@
 //   }) → { destroy() }
 
 import { applyUnifiedZoom } from '../kit/zoom.js';   // shared: EVERY zoom entry point routes through this
-import { panToOffset, panFor } from '../kit/pan.js';   // shared: EVERY pan entry point routes through these
+import { panToOffset, panFor, notePan } from '../kit/pan.js';   // shared: EVERY pan entry point routes through these
 import { formCanvasNorm, clampCanvasOffset, formPanBound } from '../engine/forms/index.js';   // the shader's effective zoom includes it
 import { LEAD_CAP } from '../kit/follow.js';         // the follower's own bound — never duplicate it here
 
@@ -148,9 +148,15 @@ export function createOutputGestures(canvas, ctx) {
       const rect = canvas.getBoundingClientRect(), now = performance.now();
       const cx = (t0.clientX + t1.clientX) / 2, cy = (t0.clientY + t1.clientY) / 2;
       const [cdx, cdy] = panFrom(cx - manip.cx0, cy - manip.cy0, rect);
-      state.canvasOffsetX = manip.ox + cdx;
-      state.canvasOffsetY = manip.oy + cdy;
+      const wantX = manip.ox + cdx, wantY = manip.oy + cdy;
+      state.canvasOffsetX = wantX;
+      state.canvasOffsetY = wantY;
       clampCanvasOffset(state);   // B688 — state and render must agree, or the pan reads as dead
+      // B692 — what was asked for vs what stuck. See kit/pan.js `notePan` for what each case means.
+      notePan({ src: 'touch', zoom: +effZoom().toFixed(3), bound: formPanBound(state),
+        askedX: +wantX.toFixed(4), gotX: +(state.canvasOffsetX || 0).toFixed(4),
+        askedY: +wantY.toFixed(4), gotY: +(state.canvasOffsetY || 0).toFixed(4),
+        clamped: wantX !== state.canvasOffsetX || wantY !== state.canvasOffsetY });
       const dtms = now - manip.lastT;   // centroid velocity (same transform) → flick-to-drift on release
       if (dtms > 0) {
         const [vx, vy] = panFrom(cx - manip.lastCx, cy - manip.lastCy, rect);

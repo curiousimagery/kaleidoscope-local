@@ -31,6 +31,7 @@
 import { perfFlags, PERF_FLAG_SPECS, PERF_FLAG_DEFAULTS } from './perf-flags.js';
 import { wakeLockState } from '../kit/wake-lock.js';
 import { sessionReport } from 'conduit/sessions';
+import { panProbe } from '../kit/pan.js';
 import { externalGuardState } from './external-display.js';
 
 const BASELINE_KEY = 'foldPerfBaseline';
@@ -418,6 +419,9 @@ export function mountPerfPanel(env, { container = null, onClose = null } = {}) {
       // CAN hold; only this can say what a run DID hold when it fell over — which is the number a
       // computed capability gate has to key on instead of a device table.
       sessions: sessionReport(),
+      // B692 — the pan probe. Null unless a pan actually ran this session. Three builds have tried
+      // to fix radial pan by reasoning; this is the measurement that separates the candidates.
+      pan: panProbe() || undefined,
       // B619 — WHICH FIELD IS STILL MOVING, AND WAS ANYTHING ALLOWED TO MOVE IT. Armed by
       // `?probe=motion`; absent otherwise. Built for the droste infinite-zoom loop, where four
       // mechanisms have been eliminated by reading and the investigation reached a contradiction:

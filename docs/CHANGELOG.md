@@ -6,6 +6,40 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🚧 v0.26.32 (Build 692) — 2026-08-19 — A pan probe, because three attempts have been reasoned and none measured
+
+**JS only. No behaviour change — this build adds an instrument and nothing else.**
+
+### Shipped
+
+- **`pan` in the exported report**: what each pan application ASKED for and what the state BECAME.
+
+### Why an instrument instead of a fourth fix
+
+Three attempts at radial pan, two wrong:
+
+```
+B683  the bound was flat ±1 and saturated  → made it zoom-dependent
+B688  that bound moved under zoom, causing drift + dead pan → made it constant
+B691  the GAIN still carried 1/zoom against a fixed bound → made it range-relative
+```
+
+Each was a real defect with a real fix, and each time the symptom changed rather than cleared.
+
+**Daniel's report after B691 is the one that stops this:** *"less able to move after already moving a bit away from center."* **That is progressive resistance, and no model proposed so far predicts it.** A constant gain against a hard bound gives linear travel and then a stop, never increasing drag. So the honest uncertainty state is A — *do not know what* — and the only legal move in state A is instrumentation.
+
+### What it separates, in one drag
+
+The probe records `askedX/Y` (the delta the gain produced) against `gotX/Y` (what the state became after clamping), with the live `zoom` and `bound`:
+
+- **`asked` shrinking as `|offset|` grows** → something scales the gain by displacement. Nothing in `kit/pan.js` does that, so it would be a caller — and that is a fourth place nobody has looked.
+- **`asked` steady but `got` < `asked`** → the clamp bites early; a bound problem after all, and the bound is now cleanly separable from the gain.
+- **`asked` steady, `got == asked`, and the picture still does not move** → `canvasOffset` is not what moves the image here, and every fix so far has been aimed at the wrong quantity.
+
+24-entry ring, plain numbers, written only while a pan is running. **One drag on device answers it.**
+
+---
+
 ## 🚧 v0.26.31 (Build 691) — 2026-08-19 — The camera's first source centres, and a bounded pan gets a bounded gain
 
 **JS only.**

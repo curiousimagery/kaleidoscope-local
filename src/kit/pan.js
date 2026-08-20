@@ -71,6 +71,32 @@ export function panDeltaBounded(fShortX, fShortY, canvasRotationDeg = 0, bound =
 
 // The one call every pan surface should make. `bound` null/undefined = an unbounded lattice form,
 // which keeps the screen-proportional contract; a number = a bounded form, which gets range units.
+// ⚠️ THE PAN PROBE (B692) — because three attempts at this bug have been reasoned, not measured.
+//
+// Daniel's symptom after B691 is *"less able to move after already moving a bit away from center"*,
+// and **no model proposed so far predicts progressive resistance**: a constant gain against a hard
+// bound gives linear travel then a stop, not increasing drag. So the next move is not another fix.
+//
+// This records what each pan application actually ASKED for and what the state actually BECAME.
+// The gap between those two numbers is the whole question, and it separates the three live
+// candidates in one drag:
+//   • `asked` shrinking as |offset| grows      → something is scaling the gain by displacement
+//   • `asked` steady but `got` < `asked`       → the clamp is biting early (a bound problem)
+//   • `asked` steady, `got` == `asked`, but the PICTURE does not move → the offset is not what
+//     moves the image, and the bug is downstream of everything examined so far
+//
+// Always on: it is a 24-entry ring of plain numbers, written only while a pan is actually running.
+const PAN_TRAIL = 24;
+const panTrail = [];
+export function notePan(entry) {
+  panTrail.push({ at: Math.round(performance.now()), ...entry });
+  if (panTrail.length > PAN_TRAIL) panTrail.shift();
+}
+export function panProbe() {
+  if (!panTrail.length) return null;
+  return { note: 'asked = the delta the gain produced; got = what state became after clamping', trail: panTrail.slice() };
+}
+
 export function panFor(fShortX, fShortY, canvasRotationDeg = 0, zoom = 1, bound = null) {
   return bound == null
     ? panDelta(fShortX, fShortY, canvasRotationDeg, zoom)

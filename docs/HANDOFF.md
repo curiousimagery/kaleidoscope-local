@@ -49,6 +49,30 @@ getDeviceId: () => null,       // ...20 lines below, pre-existing, and it WINS
 
 **Daniel's un-reproducible third report is also explained:** a lens chosen while an external camera was selected survived the switch back, and `pickCamera`'s three named-lens cases returned `AVCaptureDevice.default(...)` **including nil**, which throws `"no camera device"` and fails the whole start. Fixed at both ends.
 
+### 🔴 PICK UP HERE — RADIAL PAN IS UNSOLVED AFTER THREE ATTEMPTS. B692 ADDED THE INSTRUMENT.
+
+**Do not propose a fourth fix before reading a `pan` block from a device report.**
+
+```
+B683  bound was flat ±1, saturated at low zoom      → made it zoom-dependent      (fixed one end)
+B688  that bound moved under zoom → drift + dead pan → made it constant            (fixed the drift)
+B691  the GAIN still carried 1/zoom vs a fixed bound → made it range-relative      (still wrong)
+```
+
+**Every one was a real defect with a real fix, and every time the symptom changed rather than cleared.** Daniel after B691: *"pan is very sluggish zoomed out, movement is jerky, hitting invisible walls at any zoom level where it is less able to move after already moving a bit away from center."*
+
+**⚠️ PROGRESSIVE RESISTANCE IS THE NEW FACT AND NO MODEL SO FAR PREDICTS IT.** A constant gain against a hard bound gives linear travel then a stop, never increasing drag. **Uncertainty state A. Instrumentation only.**
+
+**▶ FIRST MOVE NEXT SESSION:** have Daniel pan a radial wedge at 0.25x, 1x and 4x, then copy a report and read `pan.trail`. It separates three candidates in one drag:
+
+| reading | means |
+|---|---|
+| `asked` shrinks as `|offset|` grows | something scales the gain by displacement — **a caller nobody has looked at**, since nothing in `kit/pan.js` does this |
+| `asked` steady, `got` < `asked` | the clamp bites early — a bound problem, now cleanly separable from the gain |
+| `asked` steady, `got == asked`, picture still stuck | **`canvasOffset` is not what moves the image here**, and all three fixes were aimed at the wrong quantity |
+
+**Unexamined so far, and the honest list of where a fourth cause could hide:** the flick-drift (`panDrift`) fighting the clamp, `normalizeSliceMirror` running every frame beside the new anchor, the pinch composing zoom with pan in one gesture, and whatever the source-overlay's own `view` object does with these fields.
+
 ### 🧭 B690 — THE SLICE ANCHOR (and what it deliberately does NOT cover)
 
 `syncSliceAnchor` (geometry.js) is now the ONE place the origin↔box-centre conversion happens. It watches inputs instead of guarding call sites, so B615 / B628 / B689 cannot recur at a call site nobody thought of. **Both chromes call it once per frame**, each with its own anchor object.
