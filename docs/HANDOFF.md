@@ -49,29 +49,43 @@ getDeviceId: () => null,       // ...20 lines below, pre-existing, and it WINS
 
 **Daniel's un-reproducible third report is also explained:** a lens chosen while an external camera was selected survived the switch back, and `pickCamera`'s three named-lens cases returned `AVCaptureDevice.default(...)` **including nil**, which throws `"no camera device"` and fails the whole start. Fixed at both ends.
 
-### 🔴 PICK UP HERE — RADIAL PAN IS UNSOLVED AFTER THREE ATTEMPTS. B692 ADDED THE INSTRUMENT.
-
-**Do not propose a fourth fix before reading a `pan` block from a device report.**
+### 🔴 PICK UP HERE — RADIAL PAN IS DIAGNOSED (B693). THE LEVER IS A PRODUCT DECISION, NOT A BUG FIX.
 
 ```
 B683  bound was flat ±1, saturated at low zoom      → made it zoom-dependent      (fixed one end)
 B688  that bound moved under zoom → drift + dead pan → made it constant            (fixed the drift)
 B691  the GAIN still carried 1/zoom vs a fixed bound → made it range-relative      (still wrong)
+B692  shipped a probe instead of a fourth guess
+B693  widened the probe, and the free local run answered it
 ```
 
-**Every one was a real defect with a real fix, and every time the symptom changed rather than cleared.** Daniel after B691: *"pan is very sluggish zoomed out, movement is jerky, hitting invisible walls at any zoom level where it is less able to move after already moving a bit away from center."*
+**⚠️ "PROGRESSIVE RESISTANCE" WAS A MISREADING, AND IT IS THE MISREADING THAT COST THREE BUILDS.** Daniel's *"less able to move after already moving a bit away from center"* is not increasing drag. The two-finger pan re-bases `manip.ox` from the **clamped** offset at each gesture start, so every new drag begins with less remaining range than the last. **Decreasing remaining travel, not increasing resistance** — indistinguishable from the hand.
 
-**⚠️ PROGRESSIVE RESISTANCE IS THE NEW FACT AND NO MODEL SO FAR PREDICTS IT.** A constant gain against a hard bound gives linear travel then a stop, never increasing drag. **Uncertainty state A. Instrumentation only.**
+**THE MEASURED CAUSE** (`scratchpad/reach-check.mjs`, headless, no device time). The quantity nobody had measured is **reach = bound / the form's own sampled extent** — travel in units of the thing you are looking at:
 
-**▶ FIRST MOVE NEXT SESSION:** have Daniel pan a radial wedge at 0.25x, 1x and 4x, then copy a report and read `pan.trail`. It separates three candidates in one drag:
+| canvasZoom | radial `R = 1/(zoom×norm)` | bound | **reach** |
+|---|---|---|---|
+| 0.25 | 4.00 | 2 | **0.50** |
+| 1 | 1.00 | 2 | 2.00 |
+| 4 | 0.25 | 2 | **8.00** |
 
-| reading | means |
-|---|---|
-| `asked` shrinks as `|offset|` grows | something scales the gain by displacement — **a caller nobody has looked at**, since nothing in `kit/pan.js` does this |
-| `asked` steady, `got` < `asked` | the clamp bites early — a bound problem, now cleanly separable from the gain |
-| `asked` steady, `got == asked`, picture still stuck | **`canvasOffset` is not what moves the image here**, and all three fixes were aimed at the wrong quantity |
+**16× swing.** Zoomed out you can pan across half of what you can see; zoomed in, eight times past it. **And the gain equals the bound**, so one full-side drag always spends 100% of the range — which is the "jerky".
 
-**Unexamined so far, and the honest list of where a fourth cause could hide:** the flick-drift (`panDrift`) fighting the clamp, `normalizeSliceMirror` running every frame beside the new anchor, the pinch composing zoom with pan in one gesture, and whatever the source-overlay's own `view` object does with these fields.
+**B688 was half right, and the wrong half is why this persisted.** `u_canvasOffset` really is zoom-independent *as a coordinate*. It does not follow that its BOUND is: **the CONTENT it addresses scales as 1/canvasZoom** by radial's own `buildPolygon`.
+
+**KILLED, do not re-raise:** the fold suspicion filed at B663. `foldSliceIntoSource` fires **zero** times and `syncSliceAnchor` re-places **zero** times across a full pan at 0.25×/1×/4× (`scratchpad/foldpan-check.mjs`) — a pan writes `canvasOffset` and never touches `sliceCx/Cy`.
+
+**FOUND WHILE LOOKING, NOT THIS BUG, STILL A REAL GAP:** `holdGesture` is called only from `shell/overlay.js`. **The canvas output gesture never holds the gate**, so any future fold trigger that a canvas gesture CAN move would fire mid-stroke. File it, do not bundle it.
+
+**▶ FIRST MOVE NEXT SESSION: ask Daniel which lever**, then it is ordinary work. Not mutually exclusive:
+
+| lever | what it does | cost |
+|---|---|---|
+| **A — store the offset as a FRACTION of the form's extent** | bound becomes a constant ±1 in stored units, so drift is impossible *by construction* and reach is identical at every zoom; any future bounded form inherits it | **`canvasOffsetX/Y` changes units** → migration for presets, motion keyframes, control mappings |
+| **B — keep fold units, restore the zoom-scaled bound, re-normalise the stored offset on zoom change** | same behaviour as A, nothing persisted changes; it is the `syncSliceAnchor` pattern (watch inputs, re-solve) applied to a second quantity | a second watcher |
+| **C — decouple the gain from the bound** (full-side drag ≈ 40% of range, not 100%) | fixes "jerky" on its own | cheapest; independent of A/B |
+
+**THE PROBE IS STILL WORTH READING ONCE** — it confirms the model on the real device rather than in a harness. `pan.trail` in the exported report: `asked` steady with `got` pinned at ±2 confirms it; anything else means the harness and the device disagree, which would itself be the finding.
 
 ### 🧭 B690 — THE SLICE ANCHOR (and what it deliberately does NOT cover)
 

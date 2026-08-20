@@ -6,6 +6,38 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🚧 v0.26.33 (Build 693) — 2026-08-19 — The pan probe could not hold a drag, and the trackpad path may make this a local question
+
+**JS only. No behaviour change — this build fixes the instrument B692 shipped and widens where it can be read.**
+
+### Shipped
+
+- **The pan trail now spans ~20 seconds of pans instead of 0.4 seconds of one.** Ring 24 → 300, decimated to ~16Hz.
+- **Every gesture start and every clamp transition survives decimation**, and entries carry a gesture index `g`.
+- **The trackpad pan path is probed too**, tagged `src: 'wheel'`.
+
+### Why: an instrument that cannot capture the phenomenon is not an instrument
+
+B692's ring was 24 entries. A `touchmove` fires about 60 times a second, so that ring held **the last 0.4 seconds of the last drag** — and the question it exists to answer is *how the pan behaves as displacement grows*, which is a whole-drag shape. The probe would have returned a plausible-looking block of numbers that structurally could not contain the answer, which is worse than returning nothing.
+
+The decimation rules are not arbitrary; each protects one reading:
+
+| rule | what it protects |
+|---|---|
+| a gap > 250ms starts a gesture and is always kept | the baseline — where the drag began |
+| a change in `clamped` is always kept | the exact sample where the wall arrives, which can fall between throttle ticks |
+| otherwise one per 60ms | ~16Hz: dense enough to draw the travel curve, sparse enough that three long drags fit |
+
+### And the comment on the trackpad path was stale, which matters more than the probe
+
+`onWheel`'s comment has long said the non-ctrl branch is for *"tileable forms only"*. It is gated on `ctx.panDrivable()`, which is **`!formPanLocked(state)`** — pan lock, not tiling. Radial defaults to pan-locked, so unlocking pan on radial gives this bug a **desktop trackpad repro**.
+
+**If it reproduces there, this stops being a device question.** The Class 1 rule is explicit that a device session must never be spent on something a local run can answer, and three builds of this investigation have been aimed at a device.
+
+The two sources are tagged separately and must not be pooled: the wheel gain divides by an OS-accelerated delta and the touch gain does not, so they are different experiments that happen to share a clamp.
+
+---
+
 ## 🚧 v0.26.32 (Build 692) — 2026-08-19 — A pan probe, because three attempts have been reasoned and none measured
 
 **JS only. No behaviour change — this build adds an instrument and nothing else.**

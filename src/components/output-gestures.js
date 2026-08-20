@@ -207,9 +207,19 @@ export function createOutputGestures(canvas, ctx) {
       const b = formPanBound(state);
       const wz = b == null ? Math.max(1e-4, state.canvasZoom * formCanvasNorm(state)) : 2 / Math.max(1e-4, b);
       const [cdx, cdy] = pan(-e.deltaX / (rect.width / 2) / wz, -e.deltaY / (rect.height / 2) / wz);
-      state.canvasOffsetX += cdx;
-      state.canvasOffsetY += cdy;
+      const wantX = (state.canvasOffsetX || 0) + cdx, wantY = (state.canvasOffsetY || 0) + cdy;
+      state.canvasOffsetX = wantX;
+      state.canvasOffsetY = wantY;
       clampCanvasOffset(state);
+      // ⚠️ B693 — THE TRACKPAD PATH IS PROBED TOO, AND THAT MAY MAKE THIS A LOCAL QUESTION.
+      // `panDrivable` is `!formPanLocked`, not "tileable only" as the comment above long claimed —
+      // so unlocking pan on radial gives this exact bug a DESKTOP repro, and the Class 1 rule says
+      // never spend a device session on something a local run can answer. Tagged `wheel` because
+      // the gain differs (OS-accelerated deltas), so the two sources must never be pooled.
+      notePan({ src: 'wheel', zoom: +effZoom().toFixed(3), bound: b,
+        askedX: +wantX.toFixed(4), gotX: +(state.canvasOffsetX || 0).toFixed(4),
+        askedY: +wantY.toFixed(4), gotY: +(state.canvasOffsetY || 0).toFixed(4),
+        clamped: wantX !== state.canvasOffsetX || wantY !== state.canvasOffsetY });
       ctx.onChange?.();
       clearTimeout(wheelTimer);
       wheelTimer = setTimeout(() => { wheelTimer = 0; ctx.onCommitEnd?.(); }, 250);

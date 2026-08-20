@@ -85,16 +85,47 @@ export function panDeltaBounded(fShortX, fShortY, canvasRotationDeg = 0, bound =
 //   • `asked` steady, `got` == `asked`, but the PICTURE does not move → the offset is not what
 //     moves the image, and the bug is downstream of everything examined so far
 //
-// Always on: it is a 24-entry ring of plain numbers, written only while a pan is actually running.
-const PAN_TRAIL = 24;
+// Always on: a ring of plain numbers, written only while a pan is actually running.
+//
+// ⚠️ B693 — DECIMATED, BECAUSE B692's RING COULD NOT HOLD A DRAG. A touchmove fires ~60×/s, so a
+// 24-entry ring held the last 0.4 SECONDS of the last gesture: it could never show how the pan
+// behaved as displacement grew, which is the entire question. An instrument that cannot capture
+// the phenomenon is not an instrument (`docs/DEVICE-TESTING.md`: an uncollectable diagnostic is no
+// diagnostic), so this keeps ~20 seconds of pans instead of half a second of one.
+//
+// Three rules, in priority order. Each exists so a specific reading survives thinning:
+//   • a GAP > 250ms starts a new gesture and is always kept — the first sample is the one that
+//     says where the drag began, and a decimator that dropped it would lose the baseline;
+//   • a change in `clamped` is always kept — the exact moment the wall arrives is the single most
+//     informative sample in the trail, and it can land between throttle ticks;
+//   • otherwise keep at most one per 60ms, which is ~16Hz: dense enough to draw the travel curve,
+//     sparse enough that three long drags fit.
+const PAN_TRAIL = 300;
+const PAN_MIN_MS = 60;
+const PAN_GAP_MS = 250;
 const panTrail = [];
+let panLastAt = -Infinity, panLastKeptAt = 0, panLastClamped = null, panGesture = 0;   // -Inf so the very first pan counts as a gesture start
+
 export function notePan(entry) {
-  panTrail.push({ at: Math.round(performance.now()), ...entry });
+  const at = performance.now();
+  const fresh = at - panLastAt > PAN_GAP_MS;
+  if (fresh) { panGesture++; panLastKeptAt = 0; panLastClamped = null; }
+  panLastAt = at;
+  const keep = fresh || entry.clamped !== panLastClamped || at - panLastKeptAt >= PAN_MIN_MS;
+  if (!keep) return;
+  panLastKeptAt = at;
+  panLastClamped = entry.clamped;
+  panTrail.push({ at: Math.round(at), g: panGesture, ...entry });
   if (panTrail.length > PAN_TRAIL) panTrail.shift();
 }
+
 export function panProbe() {
   if (!panTrail.length) return null;
-  return { note: 'asked = the delta the gain produced; got = what state became after clamping', trail: panTrail.slice() };
+  return {
+    note: 'asked = the offset the gain produced before clamping; got = what state became after. g = gesture index; entries are decimated to ~16Hz, keeping every gesture start and every clamp transition.',
+    gestures: panGesture,
+    trail: panTrail.slice(),
+  };
 }
 
 export function panFor(fShortX, fShortY, canvasRotationDeg = 0, zoom = 1, bound = null) {

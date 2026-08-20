@@ -524,6 +524,41 @@ Daniel's ask, and the answer to him being the sole chokepoint on device work: *"
 
 **Do not "fix" this by reinstating a span-only fold test** — that is the trap B659's note names.
 
+---
+
+#### 🔬 B693 UPDATE — THE FOLD SUSPICION IS DEAD, AND THE REAL NUMBER IS MEASURED
+
+**The Class 1 discriminator above was finally run** (`scratchpad/foldpan-check.mjs`, headless, no device). **The fold suspicion is wrong and is hereby discarded, not defended:** a canvas pan writes `canvasOffsetX/Y` and never touches `sliceCx/Cy`, so `foldSliceIntoSource` fires **zero** times across a full 40-step pan at 0.25×, 1× and 4×, and `syncSliceAnchor` re-places **zero** times. The gesture gate is a real gap — `holdGesture` is called only from `shell/overlay.js`, never from the canvas gesture — but it is not this bug.
+
+**What the same harness DID measure** (`scratchpad/reach-check.mjs`), and it is one table:
+
+| canvasZoom | radial's own sampled extent `R = 1/(zoom×norm)` | `offsetBound` | **reach = bound/R** |
+|---|---|---|---|
+| 0.25 | 4.00 | 2 | **0.50** |
+| 0.5 | 2.00 | 2 | 1.00 |
+| 1 | 1.00 | 2 | 2.00 |
+| 2 | 0.50 | 2 | 4.00 |
+| 4 | 0.25 | 2 | **8.00** |
+
+**`reach` is the conserved quantity this investigation never measured: travel expressed in units of the thing you are looking at.** It swings **16×** across the zoom range. Zoomed out you can pan across half of what you can see; zoomed in you can pan eight times past it.
+
+**And the gain equals the bound**, so one full-side drag always asks for **100% of the range**, at every zoom.
+
+**Together these predict all three of Daniel's complaints from one cause, which no previous model did:**
+
+- *"very sluggish zoomed out... barely moves off center"* → reach 0.5. The total available travel really is half the visible wedge.
+- *"movement is jerky"* → the gain spends the entire range in one drag. Every pixel of finger travel moves a lot, over a range that is tiny relative to the picture.
+- *"hitting invisible walls... less able to move after already moving a bit away from center"* → **this was read as progressive resistance and it is not.** The two-finger pan re-bases `manip.ox` from the CLAMPED offset at each gesture start, so every new drag begins with less remaining range than the last. Decreasing remaining travel, not increasing drag — indistinguishable from the hand, which is why three builds chased the wrong shape.
+
+**Uncertainty state: C — the cause is known, the lever is a product decision.** Three, not mutually exclusive:
+
+- **(A) store the offset as a FRACTION of the form's extent.** Correct and durable: bound becomes a constant ±1 in stored units so drift is impossible by construction, reach is identical at every zoom, and any future bounded form inherits it. **Cost: `canvasOffsetX/Y` changes units**, so presets, motion keyframes and control mappings need a migration.
+- **(B) keep fold units, restore the zoom-scaled bound, and re-normalise the stored offset whenever zoom changes** so the FRACTION is preserved across the change. Same behaviour as A without changing what is persisted; this is exactly the `syncSliceAnchor` pattern (watch the inputs, re-solve) applied to a second quantity. **Cost: a second watcher.**
+- **(C) decouple the gain from the bound** — a full-side drag should cover a fixed fraction of the range (~40%), not all of it. **Independent of A and B, and it is the half that fixes "jerky".** Cheapest of the three.
+
+**⚠️ B688's reasoning was half right and the half that was wrong is why this persisted.** It correctly established that `u_canvasOffset` is applied after the zoom divide and is therefore zoom-independent *as a coordinate*. It wrongly concluded that its BOUND must be too. **The coordinate is zoom-independent; the CONTENT it addresses is not** — radial's wedge extent is `1/canvasZoom` by its own `buildPolygon`. A fixed bound over a content extent that swings 16× cannot feel the same at both ends.
+
+
 ### 🎯 [B619 → carried out of item 1.5 at B657] `slice position x/y` STILL ADDRESS THE ORIGIN
 
 The mapping targets `sliceCx` / `sliceCy` write the slice ORIGIN, but since B616 the app's model is the BOX CENTRE — which is what a drag moves, what `placeSliceBox` solves for, and what the fold bounds. **So a fader on slice position means something different from what your hand does**, which is the one-behaviour-two-surfaces class this arc keeps paying for.
