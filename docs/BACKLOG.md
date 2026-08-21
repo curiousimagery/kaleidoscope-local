@@ -210,7 +210,15 @@ Collapsed to a pointer at B658. That section is a strictly better record than th
 
 **If take gaps come back small too**, the hold is not at the frame boundary at all and the next suspects are param-side: `p` snapping from 1 to 0 at the wrap, and whatever the timeline/playhead UI does when it scrolls back to the start.
 
-### 🚨 [HIGH — Daniel, B609] THE SOURCE FREEZES AFTER A GL CONTEXT RESTORE, AND THE FRAMES ARE ARRIVING FINE
+### ✅ [ROOT-CAUSED + FIXED B703] THE SOURCE FREEZES AFTER A GL CONTEXT RESTORE — kept for the reasoning
+
+**It was a DEADLOCK in `engine/index.js`, found by reading, no device time.** `updateSourceFrame` was gated on `sourceTexture` and `sourceImage` — both ELEMENT-path concepts — so when `reinitGL`'s element re-upload threw (a zero-size preview canvas mid mode switch), `sourceTexture` stayed null, the guard refused to run, `planar` was never rebuilt, and the render fell back to the null texture. **Frozen permanently while the socket kept delivering**, which is precisely `offered 222, took 222, skipped 0` at `0.0 in/s`.
+
+**Fixed by moving the guard below the planar block** (the planar path owns its own texture and needs neither) and restoring the provider in a `finally`. Proven in `scratchpad/planar-deadlock.mjs`: 0/5 frames consumed before, 5/5 after, with three regression guards. **Needs device confirmation on the original motion → perform repro.**
+
+Original write-up below.
+
+### 🗒 [ORIGINAL, B609] THE SOURCE FREEZES AFTER A GL CONTEXT RESTORE, AND THE FRAMES ARE ARRIVING FINE
 
 **This is the B584 instrument's first firing on the branch it was built to separate, and it answers the question in one reading.** Symptom: switching motion → perform loses the source image while the broadcast keeps working.
 
@@ -690,6 +698,39 @@ env.detachNativeVideo?.();     // the native decode, detached
 **▶ THE MEASUREMENT IS CHEAP, NEEDS NO DISPLAY, AND WORKS ON B695 OR LATER:** load a clip, enter motion, open the loop builder, copy a report, read `sessions.peak.decode` and the `live[]` labels. **If it reads 6, this is a real ceiling risk and the shed-before-acquire policy (session audit step 3) has its first concrete target.** If it reads 3 or 4, some path already tears down and the model above is wrong.
 
 **⚠️ AND "SHED BEFORE ACQUIRE" IS THE WRONG FIX FOR THE STAGING DECODER SPECIFICALLY** — that second decoder IS staging; releasing it removes the feature (B495 proved exactly that). The candidate targets are the loop builder's three, which could plausibly be two, and whether the staging decoder is released when the loop builder opens over it.
+
+### 🚧 [Daniel, 2026-08-21 — NAMED AS MISSING FROM THE PLAN] GATE RECORDING ON DETECTED CAPABILITY
+
+*"I don't see anything on your plan about two of the more important tests that i am remembering: 1) gating recording based on detected device capability."* **He is right — it was on the ledger as a vague "thermal-aware gate" and had never been scoped.**
+
+**⚠️ COMPUTED, NEVER A DEVICE TABLE** (his standing requirement). See `docs/HARDWARE-SUPPORT.md` for why the matrix and the gate are different artifacts.
+
+**What the evidence now supports, by his own rubric:**
+
+| tier | rule | evidence |
+|---|---|---|
+| **refuse** | 4K takes | **13.4 and 13.8 fps** against a declared 30, across two devices, two builds, and before/after the decoder-release work. Structural, not headroom. |
+| **warn** | recording while broadcasting | 12.7 vs 19.8 fps, a 36% cost. **Intermittent GL loss did NOT reproduce on B698.** Not a crash risk any more. |
+| **warn** | recording while thermal is `serious` | **40.0 → 19.8 fps** on the same device, same tier, minutes apart. **The single largest effect measured this arc.** |
+
+**⚠️ THE INPUT THAT IS MISSING FROM EVERY EXISTING GATE IS THERMAL STATE**, and it is the strongest predictor we have. `createPressureSource` already consumes it and the vitals plugin already reports it, so the signal exists and nothing gates on it.
+
+**Still needed before the "warn" rules are honest:** FHD-while-broadcasting has never been measured on a COOL device. Every run of that combination was at `serious`. The refuse rule for 4K needs nothing further.
+
+### 🚧 [Daniel, 2026-08-21 — NAMED AS MISSING FROM THE PLAN] PROVOKE GL CONTEXT LOSS DELIBERATELY, THEN CYCLE DIAGNOSTICS
+
+*"2) attempting to create scenarios where GL context loss bugs pop up and cycling through diagnostics for root cause and fixes."* **Also missing from the ledger. This is the largest remaining piece of phase 2.**
+
+**✅ THE LISTENING SIDE IS NOW READY (B695, B699, B703).** All five GL surfaces mark `gl-context-lost` / `gl-context-restored` with a `surface` field; mode changes are breadcrumbed; the bake decoder is counted; and `reinitWhy` reports a restore whose element re-upload failed. **Before B695 four of five surfaces were console-only, so a provoked loss would have been mostly unobservable.**
+
+**Known provocations, from the record:**
+- attaching a 4K external display drops every GL context in the app (the B382 cluster)
+- the stop → retier → start broadcast cycle preceded every one of the five historical failures
+- rapid mode switching while manipulating large slices (Daniel's own proposed stress test)
+
+**▶ READ THE REPORT IN THIS ORDER AFTER ANY FAILURE:** `priorTrail` (survives the kill) → `trail` (this run) → `reinitWhy` (did recovery half-fail) → `sessions` (what was held) → `sourceSwap` (what had just been loaded).
+
+**⚠️ B703 MAY HAVE ALREADY FIXED THE MOST COMMON CONSEQUENCE.** The freeze-after-restore deadlock is fixed, so a provoked loss should now heal itself. **A stress test that provokes losses and sees them recover cleanly is a PASS, not a null result** — record it as one.
 
 ### 🎬 [QUEUED 2026-08-21, Daniel's ask] RE-VERIFY RECORDING ON THE CURRENT BUILD — THE OLD EVIDENCE IS STALE
 

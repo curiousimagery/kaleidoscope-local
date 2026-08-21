@@ -59,6 +59,7 @@ export function createEngine({ canvas, maxProbeSize, perf = null, label = 'engin
   let planar = null;             // lazily-built planar uploader (native decode → this context)
   let planarFrame = null;        // provider: () => wire frame | null, installed by the shell
   let planarCap = 0;             // source-detail cap (long edge) for the planar texture
+  let lastReinitWhy = '';        // B703 — why the last context restore's element re-upload failed, if it did
   // HOW MANY TIMES THIS CONTEXT HAS DIED AND COME BACK (B580). A context loss is invisible from
   // the report — it heals, the app keeps rendering, and the only trace was a `console.warn` on a
   // device where we cannot read the console. It is also the trigger for the planar-drop bug above,
@@ -145,9 +146,25 @@ export function createEngine({ canvas, maxProbeSize, perf = null, label = 'engin
       // re-installs the provider.
       const keepPlanar = planarFrame, keepCap = planarCap;
       glGeneration++;
-      if (sourceImage) this.setSource(sourceImage);  // re-upload; aspect re-derives
-      // the uploader itself is gone with the context and is recreated lazily on the next frame
-      if (keepPlanar) { planarFrame = keepPlanar; planarCap = keepCap; }
+      // ⚠️ B703 — `finally`, BECAUSE THE RE-UPLOAD IS THE PART THAT CAN FAIL. `setSource` throws on
+      // a zero-size element (a preview canvas mid mode switch) and on a source past the fresh
+      // context's `maxTextureSize`. Restoring the provider outside the try means a failed element
+      // re-upload can no longer take the planar path down with it — which, with the guard moved in
+      // `updateSourceFrame`, is what lets the picture come back on its own.
+      let reinitWhy = '';
+      try {
+        if (sourceImage) this.setSource(sourceImage);  // re-upload; aspect re-derives
+      } catch (e) {
+        // NOT rethrown when planes can still carry the picture: on the native path the element is
+        // only a dimension carrier. Recorded either way — a recovery that silently half-failed is
+        // the thing that made B609 take four builds to find.
+        reinitWhy = String(e?.message || e);
+        if (!keepPlanar) throw e;
+      } finally {
+        // the uploader itself is gone with the context and is recreated lazily on the next frame
+        if (keepPlanar) { planarFrame = keepPlanar; planarCap = keepCap; }
+      }
+      lastReinitWhy = reinitWhy;
     },
 
     // run the same end-to-end render path as exportAt, but stop after readPixels
@@ -196,7 +213,28 @@ export function createEngine({ canvas, maxProbeSize, perf = null, label = 'engin
     // that would be identical to the last one — a 60Hz loop over a 30fps camera otherwise draws
     // every frame twice (B542). `false` means "the texture still holds what it held".
     updateSourceFrame() {
-      if (!sourceTexture || !sourceImage) return false;
+      // ⚠️ B703 — THE PLANAR PATH MUST NOT BE GATED ON ELEMENT-PATH STATE. THIS WAS A DEADLOCK.
+      //
+      // The guard used to sit above this block as `if (!sourceTexture || !sourceImage) return false`.
+      // Both are ELEMENT-path concepts. A native decode feeding raw planes needs NEITHER: the
+      // planar uploader builds and owns its own texture, and the render already prefers it (see
+      // `sourceTexture: (planar && planar.width > 0) ? planar.texture : sourceTexture` above).
+      //
+      // **How it deadlocks.** `reinitGL` sets `sourceTexture = null` and `planar = null`, then
+      // re-uploads the element. If that re-upload throws — a zero-size preview canvas mid mode
+      // switch, or a source past the fresh context's `maxTextureSize` — `sourceTexture` stays null.
+      // The guard then refuses to run, so `planar` is never rebuilt, so `planar.width` is never
+      // above zero, so the render falls back to `sourceTexture`, which is null. **Nothing can ever
+      // recover it, and the socket keeps delivering frames the whole time.**
+      //
+      // That is exactly the B609 signature, and it is the one reading the B584 instrument was built
+      // to separate: `offered 222, took 222, skipped 0` at `0.0 in/s` with a frozen picture means
+      // the frames reached us and we failed to use them. **Our bug, JS side** — which is what that
+      // rule said from the beginning.
+      //
+      // Moving the guard BELOW the planar block is the whole fix: the planar path becomes
+      // self-healing (it rebuilds its uploader on the next frame off the wire, whatever happened to
+      // the element), and the element path keeps the guard it actually needs.
       // PLANAR FIRST. When a native decode is feeding this engine, its frames are raw
       // YUV planes sitting in CPU memory — uploading them here beats sampling whatever
       // canvas some other context painted them onto (see gl.js createPlanarUploader).
@@ -216,6 +254,8 @@ export function createEngine({ canvas, maxProbeSize, perf = null, label = 'engin
         // preview canvas, i.e. exactly the cross-context readback we came to delete.
         if (planar && planar.width > 0) return false;
       }
+      // The ELEMENT path, and the guard that genuinely belongs to it (B703).
+      if (!sourceTexture || !sourceImage) return false;
       if (sourceImage.readyState !== undefined && sourceImage.readyState < 2) return false;
       // THE <video> ELEMENT PATH — where desktop, Electron and mobile web live (B559).
       //
@@ -270,6 +310,10 @@ export function createEngine({ canvas, maxProbeSize, perf = null, label = 'engin
     },
     setPlanarCap(cap) { planarCap = cap || 0; },
     get planarActive() { return !!(planarFrame && planar && planar.width > 0); },
+    // B703 — an element re-upload that failed during a context restore. Empty when the last
+    // restore was clean. Rides the exported report because a half-failed recovery is invisible
+    // otherwise, and console is not a channel that reaches the device (see DEVICE-TESTING.md).
+    get lastReinitWhy() { return lastReinitWhy; },
     // 0 = this context has never been lost. Rides the frame-cost report (B580).
     get glGeneration() { return glGeneration; },
 

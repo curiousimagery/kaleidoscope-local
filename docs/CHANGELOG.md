@@ -6,6 +6,53 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🚧 v0.26.43 (Build 703) — 2026-08-21 — The source freeze after a context restore was a deadlock, and it is fixed
+
+**The B609 HIGH item, root-caused by reading and fixed. Class 1 throughout — no device time spent.**
+
+### Shipped
+
+- **`updateSourceFrame`'s element guard moved BELOW the planar block**, so a native decode can rebuild itself without element state.
+- **`reinitGL` restores the planar provider in a `finally`**, and no longer throws when planes can still carry the picture.
+- **`reinitWhy` in the exported report** — why a restore's element re-upload failed, if it did.
+
+### The deadlock
+
+`updateSourceFrame` opened with `if (!sourceTexture || !sourceImage) return false`. **Both are ELEMENT-path concepts.** A native decode feeding raw planes needs neither: the planar uploader builds and owns its own texture, and the render already prefers it (`sourceTexture: (planar && planar.width > 0) ? planar.texture : sourceTexture`).
+
+The cycle:
+
+```
+reinitGL nulls sourceTexture and planar
+  → re-uploads the element → THROWS (zero-size preview canvas mid mode switch,
+    or a source past the fresh context's maxTextureSize)
+  → sourceTexture stays null
+  → the guard refuses to run
+  → planar is never rebuilt
+  → planar.width is never > 0
+  → the render falls back to sourceTexture, which is null
+  → frozen, permanently, while the socket keeps delivering
+```
+
+**That is exactly B609's reading:** `from canvas · planar · native decode · 0.0 in/s`, `SOURCE STALLED 3.4s — offered 222, took 222, skipped 0`, `GL CONTEXT RESTORED ×1`. Equal offered/taken with a frozen picture means the frames reached us and we failed to use them — **our bug, JS side**, which is what the B584 rule said from the start.
+
+### Verified before shipping
+
+`scratchpad/planar-deadlock.mjs` models the guard order against the render's texture choice and runs five frames through a failed-restore state:
+
+| | frames consumed | picture renders |
+|---|---|---|
+| **before** | **0 / 5** | **no** |
+| **after** | 5 / 5 | yes |
+
+Plus three regression guards: an element-only source with no texture is still refused, a healthy element source still takes the element path, and a planar provider with nothing new does not fall back to re-uploading the element.
+
+### Why this shape rather than a restore path
+
+Daniel, on the loop-builder shed question: *"it seems like the different timeline and output panels themselves should know if they're stale and know how to ask to repair."* **This is that idea applied to the source.** A restore path would have to enumerate every way the element upload can fail. Moving the guard makes the planar path rebuild itself on the next frame off the wire, whatever happened to the element — it does not need to know why.
+
+---
+
 ## 🚧 v0.26.42 (Build 702) — 2026-08-21 — A parked clip is not a stall, and the report said it was
 
 ### Shipped

@@ -437,6 +437,10 @@ export function mountPerfPanel(env, { container = null, onClose = null } = {}) {
       // DEVICE actually holds. Three numbers settle it — `boxC` at 0.5 means centring ran.
       // B626 — a re-placement that FAILED. It is caught so it can never abort camera acquisition,
       // which means without this line it would fail completely silently.
+      // B703 — a context restore whose element re-upload failed. Empty on a clean restore. This is
+      // the half-failure that made the B609 freeze take four builds: the recovery reported success,
+      // the picture never came back, and the reason went only to a console nobody attaches to.
+      reinitWhy: env.engine?.lastReinitWhy || undefined,
       sliceError: env.lastSliceError || undefined,
       // B630 — the last few SOURCE-SWAP attempts, each phase with a reason on every exit. Built for
       // Daniel's mid-show dead end (live camera ~10min, picked a file, nothing happened, app restart
