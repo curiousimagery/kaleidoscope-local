@@ -267,6 +267,13 @@ const ACTION_TARGETS = [
   // hovering over them. Also the honest answer to "live got stuck" for the operator.
   { key: 'action:resetSlice', label: '↺ reset slice' },
   { key: 'action:resetCanvas', label: '↺ reset canvas' },
+  // ⚠️ B694 — "JUST BRING ME HOME", WITHOUT THE REST OF THE RESET. B694 removed the pan bound, so a
+  // long drift can now carry you somewhere the centre cannot be found by zooming out (canvas zoom
+  // floors at 0.05, which shows a fold radius of 20). Recentring therefore has to be reachable
+  // from the controller, and `resetCanvas` is the wrong instrument for it: it also resets zoom,
+  // rotation, oobMode, the droste phase and every per-form pan lock. This one moves the pan and
+  // nothing else.
+  { key: 'action:panRecenter', label: '⌖ recenter pan' },
   { key: 'action:mirror', label: '◈ droste mirror' },
   { key: 'action:wedgeMirror', label: '◈ droste wedge mirror' },
   { key: 'action:oob', label: '◈ out of bounds (cycle)' },
@@ -804,6 +811,10 @@ export function createInputBus(env) {
     // phase zeroing — firing the DOM control is what keeps all three attached.
     if (a === 'resetSlice') return void (clickEl('#sliceReset') || clickEl('#m-reset'));
     if (a === 'resetCanvas') return void (clickEl('#canvasReset') || clickEl('#m-canvas-reset'));
+    // Straight to the shared helper rather than a DOM click: `recenter` is a joystick-local button
+    // that the phone chrome does not render, and a click path would be silently inert there — the
+    // two-chromes rule. `panRecenter` is on BOTH envs (main.js and mobile/chrome.js both assign it).
+    if (a === 'panRecenter') { env.pushHistory?.(); env.panRecenter?.(); env.updateUndoUI?.(); return; }
     if (a === 'mirror') return void clickEl(`#mirrorToggle button[data-mirror="${state.drosteMirror ? '0' : '1'}"]`);
     if (a === 'wedgeMirror') return void clickEl(`#wedgeMirrorToggle button[data-wedgemirror="${state.drosteWedgeMirror ? '0' : '1'}"]`);
     if (a === 'oob') return void clickEl(`#oobModes button[data-oob="${((state.oobMode | 0) + 1) % 3}"]`);

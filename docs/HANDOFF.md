@@ -49,43 +49,40 @@ getDeviceId: () => null,       // ...20 lines below, pre-existing, and it WINS
 
 **Daniel's un-reproducible third report is also explained:** a lens chosen while an external camera was selected survived the switch back, and `pickCamera`'s three named-lens cases returned `AVCaptureDevice.default(...)` **including nil**, which throws `"no camera device"` and fails the whole start. Fixed at both ends.
 
-### 🔴 PICK UP HERE — RADIAL PAN IS DIAGNOSED (B693). THE LEVER IS A PRODUCT DECISION, NOT A BUG FIX.
+### ✅ RADIAL PAN — CLOSED B694, AFTER THREE FAILED ATTEMPTS AND ONE MEASUREMENT
 
 ```
-B683  bound was flat ±1, saturated at low zoom      → made it zoom-dependent      (fixed one end)
-B688  that bound moved under zoom → drift + dead pan → made it constant            (fixed the drift)
-B691  the GAIN still carried 1/zoom vs a fixed bound → made it range-relative      (still wrong)
+B683  bound flat ±1, saturated        → made it zoom-dependent    (fixed one end)
+B688  bound moved under zoom → drift  → made it constant          (right shape, wrong magnitude)
+B691  gain still 1/zoom vs a bound    → made it range-relative    (broke direct manipulation)
 B692  shipped a probe instead of a fourth guess
-B693  widened the probe, and the free local run answered it
+B693  widened the probe; the free local run diagnosed it
+B694  FIXED: one gain, one shared ceiling
 ```
 
-**⚠️ "PROGRESSIVE RESISTANCE" WAS A MISREADING, AND IT IS THE MISREADING THAT COST THREE BUILDS.** Daniel's *"less able to move after already moving a bit away from center"* is not increasing drag. The two-finger pan re-bases `manip.ox` from the **clamped** offset at each gesture start, so every new drag begins with less remaining range than the last. **Decreasing remaining travel, not increasing resistance** — indistinguishable from the hand.
+**The lesson worth carrying:** three builds argued about a number while measuring the wrong quantity. The one that mattered was **reach** — travel in units of the content you can see — and it swung 34x across the zoom range. *"Progressive resistance"* was decreasing **remaining** range, because each drag re-bases from the clamped offset.
 
-**THE MEASURED CAUSE** (`scratchpad/reach-check.mjs`, headless, no device time). The quantity nobody had measured is **reach = bound / the form's own sampled extent** — travel in units of the thing you are looking at:
+**Two things are now load-bearing and must not be re-litigated blind:**
 
-| canvasZoom | radial `R = 1/(zoom×norm)` | bound | **reach** |
-|---|---|---|---|
-| 0.25 | 4.00 | 2 | **0.50** |
-| 1 | 1.00 | 2 | 2.00 |
-| 4 | 0.25 | 2 | **8.00** |
+1. **The pan gain is derivable, not tunable.** `p /= u_canvasZoom` then `p -= u_canvasOffset`, so direct manipulation is exactly `2/zoom`. Any future "the pan feels wrong" fix that touches the GAIN is almost certainly wrong; look at the CLAMP.
+2. **`OFFSET_CEILING` is a float32 fact and is shared.** A per-form override is how this bug was born. Droste has one, measured and justified in its own file; nothing else should.
 
-**16× swing.** Zoomed out you can pan across half of what you can see; zoomed in, eight times past it. **And the gain equals the bound**, so one full-side drag always spends 100% of the range — which is the "jerky".
+**Accepted consequences (Daniel, B694), do not treat as bugs:** past ~20 fold units the centre cannot be found by zooming out; a long drift at deep zoom-out quantises visibly after ~45 min. `action:panRecenter` is the way home. The offset WRAP that would remove both was investigated (exact past 3 fold units) and **dropped as unnecessary**.
 
-**B688 was half right, and the wrong half is why this persisted.** `u_canvasOffset` really is zoom-independent *as a coordinate*. It does not follow that its BOUND is: **the CONTENT it addresses scales as 1/canvasZoom** by radial's own `buildPolygon`.
+### 🔴 PICK UP HERE — RECENTER DOES NOT EASE IN PERFORM MODE
 
-**KILLED, do not re-raise:** the fold suspicion filed at B663. `foldSliceIntoSource` fires **zero** times and `syncSliceAnchor` re-places **zero** times across a full pan at 0.25×/1×/4× (`scratchpad/foldpan-check.mjs`) — a pan writes `canvasOffset` and never touches `sliceCx/Cy`.
+Daniel, B694: *"return center should honor the transition speed in perform mode, but right now it appears to be instant."*
 
-**FOUND WHILE LOOKING, NOT THIS BUG, STILL A REAL GAP:** `holdGesture` is called only from `shell/overlay.js`. **The canvas output gesture never holds the gate**, so any future fold trigger that a canvas gesture CAN move would fire mid-stroke. File it, do not bundle it.
+**Diagnosed by reading, NOT yet fixed, and there are two different paths that need separating before anything is built:**
 
-**▶ FIRST MOVE NEXT SESSION: ask Daniel which lever**, then it is ordinary work. Not mutually exclusive:
-
-| lever | what it does | cost |
+| path | what happens | verdict |
 |---|---|---|
-| **A — store the offset as a FRACTION of the form's extent** | bound becomes a constant ±1 in stored units, so drift is impossible *by construction* and reach is identical at every zoom; any future bounded form inherits it | **`canvasOffsetX/Y` changes units** → migration for presets, motion keyframes, control mappings |
-| **B — keep fold units, restore the zoom-scaled bound, re-normalise the stored offset on zoom change** | same behaviour as A, nothing persisted changes; it is the `syncSliceAnchor` pattern (watch inputs, re-solve) applied to a second quantity | a second watcher |
-| **C — decouple the gain from the bound** (full-side drag ≈ 40% of range, not 100%) | fixes "jerky" on its own | cheapest; independent of A/B |
+| **`recenter` on the pan joystick** | writes `canvasOffsetX/Y = 0` to state; `canvasOffsetX/Y` are in `CONTINUOUS_KEYS`, the follower feeds `setTarget(state)` every frame | **should already ease.** If it does not, the model is wrong and that is the finding |
+| **`reset canvas`** | also sets `panLock = {}`, which re-locks radial (`panLockedByDefault`), and `shader-builder.js` `u_canvasOffset` does `if (formPanLocked(state)) return [0,0]` | **instant by construction.** The follower may be easing beautifully; the uniform ignores it |
 
-**THE PROBE IS STILL WORTH READING ONCE** — it confirms the model on the real device rather than in a harness. `pan.trail` in the exported report: `asked` steady with `got` pinned at ±2 confirms it; anything else means the harness and the device disagree, which would itself be the finding.
+**So the mechanism is the uniform's hard lock override, and it is the same class as the B611/B612 note in `controls.js`: "a bound that is not in STATE is not a bound." Here: a recentre that is not in STATE cannot be eased.**
+
+**▶ FIRST MOVE: ask Daniel which control he used.** The fix differs completely. If it is `reset canvas`, the candidate is to stop the uniform overriding and instead have the LOCK write `0` to state (both toggle paths already do this at `main.js:1295`), so the follower owns the move. **Check what that does to B612 first** — unlocking must never inherit a position.
 
 ### 🧭 B690 — THE SLICE ANCHOR (and what it deliberately does NOT cover)
 

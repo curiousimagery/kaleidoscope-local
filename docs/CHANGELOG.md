@@ -6,6 +6,52 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🚧 v0.26.34 (Build 694) — 2026-08-19 — Radial pan: one gain, and a ceiling set by float32 rather than by taste
+
+### Shipped
+
+- **Pan is direct manipulation again on every form.** `panDeltaBounded` is deleted; `panFor` always uses `panDelta`.
+- **`OFFSET_CEILING = 10000`**, shared in `forms/index.js`. Radial's per-form bound of 2 is gone.
+- **Droste keeps a tight bound, now measured: 2, was 1.**
+- **`action:panRecenter`** — a mappable "just bring me home" that does not reset zoom, rotation, oobMode or pan locks.
+
+### The gain was never a preference
+
+The shader is `p /= u_canvasZoom` then `p -= u_canvasOffset`. Content stays under your fingers if and only if the offset changes by *(finger travel in half-screens) / zoom*, which is exactly `panDelta`'s `2/zoom`. **Direct manipulation is derivable from the transform.** B691 replaced it with a gain proportional to the RANGE, and that is the whole of Daniel's report.
+
+He also named, before it shipped, why a range-relative gain is wrong for a COMPOSED gesture: pinch stays proportional to the hand, so a pan that is not would jitter between two mappings inside a single two-finger move.
+
+### The ceiling, and what three builds failed to measure
+
+**REACH**: travel in units of the content you can see. Radial's sampled extent is `1/canvasZoom`, so a fixed bound of 2 gave reach **0.10** at the zoom floor and **3.40** at 1.7x. A 34x swing.
+
+And the device report (`8-19-26-radialcanvasdragreport-01.json`, 300 samples) showed the shape of it: **195 of 300 samples clamped, 18 of 36 gestures already at the wall on their first sample.** What was read as progressive resistance was decreasing *remaining* range, because each drag re-bases from the clamped offset.
+
+**There is no aesthetic reason to stop.** Past ~1.5 screen widths the radial fold flattens into a true linear repeat and stays rich and scrolling indefinitely (source coverage 0.98 at 2000 screens out; offset O and O+P differ by ~1e-15). The only thing that FAILS is float32: clean to 10,000, ~4px blocks at 40,000, ~62px at 1,000,000.
+
+So the ceiling is a bound on the offset NUMBER, which is zoom-independent — and being constant it cannot strand an offset across a zoom, which is the drift B688 was fixing when it chose a constant of 2. **B688 had the right shape and the wrong magnitude.**
+
+### Two consequences Daniel accepted explicitly
+
+Past ~20 fold units the centre can no longer be found by zooming out (canvas zoom floors at 0.05, showing a radius of 20), and a long drift at deep zoom-out reaches visible quantisation in ~45 minutes. Daniel: *"we're talking about support for an edge case because the main use case of just being able to gesture and pan and pinch intuitively and pan around within a few wraps feels constrained."*
+
+The wrap (offset mod the source mirror period, exact past 3 fold units) was investigated and **dropped** as unnecessary given that.
+
+### Droste was about to regress, and the measurement stopped it
+
+Droste inherited the flat default of 1. Under the new gain a full drag asks 2.0, so it would have clamped half way — the exact bug being fixed. B610's "thin annulus" claim was qualitative, so it was tested:
+
+| offset | tier visible | |
+|---|---|---|
+| 0 | 102% | full range |
+| 2 | 100% | full range |
+| 5 | 63% | reduced |
+| 20 | 18% | the thin annulus B610 named |
+
+**Intact to 2, gone by 20**, so 2 it is — which also exactly accommodates one full drag at 1x. **Droste's pan stays short-range by nature and that is correct**: its offset is a log-polar centre shift, the composition-moving control for that form is the Möbius diamond, and pan is locked there by default.
+
+---
+
 ## 🚧 v0.26.33 (Build 693) — 2026-08-19 — The pan probe could not hold a drag, and the trackpad path may make this a local question
 
 **JS only. No behaviour change — this build fixes the instrument B692 shipped and widens where it can be read.**

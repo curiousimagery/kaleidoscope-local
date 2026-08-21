@@ -510,7 +510,7 @@ Daniel's ask, and the answer to him being the sole chokepoint on device work: *"
 - **✅ Pre-flight shipped B666** (source loaded / ready / has duration). **Still unchecked: whether a display is actually attached**, because a non-display destination is legitimate and the run should not second-guess the rig.
 - **⚠️ `loopStall.why` still reads `"no loop boundary reached yet"` while reporting wraps in the same object** — four builds of reports now. Cosmetic but it is the kind of lie that costs an hour when someone trusts it.
 
-### 🧭 [Daniel, B663 — REGRESSION FOUND ON DEVICE, NOT DIAGNOSED] RADIAL PAN IS NOT ZOOM-PROPORTIONAL
+### ✅ [CLOSED B694] RADIAL PAN IS NOT ZOOM-PROPORTIONAL — kept for the reasoning, which cost four builds
 
 *"One of the items we fixed in this phase was to ensure that panning is proportional across all zoom levels. This seems to be true for all forms except the radial wedge. At first panning seems to work fine but then if you zoom out it gets sluggish and seems to hit invisible walls, and if you zoom back in it doesn't correct. If I reset canvas it does self-correct until I zoom out again."*
 
@@ -558,6 +558,28 @@ Daniel's ask, and the answer to him being the sole chokepoint on device work: *"
 
 **⚠️ B688's reasoning was half right and the half that was wrong is why this persisted.** It correctly established that `u_canvasOffset` is applied after the zoom divide and is therefore zoom-independent *as a coordinate*. It wrongly concluded that its BOUND must be too. **The coordinate is zoom-independent; the CONTENT it addresses is not** — radial's wedge extent is `1/canvasZoom` by its own `buildPolygon`. A fixed bound over a content extent that swings 16× cannot feel the same at both ends.
 
+
+### 🔴 [Daniel, B694 — DIAGNOSED BY READING, NOT FIXED] RECENTER DOES NOT EASE IN PERFORM MODE
+
+*"return center should honor the transition speed in perform mode, but right now it appears to be instant."*
+
+**Two paths, and only one of them is broken. Establish which one he used before building anything.**
+
+- **`recenter` (pan joystick)** writes `canvasOffsetX/Y = 0` to state. Both are in `CONTINUOUS_KEYS` and `perform-runtime.js:524` feeds `setTarget(state)` every frame, so this **should already ease**. If it does not, the model above is wrong and that is itself the finding.
+- **`reset canvas`** also sets `panLock = {}`, which re-locks radial (`panLockedByDefault: true`), and `shader-builder.js`'s `u_canvasOffset` opens with `if (formPanLocked(state)) return [0,0]`. **Instant by construction** — the follower can be easing perfectly and the uniform will ignore it.
+
+**Same class as the B611/B612 note in `controls.js`** (*"a bound that is not in STATE is not a bound"*): a recentre that is not in STATE cannot be eased.
+
+**Candidate fix, not yet validated:** drop the uniform's override and have the LOCK write `0` to state instead — both padlock paths already do exactly that at `main.js:1295`, so the state is already correct there. **⚠️ Check B612 before shipping it:** unlocking must never inherit a position, and the override is currently what guarantees that for paths which set `panLock` without going through the toggle.
+
+### 📌 [B694 — ACCEPTED, NOT A BUG] TWO CONSEQUENCES OF REMOVING THE PAN BOUND
+
+Filed so a future session does not "fix" them. Daniel accepted both explicitly: *"we're talking about support for an edge case because the main use case of just being able to gesture and pan and pinch intuitively and pan around within a few wraps feels constrained."*
+
+- **Past ~20 fold units the centre cannot be found by zooming out.** Canvas zoom floors at `Z_CANVAS_MIN = 0.05`, which shows a fold radius of 20. `action:panRecenter` (B694) is the way home.
+- **A long drift at deep zoom-out quantises visibly after ~45 minutes.** float32 loses the screen-relative variation in `p -= offset`; ~4px blocks at offset 40,000. Degrades smoothly, never crashes.
+
+**The fix for both exists and was deliberately dropped.** The offset is exactly periodic past 3 fold units (offset O and O+P differ by ~1e-15, P = `4/(sliceScale × sizeNorm)`), so wrapping would make drift unbounded AND keep the centre reachable. Revisit only if long-form drift becomes a real use case; it would need a `sliceScale`-change recompute, a mirror-mode gate, and validation against the real shader rather than the isolated model.
 
 ### 🎯 [B619 → carried out of item 1.5 at B657] `slice position x/y` STILL ADDRESS THE ORIGIN
 

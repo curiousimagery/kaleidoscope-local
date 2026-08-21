@@ -37,29 +37,10 @@ export default {
   // one focal point by construction — pan is locked (centered) by default. See formPanLockedByDefault.
   panLockedByDefault: true,
 
-  // ⚠️ THE PAN BOUND — AND IT MUST NOT DEPEND ON ZOOM. Two builds to get here, so both are recorded.
-  //
-  // B683 replaced the flat ±1 with `max(1, 2/zoom)`. That fixed the reported symptom (a full-side
-  // drag at zoom 1 asked for 2.0, got clamped to 1.0, and stopped dead half way) **and introduced
-  // a worse one.** Daniel, B688: *"if i zoom out, pan to an off centered position, and then zoom
-  // into an off center corner, zoom drifts me toward the center and pan shudders back and forth
-  // and won't move me in any direction."*
-  //
-  // Both halves follow from a bound that SHRINKS as you zoom in:
-  //   • **the drift** — an offset that was legal at zoom 0.5 is out of range at zoom 4, so the
-  //     render clamps it and the picture slides toward centre with no input at all;
-  //   • **the dead pan** — the STATE still holds the out-of-range value, so a pan adds to a number
-  //     the shader clamps straight back, and nothing on screen moves.
-  //
-  // `u_canvasOffset` is the source-space position of the screen CENTRE (screen p → p/zoom → minus
-  // O), which is already zoom-independent: zooming does not change what sits in the middle.
-  // **So its bound has no business changing with zoom either.**
-  //
-  // 2.0 so a full-side drag at 1x exactly reaches the edge — twice the old ±1, which is what the
-  // original complaint was about. Zoomed further out one drag still crosses the whole range, and
-  // that is inherent to a bounded pan rather than a bug: at low zoom the screen shows more source,
-  // so screen-proportional dragging covers it faster.
-  offsetBound: () => 2,
+  // ⚠️ NO `offsetBound` HERE ON PURPOSE (B694). Radial carried a per-form bound of 2 through three
+  // failed fixes. The ceiling is a float32 fact and is form-agnostic, so it lives once in
+  // forms/index.js as OFFSET_CEILING — read its comment for the measurement and the two
+  // consequences Daniel accepted. A per-form override would only ever re-create this bug.
 
   // radial uses universal uniforms only (u_segments). no per-form uniforms.
   uniforms: {},

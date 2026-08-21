@@ -103,23 +103,32 @@ export function formZoomBounds(state) {
 // (formId → boolean); absent means "use this form's default". Lives on STATE rather than in
 // session.locks because the ENGINE needs the answer — the shader zeroes u_canvasOffset while
 // locked, and the engine can see state but not the shell's session.
-// The per-form BOUND on `canvasOffset`, in offset units (see shader-builder's u_canvasOffset).
+// ⚠️ B694 — THE CEILING IS A FLOAT32 FACT, NOT A TASTE, WHICH IS WHY IT IS SHARED AND HUGE.
 //
-// ⚠️ 2026-08-19 — WHY THIS IS PER-FORM NOW. The bound used to be a flat ±1 for every NON-LATTICE
-// form, which meant radial and droste shared it. It was written for **droste**, where the offset
-// is not a translation at all but a shift of the log-polar CENTRE, and a large value inherited
-// from a tiling form squeezes the visible field into a thin annulus (B610). That reasoning does
-// not transfer to radial, where the offset is an ordinary pan.
+// Three builds argued about this number while measuring the wrong thing. What was never measured
+// is REACH: travel expressed in units of the content you can see. Radial's sampled extent is
+// `1/canvasZoom`, so a fixed bound of 2 gave reach 0.10 at the zoom floor and 3.40 at 1.7x — a
+// 34x swing, which is Daniel's *"sluggish zoomed out... works better zoomed in"* exactly.
 //
-// **What it cost on radial:** the offset is subtracted AFTER `p /= u_canvasZoom`, so one offset
-// unit moves content by `zoom` half-canvas widths on screen. A bound of 1 therefore allows a
-// reachable travel of exactly `zoom` — and `panDelta` asks for `2/zoom` units for a full-side
-// drag. **At zoom 1 a single drag asks for 2.0 and is clamped to 1.0**, so the pan travels half
-// the distance and then stops dead, while at zoom 4 the same drag asks for 0.5 and behaves
-// perfectly. That is the non-proportionality Daniel reported, and it is arithmetic, not feel.
+// **And there is no aesthetic reason to stop at all.** Past ~1.5 screen widths the radial fold has
+// flattened into a linear repeat, and it stays rich and scrolling forever (verified: source
+// coverage 0.98 at 2000 screens out). The only thing that genuinely FAILS is float32: `p -= offset`
+// loses the screen-relative variation once the offset is large, and the fold posterises into flat
+// blocks. Measured on a 2048px row: clean to 10,000, ~4px blocks at 40,000, ~62px at 1,000,000.
+//
+// So the ceiling is a bound on the OFFSET NUMBER, which is zoom-independent — and being constant,
+// it cannot strand an offset that was legal before a zoom, which is the drift B688 was fixing when
+// it picked a constant of 2. B688 had the right shape and the wrong magnitude.
+//
+// Daniel accepted the two consequences (B694): past ~20 fold units the centre can no longer be
+// found by zooming out (canvas zoom floors at 0.05, showing a radius of 20), and a very long drift
+// at deep zoom-out reaches visible quantisation in ~45 minutes. Both are edge cases against a
+// primary use that just wants to pan and pinch freely. `action:panRecenter` is the way home.
+export const OFFSET_CEILING = 10000;
+
 export function formOffsetBound(state) {
   const form = getActiveForm(state);
-  return typeof form.offsetBound === 'function' ? form.offsetBound(state) : 1;
+  return typeof form.offsetBound === 'function' ? form.offsetBound(state) : OFFSET_CEILING;
 }
 
 // ⚠️ CLAMP THE STATE, NOT ONLY THE UNIFORM (B688). The shader getter bounds what it RENDERS; if

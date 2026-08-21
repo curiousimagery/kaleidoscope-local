@@ -202,10 +202,11 @@ export function createOutputGestures(canvas, ctx) {
       // unknown factor, so there is no derivable "correct" constant the way there is for raw
       // touch. That makes this a NO-OP at 1× and a fix only where pan was already wrong —
       // the zoomed-in runaway and the zoomed-out crawl.
-      // B691 — same split as the touch path: a bounded form pans in range units, so its 1/zoom
-      // gain (which explodes when zoomed out against a fixed bound) does not apply here either.
+      // B694 — ONE GAIN. The B691 split that sent bounded forms through a range-relative gain is
+      // gone (see kit/pan.js): content follows the hand on every form, so the zoom divide is the
+      // only correction, exactly as it is on the touch path.
       const b = formPanBound(state);
-      const wz = b == null ? Math.max(1e-4, state.canvasZoom * formCanvasNorm(state)) : 2 / Math.max(1e-4, b);
+      const wz = Math.max(1e-4, state.canvasZoom * formCanvasNorm(state));
       const [cdx, cdy] = pan(-e.deltaX / (rect.width / 2) / wz, -e.deltaY / (rect.height / 2) / wz);
       const wantX = (state.canvasOffsetX || 0) + cdx, wantY = (state.canvasOffsetY || 0) + cdy;
       state.canvasOffsetX = wantX;

@@ -83,6 +83,31 @@ export default {
   // pan locked (centered) by default. See formPanLockedByDefault.
   panLockedByDefault: true,
 
+  // ⚠️ B694 — DROSTE KEEPS THE TIGHT BOUND, AND MUST NOT INHERIT THE SHARED CEILING.
+  //
+  // B694 raised `OFFSET_CEILING` to 10000 because on RADIAL the offset is an ordinary translation
+  // and there is no reason to stop panning. **Here it is not a translation at all.** `canvasOffset`
+  // shifts `p` before a log-polar fold, so a large value drives `log(r)` far up the spiral and
+  // squeezes the visible field into a thin annulus — the B610 failure, and the reason the flat ±1
+  // existed in the first place. That reasoning was always about droste; it just happened to be
+  // written where radial inherited it too.
+  //
+  // **MEASURED, not inherited (B694).** B610's claim was qualitative, so it was tested: how much of
+  // one log-radius TIER does the screen still span as the offset grows?
+  //
+  //     offset  0 → 102% of a tier      offset  5 → 63%   (reduced)
+  //     offset  2 → 100% of a tier      offset 20 → 18%   (the thin annulus B610 named)
+  //
+  // So the picture is intact to 2 and gone by 20. **2, not the old 1** — the old value predated
+  // B694's gain change, and at 1 a full-screen drag would now clamp half way, which is the exact
+  // radial bug being fixed in this build. At 2 a full drag at 1x reaches the wall and no further.
+  //
+  // ⚠️ DROSTE PAN IS SHORT-RANGE BY NATURE AND THAT IS NOT A BUG TO FIX LATER. Zoomed out, one
+  // drag still asks for far more than 2 and clamps. Unlike radial, where nothing breaks if you keep
+  // going, here the composition genuinely dies. The composition-moving control for this form is the
+  // Möbius offset diamond (`drosteOffsetX/Y`), not the canvas pan — and pan is locked by default.
+  offsetBound: () => 2,
+
   // ✅ TUNED B614 by Daniel against a reference source. Derived through `sliceScale` rather than
   // the ?tune=forms sizeNorm slider, because droste's bespoke drawOverlay was not applying the
   // norm at all (fixed in the same build) so the slider appeared to do nothing to the overlay.
