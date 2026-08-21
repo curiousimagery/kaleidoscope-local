@@ -6,6 +6,46 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🚧 v0.26.39 (Build 699) — 2026-08-21 — The bake's decoder was the one the registry could not see
+
+**Instrumentation only.** Does not fix the bake; makes the next failure diagnosable.
+
+### Shipped
+
+- **`video-decode.js`'s `VideoDecoder` now acquires and releases a `decode` session** (`bake: frame reader`).
+
+### Why this one, today
+
+Daniel hit *"Could not bake the clip: decode timed out at 39.288s (10s budget for one frame)"*, twice, about halfway through the progress bar. **That error means a `VideoDecoder` produced nothing for ten wall-clock seconds**, which is what a decoder does when the platform will not grant it a session.
+
+**A bake runs from inside the loop builder, which already holds three counted decoders** (preview, A-head crossfade, thumbnail strip) **on top of the source element and, on Capacitor, the native decode.** So the bake's reader is the sixth or seventh live decode on a single clip — **and it was the only one `sessions.peak.decode` could not count.** The registry was undercounting by exactly the session most likely to be the one that could not be granted.
+
+### T11 and T3r, both clean runs, both with real answers
+
+**T11 (iPad Air, control condition, thermal `fair`) — the question that had never been asked:**
+
+| take | fps | frames / 60s |
+|---|---|---|
+| **FHD alone** | **40.0** | 2403 |
+| **4K alone** | **13.8** | 825 |
+
+**FHD records healthily alone. 4K does not, and it is not stale evidence:** 13.8 here against **13.4 pre-B681 on a different device**. The decoder-release work did not move it, and the ratio (40 → 13.8 for 4× the pixels) is roughly pixel-proportional, which reads as a real fill-rate limit rather than a bug.
+
+**T3r (iPad Air, same script as T3, thermal `serious`):**
+
+| take | fps |
+|---|---|
+| A, while broadcasting | 12.7 |
+| B, no broadcast | 19.8 |
+
+**No GL context loss. All 19 steps completed.** The old failure was 3 of 5 runs; this run did not reproduce it. n=1, so this is a positive signal rather than a verdict.
+
+### The thermal finding, which was not what anyone was looking for
+
+**T11's FHD-alone take ran at 40fps at thermal `fair`. T3r's FHD-alone take ran at 19.8fps at thermal `serious`.** Same device, same tier, same clip, same path, minutes apart. **Heat alone costs roughly half the take throughput** — a larger effect than broadcasting, which costs 36%.
+
+---
+
 ## 🚧 v0.26.38 (Build 698) — 2026-08-21 — Two scripted tests, and the cross-report table that answered the display-rate question for free
 
 ### Shipped

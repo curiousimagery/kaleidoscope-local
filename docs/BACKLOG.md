@@ -582,6 +582,73 @@ getDeviceId: () => null,       // ...20 lines below, pre-existing, and it WINS
 
 **Recommendation if asked: the middle option promoted** — keep it dependency-free, but make the AST scan something the four-part maintenance ritual runs rather than something to remember. It buys the one guarantee without opening the door to a lint config.
 
+### 🚨 [Daniel, 2026-08-21 — REPRODUCED TWICE, INSTRUMENTED B699, NOT FIXED] SEAMLESS BAKE FAILS WITH A DECODER TIMEOUT
+
+*"Could not bake the clip: decode timed out at 39.288s (10s budget for one frame — usually a very long keyframe interval, or a backward seek re-decoding too much)"*. **Twice**, about halfway through the progress bar. Clip: significant trim off the end, a little off the front, 60fps source converted to 30fps output, on the M1 iPad Pro.
+
+**What the error actually means:** `39.288s` is the TARGET TIME IN THE CLIP, not elapsed time. The budget is ten WALL-CLOCK seconds to produce one frame (`video-decode.js:306`). **So a `VideoDecoder` returned nothing for ten seconds.**
+
+**LEADING HYPOTHESIS — DECODE SESSION EXHAUSTION, and it connects to the shed-before-acquire item below.** A bake runs from inside the loop builder, which already holds three counted decoders on top of the source element and, on Capacitor, the native decode. The bake's reader is the sixth or seventh live decode on one clip. **A decoder that cannot be granted a session produces no frames, which is exactly this signature.**
+
+**✅ B699 MADE IT COUNTABLE.** The bake reader now acquires `decode: 'bake: frame reader'`. It was previously the ONLY decode path invisible to the registry — so `sessions.peak.decode` was undercounting by precisely the session most likely to be the one refused.
+
+**⚠️ COMPETING EXPLANATIONS NOT YET ELIMINATED, do not fix on the hypothesis alone:**
+- **The 60→30 conversion** means every other source frame is requested; combined with trims at both ends, a forward jump could repeatedly cross `FORWARD_SEEK_US` and re-decode a GOP per frame.
+- **A long keyframe interval** in this specific clip, which is what the error message itself guesses.
+- **Contention:** the M1 Pro was running the governor-off 4K broadcast test at the time.
+
+**▶ NEXT: reproduce on B699+ and read `sessions.peak.decode` and `live[]`.** If the peak reaches 6-7 with `bake: frame reader` present, the hypothesis is confirmed and the fix is a shed policy. If it peaks at 3-4, it is the seek/keyframe path and the fix is in `resetTo`.
+
+### 🔧 [Daniel, 2026-08-21 — SMALL UI GAP, WORKAROUND EXISTS] THE FRAME-COST PANEL CANNOT BE OPENED FROM THE LOOP BUILDER
+
+*"our affordance for opening the frame cost dialog is the gear in the top right which we don't show in the loop builder so i'm not actually able to open a report from there."*
+
+Correct: the loop builder sets `body.loop-active`, which hides the app bar deliberately (no mode switching or uploads mid-edit, B-era design). **So the one surface that holds the most decoders is the one whose cost cannot be inspected while it is open.**
+
+**✅ WORKAROUND, NO CODE NEEDED: `sessions.peak` is a HIGH-WATER MARK.** Open the loop builder, do the thing, close it, then open the report. `peak.decode` still holds the maximum reached while it was open, and `live[]` will have shrunk back. **That is enough for the measurement this blocks.**
+
+**The real fix if it comes up again** is to let the frame-cost panel open over the interstitial, since it is a diagnostic rather than an editing surface. Small, but it touches the loop-active layering rules, so not worth doing speculatively.
+
+### 🐞 [2026-08-21 — INSTRUMENTATION BUG, FOUND WHILE READING TWO REPORTS] THE EXTERNAL SURFACE NOTE CONTRADICTS `extGuard`
+
+In `8-21-26-4klooptest-noGov.json` the external surface reports *"this view decodes its own copy, so nothing here measures what the audience sees"* while `extGuard` in the SAME report says `singleDecode: true, why: "moot: the single native decode means the external view runs no decoder of its own"`. **Two fields in one report disagree about the same fact.**
+
+**The cost is not cosmetic: the NEW-PICTURES/s figure silently became unavailable in the run that was specifically designed to measure it** (the governor A/B). The comparison run had it, this one did not, so the prediction under test could be neither confirmed nor refuted.
+
+**Same class as the scenario-tag mismatch that invalidated two earlier measurements** — an instrument that can quietly stop reporting the number a decision depends on. Whichever of the two derivations is wrong, they should read from one source.
+
+### 🧮 [2026-08-21, Daniel's question — READ, NOT YET MEASURED ON DEVICE] MODE CHANGES STACK DECODERS; SOURCE UPLOADS DO NOT
+
+*"could the fact that we don't shed before acquiring be related to crashes where we upload a new source or change modes?"* **Half right, and the half that is right is the one nobody has counted.**
+
+**UPLOADS ARE FINE.** `loadVideo` / `loadImage` shed first, in order, before anything new is created:
+
+```js
+if (env.live.isLive || env.live.frozen) stopCameraMode({ keepSource: true });
+releaseSourceVideo();          // the outgoing decoder, released
+env.detachNativeVideo?.();     // the native decode, detached
+...then the new <video> is created
+```
+
+**MODE CHANGES DO NOT SHED, BY DESIGN, AND THE DESIGN IS CORRECT — but nothing counts the total.** Entering motion keeps the source `<video>` alive on purpose (`stopSourceVideoPlayback` is pause-only, because the clip must stay loaded) and `stage-source.js begin()` then acquires a THIRD decoder for the staging seek.
+
+**And the loop builder adds three more on top of whatever mode you were in** (`clip-editor.js`): preview, A-head crossfade, thumbnail strip, all on the same URL.
+
+**So the readable worst case is six concurrent decode sessions of ONE clip:**
+
+| # | session | acquired by |
+|---|---|---|
+| 1 | source clip `<video>` | `source-host.js` |
+| 2 | native decode (AVPlayer) | `native-video.js` |
+| 3 | staging seek decoder | `stage-source.js` (motion) |
+| 4-6 | loop builder × 3 | `clip-editor.js` |
+
+**That is the same number the pre-B681 audit predicted from LEAKS — reached here entirely by legitimate, released-on-exit acquisitions.** Releasing correctly does not help if the peak is the problem.
+
+**▶ THE MEASUREMENT IS CHEAP, NEEDS NO DISPLAY, AND WORKS ON B695 OR LATER:** load a clip, enter motion, open the loop builder, copy a report, read `sessions.peak.decode` and the `live[]` labels. **If it reads 6, this is a real ceiling risk and the shed-before-acquire policy (session audit step 3) has its first concrete target.** If it reads 3 or 4, some path already tears down and the model above is wrong.
+
+**⚠️ AND "SHED BEFORE ACQUIRE" IS THE WRONG FIX FOR THE STAGING DECODER SPECIFICALLY** — that second decoder IS staging; releasing it removes the feature (B495 proved exactly that). The candidate targets are the loop builder's three, which could plausibly be two, and whether the staging decoder is released when the loop builder opens over it.
+
 ### 🎬 [QUEUED 2026-08-21, Daniel's ask] RE-VERIFY RECORDING ON THE CURRENT BUILD — THE OLD EVIDENCE IS STALE
 
 **Why this is queued rather than gated:** every record-while-broadcasting failure on record is **B661, B663, B666, B668**. The session registry and the orphaned-decoder release landed at **B681**. The audit that prompted that fix found the source `<video>` was orphaned on *every* swap, peaking at five or six live decoders of one clip, counted by nothing.
@@ -601,6 +668,10 @@ getDeviceId: () => null,       // ...20 lines below, pre-existing, and it WINS
 ### 🔌 [2026-08-21 — HARDWARE, NOT AN APP LIMIT] THE APPLE A1621 DONGLE IS UNRELIABLE ON THE DELL P2415Q
 
 Daniel, during T10: the A1621 (USB-C multiport) drops the connection to the Dell 4K panel, while a plain USB-C to HDMI cable on the **same display and same iPad** works fine. **Recorded so a future flaky-HDMI session does not get spent debugging the app.** Power delivery through the dongle held steady throughout the 50-minute run; it is the display link that is unreliable. Untested against a projector, which is the more common real use.
+
+### ✅ [CLOSED 2026-08-21 — VERIFIED ON DEVICE] THE DROSTE-CENTRE JOYSTICK
+
+**Daniel smoke-tested droste and radial after B697: joystick, manual pan and drag all move in the expected directions.** The droste instance was already correct, so no flag was needed. Reasoning kept below.
 
 ### 🕹 [B697 — SIBLING OF A FIXED BUG, NOT VERIFIED] THE DROSTE-CENTRE JOYSTICK LIKELY HAS THE SAME ROTATION BUG
 

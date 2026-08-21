@@ -21,6 +21,7 @@
 // seeking: not an mp4/mov, codec this device can't decode, mid-stream decode
 // error. WebM sources always take the fallback (mp4box only demuxes ISOBMFF).
 
+import { acquireSession, releaseSession } from 'conduit/sessions';
 import * as MP4BoxModule from 'mp4box';
 
 // mp4box ships UMD-flavored; take named exports wherever the bundler put them
@@ -198,6 +199,25 @@ export async function createSequentialFrameReader(url, { maxBytes = 1_500_000_00
     }
   }
 
+  // ⚠️ B699 — THE BAKE'S DECODER WAS INVISIBLE TO THE SESSION REGISTRY, AND IT IS THE ONE PATH
+  // THAT JUST FAILED WITH A DECODER TIMEOUT.
+  //
+  // Daniel, 2026-08-21: *"Could not bake the clip: decode timed out at 39.288s (10s budget for one
+  // frame...)"*, twice, about halfway through the progress bar. That error means a `VideoDecoder`
+  // produced NOTHING for ten wall-clock seconds — which is what a decoder does when the platform
+  // has run out of decode sessions to give it.
+  //
+  // **And a bake runs from inside the loop builder, which already holds three counted decoders**
+  // (`clip-editor.js`: preview, A-head crossfade, thumbnail strip) **on top of the source element
+  // and, on Capacitor, the native decode.** So the bake's decoder is the sixth or seventh live
+  // decode on one clip, and until this line it was the only one the registry could not see.
+  // `sessions.peak.decode` was therefore UNDERCOUNTING by exactly the session most likely to be
+  // the one that could not be granted.
+  //
+  // This does not fix the bake. It makes the next failure diagnosable, which is the precondition
+  // for fixing it — and it is the standing rule (an uncollectable diagnostic is no diagnostic).
+  const readerToken = acquireSession('decode', 'bake: frame reader');
+
   function makeDecoder() {
     const d = new VideoDecoder({
       output: (f) => { if (closed) f.close(); else outQ.push(f); },
@@ -329,6 +349,7 @@ export async function createSequentialFrameReader(url, { maxBytes = 1_500_000_00
       drainQ();
       revClear();   // the reverse window owns its frames outright
       try { dec.close(); } catch { /* already closed */ }
+      releaseSession(readerToken);   // B699 — paired with the acquire above; see its comment
     },
   };
 }
