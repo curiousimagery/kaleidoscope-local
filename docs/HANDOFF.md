@@ -77,6 +77,48 @@ Daniel asked whether the instrumentation would catch a context loss during rapid
 
 **Read the report in this order after a failure:** `priorTrail` (survives the kill) → `trail` (this run) → `sessions` (what was held) → `sourceSwap` (what he had just loaded).
 
+### 🔴 T10 RESULT (2026-08-21, B695, `docs/temp/8-21-26-T10-4klooptest.json`) — THE GOVERNOR IS THE PRIME SUSPECT FOR THE LOW DISPLAY RATE
+
+**Run: `outcome: complete`, 3000s, 6/6 steps, HDMI via an Apple A1621 dongle with power. No context loss. Power steady.**
+
+**✅ THE LOOP CACHE TEST PASSED, and this is the number:** `loopStall: { wraps: 8, maxGapMs: 13 }`. Eight loop wraps of a 4K clip with a worst-case gap of **13ms**. The frame hold is gone. Verification item 1 is closed.
+
+**⚠️ THE DELIVERY CHAIN, and it degrades at one specific step:**
+
+```
+source decode  27.9 in/s
+   ↓
+external       19 arriving/s · 20 drawn/s · 15 NEW PICTURES/s ON THE DISPLAY
+app fps        20.5   (frameMs p50 48ms)
+```
+
+**20 drawn but only 15 new means the external view is REDRAWING STALE STATE.** Daniel noticed the shape of this without the numbers: *"i did notice a lower display fps most of the time and a higher app fps."* He was right, and it is worse than he thought — the display is at 15, not 22.
+
+**⚠️ AND THE GOVERNOR IS ARMED, ON THE DISPLAY SIGNAL, DOING EXACTLY WHAT THE BACKLOG PREDICTED WOULD HURT:**
+
+```
+active: true · level 2 · signal "display" · target 19 · shortfall 0.21 · broadcasting: true
+rung: "main · staged 10fps, second · live 5fps"   governing: ["preview", "pip"]
+```
+
+**It is throttling the preview to 10fps and the live PiP to 5fps.** That is Daniel's other observation — *"the live pip paused sometimes"* — and it is not a pause, it is 5fps.
+
+**THE HYPOTHESIS, and it has a one-run discriminator.** The external view renders in its OWN process from POSTED STATE. Throttling the app's preview cannot give that process more GPU, but it can post state less often — and `20 drawn / 15 new` is precisely the signature of a view drawing faster than it is being told anything new. **So the governor may be causing the shortfall it is reacting to.**
+
+**✅ THE CROSS-REPORT TABLE ALREADY CONVICTS IT (B698, zero device time).** Four saved reports:
+
+| build | app fps | governor | NEW pictures/s | arriving/s |
+|---|---|---|---|---|
+| B681 (T9) | **15** | **off** | **31** | 30 |
+| B679 | 23.5 | ON L2 | 19 | 30 |
+| B695 (T10) | 20.5 | ON L2 | **15** | **19** |
+
+**T9 is the decisive row: the SLOWEST app produced the FASTEST display.** The external view renders in its own process, so app fps does not gate it — the governor sheds the app and the arrival rate drops 30 → 19.
+
+**▶ CONFIRMING TEST, and it is one switch:** re-run with the governor DISABLED in the frame-cost panel. If `NEW PICTURES/s` rises, the governor is the cause and the backlog's pending "scope it to bus destinations" decision is settled by measurement rather than argument. If it does not move, the governor is exonerated and the stale-state cause is elsewhere.
+
+**Also recorded:** `broadcastCeiling` has now learned `hdmi:3840 → 22 delivered / 30 source` over 1.4M samples. `sessions` peak was `{ total 4, gl 2, decode 2 }`, conserved. Thermal reached `serious` 5.5 minutes in, with 4982MB still free — **so this is thermal and GPU-process pressure, not memory.**
+
 ### 🔴 PICK UP HERE — RECENTER DOES NOT EASE IN PERFORM MODE
 
 Daniel, B694: *"return center should honor the transition speed in perform mode, but right now it appears to be instant."*

@@ -734,7 +734,9 @@ for (const id of DECLARATIVE_PARAM_IDS) {
 mountLoopingControl(canvasPopEl, PARAMS.infiniteZoom, env);
 // TILING PAN velocity joystick — tileable forms only (gated in applyFormVisibility). Same
 // component as desktop (pointer-based + touch-action:none, so it works on touch).
-const mPanJoy = createPanJoystick(env, { periodOf: () => getActiveForm(state)?.latticePeriod?.(state) || null });
+// B697 — `rotates: true` must match main.js's tiling-pan instance. A fix applied to one chrome
+// and not the other is the single most repeated bug in this project (CLAUDE.md).
+const mPanJoy = createPanJoystick(env, { periodOf: () => getActiveForm(state)?.latticePeriod?.(state) || null, rotates: true });
 canvasPopEl.appendChild(mPanJoy.root);
 env.panDrift = { on: mPanJoy.driftOn, stop: mPanJoy.stopDrift, set: mPanJoy.setDriftVelocity };
 

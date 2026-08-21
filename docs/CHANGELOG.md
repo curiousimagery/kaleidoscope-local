@@ -6,6 +6,94 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🚧 v0.26.38 (Build 698) — 2026-08-21 — Two scripted tests, and the cross-report table that answered the display-rate question for free
+
+### Shipped
+
+- **`T11 · take baseline, NO broadcast`** — the control condition, which has never been run. FHD then 4K, each alone.
+- **`T3r · record while broadcasting, RE-RUN`** — T3's steps unchanged, on a build that releases decoders.
+
+### The display-rate question, answered from reports already on disk
+
+Daniel: *"do you have a sense of why it was working better before?... is there a faster clear answer here? I'm assuming not."* There was. Four saved reports, one table, no device time:
+
+| build | app fps | governor | NEW pictures/s on the display | arriving/s |
+|---|---|---|---|---|
+| B681 (T9) | **15** | **off** | **31** | 30 |
+| B679 | 23.5 | ON, L2 | 19 | 30 |
+| B695 (T10) | 20.5 | ON, L2 | **15** | **19** |
+
+**Every run with the governor off has a fast display. Every run with it on has a slow one.** And the decisive row is T9: the app ran at **15fps, the slowest of the three, while the display ran at 31, the fastest.**
+
+**That inverts the intuition the governor is built on.** A struggling app does not imply a struggling display, because the external view renders in its own process. The governor watches the display, sheds the app, and the arrival rate falls from 30 to 19.
+
+**It is not the dongle and not the radial pan work.** Both were reasonable suspects and both are cleared by builds that predate them.
+
+### The prediction, stated before the run
+
+Daniel is re-running with the governor off. **This model predicts the display returns to roughly 30 new pictures/s.** If it does not, the model is wrong and the governor is exonerated — which is the point of writing it down first.
+
+---
+
+## 🚧 v0.26.37 (Build 697) — 2026-08-21 — The pan joystick did not know the canvas was rotated
+
+### Shipped
+
+- **The tiling-pan joystick folds canvas rotation into the handle direction**, in BOTH chromes. Pull up, travel visually up, at any rotation.
+
+### Daniel found this and named the old bug it explains
+
+*"the finger joystick and pan traverse controls aren't aware of canvas rotation... this was the root of the 45 degree pan offset bug that we couldn't repro a long while back."*
+
+Confirmed by reading the shader. The transform order is **rotation first**, then zoom, then the offset subtraction:
+
+```glsl
+p = mat2(c, s, -s, c) * p;   // canvas rotation
+p /= u_canvasZoom;
+p -= u_canvasOffset;          // <- lives in POST-rotation space
+```
+
+Every GESTURE path already knows this and counter-rotates through `kit/pan.js` `panToOffset`. **The joystick wrote the raw handle vector straight into that rotated space.** At 45° a pull "up" travelled up and sideways; at 180° it travelled down. It was never reproducible because it only appears once the canvas is rotated, and nothing in the report said so.
+
+### Why not just call `panToOffset`
+
+It folds in the X-negation and Y-flip too, which this component already expresses through its own `signX`/`signY` options. Routing through it would double-apply the signs and invert a control that is correct today. So this applies the same rotation matrix and nothing else.
+
+**At `canvasRotation = 0` the transform is exactly the identity**, so the default case provably cannot regress. That is what makes it safe to ship without a rotated-canvas device session.
+
+### Opt-in, because the droste instance is a different question
+
+`rotates: true` is passed by the tiling-pan instance in both chromes. The droste-centre joystick drives `drosteOffsetX/Y`, which is also consumed in post-rotation space and **probably has the same bug** — but it has a second consumer, the overlay diamond drag, which does its own mirror handling. Filed rather than changed blind.
+
+---
+
+## 🚧 v0.26.36 (Build 696) — 2026-08-21 — The duplicate-key check becomes a habit instead of a memory
+
+**Tooling only. No app code touched.**
+
+### Shipped
+
+- **`tools/check-dupe-keys.mjs`** — an AST scan for shadowed object keys. No new dependency (`acorn` is already present via Vite's rollup), no config, one question.
+- **Wired into the existing `npm run check`**, which already did syntax checks.
+- **Added to CLAUDE.md's standing maintenance ritual**, which is now five checks rather than four.
+
+### Why here and not in a doc
+
+Daniel's question was the practical one: *"how and when would you know to run the script in a future session... i'd like a little housekeeping to make sure that several arcs later the script doesn't get lost when its most needed."*
+
+**A reference in a markdown file depends on someone reading the right file at the right moment, which is exactly the failure mode it would exist to prevent.** Two things made a better answer available than the one originally proposed:
+
+1. **`acorn` is already a transitive dependency**, so the scan costs nothing to add.
+2. **`npm run check` already existed** as the "is this code sane" gate. The scan rides a habit that is already there rather than creating a new one.
+
+So the answer to "when would you run it" is: whenever `check` runs, and `check` is now item five of the ritual in the one file loaded at the start of every session.
+
+### The detector was proven to fail before it was trusted
+
+A check that has never failed is not yet a check. Run against a deliberate shadow it caught the duplicate and correctly did **not** flag a legal `get`/`set` pair on the same name. Clean across all 101 files.
+
+---
+
 ## 🚧 v0.26.35 (Build 695) — 2026-08-21 — Four of five GL surfaces could not report a context loss to the only channel Daniel reads
 
 **Instrumentation only. No behaviour change.** Written before a planned aggressive stress test, because the answer to *"do you have everything you need to listen for issues?"* was no.

@@ -28,9 +28,12 @@ export function createPanJoystick(env, opts = {}) {
   // signX/signY: per-axis write direction (the droste Möbius center reads its Y opposite to a
   // tiling pan, so that instance passes signY:-1). Only the state write flips; the handle UI is
   // unchanged (push down = same visual, content moves the intuitive way).
+  // rotates: fold the CANVAS ROTATION into the handle direction. See the tick() comment — this is
+  // opt-in rather than always-on only because the droste-centre instance has a second consumer
+  // (the overlay diamond drag) that has to be checked before it changes too.
   const { keyX = 'canvasOffsetX', keyY = 'canvasOffsetY', periodOf = () => null, speed = SPEED,
           rowId = 'panJoyRow', label = 'pan', locked = () => false,
-          signX = 1, signY = 1 } = opts;
+          signX = 1, signY = 1, rotates = false } = opts;
   const { state, session, scheduleRender, controlsSync } = env;
 
   const root = document.createElement('div');
@@ -89,8 +92,31 @@ export function createPanJoystick(env, opts = {}) {
     const dt = Math.min(now - lastT, 100) / 1000;
     lastT = now;
     if ((hx || hy) && !locked()) {   // locked (motion / manual-off) → hold position, don't write
-      state[keyX] = (state[keyX] || 0) + hx * speed * signX * dt;
-      state[keyY] = (state[keyY] || 0) + hy * speed * signY * dt;
+      // ⚠️ B697 — THE JOYSTICK DID NOT KNOW THE CANVAS WAS ROTATED. Daniel: *"if a user pulls up on
+      // the joystick they will always expect this to traverse visually up... this was the root of
+      // the 45 degree pan offset bug that we couldn't repro a long while back."*
+      //
+      // The shader applies rotation FIRST (`p = mat2(c,s,-s,c) * p`), then zoom, then subtracts
+      // `u_canvasOffset` — so the offset lives in POST-ROTATION space. Every GESTURE path already
+      // knows this and counter-rotates through `kit/pan.js` `panToOffset`. **The joystick wrote the
+      // raw handle vector straight into that rotated space**, so at 45° a pull "up" travelled up
+      // and to the side, and at 180° it travelled down.
+      //
+      // Applying the SAME matrix `panToOffset` uses, and nothing else. Not `panToOffset` itself:
+      // that also folds in the X-negation and Y-flip which this component already expresses through
+      // `signX`/`signY`, so calling it would double-apply the signs and invert a control that is
+      // correct today. **At canvasRotation = 0 this is exactly the identity, so the default case
+      // provably cannot regress** — which is the property that makes it safe to ship without a
+      // rotated-canvas device session.
+      let dx = hx, dy = hy;
+      if (rotates) {
+        const r = (state.canvasRotation || 0) * Math.PI / 180;
+        const c = Math.cos(r), sn = Math.sin(r);
+        dx = c * hx + sn * hy;
+        dy = -sn * hx + c * hy;
+      }
+      state[keyX] = (state[keyX] || 0) + dx * speed * signX * dt;
+      state[keyY] = (state[keyY] || 0) + dy * speed * signY * dt;
       layout();
       scheduleRender();
     }

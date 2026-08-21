@@ -12,14 +12,16 @@ Fold is ONE app with three modes — Still (this kaleidoscope), Motion, and Perf
 
 ## standing maintenance after any code change
 
-Every code change that ships requires four updates. Before committing any code change, confirm each one is done:
+Every code change that ships requires five checks. Before committing any code change, confirm each one is done:
 
 - [ ] `src/version.js` BUILD counter incremented (monotonic, never resets) AND the VERSION patch bumped by one (`X.Y.Z` → `X.Y.Z+1`) on every code-shipping build. The minor/major still bump for milestones when called for; the patch increments every deploy that touches code. Docs-only changes bump neither.
 - [ ] `docs/CHANGELOG.md` entry added under a new version block (one per build, since the patch bumps every build).
 - [ ] `docs/HANDOFF.md` updated if the change affects current state, known issues, or what the next session should pick up. The "what's working" and "what we're doing right now" sections go stale fastest.
 - [ ] `docs/BACKLOG.md` updated if a backlog item was shipped (move it to CHANGELOG and remove from BACKLOG) or a new item was discovered.
 
-If any of the four cannot be confirmed, do not commit. Address what's missing first.
+- [ ] `npm run check` passes. It is syntax plus `tools/check-dupe-keys.mjs`, which catches the one bug class that is invisible in review: **a JS object literal silently takes the LAST duplicate key** — no error, no warning. Two of these cost two builds (B686), and both were found by a device session rather than by reading. No dependency and no config; it answers one question.
+
+If any of the five cannot be confirmed, do not commit. Address what's missing first.
 
 If the change is docs-only (no code touched), none of the above applies.
 

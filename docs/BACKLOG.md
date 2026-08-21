@@ -559,7 +559,7 @@ Daniel's ask, and the answer to him being the sole chokepoint on device work: *"
 **⚠️ B688's reasoning was half right and the half that was wrong is why this persisted.** It correctly established that `u_canvasOffset` is applied after the zoom divide and is therefore zoom-independent *as a coordinate*. It wrongly concluded that its BOUND must be too. **The coordinate is zoom-independent; the CONTENT it addresses is not** — radial's wedge extent is `1/canvasZoom` by its own `buildPolygon`. A fixed bound over a content extent that swings 16× cannot feel the same at both ends.
 
 
-### 🧰 [OPEN DECISION — Daniel's call, asked B686, restated B695] A LINTER, FOR `no-dupe-keys` AND NOTHING ELSE
+### ✅ [DECIDED + SHIPPED B696] A LINTER, FOR `no-dupe-keys` AND NOTHING ELSE — kept for the reasoning
 
 **Not a style question. It is about one bug class that has cost two builds and is invisible in review.**
 
@@ -578,7 +578,37 @@ getDeviceId: () => null,       // ...20 lines below, pre-existing, and it WINS
 | **Keep the AST scan as a scratchpad script** | zero project surface, already written and passing | only runs when someone remembers to run it, which is the failure mode it exists to prevent |
 | **Nothing** | honest about how rare it is (2 instances, both fixed, 0 remaining) | the two that existed were found by a device session and a live show, not by review |
 
+**✅ B696 SHIPPED THE MIDDLE OPTION, PROMOTED.** `tools/check-dupe-keys.mjs` in `npm run check`, and `check` is now item 5 of CLAUDE.md's ritual. No dependency (`acorn` rides Vite's rollup), no config. Original recommendation kept below.
+
 **Recommendation if asked: the middle option promoted** — keep it dependency-free, but make the AST scan something the four-part maintenance ritual runs rather than something to remember. It buys the one guarantee without opening the door to a lint config.
+
+### 🎬 [QUEUED 2026-08-21, Daniel's ask] RE-VERIFY RECORDING ON THE CURRENT BUILD — THE OLD EVIDENCE IS STALE
+
+**Why this is queued rather than gated:** every record-while-broadcasting failure on record is **B661, B663, B666, B668**. The session registry and the orphaned-decoder release landed at **B681**. The audit that prompted that fix found the source `<video>` was orphaned on *every* swap, peaking at five or six live decoders of one clip, counted by nothing.
+
+**So the entire evidence base predates the fix for a resource-exhaustion problem that could plausibly have caused it.** Daniel spotted this: *"the permit management system you've implemented i think is new since we tested recording while broadcasting on ipad. I wonder if theres a chance this might have actually addressed a root cause limitation for at least some of our failure states?"*
+
+**Building a capability gate on those numbers would encode a limit that may no longer exist.** T10 (B695) supports the concern: `sessions` peak was `{ total 4, gl 2, decode 2 }` and conserved, where the pre-fix audit predicted 5-6 decoders alone.
+
+**Three tests, in this order. The first two are the CONTROL CONDITION and have never been run:**
+
+1. **FHD take, nothing else running.** Never measured. Every FHD number we have comes from a run with a broadcast live.
+2. **4K take, nothing else running.** Last measured at **13.4fps against a declared 30** with the app at 59fps — but that was pre-B681 too, so it needs refreshing before anything is built on it.
+3. **T3 again (take while broadcasting), unchanged rig.** Three outcomes, all useful: it passes (the decoders were the cause and there is no gate to build); it fails (the evidence is refreshed and the gate gets real numbers); it fails differently (that is the isolation this has needed since B667).
+
+**⚠️ DO NOT BUILD THE TAKE-TIER CAP BEFORE 1 AND 2.** The 13.4fps figure is the only justification for it and it is from the leaking build.
+
+### 🔌 [2026-08-21 — HARDWARE, NOT AN APP LIMIT] THE APPLE A1621 DONGLE IS UNRELIABLE ON THE DELL P2415Q
+
+Daniel, during T10: the A1621 (USB-C multiport) drops the connection to the Dell 4K panel, while a plain USB-C to HDMI cable on the **same display and same iPad** works fine. **Recorded so a future flaky-HDMI session does not get spent debugging the app.** Power delivery through the dongle held steady throughout the 50-minute run; it is the display link that is unreliable. Untested against a projector, which is the more common real use.
+
+### 🕹 [B697 — SIBLING OF A FIXED BUG, NOT VERIFIED] THE DROSTE-CENTRE JOYSTICK LIKELY HAS THE SAME ROTATION BUG
+
+B697 fixed the TILING-PAN joystick: it wrote the raw handle vector into `canvasOffset`, which the shader consumes in POST-rotation space. **`drosteOffsetX/Y` is consumed in the same post-rotation space** (the Möbius pre-composition runs inside `foldDroste`, which receives an already-rotated `p`), so the same joystick component driving it almost certainly has the same defect.
+
+**Not changed blind, for a specific reason:** that offset has a SECOND consumer, the overlay diamond drag, which does its own mirror un-folding (B635). Rotating the joystick without checking whether the diamond agrees would trade a known bug for a disagreement between two controls on one value.
+
+**The fix if confirmed is one word** — pass `rotates: true` at both instantiation sites (`main.js` droste offset joystick, `mobile/chrome.js` line ~872). **The check first:** rotate the canvas 90°, drag the diamond, and see whether the pole moves the way the hand does. If the diamond is already correct, the joystick just needs the flag; if the diamond is also wrong, they should be fixed together.
 
 ### 👁 [Daniel, B694 — WATCH ITEM, HIS CALL] OUTPUT BRIEFLY DOUBLE-EXPOSES AFTER AN AGGRESSIVE ZOOM-OUT + PAN
 

@@ -1355,6 +1355,7 @@ function wireControls() {
   const panJoy = createPanJoystick(env, {
     periodOf: () => getActiveForm(state)?.latticePeriod?.(state) || null,
     locked: () => isMotionDriven(),
+    rotates: true,   // B697 — canvasOffset is post-rotation space; see the joystick's tick()
   });
   document.getElementById('canvasRot')?.closest('label')?.after(panJoy.root);
   // expose the drift so the pan GESTURE can flick into it and reset-canvas can stop + recenter it.

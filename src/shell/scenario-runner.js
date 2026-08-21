@@ -118,6 +118,86 @@ export const SCRIPTS = [
     ],
   },
   {
+    id: 't11-take-baseline',
+    label: 'T11 · take baseline, NO broadcast (~4 min)',
+    needs: ['vitals', 'outputActions'],
+    blurb: 'the control condition: what does a take deliver with nothing else running?',
+    // ⚠️ THE CONTROL CONDITION, AND IT HAS NEVER BEEN RUN. Every FHD number on record comes from a
+    // run with a broadcast live, so "recording while broadcasting is bad" has never been compared
+    // against "recording". The only solo figure we have is a 4K take at **13.4fps against a
+    // declared 30** — and that predates B681, which released the orphaned source decoders the
+    // session audit found (five or six live decoders of ONE clip, counted by nothing).
+    //
+    // **So both numbers this script produces are new**, and the take-tier cap must not be built
+    // until they exist. Daniel: *"have we confirmed that FHD and 4k record on ipad are capable of
+    // healthy fps when we *aren't* broadcasting?"* The answer was no, for both.
+    //
+    // FHD FIRST, DELIBERATELY. If the 4K take kills the GL context — which it has done before —
+    // the FHD number is already captured and the run still produced its half of the answer. The
+    // reverse order risks spending the whole test to learn nothing.
+    steps: [
+      { do: 'broadcast', arg: 'off' },
+      { do: 'play' },
+      { do: 'session', arg: 'start', label: 't11-take-baseline' },
+      { do: 'resolution', px: 1920 },
+      { do: 'wait', ms: 10_000, note: 'settling at FHD' },
+      { do: 'record', arg: 'on', tag: 'FHD · alone' },
+      { do: 'wait', ms: 60_000, note: 'FHD take running ALONE — nothing else is on' },
+      { do: 'record', arg: 'off' },
+      { do: 'wait', ms: SETTLE_MS, note: 'finalizing the FHD take' },
+      { do: 'capture', tag: 'FHD · alone' },
+      { do: 'resolution', px: 3840 },
+      { do: 'wait', ms: 10_000, note: 'settling at 4K' },
+      { do: 'record', arg: 'on', tag: '4K · alone' },
+      { do: 'wait', ms: 60_000, note: '4K take running ALONE — the 13.4fps figure, re-measured' },
+      { do: 'record', arg: 'off' },
+      { do: 'wait', ms: SETTLE_MS, note: 'finalizing the 4K take' },
+      { do: 'capture', tag: '4K · alone' },
+      { do: 'session', arg: 'stop' },
+    ],
+  },
+  {
+    id: 't3-rerun-post-b681',
+    label: 'T3r · record while broadcasting, RE-RUN (~4 min)',
+    needs: ['vitals', 'outputActions'],
+    blurb: 'the stale-evidence re-test — same steps as T3, on a build that releases decoders',
+    // ⚠️ THIS IS T3'S STEPS ON PURPOSE, UNCHANGED. It is not a new experiment; it is the old one
+    // re-run so the two are comparable. Daniel's question is the reason it exists: *"the permit
+    // management system you've implemented i think is new since we tested recording while
+    // broadcasting on ipad. I wonder if theres a chance this might have actually addressed a root
+    // cause limitation for at least some of our failure states?"*
+    //
+    // Every failure on record is B661, B663, B666, B668. `conduit/sessions.js` and the orphaned
+    // `<video>` release landed at **B681**. So the whole evidence base predates the fix for a
+    // resource exhaustion that could plausibly have caused it — T10 peaked at `{ gl 2, decode 2 }`
+    // where the pre-fix audit predicted five or six decoders alone.
+    //
+    // **Three outcomes, all useful:** it passes (the decoders were the cause, no gate to build);
+    // it fails (the evidence is refreshed and any gate gets current numbers); it fails differently
+    // (that is the isolation this has needed since B667).
+    steps: [
+      { do: 'broadcast', arg: 'off' },
+      { do: 'resolution', px: 1920 },
+      { do: 'play' },
+      { do: 'session', arg: 'start', label: 't3-rerun-post-b681' },
+      { do: 'broadcast', arg: 'on' },
+      { do: 'wait', ms: 20_000, note: 'let the broadcast settle' },
+      { do: 'record', arg: 'on', tag: 'A · while broadcasting' },
+      { do: 'wait', ms: 60_000, note: 'take A running' },
+      { do: 'record', arg: 'off' },
+      { do: 'wait', ms: SETTLE_MS, note: 'finalizing take A' },
+      { do: 'capture', tag: 'A · while broadcasting' },
+      { do: 'broadcast', arg: 'off' },
+      { do: 'wait', ms: 20_000, note: 'broadcast stopped, settling' },
+      { do: 'record', arg: 'on', tag: 'B · no broadcast' },
+      { do: 'wait', ms: 60_000, note: 'take B running' },
+      { do: 'record', arg: 'off' },
+      { do: 'wait', ms: SETTLE_MS, note: 'finalizing take B' },
+      { do: 'capture', tag: 'B · no broadcast' },
+      { do: 'session', arg: 'stop' },
+    ],
+  },
+  {
     id: 't7-warm-long-run',
     label: 'T7 · warm long run (10 min warm + 40 min hands-off)',
     needs: ['vitals', 'outputActions'],
