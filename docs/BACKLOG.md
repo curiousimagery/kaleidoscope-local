@@ -612,9 +612,19 @@ SUCCEEDED B700 · peak.decode 8 · source note: "from canvas · planar · native
 
 **▶ NEXT: reproduce on B699+ and read `sessions.peak.decode` and `live[]`.** If the peak reaches 6-7 with `bake: frame reader` present, the hypothesis is confirmed and the fix is a shed policy. If it peaks at 3-4, it is the seek/keyframe path and the fix is in `resetTo`.
 
-### 🚨 [HIGH — REPRODUCED WITH INSTRUMENTATION 2026-08-21, B700] THE SOURCE STALLS IMMEDIATELY AFTER A SUCCESSFUL BAKE
+### ❌ [WITHDRAWN B702 — THE INSTRUMENT WAS WRONG, NOT THE APP] ~~THE SOURCE STALLS AFTER A SUCCESSFUL BAKE~~
 
-**This is the B609 item (`THE SOURCE FREEZES AFTER A GL CONTEXT RESTORE`) caught fresh, with a cleaner trigger and no context loss involved.** From `docs/temp/loopBuilderSuccess-report.json`, taken right after a bake that SUCCEEDED:
+**⚠️ WITHDRAWN. Daniel: *"in the app the source panel is rendering and the diagnostic reads planar source so the issue didn't seem to persist."* The picture was FINE.**
+
+**The bug was in the note.** `sourceStallNote` keys on `msSinceFrame`, which equals "the decode is wedged" only if the clip is supposed to be producing frames — and **a freshly baked clip parks PAUSED by design (B595)**. No frames is the correct behaviour there, and the instrument called it a stall.
+
+**And I compounded it by skipping a precondition.** B584's rule is *"equal offered/taken WITH A FROZEN PICTURE means the frames reached us and we failed to use them."* I applied the conclusion without establishing the frozen picture. Daniel supplied it and it falsified the reading. **The wrong-noun test, failing inside the report itself.**
+
+**✅ FIXED B702:** the note returns early when the source is paused. Unfixed, this would have aimed every future post-bake session at a bug that does not exist.
+
+**The original write-up is kept below because the B609 item it pointed at is still open and the narrowed suspect in it is still worth reading.** What is NOT established is that it reproduces after a bake.
+
+~~This is the B609 item caught fresh.~~ From `docs/temp/loopBuilderSuccess-report.json`, taken right after a bake that SUCCEEDED:
 
 ```
 source: from canvas · planar · native decode · 0.0 in/s

@@ -6,6 +6,27 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🚧 v0.26.42 (Build 702) — 2026-08-21 — A parked clip is not a stall, and the report said it was
+
+### Shipped
+
+- **`sourceStallNote` returns early when the source is paused.**
+
+### The instrument was wrong and it produced a false diagnosis within minutes
+
+B701 filed a HIGH-priority reproduction of the post-bake source freeze, on the strength of `⚠ SOURCE STALLED 35.1s — offered 157, took 157, skipped 0`. Daniel corrected it: *"in the app the source panel is rendering and the diagnostic reads planar source so the issue didn't seem to persist."* **The picture was fine. There was no bug.**
+
+**Two failures, and the second is mine rather than the code's:**
+
+1. `msSinceFrame` counts time since a frame last arrived, which equals "the decode is wedged" **only if the clip is supposed to be producing frames.** A freshly baked or freshly loaded clip parks PAUSED by design (B595). No frames is correct there.
+2. **B584's rule is "equal offered/taken WITH A FROZEN PICTURE."** I applied the conclusion without establishing the precondition. Daniel supplied it and it falsified the reading.
+
+**This is the wrong-noun test failing inside the report itself** — the exact thing the debugging protocol exists to prevent, caught only because he described what he actually saw. Unfixed, every future post-bake report would have carried a false alarm and aimed the next session at a bug that is not there.
+
+The B609 post-bake freeze remains open. What is no longer claimed is that this run reproduced it.
+
+---
+
 ## 🚧 v0.26.41 (Build 701) — 2026-08-21 — Governor off by default, and my bake hypothesis was wrong
 
 ### Shipped
