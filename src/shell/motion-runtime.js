@@ -1578,6 +1578,7 @@ function toggleMotionMode() {
   // is ending); staged edits are never silently lost
   if (env.motionRT.active && stg.on) endStaging('cut', { resume: false });
   env.motionRT.active = !env.motionRT.active;
+  env.vitals?.mark('mode', { motion: env.motionRT.active });   // B695 — see perform-runtime's twin
   motion.selected = -1;          // never carry a stale selection across the toggle
                                  // (otherwise post-exit edits could write through to it)
   if (env.motionRT.active) { session.timelineZoom = 1; session.timelinePan = 0; }   // enter fit-to-view

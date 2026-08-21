@@ -6,6 +6,42 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🚧 v0.26.35 (Build 695) — 2026-08-21 — Four of five GL surfaces could not report a context loss to the only channel Daniel reads
+
+**Instrumentation only. No behaviour change.** Written before a planned aggressive stress test, because the answer to *"do you have everything you need to listen for issues?"* was no.
+
+### Shipped
+
+- **`gl-context-lost` / `gl-context-restored` now marked on EVERY surface**: output engine, live PiP, external view, mobile preview. Preview already did (B660).
+- **`external:crash-loop`** marked.
+- **`mode` breadcrumbs** on entering/leaving perform and toggling motion.
+
+### The audit, which is the actual finding
+
+Daniel asked whether the instrumentation would catch a context loss during rapid mode / source / broadcast switching. Auditing the five GL surfaces:
+
+| surface | before | reaches the report? |
+|---|---|---|
+| preview (`main.js`) | `vitals.mark` | ✅ since B660 |
+| output engine | `console.warn` | ❌ |
+| live PiP | `console.warn` | ❌ |
+| external view | `console.warn` upstream | ❌ |
+| mobile preview | bare `preventDefault()` | ❌ **silent entirely** |
+
+**The surface that feeds the recording and the broadcast was the one that could not say it had died.** This is the standing rule in CLAUDE.md applied to the case it was written for: Daniel does not run Safari Web Inspector, so `console.warn` is not a diagnostic, and *"treat an uncollectable diagnostic as no diagnostic."*
+
+### The external view's mark is INJECTED, deliberately
+
+`createPoster` has no `env` in scope and is called from two places, so the mark is passed in `opts` and the caller supplies `env.vitals?.mark`. Reaching for an ambient `env` there is exactly the shape that produced B627 and B638.
+
+**And `output-view.js` deliberately did NOT get its own vitals instance.** It is a separate page on the same origin, so a second recorder would clobber the shared `localStorage` trail key. It reports upstream and the parent marks, which keeps one trail with one writer.
+
+### Already covered, checked rather than assumed
+
+Source swaps were already exported as `sourceSwap` (a 12-entry ring via `swapTrace`), and take/bus lifecycle as `bus:start` / `take:arm` / `take:started` / `take:dead`. Neither needed changing.
+
+---
+
 ## 🚧 v0.26.34 (Build 694) — 2026-08-19 — Radial pan: one gain, and a ceiling set by float32 rather than by taste
 
 ### Shipped

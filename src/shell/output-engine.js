@@ -101,11 +101,17 @@ export function createOutputEngine(env) {
     env.resetBusCapture = () => cap?.reset();
     // A second context-loss surface (we already handle the preview's). Log it so a
     // black output is never silent; the bus stops on render failure regardless.
+    // ⚠️ B695 — A CONSOLE WARNING IS NOT A DIAGNOSTIC HERE. Daniel does not run Safari Web
+    // Inspector, so until this build a context loss on the surface that FEEDS THE RECORDING AND
+    // THE BROADCAST was invisible in the only channel that reaches him. The preview has marked
+    // since B660; this one, which matters more during a show, did not.
     glCanvas.addEventListener('webglcontextlost', (ev) => {
       ev.preventDefault();
+      env.vitals?.mark('gl-context-lost', { surface: 'output' });
       console.warn('[fold] WebGL context LOST (output engine)');
     });
     glCanvas.addEventListener('webglcontextrestored', () => {
+      env.vitals?.mark('gl-context-restored', { surface: 'output' });
       console.warn('[fold] WebGL context RESTORED (output engine)');
       try { hidden.reinitGL(); }   // rebuild the GPU resources, not just the source
       catch (e) { console.warn('[fold] output engine GL reinit failed', e); }

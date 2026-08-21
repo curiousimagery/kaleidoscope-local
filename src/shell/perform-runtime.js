@@ -80,9 +80,11 @@ export function createPerformRuntime(env) {
       // engine heals in main.js; this is the live PiP's half)
       canvas.addEventListener('webglcontextlost', (e) => {
         e.preventDefault();
+        env.vitals?.mark('gl-context-lost', { surface: 'live-pip' });   // B695 — was console-only
         console.warn('[fold] WebGL context LOST (live PiP)');
       });
       canvas.addEventListener('webglcontextrestored', () => {
+        env.vitals?.mark('gl-context-restored', { surface: 'live-pip' });
         console.warn('[fold] WebGL context RESTORED (live PiP)');
         try { pipEngine.reinitGL(); pipLastSource = null; pipLastW = 0; pipLastH = 0; }   // resync the source next tick
         catch (err) { console.warn('[fold] PiP GL reinit failed', err); }
@@ -599,6 +601,7 @@ export function createPerformRuntime(env) {
         settleFadeT = 0;
       };
       env.performRT.active = true;
+      env.vitals?.mark('mode', { to: 'perform' });   // B695 — a mode change is a discontinuity
       env.performRT.followed = { ...state };
       env.performRT.hold = false;
       trail = []; lastGhostT = 0; settleFadeT = 0;
@@ -619,6 +622,7 @@ export function createPerformRuntime(env) {
       raf = requestAnimationFrame(tick);
     } else {
       env.performRT.active = false;
+      env.vitals?.mark('mode', { from: 'perform' });
       env.performRT.followed = null;   // broadcasts revert to the working state (a hard cut)
       env.performRT.hold = false;
       setAuto(false);                  // the drift is a perform behavior — off with the mode

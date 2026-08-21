@@ -69,6 +69,14 @@ B694  FIXED: one gain, one shared ceiling
 
 **Accepted consequences (Daniel, B694), do not treat as bugs:** past ~20 fold units the centre cannot be found by zooming out; a long drift at deep zoom-out quantises visibly after ~45 min. `action:panRecenter` is the way home. The offset WRAP that would remove both was investigated (exact past 3 fold units) and **dropped as unnecessary**.
 
+### 🎧 B695 — THE STRESS TEST IS NOW LISTENABLE (it was not, on four of five surfaces)
+
+Daniel asked whether the instrumentation would catch a context loss during rapid mode / source / broadcast switching. **It would not have.** Only the preview marked; the output engine, live PiP, external view and mobile preview were console-only or silent, and console does not reach him.
+
+**All five now mark `gl-context-lost` / `gl-context-restored` with a `surface` field**, plus `external:crash-loop` and `mode` breadcrumbs. Source swaps (`sourceSwap`) and take/bus lifecycle were already exported and were checked, not assumed.
+
+**Read the report in this order after a failure:** `priorTrail` (survives the kill) → `trail` (this run) → `sessions` (what was held) → `sourceSwap` (what he had just loaded).
+
 ### 🔴 PICK UP HERE — RECENTER DOES NOT EASE IN PERFORM MODE
 
 Daniel, B694: *"return center should honor the transition speed in perform mode, but right now it appears to be instant."*

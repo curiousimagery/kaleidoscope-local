@@ -266,11 +266,17 @@ function createPoster(opts) {
       poster.degrade();     // step render + source sizes down; repost to the fresh view
       console.warn(`[fold] external view web process died (${msg.count ?? '?'} recent) — reloading at reduced size (gen ${poster.gen})`);
     } else if (msg.type === 'crashLoop') {
+      opts.mark?.('external:crash-loop', {});
       console.warn('[fold] external view crash-looped — presentation stopped; iOS mirroring takes over (unplug/replug to retry)');
       stop();
     } else if (msg.type === 'glLost') {
+      // ⚠️ B695 — INJECTED, not read off an env. `createPoster` has no `env` in scope (it is
+      // called from two places, one of which is the autoconnect path), and reaching for one here
+      // is the exact shape CLAUDE.md warns about. The caller hands in the mark it wants used.
+      opts.mark?.('gl-context-lost', { surface: 'external' });
       console.warn('[fold] external view lost its GL context — recovering');
     } else if (msg.type === 'glRestored') {
+      opts.mark?.('gl-context-restored', { surface: 'external' });
       console.info('[fold] external view GL context restored');
     }
   });
@@ -323,6 +329,7 @@ function createPoster(opts) {
 // ---- desktop chrome: the destination-picker sink (iPad) ----------------------
 export function createExternalDisplaySink(env) {
   const poster = createPoster({
+    mark: (kind, detail) => env.vitals?.mark(kind, detail),   // B695 — the external view's only route to the report
     getState: () => (env.programState ? env.programState() : env.state),
     getFrameAspect: () => env.session?.frameAspect || 1,
     getFill: () => !!env.session?.hdmiFill,

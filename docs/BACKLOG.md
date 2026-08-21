@@ -559,6 +559,64 @@ Daniel's ask, and the answer to him being the sole chokepoint on device work: *"
 **⚠️ B688's reasoning was half right and the half that was wrong is why this persisted.** It correctly established that `u_canvasOffset` is applied after the zoom divide and is therefore zoom-independent *as a coordinate*. It wrongly concluded that its BOUND must be too. **The coordinate is zoom-independent; the CONTENT it addresses is not** — radial's wedge extent is `1/canvasZoom` by its own `buildPolygon`. A fixed bound over a content extent that swings 16× cannot feel the same at both ends.
 
 
+### 🧰 [OPEN DECISION — Daniel's call, asked B686, restated B695] A LINTER, FOR `no-dupe-keys` AND NOTHING ELSE
+
+**Not a style question. It is about one bug class that has cost two builds and is invisible in review.**
+
+```js
+getDeviceId: () => deviceId,   // B684 added this
+getDeviceId: () => null,       // ...20 lines below, pre-existing, and it WINS
+```
+
+**A JS object literal silently takes the LAST duplicate key.** No syntax error, no warning, no runtime complaint. B686 found two of these in `native-camera.js`: one disabled every camera UI gate (so B685's correct structural fix had zero effect), the other dropped a `resetControls()` call. An AST scan (`scratchpad/dupkeys.mjs`) then found zero others across 100 files, so **the codebase is currently clean** — this is about not regressing.
+
+**The tradeoff Daniel has to weigh:**
+
+| | for | against |
+|---|---|---|
+| **Add ESLint, `no-dupe-keys` only** | catches the exact class, on by default in every JS linter, one config file | CLAUDE.md says no build steps without asking; a linter tends to grow rules and become a thing to argue with |
+| **Keep the AST scan as a scratchpad script** | zero project surface, already written and passing | only runs when someone remembers to run it, which is the failure mode it exists to prevent |
+| **Nothing** | honest about how rare it is (2 instances, both fixed, 0 remaining) | the two that existed were found by a device session and a live show, not by review |
+
+**Recommendation if asked: the middle option promoted** — keep it dependency-free, but make the AST scan something the four-part maintenance ritual runs rather than something to remember. It buys the one guarantee without opening the door to a lint config.
+
+### 👁 [Daniel, B694 — WATCH ITEM, HIS CALL] OUTPUT BRIEFLY DOUBLE-EXPOSES AFTER AN AGGRESSIVE ZOOM-OUT + PAN
+
+*"zoom way out on the canvas, pan aggressively, use the slice overlay on the source to zoom back in. upon doing so the output quickly flickers showing two videos overlaid on top of each other."* Does not reproduce consistently. **Daniel filed it as a watch item explicitly; do not spend a device session on it until it recurs.**
+
+**⚠️ HIS DIAGNOSTIC IS THE VALUABLE PART AND IT NARROWS THIS ENORMOUSLY.** *"capturing a screenshot on device renders only a clean single image but i took a photo of my ipad screen on the iphone that looks like a double exposure."*
+
+A screenshot captures the composited framebuffer; a camera integrates light across several refreshes. **Clean screenshot + doubled photo means two DIFFERENT images were on the display within one exposure — temporal alternation, not a corrupted frame.** That rules out, without a device:
+
+- the shader, the fold, the geometry, the source texture, the planar path — **anything that would corrupt a single frame would appear in the screenshot too.**
+
+**Killed by reading:** the classic double-buffer flicker (a rate-gated frame that returns without drawing, leaving the other buffer visible). `engine/gl.js` sets `preserveDrawingBuffer: true`, so a skipped render leaves the previous content intact. Not this.
+
+**What remains, and it is a real structural candidate: TWO VISIBLE SURFACES SHOW DIFFERENT LOOKS OF THE SAME VIDEO IN PERFORM MODE.** `main.js:646` renders raw `state` to the main canvas, while `perform-runtime.js:529` renders `env.performRT.followed` to `#livePipCanvas`. During an aggressive pan the follower lags the state by a lot, so the two surfaces genuinely hold two very different frames. `#clipBlend` is a second stacked canvas worth eliminating too.
+
+**▶ IF IT RECURS, THESE THREE FACTS RESOLVE IT AND NOTHING ELSE IS NEEDED:** was PERFORM mode active; is the doubled region the WHOLE frame or a sub-rectangle; and does it survive with the live PiP closed.
+
+### 🧭 [Daniel, B694 — REPRODUCED AND EXPLAINED, DELIBERATELY NOT FIXED] RESETTING THE CANVAS LEAVES THE SLICE TINY
+
+*"zoom out using the canvas, zoom back in using the slice, reset canvas, reset slice. result is that the slice ends up being quite tiny... conceptually feels like the right trade off, to not edit both slice and canvas when only resetting one. but in practice it feels unexpected."*
+
+**Reproduced numerically** (`scratchpad/quirk.mjs`), and the cause is the unified zoom's overflow:
+
+```
+0. defaults              canvasZoom 1.000  sliceScale 1.000  box extent 0.633
+1. zoom out on canvas    canvasZoom 0.050  sliceScale 2.000  box extent 25.312
+2. zoom in on the slice  canvasZoom 0.050  sliceScale 0.350  box extent 4.430
+3. reset canvas          canvasZoom 1.000  sliceScale 0.350  box extent 0.221   <-- the tiny slice
+```
+
+`applyUnifiedZoom` is canvas-PRIMARY with overflow: once `canvasZoom` pins at `Z_CANVAS_MIN = 0.05` the remaining zoom spills into `sliceScale` (up to the form's `zoomCover`). Zooming back in **via the slice overlay** then reduces `sliceScale` directly while `canvasZoom` stays pinned at the floor. Reset canvas restores `canvasZoom` and leaves `sliceScale` where the user left it, so the slice is now about a third of default. **Daniel's own reading of the tradeoff is correct — this is reset canvas doing exactly and only its job.**
+
+**⚠️ ONE PART DOES NOT REPRODUCE AND SHOULD NOT BE ASSUMED:** he reports needing a SECOND reset to correct it. In simulation `resetSliceState` is idempotent and the first call restores the default extent exactly (0.633). Either a real-app path (the anchor, the fold, or the overlay drag writing more than `sliceScale`) is involved, or the repro differs from what was modelled. **Establish that before building anything.**
+
+**His proposed fix is the right instinct and needs provenance we do not have.** *"maybe we consider normalizing the slice size as part of zooming to reset canvas from an extreme?"* We cannot currently tell how much of `sliceScale` was spilled there by the canvas gesture versus set deliberately by the user on the slice. The shape would be a spill accumulator written ONLY by `applyUnifiedZoom`'s overflow branches and consumed by reset canvas.
+
+**Not built, on a risk read:** it introduces provenance state into a zoom path that took several builds to stabilise (B563, B611, B612, B657), and it has to stay invisible to presets, motion keyframes and the perform follower or it becomes a fourth thing that can desync. The current behaviour costs one extra click and is recoverable. **Revisit only if it bites during a real set.**
+
 ### 🔴 [Daniel, B694 — DIAGNOSED BY READING, NOT FIXED] RECENTER DOES NOT EASE IN PERFORM MODE
 
 *"return center should honor the transition speed in perform mode, but right now it appears to be instant."*

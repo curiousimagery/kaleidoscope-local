@@ -2934,7 +2934,10 @@ buildSaveSheet();
 const loseCtxExt = (() => {
   try { return engine.glContext?.getExtension('WEBGL_lose_context') || null; } catch { return null; }
 })();
-outputCanvas.addEventListener('webglcontextlost', (e) => e.preventDefault());
+outputCanvas.addEventListener('webglcontextlost', (e) => {
+  e.preventDefault();
+  vitals.mark('gl-context-lost', { surface: 'mobile-preview' });   // B695 — this chrome said NOTHING before
+});
 outputCanvas.addEventListener('webglcontextrestored', () => {
   try { engine.reinitGL(); } catch (e) { console.warn('[fold] GL reinit failed', e); return; }
   if (cameraMode === 'live') { stopLiveLoop(); startLiveLoop(); }
