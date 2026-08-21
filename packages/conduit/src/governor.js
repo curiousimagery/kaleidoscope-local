@@ -102,7 +102,31 @@ const HANDOVER_MARGIN = 1.2;
 // to measure (Syphon, NDI, a plain take), and the app-side shortfall stays the fallback there.
 export function createGovernor({ ledger, pressure, isBroadcasting, delivered = null, onNotice = null, opts = {} } = {}) {
   const cfg = { ...DEFAULTS, ...opts };
-  let enabled = true;
+  // ⚠️ B701 — OFF BY DEFAULT, KEPT INTACT. Daniel: *"Yes, please flip the governor off by default.
+  // it sounds like it may still help us during NDI investigation so we'll preserve our access
+  // until then at least?"* Exactly that: the switch, the ladder and both signals stay.
+  //
+  // THE GOVERNOR HAS TWO MODES AND ONLY ONE OF THEM HAS A DEFENSIBLE PREMISE:
+  //
+  //   • DISPLAY signal (HDMI / AirPlay / external window). It measures new pictures on the display
+  //     and then sheds THE APP. But that view renders in its OWN PROCESS, so shedding the app
+  //     cannot hand it GPU — it can only post state to it less often. T10 measured the cost:
+  //     `20 drawn/s but 15 NEW pictures/s`, the signature of a view drawing faster than it is being
+  //     told anything new, with arrivals down from 30/s to 19/s.
+  //   • APP signal (NDI, Syphon, a plain take). `delivered()` returns null, the app-side shortfall
+  //     stands, and the premise HOLDS: the app's canvas genuinely is the output.
+  //
+  // The cross-report table that decided it (B698), same clip, same device, same path:
+  //
+  //     B681 (T9)   app 15fps · governor OFF · 31 NEW pictures/s   ← slowest app, fastest display
+  //     B679        app 23.5  · governor ON  · 19
+  //     B695 (T10)  app 20.5  · governor ON  · 15
+  //
+  // **The slowest app produced the fastest display**, which is the opposite of what a display-signal
+  // governor assumes. Off by default is the reversible half of the decision; deleting the display
+  // path is not, and the clean A/B for it is still incomplete (the confirming run lost the
+  // new-pictures metric to a report contradiction — see BACKLOG).
+  let enabled = false;
   let level = 0;                 // 0 = untouched; each step walks LADDER one rung down
   let overSince = 0, underSince = 0;
   let active = false;            // are we currently holding anything down?

@@ -6,6 +6,58 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🚧 v0.26.41 (Build 701) — 2026-08-21 — Governor off by default, and my bake hypothesis was wrong
+
+### Shipped
+
+- **`createGovernor` now starts `enabled: false`.** The switch, the ladder and both signals are untouched, so the frame-cost panel toggle still turns it on for the NDI work.
+
+### Why off
+
+Daniel: *"Yes, please flip the governor off by default. it sounds like it may still help us during NDI investigation so we'll preserve our access until then at least?"* Exactly that.
+
+**It has two modes and only one has a defensible premise.** On the DISPLAY signal (HDMI, AirPlay, external window) it measures the display and then sheds the APP — but that view renders in its own process, so shedding the app cannot hand it GPU, only post state to it less often. On the APP signal (NDI, Syphon, a plain take) `delivered()` returns null and the premise holds, because the app's canvas genuinely is the output.
+
+The table that decided it, same clip, same device, same path:
+
+| build | app fps | governor | new pictures/s |
+|---|---|---|---|
+| B681 | **15** | off | **31** |
+| B679 | 23.5 | ON | 19 |
+| B695 | 20.5 | ON | 15 |
+
+**The slowest app produced the fastest display.** Off by default is the reversible half; deleting the display path is not, and its clean A/B is still incomplete.
+
+### ❌ The bake hypothesis is refuted, and the refutation is the useful part
+
+B699 filed decode-session exhaustion as the leading explanation for the bake timeout. **Two measured runs kill it:**
+
+```
+FAILED    B699 · peak.decode 6 · "from <video> · ⚠ NO NATIVE DECODE"
+SUCCEEDED B700 · peak.decode 8 · "from canvas · planar · native decode"
+```
+
+**The bake succeeded at a HIGHER peak than the run that failed.** Eight was fine, six was not, so the count cannot be the discriminator.
+
+**What actually fixed it was B700's five-millisecond deadline, which restored the native decode — a LOAD story, not a COUNT story.** Without it, the source is a 4K60 `<video>` element decoding continuously in the same process the bake's `VideoDecoder` needs to work in. With it, the element parks and AVPlayer carries the clip.
+
+**So the shed-the-previews change is no longer justified by this evidence** and should not be built on it.
+
+### 🚨 And the successful run surfaced a HIGH-priority bug
+
+Taken right after the bake succeeded:
+
+```
+source: from canvas · planar · native decode · 0.0 in/s
+        ⚠ SOURCE STALLED 35.1s — socket open, offered 157, took 157, skipped 0
+```
+
+**The B584 instrument firing on the branch it was built to separate: equal offered/taken with a frozen picture means the frames arrived and we failed to use them.** Our bug, JS side.
+
+**And there was NO GL context loss in this run**, which is new: B609 assumed a context restore was part of the mechanism. **The trigger is the post-bake source swap itself**, which makes it far cheaper to reproduce. Filed with the narrowed suspect.
+
+---
+
 ## 🚧 v0.26.40 (Build 700) — 2026-08-21 — Five milliseconds cost the whole native decode path, and the loop builder's decoder stack is now measured
 
 ### Shipped

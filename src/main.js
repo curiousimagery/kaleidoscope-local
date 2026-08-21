@@ -236,6 +236,22 @@ function sourceStallNote() {
   nv.pollFanOut?.();
   const gap = s.msSinceFrame;
   const rejoined = s.reconnects > 0 ? `⚠ SOCKET REJOINED ×${s.reconnects}` : '';
+  // ⚠️ B702 — A PARKED CLIP IS NOT A STALL, AND THIS INSTRUMENT SAID IT WAS.
+  //
+  // `msSinceFrame` counts time since a frame last arrived, which equals "the decode is wedged"
+  // ONLY IF the clip is supposed to be producing frames. **A freshly baked or freshly loaded clip
+  // parks PAUSED by design (B595)**, produces nothing, and this note fired anyway — reporting
+  // `⚠ SOURCE STALLED 35.1s · offered 157, took 157` on a source that was working perfectly.
+  //
+  // It cost a false diagnosis immediately: I filed that reading as a HIGH-priority reproduction of
+  // the B609 post-bake freeze, and Daniel corrected it — *"in the app the source panel is rendering
+  // and the diagnostic reads planar source so the issue didn't seem to persist"*. **B584's rule is
+  // "equal offered/taken WITH A FROZEN PICTURE"; I applied it without establishing the frozen
+  // picture, which is the precondition that makes the whole reading mean anything.**
+  //
+  // This is the wrong-noun test failing in the report itself, and unfixed it would have aimed every
+  // future post-bake session at a bug that is not there.
+  if (nv.paused) return rejoined;   // parked on purpose: no frames expected, so no frames is health
   if (gap < 0 || gap < SOURCE_STALL_MS) return rejoined;   // healthy: only the rejoin note, if any
   // Both ends of the wire, because they disagree in an informative way. `offered` vs `taken` on
   // OUR client is the conserved quantity: equal counts with a frozen picture means the frames

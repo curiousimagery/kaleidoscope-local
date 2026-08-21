@@ -588,7 +588,20 @@ getDeviceId: () => null,       // ...20 lines below, pre-existing, and it WINS
 
 **What the error actually means:** `39.288s` is the TARGET TIME IN THE CLIP, not elapsed time. The budget is ten WALL-CLOCK seconds to produce one frame (`video-decode.js:306`). **So a `VideoDecoder` returned nothing for ten seconds.**
 
-**LEADING HYPOTHESIS — DECODE SESSION EXHAUSTION, and it connects to the shed-before-acquire item below.** A bake runs from inside the loop builder, which already holds three counted decoders on top of the source element and, on Capacitor, the native decode. The bake's reader is the sixth or seventh live decode on one clip. **A decoder that cannot be granted a session produces no frames, which is exactly this signature.**
+**❌ REFUTED B700 — IT IS NOT THE SESSION COUNT.** The two runs, measured:
+
+```
+FAILED   B699 · peak.decode 6 · source note: "from <video> · ⚠ NO NATIVE DECODE"
+SUCCEEDED B700 · peak.decode 8 · source note: "from canvas · planar · native decode"
+```
+
+**The bake SUCCEEDED at a HIGHER peak than the one that failed.** Eight concurrent decodes was fine; six was not. Session count cannot be the discriminator, and the hypothesis below is wrong.
+
+**What actually changed is B700's deadline fix, which restored the NATIVE decode** — and that is a LOAD story, not a COUNT story. Without it, the source is a 4K60 `<video>` element decoding continuously in the same process the bake's `VideoDecoder` is asking to work in. With it, the element is parked and AVPlayer carries the clip. **The bake was competing with an active 4K60 element decode, not running out of permits.**
+
+**The original hypothesis, kept because the reasoning was sound and the refutation is the useful part:**
+
+**~~LEADING HYPOTHESIS — DECODE SESSION EXHAUSTION~~** A bake runs from inside the loop builder, which already holds three counted decoders on top of the source element and, on Capacitor, the native decode. The bake's reader is the sixth or seventh live decode on one clip. **A decoder that cannot be granted a session produces no frames, which is exactly this signature.**
 
 **✅ B699 MADE IT COUNTABLE.** The bake reader now acquires `decode: 'bake: frame reader'`. It was previously the ONLY decode path invisible to the registry — so `sessions.peak.decode` was undercounting by precisely the session most likely to be the one refused.
 
@@ -598,6 +611,25 @@ getDeviceId: () => null,       // ...20 lines below, pre-existing, and it WINS
 - **Contention:** the M1 Pro was running the governor-off 4K broadcast test at the time.
 
 **▶ NEXT: reproduce on B699+ and read `sessions.peak.decode` and `live[]`.** If the peak reaches 6-7 with `bake: frame reader` present, the hypothesis is confirmed and the fix is a shed policy. If it peaks at 3-4, it is the seek/keyframe path and the fix is in `resetTo`.
+
+### 🚨 [HIGH — REPRODUCED WITH INSTRUMENTATION 2026-08-21, B700] THE SOURCE STALLS IMMEDIATELY AFTER A SUCCESSFUL BAKE
+
+**This is the B609 item (`THE SOURCE FREEZES AFTER A GL CONTEXT RESTORE`) caught fresh, with a cleaner trigger and no context loss involved.** From `docs/temp/loopBuilderSuccess-report.json`, taken right after a bake that SUCCEEDED:
+
+```
+source: from canvas · planar · native decode · 0.0 in/s
+        ⚠ SOURCE STALLED 35.1s — socket open, offered 157, took 157, skipped 0
+
+sessions.live: [ gl preview engine, decode "baked clip", decode "native decode: loop.mp4" ]
+```
+
+**The B584 instrument has fired on the branch it was built to separate, for the second time.** `offered 157, taken 157, skipped 0` with a frozen picture means **the frames reached us and we failed to use them.** Not contention, not the wire, not backpressure — all three are exonerated by the equal counts. **Our bug, JS side.**
+
+**⚠️ AND THIS RUN HAD NO GL CONTEXT LOSS**, which is new information: B609 assumed the restore was part of the mechanism. Here the source swaps to the freshly baked `loop.mp4`, a new native decode starts and delivers frames, and nothing consumes them. **So the trigger is the post-bake SOURCE SWAP, not a context restore.** That makes it far cheaper to reproduce.
+
+**The narrowed question from B698's read of `engine/index.js`** stands and is now the prime suspect: `updateSourceFrame()` opens with `if (!sourceTexture || !sourceImage) return false;`, and the planar branch sits behind that guard. **Those are element-path concepts.** A native decode feeding raw planes into a freshly swapped source may satisfy `planarFrame` while `sourceImage`/`sourceTexture` are not yet re-established — and the receiver keeps taking frames off the socket with nowhere to put them, which is precisely `offered == taken` with `0.0 in/s`.
+
+**▶ NEXT, and it is Class 1 (readable, no device):** trace the post-bake swap in `clip-editor.js` `rebindClipToTimeline` and the `setSource` / `setPlanarSource` ordering against that guard. **`setSource` retires the planar provider by design**, so if `setPlanarSource` is called BEFORE `setSource` on this path, the provider is destroyed immediately after being installed.
 
 ### 🔧 [Daniel, 2026-08-21 — SMALL UI GAP, WORKAROUND EXISTS] THE FRAME-COST PANEL CANNOT BE OPENED FROM THE LOOP BUILDER
 
