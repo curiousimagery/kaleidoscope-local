@@ -19,6 +19,7 @@ import { confirmInterrupt } from './shell/interrupt.js';   // non-blocking destr
 import { zipStore } from './shell/zip.js';                 // clip package (source + motion JSON)
 import { createEngine, allEngines } from './engine/index.js';
 import { normalizeSliceMirror } from './shell/overlay.js';   // B635 — the slice fold, called at the render schedule
+import { normalizePanLock } from './engine/forms/index.js';   // B704 — a locked form is centred in STATE, so the ease is real
 import { resetSliceState, formBoxCenter, sliceBoxCenter, syncSliceAnchor } from './engine/geometry.js';
 // B690 — this chrome's own anchor state for syncSliceAnchor; the mobile chrome keeps its own.
 const sliceAnchor = {};
@@ -647,6 +648,7 @@ function scheduleRender() {
     // the same call in mobile/chrome.js. It is pixel-preserving, so it can never change what is
     // about to be drawn, only which of several identical descriptions of it we are holding.
     normalizeSliceMirror(env);
+    normalizePanLock(state);   // B704 — enforce 'a locked form is centred' in state, not in the uniform
     // ⚠️ B690 — ONE PLACE THAT KEEPS THE SHAPE CENTRED. `sliceCx/Cy` is an ORIGIN and the thing a
     // person cares about is the BOX CENTRE; three bugs (B615 form switch, B628 oversized box, B689
     // camera aspect) were each fixed at their own call site, which does not survive the next call

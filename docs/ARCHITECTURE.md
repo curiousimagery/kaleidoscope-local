@@ -203,3 +203,20 @@ The big arcs since this doc was first written are now SHIPPED: the Droste + tria
 - **+gesture record** + per-segment rotation winding (capture intended movement, not nearest path).
 - Motion-controls IxD + a global UI/brand pass (positioning-gated); more forms (hyperbolic, polygonal radial, p31m); "scale to tile" snap.
 - Native wrapper(s) and distribution bets (standalone / Snapchat-IG filter / NLE plugin) — all reuse the shared engine.
+
+## the planar path is independent of the element path (B703)
+
+**An engine can be fed two ways and they do not share preconditions.**
+
+- **ELEMENT path** — `setSource(el)` uploads an `<img>`/`<video>`/canvas into `sourceTexture`. Needs `sourceImage` and `sourceTexture`.
+- **PLANAR path** — `setPlanarSource(provider, cap)` installs a provider of raw YUV planes from the native decode. The planar uploader **builds and owns its own texture**, and the render prefers it: `sourceTexture: (planar && planar.width > 0) ? planar.texture : sourceTexture`.
+
+**⚠️ THE INVARIANT, and violating it deadlocked the app for four builds:** `updateSourceFrame()` must test the planar provider BEFORE any element-path guard. When the element guard came first, a failed element re-upload during `reinitGL` left `sourceTexture` null, which stopped the planar uploader from ever being rebuilt, which left the render falling back to that null texture — **permanently, while the socket kept delivering frames.**
+
+**Ordering rule for callers:** `setSource` retires any planar provider by design, so on the native path `setSource(frameSource())` must come FIRST and `setPlanarSource(...)` second. `reinitGL` preserves the provider across a context rebuild in a `finally`, so a failed element re-upload cannot take the planar path down with it.
+
+## a locked pan is centred in STATE, not in the uniform (B704)
+
+`normalizePanLock(state)` runs once per frame from both chromes' render path and zeroes `canvasOffset` when the active form's pan is locked. **It used to be a `return [0,0]` inside the `u_canvasOffset` getter, which made the lock un-easeable** — the perform follower interpolates `canvasOffset` like any continuous field and the uniform discarded that interpolation every frame.
+
+Same rule as the bound: **a value enforced only at render time is not enforced.** Anything the follower, a tween, or a keyframe can animate has to be canonicalised in state or the animation is invisible.

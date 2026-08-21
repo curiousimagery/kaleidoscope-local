@@ -6,6 +6,33 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🚧 v0.26.44 (Build 704) — 2026-08-21 — Reset canvas now eases the pan, because the lock moved into state
+
+### Shipped
+
+- **`normalizePanLock(state)`** in `forms/index.js`, called once per frame from BOTH chromes' render path.
+- **`u_canvasOffset`'s `if (formPanLocked(state)) return [0,0]` removed.**
+
+### Daniel's observation named the mechanism exactly
+
+*"reset canvas snaps to center immediately but canvas rotation eases. ideally all would ease across the specified transition speed."*
+
+`canvasRotation` is an ordinary continuous field the perform follower interpolates. **`canvasOffset` was being interpolated too** — and the uniform threw the result away every frame, because reset canvas sets `panLock = {}`, `panLock` is a DISCRETE key that cuts to its new value instantly, and the getter then returned `[0,0]` regardless. **The follower was easing perfectly into a value nothing rendered.**
+
+Two fields, same reset, one eased and one snapped — which is exactly the pair of symptoms he described.
+
+### Same lesson as the note already in `controls.js`
+
+*"A bound that is not in STATE is not a bound."* Here it was a **recentre** that was not in state, and it therefore could not be eased. Canonicalising in state makes the follower's target genuinely 0, so the ease is real.
+
+### B612 is preserved, and now enforced rather than remembered
+
+The override existed for a real rule: *"unlocking must never inherit a position"*, the danger being a stored offset belonging to a DIFFERENT form applying the instant the padlock opens. All three paths that change `panLock` already zero the state (padlock toggle, form switch, reset canvas via `panRecenter`). **This runs every frame from the shared render path, so a fourth path that forgets cannot reintroduce the leak.**
+
+Verified in `scratchpad/panlock-check.mjs`: a locked-by-default form is zeroed, an unlocked one keeps its pan so the ease target is real, lattice forms are untouched, an already-centred form reports no change (no per-frame churn), and a foreign offset cannot survive into a locked form.
+
+---
+
 ## 🚧 v0.26.43 (Build 703) — 2026-08-21 — The source freeze after a context restore was a deadlock, and it is fixed
 
 **The B609 HIGH item, root-caused by reading and fixed. Class 1 throughout — no device time spent.**

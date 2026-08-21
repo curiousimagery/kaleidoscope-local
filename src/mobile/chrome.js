@@ -19,6 +19,7 @@ import { createEngine, getActiveForm } from '../engine/index.js';
 import { FORMS, formPanLocked } from '../engine/forms/index.js';
 import { state, session } from '../shell/state.js';
 import { normalizeSliceMirror } from '../shell/overlay.js';   // B635 — the slice fold, called at the render schedule
+import { normalizePanLock } from '../engine/forms/index.js';   // B704 — see the twin call in main.js
 import { makeControlsSync } from '../shell/controls.js';
 import { lockState, setLock, makeLockToggle } from '../shell/locks.js';   // M3 locks — reused on mobile
 import { createSourceOverlay } from '../components/source-overlay.js';
@@ -287,6 +288,7 @@ function scheduleRender() {
   requestAnimationFrame(() => {
     renderScheduled = false;
     normalizeSliceMirror(env);   // B635 — the slice fold; see the twin call in main.js for why it lives at the render schedule
+    normalizePanLock(state);   // B704 — enforce 'a locked form is centred' in state, not in the uniform
     // B690 — the slice anchor, the twin of main.js's call. **Both chromes, because a behaviour in
     // one and not the other is the single most repeated bug in this codebase.** Its state is
     // caller-owned so the two chromes cannot share a stale signature.

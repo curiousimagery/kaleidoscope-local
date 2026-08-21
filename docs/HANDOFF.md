@@ -49,6 +49,27 @@ getDeviceId: () => null,       // ...20 lines below, pre-existing, and it WINS
 
 **Daniel's un-reproducible third report is also explained:** a lens chosen while an external camera was selected survived the switch back, and `pickCamera`'s three named-lens cases returned `AVCaptureDevice.default(...)` **including nil**, which throws `"no camera device"` and fails the whole start. Fixed at both ends.
 
+### ▶▶ READ THIS FIRST — STATE AT B704 (2026-08-21)
+
+**`PLAN-LIVE-READINESS.md` "Where we are" was rewritten at B704 and is now the accurate roll-up. Read it, then this.**
+
+**Phase 2's exit criterion is MET** (T10: 6:39 4K clip, 50 min, complete, no context loss, 8 loop wraps at a 6ms worst gap).
+
+**Fixed this arc, all verified by Daniel on device unless noted:** radial pan (B694), the rotation-blind pan joystick in both chromes (B697), droste pan (verified, needed nothing), the governor default (B701), the native-decode deadline (B700), the source-freeze deadlock (**B703, NOT device-verified**), reset-canvas pan easing (**B704, NOT device-verified**).
+
+**⚠️ THE TWO REMAINING PIECES OF PHASE 2, both named by Daniel because I had left them off the plan:**
+
+1. **Gate recording on detected capability** — scoped in BACKLOG, not built. **Computed, never a device table.**
+2. **Provoke GL context loss deliberately, then cycle diagnostics** — the largest remaining piece. The listening side only became ready at B695/B699/B703.
+
+**⚠️ NEEDS A DEVICE PASS:** B703 (source freeze — try the original motion → perform repro) and B704 (reset canvas should now ease the pan the way it already eased rotation).
+
+**⚠️ NEW DOC: `HARDWARE-SUPPORT.md`** — the support matrix for store-listing and test-planning decisions. Its first rule is that it must NEVER become what the app branches on at runtime.
+
+**Three of my own instruments were wrong this arc and all three cost real time.** They are worth knowing about because the pattern repeats: `sourceStallNote` could not tell a paused clip from a wedged one (B702); the external surface note contradicts `extGuard` and silently dropped the metric a whole experiment depended on (**still open**); and I twice applied the B584 rule without establishing its stated precondition. **When a report and Daniel's description of the screen disagree, the screen is right.**
+
+---
+
 ### ✅ RADIAL PAN — CLOSED B694, AFTER THREE FAILED ATTEMPTS AND ONE MEASUREMENT
 
 ```

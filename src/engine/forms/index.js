@@ -153,6 +153,35 @@ export function clampCanvasOffset(state) {
   state.canvasOffsetY = c(state.canvasOffsetY);
 }
 
+// ⚠️ B704 — A LOCKED FORM IS CENTRED IN **STATE**, NOT ONLY IN THE UNIFORM.
+//
+// `shader-builder.js`'s `u_canvasOffset` used to open with `if (formPanLocked(state)) return [0,0]`,
+// which made the lock a RENDER-TIME override. That is the same shape as the bug the note in
+// `controls.js` already warns about: **a bound that is not in STATE is not a bound.** Here it was a
+// recentre that is not in state, and it therefore could not be eased.
+//
+// Daniel, B704: *"reset canvas snaps to center immediately but canvas rotation eases. ideally all
+// would ease across the specified transition speed."* Exactly the tell. `canvasRotation` is an
+// ordinary continuous field the perform follower interpolates; `canvasOffset` was being interpolated
+// too, and the uniform threw the result away every frame because `panLock` (a DISCRETE key) cut to
+// its new value instantly. The follower was easing perfectly into a value nothing rendered.
+//
+// Canonicalising in state instead means the follower's TARGET becomes 0 and the ease is real.
+//
+// ⚠️ AND IT PRESERVES B612, which is why the override existed. Its rule is *"unlocking must never
+// inherit a position"* — the danger being a stored offset that belonged to a DIFFERENT form applying
+// in full the instant the padlock opens. All three paths that change `panLock` already zero the
+// state (the padlock toggle at `main.js`, the form switch in `controls.js`, and reset canvas via
+// `panRecenter`). This runs every frame, from the render path both chromes share, so a fourth path
+// that forgets cannot reintroduce the leak — the invariant is enforced rather than remembered.
+export function normalizePanLock(state) {
+  if (!state || !formPanLocked(state)) return false;
+  if (!state.canvasOffsetX && !state.canvasOffsetY) return false;
+  state.canvasOffsetX = 0;
+  state.canvasOffsetY = 0;
+  return true;
+}
+
 export function formPanLocked(state) {
   const form = getActiveForm(state);
   const override = state.panLock && state.panLock[form.id];

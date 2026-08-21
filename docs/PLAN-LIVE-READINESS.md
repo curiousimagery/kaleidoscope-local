@@ -24,17 +24,52 @@ So 4K at 10 minutes is **the ceiling to design toward, not the floor to require*
 
 ## Where we are
 
+**Last revised 2026-08-21 at B704.** Phase 2's pressure-testing arc ran B683-B704; the per-hypothesis record is in `BACKLOG.md`, the per-build detail in `CHANGELOG.md`.
+
 | # | item | status |
 |---|---|---|
-| 1 | Frame cadence / broadcast delivery | **Closed B594.** 29 of 30 at full 4K. Record in `BROADCAST-DELIVERY.md` |
-| 1.5 | Input normalization across modalities | **CLOSED B657.** Stage A B618-B619, stage B B655, stage C B657 |
-| 2 | The 4K source-attach cluster | **Headline closed B608** (the loop hold). Tails open |
-| 3 | NDI | Not started. One specific bug already diagnosed and waiting |
-| 4 | iPad limits, sustained load | **Not reached. This is the arc's real unmet target** |
-| 5 | iPhone limits, honest labels | Not reached. **Now unblocked and independent** |
-| 6 | Thermal | Not started. No thermal code exists in the repo |
+| 1 | Frame cadence / broadcast delivery | **Closed B594.** Record in `BROADCAST-DELIVERY.md` |
+| 1.5 | Input normalization across modalities | **CLOSED B657** |
+| 2 | The 4K source-attach cluster | **Largely closed B683-B704.** See below |
+| 3 | NDI | Not started. One bug already diagnosed and waiting. **The governor is kept (default off) for this** |
+| 4 | iPad limits, sustained load | **CLOSED B695-B698.** T7/T8/T9/T10 all complete |
+| 5 | iPhone limits, honest labels | **Not reached, and now the largest evidence gap** → `HARDWARE-SUPPORT.md` |
+| 6 | Thermal | **Signal exists and is measured; NOTHING GATES ON IT.** The single biggest effect found this arc |
 
-**The single most important gap:** every 4K measurement in this entire arc used a **20.4 second clip**. The stated target is 5 to 10 minutes. The last time anyone ran the real test (6+ minutes of 4K, broadcasting 4K) was **2026-07-31**, and it is still recorded in BACKLOG as *"not usable yet, periodic sputter"*. That reading predates the single-decode architecture, B590's decoupling, and the loop cache. **It has never been re-taken, and it is exit criterion 3's named test.**
+### ✅ The exit criterion is met
+
+*"A 6+ minute 4K clip broadcasts 4K over HDMI, cold start, without a GL context loss and without the app becoming unresponsive, with cost recorded at three points."*
+
+**T10, 2026-08-21, `docs/temp/8-21-26-T10-4klooptest.json`:** a 6:39 4K clip, 50 minutes, `outcome: complete`, 6/6 steps, no context loss, power steady through an Apple dongle. Loop wraps 8 times with a worst-case gap of **6ms** (governor off). `broadcastCeiling` learned **22 fps delivered / 30 source** at 4K HDMI over 1.4M samples.
+
+**The 20.4-second-clip gap named below is closed.** Every headline number in this plan now comes from a long clip.
+
+### What phase 2 actually resolved
+
+| thread | outcome |
+|---|---|
+| Radial pan | **Fixed B694** after three wrong attempts. Gain is derivable (`2/zoom`); the ceiling is a float32 fact, shared, not per-form |
+| Pan joystick ignored canvas rotation | **Fixed B697**, both chromes. Daniel found it; it was the root of the old 45° bug |
+| The governor | **Default OFF B701.** Its display-signal premise is false — the external view renders in its own process |
+| Source freeze after a GL restore | **Root-caused + fixed B703.** A deadlock: the planar path was gated on element-path state |
+| Reset canvas snapped the pan | **Fixed B704.** The lock was a render-time override, so it could not be eased |
+| Native decode first-frame deadline | **Fixed B700.** Missed by five milliseconds; cost the planar path for a whole session |
+| Session/permit accounting | **Shipped B681, proven conserved.** Peak GL 2-3, peak decode 8 |
+| Instrumentation | **All five GL surfaces now report (B695).** Four of five were console-only before |
+
+### ⚠️ The two things phase 2 has NOT done, both named by Daniel at B704
+
+1. **Gate recording on detected capability.** Scoped in BACKLOG, not built. Refuse 4K takes (13.5fps against a declared 30, two devices, two builds); warn on record-while-broadcast and on thermal `serious`. **Must be COMPUTED, never a device table** — see `HARDWARE-SUPPORT.md`.
+2. **Provoke GL context loss deliberately and cycle diagnostics.** **The largest remaining piece of the item.** The listening side only became ready at B695/B699/B703; before that a provoked loss was mostly unobservable. B703 may already have fixed the most common consequence, so losses that heal cleanly are a PASS.
+
+### Known unknowns
+
+- **No iPhone data at all** for Perform or broadcast, and the phone chrome is a separate code path.
+- **No pre-Apple-silicon data.** Tier C is an assumption with nothing behind it.
+- **No cool-device measurement of FHD-while-broadcasting.** Every run of that combination was at thermal `serious`.
+- **One silicon generation.** Everything is M1 — we own the top of the range and none of the bottom.
+- **The governor A/B is incomplete**: the confirming run lost its new-pictures metric to a report contradiction (filed).
+- **B703 and B704 are not device-verified**, only modelled and harness-checked.
 
 ---
 

@@ -16,7 +16,7 @@
 // also collects the union of all uniforms for use by gl.js when looking up
 // uniform locations and pushing values per-frame.
 
-import { FORMS, formSizeNorm, formCanvasNorm, formPanLocked, formOffsetBound } from './forms/index.js';
+import { FORMS, formSizeNorm, formCanvasNorm, formOffsetBound } from './forms/index.js';   // formPanLocked dropped at B704 — the lock lives in state now
 import { sliceMirror } from './geometry.js';
 
 // uniforms common to ALL forms. these are the shared scaffolding the shader
@@ -37,10 +37,11 @@ const COMMON_UNIFORMS = {
   // float32 input stays bounded (the fold wraps it anyway, so this is image-identical). Forms
   // without a latticePeriod() (radial/droste) get the raw offset (0 unless ③ drives it later).
   u_canvasOffset:  { type: '2f', get: (state) => {
-    // A pan-LOCKED form renders centered (every form is lockable; only the default differs —
-    // see formPanLocked). Non-destructive: the stored offset is ignored here, not cleared, so
-    // unlocking restores exactly where you were.
-    if (formPanLocked(state)) return [0, 0];
+    // B704 — THE LOCK IS ENFORCED IN STATE NOW (forms/index.js `normalizePanLock`, called once per
+    // frame from both chromes' render path). This used to `return [0, 0]` here, which made a locked
+    // form centre INSTANTLY and un-easeably: the perform follower interpolates `canvasOffset` like
+    // any continuous field, and this line discarded that interpolation every frame. Reset canvas
+    // therefore snapped the pan while easing the rotation beside it — Daniel's exact report.
     const form = FORMS.find(f => f.id === state.form);
     const period = form && form.latticePeriod && form.latticePeriod(state);
     // X negated so pushing the joystick RIGHT pans the pattern right (Daniel: X read backwards);
