@@ -361,10 +361,31 @@ export function createNativeStageSource(env, { cap = 2048 } = {}) {
 // do not know what would have been enough. **That is why the timeout message now names the deadline
 // it used** — a second failure reports `within 23904ms` and tells us the real requirement, instead
 // of repeating the same ambiguity at a different number.
+//
+// ⚠️ B700 — THE ESTIMATE ABOVE HAS NOW BEEN MEASURED, AND IT WAS ROUGHLY HALF OF WHAT IS NEEDED.
+// The comment above asked for exactly this: a failure that names the deadline it used. Two arrived.
+//
+//   193MB clip  ·  deadline 8000ms  ·  FIRST FRAME AT 8005ms   ← missed by FIVE MILLISECONDS
+//   634MB clip  ·  deadline 12680ms ·  timed out               ← needed more than 12680
+//
+// The 193MB case is the precise one, and it is precise because it so nearly passed: the real
+// requirement was 8005ms, or **41.5 ms/MB**, against a formula that budgeted 20. (For that clip the
+// FLOOR was what applied — 193 × 20 = 3860, below the old 8000 floor — so the floor was five
+// milliseconds too low, and the slope was independently too shallow for the larger clip.)
+//
+// **The cost of being wrong here is not a slow load, it is losing the native path entirely** — and
+// with it the planar upload, the single-decode external view and the loop cache. Daniel's Air
+// session ran the whole evening on the `<video>` fallback because of those five milliseconds, and
+// the report said `⚠ NO NATIVE DECODE` with every downstream reading quietly different as a result.
+//
+// 45 ms/MB with a 10s floor covers both measurements with margin: 193MB → 10000ms (needs 8005),
+// 634MB → 28530ms (needed >12680). The 40s cap is unchanged, so a genuinely dead decode still falls
+// back rather than hanging. **The tradeoff is honest: a dead decode on a very large clip now takes
+// longer to give up.** Losing the native path on a healthy clip is the worse failure.
 function firstFrameDeadline(bytes) {
-  const perMB = 20;                                     // ms of grace per megabyte
+  const perMB = 45;                                     // ms of grace per megabyte — MEASURED, see above
   const grace = Math.round((bytes / (1024 * 1024)) * perMB);
-  return Math.min(40000, Math.max(8000, grace));
+  return Math.min(40000, Math.max(10000, grace));
 }
 
 export async function createNativeVideoSource(env, blob, { name, loop = true, onProgress } = {}) {

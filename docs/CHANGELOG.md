@@ -6,6 +6,46 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## 🚧 v0.26.40 (Build 700) — 2026-08-21 — Five milliseconds cost the whole native decode path, and the loop builder's decoder stack is now measured
+
+### Shipped
+
+- **`firstFrameDeadline` raised from 20 to 45 ms/MB with a 10s floor** (was 8s). Measured, not estimated.
+
+### The five milliseconds
+
+B682 wrote the deadline as an explicit estimate and asked for a failure that would name the real requirement. Two arrived:
+
+```
+193MB clip · deadline  8000ms · FIRST FRAME AT 8005ms   ← missed by five milliseconds
+634MB clip · deadline 12680ms · timed out               ← needed more than 12680
+```
+
+**The 193MB case is precise precisely because it so nearly passed:** the true requirement was 8005ms, or **41.5 ms/MB**, against a budget of 20. For that clip the FLOOR applied (193 × 20 = 3860, under the old 8000 floor), so the floor was five milliseconds too low *and* the slope was independently too shallow for the larger clip.
+
+**The cost of losing this is not a slow load, it is losing the native path entirely** — and with it the planar upload, the single-decode external view and the loop cache. Daniel's whole Air session ran on the `<video>` fallback because of those five milliseconds, with `⚠ NO NATIVE DECODE` in the report and every downstream reading quietly different.
+
+45 ms/MB with a 10s floor covers both measurements with margin. The 40s cap is unchanged, so a dead decode still falls back. **Honest tradeoff: a genuinely dead decode on a very large clip now takes longer to give up.**
+
+### The loop builder's decoder stack, measured
+
+Two reports on B699, the build that made the bake reader countable:
+
+| | `peak.decode` | what was live |
+|---|---|---|
+| **open the loop builder, close it** | **4** | source + preview + A-head crossfade + thumbnail strip |
+| **open it and attempt the failing bake** | **6** | the above + **two** bake readers |
+
+**So the loop builder's resting cost is three decoders, and a bake adds two more on top.** `clip-editor.js` creates up to three readers for a bake (`bounceReader`, `sliceReaderA`, `sliceReaderB`), and the peak confirms at least two were live at once.
+
+**Six concurrent decodes of one clip, and the bake is what fails.** The hypothesis filed at B699 is supported: the bake's decoder is the one asked for last and the one that gets nothing.
+
+**Not yet eliminated:** the seek/keyframe path in `resetTo`, and the 60→30 conversion crossing the forward-seek threshold. But the count is no longer a guess.
+
+**Note this run had NO native decode**, so the six did not even include the AVPlayer session. On a healthy native path the same sequence would reach seven.
+
+---
+
 ## 🚧 v0.26.39 (Build 699) — 2026-08-21 — The bake's decoder was the one the registry could not see
 
 **Instrumentation only.** Does not fix the bake; makes the next failure diagnosable.
@@ -28,6 +68,8 @@ Daniel hit *"Could not bake the clip: decode timed out at 39.288s (10s budget fo
 |---|---|---|
 | **FHD alone** | **40.0** | 2403 |
 | **4K alone** | **13.8** | 825 |
+
+**⚠️ DEVICE CAVEAT (Daniel):** the Air is thinner, fanless and has less mass than the M1 Pro, and his is in an insulating case — **so it is probably MORE thermally constrained, not less.** That weakens any cross-device comparison of the thermal numbers. **It strengthens the 4K reading rather than weakening it:** a more-constrained device reaching the same ~13.5fps as the Pro argues the 4K limit is structural (fill rate or the encode path), not device headroom. The within-run comparisons below are unaffected — same device, same clip, minutes apart.
 
 **FHD records healthily alone. 4K does not, and it is not stale evidence:** 13.8 here against **13.4 pre-B681 on a different device**. The decoder-release work did not move it, and the ratio (40 → 13.8 for 4× the pixels) is roughly pixel-proportional, which reads as a real fill-rate limit rather than a bug.
 
