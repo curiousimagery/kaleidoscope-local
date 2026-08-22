@@ -37,8 +37,27 @@ export { pickVideoCodec };
 //   fps, durationMs — frame rate and total loop length
 //   onProgress — (0..1) => void   (optional)
 //   shouldCancel — () => boolean  (optional; checked each frame)
-// → { blob, ext: 'mp4', frames } | throws (err.code === 'unsupported' / 'cancelled')
-export async function exportVideo({ frameAt, onBegin, onEnd, width, height, fps, durationMs, onProgress, shouldCancel, captureMode = '2d' }) {
+//   glLost — () => boolean  (optional; checked each frame — see the guard below)
+// → { blob, ext: 'mp4', frames } | throws (err.code === 'unsupported' / 'cancelled' / 'gl-lost')
+//
+// ⚠️ B705 — THE CONTEXT-LOST GUARD, AND WHAT IT IS AND IS NOT FOR.
+//
+// It does NOT prevent a context loss. Nothing in JS can stop the WebKit GPU process from dying,
+// and this arc's evidence (`docs/temp/821-contextLoss-02.json`) is that it dies for reasons outside
+// the render loop. What this guard does is stop the render the moment the context goes, so:
+//
+//   1. the job fails with a NAMED error at a KNOWN frame, instead of dying mute. Daniel lost a
+//      3193-frame render at B704 and the export contributed no diagnostic of its own, because the
+//      only abort condition in this loop was `shouldCancel`;
+//   2. we stop feeding a dead context. The loop was calling `frameAt` for every remaining frame
+//      after the context died — thousands of GL calls into nothing. That is plausibly a
+//      CONTRIBUTOR to the process death rather than only a casualty of it, which is why the guard
+//      may reduce the blast radius even though it cannot address the cause.
+//
+// Resuming a killed render is deliberately NOT attempted here — that needs the muxer, the encoder
+// and the source clock to agree on a restart point, and belongs with the stage-manager teardown
+// work rather than riding along in an instrumentation build.
+export async function exportVideo({ frameAt, onBegin, onEnd, width, height, fps, durationMs, onProgress, shouldCancel, glLost, captureMode = '2d' }) {
   if (!videoExportSupported()) {
     const e = new Error('Video export needs a browser with WebCodecs (Chrome, or Safari 16+ / iPadOS 16+).');
     e.code = 'unsupported';
@@ -95,6 +114,14 @@ export async function exportVideo({ frameAt, onBegin, onEnd, width, height, fps,
     onBegin?.();
     for (let i = 0; i < frames; i++) {
       if (shouldCancel && shouldCancel()) { const e = new Error('cancelled'); e.code = 'cancelled'; throw e; }
+      // ⚠️ CHECKED BEFORE `frameAt`, NOT AFTER — the point is to not make the call at all.
+      // The error carries the frame index because "it died at frame 1847 of 3193" is the whole
+      // diagnostic; "the render failed" is what we had before and it aimed nobody anywhere.
+      if (glLost && glLost()) {
+        const e = new Error(`graphics context lost at frame ${i} of ${frames}`);
+        e.code = 'gl-lost'; e.frame = i; e.frames = frames;
+        throw e;
+      }
       if (encError) throw encError;
 
       let t = performance.now();

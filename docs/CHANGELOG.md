@@ -6,6 +6,101 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.26.45 · Build 705 — THE GL WATCHER, AND A CORRECTION TO B704's HEADLINE
+
+**Shipped:**
+- `shell/gl-watch.js` — one GL context watcher, wired at all four in-process surfaces, reporting **four** distinguishable outcomes instead of two.
+- **`preview` and `mobile-preview` now mark a restore at all.** Neither ever did, and the preview is the surface two device reports were read against.
+- New marks: `gl-restore-failed` (+ `why`), `gl-restore-incomplete`, `gl-restore-timeout` (3s). All reach `priorTrail` and survive a kill.
+- A restore counts as success only after `isContextLost()` is re-checked — the event firing is not the claim.
+- `video-export.js` aborts on a lost context with `code: 'gl-lost'` and the **frame index**, at all three call sites including the loop-builder bake.
+- `export-aborted` marked to vitals from both export catch sites.
+- Fixed: `output-engine` no longer forces a source re-upload after a rebuild that threw.
+
+**⚠️ FIRST, THE CORRECTION, BECAUSE IT INVERTS WHAT B704 CONCLUDED.** The two 2026-08-21 device
+reports were read as *"`live-pip` recovers its context every time, `preview` recovers never"* across
+two independent runs. **That reading was wrong and wrong by construction.** An audit of every mark
+call site:
+
+```
+main.js:354            gl-context-lost  { surface: 'preview' }         ← LOST ONLY
+mobile/chrome.js:2943  gl-context-lost  { surface: 'mobile-preview' }  ← LOST ONLY
+perform-runtime.js     lost AND restored
+output-engine.js       lost AND restored
+external-display.js    lost AND restored
+```
+
+**`preview` never had a `gl-context-restored` mark.** B695 wired the loss and the restore was never
+added; the mobile chrome had the identical hole. So the absence of restores in the report was
+*guaranteed*, and the preview may have recovered perfectly in both runs. **The asymmetry was in the
+instrument, not in the app.** This is the standing rule failing in its most expensive direction —
+*an absence is not evidence* — and it is worth noting that it happened in the same session that
+quoted the rule twice.
+
+**What survives from those reports, because it does not depend on the missing mark:** the 5ms
+cross-surface loss gap (one GPU-process event, not several), the memory disproof (`availableMB
+5081`, `footprintMB 38` seven minutes before the death), and the perform-switch trigger at +1135ms.
+
+### `shell/gl-watch.js` — one watcher, four surfaces, four outcomes
+
+**The two surfaces missing the mark were `preview` and `mobile-preview` — one per chrome — while
+every surface owned by a shared module was correct.** That is the two-chrome divergence in textbook
+form, so the fix is a shared module rather than two patched handlers: a sixth surface added later
+cannot forget again.
+
+**And marking the event is not the same as knowing the context works** (the wrong-noun test: *this
+counts restore events, which equals "the surface recovered" only if the handler firing implies a
+usable context*). It does not — `reinitGL()` can throw, and it can return with the context still
+lost. So the watcher reports four distinguishable outcomes:
+
+| mark | means |
+|---|---|
+| `gl-context-restored` | fired, rebuilt, and `isContextLost()` is false — **verified usable** |
+| `gl-restore-failed` + `why` | the rebuild threw |
+| `gl-restore-incomplete` | the rebuild returned, the context is still lost |
+| `gl-restore-timeout` | no restore event within 3000ms of the loss |
+
+**The timeout is the discriminator that motivated the build:** it separates *"the event never fired"*
+from *"the process died before it could."* A loss followed by none of the four means the app died
+inside the window — itself an answer, and readable from the trail timestamps.
+
+All marks go through `vitals.mark`, so they land in `priorTrail` and **survive the kill**. That is
+the only channel that works here: both reports were read after a reload, so `engine.lastReinitWhy`
+(B703) was already gone and console output never reaches Daniel at all.
+
+Wired at all four in-process surfaces: `preview` (main.js), `mobile-preview` (mobile/chrome.js),
+`live-pip` (perform-runtime.js), `output` (output-engine.js). The external view stays as-is — it
+reports over the bridge from another process and already marks both edges.
+
+**One behaviour change came out of the consolidation:** `output-engine`'s re-upload reset
+(`lastSource = null`) used to run even when `reinitGL` threw, forcing a re-upload onto a context
+that had just failed to rebuild. It now runs only after a verified-usable restore.
+
+### The export context-lost guard
+
+`video-export.js` had exactly one abort condition, `shouldCancel`, and there was no `isContextLost`
+check anywhere in the export path. **So when Daniel's context died ~7 minutes into a 3193-frame
+render (B704), the loop kept calling `frameAt` into a dead context for every remaining frame.**
+
+**This is detection and graceful abort, not prevention** — nothing in JS can stop the WebKit GPU
+process from dying. What it buys: the job fails with `code: 'gl-lost'` at a **named frame**
+(`graphics context lost at frame 1847 of 3193`) instead of dying mute, and we stop feeding a dead
+context, which is plausibly a *contributor* to the death rather than only a casualty of it.
+
+Checked **before** `frameAt`, so the call is not made at all. Passed at all three call sites: the
+motion render, its companion source-preview render, and **the loop-builder bake** — the longest
+single GL job the app runs and therefore the most likely to be alive when a context dies. Both
+catch sites now `mark('export-aborted', { why: 'gl-lost', frame, frames })`, because a status label
+and an `alert()` both die with the app.
+
+**Resuming a killed render is deliberately not attempted** — that needs the muxer, encoder and
+source clock to agree on a restart point, and belongs with the stage-manager teardown work.
+
+**Instrumentation only. No behaviour change to any recovery path** beyond the output-engine ordering
+noted above. **What the next report can say that no previous report could: whether the preview's
+context comes back.**
+
+
 ## 🚧 v0.26.44 (Build 704) — 2026-08-21 — Reset canvas now eases the pan, because the lock moved into state
 
 ### Shipped

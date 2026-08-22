@@ -13,6 +13,7 @@
 // into each other for globals.
 
 import { state, session, motion } from './shell/state.js';
+import { watchGLContext } from './shell/gl-watch.js';
 import { lockState, setLock, makeLockToggle } from './shell/locks.js';
 import { DISCRETE_KEYS, isCoupledKey } from './kit/tween.js';   // discrete settings are global (held to kf0) — except the COUPLED ones, see B637
 import { confirmInterrupt } from './shell/interrupt.js';   // non-blocking destructive-interrupt (M3)
@@ -347,31 +348,35 @@ try {
 // for a wedged context back.
 const loseCtxExt = (() => { try { return engine?.glContext?.getExtension('WEBGL_lose_context') || null; } catch { return null; } })();
 
+// AUTO-RECOVER (the mobile chrome's proven engine.reinitGL pattern — Daniel hit an OS-initiated
+// loss on the iPad when a 4K display attached, and "reload to recover" is meaningless in a native
+// app). reinitGL rebuilds every GPU resource on the same context object and re-uploads the source;
+// a render brings the panels back.
+//
+// ⚠️ B705 — THE WIRING MOVED TO `shell/gl-watch.js`, and the reason is that THIS handler was the
+// one that lied. It marked `gl-context-lost` and never marked a restore, so two device reports read
+// as "the preview never recovers" when the instrument simply could not say. Read that module's
+// header before changing anything here.
 if (engine) {
-  previewCanvas.addEventListener('webglcontextlost', (ev) => {
-    ev.preventDefault();
-    console.warn('[fold] WebGL context LOST (preview canvas)');
-    vitals.mark('gl-context-lost', { surface: 'preview' });   // B660 — a discontinuity a long run must record
-    if (statusEl) { statusEl.textContent = 'graphics context lost — recovering…'; statusEl.classList.add('error'); }
-  });
-  // AUTO-RECOVER (the mobile chrome's proven engine.reinitGL pattern — Daniel hit
-  // an OS-initiated loss on the iPad when a 4K display attached, and "reload to
-  // recover" is meaningless in a native app). reinitGL rebuilds every GPU
-  // resource on the same context object and re-uploads the source; a render
-  // brings the panels back.
-  previewCanvas.addEventListener('webglcontextrestored', () => {
-    console.warn('[fold] WebGL context RESTORED (preview canvas)');
-    try {
-      engine.reinitGL();
+  watchGLContext({
+    canvas: previewCanvas,
+    surface: 'preview',
+    mark: (kind, detail) => vitals.mark(kind, detail),
+    rebuild: () => engine.reinitGL(),
+    glOf: () => engine.glContext,
+    onLost: () => {
+      if (statusEl) { statusEl.textContent = 'graphics context lost — recovering…'; statusEl.classList.add('error'); }
+    },
+    onRestored: () => {
       if (statusEl) { statusEl.textContent = ''; statusEl.classList.remove('error'); }
       scheduleRender();
-    } catch (e) {
-      console.warn('[fold] GL reinit failed', e);
-      // ⚠️ B688 — AND IT MUST BE MARKED AS AN ERROR, not just worded like one. This branch set the
-      // text without adding `.error`, so a failure to recover rendered in the ordinary status
-      // colour while a SUCCESSFUL recovery (the branch above) was the one clearing a red class.
+    },
+    // ⚠️ B688 — A FAILURE MUST BE MARKED AS AN ERROR, not merely worded like one. This branch once
+    // set the text without adding `.error`, so a failure to recover rendered in the ordinary status
+    // colour while a SUCCESSFUL recovery was the one clearing a red class.
+    onFailed: () => {
       if (statusEl) { statusEl.textContent = 'graphics context lost — could not recover'; statusEl.classList.add('error'); }
-    }
+    },
   });
 }
 

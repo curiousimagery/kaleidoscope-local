@@ -2347,6 +2347,9 @@ function setupVideoExport() {
         onEnd: () => engine.endCapture(),
         onProgress: (p) => { bar.style.width = Math.round(p * (wantSource ? 50 : 100)) + '%'; },
         shouldCancel: () => cancelRender,
+        // B705 — abort at a NAMED frame if the context dies mid-render. Daniel lost a
+        // 3193-frame job at B704 and the export produced no diagnostic of its own.
+        glLost: () => !!engine.glContext?.isContextLost(),
       });
       // optional companion "source preview" video → forces a .zip package
       const extras = [];
@@ -2363,6 +2366,7 @@ function setupVideoExport() {
             : (p) => { const s2 = sampleAt(p, { bake: true }); return renderSourcePreviewFrame(s2, SP, bakeFoldFade(p)); },
           onProgress: (p) => { bar.style.width = Math.round(50 + p * 50) + '%'; },
           shouldCancel: () => cancelRender,
+          glLost: () => !!engine.glContext?.isContextLost(),   // B705 — as above
         });
         extras.push({ name: base + '-source.mp4', blob: sblob });
       }
@@ -2392,7 +2396,13 @@ function setupVideoExport() {
       status.textContent = `saved ✓ · rendered in ${secs.toFixed(1)}s${rate}${diag}`; status.className = 'status success';
     } catch (e) {
       if (e.code === 'cancelled') { status.textContent = 'cancelled'; status.className = 'status'; }
-      else { status.textContent = e.message || 'render failed'; status.className = 'status error'; console.error(e); }
+      else {
+        // B705 — a render killed by a context loss must reach the REPORT, not just this label.
+        // The B704 job died at an unknown frame and left nothing behind; `priorTrail` survives a
+        // reload and this label does not.
+        if (e.code === 'gl-lost') env.vitals?.mark('export-aborted', { why: 'gl-lost', frame: e.frame, frames: e.frames });
+        status.textContent = e.message || 'render failed'; status.className = 'status error'; console.error(e);
+      }
     } finally {
       teardownExportReader();      // re-points the engine at the video element (no-op on the seek path)
       rendering = false; btn.disabled = false; prog.hidden = true;

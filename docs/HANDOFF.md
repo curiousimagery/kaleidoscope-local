@@ -22,7 +22,7 @@ Archived at B658. It was marked superseded at B609 and kept for the reasoning be
 
 ## current version
 
-**v0.26.44 · B704** (2026-08-21). B703 and B704 are shipped in the tree and **not yet device-verified.**
+**v0.26.45 · B705** (2026-08-21). B703, B704 and B705 are in the tree and **not yet device-verified.**
 
 ---
 
@@ -49,6 +49,41 @@ Both named by Daniel at B704 **because I had left them off the plan.** Full scop
 2. **Provoke GL context loss deliberately, then cycle diagnostics.** The larger piece. The listening
    side only became ready at B695/B699/B703, so a loss provoked before that was mostly unobservable.
    **A loss that heals cleanly is a PASS.**
+
+### 🚨 B705 — THE GL INSTRUMENT IS IN. THE NEXT REPORT ANSWERS A QUESTION NO REPORT COULD BEFORE.
+
+**⚠️ AND B704's HEADLINE IS WITHDRAWN.** The two 2026-08-21 reports (`docs/temp/8-21-contextLoss-01.json`,
+`821-contextLoss-02.json`) were read as *"`preview` never recovers its context."* **`preview` had no
+`gl-context-restored` mark. It never had one.** The absence was guaranteed by construction, so the
+preview may have recovered perfectly in both runs. **The asymmetry was in the instrument.**
+
+**What still stands from those reports:** losses arrive **5ms apart across surfaces** (one
+GPU-process event, not several — B580's finding with better instrumentation); it is **NOT memory**
+(`availableMB 5081`, `footprintMB 38` seven minutes before the death); and run 1's trigger was the
+**switch to perform, +1135ms**.
+
+**B705 ships `shell/gl-watch.js`** — all four in-process surfaces through one watcher, reporting
+four distinguishable outcomes: `gl-context-restored` (verified usable, `isContextLost()` re-checked),
+`gl-restore-failed` + `why`, `gl-restore-incomplete`, and `gl-restore-timeout` (3s). **The timeout is
+the discriminator**: it separates "the event never fired" from "the process died first." A loss
+followed by none of the four means the app died inside the window.
+
+**▶ WHAT TO DO WITH IT:** re-run the run-1 repro — ambitious canvas pan + rotate keyframes on a 4K
+clip, then switch to perform. **The stopping rule is one report containing any `preview` restore
+outcome.** If it says `gl-context-restored`, the preview was always fine and the death has a
+different cause, and this whole thread closes.
+
+**Also in B705:** the export aborts on a lost context with a **named frame index** rather than
+grinding into a dead context for the rest of the job. Detection and graceful abort, **not
+prevention** — nothing in JS stops the GPU process from dying.
+
+**Two more root-caused by reading in the same session, no device time:**
+- **The play button lies after a source swap** (`native-video.js:234`) — `state.paused = false` is
+  written before the plugin call and two `.catch(() => {})` swallow the failure. Regression of the
+  B595 class. **Filed, not fixed.**
+- **Glass-break reset cannot reach the broadcast** — the external view is a second WKWebView with
+  its own process, and it is not in `allEngines()`. It survived the app's death because it never
+  needed the app for frames.
 
 ### ⚠️ Owed a device pass
 

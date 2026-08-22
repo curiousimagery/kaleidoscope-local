@@ -28,6 +28,7 @@ import { createAutoDrift } from '../kit/drift.js';
 import { createEngine } from '../engine/index.js';
 import { PRIORITY } from 'conduit/perf-ledger';
 import { ICONS } from '../mobile/icons.js';
+import { watchGLContext } from './gl-watch.js';
 
 export function createPerformRuntime(env) {
   const { state, session } = env;
@@ -78,16 +79,15 @@ export function createPerformRuntime(env) {
       // auto-recover from an OS-initiated context loss (e.g. a 4K display
       // attaching on iPad dropped every GL context in the app — the preview
       // engine heals in main.js; this is the live PiP's half)
-      canvas.addEventListener('webglcontextlost', (e) => {
-        e.preventDefault();
-        env.vitals?.mark('gl-context-lost', { surface: 'live-pip' });   // B695 — was console-only
-        console.warn('[fold] WebGL context LOST (live PiP)');
-      });
-      canvas.addEventListener('webglcontextrestored', () => {
-        env.vitals?.mark('gl-context-restored', { surface: 'live-pip' });
-        console.warn('[fold] WebGL context RESTORED (live PiP)');
-        try { pipEngine.reinitGL(); pipLastSource = null; pipLastW = 0; pipLastH = 0; }   // resync the source next tick
-        catch (err) { console.warn('[fold] PiP GL reinit failed', err); }
+      // B705 — through the shared watcher. This surface was already correct on both edges; routing
+      // it here is what makes "every in-process GL surface reports the same four outcomes" true.
+      watchGLContext({
+        canvas,
+        surface: 'live-pip',
+        mark: (kind, detail) => env.vitals?.mark(kind, detail),
+        rebuild: () => pipEngine.reinitGL(),
+        glOf: () => pipEngine.glContext,
+        onRestored: () => { pipLastSource = null; pipLastW = 0; pipLastH = 0; },   // resync the source next tick
       });
     } catch (e) {
       // couldn't get another GL context — perform still works (broadcasts follow

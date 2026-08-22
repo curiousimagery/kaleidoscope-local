@@ -18,6 +18,7 @@ import './styles.css';
 import { createEngine, getActiveForm } from '../engine/index.js';
 import { FORMS, formPanLocked } from '../engine/forms/index.js';
 import { state, session } from '../shell/state.js';
+import { watchGLContext } from '../shell/gl-watch.js';
 import { normalizeSliceMirror } from '../shell/overlay.js';   // B635 — the slice fold, called at the render schedule
 import { normalizePanLock } from '../engine/forms/index.js';   // B704 — see the twin call in main.js
 import { makeControlsSync } from '../shell/controls.js';
@@ -2938,14 +2939,20 @@ buildSaveSheet();
 const loseCtxExt = (() => {
   try { return engine.glContext?.getExtension('WEBGL_lose_context') || null; } catch { return null; }
 })();
-outputCanvas.addEventListener('webglcontextlost', (e) => {
-  e.preventDefault();
-  vitals.mark('gl-context-lost', { surface: 'mobile-preview' });   // B695 — this chrome said NOTHING before
-});
-outputCanvas.addEventListener('webglcontextrestored', () => {
-  try { engine.reinitGL(); } catch (e) { console.warn('[fold] GL reinit failed', e); return; }
-  if (cameraMode === 'live') { stopLiveLoop(); startLiveLoop(); }
-  else if (engine.getSourceImage()) scheduleRender();
+// ⚠️ B705 — WIRING MOVED TO `shell/gl-watch.js`. This handler had the SAME hole as the desktop
+// chrome's: it marked the loss and never marked a restore, which is how two device reports came to
+// read as "the preview never recovers". One surface per chrome, both wrong, every shared-module
+// surface right — the two-chrome divergence in textbook form.
+watchGLContext({
+  canvas: outputCanvas,
+  surface: 'mobile-preview',
+  mark: (kind, detail) => vitals.mark(kind, detail),
+  rebuild: () => engine.reinitGL(),
+  glOf: () => engine.glContext,
+  onRestored: () => {
+    if (cameraMode === 'live') { stopLiveLoop(); startLiveLoop(); }
+    else if (engine.getSourceImage()) scheduleRender();
+  },
 });
 
 // Release the WebGL context on navigation away so a refresh doesn't pile up GPU

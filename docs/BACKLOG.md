@@ -40,6 +40,59 @@ Living list of **incomplete / pending work**, grouped by **surface / family**. *
 
 **The cluster `PLAN-LIVE-READINESS.md` item 2 exists to close, and the largest remaining phase 2 work.** These were filed separately over ~150 builds and item 2 asserts they are one question: how many decode, encode and GL sessions we hold at once, and whether we release them. `archive/SESSION-AUDIT.md` is the read-only answer to that question; `conduit/sessions.js` (B681) is the running count. **The failures happen at ONSETS** — changing source, switching mode mid-broadcast, arming a take during a broadcast — not under accumulated load.
 
+### 🚨🚨 [HIGH — Daniel, 2026-08-21, TWO REPORTS, THE BEST GL EVIDENCE THIS PROJECT HAS] THE PREVIEW SURFACE NEVER RECOVERS ITS CONTEXT, AND THE APP DIES WITH IT
+
+**Reports: `docs/temp/8-21-contextLoss-01.json` (motion → perform) and `docs/temp/821-contextLoss-02.json` (mid-render).** Both are post-reload, so `priorTrail` is the whole evidence — which is exactly what it was built for (B661).
+
+**Run 1 — the trigger is the mode switch, and it is 1.1 seconds wide.** Ambitious canvas pan + rotate keyframes on the 20.4s 4K clip, then switch to perform:
+
+```
+04:58:53.895  mode → perform
+04:58:55.030  gl-context-lost      external     (+1135ms)
+04:58:55.035  gl-context-lost      live-pip     (+5ms)
+04:58:55.103  gl-context-restored  live-pip     ✅
+04:58:55.587  gl-context-restored  external     ✅
+04:58:55.664  gl-context-lost      preview      ← never restores
+04:58:55.853  gl-context-lost      external     (second loss)
+[app dies]
+```
+
+**Run 2 — same shape, 7 minutes into a 3193-frame render (4K source → 2.5K out):**
+
+```
+05:13:31      thermal serious · availableMB 5081 · footprintMB 38
+05:20:48.022  gl-context-lost      preview      ← never restores
+05:20:48.027  gl-context-lost      live-pip     (+5ms)
+05:20:49.009  gl-context-restored  live-pip     ✅
+[app dies]
+```
+
+**❌ WITHDRAWN B705 — ~~THE PATTERN, AND IT IS CONSISTENT ACROSS BOTH: `live-pip` recovers every time, `preview` recovers never.~~** **`preview` had no `gl-context-restored` mark and never had one** (nor did `mobile-preview`); the restore was never wired when B695 added the loss. **The absence was guaranteed by construction, so the preview may have recovered perfectly in both runs.** An absence is not evidence, and this one was read as the headline. B705 ships the mark; the question is now genuinely open and genuinely answerable. `external` recovers sometimes, and that reading is sound — it always marked both edges. **A 5ms gap between two surfaces losing context is not two events — it is one GPU-process-level event**, which is B580's finding (`IT IS THE WEBKIT GPU PROCESS CRASHING`) arriving with better instrumentation.
+
+**⛔ IT IS NOT MEMORY, AND THIS IS THE CLEANEST DISPROOF WE HAVE.** `availableMB 5081`, `footprintMB 38` seven minutes before the death. Do not spend a session on memory.
+
+**✅ THE INSTRUMENT SHIPPED AT B705** (`shell/gl-watch.js`) — four outcomes, all surviving the kill via `priorTrail`. **Stopping rule: one report containing any `preview` restore outcome.** Original framing below, kept because the reasoning is what produced the instrument.
+
+**⚠️ WE COULD NOT TELL THE CANDIDATE CAUSES APART — uncertainty state B, so the move was an instrument, not a fix.** Either preview's `webglcontextrestored` **never fires**, or it **fires and `reinitGL()` throws**. The handler (`main.js:362`) catches, writes to `console` and `statusEl`, and **marks nothing** — so the outcome dies with the app. The `reinitWhy` field (B703) cannot help either: it lives on the engine, and the report is read after a reload. **Fix the instrument first: mark `gl-restore-failed` with the reason, so it lands in `priorTrail` and survives the kill.** Standing rule, violated here: *anything that can decline to act must publish why.*
+
+### 🎬 [2026-08-21 — CLASS 1, FOUND BY READING, NO DEVICE TIME] THE VIDEO EXPORT HAS NO CONTEXT-LOST GUARD
+
+`shell/video-export.js` checks exactly one abort condition, `shouldCancel()` (line 97). **There is no `isContextLost()` check anywhere in the export loop** — the codebase has only two, in `main.js:727` and `mobile/chrome.js:2967`, both in the reset path.
+
+So when run 2's context died at frame ~N of 3193, **the export kept calling `frameAt` into a dead context for every remaining frame.** That is a plausible contributor to the app's death rather than merely a casualty of it, and it is certainly why the render produced no usable diagnostic of its own.
+
+**✅ FIXED B705.** The loop checks `glLost()` **before** calling `frameAt`, and throws `code: 'gl-lost'` carrying the frame index — `graphics context lost at frame 1847 of 3193`. Passed at all three call sites (motion render, source-preview render, **loop-builder bake**), and both catch sites mark `export-aborted` so it survives the kill. **Detection and graceful abort, NOT prevention** — nothing in JS stops the GPU process dying. **Whether the export should then RESUME is a separate and larger question** — see the stage-manager teardown item.
+
+### 🔨 [HIGH — Daniel, 2026-08-21] GLASS-BREAK RESET DOES NOT REACH THE BROADCAST
+
+**Daniel: *"given that the broadcast is still running even though the app has reset, this is a great test for our fix to the glass break reset. update: it didn't reset the broadcast."*** In run 1 the app lost its panels while the external display kept looping the clip with the last slice keyframe still applied.
+
+**That is architecturally expected and is still a bug.** The external view is a SECOND WKWebView with its own engine and its own process; it renders frames straight off the native FrameSocketServer. **It survived the app's death because it never depended on the app for frames** — only for state. B683 rebuilt `allEngines()`, and the external view's engine is not among them; it is reached over the bridge by `createSurfacePoster`, not by an engine handle.
+
+**So reset is honest about what it did and silent about what it could not touch**, which is the failure mode CLAUDE.md names. Two things needed: reset must **re-post state to the external view** (or tear the presentation down and restart it), and it must **report which surfaces it could not reach** rather than implying a full recovery.
+
+**⚠️ Operationally this is also a live-show hazard worth knowing now:** a dead app leaves the wall playing the last frame-state indefinitely. That is arguably the correct failure mode for a performance, but it must be a decision rather than an accident.
+
 ### 🚨 [HIGH — Daniel B583, intermittent] THE APP'S FRAME-SOCKET CLIENT CAN STOP RECEIVING WHILE THE EXTERNAL VIEW KEEPS PLAYING
 
 **Symptom:** start the broadcast and every app panel freezes on one still. Slice edits still update the stills and the external display. Reproduced once; a fresh session with the same clip was clean, so it is intermittent and probably a race at broadcast start.
@@ -672,6 +725,40 @@ Baking a seamless 4K loop on an M1 iPad was **uneventful** (that closes a long-s
 
 **Item 1.5 closed at B657**; everything here is a refinement of shipped behaviour or a deliberate deferral, not a hole in it. The exit report below groups what the arc left open. **⚠️ Two chromes share no `env`, and `source-overlay.js` has a third private `view`** — see `CLAUDE.md` before touching anything both surfaces use.
 
+### 🌀 [UX STORY — Daniel, 2026-08-21] RE-TUNE AUTOPLAY TO WORK WITH AN UNLOCKED CANVAS
+
+**Daniel: *"with another 8+ min FHD clip i'm playing with autoplay and having the canvas unlocked creates some wild transitions where autoplay quickly moves from one location to another while zoomed in in a way that is very disruptive."***
+
+**The story:** *as a performer, I want autoplay to keep exploring the source while the canvas is unlocked, without lurching between distant points.* Today autoplay was tuned against a LOCKED canvas, where the only things moving are slice-local. With the canvas unlocked it can also retarget canvas pan, and **at high canvas zoom a small change in target is a large change on screen** — the same `2/zoom` relationship that made radial pan feel wrong at B694. So the disruption scales with zoom, which is why it reads as "wild" rather than "fast".
+
+**Design questions to settle before building:**
+- Should autoplay's step size be **screen-relative rather than state-relative**, so a move covers the same visible distance at any zoom? That is the direct analogue of the pan fix.
+- Should a retarget **ease over the transition speed** rather than cut? Perform already owns a transition speed; autoplay currently does not consult it for position.
+- Should autoplay prefer **local wandering with occasional deliberate jumps** over uniform random retargeting? A jump that is clearly intentional reads very differently from one that looks like a glitch.
+- Does the canvas lock state belong in autoplay's model at all, or should autoplay simply never write `canvasOffset` unless explicitly enabled?
+
+**Related:** `AUTOPLAY'S ZOOM MEANS THE FOLLOWER NEVER SETTLES` (B609), and the accepted-consequences note on removing the pan bound (B694).
+
+### 🎞 [HIGH — Daniel, 2026-08-21, REPRODUCED ACROSS TWO FORMS] THE MOTION PATH ITSELF PLAYS BACK AT AN UNEVEN SPEED
+
+**Daniel: *"while playing through a 4k animation in motion mode with significant panning and zooming across the canvas the lateral movements playback stuttery and jerky. it feels like the issue isn't frame rate but that the actual motion path itself isn't moving at an even speed. e.g. the source video is playing back evenly but the motion across the canvas is uneven, especially while zoomed in... if i switch the form type to square it's clearer to see how the motion path itself is uneven."***
+
+**⭐ Take the framing seriously: he has separated the two clocks by eye.** The source advances evenly; the CANVAS TRANSFORM does not. That rules out frame rate and rules out decode, and it means the defect is in how a keyframed value is sampled over time — not in how often we draw.
+
+**Why square makes it legible:** a lattice gives the eye a fixed reference grid to judge velocity against; a radial wedge does not. **The bug is not form-specific — the readout is.**
+
+**Candidate mechanisms, none yet tested. This is uncertainty state A/B, so instrument or read before changing anything:**
+1. **Per-segment easing.** If each keyframe pair eases in and out independently, a multi-keyframe path necessarily pulses — decelerating into every waypoint and accelerating out. This would be *by construction*, would be worse with more keyframes, and is the first thing to read.
+2. **Interpolating the wrong quantity.** `canvasOffset` interpolated linearly is NOT constant screen velocity when `canvasZoom` is also animating, because the shader applies `p /= zoom` then `p -= offset`. **Even speed in state space is uneven speed on screen.** This matches "especially while zoomed in" exactly.
+3. **The follower/spring** overlaying the keyframe track rather than yielding to it.
+4. Sampling the timeline against wall time rather than the source clock.
+
+**⚠️ (2) is the one that would also explain the autoplay item above**, and both would be fixed by the same change. Worth checking whether they are one bug.
+
+**▶ The cheap first move is Class 1 and needs no device:** render the keyframed `canvasOffset`/`canvasZoom` pair over a synthetic timeline in a harness and plot screen-space velocity. If it is not constant between waypoints, mechanism 1 or 2 is confirmed without a build.
+
+**Daniel's own next step, already underway:** render the animation out and compare the file against the preview. **If the render is smooth and the preview is not, it is a sampling/timing bug in the preview loop. If both are uneven, it is the motion model** — and that is the more likely and more important answer.
+
 ### 📋 ITEM 1.5 EXIT REPORT — everything the slice/input arc left open, grouped (2026-08-18 docs)
 
 **Daniel's ask:** *"we were going to file an exit report on 1.5 capturing known issues... even though this doc should prob go into archive it will be a helpful paper trail that may help us identify when and how certain issues were introduced."*
@@ -990,6 +1077,28 @@ Tapping the **form** padlock mid-broadcast opens the tooltip but does not unlock
 
 ## 📷 Sources, cameras and audio
 
+### 🎮 [HIGH — Daniel, 2026-08-21, ROOT-CAUSED BY READING — REGRESSION OF THE B595 CLASS] THE PLAY BUTTON LIES AFTER A SOURCE SWAP
+
+**Daniel: *"after switching sources and hitting play on a new 1:46 4k source it wasn't playing. if i hit pause it stays paused and the button changes to play. when i hit play again it plays as expected. quite some time back we had a similar issue and the fix was supposed to make it impossible for the button to be dishonest about its state."***
+
+**✅ FOUND, and it is four lines** (`shell/native-video.js:234`):
+
+```js
+play() {
+  state.paused = false;                              // ← flag moves FIRST, unconditionally
+  FoldNativeVideo.resume().catch(() => {});          // ← failure swallowed
+  FoldNativeVideo.setRate({ rate: state.rate }).catch(() => {});   // ← failure swallowed
+},
+```
+
+**The flag is written optimistically and no failure path can ever correct it.** If `resume()` rejects — which is exactly what a just-swapped source does while the plugin is still settling — the UI reads "playing" forever and the clip is parked.
+
+**And it reproduces his sequence exactly:** press play → flag says playing, `resume()` rejects silently, nothing moves. Press pause → flag says paused, `pause()` lands, **flag and player now AGREE**. Press play → the swap has settled, `resume()` succeeds, it plays.
+
+**This is the same class B595 fixed, re-entering from the other end.** B595's note is still in the file: *"the flag and the player disagreed from the moment of load."* That fix corrected the LOAD path; the PLAY path was left able to reintroduce the same disagreement.
+
+**The fix, and it should be the shape used everywhere:** set the flag from the RESULT, not before the call. `await` the resume, set `state.paused = false` on success, and on rejection leave the flag true and **publish the reason** — the `.catch(() => {})` pair is a direct violation of *anything that can decline to act must publish why*. **`pause()` at line 239 has the identical shape** and should be fixed in the same pass; its failure direction is benign today but it is the same latent bug.
+
 ### 🔊 AUDIO ON LONG TAKES — NOT REPRODUCING since B558 (Daniel, B559)
 
 **Downgraded from two open HIGH/MED bugs to one watched item.** Daniel's 5:06 4K take on B558 came back clean by ear and clean by the numbers, after a 6:03 4K take on B557 that drifted obviously. The B558 mic change is a *specific mechanism* for both symptoms rather than a coincidence, so this is not being closed on luck — but two clean takes after one dirty one is not proof, which is why it stays watched rather than deleted.
@@ -1034,6 +1143,14 @@ Long-deferred and re-raised: the web app enumerates a USB webcam, the Capacitor 
 ## 🔬 Instrumentation and diagnostics
 
 **Anything Daniel reads must reach the exported report** (`DEVICE-TESTING.md`). Three instruments were found wrong during phase 2; one is still open below.
+
+### 🐞 [2026-08-21 — INSTRUMENT GAP, FOUND BY READING TWO REPORTS] A FAILED GL RESTORE PUBLISHES NOTHING THAT SURVIVES THE KILL
+
+`gl-context-lost` and `gl-context-restored` are marked and therefore reach `priorTrail`. **The third outcome — restore attempted, `reinitGL()` threw — is not.** `main.js:362`'s catch writes `console.warn` and a `statusEl` string; neither survives a reload, and on a Capacitor device neither is readable at all.
+
+**Consequence, concretely:** the two 2026-08-21 reports establish that preview never recovers and cannot establish why, because *"restore never fired"* and *"restore failed"* produce identical evidence. **That is one build's worth of instrumentation standing between us and a root cause.**
+
+**✅ FIXED B705** — and it turned out to be worse than described: `preview` and `mobile-preview` were missing the `gl-context-restored` mark entirely, not merely the failure mark. `shell/gl-watch.js` now owns all four in-process surfaces and reports four outcomes including a 3s timeout, which is what separates *never fired* from *died first*.
 
 ### 🔧 [Daniel, 2026-08-21 — SMALL UI GAP, WORKAROUND EXISTS] THE FRAME-COST PANEL CANNOT BE OPENED FROM THE LOOP BUILDER
 

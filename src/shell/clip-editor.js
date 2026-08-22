@@ -904,6 +904,10 @@ export function createClipEditor(env) {
         // frame; the bake simply never passed one. The refusal to tear down mid-bake was
         // right (readers are in use); the missing piece was a way to ask it to stop.
         shouldCancel: () => env.clip.cancelBake,
+        // B705 — a bake is the longest single GL job the app runs, so it is the most likely to be
+        // alive when a context dies. Failing at a named frame is the difference between "the bake
+        // failed" and a number that says how far it got.
+        glLost: () => !!env.engine?.glContext?.isContextLost(),
       });
       await applyBakedClip(blob);                   // swaps the source + re-binds the timeline
       disposeClipPreview();
@@ -916,6 +920,9 @@ export function createClipEditor(env) {
         // Loop Builder with their settings intact, exactly where they were
         console.info('[fold] clip bake cancelled');
       } else {
+        // B705 — as in motion-runtime: the alert is gone the moment it is dismissed, and a bake
+        // that dies with the app leaves only what reached `priorTrail`.
+        if (e?.code === 'gl-lost') env.vitals?.mark('export-aborted', { why: 'gl-lost', frame: e.frame, frames: e.frames, job: 'bake' });
         console.error('clip bake failed', e);
         alert('Could not bake the clip: ' + (e && e.message ? e.message : e));
       }

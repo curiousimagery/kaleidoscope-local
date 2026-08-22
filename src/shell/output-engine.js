@@ -26,6 +26,7 @@ import { createEngine } from '../engine/index.js';
 import { createAdaptiveCapture } from 'conduit/capture';
 import { PRIORITY } from 'conduit/perf-ledger';
 import { perfFlags } from './perf-flags.js';
+import { watchGLContext } from './gl-watch.js';
 
 export function createOutputEngine(env) {
   let hidden = null;        // the second engine (lazy — plain-web sessions never output)
@@ -105,17 +106,16 @@ export function createOutputEngine(env) {
     // Inspector, so until this build a context loss on the surface that FEEDS THE RECORDING AND
     // THE BROADCAST was invisible in the only channel that reaches him. The preview has marked
     // since B660; this one, which matters more during a show, did not.
-    glCanvas.addEventListener('webglcontextlost', (ev) => {
-      ev.preventDefault();
-      env.vitals?.mark('gl-context-lost', { surface: 'output' });
-      console.warn('[fold] WebGL context LOST (output engine)');
-    });
-    glCanvas.addEventListener('webglcontextrestored', () => {
-      env.vitals?.mark('gl-context-restored', { surface: 'output' });
-      console.warn('[fold] WebGL context RESTORED (output engine)');
-      try { hidden.reinitGL(); }   // rebuild the GPU resources, not just the source
-      catch (e) { console.warn('[fold] output engine GL reinit failed', e); }
-      lastSource = null; lastW = 0; lastH = 0;   // force a re-upload onto the restored context
+    // B705 — through the shared watcher. ⚠️ Behaviour change worth knowing: the re-upload reset
+    // below used to run even when `reinitGL` THREW, forcing a re-upload onto a context that had
+    // just failed to rebuild. It now runs only on a verified-usable restore.
+    watchGLContext({
+      canvas: glCanvas,
+      surface: 'output',
+      mark: (kind, detail) => env.vitals?.mark(kind, detail),
+      rebuild: () => hidden.reinitGL(),   // rebuild the GPU resources, not just the source
+      glOf: () => hidden.glContext,
+      onRestored: () => { lastSource = null; lastW = 0; lastH = 0; },   // force a re-upload
     });
   }
 
