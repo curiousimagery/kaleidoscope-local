@@ -6,6 +6,40 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.26.47 · Build 707 — THE BAKE TELLS THE TRUTH NOW, AND ONE MEASUREMENT WAS A DIALOG
+
+**Shipped:**
+- **A bake refuses to start on a lost context** (`bake-refused`), instead of opening seven decoders and an encoder to discover it at frame 1.
+- **The encoder's real error is reported instead of its downstream symptom.** `VideoEncoder is not configured` now yields to `encError`, or to `encoder stopped at frame N of M (state: …)`.
+- **Fixed the bake button reading `baking…` forever** after a failure, while fully clickable.
+- `dialog-blocked` marked when a modal holds the main thread >250ms, so timestamps after it are readable as delivery time.
+- `export-aborted` now also covers `encoder-stopped`.
+
+### ✅ B706 WORKED, AND THE APP DID NOT CRASH
+
+`docs/temp/8-21-26-contextLoss-05.json`. **Two context losses, two clean restores, zero `gl-restore-failed`, and the trail runs past all of it** — the previous session ended with the trail truncated by a kill. The `source has no dimensions yet` entries in this report's `priorTrail` are the **B705 session preserved**, not new. Daniel could scrub the 4K crossfade that killed B705.
+
+### ⚠️ THE 86.8-SECOND RESTORE IS NOT A GPU FACT. IT IS A DIALOG.
+
+The trail reads preview lost at 06:50:15 and restored at **06:51:42 — 86.8s** — then lost at 06:53:59 and restored at 06:55:40, **101.4s**. Everywhere else a restore takes 982ms to 2.3s.
+
+**`alert()` pauses the event loop until it is dismissed.** Both restores were stuck behind Daniel reading a bake-failure modal. **This also explains why B705's own 3-second `gl-restore-timeout` never fired** — the timer could not run either.
+
+**A textbook wrong noun, in my own instrument, one build after building it:** the trail timestamps are *delivery* time, not *event* time, and nothing in the report said so. A reader would have concluded the iPad takes a minute and a half to return a GL context. **Marking `dialog-blocked` is the minimum fix; the real fix is not blocking the thread at all** — filed, because replacing the modal is a UX decision.
+
+### The bake refused too late, and then lied about it
+
+**`export-aborted · frame 1 of 2635`.** B705's per-frame guard did its job, but **frame 1 means the context was already dead when the bake began.** A bake that cannot succeed should not open seven decoders, configure an encoder and put a modal on screen to find out. It now refuses by name.
+
+**Then the second attempt threw `VideoEncoder is not configured` at ~3/4.** That message describes the state we found the encoder in, **not what broke it** — when a VideoEncoder errors it leaves the `configured` state, and the next `encode()` throws synchronously, beating the `encError` check at the top of the loop. The encoder's own reported error now wins, and where there isn't one the message at least carries the frame and the state.
+
+**And the button read `baking…` afterwards while being fully clickable** — the `finally` called `setClipMode`, whose comment claimed it restored the apply label. It does not; `loopPrimary()` does. **A control that lies about what it will do, on the action that costs minutes.** Daniel pressed it again, which is how the second bake happened at all.
+
+### Still open
+
+**The source is stalled after leaving the loop builder** — `offered 3219, took 3219, skipped 0` at `0.0 in/s`, socket open, `GL CONTEXT RESTORED ×2`, and no image in motion or perform while the overlay draws. **That is the B584 signature and it is NOT explained by B706** (`reuploadPending: null`). Filed as the next thing to chase.
+
+
 ## v0.26.46 · Build 706 — THE INSTRUMENT PAID FOR ITSELF ON ITS FIRST OUTING
 
 **Shipped:**

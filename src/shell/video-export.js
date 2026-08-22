@@ -142,7 +142,26 @@ export async function exportVideo({ frameAt, onBegin, onEnd, width, height, fps,
       }
       vfMs += performance.now() - t;
 
-      encoder.encode(frame, { keyFrame: i % gop === 0 });
+      // ⚠️ B707 — REPORT THE CAUSE, NOT THE CONSEQUENCE.
+      //
+      // When a VideoEncoder errors, its state leaves 'configured' and the NEXT `encode()` throws
+      // synchronously with `VideoEncoder is not configured` — which is what Daniel saw ~3/4 through
+      // a 2635-frame 4K bake (`docs/temp/8-21-26-contextLoss-05.json`). That message describes the
+      // state we found the encoder in, **not what broke it**, and it beats the `encError` check at
+      // the top of the loop because a synchronous throw does not wait for the next iteration.
+      //
+      // The real reason is already in `encError` (the encoder's own `error` callback). Prefer it.
+      try {
+        encoder.encode(frame, { keyFrame: i % gop === 0 });
+      } catch (err) {
+        if (encError) throw encError;                       // the cause, if the encoder told us one
+        if (encoder.state !== 'configured') {
+          const e2 = new Error(`encoder stopped at frame ${i} of ${frames} (state: ${encoder.state})`);
+          e2.code = 'encoder-stopped'; e2.frame = i; e2.frames = frames; e2.state = encoder.state;
+          throw e2;
+        }
+        throw err;
+      }
       frame.close();
       bmp?.close();
 

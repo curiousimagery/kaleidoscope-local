@@ -22,7 +22,7 @@ Archived at B658. It was marked superseded at B609 and kept for the reasoning be
 
 ## current version
 
-**v0.26.46 · B706** (2026-08-21). B703, B704 and B706 are in the tree and **not yet device-verified**; B705's instrument is verified — it produced the reading that found B706.
+**v0.26.47 · B707** (2026-08-22). **B705 and B706 are device-verified** — B705's instrument found B706, and B706 held on the repro that killed B705. B703, B704 and B707 are not yet device-verified.
 
 ---
 
@@ -50,30 +50,29 @@ Both named by Daniel at B704 **because I had left them off the plan.** Full scop
    side only became ready at B695/B699/B703, so a loss provoked before that was mostly unobservable.
    **A loss that heals cleanly is a PASS.**
 
-### ✅ B706 — THE INSTRUMENT PAID FOR ITSELF IN ONE SESSION. ROOT CAUSE FOUND AND FIXED.
+### ✅ B706 HELD. THE APP SURVIVED. (`8-21-26-contextLoss-05.json`)
 
-**B705 shipped the instrument; the very next report named the cause.**
+**Two context losses, two clean restores, zero `gl-restore-failed`, and the trail runs past all of it** — the prior session ended with the trail cut short by a kill. Daniel scrubbed the 4K crossfade that killed B705. **The `source has no dimensions yet` entries in that report's `priorTrail` are the B705 session preserved, not new.**
 
-```
-gl-restore-failed · preview  · why "source has no dimensions yet"
-gl-restore-failed · live-pip · why "source has no dimensions yet"
-```
+### ⚠️ AND THE 86.8-SECOND RESTORE IN THAT TRAIL IS A DIALOG, NOT THE GPU
 
-**It is our bug, not the GPU's.** `reinitGL` rebuilds the context fine, then re-uploads the source. `setSource` throws on a 0×0 element — what a `<video>` reads for a moment mid-swap. Daniel hit it scrubbing a 4K clip across the crossfade in the loop builder, where **there is no planar provider to absorb it**, so it rethrew, `sourceTexture` stayed null, and nothing ever retried. **The second half of the B703 deadlock, which B703's own comment predicted.**
+`alert()` pauses the event loop. Both "slow" restores (86.8s, 101.4s vs 982ms-2.3s everywhere else) were queued behind Daniel reading a bake-failure modal — **which is also why B705's own 3s `gl-restore-timeout` never fired.** A wrong noun inside my own instrument, one build after building it. **Timestamps after a modal are delivery time.** B707 marks `dialog-blocked`; **not blocking the thread at all is the real fix and is filed.**
 
-**✅ Fixed B706** — transient failures queue a retry that completes on the next frame with dimensions; `maxTextureSize` failures still throw. `reuploadPending`/`reuploadTries` in the report. `scratchpad/reupload-check.mjs` 8/8.
+### B707 — the bake is honest now
 
-**✅ And `8-21-contextLoss-03.json` is a PASS:** three surfaces lost, all three restored (982ms / 1.26s / 2.3s), source healthy at 29.3 in/s. **B704's withdrawn headline is retired for good — `preview` recovers, and always could.**
+- **Refuses to start on a lost context** (`bake-refused`). B705's guard correctly reported `frame 1 of 2635`, and **frame 1 means it should never have begun.**
+- **The encoder's real error beats its symptom.** `VideoEncoder is not configured` describes the state we found it in, not what broke it; a synchronous throw was beating the `encError` check.
+- **The bake button no longer reads `baking…` forever while clickable.** `setClipMode`'s comment claimed it restored the label; `loopPrimary()` does. Daniel pressed the lying button, which is how the second bake happened.
 
-### ⚠️ THE CRASH ITSELF IS STILL OPEN — THIS IS THE NEXT DEVICE TASK
+### 🔴 PICK UP HERE — THE SOURCE STAYS BLANK AFTER THE LOOP BUILDER
 
-B706 removes the permanent-black consequence. **It is unproven that it removes the crash** — the failed restores may have been a symptom of whatever killed the process, not the cause.
+**Not explained by B706** (`reuploadPending: null`). Source row: `planar · native decode · 0.0 in/s · ⚠ SOURCE STALLED 65.7s — socket open, offered 3219, took 3219, skipped 0 · GL CONTEXT RESTORED ×2`.
 
-**▶ Re-run the loop-builder 4K crossfade scrub.** Survives and the picture returns → closed. Still dies → a separate cause, and the trail is now legible while it happens.
+**The overlay recovers and the picture does not** — dotted outlines redraw in perform, the image never does. Canvas-2D geometry is fine, the GL texture is not, so **state and layout are healthy and the upload path is not.**
 
-**Three more of Daniel's findings from the same session are filed in BACKLOG, not fixed:** stale timeline/keyframe thumbnails after a clip swap (**re-test after B706 first — it may be the same bug**), AirPlay disappearing from the picker when HDMI is attached, and the output display continuing to play during a render instead of announcing itself the way a bake does.
+**Suspect: the planar uploader after two restores.** `reinitGL` nulls `planar`; the rebuild is lazy inside `updateSourceFrame` and only runs when `planarFrame()` returns a frame. **If the socket stops offering, the uploader is never rebuilt and never repaints.** Same self-heal-that-cannot-start shape as B703 and B706, on the third path. **▶ Class 1 — read it, do not spend a device session.**
 
-**Still filed from earlier:** the play button lying after a source swap (`native-video.js:234`, root-caused, small fix), glass-break not reaching the broadcast, and the motion-path unevenness (Class 1, no device needed).
+**Also filed from this session:** AirPlay missing from the destination picker when HDMI is attached (**Daniel clarified this is a picker/enumeration bug, not a new feature — the multi-display UI already exists**), stale timeline thumbnails (**re-test after B706 first**), the render not announcing itself on the wall, the play button lying after a source swap, glass-break not reaching the broadcast, and the motion-path unevenness.
 
 ### ⚠️ Owed a device pass
 

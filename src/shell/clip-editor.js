@@ -891,6 +891,19 @@ export function createClipEditor(env) {
     const prog = document.getElementById('clipProgress'), fill = document.getElementById('clipBarFill');
     const apply = document.getElementById('clipApply'), cover = document.getElementById('clipBaking');
     if (prog) prog.hidden = false;
+    // ⚠️ B707 — CHECK THE CONTEXT BEFORE STARTING, NOT ONLY PER FRAME.
+    //
+    // B705's per-frame guard worked exactly as designed and reported `graphics context lost at
+    // frame 1 of 2635` (`docs/temp/8-21-26-contextLoss-05.json`). **Frame 1 means the context was
+    // already dead when the bake began** — so the honest fix is upstream: a bake that cannot
+    // possibly succeed should not open seven decoders, configure an encoder and put a modal on
+    // screen before finding out. Refuse by name and let the operator retry once it recovers.
+    if (env.engine?.glContext?.isContextLost()) {
+      env.vitals?.mark('bake-refused', { why: 'gl-lost' });
+      alert('Cannot bake right now: the graphics context is recovering. Try again in a moment.');
+      env.clip.baking = false;
+      return;
+    }
     if (cover) cover.hidden = false;                 // hide the seeking/decoding flicker behind a "baking…" cover
     if (apply) { apply.disabled = true; apply.textContent = 'baking…'; }
     try {
@@ -922,9 +935,20 @@ export function createClipEditor(env) {
       } else {
         // B705 — as in motion-runtime: the alert is gone the moment it is dismissed, and a bake
         // that dies with the app leaves only what reached `priorTrail`.
-        if (e?.code === 'gl-lost') env.vitals?.mark('export-aborted', { why: 'gl-lost', frame: e.frame, frames: e.frames, job: 'bake' });
+        if (e?.code === 'gl-lost' || e?.code === 'encoder-stopped') env.vitals?.mark('export-aborted', { why: e.code, frame: e.frame, frames: e.frames, state: e.state, job: 'bake' });
         console.error('clip bake failed', e);
+        // ⚠️ B707 — A MODAL BLOCKS THE MAIN THREAD, AND THAT CORRUPTED A MEASUREMENT.
+        //
+        // In `8-21-26-contextLoss-05.json` the preview's context appeared to take **86.8s and then
+        // 101.4s** to come back, against 982ms-2.3s everywhere else. That is not the GPU. `alert()`
+        // pauses the event loop until it is dismissed, so both the restore event and B705's own
+        // 3-second `gl-restore-timeout` were stuck behind Daniel reading a dialog — which is also
+        // why no timeout was marked. **Every timestamp after a modal is delivery time, not event
+        // time.** Marking the gap is what makes the trail readable; a reader cannot infer it.
+        const tDialog = Date.now();
         alert('Could not bake the clip: ' + (e && e.message ? e.message : e));
+        const blockedMs = Date.now() - tDialog;
+        if (blockedMs > 250) env.vitals?.mark('dialog-blocked', { ms: blockedMs, where: 'bake-error' });
       }
     } finally {
       // EVERY reader this bake opened, on EVERY exit path. bounceReader was missing here,
@@ -940,7 +964,13 @@ export function createClipEditor(env) {
       if (cover) cover.textContent = 'baking…';      // reset the label the cancel path rewrote
       const cbtn = document.getElementById('clipCancel');
       if (cbtn) { cbtn.textContent = 'cancel'; cbtn.disabled = false; }
-      setClipMode(env.clip.trim.mode);               // restore the apply label
+      setClipMode(env.clip.trim.mode);
+      // ⚠️ B707 — AND THE LABEL IS `loopPrimary`'s, NOT `setClipMode`'s. The comment here claimed
+      // setClipMode restored the apply label; it does not — it toggles mode chips and re-renders
+      // the trim. So after a failed bake the button read "baking…" forever while being fully
+      // clickable, and Daniel pressed it again (`8-21-26-contextLoss-05.json` session): a control
+      // that lies about what it will do, on the one action that costs minutes.
+      loopPrimary();                                 // THIS is what restores the apply label
       env.clip.baking = false;
       env.clip.cancelBake = false;
     }

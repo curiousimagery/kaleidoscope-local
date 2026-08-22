@@ -40,6 +40,27 @@ Living list of **incomplete / pending work**, grouped by **surface / family**. *
 
 **The cluster `PLAN-LIVE-READINESS.md` item 2 exists to close, and the largest remaining phase 2 work.** These were filed separately over ~150 builds and item 2 asserts they are one question: how many decode, encode and GL sessions we hold at once, and whether we release them. `archive/SESSION-AUDIT.md` is the read-only answer to that question; `conduit/sessions.js` (B681) is the running count. **The failures happen at ONSETS** — changing source, switching mode mid-broadcast, arming a take during a broadcast — not under accumulated load.
 
+### 🚨 [HIGH — Daniel, 2026-08-22, NOT EXPLAINED BY B706] THE SOURCE STAYS BLANK AFTER LEAVING THE LOOP BUILDER, WITH FRAMES ACCOUNTED FOR
+
+**`docs/temp/8-21-26-contextLoss-05.json`**, source row:
+
+```
+3840×2160 · from canvas · planar · native decode · 0.0 in/s
+⚠ SOURCE STALLED 65.7s — socket open, offered 3219, took 3219, skipped 0 · ⚠ GL CONTEXT RESTORED ×2
+```
+
+**Daniel: *"after exiting the loop builder the source canvas isn't showing an image any more in motion mode and the dotted outlines in the source panel aren't rendering. if i switch to perform mode the dotted lines re-appear but the source image itself doesn't. returning to motion mode the dotted lines persist but still no source."***
+
+**⭐ THE OVERLAY RECOVERS AND THE PICTURE DOES NOT, AND THAT SPLIT IS THE WHOLE CLUE.** The dotted outlines are canvas-2D geometry drawn from state; the image is a GL texture. **So state and layout are fine and the texture is not** — which narrows this to the upload path and rules out the mode machinery.
+
+**⛔ IT IS NOT B706.** `reuploadPending: null`, `reuploadTries: null`, `reinitWhy: null` — the element path believes it succeeded. So this is the PLANAR half: `planar` is selected (`0.0 in/s` with the planar tag) and nothing is arriving.
+
+**And `offered 3219, took 3219, skipped 0` is the B584 signature** — *the frames reached us and we failed to use them.* **⚠️ Apply B584's rule properly this time**, since misapplying it cost B702: its precondition is *equal counts WITH A FROZEN PICTURE*, and the picture here is genuinely frozen (blank), reported by Daniel from the screen rather than inferred from a counter. **The precondition holds.** Note also that `0.0 in/s` with a paused clip is normal and B702 guards for it — but a paused clip would still show its last frame, not nothing.
+
+**Both decode sessions are still live** (`source clip: IMG_5132.mov` 747s, `native decode:` 743s), so nothing was released. **The suspect is the planar uploader after two context restores** (`GL CONTEXT RESTORED ×2`): `reinitGL` nulls `planar`, and the rebuild is lazy — `if (!planar) planar = createPlanarUploader(...)` inside `updateSourceFrame`, which only runs when `planarFrame()` returns a frame. **If the socket has stopped offering, the uploader is never rebuilt and the texture never repaints, forever.** That is the same self-heal-that-cannot-start shape as B703 and B706, on the third path.
+
+**▶ FIRST MOVE, and it is Class 1:** read whether anything re-arms the frame provider after a restore, or whether `planarFrame()` returning null indefinitely is a reachable terminal state. **Do not spend a device session on it.**
+
 ### ✅ [ROOT-CAUSED + FIXED B706, VIA B705's INSTRUMENT] THE SURFACE THAT NEVER COMES BACK — `source has no dimensions yet`
 
 **`docs/temp/8-21-contextLoss-04.json` named it in one session.** `gl-restore-failed · preview · why "source has no dimensions yet"`, and the same for `live-pip`, twice, six seconds apart. Daniel was scrubbing a 4K clip across the crossfade in the loop builder.
@@ -581,6 +602,16 @@ In-app, no broadcast needed. Daniel filed this as *"fixed a long time ago and ha
 
 **The governor defaults OFF as of B701** — its display-signal premise is false, because an HDMI or external-window view renders in its own process. It is kept, not deleted, for the NDI investigation, where the premise does hold. `BROADCAST-DELIVERY.md` is the answer sheet for this whole family.
 
+### 🖥 [Daniel, 2026-08-22 — CLARIFIED: THIS IS A PICKER BUG, NOT A NEW FEATURE] HDMI AND AIRPLAY SHOULD BE SELECTABLE THE SAME WAY TWO MONITORS ARE
+
+**Daniel's clarification: *"my expectation is that we should pick between sources here just the same as if there were two physically connected displays on desktop. We already have a UI for this."***
+
+**That reframes it and makes it smaller.** The multi-display picker already exists and already solves "several destinations are available, choose one." **AirPlay is simply not being enumerated into it when HDMI is attached**, so the operator's choice is made by which cable is plugged in.
+
+**So the work is enumeration and labelling, not a new surface.** Two questions to answer first, and the first is Class 1:
+1. **Where does the destination list get built, and what excludes AirPlay when a wired display is present?** Read it before assuming a platform limit — this may simply be an `else` that should be a second entry.
+2. **Only if the code says the exclusion is deliberate:** can iPadOS present to a wired display and an AirPlay receiver at once, or only alternately? **Even if only alternately, the picker should list both and switch** — a capable destination vanishing with no explanation is the publish-why rule failing in the UI.
+
 ### 📺 PiP-DURING-BROADCAST POLICY — `conduit/governor.js` · ⚠️ HEADER STALE: THE GOVERNOR DEFAULTS **OFF** SINCE B701
 
 Daniel weighed two approaches: **always hide the PiP during any broadcast**, or **hide/starve it only when the device is actually struggling**.
@@ -750,16 +781,6 @@ Baking a seamless 4K loop on an M1 iPad was **uneventful** (that closes a long-s
 **And that puts it in the same family as B706**, which is the first thing to check: the thumbnails render through an engine, and after a failed context restore `sourceTexture` stayed null and every element-path render silently returned false. **Switching to the FHD clip fixed it because a successful `setSource` is exactly what the old code could only get from a fresh load.** If that is the mechanism, B706 already fixes it — so **re-test before investigating.**
 
 **If it survives B706**, the next question is which engine draws the thumbnails and whether it is one of the four now watched, or a fifth surface nobody is marking.
-
-### 🖥 [FEATURE GAP — Daniel, 2026-08-21] AIRPLAY AND HDMI ARE MUTUALLY EXCLUSIVE IN THE PICKER, AND SHOULD NOT BE
-
-**Daniel: *"we do a nice job of detecting multiple hardware monitors to pick from but the ipad won't show airplay as an output option if the HDMI out is connected. i'd expect to be able to pick between either the wireless airplay or HDMI out when both are active and available."***
-
-**Reasonable, and it is a real scenario:** a venue with a wired feed to the main screen and an AirPlay feed to a monitor, or wanting to switch between them mid-set without unplugging. **Today attaching HDMI makes AirPlay disappear from the list**, so the choice is made by cable, not by the operator.
-
-**What to establish first, because it decides whether this is a UI fix or a platform limit:** whether iPadOS can present to a wired external display and an AirPlay receiver *simultaneously*, or only alternately. **If only alternately, the honest design is a picker that lists both and switches between them**, not a list that silently drops one. Either way the current behaviour — a capable destination vanishing with no explanation — is the "anything that can decline to act must publish why" rule failing in the UI.
-
-**Related:** `HDMI external-display follow-ups` in the Native section.
 
 ### 🎬 [UX — Daniel, 2026-08-21] THE OUTPUT DISPLAY KEEPS PLAYING DURING A RENDER, AND SHOULD ANNOUNCE ITSELF INSTEAD
 
@@ -1189,6 +1210,16 @@ Long-deferred and re-raised: the web app enumerates a USB webcam, the Capacitor 
 ## 🔬 Instrumentation and diagnostics
 
 **Anything Daniel reads must reach the exported report** (`DEVICE-TESTING.md`). Three instruments were found wrong during phase 2; one is still open below.
+
+### ⚠️ [2026-08-22 — INSTRUMENT DEFECT IN MY OWN B705 WORK] TRAIL TIMESTAMPS AFTER A MODAL ARE DELIVERY TIME, NOT EVENT TIME
+
+**`8-21-26-contextLoss-05.json` reads as though the preview took 86.8s and then 101.4s to get its GL context back**, against 982ms-2.3s in every other report. **It is `alert()`.** A modal pauses the event loop until dismissed, so the restore event and B705's own 3-second `gl-restore-timeout` were both queued behind Daniel reading a dialog — which is why no timeout appears in the trail either.
+
+**Left alone, the next reader concludes the iPad takes ninety seconds to restore a context.** A wrong noun inside an instrument, one build after building it.
+
+**✅ PARTIAL FIX B707:** `dialog-blocked { ms, where }` is marked whenever a modal holds the thread >250ms, so the gap is legible instead of invisible.
+
+**🔴 STILL OPEN, and it is the real fix: stop blocking the thread.** A bake failure currently raises a native `alert()`, which on an iPad in a live context freezes rendering, the broadcast poster and every timer until someone taps it. **The Loop Builder already has an inline surface (`clipBaking` cover) that can carry an error**, so the pieces exist. **Audit every `alert()` / `confirm()` on a path that can run while something is live** — this one was found by accident, in a diagnostic, and there is no reason to think it is the only one.
 
 ### 🐞 [2026-08-21 — INSTRUMENT GAP, FOUND BY READING TWO REPORTS] A FAILED GL RESTORE PUBLISHES NOTHING THAT SURVIVES THE KILL
 
