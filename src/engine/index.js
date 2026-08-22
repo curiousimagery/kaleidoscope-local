@@ -22,6 +22,12 @@ import { FORMS, FORMS_BY_ID, getActiveForm, getActiveFormIndex } from './forms/i
 import { sliceVecToSourceUV } from './geometry.js';
 import { createGpuTimer } from 'conduit/gpu-timer';
 
+// B706 — which upload failures are worth retrying. A zero-size element is a timing accident that a
+// later frame fixes; a source past `maxTextureSize` will fail identically forever and must surface.
+function isTransientUpload(e) {
+  return /no dimensions yet/i.test(String(e?.message || e));
+}
+
 export { FORMS, FORMS_BY_ID, getActiveForm, getActiveFormIndex };
 export { sliceVecToSourceUV, polygonRadiusAt, pointInPolygon } from './geometry.js';
 
@@ -51,6 +57,10 @@ export function createEngine({ canvas, maxProbeSize, perf = null, label = 'engin
   // a new resource. Session audit 2026-08-19: nothing released a GL context and nothing counted one.
   acquireSession('gl', label);
   let sourceTexture = null;
+  // ⚠️ B706 — THE ELEMENT PATH'S HALF OF THE B703 DEADLOCK. Set when `reinitGL`'s re-upload failed
+  // for a TRANSIENT reason (the element had no dimensions yet); retried by `updateSourceFrame`.
+  let pendingReupload = null;
+  let reuploadTries = 0;
   let sourceImage = null;     // HTMLImageElement OR HTMLVideoElement (live camera)
   let sourceAspect = 1;
   let sourceW = 0, sourceH = 0;  // resolved pixel size (natural* for img, video* for video)
@@ -154,12 +164,39 @@ export function createEngine({ canvas, maxProbeSize, perf = null, label = 'engin
       let reinitWhy = '';
       try {
         if (sourceImage) this.setSource(sourceImage);  // re-upload; aspect re-derives
+        pendingReupload = null; reuploadTries = 0;
       } catch (e) {
         // NOT rethrown when planes can still carry the picture: on the native path the element is
         // only a dimension carrier. Recorded either way — a recovery that silently half-failed is
         // the thing that made B609 take four builds to find.
         reinitWhy = String(e?.message || e);
-        if (!keepPlanar) throw e;
+        // ⚠️ B706 — A ZERO-SIZE ELEMENT IS A TIMING ACCIDENT, NOT A VERDICT, AND IT WAS FATAL.
+        //
+        // The B703 note above predicted this exact failure and fixed only the planar half. Two
+        // device reports on 2026-08-21 (`docs/temp/8-21-contextLoss-04.json`) show the other half,
+        // twice, six seconds apart, with the reason now legible because B705 marks it:
+        //
+        //   gl-restore-failed · preview  · why "source has no dimensions yet"
+        //   gl-restore-failed · live-pip · why "source has no dimensions yet"
+        //
+        // Daniel was scrubbing a 4K clip across the crossfade in the loop builder, where there is
+        // no planar provider to fall back on — so `keepPlanar` was falsy, this rethrew, and the
+        // restore was reported as fatal. **But the CONTEXT was fine.** The program, buffers and FBO
+        // probe had already rebuilt; only the texture upload missed, because the element happened
+        // to read 0×0 for one moment mid-swap. A frame later it would have worked.
+        //
+        // Nothing retried it. `sourceTexture` stayed null, and `updateSourceFrame`'s element guard
+        // (`if (!sourceTexture || !sourceImage) return false`) then refused forever — the same
+        // shape as the deadlock B703 removed from the planar path, on the path B703 did not touch.
+        //
+        // So: transient failures QUEUE A RETRY and do not throw. A real one still throws, because
+        // retrying a source that exceeds `maxTextureSize` will fail identically every frame and
+        // must surface as an error rather than a silent forever-loop.
+        if (isTransientUpload(e)) {
+          pendingReupload = sourceImage; reuploadTries = 0;
+        } else if (!keepPlanar) {
+          throw e;
+        }
       } finally {
         // the uploader itself is gone with the context and is recreated lazily on the next frame
         if (keepPlanar) { planarFrame = keepPlanar; planarCap = keepCap; }
@@ -254,6 +291,28 @@ export function createEngine({ canvas, maxProbeSize, perf = null, label = 'engin
         // preview canvas, i.e. exactly the cross-context readback we came to delete.
         if (planar && planar.width > 0) return false;
       }
+      // ⚠️ B706 — RETRY A DEFERRED RE-UPLOAD BEFORE THE GUARD THAT WOULD REFUSE IT.
+      // This is the element path's self-heal, and it must sit ABOVE the guard for the same reason
+      // B703's planar block does: the guard's whole job is to refuse when there is no texture, and
+      // a deferred re-upload is precisely the case where we are trying to make one.
+      // Only when no planar frame is carrying the picture — `setSource` retires the planar provider
+      // by design, so retrying under a live planar path would delete the better source.
+      if (pendingReupload && !(planar && planar.width > 0)) {
+        const { w, h } = sourceDims(pendingReupload);
+        if (w && h) {
+          try {
+            this.setSource(pendingReupload);
+            pendingReupload = null; reuploadTries = 0; lastReinitWhy = '';
+          } catch (e) {
+            // A retry that fails for a NON-transient reason is a real error: stop retrying and say
+            // so, rather than looping silently every frame forever.
+            lastReinitWhy = String(e?.message || e);
+            if (!isTransientUpload(e)) pendingReupload = null;
+          }
+        } else {
+          reuploadTries++;
+        }
+      }
       // The ELEMENT path, and the guard that genuinely belongs to it (B703).
       if (!sourceTexture || !sourceImage) return false;
       if (sourceImage.readyState !== undefined && sourceImage.readyState < 2) return false;
@@ -314,6 +373,10 @@ export function createEngine({ canvas, maxProbeSize, perf = null, label = 'engin
     // restore was clean. Rides the exported report because a half-failed recovery is invisible
     // otherwise, and console is not a channel that reaches the device (see DEVICE-TESTING.md).
     get lastReinitWhy() { return lastReinitWhy; },
+    // B706 — a deferred re-upload that never lands is invisible otherwise: `reinitWhy` alone cannot
+    // say whether the retry is still pending, already healed, or gave up.
+    get reuploadPending() { return !!pendingReupload; },
+    get reuploadTries() { return reuploadTries; },
     // 0 = this context has never been lost. Rides the frame-cost report (B580).
     get glGeneration() { return glGeneration; },
 

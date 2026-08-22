@@ -40,6 +40,22 @@ Living list of **incomplete / pending work**, grouped by **surface / family**. *
 
 **The cluster `PLAN-LIVE-READINESS.md` item 2 exists to close, and the largest remaining phase 2 work.** These were filed separately over ~150 builds and item 2 asserts they are one question: how many decode, encode and GL sessions we hold at once, and whether we release them. `archive/SESSION-AUDIT.md` is the read-only answer to that question; `conduit/sessions.js` (B681) is the running count. **The failures happen at ONSETS** — changing source, switching mode mid-broadcast, arming a take during a broadcast — not under accumulated load.
 
+### ✅ [ROOT-CAUSED + FIXED B706, VIA B705's INSTRUMENT] THE SURFACE THAT NEVER COMES BACK — `source has no dimensions yet`
+
+**`docs/temp/8-21-contextLoss-04.json` named it in one session.** `gl-restore-failed · preview · why "source has no dimensions yet"`, and the same for `live-pip`, twice, six seconds apart. Daniel was scrubbing a 4K clip across the crossfade in the loop builder.
+
+**The cause is ours, not the GPU's.** `reinitGL` rebuilds the context fine, then re-uploads the source; `setSource` throws on a 0×0 element, which is what a `<video>` reads for a moment mid-swap. With no planar provider to absorb it (the loop builder has none) the error rethrew, `sourceTexture` stayed null, and **nothing ever retried** — so the element guard in `updateSourceFrame` refused forever. **This is the second half of the B703 deadlock, and B703's own comment predicted it.**
+
+**✅ FIXED B706:** transient failures queue a retry that `updateSourceFrame` completes once the element has dimensions; permanent ones (`maxTextureSize`) still throw. `reuploadPending` / `reuploadTries` are in the report. Harness `scratchpad/reupload-check.mjs`, 8/8.
+
+**⚠️ WHAT IS STILL OPEN: the app died anyway.** B706 removes the permanent-black consequence; **it is unproven that it removes the CRASH.** The failed restores may have been a symptom of whatever killed the process. **▶ NEXT: re-run the loop-builder 4K crossfade scrub.** Survives + picture returns → closed. Still dies → a separate cause, now with a legible trail.
+
+### ✅ [2026-08-21 — A PASS, AND WORTH RECORDING AS ONE] `8-21-contextLoss-03.json`: THREE SURFACES LOST, THREE RECOVERED
+
+Preview restored in 982ms, external in 1.26s, live-pip in 2.3s. `reinitWhy: null`. Source row `3840×2160 · planar · native decode · 29.3 in/s`. **The recovery path works**, and Daniel's report matches: *"overall this session was much more reliable."*
+
+**This is the reading that retires B704's withdrawn headline for good — `preview` recovers, and always could.** The brief source-panel blackout he saw is the ~1s loss-to-restore window, which is the system working rather than failing. **A loss that heals cleanly is a PASS.**
+
 ### 🚨🚨 [HIGH — Daniel, 2026-08-21, TWO REPORTS, THE BEST GL EVIDENCE THIS PROJECT HAS] THE PREVIEW SURFACE NEVER RECOVERS ITS CONTEXT, AND THE APP DIES WITH IT
 
 **Reports: `docs/temp/8-21-contextLoss-01.json` (motion → perform) and `docs/temp/821-contextLoss-02.json` (mid-render).** Both are post-reload, so `priorTrail` is the whole evidence — which is exactly what it was built for (B661).
@@ -724,6 +740,36 @@ Baking a seamless 4K loop on an M1 iPad was **uneventful** (that closes a long-s
 ## 🎛 Input, forms, gestures and droste
 
 **Item 1.5 closed at B657**; everything here is a refinement of shipped behaviour or a deliberate deferral, not a hole in it. The exit report below groups what the arc left open. **⚠️ Two chromes share no `env`, and `source-overlay.js` has a third private `view`** — see `CLAUDE.md` before touching anything both surfaces use.
+
+### 🎞 [HIGH — Daniel, 2026-08-21] STALE TIMELINE + KEYFRAME THUMBNAILS AFTER A CLIP SWAP THAT INHERITS KEYFRAMES
+
+**Daniel: *"i loaded a new clip and it inherits the same keyframes in motion but it didn't figure out that it needed to re-render the timeline and keyframe thumbnails yet. even after editing and making new keyframes they still don't update... when i switched to a FHD clip the timeline and keyframe thumbnails were restored."***
+
+**⚠️ THE SECOND SENTENCE IS THE IMPORTANT ONE, AND IT RULES OUT THE OBVIOUS CAUSE.** If this were a missing invalidation on the swap, *editing a keyframe would fix it* — a new keyframe has to draw a new thumbnail. **It did not.** So the thumbnail RENDER PATH itself was refusing, not the cache.
+
+**And that puts it in the same family as B706**, which is the first thing to check: the thumbnails render through an engine, and after a failed context restore `sourceTexture` stayed null and every element-path render silently returned false. **Switching to the FHD clip fixed it because a successful `setSource` is exactly what the old code could only get from a fresh load.** If that is the mechanism, B706 already fixes it — so **re-test before investigating.**
+
+**If it survives B706**, the next question is which engine draws the thumbnails and whether it is one of the four now watched, or a fifth surface nobody is marking.
+
+### 🖥 [FEATURE GAP — Daniel, 2026-08-21] AIRPLAY AND HDMI ARE MUTUALLY EXCLUSIVE IN THE PICKER, AND SHOULD NOT BE
+
+**Daniel: *"we do a nice job of detecting multiple hardware monitors to pick from but the ipad won't show airplay as an output option if the HDMI out is connected. i'd expect to be able to pick between either the wireless airplay or HDMI out when both are active and available."***
+
+**Reasonable, and it is a real scenario:** a venue with a wired feed to the main screen and an AirPlay feed to a monitor, or wanting to switch between them mid-set without unplugging. **Today attaching HDMI makes AirPlay disappear from the list**, so the choice is made by cable, not by the operator.
+
+**What to establish first, because it decides whether this is a UI fix or a platform limit:** whether iPadOS can present to a wired external display and an AirPlay receiver *simultaneously*, or only alternately. **If only alternately, the honest design is a picker that lists both and switches between them**, not a list that silently drops one. Either way the current behaviour — a capable destination vanishing with no explanation — is the "anything that can decline to act must publish why" rule failing in the UI.
+
+**Related:** `HDMI external-display follow-ups` in the Native section.
+
+### 🎬 [UX — Daniel, 2026-08-21] THE OUTPUT DISPLAY KEEPS PLAYING DURING A RENDER, AND SHOULD ANNOUNCE ITSELF INSTEAD
+
+**Daniel: *"i notice while rendering a video that the output display is still playing. shouldn't it black out and say 'rendering [clipname]...' similar to how we pause broadcast while baking."***
+
+**The precedent he is pointing at already exists** — a bake pauses the broadcast and says so. A render does not, so the wall keeps showing a live composition while the app is busy producing a file, and the operator has no signal from the surface the audience is looking at.
+
+**Design questions:** should it black out, or hold the last frame with an overlay? (A hard black is a strong statement mid-show; a held frame with a corner badge may be kinder.) Should it carry PROGRESS, given a 3193-frame 4K render is minutes long? And should this be automatic or a preference — **there is a real case for wanting the wall untouched while rendering**, if the render is a side task during a set.
+
+**⚠️ There is also a correctness angle, not just a UX one:** a render and a live broadcast are contending for the same GPU. Whatever this becomes should be decided alongside the recording-capability gate rather than separately.
 
 ### 🌀 [UX STORY — Daniel, 2026-08-21] RE-TUNE AUTOPLAY TO WORK WITH AN UNLOCKED CANVAS
 

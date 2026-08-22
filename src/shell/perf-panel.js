@@ -441,6 +441,10 @@ export function mountPerfPanel(env, { container = null, onClose = null } = {}) {
       // the half-failure that made the B609 freeze take four builds: the recovery reported success,
       // the picture never came back, and the reason went only to a console nobody attaches to.
       reinitWhy: env.engine?.lastReinitWhy || undefined,
+      // B706 — a deferred element re-upload. `reinitWhy` says what failed; these say whether it
+      // has since healed. Pending with a rising try count is the forever-black case.
+      reuploadPending: env.engine?.reuploadPending || undefined,
+      reuploadTries: env.engine?.reuploadTries || undefined,
       sliceError: env.lastSliceError || undefined,
       // B630 — the last few SOURCE-SWAP attempts, each phase with a reason on every exit. Built for
       // Daniel's mid-show dead end (live camera ~10min, picked a file, nothing happened, app restart

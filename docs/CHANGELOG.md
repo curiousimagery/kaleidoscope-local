@@ -6,6 +6,45 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.26.46 · Build 706 — THE INSTRUMENT PAID FOR ITSELF ON ITS FIRST OUTING
+
+**Shipped:**
+- **Root-caused and fixed the surface that never comes back after a GL context loss.** `reinitGL`'s element re-upload throwing `source has no dimensions yet` was FATAL and un-retried; it now queues a retry and `updateSourceFrame` completes it once the element has dimensions.
+- A genuinely oversized source still throws — transient and permanent failures are now distinguished (`isTransientUpload`).
+- `reuploadPending` / `reuploadTries` in the report, so a heal that never happens is visible.
+- Verified by `scratchpad/reupload-check.mjs`, 8/8, including that B703's planar behaviour is preserved and that a retry never retires a live planar provider.
+
+### B705's instrument answered the question in one session
+
+**The four device reports of 2026-08-21 now read as a clean before/after.** B704 could not tell "the restore never fired" from "the restore fired and threw"; B705 made them distinguishable; **the very next report said which, and named the reason:**
+
+```
+06:32:04.801  gl-context-lost    live-pip
+06:32:04.801  gl-context-lost    preview
+06:32:05.138  gl-context-lost    external
+06:32:05.566  gl-restore-failed  live-pip   why "source has no dimensions yet"
+06:32:05.588  gl-context-restored external                        ← its own source, unaffected
+06:32:06.033  gl-restore-failed  preview    why "source has no dimensions yet"
+06:32:11.876  [the whole sequence again, 6 seconds later]
+```
+
+**And `8-21-contextLoss-03.json` is a PASS**, which is just as informative: three surfaces lost their context, **all three restored** (preview 982ms, external 1.26s, live-pip 2.3s), `reinitWhy: null`, and the source row read `3840×2160 · planar · native decode · 29.3 in/s`. The recovery path works. **That also retires B704's withdrawn headline for good: `preview` recovers, and it always could.**
+
+### The bug, and it is ours, not the GPU's
+
+`reinitGL` rebuilds the program, buffers and FBO probe, then re-uploads the source through `setSource`. **`setSource` throws when the element reads 0×0** — which is what a `<video>` does for one moment mid-swap. Daniel hit it scrubbing a 4K clip across the crossfade in the loop builder, where **there is no planar provider to fall back on**, so `keepPlanar` was falsy and the error rethrew.
+
+**But the context was fine.** Only the texture upload missed, and a frame later it would have succeeded. **Nothing retried it**, so `sourceTexture` stayed null and `updateSourceFrame`'s element guard refused forever.
+
+**⚠️ THIS IS THE SECOND HALF OF THE B703 DEADLOCK, AND B703'S OWN COMMENT PREDICTED IT** — *"if that re-upload throws — a zero-size preview canvas mid mode switch — `sourceTexture` stays null."* B703 made the PLANAR path self-healing and did not touch the element path. B706 makes the element path self-healing the same way: **the retry sits ABOVE the guard, for exactly the reason B703's planar block does** — the guard's job is to refuse when there is no texture, and a deferred re-upload is precisely the attempt to make one.
+
+**Transient and permanent are now different things.** A zero-size element is a timing accident and is retried; a source past `maxTextureSize` fails identically forever and still throws, because a silent per-frame retry loop would be worse than an error. A retry that turns out to be oversized gives up and records why.
+
+### Why the app then died is still open
+
+The two failed restores at 06:32:05 and again at 06:32:11 preceded a full blank-screen crash. **B706 removes the permanent-black consequence; whether it removes the crash is unproven** — the retries may have been a symptom of whatever was killing the process rather than the cause. **Re-run the loop-builder 4K crossfade scrub.** If the app survives and the picture returns, this closes. If it still dies, the crash is a separate cause and the trail will now be legible while it happens.
+
+
 ## v0.26.45 · Build 705 — THE GL WATCHER, AND A CORRECTION TO B704's HEADLINE
 
 **Shipped:**

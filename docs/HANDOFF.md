@@ -22,7 +22,7 @@ Archived at B658. It was marked superseded at B609 and kept for the reasoning be
 
 ## current version
 
-**v0.26.45 · B705** (2026-08-21). B703, B704 and B705 are in the tree and **not yet device-verified.**
+**v0.26.46 · B706** (2026-08-21). B703, B704 and B706 are in the tree and **not yet device-verified**; B705's instrument is verified — it produced the reading that found B706.
 
 ---
 
@@ -50,40 +50,30 @@ Both named by Daniel at B704 **because I had left them off the plan.** Full scop
    side only became ready at B695/B699/B703, so a loss provoked before that was mostly unobservable.
    **A loss that heals cleanly is a PASS.**
 
-### 🚨 B705 — THE GL INSTRUMENT IS IN. THE NEXT REPORT ANSWERS A QUESTION NO REPORT COULD BEFORE.
+### ✅ B706 — THE INSTRUMENT PAID FOR ITSELF IN ONE SESSION. ROOT CAUSE FOUND AND FIXED.
 
-**⚠️ AND B704's HEADLINE IS WITHDRAWN.** The two 2026-08-21 reports (`docs/temp/8-21-contextLoss-01.json`,
-`821-contextLoss-02.json`) were read as *"`preview` never recovers its context."* **`preview` had no
-`gl-context-restored` mark. It never had one.** The absence was guaranteed by construction, so the
-preview may have recovered perfectly in both runs. **The asymmetry was in the instrument.**
+**B705 shipped the instrument; the very next report named the cause.**
 
-**What still stands from those reports:** losses arrive **5ms apart across surfaces** (one
-GPU-process event, not several — B580's finding with better instrumentation); it is **NOT memory**
-(`availableMB 5081`, `footprintMB 38` seven minutes before the death); and run 1's trigger was the
-**switch to perform, +1135ms**.
+```
+gl-restore-failed · preview  · why "source has no dimensions yet"
+gl-restore-failed · live-pip · why "source has no dimensions yet"
+```
 
-**B705 ships `shell/gl-watch.js`** — all four in-process surfaces through one watcher, reporting
-four distinguishable outcomes: `gl-context-restored` (verified usable, `isContextLost()` re-checked),
-`gl-restore-failed` + `why`, `gl-restore-incomplete`, and `gl-restore-timeout` (3s). **The timeout is
-the discriminator**: it separates "the event never fired" from "the process died first." A loss
-followed by none of the four means the app died inside the window.
+**It is our bug, not the GPU's.** `reinitGL` rebuilds the context fine, then re-uploads the source. `setSource` throws on a 0×0 element — what a `<video>` reads for a moment mid-swap. Daniel hit it scrubbing a 4K clip across the crossfade in the loop builder, where **there is no planar provider to absorb it**, so it rethrew, `sourceTexture` stayed null, and nothing ever retried. **The second half of the B703 deadlock, which B703's own comment predicted.**
 
-**▶ WHAT TO DO WITH IT:** re-run the run-1 repro — ambitious canvas pan + rotate keyframes on a 4K
-clip, then switch to perform. **The stopping rule is one report containing any `preview` restore
-outcome.** If it says `gl-context-restored`, the preview was always fine and the death has a
-different cause, and this whole thread closes.
+**✅ Fixed B706** — transient failures queue a retry that completes on the next frame with dimensions; `maxTextureSize` failures still throw. `reuploadPending`/`reuploadTries` in the report. `scratchpad/reupload-check.mjs` 8/8.
 
-**Also in B705:** the export aborts on a lost context with a **named frame index** rather than
-grinding into a dead context for the rest of the job. Detection and graceful abort, **not
-prevention** — nothing in JS stops the GPU process from dying.
+**✅ And `8-21-contextLoss-03.json` is a PASS:** three surfaces lost, all three restored (982ms / 1.26s / 2.3s), source healthy at 29.3 in/s. **B704's withdrawn headline is retired for good — `preview` recovers, and always could.**
 
-**Two more root-caused by reading in the same session, no device time:**
-- **The play button lies after a source swap** (`native-video.js:234`) — `state.paused = false` is
-  written before the plugin call and two `.catch(() => {})` swallow the failure. Regression of the
-  B595 class. **Filed, not fixed.**
-- **Glass-break reset cannot reach the broadcast** — the external view is a second WKWebView with
-  its own process, and it is not in `allEngines()`. It survived the app's death because it never
-  needed the app for frames.
+### ⚠️ THE CRASH ITSELF IS STILL OPEN — THIS IS THE NEXT DEVICE TASK
+
+B706 removes the permanent-black consequence. **It is unproven that it removes the crash** — the failed restores may have been a symptom of whatever killed the process, not the cause.
+
+**▶ Re-run the loop-builder 4K crossfade scrub.** Survives and the picture returns → closed. Still dies → a separate cause, and the trail is now legible while it happens.
+
+**Three more of Daniel's findings from the same session are filed in BACKLOG, not fixed:** stale timeline/keyframe thumbnails after a clip swap (**re-test after B706 first — it may be the same bug**), AirPlay disappearing from the picker when HDMI is attached, and the output display continuing to play during a render instead of announcing itself the way a bake does.
+
+**Still filed from earlier:** the play button lying after a source swap (`native-video.js:234`, root-caused, small fix), glass-break not reaching the broadcast, and the motion-path unevenness (Class 1, no device needed).
 
 ### ⚠️ Owed a device pass
 
