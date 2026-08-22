@@ -22,7 +22,7 @@ Archived at B658. It was marked superseded at B609 and kept for the reasoning be
 
 ## current version
 
-**v0.26.47 · B707** (2026-08-22). **B705 and B706 are device-verified** — B705's instrument found B706, and B706 held on the repro that killed B705. B703, B704 and B707 are not yet device-verified.
+**v0.26.48 · B708** (2026-08-22). **B705 and B706 are device-verified** — B705's instrument found B706, and B706 held on the repro that killed B705. B703, B704 and B707 are not yet device-verified.
 
 ---
 
@@ -64,15 +64,13 @@ Both named by Daniel at B704 **because I had left them off the plan.** Full scop
 - **The encoder's real error beats its symptom.** `VideoEncoder is not configured` describes the state we found it in, not what broke it; a synchronous throw was beating the `encError` check.
 - **The bake button no longer reads `baking…` forever while clickable.** `setClipMode`'s comment claimed it restored the label; `loopPrimary()` does. Daniel pressed the lying button, which is how the second bake happened.
 
-### 🔴 PICK UP HERE — THE SOURCE STAYS BLANK AFTER THE LOOP BUILDER
+### ✅ B708 — THE BLANK SOURCE IS FIXED (Class 1, no device time)
 
-**Not explained by B706** (`reuploadPending: null`). Source row: `planar · native decode · 0.0 in/s · ⚠ SOURCE STALLED 65.7s — socket open, offered 3219, took 3219, skipped 0 · GL CONTEXT RESTORED ×2`.
+`planeReader()` returns null for "nothing new", which the engine reads as *hold the last frame* — but `reinitGL` had just destroyed the uploader and its texture, so **nothing was held**. A paused clip offers no new frame, so the uploader was never rebuilt. `resync()` re-delivers the frame the receiver still has. 8/8 harness.
 
-**The overlay recovers and the picture does not** — dotted outlines redraw in perform, the image never does. Canvas-2D geometry is fine, the GL texture is not, so **state and layout are healthy and the upload path is not.**
+**⚠️ THE STANDING RULE THIS EARNED, because it is now three instances in six builds** — B703, B706, B708 are all *a recovery path that cannot start itself*. **When a restore discards a cache, ask what re-fills it and whether that is GUARANTEED.** All three answered "an event that usually arrives." **`offered === taken` was true in all three: equal counts are not health.**
 
-**Suspect: the planar uploader after two restores.** `reinitGL` nulls `planar`; the rebuild is lazy inside `updateSourceFrame` and only runs when `planarFrame()` returns a frame. **If the socket stops offering, the uploader is never rebuilt and never repaints.** Same self-heal-that-cannot-start shape as B703 and B706, on the third path. **▶ Class 1 — read it, do not spend a device session.**
-
-**Also filed from this session:** AirPlay missing from the destination picker when HDMI is attached (**Daniel clarified this is a picker/enumeration bug, not a new feature — the multi-display UI already exists**), stale timeline thumbnails (**re-test after B706 first**), the render not announcing itself on the wall, the play button lying after a source swap, glass-break not reaching the broadcast, and the motion-path unevenness.
+**Not yet audited:** `reinitGL` also nulls `gpuTimer`. The other two now have starters; that one has not been checked.
 
 ### ⚠️ Owed a device pass
 

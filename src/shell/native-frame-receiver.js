@@ -279,9 +279,29 @@ export function createNativeFrameReceiver({ port = 8899, mirror = false, cap = 0
     // arrived, which its engine reads as "hold the last frame" — so a 60Hz render loop
     // on a 30fps clip does 30 uploads, not 60, and three engines don't starve each
     // other by racing a single shared cursor.
+    // ⚠️ B708 — `resync()` EXISTS BECAUSE "NOTHING NEW" AND "NOTHING AT ALL" ARE DIFFERENT STATES,
+    // AND THE READER COULD ONLY EXPRESS ONE OF THEM.
+    //
+    // Returning null for `seq === lastSeq` means "hold the last frame", and that contract is right
+    // **only while there IS a last frame held.** `engine.reinitGL()` sets `planar = null`, which
+    // destroys the uploader AND its texture — so after a context restore there is nothing to hold,
+    // and the engine rebuilds the uploader only inside `if (frame)`. With a PAUSED clip the socket
+    // offers nothing new, the reader keeps saying null, the uploader is never rebuilt, and the
+    // source renders blank FOREVER — while every counter reads healthy, because `offered` and
+    // `taken` are equal and the socket is open. That is `docs/temp/8-21-26-contextLoss-05.json`:
+    // `offered 3219, took 3219, skipped 0` at `0.0 in/s` with `GL CONTEXT RESTORED ×2`.
+    //
+    // `latest` is still in hand (it is only cleared on stop), so the frame was never gone — only
+    // the reader's willingness to hand it over again. `resync()` drops the history so the next call
+    // re-delivers the CURRENT frame.
+    //
+    // ⚠️ THIS IS THE THIRD INSTANCE OF ONE SHAPE — a recovery path that cannot start itself.
+    // B703: the planar path gated on element-path state. B706: a failed element re-upload never
+    // retried. B708: the planar uploader never rebuilt without a new frame. **Whenever a restore
+    // discards a cache, ask what re-fills it, and whether that thing is guaranteed to happen.**
     planeReader() {
       let lastSeq = -1;
-      return () => {
+      const read = () => {
         if (seq === lastSeq) return null;
         const frame = parseLatest();
         if (!frame) return null;
@@ -290,6 +310,8 @@ export function createNativeFrameReceiver({ port = 8899, mirror = false, cap = 0
         taken++; winTaken++;
         return frame;
       };
+      read.resync = () => { lastSeq = -1; };   // forget what we have shown; re-deliver the held frame
+      return read;
     },
     get port() { return port; },
     // clock readouts — meaningful only on the stamped ("FYUW") video socket

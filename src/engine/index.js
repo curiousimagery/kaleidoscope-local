@@ -199,7 +199,19 @@ export function createEngine({ canvas, maxProbeSize, perf = null, label = 'engin
         }
       } finally {
         // the uploader itself is gone with the context and is recreated lazily on the next frame
-        if (keepPlanar) { planarFrame = keepPlanar; planarCap = keepCap; }
+        if (keepPlanar) {
+          planarFrame = keepPlanar; planarCap = keepCap;
+          // ⚠️ B708 — AND "LAZILY ON THE NEXT FRAME" WAS THE BUG, BECAUSE THERE MAY NOT BE A NEXT
+          // FRAME. The reader returns null while nothing NEW has arrived, which the engine reads as
+          // "hold the last frame" — but the line above this one destroyed the uploader and its
+          // texture, so there is nothing held. On a PAUSED clip the socket offers nothing new, so
+          // the uploader is never rebuilt and the source renders blank indefinitely while every
+          // counter reads healthy (`8-21-26-contextLoss-05.json`: offered 3219 · took 3219 ·
+          // skipped 0 · 0.0 in/s · GL CONTEXT RESTORED ×2).
+          //
+          // The frame was never lost — only the reader's willingness to re-deliver it. Ask for it.
+          try { planarFrame.resync?.(); } catch { /* a provider without one simply has no history */ }
+        }
       }
       lastReinitWhy = reinitWhy;
     },

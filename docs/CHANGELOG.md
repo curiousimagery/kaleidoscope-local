@@ -6,6 +6,43 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.26.48 · Build 708 — THE BLANK SOURCE, AND THE THIRD INSTANCE OF ONE SHAPE
+
+**Shipped:**
+- **Fixed the source rendering blank forever after a context restore with a paused clip.** `planeReader()` gains `resync()`; `reinitGL` calls it when it restores the provider.
+- Forwarded through `native-video.js`'s `planeProvider` wrapper, and applied to `native-camera.js`'s reader so the two cannot diverge.
+- Verified by `scratchpad/planar-resync-check.mjs`, 8/8, including the pre-fix bug, the wrapper-drops-it case, and that a playing clip's normal path is untouched.
+
+### The bug, and it was hiding behind healthy counters
+
+**Class 1 — found by reading, no device time.** `docs/temp/8-21-26-contextLoss-05.json`:
+
+```
+planar · native decode · 0.0 in/s
+⚠ SOURCE STALLED 65.7s — socket open, offered 3219, took 3219, skipped 0 · ⚠ GL CONTEXT RESTORED ×2
+```
+
+`planeReader()` returns null when `seq === lastSeq`, which the engine reads as **"hold the last frame."** That contract is right **only while there IS a last frame held.** `reinitGL()` sets `planar = null`, destroying the uploader *and its texture*, and `updateSourceFrame` rebuilds the uploader only inside `if (frame)`.
+
+**So with a paused clip the socket offers nothing new, the reader keeps returning null, the uploader is never rebuilt, and the source renders blank indefinitely.** The frame was never lost — `latest` is still held in the receiver — only the reader's willingness to hand it over again.
+
+**Daniel's observation is what made it findable:** *"if i switch to perform mode the dotted lines re-appear but the source image itself doesn't."* The outlines are canvas-2D geometry drawn from state; the image is a GL texture. **State and layout healthy, upload path not** — which cut the search to one file.
+
+### ⚠️ THREE BUILDS, THREE INSTANCES, ONE SHAPE: A RECOVERY PATH THAT CANNOT START ITSELF
+
+| build | the cache a restore discarded | what should have re-filled it | why it never did |
+|---|---|---|---|
+| **B703** | the planar uploader | `updateSourceFrame` | it was gated on ELEMENT-path state |
+| **B706** | the element texture | `reinitGL`'s re-upload | it threw on a 0×0 element and nothing retried |
+| **B708** | the planar uploader *and its texture* | the next frame off the socket | a paused clip has no next frame |
+
+**The standing question this earns: when a restore discards a cache, what re-fills it, and is that thing GUARANTEED to happen?** In all three the answer was "an event that usually arrives," and each failed in the case where it did not. **`offered === taken` was true throughout all three** — equal counts are not health, they are only the absence of one specific fault.
+
+### And the wrapper mattered
+
+`native-video.js`'s `planeProvider` wraps the reader, and **that wrapper is what the engine actually holds.** A `resync` that stopped at the wrapper would never run, and would fail **silently**, because the engine calls it optionally (`planarFrame.resync?.()`). The harness asserts the dropped-wrapper case explicitly, since it is invisible in review — the same class as the two-chrome divergence.
+
+
 ## v0.26.47 · Build 707 — THE BAKE TELLS THE TRUTH NOW, AND ONE MEASUREMENT WAS A DIALOG
 
 **Shipped:**

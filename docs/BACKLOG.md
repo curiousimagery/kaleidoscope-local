@@ -40,26 +40,29 @@ Living list of **incomplete / pending work**, grouped by **surface / family**. *
 
 **The cluster `PLAN-LIVE-READINESS.md` item 2 exists to close, and the largest remaining phase 2 work.** These were filed separately over ~150 builds and item 2 asserts they are one question: how many decode, encode and GL sessions we hold at once, and whether we release them. `archive/SESSION-AUDIT.md` is the read-only answer to that question; `conduit/sessions.js` (B681) is the running count. **The failures happen at ONSETS** — changing source, switching mode mid-broadcast, arming a take during a broadcast — not under accumulated load.
 
-### 🚨 [HIGH — Daniel, 2026-08-22, NOT EXPLAINED BY B706] THE SOURCE STAYS BLANK AFTER LEAVING THE LOOP BUILDER, WITH FRAMES ACCOUNTED FOR
+### ✅ [ROOT-CAUSED + FIXED B708 — CLASS 1, NO DEVICE TIME] THE SOURCE STAYS BLANK AFTER LEAVING THE LOOP BUILDER
 
-**`docs/temp/8-21-26-contextLoss-05.json`**, source row:
+**`8-21-26-contextLoss-05.json`:** `planar · native decode · 0.0 in/s · ⚠ SOURCE STALLED 65.7s — socket open, offered 3219, took 3219, skipped 0 · ⚠ GL CONTEXT RESTORED ×2`.
 
-```
-3840×2160 · from canvas · planar · native decode · 0.0 in/s
-⚠ SOURCE STALLED 65.7s — socket open, offered 3219, took 3219, skipped 0 · ⚠ GL CONTEXT RESTORED ×2
-```
+**The cause.** `planeReader()` returns null while `seq === lastSeq`, which the engine reads as *"hold the last frame."* Correct **only while a last frame is held** — and `reinitGL` sets `planar = null`, destroying the uploader and its texture. `updateSourceFrame` rebuilds the uploader only inside `if (frame)`. **A paused clip offers no new frame, so the uploader is never rebuilt and the source stays blank indefinitely.** The frame itself was never lost; `latest` is still in the receiver.
 
-**Daniel: *"after exiting the loop builder the source canvas isn't showing an image any more in motion mode and the dotted outlines in the source panel aren't rendering. if i switch to perform mode the dotted lines re-appear but the source image itself doesn't. returning to motion mode the dotted lines persist but still no source."***
+**Daniel's split observation is what located it** — the dotted outlines return in perform and the image never does. 2D geometry from state is fine; the GL texture is not.
 
-**⭐ THE OVERLAY RECOVERS AND THE PICTURE DOES NOT, AND THAT SPLIT IS THE WHOLE CLUE.** The dotted outlines are canvas-2D geometry drawn from state; the image is a GL texture. **So state and layout are fine and the texture is not** — which narrows this to the upload path and rules out the mode machinery.
+**✅ FIXED B708:** `read.resync()` drops the reader's history so the next call re-delivers the held frame; `reinitGL` calls it when restoring the provider; `native-video.js`'s wrapper forwards it; `native-camera.js` gets the same treatment so the two readers cannot diverge. `scratchpad/planar-resync-check.mjs` 8/8.
 
-**⛔ IT IS NOT B706.** `reuploadPending: null`, `reuploadTries: null`, `reinitWhy: null` — the element path believes it succeeded. So this is the PLANAR half: `planar` is selected (`0.0 in/s` with the planar tag) and nothing is arriving.
+### 📐 [STANDING RULE EARNED B708 — THREE INSTANCES IN SIX BUILDS] A RECOVERY PATH THAT CANNOT START ITSELF
 
-**And `offered 3219, took 3219, skipped 0` is the B584 signature** — *the frames reached us and we failed to use them.* **⚠️ Apply B584's rule properly this time**, since misapplying it cost B702: its precondition is *equal counts WITH A FROZEN PICTURE*, and the picture here is genuinely frozen (blank), reported by Daniel from the screen rather than inferred from a counter. **The precondition holds.** Note also that `0.0 in/s` with a paused clip is normal and B702 guards for it — but a paused clip would still show its last frame, not nothing.
+| build | cache the restore discarded | what should have re-filled it | why it did not |
+|---|---|---|---|
+| **B703** | the planar uploader | `updateSourceFrame` | gated on ELEMENT-path state |
+| **B706** | the element texture | `reinitGL`'s re-upload | threw on a 0×0 element, nothing retried |
+| **B708** | the planar uploader **and its texture** | the next frame off the socket | a paused clip has no next frame |
 
-**Both decode sessions are still live** (`source clip: IMG_5132.mov` 747s, `native decode:` 743s), so nothing was released. **The suspect is the planar uploader after two context restores** (`GL CONTEXT RESTORED ×2`): `reinitGL` nulls `planar`, and the rebuild is lazy — `if (!planar) planar = createPlanarUploader(...)` inside `updateSourceFrame`, which only runs when `planarFrame()` returns a frame. **If the socket has stopped offering, the uploader is never rebuilt and the texture never repaints, forever.** That is the same self-heal-that-cannot-start shape as B703 and B706, on the third path.
+**The question to ask on every restore path: what re-fills this, and is that thing GUARANTEED to happen?** All three answered "an event that usually arrives," and each failed exactly where it did not.
 
-**▶ FIRST MOVE, and it is Class 1:** read whether anything re-arms the frame provider after a restore, or whether `planarFrame()` returning null indefinitely is a reachable terminal state. **Do not spend a device session on it.**
+**⚠️ And `offered === taken` held through all three.** Equal counts are not health; they are the absence of one specific fault. **B584's rule needs its precondition stated every time it is used** — *equal counts WITH A FROZEN PICTURE, confirmed from the screen* — which is what B702 got wrong and what made this one findable.
+
+**▶ WORTH AN AUDIT, NOT YET DONE:** every other cache `reinitGL` discards. `sourceTexture`, `planar`, `gpuTimer` are the three it nulls; the first two now have starters. **`gpuTimer` has not been checked.**
 
 ### ✅ [ROOT-CAUSED + FIXED B706, VIA B705's INSTRUMENT] THE SURFACE THAT NEVER COMES BACK — `source has no dimensions yet`
 

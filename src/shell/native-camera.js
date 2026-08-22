@@ -284,9 +284,12 @@ export function createNativeCamera() {
   //
   // One reader per consuming engine, each tracking the last frame it saw, so a 60Hz render loop
   // over a 30fps camera does 30 uploads rather than 60 — and returns null for "hold what you have".
+  // B708 — see the note on `planeReader` in `native-frame-receiver.js`. A live camera normally
+  // delivers a new frame within a frame or two of a context restore, so it heals on its own; a
+  // paused or backgrounded one has the identical hole, and the two readers must not diverge.
   function planeReader() {
     let lastSeq = -1;
-    return () => {
+    const read = () => {
       if (seq === lastSeq || !latest) return null;
       const f = parseFrame(latest);
       if (!f) return null;
@@ -294,6 +297,8 @@ export function createNativeCamera() {
       lastSeq = seq;
       return { ...f, mirror: facing === 'user' };
     };
+    read.resync = () => { lastSeq = -1; };
+    return read;
   }
 
   // --- native controls (consumed by the camera UI) ----------------------------

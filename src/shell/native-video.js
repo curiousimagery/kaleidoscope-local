@@ -503,11 +503,16 @@ export async function createNativeVideoSource(env, blob, { name, loop = true, on
     // makes its own, so each tracks its own last-seen frame.
     planeProvider: (() => {
       const read = receiver.planeReader();
-      return () => {
+      const wrapped = () => {
         const f = read();
         if (f) lastDims = { w: f.width, h: f.height };
         return f;
       };
+      // ⚠️ B708 — FORWARD IT. This wrapper is what the engine actually holds, so a `resync` that
+      // stops here is a `resync` that never happens — and it would fail silently, because the
+      // engine calls it optionally. The wrapper must expose everything the reader does.
+      wrapped.resync = () => read.resync?.();
+      return wrapped;
     })(),
     planeReader: () => receiver.planeReader(),
     get cap() { return sourceCap(); },
