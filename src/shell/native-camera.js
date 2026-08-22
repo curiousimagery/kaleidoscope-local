@@ -24,7 +24,7 @@ import { parseFrameHeader } from './frame-header.js';
 // this returns a harmless no-op proxy — the module is only exercised on native.
 const FoldNativeCamera = registerPlugin('FoldNativeCamera');
 
-export function createNativeCamera() {
+export function createNativeCamera({ mark = null } = {}) {   // B709 — mark: the camera source panel's GL context
   let ws = null;
   let port = 0;
   let streamGen = 0;          // bumps per acquisition — every re-acquire (flip, lens,
@@ -95,7 +95,7 @@ export function createNativeCamera() {
   function ensureCanvas() {
     if (canvas) return;
     canvas = document.createElement('canvas');
-    renderer = createYuvRenderer(canvas);
+    renderer = createYuvRenderer(canvas, { surface: 'yuv-camera', mark });
   }
 
   // The wire format is parsed by `shell/frame-header.js` — see that file for why it is not

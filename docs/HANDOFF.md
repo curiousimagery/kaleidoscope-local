@@ -22,7 +22,7 @@ Archived at B658. It was marked superseded at B609 and kept for the reasoning be
 
 ## current version
 
-**v0.26.48 · B708** (2026-08-22). **B705 and B706 are device-verified** — B705's instrument found B706, and B706 held on the repro that killed B705. B703, B704 and B707 are not yet device-verified.
+**v0.26.49 · B709** (2026-08-22). **B705 and B706 are device-verified** — B705's instrument found B706, and B706 held on the repro that killed B705. B703, B704 and B707 are not yet device-verified.
 
 ---
 
@@ -64,13 +64,36 @@ Both named by Daniel at B704 **because I had left them off the plan.** Full scop
 - **The encoder's real error beats its symptom.** `VideoEncoder is not configured` describes the state we found it in, not what broke it; a synchronous throw was beating the `encError` check.
 - **The bake button no longer reads `baking…` forever while clickable.** `setClipMode`'s comment claimed it restored the label; `loopPrimary()` does. Daniel pressed the lying button, which is how the second bake happened.
 
-### ✅ B708 — THE BLANK SOURCE IS FIXED (Class 1, no device time)
+### ✅ B709 — THE BLANK SOURCE, ACTUALLY. A FIFTH GL CONTEXT NOTHING HAS EVER WATCHED.
 
-`planeReader()` returns null for "nothing new", which the engine reads as *hold the last frame* — but `reinitGL` had just destroyed the uploader and its texture, so **nothing was held**. A paused clip offers no new frame, so the uploader was never rebuilt. `resync()` re-delivers the frame the receiver still has. 8/8 harness.
+**`grep "getContext('webgl"` returns TWO creators in this codebase:** `engine/gl.js` (the four engines B705 wired) and **`yuv-renderer.js`, which had no `webglcontextlost` handler at all.** No handler means no `preventDefault()`, which means **the browser never offers a restore** — the loss was unrecoverable by construction, not merely unreported.
 
-**⚠️ THE STANDING RULE THIS EARNED, because it is now three instances in six builds** — B703, B706, B708 are all *a recovery path that cannot start itself*. **When a restore discards a cache, ask what re-fills it and whether that is GUARANTEED.** All three answered "an event that usually arrives." **`offered === taken` was true in all three: equal counts are not health.**
+That renderer paints the SOURCE PANEL's picture. **Daniel's description separated the two contexts precisely** — *"the source is lacking a picture and the reflections are showing"* — reflections being the preview engine, which restored in 499ms and is in the trail. **No counter could have caught it: `offered === taken` describes the engine's plane reader, a different consumer. This surface has never had a counter.**
 
-**Not yet audited:** `reinitGL` also nulls `gpuTimer`. The other two now have starters; that one has not been checked.
+**B708 was a real bug and not this one.** Both are shipped.
+
+**⚠️ THE AUDIT THAT SHOULD HAVE HAPPENED AT B705.** I wired "all five GL surfaces" by counting ENGINES rather than CONTEXTS. **Four builds of blank-source investigation sit downstream of a one-line grep I did not run.**
+
+### 📐 STANDING RULE — now FOUR instances in seven builds
+
+B703, B706, B708, B709: **a recovery path that cannot start itself.** B709 is the worst kind — one that does not exist.
+
+| build | cache a restore discarded | what should have re-filled it | why it did not |
+|---|---|---|---|
+| B703 | the planar uploader | `updateSourceFrame` | gated on element-path state |
+| B706 | the element texture | `reinitGL`'s re-upload | threw on 0×0, nothing retried |
+| B708 | the uploader **and its texture** | the next frame off the socket | a paused clip has no next frame |
+| B709 | the yuv blitter | nothing — **there was no handler** | no `preventDefault()`, so no restore was ever offered |
+
+**Ask `getContext` where the contexts are, not the architecture diagram. And `offered === taken` was true in all four.**
+
+### ✅ `dialog-blocked` confirmed B707 outright
+
+`48309ms` and `49573ms`. Subtract them and this session's restores are **540ms and 499ms** — normal. The 86.8s/101.4s in B707's report were the dialogs. **The instrument now explains its own outliers**, and replacing those modals is no longer theoretical: a bake failure froze the app for ~98 seconds across two of them.
+
+### ⚠️ Also fixed B709: the export guard's async gap
+
+The first bake in `8-21-contextLoss-06.json` lost the context with **no `export-aborted` mark** — `frameAt` is async and awaits a 4K seek, so a loss *inside* it escaped as an unrelated GL error. The guard now re-checks after the await and re-labels.
 
 ### ⚠️ Owed a device pass
 

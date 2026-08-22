@@ -310,7 +310,13 @@ const sliceAnchor = {};   // B690 — this chrome's own anchor state (see geomet
 // regression) — a capability the host reports should never depend on a build
 // flag. Web builds are unaffected: host.nativeCamera.available is false there.
 const useNativeCam = !!host.nativeCamera?.available;
-const camera = useNativeCam ? createNativeCamera() : createCamera();
+// ⚠️ B709 — AND THE PHONE CHROME TOO. This is precisely the two-chrome divergence CLAUDE.md warns
+// about: fixing only `source-host.js` would have left the iPhone's camera source panel with an
+// unwatched, unrecoverable GL context, and it would have looked fixed on the machine it was
+// written on.
+const camera = useNativeCam
+  ? createNativeCamera({ mark: (kind, detail) => vitals.mark(kind, detail) })
+  : createCamera();
 if (useNativeCam) console.info('[fold] native camera path active');
 let liveVideo = null;          // the camera <video> while live; null otherwise
 // the record-video FOLLOWER (declared early — the transition-speed control

@@ -6,6 +6,43 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.26.49 · Build 709 — THE FIFTH GL CONTEXT, WHICH NOTHING HAS EVER WATCHED
+
+**Shipped:**
+- **`yuv-renderer.js`'s context is now watched.** It had **no `webglcontextlost` handler at all**, so its loss was **unrecoverable by construction** — without `preventDefault()` the browser never offers a restore.
+- It repaints from the held frame on restore, and holds instead of throwing while lost.
+- Wired at both instances (video source panel, camera source panel) and in **both chromes**.
+- **The export guard now covers the async gap**: a context lost *inside* `await frameAt(...)` is re-labelled `gl-lost` instead of escaping as an unrelated GL error.
+- New surfaces in the trail: `yuv-source`, `yuv-camera`.
+
+### Why B708 did not fix the blank source
+
+**Because the blank thing was never the engine.** `grep "getContext('webgl"` returns exactly two creators: `engine/gl.js` (the four engines B705 wired) and `yuv-renderer.js`. **The second had no loss handler**, which means more than "unreported" — **`preventDefault()` is what keeps a context restorable, and nothing called it here.** A single loss was permanent.
+
+**Daniel's description separated the two contexts precisely:** *"the source is lacking a picture as before and the reflections are showing."* The reflections are the preview engine — watched since B705, and its restore is in the trail at 07:23:39.425, 499ms after the dialog cleared. **The source panel's picture is painted by this renderer onto the receiver's own canvas, and it could not come back.**
+
+**And no counter could have caught it.** `offered 539 · took 539` describes the ENGINE's plane reader — a different consumer on the same socket. **This surface has never had a counter of any kind**, which is why three sessions of healthy-looking reports sat next to a blank panel.
+
+### `dialog-blocked` confirmed B707's diagnosis outright
+
+```
+07:21:50.383  dialog-blocked  ms 48309
+07:23:38.926  dialog-blocked  ms 49573
+```
+
+**Two dialogs, 48.3s and 49.6s.** With them subtracted, the restores in this session are **540ms and 499ms** — entirely normal, and nothing like the 86.8s/101.4s that B707's report appeared to show. **The instrument now explains its own outliers**, and the case for replacing these modals is no longer theoretical: on this build, a bake failure froze the app for a minute and a half across two dialogs.
+
+### The first bake's failure was invisible, and now would not be
+
+The trail shows a context loss at 07:21:01.509 with **no `export-aborted`** — so the render died of something the guard never labelled. **`frameAt` is async and, on a video source, awaits a 4K seek**; a loss during that await surfaces as whatever the capture raises. The guard checked before the call only. It now re-checks after, and re-labels a throw that happened while the context was down.
+
+**The second bake was correctly refused-then-aborted**: `export-aborted · frame 517 of 2745` (18.8%, matching Daniel's "maybe 15%"), and the pre-flight correctly did **not** block it, because the context was genuinely alive at that moment.
+
+### ⚠️ The audit that should have happened at B705
+
+B705 wired "all five GL surfaces" — **counting engines, not contexts.** The real question was *which objects call `getContext`*, and it is a one-line grep. **Four builds of blank-source investigation sit downstream of not running it.**
+
+
 ## v0.26.48 · Build 708 — THE BLANK SOURCE, AND THE THIRD INSTANCE OF ONE SHAPE
 
 **Shipped:**

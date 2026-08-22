@@ -428,7 +428,12 @@ export async function createNativeVideoSource(env, blob, { name, loop = true, on
     // the preview canvas is bounded hard: nothing samples it for output any more (the
     // engine takes planes directly), and every consumer that still reads it — the source
     // panel, a freeze-frame — pays a readback per draw, so keeping it small is free detail
-    receiver = createNativeFrameReceiver({ port: port || 8900, cap: PREVIEW_CAP });
+    receiver = createNativeFrameReceiver({
+      port: port || 8900, cap: PREVIEW_CAP,
+      // B709 — the source panel's own GL context. Injected, not reached for: this module is shared
+      // and must not close over one chrome's env (the B627 rule).
+      surface: 'yuv-source', mark: (kind, detail) => env.vitals?.mark(kind, detail),
+    });
     // the MAIN path insists on a real frame: if the decode is dead we want the <video>
     // fallback, not a black source (see the requireFrame note in native-frame-receiver)
     const deadline = firstFrameDeadline(blob?.size || 0);

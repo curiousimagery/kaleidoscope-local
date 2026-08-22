@@ -40,6 +40,18 @@ Living list of **incomplete / pending work**, grouped by **surface / family**. *
 
 **The cluster `PLAN-LIVE-READINESS.md` item 2 exists to close, and the largest remaining phase 2 work.** These were filed separately over ~150 builds and item 2 asserts they are one question: how many decode, encode and GL sessions we hold at once, and whether we release them. `archive/SESSION-AUDIT.md` is the read-only answer to that question; `conduit/sessions.js` (B681) is the running count. **The failures happen at ONSETS** — changing source, switching mode mid-broadcast, arming a take during a broadcast — not under accumulated load.
 
+### ✅ [ROOT-CAUSED + FIXED B709 — THE ACTUAL CAUSE OF THE BLANK SOURCE] A FIFTH GL CONTEXT, UNWATCHED AND UNRECOVERABLE
+
+**B708 was a real bug and not this one.** `yuv-renderer.js` creates its own `webgl2` context for the source panel's picture, and **had no `webglcontextlost` handler** — so no `preventDefault()`, so **the browser never offered a restore.** One loss was permanent.
+
+**`grep "getContext('webgl"` returns two creators in this codebase.** B705 wired the four ENGINES and called it "all five GL surfaces", counting engines rather than contexts. **The grep is one line and would have found this immediately.**
+
+**Daniel's own words separated the two contexts:** *"the source is lacking a picture and the reflections are showing."* Reflections = preview engine (watched, restored in 499ms). Source picture = this renderer (unwatched, gone).
+
+**✅ FIXED B709** — watched via `gl-watch.js`, repaints from the held frame on restore, holds instead of throwing while lost, wired at both instances and in both chromes. New surfaces `yuv-source` / `yuv-camera`.
+
+**⚠️ STANDING RULE, now the FOURTH instance of the shape:** B703, B706, B708, B709 are all *a recovery path that cannot start itself* — and B709 is the worst kind, a recovery path that does not exist. **Ask `getContext` where the contexts are, not the architecture diagram.**
+
 ### ✅ [ROOT-CAUSED + FIXED B708 — CLASS 1, NO DEVICE TIME] THE SOURCE STAYS BLANK AFTER LEAVING THE LOOP BUILDER
 
 **`8-21-26-contextLoss-05.json`:** `planar · native decode · 0.0 in/s · ⚠ SOURCE STALLED 65.7s — socket open, offered 3219, took 3219, skipped 0 · ⚠ GL CONTEXT RESTORED ×2`.

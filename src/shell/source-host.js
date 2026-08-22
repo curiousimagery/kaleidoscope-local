@@ -491,7 +491,7 @@ export function createSourceHost(env) {
   async function ensureNativeCamera() {
     if (cameraIsNative || !env.host?.nativeCamera?.available) return;
     const m = await import('./native-camera.js');
-    camera = m.createNativeCamera();
+    camera = m.createNativeCamera({ mark: (kind, detail) => env.vitals?.mark(kind, detail) });   // B709
     cameraIsNative = true;
     console.info('[fold] native camera path active (desktop chrome)');
   }

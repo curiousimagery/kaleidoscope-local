@@ -28,14 +28,14 @@ import { parseFrameHeader } from './frame-header.js';
 // the engine takes the planes directly (`planeReader`) and applies its own cap. What
 // is left here is the source-panel preview and the fallback for consumers that still
 // read a drawable.
-export function createNativeFrameReceiver({ port = 8899, mirror = false, cap = 0, onFrame = null } = {}) {
+export function createNativeFrameReceiver({ port = 8899, mirror = false, cap = 0, onFrame = null, mark = null, surface = 'yuv-source' } = {}) {
   const canvas = document.createElement('canvas');
   // a valid size BEFORE the first frame: the external view calls engine.setSource on this
   // canvas as soon as the socket opens (it no longer waits for a frame), and setSource
   // rejects a zero-sized source. The first real frame resizes it, and the planar path
   // re-derives the true aspect from the frame itself, so this placeholder never shows.
   canvas.width = 1280; canvas.height = 720;
-  const renderer = createYuvRenderer(canvas);
+  const renderer = createYuvRenderer(canvas, { surface, mark });   // B709 — the fifth GL context, now watched
   let ws = null;
   let latest = null;      // most recent YUV ArrayBuffer (painted on the render tick)
   let seq = 0;            // bumped per message — how a plane reader knows the frame is new

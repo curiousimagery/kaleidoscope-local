@@ -125,7 +125,30 @@ export async function exportVideo({ frameAt, onBegin, onEnd, width, height, fps,
       if (encError) throw encError;
 
       let t = performance.now();
-      const cv = await frameAt(i / frames);   // may be async (video source seeks the footage per frame)
+      // ⚠️ B709 — `frameAt` IS ASYNC AND LONG, SO THE CONTEXT CAN DIE INSIDE IT.
+      //
+      // The guard above runs BEFORE the call, which is right but not sufficient: on a video source
+      // this awaits a 4K seek, and a loss during that await surfaces as whatever GL error the
+      // capture raises rather than as `gl-lost`. Daniel's first bake in
+      // `docs/temp/8-21-contextLoss-06.json` lost the context at 07:21:01.509 and produced **no
+      // `export-aborted` mark at all** — the error escaped as something else, so the trail could
+      // not say what had killed the render. Re-check after the await and re-label.
+      let cv;
+      try {
+        cv = await frameAt(i / frames);   // may be async (video source seeks the footage per frame)
+      } catch (err) {
+        if (glLost && glLost()) {
+          const e = new Error(`graphics context lost at frame ${i} of ${frames}`);
+          e.code = 'gl-lost'; e.frame = i; e.frames = frames; e.cause = err;
+          throw e;
+        }
+        throw err;
+      }
+      if (glLost && glLost()) {   // survived the call but the context went during it
+        const e = new Error(`graphics context lost at frame ${i} of ${frames}`);
+        e.code = 'gl-lost'; e.frame = i; e.frames = frames;
+        throw e;
+      }
       glMs += performance.now() - t;
 
       // vframe bucket = whatever it takes to get an encodable VideoFrame for this
