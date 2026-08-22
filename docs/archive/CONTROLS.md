@@ -1,5 +1,29 @@
 # controls, capabilities & I/O
 
+> **📦 ARCHIVED 2026-08-21 (B704). SEEDED 2026-06-17 AND NEVER UPDATED AFTER BUILD 178** — roughly
+> 520 builds of drift. **Its status column is wrong on many rows**: Capacitor "record to disk 📋"
+> and "HDMI out 📋" both shipped long ago, and the `🔜 Inc 5 / Inc 6` markers refer to an increment
+> sequence that completed in July 2026. Read it as a **June 2026 snapshot of intent**, never as a
+> statement of what exists.
+>
+> **⚠️ ITS HEADER CITED A PLAN FILE THAT NO LONGER EXISTS** —
+> `~/.claude/plans/in-our-last-thread-splendid-sparkle.md`, described here as *"the durable program
+> spec."* That folder is outside the repository and is not version-controlled, and this is the
+> concrete instance that prompted `archive/plans/` (see its README). The file is not recoverable.
+>
+> **What survived, and where it went:**
+>
+> | content | now lives |
+> |---|---|
+> | The "Locked UI decisions" — spatial logic, expand-bands, traffic light, canvas-as-composition-global | `DESIGN.md`, "locked layout decisions" |
+> | The architectural anchor, one program frame / many sinks | `ARCHITECTURE.md` (Stage / conduit) |
+> | Which options are honest on which platform | `CAPABILITIES.md` §0 + `HARDWARE-SUPPORT.md` |
+> | Everything still unbuilt from the inventory below | `BACKLOG.md` |
+>
+> **The four-bucket role grouping below (sinks · output settings · sources · perform/transport) is
+> still how the app is organised**, and is the most durable thing in the file.
+
+
 The single reference for Fold's **inputs, outputs, settings, and actions**, plus **where each is available per platform**. This is the coherent "sense of truth" for PLANNED UI, so controls land in a structure instead of ad hoc. It is a living reference, not a spec: the durable program spec is `~/.claude/plans/in-our-last-thread-splendid-sparkle.md`, and rolling state is `HANDOFF.md`.
 
 Seeded 2026-06-17 during Fold Live Phase 0, from the brainstorm of the full output-controls suite. The inventory below is fairly complete; the per-platform matrix is partially filled (outputs/inputs are confident) and grows as increments land. The output controls + traffic-light + the scoped app-bar restructure (opaque bar, expand-bands, canvas relocation) in "Locked UI decisions" shipped across Builds 175-178 (Increments 3.5-3.6). **Status key:** ✅ done · 🔜 in the current Fold Live increment sequence · 📋 planned (later phase) · 💭 speculative (not committed).

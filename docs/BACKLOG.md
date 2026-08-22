@@ -1,6 +1,6 @@
 # backlog
 
-Living list of **incomplete / pending work**, grouped by **surface / family**. **This is a backlog, not a changelog** — when something ships it moves to `CHANGELOG.md` and comes out of here. Historical reasoning + shipped detail live in `ARCHIVE.md`, `CHANGELOG.md`, and git.
+Living list of **incomplete / pending work**, grouped by **surface / family**. **This is a backlog, not a changelog** — when something ships it moves to `CHANGELOG.md` and comes out of here. Historical reasoning + shipped detail live in `archive/ARCHIVE-reasoning.md`, `CHANGELOG.md`, and git.
 
 **Conventions:**
 - **▶ NEXT** marks an item on the active arc's critical path; NEXT items float to the top of their group.
@@ -15,137 +15,30 @@ Living list of **incomplete / pending work**, grouped by **surface / family**. *
 
 ---
 
-## ▶ known bugs & quick wins (triage)
+## ▶ how this file is organised (regrouped B704)
 
-### 👁 WATCHED ITEMS — defaults we changed on limited evidence, and what to do if they bite
+**The triage section was chronological, which scattered related items across a thousand lines.** It is now grouped by cluster, newest-relevant-first within each. Family sections (Fold Live, Motion, Export, Design system, Engine, Native, Strategic) follow unchanged below.
 
-Each entry names a SYMPTOM to watch for, what it would mean, and the mitigation already designed. The point is to close the investigation now rather than carry it open, without losing the reasoning if the symptom ever shows up.
+| group | what is in it |
+|---|---|
+| [GL context loss, crashes, session accounting](#-gl-context-loss-crashes-and-session-accounting) | **the largest remaining phase 2 work** |
+| [Capability gating and honest labels](#-capability-gating-and-honest-labels) | **the other remaining phase 2 item** |
+| [Loop builder, bake and the decode path](#-loop-builder-bake-and-the-decode-path) | several may already be closed by B699/B700 |
+| [Broadcast, external display and the governor](#-broadcast-external-display-and-the-governor) | governor is default-off since B701 |
+| [Input, forms, gestures and droste](#-input-forms-gestures-and-droste) | refinements; item 1.5 closed B657 |
+| [Sources, cameras and audio](#-sources-cameras-and-audio) | |
+| [Instrumentation and diagnostics](#-instrumentation-and-diagnostics) | |
+| [Cleanup and consolidation](#-cleanup-and-consolidation) | code half gated behind phase 2 |
+| [Product gaps, watch items, standing context](#-product-gaps-watch-items-and-standing-context) | not bugs |
+| [Older device passes (B547-B594)](#-older-device-passes-and-running-lists-b547-b594) | **currency warning — probably part-closed** |
 
-- **SYMPTOM: a recorded take on a Capacitor/WebKit build plays back with frames out of place, stale, or showing the preview instead of the followed output.**
-  - **What it would mean:** WebKit does defer 2D-canvas rasterization after all, at least under some load, and the `getImageData(0,0,1,1)` guard removed in B524 was load-bearing there. Evidence for removing it was ONE clean take (Daniel, B524); canvas deferral is timing-dependent, so one take is evidence and not proof.
-  - **Immediate mitigation:** turn `record: force sync rasterize` ON in the frame-cost panel. That restores the old behavior instantly, at a measured cost of ~40ms/frame on iPhone.
-  - **Proper fix if it recurs:** stop blitting to an intermediate 2D canvas entirely and hand WebCodecs a `VideoFrame` built straight off the GL canvas. `VideoFrame` snapshots at construction, so it solves the ORDERING problem the guard existed for without any GPU→CPU synchronization.
-  - **STATUS: shipped B525 for performance reasons, so the recording half of this item stands down.** The take is now `new VideoFrame(outputCanvas)` with no 2D canvas in between, and construction-time copy is exactly the ordering guarantee the guard was buying. Two residual paths still rely on the removal: the **MediaRecorder fallback** (which must blit, and where `recordForceFlush` still applies) and a **mid-take size change** (which rebuilds the scratch canvas to scale into the locked take size).
-  - Same guard was removed from `paintPip` in the same build; a stale PiP is cosmetic, so it is the lower-stakes canary for the same behavior — **and it is now the only routine path still exposed**, since the PiP still blits.
+**Status tags in headers are not always current.** Where one contradicts its own body, it is marked `⚠️ HEADER STALE` inline. Items flagged `🔎 LIKELY CLOSED` need one check, not an investigation.
 
-### 🧱 iOS CEILINGS AND COST MODEL → see `docs/CAPABILITIES.md`
+---
 
-The measured per-device tables, the constraint list (C1-C6), the ranked levers, and the untested hypotheses (H1-H5) live in `CAPABILITIES.md` so there is one place to maintain them. Open work that came out of those measurements:
+## 🧨 GL context loss, crashes and session accounting
 
-- **[HIGH] The output resolution ladder is unsafe during a take.** Since B525 the record path encodes the output canvas directly, so scaling it down scales the deliverable down — and `recSize` is locked at record start, so a mid-take change makes `paintRecord` fall back to the scaling blit B525 deleted. The switchboard currently permits it. Lock the ladder while `recState === 'recording'`, or give the preview its own render target.
-- **[HIGH] 4K takes fail after a few minutes** with "recording failed" and a finish that outlasts the take (17 Pro). Expected at 6-11fps with encoder backpressure plus thermal, but it is data loss and needs its own fix.
-- **[MED] 14 Pro at 4K: colour shifts and a frozen source/output** until toggling to still and back.
-- **[MED] The PiP rate must become adaptive.** 10Hz is right at FHD and useless at 4K (11.0 vs 11.4fps with it off) — its cost scales with the whole pipeline, not with the thumbnail.
-
-### 🎬 A/V SYNC — FIXED B540, awaiting device verification
-
-The "motion modes" are AVFoundation video stabilization modes (`standard` / `cinematic` / `cinematicExtended`), not our follower. Cinematic stabilization buffers frames for lookahead, so delivery lags capture by up to ~a second at smooth+; stamping frames on ARRIVAL turned that into a timeline offset and pushed recorded video behind recorded audio.
-
-Fixed by carrying the capture-to-delivery latency across the frame socket (`"FYUX"`, 40-byte header) and stamping recorded frames at capture time. Measured natively where the capture PTS and "now" share a clock — a raw PTS alone is unusable in JS, since the capture-clock-to-`performance.now()` offset is the very unknown being solved.
-
-- **Needs `npx cap sync ios` + a native rebuild.** Web-only reload leaves the old plugin sending `"FYUV"`.
-- **Verify:** front camera, smooth+, talking — the harshest case. Then `standard` as a no-regression check.
-- **Not a factor, and an earlier entry here wrongly said it was:** the follower delays the kaleidoscope TRANSFORM, not the image. The camera texture is uploaded fresh every frame, so lip motion was never eased. Follower lag is exactly tau = `performResponse` for constant-velocity input (critically damped, omega = 2/tau) and is a deliberate look, not a sync fault.
-- **Kept in reserve, not built:** Daniel's mitigation strategies (a warning on smooth/smooth+, lighter default smoothing, front-camera prioritisation) if verification shows residual drift.
-- **Untouched:** the external-display consumer reads the same socket and now gets the field for free; the video plugin already carried a pts.
-
-### 🎨 COLOR MANAGEMENT — a product gap, not a perf detail (Daniel, B531)
-
-Surfaced while investigating why the 17 Pro is slower than the 14 Pro at consuming the WebGL canvas (a possible Display P3 conversion). **Daniel's read is that the perf angle is the smaller half.** The real gap is that Fold has no color management story, and two audiences need one:
-
-- **Prosumer/pro photographers** doing `open in → Fold` round trips from Lightroom or DxO PhotoLab: edit, save, return. A round trip that shifts color is a broken round trip, and the app is not viable for that workflow without it.
-- **iPhone 48MP stills**, which are large enough for moderately sized prints, where color accuracy matters directly.
-
-**Scope to work out:** what color space the engine composites in, whether we honor embedded ICC/EXIF profiles on import, what we tag on export, whether Display P3 is preserved end to end or flattened to sRGB, and how the canvas's `colorSpace` / `drawingBufferColorSpace` should be set per build. **Cross-cutting: this belongs in conduit**, since every consumer app inherits the same import/render/export path.
-
-Pairs with, but is not blocked by, the H1 perf experiment in `CAPABILITIES.md`.
-
-### 📱 MOBILE WEB / PWA EXPOSURE FROM THE THERMAL ARC (audited B528, Daniel's question)
-
-**Every measurement in this arc is iOS Capacitor. No Android or mobile-web device has been in the loop at any point.** The audit below is a code-path reading, not a measurement, and it is the honest state of that surface.
-
-- **✅ Platform-gated, cannot affect mobile web:** the planar camera upload (B518, gated on `host.nativeCamera?.available`, Capacitor-only — mobile web keeps the `<video>` + `getUserMedia` path untouched) and the pipelined broadcast readback (B519/B521, desktop bus and `host.ndi?.available`).
-- **⚠️ Universal, WebKit-motivated — the one to watch: the PiP (B527/B528).** `bitmaprenderer` is supported on Chrome/Android and Firefox so it will not break, but **`drawImage(webglCanvas)` was never the bottleneck on Blink**, so Android pays a frame of latency and a 10Hz monitor for a problem it may not have. Defensible on energy grounds (arc goal #3) and the flag makes it reversible, but it wants an Android reading before it is treated as settled. **The B527 aspect regression was universal**, which is a reminder of how this category bites.
-- **⚠️ Universal but low risk: the direct record path (B525).** Mobile web on both Android Chrome and iOS Safari uses it. `VideoFrame(canvas)` from a WebGL canvas is well-supported and cheap on Blink, and the MediaRecorder fallback is structurally intact — `recordCanvas` + its `captureStream` are still built eagerly and only released once the WebCodecs sink has actually started. Ordering is safe on Blink because `VideoFrame` copies at construction, which is a stronger guarantee than the `getImageData` flush it replaced.
-- **📊 Genuinely unknown, and the most likely mobile-web weak point: the iOS Safari camera upload.** B518's planar fix was native-only, so mobile web on iPhone still uploads through a `<video>` element. It was never measured before or after. Given the arc found four separate GPU→CPU round trips, this path deserves one reading before anyone claims mobile web is healthy.
-- **▶ THE TEST, when a device is available:** Android Chrome, phone chrome, record FHD with the PiP visible; read `unmeasured`, the `pip` row, and `record encode`. Then the same on iOS Safari (not the Capacitor app) to isolate what the native camera was hiding.
-
-**HOW MUCH OF THE ARC ALREADY REACHES MOBILE WEB: most of it, on iOS.** The two biggest wins (B525 direct record, B527/528 PiP) are fixes to WebKit image-source paths, and **iOS Safari is WebKit** — so mobile web on iPhone inherits them unchanged, without a line of extra work. Same for the B513 overlay cuts and the whole instrument. Only two are gated away: the planar camera (native plugin) and the pipelined broadcast readback (desktop bus / NDI, neither of which mobile web has).
-
-**A DEDICATED MOBILE-WEB ROUND — one real item, then measure.**
-- **🟡 [WAS HIGH, DOWNGRADED B559 — MEASURED, and the desktop claim was wrong] `updateSourceFrame()` re-uploads the same video frame every tick.** Shipped B559 behind `elideElementUploads` (default OFF). **Daniel A/B'd it on Electron and saw no difference: the element upload already costs 0.09-0.12ms there**, because Blink takes a hardware path for `texImage2D` from a `<video>`. Halving 0.1ms of a 16ms frame is noise, so **"a major perf win for desktop" is withdrawn — I agreed with that framing and the measurement says otherwise.** It never engages on iPad at all, where the camera is on the planar path. **Where it is still plausibly worth real time: WebKit** (iOS Safari mobile web, desktop Safari), which is exactly the family of operations this arc found expensive four times and the one platform none of this has been measured on. Keep the flag, retarget the test. Original reasoning below.
-- **[ORIGINAL ENTRY, kept for the reasoning]** `src/engine/index.js:172` gates only on `readyState >= 2`, so a 30fps camera or clip against a 60fps render loop uploads **every frame twice**. The planar path (native) already has the right shape — it returns early when nothing new arrived off the wire — and the `<video>` path has no equivalent. Fix: gate on presented-frame identity via `requestVideoFrameCallback` (Safari 15.4+, Chrome; fall back to a `currentTime` comparison for Firefox). **This is not mobile-web-only** — desktop web and Electron video playback waste the same uploads. Unmeasured, but halving the call count is free regardless of what each call costs, and on WebKit "consume a video element as an image source" is exactly the family of operations this arc found to be expensive four times.
-- **Everything else waits for a reading.** The arc's method was measure-then-fix, and it corrected three of my own confident hypotheses. Guessing at Android before the panel has ever run there would abandon the only thing that worked. Given mobile web's long-term status is uncertain, the cheap and correct move is one measurement session, then decide whether it is a small fix or a real project — not speculative investment in a platform that may be cut.
-
-### 🎨 DESIGN-SYSTEM ITEMS SURFACED BY THE PiP LAB ENTRY (B544)
-
-- **[MED] The PiP status dot is one flat `--danger` for BOTH recording and broadcasting.** The two live states are indistinguishable at a glance, on the one surface whose whole job is telling you what the output is doing. Disambiguation target; the same dot is mirrored in `#m-stage-dot` when the PiP is swapped.
-- **[MED] Audit for other ID-styled components.** The PiP could not be put in the Lab without first making its selectors accept a class, because id-scoped styling cannot be specimened without copying the CSS. **An id-styled component is one the design system cannot see.** Same treatment where it applies: keep layout id-scoped, share the visual rules.
-
-### 🧹 POST-ARC CLEANUP — audited B545, three increments proposed
-
-The thermal + audio arc ran 30 builds, six of them pure instrumentation for a bug that turned out to be four bytes of container framing. It left less mess than that history suggests: **no dead code, no abandoned modules, no orphaned CSS.** The instrumentation was not scaffolding — it is the diagnostic channel, and it stays. What it did leave is *narration debt* and *duplication that has already bitten once*. B545 took the obvious half; these are the rest, each independently shippable.
-
-- **✅ C1 — Unify the native frame-header parser. SHIPPED B546.** `shell/frame-header.js`; both consumers on it. Device pass is VERIFY-QUEUE "C1", and it needs a fresh `cap:sync`.
-
-- **[MED] C2 — Retire the settled perf flags.** `perf-flags.js` says it plainly: *"this file is a measuring stage, not a permanent configuration surface."* Ten flags is past the point where the panel is scannable, and several have finished their job — `asyncReadback`, `recordDirect` and `busElide` are each measured, decisive and permanent, and their OFF state exists only to prove a win nobody disputes any more. **Do this AFTER the verification matrix**, not before: groups A, B and E toggle these, and C2 is only safe once the matrix has stopped needing them. `recordMediaRecorder` and `recordForceFlush` should stay regardless — those are escape hatches, not measurements. The comment prose is dense but earns it (it is the record of *why* each optimization is safe) and should move with the code rather than be deleted.
-
-- **[MED] C3 — Prune VERIFY-QUEUE.md.** 165 lines, of which the thermal matrix is the top 55 and the remaining 110 are Loop Builder / NDI / lock-pass items from B385–B476, many long since confirmed or superseded. The file Daniel works through should not bury the live section under a year of history. Rule: confirmed → a line in CHANGELOG and delete; still-open but off-arc → move to BACKLOG under its own area; genuinely awaiting hardware → keep. **Daniel's call per item — this is his test queue, not one to prune unilaterally.**
-
-- **[HIGH] C4 — Archive the bottom half of HANDOFF.md.** The file is 805 lines. The top ~460 is live. Below that, **`## what's working` describes Build 24 and `## what we're doing right now` describes Build 57** — the two sections CLAUDE.md explicitly names as going stale fastest, wrong by ~490 builds, in the document every session is told to read first. B545 marked the boundary with a HISTORICAL banner so it cannot mislead, but the real fix is to move it to `docs/archive/HANDOFF-builds-19-187.md` and leave HANDOFF as current state only. Cheapest large win available: it is pure context cost with negative informational value. **Docs-only, zero risk.**
-
-- **✅ RESOLVED B563 — five exported symbols imported nowhere.** Four (`parseUsage`, `armsSnapStep`, `resolveEdition`, `COMMON_UNIFORMS`) were used only inside their own module: accidental exports, now module-local. **The fifth was the interesting one.** `Z_SLICE_IN_FLOOR`/`Z_SLICE_COVER` in `kit/zoom.js` carried a comment saying `formZoomBounds` used them as the per-form defaults — **it never did**, it had its own literals. Changing them changed nothing, and they would have quietly misled the next person tuning zoom extents. Moved beside the function that reads them as `ZOOM_COVER_DEFAULT`/`ZOOM_IN_FLOOR_DEFAULT` (`engine/forms/index.js`). **Cross-ref the per-form zoom-extent tuning item — that work would have hit this trap.**
-
-### 📼 RESCUED FROM THE HANDOFF ARCHIVE (B547) — filed 2026-06-10, never in BACKLOG
-
-Three items that were sitting in HANDOFF's stale half. Each was described there as live work and had zero presence here, so archiving without filing them would have been the only genuinely lossy part of the cleanup.
-
-- **[HIGH] Firefox + Safari video colour and orientation — a real correctness bug, and it feeds COLOR MANAGEMENT above.** iPhone `.mov` sources render **washed-out OUTPUT colour on Safari AND Firefox** while the 2D source preview shows natural colour — so it is the WebGL texture path, not the decode. Suspects: `UNPACK_COLORSPACE_CONVERSION_WEBGL`, limited-vs-full-range YUV→RGB, HDR transfer. Firefox additionally rotates **all** video 90° CCW and squishes iPhone aspect (Gecko rotation / pixel-aspect metadata not being read). Brave/Safari are reference-correct on orientation. **Daniel's B547 note: he had believed this fixed, but has been testing almost exclusively with `.m4v` exports from FCP rather than straight-from-iPhone `.mov`, so it is very likely still real and simply not being hit.** Reproduce with an unprocessed iPhone `.mov`. **The washed-out half is plausibly the same texture-path problem as the colour-management gap — do not fix them independently before checking.**
-
-- **[MED] CONTROLS.md as a system-wide reference.** Daniel's stated longer-term intent: grow the controls/IO inventory into a SYSTEM-WIDE reference that becomes the basis for a **user manual** and a **systematically-built icon library**. Explicitly deferred as a rabbit trail, never abandoned. Revisit when there is appetite; it pairs naturally with a design-system pass.
-
-- **[MED] Settings that persist across sessions — fold into "Clip queue → workspace sessions → persistence" below.** Daniel (B547): this becomes particularly valuable once a **stage manager** handles multiple clips and animation sequences in one session and that data must survive a restart. The existing persistence item covers *clips and workspaces*; the gap it does not cover is **app/user settings** (motion mode, camera preferences, output destination, aspect, quality choices). That is the "Generalized user-config JSON" already named under Control bus — these two should be designed as one store, not two. **Explicitly NOT perf flags**, which are a measuring stage and must keep resetting on reload.
-
-**Two items were examined and deliberately NOT filed:**
-- *Gesture recording + live-tween* — **shipped at Build 269** (v0.12.11: a gesture lands as one keyframe carrying its winding), with the directional-vs-shortest-path distinction settled later on the Droste zoom follower. The residuals — per-segment rotation winding (+N turns) and smoothed translation-path capture — were already in BACKLOG. The 2026-06-10 note was simply never retired.
-- *Cross-format / frame-rate robustness + test story* — **premise was wrong when written.** It claimed "Blink largely untested for the video path"; Brave and the Electron build have been in rotation at least as much as WebKit and Gecko (Daniel, B547). The genuinely open piece of it is test infrastructure, which is a deliberate standalone decision, not a feature-commit rider.
-
-### 🔊 AUDIO ON LONG TAKES — NOT REPRODUCING since B558 (Daniel, B559)
-
-**Downgraded from two open HIGH/MED bugs to one watched item.** Daniel's 5:06 4K take on B558 came back clean by ear and clean by the numbers, after a 6:03 4K take on B557 that drifted obviously. The B558 mic change is a *specific mechanism* for both symptoms rather than a coincidence, so this is not being closed on luck — but two clean takes after one dirty one is not proof, which is why it stays watched rather than deleted.
-
-- **✅ Quality — FIXED B558, confirmed by ear.** Voice-processing (echo cancellation / noise suppression / AGC) was ON for every mic. On iOS those flags also select the **voice-processing audio unit**, a different input path with its own resampling. That is the quality gap against Apple's Camera app.
-- **👁 WATCHED: drift on a long take.** B559 numbers on 5:06 at 4K: `videoSpanSec 305.5` vs `audioSpanSec 305.9` (0.13%, and a tail offset is expected since audio keeps flushing past the last video frame), `secondsIn 305.9` / `secondsOut 306` so the encoder lost nothing, `captureLatencyMs 73-113` so the stamp was stable within two frames. **Symptom to watch:** audible lip-sync error growing toward the end of a take. **What it would mean:** the voice-processing unit was not the cause and samples are being lost under main-thread saturation. **First read:** the same four numbers — a `videoSpan`/`audioSpan` gap beyond ~1% is the tell.
-- **👁 WATCHED: occasional static.** Not present in either B558/B559 take. Same suspected mechanism, same first read.
-### 📺 PiP-DURING-BROADCAST POLICY — ✅ SHIPPED B568 as `conduit/governor.js`, needs device verification
-
-Daniel weighed two approaches: **always hide the PiP during any broadcast**, or **hide/starve it only when the device is actually struggling**.
-
-**Recommendation: the measured one, and we already own every piece of it.**
-
-- **The blanket rule breaks the case Daniel himself flagged.** "The PiP is redundant to the external display" is true for HDMI and **false for Syphon and NDI**, where there is no second screen in the room and the PiP is the only view of the program. A blanket rule would blind the operator in exactly the destination he named as a concern.
-- **It also contradicts the arc's governing rule.** An M3 iPad Pro may run both comfortably; a device-agnostic "always hide" is classification by fiat, and CAPABILITIES §1 is probe, never classify.
-- **The mechanism exists.** B543 already ships a governor rule that starves the PiP for 4K capture, with a pre-warning (B555) so it is never a surprise. B559 added **`shortfall`** — an honest absolute "we are not hitting target". The rule is: *while broadcasting, if shortfall stays above a threshold for a couple of seconds, step the PiP down (rate, then resolution, then off) and say why.* Hysteresis so it cannot oscillate; restore when the broadcast stops.
-- **Measured stakes on the M1 iPad at 4K:** `preview render` 14.36ms + `pip render` 9.91ms = **24.3ms of a 44ms frame.** The PiP alone is ~23% of the budget. **Prefer the broadcast over the app** (Daniel's call), so the preview should be on the same ladder — his 100/75/50 rungs were measured for this.
-- **Pairs with:** the adaptive-preview-resolution proposal filed under the B506 entry. These are one piece of work, not two.
-
-### 🟠 THE SOURCE SURFACE'S OFF SWITCH DOES NOTHING (Daniel's B576 report)
-
-That report reads `source: enabled: false` alongside `refresh 30 calls / upload 30 calls`. The switch is decorative: `sourceSurface` declares no `onEnabled`, and `updateSourceFrame()` never consults `perf.skip` (only `render()` does).
-
-Small, but it is exactly the class of defect that corrupts an A/B, inside our own instrument, and it violates exit criterion 1 (every offered option functional in its context) in the tool we use to check exit criterion 1. Either wire it or stop offering it.
-
-### 🟠 THE GOVERNOR'S BOTTOM RUNG SHOULD STARVE THE SECOND VIEW, NOT SLOW IT (Daniel, B575)
-
-At the bottom rung the second view runs at 5fps and Daniel's read is that **it is more distracting than helpful at that rate** — a monitor below some threshold stops reading as live and starts reading as broken. B528 found the same floor from the other direction on the phone PiP (10Hz was kept as the default "because a monitor below that stops reading as live").
-
-**So the last rung should be OFF with a stated reason, not 5fps.** That also matches the arc's own rule that 25% was reserved as an honest distress signal rather than a quality rung. Product decision, already made; needs implementing plus a visible "second view paused to protect the broadcast" state so it never looks like a failure.
-
-### 🔤 SURFACE TERMINOLOGY — the naming was settled at B583, two consumers still need it
-
-The vocabulary Daniel decided on: **keep the UI names** (`source` / `staged` / `live`, with the middle slot honestly `output` in still and motion), and let diagnostics carry a concise hybrid that references them (`main · staged`, `second · live`). The middle slot is genuinely two different things in two modes, not two names for one, which is why picking a single word was the wrong fix.
-
-**Open:** the status-readout-bar audit needs these same nouns, and **the UI Lab has no terminology section to record them in** — so today the only place the vocabulary exists is a shipped code comment and this entry.
+**The cluster `PLAN-LIVE-READINESS.md` item 2 exists to close, and the largest remaining phase 2 work.** These were filed separately over ~150 builds and item 2 asserts they are one question: how many decode, encode and GL sessions we hold at once, and whether we release them. `archive/SESSION-AUDIT.md` is the read-only answer to that question; `conduit/sessions.js` (B681) is the running count. **The failures happen at ONSETS** — changing source, switching mode mid-broadcast, arming a take during a broadcast — not under accumulated load.
 
 ### 🚨 [HIGH — Daniel B583, intermittent] THE APP'S FRAME-SOCKET CLIENT CAN STOP RECEIVING WHILE THE EXTERNAL VIEW KEEPS PLAYING
 
@@ -162,79 +55,13 @@ The vocabulary Daniel decided on: **keep the UI names** (`source` / `staged` / `
 
 **✅ AND THE SAME INSTRUMENT EXONERATED THE WIRE ON ITS FIRST READING, killing the hypothesis that built it.** B584 healthy run: **`skipped: 0` on both clients** over 4414 frames, `reaped: 0`, `closes: 0`. `offered` over `ageMs` = **29.33/s against a 30fps source, 97.8% delivery.** The claim in this item's previous revision — that ~5 frames a second were being lost to the fan-out — was **wrong, and wrong because `extJitter.arrive` is measured in the external view's `ws.onmessage` and is therefore downstream of the main thread it was being used to exonerate.** A textbook wrong noun, in an instrument, used to justify a second instrument. The native counter is the wire; prefer it.
 
-### 🔁 [HIGH — B596] THE LOOP HOLD, WITH TWO MECHANISMS NOW MEASURED DEAD
-
-**Symptom:** the picture holds for a few beats every time the clip loops. Reproduces on demand, predates B590, Daniel calls it "visually very disruptive."
-
-**Dead, each by its own instrument:**
-1. **A decoder stall.** B593: `maxGapMs 17`, `after1s 29`. Three sessions running, the wire is clean across the wrap.
-2. **Our own trim rewind's 120ms settle window.** B595: `rewinds: 0, suppressed: 0`. The boundary test never fires on a full-range trim — the last frame's pts falls 0.037s short of a 0.03s window.
-
-**✅ ROOT CAUSE FOUND AT B599, natively: AVFoundation's item swap.** `swapGapMs 141`, `maxSwapGapMs 150`, `swapFromPts 20.4 → swapToPts 0.1159`, measured inside the plugin before anything touches the socket. **The new item's clock runs through the silence, so the content skipped equals the stall** — which is why the earlier 1.8s content gap and the 150ms hold were always the same event. All three vantage points agree: decode 141, wall 136-157, app 91-162.
-
-**✅ NARROWED AT B600: it is the swap itself, not output priming.** Reusing the `AVPlayerItemVideoOutput` across the lap left `swapGapMs` at **150 against 150**. Reverted with the hypothesis.
-
-**✅ AND THE MECHANISM DOES NOT MATTER (B601/B602 A/B, one sitting).** Item swap 141ms, seek-to-zero 150ms, `swapToPts` equal to the gap in both. **~150ms is what AVFoundation costs to resume delivering frames after the playhead returns to zero, by any route.** `loopBySeek` stays as a flag; it is a second road to the same floor.
-
-**✅ AND IT IS A FIXED COST (B604).** FHD `swapGapMs` **141 / max 150**, identical to 4K's 141/150 at four times the pixels. Not decode work. The FHD run is also the cleanest isolation of the arc: app at 59.9fps, 30 new pictures/s on the display, every counter healthy, **and the hold still exactly 145ms.**
-
-**✅ THE PULL-MODEL HYPOTHESIS IS DEAD WITHOUT A BUILD.** B601 arm B attached the output once and never moved it, and still paid 150ms. A notification cannot deliver data that does not exist, and we already poll at 60Hz. Same reasoning kills pre-attaching an output to the next queued item.
-
-### ✅ CLOSED B608 — THE LOOP HOLD → `BROADCAST-DELIVERY.md` §6a
-
-Collapsed to a pointer at B658. That section is a strictly better record than the 36 lines that were here: what the hold was (AVFoundation, ~150ms, fixed cost, iPad-only), **eight hypotheses each closed by its own instrument**, the head-frame-cache fix, the one field that says whether it works (`loopCache.firstPts` must be ~0), and two traps for whoever reads a budget comparison next. First reported B487, closed 121 builds later.
-
-### 🚫 PRODUCT CONSTRAINTS ON ANY FIX (Daniel, B602) — these rule out most of the obvious options
-
-- **A deliberate hold is a non-starter.** Seamless looping is non-negotiable for perform mode.
-- **The fix cannot live in the Loop Builder.** **The majority of loops are built elsewhere and imported**, so anything that depends on our bake choosing a friendly loop point only helps the minority case.
-
-**What survives those constraints: fill the gap with frames we already have.** Cache the first N encoded frames of the clip on the opening pass, and at the lap feed them from the cache while AVFoundation restarts — the wire and both clients see continuous frames with correct pts, and nothing about the clip's origin matters. Trigger the rewind ~150ms early and the content is continuous rather than merely unfrozen.
-
-**Cost to weigh before building:** ~6 frames of cache is **~74MB at 4K** (12.4MB per frame) and ~19MB at FHD. This project has a jetsam history at 4K, so the memory has to be measured, not assumed — and if the gap turns out to scale with resolution, N can be much smaller at 4K than the worst case suggests.
-
-**STOPPING RULE (agreed shape, B602):** if the pull model does not move the number and the gap does not scale with resolution, **stop investigating** and build the frame cache.
-
-**Dead, each by its own instrument** (3 and 4 added at B598/B599, 5 at B599):
-
-5. **Our backpressure.** `skipped: 0` on both clients across the lap. The fan-out declined nothing.
-
-3. **The external view's render.** `wrapRenders` after a lap: `ren` 8-15ms, `up` 0-4ms, `sched` 0-12ms, `gap` 9-28ms. **All fast.** The view renders normally through the hold and has nothing new to draw — so it is not a shader rebuild, not a texture reallocation, and not a blocked thread.
-4. **"The app does not hold, only the wall does."** That was my instrument, not the app: `paintLatest` counted re-blits of the same buffer as clock events, and only the app calls `refreshFrame()`. Fixed B599.
-
-**The one fact nothing explains: 1.8 seconds of footage is absent at the lap** (`fromPts 19.4 → toPts 0.833` on a 20.4s clip) while the wire reports a 7ms gap. **Those cannot both describe the same event.**
-
-**Open measurement (B599):** `srcFanOut.itemSwaps` / `swapGapMs` / `swapFromPts` / `swapToPts` / `ticksNoBuffer` — the decode's own account of the lap, from the only code that sees AVPlayerLooper swap items. It separates "AVFoundation lost the content" from "our backpressure declined to take it".
-
-**⚠️ Instrument caveat:** `maxTakeGapMs` was contaminated by a post-bake re-join (2009ms, an attach cost not a lap), which is why `recentTakeGaps` exists and why the native counters reset on teardown.
-
-**If take gaps come back small too**, the hold is not at the frame boundary at all and the next suspects are param-side: `p` snapping from 1 to 0 at the wrap, and whatever the timeline/playhead UI does when it scrolls back to the start.
-
-### ✅ [ROOT-CAUSED + FIXED B703] THE SOURCE FREEZES AFTER A GL CONTEXT RESTORE — kept for the reasoning
+### ✅ [ROOT-CAUSED + FIXED B703 — ⚠️ NOT DEVICE-VERIFIED] THE SOURCE FREEZES AFTER A GL CONTEXT RESTORE — kept for the reasoning
 
 **It was a DEADLOCK in `engine/index.js`, found by reading, no device time.** `updateSourceFrame` was gated on `sourceTexture` and `sourceImage` — both ELEMENT-path concepts — so when `reinitGL`'s element re-upload threw (a zero-size preview canvas mid mode switch), `sourceTexture` stayed null, the guard refused to run, `planar` was never rebuilt, and the render fell back to the null texture. **Frozen permanently while the socket kept delivering**, which is precisely `offered 222, took 222, skipped 0` at `0.0 in/s`.
 
 **Fixed by moving the guard below the planar block** (the planar path owns its own texture and needs neither) and restoring the provider in a `finally`. Proven in `scratchpad/planar-deadlock.mjs`: 0/5 frames consumed before, 5/5 after, with three regression guards. **Needs device confirmation on the original motion → perform repro.**
 
 Original write-up below.
-
-### 🗒 [ORIGINAL, B609] THE SOURCE FREEZES AFTER A GL CONTEXT RESTORE, AND THE FRAMES ARE ARRIVING FINE
-
-**This is the B584 instrument's first firing on the branch it was built to separate, and it answers the question in one reading.** Symptom: switching motion → perform loses the source image while the broadcast keeps working.
-
-```
-from canvas · planar · native decode · 0.0 in/s
-⚠ SOURCE STALLED 3.4s — socket open, offered 222, took 222, skipped 0
-⚠ SOCKET REJOINED ×1 · ⚠ GL CONTEXT RESTORED ×1
-```
-
-**Per the rule recorded when that counter shipped: equal `offered`/`taken` with a frozen picture means the frames reached us and we failed to use them. Our bug, JS side.** Not contention, not the wire, not the fan-out backpressure — all three are exonerated by `skipped: 0` and the equal counts.
-
-**Leading mechanism, and it is Class 1 (readable, no device time): the planar source's plane textures do not survive `reinitGL`.** A GL context was restored in the same window. B580 made the planar path come back at full resolution after a restore, but that is a different question from whether `setPlanarSource` re-establishes the plane textures the receiver is still feeding. The receiver keeps taking frames off the socket and has nowhere to put them.
-
-**Start here in `PLAN-LIVE-READINESS.md` item 2** — it is the cheapest entry point into the whole GPU-process cluster, and it may share a root cause with the bake failure directly above (a GL context loss preceded that failure too).
-
-**Cross-ref:** this is very likely the same defect as the long-standing "source panel lost its image after a bake → perform switch", now with a root-cause branch rather than a symptom.
 
 ### 🚨 [HIGH — Daniel, B611] A RESET FIXES THE STAGED CANVAS AND LEAVES LIVE STUCK, WITH NO OBVIOUS RECOVERY
 
@@ -249,51 +76,6 @@ Daniel's B611 repro, final step: after the droste blowup he goes to canvas setti
 **The shape of the fix, needing a decision:** which actions should SETTLE the follower rather than let it chase? A recentre and a canvas-reset are corrections, not performance gestures — the operator is saying "put it back", not "travel there". **Candidate rule: any RESET action jumps; any PARAMETER change eases.** That is a clean line and it generalises past this bug.
 
 **Cross-ref:** `canvasReset` already zeroes `drosteZoomPhase` and calls `panRecenter`, so it is closer to correct than the settings recentre — but it still does not jump the follower.
-
-### ✅ [ROOT-CAUSED + FIXED B623] THE DROSTE INFINITE-ZOOM LOOP — was `LEAD_CAP.drosteZoomPhase = 4`
-
-**FIXED at B623 by dropping the cap to 1.** Verified over 300 seeded trials of `drift.js` → `follow.js` (0/300 blow-ups at cap 1; 134/300 at cap 2, 3 and 4). **BOOST is only an amplifier** and stays. Full evidence table in CHANGELOG B623.
-
-**⚠️ THE UNDERLYING DEFECT IS STILL OPEN and this only bounds it.** Under a continuously moving cyclic target, `setTarget`'s accumulation loses whole periods — traced with `state = -1.004` while `tgt = -2.004`. Cap 1 keeps the resulting error too small to self-sustain; it does not stop the period loss. **Anyone raising `LEAD_CAP` again must re-run the sweep first**, and the real fix is to make the cyclic accumulation period-exact so a vigorous multi-loop pinch can be honoured again (its loss is the cost of this fix).
-
-**▶ THE METHOD LESSON, because it cost three builds:** B619 simulated the follower with state held CONSTANT after a finger lift, found it settles, and declared runaway disproven. That was right about its own experiment and wrong about the phenomenon — **the instability requires a target that keeps MOVING**, which the test never supplied. *A stability test must reproduce the forcing, not just the initial condition.* Daniel's autoplay repro is what supplied it.
-
-**⚠️ AND THE PAN-UNLOCK CORRELATION WAS A RED HERRING.** B619 recorded it as a necessary condition across every open occurrence. Daniel then found the loop in autoplay with pan apparently locked. The correlation was real in the reports and not causal — **pan-unlock and autoplay are both just ways to keep the target moving.**
-
-### 🗒 [SUPERSEDED B623 — kept for the eliminations, which are still valid] earlier droste-loop investigation
-
-**Daniel's B619 repro, which is cleaner than B611's and should be the one used from here:** unlock droste pan → pan to any corner of the image → **quickly** pinch zoom out **from the corner**. Staged behaves as expected. **Live starts looping an infinite follow.** Panning back to centre and zooming in recentres live but neither stops the loop nor reverses its direction. **`reset canvas` is the only recovery.**
-
-**⛔ DISPROVEN — the follower is not running away.** `follow.js` was simulated directly (it is pure, so this cost no device time and no build): response 0.35 / 1 / 2 / 4s × pinch deltas of 0.5 / 2 / 4 / 8 / 20 loops, injected over 10 frames then held constant. **Residual motion 8 seconds after the lift is zero in every cell.** The `LEAD_CAP` re-anchoring and the `BOOST` catch-up do not produce a limit cycle. **Do not re-propose this hypothesis.**
-
-**⛔ RULED OUT — autoplay drift.** `drift.tick` is gated behind `autoOn` in both chromes ([perform-runtime.js](../src/shell/perform-runtime.js), [mobile/chrome.js](../src/mobile/chrome.js)) and Daniel confirmed the loop happens with autoplay off. Note for whoever looks next: drift's `drosteZoomPhase` branch is a **constant-velocity walker** that writes `state[k]` every frame with no settle, so it matches the symptom exactly *if* it ever ticks unexpectedly. Worth one check that `autoOn` cannot be true while the button reads off.
-
-**✅ THE STRONGEST EVIDENCE WE HAVE IS A NECESSARY CONDITION: UNLOCKING PAN. Daniel raised it at B619 and the record confirms it exactly.**
-
-| occurrence | pan unlocked? | status |
-|---|---|---|
-| B609/B610 iPad perform loop | **no** — cause was a stray touch flooring `startDist` | **FIXED B610** (40px floor + non-finite guard) |
-| B611 "navigate to droste, then unlock pan, canvas zooms way in" | **yes, explicitly** | open |
-| B612 "live view caught flailing on a loop" | **yes** (same droste pan thread) | open |
-| B619 "unlock droste pan → corner → fast pinch out" | **yes, explicitly** | open |
-
-**Every UNFIXED occurrence required unlocking pan. The single occurrence that did not is the one already cured.** That is a real discriminator, not a coincidence, and it should drive the investigation.
-
-**▶ WHAT IT NARROWS TO:** `canPan` gates the entire pan block in `onMove` ([output-gestures.js](../src/components/output-gestures.js)). With droste pan locked, that block never runs and **`canvasOffsetX/Y` is never written by a gesture at all.** So the culprit is on the `canPan` path, and in droste `canvasOffset` is the **log-polar centre** — the field B612 already root-caused as the "superzoom" driver when read raw. **Instrument `canvasOffsetX/Y` first; `drosteZoomPhase` is now the secondary suspect, not the primary.**
-
-**⛔ RULED OUT — flick-to-drift. Daniel confirmed drift mode was OFF** in his B619 repro, and `onEnd` gates the velocity handoff behind `pd?.on?.()`. Dead.
-
-**⛔ RULED OUT — joystick handle feedback.** `syncAll` only calls `layout()`, which moves the position DOT. State never deflects the handle, so a large `canvasOffset` cannot start a drift.
-
-**⚠️ WHAT REMAINS IS A CONTRADICTION, AND IT IS THE MOST USEFUL THING IN THIS ENTRY.** With autoplay off, drift mode off, and no fingers on the glass, an exhaustive grep for writers of `canvasOffsetX/Y` and `drosteZoomPhase` finds **only** the pan-joystick tick (needs `hx||hy`), `drift.js` (needs `autoOn`), the input bus (needs a mapping or remote gesture), and the gesture handlers (need fingers). **None of them can run.** And `follow.js` provably settles against constant state — re-simulated at B619 over a 65-second horizon measuring the residual RATE rather than a displacement threshold, which is the right noun for a log-polar field where any nonzero rate is visible zoom; the tail reaches zero by 30s in every cell tested.
-
-**So either a writer exists that static reading has missed, or the moving quantity is not one of the two we assumed.** Further reading will not settle it. **Instrument.**
-
-**▶ FOUND WHILE INVESTIGATING — a real defect regardless of whether it is this bug.** `mountDrosteOffsetControl()` ([mobile/chrome.js](../src/mobile/chrome.js), and the desktop equivalent) creates a **SECOND `createPanJoystick` instance** driving `drosteOffsetX/Y`, with its own `driftMode`, its own `hx/hy`, and its own tick loop. **`env.panDrift` is assigned only the canvas-pan instance**, so `output-gestures`' `onStart` "grabbing takes control → stop the drift" **cannot reach the droste one**. A latched droste-offset drift keeps writing until recenter or reset, and no canvas gesture will cancel it. **Same shape as the reported bug; worth fixing on its own merits.** The fix is either to expose both instances through `env.panDrift` (make it a list) or to have the joystick register itself into a drift registry the gesture layer can stop wholesale.
-
-**▶ NEXT MOVE IS AN INSTRUMENT, NOT A FIX** (uncertainty state B; a speculative fix here is exactly what cost a build at B611 and again at B612). **Publish per frame into the exported report** — Daniel does not run Web Inspector — **`canvasOffsetX/Y`** and **`drosteZoomPhase`**, plus whether `panDrift` is running. These are the conserved quantities actually being rendered, not activity counters, and **which one is moving decides the question in a single reading.**
-
-**🛡 MITIGATION AVAILABLE TONIGHT, NO CODE: do not unlock pan on droste.** Droste already ships `panLockedByDefault: true`, so the safe configuration is the default one and the guardrail costs nothing. **Given that pan-unlock is a necessary condition across every open occurrence, this is a complete mitigation, not a partial one.** If a hard guardrail is later wanted in code, the honest options are to keep droste's pan lock non-overridable in perform mode, or to bound `canvasOffset` in STATE for centre-shift forms (not at the uniform — see B611's correction).
 
 ### 🚨 [HIGH — Daniel, B623 post-show] A LIVE CAMERA RUNNING ~10 MINUTES BLOCKS THE NEXT SOURCE, AND ONLY AN APP RESTART RECOVERS
 
@@ -311,140 +93,167 @@ Daniel's B611 repro, final step: after the droste blowup he goes to canvas setti
 
 **Duration matters and is a clue** — 10 minutes, not 10 seconds. Suspect something that accumulates (frame buffers, object URLs, a growing plane queue) rather than a plain state bug.
 
-### 📷 [Daniel, B623] USB WEBCAM: THE WEB APP FINDS IT, THE NATIVE CAPACITOR APP DOES NOT
+### 🧨 [B667, RE-SCOPED B668, DOWNGRADED 2026-08-19 — INTERMITTENT, NOT DETERMINISTIC] ARMING A TAKE WHILE BROADCASTING LOSES THE GL CONTEXT
 
-Testing the iPad as a kaleidoscope selfie kiosk with a USB webcam attachment. **The web app enumerated it fine; the native Capacitor build could not find it.**
+**⚠️ B667 SCOPED THIS TO 4K AND THAT WAS WRONG.** B668 lost the context arming an **FHD** take (`bus:start 1920x1080` at t=20, `gl-context-lost` at t=21). Five occurrences now — B661 fatal, B663 fatal, B666 twice, B668 once — at both resolutions. In the survivable form the take runs its full minute and encodes **zero frames**.
 
-This is a capability question, not a bug in our code: the native camera path (`native-camera.js` / the Capacitor plugin) enumerates through AVFoundation, and external/USB cameras need `AVCaptureDeviceTypeExternal` (iPadOS 17+) to appear in a discovery session — the default device-type list does not include it. The web path goes through `getUserMedia`, which WebKit already handles.
+**✅ T3b RAN AND THE ORDER MATTERS: starting the broadcast UNDER a running take lost no context at all.**
 
-**Two honest options.** Extend the native discovery session's device types and test on the actual hardware; or **fall back to the web camera path when the native enumerator returns nothing**, which is cheaper and also covers future device classes we have not met. **The kiosk use case is a real product direction** (Daniel raised it unprompted) so this is worth scoping rather than filing and forgetting.
+**⚠️ BUT B667's "deterministic" was WRONG, and the same session's T3 also survived.** Five runs: three lost the context, two did not. **It is intermittent.**
 
-**Cross-ref:** `reference_ios_camera_webkit_capabilities` records what `getUserMedia` exposes on iOS 26 — relevant, because if the web path covers the kiosk needs, the fallback is the whole feature.
+**The new candidate, from what the five reports differ on:** every failing run began with a broadcast ALREADY LIVE that the script then stopped, re-tiered and restarted. Both clean runs began with none (`"why": "already off"` in the log). **So the suspect is the stop→retier→start cycle leaving the external view stale, not arming a take as such.** n=5, hypothesis only.
 
-### 🔬 [AUDIT RESULT — B627] THE TWO-CHROME DIVERGENCE AUDIT: one real defect, one live trap, and a lot of correct absences
+**Next discriminator, cheap:** run T3 twice back to back without touching anything between, so the second run's broadcast is one the script itself created. **Do not build a capability gate on this until it is isolated** — the additive cost model above is a better basis anyway, and it is measured rather than inferred.
 
-**Ran after the seventh instance. The headline is better than expected, and the one remaining risk is specific.**
+**And the 4K take is unusable even unopposed** — 13.4fps against a declared 30 with nothing else running and the app at 59fps.
 
-**METHOD** (repeat this when the surface changes): diff the `env` keys each chrome assigns; diff the module import sets; for every shared component, diff which `ctx` keys each chrome supplies; and compare CALL ARITY for every function exported by a shared module against both chromes' call sites. The last check is the one that finds signature traps, and it is the one that would have caught B627 before a device session.
+**Three candidate answers, most honest first:**
+1. **Cap the take tier while a broadcast is live**, and say so where the tier is chosen. Cheap, and it matches the existing `videoHdmiCapped` precedent for a memory guard.
+2. **Refuse the combination** with a clear message. Blunter but unambiguous.
+3. **Make the take the priority and shed the broadcast** — right for a deliverable, wrong for a live show, so it cannot be the default.
 
-**✅ THE INJECTION SURFACE IS HEALTHIER THAN THE BUG SUGGESTED.** Every `ctx` key mobile omits was checked individually and every one is a CORRECT absence:
-- `editLocked` — desktop's is `isMotionDriven`, and **mobile has no motion timeline** (`env.motionRT` is desktop-only). Nothing to lock against.
-- `onCommitStart` / `onCommitEnd` — mobile documents *"mobile undo/redo is out of scope: no pushHistory / updateUndoUI."* Deliberate.
-- `getPaintSource` / `getSourceVideo` — mobile paints through `getLiveVideo` with `fit: 'cover'`.
-- `env.setSegments` / `segmentsRange` / `segmentsValue` — **the input bus is DESKTOP-ONLY** (`createInputBus` is called once, in `main.js`), so there is no mobile consumer. Worth remembering before assuming a mapping feature reaches the phone.
+**✅ B681 SHIPPED THE INPUT IT NEEDS: `conduit/sessions.js`.** The gate could not be computed before because nothing knew what the app was holding. `sessions.peak.decode` / `.gl` / `.encode` is now in every report, so a rule like *"refuse a 4K take while a 4K broadcast is live"* can carry the count that justifies it instead of a device name. **Still to decide: which fps each rung keys on** (T7/T8 give real numbers now: ~20 app / ~19 wall sustained at 4K, indefinitely, on adequate power).
 
-**⚠️ THE LIVE TRAP, AND IT IS THE ROOT OF B627: `main.js` DEFINES LOCAL WRAPPERS THAT SHADOW THE KIT EXPORTS BY NAME.**
+**⚠️ THE GATE MUST BE COMPUTED, NOT A DEVICE TABLE** (Daniel's standing requirement). We own the top of the hardware range and none of the bottom, so a limit calibrated here would be calibrated on good hardware. The learned-ceiling pattern (`broadcastCeiling`) is the shape to copy, and the flight recorder already persists the exact combination that preceded a context loss.
+
+### 🧮 [2026-08-21, Daniel's question — READ, NOT YET MEASURED ON DEVICE] MODE CHANGES STACK DECODERS; SOURCE UPLOADS DO NOT
+
+*"could the fact that we don't shed before acquiring be related to crashes where we upload a new source or change modes?"* **Half right, and the half that is right is the one nobody has counted.**
+
+**UPLOADS ARE FINE.** `loadVideo` / `loadImage` shed first, in order, before anything new is created:
 
 ```js
-// main.js — imports the kit functions under aliases, then shadows their names:
-function snapSpiralValue(v) { return kitSnapSpiral(state, v); }   // kit is (state, v)
-function applyArmsSnap()    { kitApplyArmsSnap(state); }          // kit is (state)
+if (env.live.isLive || env.live.frozen) stopCameraMode({ keepSource: true });
+releaseSourceVideo();          // the outgoing decoder, released
+env.detachNativeVideo?.();     // the native decode, detached
+...then the new <video> is created
 ```
 
-**So the same identifier means a one-arg function in `main.js` and a two-arg function everywhere else.** Both chromes are internally consistent today, which is exactly why this survives review — it only breaks when a SHARED module receives one of them by injection and picks a signature, which is precisely what `resetSliceState` did.
+**MODE CHANGES DO NOT SHED, BY DESIGN, AND THE DESIGN IS CORRECT — but nothing counts the total.** Entering motion keeps the source `<video>` alive on purpose (`stopSourceVideoPlayback` is pause-only, because the clip must stay loaded) and `stage-source.js begin()` then acquires a THIRD decoder for the staging seek.
 
-`env.applyArmsSnap` (the local wrapper) is exported onto `env` and called zero-arg from `shell/overlay.js:1305`. **Verified desktop-only, so it is safe today** — but it is safe by accident of module reachability, not by design.
+**And the loop builder adds three more on top of whatever mode you were in** (`clip-editor.js`): preview, A-head crossfade, thumbnail strip, all on the same URL.
 
-**The shared component gets it RIGHT and is the model to copy:** `components/source-overlay.js:70` does `snapDrosteSpiral: (v) => snapSpiralValue(view.state, v)` — imports the kit function, passes state explicitly, no wrapper.
+**So the readable worst case is six concurrent decode sessions of ONE clip:**
 
-**✅ FIXED B628** — renamed `snapSpiralLocal` / `applyArmsSnapLocal`, and `resetSliceState` is now handed `kitApplyArmsSnap` directly. The shadowing class is gone from `main.js`.
+| # | session | acquired by |
+|---|---|---|
+| 1 | source clip `<video>` | `source-host.js` |
+| 2 | native decode (AVPlayer) | `native-video.js` |
+| 3 | staging seek decoder | `stage-source.js` (motion) |
+| 4-6 | loop builder × 3 | `clip-editor.js` |
 
-**▶ THE STANDING RULE THIS EARNED HAS MOVED (B628, Daniel's call).** *A function injected into shared code must take everything it needs as arguments* is a working-process change, not a planned feature, so it now lives in **`CLAUDE.md`** and **`ARCHITECTURE.md`** rather than here. **The audit METHOD above stays** — that is a procedure to re-run, which is backlog-shaped.
+**That is the same number the pre-B681 audit predicted from LEAKS — reached here entirely by legitimate, released-on-exit acquisitions.** Releasing correctly does not help if the peak is the problem.
 
-### ✅ [SHIPPED B629] A MODIFIER / SHIFT LAYER — kept for the reasoning
+**▶ THE MEASUREMENT IS CHEAP, NEEDS NO DISPLAY, AND WORKS ON B695 OR LATER:** load a clip, enter motion, open the loop builder, copy a report, read `sessions.peak.decode` and the `live[]` labels. **If it reads 6, this is a real ceiling risk and the shed-before-acquire policy (session audit step 3) has its first concrete target.** If it reads 3 or 4, some path already tears down and the model above is wrong.
 
-### ✅ [SHIPPED B635] THE SEMANTIC FLIP — the reflection becomes the form you are holding
+**⚠️ AND "SHED BEFORE ACQUIRE" IS THE WRONG FIX FOR THE STAGING DECODER SPECIFICALLY** — that second decoder IS staging; releasing it removes the feature (B495 proved exactly that). The candidate targets are the loop builder's three, which could plausibly be two, and whether the staging decoder is released when the loop builder opens over it.
 
-Shipped as `sliceMirrorX/Y` + `foldSliceIntoSource`. Details in CHANGELOG v0.25.45. Two notes worth keeping, both corrections to what this entry predicted:
+### 🚧 [Daniel, 2026-08-21 — NAMED AS MISSING FROM THE PLAN] PROVOKE GL CONTEXT LOSS DELIBERATELY, THEN CYCLE DIAGNOSTICS
 
-- **The "it may be free for symmetric forms" hope was wrong to build on.** Most forms' folds ARE mirror-symmetric, but the flip is not about the fold's symmetry — it is about the SOURCE-UV offset, which reflects for every form regardless. The flag was needed everywhere.
-- **The trigger is not "entirely outside".** That reads well and produces a large teleport; the shipped trigger is the 25% overlap threshold measured against the VISIBLE source, which is Daniel's own number from B631.
+*"2) attempting to create scenarios where GL context loss bugs pop up and cycling through diagnostics for root cause and fixes."* **Also missing from the ledger. This is the largest remaining piece of phase 2.**
 
-### 🎛 [Daniel, B642] STAGE MANAGER QUEUE — per-mode state, scenes, and source as a stage object
+**✅ THE LISTENING SIDE IS NOW READY (B695, B699, B703).** All five GL surfaces mark `gl-context-lost` / `gl-context-restored` with a `surface` field; mode changes are breadcrumbed; the bake decoder is counted; and `reinitWhy` reports a restore whose element re-upload failed. **Before B695 four of five surfaces were console-only, so a provoked loss would have been mostly unobservable.**
 
-**▶ QUEUED DELIBERATELY. Daniel: *"we don't touch anything now but we add this to our stage manager queue as something to handle thoughtfully."* Nothing here is committed; this records the framing while it is fresh.**
+**Known provocations, from the record:**
+- attaching a 4K external display drops every GL context in the app (the B382 cluster)
+- the stop → retier → start broadcast cycle preceded every one of the five historical failures
+- rapid mode switching while manipulating large slices (Daniel's own proposed stress test)
 
-**His straw man is MORE decoupled than mine was.** I proposed a snapshot ledger over one shared `state`. He wants: **each mode instantiates a NEW state derived from wherever you came from, and gets its own undo, canvas, and so on.** Entering a mode inherits; leaving it does not write back. Worth stating plainly because it is the more expensive answer and he chose it with the tradeoff in view — a ledger preserves "one state object" and its consequences (undo as a snapshot swap, a stateless engine, one currency for record/broadcast/export); genuinely separate state per mode means each of those has to name which state it means.
+**▶ READ THE REPORT IN THIS ORDER AFTER ANY FAILURE:** `priorTrail` (survives the kill) → `trail` (this run) → `reinitWhy` (did recovery half-fail) → `sessions` (what was held) → `sourceSwap` (what had just been loaded).
 
-**What is shared, per Daniel:** broadcast destination, MIDI input, and source. **Source is negotiable** and probably becomes a stage object rather than a global — see below.
+**⚠️ B703 MAY HAVE ALREADY FIXED THE MOST COMMON CONSEQUENCE.** The freeze-after-restore deadlock is fixed, so a provoked loss should now heal itself. **A stress test that provokes losses and sees them recover cleanly is a PASS, not a null result** — record it as one.
 
-**Q2 (what motion derives from), answered:** we do not support transitioning form / segment count mid-animation, but might later, so a new mode's state should derive from **the first or nearest keyframe** — canvas aspect, form type, form properties, canvas settings. (This is also exactly what B641 fixed the narrow version of: motion re-entry now re-adopts the sampled frame instead of the previous mode's edits.)
+### 🔴 RECORD + BROADCAST ON iPAD LOSES THE SOURCE AND THEN THE TAKE (Daniel, B571)
 
-**Q4 (source swap), reframed rather than answered:** it only makes sense alongside the scene manager, where a keyframed loop, a newly added source and a live camera are all things you can cut between side by side. In that world, changing source in motion is a choice between **sending the current keyframed motion to the queue/stage**, **discarding it and starting fresh**, or (least likely viable) **keeping the keyframe parameters and swapping the source under them**. Decisions to make then, not now.
+Starting a take during a 4K HDMI broadcast: **source panel, stage panel and thumbnails all go dark** (Daniel: "akin to old context loss"), playback on the display gets *smoother*, stop does not save, and pausing the broadcast reports **`take FAILED: null is not an object (evaluat…`** with no recovery.
 
-**The one thing worth carrying forward:** B642's OOB guard is the same shape of problem in miniature — a global setting changed in one place invalidating snapshots held somewhere else. Per-mode state does not remove that class, it multiplies it. Whatever the design, it needs an answer for "this change makes some stored look unrepresentable" that is not written once per setting.
+**Two known bugs firing together, both already filed, now confirmed on iPad:**
+- **D3's signature exactly:** the report reads **`bus … capture: null`** with `readback` and `render` at **0 calls**. The bus is registered but not running and the capture probe never resolved to a mode. B549 fixed `failOutput` tearing down a `needsBus:false` destination; this is the same lifecycle defect from the other direction — arming the second consumer kills the first.
+- **The `decoderConfig.colorSpace` crash**, filed from B516 as an iPhone FHD failure, is not iPhone-specific. The take dies because the encoder's first chunk arrives without `decoderConfig` (or without `colorSpace`) and the muxer dereferences it unconditionally. **Guard the first-chunk path** — this is a small fix and it converts a lost take into a working one.
+- **The dark panels are NOT a governor degradation** (the governor was inert — `target: 0`). Daniel's read is right: it looks like context loss.
 
-### 📋 ITEM 1.5 EXIT REPORT — everything the slice/input arc left open, grouped (2026-08-18 docs)
+**🎯 B574 ADDS THE MISSING HALF, and it moves the suspicion off the bus.** The take-failure report shows the `source` surface reading:
 
-**Daniel's ask:** *"we were going to file an exit report on 1.5 capturing known issues... even though this doc should prob go into archive it will be a helpful paper trail that may help us identify when and how certain issues were introduced."*
+```
+1280×720   "from canvas · native decode · 26.1 in/s"   refresh 0ms   upload 3.52ms
+```
 
-**Nothing here is new** — every item was filed as it was found. What was missing is that they were scattered in build order, so the shape of what the arc left behind was invisible. This is an INDEX, not a move: the entries keep their detail where they are. **Archive this section with the arc; keep the entries.**
+**No `planar` in that note, and the dimensions are `PREVIEW_CAP`.** So at the moment the take starts, the main engine has been knocked off the planar provider and is uploading `native-video.js`'s 1280-wide RGB *preview* canvas instead — which is the cross-context readback B518/B541 removed, silently back on, and the `refresh 0ms / upload 3.52ms` split is the fingerprint of exactly that swap.
 
-**Arc scope, for the record:** builds 635-662 — the geometry flip and fold (B635-B645), the crossfade (B642-B652), rig portability (B649-B651), the unified zoom and stage C (B655-B657), and the instrumentation that opened phase 2 (B660-B662). Item 1.5 closed at B657.
+That reframes the bug. **`capture: null` on the bus may be a consequence rather than the cause**: something re-sources the engine when a take arms, and the dark source/stage/thumbnail panels are the same event seen from three other places.
+
+- **▶ FIRST SUSPECT — the filmstrip build.** `motion-runtime.js:1158` does `engine.setSource(still)` per cell with the comment *"retires the planar provider; restored below"*, and restores it in a `finally`. The **timeline going blank alongside the source** is exactly what an interrupted or half-finished filmstrip build looks like. Check whether arming a take invalidates the filmstrip signature and kicks a rebuild, and whether every exit from that loop truly restores the provider.
+- **▶ SECOND SUSPECT — `output-engine.js:112 syncSource`.** It re-`setSource`s the hidden bus engine when dimensions change, and it *holds* while `env.filmstrip.busy`. If a filmstrip build is in flight when the take arms, the bus engine skips its source sync for the duration — which would leave the capture probe with nothing to resolve against. That would tie `capture: null` and the dark panels to a single cause.
+- **▶ THE READING THAT SPLITS THEM:** publish `filmstrip.busy` and the planar state into the report. If `busy` is true at take-arm, it is the filmstrip; if it is false and planar is still gone, it is the take path re-sourcing directly. **One line in the export, one device run, no guessing.**
+- **Alternative reading to rule out first:** Daniel may simply have had a 720p clip loaded for that take. **The absence of `planar` is the load-bearing signal, not the resolution** — a natively-decoded 720p clip would still report `planar` — but confirm the source before building on it.
+
+**▶ DANIEL'S PRIORITY ORDER, recorded as the contract for every future degrade decision:**
+> **broadcast → recording → source → stage → live PiP**
+
+Note this refines the ledger's four tiers: `source` sits ABOVE the stage/preview, which the current `PRIORITY.PROGRAM/EDITOR` split does not express (source is PROGRAM at 90, preview and PiP are both EDITOR at 30, so nothing distinguishes stage from PiP). **The ladder needs a fifth rung or an explicit ordering within EDITOR.**
+
+### 🚨🚨 IT IS THE WEBKIT **GPU PROCESS** CRASHING, NOT A GL CONTEXT LOSS (Daniel's Xcode log, B580)
+
+**This renames and re-scopes the entire context-loss cluster.** From `docs/temp/iPadConsoleLog-Aug10-01.txt`:
+
+```
+GPUProcessProxy::didClose:
+GPUProcessProxy::gpuProcessExited: reason=Crash
+WebProcessProxy::gpuProcessExited: reason=Crash
+GPUProcessConnection::didClose
+  → [fold] WebGL context LOST (live PiP)
+  → [fold] WebGL context LOST (preview canvas)
+```
+
+**The GPU process is shared across WebContent processes**, so its death takes every WebGL context in the app simultaneously — the app's preview and PiP, and the external view in its own WebContent process. That is why this has always presented as "the whole session broke" rather than "a canvas broke", and why source + stage + PiP go dark together.
+
+**So the target is not "recover from context loss" (B580 did that, and the log proves it worked). The target is why the GPU process runs out of resources.** Leading suspect is 4K memory across processes: preview engine + PiP engine + external view engine + 4K source textures + planar uploaders, all resident on one GPU process.
+
+- **▶ THIS SUPERSEDES** the "FHD→4K source switch causes context loss" framing below. Same phenomenon, correctly named.
+- **▶ It also reframes B382's long-standing external-display/GL-context cluster**, which has been open for dozens of builds under the wrong noun.
+- **▶ AND IT IS EXIT CRITERION 5 WORK**, not a side bug: "we can honestly rank how intensive each thing we do is" now has a hard failure mode attached. A GPU process that dies IS the resource ceiling, stated by the platform.
+- **Instrumentation we have:** `engine.glGeneration` (B580) counts restores and rides the source note, so a session that survived one is no longer silent.
+
+**▶ DANIEL'S QUESTION (B580): can we detect the per-device threshold in realtime, to warn and throttle? Answer: not by reading it, but yes by LEARNING it.**
+
+**What is not available, and will not be.** WebKit exposes nothing about GPU-process memory to JS. `performance.memory` is Chromium-only and reports the JS heap rather than GPU allocations. The GPU process is a *separate* process from our app, so even a native plugin calling `os_proc_available_memory()` measures the wrong process. **There is no realtime number to read.**
+
+**What we can do instead, and it is the arc's own governing principle (CAPABILITIES §1, probe never classify):**
+1. **Count what WE allocate**, which is arithmetic we fully control: source texture, planar planes, FBOs, per engine, plus the external view's own set. Publish it as `estGpuMB` per surface. It is an estimate of our contribution, not of the ceiling, and must be labelled as such.
+2. **Treat `webglcontextlost` as the ground truth**, because it is the device telling us it failed. `glGeneration` already counts it. **Record the WORKLOAD SIGNATURE at the moment of the loss** — source megapixels, output megapixels, engine count, broadcast on/off — and persist it per device.
+3. **Learn the ceiling from that.** A device that has died once at (4K source, 4K out, broadcast, PiP on) is a device that should be warned, or pre-degraded, before it gets there again. **We cannot predict the ceiling, but we can remember where the floor gave way**, which is enough for a guardrail and is exactly what exit criteria 3 and 5 ask for.
+
+**The honest limitation to state up front:** this learns from a crash. The first user on a new device still hits it. That is a real cost and it is why (1) matters as well: our own footprint estimate, compared across devices that HAVE crashed, is what turns one device's experience into a prediction for others.
+
+### 🔴 TWO DISTINCT CRASHES, DO NOT CONFLATE THEM (same log)
+
+- **Crash A — WebContent dies immediately after the FIRST `frameAt` on a fresh 4K clip, with no context loss anywhere before it.** The still generator. This is the standing B519 CRITICAL wearing its most severe face, and it is unrelated to the GPU-process story.
+- **Crash B — GPU process crash → contexts lost → restored correctly at 4K → ~10s healthy → WebContent dies.**
+- **A third load in the same session succeeded and ran normally** (many `frameAt` calls, seeks, pause/resume), so neither is deterministic on load. **Do not sharpen either from one session** (the standing rule after B573's cold-start theory).
+
+### 🟠 THE EXTERNAL VIEW IS THROWING A SHADER-COMPILE LOOP (Daniel's B579 reports, `extLogs`)
+
+**The first error `extLogs` has ever carried**, so B573's republish fix earning its keep a second time.
+
+```
+[fold ext] uncaught: Error: compile failed @ .../test-pattern-*.js:111
+[fold ext] uncaught: TypeError: Argument 1 ('shader') to WebGL2RenderingContext.shaderSource
+           must be an instance of WebGLShader          × ~19
+```
+
+A shader compile returned null and every subsequent call passed that null straight back in. Present in **all three** B579 reports, during an ordinary broadcast with no test pattern requested.
+
+Two questions, in order: **why is the test-pattern module compiling shaders at all during a normal broadcast**, and **is the compile failing because the view's GL context is under pressure** — which would tie it to the FHD→4K context-loss item. `createShader` returning null is what a context that is lost or out of resources does. Cheap first check either way: whether it appears on a fresh session before any pressure.
+
+### 🟠 A MODE SWITCH DURING "preparing clip for native playback" MAY CORRUPT THE UPLOAD (Daniel, B571 — theory, not reproduced)
+
+Daniel's own hypothesis for the 4K clip that would not play, and it survived a rebuild (the same clip plays now): he may have changed modes while the native upload/attach was still running. **Worth auditing whether any user action can interrupt that operation** — mode switches, source swaps, entering the Loop Builder — and either blocking them for the duration or making the attach cancel-safe. Cross-ref B570's decode-error publishing, which will name the failure if it recurs.
 
 ---
 
-**A. INPUT / CONTROL BUS — the arc's own subject, and what it did not finish**
-- `slice position x/y` still address the ORIGIN, not the box centre (below) — the last named 1.5 sub-item, carried out deliberately as semantics rather than architecture.
-- **Locks do not block MIDI / gamepad input** — a lock that holds for one hand and not the other. Carries a persistence decision that overlaps stage manager.
-- **Rig portability: MIDI still keys on port name**, so a MIDI rig remains non-portable across OSes; and an import that cannot bind still looks like it loaded fine.
-- Should a momentary button default to `rate`?
+## 🪜 Capability gating and honest labels
 
-**B. SLICE GEOMETRY / FOLD — shipped behaviour with known edges**
-- **The reachability trade-off** (B659): a very large radial wedge can have its origin pushed off screen with nothing pulling it back. Daniel is living with it deliberately. **The note there names the wrong fix explicitly**, which is the point of filing it.
-- **Droste with mirroring OFF** can put the origin on-source with no slice on-source. Working as designed; filed so it is not re-reported.
-- Second-order reflections; onion-skin trail under the fold; **companion video + slice overlay under the fold is UNVERIFIED.**
-
-**C. PLATFORM EDGES — intermittent, low, watch rather than chase**
-- Firefox cursors over the source (intermittent, likely fixed B648, unconfirmed).
-- iPad gesture-surface latency (instrument-first, never instrumented).
-
-**D. NATIVE WORK, BATCHED INTO ONE XCODE CYCLE — the arc's real debt**
-- The **device-vitals plugin** (thermal + memory headroom). **The single largest instrumentation hole**, and phase 2 is already blocked on it: every run so far reports `nativeReadings: false`.
-- **`listCameras`** for external/USB cameras on iPad.
-- Plus the two instrument fixes: `loopCache.coveredMs` under-reporting, and the manual `scenario` tag.
-
-**E. DEFERRED BY DECISION, NOT BY OVERSIGHT**
-- **Stage manager / per-mode state** — parked with Daniel's own straw man recorded.
-- Colour management — named as new-feature-shaped, belongs with stage manager.
-
----
-
-**⚠️ THE PATTERN WORTH CARRYING FORWARD, since a paper trail is the point.** The arc's recurring defect was **one behaviour with two implementations**, and it appeared SEVEN times: droste's overlay missing `sizeNorm` (B614), radial's polygon missing `canvasNorm` (B618), the overlay missing `canvasOffset` (B612), the centring hook reaching only one chrome (B619), six copies of the transition default (B622), `env.panDrift` covering one of two joysticks (B620), and the slice-scale clamp written six times at three different maxima (B657). **Two more arrived as fresh instances during the arc itself** — B653's ruler re-implementing the scrub instead of calling it, and B638's flag set on the wrong `env`-shaped object. It is not a hypothesis; it is the shape of this codebase's bugs, and `CLAUDE.md` now leads with it.
-
-### 🎞 [Daniel, 2026-08-19 — REPORTED, NOT DIAGNOSED] THE SOURCE PANEL'S FIRST FRAME IS NOT THE CLIP'S FIRST FRAME
-
-*"Regression: initial frame on source panel isn't actually the first frame on load."*
-
-**Not investigated, and deliberately not guessed at.** `source-host.js` and `engine/` are **untouched this session** (last commits B659 and earlier), so nothing in the pressure-testing arc is an obvious cause — which makes it more likely to be either older than it looks or a second-order effect of something else. **A wrong guess here would send the next session at the wrong file.**
-
-**What the fix path already looks like:** loading parks a clip paused (B595), and painting the first frame relies on the nudge at `source-host.js:184` — `await dv.play(); await nextFrame(); dv.pause();` — plus the native decode's `seekSettled(0)` hand-off at ~line 1318. **A frame that is close-but-not-first points at the seek settling late; a black or stale frame points at the nudge not landing.** Those are different bugs.
-
-**✅ ANSWERED 2026-08-19: a later frame of the same clip** — *"source frame was from toward the end of the clip actually, but the issue didn't repro and it loaded correctly."*
-
-**That points at the SEEK settling late, not at the first-frame nudge failing.** The suspect is the native-decode hand-off (`source-host.js` ~1318): `seekSettled(0)` is awaited, but the panel may paint before it lands, leaving whatever frame the decoder had. **Intermittent and currently unreproducible — do not chase it blind.** Recorded so the next occurrence starts from the right file instead of the wrong one.
-
-**Class 1 and desktop-reproducible either way — do not spend a device session on it.**
-
-### 🚧 [Daniel, B667 — REPORTED, NOT DIAGNOSED] "RESET SESSION (BREAK GLASS)" NO LONGER WORKS
-
-*"Under our diagnostics I tried the 'reset session (break glass)' control and it doesn't seem to be working anymore."*
-
-Reported after a GL-context loss in perform mode.
-
-**✅ ANSWERED AND FIXED B683 — it was neither of the two candidates.** It rebuilt `main.js`'s PREVIEW engine and nothing else, while **perform mode's visible surface is the live PiP's context** and the output/bus engine is a third. So it was broken specifically in the state Daniel was in, for a reason that had nothing to do with the context loss itself. It now walks `allEngines()` and reports which surfaces recovered.
-
-**⚠️ STILL OPEN: the phone chrome has no break-glass control at all.** `resetSession` is defined only in `main.js`. Adding one to `mobile/chrome.js` is a UI addition (needs a Lab entry), not a bug fix, so it was filed rather than folded into B683.
-
-**Class 1 first:** read the handler and check what it does with a lost/restored context before spending any device time.
-
-### ✅ [B668 — CLOSED B683] THE RECORD BUS IS INVISIBLE TO THE FRAME-COST LEDGER
-
-The `bus` surface registers and reports `calls: 0, msPerFrame: 0` with the note `capture: async`. Meanwhile recording measurably costs the app **~25ms per frame** — 59fps down to 23.5fps with nothing else running. **The single most expensive thing in a recording session does not appear in the panel built to say what things cost.**
-
-This is why "the take is slow" read as a priority problem for three builds: the cost was real and unattributable, so it looked like starvation. **Class 1 — no device needed to find out why an async capture path reports nothing.**
-
-**✅ ANSWERED B683, and the counter was never broken.** The surface measured **render** and **readback**; a take's cost is in **`sink.publish(f)`** (VideoFrame construction + encode submission), which was timed into `diag.ops` — a ring the frame-cost panel does not show. Publish is now a ledger pass. **And the zero itself was honest:** with a still source the idle elision skips render and readback entirely, so `calls: 0` was true; the note now says so rather than leaving a true zero and a broken counter indistinguishable.
+**Exit criteria #1 and #2** (`CAPABILITIES.md` §0). **The gate must be COMPUTED, never a device table** — `HARDWARE-SUPPORT.md` owns that rule and `CAPABILITIES.md` §5 is the nearest thing to a spec. The cost model came out **additive in frame time** (B683 era), which is what makes a computed gate possible at all.
 
 ### 🪜 [Daniel, 2026-08-19 — SPEC GIVEN, NOT BUILT] THE CAPABILITY LADDER: WHAT GETS GATED, WARNED, OR FLAGGED
 
@@ -485,112 +294,85 @@ Measured on the M1 iPad Pro across two B669 runs: broadcast **+25.9ms/frame**, t
 
 **⚠️ AND THE FIRST OPTIMIZATION TARGET CHANGED.** A take costs MORE than a 4K broadcast (+35 vs +26ms). The whole arc assumed the broadcast was the expensive thing.
 
-### 🧨 [B667, RE-SCOPED B668, DOWNGRADED 2026-08-19 — INTERMITTENT, NOT DETERMINISTIC] ARMING A TAKE WHILE BROADCASTING LOSES THE GL CONTEXT
+### 🚧 [Daniel, 2026-08-21 — NAMED AS MISSING FROM THE PLAN] GATE RECORDING ON DETECTED CAPABILITY
 
-**⚠️ B667 SCOPED THIS TO 4K AND THAT WAS WRONG.** B668 lost the context arming an **FHD** take (`bus:start 1920x1080` at t=20, `gl-context-lost` at t=21). Five occurrences now — B661 fatal, B663 fatal, B666 twice, B668 once — at both resolutions. In the survivable form the take runs its full minute and encodes **zero frames**.
+*"I don't see anything on your plan about two of the more important tests that i am remembering: 1) gating recording based on detected device capability."* **He is right — it was on the ledger as a vague "thermal-aware gate" and had never been scoped.**
 
-**✅ T3b RAN AND THE ORDER MATTERS: starting the broadcast UNDER a running take lost no context at all.**
+**⚠️ COMPUTED, NEVER A DEVICE TABLE** (his standing requirement). See `docs/HARDWARE-SUPPORT.md` for why the matrix and the gate are different artifacts.
 
-**⚠️ BUT B667's "deterministic" was WRONG, and the same session's T3 also survived.** Five runs: three lost the context, two did not. **It is intermittent.**
+**What the evidence now supports, by his own rubric:**
 
-**The new candidate, from what the five reports differ on:** every failing run began with a broadcast ALREADY LIVE that the script then stopped, re-tiered and restarted. Both clean runs began with none (`"why": "already off"` in the log). **So the suspect is the stop→retier→start cycle leaving the external view stale, not arming a take as such.** n=5, hypothesis only.
+| tier | rule | evidence |
+|---|---|---|
+| **refuse** | 4K takes | **13.4 and 13.8 fps** against a declared 30, across two devices, two builds, and before/after the decoder-release work. Structural, not headroom. |
+| **warn** | recording while broadcasting | 12.7 vs 19.8 fps, a 36% cost. **Intermittent GL loss did NOT reproduce on B698.** Not a crash risk any more. |
+| **warn** | recording while thermal is `serious` | **40.0 → 19.8 fps** on the same device, same tier, minutes apart. **The single largest effect measured this arc.** |
 
-**Next discriminator, cheap:** run T3 twice back to back without touching anything between, so the second run's broadcast is one the script itself created. **Do not build a capability gate on this until it is isolated** — the additive cost model above is a better basis anyway, and it is measured rather than inferred.
+**⚠️ THE INPUT THAT IS MISSING FROM EVERY EXISTING GATE IS THERMAL STATE**, and it is the strongest predictor we have. `createPressureSource` already consumes it and the vitals plugin already reports it, so the signal exists and nothing gates on it.
 
-**And the 4K take is unusable even unopposed** — 13.4fps against a declared 30 with nothing else running and the app at 59fps.
+**Still needed before the "warn" rules are honest:** FHD-while-broadcasting has never been measured on a COOL device. Every run of that combination was at `serious`. The refuse rule for 4K needs nothing further.
 
-**Three candidate answers, most honest first:**
-1. **Cap the take tier while a broadcast is live**, and say so where the tier is chosen. Cheap, and it matches the existing `videoHdmiCapped` precedent for a memory guard.
-2. **Refuse the combination** with a clear message. Blunter but unambiguous.
-3. **Make the take the priority and shed the broadcast** — right for a deliverable, wrong for a live show, so it cannot be the default.
+### 🎬 [QUEUED 2026-08-21, Daniel's ask] RE-VERIFY RECORDING ON THE CURRENT BUILD — THE OLD EVIDENCE IS STALE
 
-**✅ B681 SHIPPED THE INPUT IT NEEDS: `conduit/sessions.js`.** The gate could not be computed before because nothing knew what the app was holding. `sessions.peak.decode` / `.gl` / `.encode` is now in every report, so a rule like *"refuse a 4K take while a 4K broadcast is live"* can carry the count that justifies it instead of a device name. **Still to decide: which fps each rung keys on** (T7/T8 give real numbers now: ~20 app / ~19 wall sustained at 4K, indefinitely, on adequate power).
+**Why this is queued rather than gated:** every record-while-broadcasting failure on record is **B661, B663, B666, B668**. The session registry and the orphaned-decoder release landed at **B681**. The audit that prompted that fix found the source `<video>` was orphaned on *every* swap, peaking at five or six live decoders of one clip, counted by nothing.
 
-**⚠️ THE GATE MUST BE COMPUTED, NOT A DEVICE TABLE** (Daniel's standing requirement). We own the top of the hardware range and none of the bottom, so a limit calibrated here would be calibrated on good hardware. The learned-ceiling pattern (`broadcastCeiling`) is the shape to copy, and the flight recorder already persists the exact combination that preceded a context loss.
+**So the entire evidence base predates the fix for a resource-exhaustion problem that could plausibly have caused it.** Daniel spotted this: *"the permit management system you've implemented i think is new since we tested recording while broadcasting on ipad. I wonder if theres a chance this might have actually addressed a root cause limitation for at least some of our failure states?"*
 
-### ✅ [SHIPPED B665] SCENARIO RUNNER — the app performs the device test
+**Building a capability gate on those numbers would encode a limit that may no longer exist.** T10 (B695) supports the concern: `sessions` peak was `{ total 4, gl 2, decode 2 }` and conserved, where the pre-fix audit predicted 5-6 decoders alone.
 
-Daniel's ask, and the answer to him being the sole chokepoint on device work: *"I build the latest on device, open an agreed upon source, click 'run test', come back, copy and paste the results."* Shipped as `run scenario` in the frame-cost panel (`shell/scenario-runner.js`), exported as `scenarioRun`.
+**Three tests, in this order. The first two are the CONTROL CONDITION and have never been run:**
 
-**Still open, and worth doing when a script needs it:**
-- **Scripts are hardcoded in the module.** Fine while there are three; a fourth kind of test (source switching, form sweeps) may want them to be data the panel can compose.
-- **No scripted INTERACTION step.** T6 wants "drag the canvas for 30s" as a step so the interaction cost can be measured on a script rather than by hand — which is the one thing T2 proved matters most. **This is the highest-value next addition.**
-- **✅ Pre-flight shipped B666** (source loaded / ready / has duration). **Still unchecked: whether a display is actually attached**, because a non-display destination is legitimate and the run should not second-guess the rig.
-- **⚠️ `loopStall.why` still reads `"no loop boundary reached yet"` while reporting wraps in the same object** — four builds of reports now. Cosmetic but it is the kind of lie that costs an hour when someone trusts it.
+1. **FHD take, nothing else running.** Never measured. Every FHD number we have comes from a run with a broadcast live.
+2. **4K take, nothing else running.** Last measured at **13.4fps against a declared 30** with the app at 59fps — but that was pre-B681 too, so it needs refreshing before anything is built on it.
+3. **T3 again (take while broadcasting), unchanged rig.** Three outcomes, all useful: it passes (the decoders were the cause and there is no gate to build); it fails (the evidence is refreshed and the gate gets real numbers); it fails differently (that is the isolation this has needed since B667).
 
-### ✅ [CLOSED B694] RADIAL PAN IS NOT ZOOM-PROPORTIONAL — kept for the reasoning, which cost four builds
+**⚠️ DO NOT BUILD THE TAKE-TIER CAP BEFORE 1 AND 2.** The 13.4fps figure is the only justification for it and it is from the leaking build.
 
-*"One of the items we fixed in this phase was to ensure that panning is proportional across all zoom levels. This seems to be true for all forms except the radial wedge. At first panning seems to work fine but then if you zoom out it gets sluggish and seems to hit invisible walls, and if you zoom back in it doesn't correct. If I reset canvas it does self-correct until I zoom out again."*
+### 🖥 [OPEN — Daniel, 2026-08-19] THE PERMIT WORK IS PLATFORM-NEUTRAL. THE LIMITS ARE NOT.
 
-**Not diagnosed. Filed with the suspicion so the investigation starts warm, and explicitly NOT fixed blind.**
+Daniel: *"is this iOS only or does this work carry over to electron... ideally our architecture could support an M1 iMac just as well as an M1 iPad."*
 
-**What is already ruled out by reading:** `kit/pan.js` `panDelta` is the single shared gain, divides by zoom, and is form-agnostic — **the pan math itself cannot be radial-specific.** So the asymmetry is downstream of the gain.
+**What already carries, with no further work:**
+- **`conduit/sessions.js` is platform-neutral** and registers in shared code. `createEngine` is the same function on every target, so GL contexts are counted on Electron, web and iOS alike.
+- **The Finding A fix is in `shell/source-host.js`, which is the DESKTOP chrome** — the one Electron, the browser and the iPad all run. The orphaned decoder was leaking on macOS too; it just had the headroom to hide it.
 
-**The suspect, and it is the B659 neighbourhood.** Radial's wedge extent is `1 / (canvasZoom × canvasNorm)` (geometry.js:315), so canvas zoom-OUT grows the slice box without bound — this run reported `boxHalf [0.64, 0.77]`, `boxVsSource 1.548` at `sliceScale 2.06`. The fold (`foldSliceIntoSource`, via `normalizeSliceMirror`) is evaluated **on the render schedule**, so it re-runs continuously during a pan. A fold translates the box by its own span; when the span is enormous, that is an enormous jump. **A fold firing intermittently mid-pan would read exactly as "sluggish, invisible walls, does not correct on the way back", and reset-canvas clearing it fits too.**
+**What does NOT carry, and must not be assumed:**
+- **The native decode path is iOS-only.** The 8s deadline, the frame socket and the double-decode fallback have no Electron equivalent — Electron plays a `<video>` and the output window opens a second one. **Structurally the same two-decoders-one-clip shape, without the hard OS cap.**
+- **The ceiling itself.** iOS kills the GPU process; macOS mostly just gets slower. **Same architecture, different failure mode**, so a threshold measured on the iPad must never be copied to the desktop as a limit.
 
-**⚠️ The discriminator is local and free — this is a Class 1 question and must not cost a device session.** Zoom out with radial on desktop, pan, and watch whether `foldSliceIntoSource` returns non-null during the drag. If it does, the trigger is the bug; if it does not, the cause is elsewhere and the suspicion above should be discarded rather than defended.
+**The open work, and it is small:**
+1. **Wire the Electron/output-window second decoder into the registry** the way the external view's is — `output-view.js` runs in both, so most of this is already done; confirm rather than assume.
+2. **Run T7 on the desktop build** and record `sessions.peak` there. **We have never had a desktop number** — B479's "watch Electron desktop HDMI for the same wall under heavy video" has been open since.
+3. **Keep ONE computed ladder, not two code paths.** The rung is a measured fps and a session count; the M1 iMac and the M1 iPad differ in what they can sustain, not in how we decide. **This is the whole reason the gate must be computed** — a device table would need a row per machine and would still be wrong on the next one.
 
-**Do not "fix" this by reinstating a span-only fold test** — that is the trap B659's note names.
+**⚠️ SESSION AUDIT STEPS 3 AND 4 ARE THE OPEN HALF (B681 shipped 1 and 2).**
+- **Step 3 — shed before acquiring at the three unguarded transitions**: change source while broadcasting, enter perform mid-broadcast, arm a take during a broadcast. **The precedent exists and works**: the Loop Builder and the bake post a `notice` to the external view, which tears down its own decoder outright *"because a 4K bake and a 4K external render at the same time is what restarted the app"*. It was simply never extended to the other three.
+- **Step 4 — gate**, using the live count rather than a device table. See the capability-ladder item.
+- **⚠️ Do step 3 only after a B681 report shows real numbers.** The audit says what the code CAN hold; a shed rule written against what it can hold rather than what it does is a guess with a table in it.
+
+**⚠️ STILL OPEN, and they were meant to ride the same Xcode cycle — they did NOT get built:**
+- ~~`loopCache.coveredMs` under-reports coverage by one frame interval (Swift), so its `why` advises raising a budget that is already sufficient.~~ **✅ FIXED B684** — it was reporting `last.pts`, a timestamp rather than a duration. Now `(lastPts - firstPts) + frameInterval`, shared with the `why` so reading and advice cannot disagree.
+- ~~`listCameras` for external/USB cameras on iPad.~~ **✅ SHIPPED B684**, end to end (Swift enumeration + `deviceId` selection + JS seam + a `camera source` row). Needs an Xcode build.
+- The `scenario` tag is a manual dropdown and read `idle-still` during a 4K broadcast at B609, which invalidates any baseline diff from that session. Wants a guard that notices it disagrees with what is running.
+  - **⚠️ PROMOTED 2026-08-19 — IT HAS NOW COST A SECOND COMPARISON, AND THE SECOND ONE IS EXPENSIVE.** A clean 40-minute T7 came back with the battery flat where the previous run drained 22.5%/hr, **and the report cannot say which power path or which video path it used.** The list in `shell/perf-panel.js` (`SCENARIOS`) has **no AirPlay entry at all**, so an AirPlay broadcast is necessarily filed as `hdmi-broadcast`. Forty minutes of device time is now pending an answer no instrument recorded. **Derive the tag from the live destination** (`selectedDest()` already knows) and let the dropdown override rather than originate. Do this before the next power run.
+
+**First use, before any long run:** `pressure.js` shipped inert on purpose, *"to find out whether the inferred signal actually tracks the native one, BEFORE anything starts degrading the app based on it."* Native thermal is what makes that check possible — and it matters beyond iOS, because the inferred drift signal is all the desktop arm will ever have.
+
+### 🟠 THE PRESSURE TARGET CAN HALVE ITSELF UNDER LOAD, AND THAT IS CIRCULAR (Daniel's B580 report)
+
+One report reads `pressure: { target: 15, label: "warming up" }` on a 30fps clip while `srcArrive p50` is 30ms (i.e. ~33 arrivals/s, perfectly healthy). `videoWireFps()` snaps the measured arrival rate to 0/15/30/60/120, and a single slow sampling window drops it into the 15 bucket.
+
+**The failure is circular: struggling → a sampled window under 20/s → target halves to 15 → shortfall drops → the governor concludes we are fine.** Exactly the shape B559 split `shortfall` from `pressure` to avoid, reintroduced through the denominator instead of the numerator.
+
+**▶ The fix is to take the target from the CLIP's declared frame rate rather than the observed arrival rate**, since a clip's fps is a property of the file and does not degrade when we do. Observed arrival stays as the fallback for sources that cannot declare one.
 
 ---
 
-#### 🔬 B693 UPDATE — THE FOLD SUSPICION IS DEAD, AND THE REAL NUMBER IS MEASURED
+## 🔁 Loop builder, bake and the decode path
 
-**The Class 1 discriminator above was finally run** (`scratchpad/foldpan-check.mjs`, headless, no device). **The fold suspicion is wrong and is hereby discarded, not defended:** a canvas pan writes `canvasOffsetX/Y` and never touches `sliceCx/Cy`, so `foldSliceIntoSource` fires **zero** times across a full 40-step pan at 0.25×, 1× and 4×, and `syncSliceAnchor` re-places **zero** times. The gesture gate is a real gap — `holdGesture` is called only from `shell/overlay.js`, never from the canvas gesture — but it is not this bug.
+**Several of these predate B700's first-frame deadline fix and B699's decoder registration, and may already be closed.** Flagged individually below. The loop hold itself closed at B608 and T10 re-confirmed it (8 wraps, 6ms worst gap).
 
-**What the same harness DID measure** (`scratchpad/reach-check.mjs`), and it is one table:
-
-| canvasZoom | radial's own sampled extent `R = 1/(zoom×norm)` | `offsetBound` | **reach = bound/R** |
-|---|---|---|---|
-| 0.25 | 4.00 | 2 | **0.50** |
-| 0.5 | 2.00 | 2 | 1.00 |
-| 1 | 1.00 | 2 | 2.00 |
-| 2 | 0.50 | 2 | 4.00 |
-| 4 | 0.25 | 2 | **8.00** |
-
-**`reach` is the conserved quantity this investigation never measured: travel expressed in units of the thing you are looking at.** It swings **16×** across the zoom range. Zoomed out you can pan across half of what you can see; zoomed in you can pan eight times past it.
-
-**And the gain equals the bound**, so one full-side drag always asks for **100% of the range**, at every zoom.
-
-**Together these predict all three of Daniel's complaints from one cause, which no previous model did:**
-
-- *"very sluggish zoomed out... barely moves off center"* → reach 0.5. The total available travel really is half the visible wedge.
-- *"movement is jerky"* → the gain spends the entire range in one drag. Every pixel of finger travel moves a lot, over a range that is tiny relative to the picture.
-- *"hitting invisible walls... less able to move after already moving a bit away from center"* → **this was read as progressive resistance and it is not.** The two-finger pan re-bases `manip.ox` from the CLAMPED offset at each gesture start, so every new drag begins with less remaining range than the last. Decreasing remaining travel, not increasing drag — indistinguishable from the hand, which is why three builds chased the wrong shape.
-
-**Uncertainty state: C — the cause is known, the lever is a product decision.** Three, not mutually exclusive:
-
-- **(A) store the offset as a FRACTION of the form's extent.** Correct and durable: bound becomes a constant ±1 in stored units so drift is impossible by construction, reach is identical at every zoom, and any future bounded form inherits it. **Cost: `canvasOffsetX/Y` changes units**, so presets, motion keyframes and control mappings need a migration.
-- **(B) keep fold units, restore the zoom-scaled bound, and re-normalise the stored offset whenever zoom changes** so the FRACTION is preserved across the change. Same behaviour as A without changing what is persisted; this is exactly the `syncSliceAnchor` pattern (watch the inputs, re-solve) applied to a second quantity. **Cost: a second watcher.**
-- **(C) decouple the gain from the bound** — a full-side drag should cover a fixed fraction of the range (~40%), not all of it. **Independent of A and B, and it is the half that fixes "jerky".** Cheapest of the three.
-
-**⚠️ B688's reasoning was half right and the half that was wrong is why this persisted.** It correctly established that `u_canvasOffset` is applied after the zoom divide and is therefore zoom-independent *as a coordinate*. It wrongly concluded that its BOUND must be too. **The coordinate is zoom-independent; the CONTENT it addresses is not** — radial's wedge extent is `1/canvasZoom` by its own `buildPolygon`. A fixed bound over a content extent that swings 16× cannot feel the same at both ends.
-
-
-### ✅ [DECIDED + SHIPPED B696] A LINTER, FOR `no-dupe-keys` AND NOTHING ELSE — kept for the reasoning
-
-**Not a style question. It is about one bug class that has cost two builds and is invisible in review.**
-
-```js
-getDeviceId: () => deviceId,   // B684 added this
-getDeviceId: () => null,       // ...20 lines below, pre-existing, and it WINS
-```
-
-**A JS object literal silently takes the LAST duplicate key.** No syntax error, no warning, no runtime complaint. B686 found two of these in `native-camera.js`: one disabled every camera UI gate (so B685's correct structural fix had zero effect), the other dropped a `resetControls()` call. An AST scan (`scratchpad/dupkeys.mjs`) then found zero others across 100 files, so **the codebase is currently clean** — this is about not regressing.
-
-**The tradeoff Daniel has to weigh:**
-
-| | for | against |
-|---|---|---|
-| **Add ESLint, `no-dupe-keys` only** | catches the exact class, on by default in every JS linter, one config file | CLAUDE.md says no build steps without asking; a linter tends to grow rules and become a thing to argue with |
-| **Keep the AST scan as a scratchpad script** | zero project surface, already written and passing | only runs when someone remembers to run it, which is the failure mode it exists to prevent |
-| **Nothing** | honest about how rare it is (2 instances, both fixed, 0 remaining) | the two that existed were found by a device session and a live show, not by review |
-
-**✅ B696 SHIPPED THE MIDDLE OPTION, PROMOTED.** `tools/check-dupe-keys.mjs` in `npm run check`, and `check` is now item 5 of CLAUDE.md's ritual. No dependency (`acorn` rides Vite's rollup), no config. Original recommendation kept below.
-
-**Recommendation if asked: the middle option promoted** — keep it dependency-free, but make the AST scan something the four-part maintenance ritual runs rather than something to remember. It buys the one guarantee without opening the door to a lint config.
-
-### 🚨 [Daniel, 2026-08-21 — REPRODUCED TWICE, INSTRUMENTED B699, NOT FIXED] SEAMLESS BAKE FAILS WITH A DECODER TIMEOUT
+### 🔎 LIKELY CLOSED BY B700 [Daniel, 2026-08-21 — reproduced twice, instrumented B699] SEAMLESS BAKE FAILS WITH A DECODER TIMEOUT. **Daniel reported a SUCCESSFUL bake on B700, which raised the first-frame deadline. Needs one more bake to close.**
 
 *"Could not bake the clip: decode timed out at 39.288s (10s budget for one frame — usually a very long keyframe interval, or a backward seek re-decoding too much)"*. **Twice**, about halfway through the progress bar. Clip: significant trim off the end, a little off the front, 60fps source converted to 30fps output, on the M1 iPad Pro.
 
@@ -619,243 +401,6 @@ SUCCEEDED B700 · peak.decode 8 · source note: "from canvas · planar · native
 - **Contention:** the M1 Pro was running the governor-off 4K broadcast test at the time.
 
 **▶ NEXT: reproduce on B699+ and read `sessions.peak.decode` and `live[]`.** If the peak reaches 6-7 with `bake: frame reader` present, the hypothesis is confirmed and the fix is a shed policy. If it peaks at 3-4, it is the seek/keyframe path and the fix is in `resetTo`.
-
-### ❌ [WITHDRAWN B702 — THE INSTRUMENT WAS WRONG, NOT THE APP] ~~THE SOURCE STALLS AFTER A SUCCESSFUL BAKE~~
-
-**⚠️ WITHDRAWN. Daniel: *"in the app the source panel is rendering and the diagnostic reads planar source so the issue didn't seem to persist."* The picture was FINE.**
-
-**The bug was in the note.** `sourceStallNote` keys on `msSinceFrame`, which equals "the decode is wedged" only if the clip is supposed to be producing frames — and **a freshly baked clip parks PAUSED by design (B595)**. No frames is the correct behaviour there, and the instrument called it a stall.
-
-**And I compounded it by skipping a precondition.** B584's rule is *"equal offered/taken WITH A FROZEN PICTURE means the frames reached us and we failed to use them."* I applied the conclusion without establishing the frozen picture. Daniel supplied it and it falsified the reading. **The wrong-noun test, failing inside the report itself.**
-
-**✅ FIXED B702:** the note returns early when the source is paused. Unfixed, this would have aimed every future post-bake session at a bug that does not exist.
-
-**The original write-up is kept below because the B609 item it pointed at is still open and the narrowed suspect in it is still worth reading.** What is NOT established is that it reproduces after a bake.
-
-~~This is the B609 item caught fresh.~~ From `docs/temp/loopBuilderSuccess-report.json`, taken right after a bake that SUCCEEDED:
-
-```
-source: from canvas · planar · native decode · 0.0 in/s
-        ⚠ SOURCE STALLED 35.1s — socket open, offered 157, took 157, skipped 0
-
-sessions.live: [ gl preview engine, decode "baked clip", decode "native decode: loop.mp4" ]
-```
-
-**The B584 instrument has fired on the branch it was built to separate, for the second time.** `offered 157, taken 157, skipped 0` with a frozen picture means **the frames reached us and we failed to use them.** Not contention, not the wire, not backpressure — all three are exonerated by the equal counts. **Our bug, JS side.**
-
-**⚠️ AND THIS RUN HAD NO GL CONTEXT LOSS**, which is new information: B609 assumed the restore was part of the mechanism. Here the source swaps to the freshly baked `loop.mp4`, a new native decode starts and delivers frames, and nothing consumes them. **So the trigger is the post-bake SOURCE SWAP, not a context restore.** That makes it far cheaper to reproduce.
-
-**The narrowed question from B698's read of `engine/index.js`** stands and is now the prime suspect: `updateSourceFrame()` opens with `if (!sourceTexture || !sourceImage) return false;`, and the planar branch sits behind that guard. **Those are element-path concepts.** A native decode feeding raw planes into a freshly swapped source may satisfy `planarFrame` while `sourceImage`/`sourceTexture` are not yet re-established — and the receiver keeps taking frames off the socket with nowhere to put them, which is precisely `offered == taken` with `0.0 in/s`.
-
-**▶ NEXT, and it is Class 1 (readable, no device):** trace the post-bake swap in `clip-editor.js` `rebindClipToTimeline` and the `setSource` / `setPlanarSource` ordering against that guard. **`setSource` retires the planar provider by design**, so if `setPlanarSource` is called BEFORE `setSource` on this path, the provider is destroyed immediately after being installed.
-
-### 🔧 [Daniel, 2026-08-21 — SMALL UI GAP, WORKAROUND EXISTS] THE FRAME-COST PANEL CANNOT BE OPENED FROM THE LOOP BUILDER
-
-*"our affordance for opening the frame cost dialog is the gear in the top right which we don't show in the loop builder so i'm not actually able to open a report from there."*
-
-Correct: the loop builder sets `body.loop-active`, which hides the app bar deliberately (no mode switching or uploads mid-edit, B-era design). **So the one surface that holds the most decoders is the one whose cost cannot be inspected while it is open.**
-
-**✅ WORKAROUND, NO CODE NEEDED: `sessions.peak` is a HIGH-WATER MARK.** Open the loop builder, do the thing, close it, then open the report. `peak.decode` still holds the maximum reached while it was open, and `live[]` will have shrunk back. **That is enough for the measurement this blocks.**
-
-**The real fix if it comes up again** is to let the frame-cost panel open over the interstitial, since it is a diagnostic rather than an editing surface. Small, but it touches the loop-active layering rules, so not worth doing speculatively.
-
-### 🐞 [2026-08-21 — INSTRUMENTATION BUG, FOUND WHILE READING TWO REPORTS] THE EXTERNAL SURFACE NOTE CONTRADICTS `extGuard`
-
-In `8-21-26-4klooptest-noGov.json` the external surface reports *"this view decodes its own copy, so nothing here measures what the audience sees"* while `extGuard` in the SAME report says `singleDecode: true, why: "moot: the single native decode means the external view runs no decoder of its own"`. **Two fields in one report disagree about the same fact.**
-
-**The cost is not cosmetic: the NEW-PICTURES/s figure silently became unavailable in the run that was specifically designed to measure it** (the governor A/B). The comparison run had it, this one did not, so the prediction under test could be neither confirmed nor refuted.
-
-**Same class as the scenario-tag mismatch that invalidated two earlier measurements** — an instrument that can quietly stop reporting the number a decision depends on. Whichever of the two derivations is wrong, they should read from one source.
-
-### 🧮 [2026-08-21, Daniel's question — READ, NOT YET MEASURED ON DEVICE] MODE CHANGES STACK DECODERS; SOURCE UPLOADS DO NOT
-
-*"could the fact that we don't shed before acquiring be related to crashes where we upload a new source or change modes?"* **Half right, and the half that is right is the one nobody has counted.**
-
-**UPLOADS ARE FINE.** `loadVideo` / `loadImage` shed first, in order, before anything new is created:
-
-```js
-if (env.live.isLive || env.live.frozen) stopCameraMode({ keepSource: true });
-releaseSourceVideo();          // the outgoing decoder, released
-env.detachNativeVideo?.();     // the native decode, detached
-...then the new <video> is created
-```
-
-**MODE CHANGES DO NOT SHED, BY DESIGN, AND THE DESIGN IS CORRECT — but nothing counts the total.** Entering motion keeps the source `<video>` alive on purpose (`stopSourceVideoPlayback` is pause-only, because the clip must stay loaded) and `stage-source.js begin()` then acquires a THIRD decoder for the staging seek.
-
-**And the loop builder adds three more on top of whatever mode you were in** (`clip-editor.js`): preview, A-head crossfade, thumbnail strip, all on the same URL.
-
-**So the readable worst case is six concurrent decode sessions of ONE clip:**
-
-| # | session | acquired by |
-|---|---|---|
-| 1 | source clip `<video>` | `source-host.js` |
-| 2 | native decode (AVPlayer) | `native-video.js` |
-| 3 | staging seek decoder | `stage-source.js` (motion) |
-| 4-6 | loop builder × 3 | `clip-editor.js` |
-
-**That is the same number the pre-B681 audit predicted from LEAKS — reached here entirely by legitimate, released-on-exit acquisitions.** Releasing correctly does not help if the peak is the problem.
-
-**▶ THE MEASUREMENT IS CHEAP, NEEDS NO DISPLAY, AND WORKS ON B695 OR LATER:** load a clip, enter motion, open the loop builder, copy a report, read `sessions.peak.decode` and the `live[]` labels. **If it reads 6, this is a real ceiling risk and the shed-before-acquire policy (session audit step 3) has its first concrete target.** If it reads 3 or 4, some path already tears down and the model above is wrong.
-
-**⚠️ AND "SHED BEFORE ACQUIRE" IS THE WRONG FIX FOR THE STAGING DECODER SPECIFICALLY** — that second decoder IS staging; releasing it removes the feature (B495 proved exactly that). The candidate targets are the loop builder's three, which could plausibly be two, and whether the staging decoder is released when the loop builder opens over it.
-
-### 🚧 [Daniel, 2026-08-21 — NAMED AS MISSING FROM THE PLAN] GATE RECORDING ON DETECTED CAPABILITY
-
-*"I don't see anything on your plan about two of the more important tests that i am remembering: 1) gating recording based on detected device capability."* **He is right — it was on the ledger as a vague "thermal-aware gate" and had never been scoped.**
-
-**⚠️ COMPUTED, NEVER A DEVICE TABLE** (his standing requirement). See `docs/HARDWARE-SUPPORT.md` for why the matrix and the gate are different artifacts.
-
-**What the evidence now supports, by his own rubric:**
-
-| tier | rule | evidence |
-|---|---|---|
-| **refuse** | 4K takes | **13.4 and 13.8 fps** against a declared 30, across two devices, two builds, and before/after the decoder-release work. Structural, not headroom. |
-| **warn** | recording while broadcasting | 12.7 vs 19.8 fps, a 36% cost. **Intermittent GL loss did NOT reproduce on B698.** Not a crash risk any more. |
-| **warn** | recording while thermal is `serious` | **40.0 → 19.8 fps** on the same device, same tier, minutes apart. **The single largest effect measured this arc.** |
-
-**⚠️ THE INPUT THAT IS MISSING FROM EVERY EXISTING GATE IS THERMAL STATE**, and it is the strongest predictor we have. `createPressureSource` already consumes it and the vitals plugin already reports it, so the signal exists and nothing gates on it.
-
-**Still needed before the "warn" rules are honest:** FHD-while-broadcasting has never been measured on a COOL device. Every run of that combination was at `serious`. The refuse rule for 4K needs nothing further.
-
-### 🚧 [Daniel, 2026-08-21 — NAMED AS MISSING FROM THE PLAN] PROVOKE GL CONTEXT LOSS DELIBERATELY, THEN CYCLE DIAGNOSTICS
-
-*"2) attempting to create scenarios where GL context loss bugs pop up and cycling through diagnostics for root cause and fixes."* **Also missing from the ledger. This is the largest remaining piece of phase 2.**
-
-**✅ THE LISTENING SIDE IS NOW READY (B695, B699, B703).** All five GL surfaces mark `gl-context-lost` / `gl-context-restored` with a `surface` field; mode changes are breadcrumbed; the bake decoder is counted; and `reinitWhy` reports a restore whose element re-upload failed. **Before B695 four of five surfaces were console-only, so a provoked loss would have been mostly unobservable.**
-
-**Known provocations, from the record:**
-- attaching a 4K external display drops every GL context in the app (the B382 cluster)
-- the stop → retier → start broadcast cycle preceded every one of the five historical failures
-- rapid mode switching while manipulating large slices (Daniel's own proposed stress test)
-
-**▶ READ THE REPORT IN THIS ORDER AFTER ANY FAILURE:** `priorTrail` (survives the kill) → `trail` (this run) → `reinitWhy` (did recovery half-fail) → `sessions` (what was held) → `sourceSwap` (what had just been loaded).
-
-**⚠️ B703 MAY HAVE ALREADY FIXED THE MOST COMMON CONSEQUENCE.** The freeze-after-restore deadlock is fixed, so a provoked loss should now heal itself. **A stress test that provokes losses and sees them recover cleanly is a PASS, not a null result** — record it as one.
-
-### 🎬 [QUEUED 2026-08-21, Daniel's ask] RE-VERIFY RECORDING ON THE CURRENT BUILD — THE OLD EVIDENCE IS STALE
-
-**Why this is queued rather than gated:** every record-while-broadcasting failure on record is **B661, B663, B666, B668**. The session registry and the orphaned-decoder release landed at **B681**. The audit that prompted that fix found the source `<video>` was orphaned on *every* swap, peaking at five or six live decoders of one clip, counted by nothing.
-
-**So the entire evidence base predates the fix for a resource-exhaustion problem that could plausibly have caused it.** Daniel spotted this: *"the permit management system you've implemented i think is new since we tested recording while broadcasting on ipad. I wonder if theres a chance this might have actually addressed a root cause limitation for at least some of our failure states?"*
-
-**Building a capability gate on those numbers would encode a limit that may no longer exist.** T10 (B695) supports the concern: `sessions` peak was `{ total 4, gl 2, decode 2 }` and conserved, where the pre-fix audit predicted 5-6 decoders alone.
-
-**Three tests, in this order. The first two are the CONTROL CONDITION and have never been run:**
-
-1. **FHD take, nothing else running.** Never measured. Every FHD number we have comes from a run with a broadcast live.
-2. **4K take, nothing else running.** Last measured at **13.4fps against a declared 30** with the app at 59fps — but that was pre-B681 too, so it needs refreshing before anything is built on it.
-3. **T3 again (take while broadcasting), unchanged rig.** Three outcomes, all useful: it passes (the decoders were the cause and there is no gate to build); it fails (the evidence is refreshed and the gate gets real numbers); it fails differently (that is the isolation this has needed since B667).
-
-**⚠️ DO NOT BUILD THE TAKE-TIER CAP BEFORE 1 AND 2.** The 13.4fps figure is the only justification for it and it is from the leaking build.
-
-### 🔌 [2026-08-21 — HARDWARE, NOT AN APP LIMIT] THE APPLE A1621 DONGLE IS UNRELIABLE ON THE DELL P2415Q
-
-Daniel, during T10: the A1621 (USB-C multiport) drops the connection to the Dell 4K panel, while a plain USB-C to HDMI cable on the **same display and same iPad** works fine. **Recorded so a future flaky-HDMI session does not get spent debugging the app.** Power delivery through the dongle held steady throughout the 50-minute run; it is the display link that is unreliable. Untested against a projector, which is the more common real use.
-
-### ✅ [CLOSED 2026-08-21 — VERIFIED ON DEVICE] THE DROSTE-CENTRE JOYSTICK
-
-**Daniel smoke-tested droste and radial after B697: joystick, manual pan and drag all move in the expected directions.** The droste instance was already correct, so no flag was needed. Reasoning kept below.
-
-### 🕹 [B697 — SIBLING OF A FIXED BUG, NOT VERIFIED] THE DROSTE-CENTRE JOYSTICK LIKELY HAS THE SAME ROTATION BUG
-
-B697 fixed the TILING-PAN joystick: it wrote the raw handle vector into `canvasOffset`, which the shader consumes in POST-rotation space. **`drosteOffsetX/Y` is consumed in the same post-rotation space** (the Möbius pre-composition runs inside `foldDroste`, which receives an already-rotated `p`), so the same joystick component driving it almost certainly has the same defect.
-
-**Not changed blind, for a specific reason:** that offset has a SECOND consumer, the overlay diamond drag, which does its own mirror un-folding (B635). Rotating the joystick without checking whether the diamond agrees would trade a known bug for a disagreement between two controls on one value.
-
-**The fix if confirmed is one word** — pass `rotates: true` at both instantiation sites (`main.js` droste offset joystick, `mobile/chrome.js` line ~872). **The check first:** rotate the canvas 90°, drag the diamond, and see whether the pole moves the way the hand does. If the diamond is already correct, the joystick just needs the flag; if the diamond is also wrong, they should be fixed together.
-
-### 👁 [Daniel, B694 — WATCH ITEM, HIS CALL] OUTPUT BRIEFLY DOUBLE-EXPOSES AFTER AN AGGRESSIVE ZOOM-OUT + PAN
-
-*"zoom way out on the canvas, pan aggressively, use the slice overlay on the source to zoom back in. upon doing so the output quickly flickers showing two videos overlaid on top of each other."* Does not reproduce consistently. **Daniel filed it as a watch item explicitly; do not spend a device session on it until it recurs.**
-
-**⚠️ HIS DIAGNOSTIC IS THE VALUABLE PART AND IT NARROWS THIS ENORMOUSLY.** *"capturing a screenshot on device renders only a clean single image but i took a photo of my ipad screen on the iphone that looks like a double exposure."*
-
-A screenshot captures the composited framebuffer; a camera integrates light across several refreshes. **Clean screenshot + doubled photo means two DIFFERENT images were on the display within one exposure — temporal alternation, not a corrupted frame.** That rules out, without a device:
-
-- the shader, the fold, the geometry, the source texture, the planar path — **anything that would corrupt a single frame would appear in the screenshot too.**
-
-**Killed by reading:** the classic double-buffer flicker (a rate-gated frame that returns without drawing, leaving the other buffer visible). `engine/gl.js` sets `preserveDrawingBuffer: true`, so a skipped render leaves the previous content intact. Not this.
-
-**What remains, and it is a real structural candidate: TWO VISIBLE SURFACES SHOW DIFFERENT LOOKS OF THE SAME VIDEO IN PERFORM MODE.** `main.js:646` renders raw `state` to the main canvas, while `perform-runtime.js:529` renders `env.performRT.followed` to `#livePipCanvas`. During an aggressive pan the follower lags the state by a lot, so the two surfaces genuinely hold two very different frames. `#clipBlend` is a second stacked canvas worth eliminating too.
-
-**▶ IF IT RECURS, THESE THREE FACTS RESOLVE IT AND NOTHING ELSE IS NEEDED:** was PERFORM mode active; is the doubled region the WHOLE frame or a sub-rectangle; and does it survive with the live PiP closed.
-
-### 🧭 [Daniel, B694 — REPRODUCED AND EXPLAINED, DELIBERATELY NOT FIXED] RESETTING THE CANVAS LEAVES THE SLICE TINY
-
-*"zoom out using the canvas, zoom back in using the slice, reset canvas, reset slice. result is that the slice ends up being quite tiny... conceptually feels like the right trade off, to not edit both slice and canvas when only resetting one. but in practice it feels unexpected."*
-
-**Reproduced numerically** (`scratchpad/quirk.mjs`), and the cause is the unified zoom's overflow:
-
-```
-0. defaults              canvasZoom 1.000  sliceScale 1.000  box extent 0.633
-1. zoom out on canvas    canvasZoom 0.050  sliceScale 2.000  box extent 25.312
-2. zoom in on the slice  canvasZoom 0.050  sliceScale 0.350  box extent 4.430
-3. reset canvas          canvasZoom 1.000  sliceScale 0.350  box extent 0.221   <-- the tiny slice
-```
-
-`applyUnifiedZoom` is canvas-PRIMARY with overflow: once `canvasZoom` pins at `Z_CANVAS_MIN = 0.05` the remaining zoom spills into `sliceScale` (up to the form's `zoomCover`). Zooming back in **via the slice overlay** then reduces `sliceScale` directly while `canvasZoom` stays pinned at the floor. Reset canvas restores `canvasZoom` and leaves `sliceScale` where the user left it, so the slice is now about a third of default. **Daniel's own reading of the tradeoff is correct — this is reset canvas doing exactly and only its job.**
-
-**⚠️ ONE PART DOES NOT REPRODUCE AND SHOULD NOT BE ASSUMED:** he reports needing a SECOND reset to correct it. In simulation `resetSliceState` is idempotent and the first call restores the default extent exactly (0.633). Either a real-app path (the anchor, the fold, or the overlay drag writing more than `sliceScale`) is involved, or the repro differs from what was modelled. **Establish that before building anything.**
-
-**His proposed fix is the right instinct and needs provenance we do not have.** *"maybe we consider normalizing the slice size as part of zooming to reset canvas from an extreme?"* We cannot currently tell how much of `sliceScale` was spilled there by the canvas gesture versus set deliberately by the user on the slice. The shape would be a spill accumulator written ONLY by `applyUnifiedZoom`'s overflow branches and consumed by reset canvas.
-
-**Not built, on a risk read:** it introduces provenance state into a zoom path that took several builds to stabilise (B563, B611, B612, B657), and it has to stay invisible to presets, motion keyframes and the perform follower or it becomes a fourth thing that can desync. The current behaviour costs one extra click and is recoverable. **Revisit only if it bites during a real set.**
-
-### 🔴 [Daniel, B694 — DIAGNOSED BY READING, NOT FIXED] RECENTER DOES NOT EASE IN PERFORM MODE
-
-*"return center should honor the transition speed in perform mode, but right now it appears to be instant."*
-
-**Two paths, and only one of them is broken. Establish which one he used before building anything.**
-
-- **`recenter` (pan joystick)** writes `canvasOffsetX/Y = 0` to state. Both are in `CONTINUOUS_KEYS` and `perform-runtime.js:524` feeds `setTarget(state)` every frame, so this **should already ease**. If it does not, the model above is wrong and that is itself the finding.
-- **`reset canvas`** also sets `panLock = {}`, which re-locks radial (`panLockedByDefault: true`), and `shader-builder.js`'s `u_canvasOffset` opens with `if (formPanLocked(state)) return [0,0]`. **Instant by construction** — the follower can be easing perfectly and the uniform will ignore it.
-
-**Same class as the B611/B612 note in `controls.js`** (*"a bound that is not in STATE is not a bound"*): a recentre that is not in STATE cannot be eased.
-
-**Candidate fix, not yet validated:** drop the uniform's override and have the LOCK write `0` to state instead — both padlock paths already do exactly that at `main.js:1295`, so the state is already correct there. **⚠️ Check B612 before shipping it:** unlocking must never inherit a position, and the override is currently what guarantees that for paths which set `panLock` without going through the toggle.
-
-### 📌 [B694 — ACCEPTED, NOT A BUG] TWO CONSEQUENCES OF REMOVING THE PAN BOUND
-
-Filed so a future session does not "fix" them. Daniel accepted both explicitly: *"we're talking about support for an edge case because the main use case of just being able to gesture and pan and pinch intuitively and pan around within a few wraps feels constrained."*
-
-- **Past ~20 fold units the centre cannot be found by zooming out.** Canvas zoom floors at `Z_CANVAS_MIN = 0.05`, which shows a fold radius of 20. `action:panRecenter` (B694) is the way home.
-- **A long drift at deep zoom-out quantises visibly after ~45 minutes.** float32 loses the screen-relative variation in `p -= offset`; ~4px blocks at offset 40,000. Degrades smoothly, never crashes.
-
-**The fix for both exists and was deliberately dropped.** The offset is exactly periodic past 3 fold units (offset O and O+P differ by ~1e-15, P = `4/(sliceScale × sizeNorm)`), so wrapping would make drift unbounded AND keep the centre reachable. Revisit only if long-form drift becomes a real use case; it would need a `sliceScale`-change recompute, a mirror-mode gate, and validation against the real shader rather than the isolated model.
-
-### 🎯 [B619 → carried out of item 1.5 at B657] `slice position x/y` STILL ADDRESS THE ORIGIN
-
-The mapping targets `sliceCx` / `sliceCy` write the slice ORIGIN, but since B616 the app's model is the BOX CENTRE — which is what a drag moves, what `placeSliceBox` solves for, and what the fold bounds. **So a fader on slice position means something different from what your hand does**, which is the one-behaviour-two-surfaces class this arc keeps paying for.
-
-**Filed here rather than held open in the plan (B657):** it is a semantics correction to two targets, not architecture, and keeping item 1.5 open for it misrepresents where the input work actually stands.
-
-**Implementable without a special case** — B619 added the `write` hook, so the target can write through `placeSliceBox` the way `segments` writes through its setter. Small.
-
-### 📷 [Daniel, B661 — NATIVE, BATCHES WITH THE VITALS PLUGIN] iPAD CANNOT SEE EXTERNAL CAMERAS
-
-Long-deferred and re-raised: the web app enumerates a USB webcam, the Capacitor build cannot. **Confirmed by reading the plugin:** `fold-native-camera` discovers only `.builtInUltraWideCamera` / `.builtInWideAngleCamera` / `.builtInTelephotoCamera` filtered by `position`, and exposes **no list method at all** — `pluginMethods` is start/stop/exposure/zoom/WB/focus/photo. There is nothing for JS to call, so this cannot be fixed on the JS side.
-
-**What it needs:**
-- A `listCameras` method running `AVCaptureDevice.DiscoverySession` with **`.external`** (iPadOS 17+, covers USB/UVC webcams) and **`.continuityCamera`**, at `position: .unspecified` — external devices report no position, so the current position filter would exclude them even if the types were listed.
-- `start` to accept a `deviceId` so a discovered device can be selected, rather than only lens + facing.
-- A JS picker in camera settings, and the `?url` param / Lab entries that come with it.
-
-**⚠️ CONTINUITY CAMERA TO AN iPAD IS UNVERIFIED AND MAY NOT EXIST.** Apple documents Continuity Camera with Mac and Apple TV as the receivers; an iPhone acting as a camera *for an iPad* is not something to promise. **The enumeration answers it for free** — once `listCameras` exists, the DiscoverySession either returns a continuity device or it does not, which is a runtime probe rather than a guess. Ship the enumeration, then report what the device actually says.
-
-### ✅ [SHIPPED B663 — the plugin half. The three batched items below are still OPEN] THE iOS DEVICE-VITALS PLUGIN
-
-**The JS half shipped at B660** (`conduit/vitals.js`, the panel's session recorder, both chromes). The `native` seam is wired and returns null everywhere, which is recorded as `nativeReadings: false` rather than looking healthy. **What is missing is the reading itself, and it is the arc's largest instrumentation hole:** confirmed by grep, there is NO thermal and NO memory reporting anywhere in the three native plugins, while `BROADCAST-DELIVERY.md` names memory at 4K as the one open risk.
-
-**What to add, behind `env.host.vitals()`:**
-
-- `ProcessInfo.processInfo.thermalState` + **`thermalStateDidChangeNotification`** — transitions with timestamps, not a level.
-- **`os_proc_available_memory()`** — headroom before jetsam. **The conserved quantity**: a boundary we do not own, and the thing that actually ends a long run.
-- `phys_footprint` via `task_info`/`TASK_VM_INFO` — what we cost. Recorded, never concluded from on its own.
-- `didReceiveMemoryWarning` — an event that must publish itself, or a jetsam kill is indistinguishable from a random crash.
-
-**A NEW small plugin (`fold-device-vitals`), not bolted onto `fold-native-video`.** Vitals have to work when no video is loaded — the exhibit case may be camera-driven — and coupling them to the video plugin means the instrument disappears in half the scenarios worth measuring. It is also a **conduit** concern by Daniel's own framing: every future consumer app wants device vitals, and `conduit/pressure.js` already has the `native:` hook waiting for exactly this shape.
-
-**✅ SHIPPED B663:** the plugin, the `host.vitals` seam declared in `conduit/host.js`, the retirement of the duplicate `host.thermalState()` call, thermal/memory-warning pushes wired to breadcrumbs on both chromes, and `take:arm` carrying the wall + source resolutions and clip length. **Awaiting an Xcode build to read anything.**
 
 ### 🔁 [T9, 2026-08-19 — MEASURED, NOT FIXED] THE LOOP CACHE CANNOT COVER A LONG 4K CLIP'S WRAP
 
@@ -897,9 +442,99 @@ Daniel's recollection was *"we tested increased sizes and ran into stability and
 
 **The genuinely cheapest move is still pre-roll** — start opening the next item earlier so the gap shrinks at source. No extra memory, no dimension change, no capability guess.
 
+### 🧨 [HIGH — Daniel, B607] THE BAKE THROWS "encoding task did not complete", AND ONCE CRASHED THE APP
 
+**🔄 THE PATTERN INVERTED AT B609, and Daniel's data is what inverted it.** It is **not** "the first attempt fails". Two fresh sessions in a row had their **first** bake succeed uneventfully; the failure came on the **second bake within a session**, and that time the app went fully unresponsive with the bake UI frozen.
 
-### 🎚 [T9, 2026-08-19 — THE GOVERNOR QUESTION, NOW WITH A CLEAN DEMONSTRATION]
+**So it is not something held at startup and released by a failed attempt. It is something a completed bake does not release.** That is a better diagnostic and it points at the bake's own teardown rather than at app startup state.
+
+**⚠️ One confound to separate, and it costs nothing:** a **GL context loss happened between the good bake and the bad one** in that session. So the precondition might be the context loss rather than the preceding bake. **Cheap discriminator, no code: do a second bake in a session where nothing was lost.** If it still fails, it is bake teardown. If it succeeds, the context loss is the trigger and this item merges into the GPU-process cluster.
+
+**(superseded B609)** ~~every FIRST attempt fails and every SECOND succeeds~~. Seen on **FHD as well as 4K**, so "4K memory pressure" is too narrow and remains retracted as the framing.
+
+`encoding task did not complete` is not our string — it is WebCodecs. At bake time the app holds: the native decode, the Loop Builder's two preview `<video>` elements, the thumbnail image generator — and then asks for two WebCodecs readers plus an encoder. **iOS limits concurrent sessions, and B501 was the same shape.** The session audit in `PLAN-LIVE-READINESS.md` item 2 is where this gets answered.
+
+**Cheapest thing to try:** release what the bake does not need before it starts (the preview elements, and possibly the native decode, which the bake does not read from) rather than leaving them loaded.
+
+Twice in one session on 4K, and **the second time the app genuinely restarted** — the Loop Builder closed and the uploaded clip was dropped, while the external display still showed the "baking … in Loop Builder" notification. A retry in the same session succeeded both times, so it is intermittent rather than deterministic.
+
+**Same theme as everything else at 4K: memory.** A bake runs two WebCodecs readers over a 4K file beside the native decode and (as of B605) a ~94MB head cache. Supersedes the narrower B603 filing of the same string.
+
+**Two things worth doing regardless of root cause**, because a crash mid-bake currently loses the user's work: **the uploaded source should survive an app restart**, and **the external display's "baking…" notification must clear** when the bake dies rather than persisting into a dead state.
+
+### 🔁 [OPEN — Daniel, B605] THE SLICE PREVIEW STALLS FROM THE LOOP POINT TO THE CROSSFADE
+
+**Consistent repro:** Loop Builder, seamless (slice) loop, preview or bake step, while playing. After the playhead passes the cut point at the end and returns to the beginning, **nothing plays until the playhead reaches the crossfade, where it flickers and resumes.** The baked output is correct, so this is the preview's phase machine and not the bake.
+
+**Checked at B606 — neither recent change is implicated.** B604's forward-seek is in `createSequentialFrameReader`, which the **bake** uses and the preview does not (`startSlicePreview` drives `<video>` elements directly). B602's playhead fix is in `updateSrcScrub`, a different element from the Loop Builder's bar.
+
+**More detail (Daniel, B606):** it plays fine the **first** time through, and fine after a manual scrub-and-play before the crossfade. **It stalls only after the loop.** At the crossfade there is a flicker, and **the fading-OUT side stays frozen while the incoming side moves** — so it is the B-tail element that is not running after a lap, not the phase machine's timing.
+
+**Where to look:** `startSlicePreview`'s phase machine and the A/B pre-roll in `clip-editor.js` — the B-head keeps `vB` pre-seeked to `inA`, and the resume condition is `v.currentTime >= inA + cfSec - 0.06`. A stall that ends exactly at the crossfade points at that condition or at the pre-roll seek not having landed. **Also worth ruling out decoder contention**: the slice preview runs two `<video>` elements beside the native decode, and three concurrent sessions is the shape of B501.
+
+### 🧨 [OPEN — Daniel, B603] BAKE FAILED WITH "Decoding task did not complete" AT ~3/4
+
+A 30s seamless loop taken from the **middle** of a long FHD clip, roughly three quarters through the bake. Not reproduced since; the same trim taken from the head of the file baked cleanly.
+
+**No root cause.** The string is not ours, so it comes from WebCodecs or AVAssetImageGenerator. **Plausibly a symptom of the forward-walk fixed at B604** — that path held a decoder open for minutes decoding frames it discarded, which is exactly the shape that trips a decode watchdog. If it recurs after B604, it is its own bug and needs the failure percentage and whether the trim was mid-file.
+
+### 🎚 [OPEN — Daniel, B594] THE LOOP BUILDER'S CROSSFADE PREVIEW CANNOT KEEP UP ON M1 AT 4K
+
+The crossfade preview stutters and pauses on the M1 iPad Pro. **The bake itself is correct** — the preview drives two occluded decoders over the same 4K file in real time, which the bake does offline and at its own pace.
+
+Daniel's call on the fix: **fix it if it is cheap, otherwise guard the expectation.** A warning on the crossfade step saying the *preview* may stutter on this device and the baked loop will still be correct. Preferable to silently looking broken.
+
+Cheap avenues before conceding: preview the crossfade at a reduced resolution (it is judging a dissolve, not detail), or pre-roll both readers before the seam instead of seeking into it live.
+
+### 🔎 LIKELY CLOSED — A 4K CLIP HOLDS A FRAME FOR A FEW BEATS ON EVERY LOOP RESTART (Daniel, B580). **T10 measured 8 wraps at a 6ms worst gap. One look confirms and closes it.**
+
+In-app, no broadcast needed. Daniel filed this as *"fixed a long time ago and has come back."*
+
+**⚠️ IT WAS NEVER FIXED (history checked at B605, on Daniel's ask).** No build ever closed it:
+
+- **B487** — first report, on the `<video>` path, filed as a watch item with *"should vanish under S3-A's seamless native `AVPlayerLooper`"*. **A prediction, not a fix.**
+- **B490** — re-test: happens **100% of the time on 4K sources, including a 12.6s baked seamless loop.**
+- **B491** — fixed the external-view **seek thrash**, a different and much worse stutter. Its own verify still asked *"does the trimmed-clip loop still lurch every lap?"*, so it was open then.
+- **B498-B506** — S3-A shipped AVPlayerLooper. Nothing ever verified the prediction.
+- **B580** — re-reported as a regression.
+
+**Why it feels new: we made everything around it smooth.** Before B590 the broadcast was clocked by the app's rAF at ~20-25/s, where a 150ms hold is three frames of an already-choppy stream. B590 took delivery to 29-30/s with `fresh p50 33ms`. **A fixed 150ms defect becomes conspicuous exactly when its surroundings stop being noisy.** Nothing in the B593-B604 session could have introduced it — it is measured inside the plugin, before any of our JS runs, on both loop mechanisms, at 4K and FHD identically.
+
+**Standing lesson: a predicted fix filed as a watch item reads like a closed item three months later.** If we predict a fix, the prediction gets a verification step or it stays open.
+
+**⚠️ THE "SEEK TO ZERO" PREMISE IS FALSE ON THE NATIVE PATH (B595/B596).** `rewinds: 0, suppressed: 0` — our rewind never fires on a full-range trim, and AVPlayerLooper wraps the item without any seek at all. Whatever this is, it is not a seek cost. See the B596 loop item above; the live question is `takeGapMs`.
+
+**✅ ONE OF THE FOUR MAY BE OFF THE LIST.** The intermittent "loads but will not play" has a concrete candidate mechanism as of B597: `FoldNativeVideo.stop()`'s staging purge racing the next `beginUpload`, which stages a clip into a file that is then deleted, with writes still succeeding. Fixed from both sides. **If it stops recurring, that symptom is closed and this cluster is three.**
+
+---
+
+## 📡 Broadcast, external display and the governor
+
+**The governor defaults OFF as of B701** — its display-signal premise is false, because an HDMI or external-window view renders in its own process. It is kept, not deleted, for the NDI investigation, where the premise does hold. `BROADCAST-DELIVERY.md` is the answer sheet for this whole family.
+
+### 📺 PiP-DURING-BROADCAST POLICY — `conduit/governor.js` · ⚠️ HEADER STALE: THE GOVERNOR DEFAULTS **OFF** SINCE B701
+
+Daniel weighed two approaches: **always hide the PiP during any broadcast**, or **hide/starve it only when the device is actually struggling**.
+
+**Recommendation: the measured one, and we already own every piece of it.**
+
+- **The blanket rule breaks the case Daniel himself flagged.** "The PiP is redundant to the external display" is true for HDMI and **false for Syphon and NDI**, where there is no second screen in the room and the PiP is the only view of the program. A blanket rule would blind the operator in exactly the destination he named as a concern.
+- **It also contradicts the arc's governing rule.** An M3 iPad Pro may run both comfortably; a device-agnostic "always hide" is classification by fiat, and CAPABILITIES §1 is probe, never classify.
+- **The mechanism exists.** B543 already ships a governor rule that starves the PiP for 4K capture, with a pre-warning (B555) so it is never a surprise. B559 added **`shortfall`** — an honest absolute "we are not hitting target". The rule is: *while broadcasting, if shortfall stays above a threshold for a couple of seconds, step the PiP down (rate, then resolution, then off) and say why.* Hysteresis so it cannot oscillate; restore when the broadcast stops.
+- **Measured stakes on the M1 iPad at 4K:** `preview render` 14.36ms + `pip render` 9.91ms = **24.3ms of a 44ms frame.** The PiP alone is ~23% of the budget. **Prefer the broadcast over the app** (Daniel's call), so the preview should be on the same ladder — his 100/75/50 rungs were measured for this.
+- **Pairs with:** the adaptive-preview-resolution proposal filed under the B506 entry. These are one piece of work, not two.
+
+### 🟠 THE GOVERNOR'S BOTTOM RUNG SHOULD STARVE THE SECOND VIEW, NOT SLOW IT (Daniel, B575)
+
+At the bottom rung the second view runs at 5fps and Daniel's read is that **it is more distracting than helpful at that rate** — a monitor below some threshold stops reading as live and starts reading as broken. B528 found the same floor from the other direction on the phone PiP (10Hz was kept as the default "because a monitor below that stops reading as live").
+
+**So the last rung should be OFF with a stated reason, not 5fps.** That also matches the arc's own rule that 25% was reserved as an honest distress signal rather than a quality rung. Product decision, already made; needs implementing plus a visible "second view paused to protect the broadcast" state so it never looks like a failure.
+
+### 🔌 [2026-08-21 — HARDWARE, NOT AN APP LIMIT] THE APPLE A1621 DONGLE IS UNRELIABLE ON THE DELL P2415Q
+
+Daniel, during T10: the A1621 (USB-C multiport) drops the connection to the Dell 4K panel, while a plain USB-C to HDMI cable on the **same display and same iPad** works fine. **Recorded so a future flaky-HDMI session does not get spent debugging the app.** Power delivery through the dongle held steady throughout the 50-minute run; it is the display link that is unreliable. Untested against a projector, which is the more common real use.
+
+### 🎚 [T9, 2026-08-19 — SUPERSEDED BY THE B701 DECISION, KEPT AS THE DATA BEHIND IT] THE GOVERNOR SHOULD BE SCOPED TO BUS DESTINATIONS
 
 `PLAN-LIVE-READINESS.md` item 3 argues the governor should be scoped to bus destinations because it watches the display and the display rarely has a shortfall. **T9 is that argument as data:**
 
@@ -911,6 +546,223 @@ preview rate 1 → 22.73ms/frame     pip rate 1 → 11.47ms/frame     app 15fps
 **The wall was flawless and the app was at half its target, and the governor correctly did nothing** — it is not watching the thing that is suffering. By Daniel's rubric that is defensible (*"dropping to poor fps in app is acceptable"*). **But 34ms/frame of editor cost is a free lever**, and the operator is the one looking at the 15fps UI.
 
 **The decision this sharpens:** the governor's signal should probably be *per-surface-class* rather than one global choice — shed EDITOR surfaces on app shortfall, shed PROGRAM surfaces only on display shortfall. That is a different change from "scope it to bus destinations" and may supersede it.
+
+### 🔬 [OPEN — B593] DOING LESS APP WORK MAKES THE BROADCAST WORSE, AND WE CANNOT SEE WHY
+
+The panels-off case, now that B592's counter exonerates state posts (**4650 elided vs 859 sent, `ownClock: true`, delivery still 29/s → 20/s**):
+
+| | app fps | app accounted | delivered |
+|---|---|---|---|
+| panels on | 19.0 | 30.95ms | **29/s** |
+| panels off | **35.3** | **3.81ms** | **20/s** |
+
+**The app got 8x cheaper and 1.9x faster, and the wall lost a third of its frames.** Nothing on the measured list explains it — with the panels off the app's own loop free-runs at 35fps, and the only shared resource left is the GPU process both webviews sit on.
+
+**Leading hypothesis: the app's rAF loop rate itself is the competitor**, independent of what it draws. If so the lever is a **frame-rate cap on the app's loop while broadcasting** — categorically different from shedding surfaces, and it would explain why every shedding experiment failed.
+
+**Cheap test, no code:** the app has no rate cap today, but the governor's rate ladder throttles surface renders while the loop keeps spinning. **A/B a deliberate cap (e.g. rAF every other frame) against the current free-run, panels off, and watch delivery.** If delivery recovers, that is the real lever and the governor should be rebuilt around it rather than deleted.
+
+**⚠️ THIS CHANGES THE CONSOLIDATION DECISION.** Do not delete the governor until this is answered — its machinery may be repurposable, and "shed surfaces" being wrong does not mean "throttle the app" is.
+
+### 🔁 [MED — B590, partly answered B591] RE-TEST THE GOVERNOR'S FUTILITY RESULT UNDER A CONTROLLED PROTOCOL
+
+**▶ B591 UPDATE: partly answered, and against the governor.** Daniel's controlled panels-off run delivered **18/s vs 24-26/s with the panels on** — shedding the editor surfaces made the broadcast *worse*, not merely useless. So the futility conclusion was directionally right even if its measurement was confounded. The open question is no longer "does shedding help" but item 1 above: whether the governor should exist at all now.
+
+B583 and B584 both concluded **"shedding the editor surfaces does not move the delivered rate"**, and the governor now acts on that conclusion by releasing at the bottom rung. **Both measurements were taken on a hot device with an enlarged slice, comparing before against after across time — the same uncontrolled setup that produced B587's false "QHD is slower" result**, which Daniel's slice-size callout later demolished.
+
+There is also now a mechanism predicting shedding SHOULD help: B590 found delivery was gated by the app's frame rate, and the editor surfaces are ~24ms of a 40ms frame.
+
+**Re-run under the B589 protocol** (cold start, fixed slice, A/B/A) using the frame-cost panel's manual surface toggles. No code needed. If shedding does help, `futileGain` and the whole futility branch need revisiting — a false negative there means the governor gives up exactly when it would have worked.
+
+### 🔒 CONSTRAINT: OUTPUT RESOLUTION IS A CONTRACT WITH THE DOWNSTREAM CONSUMER (Daniel, B583)
+
+**A destination can be expecting a fixed frame size, and changing it mid-broadcast breaks the composition rather than the frame rate.** Daniel's case is **Syphon/NDI into Resolume Arena**, where the incoming source's dimensions set the scale of the comp: degrade the resolution to buy fps and the projection is now the wrong size on the wall, mid-show. **So there are real circumstances where poor fps is the better outcome and resolution must not degrade automatically.**
+
+This does NOT prohibit degrading under duress; it prohibits doing it *silently on a contracted path*. Design implications when the honest-guardrail work (close-out step 4) lands:
+
+- **Separate the two mechanisms.** An **HDMI/AirPlay external window** has no downstream consumer with a fixed expectation, so the size is ours to choose. Syphon/NDI publish into someone else's graph and are not. **⚠️ CORRECTION (B585): the "we may be oversampling a 2560 panel" version of this is DEAD.** Daniel's display is a real 4K panel (Dell P2415Q, 24"). The `preferredMode`/`nativeBounds` 2560×1440 reading was the per-device iOS quirk [FoldExternalDisplayPlugin.swift:178](../native-plugins/fold-external-display/ios/Sources/FoldExternalDisplayPlugin/FoldExternalDisplayPlugin.swift#L178) already warns about. **Dropping to 2560 IS broadcasting at QHD.** Shipped B585 as an operator choice with a measured recommendation.
+- On a contracted path, prefer **telling the operator** ("this device sustains ~20fps at 4K") over changing the frame size under them. That is the same "explain, don't silently degrade" rule as B555 and the governor's paused-panel label.
+- If we ever do offer it there, it should be an explicit operator choice with the tradeoff stated, not an automatic rung — and ideally at **broadcast start**, when nothing downstream is locked in yet.
+
+### 🚨 THE RESOLUTION LADDER IS THE WRONG LEVER FOR A 4K SOURCE (Daniel, B571) — this changes the governor
+
+**The most important measurement of the arc, and it invalidates the design I just shipped.** Daniel drove the ladder by hand during a 4K→4K HDMI broadcast:
+
+| state | app fps | on display |
+| --- | --- | --- |
+| preview + PiP at 100% | 21-23 | 29-31 |
+| preview + PiP at 25% | **unchanged** | unchanged |
+| preview + PiP OFF entirely | 34-38 | **visibly choppier** |
+
+And the number that explains it: **`preview render` costs 16.53ms at 822×462 — 0.38 megapixels.** Same signature as the 9.91ms PiP at 402×226. **The cost is sampling the 8.29MP 4K source texture, not writing the output pixels**, so shrinking the output changes nothing. B506 already named this ("the kaleidoscope is TEXTURE-BANDWIDTH-BOUND at 4K") and the governor was built on the other assumption anyway.
+
+**Three consequences:**
+1. **A resolution ladder cannot govern this workload.** Stepping preview/PiP down their ladder is a no-op at 4K. The governor's actuator has to be *skipping the render* (or dropping its rate), not scaling it — the levers that worked were B542's elision and B528's rate limit, both of which cut CALLS rather than pixels.
+2. **Turning surfaces off made the DISPLAY worse while making the app's number better** — a 34-38fps app with choppier output. That gap is its own finding: the app's fps and what lands on the wall are not just different numbers, they can move in opposite directions. **Anything that governs on app fps alone can make the product worse while reporting success.** The governor should watch the `external` surface's own rate when one exists.
+3. **The source-detail cap is the lever that actually applies** (`setPlanarCap`) — it shrinks the sampled texture, which is the thing being measured. It is already wired and nothing consults it.
+
+**✅ FIXED B571 (the reason the governor never fired at all):** the pressure target was declared only for a take or a live camera, so a video CLIP reported `target: 0` and the governor skipped every tick. It now takes the decoder's arrival rate — the `29.8 in/s` the source note has shown all along — snapped to a common rate so it cannot re-learn the baseline every window.
+
+**✅ CONFIRMED FROM A SINGLE REPORT, B574 — no cross-build inference needed.** The governor fired, walked to its bottom rung, and produced the clean measurement:
+
+| surface | output pixels | cost |
+| --- | --- | --- |
+| preview | 585×329 = **0.19 MP** | **21.93 ms** |
+| pip | 141×79 = **0.011 MP** | **12.07 ms** |
+
+**17x fewer pixels, 55% of the cost.** A line through those two points implies **~11.5ms of fixed cost per editor surface per frame** plus ~54ms/MP. Inside the governor's operating range, shrinking a surface to a seventeenth of its area removes under half its cost, and a surface at zero pixels would still cost 11.5ms. **A resolution ladder cannot remove a fixed per-draw cost.**
+
+Caveat kept honest: `gpuMsPerFrame: 0` everywhere (no WebKit timer queries), so per-surface attribution is CPU wall-clock on a pipeline that blocks unpredictably. **The conclusion survives it for a different reason: a skipped render costs zero wherever the time lands, while a smaller render demonstrably does not.**
+
+**✅ SHIPPED B575 — the rate ladder** (`[[1,1],[1,2],[2,4],[3,6]]` as `[primary, secondary]` divisors; secondary ranked by AREA because it flips by mode; phase-staggered; deferred-not-dropped for the on-demand preview). Details in CHANGELOG B575. **Unverified on device — the open question is whether the DISPLAY improves, which the resolution ladder never did.**
+
+**▶ WHAT B575 DELIBERATELY DID NOT DO, still open:**
+1. **The resolution ladder was REMOVED from the governor rather than kept as a later rung.** Daniel's A/B showed no steadiness difference at 4K, so keeping it would have been carrying a lever with no evidence. **But 54ms/MP is not nothing at FHD**, where the fixed per-draw cost is smaller relative to the variable one, and that case is unmeasured. If FHD broadcast ever shows shortfall, re-measure before assuming rate is the only lever there too. Manual scale control stays in the panel either way.
+2. **The governor still watches APP fps, not the `external` surface's own rate** (consequence 2 above — turning surfaces off made the app's number better and the display worse). This is the one that can still make the product worse while reporting success. **Do this before trusting the governor unattended.**
+3. **`setPlanarCap` is still the untried lever** (consequence 3) — it shrinks the sampled texture, which is the term that actually dominates at 4K. Wired since B518 and nothing consults it. **If the rate ladder also fails to move the display, this is the next thing to try, and the fact that it attacks a different term is why.**
+4. **The fifth-rung problem is sidestepped, not solved.** Ranking by area gives the right answer for preview-vs-PiP in both modes, but it is a proxy for Daniel's declared `source → stage → live PiP` order rather than an expression of it. A third editor surface would expose the difference.
+
+### 🟠 THE EXTERNAL DISPLAY STAYS GRAY UNTIL YOU PLAY OR SCRUB (Daniel, B575)
+
+Starting a broadcast shows nothing on HDMI until the timeline moves, **even though the PiP already has a picture.** A paused program still has a frame, and showing black instead of it reads as a broken connection.
+
+**And for the first time we have the external view's own account of it**, because B573 fixed `extLogs` on this path:
+
+```
+[fold ext] joined port 8900 but no frames yet — the decode may be stalled
+```
+
+**The view joined the socket and no frame was ever posted.** So this is not a render fault at the far end; nothing was sent. Likely the poster only publishes on a change and there is no initial post at broadcast start. Cross-ref the standing "external display starts dark and PAUSED on a fresh broadcast" item from B565 — **this is probably the same bug with a mechanism now attached**, and it may also relate to the 25-45s source-switch lag.
+
+### 🟢 THE JUDDER IS SPECIFIC TO 4K SOURCE **AND** 4K OUTPUT (Daniel, B579 smoke test)
+
+4K source → FHD output: fine. FHD source → 4K output: fine. **Only 4K→4K.**
+
+Useful because it says **both terms contribute and neither alone crosses the threshold.** The source size drives the view's texture sampling (B506: the kaleidoscope is texture-bandwidth-bound) and the output size drives its fill cost; one render stays under the ~33ms budget with either halved and goes over with both at 4K. That is consistent with the B579 saturation mechanism and it also predicts where the residue will be if coalescing does not fully close it.
+
+### 🔴 iPAD NDI + 4K READBACK — the async readback is NOT working on iPad (Daniel, B569)
+
+From a 4K NDI broadcast on the M1 iPad, with a FHD source:
+
+```
+bus  capture: async   readback 31.43ms/frame (max 33)   render 1.86ms
+```
+
+**`capture: async` yet 31.43ms.** On desktop, B521 took the same 4K readback from 19.48ms to **0.87ms** with the pipelined path — a 22x win that made 4K/60 Syphon comfortable. On iPad the mode string says the pipeline is selected and the cost says it is behaving like a blocking `readPixels`.
+
+**This is very likely the whole explanation for the NDI choppiness** Daniel has reported for two arcs (`~30fps` in the output panel, `~48` in the frame-cost panel, and visibly stop/start in Arena). 31.43ms of a 76ms frame is the single largest item, and the start/stop pattern is what a stalling readback produces while the reported render rate stays healthy.
+
+- **▶ FIRST THING TO CHECK:** whether `clientWaitSync` on WebKit ever reports the fence as signalled. B519's original bug was exactly this shape on Chromium (the busy-wait could not observe a signal arriving via the event loop) and B521 fixed it by yielding between polls. **If WebKit never signals, the pipeline silently falls back to a sync read every frame while still reporting `async`** — and the mode string would then be lying, which is its own bug (the note was added at B520 precisely so a reading like this would be interpretable).
+- **Instrument before fixing:** report the fence outcome (signalled / timed-out / abandoned) in the bus note, the way the capture mode already is. A count of pipeline misses per window would settle it in one reading.
+- **Cross-ref** the standing "iPad NDI drain — STUTTER PERSISTS after UYVY" item, which this may simply be the cause of.
+
+### 🎛️ iPAD 4K HDMI SESSION — four findings (Daniel, B565)
+
+Baking a seamless 4K loop on an M1 iPad was **uneventful** (that closes a long-standing worry). Broadcasting it found four things.
+
+- **✅ PARTLY ADDRESSED B565 — the output panel advertised 29-32fps while the frame-cost panel read 21.6.** Both numbers were correct: the external view self-renders off the frame socket on its own clock (30 new/s arriving, 26 drawn), so it legitimately outruns the app's editor loop. **The dishonesty was the missing label** — a bare "fps" in the output panel reads as the app's frame rate. It now says `26 fps on display · app 22` when the two diverge materially. **What remains open is the underlying gap**, below.
+- **🔴 [HIGH] The iPad's editor surfaces are the wall, confirmed again and worse at 4K.** From the report: **`preview render` 14.36ms (1.57MP) + `pip render` 9.91ms (0.09MP) = 24.3ms of a 44ms frame**, against a `source` upload of 4.14ms for the full 8.29MP 4K texture. **A 402×226 PiP costing 9.91ms is the arc's signature finding again — the cost tracks the 4K SOURCE being sampled, not the tiny destination.** This is B516's number (preview 13.41 + PiP 9.0) reproduced at 4K, and it is the concrete case for **adaptive preview resolution on mobile** (the proposal already filed under the B506 entry). Daniel's ladder (100 → 75 → 50) was measured for exactly this.
+- **🔴 [HIGH] The external display starts DARK AND PAUSED on a fresh broadcast** — he had to scrub the timeline and press play before anything appeared. Distinct from (and sharper than) the existing "stale/latent at session start" entry: it is not slow, it is *paused*. Pairs with the standing **"broadcasting in MOTION mode plays even when paused"** bug — the same transport-state desync, seen from the other side. **The external view is not being told the transport state at broadcast start.**
+- **🔴 [HIGH] Opening the output panel PAUSES PLAYBACK when a mic is selected.** The level meter opens its own `getUserMedia` whenever the panel is open, and on iOS acquiring an audio input changes the AVAudioSession category, **interrupting video playback**. Opening a panel should never stop the program, and this is worst exactly where it matters — mid-broadcast. **Options:** do not auto-acquire the meter while a broadcast or playback is live (meter on demand); acquire once and hold it for the session rather than per-panel-open; or configure the audio session so capture and playback coexist (likely needs the native plugin). **Cross-ref: the meter's separate `getUserMedia` is already filed as a thing to unify with the take's.**
+- **🟠 [MED] Play/pause desyncs after a system-forced pause**, in BOTH the Loop Builder and perform. The transport stops for an external reason, the button still reads "pause", and resuming needs two taps. **The button reflects intent rather than the transport's actual state** — it should follow the `<video>`/decoder's real playing state (a `play`/`pause`/`ended` listener), not the last thing the user asked for. Same family as the external-display transport desync above; worth fixing together.
+
+---
+
+## 🎛 Input, forms, gestures and droste
+
+**Item 1.5 closed at B657**; everything here is a refinement of shipped behaviour or a deliberate deferral, not a hole in it. The exit report below groups what the arc left open. **⚠️ Two chromes share no `env`, and `source-overlay.js` has a third private `view`** — see `CLAUDE.md` before touching anything both surfaces use.
+
+### 📋 ITEM 1.5 EXIT REPORT — everything the slice/input arc left open, grouped (2026-08-18 docs)
+
+**Daniel's ask:** *"we were going to file an exit report on 1.5 capturing known issues... even though this doc should prob go into archive it will be a helpful paper trail that may help us identify when and how certain issues were introduced."*
+
+**Nothing here is new** — every item was filed as it was found. What was missing is that they were scattered in build order, so the shape of what the arc left behind was invisible. This is an INDEX, not a move: the entries keep their detail where they are. **Archive this section with the arc; keep the entries.**
+
+**Arc scope, for the record:** builds 635-662 — the geometry flip and fold (B635-B645), the crossfade (B642-B652), rig portability (B649-B651), the unified zoom and stage C (B655-B657), and the instrumentation that opened phase 2 (B660-B662). Item 1.5 closed at B657.
+
+---
+
+**A. INPUT / CONTROL BUS — the arc's own subject, and what it did not finish**
+- `slice position x/y` still address the ORIGIN, not the box centre (below) — the last named 1.5 sub-item, carried out deliberately as semantics rather than architecture.
+- **Locks do not block MIDI / gamepad input** — a lock that holds for one hand and not the other. Carries a persistence decision that overlaps stage manager.
+- **Rig portability: MIDI still keys on port name**, so a MIDI rig remains non-portable across OSes; and an import that cannot bind still looks like it loaded fine.
+- Should a momentary button default to `rate`?
+
+**B. SLICE GEOMETRY / FOLD — shipped behaviour with known edges**
+- **The reachability trade-off** (B659): a very large radial wedge can have its origin pushed off screen with nothing pulling it back. Daniel is living with it deliberately. **The note there names the wrong fix explicitly**, which is the point of filing it.
+- **Droste with mirroring OFF** can put the origin on-source with no slice on-source. Working as designed; filed so it is not re-reported.
+- Second-order reflections; onion-skin trail under the fold; **companion video + slice overlay under the fold is UNVERIFIED.**
+
+**C. PLATFORM EDGES — intermittent, low, watch rather than chase**
+- Firefox cursors over the source (intermittent, likely fixed B648, unconfirmed).
+- iPad gesture-surface latency (instrument-first, never instrumented).
+
+**D. NATIVE WORK, BATCHED INTO ONE XCODE CYCLE — the arc's real debt**
+- The **device-vitals plugin** (thermal + memory headroom). **The single largest instrumentation hole**, and phase 2 is already blocked on it: every run so far reports `nativeReadings: false`.
+- **`listCameras`** for external/USB cameras on iPad.
+- Plus the two instrument fixes: `loopCache.coveredMs` under-reporting, and the manual `scenario` tag.
+
+**E. DEFERRED BY DECISION, NOT BY OVERSIGHT**
+- **Stage manager / per-mode state** — parked with Daniel's own straw man recorded.
+- Colour management — named as new-feature-shaped, belongs with stage manager.
+
+---
+
+**⚠️ THE PATTERN WORTH CARRYING FORWARD, since a paper trail is the point.** The arc's recurring defect was **one behaviour with two implementations**, and it appeared SEVEN times: droste's overlay missing `sizeNorm` (B614), radial's polygon missing `canvasNorm` (B618), the overlay missing `canvasOffset` (B612), the centring hook reaching only one chrome (B619), six copies of the transition default (B622), `env.panDrift` covering one of two joysticks (B620), and the slice-scale clamp written six times at three different maxima (B657). **Two more arrived as fresh instances during the arc itself** — B653's ruler re-implementing the scrub instead of calling it, and B638's flag set on the wrong `env`-shaped object. It is not a hypothesis; it is the shape of this codebase's bugs, and `CLAUDE.md` now leads with it.
+
+### 👁 [Daniel, B694 — WATCH ITEM, HIS CALL] OUTPUT BRIEFLY DOUBLE-EXPOSES AFTER AN AGGRESSIVE ZOOM-OUT + PAN
+
+*"zoom way out on the canvas, pan aggressively, use the slice overlay on the source to zoom back in. upon doing so the output quickly flickers showing two videos overlaid on top of each other."* Does not reproduce consistently. **Daniel filed it as a watch item explicitly; do not spend a device session on it until it recurs.**
+
+**⚠️ HIS DIAGNOSTIC IS THE VALUABLE PART AND IT NARROWS THIS ENORMOUSLY.** *"capturing a screenshot on device renders only a clean single image but i took a photo of my ipad screen on the iphone that looks like a double exposure."*
+
+A screenshot captures the composited framebuffer; a camera integrates light across several refreshes. **Clean screenshot + doubled photo means two DIFFERENT images were on the display within one exposure — temporal alternation, not a corrupted frame.** That rules out, without a device:
+
+- the shader, the fold, the geometry, the source texture, the planar path — **anything that would corrupt a single frame would appear in the screenshot too.**
+
+**Killed by reading:** the classic double-buffer flicker (a rate-gated frame that returns without drawing, leaving the other buffer visible). `engine/gl.js` sets `preserveDrawingBuffer: true`, so a skipped render leaves the previous content intact. Not this.
+
+**What remains, and it is a real structural candidate: TWO VISIBLE SURFACES SHOW DIFFERENT LOOKS OF THE SAME VIDEO IN PERFORM MODE.** `main.js:646` renders raw `state` to the main canvas, while `perform-runtime.js:529` renders `env.performRT.followed` to `#livePipCanvas`. During an aggressive pan the follower lags the state by a lot, so the two surfaces genuinely hold two very different frames. `#clipBlend` is a second stacked canvas worth eliminating too.
+
+**▶ IF IT RECURS, THESE THREE FACTS RESOLVE IT AND NOTHING ELSE IS NEEDED:** was PERFORM mode active; is the doubled region the WHOLE frame or a sub-rectangle; and does it survive with the live PiP closed.
+
+### 🧭 [Daniel, B694 — REPRODUCED AND EXPLAINED, DELIBERATELY NOT FIXED] RESETTING THE CANVAS LEAVES THE SLICE TINY
+
+*"zoom out using the canvas, zoom back in using the slice, reset canvas, reset slice. result is that the slice ends up being quite tiny... conceptually feels like the right trade off, to not edit both slice and canvas when only resetting one. but in practice it feels unexpected."*
+
+**Reproduced numerically** (`scratchpad/quirk.mjs`), and the cause is the unified zoom's overflow:
+
+```
+0. defaults              canvasZoom 1.000  sliceScale 1.000  box extent 0.633
+1. zoom out on canvas    canvasZoom 0.050  sliceScale 2.000  box extent 25.312
+2. zoom in on the slice  canvasZoom 0.050  sliceScale 0.350  box extent 4.430
+3. reset canvas          canvasZoom 1.000  sliceScale 0.350  box extent 0.221   <-- the tiny slice
+```
+
+`applyUnifiedZoom` is canvas-PRIMARY with overflow: once `canvasZoom` pins at `Z_CANVAS_MIN = 0.05` the remaining zoom spills into `sliceScale` (up to the form's `zoomCover`). Zooming back in **via the slice overlay** then reduces `sliceScale` directly while `canvasZoom` stays pinned at the floor. Reset canvas restores `canvasZoom` and leaves `sliceScale` where the user left it, so the slice is now about a third of default. **Daniel's own reading of the tradeoff is correct — this is reset canvas doing exactly and only its job.**
+
+**⚠️ ONE PART DOES NOT REPRODUCE AND SHOULD NOT BE ASSUMED:** he reports needing a SECOND reset to correct it. In simulation `resetSliceState` is idempotent and the first call restores the default extent exactly (0.633). Either a real-app path (the anchor, the fold, or the overlay drag writing more than `sliceScale`) is involved, or the repro differs from what was modelled. **Establish that before building anything.**
+
+**His proposed fix is the right instinct and needs provenance we do not have.** *"maybe we consider normalizing the slice size as part of zooming to reset canvas from an extreme?"* We cannot currently tell how much of `sliceScale` was spilled there by the canvas gesture versus set deliberately by the user on the slice. The shape would be a spill accumulator written ONLY by `applyUnifiedZoom`'s overflow branches and consumed by reset canvas.
+
+**Not built, on a risk read:** it introduces provenance state into a zoom path that took several builds to stabilise (B563, B611, B612, B657), and it has to stay invisible to presets, motion keyframes and the perform follower or it becomes a fourth thing that can desync. The current behaviour costs one extra click and is recoverable. **Revisit only if it bites during a real set.**
+
+### 📌 [B694 — ACCEPTED, NOT A BUG] TWO CONSEQUENCES OF REMOVING THE PAN BOUND
+
+Filed so a future session does not "fix" them. Daniel accepted both explicitly: *"we're talking about support for an edge case because the main use case of just being able to gesture and pan and pinch intuitively and pan around within a few wraps feels constrained."*
+
+- **Past ~20 fold units the centre cannot be found by zooming out.** Canvas zoom floors at `Z_CANVAS_MIN = 0.05`, which shows a fold radius of 20. `action:panRecenter` (B694) is the way home.
+- **A long drift at deep zoom-out quantises visibly after ~45 minutes.** float32 loses the screen-relative variation in `p -= offset`; ~4px blocks at offset 40,000. Degrades smoothly, never crashes.
+
+**The fix for both exists and was deliberately dropped.** The offset is exactly periodic past 3 fold units (offset O and O+P differ by ~1e-15, P = `4/(sliceScale × sizeNorm)`), so wrapping would make drift unbounded AND keep the centre reachable. Revisit only if long-form drift becomes a real use case; it would need a `sliceScale`-change recompute, a mirror-mode gate, and validation against the real shader rather than the isolated model.
+
+### 🎯 [B619 → carried out of item 1.5 at B657] `slice position x/y` STILL ADDRESS THE ORIGIN
+
+The mapping targets `sliceCx` / `sliceCy` write the slice ORIGIN, but since B616 the app's model is the BOX CENTRE — which is what a drag moves, what `placeSliceBox` solves for, and what the fold bounds. **So a fader on slice position means something different from what your hand does**, which is the one-behaviour-two-surfaces class this arc keeps paying for.
+
+**Filed here rather than held open in the plan (B657):** it is a semantics correction to two targets, not architecture, and keeping item 1.5 open for it misrepresents where the input work actually stands.
+
+**Implementable without a special case** — B619 added the `write` hook, so the target can write through `placeSliceBox` the way `segments` writes through its setter. Small.
 
 ### 🌀 [OPEN — Daniel's question, 2026-08-19] DROSTE IS CENTRED AS A CIRCLE, NOT AS ITS VISIBLE WEDGE
 
@@ -930,36 +782,6 @@ Two boxes, two questions: `formBoxCenter` (origin-seeded, `buildPolygon`) answer
 
 **Do NOT fix it by pointing `formBoxCenter` at `ghostPaths`** — that is the collapse the note above forbids, and it would re-open the drag-off-canvas bug. The fix, if wanted, is for droste to declare an HONEST `buildPolygon` that tracks arms while still containing the origin, so both consumers stay correct. **That is a droste geometry change with its own verification pass, not a tidy-up.**
 
-### 🖥 [OPEN — Daniel, 2026-08-19] THE PERMIT WORK IS PLATFORM-NEUTRAL. THE LIMITS ARE NOT.
-
-Daniel: *"is this iOS only or does this work carry over to electron... ideally our architecture could support an M1 iMac just as well as an M1 iPad."*
-
-**What already carries, with no further work:**
-- **`conduit/sessions.js` is platform-neutral** and registers in shared code. `createEngine` is the same function on every target, so GL contexts are counted on Electron, web and iOS alike.
-- **The Finding A fix is in `shell/source-host.js`, which is the DESKTOP chrome** — the one Electron, the browser and the iPad all run. The orphaned decoder was leaking on macOS too; it just had the headroom to hide it.
-
-**What does NOT carry, and must not be assumed:**
-- **The native decode path is iOS-only.** The 8s deadline, the frame socket and the double-decode fallback have no Electron equivalent — Electron plays a `<video>` and the output window opens a second one. **Structurally the same two-decoders-one-clip shape, without the hard OS cap.**
-- **The ceiling itself.** iOS kills the GPU process; macOS mostly just gets slower. **Same architecture, different failure mode**, so a threshold measured on the iPad must never be copied to the desktop as a limit.
-
-**The open work, and it is small:**
-1. **Wire the Electron/output-window second decoder into the registry** the way the external view's is — `output-view.js` runs in both, so most of this is already done; confirm rather than assume.
-2. **Run T7 on the desktop build** and record `sessions.peak` there. **We have never had a desktop number** — B479's "watch Electron desktop HDMI for the same wall under heavy video" has been open since.
-3. **Keep ONE computed ladder, not two code paths.** The rung is a measured fps and a session count; the M1 iMac and the M1 iPad differ in what they can sustain, not in how we decide. **This is the whole reason the gate must be computed** — a device table would need a row per machine and would still be wrong on the next one.
-
-**⚠️ SESSION AUDIT STEPS 3 AND 4 ARE THE OPEN HALF (B681 shipped 1 and 2).**
-- **Step 3 — shed before acquiring at the three unguarded transitions**: change source while broadcasting, enter perform mid-broadcast, arm a take during a broadcast. **The precedent exists and works**: the Loop Builder and the bake post a `notice` to the external view, which tears down its own decoder outright *"because a 4K bake and a 4K external render at the same time is what restarted the app"*. It was simply never extended to the other three.
-- **Step 4 — gate**, using the live count rather than a device table. See the capability-ladder item.
-- **⚠️ Do step 3 only after a B681 report shows real numbers.** The audit says what the code CAN hold; a shed rule written against what it can hold rather than what it does is a guess with a table in it.
-
-**⚠️ STILL OPEN, and they were meant to ride the same Xcode cycle — they did NOT get built:**
-- ~~`loopCache.coveredMs` under-reports coverage by one frame interval (Swift), so its `why` advises raising a budget that is already sufficient.~~ **✅ FIXED B684** — it was reporting `last.pts`, a timestamp rather than a duration. Now `(lastPts - firstPts) + frameInterval`, shared with the `why` so reading and advice cannot disagree.
-- ~~`listCameras` for external/USB cameras on iPad.~~ **✅ SHIPPED B684**, end to end (Swift enumeration + `deviceId` selection + JS seam + a `camera source` row). Needs an Xcode build.
-- The `scenario` tag is a manual dropdown and read `idle-still` during a 4K broadcast at B609, which invalidates any baseline diff from that session. Wants a guard that notices it disagrees with what is running.
-  - **⚠️ PROMOTED 2026-08-19 — IT HAS NOW COST A SECOND COMPARISON, AND THE SECOND ONE IS EXPENSIVE.** A clean 40-minute T7 came back with the battery flat where the previous run drained 22.5%/hr, **and the report cannot say which power path or which video path it used.** The list in `shell/perf-panel.js` (`SCENARIOS`) has **no AirPlay entry at all**, so an AirPlay broadcast is necessarily filed as `hdmi-broadcast`. Forty minutes of device time is now pending an answer no instrument recorded. **Derive the tag from the live destination** (`selectedDest()` already knows) and let the dropdown override rather than originate. Do this before the next power run.
-
-**First use, before any long run:** `pressure.js` shipped inert on purpose, *"to find out whether the inferred signal actually tracks the native one, BEFORE anything starts degrading the app based on it."* Native thermal is what makes that check possible — and it matters beyond iOS, because the inferred drift signal is all the desktop arm will ever have.
-
 ### 🔒 [Daniel, B655 — DESIGN ITEM, DELIBERATELY NOT BUILT] LOCKS DO NOT BLOCK MIDI / GAMEPAD INPUT
 
 *"Currently our settings locks don't block MIDI/gamepad inputs. e.g. if the form selection input is locked in the app, the dualsense gamepad can change forms without any resistance."*
@@ -978,7 +800,7 @@ Daniel: *"is this iOS only or does this work carry over to electron... ideally o
 
 **Related:** this is arguably the first concrete instance of item 1.5 stage C (ownership and handoff) showing up as a *product* question rather than a jerk — "which input owns this field" and "may this input write this field at all" are the same question asked twice.
 
-### 🎯 [Daniel, B659 — SHIPPED, ONE CONSEQUENCE AWAITING HIS LONG-TERM READ]
+### 🎯 [Daniel, B659 — SHIPPED, ONE CONSEQUENCE AWAITING HIS LONG-TERM READ] THE FOLD MEASURES REACHABILITY, SO A HUGE RADIAL WEDGE CAN PUSH ITS ORIGIN OFF SCREEN
 
 The fold's trigger now measures REACHABILITY (`max(inter/span, inter/viewSpan)`) rather than "what fraction of the slice is visible", which was meaningless once a slice outgrew the view. Radial was the only form that could expose it, because its wedge extent is `1 / (canvasZoom × canvasNorm)` and so grows without bound on zoom-out.
 
@@ -986,7 +808,7 @@ The fold's trigger now measures REACHABILITY (`max(inter/span, inter/viewSpan)`)
 
 **If it turns out to be wrong, the fix is NOT to reinstate a span-only test** — that reintroduces the exact bug. The lever would be an origin-specific affordance (e.g. an on-screen indicator of which direction the origin lies, or a "bring origin back" action), which addresses reachability of the ORIGIN without lying about reachability of the SLICE.
 
-### 📎 [Daniel, B653 — WORKING AS DESIGNED, RECORDED SO IT IS NOT RE-REPORTED AS A BUG]
+### 📎 [Daniel, B653 — WORKING AS DESIGNED, RECORDED SO IT IS NOT RE-REPORTED AS A BUG] DROSTE UNMIRRORED CAN PUT THE ORIGIN OVER THE SOURCE WITH NONE OF THE SLICE ON IT
 
 With mirroring OFF, droste can reach a state where the **origin is over the source but none of the slice is**. Daniel: *"since the origin is still interactable i'd flag this as a known quirk that's working by design vs a bug."*
 
@@ -1004,14 +826,6 @@ Agreed, and the reason is structural rather than incidental. **The fold only exi
 - **MIDI still keys on `slug(input.name)`**, and port names differ per OS, so a MIDI rig remains non-portable across platforms. The B651 picker is the manual escape hatch; there is no MIDI equivalent of the vendor+product pair to canonicalise on, so this may be as good as it gets without a fingerprint built from the port's control surface.
 - **A rig referencing a device that is not connected still looks like it loaded fine.** The import path says nothing, and the operator finds out by noticing an offline row. An import that named what it could not bind — and offered the re-home there and then — would close the loop the B651 picker currently only reopens after the fact.
 - **Row-level re-home** (drag one mapping to another device) — deliberately skipped at B651 in favour of the device-level move, since the reported case was 24 rows at once. Worth adding only if a mixed rig turns up in practice.
-
-### 🖱 [Daniel, B647→B648] FIREFOX: CURSORS OVER THE SOURCE ARE PLAIN ARROWS — INTERMITTENT, LIKELY FIXED
-
-Firefox only; Brave is fine. **The symptom discriminates and it points AWAY from the cursor art:** if the SVG data-URI failed to load, Firefox would fall back to the keyword in each declaration (`move`, `ew-resize`, `ns-resize`) — visibly different cursors. A plain ARROW is `default`, which is what `cursorForMode` returns when `classifyPointer` yields `mode: null` — and that happens when `sourceOverlayCanvas._geom` is missing.
-
-**▶ B648 FOUND A REAL MECHANISM AND FIXED IT — but it is unconfirmed as THE cause.** Daniel's follow-up that it stopped reproducing is what pointed the way: an encoding failure is deterministic, so intermittency argues for lifecycle. The overlay's change gate could skip a draw on a freshly re-mounted canvas (signature unchanged → no draw → `_geom` never written → every hit test null → `default` cursor), and it would stay that way until an unrelated value moved. The gate now refuses to skip when there is no cached geometry.
-
-**▶ B649 — Daniel: *"hasn't repo'd and this seems to have been a one of state issue. i'll watch it."*** Left open at LOW rather than closed, because the fix is unconfirmed and a bug that stopped reproducing is not a bug that was proven fixed. **If it recurs on B648+**, the discriminator still stands: any resize-style cursor over the outline means the cursor ART is failing; a plain arrow everywhere means hit-testing, and the next place to look is why `_geom` is stale rather than absent.
 
 ### 🐢 [B636→B640, Daniel] iPAD GESTURE-SURFACE LATENCY — UX POLISH
 
@@ -1037,7 +851,7 @@ Daniel asked whether a held button can send continuous input like a joystick. **
 
 The open question is whether `rate` should be the DEFAULT for a momentary button on a continuous target. It would suit droste infinite zoom and canvas zoom; it would be wrong for anything people tap once. Wants Daniel's call, not a guess.
 
-### 🎬 [B636] COMPANION VIDEO + SLICE OVERLAY UNDER THE FOLD — UNVERIFIED
+### 🎬 [B636 — ⚠️ UNVERIFIED FOR ~70 BUILDS] COMPANION VIDEO + SLICE OVERLAY UNDER THE FOLD
 
 The one B635/B636 surface Daniel has not smoke-tested: the rendered companion video that burns the slice overlay in. It borrows `drawSourceOverlay` with `overlayStrokeScale` bumped, so it inherits the handedness and the reflected-origin dot for free **in principle** — but it renders from a state stream rather than live interaction, and nothing has watched a fold happen inside a recorded take.
 
@@ -1046,10 +860,6 @@ The one B635/B636 surface Daniel has not smoke-tested: the rendered companion vi
 ### 🌀 [B636] ONION-SKIN TRAIL: DROP vs RE-FOLD
 
 Shipped the conservative option — the trail clears on a fold, per Daniel's own recommendation. The alternative is to re-fold each ghost into the new frame, which keeps the history and makes the trail visibly bounce off the source edge exactly as the render did. More information, more to read. **Revisit only if losing the trail on every fold turns out to be the more annoying of the two.**
-
-### ✅ [SHIPPED B637] MOTION MODE LOCKS SLICE HANDEDNESS TO KEYFRAME 0
-
-Fixed by `alignSliceFrame` — keyframes are re-expressed in kf0's fold frame at the read points. Details in CHANGELOG v0.25.47. **The prediction in this entry was right about the difficulty and wrong about the conclusion:** recovering *which* reflection a keyframe came through is indeed impossible from the ±1 flag, but it turned out not to be needed — choosing the representative nearest kf0's sampled box gives both a correct picture and the shortest tween travel.
 
 ### ⌨️ [Daniel, B624] A MODIFIER / SHIFT LAYER FOR THE CONTROLLER — the honest answer to form switching
 
@@ -1071,23 +881,7 @@ His problem: five forms, four face buttons. Left-stick-press works but is *"an u
 
 Worth pairing with the modifier-layer item, since both are "the surface has run out of room" problems.
 
-### 🎛 [B621, Daniel's open question] CAN ONE BUTTON MEAN DIFFERENT THINGS ON DIFFERENT FORMS? — ✅ ANSWERED + SHIPPED B624
-
-**Yes, and it now works properly.** There was never a routing blocker (two rows could always share a signal) but there WAS a silent bug: the inactive form's parameter was being written anyway. B624 gates on the form's own `controls` array and dims the declining row. Detail in CHANGELOG B624. **The legibility caution below still stands and is now partly addressed by the dimming.**
-
-His framing: *"e.g. dpad arrows could control droste thickness on droste form and segments on radial wedge. that's a bad e.g. bc we'd want segment controls mapping to both, but you understand the Q?"*
-
-**Two mechanisms, and choosing between them per control is the actual design work.**
-
-**1. SEMANTIC ROLES — preferred wherever a meaning transfers.** Already how `segments` and `canvas zoom` work: one target, `resolve(state)` picks the per-form key and range, so the button needs no reprogramming and the operator's mental model stays "this is the segments button". **His own counter-example proves the rule** — segments *should* map to both, and it already does. **Default to this. Reach for a conditional only when the meanings genuinely do not correspond.**
-
-**2. FORM-CONDITIONAL ROWS — needed for the genuine case** (droste thickness has no radial counterpart). The mechanism is nearly free: `onSignal` already applies EVERY row matching a signal, so two rows can share a button today — they just both fire. Adding an optional `when form is X` filter per row is a small change to `applyMapping`.
-
-**The real cost is not code, it is legibility mid-set.** A button whose meaning depends on invisible state is how an operator loses the plot under lights. **If this ships, the mapping row must show its condition, and inactive rows must be visibly inactive** — the input panel already flashes rows on activity, so the affordance exists.
-
-**Not scheduled.** Worth raising with Daniel as a product decision once the stage-C ownership work lands, since "which input owns this field right now" and "which row is live right now" are the same question wearing two hats.
-
-### 🔭 [B612 DIG — three of Daniel's four droste invariants now have MECHANISMS]
+### 🔭 [B612 DIG — three of Daniel's four droste invariants now have MECHANISMS] WHAT MAKES DROSTE DRIFT, AND WHICH LEVER OWNS EACH
 
 **1. ✅ ROOT-CAUSED — "you should never be able to zoom non-proportionally to the slice overlay."**
 `overlay.js` and `geometry.js` reference `canvasOffset` **nowhere**. The overlay is computed from `sliceCx/Cy`, `sliceScale`, `sliceRotation`, `sizeNorm` and the source aspect only.
@@ -1146,18 +940,6 @@ B611 clamps the non-lattice case to ±1, which bounds the damage without resolvi
 
 **Options:** per-form offset storage; convert on switch (wrap into the old form's period first, so the carried value is the smallest equivalent); or declare pan non-carrying and reset it on a form change. **Stage A/C of the input plan.**
 
-### ✅ [FIXED B610] ONE OF TWO DROSTE RUNAWAY ROUTES WAS A STRAY TOUCH (the other was B611's, above)
-
-**⚠️ THE ENTRY BELOW DIAGNOSED THE WRONG BUG. Daniel corrected it: he was NOT in autoplay.** Both are real; only one was his.
-
-**The actual cause:** a pinch's scale ratio is anchored to the two fingers' **starting separation**, with no floor on it ([output-gestures.js](../src/components/output-gestures.js)). A palm, a thumb catching the glass, or a fast two-finger tap gives a `startDist` of a few pixels, so `log(dist / startDist)` hands the follower a target dozens of loops away — or a **non-finite phase, which an unwrapped accumulator never recovers from for the rest of the session.** Fits every detail of the report: no autoplay, no deliberate gesture, touch-only, sudden, and sticky once entered.
-
-**Fixed:** separation floored at 40px (≈ the narrowest deliberate pinch), plus a `Number.isFinite` guard on the phase write. **Only droste was ever exposed** — the non-droste path is incremental and bounded by `applyUnifiedZoom`'s [0.05, 4] wall.
-
-**Checked and cleared while hunting this:** `loopLog()` divides by `log(drosteZoom)`, which looked like an explosion risk at low thickness. It is correct by construction — a pinch of ratio R yields exactly R of visual zoom at any thickness, which is why the pinch reads accurate throughout.
-
-**Still open, same family:** two-finger ROTATION has the same tiny-separation exposure (`atan2` on near-coincident touches is noisy). Bounded rather than unbounded, so it degrades instead of exploding, but it could ride the same floor.
-
 ### ♾️ [MED — Daniel, B609; NOT the runaway he hit] AUTOPLAY'S ZOOM MEANS THE FOLLOWER NEVER SETTLES
 
 **Symptom (Daniel, B609, iPad gesture perform mode):** *"our infinite zoom control actually got locked into an infinite loop... the accumulated follow just kept following and following forever."* No repro steps known at report time.
@@ -1189,330 +971,9 @@ B611 clamps the non-lattice case to ±1, which bounds the damage without resolvi
 
 Class 1. Look at the perform engine's `setPlanarSource` / first `updateSourceFrame` ordering, and at whether the PiP engine's reader can return a frame before its textures are sized. **Last member of the source-switch cluster still without a root cause.**
 
-### 🧨 [HIGH — Daniel, B607] THE BAKE THROWS "encoding task did not complete", AND ONCE CRASHED THE APP
-
-**🔄 THE PATTERN INVERTED AT B609, and Daniel's data is what inverted it.** It is **not** "the first attempt fails". Two fresh sessions in a row had their **first** bake succeed uneventfully; the failure came on the **second bake within a session**, and that time the app went fully unresponsive with the bake UI frozen.
-
-**So it is not something held at startup and released by a failed attempt. It is something a completed bake does not release.** That is a better diagnostic and it points at the bake's own teardown rather than at app startup state.
-
-**⚠️ One confound to separate, and it costs nothing:** a **GL context loss happened between the good bake and the bad one** in that session. So the precondition might be the context loss rather than the preceding bake. **Cheap discriminator, no code: do a second bake in a session where nothing was lost.** If it still fails, it is bake teardown. If it succeeds, the context loss is the trigger and this item merges into the GPU-process cluster.
-
-**(superseded B609)** ~~every FIRST attempt fails and every SECOND succeeds~~. Seen on **FHD as well as 4K**, so "4K memory pressure" is too narrow and remains retracted as the framing.
-
-`encoding task did not complete` is not our string — it is WebCodecs. At bake time the app holds: the native decode, the Loop Builder's two preview `<video>` elements, the thumbnail image generator — and then asks for two WebCodecs readers plus an encoder. **iOS limits concurrent sessions, and B501 was the same shape.** The session audit in `PLAN-LIVE-READINESS.md` item 2 is where this gets answered.
-
-**Cheapest thing to try:** release what the bake does not need before it starts (the preview elements, and possibly the native decode, which the bake does not read from) rather than leaving them loaded.
-
-Twice in one session on 4K, and **the second time the app genuinely restarted** — the Loop Builder closed and the uploaded clip was dropped, while the external display still showed the "baking … in Loop Builder" notification. A retry in the same session succeeded both times, so it is intermittent rather than deterministic.
-
-**Same theme as everything else at 4K: memory.** A bake runs two WebCodecs readers over a 4K file beside the native decode and (as of B605) a ~94MB head cache. Supersedes the narrower B603 filing of the same string.
-
-**Two things worth doing regardless of root cause**, because a crash mid-bake currently loses the user's work: **the uploaded source should survive an app restart**, and **the external display's "baking…" notification must clear** when the bake dies rather than persisting into a dead state.
-
-### 🔁 [OPEN — Daniel, B605] THE SLICE PREVIEW STALLS FROM THE LOOP POINT TO THE CROSSFADE
-
-**Consistent repro:** Loop Builder, seamless (slice) loop, preview or bake step, while playing. After the playhead passes the cut point at the end and returns to the beginning, **nothing plays until the playhead reaches the crossfade, where it flickers and resumes.** The baked output is correct, so this is the preview's phase machine and not the bake.
-
-**Checked at B606 — neither recent change is implicated.** B604's forward-seek is in `createSequentialFrameReader`, which the **bake** uses and the preview does not (`startSlicePreview` drives `<video>` elements directly). B602's playhead fix is in `updateSrcScrub`, a different element from the Loop Builder's bar.
-
-**More detail (Daniel, B606):** it plays fine the **first** time through, and fine after a manual scrub-and-play before the crossfade. **It stalls only after the loop.** At the crossfade there is a flicker, and **the fading-OUT side stays frozen while the incoming side moves** — so it is the B-tail element that is not running after a lap, not the phase machine's timing.
-
-**Where to look:** `startSlicePreview`'s phase machine and the A/B pre-roll in `clip-editor.js` — the B-head keeps `vB` pre-seeked to `inA`, and the resume condition is `v.currentTime >= inA + cfSec - 0.06`. A stall that ends exactly at the crossfade points at that condition or at the pre-roll seek not having landed. **Also worth ruling out decoder contention**: the slice preview runs two `<video>` elements beside the native decode, and three concurrent sessions is the shape of B501.
-
-### 🧨 [OPEN — Daniel, B603] BAKE FAILED WITH "Decoding task did not complete" AT ~3/4
-
-A 30s seamless loop taken from the **middle** of a long FHD clip, roughly three quarters through the bake. Not reproduced since; the same trim taken from the head of the file baked cleanly.
-
-**No root cause.** The string is not ours, so it comes from WebCodecs or AVAssetImageGenerator. **Plausibly a symptom of the forward-walk fixed at B604** — that path held a decoder open for minutes decoding frames it discarded, which is exactly the shape that trips a decode watchdog. If it recurs after B604, it is its own bug and needs the failure percentage and whether the trim was mid-file.
-
-### 🎚 [OPEN — Daniel, B594] THE LOOP BUILDER'S CROSSFADE PREVIEW CANNOT KEEP UP ON M1 AT 4K
-
-The crossfade preview stutters and pauses on the M1 iPad Pro. **The bake itself is correct** — the preview drives two occluded decoders over the same 4K file in real time, which the bake does offline and at its own pace.
-
-Daniel's call on the fix: **fix it if it is cheap, otherwise guard the expectation.** A warning on the crossfade step saying the *preview* may stutter on this device and the baked loop will still be correct. Preferable to silently looking broken.
-
-Cheap avenues before conceding: preview the crossfade at a reduced resolution (it is judging a dissolve, not detail), or pre-roll both readers before the seam instead of seeking into it live.
-
-### 🔬 [OPEN — B593] DOING LESS APP WORK MAKES THE BROADCAST WORSE, AND WE CANNOT SEE WHY
-
-The panels-off case, now that B592's counter exonerates state posts (**4650 elided vs 859 sent, `ownClock: true`, delivery still 29/s → 20/s**):
-
-| | app fps | app accounted | delivered |
-|---|---|---|---|
-| panels on | 19.0 | 30.95ms | **29/s** |
-| panels off | **35.3** | **3.81ms** | **20/s** |
-
-**The app got 8x cheaper and 1.9x faster, and the wall lost a third of its frames.** Nothing on the measured list explains it — with the panels off the app's own loop free-runs at 35fps, and the only shared resource left is the GPU process both webviews sit on.
-
-**Leading hypothesis: the app's rAF loop rate itself is the competitor**, independent of what it draws. If so the lever is a **frame-rate cap on the app's loop while broadcasting** — categorically different from shedding surfaces, and it would explain why every shedding experiment failed.
-
-**Cheap test, no code:** the app has no rate cap today, but the governor's rate ladder throttles surface renders while the loop keeps spinning. **A/B a deliberate cap (e.g. rAF every other frame) against the current free-run, panels off, and watch delivery.** If delivery recovers, that is the real lever and the governor should be rebuilt around it rather than deleted.
-
-**⚠️ THIS CHANGES THE CONSOLIDATION DECISION.** Do not delete the governor until this is answered — its machinery may be repurposable, and "shed surfaces" being wrong does not mean "throttle the app" is.
-
-### 🧹 [HIGH — Daniel, B591] CONSOLIDATION: THE FPS ARC LEFT LEVERS IN THE CODE THAT WE HAVE SINCE DISPROVED
-
-Daniel: *"our frame loss diagnostic is littered with the residue... lots of experiments we've determined aren't helpful so the controls and code to wire these up is probably cruft."* He is right. Each item below is a measured negative still carrying live code:
-
-1. **🚨 B590 INVERTS THE GOVERNOR'S PREMISE.** It sheds editor surfaces to protect the broadcast; **the broadcast no longer depends on them.** Worse, Daniel's B590 panels-off run shows shedding now *hurts* delivery (24-26/s → 18/s). **Left armed it will degrade a live show before the futility release pulls it back.** Decide: retire it, or repurpose it to protect the APP's responsiveness — a different goal needing a different signal. **Daniel's call, not ours.**
-2. **The resolution/scale ladder is dead** (B574: 17x fewer pixels, 55% of the cost) and still fully wired — `scaleLadder`, `onScale`, `setSurfaceScale`, plus the panel's scale controls on every surface.
-3. **Slice-overlay governing is vestigial.** B576 excluded it permanently as DECOR; it still declares a ladder and reports zeros forever.
-4. **`foldHdmiVideoUncap` is a confirmed no-op** on the single-decode path (B586) and still renders a warning about a mechanism that no longer exists.
-5. **The frame-cost panel carries settled conclusions as open questions** — several readouts exist to answer things now answered.
-
-**Sequenced AFTER the loop-restart stall** (Daniel is hitting that in normal use and calls it visually disruptive), because this is hygiene and that is a defect.
-
-### 🔁 [MED — B590, partly answered B591] RE-TEST THE GOVERNOR'S FUTILITY RESULT UNDER A CONTROLLED PROTOCOL
-
-**▶ B591 UPDATE: partly answered, and against the governor.** Daniel's controlled panels-off run delivered **18/s vs 24-26/s with the panels on** — shedding the editor surfaces made the broadcast *worse*, not merely useless. So the futility conclusion was directionally right even if its measurement was confounded. The open question is no longer "does shedding help" but item 1 above: whether the governor should exist at all now.
-
-B583 and B584 both concluded **"shedding the editor surfaces does not move the delivered rate"**, and the governor now acts on that conclusion by releasing at the bottom rung. **Both measurements were taken on a hot device with an enlarged slice, comparing before against after across time — the same uncontrolled setup that produced B587's false "QHD is slower" result**, which Daniel's slice-size callout later demolished.
-
-There is also now a mechanism predicting shedding SHOULD help: B590 found delivery was gated by the app's frame rate, and the editor surfaces are ~24ms of a 40ms frame.
-
-**Re-run under the B589 protocol** (cold start, fixed slice, A/B/A) using the frame-cost panel's manual surface toggles. No code needed. If shedding does help, `futileGain` and the whole futility branch need revisiting — a false negative there means the governor gives up exactly when it would have worked.
-
-### 🌡️ [MED — B588, scoped down B589] THE SAME WORK GETS MORE EXPENSIVE OVER A SESSION — LOAD-DEPENDENT, SO CONTROL FOR IT
-
-**▶ B589 UPDATE: not the crisis it first looked like.** The 40% climb below came from a session with an **enlarged slice** running hot. B589's controlled pair (cold start, default slice) drifted only ~5% and produced a perfectly clean result. **Standing protocol for any A/B from here: cold start, fixed slice, and note the elapsed time in the report.** That is enough; a full warm-up-and-settle harness is not needed yet.
-
-Found while running the 4K-vs-QHD test. At **identical surface geometry**, within one sitting:
-
-| | `preview render` | `pip render` | accounted |
-|---|---|---|---|
-| baseline | 11.68ms | 12.68ms | 27.68ms |
-| 4K arm (~164s in) | 13.08ms | 7.63ms | 25.29ms |
-| QHD arm (~254s in) | **16.30ms** | 10.75ms | **32.85ms** |
-
-`preview render` rose **40%** at constant size. **Every cross-time A/B in this arc has therefore had an uncontrolled variable**, and it is a plausible explanation for how many of them came back ambiguous or reversed.
-
-**Leading hypothesis is thermal**, which we cannot confirm: `ProcessInfo.thermalState` reads null (see the thermal item), so the only signal is drift-based and drift is exactly what is in question. **Alternatives not ruled out:** accumulated GPU memory pressure, ledger overhead growth, a leak in one of the engines.
-
-**▶ THE CHEAP DISCRIMINATING TEST, and it should precede any further A/B: run the same comparison in the OPPOSITE order.** If the second arm is worse regardless of which resolution it holds, the variable is time. That result would mandate a warm-up-and-settle protocol (fixed dwell before sampling, and A/B/A rather than A/B) for everything downstream — which is a methodology fix worth more than any single measurement.
-
-### 🔒 CONSTRAINT: OUTPUT RESOLUTION IS A CONTRACT WITH THE DOWNSTREAM CONSUMER (Daniel, B583)
-
-**A destination can be expecting a fixed frame size, and changing it mid-broadcast breaks the composition rather than the frame rate.** Daniel's case is **Syphon/NDI into Resolume Arena**, where the incoming source's dimensions set the scale of the comp: degrade the resolution to buy fps and the projection is now the wrong size on the wall, mid-show. **So there are real circumstances where poor fps is the better outcome and resolution must not degrade automatically.**
-
-This does NOT prohibit degrading under duress; it prohibits doing it *silently on a contracted path*. Design implications when the honest-guardrail work (close-out step 4) lands:
-
-- **Separate the two mechanisms.** An **HDMI/AirPlay external window** has no downstream consumer with a fixed expectation, so the size is ours to choose. Syphon/NDI publish into someone else's graph and are not. **⚠️ CORRECTION (B585): the "we may be oversampling a 2560 panel" version of this is DEAD.** Daniel's display is a real 4K panel (Dell P2415Q, 24"). The `preferredMode`/`nativeBounds` 2560×1440 reading was the per-device iOS quirk [FoldExternalDisplayPlugin.swift:178](../native-plugins/fold-external-display/ios/Sources/FoldExternalDisplayPlugin/FoldExternalDisplayPlugin.swift#L178) already warns about. **Dropping to 2560 IS broadcasting at QHD.** Shipped B585 as an operator choice with a measured recommendation.
-- On a contracted path, prefer **telling the operator** ("this device sustains ~20fps at 4K") over changing the frame size under them. That is the same "explain, don't silently degrade" rule as B555 and the governor's paused-panel label.
-- If we ever do offer it there, it should be an explicit operator choice with the tradeoff stated, not an automatic rung — and ideally at **broadcast start**, when nothing downstream is locked in yet.
-
-### 🚨 THE RESOLUTION LADDER IS THE WRONG LEVER FOR A 4K SOURCE (Daniel, B571) — this changes the governor
-
-**The most important measurement of the arc, and it invalidates the design I just shipped.** Daniel drove the ladder by hand during a 4K→4K HDMI broadcast:
-
-| state | app fps | on display |
-| --- | --- | --- |
-| preview + PiP at 100% | 21-23 | 29-31 |
-| preview + PiP at 25% | **unchanged** | unchanged |
-| preview + PiP OFF entirely | 34-38 | **visibly choppier** |
-
-And the number that explains it: **`preview render` costs 16.53ms at 822×462 — 0.38 megapixels.** Same signature as the 9.91ms PiP at 402×226. **The cost is sampling the 8.29MP 4K source texture, not writing the output pixels**, so shrinking the output changes nothing. B506 already named this ("the kaleidoscope is TEXTURE-BANDWIDTH-BOUND at 4K") and the governor was built on the other assumption anyway.
-
-**Three consequences:**
-1. **A resolution ladder cannot govern this workload.** Stepping preview/PiP down their ladder is a no-op at 4K. The governor's actuator has to be *skipping the render* (or dropping its rate), not scaling it — the levers that worked were B542's elision and B528's rate limit, both of which cut CALLS rather than pixels.
-2. **Turning surfaces off made the DISPLAY worse while making the app's number better** — a 34-38fps app with choppier output. That gap is its own finding: the app's fps and what lands on the wall are not just different numbers, they can move in opposite directions. **Anything that governs on app fps alone can make the product worse while reporting success.** The governor should watch the `external` surface's own rate when one exists.
-3. **The source-detail cap is the lever that actually applies** (`setPlanarCap`) — it shrinks the sampled texture, which is the thing being measured. It is already wired and nothing consults it.
-
-**✅ FIXED B571 (the reason the governor never fired at all):** the pressure target was declared only for a take or a live camera, so a video CLIP reported `target: 0` and the governor skipped every tick. It now takes the decoder's arrival rate — the `29.8 in/s` the source note has shown all along — snapped to a common rate so it cannot re-learn the baseline every window.
-
-**✅ CONFIRMED FROM A SINGLE REPORT, B574 — no cross-build inference needed.** The governor fired, walked to its bottom rung, and produced the clean measurement:
-
-| surface | output pixels | cost |
-| --- | --- | --- |
-| preview | 585×329 = **0.19 MP** | **21.93 ms** |
-| pip | 141×79 = **0.011 MP** | **12.07 ms** |
-
-**17x fewer pixels, 55% of the cost.** A line through those two points implies **~11.5ms of fixed cost per editor surface per frame** plus ~54ms/MP. Inside the governor's operating range, shrinking a surface to a seventeenth of its area removes under half its cost, and a surface at zero pixels would still cost 11.5ms. **A resolution ladder cannot remove a fixed per-draw cost.**
-
-Caveat kept honest: `gpuMsPerFrame: 0` everywhere (no WebKit timer queries), so per-surface attribution is CPU wall-clock on a pipeline that blocks unpredictably. **The conclusion survives it for a different reason: a skipped render costs zero wherever the time lands, while a smaller render demonstrably does not.**
-
-**✅ SHIPPED B575 — the rate ladder** (`[[1,1],[1,2],[2,4],[3,6]]` as `[primary, secondary]` divisors; secondary ranked by AREA because it flips by mode; phase-staggered; deferred-not-dropped for the on-demand preview). Details in CHANGELOG B575. **Unverified on device — the open question is whether the DISPLAY improves, which the resolution ladder never did.**
-
-**▶ WHAT B575 DELIBERATELY DID NOT DO, still open:**
-1. **The resolution ladder was REMOVED from the governor rather than kept as a later rung.** Daniel's A/B showed no steadiness difference at 4K, so keeping it would have been carrying a lever with no evidence. **But 54ms/MP is not nothing at FHD**, where the fixed per-draw cost is smaller relative to the variable one, and that case is unmeasured. If FHD broadcast ever shows shortfall, re-measure before assuming rate is the only lever there too. Manual scale control stays in the panel either way.
-2. **The governor still watches APP fps, not the `external` surface's own rate** (consequence 2 above — turning surfaces off made the app's number better and the display worse). This is the one that can still make the product worse while reporting success. **Do this before trusting the governor unattended.**
-3. **`setPlanarCap` is still the untried lever** (consequence 3) — it shrinks the sampled texture, which is the term that actually dominates at 4K. Wired since B518 and nothing consults it. **If the rate ladder also fails to move the display, this is the next thing to try, and the fact that it attacks a different term is why.**
-4. **The fifth-rung problem is sidestepped, not solved.** Ranking by area gives the right answer for preview-vs-PiP in both modes, but it is a proxy for Daniel's declared `source → stage → live PiP` order rather than an expression of it. A third editor surface would expose the difference.
-
-### 🔴 RECORD + BROADCAST ON iPAD LOSES THE SOURCE AND THEN THE TAKE (Daniel, B571)
-
-Starting a take during a 4K HDMI broadcast: **source panel, stage panel and thumbnails all go dark** (Daniel: "akin to old context loss"), playback on the display gets *smoother*, stop does not save, and pausing the broadcast reports **`take FAILED: null is not an object (evaluat…`** with no recovery.
-
-**Two known bugs firing together, both already filed, now confirmed on iPad:**
-- **D3's signature exactly:** the report reads **`bus … capture: null`** with `readback` and `render` at **0 calls**. The bus is registered but not running and the capture probe never resolved to a mode. B549 fixed `failOutput` tearing down a `needsBus:false` destination; this is the same lifecycle defect from the other direction — arming the second consumer kills the first.
-- **The `decoderConfig.colorSpace` crash**, filed from B516 as an iPhone FHD failure, is not iPhone-specific. The take dies because the encoder's first chunk arrives without `decoderConfig` (or without `colorSpace`) and the muxer dereferences it unconditionally. **Guard the first-chunk path** — this is a small fix and it converts a lost take into a working one.
-- **The dark panels are NOT a governor degradation** (the governor was inert — `target: 0`). Daniel's read is right: it looks like context loss.
-
-**🎯 B574 ADDS THE MISSING HALF, and it moves the suspicion off the bus.** The take-failure report shows the `source` surface reading:
-
-```
-1280×720   "from canvas · native decode · 26.1 in/s"   refresh 0ms   upload 3.52ms
-```
-
-**No `planar` in that note, and the dimensions are `PREVIEW_CAP`.** So at the moment the take starts, the main engine has been knocked off the planar provider and is uploading `native-video.js`'s 1280-wide RGB *preview* canvas instead — which is the cross-context readback B518/B541 removed, silently back on, and the `refresh 0ms / upload 3.52ms` split is the fingerprint of exactly that swap.
-
-That reframes the bug. **`capture: null` on the bus may be a consequence rather than the cause**: something re-sources the engine when a take arms, and the dark source/stage/thumbnail panels are the same event seen from three other places.
-
-- **▶ FIRST SUSPECT — the filmstrip build.** `motion-runtime.js:1158` does `engine.setSource(still)` per cell with the comment *"retires the planar provider; restored below"*, and restores it in a `finally`. The **timeline going blank alongside the source** is exactly what an interrupted or half-finished filmstrip build looks like. Check whether arming a take invalidates the filmstrip signature and kicks a rebuild, and whether every exit from that loop truly restores the provider.
-- **▶ SECOND SUSPECT — `output-engine.js:112 syncSource`.** It re-`setSource`s the hidden bus engine when dimensions change, and it *holds* while `env.filmstrip.busy`. If a filmstrip build is in flight when the take arms, the bus engine skips its source sync for the duration — which would leave the capture probe with nothing to resolve against. That would tie `capture: null` and the dark panels to a single cause.
-- **▶ THE READING THAT SPLITS THEM:** publish `filmstrip.busy` and the planar state into the report. If `busy` is true at take-arm, it is the filmstrip; if it is false and planar is still gone, it is the take path re-sourcing directly. **One line in the export, one device run, no guessing.**
-- **Alternative reading to rule out first:** Daniel may simply have had a 720p clip loaded for that take. **The absence of `planar` is the load-bearing signal, not the resolution** — a natively-decoded 720p clip would still report `planar` — but confirm the source before building on it.
-
-**▶ DANIEL'S PRIORITY ORDER, recorded as the contract for every future degrade decision:**
-> **broadcast → recording → source → stage → live PiP**
-
-Note this refines the ledger's four tiers: `source` sits ABOVE the stage/preview, which the current `PRIORITY.PROGRAM/EDITOR` split does not express (source is PROGRAM at 90, preview and PiP are both EDITOR at 30, so nothing distinguishes stage from PiP). **The ladder needs a fifth rung or an explicit ordering within EDITOR.**
-
-### 🟠 THE EXTERNAL DISPLAY STAYS GRAY UNTIL YOU PLAY OR SCRUB (Daniel, B575)
-
-Starting a broadcast shows nothing on HDMI until the timeline moves, **even though the PiP already has a picture.** A paused program still has a frame, and showing black instead of it reads as a broken connection.
-
-**And for the first time we have the external view's own account of it**, because B573 fixed `extLogs` on this path:
-
-```
-[fold ext] joined port 8900 but no frames yet — the decode may be stalled
-```
-
-**The view joined the socket and no frame was ever posted.** So this is not a render fault at the far end; nothing was sent. Likely the poster only publishes on a change and there is no initial post at broadcast start. Cross-ref the standing "external display starts dark and PAUSED on a fresh broadcast" item from B565 — **this is probably the same bug with a mechanism now attached**, and it may also relate to the 25-45s source-switch lag.
-
-### 🔴 REGRESSION — A 4K CLIP HOLDS A FRAME FOR A FEW BEATS ON EVERY LOOP RESTART (Daniel, B580)
-
-In-app, no broadcast needed. Daniel filed this as *"fixed a long time ago and has come back."*
-
-**⚠️ IT WAS NEVER FIXED (history checked at B605, on Daniel's ask).** No build ever closed it:
-
-- **B487** — first report, on the `<video>` path, filed as a watch item with *"should vanish under S3-A's seamless native `AVPlayerLooper`"*. **A prediction, not a fix.**
-- **B490** — re-test: happens **100% of the time on 4K sources, including a 12.6s baked seamless loop.**
-- **B491** — fixed the external-view **seek thrash**, a different and much worse stutter. Its own verify still asked *"does the trimmed-clip loop still lurch every lap?"*, so it was open then.
-- **B498-B506** — S3-A shipped AVPlayerLooper. Nothing ever verified the prediction.
-- **B580** — re-reported as a regression.
-
-**Why it feels new: we made everything around it smooth.** Before B590 the broadcast was clocked by the app's rAF at ~20-25/s, where a 150ms hold is three frames of an already-choppy stream. B590 took delivery to 29-30/s with `fresh p50 33ms`. **A fixed 150ms defect becomes conspicuous exactly when its surroundings stop being noisy.** Nothing in the B593-B604 session could have introduced it — it is measured inside the plugin, before any of our JS runs, on both loop mechanisms, at 4K and FHD identically.
-
-**Standing lesson: a predicted fix filed as a watch item reads like a closed item three months later.** If we predict a fix, the prediction gets a verification step or it stays open.
-
-**⚠️ THE "SEEK TO ZERO" PREMISE IS FALSE ON THE NATIVE PATH (B595/B596).** `rewinds: 0, suppressed: 0` — our rewind never fires on a full-range trim, and AVPlayerLooper wraps the item without any seek at all. Whatever this is, it is not a seek cost. See the B596 loop item above; the live question is `takeGapMs`.
-
-**✅ ONE OF THE FOUR MAY BE OFF THE LIST.** The intermittent "loads but will not play" has a concrete candidate mechanism as of B597: `FoldNativeVideo.stop()`'s staging purge racing the next `beginUpload`, which stages a clip into a file that is then deleted, with writes still succeeding. Fixed from both sides. **If it stops recurring, that symptom is closed and this cluster is three.**
-
-### 🟠 THE PRESSURE TARGET CAN HALVE ITSELF UNDER LOAD, AND THAT IS CIRCULAR (Daniel's B580 report)
-
-One report reads `pressure: { target: 15, label: "warming up" }` on a 30fps clip while `srcArrive p50` is 30ms (i.e. ~33 arrivals/s, perfectly healthy). `videoWireFps()` snaps the measured arrival rate to 0/15/30/60/120, and a single slow sampling window drops it into the 15 bucket.
-
-**The failure is circular: struggling → a sampled window under 20/s → target halves to 15 → shortfall drops → the governor concludes we are fine.** Exactly the shape B559 split `shortfall` from `pressure` to avoid, reintroduced through the denominator instead of the numerator.
-
-**▶ The fix is to take the target from the CLIP's declared frame rate rather than the observed arrival rate**, since a clip's fps is a property of the file and does not degrade when we do. Observed arrival stays as the fallback for sources that cannot declare one.
-
-### 🚨🚨 IT IS THE WEBKIT **GPU PROCESS** CRASHING, NOT A GL CONTEXT LOSS (Daniel's Xcode log, B580)
-
-**This renames and re-scopes the entire context-loss cluster.** From `docs/temp/iPadConsoleLog-Aug10-01.txt`:
-
-```
-GPUProcessProxy::didClose:
-GPUProcessProxy::gpuProcessExited: reason=Crash
-WebProcessProxy::gpuProcessExited: reason=Crash
-GPUProcessConnection::didClose
-  → [fold] WebGL context LOST (live PiP)
-  → [fold] WebGL context LOST (preview canvas)
-```
-
-**The GPU process is shared across WebContent processes**, so its death takes every WebGL context in the app simultaneously — the app's preview and PiP, and the external view in its own WebContent process. That is why this has always presented as "the whole session broke" rather than "a canvas broke", and why source + stage + PiP go dark together.
-
-**So the target is not "recover from context loss" (B580 did that, and the log proves it worked). The target is why the GPU process runs out of resources.** Leading suspect is 4K memory across processes: preview engine + PiP engine + external view engine + 4K source textures + planar uploaders, all resident on one GPU process.
-
-- **▶ THIS SUPERSEDES** the "FHD→4K source switch causes context loss" framing below. Same phenomenon, correctly named.
-- **▶ It also reframes B382's long-standing external-display/GL-context cluster**, which has been open for dozens of builds under the wrong noun.
-- **▶ AND IT IS EXIT CRITERION 5 WORK**, not a side bug: "we can honestly rank how intensive each thing we do is" now has a hard failure mode attached. A GPU process that dies IS the resource ceiling, stated by the platform.
-- **Instrumentation we have:** `engine.glGeneration` (B580) counts restores and rides the source note, so a session that survived one is no longer silent.
-
-**▶ DANIEL'S QUESTION (B580): can we detect the per-device threshold in realtime, to warn and throttle? Answer: not by reading it, but yes by LEARNING it.**
-
-**What is not available, and will not be.** WebKit exposes nothing about GPU-process memory to JS. `performance.memory` is Chromium-only and reports the JS heap rather than GPU allocations. The GPU process is a *separate* process from our app, so even a native plugin calling `os_proc_available_memory()` measures the wrong process. **There is no realtime number to read.**
-
-**What we can do instead, and it is the arc's own governing principle (CAPABILITIES §1, probe never classify):**
-1. **Count what WE allocate**, which is arithmetic we fully control: source texture, planar planes, FBOs, per engine, plus the external view's own set. Publish it as `estGpuMB` per surface. It is an estimate of our contribution, not of the ceiling, and must be labelled as such.
-2. **Treat `webglcontextlost` as the ground truth**, because it is the device telling us it failed. `glGeneration` already counts it. **Record the WORKLOAD SIGNATURE at the moment of the loss** — source megapixels, output megapixels, engine count, broadcast on/off — and persist it per device.
-3. **Learn the ceiling from that.** A device that has died once at (4K source, 4K out, broadcast, PiP on) is a device that should be warned, or pre-degraded, before it gets there again. **We cannot predict the ceiling, but we can remember where the floor gave way**, which is enough for a guardrail and is exactly what exit criteria 3 and 5 ask for.
-
-**The honest limitation to state up front:** this learns from a crash. The first user on a new device still hits it. That is a real cost and it is why (1) matters as well: our own footprint estimate, compared across devices that HAVE crashed, is what turns one device's experience into a prediction for others.
-
-### 🔴 TWO DISTINCT CRASHES, DO NOT CONFLATE THEM (same log)
-
-- **Crash A — WebContent dies immediately after the FIRST `frameAt` on a fresh 4K clip, with no context loss anywhere before it.** The still generator. This is the standing B519 CRITICAL wearing its most severe face, and it is unrelated to the GPU-process story.
-- **Crash B — GPU process crash → contexts lost → restored correctly at 4K → ~10s healthy → WebContent dies.**
-- **A third load in the same session succeeded and ran normally** (many `frameAt` calls, seeks, pause/resume), so neither is deterministic on load. **Do not sharpen either from one session** (the standing rule after B573's cold-start theory).
-
-### 🟠 THE EXTERNAL VIEW IS THROWING A SHADER-COMPILE LOOP (Daniel's B579 reports, `extLogs`)
-
-**The first error `extLogs` has ever carried**, so B573's republish fix earning its keep a second time.
-
-```
-[fold ext] uncaught: Error: compile failed @ .../test-pattern-*.js:111
-[fold ext] uncaught: TypeError: Argument 1 ('shader') to WebGL2RenderingContext.shaderSource
-           must be an instance of WebGLShader          × ~19
-```
-
-A shader compile returned null and every subsequent call passed that null straight back in. Present in **all three** B579 reports, during an ordinary broadcast with no test pattern requested.
-
-Two questions, in order: **why is the test-pattern module compiling shaders at all during a normal broadcast**, and **is the compile failing because the view's GL context is under pressure** — which would tie it to the FHD→4K context-loss item. `createShader` returning null is what a context that is lost or out of resources does. Cheap first check either way: whether it appears on a fresh session before any pressure.
-
-### 🟢 THE JUDDER IS SPECIFIC TO 4K SOURCE **AND** 4K OUTPUT (Daniel, B579 smoke test)
-
-4K source → FHD output: fine. FHD source → 4K output: fine. **Only 4K→4K.**
-
-Useful because it says **both terms contribute and neither alone crosses the threshold.** The source size drives the view's texture sampling (B506: the kaleidoscope is texture-bandwidth-bound) and the output size drives its fill cost; one render stays under the ~33ms budget with either halved and goes over with both at 4K. That is consistent with the B579 saturation mechanism and it also predicts where the residue will be if coalescing does not fully close it.
-
-### 🟡 THE 4K SCRUBBER JITTERS AT THE START OF PLAYBACK (Daniel, B575, long-standing)
-
-Initially playing a 4K source makes the scrubber jump around slightly. Believed fixed for FHD and thought to be fixed for 4K. **Daniel flagged it as possibly related to the intermittent 4K playback failure**, which is worth taking seriously: both are 4K-only, both are at the *start* of playback, and both are consistent with the clock/first-frame handshake settling late. Filed together deliberately.
-
 ### 🟠 A LOCKED CONTROL WILL NOT UNLOCK DURING A BROADCAST (Daniel, B571)
 
 Tapping the **form** padlock mid-broadcast opens the tooltip but does not unlock. B469's decision was that structural locks (form/segments/spiral/mirrors/oobMode) stay user-unlockable mid-broadcast and only `frameAspect`/`outputRes` are hard-locked. Either the wiring regressed or form is being treated as encoder-tied. Check `locks.js` against the B469 list.
-
-### 🟠 A MODE SWITCH DURING "preparing clip for native playback" MAY CORRUPT THE UPLOAD (Daniel, B571 — theory, not reproduced)
-
-Daniel's own hypothesis for the 4K clip that would not play, and it survived a rebuild (the same clip plays now): he may have changed modes while the native upload/attach was still running. **Worth auditing whether any user action can interrupt that operation** — mode switches, source swaps, entering the Loop Builder — and either blocking them for the duration or making the attach cancel-safe. Cross-ref B570's decode-error publishing, which will name the failure if it recurs.
-
-### 🔴 iPAD NDI + 4K READBACK — the async readback is NOT working on iPad (Daniel, B569)
-
-From a 4K NDI broadcast on the M1 iPad, with a FHD source:
-
-```
-bus  capture: async   readback 31.43ms/frame (max 33)   render 1.86ms
-```
-
-**`capture: async` yet 31.43ms.** On desktop, B521 took the same 4K readback from 19.48ms to **0.87ms** with the pipelined path — a 22x win that made 4K/60 Syphon comfortable. On iPad the mode string says the pipeline is selected and the cost says it is behaving like a blocking `readPixels`.
-
-**This is very likely the whole explanation for the NDI choppiness** Daniel has reported for two arcs (`~30fps` in the output panel, `~48` in the frame-cost panel, and visibly stop/start in Arena). 31.43ms of a 76ms frame is the single largest item, and the start/stop pattern is what a stalling readback produces while the reported render rate stays healthy.
-
-- **▶ FIRST THING TO CHECK:** whether `clientWaitSync` on WebKit ever reports the fence as signalled. B519's original bug was exactly this shape on Chromium (the busy-wait could not observe a signal arriving via the event loop) and B521 fixed it by yielding between polls. **If WebKit never signals, the pipeline silently falls back to a sync read every frame while still reporting `async`** — and the mode string would then be lying, which is its own bug (the note was added at B520 precisely so a reading like this would be interpretable).
-- **Instrument before fixing:** report the fence outcome (signalled / timed-out / abandoned) in the bus note, the way the capture mode already is. A count of pipeline misses per window would settle it in one reading.
-- **Cross-ref** the standing "iPad NDI drain — STUTTER PERSISTS after UYVY" item, which this may simply be the cause of.
-
-### 🔴 4K CLIP WILL NOT PLAY OR SCRUB ON iPAD — recurrence, not a new regression (Daniel, B569)
-
-4K source: play/pause reads "pause" while paused, toggling does nothing, the scrubber is dead in perform AND motion, and the still-mode mini-timeline will not scrub either. **A FHD clip is completely fine in the same build.** Blocked the whole B568 verification pass.
-
-**Almost certainly the standing CRITICAL from B519** ("iPad: a 4K clip LOADS BUT WILL NOT PLAY AT ALL, in either motion or perform"), not something B563-B568 introduced: **nothing since B562 touched the video decode, transport or playback path** (`git diff 957e540..HEAD` — the only `source-host.js` change is camera facing + `liveCameraInfo.frameRate`, and `native-video.js`/`motion-runtime.js`/`perform-runtime.js` are untouched). Daniel also successfully scrubbed and played a 4K clip earlier in the same session, which matches the B515/B516 note that this state is **INTERMITTENT**.
-
-- **▶ THE READING THAT SPLITS IT, and B520 built it for exactly this:** the `source` row's note carries a live wire rate. **`0 in/s` = the decode/socket stalled and nothing downstream is at fault; ~30 in/s = frames are arriving and the fault is after that point.** His FHD broadcast report shows the instrument working (`native decode · 60.1 in/s`), so one glance at that note during the 4K failure is decisive.
-- **❌ THE COLD-START THEORY IS DEAD (Daniel, B574).** B573 filed "it is the first 4K source loaded per session" as a sharpened repro. **The very next session opened the same clip first and it played fine.** Recorded rather than deleted because a discarded hypothesis is worth as much as a live one here: **first-per-session is NOT the trigger**, so decoder warm-up, first `AVPlayerItemVideoOutput` bind and first `fold-ext://` request are all off the list. What remains is genuinely intermittent, and the mode-switch-during-attach theory above is the only surviving lead. **Do not sharpen this again from fewer than three consecutive observations** — this is the second theory the next session has invalidated.
-- **The dead still-mode scrubber is a NEW detail** worth carrying: it means the failure is not confined to the motion/perform transports, which points further upstream (the decoder or the socket) rather than at transport state.
-
-### 🎛️ iPAD 4K HDMI SESSION — four findings (Daniel, B565)
-
-Baking a seamless 4K loop on an M1 iPad was **uneventful** (that closes a long-standing worry). Broadcasting it found four things.
-
-- **✅ PARTLY ADDRESSED B565 — the output panel advertised 29-32fps while the frame-cost panel read 21.6.** Both numbers were correct: the external view self-renders off the frame socket on its own clock (30 new/s arriving, 26 drawn), so it legitimately outruns the app's editor loop. **The dishonesty was the missing label** — a bare "fps" in the output panel reads as the app's frame rate. It now says `26 fps on display · app 22` when the two diverge materially. **What remains open is the underlying gap**, below.
-- **🔴 [HIGH] The iPad's editor surfaces are the wall, confirmed again and worse at 4K.** From the report: **`preview render` 14.36ms (1.57MP) + `pip render` 9.91ms (0.09MP) = 24.3ms of a 44ms frame**, against a `source` upload of 4.14ms for the full 8.29MP 4K texture. **A 402×226 PiP costing 9.91ms is the arc's signature finding again — the cost tracks the 4K SOURCE being sampled, not the tiny destination.** This is B516's number (preview 13.41 + PiP 9.0) reproduced at 4K, and it is the concrete case for **adaptive preview resolution on mobile** (the proposal already filed under the B506 entry). Daniel's ladder (100 → 75 → 50) was measured for exactly this.
-- **🔴 [HIGH] The external display starts DARK AND PAUSED on a fresh broadcast** — he had to scrub the timeline and press play before anything appeared. Distinct from (and sharper than) the existing "stale/latent at session start" entry: it is not slow, it is *paused*. Pairs with the standing **"broadcasting in MOTION mode plays even when paused"** bug — the same transport-state desync, seen from the other side. **The external view is not being told the transport state at broadcast start.**
-- **🔴 [HIGH] Opening the output panel PAUSES PLAYBACK when a mic is selected.** The level meter opens its own `getUserMedia` whenever the panel is open, and on iOS acquiring an audio input changes the AVAudioSession category, **interrupting video playback**. Opening a panel should never stop the program, and this is worst exactly where it matters — mid-broadcast. **Options:** do not auto-acquire the meter while a broadcast or playback is live (meter on demand); acquire once and hold it for the session rather than per-panel-open; or configure the audio session so capture and playback coexist (likely needs the native plugin). **Cross-ref: the meter's separate `getUserMedia` is already filed as a thing to unify with the take's.**
-- **🟠 [MED] Play/pause desyncs after a system-forced pause**, in BOTH the Loop Builder and perform. The transport stops for an external reason, the button still reads "pause", and resuming needs two taps. **The button reflects intent rather than the transport's actual state** — it should follow the `<video>`/decoder's real playing state (a `play`/`pause`/`ended` listener), not the last thing the user asked for. Same family as the external-display transport desync above; worth fixing together.
 
 ### 🚪 MODE SWITCHING IS GATED ON HAVING A SOURCE (Daniel, B564) — likely removable
 
@@ -1524,6 +985,88 @@ Baking a seamless 4K loop on an M1 iPad was **uneventful** (that closes a long-s
 - **Motion** is gated on `available` (a video clip), which is a different and more defensible constraint.
 
 **So the perform gate is self-imposed and the unlock is two changes, not one:** enable the control, and relax the force-exit to fire only on a source being *removed* rather than on absence. Risk is in whatever `perform-runtime` assumes about a source existing at entry (`play.disabled = !hasVideo` suggests it already tolerates sourceless states, but that is a reading, not a test). Worth doing; worth doing deliberately.
+
+---
+
+## 📷 Sources, cameras and audio
+
+### 🔊 AUDIO ON LONG TAKES — NOT REPRODUCING since B558 (Daniel, B559)
+
+**Downgraded from two open HIGH/MED bugs to one watched item.** Daniel's 5:06 4K take on B558 came back clean by ear and clean by the numbers, after a 6:03 4K take on B557 that drifted obviously. The B558 mic change is a *specific mechanism* for both symptoms rather than a coincidence, so this is not being closed on luck — but two clean takes after one dirty one is not proof, which is why it stays watched rather than deleted.
+
+- **✅ Quality — FIXED B558, confirmed by ear.** Voice-processing (echo cancellation / noise suppression / AGC) was ON for every mic. On iOS those flags also select the **voice-processing audio unit**, a different input path with its own resampling. That is the quality gap against Apple's Camera app.
+- **👁 WATCHED: drift on a long take.** B559 numbers on 5:06 at 4K: `videoSpanSec 305.5` vs `audioSpanSec 305.9` (0.13%, and a tail offset is expected since audio keeps flushing past the last video frame), `secondsIn 305.9` / `secondsOut 306` so the encoder lost nothing, `captureLatencyMs 73-113` so the stamp was stable within two frames. **Symptom to watch:** audible lip-sync error growing toward the end of a take. **What it would mean:** the voice-processing unit was not the cause and samples are being lost under main-thread saturation. **First read:** the same four numbers — a `videoSpan`/`audioSpan` gap beyond ~1% is the tell.
+- **👁 WATCHED: occasional static.** Not present in either B558/B559 take. Same suspected mechanism, same first read.
+
+### 📷 [Daniel, B623] USB WEBCAM: THE WEB APP FINDS IT, THE NATIVE CAPACITOR APP DOES NOT
+
+Testing the iPad as a kaleidoscope selfie kiosk with a USB webcam attachment. **The web app enumerated it fine; the native Capacitor build could not find it.**
+
+This is a capability question, not a bug in our code: the native camera path (`native-camera.js` / the Capacitor plugin) enumerates through AVFoundation, and external/USB cameras need `AVCaptureDeviceTypeExternal` (iPadOS 17+) to appear in a discovery session — the default device-type list does not include it. The web path goes through `getUserMedia`, which WebKit already handles.
+
+**Two honest options.** Extend the native discovery session's device types and test on the actual hardware; or **fall back to the web camera path when the native enumerator returns nothing**, which is cheaper and also covers future device classes we have not met. **The kiosk use case is a real product direction** (Daniel raised it unprompted) so this is worth scoping rather than filing and forgetting.
+
+**Cross-ref:** `reference_ios_camera_webkit_capabilities` records what `getUserMedia` exposes on iOS 26 — relevant, because if the web path covers the kiosk needs, the fallback is the whole feature.
+
+### 📷 [Daniel, B661 — NATIVE, BATCHES WITH THE VITALS PLUGIN] iPAD CANNOT SEE EXTERNAL CAMERAS
+
+Long-deferred and re-raised: the web app enumerates a USB webcam, the Capacitor build cannot. **Confirmed by reading the plugin:** `fold-native-camera` discovers only `.builtInUltraWideCamera` / `.builtInWideAngleCamera` / `.builtInTelephotoCamera` filtered by `position`, and exposes **no list method at all** — `pluginMethods` is start/stop/exposure/zoom/WB/focus/photo. There is nothing for JS to call, so this cannot be fixed on the JS side.
+
+**What it needs:**
+- A `listCameras` method running `AVCaptureDevice.DiscoverySession` with **`.external`** (iPadOS 17+, covers USB/UVC webcams) and **`.continuityCamera`**, at `position: .unspecified` — external devices report no position, so the current position filter would exclude them even if the types were listed.
+- `start` to accept a `deviceId` so a discovered device can be selected, rather than only lens + facing.
+- A JS picker in camera settings, and the `?url` param / Lab entries that come with it.
+
+**⚠️ CONTINUITY CAMERA TO AN iPAD IS UNVERIFIED AND MAY NOT EXIST.** Apple documents Continuity Camera with Mac and Apple TV as the receivers; an iPhone acting as a camera *for an iPad* is not something to promise. **The enumeration answers it for free** — once `listCameras` exists, the DiscoverySession either returns a continuity device or it does not, which is a runtime probe rather than a guess. Ship the enumeration, then report what the device actually says.
+
+### 🔴 4K CLIP WILL NOT PLAY OR SCRUB ON iPAD — recurrence, not a new regression (Daniel, B569)
+
+4K source: play/pause reads "pause" while paused, toggling does nothing, the scrubber is dead in perform AND motion, and the still-mode mini-timeline will not scrub either. **A FHD clip is completely fine in the same build.** Blocked the whole B568 verification pass.
+
+**Almost certainly the standing CRITICAL from B519** ("iPad: a 4K clip LOADS BUT WILL NOT PLAY AT ALL, in either motion or perform"), not something B563-B568 introduced: **nothing since B562 touched the video decode, transport or playback path** (`git diff 957e540..HEAD` — the only `source-host.js` change is camera facing + `liveCameraInfo.frameRate`, and `native-video.js`/`motion-runtime.js`/`perform-runtime.js` are untouched). Daniel also successfully scrubbed and played a 4K clip earlier in the same session, which matches the B515/B516 note that this state is **INTERMITTENT**.
+
+- **▶ THE READING THAT SPLITS IT, and B520 built it for exactly this:** the `source` row's note carries a live wire rate. **`0 in/s` = the decode/socket stalled and nothing downstream is at fault; ~30 in/s = frames are arriving and the fault is after that point.** His FHD broadcast report shows the instrument working (`native decode · 60.1 in/s`), so one glance at that note during the 4K failure is decisive.
+- **❌ THE COLD-START THEORY IS DEAD (Daniel, B574).** B573 filed "it is the first 4K source loaded per session" as a sharpened repro. **The very next session opened the same clip first and it played fine.** Recorded rather than deleted because a discarded hypothesis is worth as much as a live one here: **first-per-session is NOT the trigger**, so decoder warm-up, first `AVPlayerItemVideoOutput` bind and first `fold-ext://` request are all off the list. What remains is genuinely intermittent, and the mode-switch-during-attach theory above is the only surviving lead. **Do not sharpen this again from fewer than three consecutive observations** — this is the second theory the next session has invalidated.
+- **The dead still-mode scrubber is a NEW detail** worth carrying: it means the failure is not confined to the motion/perform transports, which points further upstream (the decoder or the socket) rather than at transport state.
+
+---
+
+## 🔬 Instrumentation and diagnostics
+
+**Anything Daniel reads must reach the exported report** (`DEVICE-TESTING.md`). Three instruments were found wrong during phase 2; one is still open below.
+
+### 🔧 [Daniel, 2026-08-21 — SMALL UI GAP, WORKAROUND EXISTS] THE FRAME-COST PANEL CANNOT BE OPENED FROM THE LOOP BUILDER
+
+*"our affordance for opening the frame cost dialog is the gear in the top right which we don't show in the loop builder so i'm not actually able to open a report from there."*
+
+Correct: the loop builder sets `body.loop-active`, which hides the app bar deliberately (no mode switching or uploads mid-edit, B-era design). **So the one surface that holds the most decoders is the one whose cost cannot be inspected while it is open.**
+
+**✅ WORKAROUND, NO CODE NEEDED: `sessions.peak` is a HIGH-WATER MARK.** Open the loop builder, do the thing, close it, then open the report. `peak.decode` still holds the maximum reached while it was open, and `live[]` will have shrunk back. **That is enough for the measurement this blocks.**
+
+**The real fix if it comes up again** is to let the frame-cost panel open over the interstitial, since it is a diagnostic rather than an editing surface. Small, but it touches the loop-active layering rules, so not worth doing speculatively.
+
+### 🐞 [2026-08-21 — INSTRUMENTATION BUG, FOUND WHILE READING TWO REPORTS] THE EXTERNAL SURFACE NOTE CONTRADICTS `extGuard`
+
+In `8-21-26-4klooptest-noGov.json` the external surface reports *"this view decodes its own copy, so nothing here measures what the audience sees"* while `extGuard` in the SAME report says `singleDecode: true, why: "moot: the single native decode means the external view runs no decoder of its own"`. **Two fields in one report disagree about the same fact.**
+
+**The cost is not cosmetic: the NEW-PICTURES/s figure silently became unavailable in the run that was specifically designed to measure it** (the governor A/B). The comparison run had it, this one did not, so the prediction under test could be neither confirmed nor refuted.
+
+**Same class as the scenario-tag mismatch that invalidated two earlier measurements** — an instrument that can quietly stop reporting the number a decision depends on. Whichever of the two derivations is wrong, they should read from one source.
+
+### ✅ [SHIPPED B663 — the plugin half. The three batched items below are still OPEN] THE iOS DEVICE-VITALS PLUGIN
+
+**The JS half shipped at B660** (`conduit/vitals.js`, the panel's session recorder, both chromes). The `native` seam is wired and returns null everywhere, which is recorded as `nativeReadings: false` rather than looking healthy. **What is missing is the reading itself, and it is the arc's largest instrumentation hole:** confirmed by grep, there is NO thermal and NO memory reporting anywhere in the three native plugins, while `BROADCAST-DELIVERY.md` names memory at 4K as the one open risk.
+
+**What to add, behind `env.host.vitals()`:**
+
+- `ProcessInfo.processInfo.thermalState` + **`thermalStateDidChangeNotification`** — transitions with timestamps, not a level.
+- **`os_proc_available_memory()`** — headroom before jetsam. **The conserved quantity**: a boundary we do not own, and the thing that actually ends a long run.
+- `phys_footprint` via `task_info`/`TASK_VM_INFO` — what we cost. Recorded, never concluded from on its own.
+- `didReceiveMemoryWarning` — an event that must publish itself, or a jetsam kill is indistinguishable from a random crash.
+
+**A NEW small plugin (`fold-device-vitals`), not bolted onto `fold-native-video`.** Vitals have to work when no video is loaded — the exhibit case may be camera-driven — and coupling them to the video plugin means the instrument disappears in half the scenarios worth measuring. It is also a **conduit** concern by Daniel's own framing: every future consumer app wants device vitals, and `conduit/pressure.js` already has the `native:` hook waiting for exactly this shape.
+
+**✅ SHIPPED B663:** the plugin, the `host.vitals` seam declared in `conduit/host.js`, the retirement of the duplicate `host.thermalState()` call, thermal/memory-warning pushes wired to breadcrumbs on both chromes, and `take:arm` carrying the wall + source resolutions and clip length. **Awaiting an Xcode build to read anything.**
 
 ### 🔔 STATUS SURFACE — a DEDICATED READOUT BAR, and a real audit (Daniel, B561 → B569)
 
@@ -1565,6 +1108,226 @@ Baking a seamless 4K loop on an M1 iPad was **uneventful** (that closes a long-s
 - **[LOW] Two mic paths still acquire separately** — the meter opens its own `getUserMedia` alongside the take's, which is why the trim is a handoff rather than one value. Unify when the audio path is next opened.
 
 **✅ FIXED B562 — the iPad and desktop take never published `env.lastAudioReport`.** It was wired only in the phone chrome, so every iPad report came back `audio: null` **including the ones sent to diagnose an iPad audio problem.** Three builds were spent guessing at something the instrument could have shown. **Standing lesson: the exported report is the only diagnostic channel that works on these devices, so a path that does not publish into it is a path we are debugging blind.**
+
+---
+
+## 🧹 Cleanup and consolidation
+
+**`PLAN-LIVE-READINESS.md` item 3. Its documentation half ran at B658 and again at B704; the CODE half is still gated behind item 2** — the flags being deleted are the instruments the pressure testing needs.
+
+### 🧹 POST-ARC CLEANUP — audited B545, three increments proposed
+
+The thermal + audio arc ran 30 builds, six of them pure instrumentation for a bug that turned out to be four bytes of container framing. It left less mess than that history suggests: **no dead code, no abandoned modules, no orphaned CSS.** The instrumentation was not scaffolding — it is the diagnostic channel, and it stays. What it did leave is *narration debt* and *duplication that has already bitten once*. B545 took the obvious half; these are the rest, each independently shippable.
+
+- **✅ C1 — Unify the native frame-header parser. SHIPPED B546.** `shell/frame-header.js`; both consumers on it. Device pass is VERIFY-QUEUE "C1", and it needs a fresh `cap:sync`.
+
+- **[MED] C2 — Retire the settled perf flags.** `perf-flags.js` says it plainly: *"this file is a measuring stage, not a permanent configuration surface."* Ten flags is past the point where the panel is scannable, and several have finished their job — `asyncReadback`, `recordDirect` and `busElide` are each measured, decisive and permanent, and their OFF state exists only to prove a win nobody disputes any more. **Do this AFTER the verification matrix**, not before: groups A, B and E toggle these, and C2 is only safe once the matrix has stopped needing them. `recordMediaRecorder` and `recordForceFlush` should stay regardless — those are escape hatches, not measurements. The comment prose is dense but earns it (it is the record of *why* each optimization is safe) and should move with the code rather than be deleted.
+
+- **[MED] C3 — Prune VERIFY-QUEUE.md.** 165 lines, of which the thermal matrix is the top 55 and the remaining 110 are Loop Builder / NDI / lock-pass items from B385–B476, many long since confirmed or superseded. The file Daniel works through should not bury the live section under a year of history. Rule: confirmed → a line in CHANGELOG and delete; still-open but off-arc → move to BACKLOG under its own area; genuinely awaiting hardware → keep. **Daniel's call per item — this is his test queue, not one to prune unilaterally.**
+
+- **[HIGH] C4 — Archive the bottom half of HANDOFF.md.** The file is 805 lines. The top ~460 is live. Below that, **`## what's working` describes Build 24 and `## what we're doing right now` describes Build 57** — the two sections CLAUDE.md explicitly names as going stale fastest, wrong by ~490 builds, in the document every session is told to read first. B545 marked the boundary with a HISTORICAL banner so it cannot mislead, but the real fix is to move it to `docs/archive/HANDOFF-builds-19-187.md` and leave HANDOFF as current state only. Cheapest large win available: it is pure context cost with negative informational value. **Docs-only, zero risk.**
+
+- **✅ RESOLVED B563 — five exported symbols imported nowhere.** Four (`parseUsage`, `armsSnapStep`, `resolveEdition`, `COMMON_UNIFORMS`) were used only inside their own module: accidental exports, now module-local. **The fifth was the interesting one.** `Z_SLICE_IN_FLOOR`/`Z_SLICE_COVER` in `kit/zoom.js` carried a comment saying `formZoomBounds` used them as the per-form defaults — **it never did**, it had its own literals. Changing them changed nothing, and they would have quietly misled the next person tuning zoom extents. Moved beside the function that reads them as `ZOOM_COVER_DEFAULT`/`ZOOM_IN_FLOOR_DEFAULT` (`engine/forms/index.js`). **Cross-ref the per-form zoom-extent tuning item — that work would have hit this trap.**
+
+### 🟠 THE SOURCE SURFACE'S OFF SWITCH DOES NOTHING (Daniel's B576 report)
+
+That report reads `source: enabled: false` alongside `refresh 30 calls / upload 30 calls`. The switch is decorative: `sourceSurface` declares no `onEnabled`, and `updateSourceFrame()` never consults `perf.skip` (only `render()` does).
+
+Small, but it is exactly the class of defect that corrupts an A/B, inside our own instrument, and it violates exit criterion 1 (every offered option functional in its context) in the tool we use to check exit criterion 1. Either wire it or stop offering it.
+
+### 🔤 SURFACE TERMINOLOGY — the naming was settled at B583, two consumers still need it
+
+The vocabulary Daniel decided on: **keep the UI names** (`source` / `staged` / `live`, with the middle slot honestly `output` in still and motion), and let diagnostics carry a concise hybrid that references them (`main · staged`, `second · live`). The middle slot is genuinely two different things in two modes, not two names for one, which is why picking a single word was the wrong fix.
+
+**Open:** the status-readout-bar audit needs these same nouns, and **the UI Lab has no terminology section to record them in** — so today the only place the vocabulary exists is a shipped code comment and this entry.
+
+### 🧹 [HIGH — Daniel, B591] CONSOLIDATION: THE FPS ARC LEFT LEVERS IN THE CODE THAT WE HAVE SINCE DISPROVED
+
+Daniel: *"our frame loss diagnostic is littered with the residue... lots of experiments we've determined aren't helpful so the controls and code to wire these up is probably cruft."* He is right. Each item below is a measured negative still carrying live code:
+
+1. **🚨 B590 INVERTS THE GOVERNOR'S PREMISE.** It sheds editor surfaces to protect the broadcast; **the broadcast no longer depends on them.** Worse, Daniel's B590 panels-off run shows shedding now *hurts* delivery (24-26/s → 18/s). **Left armed it will degrade a live show before the futility release pulls it back.** Decide: retire it, or repurpose it to protect the APP's responsiveness — a different goal needing a different signal. **Daniel's call, not ours.**
+2. **The resolution/scale ladder is dead** (B574: 17x fewer pixels, 55% of the cost) and still fully wired — `scaleLadder`, `onScale`, `setSurfaceScale`, plus the panel's scale controls on every surface.
+3. **Slice-overlay governing is vestigial.** B576 excluded it permanently as DECOR; it still declares a ladder and reports zeros forever.
+4. **`foldHdmiVideoUncap` is a confirmed no-op** on the single-decode path (B586) and still renders a warning about a mechanism that no longer exists.
+5. **The frame-cost panel carries settled conclusions as open questions** — several readouts exist to answer things now answered.
+
+**Sequenced AFTER the loop-restart stall** (Daniel is hitting that in normal use and calls it visually disruptive), because this is hygiene and that is a defect.
+
+---
+
+## 🧭 Product gaps, watch items and standing context
+
+Not bugs. Product decisions, deliberate watch items, and the context that keeps the rest readable.
+
+### 👁 WATCHED ITEMS — defaults we changed on limited evidence, and what to do if they bite
+
+Each entry names a SYMPTOM to watch for, what it would mean, and the mitigation already designed. The point is to close the investigation now rather than carry it open, without losing the reasoning if the symptom ever shows up.
+
+- **SYMPTOM: a recorded take on a Capacitor/WebKit build plays back with frames out of place, stale, or showing the preview instead of the followed output.**
+  - **What it would mean:** WebKit does defer 2D-canvas rasterization after all, at least under some load, and the `getImageData(0,0,1,1)` guard removed in B524 was load-bearing there. Evidence for removing it was ONE clean take (Daniel, B524); canvas deferral is timing-dependent, so one take is evidence and not proof.
+  - **Immediate mitigation:** turn `record: force sync rasterize` ON in the frame-cost panel. That restores the old behavior instantly, at a measured cost of ~40ms/frame on iPhone.
+  - **Proper fix if it recurs:** stop blitting to an intermediate 2D canvas entirely and hand WebCodecs a `VideoFrame` built straight off the GL canvas. `VideoFrame` snapshots at construction, so it solves the ORDERING problem the guard existed for without any GPU→CPU synchronization.
+  - **STATUS: shipped B525 for performance reasons, so the recording half of this item stands down.** The take is now `new VideoFrame(outputCanvas)` with no 2D canvas in between, and construction-time copy is exactly the ordering guarantee the guard was buying. Two residual paths still rely on the removal: the **MediaRecorder fallback** (which must blit, and where `recordForceFlush` still applies) and a **mid-take size change** (which rebuilds the scratch canvas to scale into the locked take size).
+  - Same guard was removed from `paintPip` in the same build; a stale PiP is cosmetic, so it is the lower-stakes canary for the same behavior — **and it is now the only routine path still exposed**, since the PiP still blits.
+
+### 🧱 iOS CEILINGS AND COST MODEL → see `docs/CAPABILITIES.md`
+
+The measured per-device tables, the constraint list (C1-C6), the ranked levers, and the untested hypotheses (H1-H5) live in `CAPABILITIES.md` so there is one place to maintain them. Open work that came out of those measurements:
+
+- **[HIGH] The output resolution ladder is unsafe during a take.** Since B525 the record path encodes the output canvas directly, so scaling it down scales the deliverable down — and `recSize` is locked at record start, so a mid-take change makes `paintRecord` fall back to the scaling blit B525 deleted. The switchboard currently permits it. Lock the ladder while `recState === 'recording'`, or give the preview its own render target.
+- **[HIGH] 4K takes fail after a few minutes** with "recording failed" and a finish that outlasts the take (17 Pro). Expected at 6-11fps with encoder backpressure plus thermal, but it is data loss and needs its own fix.
+- **[MED] 14 Pro at 4K: colour shifts and a frozen source/output** until toggling to still and back.
+- **[MED] The PiP rate must become adaptive.** 10Hz is right at FHD and useless at 4K (11.0 vs 11.4fps with it off) — its cost scales with the whole pipeline, not with the thumbnail.
+
+### 🎬 A/V SYNC — FIXED B540, ⚠️ STILL AWAITING DEVICE VERIFICATION (~165 builds)
+
+The "motion modes" are AVFoundation video stabilization modes (`standard` / `cinematic` / `cinematicExtended`), not our follower. Cinematic stabilization buffers frames for lookahead, so delivery lags capture by up to ~a second at smooth+; stamping frames on ARRIVAL turned that into a timeline offset and pushed recorded video behind recorded audio.
+
+Fixed by carrying the capture-to-delivery latency across the frame socket (`"FYUX"`, 40-byte header) and stamping recorded frames at capture time. Measured natively where the capture PTS and "now" share a clock — a raw PTS alone is unusable in JS, since the capture-clock-to-`performance.now()` offset is the very unknown being solved.
+
+- **Needs `npx cap sync ios` + a native rebuild.** Web-only reload leaves the old plugin sending `"FYUV"`.
+- **Verify:** front camera, smooth+, talking — the harshest case. Then `standard` as a no-regression check.
+- **Not a factor, and an earlier entry here wrongly said it was:** the follower delays the kaleidoscope TRANSFORM, not the image. The camera texture is uploaded fresh every frame, so lip motion was never eased. Follower lag is exactly tau = `performResponse` for constant-velocity input (critically damped, omega = 2/tau) and is a deliberate look, not a sync fault.
+- **Kept in reserve, not built:** Daniel's mitigation strategies (a warning on smooth/smooth+, lighter default smoothing, front-camera prioritisation) if verification shows residual drift.
+- **Untouched:** the external-display consumer reads the same socket and now gets the field for free; the video plugin already carried a pts.
+
+### 🎨 COLOR MANAGEMENT — a product gap, not a perf detail (Daniel, B531)
+
+Surfaced while investigating why the 17 Pro is slower than the 14 Pro at consuming the WebGL canvas (a possible Display P3 conversion). **Daniel's read is that the perf angle is the smaller half.** The real gap is that Fold has no color management story, and two audiences need one:
+
+- **Prosumer/pro photographers** doing `open in → Fold` round trips from Lightroom or DxO PhotoLab: edit, save, return. A round trip that shifts color is a broken round trip, and the app is not viable for that workflow without it.
+- **iPhone 48MP stills**, which are large enough for moderately sized prints, where color accuracy matters directly.
+
+**Scope to work out:** what color space the engine composites in, whether we honor embedded ICC/EXIF profiles on import, what we tag on export, whether Display P3 is preserved end to end or flattened to sRGB, and how the canvas's `colorSpace` / `drawingBufferColorSpace` should be set per build. **Cross-cutting: this belongs in conduit**, since every consumer app inherits the same import/render/export path.
+
+Pairs with, but is not blocked by, the H1 perf experiment in `CAPABILITIES.md`.
+
+### 📱 MOBILE WEB / PWA EXPOSURE FROM THE THERMAL ARC (audited B528, Daniel's question)
+
+**Every measurement in this arc is iOS Capacitor. No Android or mobile-web device has been in the loop at any point.** The audit below is a code-path reading, not a measurement, and it is the honest state of that surface.
+
+- **✅ Platform-gated, cannot affect mobile web:** the planar camera upload (B518, gated on `host.nativeCamera?.available`, Capacitor-only — mobile web keeps the `<video>` + `getUserMedia` path untouched) and the pipelined broadcast readback (B519/B521, desktop bus and `host.ndi?.available`).
+- **⚠️ Universal, WebKit-motivated — the one to watch: the PiP (B527/B528).** `bitmaprenderer` is supported on Chrome/Android and Firefox so it will not break, but **`drawImage(webglCanvas)` was never the bottleneck on Blink**, so Android pays a frame of latency and a 10Hz monitor for a problem it may not have. Defensible on energy grounds (arc goal #3) and the flag makes it reversible, but it wants an Android reading before it is treated as settled. **The B527 aspect regression was universal**, which is a reminder of how this category bites.
+- **⚠️ Universal but low risk: the direct record path (B525).** Mobile web on both Android Chrome and iOS Safari uses it. `VideoFrame(canvas)` from a WebGL canvas is well-supported and cheap on Blink, and the MediaRecorder fallback is structurally intact — `recordCanvas` + its `captureStream` are still built eagerly and only released once the WebCodecs sink has actually started. Ordering is safe on Blink because `VideoFrame` copies at construction, which is a stronger guarantee than the `getImageData` flush it replaced.
+- **📊 Genuinely unknown, and the most likely mobile-web weak point: the iOS Safari camera upload.** B518's planar fix was native-only, so mobile web on iPhone still uploads through a `<video>` element. It was never measured before or after. Given the arc found four separate GPU→CPU round trips, this path deserves one reading before anyone claims mobile web is healthy.
+- **▶ THE TEST, when a device is available:** Android Chrome, phone chrome, record FHD with the PiP visible; read `unmeasured`, the `pip` row, and `record encode`. Then the same on iOS Safari (not the Capacitor app) to isolate what the native camera was hiding.
+
+**HOW MUCH OF THE ARC ALREADY REACHES MOBILE WEB: most of it, on iOS.** The two biggest wins (B525 direct record, B527/528 PiP) are fixes to WebKit image-source paths, and **iOS Safari is WebKit** — so mobile web on iPhone inherits them unchanged, without a line of extra work. Same for the B513 overlay cuts and the whole instrument. Only two are gated away: the planar camera (native plugin) and the pipelined broadcast readback (desktop bus / NDI, neither of which mobile web has).
+
+**A DEDICATED MOBILE-WEB ROUND — one real item, then measure.**
+- **🟡 [WAS HIGH, DOWNGRADED B559 — MEASURED, and the desktop claim was wrong] `updateSourceFrame()` re-uploads the same video frame every tick.** Shipped B559 behind `elideElementUploads` (default OFF). **Daniel A/B'd it on Electron and saw no difference: the element upload already costs 0.09-0.12ms there**, because Blink takes a hardware path for `texImage2D` from a `<video>`. Halving 0.1ms of a 16ms frame is noise, so **"a major perf win for desktop" is withdrawn — I agreed with that framing and the measurement says otherwise.** It never engages on iPad at all, where the camera is on the planar path. **Where it is still plausibly worth real time: WebKit** (iOS Safari mobile web, desktop Safari), which is exactly the family of operations this arc found expensive four times and the one platform none of this has been measured on. Keep the flag, retarget the test. Original reasoning below.
+- **[ORIGINAL ENTRY, kept for the reasoning]** `src/engine/index.js:172` gates only on `readyState >= 2`, so a 30fps camera or clip against a 60fps render loop uploads **every frame twice**. The planar path (native) already has the right shape — it returns early when nothing new arrived off the wire — and the `<video>` path has no equivalent. Fix: gate on presented-frame identity via `requestVideoFrameCallback` (Safari 15.4+, Chrome; fall back to a `currentTime` comparison for Firefox). **This is not mobile-web-only** — desktop web and Electron video playback waste the same uploads. Unmeasured, but halving the call count is free regardless of what each call costs, and on WebKit "consume a video element as an image source" is exactly the family of operations this arc found to be expensive four times.
+- **Everything else waits for a reading.** The arc's method was measure-then-fix, and it corrected three of my own confident hypotheses. Guessing at Android before the panel has ever run there would abandon the only thing that worked. Given mobile web's long-term status is uncertain, the cheap and correct move is one measurement session, then decide whether it is a small fix or a real project — not speculative investment in a platform that may be cut.
+
+### 🎨 DESIGN-SYSTEM ITEMS SURFACED BY THE PiP LAB ENTRY (B544)
+
+- **[MED] The PiP status dot is one flat `--danger` for BOTH recording and broadcasting.** The two live states are indistinguishable at a glance, on the one surface whose whole job is telling you what the output is doing. Disambiguation target; the same dot is mirrored in `#m-stage-dot` when the PiP is swapped.
+- **[MED] Audit for other ID-styled components.** The PiP could not be put in the Lab without first making its selectors accept a class, because id-scoped styling cannot be specimened without copying the CSS. **An id-styled component is one the design system cannot see.** Same treatment where it applies: keep layout id-scoped, share the visual rules.
+
+### 📼 RESCUED FROM THE HANDOFF ARCHIVE (B547) — filed 2026-06-10, never in BACKLOG
+
+Three items that were sitting in HANDOFF's stale half. Each was described there as live work and had zero presence here, so archiving without filing them would have been the only genuinely lossy part of the cleanup.
+
+- **[HIGH] Firefox + Safari video colour and orientation — a real correctness bug, and it feeds COLOR MANAGEMENT above.** iPhone `.mov` sources render **washed-out OUTPUT colour on Safari AND Firefox** while the 2D source preview shows natural colour — so it is the WebGL texture path, not the decode. Suspects: `UNPACK_COLORSPACE_CONVERSION_WEBGL`, limited-vs-full-range YUV→RGB, HDR transfer. Firefox additionally rotates **all** video 90° CCW and squishes iPhone aspect (Gecko rotation / pixel-aspect metadata not being read). Brave/Safari are reference-correct on orientation. **Daniel's B547 note: he had believed this fixed, but has been testing almost exclusively with `.m4v` exports from FCP rather than straight-from-iPhone `.mov`, so it is very likely still real and simply not being hit.** Reproduce with an unprocessed iPhone `.mov`. **The washed-out half is plausibly the same texture-path problem as the colour-management gap — do not fix them independently before checking.**
+
+- **[MED] CONTROLS.md as a system-wide reference.** Daniel's stated longer-term intent: grow the controls/IO inventory into a SYSTEM-WIDE reference that becomes the basis for a **user manual** and a **systematically-built icon library**. Explicitly deferred as a rabbit trail, never abandoned. Revisit when there is appetite; it pairs naturally with a design-system pass.
+
+- **[MED] Settings that persist across sessions — fold into "Clip queue → workspace sessions → persistence" below.** Daniel (B547): this becomes particularly valuable once a **stage manager** handles multiple clips and animation sequences in one session and that data must survive a restart. The existing persistence item covers *clips and workspaces*; the gap it does not cover is **app/user settings** (motion mode, camera preferences, output destination, aspect, quality choices). That is the "Generalized user-config JSON" already named under Control bus — these two should be designed as one store, not two. **Explicitly NOT perf flags**, which are a measuring stage and must keep resetting on reload.
+
+**Two items were examined and deliberately NOT filed:**
+- *Gesture recording + live-tween* — **shipped at Build 269** (v0.12.11: a gesture lands as one keyframe carrying its winding), with the directional-vs-shortest-path distinction settled later on the Droste zoom follower. The residuals — per-segment rotation winding (+N turns) and smoothed translation-path capture — were already in BACKLOG. The 2026-06-10 note was simply never retired.
+- *Cross-format / frame-rate robustness + test story* — **premise was wrong when written.** It claimed "Blink largely untested for the video path"; Brave and the Electron build have been in rotation at least as much as WebKit and Gecko (Daniel, B547). The genuinely open piece of it is test infrastructure, which is a deliberate standalone decision, not a feature-commit rider.
+
+### 🎛 [Daniel, B642] STAGE MANAGER QUEUE — per-mode state, scenes, and source as a stage object
+
+**▶ QUEUED DELIBERATELY. Daniel: *"we don't touch anything now but we add this to our stage manager queue as something to handle thoughtfully."* Nothing here is committed; this records the framing while it is fresh.**
+
+**His straw man is MORE decoupled than mine was.** I proposed a snapshot ledger over one shared `state`. He wants: **each mode instantiates a NEW state derived from wherever you came from, and gets its own undo, canvas, and so on.** Entering a mode inherits; leaving it does not write back. Worth stating plainly because it is the more expensive answer and he chose it with the tradeoff in view — a ledger preserves "one state object" and its consequences (undo as a snapshot swap, a stateless engine, one currency for record/broadcast/export); genuinely separate state per mode means each of those has to name which state it means.
+
+**What is shared, per Daniel:** broadcast destination, MIDI input, and source. **Source is negotiable** and probably becomes a stage object rather than a global — see below.
+
+**Q2 (what motion derives from), answered:** we do not support transitioning form / segment count mid-animation, but might later, so a new mode's state should derive from **the first or nearest keyframe** — canvas aspect, form type, form properties, canvas settings. (This is also exactly what B641 fixed the narrow version of: motion re-entry now re-adopts the sampled frame instead of the previous mode's edits.)
+
+**Q4 (source swap), reframed rather than answered:** it only makes sense alongside the scene manager, where a keyframed loop, a newly added source and a live camera are all things you can cut between side by side. In that world, changing source in motion is a choice between **sending the current keyframed motion to the queue/stage**, **discarding it and starting fresh**, or (least likely viable) **keeping the keyframe parameters and swapping the source under them**. Decisions to make then, not now.
+
+**The one thing worth carrying forward:** B642's OOB guard is the same shape of problem in miniature — a global setting changed in one place invalidating snapshots held somewhere else. Per-mode state does not remove that class, it multiplies it. Whatever the design, it needs an answer for "this change makes some stored look unrepresentable" that is not written once per setting.
+
+---
+
+## 🗂 Older device passes and running lists (B547-B594)
+
+**⚠️ CURRENCY WARNING: these predate the phase 2 arc (B683-B704) and several are probably closed.** They have not been individually re-checked against the current build. **Treat any item here as a candidate for verification-then-closure, not as a confirmed open bug.** Where one is genuinely still open it will also appear, restated, in a group above.
+
+### 📦 RECENTLY CLOSED → `archive/BACKLOG-resolved-b599-b704.md`
+
+**Twenty items closed between B599 and B704 were moved out at B704** — shipped, fixed, answered,
+withdrawn, or superseded. Among them: the loop hold (closed B608), the droste infinite-zoom loop
+(B623), the two-chrome divergence audit (B627), the semantic flip (B635), the scenario runner (B665),
+**radial pan** (B694, four builds of reasoning), the dupe-key linter decision (B696), the withdrawn
+post-bake source stall (B702), and recentre-does-not-ease (fixed B704).
+
+**Where a closed item still constrains future work, that constraint was moved into the code or into
+a live doc rather than left here** — the archive header lists each one and where it went.
+
+### ✅ CLOSED B608 — THE LOOP HOLD → `BROADCAST-DELIVERY.md` §6a
+
+Collapsed to a pointer at B658. That section is a strictly better record than the 36 lines that were here: what the hold was (AVFoundation, ~150ms, fixed cost, iPad-only), **eight hypotheses each closed by its own instrument**, the head-frame-cache fix, the one field that says whether it works (`loopCache.firstPts` must be ~0), and two traps for whoever reads a budget comparison next. First reported B487, closed 121 builds later.
+
+### 🚫 PRODUCT CONSTRAINTS ON ANY FIX (Daniel, B602) — these rule out most of the obvious options
+
+- **A deliberate hold is a non-starter.** Seamless looping is non-negotiable for perform mode.
+- **The fix cannot live in the Loop Builder.** **The majority of loops are built elsewhere and imported**, so anything that depends on our bake choosing a friendly loop point only helps the minority case.
+
+**What survives those constraints: fill the gap with frames we already have.** Cache the first N encoded frames of the clip on the opening pass, and at the lap feed them from the cache while AVFoundation restarts — the wire and both clients see continuous frames with correct pts, and nothing about the clip's origin matters. Trigger the rewind ~150ms early and the content is continuous rather than merely unfrozen.
+
+**Cost to weigh before building:** ~6 frames of cache is **~74MB at 4K** (12.4MB per frame) and ~19MB at FHD. This project has a jetsam history at 4K, so the memory has to be measured, not assumed — and if the gap turns out to scale with resolution, N can be much smaller at 4K than the worst case suggests.
+
+**STOPPING RULE (agreed shape, B602):** if the pull model does not move the number and the gap does not scale with resolution, **stop investigating** and build the frame cache.
+
+**Dead, each by its own instrument** (3 and 4 added at B598/B599, 5 at B599):
+
+5. **Our backpressure.** `skipped: 0` on both clients across the lap. The fan-out declined nothing.
+
+3. **The external view's render.** `wrapRenders` after a lap: `ren` 8-15ms, `up` 0-4ms, `sched` 0-12ms, `gap` 9-28ms. **All fast.** The view renders normally through the hold and has nothing new to draw — so it is not a shader rebuild, not a texture reallocation, and not a blocked thread.
+4. **"The app does not hold, only the wall does."** That was my instrument, not the app: `paintLatest` counted re-blits of the same buffer as clock events, and only the app calls `refreshFrame()`. Fixed B599.
+
+**The one fact nothing explains: 1.8 seconds of footage is absent at the lap** (`fromPts 19.4 → toPts 0.833` on a 20.4s clip) while the wire reports a 7ms gap. **Those cannot both describe the same event.**
+
+**Open measurement (B599):** `srcFanOut.itemSwaps` / `swapGapMs` / `swapFromPts` / `swapToPts` / `ticksNoBuffer` — the decode's own account of the lap, from the only code that sees AVPlayerLooper swap items. It separates "AVFoundation lost the content" from "our backpressure declined to take it".
+
+**⚠️ Instrument caveat:** `maxTakeGapMs` was contaminated by a post-bake re-join (2009ms, an attach cost not a lap), which is why `recentTakeGaps` exists and why the native counters reset on teardown.
+
+**If take gaps come back small too**, the hold is not at the frame boundary at all and the next suspects are param-side: `p` snapping from 1 to 0 at the wrap, and whatever the timeline/playhead UI does when it scrolls back to the start.
+
+### 🔎 LIKELY CLOSED [Daniel, B647→B648] FIREFOX: CURSORS OVER THE SOURCE ARE PLAIN ARROWS — intermittent, and not seen since
+
+Firefox only; Brave is fine. **The symptom discriminates and it points AWAY from the cursor art:** if the SVG data-URI failed to load, Firefox would fall back to the keyword in each declaration (`move`, `ew-resize`, `ns-resize`) — visibly different cursors. A plain ARROW is `default`, which is what `cursorForMode` returns when `classifyPointer` yields `mode: null` — and that happens when `sourceOverlayCanvas._geom` is missing.
+
+**▶ B648 FOUND A REAL MECHANISM AND FIXED IT — but it is unconfirmed as THE cause.** Daniel's follow-up that it stopped reproducing is what pointed the way: an encoding failure is deterministic, so intermittency argues for lifecycle. The overlay's change gate could skip a draw on a freshly re-mounted canvas (signature unchanged → no draw → `_geom` never written → every hit test null → `default` cursor), and it would stay that way until an unrelated value moved. The gate now refuses to skip when there is no cached geometry.
+
+**▶ B649 — Daniel: *"hasn't repo'd and this seems to have been a one of state issue. i'll watch it."*** Left open at LOW rather than closed, because the fix is unconfirmed and a bug that stopped reproducing is not a bug that was proven fixed. **If it recurs on B648+**, the discriminator still stands: any resize-style cursor over the outline means the cursor ART is failing; a plain arrow everywhere means hit-testing, and the next place to look is why `_geom` is stale rather than absent.
+
+### 🌡️ [MED — B588, scoped down B589] THE SAME WORK GETS MORE EXPENSIVE OVER A SESSION — LOAD-DEPENDENT, SO CONTROL FOR IT
+
+**▶ B589 UPDATE: not the crisis it first looked like.** The 40% climb below came from a session with an **enlarged slice** running hot. B589's controlled pair (cold start, default slice) drifted only ~5% and produced a perfectly clean result. **Standing protocol for any A/B from here: cold start, fixed slice, and note the elapsed time in the report.** That is enough; a full warm-up-and-settle harness is not needed yet.
+
+Found while running the 4K-vs-QHD test. At **identical surface geometry**, within one sitting:
+
+| | `preview render` | `pip render` | accounted |
+|---|---|---|---|
+| baseline | 11.68ms | 12.68ms | 27.68ms |
+| 4K arm (~164s in) | 13.08ms | 7.63ms | 25.29ms |
+| QHD arm (~254s in) | **16.30ms** | 10.75ms | **32.85ms** |
+
+`preview render` rose **40%** at constant size. **Every cross-time A/B in this arc has therefore had an uncontrolled variable**, and it is a plausible explanation for how many of them came back ambiguous or reversed.
+
+**Leading hypothesis is thermal**, which we cannot confirm: `ProcessInfo.thermalState` reads null (see the thermal item), so the only signal is drift-based and drift is exactly what is in question. **Alternatives not ruled out:** accumulated GPU memory pressure, ledger overhead growth, a leak in one of the engines.
+
+**▶ THE CHEAP DISCRIMINATING TEST, and it should precede any further A/B: run the same comparison in the OPPOSITE order.** If the second arm is worse regardless of which resolution it holds, the variable is time. That result would mandate a warm-up-and-settle protocol (fixed dwell before sampling, and A/B/A rather than A/B) for everything downstream — which is a methodology fix worth more than any single measurement.
+
+### 🟡 THE 4K SCRUBBER JITTERS AT THE START OF PLAYBACK (Daniel, B575, long-standing)
+
+Initially playing a 4K source makes the scrubber jump around slightly. Believed fixed for FHD and thought to be fixed for 4K. **Daniel flagged it as possibly related to the intermittent 4K playback failure**, which is worth taking seriously: both are 4K-only, both are at the *start* of playback, and both are consistent with the clock/first-frame handshake settling late. Filed together deliberately.
 
 ### 🔴 B551 TRIAGE — Daniel's H/FH/TF pass, grouped by SHARED CAUSE
 
@@ -1694,6 +1457,8 @@ The HDMI group had never been run on any device. It found more in one sitting th
 
 ---
 
+---
+
 ## Fold Live — perform mode & live output
 
 > The active program was the UX-restructure → perform program (arcs 0–7). Arcs 0–5 core + the mode/timeline/staging/autoplay/control-bus work SHIPPED (see CHANGELOG). Remaining pending below.
@@ -1754,7 +1519,7 @@ macOS gives browsers no multi-touch (Movink/Sidecar register as one pointer; onl
   **STAGED (de-risked):** ✅ **Stage 1 SHIPPED B440** — semantic "zoom" role in `PARAM_TARGETS` (resolves droste→drosteZoomPhase else canvasZoom; `applyMapping` resolves per-apply; drosteZoomPhase hidden from the dropdown), so one zoom knob works across forms. **Stage 2:** derive `CONTINUOUS_KEYS`/`FOLLOW_SPANS` from a descriptor (kills the transition/animation silent-failure class); verify by proving derived == current hand lists (token-parity technique). **Stage 3:** fold mapping meta in, derive `PARAM_TARGETS`; add SNAP-AWARE mapping for discrete controls (segments/form — continuous input → nearest valid integer/enum; `writeParam` currently writes raw). **Stage 4:** forms declare `controls` (new-form auto-wire endpoint).
   **EFFORT / SEQUENCING (Claude's estimate for Daniel):** Stages 2–4 = a focused mini-arc, ~3–5 builds; the CODE is moderate but the RISK concentrates in the equivalence verification (must prove the derived lists match today's behavior exactly — motion/follow/autoplay are subtle). **Recommend a DEDICATED hardening pass, NOT interleaved with M4–M6 feature work** (cross-cutting refactors + feature churn is how regressions hide). Best slot: **after M4/M5, immediately BEFORE M6 (tile builder)** — M6 adds the most new controls, so it's the movement that most benefits from auto-wiring, and doing the refactor just-in-time captures the stable pre-M6 control set. **CONDUIT:** the input bus + descriptor are prime shared infra (every consumer app maps controllers→params) — build once, share.
 
-### NDI OUT in the Electron DMG — libndi bundling ✅ SHIPPED B484
+### 🔎 CLOSED — NDI OUT in the Electron DMG, libndi bundling ✅ SHIPPED B484 (kept only for the bundling note)
 Shipped: the addon now links **two** rpaths (dev-SDK path + `@loader_path`, binding.gyp); build-dmg.cjs **bundles `libndi.dylib` next to `fold_ndi.node`** (rebuilds the addon if it predates the new rpath); package.json `asarUnpack` extracts the dylib so dlopen sees a real file. Proven by stripping the dev-SDK rpath from a copy and loading via `@loader_path` alone → `start()` succeeded. **Still needs Daniel's DMG-on-machine verify** (NDI row appears in the shipped .app → localhost → Arena lists it — the App-Store cross-app fallback where Syphon is sandbox-blocked). See CHANGELOG v0.20.27.
 
 ### 🎛️ INPUT MAPPING + PER-FORM EXTENTS — one cluster, one pass (Daniel, B559)
@@ -1854,7 +1619,7 @@ The full stepped mode shipped + iterated B385–B396 (see CHANGELOG); device/des
 - **A dedicated perform-mode access point** (the mode menu reaches Loop Builder from anywhere; perform has no overflow menu).
 - **Bake tails:** no mid-bake cancel; bounce preview is forward-only; shared-demux memory optimization (two readers fetch the same file twice — see Export lane).
 
-### App-wide mode-transition guardrails + opinionated flows  ·  ▶ ACTIVE ARC (2026-07-20) — "Flows, Guardrails & Tiling" (plan in ~/.claude/plans)
+### App-wide mode-transition guardrails + opinionated flows  ·  ⚠️ NO LONGER THE ACTIVE ARC — closed 2026-07-21, plan archived at `archive/plans/we-recently-closed-out-abundant-bubble.md`
 Now the SPINE of the active arc — these guardrails plus slice/gesture parameter locks, geometry-truth (honest overlay), Droste infinite zoom, SVG export overlays, and the tile builder. Make moving between Still / Motion / Perform / Loop-builder opinionated + safe (destructive-interrupt pattern as the mechanism):
 - **▶ UX-strategy checkpoint FIRST (undecided — gates the rest).** How/when do we capture "is this a loop already?" / "loop or bounce playback?" WITHOUT becoming wizard-heavy — infer-and-override vs. one interstitial question vs. skippable step; land a principle. AND decide whether the Loop Builder stays a top-level mode or becomes an interstitial/modal contextual surface (Daniel's lean), for consistency with the tile-builder-as-surface direction.
 - **Keyframe-shift warning** — SHIPPED B386 (entering Loop Builder with existing keyframes warns). Extend the pattern to the other transitions.

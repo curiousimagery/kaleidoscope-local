@@ -233,7 +233,7 @@ All three questions are answered. **Do not extend this session; it is done.**
 
 **Order within the item:**
 
-1. **The session audit. ✅ DONE 2026-08-19 → `docs/SESSION-AUDIT.md`.** Class 1, answerable by reading code, **no device time.** What hardware sessions does the app hold at each moment, and who releases them. This turns three device sessions into one. **Result: the source `<video>` is orphaned on every swap, and no GL context is ever released. Peak is 5-6 decoders of one clip, counted by nothing.** The follow-on it names (an actual session counter, published in the report) is what turns the audit into a measurement.
+1. **The session audit. ✅ DONE 2026-08-19 → `docs/archive/SESSION-AUDIT.md`.** Class 1, answerable by reading code, **no device time.** What hardware sessions does the app hold at each moment, and who releases them. This turns three device sessions into one. **Result: the source `<video>` is orphaned on every swap, and no GL context is ever released. Peak is 5-6 decoders of one clip, counted by nothing.** The follow-on it names (an actual session counter, published in the report) is what turns the audit into a measurement.
 2. **The thermal signal.** `ProcessInfo.thermalState` reads null. The JS seam already exists at `main.js:102` and `createPressureSource` already consumes it, so this is a small addition to a plugin we rebuild anyway. **It is a prerequisite, not a phase.**
 3. **The long-form run.** 6 to 10 minutes of 4K, broadcasting 4K over HDMI, cold start, fixed slice. Governor pinned off. Readings at start, middle and end.
 4. **The cluster fixes**, aimed by what 1 and 3 found.
@@ -325,6 +325,17 @@ Full form in `DEBUGGING-PROTOCOL.md` and `BROADCAST-DELIVERY.md` §7. **The thre
 3. **Anything that can decline to act must publish why.** An absence is not evidence. `nativeAttach` caught three silent fallbacks this arc, each of which would otherwise have become a false conclusion.
 
 **And the standing rule at the top of every verification:** check the `source` row says `planar · native decode` before trusting any measurement. A report from the fallback path cannot be compared to one from the native path.
+
+### ⚠️ Two columns in the report cannot be read at face value (rescued from VERIFY-QUEUE at B704)
+
+Both are **known instrument defects, not fresh doubt.** They were the standing reading rules of the
+B658-B704 session and they still apply to every report that build era produced.
+
+1. **Ignore the `pressure` column.** Its baseline re-learns per workload, so it prints `"warming up"`
+   mid-run and has labelled 22fps *"nominal"* and 23fps *"fair"* in the same session. Same speed,
+   different label. Record the raw baseline beside it or stop carrying it.
+2. **Check the `scenario` tag before trusting any `baseline` delta.** It is set by hand and has been
+   wrong (`idle-still` on a 4K HDMI broadcast), which makes that report's deltas meaningless.
 
 ---
 

@@ -88,6 +88,36 @@ consumed).
 The exit criterion for any element type: one style, edited once, applied everywhere;
 a variant only where the difference is earned.
 
+## locked layout decisions (rescued from CONTROLS.md at B704)
+
+Recorded here so **planned** UI stays coherent with what shipped. These were settled during Fold
+Live Phase 0 (2026-06-17) and have held through ~500 builds, which is why they survived the
+archiving of the doc that held them. **Where one of these conflicts with the running app, the app
+wins and this list needs a correction** — they are decisions, not a spec.
+
+- **Spatial logic: top owns I/O and app actions, bottom owns motion and time. Input left, output
+  right.** The global bar plus its expandable output row at the top; the motion footer near the
+  timeline at the bottom.
+- **Expand-bands are SCOPED to the column that opened them.** `#mainSlot` is a vertical stack:
+  opaque in-flow global bar → expand-bands (`#outputRow`, `#canvasRow`, one open at a time via
+  `wireBarBands`) → the preview stage (`#msStage`). **The bands push only the preview down, never
+  the right panel.** A full-width band was tried first (Build 177) and rejected for exactly that.
+  A band is subordinate to its button, the way an expanding list item is.
+- **The traffic-light indicator** on the output button: green over red, either or both lit. It is
+  the always-on glance, readable with the row collapsed, and the separate status text folds into
+  the row rather than persisting alongside it.
+- **Canvas controls are composition-global, not slice settings.** `frameAspect`, OOB, canvas zoom
+  and canvas rotation belong together in the `#canvasRow` band, beside `motion` — not with the
+  slice. Output resolution stays in the output panel and still-export resolution in the export
+  sheet; **both derive from the composition-global `frameAspect`.**
+- **A host-gated control should not appear where it is inert.** The Syphon name field is labelled
+  "Syphon server name" and is shown only on Syphon-capable hosts.
+- **Degrade responsively in one direction:** icon+text → icon-only → "…" overflow as space shrinks.
+
+**The architectural anchor under all of it — one program frame, many sinks** — lives in
+`ARCHITECTURE.md`, not here. Its layout consequence is that **resolution, aspect and fps are global**
+and only encode/transport settings vary per sink.
+
 ## extending onto new surfaces (perform / live, and beyond)
 
 This app already spans two consumers of the layer: the still tool AND the motion editor

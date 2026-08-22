@@ -123,6 +123,14 @@ The codebase is organized in reuse tiers, deliberately (this is the model the mu
 
 **The mount seam is in place (Builds 164–170).** A wrapper reuses the web app and calls `createApp(env, { host, capabilities })`, injecting its own **host services** (the `conduit/host` interface — `syphon`/`midi`/`nativeCamera`/`fileSystem`/`externalDisplay`/`ndi`; the web build passes `webHost`, a no-op that reports everything unavailable; moved into the conduit package in Build 345) and **capability profile** (`kit/capabilities.js`). The app queries (`env.host.syphon.available`, `env.capabilities.capturePath`) and degrades — it never assumes a native capability or re-sniffs the engine inline. So native-capability work implements the host interface per shell (`shell/capacitor-host.js`, Electron's injected `window.foldHost`) instead of editing back into the app.
 
+**⚠️ A HOST SEAM MUST READ SYNCHRONOUSLY, AND THE FAILURE IS INVISIBLE (B663).** Capacitor plugin
+calls are async; several consumers of the seam read it **synchronously** (`conduit/vitals.js` calls
+`native()` inline while building a report). Return a Promise there and every field comes back
+`undefined`, so the report prints `nativeReadings: false` — **identical to the plugin not being
+installed at all.** A native reading that silently degrades to "no native support" is worse than an
+error, because the next session concludes the plugin was never built. **The host caches; `read()` is
+synchronous.** Any new host service that a synchronous caller consumes needs the same shape.
+
 ## motion: keyframes, tween, the timeline
 
 State for animation lives in `motion` (in `shell/state.js`): `keyframes: [{ t: 0..1, snap, thumb, anchored }]`, `durationMs`, `loop`, `smoothing`, `playing`, `playhead`, `selected`, `videoSpeed`. A **keyframe's `snap` is a full state snapshot** — the universal currency that also powers undo and (future) live-transition tweening.

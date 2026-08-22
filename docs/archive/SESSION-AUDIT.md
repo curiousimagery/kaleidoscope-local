@@ -1,5 +1,12 @@
 # session audit — what hardware sessions the app holds, and who releases them
 
+> **📦 ARCHIVED 2026-08-21 (B704). A COMPLETED INVESTIGATION, NOT LIVE WORK.** Every finding below
+> has shipped: the session registry at **B681** (`conduit/sessions.js`, with `peak.decode/.gl/.encode`
+> in every report), the bake reader's registration at **B699**, and the planar/element deadlock at
+> **B703**. Read it for the *reasoning* — the release idiom, why onsets rather than load, and the
+> per-path inventory — not for a to-do list. Current session accounting is in the exported report.
+
+
 **Written 2026-08-19 as `PLAN-LIVE-READINESS.md` item 2, step 1.** Class 1 throughout: every claim here was resolved by reading code, and **no device time was spent on any of it.**
 
 **Why this exists.** The bake failure, the source-panel blackout, the GL context loss, the slice-preview stall and the green glitch were all filed separately, and item 2 asserts they are one question: *how many decode, encode and GL sessions do we hold at once, and do we release them.* This is the answer to that question.

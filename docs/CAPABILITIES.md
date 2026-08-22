@@ -1,5 +1,27 @@
 # capabilities
 
+> **▶ CURRENCY, stated at B704 (2026-08-21), because this file mixes two things.**
+>
+> **Still governing, and load-bearing right now:**
+> - **§0, the arc's five exit criteria.** `PLAN-LIVE-READINESS.md` names these as the definition of
+>   done and deliberately does not restate them. Read them before picking up any item.
+> - **§1, probe never classify.** The rule Daniel re-affirmed at B704: *"unless we determine it
+>   genuinely isn't feasible, we shouldn't have to hard code exact features to exact devices."*
+>   `HARDWARE-SUPPORT.md` is the companion — a matrix for **test-planning and store claims**, never
+>   a runtime branch.
+> - **§2.5, the liars.** Exit criterion #2's live worklist. Several are still unfixed.
+> - **§3, what the instrument cannot see**, and **§5, what detection has to do.** **§5 is the closest
+>   thing we have to a spec for the open "gate recording on detected capability" item.**
+>
+> **A SNAPSHOT, superseded in part:** §2's tables and §4's lever ranking are B528-B560 measurements.
+> Phase 2 (B683-B704) has better iPad numbers — see `PLAN-LIVE-READINESS.md` "Where we are" and
+> `BROADCAST-DELIVERY.md`. **The iPhone rows are NOT superseded: they are still the only iPhone
+> evidence this project has**, which is exactly why `HARDWARE-SUPPORT.md` lists the phone as the
+> largest evidence gap. Treat the iPad rows as historical and the iPhone rows as current-by-default.
+>
+> Where this file disagrees with a later CHANGELOG entry, the CHANGELOG wins.
+
+
 > **CORRECTION B557:** the "encoder flush is ~97% of finalize" line from B555 attributed the wait to the VIDEO encoder. It is the **audio** flush — 32.7s of a 33.1s finish on a 3:28 4K take. Video is drained by design (`publish` drops frames above a queue of 4); audio has no such valve. The 30-second-cliff finding is unaffected.
 
 > ## 🛑 CORRECTION B551, NARROWED B552 — THE **MOBILE** TAKE PATH HAS NEVER RECORDED 4K
