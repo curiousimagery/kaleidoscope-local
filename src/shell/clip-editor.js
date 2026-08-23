@@ -904,6 +904,37 @@ export function createClipEditor(env) {
       env.clip.baking = false;
       return;
     }
+    // ⚠️ B710 — REFUSE TO BAKE FROM A DEGRADED SOURCE, BECAUSE A BAKE IS DESTRUCTIVE.
+    //
+    // `applyBakedClip` REPLACES the working source with the bake's output. So a bake that reads
+    // garbage does not merely fail — **it destroys the clip the operator was working on**, and it
+    // does it while reporting success.
+    //
+    // Daniel, 2026-08-23: after a failed bake, *"if i press the bake action button again it
+    // completes quickly and lands me with neutral gray source that adjusts in brightness as i
+    // scrub across — like i was zoomed all the way into a single pixel."* That is exactly what
+    // baking the degraded path looks like. `docs/temp/8-23-contextLoss-clipBake.json` names the
+    // state in its own words:
+    //
+    //   1280×720 · from canvas · native decode · 0.0 in/s
+    //   ⚠ SOURCE STALLED 388.3s — socket open, offered 3, took 3, skipped 0
+    //   ⚠ NOT ON THE PLANAR PATH — sampling the preview canvas
+    //
+    // The engine had fallen off the planar path onto the receiver's 1280 preview canvas (the B580
+    // signature), and that canvas was stalled. **The app already knew** — `main.js` prints this
+    // very warning from `env.nativeVideo && !engine.planarActive`. Nothing consulted it before
+    // spending four minutes overwriting a 4K clip with grey.
+    //
+    // ⚠️ THE TEST IS `planarActive`, NOT THE STALL NOTE. B702's lesson: `msSinceFrame` cannot tell
+    // a PAUSED clip from a wedged one, and a paused clip is a perfectly legal thing to bake.
+    // "Which path is the engine sampling" has no such ambiguity.
+    if (env.nativeVideo && !env.engine?.planarActive) {
+      env.vitals?.mark('bake-refused', { why: 'degraded-source' });
+      alert('Cannot bake right now: the source is not on the native decode path, so the bake would '
+          + 'capture a low-resolution preview instead of your clip. Reload the clip and try again.');
+      env.clip.baking = false;
+      return;
+    }
     if (cover) cover.hidden = false;                 // hide the seeking/decoding flicker behind a "baking…" cover
     if (apply) { apply.disabled = true; apply.textContent = 'baking…'; }
     try {

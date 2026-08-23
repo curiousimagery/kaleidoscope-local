@@ -6,6 +6,58 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.26.50 · Build 710 — A BAKE IS DESTRUCTIVE, SO IT NOW REFUSES A SOURCE IT CANNOT READ
+
+**Shipped:**
+- **A bake refuses to start when the engine is off the planar path** (`bake-refused · degraded-source`), instead of overwriting the working clip with a grey 1280 preview.
+- The test is `planarActive`, deliberately **not** the stall note — B702's lesson is that `msSinceFrame` cannot tell a paused clip from a wedged one, and a paused clip is legal to bake.
+
+### ✅ B709 CONFIRMED ON DEVICE — the fifth context is visible and recovers
+
+```
+23:28:36.287  gl-context-lost      yuv-source     ← first appearance in any report
+23:28:36.287  gl-context-lost      preview
+23:28:36.341  gl-context-restored  yuv-source     ← 54ms
+23:28:36.941  gl-context-restored  preview        ← 654ms
+```
+
+Before B709 that surface had no handler, therefore no `preventDefault()`, therefore no restore was ever offered. **It now loses and recovers in 54ms**, and it says so.
+
+### ⚠️ THE SERIOUS FINDING: A BAKE CAN SILENTLY DESTROY THE CLIP
+
+Daniel: *"if i press the bake action button again it completes quickly and lands me with neutral gray source that adjusts in brightness as i scrub across — like i was zoomed all the way into a single pixel."*
+
+**`applyBakedClip` REPLACES the working source with the bake's output.** So a bake reading garbage does not merely fail — **it destroys what the operator was working on, while reporting success.** That is the worst outcome in this whole thread, and it is worse than any crash: a crash is recoverable by relaunching.
+
+**The report named the state in its own words:**
+
+```
+1280×720 · from canvas · native decode · 0.0 in/s
+⚠ SOURCE STALLED 388.3s — socket open, offered 3, took 3, skipped 0
+⚠ NOT ON THE PLANAR PATH — sampling the preview canvas
+```
+
+**The engine had fallen off the planar path onto the receiver's 1280 preview canvas — the B580 signature, verbatim — and that canvas was stalled.** So the "successful" bake captured a stalled low-resolution preview and swapped it in.
+
+**⚠️ AND THE APP ALREADY KNEW.** `main.js` prints that warning from `env.nativeVideo && !engine.planarActive`. **The signal existed, was correct, was displayed, and nothing on the destructive path consulted it** before spending four minutes overwriting a 4K clip with grey. The gap was never detection.
+
+### 🔴 WHAT I HAVE NOT FIXED, STATED PLAINLY
+
+**`Decoding task did not complete` at ~85% is still unfixed, and this is the fourth build in which I have improved the REPORTING around a failing bake without fixing the bake.** B707 (refuse on a dead context), B709 (the async gap), B710 (refuse a degraded source) all make failures legible or safe. **None of them address why a long 4K bake runs out of decode.**
+
+**The evidence now points somewhere specific, though.** `sessions.peak.decode: 7`, and five were still live at report time:
+
+```
+source clip: IMG_5132.mov          394s
+native decode: IMG_5132.mov        389s
+loop builder: preview              255s
+loop builder: A-head crossfade     255s
+loop builder: thumbnail strip      255s
+```
+
+**The loop builder holds three preview decoders for its whole session, and the bake opens its own on top of them.** Shedding the preview decoders for the duration of a bake is the obvious next move and was Daniel's own suggestion at B700. **It is not a small change** — it needs a defined way to restore them on cancel, on failure, and on back-navigation, which is the question he asked then and which still needs answering before anything is built.
+
+
 ## v0.26.49 · Build 709 — THE FIFTH GL CONTEXT, WHICH NOTHING HAS EVER WATCHED
 
 **Shipped:**

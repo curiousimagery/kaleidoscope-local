@@ -477,6 +477,34 @@ One report reads `pressure: { target: 15, label: "warming up" }` on a 30fps clip
 
 **Several of these predate B700's first-frame deadline fix and B699's decoder registration, and may already be closed.** Flagged individually below. The loop hold itself closed at B608 and T10 re-confirmed it (8 wraps, 6ms worst gap).
 
+### 🚨🚨 [HIGH — Daniel, 2026-08-23 — DATA LOSS, MITIGATED B710, CAUSE STILL OPEN] A BAKE CAN SILENTLY REPLACE THE CLIP WITH GREY
+
+**`applyBakedClip` REPLACES the working source with the bake's output.** A bake that reads garbage therefore **destroys the operator's clip while reporting success** — worse than any crash in this thread, because a crash is survivable by relaunching.
+
+**Daniel: *"if i press the bake action button again it completes quickly and lands me with neutral gray source that adjusts in brightness as i scrub across."*** `docs/temp/8-23-contextLoss-clipBake.json` names the state exactly: `1280×720 · from canvas · native decode · 0.0 in/s · ⚠ SOURCE STALLED 388.3s · ⚠ NOT ON THE PLANAR PATH — sampling the preview canvas`. **The engine had fallen off the planar path onto the stalled 1280 preview canvas (the B580 signature) and the bake captured that.**
+
+**✅ MITIGATED B710:** the bake refuses when `env.nativeVideo && !engine.planarActive`. **The app already knew** — `main.js` prints that warning from the same expression. Nothing on the destructive path consulted it.
+
+**🔴 STILL OPEN — WHY the engine falls off the planar path here.** `reinitGL` preserves the provider via `keepPlanar`, so the loss happened elsewhere. **Prime suspect: the loop builder calls `setPlanarSource(null)` (`source-host.js:829/939`), so a context restore that lands while the loop builder holds the source has nothing to preserve.** Class 1 — read the loop builder's entry/exit against the restore path before instrumenting.
+
+**▶ AND A SEPARATE PRODUCT QUESTION, worth Daniel's call: should a bake ever replace the source in place at all**, or should it produce a NEW source and leave the original loaded? `env.clip.backup` exists but is cleared on success. A non-destructive bake would make this whole class of failure survivable.
+
+### 🔴 [OPEN, AND I HAVE NOT FIXED IT — 4 BUILDS OF REPORTING IMPROVEMENTS] `Decoding task did not complete` AT ~85% OF A LONG 4K BAKE
+
+**Stated plainly: B707, B709 and B710 all made a failing bake legible or safe. None of them address why it fails.** This is the same error as the B603 and B607 entries below, still recurring on B709.
+
+**The evidence now points at concurrent decoders.** `sessions.peak.decode: 7`, with five still live at report time:
+
+```
+source clip: IMG_5132.mov       394s      native decode: IMG_5132.mov   389s
+loop builder: preview           255s      loop builder: A-head crossfade 255s
+loop builder: thumbnail strip   255s
+```
+
+**The loop builder holds three preview decoders for its entire session and the bake opens its own on top.** Shedding them for the duration of a bake is the obvious move and was **Daniel's own suggestion at B700**.
+
+**⚠️ IT IS NOT A SMALL CHANGE, and his question from B700 is still the blocking one:** *"is there an elegant way to pick them back up if someone cancels a bake and goes back? can the loop builder self-detect a failure state mid-bake and restore previews? it seems like the different timeline and output panels themselves should know if they're stale and know how to ask to repair."* **That framing — panels that know they are stale and can ask to repair — is the design, and it should be settled before code.** It also covers the stale-thumbnail item filed separately.
+
 ### 🔎 LIKELY CLOSED BY B700 [Daniel, 2026-08-21 — reproduced twice, instrumented B699] SEAMLESS BAKE FAILS WITH A DECODER TIMEOUT. **Daniel reported a SUCCESSFUL bake on B700, which raised the first-frame deadline. Needs one more bake to close.**
 
 *"Could not bake the clip: decode timed out at 39.288s (10s budget for one frame — usually a very long keyframe interval, or a backward seek re-decoding too much)"*. **Twice**, about halfway through the progress bar. Clip: significant trim off the end, a little off the front, 60fps source converted to 30fps output, on the M1 iPad Pro.

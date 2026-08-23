@@ -22,7 +22,7 @@ Archived at B658. It was marked superseded at B609 and kept for the reasoning be
 
 ## current version
 
-**v0.26.49 · B709** (2026-08-22). **B705 and B706 are device-verified** — B705's instrument found B706, and B706 held on the repro that killed B705. B703, B704 and B707 are not yet device-verified.
+**v0.26.50 · B710** (2026-08-23). **B705 and B706 are device-verified** — B705's instrument found B706, and B706 held on the repro that killed B705. B703, B704 and B707 are not yet device-verified.
 
 ---
 
@@ -63,6 +63,22 @@ Both named by Daniel at B704 **because I had left them off the plan.** Full scop
 - **Refuses to start on a lost context** (`bake-refused`). B705's guard correctly reported `frame 1 of 2635`, and **frame 1 means it should never have begun.**
 - **The encoder's real error beats its symptom.** `VideoEncoder is not configured` describes the state we found it in, not what broke it; a synchronous throw was beating the `encError` check.
 - **The bake button no longer reads `baking…` forever while clickable.** `setClipMode`'s comment claimed it restored the label; `loopPrimary()` does. Daniel pressed the lying button, which is how the second bake happened.
+
+### 🚨 B710 — A BAKE COULD SILENTLY DESTROY THE CLIP. IT NOW REFUSES.
+
+**`applyBakedClip` REPLACES the working source with the bake's output**, so a bake reading garbage destroys the operator's clip *while reporting success*. Daniel got a grey source after a second bake attempt; the report said `NOT ON THE PLANAR PATH — sampling the preview canvas` at `1280×720`, stalled 388s. **The bake captured that and swapped it in.**
+
+**The app already knew** — `main.js` prints that warning from `env.nativeVideo && !engine.planarActive`. **Nothing on the destructive path consulted it.** Now it does.
+
+**🔴 Still open: WHY it falls off the planar path there.** `reinitGL` preserves the provider, so the loss is elsewhere — prime suspect is the loop builder's `setPlanarSource(null)`. **Class 1, read it.**
+
+**▶ Product question for Daniel: should a bake replace the source in place at all**, or produce a new one and leave the original loaded? That would make this whole class survivable.
+
+### 🔴 AND THE BAKE ITSELF IS STILL BROKEN — SAY THIS PLAINLY
+
+**B707, B709 and B710 all improved the REPORTING or the SAFETY around a failing bake. None of them fixed the bake.** `Decoding task did not complete` at ~85% is the same error as B603/B607 and still recurs.
+
+**Evidence now points at concurrent decoders:** peak 7, with the loop builder holding **three** preview decoders for its whole session while the bake opens its own. **Shedding them for a bake was Daniel's own B700 suggestion, and his design question there is still the blocker** — how previews get restored on cancel/failure/back-nav. He framed it well: *panels that know they are stale and can ask to repair.* **Settle that before writing code.**
 
 ### ✅ B709 — THE BLANK SOURCE, ACTUALLY. A FIFTH GL CONTEXT NOTHING HAS EVER WATCHED.
 
