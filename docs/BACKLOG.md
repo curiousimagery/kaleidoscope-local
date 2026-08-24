@@ -257,6 +257,17 @@ env.detachNativeVideo?.();     // the native decode, detached
 
 *"2) attempting to create scenarios where GL context loss bugs pop up and cycling through diagnostics for root cause and fixes."* **Also missing from the ledger. This is the largest remaining piece of phase 2.**
 
+**✅ AND THE PROVOKING SIDE IS READY TOO (B723).** Frame-cost panel → surface picker + delay +
+`lose context`. Registration happens inside `watchGLContext`, so every watched surface is killable by
+construction and a sixth added tomorrow cannot be forgotten. Surfaces that cannot be killed are
+listed with the reason. `gl-loss-provoked` marks every deliberate loss so tests stay distinguishable
+from organic failures. **The item is now a matrix to RUN, not a capability to build.**
+
+**⚠️ IT DOES NOT REPLACE ORGANIC PROVOCATION (Daniel, 2026-08-24):** *"the provocation trying to
+create crashes is still necessary to understand where the self-healing is most necessary and to
+prevent the root causes."* The harness proves a surface CAN heal; only real crashes say which
+surfaces get hit, how often, and why.
+
 **✅ THE LISTENING SIDE IS NOW READY (B695, B699, B703).** All five GL surfaces mark `gl-context-lost` / `gl-context-restored` with a `surface` field; mode changes are breadcrumbed; the bake decoder is counted; and `reinitWhy` reports a restore whose element re-upload failed. **Before B695 four of five surfaces were console-only, so a provoked loss would have been mostly unobservable.**
 
 **Known provocations, from the record:**
@@ -472,6 +483,43 @@ One report reads `pressure: { target: 15, label: "warming up" }` on a 30fps clip
 **▶ The fix is to take the target from the CLIP's declared frame rate rather than the observed arrival rate**, since a clip's fps is a property of the file and does not degrade when we do. Observed arrival stays as the fallback for sources that cannot declare one.
 
 ---
+
+## 🚧 Limits, ceilings and honest refusal
+
+### 🚨 [HIGH — found by reading, B723] THE APP HAS ONE INGEST LIMIT, IT IS SILENT, AND IT SITS BELOW THE PLAN'S OWN GOAL
+
+**`maxBytes = 1_500_000_000` in `video-decode.js` is the only hard limit anywhere on the ingest/bake
+path.** Over it, `createSequentialFrameReader` returns null with no mark and no message, and the bake
+falls back to seeking a `<video>` element per frame — the exact path the reader exists to avoid,
+which re-decodes from the previous keyframe on every step.
+
+**4K at 10 minutes, the plan's stated design ceiling, is ~3.75GB at a typical 50 Mbps.** So a clip at
+the ceiling we are designing toward takes the slow fallback on every device we own, including the
+M5 Max. Nothing has surfaced it because every test clip so far has been under 1.5GB.
+
+**It also violates the standing rule** that anything which can decline to act must publish why. The
+symptom it produces is *"the bake is inexplicably slow"*, which is the exact shape of bug this arc
+has spent four builds on.
+
+**▶ THE SHARPEST AXIS IS MEMORY, AND IT NEEDS NO PROBE.** `createSequentialFrameReader` fetches the
+whole file into an ArrayBuffer and holds sample references into it for the reader's life. **Slice
+mode creates TWO readers, each with its own fetch**, so a slice bake costs ~2x the source file size
+resident, plus up to 12 held 4K VideoFrames per reader (~12.4MB) plus the reverse cache. A 1.4GB clip
+is ~3GB on an 8GB iPad Air before the encoder is configured. **File size, mode and resolution are all
+known at open time**, so the bake can state its cost and refuse by name.
+
+**▶ SCOPE IS APP-WIDE, NOT BAKE-SPECIFIC (Daniel, 2026-08-24):** *"our limits should be focused app
+wide on preventing errors — whether it is our ability to convert a clip to native, concurrent
+activities like broadcast/record, rendering to save, baking."* The permutation space he named:
+**clip duration × resolution × slice size × broadcast resolution × concurrent activity × mode
+switches.** The bake is one cell.
+
+**▶ AND WE MEASURE MORE THAN WE USE.** `sessions.peak` (proven conserved B681), thermal, and
+`broadcastCeiling` (learned 22/30 delivered at 4K HDMI) are all measured and **none of them gates
+anything.** Most of the ladder is wiring existing signals to decisions, not new instrumentation.
+
+**Sequenced after the GL-loss matrix**, because an honest refusal is what makes the bounds probe
+affordable: a refusal is a fast answer where a failure costs a full upload and a full bake.
 
 ## 🔁 Loop builder, bake and the decode path
 

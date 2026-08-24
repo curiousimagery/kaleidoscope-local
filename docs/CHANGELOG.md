@@ -6,6 +6,49 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.26.63 · Build 723 — A CONTEXT LOSS YOU CAN AIM
+
+**Shipped:**
+- **`lose context` in the frame-cost panel.** Pick a watched GL surface, pick `now` / 3s / 10s / 30s, fire. Arm it, close the panel, go do the thing you want it to interrupt.
+- **Every watched surface registers itself for provocation**, in `watchGLContext`. A sixth surface added tomorrow is killable without anyone remembering to wire it.
+- **Surfaces that CANNOT be killed are listed with the reason**, not hidden.
+- **`gl-loss-provoked` in the trail**, so a test is distinguishable from an organic failure.
+
+### ⭐ WHY THIS UNBLOCKS THE PLAN'S LARGEST OPEN ITEM
+
+*"Provoke GL context loss deliberately and cycle diagnostics"* has been the largest remaining piece
+of phase 2 since B704, and the only available method was to hope one happened. **The extension that
+kills a context has been cached in both chromes for months** (`main.js`, `mobile/chrome.js`) for the
+glass-break reset and `pagehide`. What did not exist was a way to aim it at a NAMED surface at a
+CHOSEN moment.
+
+**The delay is the feature.** Every loss worth testing lands in the middle of work — a bake, a
+broadcast, a 4K crossfade scrub — and an operator cannot hold a panel button and do that at once.
+
+**A loss that heals cleanly is a PASS**, and `gl-watch.js`'s four outcomes already grade it:
+`restored` passes; `failed`, `incomplete` and `timeout` do not; and a loss followed by none of the
+four means the app died inside the window.
+
+### 📐 WHY THE REGISTRY IS A MODULE MAP AND NOT ON `env`
+
+Which surfaces exist, and how to kill one, is a fact about the **one shared rendering surface**, not
+about a chrome. There are three env-shaped objects in this app and B638 was a flag written to one
+and read from another. A module-level map is visible to every caller whichever env they hold.
+
+**It also puts registration where it cannot be forgotten.** B705 wired "all five GL surfaces" by
+counting ENGINES rather than CONTEXTS and missed `yuv-renderer`, which then had no loss handler at
+all for months. Registering inside `watchGLContext` makes that class of miss structurally impossible:
+if a surface is watched, it is listed.
+
+### 🧩 CACHING THE EXTENSION AT WATCH TIME IS THE LOAD-BEARING DETAIL
+
+`getExtension` returns null on an already-lost context in WebKit, which is exactly how the Build-230
+restore silently never fired. **Watch time is the one moment the context is alive by construction.**
+The cached object survives loss/restore cycles, because extensions belong to the context object and
+that object outlives the loss.
+
+---
+
 ## v0.26.62 · Build 722 — THE INSTRUMENT TOLD THE TRUTH ABOUT FAILURES AND LIED ABOUT SUCCESSES
 
 **Shipped:**

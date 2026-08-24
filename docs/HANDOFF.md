@@ -22,7 +22,7 @@ Archived at B658. It was marked superseded at B609 and kept for the reasoning be
 
 ## current version
 
-**v0.26.62 · B722** (2026-08-24). **B705 and B706 are device-verified** — B705's instrument found B706, and B706 held on the repro that killed B705. B703, B704 and B707 are not yet device-verified.
+**v0.26.63 · B723** (2026-08-24). **B705 and B706 are device-verified** — B705's instrument found B706, and B706 held on the repro that killed B705. B703, B704 and B707 are not yet device-verified.
 
 ---
 
@@ -63,6 +63,37 @@ Both named by Daniel at B704 **because I had left them off the plan.** Full scop
 - **Refuses to start on a lost context** (`bake-refused`). B705's guard correctly reported `frame 1 of 2635`, and **frame 1 means it should never have begun.**
 - **The encoder's real error beats its symptom.** `VideoEncoder is not configured` describes the state we found it in, not what broke it; a synchronous throw was beating the `encError` check.
 - **The bake button no longer reads `baking…` forever while clickable.** `setClipMode`'s comment claimed it restored the label; `loopPrimary()` does. Daniel pressed the lying button, which is how the second bake happened.
+
+### 🧪 B723 — GL LOSS IS NOW PROVOKABLE ON DEMAND. THE MATRIX IS DANIEL'S TO RUN.
+
+**Frame-cost panel → surface picker + `now`/3s/10s/30s + `lose context`.** Arm it, close the panel,
+go to the thing you want interrupted. **A loss that heals cleanly is a PASS**; grade it with
+`gl-watch.js`'s four outcomes, and remember that a loss with NONE of the four means the app died
+inside the window.
+
+**`gl-loss-provoked` marks every deliberate one**, so provoked and organic stay distinguishable in
+the trail. **Do not read a report from a provocation session without checking for that mark first.**
+
+**This does not replace organic crash hunting, and Daniel made the point himself:** the harness shows
+whether a surface can heal; only real crashes say which surfaces get hit and why. Both continue.
+
+### ⚠️ THE APP DOES NOT KNOW ITS OWN LIMITS — AND ITS ONE LIMIT IS BELOW THE PLAN'S GOAL
+
+**`maxBytes = 1_500_000_000` in `video-decode.js` is the ONLY hard limit on the ingest/bake path**,
+and over it `createSequentialFrameReader` **returns null silently**: no mark, no message. The bake
+falls back to per-frame element seeking, which is the path the reader exists to avoid.
+
+**The plan's stated ceiling is above that cliff.** 4K at 10 minutes is ~3.75GB at a typical 50 Mbps,
+so a clip at the design ceiling takes the slow fallback on every device including the M5 Max. **And
+it violates the standing rule: anything that can decline to act must publish why.**
+
+**The sharpest constrained axis is memory, and it is COMPUTABLE before the bake starts.**
+`createSequentialFrameReader` fetches the whole file into an ArrayBuffer and holds sample references
+into it for the reader's life. **Slice mode creates TWO readers, each with its own fetch**, so a
+slice bake costs ~2x the source file size resident, plus up to 12 held 4K VideoFrames per reader
+(~12.4MB each) plus the reverse cache. A 1.4GB clip is ~3GB on an 8GB iPad Air before the encoder.
+
+**Nothing needs probing to gate this.** File size, mode and resolution are all known at open.
 
 ### ⭐⭐ PICK UP HERE (B722) — THE BAKE PASSES ON BOTH MACHINES. ONE THREAD IS STILL OPEN.
 

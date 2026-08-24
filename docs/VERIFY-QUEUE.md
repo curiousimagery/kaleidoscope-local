@@ -8,24 +8,94 @@ Confirmed results are DELETED from here and recorded in CHANGELOG. Closed sessio
 
 ---
 
-# ▶ NO OPEN SESSION
+# ▶ OPEN SESSION (B723) — WHERE DOES IT BREAK, AND DOES IT HEAL?
 
-**The B658-B704 session is closed → `archive/VERIFY-QUEUE-b658-b704.md`.** It asked *"where is the
-ceiling, and is it a number we can compute?"* and answered it: **T10 met the arc's exit criterion**
-on 2026-08-21 (6:39 4K clip, 50 minutes, 4K over HDMI, no context loss), and the cost model came out
-**additive in frame time**, which is what makes a computed gate possible at all.
+**The question:** *which surfaces survive a context loss, which organic actions still crash us, and
+does every platform render and bake on the path it should be on?*
 
-**Open a new session here when the next multi-test device run is scoped.** The two candidates named
-in `PLAN-LIVE-READINESS.md` are the ones to draw from:
+**Grading, once for the whole session.** A provoked loss is a **PASS** when the trail shows
+`gl-context-restored` for that surface and the picture returns with no operator action.
+`gl-restore-failed` / `-incomplete` / `-timeout` are FAILs. **A loss with none of the four means the
+app died inside the window**, which is the worst result and the most useful one.
 
-1. **Gate recording on detected capability** — needs the re-verify run below, since the old
-   recording evidence predates B681/B699/B700/B703.
-2. **Provoke GL context loss deliberately, then cycle diagnostics.** The listening side only became
-   ready at B695. **A loss that heals cleanly is a PASS**, not a failure.
+**Before reading any report from this session, check for `gl-loss-provoked`.** Provoked and organic
+losses are otherwise indistinguishable, and mixing them poisons the evidence.
 
-**Two device verifications are outstanding and are small enough not to need a session of their own:**
-**B703** (source freeze after a GL restore — use the original motion → perform repro) and **B704**
-(reset canvas should now EASE the pan; set a slow transition speed in perform mode).
+---
+
+## Part A — provoked losses (frame-cost panel → `lose context`). Mostly DESKTOP.
+
+Arm at 10s, close the panel, get to the state, let it fire. **Run desktop first; only A5-A7 need the
+iPad.** Copy a report after each.
+
+| # | surface | state when it fires | what it is really asking |
+|---|---|---|---|
+| A1 | `preview` | idle, clip loaded | the baseline. If this fails nothing below is interpretable |
+| A2 | `preview` | **mid-bake** | B705's guard aborts by name; does the bake fail HONESTLY and leave a usable app |
+| A3 | `preview` | mid-broadcast | does the wall keep its picture while the operator's screen recovers |
+| A4 | `yuv` | scrubbing the timeline | **B709's surface, never once exercised deliberately.** It had no handler at all until B709 |
+| A5 | `preview` | motion → perform, right at the switch | **this is B703's owed verification.** Was the deadlock actually fixed |
+| A6 | `output` / `live-pip` | mid-broadcast over HDMI | the surface the audience sees |
+| A7 | `external` | during a loop wrap | the wrap is the one moment the external path is doing real work |
+| A8 | `preview` | **twice, ~2s apart** | nobody has ever tested a second loss during a recovery. `now` twice, or 3s then 3s |
+| A9 | any | while the Loop Builder is open | does a sheet-owned surface come back, or does the builder need reopening |
+
+**A8 is the one I would not skip.** Every recovery path in this arc was built and verified against a
+single loss.
+
+---
+
+## Part B — organic provocation. The list of known and suspected crash triggers.
+
+**These are the real ones**, drawn from what has actually killed the app this arc. Each is worth
+attempting deliberately now that the listening side is complete.
+
+| # | action | why it is on the list |
+|---|---|---|
+| B1 | scrub the crossfade on a 4K clip in the Loop Builder | **killed B705 outright.** The single most reliable crash we have |
+| B2 | 4K clip + ambitious pan/rotate animation, then switch to perform | Daniel's B705 session: source and output panels lost, broadcast kept playing |
+| B3 | load a NEW 4K clip while broadcasting | source swap under load; the swap path is where B703's deadlock lived |
+| B4 | bake a 4K loop while broadcasting to HDMI | two 4K jobs on one media engine, the combination the external view tears itself down to avoid |
+| B5 | attach/detach HDMI mid-broadcast | an OS-initiated loss is documented when a 4K display attaches |
+| B6 | background the app mid-bake, return after ~30s | iOS purges GPU resources; nothing has tested a bake across that |
+| B7 | record while broadcasting at 4K | the record gate exists to refuse this and does not yet |
+| B8 | load 3+ 4K clips in sequence without leaving the app | tests whether teardown actually releases. `sessions.peak` is the readout |
+| B9 | rapid mode switching (still → motion → perform → still) with a 4K source | mode changes are breadcrumbed since B695 and have never been stress-tested |
+| B10 | **a clip over 1.5GB** (roughly 4K over ~4 min) | **the silent cliff.** Expect a working but very slow bake, with nothing said. Confirms the BACKLOG finding on real hardware |
+
+**B10 is a reading, not a crash test.** It is the cheapest confirmation of the limits finding and it
+needs no instrumentation.
+
+---
+
+## Part C — platform path confirmation. One clip, every platform, two questions each.
+
+**Are we on the fast path everywhere we think we are?** Every cell is *load one FHD clip, render,
+bake*, then read the panel. **This is not a performance test** — it asks which CODE PATH ran.
+
+| platform | render path to confirm | bake path to confirm |
+|---|---|---|
+| iPad (Capacitor) | native decode + planar (`⚠ NOT ON THE PLANAR PATH` must be absent) | WebCodecs reader, not element seeking |
+| iPhone (Capacitor) | same, **and this is the mobile chrome — a different code path entirely** | same |
+| Chrome / Electron desktop | element or planar as expected | WebCodecs reader |
+| Safari desktop | **the readback winner differs per device here** (`reference_browser_engine_gotchas`) | WebCodecs reader |
+| Firefox | expect the texture cap quirk; confirm it degrades honestly | WebCodecs, or an honest fallback |
+
+**The tell for the bake path is in the report:** a `bakeDecode` block means the WebCodecs reader ran.
+**Its absence means the element-seek fallback ran and said nothing** — which is the same silence as
+the 1.5GB cliff, from a different cause.
+
+**⚠️ Compare `bakeDecode` across platforms ONLY when the geometry matches.** Open the Loop Builder,
+choose slice, **touch nothing else** (defaults: `slicePoint 1/3`, `crossfadeMs 500`). Before B722 a
+passing run reported the post-bake reset instead of what it baked, so **no pre-B722 success report is
+comparable to anything.**
+
+---
+
+## Still outstanding, small enough not to need their own session
+
+**B704** — reset canvas should now EASE the pan; set a slow transition speed in perform mode.
+(**B703 is folded into A5 above.**)
 
 ---
 

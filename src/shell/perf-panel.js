@@ -33,6 +33,7 @@ import { wakeLockState } from '../kit/wake-lock.js';
 import { sessionReport } from 'conduit/sessions';
 import { panProbe } from '../kit/pan.js';
 import { externalGuardState } from './external-display.js';
+import { listGLSurfaces, provokeGLLoss, disarmGLLoss } from './gl-watch.js';
 
 const BASELINE_KEY = 'foldPerfBaseline';
 
@@ -356,8 +357,79 @@ export function mountPerfPanel(env, { container = null, onClose = null } = {}) {
   });
   paintRun();
 
+  // ⚠️ B723 — DELIBERATE CONTEXT LOSS. THE ARM-AND-WAIT IS THE FEATURE, NOT A CONVENIENCE.
+  //
+  // Phase 2's largest open item is *"provoke GL context loss deliberately and cycle diagnostics"*,
+  // and until now the only way to do that was to hope one happened. The extension that kills a
+  // context has been cached in both chromes for months; what did not exist was a way to aim it at a
+  // NAMED surface at a CHOSEN moment.
+  //
+  // The interesting losses all land in the middle of work — during a bake, a broadcast, a 4K
+  // crossfade scrub — and an operator cannot hold this button and do that at the same time. So the
+  // delay is what makes the matrix runnable at all: arm it, close the panel, go do the thing.
+  //
+  // **A loss that heals cleanly is a PASS** (the plan's own stopping rule). Read the four outcomes
+  // in `gl-watch.js` afterwards: `restored` passes; `failed`, `incomplete` and `timeout` do not, and
+  // a loss with none of the four means the app died inside the window.
+  const glSel = document.createElement('select');
+  const glDelaySel = document.createElement('select');
+  const glBtn = document.createElement('button');
+  const glNote = document.createElement('div'); glNote.className = 'pf-why';
+  for (const ms of [0, 3000, 10000, 30000]) {
+    const o = document.createElement('option');
+    o.value = String(ms); o.textContent = ms ? `in ${ms / 1000}s` : 'now';
+    glDelaySel.append(o);
+  }
+  glDelaySel.value = '10000';   // long enough to close the panel and reach the thing under test
+  let glSig = null;
+  function paintGL() {
+    const list = listGLSurfaces();
+    // REBUILD THE OPTIONS ONLY WHEN THE SET CHANGES. `paint` runs several times a second, and
+    // replacing a <select>'s children on every tick closes an open dropdown under the operator's
+    // finger — on the device, where this control is hardest to hit in the first place.
+    const sig = list.map((x) => `${x.surface}:${x.canProvoke ? 1 : 0}`).join('|');
+    if (sig !== glSig) {
+      glSig = sig;
+      const keep = glSel.value;
+      glSel.textContent = '';
+      for (const s2 of list) {
+        const o = document.createElement('option');
+        o.value = s2.surface;
+        // Name the surfaces that CANNOT be killed rather than hiding them. A surface missing from
+        // the picker reads as "already covered"; a listed-but-unavailable one is a known gap.
+        o.textContent = s2.canProvoke ? s2.surface : `${s2.surface} (unavailable)`;
+        o.disabled = !s2.canProvoke;
+        glSel.append(o);
+      }
+      if (keep && list.some((x) => x.surface === keep)) glSel.value = keep;
+    }
+    const armed = list.find((x) => x.armed);
+    glBtn.textContent = armed ? 'disarm' : 'lose context';
+    glBtn.classList.toggle('pf-rec', !!armed);
+    const hidden = list.length === 0;
+    glSel.hidden = glDelaySel.hidden = glBtn.hidden = glNote.hidden = hidden;
+    if (hidden) return;
+    const blocked = list.filter((x) => !x.canProvoke);
+    glNote.className = 'pf-why' + (armed ? ' warn' : '');
+    glNote.textContent = armed
+      ? `⏱ ${armed.surface} will lose its context — go to the thing you want to test`
+      : (blocked.length
+        ? `${list.length - blocked.length}/${list.length} surfaces killable · ${blocked.map((x) => `${x.surface}: ${x.why}`).join(' · ')}`
+        : `${list.length} surfaces watched · a loss that heals cleanly is a PASS`);
+  }
+  glBtn.addEventListener('click', () => {
+    const armed = listGLSurfaces().find((x) => x.armed);
+    if (armed) { disarmGLLoss(armed.surface); paintGL(); return; }
+    const r = provokeGLLoss(glSel.value, { delayMs: +glDelaySel.value });
+    if (!r.ok) { glNote.className = 'pf-why bad'; glNote.textContent = `⚠ ${r.why}`; return; }
+    paintGL();
+    // Repaint when the armed shot fires, so the control does not sit reading "disarm" forever.
+    if (r.armed) setTimeout(paintGL, +glDelaySel.value + 250);
+  });
+  paintGL();
+
   foot.append(saveBtn, clearBtn, copyBtn, sessBtn);
-  panel.append(foot, crashNote, sessNote, runSel, runBtn, runNote, out);
+  panel.append(foot, crashNote, sessNote, runSel, runBtn, runNote, glSel, glDelaySel, glBtn, glNote, out);
 
   saveBtn.addEventListener('click', () => {
     baseline = { ...ledger.report, savedAt: new Date().toISOString(), scenario: scenarioSel.value };
@@ -563,6 +635,8 @@ export function mountPerfPanel(env, { container = null, onClose = null } = {}) {
   function paint(r) {
     paintSession();   // B660 — the elapsed clock and the warning line refresh with everything else
     paintRun();       // B665 — and the scripted run's step + countdown with them
+    paintGL();        // B723 — surfaces register as they mount (the source panel's yuv context only
+                      // exists once a clip is loaded), so the picker has to be rebuilt, not built once
     top.innerHTML = '';
     // fps is graded against the DECLARED TARGET where there is one. The old fixed 50/25 cut
     // points silently assumed 60, so a take running at a correct 30 read amber and a 4K camera

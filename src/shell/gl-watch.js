@@ -35,6 +35,78 @@
 
 const RESTORE_TIMEOUT_MS = 3000;   // generous: the longest observed restore was live-pip at 982ms
 
+// ⚠️ B723 — THE PROVOCATION REGISTRY. WHY IT LIVES HERE AND NOT ON `env`.
+//
+// Which GL surfaces exist, and how to kill one, is a fact about the ONE shared rendering surface —
+// not about a chrome. There are three env-shaped objects in this app (`main.js`, `mobile/chrome.js`,
+// and `source-overlay.js`'s private `view`), and B638 was a flag written to one and read from
+// another. A module-level map is visible to every caller regardless of which env they hold, which is
+// the pattern CLAUDE.md prescribes for exactly this shape.
+//
+// It also puts registration where it cannot be forgotten: **every watched surface registers by
+// construction.** B705's whole lesson was that a sixth surface added tomorrow would have been free
+// to skip the wiring, and `yuv-renderer` proved it by having no handler at all for months.
+const surfaces = new Map();   // surface name → { canvas, glOf, mark, ext, extWhy, armed }
+
+// The extension MUST be cached while the context is ALIVE. On a lost context `getExtension` returns
+// null in WebKit, which is precisely how the Build-230 restore silently never fired. The cached
+// object stays valid across loss/restore cycles because extensions belong to the context object,
+// and that object survives a loss.
+function cacheLoseExt(glOf) {
+  let gl = null;
+  try { gl = glOf?.(); } catch { /* a throwing accessor is a missing context */ }
+  if (!gl) return { ext: null, why: 'no GL context at registration' };
+  try {
+    const ext = gl.getExtension('WEBGL_lose_context');
+    return ext ? { ext, why: '' } : { ext: null, why: 'WEBGL_lose_context not exposed by this runtime' };
+  } catch (e) { return { ext: null, why: String(e?.message || e) }; }
+}
+
+// What can be provoked, and — for anything that cannot — WHY NOT. An absence is not evidence, and a
+// control that silently does nothing is worse than one that is missing: it reads as a PASS.
+export function listGLSurfaces() {
+  return [...surfaces.entries()].map(([surface, e]) => ({
+    surface,
+    canProvoke: !!e.ext,
+    why: e.ext ? '' : e.extWhy,
+    armed: !!e.armed,
+  }));
+}
+
+// Kill `surface`'s context on purpose, now or after `delayMs`.
+//
+// **The delay is the point.** The losses worth testing are the ones that land DURING work — mid-bake,
+// mid-broadcast, mid-scrub — and the operator cannot hold a panel button and scrub a 4K crossfade at
+// the same time. Arm it, go do the thing, let it fire.
+//
+// Every provocation is marked, so the trail can tell a TEST from an organic failure. Without that
+// the reports become unreadable the moment we start provoking on purpose, and the whole exercise
+// poisons the evidence it is meant to produce.
+export function provokeGLLoss(surface, { delayMs = 0 } = {}) {
+  const e = surfaces.get(surface);
+  if (!e) return { ok: false, why: `no watched surface named "${surface}"` };
+  if (!e.ext) return { ok: false, why: e.extWhy || 'this runtime cannot force a context loss' };
+  if (e.armed) return { ok: false, why: 'already armed' };
+  const fire = () => {
+    e.armed = null;
+    try { e.mark?.('gl-loss-provoked', { surface, delayMs }); } catch { /* an instrument must never throw */ }
+    try { e.ext.loseContext(); } catch (err) {
+      try { e.mark?.('gl-provoke-failed', { surface, why: String(err?.message || err) }); } catch { /* noop */ }
+    }
+  };
+  if (delayMs > 0) { e.armed = setTimeout(fire, delayMs); return { ok: true, armed: true }; }
+  fire();
+  return { ok: true, armed: false };
+}
+
+// Disarm a pending provocation (leaving the loop builder, ending a session, changing your mind).
+export function disarmGLLoss(surface) {
+  const e = surfaces.get(surface);
+  if (!e || !e.armed) return false;
+  clearTimeout(e.armed); e.armed = null;
+  return true;
+}
+
 // Watch `canvas` and keep `surface` honest in the exported report.
 //
 // ⚠️ EVERYTHING THIS NEEDS IS AN ARGUMENT. It must not close over one chrome's variables — that is
@@ -105,8 +177,16 @@ export function watchGLContext({ canvas, surface, mark, rebuild, glOf, onLost, o
   canvas.addEventListener('webglcontextlost', onContextLost);
   canvas.addEventListener('webglcontextrestored', onContextRestored);
 
+  // B723 — register for deliberate provocation. Caching the extension HERE is the whole reason this
+  // works: at watch time the context is alive by construction, which is the one moment
+  // `getExtension` is guaranteed to answer.
+  const { ext, why } = cacheLoseExt(glOf);
+  surfaces.set(surface, { canvas, glOf, mark, ext, extWhy: why, armed: null });
+
   return () => {
     clear();
+    disarmGLLoss(surface);
+    surfaces.delete(surface);
     canvas.removeEventListener('webglcontextlost', onContextLost);
     canvas.removeEventListener('webglcontextrestored', onContextRestored);
   };
