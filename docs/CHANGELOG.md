@@ -6,6 +6,51 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.26.66 · Build 726 — THERMAL AND MEMORY ONLY ARRIVED WHILE BROADCASTING, AND NOBODY KNEW
+
+**Shipped:**
+- **`onEvent` loads the plugin.** It called `refresh()`, which B679 made a no-op, so subscribing established nothing.
+- **The seam's `why` describes the PUSH.** It said `refresh never attempted` on a healthy seam and on a dead one alike.
+
+### ⭐⭐ THE FINDING: THE NATIVE VITALS CHANNEL IS OFF BY DEFAULT AND ON BY ACCIDENT
+
+`load()` is what registers the `vitals` / `thermalChanged` / `memoryWarning` listeners. B679 retired
+the pull for good and well-evidenced reasons, and **the call it removed was also the only thing that
+loaded the plugin from this path.** The push channel it deliberately kept as the primary one could
+then only be established by an unrelated caller: `setIdleTimerDisabled`, which fires when output goes
+live.
+
+**So thermal and memory arrive if and only if you are broadcasting or recording** — and never during
+a bake, which is the one operation being killed for memory.
+
+**The evidence is two reports on the same plugin:**
+
+| report | what it was doing | `loaded` | `pushes` |
+|---|---|---|---|
+| `8-21-26-T10-4klooptest.json` | 50 minutes of 4K over HDMI | `true` | **625** |
+| `8-24-D1-01.json` | a 4K bake, killed by iOS for memory | **`false`** | **0** |
+
+**This is B679's own lesson one level up.** That build reasoned carefully about which CALLS were safe
+to make and did not notice the removed call was also doing the loading. **A subsystem that is off by
+side effect is indistinguishable from one that is broken.**
+
+### ⚠️ AND IT MEANS THE THERMAL EVIDENCE IS NARROWER THAN THE PLAN BELIEVES
+
+`PLAN-LIVE-READINESS.md` calls thermal *"the single biggest effect found this arc."* That is
+unchanged as a finding, but **every thermal reading we hold came from a broadcast or record session**,
+because those are the only sessions where the channel was live. **We have no thermal data for baking,
+loading, or idle at all**, and had no way to notice the gap: `diagnostics().why` returned the same
+`refresh never attempted` for a seam pushing 625 samples and for one pushing none.
+
+### 📐 THE DIAGNOSTIC THAT DESCRIBED THE WRONG HALF
+
+`why` explained the retired PULL's failure modes on a seam whose only real channel is the PUSH. Every
+branch of it was about `read()`, which by design is never called. **Fourth instrument this arc that
+reported a true value under the wrong noun** — and the first where the honest answer was already in
+the same object (`loaded`, `pushes`) and simply not consulted.
+
+---
+
 ## v0.26.65 · Build 725 — THE MEMORY READING AT THE MOMENT OF THE PURGE
 
 **Shipped:**

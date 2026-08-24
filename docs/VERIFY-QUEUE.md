@@ -74,10 +74,16 @@ needs no instrumentation.
 
 | # | change ONE thing | survives → |
 |---|---|---|
-| D1 | bake the same 4K clip at **1080p output** (format control) | the ceiling is OUTPUT resolution |
-| D2 | bake the same 4K clip in **bounce** mode (one reader, not slice's two) | the ceiling is concurrent 4K decoders |
+| D1 | bake the same 4K clip at **1080p output** (format control) | ❌ **FAILED 2026-08-24.** Output resolution is NOT the lever |
+| D2 | bake the same 4K clip in **bounce** mode (one reader, not slice's two) | ❌ **FAILED at frame 1 — but CONTAMINATED**, it ran straight after D1 in the same session |
+| **D3** | **re-run D2 from a FRESH LAUNCH** | tells us both whether one reader helps AND whether a failed bake returns its memory |
+| **D4** | **a vanilla bake, no edits, on B726+** | ⭐ **the highest-value single run.** B726 makes `footprintMB` arrive during a bake for the first time |
 
-**Change nothing else.** Same clip, same trim, defaults everywhere else.
+**Change nothing else.** Same clip, same trim, defaults everywhere else. **One bake per app launch**
+— D2 proved that a second bake in the same session is not the same experiment.
+
+**⚠️ Xcode confirmed the cause on 2026-08-24:** *"terminated because it is using too much memory."*
+So D3/D4 are no longer asking IF it is memory. They are asking **how much, and of what.**
 
 ---
 

@@ -180,7 +180,26 @@ export function createCapacitorHost() {
         },
         onEvent(fn) {
           listeners.push(fn);
-          refresh();                                 // a subscriber implies someone is watching
+          // ⚠️ B726 — SUBSCRIBING MUST ESTABLISH THE CHANNEL IT SUBSCRIBES TO.
+          //
+          // This called `refresh()`, and B679 made `refresh()` return immediately (`PULL_RETIRED`).
+          // **`load()` is what registers the `addListener('vitals'|'thermal'|'memoryWarning')`
+          // handlers**, so retiring the pull also removed the only thing that ever loaded the
+          // plugin from this path. The push channel B679 kept *as the primary one* could then only
+          // be established by a completely unrelated caller: `setIdleTimerDisabled`, which fires
+          // when output goes live.
+          //
+          // **So thermal and memory arrive if and only if you are broadcasting or recording.** A
+          // bake-only session reports nothing, which is exactly the session where the numbers
+          // matter: `docs/temp/8-24-D1-01.json` has `loaded: false, pushes: 0` and no memory
+          // reading on a bake that was killed by iOS for memory. The T10 broadcast run on the same
+          // plugin has `loaded: true, pushes: 625`.
+          //
+          // This is the B679 lesson repeating one level up. That build reasoned carefully about
+          // which CALLS were safe to make and did not notice that the call it removed was also the
+          // one doing the loading. **A subsystem that is off by side effect looks identical to one
+          // that is broken.**
+          load().catch((e) => { seam.lastError = `load from onEvent: ${e?.message || e}`; });
           return () => { listeners = listeners.filter((f) => f !== fn); };
         },
         // Read by the perf panel's export. Names the seam's own health so a run with no native
@@ -188,12 +207,14 @@ export function createCapacitorHost() {
         diagnostics() {
           return { ...seam, ageMs: last?.at ? Date.now() - last.at : null,
                    pullRetired: true,
-                   why: seam.resolved ? null
-                      : seam.timeouts ? 'read() never settles — bridge call hangs'
-                      : seam.errors ? 'read() rejects — see lastError'
-                      : seam.empty ? 'read() resolves without a payload'
-                      : seam.attempts ? 'refresh in flight, no result yet'
-                      : 'refresh never attempted' };
+                   // B726 — the pull being retired is not a fault, so `why` must describe the PUSH.
+                   // It previously reported `refresh never attempted` on a perfectly healthy seam
+                   // AND on a completely dead one, which is how a dead channel went unnoticed.
+                   why: seam.pushes ? null
+                      : !seam.loaded ? 'plugin never loaded — nothing subscribed, or the import failed'
+                      : seam.lastError ? `loaded, no pushes: ${seam.lastError}`
+                      : 'loaded, no pushes yet (the first arrives within ~5s)'
+                   };
         },
       };
     })(),

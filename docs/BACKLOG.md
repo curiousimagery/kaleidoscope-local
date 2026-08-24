@@ -486,6 +486,22 @@ One report reads `pressure: { target: 15, label: "warming up" }` on a 30fps clip
 
 ## 🚧 Limits, ceilings and honest refusal
 
+### 🚨 [HIGH — found by reading, B726] NATIVE THERMAL + MEMORY ONLY ARRIVED WHILE BROADCASTING. FIXED, BUT THE EVIDENCE IT INVALIDATES IS NOT.
+
+**`onEvent` called `refresh()`, which B679 turned into a no-op**, and `load()` is what registers the
+push listeners. The only other caller of `load()` is `setIdleTimerDisabled` — the wake lock. So the
+channel came up as a side effect of going live and **never came up during a bake, a load, or idle.**
+
+**Fixed in B726.** What is NOT fixed is the evidence base: **every thermal and memory reading this
+project holds was taken during a broadcast or record session.** `PLAN-LIVE-READINESS.md` calls
+thermal the single biggest effect of the arc, which stands, but the ladder cannot assume those
+numbers describe other operations.
+
+**▶ Worth a cheap re-baseline once B726 is on device:** idle, loading a 4K clip, and baking, each
+with the app not broadcasting. Three readings, one session, no build.
+
+
+
 ### 🚨🚨 [HIGH — Daniel, 2026-08-24, REPRODUCED ON A 64GB M1 MAX] THE BAKE HOLDS ITS ENTIRE OUTPUT IN RAM
 
 **`Array buffer allocation failed`, about a quarter through a 47:45 FHD bake.** `video-export.js`
@@ -503,7 +519,25 @@ that `video-export.js` shares with recording, so it is not a drive-by.
 **▶ Until then the app should state the ceiling.** Output duration x resolution x bitrate is known
 before the bake starts.
 
-### 🚨 [HIGH — Daniel, 2026-08-24, DETERMINISTIC x3] THE iPAD BAKE DIES AT FRAME 4 ON A 4K SLICE
+### 🚨🚨 [CONFIRMED BY THE OS, 2026-08-24] THE iPAD 4K BAKE IS A JETSAM KILL — AND D1/D2 ELIMINATE TWO LEVERS
+
+**Xcode:** *"terminated by the operating system because it is using too much memory."* `iPad13,8`,
+iPadOS 26.6. **Not a GPU fault, not a decoder fault: the app exceeded its memory footprint limit.**
+
+- **D1 — output at 1080p: FAILED.** Output resolution is not the lever.
+- **D2 — bounce, one reader: FAILED at frame 1.** **Contaminated** — same session, straight after
+  D1, so it began closer to the ceiling. **Re-run from a fresh launch**, which also tests whether a
+  failed bake gives its memory back.
+
+**▶ THE UNBUILT REDUCTIONS, in payoff order:** slice mode fetches the SAME URL twice and demuxes it
+twice (one shared fetch + sample table would halve it); `buf` is never read after `demux()` and could
+be released; the output accumulates in `ArrayBufferTarget` rather than streaming.
+
+**⚠️ DO NOT BUILD A COST MODEL YET.** Whether mp4box copies sample bytes or views into the source
+buffer is unverified and is the difference between ~1x and ~2x file size per reader. **B726 makes
+`footprintMB` arrive during a bake for the first time; measure before modelling.**
+
+### 🚨 [SUPERSEDED BY THE ABOVE — kept for the reasoning] THE iPAD BAKE DIES AT FRAME 4 ON A 4K SLICE
 
 **Both GL surfaces lost within 2ms, then `export-aborted · gl-lost · frame 4`. Three times**, across
 two builds and two trims, including a fresh app start. Decode was healthy every time.

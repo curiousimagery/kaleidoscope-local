@@ -22,7 +22,7 @@ Archived at B658. It was marked superseded at B609 and kept for the reasoning be
 
 ## current version
 
-**v0.26.65 · B725** (2026-08-24). **B705 and B706 are device-verified** — B705's instrument found B706, and B706 held on the repro that killed B705. B703, B704 and B707 are not yet device-verified.
+**v0.26.66 · B726** (2026-08-24). **B705 and B706 are device-verified** — B705's instrument found B706, and B706 held on the repro that killed B705. B703, B704 and B707 are not yet device-verified.
 
 ---
 
@@ -63,6 +63,56 @@ Both named by Daniel at B704 **because I had left them off the plan.** Full scop
 - **Refuses to start on a lost context** (`bake-refused`). B705's guard correctly reported `frame 1 of 2635`, and **frame 1 means it should never have begun.**
 - **The encoder's real error beats its symptom.** `VideoEncoder is not configured` describes the state we found it in, not what broke it; a synchronous throw was beating the `encError` check.
 - **The bake button no longer reads `baking…` forever while clickable.** `setClipMode`'s comment claimed it restored the label; `loopPrimary()` does. Daniel pressed the lying button, which is how the second bake happened.
+
+### ⭐⭐ PICK UP HERE (B726) — THE iPAD BAKE IS A JETSAM KILL. CONFIRMED BY THE OS.
+
+**Xcode, 2026-08-24:** *"The process has been terminated by the operating system because it is using
+too much memory. Terminated due to memory issue."* Device `iPad13,8` (M1 iPad Pro 12.9"), iPadOS 26.6.
+**The purge hypothesis is no longer a hypothesis.**
+
+**D1 and D2 both FAILED, and both eliminate a lever:**
+
+| test | change | result | conclusion |
+|---|---|---|---|
+| **D1** | output at **1080p** (`srcW 1920` in the shape) | failed, both surfaces lost | **output resolution is NOT the lever** |
+| **D2** | **bounce** mode, ONE reader not two | failed at **frame 1** | reader count is not obviously it either |
+
+**⚠️ D2 IS CONTAMINATED AND MUST BE RE-RUN.** It ran in the same session immediately after D1's
+failure, so the app was already carrying whatever D1 left behind. **Failing at frame 1 instead of
+frame 4 is itself the evidence** — it started closer to the ceiling. **Re-run D2 from a fresh
+launch**, and that re-run doubles as the test of whether a failed bake gives its memory back.
+
+**▶ THE NEXT READING IS THE ONE THAT MATTERS.** B726 makes `footprintMB` arrive during a bake for the
+first time. **Any vanilla bake on B726+ now answers what the ceiling actually is** — Daniel's instinct
+to re-run the plain no-edits bake is right, and it is now worth more than another D-test.
+
+### ⚠️ THE MEMORY CHANNEL WAS DEAD, WHICH IS WHY FOUR REPORTS OF THIS FAILURE CARRY NO NUMBER
+
+**`onEvent` called `refresh()`, which B679 made a no-op**, and `load()` is what registers the push
+listeners. The only remaining caller of `load()` is `setIdleTimerDisabled` — the wake lock. **So
+thermal and memory arrived only while broadcasting or recording**, never during a bake. `D1`:
+`loaded: false, pushes: 0`. `T10` (a broadcast): `loaded: true, pushes: 625`.
+
+**⚠️ AND EVERY THERMAL READING WE HOLD IS FROM A BROADCAST OR RECORD SESSION.** The plan calls
+thermal the biggest effect of the arc; that stands, but **we have no thermal data for baking,
+loading, or idle**, and no way to have noticed — `diagnostics().why` returned the same string for a
+seam pushing 625 samples and one pushing none.
+
+### 🧮 WHAT THE BAKE ADDS, AND WHERE THE ARITHMETIC IS STILL A GUESS
+
+Live 4K broadcast holds a decode session, the preview 4K texture, an output canvas — steady state.
+**A bake adds, without releasing any of it:** a full-file `ArrayBuffer` PER READER (`fetch` +
+`arrayBuffer`, and slice makes two readers fetch the same URL twice), mp4box's parsed sample table,
+up to twelve held 4K `VideoFrame`s per reader at ~12.4MB, a 4K `VideoEncoder`, a 4K 2D capture
+canvas, and the output accumulating in `ArrayBufferTarget`.
+
+**⚠️ Whether mp4box COPIES the sample bytes or views into the source buffer is UNVERIFIED** — the
+bundled build does not expose the internal. It is the difference between ~1x and ~2x file size per
+reader, so do not put it in a cost model until it is measured. **`footprintMB` during a bake settles
+it without reading any source.**
+
+**▶ Two obvious reductions, neither yet built:** one fetch and one demux shared across slice's two
+readers, and releasing `buf` after `demux()` (nothing reads it afterwards).
 
 ### ✅ A1-A4 PASS (B724). THE RECOVERY PATHS WORK.
 
