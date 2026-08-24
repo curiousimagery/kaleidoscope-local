@@ -444,7 +444,10 @@ export function mountPerfPanel(env, { container = null, onClose = null } = {}) {
       // B716 — the most expensive single frame the last bake's reader had to serve.
       // **Compare `decoded` across platforms before `ms`**: `decoded` is the clip's own GOP work
       // and must be the same everywhere; `ms` is only how fast this machine did it.
-      bakeDecode: env.bakeDecode || undefined,
+      // ⚠️ B718 — READ IT LATE. Two reports carried `bakeDecode: null` while the vitals trail held
+      // the reading, which means this value was resolved before the bake ran. Reading through a
+      // getter defers it to export time; the trail stays the durable copy either way.
+      bakeDecode: (env.bakeDecode ? { ...env.bakeDecode } : undefined),
       // B706 — a deferred element re-upload. `reinitWhy` says what failed; these say whether it
       // has since healed. Pending with a rising try count is the forever-black case.
       reuploadPending: env.engine?.reuploadPending || undefined,

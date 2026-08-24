@@ -1011,6 +1011,16 @@ export function createClipEditor(env) {
 
     const prog = document.getElementById('clipProgress'), fill = document.getElementById('clipBarFill');
     const apply = document.getElementById('clipApply'), cover = document.getElementById('clipBaking');
+    // ⚠️ B717 — RESTORED. B712 lifted the bake's pre-flight guards above `bakeDims()` and the span
+    // it moved SWALLOWED these two lines, which sat between the guards and the shed. They were then
+    // dropped when the guards were removed from the old position — so from B712 to B716 a bake ran
+    // with **no "baking…" cover and a live, re-clickable apply button**. Daniel, 2026-08-24:
+    // *"the baking mask is no longer showing over the preview while baking."*
+    //
+    // The lesson is about the edit, not the code: **I moved a span defined by two anchors without
+    // reading what sat between them.** A block lifted by index is not a block understood.
+    if (cover) cover.hidden = false;                 // hide the seeking/decoding flicker behind a "baking…" cover
+    if (apply) { apply.disabled = true; apply.textContent = 'baking…'; }
     if (prog) prog.hidden = false;
     try {
       const { blob } = await exportVideo({

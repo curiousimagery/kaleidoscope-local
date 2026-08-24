@@ -6,6 +6,83 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.26.58 · Build 718 — THE BLANK SOURCE PANEL: A CANVAS THAT WAS NEVER PAINTED AT MOUNT
+
+**Shipped:**
+- **`mountSourceView` now paints the video canvas at mount**, the way its own CANVAS-still branch already did.
+
+### Daniel asked the right question
+
+*"has something changed so that the old seek to render solution doesn't work anymore?"*
+
+**The old fix is still there and still correct — it is just in the wrong place.** `main.js` `arrangeSlots` repaints after a relayout, and its comment describes this bug precisely: *"a relayout re-mounts the source view with a FRESH (blank) video canvas... went dark on every relayout until you scrubbed."*
+
+**But it lives in ONE CALLER, inside a `requestAnimationFrame`.** Any relayout that does not route through that path — or that fires before the element has data — still hands back a blank canvas. **Load time is exactly when a video is least likely to be ready**, which is why this shows up on first load and why scrubbing repairs it: a seek eventually triggers a paint from another path.
+
+### The asymmetry was inside one function
+
+`mountSourceView` has two branches that create a canvas:
+
+| branch | creates canvas | paints it |
+|---|---|---|
+| CANVAS still source | ✅ | **✅ `drawImage` immediately** |
+| source VIDEO | ✅ | ❌ — relied on a later external call |
+
+**A canvas is born blank.** The still branch can never be caught out because it paints at mount; the video branch delegated that to whoever came next, and then raced them. **Painting here removes the race instead of trying to win it.** Same `readyState >= 2` guard `paintSourceVideo` uses, so a not-yet-ready element falls through to the existing paths unchanged.
+
+**This is the third bug in this arc with one shape — a thing that must happen, delegated to an event that usually happens.** B703, B706, B708, B709 were the GL-restore version. **Ask what re-fills a cache, and whether that is guaranteed.**
+
+### The M1 Max reading, and an honest problem with my own instrument
+
+```
+M5 Max   sec 2.953 · ms 142 · decoded 91 · resets 0 · gopWalk 116
+M1 Max   sec 2.038 · ms 102 · decoded 62 · resets 0 · gopWalk 86
+```
+
+**Same clip, two machines, DIFFERENT `decoded` and a different worst timestamp.** I claimed `decoded` was a conserved quantity — a property of the clip's GOP structure that must survive the platform boundary. **It is not.** `framesDecoded` counts decoder outputs consumed while a target is waited on, which depends on how far ahead `feed()` has pipelined. **It is clip structure plus scheduling**, so two machines legitimately disagree.
+
+**What it still tells us is real and useful:** neither desktop ever approached the budget (102-142ms against 10,000ms), no decoder resets, and **the worst target on both was ~2-3s in, nowhere near the 81.470s that kills the iPad.**
+
+**The genuinely conserved number would be the sample distance from a target back to its governing sync point**, which is pure container structure. `resets: 0` on both runs means no reset drove these, so that path was never exercised. **The iPad reading is still the one that matters, and `resets` + `gopWalk` at the failure point remain the fields to read.**
+
+### And no, I had not fixed the report field
+
+Daniel asked directly. **`bakeDecode` was still `null` in the report body** for the M1 Max run because B717 only restored the baking cover. It reads through a fresh copy at export time now. **The vitals trail carried the reading in both runs, which is the durable channel and the one that mattered.**
+
+
+## v0.26.57 · Build 717 — RESTORING THE BAKING COVER I DELETED BY ACCIDENT
+
+**Shipped:**
+- **`cover.hidden = false` and the disabled `baking…` button are back.** From B712 to B716 a bake ran with **no mask over the preview and a live, re-clickable apply button**.
+
+### How it went missing, because the lesson is about the edit
+
+B712 lifted the bake's pre-flight guards above `bakeDims()` by taking the span between two anchors. **The span it moved swallowed these two lines, which happened to sit between the guards and the shed**, and they were dropped when the guards were removed from the old position.
+
+**I moved a block by index without reading what sat between the anchors.** A block lifted by index is not a block understood. Daniel caught it in one glance: *"the baking mask is no longer showing over the preview while baking."*
+
+### ⭐ THE FIRST `bakeDecode` READING
+
+```
+bake-decode-worst · sec 2.953 · ms 142 · decoded 91 · resets 0 · gopWalk 116 · timedOut false
+```
+
+**The most expensive single target on desktop was at 2.953s, not at 81.470s** — 91 frames decoded in 142ms, no decoder resets. **So on desktop, the spot that kills the iPad is not expensive at all.**
+
+That is more interesting than a slow-machine story. Two readings remain open and the iPad number decides between them:
+
+- **iPad also decodes ~91 frames there** → per-frame 4K decode on the iPad would have to be ~110ms to blow 10s, which is implausibly slow for hardware decode. That would point at contention or a stall, not throughput.
+- **iPad decodes far more frames there** → the readers are walking different paths, and the budget was never the issue.
+
+**⚠️ Note the comparison is weaker than it looks: Daniel is on an M5 Max**, not the M1 Max I had assumed when reasoning about decode engines. **The M1 Max is the control that matters** — same silicon generation as the iPad's M1, more decode capacity — and he has one available. **A bake there costs no device-session overhead and makes the comparison mean something.**
+
+### Not fixed
+
+**B715's `requestVideoFrameCallback` did not fix the first source frame.** The hypothesis was that Blink had never presented a frame and rVFC would catch the presentation. **It did not, so the hypothesis is wrong or incomplete, and I am not shipping a second guess on top of it.** The rVFC call is harmless and stays; the bug is re-opened and needs a real repro read rather than another mechanism proposal.
+
+**`bakeDecode` did not reach the report body** (`bakeDecode: null`) although the vitals mark landed. **The trail is the durable channel and it worked**, so the measurement is not lost — but the report field is unreliable and should not be trusted until that is understood.
+
+
 ## v0.26.56 · Build 716 — COUNT THE WORK, NOT THE MILLISECONDS
 
 **Shipped:**

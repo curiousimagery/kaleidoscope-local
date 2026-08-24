@@ -1978,6 +1978,31 @@ export function mountSourceView(env, slotEl) {
     slotEl.appendChild(c);
     env.sourceVideoCanvas = c;
     env.sourceVideoCtx = c.getContext('2d');
+    // ⚠️ B718 — PAINT AT MOUNT, THE WAY THE STILL BRANCH BELOW ALREADY DOES.
+    //
+    // A canvas is born blank. The CANVAS-still branch a few lines down creates its canvas and
+    // immediately `drawImage`s into it, so a relayout can never leave it empty. **This branch did
+    // not**, and instead depended on somebody calling `paintSourceVideo()` afterwards.
+    //
+    // That dependency is the bug Daniel has now hit more than once (*"the first source frame
+    // doesn't render, but scrubbing the timeline activates it"*). The previous fix is still in
+    // `main.js` `arrangeSlots` and its comment describes this exactly — *"a relayout re-mounts the
+    // source view with a FRESH (blank) video canvas... went dark on every relayout until you
+    // scrubbed"* — but it lives in ONE CALLER, inside a `requestAnimationFrame`. **Any relayout
+    // that does not route through that path, or that fires before the element can be drawn, still
+    // yields a blank panel**, and load-time is exactly when the video is least likely to be ready.
+    // Scrubbing repairs it because a seek eventually triggers a paint from another path.
+    //
+    // Painting here removes the race instead of trying to win it: the canvas is never handed back
+    // blank when the element has data. **`readyState >= 2` is the same guard `paintSourceVideo`
+    // uses**, so a not-yet-ready element falls through to the existing repaint paths unchanged.
+    // Cheap enough to be unconditional — one `drawImage` per mount, which is what the still branch
+    // has always paid.
+    try {
+      if (sv && (sv.tagName !== 'VIDEO' || sv.readyState >= 2)) {
+        env.sourceVideoCtx.drawImage(sv, 0, 0, c.width, c.height);
+      }
+    } catch { /* a mid-seek element can throw; the repaint paths still cover it */ }
   } else if (sourceImage && !sourceImage.src) {
     // CANVAS still source (the native camera's captured photo after its
     // stabilization center-crop / selfie mirror — freezeFromUrl hands the engine
