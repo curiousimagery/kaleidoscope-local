@@ -477,6 +477,26 @@ One report reads `pressure: { target: 15, label: "warming up" }` on a 30fps clip
 
 **Several of these predate B700's first-frame deadline fix and B699's decoder registration, and may already be closed.** Flagged individually below. The loop hold itself closed at B608 and T10 re-confirmed it (8 wraps, 6ms worst gap).
 
+### 🐛 [Daniel, 2026-08-23 — DESKTOP/CHROMIUM, NOT DIAGNOSED] THE FIRST SOURCE FRAME DOES NOT LOAD UNTIL YOU SCRUB
+
+**Daniel: *"we have a regression where the first source frame doesn't load, but scrubbing the timeline activates it."*** Brave/Chromium, desktop web build.
+
+**Not diagnosed, and deliberately not guessed at.** Nothing in B706-B714 obviously touches the desktop element-load path, and he notes this is his first browser test in a while — **so it may predate this arc entirely.** Do not assume it is a recent regression without checking.
+
+**▶ Class 1 and desktop-reproducible, so it costs minutes, not a device session.** `npm run dev`, load a clip, watch whether the first `updateSourceFrame` uploads. The suspects worth reading first are the element path's `readyState < 2` guard and whatever triggers the initial render after `setSource`.
+
+### 🔬 [2026-08-23 — DETERMINISTIC, AND THAT IS THE WHOLE LEAD] THE BAKE'S DECODE TIMEOUT AT A FIXED TIMESTAMP
+
+**`decode timed out at 81.470s (10s budget for one frame)` — and the retry produced the same error at the same point.**
+
+**A deterministic failure at a fixed timestamp is not resource exhaustion.** Pressure failures wander; this one does not. It points at the clip's own structure at t≈81.47s of a ~90s file, which is what `video-decode.js`'s message already guesses: *a very long keyframe interval, or a backward seek re-decoding too much*. One frame is blowing the 10-second per-frame budget in `createSequentialFrameReader`.
+
+**⚠️ THIS RETIRES THE DECODER-PRESSURE HYPOTHESIS** that B711 was built on, and B711 is reverted (B714).
+
+**▶ AND IT SHOULD REPRODUCE ON DESKTOP, WHICH IS THE WHOLE POINT.** The bake's decode path is pure WebCodecs JS over demuxed samples — **no native plugin, no frame socket, no engine texture.** `clip-editor.js` is shared. So `npm run dev` on the Mac with the same file should hit the same 81.470s, in seconds per attempt, with a debugger attached. **Confirm that before any further device time.**
+
+**If it does NOT reproduce on desktop, that is itself a strong finding** — it would mean the failure is iPad-specific and would justify a device session properly.
+
 ### 🚨🚨 [HIGH — Daniel, 2026-08-23 — DATA LOSS, MITIGATED B710, CAUSE STILL OPEN] A BAKE CAN SILENTLY REPLACE THE CLIP WITH GREY
 
 **`applyBakedClip` REPLACES the working source with the bake's output.** A bake that reads garbage therefore **destroys the operator's clip while reporting success** — worse than any crash in this thread, because a crash is survivable by relaunching.

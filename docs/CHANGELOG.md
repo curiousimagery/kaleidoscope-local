@@ -6,6 +6,67 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.26.54 · Build 714 — TWO B711 REGRESSIONS, BOTH MINE, BOTH FOUND BY DANIEL
+
+**Shipped:**
+- **Fixed: the Loop Builder opened uninitialised.** B711's extraction left `pv` referenced out of scope; the ReferenceError threw after the sheet was already visible, so `env.clip.step` and `setLoopStep(1)` never ran.
+- **Reverted: B711's preview shed during a bake.** It tore down the very element the bake's fallback path reads from.
+
+### Regression 1 — the Loop Builder's broken open state
+
+Daniel: *"it initially opens to a weird trim state with a next button that doesn't do anything. clicking trim & loop in the left nav shifts to the expected starting state."*
+
+B711 extracted the preview-mounting block into `mountClipPreviews()` and **left `openClipEditor`'s `pv.readyState` wait pointing at a variable that had moved inside the function.** The ReferenceError threw *after* `sheet.hidden = false`, so the surface opened with its step state never initialised. Clicking `trim & loop` repaired it because that calls `setLoopStep` directly.
+
+**`npm run check` cannot catch this** — an undefined identifier is valid syntax and fails only at runtime. **What catches it is the rule already written in `CLAUDE.md`: walk the user's actual path.** I extracted a block and never opened the Loop Builder afterwards. **It shipped to both chromes**, and Daniel had seen it on iPad too without filing it.
+
+### Regression 2 — the desktop bake with no progress and no cancel
+
+Daniel: *"bake loop on desktop isn't showing the progress bar at all after clicking bake... clicking X isn't immediately responsive but the cancel button now says cancelling so it's trying to abort but can't."*
+
+`decodeV` is captured as `env.clip.prevVideo` — **the stage preview element** — and the bake's fallback `frameAt` seeks it directly whenever the WebCodecs readers are unavailable. **`shedClipPreviews()` calls `removeAttribute('src')` + `load()` on exactly that element.** So on the fallback path the bake was seeking a video with no source: no frames, no progress, and a cancel that could not land because nothing was awaiting anything.
+
+**Desktop is where it surfaced because desktop has no native decode**, which changes which path the bake takes. The harness modelled the shed abstractly and never asked whether the bake still had a readable source — **verifying the mechanism, not the feature**, which is the exact failure `CLAUDE.md` records from B624/B629.
+
+### The shed is reverted rather than fixed, and that is a judgement call worth stating
+
+**Its premise has weakened.** B711 shed the previews to relieve decoder pressure. The bake failure has since proved **deterministic at a fixed timestamp** (81.470s, twice), which is a property of the clip's GOP structure rather than of how many decoders are open. **And it was never confirmed to reduce `sessions.peak.decode` at all** — B712 found the shed had been running after the readers were already allocated.
+
+**So: two shipped regressions, an unproven benefit, and a premise that has weakened. That is a revert, not a tuning pass.** The extraction stays (`disposeClipPreview` now shares one release idiom, which is a real improvement); nothing calls the shed during a bake.
+
+### Not claimed as fixed
+
+**"The first source frame doesn't load; scrubbing activates it"** is filed and **not diagnosed.** Nothing in B706-B713 touches the desktop element-load path that I can see, and Daniel notes this is his first browser test in a while — so it may well predate this arc. **It is Class 1 and desktop-reproducible, which makes it cheap to chase properly rather than guess at.**
+
+**`NO NATIVE DECODE` on desktop is expected, not a bug** — the native decode plugin is Capacitor-only. It is a factor in *which* bake path runs, which is how regression 2 stayed invisible on iPad.
+
+
+## v0.26.53 · Build 713 — REMOVING A GUARD I SHOULD NOT HAVE SHIPPED
+
+**Shipped:**
+- **B710's degraded-source bake refusal is removed.** It blocked working bakes and gated the wrong subsystem entirely.
+
+### It tested something with no bearing on what a bake reads
+
+B710 refused a bake when `env.nativeVideo && !engine.planarActive`, on the reasoning that a bake off the planar path would capture the 1280 preview canvas.
+
+**The bake does not read the engine at all.** It reads the FILE, via `createSequentialFrameReader(url)` — WebCodecs over demuxed samples, with no connection to the engine's texture, the planar provider, or the frame socket. **`planarActive` describes whether the ENGINE is uploading planes for the on-screen preview.** It says nothing about what a bake can read.
+
+**The cost was real and measured:** `bake-refused · degraded-source` twice, **on a source the diagnostic panel simultaneously reported as being on the native path**, after 8m55s of build, upload and setup that never reached the test. **A guard that blocks a working operation is worse than no guard**, and this one blocked the single workflow under investigation.
+
+### ⚠️ And it withdraws B710's explanation of the grey bake
+
+B710 claimed the grey output came from baking the degraded preview canvas. **That cannot happen by this path.** So the grey bake has **no established cause** and returns to open. I asserted a mechanism without checking how the bake actually obtains its frames, and then shipped a blocking guard on top of it.
+
+**What protects against a grey bake is B711's OUTPUT validation**, which is the right shape regardless of cause: it checks the RESULT against the requested dimensions rather than predicting from a signal in another subsystem, and it can only ever reject a bad bake — never block a good one. **Validate outputs, do not predict from adjacent state.**
+
+### Device-session cost, recorded because it should drive decisions
+
+Daniel measured this turn end to end: **build and open on iPad ~1:00 · select and upload a 1:49 4K clip from iCloud ~2:20 · reach the bake ~3:40 · the bake itself 2+ min. Total 8:55, without reaching the test.**
+
+**That is the real unit cost of a device answer, and it belongs in the planning rather than in anyone's head.** It makes the arithmetic obvious: a Class 1 question answered by reading costs minutes of mine; the same question put to a device costs ~9 minutes of Daniel's plus the context switch. **`DEBUGGING-PROTOCOL.md` already says never spend a device session on a Class 1 question — the failure this month was treating "an iPad is in hand" as a reason to use it.**
+
+
 ## v0.26.52 · Build 712 — MY PRE-FLIGHT RAN AFTER TAKE-OFF
 
 **Shipped:**

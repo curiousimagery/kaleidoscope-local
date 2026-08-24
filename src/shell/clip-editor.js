@@ -48,7 +48,17 @@ export function createClipEditor(env) {
     env.clip.backup = { ...env.clip.trim };          // for Cancel
     env.clip.fmt = { res: 'source', fps: 'source', speed: 1 };   // fresh output format per clip
     env.clip.srcFps = 0;                                          // re-probe the source fps for this clip
-    mountClipPreviews();
+    // ⚠️ B714 — `pv` COMES BACK OUT. B711 extracted this block into `mountClipPreviews` and left the
+    // `pv.readyState` wait below referencing a variable that had moved into the function — a
+    // ReferenceError that threw AFTER `sheet.hidden = false`, so the Loop Builder opened with
+    // `env.clip.step` never initialised and `setLoopStep(1)` never called. That is Daniel's
+    // *"opens to a weird trim state with a next button that doesn't do anything"*, and clicking
+    // `trim & loop` fixed it because that calls `setLoopStep` directly.
+    //
+    // **`npm run check` cannot catch this** — an undefined identifier is valid syntax and fails only
+    // at runtime. What catches it is the rule already in CLAUDE.md: *walk the user's actual path.*
+    // I extracted a block and never opened the Loop Builder afterwards.
+    const pv = mountClipPreviews();
     const nudge = document.getElementById('clipNudge'); if (nudge) nudge.hidden = true;   // clear any prior post-bake nudge
     // open the surface as a fullscreen INTERSTITIAL: the app bar is hidden while it's open
     // (body.loop-active), so there's no mode-switching or new uploads mid-edit. The header
@@ -72,7 +82,7 @@ export function createClipEditor(env) {
   // why there is no capability gate here and no chip table (Daniel asked whether a more capable
   // chip should keep them): on the most capable hardware imaginable the answer is still that these
   // decoders are doing nothing during a bake. **A tradeoff you can decline entirely is not one.**
-  function mountClipPreviews() {
+  function mountClipPreviews() {   // returns the stage preview element — `openClipEditor` waits on it
     const sheet = document.getElementById('clipSheet');
     const pv = document.getElementById('clipVideo');
     pv.muted = true; pv.playsInline = true; pv.loop = false;
@@ -100,6 +110,7 @@ export function createClipEditor(env) {
     (document.querySelector('.clip-stage') || sheet).appendChild(vT);
     env.clip.thumbVideo = vT;
     clipTokens.push(acquireSession('decode', 'loop builder: thumbnail strip'));
+    return pv;
   }
 
   // Release all three, reversibly. Same release idiom as `disposeClipPreview` — pause,
@@ -847,43 +858,46 @@ export function createClipEditor(env) {
       env.clip.baking = false;
       return;
     }
-    // ⚠️ B710 — REFUSE TO BAKE FROM A DEGRADED SOURCE, BECAUSE A BAKE IS DESTRUCTIVE.
+    // ⚠️ B713 — B710's DEGRADED-SOURCE REFUSAL IS REMOVED. IT GATED THE WRONG SUBSYSTEM.
     //
-    // `applyBakedClip` REPLACES the working source with the bake's output. So a bake that reads
-    // garbage does not merely fail — **it destroys the clip the operator was working on**, and it
-    // does it while reporting success.
+    // B710 refused a bake when `env.nativeVideo && !engine.planarActive`, reasoning that a bake off
+    // the planar path would capture the 1280 preview canvas. **The bake does not read the engine at
+    // all.** It reads the FILE, through `createSequentialFrameReader(url)` — WebCodecs over demuxed
+    // samples, a path with no connection to the engine's texture, the planar provider, or the frame
+    // socket. `planarActive` describes whether the ENGINE is currently uploading planes for the
+    // on-screen preview. It says nothing about what a bake can read.
     //
-    // Daniel, 2026-08-23: after a failed bake, *"if i press the bake action button again it
-    // completes quickly and lands me with neutral gray source that adjusts in brightness as i
-    // scrub across — like i was zoomed all the way into a single pixel."* That is exactly what
-    // baking the degraded path looks like. `docs/temp/8-23-contextLoss-clipBake.json` names the
-    // state in its own words:
+    // The cost was Daniel's, not a hypothetical: **`bake-refused · degraded-source` twice, on a
+    // source the diagnostic panel simultaneously reported as being on the native path**
+    // (`docs/temp/8-23-contextLoss-clipBake-03.json`), after 8m55s of build, upload and setup that
+    // never reached the test. A guard that blocks a working operation is worse than no guard.
     //
-    //   1280×720 · from canvas · native decode · 0.0 in/s
-    //   ⚠ SOURCE STALLED 388.3s — socket open, offered 3, took 3, skipped 0
-    //   ⚠ NOT ON THE PLANAR PATH — sampling the preview canvas
+    // **And it invalidates B710's explanation of the grey bake**, which claimed the bake had
+    // captured the degraded preview canvas. That cannot happen by this path, so the grey output has
+    // no established cause and is back to open. What protects against it is B711's OUTPUT check,
+    // which is the right shape anyway: it validates the RESULT rather than predicting from a
+    // signal in another subsystem, and it can only reject a bad bake — never block a good one.
+    // ⚠️ B714 — B711's PREVIEW SHED IS REVERTED. IT TORE DOWN THE ELEMENT THE BAKE READS FROM.
     //
-    // The engine had fallen off the planar path onto the receiver's 1280 preview canvas (the B580
-    // signature), and that canvas was stalled. **The app already knew** — `main.js` prints this
-    // very warning from `env.nativeVideo && !engine.planarActive`. Nothing consulted it before
-    // spending four minutes overwriting a 4K clip with grey.
+    // `decodeV` is captured above as `env.clip.prevVideo` — **the stage preview element** — and the
+    // bake's fallback `frameAt` seeks it directly whenever the WebCodecs readers are unavailable.
+    // `shedClipPreviews()` calls `removeAttribute('src')` + `load()` on exactly that element, so on
+    // the fallback path the bake was seeking a video with no source: no progress, no frames, and a
+    // cancel that could not land because nothing was awaiting anything. **That is Daniel's desktop
+    // report — *"bake loop on desktop isn't showing the progress bar at all... cancel button now
+    // says cancelling but can't"*.**
     //
-    // ⚠️ THE TEST IS `planarActive`, NOT THE STALL NOTE. B702's lesson: `msSinceFrame` cannot tell
-    // a PAUSED clip from a wedged one, and a paused clip is a perfectly legal thing to bake.
-    // "Which path is the engine sampling" has no such ambiguity.
-    if (env.nativeVideo && !env.engine?.planarActive) {
-      env.vitals?.mark('bake-refused', { why: 'degraded-source' });
-      alert('Cannot bake right now: the source is not on the native decode path, so the bake would '
-          + 'capture a low-resolution preview instead of your clip. Reload the clip and try again.');
-      env.clip.baking = false;
-      return;
-    }
-    if (cover) cover.hidden = false;                 // hide the seeking/decoding flicker behind a "baking…" cover
-    if (apply) { apply.disabled = true; apply.textContent = 'baking…'; }
-    // ⚠️ B711 — SHED THE THREE PREVIEW DECODERS FOR THE DURATION. See `mountClipPreviews`.
-    // The cover above is what makes this free: nothing is visible behind it, so there is nothing
-    // to trade off. Restored in the `finally`, on EVERY exit path — success, failure and cancel.
-    const shed = shedClipPreviews();
+    // **And the hypothesis it served no longer holds.** B711 shed the previews to relieve decoder
+    // pressure; the failure has since proved DETERMINISTIC at a fixed timestamp (81.470s, twice),
+    // which is a property of the clip's GOP structure, not of how many decoders are open. It was
+    // also never confirmed to reduce `sessions.peak.decode` at all (B712 found the shed ran after
+    // the readers were allocated).
+    //
+    // **So it is a change with two shipped regressions, an unproven benefit, and a premise that has
+    // since weakened.** Reverted rather than tuned. `mountClipPreviews` / `shedClipPreviews` /
+    // `restoreClipPreviews` stay — the extraction itself is sound and `disposeClipPreview` now
+    // shares one release idiom — but nothing calls the shed during a bake.
+    const shed = false;
 
     const { w, h } = bakeDims();                     // output resolution (source, or downscaled per the format control)
     const cap = document.createElement('canvas'); cap.width = w; cap.height = h;

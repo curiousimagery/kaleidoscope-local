@@ -22,7 +22,7 @@ Archived at B658. It was marked superseded at B609 and kept for the reasoning be
 
 ## current version
 
-**v0.26.51 · B711** (2026-08-23). **B705 and B706 are device-verified** — B705's instrument found B706, and B706 held on the repro that killed B705. B703, B704 and B707 are not yet device-verified.
+**v0.26.54 · B714** (2026-08-23). **B705 and B706 are device-verified** — B705's instrument found B706, and B706 held on the repro that killed B705. B703, B704 and B707 are not yet device-verified.
 
 ---
 
@@ -64,23 +64,27 @@ Both named by Daniel at B704 **because I had left them off the plan.** Full scop
 - **The encoder's real error beats its symptom.** `VideoEncoder is not configured` describes the state we found it in, not what broke it; a synchronous throw was beating the `encError` check.
 - **The bake button no longer reads `baking…` forever while clickable.** `setClipMode`'s comment claimed it restored the label; `loopPrimary()` does. Daniel pressed the lying button, which is how the second bake happened.
 
-### ✅ B710+B711 — THE BAKE IS SAFE NOW, AND IT GIVES BACK ITS DECODERS
+### ⚠️ B713+B714 — I SHIPPED THREE THINGS THAT MADE IT WORSE. READ THIS BEFORE TOUCHING THE BAKE.
 
-**A bake is DESTRUCTIVE — `applyBakedClip` replaces the working source with its output.** Daniel's second bake attempt completed, produced grey, and swapped it in. **B710 refuses a degraded source (input); B711 validates the output against the requested dimensions before touching `env.sourceVideo`.** Both are needed — the source can degrade *during* a four-minute bake.
+**B710's degraded-source refusal: removed.** It gated on `engine.planarActive`, and **the bake does not read the engine** — it reads the FILE through WebCodecs. It blocked a working bake twice and cost Daniel 8m55s. **It also withdraws B710's explanation of the grey bake, which now has no established cause.**
 
-**⚠️ "Successfully" cannot mean "did not throw." The bake that destroyed his clip COMPLETED.** An exception-based guard would have passed it.
+**B711's preview shed: reverted.** It tore down `env.clip.prevVideo`, which is the element the bake's fallback `frameAt` seeks. On desktop (no native decode, so a different bake path) that produced **no progress bar and a cancel that could not land.**
 
-**B711 also sheds the three Loop Builder preview decoders for the duration of a bake** (7 → ~4 concurrent) and restores them from the `finally` on every exit path. **The restore is elegant because it detects nothing** — every exit runs it, so there is no failure state to detect. It rebuilds the thumbnail strip too, which covers the stale-thumbnail bug.
+**B711's `pv` extraction: fixed.** It left `openClipEditor` referencing a variable that had moved into `mountClipPreviews()`. The ReferenceError threw *after* the sheet was shown, so **the Loop Builder opened with its step state uninitialised** — on both chromes.
 
-**No capability gate, and that is the finding.** Decode runs on a dedicated media engine, not GPU cores, so the Air's binning is irrelevant — and more importantly the stage is behind the `baking…` cover, so **nothing is looking at those previews on any hardware.** A tradeoff you can decline entirely is not one.
+**The pattern in all three: I predicted from adjacent state instead of validating the actual thing, and I verified mechanisms instead of walking the user's path.** B711's OUTPUT validation survives because it is the opposite shape — it checks the result and can only reject a bad bake, never block a good one.
 
-### 🔴 WHETHER THIS FIXES THE BAKE IS UNPROVEN — THIS IS THE TEST
+### 🔬 THE BAKE FAILURE IS DETERMINISTIC, AND IT BELONGS ON DESKTOP
 
-**B707, B709, B710 and B711 have made a failing bake legible, safe and cheaper. None is confirmed to fix `Decoding task did not complete`.** B711 is the first that even attempts the cause, and its hypothesis is specific: concurrent decode 7 → ~4.
+**`decode timed out at 81.470s`, twice, same point.** Not resource pressure — a property of the clip's GOP structure. **This retires the decoder-pressure hypothesis.**
 
-**▶ Re-run the ~90s 4K bake.** Completes → the hypothesis holds. **Still dies at ~85% → decoder pressure was NOT the cause**, and `sessions.peak.decode` in the report is the evidence that says so.
+**▶ The bake's decode path is pure WebCodecs JS. It should reproduce in `npm run dev` on the Mac.** Seconds per attempt with a debugger, instead of ~9 minutes on device. **Confirm that before any further device time.**
 
-**Still open and Class 1:** why the engine falls off the planar path in the loop builder (suspect: its own `setPlanarSource(null)`).
+### 📏 WHAT A DEVICE ANSWER COSTS — now recorded in `DEVICE-TESTING.md`
+
+Daniel measured it: **build+open ~1:00 · upload a 1:49 4K clip ~2:20 · reach the action ~3:40 · bake 2:00+. Total 8:55 on a turn that never reached the test.** A wasted device answer costs the same as a good one.
+
+**Of the eleven builds since B703, eight were diagnosed by reading code and needed no device at all.** The rule was already written; the failure was treating *"an iPad is in hand"* as a reason to use it.
 
 ### ✅ B709 — THE BLANK SOURCE, ACTUALLY. A FIFTH GL CONTEXT NOTHING HAS EVER WATCHED.
 
