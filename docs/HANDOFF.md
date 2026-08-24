@@ -22,7 +22,7 @@ Archived at B658. It was marked superseded at B609 and kept for the reasoning be
 
 ## current version
 
-**v0.26.61 · B721** (2026-08-24). **B705 and B706 are device-verified** — B705's instrument found B706, and B706 held on the repro that killed B705. B703, B704 and B707 are not yet device-verified.
+**v0.26.62 · B722** (2026-08-24). **B705 and B706 are device-verified** — B705's instrument found B706, and B706 held on the repro that killed B705. B703, B704 and B707 are not yet device-verified.
 
 ---
 
@@ -64,23 +64,39 @@ Both named by Daniel at B704 **because I had left them off the plan.** Full scop
 - **The encoder's real error beats its symptom.** `VideoEncoder is not configured` describes the state we found it in, not what broke it; a synchronous throw was beating the `encError` check.
 - **The bake button no longer reads `baking…` forever while clickable.** `setClipMode`'s comment claimed it restored the label; `loopPrimary()` does. Daniel pressed the lying button, which is how the second bake happened.
 
-### ⭐⭐ PICK UP HERE (B721) — ONE DESKTOP BAKE DECIDES BETWEEN TWO CAUSES. NO DEVICE.
+### ⭐⭐ PICK UP HERE (B722) — THE BAKE PASSES ON BOTH MACHINES. ONE THREAD IS STILL OPEN.
 
-**The test:** `npm run dev` on the Mac, the same 4K clip, **trim untouched** (`inT 0, outT 1` —
-3178 frames, 105.9s, 3840×2160). Bake. Then read `bakeDecode` in the exported report.
+**2026-08-24, B721, same 4K clip: M1 Max PASSED, M1 iPad Pro PASSED.** Reports
+`8-24-contextLoss-clipBake-04-success.json` and `-05-iPad.json`. **`holes: 1` on both** — the same
+file yields the same count on two platforms, and a hole was a state the wait loop could not leave,
+so pre-B721 that one target would have spun to the budget and thrown.
 
-| what you see | what it means | where it goes next |
-|---|---|---|
-| **the bake passes, `holes` > 0** | the B721 timeline-hole stall was real and is fixed | close it; the capability ladder loses a false data point |
-| **the bake passes, `holes` = 0** | it passed for another reason. **Do not call this closed** | re-run; if it stays green, suspect the run, not the fix |
-| **fails, `outQ` ≈ 12 + `queue` low + `sinceOutputMs` seconds** | still our logic. A second stuck state we have not found | back into `frameAt` with the new snapshot |
-| **fails, `outQ` 0-1 + `queue` 24 + `sinceOutputMs` seconds** | **the platform decoder is wedged.** Our loop is asking and getting nothing | now it is a decode-session / hardware question, and the iPad matters again |
+**The iPad completed a 3178-frame 4K bake.** That is new, and it is a real capability-ladder data
+point. **Do not spend it yet** — see the open thread below.
 
-**⚠️ THE OLD FRAMING IS DEAD AND MUST NOT BE CARRIED FORWARD.** *"The flat budget is too tight for 4K
-on one media engine"* came from comparing an iPad failure against desktop successes that were **not
-the same experiment** (Daniel was trimming the clip in). **Nine frames in thirty seconds is a stall,
-not slowness** — hardware 4K decode does hundreds of frames a second, and `resets: 0` rules out a
-reconfigure. A B716 comment in `video-decode.js` still states the old framing; it is marked.
+**▶ THE OPEN THREAD: desktop's worst target walked 113 frames, the iPad's walked 4.** Same file,
+same targets, so the work should be the same. B716 named exactly this fork: *same count different ms
+= throughput; different count = the READER behaves differently per platform.* **We cannot currently
+tell which**, because the passing reports could not say what geometry they baked (fixed in B722).
+
+**▶ NEXT: one bake per machine on B722+, then compare `mode`/`slicePoint`/`crossfadeMs` FIRST.** If
+the geometry matches and `decoded` still differs by 28x, that is a per-platform reader difference and
+is worth a proper investigation. If the geometry differs, the runs were never comparable and the
+thread closes.
+
+### ⚠️ B722 — TWO MORE OF MY OWN INSTRUMENTS WERE WRONG, AND ONE INVERTED B719's PURPOSE
+
+1. **The bake shape was read in the `finally`, after `applyBakedClip` reset it.** Every PASSING run
+   recorded `mode: 'forward', inT: 0, outT: 1` — the post-bake reset, not what was baked. **A
+   forward trim never bakes at all**, which is how it was caught: the report described an impossible
+   state. **The failure path was always accurate**, so B719's comparability check inverted into
+   comparing a real trim against a reset one on exactly the A/B that mattered.
+2. **`resets` could only ever read 0.** The per-target counters were zeroed below every path that
+   calls `resetTo`. **I used that zero at B720 to rule out a reconfigure. That inference was not
+   supported**, though it does not change B721's conclusion.
+
+**Four instrument bugs this arc (B716 wrong-noun, B720 ranking, B722 late-read and dead-counter).
+The recurring shape is READING A VALUE AT THE WRONG MOMENT, not measuring the wrong thing.**
 
 ### ✅ B721 — THE FORWARD WAIT LOOP HAD A STATE IT COULD NOT LEAVE
 
@@ -92,10 +108,10 @@ for **continuous** targets (`t = p * outDur`), never snapped to the frame grid.
 
 **`revLookup` twelve lines up already had the right rule.** Only the backward path used it.
 
-**Reachability is PROVEN (scratchpad `waitloop-check.mjs`, 11/11); that it caused Daniel's failure is
-NOT.** Circumstantial: `decoded 9` with `resets: 0` is what a full `outQ` and an idle decoder look
-like, and the identical error twice is what a fixed-target hole predicts. **Read the table above
-before treating it as settled.**
+**⛔ RETIRED: *"the flat budget is too tight for 4K on one media engine"*.** Nine frames in thirty
+seconds is a stall, not slowness. That framing came from comparing an iPad failure against desktop
+successes that were not the same experiment. A B716 comment in `video-decode.js` still states it and
+is marked superseded.
 
 ### ⚠️ TWO INSTRUMENT BUGS FIXED IN B720 — READ BEFORE TRUSTING OLDER `bakeDecode` ENTRIES
 

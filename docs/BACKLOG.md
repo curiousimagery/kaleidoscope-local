@@ -505,6 +505,18 @@ when a later frame SUPERSEDES it; a target between one frame's end and the next 
 neither, and no frame the decoder can still produce sorts into the gap. Fixed with the rule
 `revLookup` already used on the backward path. Harness `waitloop-check.mjs`, 11/11.
 
+**✅ DEMONSTRATED B721 — AND THE ITEM CLOSES HERE.** M1 Max and M1 iPad Pro, same 4K clip, both
+bakes complete, **`holes: 1` on each**. Same file, same count, two platforms. Pre-B721 that single
+target was unrecoverable, and nothing else in either report comes within 170ms of the budget.
+**Residual: nothing proves this hole is the one the deterministic 30.982s failure hit** — same file
+and one hole makes it very likely, and there is no second suspect left standing.
+
+**🔭 SPUN OUT, STILL OPEN: desktop's worst target walked 113 frames, the iPad's walked 4** on the
+same file. See `HANDOFF.md`'s pick-up block; needs one B722+ bake per machine with the geometry
+compared first.
+
+**(Superseded, kept for the reasoning:)**
+
 **⚠️ REACHABLE IS NOT DEMONSTRATED. THIS ITEM STAYS OPEN UNTIL ONE BAKE SAYS SO.** Circumstantial
 support is strong (`decoded 9` with `resets: 0` is a full queue and an idle decoder; the identical
 error twice is what a fixed-target hole predicts) but no run has yet shown a hole being bridged.

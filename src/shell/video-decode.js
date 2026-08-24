@@ -375,6 +375,19 @@ export async function createSequentialFrameReader(url, { maxBytes = 1_500_000_00
     async frameAt(sec) {
       if (closed) throw new Error('reader closed');
       const target = Math.max(0, Math.round(sec * 1e6));
+      // ⚠️ B722 — ZERO THE PER-TARGET COUNTERS FIRST. THEY USED TO BE ZEROED LAST, WHICH MADE
+      // `resets` A FIELD THAT COULD ONLY EVER READ ZERO.
+      //
+      // Every `resetTo` a target can cause happens ABOVE the old zeroing line — the backward jump,
+      // `revFill`, and the long-forward-seek. So the reconfigure was counted and then wiped before
+      // anything could read it, and **every failure message this arc has said "0 decoder resets"
+      // whether or not the decoder reconfigured.** I used that zero at B720 to rule out a
+      // reconfigure as the cause of the stall; that inference was not supported.
+      //
+      // `framesDecoded` had the same shape: frames decoded during a `revFill` were discarded from
+      // the count, so the reverse window's cost never appeared in the conserved quantity that
+      // exists to measure it.
+      framesDecoded = 0; resetsForTarget = 0; gopWalk = 0;
       if (target < lastTargetUs) {
         // walking BACKWARDS (the bounce bake): serve from the reverse window when we can,
         // and refill it when we can't — one re-decode per window instead of per frame
@@ -406,7 +419,6 @@ export async function createSequentialFrameReader(url, { maxBytes = 1_500_000_00
         if (nextKey) resetTo(target);
       }
       lastTargetUs = target;
-      framesDecoded = 0; resetsForTarget = 0; gopWalk = 0;
       // ⚠️ B720 — `gopWalk` RESETS PER TARGET NOW. B716 reset it only inside `resetTo`, so with
       // `resets: 0` it accumulated across every target since the last reconfigure and the failure
       // message's *"953 samples since the keyframe"* was not that at all — it was samples since

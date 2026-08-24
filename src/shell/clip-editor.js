@@ -1009,6 +1009,34 @@ export function createClipEditor(env) {
     fps = Math.max(12, Math.min(60, Math.round(fps || 30)));
     durationMs = Math.max(200, durationMs / (env.clip.fmt.speed || 1));   // playback speed stretches the loop (slomo)
 
+    // ⚠️ B722 — SNAPSHOT WHAT WE ARE ABOUT TO BAKE, HERE. THE `finally` READS IT TOO LATE.
+    //
+    // B719 attached the trim to the reading so two runs could be checked for comparability instead
+    // of remembered. It read `trim` in the teardown — but a SUCCESSFUL bake calls `applyBakedClip`
+    // first, and that resets `env.clip.trim` to `{ inT: 0, outT: 1, mode: 'forward' }` because the
+    // baked clip is now the whole source. `trim` is held by reference, so the harvest recorded the
+    // POST-bake state.
+    //
+    // **It is self-refuting, and that is how it was caught: `mode: 'forward'` never bakes at all**
+    // (`applyClip` commits a forward trim directly and returns), so a report claiming a bake ran in
+    // forward mode is describing a state that came into being afterwards. Both of Daniel's B721
+    // passes say `forward / inT 0 / outT 1`, and none of those three values can be trusted.
+    //
+    // The failure path was always accurate, since `applyBakedClip` never runs — which is the worst
+    // possible split: **the instrument told the truth about failures and lied about successes**, so
+    // any A/B between a failing run and a passing one compared a real trim against a reset one.
+    const bakeShape = {
+      inT: +(trim.inT ?? 0).toFixed(4),
+      outT: +(trim.outT ?? 1).toFixed(4),
+      mode: trim.mode,
+      slicePoint: trim.mode === 'slice' ? +(trim.slicePoint ?? 0.5).toFixed(4) : undefined,
+      crossfadeMs: trim.mode === 'slice' ? trim.crossfadeMs : undefined,
+      frames: (durationMs && fps) ? Math.max(2, Math.round((durationMs / 1000) * fps)) : undefined,
+      durationMs: durationMs ? Math.round(durationMs) : undefined,
+      fps: fps || undefined,
+      srcW: w, srcH: h,
+    };
+
     const prog = document.getElementById('clipProgress'), fill = document.getElementById('clipBarFill');
     const apply = document.getElementById('clipApply'), cover = document.getElementById('clipBaking');
     // ⚠️ B717 — RESTORED. B712 lifted the bake's pre-flight guards above `bakeDims()` and the span
@@ -1097,27 +1125,9 @@ export function createClipEditor(env) {
         // the reader that bridged a hole is usually not the reader that struggled.
         const holes = all.reduce((n, r) => n + (r.holes || 0), 0);
         if (worst) {
-          // ⚠️ B719 — CARRY THE TRIM, OR THE READING IS NOT COMPARABLE TO THE NEXT ONE.
-          //
-          // Daniel, 2026-08-24: *"i've been dragging the trim points in a bit each time to reflect
-          // more of a real world use case... this means that each test isn't processing the exact
-          // number of frames each time."* That is exactly right, and it is very likely the reason
-          // the M5 Max and M1 Max runs disagreed (`decoded 91` vs `62`) — **I attributed that to
-          // decoder pipelining and concluded `decoded` was not a conserved quantity. That
-          // conclusion was premature: the two runs were not the same experiment.**
-          //
-          // A report that cannot say what it measured cannot be compared to another one, and
-          // nobody should have to remember where they dragged a handle three days ago. The trim
-          // travels with the number now.
-          const shape = {
-            inT: +(trim.inT ?? 0).toFixed(4),
-            outT: +(trim.outT ?? 1).toFixed(4),
-            mode: trim.mode,
-            frames: (durationMs && fps) ? Math.max(2, Math.round((durationMs / 1000) * fps)) : undefined,
-            durationMs: durationMs ? Math.round(durationMs) : undefined,
-            fps: fps || undefined,
-            srcW: w, srcH: h,
-          };
+          // B719's reasoning still stands and is why `bakeShape` exists; it is now captured before
+          // the bake rather than recomputed here. See its comment for why the late read was wrong.
+          const shape = bakeShape;
           env.bakeDecode = { ...worst, ...shape, holes, at: new Date().toISOString() };
           env.vitals?.mark('bake-decode-worst', { ...worst, ...shape, holes });
         }

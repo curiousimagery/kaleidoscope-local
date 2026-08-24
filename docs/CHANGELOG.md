@@ -6,6 +6,55 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.26.62 · Build 722 — THE INSTRUMENT TOLD THE TRUTH ABOUT FAILURES AND LIED ABOUT SUCCESSES
+
+**Shipped:**
+- **The bake's trim/mode/size is snapshotted BEFORE the bake.** `applyBakedClip` resets `env.clip.trim` to `{ inT: 0, outT: 1, mode: 'forward' }` on success, and the harvest read it afterwards — so every passing run recorded the reset state, not the one it baked.
+- **`resets` can now be non-zero.** The per-target counters were zeroed *after* every code path that can reconfigure the decoder, so the field could only ever read 0.
+- **`slicePoint` and `crossfadeMs` ride along** on a slice bake. Without them two slice runs are not comparable even when the trim matches.
+
+### ⭐ B721 PASSED ON BOTH MACHINES, AND `holes` IS WHY
+
+M1 Max and M1 iPad Pro, same 4K clip, both complete. **`holes: 1` on both** — the same file yields
+the same count on two platforms, which is what a conserved quantity is supposed to do.
+
+**That count is the causal link.** A hole was a state the forward wait loop could not leave, so
+pre-B721 that single target would have spun to the budget and thrown. It is bridged once and the
+bake finishes. **Still circumstantial on one point**: nothing proves this hole is the one the
+deterministic 30.982s failure hit. Nothing else in either report comes near the budget — the worst
+target on desktop is 174ms — so there is no second suspect left standing.
+
+### ⚠️ AND THE PASSING REPORTS CANNOT SAY WHAT THEY BAKED
+
+Both say `mode: 'forward'`, and **a forward trim never bakes at all** — `applyClip` commits it
+directly and returns. The report describes a state that came into being *after* the bake, because
+`trim` is held by reference and `applyBakedClip` had already reset it. `inT`, `outT` and `mode` are
+all unusable on any passing run before this build.
+
+**The split is the dangerous part: the failure path was always accurate**, since `applyBakedClip`
+never runs there. So B719's whole purpose — making two runs checkable for comparability — inverted
+into comparing a real trim against a reset one, on exactly the A/B that mattered.
+
+### ⚠️ `0 decoder resets` NEVER MEANT ANYTHING
+
+`framesDecoded`, `resetsForTarget` and `gopWalk` were zeroed at the bottom of `frameAt`'s preamble,
+below the backward jump, `revFill`, and the long-forward-seek — **every path that calls `resetTo`.**
+The increment happened and was wiped before any reader could see it.
+
+**I used that zero at B720 to rule out a reconfigure as the cause of the stall. That inference was
+not supported.** It does not change B721's conclusion (a reconfigure is not thirty seconds), but the
+field was load-bearing in the write-up and is now real. `framesDecoded` had the same shape: a
+`revFill`'s decode cost never appeared in the quantity that exists to measure it.
+
+### 🔭 ONE THREAD LEFT OPEN, DELIBERATELY NOT GUESSED AT
+
+Desktop's worst target walked **113 frames**; the iPad's worst walked **4**, on the same file. Same
+targets should mean the same work. Either the two runs were not the same bake geometry (which the
+reports could not tell us, per above) or the reader genuinely behaves differently per platform.
+**B722 is the build that makes that question answerable; it does not answer it.**
+
+---
+
 ## v0.26.61 · Build 721 — A HOLE IN THE PRESENTATION TIMELINE WAS A STATE THE WAIT LOOP COULD NOT LEAVE
 
 **Shipped:**
