@@ -22,7 +22,7 @@ Archived at B658. It was marked superseded at B609 and kept for the reasoning be
 
 ## current version
 
-**v0.26.64 · B724** (2026-08-24). **B705 and B706 are device-verified** — B705's instrument found B706, and B706 held on the repro that killed B705. B703, B704 and B707 are not yet device-verified.
+**v0.26.65 · B725** (2026-08-24). **B705 and B706 are device-verified** — B705's instrument found B706, and B706 held on the repro that killed B705. B703, B704 and B707 are not yet device-verified.
 
 ---
 
@@ -64,6 +64,21 @@ Both named by Daniel at B704 **because I had left them off the plan.** Full scop
 - **The encoder's real error beats its symptom.** `VideoEncoder is not configured` describes the state we found it in, not what broke it; a synchronous throw was beating the `encError` check.
 - **The bake button no longer reads `baking…` forever while clickable.** `setClipMode`'s comment claimed it restored the label; `loopPrimary()` does. Daniel pressed the lying button, which is how the second bake happened.
 
+### ✅ A1-A4 PASS (B724). THE RECOVERY PATHS WORK.
+
+Restores at **459ms, 541ms, 399ms, 402ms** on the M1 Max, including one fired mid-bake (the bake
+aborted honestly at frame 1137 of 3178, and the same clip baked cleanly afterwards) and two in
+perform mode while broadcasting 4K.
+
+**⚠️ ALL FOUR PROVOKED `preview`.** A4 was meant to be `yuv-source`. **`yuv-source`, `output`,
+`live-pip` and `external` have still never been deliberately provoked.** B725 puts the surface name
+on the button; re-run A4, A6, A7.
+
+**⚠️ A2's `gl-restore-timeout` is an artifact, not a failure.** `dialog-blocked · ms: 3003`
+immediately precedes it: the bake-failure `alert()` held the event loop so the scheduled
+`restoreContext()` could not run, and the restore landed 223ms after the timeout. **Third time a
+modal has corrupted a timing instrument this arc.**
+
 ### ⭐⭐ PICK UP HERE (B724) — THE iPAD BAKE DIES AT FRAME 4. DETERMINISTIC, THREE TIMES.
 
 **`8-24-contextLoss-clipBake-06-iPad.json` and `-07-iPad.json`.** Both GL surfaces lost within 2ms of
@@ -76,6 +91,11 @@ capability ceiling, not a broken recovery path.
 
 **Frame 4 is where the encoder has just configured for 4K output** while two 4K WebCodecs decoders
 and the preview engine's 4K textures are already resident. `sessions.peak.decode: 7`.
+
+**▶ B725 STAMPS `footprintMB` ONTO THE LOSS.** If frame 4 is a jetsam kill, the next report says so
+outright. **Both chromes were discarding that reading three lines before it mattered** (the `sample`
+kind was filtered out before marking), which is why four reports of this failure carry no memory
+number at all.
 
 **▶ TWO SINGLE-VARIABLE TESTS, ONE iPAD RUN EACH, NO BUILD NEEDED:**
 1. **Bake the same clip at 1080p output** (format control). Survives → the ceiling is OUTPUT resolution.

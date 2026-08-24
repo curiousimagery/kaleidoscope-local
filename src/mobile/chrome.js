@@ -18,7 +18,7 @@ import './styles.css';
 import { createEngine, getActiveForm } from '../engine/index.js';
 import { FORMS, formPanLocked } from '../engine/forms/index.js';
 import { state, session } from '../shell/state.js';
-import { watchGLContext } from '../shell/gl-watch.js';
+import { watchGLContext, noteHostVitals } from '../shell/gl-watch.js';
 import { normalizeSliceMirror } from '../shell/overlay.js';   // B635 — the slice fold, called at the render schedule
 import { normalizePanLock } from '../engine/forms/index.js';   // B704 — see the twin call in main.js
 import { makeControlsSync } from '../shell/controls.js';
@@ -209,9 +209,12 @@ const vitals = createVitals({
 // is recorded at the moment it occurred, and — because breadcrumbs are always-on (B662) — a
 // device killed for memory leaves a `memory-warning` crumb in `priorTrail` for the next launch to
 // find. Without this, a jetsam kill and a random crash stay indistinguishable after the fact.
-host?.vitals?.onEvent?.((kind, r) => kind !== 'sample' && vitals.mark(kind, {
-  thermal: r?.thermal ?? null, availableMB: r?.availableMB ?? null, footprintMB: r?.footprintMB ?? null,
-}));
+host?.vitals?.onEvent?.((kind, r) => {
+  noteHostVitals(r);   // B725 — see the desktop chrome; both feed the same module-global cache
+  if (kind !== 'sample') vitals.mark(kind, {
+    thermal: r?.thermal ?? null, availableMB: r?.availableMB ?? null, footprintMB: r?.footprintMB ?? null,
+  });
+});
 const outputSurface = perf.surface({
   id: 'output', label: 'output canvas', serves: 'program', priority: PRIORITY.PROGRAM,
   size: () => ({ w: outputCanvas.width, h: outputCanvas.height }),

@@ -30,10 +30,10 @@ iPad.** Copy a report after each.
 
 | # | surface | state when it fires | what it is really asking |
 |---|---|---|---|
-| A1 | `preview` | idle, clip loaded | the baseline. If this fails nothing below is interpretable. **RUN 2026-08-24: false FAIL, harness bug, fixed B724. Re-run** |
-| A2 | `preview` | **mid-bake** | B705's guard aborts by name; does the bake fail HONESTLY and leave a usable app |
-| A3 | `preview` | mid-broadcast | does the wall keep its picture while the operator's screen recovers |
-| A4 | `yuv` | scrubbing the timeline | **B709's surface, never once exercised deliberately.** It had no handler at all until B709 |
+| A1 | `preview` | idle, clip loaded | ✅ **PASS on B724** (459ms). The B723 run was a false FAIL from an incomplete harness. |
+| A2 | `preview` | **mid-bake** | ✅ **PASS 2026-08-24** (541ms; the timeout in that trail is the modal). |
+| A3 | `preview` | mid-broadcast | ✅ **PASS 2026-08-24** (399ms, Brave, 4K to an output window). |
+| A4 | `yuv-source` | scrubbing the timeline | ⚠️ **NOT ACTUALLY RUN** — the 2026-08-24 attempt provoked `preview`. Re-run on B725, which names the surface on the button. |
 | A5 | `preview` | motion → perform, right at the switch | **this is B703's owed verification.** Was the deadlock actually fixed |
 | A6 | `output` / `live-pip` | mid-broadcast over HDMI | the surface the audience sees |
 | A7 | `external` | during a loop wrap | the wrap is the one moment the external path is doing real work |

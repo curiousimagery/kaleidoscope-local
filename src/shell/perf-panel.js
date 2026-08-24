@@ -404,7 +404,11 @@ export function mountPerfPanel(env, { container = null, onClose = null } = {}) {
       if (keep && list.some((x) => x.surface === keep)) glSel.value = keep;
     }
     const armed = list.find((x) => x.armed);
-    glBtn.textContent = armed ? 'disarm' : 'lose context';
+    // ⚠️ B725 — NAME THE SURFACE ON THE BUTTON. All four of Daniel's first provocations hit
+    // `preview`, including the one meant for `yuv-source`, because the picker sits beside a button
+    // that says only "lose context" and the selection is easy to leave where it was. **A control
+    // that can act on the wrong target should say which target it is about to act on.**
+    glBtn.textContent = armed ? `disarm ${armed.surface}` : `lose ${glSel.value || 'context'}`;
     glBtn.classList.toggle('pf-rec', !!armed);
     const hidden = list.length === 0;
     glSel.hidden = glDelaySel.hidden = glBtn.hidden = glNote.hidden = hidden;

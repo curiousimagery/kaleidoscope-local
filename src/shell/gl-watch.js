@@ -49,6 +49,37 @@ const RESTORE_SIM_MS = 250;        // B724 — stands in for the browser's own t
 // to skip the wiring, and `yuv-renderer` proved it by having no handler at all for months.
 const surfaces = new Map();   // surface name → { canvas, glOf, mark, ext, extWhy, armed }
 
+// ⚠️ B725 — THE DEVICE'S OWN MEMORY READING, STAMPED ONTO THE LOSS.
+//
+// The iPad's 4K bake dies at frame 4 with BOTH GL surfaces going down within 2ms of each other,
+// which is the GPU process being killed rather than a renderer failing. **The obvious suspect is
+// memory, and we could not see it**: the host vitals plugin pushes `footprintMB` / `availableMB`
+// every few seconds, but both chromes filter the `sample` kind out before marking, so no reading
+// exists anywhere near the moment of the purge.
+//
+// Footprint is the right noun here and it is not a proxy. iOS jetsam kills on an app's own
+// footprint against a per-device limit, so `footprintMB` at the instant of the loss is the actual
+// quantity the OS decided on — not an activity counter that correlates with it.
+//
+// Module-global, and BOTH chromes feed it (`main.js`, `mobile/chrome.js`). A fact about the one
+// device belongs where every caller sees it regardless of which `env` it holds — the B638 rule.
+let lastHostVitals = null;
+export function noteHostVitals(r) {
+  if (!r) return;
+  lastHostVitals = {
+    thermal: r.thermal ?? null,
+    availableMB: r.availableMB ?? null,
+    footprintMB: r.footprintMB ?? null,
+    ageMs: 0, at: Date.now(),
+  };
+}
+// **The AGE is not decoration.** A reading from 40 seconds ago says nothing about a purge, and a
+// reader who cannot tell a fresh sample from a stale one will treat both as evidence.
+function memAtLoss() {
+  if (!lastHostVitals) return { mem: null, memWhy: 'host vitals never reported (web/Electron, or the plugin is absent)' };
+  return { mem: { ...lastHostVitals, ageMs: Date.now() - lastHostVitals.at } };
+}
+
 // The extension MUST be cached while the context is ALIVE. On a lost context `getExtension` returns
 // null in WebKit, which is precisely how the Build-230 restore silently never fired. The cached
 // object stays valid across loss/restore cycles because extensions belong to the context object,
@@ -159,7 +190,7 @@ export function watchGLContext({ canvas, surface, mark, rebuild, glOf, onLost, o
     // Without preventDefault the GPU drops the context FOR GOOD and no restore can ever arrive.
     // This is load-bearing, not hygiene — the Build-230 black-output bug was exactly this.
     ev.preventDefault();
-    say('gl-context-lost');
+    say('gl-context-lost', memAtLoss());
     console.warn(`[fold] WebGL context LOST (${surface})`);
     clear();
     // If nothing arrives, say so. Silence and death look identical in a post-reload report.

@@ -6,6 +6,41 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.26.65 · Build 725 — THE MEMORY READING AT THE MOMENT OF THE PURGE
+
+**Shipped:**
+- **`gl-context-lost` carries `footprintMB` / `availableMB` / `thermal`, with the reading's AGE.** Both chromes feed one module-global cache.
+- **The provoke button names its target** (`lose preview`, `lose yuv-source`). All four of Daniel's first provocations hit `preview`, including the one meant for the source panel.
+
+### ⭐ WHY FOOTPRINT, AND WHY IT IS NOT A PROXY
+
+The iPad's 4K bake dies at frame 4 with **both** GL surfaces going down within 2ms, which is the GPU
+process being killed rather than a renderer failing. **iOS jetsam kills on an app's own footprint
+against a per-device limit**, so `footprintMB` at the instant of the loss is the quantity the OS
+actually decided on. It is not an activity counter that happens to correlate.
+
+**And we could not see it.** The host vitals plugin has been pushing this every few seconds all
+along, but **both chromes filter the `sample` kind out before marking**, so no reading existed
+anywhere near a purge. The data was arriving and being discarded three lines before it mattered.
+
+**The age travels with it.** A reading from 40 seconds ago says nothing about a purge, and a reader
+who cannot tell a fresh sample from a stale one will treat both as evidence.
+
+### ⚠️ A CONTROL THAT CAN ACT ON THE WRONG TARGET MUST SAY WHICH TARGET
+
+A1 through A4 all provoked `preview` — **A4 was meant to be `yuv-source`**, the surface that had no
+loss handler at all until B709 and has still never been deliberately tested. The picker sat beside a
+button reading `lose context`, and the selection is easy to leave where it was.
+
+### ✅ A1-A4 PASS, AND THE ONE TIMEOUT IN THEM IS THE MODAL AGAIN
+
+Restores at **459ms, 541ms, 399ms, 402ms**. A2's `gl-restore-timeout` is an artifact: `dialog-blocked
+· ms: 3003` sits immediately before it, so the bake-failure `alert()` held the event loop and the
+scheduled `restoreContext()` could not run until it cleared. **The restore then landed 223ms later.**
+Third time this arc a modal has corrupted a timing instrument.
+
+---
+
 ## v0.26.64 · Build 724 — THE HARNESS SIMULATED THE LOSS AND NOT THE RECOVERY
 
 **Shipped:**

@@ -13,7 +13,7 @@
 // into each other for globals.
 
 import { state, session, motion } from './shell/state.js';
-import { watchGLContext } from './shell/gl-watch.js';
+import { watchGLContext, noteHostVitals } from './shell/gl-watch.js';
 import { lockState, setLock, makeLockToggle } from './shell/locks.js';
 import { DISCRETE_KEYS, isCoupledKey } from './kit/tween.js';   // discrete settings are global (held to kf0) — except the COUPLED ones, see B637
 import { confirmInterrupt } from './shell/interrupt.js';   // non-blocking destructive-interrupt (M3)
@@ -2131,9 +2131,14 @@ if (engine) {
     env.host.vitals.onEvent((_kind, r) => noteIdleTimerState(r?.idleTimerDisabled));
     // and the breadcrumb writer, which ignores the heartbeat kind so `priorTrail` keeps its twelve
     // entries for the operations that matter
-    env.host.vitals.onEvent((kind, r) => kind !== 'sample' && vitals.mark(kind, {
-      thermal: r?.thermal ?? null, availableMB: r?.availableMB ?? null, footprintMB: r?.footprintMB ?? null,
-    }));
+    env.host.vitals.onEvent((kind, r) => {
+      // B725 — cache EVERY reading, `sample` included. The heartbeat is uninteresting on its own and
+      // is exactly what makes a GL loss stampable with the memory state that preceded it.
+      noteHostVitals(r);
+      if (kind !== 'sample') vitals.mark(kind, {
+        thermal: r?.thermal ?? null, availableMB: r?.availableMB ?? null, footprintMB: r?.footprintMB ?? null,
+      });
+    });
   } else {
     vitals.mark('vitals:no-events', { why: 'host.vitals.onEvent absent at wiring time' });
   }
