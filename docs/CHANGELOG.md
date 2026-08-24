@@ -6,6 +6,31 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.26.55 · Build 715 — THE FIRST SOURCE FRAME, AND WHAT THE DESKTOP BAKE PROVED
+
+**Shipped:**
+- **`requestVideoFrameCallback` re-presents the source panel** the moment the browser actually composites a frame, instead of inferring it from a seek-and-check retry.
+- Additive and feature-detected; the existing retry is untouched.
+
+### ⭐ THE BAKE SUCCEEDS ON DESKTOP, AND THAT IS THE MOST USEFUL RESULT IN A WEEK
+
+`docs/temp/8-23-contextLoss-clipBake-04.json`: a 3840×2160 source, `outcome` clean, and the report now shows `decode · baked clip · 16s` as a live session — **the bake completed and the validated swap took.** Same code, same Loop Builder, Chromium instead of WebKit.
+
+**Two hypotheses die here.**
+
+**1. Decoder pressure is not the cause.** `sessions.peak.decode: 7` **on desktop too** — the same peak the iPad reports. **Seven concurrent decoders is simply the shape of a bake, not an iPad pathology**, and desktop handled it without complaint. B711 was reverted on suspicion; this is the confirmation.
+
+**2. The failure is platform-specific, not clip-specific or code-specific.** The 10-second per-frame budget in `createSequentialFrameReader` is a flat constant. **That is the same shape as B700's first-frame deadline**, which was a flat 8s that a 193MB clip missed by 5ms; the fix there was to scale it with the work and report the overrun. **This one is now a Class 2 question — what does WebKit's VideoDecoder do that Blink's does not — and it is the first thing in a fortnight that genuinely earns a device session.**
+
+### The first source frame
+
+The mechanism was already named in the code: *"Blink draws BLACK from a video that has never PRESENTED a frame."* The existing mitigation is a seek-and-check retry that **guesses at when presentation happened**, and it is skipped entirely while the thumbnail strip is building — a race it can lose. Daniel: *"the first source frame doesn't render, but scrubbing the timeline activates it"* — scrubbing works because a real seek finally forces a presentation.
+
+**`requestVideoFrameCallback` is the presentation signal**, so there is nothing left to infer: it fires once a frame has been composited, and one repaint is enough.
+
+**The retry is deliberately kept.** Safari only gained rVFC in 15.4, and **the retry is also what handles a genuinely black opening frame — which no presentation callback can distinguish from a failure to present.** Deleting it would trade one blind spot for another.
+
+
 ## v0.26.54 · Build 714 — TWO B711 REGRESSIONS, BOTH MINE, BOTH FOUND BY DANIEL
 
 **Shipped:**

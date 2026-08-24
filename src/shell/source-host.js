@@ -352,6 +352,29 @@ export function createSourceHost(env) {
             env.sourceOverlay.paintSourceVideo();
           };
           present();
+          // ⚠️ B715 — ASK THE BROWSER WHEN IT HAS ACTUALLY PRESENTED A FRAME, INSTEAD OF GUESSING.
+          //
+          // The comment on `sourceVideoBlank` names the mechanism exactly: *"Blink draws BLACK from
+          // a video that has never PRESENTED a frame."* The mitigation below is a seek-and-check
+          // retry — it guesses at when presentation has happened and re-checks up to three times,
+          // and it is skipped entirely while the thumbnail strip is building, which is a race it
+          // can lose. Daniel, 2026-08-23, Brave/Chromium: *"the first source frame doesn't render,
+          // but scrubbing the timeline activates it"* — scrubbing works because a real seek finally
+          // forces a presentation.
+          //
+          // `requestVideoFrameCallback` IS the presentation signal. It fires when a frame has been
+          // composited and hands over its metadata, so there is nothing left to infer. One shot is
+          // enough: repainting a panel that already looks right is harmless, and repainting one
+          // that was blank is the whole fix.
+          //
+          // Additive and feature-detected — the retry below is untouched, so a browser without
+          // rVFC behaves exactly as before. **Do not delete the retry in favour of this**: Safari
+          // gained rVFC only in 15.4, and the retry is also what handles a genuinely black opening
+          // frame, which no presentation callback can distinguish from a failure to present.
+          if (typeof v.requestVideoFrameCallback === 'function') {
+            try { v.requestVideoFrameCallback(() => { try { present(); } catch { /* panel gone */ } }); }
+            catch { /* older implementations may throw on a paused element */ }
+          }
           for (let i = 0; i < 3 && !srcStrip.building && env.sourceOverlay.sourceVideoBlank?.(); i++) {
             try { await seekVideoTo(v, 0.05 + i * 0.05); await parkSeek(); } catch { break; }
             present();
