@@ -1047,6 +1047,13 @@ export function createClipEditor(env) {
       durationMs: durationMs ? Math.round(durationMs) : undefined,
       fps: fps || undefined,
       srcW: w, srcH: h,
+      // B731 — the media's own identity, so two reports can be checked for "same clip" at a glance
+      // rather than by noticing that a derived memory figure differs.
+      ...(() => {
+        const r = sliceReaderB || sliceReaderA || bounceReader;
+        if (!r) return {};
+        return { codec: r.codec, srcBytes: r.fileBytes, mbps: r.mbps };
+      })(),
     };
 
     const prog = document.getElementById('clipProgress'), fill = document.getElementById('clipBarFill');

@@ -22,7 +22,7 @@ Archived at B658. It was marked superseded at B609 and kept for the reasoning be
 
 ## current version
 
-**v0.26.70 · B730** (2026-08-24). **B705 and B706 are device-verified** — B705's instrument found B706, and B706 held on the repro that killed B705. B703, B704 and B707 are not yet device-verified.
+**v0.26.71 · B731** (2026-08-24). **B705 and B706 are device-verified** — B705's instrument found B706, and B706 held on the repro that killed B705. B703, B704 and B707 are not yet device-verified.
 
 ---
 
@@ -64,7 +64,57 @@ Both named by Daniel at B704 **because I had left them off the plan.** Full scop
 - **The encoder's real error beats its symptom.** `VideoEncoder is not configured` describes the state we found it in, not what broke it; a synchronous throw was beating the `encError` check.
 - **The bake button no longer reads `baking…` forever while clickable.** `setClipMode`'s comment claimed it restored the label; `loopPrimary()` does. Daniel pressed the lying button, which is how the second bake happened.
 
-### ⭐⭐ PICK UP HERE (B730) — THE COST MODEL IS MEASURED. IT IS ARITHMETIC.
+### ⭐⭐⭐ PICK UP HERE (B731) — THE GAUNTLET IS DONE. SAME COST, DIFFERENT CEILING. BUILD THE REDUCTION.
+
+**One file (`741,685,378 B`), one vanilla slice bake, four machines, `peakMB` = 2143.2 on ALL FOUR:**
+
+| machine | outcome |
+|---|---|
+| M5 Max / M1 Max MBP | pass |
+| M1 iPad Pro (16GB) | **fail, frame 181** |
+| M1 iPad Air (8GB) | **fail, frame 88** |
+
+**The cost is a property of the job; the ceiling is a property of the device.** Computed gating is now
+grounded in measurement.
+
+**▶ THE PEAK IS THE DEMUX, NOT THE ENCODE** (`frames-held: 0` at peak). Slice builds two readers in
+sequence, so the high-water mark is *B's sample table + A's file buffer + A's sample table*.
+
+**▶ THE NEXT BUILD IS THE SHARED DEMUX: one fetch and one sample table across slice's two readers.
+2143MB → ~1441MB, a 33% cut**, landing exactly on the moment that fails. Proposed, NOT built — it
+changes `createSequentialFrameReader`'s shape and Daniel has not greenlit it.
+
+**▶ THEN: stream the muxer output.** Removes ~300MB, its realloc doubling, and the duration ceiling
+that killed a 47:45 FHD bake on 64GB.
+
+### 📐 CORRECTION TO B727: MEMORY *IS* THE DEVICE AXIS
+
+**8GB Air failed at frame 88; 16GB Pro at frame 181. Same job, same file, same build.** B727 argued
+the Air/Pro difference *"probably matters much less than expected"* because the cap is per-process.
+The ordering says otherwise.
+
+### ⚠️ "SAME CLIP" HAS BEEN WRONG TWICE — CHECK `srcBytes` FIRST, ALWAYS
+
+The Photos copy is `3840×2160 · 106.45s · 30fps` at **45% of the bytes** — a lower-bitrate RE-ENCODE,
+not a downsample. **AirDrop is not enough**: iOS files it into Photos and Photos transcodes. The
+original must travel via Files.
+
+**At 4× file size in the cost model, that 407MB difference is 1.6GB of peak — enough to flip pass into
+fail on its own.** Every historical "the iPad handles 4K" result is suspect. B731 puts `codec`,
+`srcBytes` and `mbps` in the shape so this is one glance rather than an inference.
+
+### 🔬 DEVICE-WIDE READINGS ARE IN, AND ARE DIRECTIONAL ONLY
+
+Pro: free `1259 → 220MB`. Air: free `691 → 1583MB` (a RISE, which is what jetsam looks like from the
+inside — the OS frees by killing). **Two single samples, one 1.8s stale, on a noisy quantity.** The
+robust findings are `peakMB` and the failure ordering.
+
+### 🚨 NINE MINUTES FROZEN ACROSS TWO MODALS
+
+`dialog-blocked: 243890` and `289064`. **Filed since B707; now the worst operator-facing defect in the
+arc.**
+
+### 🔻 SUPERSEDED (B730) — THE COST MODEL IS MEASURED. IT IS ARITHMETIC.
 
 ```
 slice bake peak ≈ 4 × fileBytes + encodedOutputBytes + ~55MB      (bounce/forward: 2 × fileBytes)

@@ -402,6 +402,23 @@ export async function createSequentialFrameReader(url, { maxBytes = 1_500_000_00
   return {
     width: config.codedWidth,
     height: config.codedHeight,
+    // ⚠️ B731 — WHAT MEDIA IS THIS, REALLY. "SAME CLIP" HAS BEEN WRONG TWICE.
+    //
+    // The iPad was handed a 334MB copy of the file the Macs read at 741MB: same name, same
+    // 3840×2160, same 106.45s, same 30fps — **so nothing in the report could distinguish them except
+    // the byte count**, and the byte count only showed up because the ledger's arithmetic happened
+    // to be exact. Identical dimensions and duration at 45% of the size means a lower-bitrate
+    // RE-ENCODE, not a downsample, and the codec is the field that says which.
+    //
+    // Photos hands out a transcoded copy on AirDrop/share; the original has to travel through Files.
+    // **Every "the iPad handles 4K" result in this project's history may have been measured on the
+    // lighter copy**, and this is the field that lets a future reader check rather than assume.
+    codec: config.codec,
+    fileBytes: bufBytes,
+    mbps: (() => {
+      const durSec = track.duration && track.timescale ? track.duration / track.timescale : 0;
+      return durSec > 0 ? +((bufBytes * 8) / durSec / 1e6).toFixed(1) : 0;
+    })(),
     // B716 — the most expensive single target this reader served, success or timeout. Read it
     // after a bake (or after a failure) and compare `decoded` across platforms before `ms`.
     worstTarget: () => (worst ? { ...worst, holes: holesBridged } : null),

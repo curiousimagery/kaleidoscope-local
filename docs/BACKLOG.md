@@ -486,6 +486,21 @@ One report reads `pressure: { target: 15, label: "warming up" }` on a 30fps clip
 
 ## 🚧 Limits, ceilings and honest refusal
 
+### 🚨🚨 [HIGH — B731] "SAME CLIP" HAS BEEN WRONG TWICE, AND IT INVALIDATES HISTORICAL iPAD RESULTS
+
+**The Photos copy of a 4K clip is `3840×2160 · 106.45s · 30fps` at 45% of the bytes** — identical
+resolution and duration rule out downsampling, leaving a lower-bitrate re-encode. **AirDrop is not
+enough**: iOS files it into Photos and Photos hands out the transcode. The original must travel via
+Files.
+
+**At 4× file size in the cost model that 407MB difference is 1.6GB of peak — enough to flip pass into
+fail on its own.** So **every historical result of the form "the iPad handles 4K" is suspect**, and
+the B729 gauntlet's iPad numbers were measured on the lighter copy without anyone knowing.
+
+**✅ B731 puts `codec`, `srcBytes` and `mbps` in the bake shape** so this is one glance rather than an
+inference from a derived memory figure. **Check `srcBytes` before comparing any two reports.**
+
+
 ### ✅ [SHIPPED B728+B729] THE ALLOCATION LEDGER AND THE DEVICE-WIDE READING
 
 **`shell/mem-ledger.js`** attributes every large bake allocation by function (`source-buffer`,
@@ -509,9 +524,18 @@ slice bake peak ≈ 4 × fileBytes + encodedOutputBytes + ~55MB      (bounce/for
 M1 Max **3188.5MB**, M5 Max **3188.6MB**, M1 iPad Pro **1627.3MB** — all three passed, and the two
 Macs agree to 0.1MB on an identical job. **Every term is known before the bake starts.**
 
+**✅ CONTROLLED GAUNTLET, 2026-08-24 (B730/B731), ONE FILE ON FOUR MACHINES:** `peakMB` **2143.2 on
+all four.** Macs passed; **iPad Pro (16GB) failed at frame 181, iPad Air (8GB) at frame 88.** Cost is
+a property of the job, ceiling is a property of the device — **and the Air/Pro ordering says memory
+IS the device axis**, correcting B727.
+
+**▶ THE PEAK IS THE DEMUX, NOT THE ENCODE** (`frames-held: 0` at peak). Slice builds two readers in
+sequence, so the high-water mark is B's sample table + A's file buffer + A's sample table.
+
 **▶ THE TWO REDUCTIONS ARE NOW QUANTIFIED AND ARE THE NEXT BUILD DECISION:**
-1. **One shared fetch + demux across slice's two readers — removes HALF the buffer cost** (1.4GB on
-   the Macs, 640MB on the iPad). Slice opens two readers over the SAME URL today.
+1. **One shared fetch + demux across slice's two readers.** ⭐ **2143MB → ~1441MB, a 33% cut**, and it
+   lands exactly on the moment that fails. Slice opens two readers over the SAME URL today. Changes
+   `createSequentialFrameReader`'s shape, so it wants a greenlight, not a drive-by.
 2. **Stream the muxer output instead of accumulating it** — removes ~300MB, its realloc doubling, and
    **the duration ceiling that killed a 47:45 FHD bake on a 64GB M1 Max.**
 

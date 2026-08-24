@@ -6,6 +6,78 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.26.71 · Build 731 — THE GAUNTLET, CONTROLLED. SAME COST, DIFFERENT CEILING.
+
+**Shipped:**
+- **`codec`, `srcBytes` and `mbps` in the bake shape.** "Same clip" has been wrong twice and nothing in the report could say so.
+
+### ⭐⭐⭐ FOUR MACHINES, ONE FILE, ONE NUMBER
+
+`741,685,378 B · 3840×2160 · 106.45s · slice · slicePoint 0.3333 · crossfadeMs 500 · 3178 frames`
+
+| machine | `peakMB` | outcome |
+|---|---|---|
+| M5 Max MBP | **2143.2** | pass |
+| M1 Max MBP | **2143.2** | pass |
+| M1 iPad Pro (16GB) | **2143.2** | **failed at frame 181** |
+| M1 iPad Air (8GB) | **2143.2** | **failed at frame 88** |
+
+**Identical to one decimal on all four, including both failures.** The cost of a job is a property of
+the job; the ceiling is a property of the device. **That is the whole premise of a computed gate, and
+it is now measured rather than assumed.**
+
+### 📐 MEMORY *IS* THE DEVICE AXIS — AND I SAID OTHERWISE AT B727
+
+**The 8GB Air failed at frame 88. The 16GB Pro failed at frame 181. Same job, same file, same
+build.** B727 argued the Air-versus-Pro comparison *"probably matters much less than expected"*
+because the cap is per-process. **The ordering says otherwise**, and the Air/Pro pair is exactly the
+controlled comparison this project owns for that question.
+
+### 🧮 THE PEAK IS THE DEMUX, NOT THE ENCODE
+
+`peakBy: { sample-table: 1404.2, source-buffer: 707.3, capture-canvas: 31.6, frames-held: 0 }`
+
+`frames-held: 0` places the high-water mark **before a single frame is decoded**. Slice builds its
+two readers in sequence, so the peak is *reader B's finished sample table + reader A's file buffer +
+reader A's sample table*. **The bake is at its most dangerous before it draws anything.**
+
+**Which makes the reduction obvious and exact: one shared fetch and demux across slice's two readers
+removes one whole sample table and the second transient buffer. 2143MB → ~1441MB, a 33% cut**, and it
+lands precisely on the moment that fails.
+
+### 🔬 THE DEVICE-WIDE READING ARRIVED, AND IT IS DIRECTIONAL, NOT CONCLUSIVE
+
+| | free before | free at loss | reclaimable before → after |
+|---|---|---|---|
+| iPad Pro | 1259MB | **220MB** | 3290 → 2302 |
+| iPad Air | 691MB | **1583MB** | 3041 → 3654 |
+
+The Pro ran the device down to 220MB free. The Air's free memory *rose* 892MB at the moment of loss —
+**which is what jetsam looks like from the inside**, since the OS frees memory by killing something.
+Both are consistent with exhaustion at different points in the reclaim cycle.
+
+**⚠️ Two single samples, one of them 1.8s stale, on a noisy quantity. Directional only.** The robust
+finding is the peak and the ordering, not these two numbers.
+
+### ⚠️ AND THE PHOTOS COPY IS A RE-ENCODE, NOT A DOWNSAMPLE
+
+Same 3840×2160, same 106.45s, same 30fps, **45% of the bytes**. Resolution and duration rule out
+downsampling; that leaves a lower-bitrate re-encode. **Daniel's suspicion is very likely right: every
+"the iPad handles 4K" result in this project's history may have been measured on the lighter copy**,
+and at 4× file size in the cost model a 407MB difference is 1.6GB of peak — enough to flip pass into
+fail on its own.
+
+**AirDrop is not enough**: iOS files it into Photos, which hands out a transcoded copy. The original
+has to travel via Files.
+
+### ⚠️ FOUR AND FIVE MINUTES FROZEN
+
+`dialog-blocked: 243890` and `289064`. Two bake failures, two modals, **nearly nine minutes of a
+wedged app between them.** This has been filed since B707 and is now the single worst operator-facing
+defect in the arc.
+
+---
+
 ## v0.26.70 · Build 730 — THE LEDGER'S BIGGEST TERM WAS A BUFFER WE HAD ALREADY FREED
 
 **Shipped:**
