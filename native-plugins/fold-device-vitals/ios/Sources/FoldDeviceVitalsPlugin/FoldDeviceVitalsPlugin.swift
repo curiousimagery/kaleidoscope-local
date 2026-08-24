@@ -183,6 +183,42 @@ public class FoldDeviceVitalsPlugin: CAPPlugin, CAPBridgedPlugin {
         return Int(info.phys_footprint) / (1024 * 1024)
     }
 
+    // ⚠️ B729 — THE ONLY READING HERE THAT CAN SEE THE PROCESS THAT ACTUALLY DIES.
+    //
+    // `availableMB` and `footprintMB` are both about THIS process: `os_proc_available_memory()` is
+    // this task's headroom and `task_info(mach_task_self_)` is this task's footprint. **The bake's
+    // memory is not here.** It is in the WKWebView content process (JS heap, demuxed buffers, the
+    // muxer's output) and the WebKit GPU process (GL contexts, VideoFrames) — separate processes we
+    // cannot introspect, and the reason this plugin reported a calm 39MB while iOS killed the app
+    // for memory (`docs/temp/8-24-D3-01-ipadFailure.json`).
+    //
+    // `host_statistics64` is DEVICE-WIDE, so it moves when any process grows, including the two we
+    // are blind to. It cannot attribute — that is what the JS-side ledger is for — but the two
+    // together bracket the answer: **the gap between device-wide growth and what we can attribute
+    // IS the blind spot, measured rather than assumed.**
+    //
+    // ⚠️ READ THE DELTA, NEVER THE ABSOLUTE. iOS keeps memory productively occupied, so "free" is
+    // small and noisy at rest and says nothing on its own. A baseline before a bake and the trough
+    // during it is the measurement; a single number is not.
+    private func deviceMemory() -> (Int?, Int?, String?) {
+        var stats = vm_statistics64_data_t()
+        var count = mach_msg_type_number_t(MemoryLayout<vm_statistics64_data_t>.size / MemoryLayout<integer_t>.size)
+        let kr = withUnsafeMutablePointer(to: &stats) {
+            $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
+                host_statistics64(mach_host_self(), host_flavor_t(HOST_VM_INFO64), $0, &count)
+            }
+        }
+        guard kr == KERN_SUCCESS else {
+            return (nil, nil, "host_statistics64 failed (kr \(kr))")
+        }
+        let page = UInt64(vm_kernel_page_size)
+        let mb: (UInt32) -> Int = { Int((UInt64($0) &* page) / (1024 * 1024)) }
+        // `free + inactive + purgeable` is what the system can reclaim under pressure — a far better
+        // proxy for real headroom than `free` alone, which iOS keeps deliberately small.
+        let reclaimable = mb(stats.free_count) + mb(stats.inactive_count) + mb(stats.purgeable_count)
+        return (mb(stats.free_count), reclaimable, nil)
+    }
+
     private func snapshot() -> [String: Any] {
         let (avail, why) = availableMB()
         var out: [String: Any] = [
@@ -199,6 +235,11 @@ public class FoldDeviceVitalsPlugin: CAPPlugin, CAPBridgedPlugin {
         else { out["footprintWhy"] = "task_info(TASK_VM_INFO) failed" }
         // Low-power mode changes the CPU/GPU ceiling, so a run under it is a different
         // device from a run without it and the report must be able to say which.
+        // B729 — device-wide, so it sees the WebView content and GPU processes this plugin cannot.
+        let (devFree, devReclaim, devWhy) = deviceMemory()
+        if let f = devFree { out["deviceFreeMB"] = f }
+        if let r = devReclaim { out["deviceReclaimableMB"] = r }
+        if let w = devWhy { out["deviceMemWhy"] = w }
         out["lowPowerMode"] = ProcessInfo.processInfo.isLowPowerModeEnabled
         // B677 — the wake lock's read-back, carried on the channel that works. `false` here while
         // the app believes it asked for `true` is the silent-failure case, now visible.

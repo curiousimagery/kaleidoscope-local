@@ -34,6 +34,7 @@ import { sessionReport } from 'conduit/sessions';
 import { panProbe } from '../kit/pan.js';
 import { externalGuardState } from './external-display.js';
 import { listGLSurfaces, provokeGLLoss, disarmGLLoss } from './gl-watch.js';
+import { memReport } from './mem-ledger.js';
 
 const BASELINE_KEY = 'foldPerfBaseline';
 
@@ -524,6 +525,12 @@ export function mountPerfPanel(env, { container = null, onClose = null } = {}) {
       // the reading, which means this value was resolved before the bake ran. Reading through a
       // getter defers it to export time; the trail stays the durable copy either way.
       bakeDecode: (env.bakeDecode ? { ...env.bakeDecode } : undefined),
+      // B728 — what WE are holding, by function. A lower bound on the content process, and the only
+      // reading that exists at all for it. `bakeMem` is the balance sheet after the last bake's
+      // teardown; `memNow` is live, so a report taken minutes later still says whether the session
+      // is carrying residue.
+      bakeMem: (env.bakeMem ? { ...env.bakeMem } : undefined),
+      memNow: (() => { try { return memReport(); } catch { return undefined; } })(),
       // B706 — a deferred element re-upload. `reinitWhy` says what failed; these say whether it
       // has since healed. Pending with a rising try count is the forever-black case.
       reuploadPending: env.engine?.reuploadPending || undefined,

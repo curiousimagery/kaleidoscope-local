@@ -22,6 +22,7 @@
 // error. WebM sources always take the fallback (mp4box only demuxes ISOBMFF).
 
 import { acquireSession, releaseSession } from 'conduit/sessions';
+import { memHold, memGrow, memRelease } from './mem-ledger.js';
 import * as MP4BoxModule from 'mp4box';
 
 // mp4box ships UMD-flavored; take named exports wherever the bundler put them
@@ -119,6 +120,25 @@ export async function createSequentialFrameReader(url, { maxBytes = 1_500_000_00
   if (!parsed) return null;
   const { track, samples, description, rotation } = parsed;
 
+  // ⚠️ B728 — THE TWO BIGGEST ALLOCATIONS THIS READER MAKES, AND THE SECOND ONE SETTLES AN OPEN QUESTION.
+  //
+  // `buf` is the whole file. `sample-table` is what mp4box handed back — and **whether it COPIES the
+  // sample bytes or views into `buf` has been unverified since B727**, because the bundled build
+  // does not expose the internal. It is the difference between ~1x and ~2x file size per reader,
+  // which is the single largest uncertainty in the bake's cost. Summing `s.data.byteLength` does not
+  // answer it by itself, but comparing `sample-table` against `source-buffer` in the report does:
+  // **if the sum lands near the file size AND `heldMB` reflects both, they are separate memory.**
+  //
+  // ⚠️ AND SLICE MODE OPENS TWO READERS OVER THE SAME URL, so both of these are paid TWICE for one
+  // bake. That is the most obviously removable term in the whole model, and the ledger is what will
+  // say whether removing it is worth the change.
+  const bufBytes = buf.byteLength;
+  buf = null;   // B728 — nothing reads it after `demux()`; holding the local kept the whole file alive
+  const bufId = memHold('source-buffer', bufBytes);
+  let sampleBytes = 0;
+  for (const smp of samples) sampleBytes += (smp.data && smp.data.byteLength) || 0;
+  const samplesId = memHold('sample-table', sampleBytes);
+
   const config = {
     codec: track.codec,
     codedWidth: (track.video && track.video.width) || track.track_width || 0,
@@ -167,6 +187,7 @@ export async function createSequentialFrameReader(url, { maxBytes = 1_500_000_00
   function revClear() {
     for (const f of revCache) f.close();
     revCache = [];
+    noteFrames();
   }
   function revLookup(targetUs) {
     for (let j = revCache.length - 1; j >= 0; j--) {
@@ -247,9 +268,15 @@ export async function createSequentialFrameReader(url, { maxBytes = 1_500_000_00
     }
   }
 
+  // Decoded 4K frames are ~12.4MB each and we hold up to twelve per reader plus the reverse window,
+  // so this term is second only to the file itself — and unlike the file it MOVES during the bake.
+  const framesId = memHold('frames-held', 0);
+  function noteFrames() { memGrow(framesId, (outQ.length + revCache.length) * frameBytes); }
+
   function drainQ() {
     for (const f of outQ) f.close();
     outQ = [];
+    noteFrames();
   }
 
   // Sync points as (decode-order index, presentation time), sorted by TIME. Built once
@@ -493,9 +520,13 @@ export async function createSequentialFrameReader(url, { maxBytes = 1_500_000_00
           throw new Error('decoder produced no frame for ' + sec.toFixed(3) + 's');
         }
         feed();
+        noteFrames();
         await new Promise((r) => setTimeout(r));   // let decoder outputs land
       }
     },
+
+    // B728 — what this reader is holding right now, for the residue question. Read it BEFORE close().
+    memBytes: () => ({ source: bufBytes, samples: sampleBytes, frames: (outQ.length + revCache.length) * frameBytes }),
 
     close() {
       if (closed) return;
@@ -504,6 +535,11 @@ export async function createSequentialFrameReader(url, { maxBytes = 1_500_000_00
       revClear();   // the reverse window owns its frames outright
       try { dec.close(); } catch { /* already closed */ }
       releaseSession(readerToken);   // B699 — paired with the acquire above; see its comment
+      // ⚠️ THIS RECORDS THAT WE DROPPED THE REFERENCES. IT DOES NOT CLAIM WEBKIT COLLECTED THEM.
+      // `heldMB` returning to zero while the NEXT bake still dies early is the signature of a GC or
+      // engine-side residue rather than a retained reference — the two need opposite fixes, and D2
+      // vs D3 already showed the residue is real without saying which kind it is.
+      memRelease(bufId); memRelease(samplesId); memRelease(framesId);
     },
   };
 }

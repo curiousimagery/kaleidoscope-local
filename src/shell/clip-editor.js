@@ -16,6 +16,7 @@
 // clip editor's own public surface is hung back on `env` for the chrome's wiring.
 
 import { exportVideo } from './video-export.js';
+import { memBegin, memHold, memRelease, memReport } from './mem-ledger.js';
 import { seekVideoTo } from './video-source.js';
 import { createSequentialFrameReader, probeVideoInfo } from './video-decode.js';
 import { acquireSession, releaseSession } from 'conduit/sessions';
@@ -900,7 +901,11 @@ export function createClipEditor(env) {
     const shed = false;
 
     const { w, h } = bakeDims();                     // output resolution (source, or downscaled per the format control)
+    // B728 — everything the bake allocates from here is attributed to this operation, and the
+    // high-water mark resets so a second bake in one session is measured on its own terms.
+    memBegin('bake');
     const cap = document.createElement('canvas'); cap.width = w; cap.height = h;
+    const capId = memHold('capture-canvas', w * h * 4);
     const cctx = cap.getContext('2d');
     let fps = 30;                                   // bake fps — refined from the measured source fps below
     let bakeRot = 0;                                // rotation to apply to DECODED (reader) frames — see below
@@ -1124,6 +1129,12 @@ export function createClipEditor(env) {
         // "what was the worst target"; this answers "did the timeline-hole rule fire at all", and
         // the reader that bridged a hole is usually not the reader that struggled.
         const holes = all.reduce((n, r) => n + (r.holes || 0), 0);
+        // ⚠️ B728 — READ THE LEDGER BEFORE THE READERS CLOSE, for the same reason `worstTarget` is
+        // read here: closing first throws the number away on exactly the runs that matter. `heldMB`
+        // is deliberately captured BOTH now and after the closes below, because the difference
+        // between them is the whole residue question (D2 died at frame 1 where D3, from a fresh
+        // launch, encoded all 6,387 frames).
+        const memBefore = memReport();
         // ⚠️ B724 — A BAKE WITH NO READER MUST STILL PUBLISH, OR THE LAST ONE'S NUMBER STANDS IN FOR IT.
         //
         // `env.bakeDecode` is a single slot. When no WebCodecs reader arms, nothing was written and
@@ -1146,13 +1157,22 @@ export function createClipEditor(env) {
           // B719's reasoning still stands and is why `bakeShape` exists; it is now captured before
           // the bake rather than recomputed here. See its comment for why the late read was wrong.
           const shape = bakeShape;
-          env.bakeDecode = { ...worst, ...shape, holes, at: new Date().toISOString() };
-          env.vitals?.mark('bake-decode-worst', { ...worst, ...shape, holes });
+          env.bakeDecode = { ...worst, ...shape, holes, mem: memBefore, at: new Date().toISOString() };
+          env.vitals?.mark('bake-decode-worst', { ...worst, ...shape, holes, mem: memBefore });
         }
       } catch { /* never let an instrument break a teardown */ }
       if (sliceReaderA) { try { sliceReaderA.close(); } catch { /* already closed */ } sliceReaderA = null; }
       if (sliceReaderB) { try { sliceReaderB.close(); } catch { /* already closed */ } sliceReaderB = null; }
       if (bounceReader) { try { bounceReader.close(); } catch { /* already closed */ } bounceReader = null; }
+      try { memRelease(capId); } catch { /* never let an instrument break a teardown */ }
+      // The balance sheet AFTER every release this bake knows how to perform. **Non-zero here means
+      // we are still holding references** — a bug we can fix. Zero here while the next bake still
+      // dies early means the residue is GC latency or engine-side, which is a different fix.
+      try {
+        const after = memReport();
+        env.bakeMem = { ...after, at: new Date().toISOString() };
+        env.vitals?.mark('bake-mem', after);
+      } catch { /* noop */ }
       // ⚠️ B711 — GIVE THE PREVIEWS BACK BEFORE ANYTHING ELSE IN THE TEARDOWN.
       //
       // Daniel, B700: *"is there an elegant way to pick them back up if someone cancels a bake and

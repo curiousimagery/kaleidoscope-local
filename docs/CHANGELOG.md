@@ -6,6 +6,71 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.26.68-69 · Builds 728-729 — TWO INSTRUMENTS WHOSE DIFFERENCE MEASURES THE BLIND SPOT
+
+**Shipped (B728, JS):**
+- **`shell/mem-ledger.js`** — every large allocation the bake makes, attributed by function, with the breakdown captured AT THE PEAK rather than at teardown.
+- **Instrumented:** `source-buffer` and `sample-table` per reader, `frames-held` (live), `capture-canvas`, and `encoder-output` (which grows without bound).
+- **`bakeDecode.mem`, `bakeMem` and `memNow` in the report.** Peak and the post-teardown balance sheet, which is the residue question.
+- **`buf` is released after `demux()`.** Nothing read it afterwards and the local kept the whole file alive.
+
+**Shipped (B729, Swift + JS):**
+- **`deviceFreeMB` / `deviceReclaimableMB` via `host_statistics64`** — the only reading here that is DEVICE-WIDE, so it moves when the WebView content and GPU processes grow.
+- **`mem.scope` now names all three processes** and says which fields see which.
+
+### ⭐⭐ WHY TWO, AND WHY THEIR DIFFERENCE IS THE POINT
+
+**We cannot read the process that dies.** `os_proc_available_memory()` and
+`task_info(mach_task_self_)` are both about the native host process, which sat at **39MB** while iOS
+killed the app for memory. The bake's memory is in the WKWebView **content** process (JS heap,
+demuxed buffers, muxer output) and the WebKit **GPU** process (GL contexts, VideoFrames). WebKit
+exposes no per-process web memory API from JS: `performance.memory` is Chromium-only and
+`measureUserAgentSpecificMemory()` needs cross-origin isolation and is not in Safari.
+
+So:
+
+- **The ledger** knows exactly what WE allocate, and works identically on every platform. **A lower bound.**
+- **`host_statistics64`** sees every process but can attribute nothing. **An upper bound on total movement.**
+- **The gap between them is the memory we cause and do not hold** — decoder surface pools, GL textures, the encoder's own buffers. **That names the blind spot instead of leaving it unknown**, which is the closest thing to a complete view iOS permits.
+
+### 🔬 THE LEDGER ALSO SETTLES AN OPEN QUESTION FOR FREE
+
+Whether mp4box COPIES sample bytes or views into the source buffer has been unverified since B727,
+and it is the difference between ~1x and ~2x file size per reader — the largest single uncertainty in
+the cost model. `sample-table` sits beside `source-buffer` in the report now, so one bake answers it.
+
+### 📐 THE BREAKDOWN IS SNAPSHOTTED AT THE PEAK, NOT AT TEARDOWN
+
+A breakdown read during teardown describes **what survived**, not **what cost the most**. Those are
+different questions with different answers, and recording only the final state is how a report ends
+up describing the calm after the failure. `peakBy` is the peak; `heldMB` after the closes is the
+residue.
+
+### ⚠️ WHAT NEITHER OF THESE CLAIMS
+
+**Releasing a handle is a statement about our code, not about the heap.** It says we dropped the
+reference; whether WebKit collected it is a separate question. **That distinction is the residue
+work**: `heldMB` non-zero at teardown means retained references, which we can fix. `heldMB` at zero
+while the next bake still dies early means GC latency or engine-side residue, which is a different
+fix. D2 vs D3 proved the residue exists without saying which kind it is.
+
+**Neither instrument gates anything, deliberately.** Their first job is to say which term dominates.
+**Modelling before measuring is how four hypotheses in this arc went wrong.**
+
+### ⚠️ THE SWIFT IS UNVERIFIED UNTIL XCODE BUILDS IT
+
+`host_statistics64` compiles nowhere in this repo's toolchain. If it fails to build, the rest of
+B729 is one function and one call site and can be removed without touching B728.
+
+### 🔎 AND `resetSession` IS NOT A TRUE RESET — CONFIRMED BY READING
+
+Daniel asked for a real glass break if memory cannot be released. **The current one rebuilds GL
+contexts and nothing else** — it never touches the demuxed buffers, the held frames or the muxer's
+output. Its `location.reload()` fallback is the only path that actually frees them, and it only runs
+when *nothing* recovered.
+
+---
+
 ## v0.26.67 · Build 727 — THE MEMORY READING IS TRUE AND IT IS ABOUT THE WRONG PROCESS
 
 **Shipped:**

@@ -486,7 +486,24 @@ One report reads `pressure: { target: 15, label: "warming up" }` on a 30fps clip
 
 ## 🚧 Limits, ceilings and honest refusal
 
-### ⭐ [THE NEXT INSTRUMENT — proposed B727, not built] A BAKE ALLOCATION LEDGER, BECAUSE NOTHING ELSE CAN SEE THE PROCESS THAT DIES
+### ✅ [SHIPPED B728+B729] THE ALLOCATION LEDGER AND THE DEVICE-WIDE READING
+
+**`shell/mem-ledger.js`** attributes every large bake allocation by function (`source-buffer`,
+`sample-table`, `frames-held`, `capture-canvas`, `encoder-output`), snapshotting the breakdown **at
+the peak** rather than at teardown. **`host_statistics64`** (Swift) adds `deviceFreeMB` /
+`deviceReclaimableMB`, the only device-wide reading available, which does see the WebView content and
+GPU processes.
+
+**Neither gates anything, deliberately.** Their first job is to say which term dominates.
+**The gap between them is the measurement of the blind spot.**
+
+**▶ NEXT: one vanilla bake per machine, ONE PER LAUNCH**, then compare `peakMB`/`peakBy` (should be
+identical for an identical job) against outcome (should differ per device). See `VERIFY-QUEUE.md`.
+
+**▶ Still to decide once measured:** whether to share one fetch + one demux across slice's two
+readers, and whether to stream the muxer output instead of accumulating it.
+
+### 🔻 [SUPERSEDED BY THE ABOVE] A BAKE ALLOCATION LEDGER, BECAUSE NOTHING ELSE CAN SEE THE PROCESS THAT DIES
 
 **The bake's memory lives in the WKWebView content process. Nothing we can call reports it.** The
 native plugin measures the host process (`footprintMB: 39` while the bake died), and WebKit exposes
@@ -522,6 +539,15 @@ back. It does not mean the session returned to its prior state, and an operator 
 heal has no way to know the app is now closer to a ceiling than it was. **Daniel's question is the
 right one: after a recovery, can the session still be trusted?** Today the honest answer is that we
 do not know, and nothing measures it.
+
+**▶ B728 MAKES THIS DECIDABLE.** `bakeMem.heldMB` after teardown non-zero means we are holding
+references, which is ours to fix; zero while the next bake still dies early means GC latency or
+engine-side residue, which is a different fix entirely.
+
+**▶ AND `resetSession` IS NOT THE ESCAPE HATCH — confirmed by reading at B728.** The glass break
+rebuilds GL contexts only; it never touches the demuxed buffers, held frames or muxer output. Only
+its `location.reload()` fallback frees them, and that runs only when *nothing* recovered. **Daniel's
+requirement — release on recovery, or warn honestly and offer a true reset — is open on both halves.**
 
 **▶ Suspects, none confirmed:** the readers' file buffers and sample tables surviving `close()`, the
 `ArrayBufferTarget` from the abandoned encode, held `VideoFrame`s on the error path, or simply that

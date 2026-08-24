@@ -70,6 +70,9 @@ export function noteHostVitals(r) {
     thermal: r.thermal ?? null,
     availableMB: r.availableMB ?? null,
     footprintMB: r.footprintMB ?? null,
+    // B729 — DEVICE-WIDE, and the only fields here that can move when the WebView grows.
+    deviceFreeMB: r.deviceFreeMB ?? null,
+    deviceReclaimableMB: r.deviceReclaimableMB ?? null,
     ageMs: 0, at: Date.now(),
   };
 }
@@ -93,8 +96,10 @@ export function noteHostVitals(r) {
 // genuinely device-wide. But it carries its scope now, so no future reader can take it for the
 // wrong quantity. **The number that would settle the bake ceiling has to come from OUR OWN
 // allocation ledger** — WebKit exposes no per-process web memory API.
-const MEM_SCOPE = 'native host process — NOT the WKWebView content process, where the JS heap, '
-  + 'demuxed buffers, VideoFrames and encoder output live. Device-wide: thermal, availableMB.';
+const MEM_SCOPE = 'footprintMB + availableMB are the NATIVE HOST process only, NOT the WKWebView '
+  + 'content process where the JS heap, demuxed buffers and encoder output live, nor the WebKit GPU '
+  + 'process that holds GL contexts and VideoFrames. deviceFreeMB / deviceReclaimableMB (B729) and '
+  + 'thermal ARE device-wide and do see those processes — read them as a DELTA, never an absolute.';
 function memAtLoss() {
   if (!lastHostVitals) return { mem: null, memWhy: 'host vitals never reported (web/Electron, or the plugin is absent)' };
   return { mem: { ...lastHostVitals, ageMs: Date.now() - lastHostVitals.at, scope: MEM_SCOPE } };

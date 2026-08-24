@@ -78,7 +78,7 @@ needs no instrumentation.
 | D2 | bake the same 4K clip in **bounce** mode (one reader, not slice's two) | ❌ **FAILED at frame 1 — but CONTAMINATED**, it ran straight after D1 in the same session |
 | **D3** | **re-run D2 from a FRESH LAUNCH** | ✅ **RUN 2026-08-24.** Encoded all 6,387 frames where the contaminated D2 died at frame 1. **A failed bake does not release its memory.** Failed at the HANDOFF instead: `bake-rejected · the baked clip failed to load` |
 | **D5** | **three bakes in ONE launch**, fresh Loop Builder each time | does the failure point walk earlier each time? Cheapest test of the residue question, no build needed |
-| **D4** | **a vanilla bake, no edits, on B726+** | ⭐ **the highest-value single run.** B726 makes `footprintMB` arrive during a bake for the first time |
+| **D4** | **a vanilla bake, no edits, on B729+, ONE PER LAUNCH, on EACH machine** | ⭐⭐ **the run everything now waits on.** Read `bakeDecode.mem.peakMB` + `peakBy` (how much, which term), `bakeMem.heldMB` (residue: ours or GC), and `mem.deviceFreeMB` (the blind spot). **`peakMB` should be IDENTICAL across devices for an identical job; only the outcome differs.** iPad Pro · iPad Air · M1 Max · M5 Max |
 
 **Change nothing else.** Same clip, same trim, defaults everywhere else. **One bake per app launch**
 — D2 proved that a second bake in the same session is not the same experiment.

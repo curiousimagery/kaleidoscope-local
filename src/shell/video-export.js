@@ -16,6 +16,7 @@
 // is a tracked follow-up.
 
 import { Muxer, ArrayBufferTarget } from 'mp4-muxer';
+import { memHold, memGrow, memRelease } from './mem-ledger.js';
 import { pickVideoCodec } from 'conduit/encode';
 
 export function videoExportSupported() {
@@ -76,6 +77,8 @@ export async function exportVideo({ frameAt, onBegin, onEnd, width, height, fps,
   }
   const { codec, muxerCodec, bitrate } = picked;
 
+  let outBytes = 0;
+  const outId = memHold('encoder-output', 0);
   const muxer = new Muxer({
     target: new ArrayBufferTarget(),
     video: { codec: muxerCodec, width, height, frameRate: fps },
@@ -84,7 +87,16 @@ export async function exportVideo({ frameAt, onBegin, onEnd, width, height, fps,
 
   let encError = null;
   const encoder = new VideoEncoder({
-    output: (chunk, meta) => muxer.addVideoChunk(chunk, meta),
+    // ⚠️ B728 — THE OUTPUT IS THE ONLY TERM THAT GROWS WITHOUT BOUND.
+    //
+    // `mp4-muxer` targets an `ArrayBufferTarget`: the ENTIRE encoded result accumulates in memory
+    // before it becomes a Blob, and the target reallocates and copies as it grows, so the real peak
+    // is roughly double what this counts. **This is what killed a 47:45 FHD bake on a 64GB M1 Max**
+    // — so unlike every other term here it is not an iPad-only concern.
+    //
+    // Counting the chunks is the honest lower bound: it is exactly the encoded bytes, and it makes
+    // "how long a clip can this device bake" arithmetic instead of folklore.
+    output: (chunk, meta) => { outBytes += chunk.byteLength; memGrow(outId, outBytes); muxer.addVideoChunk(chunk, meta); },
     error: (e) => { encError = e; },
   });
   // NOTE: we tried `hardwareAcceleration: 'prefer-hardware'` (Build 127) and it
@@ -205,5 +217,9 @@ export async function exportVideo({ frameAt, onBegin, onEnd, width, height, fps,
   } finally {
     onEnd?.();
     try { if (encoder.state !== 'closed') encoder.close(); } catch { /* already closed */ }
+    // ⚠️ RELEASED ON EVERY EXIT, INCLUDING THE ABORTED ONES. An export that is cancelled or dies on
+    // a lost context still built its buffer, and a ledger that only balances on the happy path
+    // would report a leak on exactly the runs being investigated for one.
+    memRelease(outId);
   }
 }

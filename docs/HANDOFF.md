@@ -22,7 +22,7 @@ Archived at B658. It was marked superseded at B609 and kept for the reasoning be
 
 ## current version
 
-**v0.26.67 · B727** (2026-08-24). **B705 and B706 are device-verified** — B705's instrument found B706, and B706 held on the repro that killed B705. B703, B704 and B707 are not yet device-verified.
+**v0.26.69 · B729** (2026-08-24). **B705 and B706 are device-verified** — B705's instrument found B706, and B706 held on the repro that killed B705. B703, B704 and B707 are not yet device-verified.
 
 ---
 
@@ -64,7 +64,50 @@ Both named by Daniel at B704 **because I had left them off the plan.** Full scop
 - **The encoder's real error beats its symptom.** `VideoEncoder is not configured` describes the state we found it in, not what broke it; a synchronous throw was beating the `encError` check.
 - **The bake button no longer reads `baking…` forever while clickable.** `setClipMode`'s comment claimed it restored the label; `loopPrimary()` does. Daniel pressed the lying button, which is how the second bake happened.
 
-### ⭐⭐ PICK UP HERE (B727) — THE CEILING IS A PER-PROCESS CAP, AND WE CANNOT READ IT
+### ⭐⭐ PICK UP HERE (B729) — MEASURE FIRST. TWO INSTRUMENTS ARE IN; NOTHING GATES YET.
+
+**▶ THE RUN: one vanilla bake per machine, same clip, same settings, ONE BAKE PER LAUNCH.**
+iPad Pro, iPad Air, M1 Max, M5 Max. Then read three fields:
+
+| field | question it answers |
+|---|---|
+| `bakeDecode.mem.peakMB` + `peakBy` | **how much, and which term dominates** |
+| `bakeMem.heldMB` (after teardown) | **retained references, or GC latency?** Non-zero = ours to fix |
+| `mem.deviceFreeMB` trend vs `peakMB` | **the blind spot**: total movement minus what we can attribute |
+
+**For an identical job `peakMB` should be identical on every device.** Only the outcome differs.
+**That separation is what makes a computed gate possible** — measure the cost once, read the limit
+per device. It is also the answer to *"is the memory needed for the identical task the same on each
+device"*, which nothing could answer before this build.
+
+**⚠️ ONE BAKE PER LAUNCH.** D2 (second bake in a session) died at frame 1 where D3 (fresh launch,
+identical job) encoded all 6,387 frames.
+
+**⚠️ THE SWIFT IN B729 IS UNVERIFIED** — `host_statistics64` compiles nowhere in this toolchain. If
+Xcode rejects it, it is one function and one call site; removing it leaves B728 intact.
+
+### 🧭 WHAT WE KNOW / WHAT WE DO NOT (B727 roll-up, for a cold session)
+
+**Know:** the bake is a memory failure (the OS said so on D2). Output resolution is not the lever
+(D1 failed at 1080p). A failed bake does not release its memory (D2 vs D3). The encode itself is
+within reach on an M1 iPad (D3 did 6,387 frames). D3's failure is the HANDOFF, and B711's guard
+preserved the source. Native footprint is not the constraint (39MB). Contexts recover reliably
+(459/541/399/402ms provoked; 550/29/650ms organic). Desktop has its own separate ceiling
+(`ArrayBufferTarget`, 47:45 FHD on 64GB).
+
+**Do not know:** how much a bake actually costs anywhere; which term dominates; whether D2's app
+termination and D3's GL loss are one failure or two; whether the residue is retained references or
+uncollected garbage; the per-device ceiling.
+
+### 🔎 `resetSession` IS NOT A TRUE RESET — CONFIRMED BY READING, NOT ASSUMED
+
+Daniel's requirement: release the memory on recovery, or say we are in a bad state and offer a real
+reset. **The current glass break rebuilds GL contexts and nothing else.** It never touches the
+demuxed buffers, held frames or muxer output; only its `location.reload()` fallback frees them, and
+that runs only when *nothing* recovered. **Both halves of the requirement are still open** and both
+need the measurement first: we cannot honestly warn about a state we cannot detect.
+
+### 🔻 SUPERSEDED (B727) — THE CEILING IS A PER-PROCESS CAP, AND WE CANNOT READ IT
 
 **D3's first bake-time memory reading: `footprintMB: 39, availableMB: 5080, thermal: nominal`**, at
 the instant both GL surfaces died. **The native plugin measures the HOST process. The bake's memory
