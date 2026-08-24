@@ -6,6 +6,43 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.26.51 · Build 711 — THE BAKE GIVES BACK ITS DECODERS, AND STOPS BEFORE IT DESTROYS ANYTHING
+
+**Shipped:**
+- **The three Loop Builder preview decoders are shed for the duration of a bake** and restored on **every** exit path — success, failure, cancel, refusal. Peak concurrent decode during a bake drops from 7 to ~4.
+- **A baked clip is validated against the requested dimensions before it replaces the source.** A bake that completes but produces the wrong thing is rejected and **the original is kept**.
+- `bake-rejected { why, w, h }` marked to vitals.
+- Restoring the previews rebuilds the thumbnail strip, which also addresses the stale-thumbnail failure mode.
+- `mountClipPreviews` / `shedClipPreviews` / `restoreClipPreviews` extracted; `disposeClipPreview` now shares the same release idiom rather than duplicating it.
+- Verified by `scratchpad/bake-lifecycle-check.mjs`, 11/11.
+
+### There is no capability gate here, and that is the finding
+
+Daniel asked whether more capable silicon (M1 Pro/Max, M2+) should keep the decoders rather than shedding them, and whether GPU-core binning on the iPad Air's M1 implies fewer decoders.
+
+**Two answers.** First, they are not coupled: H.264/HEVC decode runs on a **dedicated media engine**, a separate block from the GPU cores, so the Air's 7-core-vs-8-core binning does not reduce decode capacity.
+
+**Second, and more usefully, the question dissolves.** During a bake the Loop Builder covers its stage with the full-screen `baking…` cover. **Nothing is looking at any of the three previews.** On the most capable hardware imaginable, holding them during a bake buys nothing. **A tradeoff you can decline entirely is not a tradeoff** — so this ships as unconditional behaviour with no chip table, no probe, and no learned ceiling, and it cannot be wrong about a device we have never seen.
+
+### The restore is elegant because it detects nothing
+
+Daniel, B700: *"is there an elegant way to pick them back up if someone cancels a bake and goes back? can the loop builder self-detect a failure state mid-bake to be able to restore previews?"*
+
+**The `finally` is the answer, and it is elegant precisely because it does not detect anything.** Every exit from a bake runs it, so there is no failure state left to detect. **A restore keyed on "did it fail" would have to enumerate the ways a bake can fail — and the two that cost builds this month (a synchronous encoder throw, a context loss inside an `await`) are both ways nobody enumerated.**
+
+### "Successfully" cannot mean "did not throw"
+
+Daniel: *"the output from a bake should only replace the source when it has baked successfully. That much feels clear."* Agreed, with one sharp edge: **the bake that destroyed his clip COMPLETED.** It ran to the end, produced a real mp4, reported success, and the mp4 was grey — because the engine had fallen off the planar path onto a stalled 1280 preview canvas. **An exception-based definition of success would have let it through exactly as before.**
+
+So the output is now checked against what was *asked for*: a bake requested at 3840×2160 that returns 1280×720 is rejected, `bake-rejected` is marked, and **nothing has touched `env.sourceVideo` at that point, so the operator keeps the clip they had.** Two-pixel tolerance for encoders that round to even dimensions.
+
+**B710 guards the input, B711 guards the output, and both are needed** — the source can degrade *during* a four-minute bake as easily as before one.
+
+### What this does NOT claim
+
+**Whether shedding actually fixes `Decoding task did not complete` is unproven.** The hypothesis is specific and now testable: concurrent decode during a bake goes from 7 to ~4. **If the 4K bake still dies at ~85%, decoder pressure was not the cause**, and the next report will say so with `sessions.peak.decode` as the evidence.
+
+
 ## v0.26.50 · Build 710 — A BAKE IS DESTRUCTIVE, SO IT NOW REFUSES A SOURCE IT CANNOT READ
 
 **Shipped:**

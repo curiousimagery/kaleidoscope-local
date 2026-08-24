@@ -48,6 +48,32 @@ export function createClipEditor(env) {
     env.clip.backup = { ...env.clip.trim };          // for Cancel
     env.clip.fmt = { res: 'source', fps: 'source', speed: 1 };   // fresh output format per clip
     env.clip.srcFps = 0;                                          // re-probe the source fps for this clip
+    mountClipPreviews();
+    const nudge = document.getElementById('clipNudge'); if (nudge) nudge.hidden = true;   // clear any prior post-bake nudge
+    // open the surface as a fullscreen INTERSTITIAL: the app bar is hidden while it's open
+    // (body.loop-active), so there's no mode-switching or new uploads mid-edit. The header
+    // X / cancel are the only way out. (It began as a dialog; this returns to that model.)
+    document.body.classList.add('loop-active');
+    sheet.hidden = false;
+    lastThumbMode = null;   // force a fresh thumbnail build for this clip
+    const init = () => { env.clip.step = 1; setClipMode(env.clip.trim.mode); setLoopStep(1); };
+    if (pv.readyState >= 1) init(); else pv.addEventListener('loadedmetadata', init, { once: true });
+  }
+  // ⚠️ B711 — MOUNTING THE PREVIEWS IS ITS OWN OPERATION, BECAUSE A BAKE HAS TO GIVE THEM BACK.
+  //
+  // The Loop Builder holds THREE `<video>` decoders for its whole session — the visible stage
+  // preview, a hidden A-head for the crossfade blend, and a hidden one for the thumbnail strip —
+  // and the bake then opens its own on top. `docs/temp/8-23-contextLoss-clipBake.json` caught the
+  // result: `sessions.peak.decode: 7`, with all three still live 255s in, and a 4K bake dying at
+  // ~85% with `Decoding task did not complete`.
+  //
+  // **Shedding them for the duration of a bake is free, not a tradeoff.** The stage is behind the
+  // full-screen `baking…` cover the entire time, so nothing is looking at any of the three. That is
+  // why there is no capability gate here and no chip table (Daniel asked whether a more capable
+  // chip should keep them): on the most capable hardware imaginable the answer is still that these
+  // decoders are doing nothing during a bake. **A tradeoff you can decline entirely is not one.**
+  function mountClipPreviews() {
+    const sheet = document.getElementById('clipSheet');
     const pv = document.getElementById('clipVideo');
     pv.muted = true; pv.playsInline = true; pv.loop = false;
     pv.src = env.media.sourceVideoUrl;
@@ -74,17 +100,32 @@ export function createClipEditor(env) {
     (document.querySelector('.clip-stage') || sheet).appendChild(vT);
     env.clip.thumbVideo = vT;
     clipTokens.push(acquireSession('decode', 'loop builder: thumbnail strip'));
-    const nudge = document.getElementById('clipNudge'); if (nudge) nudge.hidden = true;   // clear any prior post-bake nudge
-    // open the surface as a fullscreen INTERSTITIAL: the app bar is hidden while it's open
-    // (body.loop-active), so there's no mode-switching or new uploads mid-edit. The header
-    // X / cancel are the only way out. (It began as a dialog; this returns to that model.)
-    document.body.classList.add('loop-active');
-    sheet.hidden = false;
-    lastThumbMode = null;   // force a fresh thumbnail build for this clip
-    const init = () => { env.clip.step = 1; setClipMode(env.clip.trim.mode); setLoopStep(1); };
-    if (pv.readyState >= 1) init(); else pv.addEventListener('loadedmetadata', init, { once: true });
   }
-  function disposeClipPreview() {
+
+  // Release all three, reversibly. Same release idiom as `disposeClipPreview` — pause,
+  // removeAttribute('src'), load() — which is the one `archive/SESSION-AUDIT.md` documents and the
+  // only one that actually frees an element's decode pipeline. Dropping the reference does not.
+  function shedClipPreviews() {
+    if (!clipTokens.length) return false;      // already shed; nothing to give back later
+    releaseClipPreviewElements();
+    return true;
+  }
+
+  // Give them back, and make the panels that depend on them rebuild. `lastThumbMode = null` is what
+  // forces the strip to redraw — without it the thumbnails stay blank after a bake, which is very
+  // close to the stale-thumbnail bug Daniel reported on 2026-08-21.
+  function restoreClipPreviews() {
+    if (clipTokens.length) return;             // never double-mount
+    if (!env.media.sourceVideoUrl) return;     // nothing to point at
+    mountClipPreviews();
+    lastThumbMode = null;
+    const pv = env.clip.prevVideo;
+    const after = () => { try { buildLoopThumbs(); renderClipTrim(); } catch { /* the sheet may be closing */ } };
+    if (pv && pv.readyState >= 1) after();
+    else pv?.addEventListener('loadedmetadata', after, { once: true });
+  }
+
+  function releaseClipPreviewElements() {
     stopClipPreview();
     exitSplitStage();   // restore the stage video's visibility if we tore down on the crossfade step
     const blend = document.getElementById('clipBlend'); if (blend) blend.hidden = true;
@@ -92,6 +133,10 @@ export function createClipEditor(env) {
     if (env.clip.prevVideoB) { try { env.clip.prevVideoB.pause(); } catch { /* ignore */ } env.clip.prevVideoB.removeAttribute('src'); try { env.clip.prevVideoB.load(); } catch { /* ignore */ } env.clip.prevVideoB.remove(); env.clip.prevVideoB = null; }
     if (env.clip.thumbVideo) { try { env.clip.thumbVideo.pause(); } catch { /* ignore */ } env.clip.thumbVideo.removeAttribute('src'); try { env.clip.thumbVideo.load(); } catch { /* ignore */ } env.clip.thumbVideo.remove(); env.clip.thumbVideo = null; }
     while (clipTokens.length) releaseSession(clipTokens.pop());
+  }
+
+  function disposeClipPreview() {
+    releaseClipPreviewElements();
   }
   // re-bind the motion timeline to the current (trimmed / baked) clip + show frame 0.
   function rebindClipToTimeline() {
@@ -937,6 +982,10 @@ export function createClipEditor(env) {
     }
     if (cover) cover.hidden = false;                 // hide the seeking/decoding flicker behind a "baking…" cover
     if (apply) { apply.disabled = true; apply.textContent = 'baking…'; }
+    // ⚠️ B711 — SHED THE THREE PREVIEW DECODERS FOR THE DURATION. See `mountClipPreviews`.
+    // The cover above is what makes this free: nothing is visible behind it, so there is nothing
+    // to trade off. Restored in the `finally`, on EVERY exit path — success, failure and cancel.
+    const shed = shedClipPreviews();
     try {
       const { blob } = await exportVideo({
         frameAt, width: w, height: h, fps, durationMs, captureMode: '2d',
@@ -953,7 +1002,7 @@ export function createClipEditor(env) {
         // failed" and a number that says how far it got.
         glLost: () => !!env.engine?.glContext?.isContextLost(),
       });
-      await applyBakedClip(blob);                   // swaps the source + re-binds the timeline
+      await applyBakedClip(blob, { w, h });         // swaps the source + re-binds the timeline
       disposeClipPreview();
       env.clip.backup = null;
       hideLoopSurface();
@@ -988,6 +1037,20 @@ export function createClipEditor(env) {
       if (sliceReaderA) { try { sliceReaderA.close(); } catch { /* already closed */ } sliceReaderA = null; }
       if (sliceReaderB) { try { sliceReaderB.close(); } catch { /* already closed */ } sliceReaderB = null; }
       if (bounceReader) { try { bounceReader.close(); } catch { /* already closed */ } bounceReader = null; }
+      // ⚠️ B711 — GIVE THE PREVIEWS BACK BEFORE ANYTHING ELSE IN THE TEARDOWN.
+      //
+      // Daniel, B700: *"is there an elegant way to pick them back up if someone cancels a bake and
+      // goes back? can the loop builder self-detect a failure state mid-bake to be able to restore
+      // previews?"* This `finally` is that answer, and it is the elegant version precisely because
+      // it does NOT try to detect anything: **every exit from a bake runs it — completed, thrown,
+      // cancelled, refused — so there is no failure state left to detect.** A restore keyed on
+      // "did it fail" would need to enumerate the ways it can fail, and the two that cost us
+      // builds this month (a synchronous encoder throw, a context loss inside an await) are both
+      // ways nobody enumerated.
+      //
+      // On the SUCCESS path `applyBakedClip` has already swapped the source, so re-mounting points
+      // the previews at the NEW clip, which is what the operator should see next.
+      if (shed) restoreClipPreviews();
       if (prog) prog.hidden = true;
       if (fill) fill.style.width = '0%';
       if (cover) cover.hidden = true;
@@ -1009,16 +1072,43 @@ export function createClipEditor(env) {
   // Swap a freshly-baked clip in as the working source (keeps the uploaded original in
   // `env.media.originalSource` for the export package). Resets the trim (the baked clip
   // IS the processed clip) and re-binds the motion timeline.
-  async function applyBakedClip(blob) {
+  // ⚠️ B711 — THE SWAP IS DESTRUCTIVE, SO IT VALIDATES FIRST. (Daniel, 2026-08-23: *"the output
+  // from a bake should only replace the source when it has baked successfully."*)
+  //
+  // **The subtlety is that "successfully" cannot mean "did not throw."** The bake that destroyed
+  // his clip COMPLETED — it ran to the end, produced a real mp4, reported success, and the mp4 was
+  // grey, because the engine had fallen off the planar path onto a stalled 1280 preview canvas. An
+  // exception-based definition of success would have let it through exactly as before.
+  //
+  // So the output is checked against what was ASKED for. B710 guards the input (refuse to bake a
+  // degraded source) and this guards the output; either alone leaves a hole, because the source can
+  // degrade *during* a four-minute bake as easily as before one.
+  async function applyBakedClip(blob, expect = null) {
     const url = URL.createObjectURL(blob);
     const v = document.createElement('video');
     v.muted = true; v.playsInline = true; v.loop = true; v.preload = 'auto';
     v.setAttribute('playsinline', ''); v.setAttribute('muted', '');
-    await new Promise((res, rej) => {
-      v.addEventListener('loadeddata', () => res(), { once: true });
-      v.addEventListener('error', () => rej(new Error('the baked clip failed to load')), { once: true });
-      v.src = url;
-    });
+    try {
+      await new Promise((res, rej) => {
+        v.addEventListener('loadeddata', () => res(), { once: true });
+        v.addEventListener('error', () => rej(new Error('the baked clip failed to load')), { once: true });
+        v.src = url;
+      });
+      // Encoders may round to even dimensions, so allow a couple of pixels — but a bake of the
+      // 1280 preview against a 3840 request is off by thousands, which is the case that matters.
+      if (expect && expect.w && expect.h
+          && (Math.abs(v.videoWidth - expect.w) > 2 || Math.abs(v.videoHeight - expect.h) > 2)) {
+        throw new Error(`the baked clip came out ${v.videoWidth}×${v.videoHeight}, not ${expect.w}×${expect.h}`
+                      + ' — the source was not being read at full resolution, so the original has been kept');
+      }
+    } catch (e) {
+      // ⚠️ LEAVE THE ORIGINAL ALONE. Nothing above this point has touched `env.sourceVideo`, so
+      // failing here is genuinely non-destructive — the operator keeps the clip they had.
+      URL.revokeObjectURL(url);
+      try { v.removeAttribute('src'); v.load(); } catch { /* ignore */ }
+      env.vitals?.mark('bake-rejected', { why: e?.message || String(e), w: v.videoWidth, h: v.videoHeight });
+      throw e;
+    }
     env.stopSourceVideoPlayback();
     const old = env.sourceVideo;
     engine.setSource(v);

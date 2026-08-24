@@ -487,9 +487,11 @@ One report reads `pressure: { target: 15, label: "warming up" }` on a 30fps clip
 
 **🔴 STILL OPEN — WHY the engine falls off the planar path here.** `reinitGL` preserves the provider via `keepPlanar`, so the loss happened elsewhere. **Prime suspect: the loop builder calls `setPlanarSource(null)` (`source-host.js:829/939`), so a context restore that lands while the loop builder holds the source has nothing to preserve.** Class 1 — read the loop builder's entry/exit against the restore path before instrumenting.
 
-**▶ AND A SEPARATE PRODUCT QUESTION, worth Daniel's call: should a bake ever replace the source in place at all**, or should it produce a NEW source and leave the original loaded? `env.clip.backup` exists but is cleared on success. A non-destructive bake would make this whole class of failure survivable.
+**✅ THE SWAP IS NOW VALIDATED (B711).** Daniel: *"the output from a bake should only replace the source when it has baked successfully."* **The sharp edge is that "successfully" cannot mean "did not throw" — the bake that destroyed his clip COMPLETED.** So the output is checked against the requested dimensions before anything touches `env.sourceVideo`; a 3840×2160 request that returns 1280×720 is rejected with `bake-rejected` and the original is kept. **B710 guards the input, B711 the output; both are needed, since the source can degrade DURING a four-minute bake.**
 
-### 🔴 [OPEN, AND I HAVE NOT FIXED IT — 4 BUILDS OF REPORTING IMPROVEMENTS] `Decoding task did not complete` AT ~85% OF A LONG 4K BAKE
+**🅿️ STILL WORTH DANIEL'S CALL, and now less urgent: should a bake replace the source IN PLACE at all**, or mint a new source and leave the original loaded? The validation makes the current model safe; a non-destructive model would make it *unloseable*.
+
+### 🧪 [HYPOTHESIS SHIPPED B711, UNPROVEN] `Decoding task did not complete` AT ~85% OF A LONG 4K BAKE
 
 **Stated plainly: B707, B709 and B710 all made a failing bake legible or safe. None of them address why it fails.** This is the same error as the B603 and B607 entries below, still recurring on B709.
 
@@ -503,7 +505,13 @@ loop builder: thumbnail strip   255s
 
 **The loop builder holds three preview decoders for its entire session and the bake opens its own on top.** Shedding them for the duration of a bake is the obvious move and was **Daniel's own suggestion at B700**.
 
-**⚠️ IT IS NOT A SMALL CHANGE, and his question from B700 is still the blocking one:** *"is there an elegant way to pick them back up if someone cancels a bake and goes back? can the loop builder self-detect a failure state mid-bake and restore previews? it seems like the different timeline and output panels themselves should know if they're stale and know how to ask to repair."* **That framing — panels that know they are stale and can ask to repair — is the design, and it should be settled before code.** It also covers the stale-thumbnail item filed separately.
+**✅ SHIPPED B711 — and it was smaller than I estimated.** The three "decoders" are three `<video>` elements on one URL, and `disposeClipPreview` already had the correct release idiom; the work was making it reversible. `mountClipPreviews`/`shedClipPreviews`/`restoreClipPreviews`, restored from the bake's `finally` on every exit path. **Concurrent decode during a bake: 7 → ~4.**
+
+**⚠️ WHETHER THAT FIXES THE BAKE IS UNPROVEN, and this is the test.** If a long 4K bake still dies at ~85%, decoder pressure was not the cause and `sessions.peak.decode` in the next report is the evidence. **Do not treat B711 as a fix until a bake completes.**
+
+**✅ AND THE RESTORE QUESTION IS ANSWERED WITHOUT DETECTION.** Daniel, B700: *"is there an elegant way to pick them back up if someone cancels a bake and goes back? can the loop builder self-detect a failure state mid-bake and restore previews? it seems like the different timeline and output panels themselves should know if they're stale and know how to ask to repair."* **The `finally` is the answer, and it is elegant because it detects nothing** — every exit from a bake runs it, so there is no failure state left to detect. A restore keyed on *did it fail* would have to enumerate the failure modes, and the two that cost builds this month (a synchronous encoder throw, a context loss inside an `await`) are both ones nobody enumerated. **Restoring also rebuilds the thumbnail strip, which is the stale-thumbnail failure mode filed separately.**
+
+**🅿️ The larger "panels that know they are stale and can ask to repair" idea is NOT built** and is still worth doing as its own piece — B711 solves it for one caller by brute force (restore everything, always), which is right for a bake and would not scale to the stage manager.
 
 ### 🔎 LIKELY CLOSED BY B700 [Daniel, 2026-08-21 — reproduced twice, instrumented B699] SEAMLESS BAKE FAILS WITH A DECODER TIMEOUT. **Daniel reported a SUCCESSFUL bake on B700, which raised the first-frame deadline. Needs one more bake to close.**
 
