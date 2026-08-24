@@ -49,6 +49,27 @@ const RESTORE_SIM_MS = 250;        // B724 — stands in for the browser's own t
 // to skip the wiring, and `yuv-renderer` proved it by having no handler at all for months.
 const surfaces = new Map();   // surface name → { canvas, glOf, mark, ext, extWhy, armed }
 
+// ⚠️ B733 — A RESTORED CONTEXT IS NOT A RESTORED SCREEN, AND ONLY THE OWNER OF EACH PANEL KNOWS HOW
+// TO REPAINT IT.
+//
+// When the GPU process is killed, every 2D canvas backing store dies with it — not just the GL
+// surfaces this module watches. The GL surfaces rebuild themselves; a strip of thumbnail canvases
+// painted once and never again just stays black. Daniel, on a step 3→4 transition:
+// *"the preview recovers but the filmstrip thumbnails don't."* The trail agrees exactly — both
+// surfaces lost at 21:43:23 and both restored 606ms later, and nothing repainted the strip.
+//
+// **This is the same shape as D3**, where the contexts came back in ~650ms and neither the preview
+// nor the timeline repainted. *"Recovered"* has meant "the contexts came back" and nothing more.
+//
+// Module-level, because the panels that need to know live in modules that own no canvas and hold no
+// `env` — and there are three env-shaped objects to get wrong (B638). A subscriber is told AFTER the
+// restore has been verified usable, so nobody repaints into a dead context.
+const restoreListeners = new Set();
+export function onGLRestored(fn) {
+  restoreListeners.add(fn);
+  return () => restoreListeners.delete(fn);
+}
+
 // ⚠️ B725 — THE DEVICE'S OWN MEMORY READING, STAMPED ONTO THE LOSS.
 //
 // The iPad's 4K bake dies at frame 4 with BOTH GL surfaces going down within 2ms of each other,
@@ -269,6 +290,11 @@ export function watchGLContext({ canvas, surface, mark, rebuild, glOf, onLost, o
     }
     say('gl-context-restored');
     try { onRestored?.(); } catch (e) { console.warn(`[fold] onRestored failed (${surface})`, e); }
+    // B733 — and everything else that painted a canvas and walked away. One bad listener must not
+    // stop the others: a repaint failing is not a reason to leave the remaining panels black.
+    for (const fn of restoreListeners) {
+      try { fn(surface); } catch (e) { console.warn('[fold] GL restore listener failed', e); }
+    }
   };
 
   canvas.addEventListener('webglcontextlost', onContextLost);

@@ -536,7 +536,15 @@ sequence, so the high-water mark is B's sample table + A's file buffer + A's sam
 1. **✅ SHIPPED B732** — `openSharedSource(url)` parses once and hands out refcounted readers; the
    slice bake takes two. **Expected 2143MB → ~1441MB.** `createSequentialFrameReader(url)` is
    unchanged for single-reader callers. Verify on the iPad Pro before the Air.
-2. **⏳ NOT BUILT — stream the muxer output.** `ArrayBufferTarget` accumulates the ENTIRE encoded
+2. **⏳ NOT BUILT, AND NOW THE LAST BIG TERM — stream the muxer output.** ⚠️ **NEEDS DANIEL'S CALL: it
+   changes the baked FILE, not just memory.** Current config is `ArrayBufferTarget` +
+   `fastStart: 'in-memory'`, which buffers everything so the moov lands at the front. Streaming means
+   **moov at the end** (`fastStart: false` — valid MP4, fine for a local blob we reload immediately,
+   less friendly to other apps) or **fragmented MP4** (`fastStart: 'fragmented'` — streams natively,
+   some tools dislike it).
+
+   **Evidence it is now the binding constraint (B732, iPad Pro):** the bake died at 67% of the
+   ENCODE with ~967MB attributed, **below the 1441MB peak the same run had already survived.** `ArrayBufferTarget` accumulates the ENTIRE encoded
    result in memory and reallocates and copies as it grows, so the true peak is roughly double what
    the ledger counts. **This one owns the DURATION ceiling** (B732 owns the file-size one) and is
    what killed a 47:45 FHD bake on a 64GB M1 Max — **the only one of these ceilings that bites on
@@ -614,7 +622,17 @@ is the symptom.
 *release on recovery, or say we are in a bad state and offer a true reset*. A refusal to start a
 second bake without headroom is the same gate as refusing an oversized one, reading the same field.
 
-### 🚨 [HIGH — Daniel, 2026-08-24, D3] THE CONTEXTS RECOVERED AND THE PANELS DID NOT
+### ✅ [PARTLY FIXED B733] THE CONTEXTS RECOVERED AND THE PANELS DID NOT
+
+**`onGLRestored(fn)` in `gl-watch.js` now tells anything that painted a canvas and walked away.** The
+Loop Builder's thumbnail strip subscribes. **Still open for the other panels** — D3's timeline and
+preview after a bake-teardown restore have not been walked through.
+
+**📏 THE FLOOR IS MEASURED: the M1 iPad Pro dies at ~250MB free, twice** (B730 220MB, B732 261MB,
+different builds, different failure points). **Readable before a bake starts**, which makes it the
+first concrete gate input this arc has produced.
+
+### 🔻 [ORIGINAL] THE CONTEXTS RECOVERED AND THE PANELS DID NOT
 
 Both surfaces restored in ~650ms, then `bake-rejected`, then a 105-second modal. **Neither the
 preview nor the timeline repainted.** Daniel: *"the bake dialog did not visibly recover context on

@@ -22,7 +22,7 @@ Archived at B658. It was marked superseded at B609 and kept for the reasoning be
 
 ## current version
 
-**v0.26.72 · B732** (2026-08-24). **B705 and B706 are device-verified** — B705's instrument found B706, and B706 held on the repro that killed B705. B703, B704 and B707 are not yet device-verified.
+**v0.26.73 · B733** (2026-08-24). **B705 and B706 are device-verified** — B705's instrument found B706, and B706 held on the repro that killed B705. B703, B704 and B707 are not yet device-verified.
 
 ---
 
@@ -64,7 +64,37 @@ Both named by Daniel at B704 **because I had left them off the plan.** Full scop
 - **The encoder's real error beats its symptom.** `VideoEncoder is not configured` describes the state we found it in, not what broke it; a synchronous throw was beating the `encError` check.
 - **The bake button no longer reads `baking…` forever while clickable.** `setClipMode`'s comment claimed it restored the label; `loopPrimary()` does. Daniel pressed the lying button, which is how the second bake happened.
 
-### ⭐⭐⭐ PICK UP HERE (B732) — ONE DEVICE RUN, NOT FOUR. THE iPAD PRO IS THE TEST.
+### ⭐⭐⭐ PICK UP HERE (B733) — THE MUXER IS THE LAST BIG TERM, AND IT IS A PRODUCT DECISION
+
+**B732 hit its number exactly: `peakMB` 2143.2 → 1441.1, and the iPad Pro went from frame 181 to
+frame 2116 of 3178.** Still fails, but two thirds through.
+
+**⭐ THE FAILURE MOVED OFF OUR PEAK.** It now dies at 67% of the ENCODE, where our attributed total is
+~967MB — **below the 1441MB peak the same run survived.** What grows through the encode is the
+muxer's output, and `ArrayBufferTarget` reallocates and COPIES as it grows, so its real transient is
+about double what the ledger counts.
+
+**📏 THE PRO DIES AT ~250MB FREE, TWICE** (B730: 1259 → 220, frame 181. B732: 1065 → 261, frame 2116).
+Same threshold across two builds. **That is a gate input readable BEFORE the bake starts.** It also
+says B732 came within roughly 100MB of finishing.
+
+**▶ NEXT BUILD: stream the muxer output. AND IT NEEDS DANIEL'S CALL FIRST**, because it changes the
+baked FILE, not just memory. Current config is `ArrayBufferTarget` + `fastStart: 'in-memory'`, which
+buffers everything precisely so the moov lands at the front. Streaming means either **moov at the
+end** (`fastStart: false`, valid MP4, fine for a local blob we reload immediately, less friendly to
+other apps) or **fragmented MP4** (`fastStart: 'fragmented'`, streams natively, some tools dislike
+it). **It also touches the save path `video-export.js` shares with recording.**
+
+**▶ AFTER THAT, THE GATE HAS EVERYTHING IT NEEDS:** cost is arithmetic (`4×file` → now `2×file`, plus
+output), the floor is ~250MB free, and headroom is readable at bake start.
+
+### ✅ B733 — THE STRIP REPAINTS AFTER A RESTORE
+
+`onGLRestored(fn)` in `gl-watch.js`. **The step 3→4 blackout is NOT a B732 regression** — B730's iPad
+Pro run has the same loss/restore before its bake. B732 just let the bake run long enough to notice
+the strip never came back.
+
+### 🔻 SUPERSEDED (B732) — ONE DEVICE RUN, NOT FOUR. THE iPAD PRO IS THE TEST.
 
 **B732 shares one fetch + one sample table across slice's two readers. Expected `peakMB` 2143 → ~1441.**
 

@@ -6,6 +6,62 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.26.73 · Build 733 — A RESTORED CONTEXT IS NOT A RESTORED SCREEN
+
+**Shipped:**
+- **`onGLRestored(fn)` in `gl-watch.js`** — anything that painted a canvas and walked away can now hear about a restore.
+- **The Loop Builder's thumbnail strip repaints after one.** It stayed black while every other surface came back.
+
+### ⭐⭐ B732 HIT ITS NUMBER EXACTLY, AND MOVED THE FAILURE 12x FURTHER
+
+**`peakMB: 1441.1`** against a predicted ~1441, on `srcBytes 741,685,378 · hvc1 · 55.7 Mbps`.
+`peakBy: { source-buffer 707.3, sample-table 702.1, capture-canvas 31.6 }` — **one table, not two.**
+
+**M1 iPad Pro: frame 181 → frame 2116 of 3178.** Still fails, but two thirds of the way through.
+
+### ⭐⭐⭐ AND THE FAILURE MOVED OFF OUR PEAK, WHICH IS THE FINDING
+
+The bake now dies at **67% of the encode**, long after the demux high-water mark. Our attributed
+total at that moment is roughly **967MB** — well BELOW the 1441MB peak the run survived.
+
+**So the thing that kills it is no longer the thing we measure as the peak.** What grows through the
+encode is the muxer's output, and `ArrayBufferTarget` reallocates and COPIES as it grows, so its real
+transient is about double what the ledger counts.
+
+**The device-wide reading brackets it and the two agree:** `deviceFreeMB` 1065 → 261, an 804MB drop,
+against ~967MB attributed. **The blind spot is small.** The ledger is capturing most of it.
+
+### 📏 THE PRO DIES AT ~250MB FREE, TWICE
+
+| run | free before | free at loss | reached |
+|---|---|---|---|
+| B730 | 1259MB | **220MB** | frame 181 |
+| B732 | 1065MB | **261MB** | frame 2116 |
+
+**Two runs, two builds, the same threshold.** That is a gate input we can read *before* starting:
+headroom at bake start, minus projected consumption, against a floor around 250MB.
+
+**It also says how close B732 came.** It needed roughly 100MB more to finish.
+
+### ⚠️ THE STEP 3→4 BLACKOUT IS NOT A B732 REGRESSION
+
+The trail shows a loss/restore at 21:43:23, 606ms, both surfaces — and **B730's iPad Pro run has the
+same event at 21:03:29 before its bake.** It predates B732. What B732 did was let the bake run long
+enough for Daniel to notice the strip never came back.
+
+### 📐 WHY THE STRIP AND NOT THE PREVIEW
+
+`buildLoopThumbs()` runs only when the shown VIEW changes, which is right — it is seek-heavy and must
+not run on every next/back. **A context loss does not change the view**, so after a restore the guard
+is satisfied and the strip stays black. The invalidate-and-rebuild idiom already existed here (after
+a bake, and on undo); it simply had no path from a GL restore.
+
+**The listener is module-level in `gl-watch`** because the panels that need to know live in modules
+that own no canvas and hold no `env`, and there are three env-shaped objects to get wrong (B638).
+Subscribers are told only after a restore is verified usable, so nobody repaints into a dead context.
+
+---
+
 ## v0.26.72 · Build 732 — ONE FETCH, ONE DEMUX, TWO READERS
 
 **Shipped:**

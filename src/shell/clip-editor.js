@@ -17,7 +17,7 @@
 
 import { exportVideo } from './video-export.js';
 import { memBegin, memHold, memRelease, memReport } from './mem-ledger.js';
-import { readHostVitals } from './gl-watch.js';
+import { readHostVitals, onGLRestored } from './gl-watch.js';
 import { seekVideoTo } from './video-source.js';
 import { createSequentialFrameReader, probeVideoInfo, openSharedSource } from './video-decode.js';
 import { acquireSession, releaseSession } from 'conduit/sessions';
@@ -482,6 +482,23 @@ export function createClipEditor(env) {
     apply.dataset.terminal = isLast ? '1' : '';
   }
   let lastThumbMode = null;
+  // ⚠️ B733 — REPAINT THE STRIP AFTER A GL RESTORE. NOTHING ELSE WILL.
+  //
+  // `buildLoopThumbs()` runs only when the shown VIEW changes (`thumbMode !== lastThumbMode`), which
+  // is correct — it is seek-heavy and must not run on every next/back. But a context loss does not
+  // change the view, so after a restore the guard is satisfied and the strip stays black while every
+  // other surface comes back. **The invalidate-and-rebuild idiom already exists here** for exactly
+  // this class of staleness (after a bake, and on undo); it simply had no path from a GL restore.
+  //
+  // Guarded on the sheet being open: a restore while the Loop Builder is closed has nothing to
+  // repaint, and `buildLoopThumbs` seeks a hidden video that only exists while it is mounted.
+  onGLRestored(() => {
+    const sheet = document.getElementById('clipSheet');
+    if (!sheet || sheet.hidden) return;
+    lastThumbMode = null;                       // force the rebuild past its view-change guard
+    try { setLoopStep(env.clip.step); } catch { /* a repaint must never break a recovery */ }
+  });
+
   function setLoopStep(n) {
     env.clip.step = n;
     const sheet = byId('clipSheet');
