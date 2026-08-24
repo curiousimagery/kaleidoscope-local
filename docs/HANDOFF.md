@@ -22,7 +22,7 @@ Archived at B658. It was marked superseded at B609 and kept for the reasoning be
 
 ## current version
 
-**v0.26.71 · B731** (2026-08-24). **B705 and B706 are device-verified** — B705's instrument found B706, and B706 held on the repro that killed B705. B703, B704 and B707 are not yet device-verified.
+**v0.26.72 · B732** (2026-08-24). **B705 and B706 are device-verified** — B705's instrument found B706, and B706 held on the repro that killed B705. B703, B704 and B707 are not yet device-verified.
 
 ---
 
@@ -64,7 +64,44 @@ Both named by Daniel at B704 **because I had left them off the plan.** Full scop
 - **The encoder's real error beats its symptom.** `VideoEncoder is not configured` describes the state we found it in, not what broke it; a synchronous throw was beating the `encError` check.
 - **The bake button no longer reads `baking…` forever while clickable.** `setClipMode`'s comment claimed it restored the label; `loopPrimary()` does. Daniel pressed the lying button, which is how the second bake happened.
 
-### ⭐⭐⭐ PICK UP HERE (B731) — THE GAUNTLET IS DONE. SAME COST, DIFFERENT CEILING. BUILD THE REDUCTION.
+### ⭐⭐⭐ PICK UP HERE (B732) — ONE DEVICE RUN, NOT FOUR. THE iPAD PRO IS THE TEST.
+
+**B732 shares one fetch + one sample table across slice's two readers. Expected `peakMB` 2143 → ~1441.**
+
+**▶ THE RUN: the M1 iPad Pro, same 741MB file, same vanilla slice, ONE BAKE PER LAUNCH.** That is the
+whole next device session.
+
+- **Passes** → the file-size ceiling moved. *Then* run the Air, which is the harder case.
+- **Fails** → read `peakMB` first. **~1441 means the reduction worked and the ceiling is simply lower
+  than that**; still ~2143 means the shared source did not take effect and it is a code bug, not a
+  device limit.
+
+**⚠️ DO NOT RE-RUN THE MACS.** They passed at 2143MB and the change only lowers it. **And do not
+re-run the gauntlet to re-measure** — the gauntlet answered its question. Device runs from here test
+a CHANGE, not a number we already have.
+
+**⚠️ CHECK `srcBytes` = 741,685,378 IN THE REPORT BEFORE READING ANYTHING ELSE.** Photos hands out a
+334MB re-encode of the same clip; it must arrive via Files.
+
+### 🧾 THE REDUCTION LEDGER — what is built, what is not
+
+| | status | ceiling it owns |
+|---|---|---|
+| release `buf` after `demux()` | **built B728** | — |
+| one fetch + one sample table for slice | **built B732** | **file size** |
+| stream the muxer output | **NOT BUILT** | **duration** (killed a 47:45 FHD bake on 64GB) |
+
+### 🔬 THE RESIDUE IS NOT YET PROVEN, AND THE TEST IS FREE
+
+D2-vs-D3 is **one uncontrolled pair** (different modes, different builds). `heldMB: 0` says our code
+releases everything it takes, so if residue is real it is GC latency or engine-side.
+
+**▶ D5 SETTLES IT WITH NO BUILD: three identical bakes in ONE launch.** `peakMB` must be constant;
+watch whether `bakeMem.device.freeBeforeMB` returns to baseline before each one. Free memory not
+recovering between bakes is the measurement. **Worth doing on whichever device is in hand after the
+B732 run.**
+
+### 🔻 SUPERSEDED (B731) — THE GAUNTLET IS DONE. SAME COST, DIFFERENT CEILING. BUILD THE REDUCTION.
 
 **One file (`741,685,378 B`), one vanilla slice bake, four machines, `peakMB` = 2143.2 on ALL FOUR:**
 

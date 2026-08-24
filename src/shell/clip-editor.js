@@ -19,7 +19,7 @@ import { exportVideo } from './video-export.js';
 import { memBegin, memHold, memRelease, memReport } from './mem-ledger.js';
 import { readHostVitals } from './gl-watch.js';
 import { seekVideoTo } from './video-source.js';
-import { createSequentialFrameReader, probeVideoInfo } from './video-decode.js';
+import { createSequentialFrameReader, probeVideoInfo, openSharedSource } from './video-decode.js';
 import { acquireSession, releaseSession } from 'conduit/sessions';
 
 // The Loop Builder holds THREE decoders of the same clip while it is open (visible preview,
@@ -928,7 +928,7 @@ export function createClipEditor(env) {
     const url = decodeV.currentSrc || decodeV.src || env.media.sourceVideoUrl;
     let durationMs, frameAt;
     // WebCodecs readers over the same file (below); declared here so the finally can close them.
-    let sliceReaderA = null, sliceReaderB = null, bounceReader = null;
+    let sliceReaderA = null, sliceReaderB = null, bounceReader = null, sliceSource = null;
     if (trim.mode === 'bounce') {
       durationMs = Math.max(200, trimmedSec * 2 * 1000);   // forward + reverse
       // Fast decode: a monotonic reader serves the forward half at speed; the reverse half
@@ -972,9 +972,19 @@ export function createClipEditor(env) {
       // hasn't caught up presents a STALE frame at full alpha. Monotonic readers return
       // deterministically-correct frames with no keyframe re-decode thrash — correctness
       // AND speed. Falls back to the single-element seek path when the readers can't arm.
+      // ⚠️ B732 — ONE FETCH, ONE DEMUX, TWO READERS. THIS IS THE 33% CUT.
+      //
+      // Both readers walk the SAME file; only their decoder, queue and cursor differ. Opening them
+      // separately fetched and demuxed it twice, and the four-machine gauntlet measured the cost:
+      // `peakMB` 2143.2 with `sample-table` 1404.2 and `frames-held: 0` at the peak — **the
+      // high-water mark landed during the SECOND demux, before a single frame was decoded.**
+      //
+      // The source is closed in the `finally` alongside the readers; it is refcounted, so the sample
+      // table survives until the last reader lets go however the bake exits.
       try {
-        sliceReaderB = await createSequentialFrameReader(url);
-        sliceReaderA = sliceReaderB ? await createSequentialFrameReader(url) : null;
+        sliceSource = await openSharedSource(url);
+        sliceReaderB = sliceSource ? sliceSource.createReader() : null;
+        sliceReaderA = sliceReaderB ? sliceSource.createReader() : null;
       } catch { sliceReaderA = sliceReaderB = null; }
       if (sliceReaderB && !sliceReaderA) { sliceReaderB.close(); sliceReaderB = null; }
       if (sliceReaderB && sliceReaderB.fps) fps = sliceReaderB.fps;
@@ -1178,6 +1188,7 @@ export function createClipEditor(env) {
       if (sliceReaderA) { try { sliceReaderA.close(); } catch { /* already closed */ } sliceReaderA = null; }
       if (sliceReaderB) { try { sliceReaderB.close(); } catch { /* already closed */ } sliceReaderB = null; }
       if (bounceReader) { try { bounceReader.close(); } catch { /* already closed */ } bounceReader = null; }
+      if (sliceSource) { try { sliceSource.close(); } catch { /* already closed */ } sliceSource = null; }
       try { memRelease(capId); } catch { /* never let an instrument break a teardown */ }
       // The balance sheet AFTER every release this bake knows how to perform. **Non-zero here means
       // we are still holding references** — a bug we can fix. Zero here while the next bake still

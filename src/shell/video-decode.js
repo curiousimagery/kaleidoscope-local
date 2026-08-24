@@ -78,6 +78,8 @@ function demux(buf) {
 }
 
 // ISO track matrix → clockwise rotation in degrees (0/90/180/270). a=m[0], b=m[1] in 16.16.
+const usOf = (s) => Math.round((s.cts * 1e6) / s.timescale);
+
 function rotationFromMatrix(m) {
   if (!m || m.length < 2) return 0;
   const a = m[0] / 65536, b = m[1] / 65536;
@@ -105,8 +107,32 @@ export async function probeVideoInfo(url) {
   } catch { return null; }
 }
 
-// createSequentialFrameReader(url) → reader | null (null = use the seek fallback)
-export async function createSequentialFrameReader(url, { maxBytes = 1_500_000_000 } = {}) {
+// ⚠️ B732 — PARSING IS NOW SEPARATE FROM READING, AND THAT IS THE WHOLE POINT.
+//
+// A slice bake needs TWO monotonic readers over the same file (one per segment). Until now each one
+// called `createSequentialFrameReader(url)`, so the same file was fetched twice and demuxed twice.
+// The controlled four-machine gauntlet measured what that costs: **`peakMB` 2143.2, of which
+// `sample-table` was 1404.2 (two tables) and `source-buffer` 707.3** — and `frames-held: 0` at the
+// peak, which places the high-water mark BEFORE a single frame is decoded. **The bake was at its
+// most dangerous during its second demux.**
+//
+// A parsed source is READ-ONLY: the sample table, the sync points and the decoder config are never
+// mutated by a reader. Only the decoder, its output queue, the feed cursor and the reverse-window
+// cache are per-reader, and those stay per-reader. So sharing is safe by construction rather than by
+// discipline.
+//
+// ⚠️ THE SAMPLE BYTES ARE NOT DETACHED BY SHARING. `EncodedVideoChunk` COPIES the data it is given,
+// so two decoders building chunks from the same `s.data` do not race or neuter it.
+//
+// Expected effect: **2143MB → ~1441MB peak**, landing exactly on the moment that fails on both iPads.
+//
+// `createSequentialFrameReader(url)` is unchanged for every single-reader caller (bounce, forward,
+// the export fallback). It opens a source, takes one reader, and closes the source with it.
+
+// openSharedSource(url) → source | null. Parse ONCE; take as many readers as you need.
+// The source is refcounted: it releases its sample table when the last reader closes AND the caller
+// has closed it, whichever comes last.
+export async function openSharedSource(url, { maxBytes = 1_500_000_000 } = {}) {
   if (typeof VideoDecoder === 'undefined' || !MP4Box.createFile) return null;
 
   let buf;
@@ -116,44 +142,18 @@ export async function createSequentialFrameReader(url, { maxBytes = 1_500_000_00
   } catch { return null; }
   if (!buf.byteLength || buf.byteLength > maxBytes) return null;
 
-  // ⚠️ B730 — HOLD IT ACROSS THE DEMUX, THEN LET IT GO. B728 COUNTED A BUFFER IT HAD ALREADY FREED.
+  // ⚠️ B730 — HOLD IT ACROSS THE DEMUX, THEN LET IT GO.
   //
   // B728 nulled `buf` after `demux()` (a real saving) and ALSO held a `source-buffer` handle for the
-  // reader's whole life. **So the largest single term in the first cross-device reading was a
-  // phantom** — 637.9MB on the iPad and 1414.7MB on the Macs, counted as resident after the
-  // reference had been dropped. The peaks were real; their composition was not.
-  //
-  // Held from before the demux to just after it, which is the interval when it genuinely IS
-  // resident — and that interval is a true spike, because mp4box is building the sample table from
-  // it at the same moment. `peakMB` still captures it; nothing after it does.
-  const bufBytes = buf.byteLength;
-  const bufId = memHold('source-buffer', bufBytes);
+  // reader's whole life, so the largest term in the first cross-device reading was a phantom. Held
+  // from before the demux to just after it, which is the interval when it genuinely IS resident —
+  // and that interval is a true spike, because mp4box builds the sample table from it at the same
+  // moment. `peakMB` still captures it; nothing after it does.
+  const fileBytes = buf.byteLength;
+  const bufId = memHold('source-buffer', fileBytes);
   const parsed = demux(buf);
   if (!parsed) { memRelease(bufId); return null; }
   const { track, samples, description, rotation } = parsed;
-
-  // ⚠️ B728 — THE TWO BIGGEST ALLOCATIONS THIS READER MAKES, AND THE SECOND ONE SETTLES AN OPEN QUESTION.
-  //
-  // `buf` is the whole file. `sample-table` is what mp4box handed back — and **whether it COPIES the
-  // sample bytes or views into `buf` has been unverified since B727**, because the bundled build
-  // does not expose the internal. It is the difference between ~1x and ~2x file size per reader,
-  // which is the single largest uncertainty in the bake's cost. Summing `s.data.byteLength` does not
-  // answer it by itself, but comparing `sample-table` against `source-buffer` in the report does:
-  // **if the sum lands near the file size AND `heldMB` reflects both, they are separate memory.**
-  //
-  // ⚠️ AND SLICE MODE OPENS TWO READERS OVER THE SAME URL, so both of these are paid TWICE for one
-  // bake. That is the most obviously removable term in the whole model, and the ledger is what will
-  // say whether removing it is worth the change.
-  let sampleBytes = 0;
-  for (const smp of samples) sampleBytes += (smp.data && smp.data.byteLength) || 0;
-  const samplesId = memHold('sample-table', sampleBytes);
-  buf = null;                 // B728 — nothing reads it after `demux()`
-  memRelease(bufId);          // B730 — and the ledger must agree with that
-  // ⚠️ `sample-table` ≈ `source-buffer` DOES NOT PROVE mp4box COPIES. The samples cover the mdat, so
-  // the two sums are near-equal whether the sample data are independent copies or views sharing
-  // `buf`'s memory. **The distinguishing evidence is device-wide**: if they are views, freeing `buf`
-  // changes nothing and `sample-table` is not a second allocation. B730 stamps the device reading
-  // around the bake so the next run can tell. Until then this term is an UPPER bound.
 
   const config = {
     codec: track.codec,
@@ -162,11 +162,73 @@ export async function createSequentialFrameReader(url, { maxBytes = 1_500_000_00
     ...(description ? { description } : {}),
   };
   try {
-    const s = await VideoDecoder.isConfigSupported(config);
-    if (!s || !s.supported) return null;
-  } catch { return null; }
+    const sup = await VideoDecoder.isConfigSupported(config);
+    if (!sup || !sup.supported) { memRelease(bufId); return null; }
+  } catch { memRelease(bufId); return null; }
 
-  const usOf = (s) => Math.round((s.cts * 1e6) / s.timescale);
+  // ⚠️ ONE SAMPLE TABLE FOR EVERY READER OVER THIS FILE. This is the 702MB.
+  let sampleBytes = 0;
+  for (const smp of samples) sampleBytes += (smp.data && smp.data.byteLength) || 0;
+  const samplesId = memHold('sample-table', sampleBytes);
+  buf = null;                 // B728 — nothing reads it after `demux()`
+  memRelease(bufId);          // B730 — and the ledger must agree with that
+
+  // Sync points as (decode-order index, presentation time), sorted by TIME. Built ONCE per source:
+  // a backward jump is a binary search rather than a scan, and it cannot be fooled by an
+  // IPBB-reordered table the way the old decode-order walk could.
+  const syncPoints = [];
+  for (let k = 0; k < samples.length; k++) {
+    if (samples[k].is_sync) syncPoints.push({ j: k, us: usOf(samples[k]) });
+  }
+  syncPoints.sort((a, b) => a.us - b.us);
+
+  const durSec = track.duration && track.timescale ? track.duration / track.timescale : 0;
+  const nSamples = track.nb_samples || samples.length;
+
+  let readers = 0, ownerOpen = true, released = false;
+  function maybeRelease() {
+    if (released || ownerOpen || readers > 0) return;
+    released = true;
+    memRelease(samplesId);
+  }
+
+  const source = {
+    config, samples, syncPoints, rotation, fileBytes,
+    codec: config.codec,
+    fps: durSec > 0 && nSamples > 1 ? nSamples / durSec : 0,
+    mbps: durSec > 0 ? +((fileBytes * 8) / durSec / 1e6).toFixed(1) : 0,
+    // Sync — the parse already happened. Returns null only if the decoder cannot be constructed.
+    createReader() {
+      if (released) return null;
+      readers++;
+      // ⚠️ IDEMPOTENT PER READER, AND NOT BECAUSE THE READER PROMISES TO BE.
+      //
+      // `reader.close()` already guards on its own `closed` flag, so a double close cannot reach
+      // here today. **That is exactly the kind of masking this arc keeps paying for**: the refcount
+      // would be correct only for as long as an unrelated guard three hundred lines away stays in
+      // place, and a double-decrement here releases the sample table while another reader is still
+      // walking it. The scratchpad harness `shared-source-check.mjs` fails without this line.
+      let done = false;
+      return makeReader(source, () => { if (done) return; done = true; readers--; maybeRelease(); });
+    },
+    close() { ownerOpen = false; maybeRelease(); },
+  };
+  return source;
+}
+
+// createSequentialFrameReader(url) → reader | null (null = use the seek fallback)
+// Unchanged contract for single-reader callers; the source closes with the reader.
+export async function createSequentialFrameReader(url, opts = {}) {
+  const src = await openSharedSource(url, opts);
+  if (!src) return null;
+  const reader = src.createReader();
+  src.close();                 // refcounted: the table survives until this reader closes
+  if (!reader) { return null; }
+  return reader;
+}
+
+function makeReader(source, onClosed) {
+  const { config, samples, syncPoints, rotation, fileBytes } = source;
   const chunkOf = (s) => new EncodedVideoChunk({
     type: s.is_sync ? 'key' : 'delta',
     timestamp: usOf(s),
@@ -295,14 +357,7 @@ export async function createSequentialFrameReader(url, { maxBytes = 1_500_000_00
     noteFrames();
   }
 
-  // Sync points as (decode-order index, presentation time), sorted by TIME. Built once
-  // so a backward jump is a binary search instead of a scan — and, more importantly, so
-  // it is CORRECT: see resetTo.
-  const syncPoints = [];
-  for (let j = 0; j < samples.length; j++) {
-    if (samples[j].is_sync) syncPoints.push({ j, us: usOf(samples[j]) });
-  }
-  syncPoints.sort((a, b) => a.us - b.us);
+  // (`syncPoints` is built once per SOURCE now — see openSharedSource. It is read-only here.)
 
   // backward jump: re-decode from the last keyframe at/before the target.
   //
@@ -413,22 +468,14 @@ export async function createSequentialFrameReader(url, { maxBytes = 1_500_000_00
     // Photos hands out a transcoded copy on AirDrop/share; the original has to travel through Files.
     // **Every "the iPad handles 4K" result in this project's history may have been measured on the
     // lighter copy**, and this is the field that lets a future reader check rather than assume.
-    codec: config.codec,
-    fileBytes: bufBytes,
-    mbps: (() => {
-      const durSec = track.duration && track.timescale ? track.duration / track.timescale : 0;
-      return durSec > 0 ? +((bufBytes * 8) / durSec / 1e6).toFixed(1) : 0;
-    })(),
+    codec: source.codec,
+    fileBytes,
+    mbps: source.mbps,
     // B716 — the most expensive single target this reader served, success or timeout. Read it
     // after a bake (or after a failure) and compare `decoded` across platforms before `ms`.
     worstTarget: () => (worst ? { ...worst, holes: holesBridged } : null),
     rotation,   // clockwise degrees the consumer must apply when drawing decoded frames
-    // measured source frame rate (0 = unknown) — nb_samples over the track's duration
-    fps: (() => {
-      const durSec = track.duration && track.timescale ? track.duration / track.timescale : 0;
-      const n = track.nb_samples || samples.length;
-      return durSec > 0 && n > 1 ? n / durSec : 0;
-    })(),
+    fps: source.fps,   // measured source frame rate (0 = unknown) — nb_samples over the duration
 
     // Resolve the decoded frame covering `sec` (monotonic-friendly; backward
     // jumps pay a keyframe re-decode). The frame stays owned by the reader.
@@ -559,7 +606,7 @@ export async function createSequentialFrameReader(url, { maxBytes = 1_500_000_00
     },
 
     // B728 — what this reader is holding right now, for the residue question. Read it BEFORE close().
-    memBytes: () => ({ source: bufBytes, samples: sampleBytes, frames: (outQ.length + revCache.length) * frameBytes }),
+    memBytes: () => ({ file: fileBytes, frames: (outQ.length + revCache.length) * frameBytes }),
 
     close() {
       if (closed) return;
@@ -572,7 +619,9 @@ export async function createSequentialFrameReader(url, { maxBytes = 1_500_000_00
       // `heldMB` returning to zero while the NEXT bake still dies early is the signature of a GC or
       // engine-side residue rather than a retained reference — the two need opposite fixes, and D2
       // vs D3 already showed the residue is real without saying which kind it is.
-      memRelease(bufId); memRelease(samplesId); memRelease(framesId);
+      memRelease(framesId);
+      // B732 — the SOURCE owns the sample table now and releases it when its last reader closes.
+      try { onClosed?.(); } catch { /* an instrument must never break a teardown */ }
     },
   };
 }

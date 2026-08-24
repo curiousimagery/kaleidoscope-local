@@ -6,6 +6,47 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.26.72 · Build 732 — ONE FETCH, ONE DEMUX, TWO READERS
+
+**Shipped:**
+- **`openSharedSource(url)`** — parse a file once, take as many readers as you need. Refcounted.
+- **The slice bake uses it.** It was fetching and demuxing the same URL twice.
+- **`createSequentialFrameReader(url)` is unchanged** for every single-reader caller (bounce, forward, the export fallback).
+
+### ⭐ WHY THIS TERM AND NOT ANOTHER
+
+The controlled gauntlet put `frames-held: 0` at the peak, which places the high-water mark **before a
+single frame is decoded** — during the second reader's demux. `sample-table` was **1404.2MB of a
+2143.2MB peak**, two identical tables over one file.
+
+**Expected: 2143MB → ~1441MB, a 33% cut, landing exactly on the moment both iPads fail.**
+
+### 📐 WHY IT IS SAFE BY CONSTRUCTION, NOT BY DISCIPLINE
+
+A parsed source is **read-only**: the sample table, the sync points and the decoder config are never
+mutated by a reader. Everything a reader *does* mutate — its decoder, output queue, feed cursor and
+reverse-window cache — stays per-reader. **`EncodedVideoChunk` copies the data it is handed**, so two
+decoders building chunks from the same `s.data` neither race nor detach it.
+
+### ⚠️ THE HARNESS FOUND A HAZARD THE CODE WAS ONLY ACCIDENTALLY SAFE FROM
+
+`shared-source-check.mjs` (10/10) models the refcount. It failed on **double-close**: two decrements
+from one reader drop the count to zero and release the sample table **while another reader is still
+walking it.**
+
+`reader.close()` already guards on its own `closed` flag, so this could not fire today. **That is the
+masking pattern this arc keeps paying for** — the refcount would have been correct only for as long
+as an unrelated guard three hundred lines away stayed in place. The release callback is idempotent
+per reader now, independently of the reader's own guard.
+
+### 🧾 WHAT IS BUILT VS PROPOSED, since B728 blurred it
+
+- **Built B728:** `buf` released after `demux()`.
+- **Built B732:** one fetch + one sample table across slice's two readers.
+- **NOT BUILT:** streaming the muxer output. `ArrayBufferTarget` still accumulates the entire encoded result in memory, still reallocates and copies as it grows, and is still what killed a 47:45 FHD bake on a 64GB M1 Max. **That one owns the DURATION ceiling; B732 owns the FILE-SIZE ceiling.**
+
+---
+
 ## v0.26.71 · Build 731 — THE GAUNTLET, CONTROLLED. SAME COST, DIFFERENT CEILING.
 
 **Shipped:**

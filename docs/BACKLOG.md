@@ -533,11 +533,15 @@ IS the device axis**, correcting B727.
 sequence, so the high-water mark is B's sample table + A's file buffer + A's sample table.
 
 **▶ THE TWO REDUCTIONS ARE NOW QUANTIFIED AND ARE THE NEXT BUILD DECISION:**
-1. **One shared fetch + demux across slice's two readers.** ⭐ **2143MB → ~1441MB, a 33% cut**, and it
-   lands exactly on the moment that fails. Slice opens two readers over the SAME URL today. Changes
-   `createSequentialFrameReader`'s shape, so it wants a greenlight, not a drive-by.
-2. **Stream the muxer output instead of accumulating it** — removes ~300MB, its realloc doubling, and
-   **the duration ceiling that killed a 47:45 FHD bake on a 64GB M1 Max.**
+1. **✅ SHIPPED B732** — `openSharedSource(url)` parses once and hands out refcounted readers; the
+   slice bake takes two. **Expected 2143MB → ~1441MB.** `createSequentialFrameReader(url)` is
+   unchanged for single-reader callers. Verify on the iPad Pro before the Air.
+2. **⏳ NOT BUILT — stream the muxer output.** `ArrayBufferTarget` accumulates the ENTIRE encoded
+   result in memory and reallocates and copies as it grows, so the true peak is roughly double what
+   the ledger counts. **This one owns the DURATION ceiling** (B732 owns the file-size one) and is
+   what killed a 47:45 FHD bake on a 64GB M1 Max — **the only one of these ceilings that bites on
+   desktop.** Touches the save path `video-export.js` shares with recording, so it wants its own
+   increment.
 
 **⚠️ Whether `sample-table` is a real second allocation is still UNRESOLVED** (copies vs views into
 `buf`), so the model may be 4× or 3×. B730's device-wide delta distinguishes them. **Do not gate on
@@ -598,8 +602,17 @@ requirement — release on recovery, or warn honestly and offer a true reset —
 `ArrayBufferTarget` from the abandoned encode, held `VideoFrame`s on the error path, or simply that
 WebKit has not collected yet. **The ledger above would distinguish them; guessing would not.**
 
-**▶ A cheap partial test with no build: three bakes in one launch**, each from a fresh Loop Builder
-open, and see whether the failure point walks earlier each time.
+**⚠️ AND IT IS NOT YET PROVEN. D2-vs-D3 IS ONE UNCONTROLLED PAIR** — different modes, different
+builds. Do not treat the residue as established.
+
+**▶ D5 SETTLES IT WITH NO BUILD: three identical bakes in ONE launch.** `peakMB` must come out
+constant; the measurement is whether `bakeMem.device.freeBeforeMB` returns to baseline before each
+one. **Free memory not recovering between bakes is the finding**; the failure point walking earlier
+is the symptom.
+
+**▶ WHERE THIS BELONGS:** it is not a bake bug, it is the input to Daniel's stated requirement —
+*release on recovery, or say we are in a bad state and offer a true reset*. A refusal to start a
+second bake without headroom is the same gate as refusing an oversized one, reading the same field.
 
 ### 🚨 [HIGH — Daniel, 2026-08-24, D3] THE CONTEXTS RECOVERED AND THE PANELS DID NOT
 
