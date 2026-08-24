@@ -28,33 +28,81 @@ import * as MP4BoxModule from 'mp4box';
 // mp4box ships UMD-flavored; take named exports wherever the bundler put them
 const MP4Box = (MP4BoxModule.default && MP4BoxModule.default.createFile) ? MP4BoxModule.default : MP4BoxModule;
 
-// Demux the whole file (they're already-loaded local blobs — the compressed
-// bytes are a fraction of one decoded frame ceiling). Returns
-// { track, samples, description } or null when this isn't demuxable.
-function demux(buf) {
+// ⚠️ B735 — THE PARSE IS INCREMENTAL AND THE SAMPLE BYTES GO TO DISK. THIS IS THE ORDER CHANGE.
+//
+// Every optimisation before this one changed the CONSTANT. B732 took source memory from 4x the file
+// to 2x; it is still proportional to the clip. The measured budget on an M1 iPad is around 850MB and
+// **a 4-minute 4K source is ~750MB at 25 Mbps and ~1.67GB at 55.7 Mbps 10-bit**, so at Daniel's
+// stated typical length (2-6 minutes) the source term alone exceeds the budget. **No further
+// constant-factor work reaches it.**
+//
+// So: feed the file to mp4box in 16MB slices instead of one buffer, copy each batch of sample bytes
+// into a Blob (which the browser backs on disk) and drop every heap reference to them — mp4box's
+// included, by nulling `s.data` on the object it handed us. What survives the parse is the INDEX:
+// `{ cts, duration, timescale, is_sync, size, off }` per sample, a few tens of bytes each.
+//
+// **Source memory becomes O(1) in clip length.** The transient is one 16MB parse slice.
+//
+// ⚠️ SAMPLE BYTES ARE READ BACK IN CONTIGUOUS RUNS, NOT ONE AT A TIME. Samples are laid down in
+// decode order, so a feed batch is one `Blob.slice()`. One read per feed rather than 24 matters
+// because a disk-backed read is not free.
+const PARSE_CHUNK = 16 * 1024 * 1024;
+const BYTES_FLUSH = 8 * 1024 * 1024;
+
+async function demuxStreaming(blob) {
   const mp4 = MP4Box.createFile();
   let info = null, err = null;
-  const samples = [];
+  const index = [];
+  let parts = [], pending = [], pendingBytes = 0, off = 0;
+  const flushBytes = () => {
+    if (!pending.length) return;
+    parts.push(new Blob(pending));
+    pending = []; pendingBytes = 0;
+  };
   mp4.onError = (e) => { err = e || 'parse error'; };
-  mp4.onSamples = (id, user, list) => { for (const s of list) samples.push(s); };
+  mp4.onSamples = (id, user, list) => {
+    for (const smp of list) {
+      const d = smp.data;
+      const size = d ? d.byteLength : 0;
+      index.push({ cts: smp.cts, duration: smp.duration, timescale: smp.timescale,
+                   is_sync: !!smp.is_sync, size, off });
+      if (d) { pending.push(d); off += size; pendingBytes += size; }
+      // ⚠️ NULLING THIS IS THE WHOLE POINT. `smp` is mp4box's own sample object, so dropping the
+      // reference here drops the library's copy too. Without it the parse is incremental and the
+      // MEMORY is not, which would look like the change working right up until the peak.
+      smp.data = null;
+    }
+    if (pendingBytes >= BYTES_FLUSH) flushBytes();
+    // Best effort: tells mp4box it may forget everything up to here. Absent in some builds, which
+    // is survivable — nulling `data` above is what actually frees the bytes.
+    try { mp4.releaseUsedSamples?.(id, index.length); } catch { /* not in this build */ }
+  };
   // extraction must be armed INSIDE onReady — arming it after appendBuffer has
   // already processed the mdat yields zero samples (verified against 2.4.1)
   mp4.onReady = (i) => {
     info = i;
     const t = i.videoTracks && i.videoTracks[0];
     if (t) {
-      mp4.setExtractionOptions(t.id, null, { nbSamples: 1000 });
+      // Smaller batches than the old 1000: each batch is held in the heap until the next flush, so
+      // the batch size IS a memory term now rather than just a callback cadence.
+      mp4.setExtractionOptions(t.id, null, { nbSamples: 200 });
       mp4.start();
     }
   };
   try {
-    buf.fileStart = 0;
-    mp4.appendBuffer(buf);
+    for (let pos = 0; pos < blob.size; pos += PARSE_CHUNK) {
+      const part = await blob.slice(pos, Math.min(blob.size, pos + PARSE_CHUNK)).arrayBuffer();
+      part.fileStart = pos;
+      mp4.appendBuffer(part);
+      if (err) return null;
+    }
     mp4.flush();
   } catch { return null; }
+  flushBytes();
   if (err || !info) return null;
   const track = info.videoTracks && info.videoTracks[0];
-  if (!track || !samples.length) return null;
+  if (!track || !index.length) return null;
+  const bytes = new Blob(parts);
 
   // decoder config description (avcC/hvcC/…): serialize the sample-entry box,
   // minus its own 8-byte box header — the shape VideoDecoder wants.
@@ -74,7 +122,7 @@ function demux(buf) {
     }
     rotation = rotationFromMatrix(trak && trak.tkhd && trak.tkhd.matrix);
   } catch { /* some codecs carry their config in-band */ }
-  return { track, samples, description, rotation };
+  return { track, index, bytes, description, rotation };
 }
 
 // ISO track matrix → clockwise rotation in degrees (0/90/180/270). a=m[0], b=m[1] in 16.16.
@@ -92,12 +140,11 @@ function rotationFromMatrix(m) {
 export async function probeVideoInfo(url) {
   try {
     const res = await fetch(url);
-    const buf = await res.arrayBuffer();
-    const parsed = demux(buf);
+    const parsed = await demuxStreaming(await res.blob());
     if (!parsed) return null;
-    const { track, samples, rotation } = parsed;
+    const { track, index, rotation } = parsed;
     const durSec = track.duration && track.timescale ? track.duration / track.timescale : 0;
-    const n = track.nb_samples || samples.length;
+    const n = track.nb_samples || index.length;
     return {
       fps: durSec > 0 && n > 1 ? n / durSec : 0,
       rotation,
@@ -135,25 +182,26 @@ export async function probeVideoInfo(url) {
 export async function openSharedSource(url, { maxBytes = 1_500_000_000 } = {}) {
   if (typeof VideoDecoder === 'undefined' || !MP4Box.createFile) return null;
 
-  let buf;
+  let blob;
   try {
     const res = await fetch(url);
-    buf = await res.arrayBuffer();
+    blob = await res.blob();
   } catch { return null; }
-  if (!buf.byteLength || buf.byteLength > maxBytes) return null;
+  if (!blob.size || blob.size > maxBytes) return null;
 
-  // ⚠️ B730 — HOLD IT ACROSS THE DEMUX, THEN LET IT GO.
+  // ⚠️ B735 — THE TRANSIENT IS ONE PARSE SLICE NOW, NOT THE WHOLE FILE.
   //
-  // B728 nulled `buf` after `demux()` (a real saving) and ALSO held a `source-buffer` handle for the
-  // reader's whole life, so the largest term in the first cross-device reading was a phantom. Held
-  // from before the demux to just after it, which is the interval when it genuinely IS resident —
-  // and that interval is a true spike, because mp4box builds the sample table from it at the same
-  // moment. `peakMB` still captures it; nothing after it does.
-  const fileBytes = buf.byteLength;
-  const bufId = memHold('source-buffer', fileBytes);
-  const parsed = demux(buf);
-  if (!parsed) { memRelease(bufId); return null; }
-  const { track, samples, description, rotation } = parsed;
+  // B730 held a `source-buffer` term across the demux because the whole file genuinely was resident
+  // for that interval. With an incremental parse it never is: the peak contribution is one
+  // PARSE_CHUNK plus one un-flushed sample batch. The term stays in the ledger under its own name so
+  // a report can show it collapse rather than simply go missing — **a term that disappears reads as
+  // an instrument change; a term that drops to 16MB reads as the fix.**
+  const fileBytes = blob.size;
+  const parseId = memHold('parse-window', PARSE_CHUNK + BYTES_FLUSH);
+  const parsed = await demuxStreaming(blob);
+  memRelease(parseId);
+  if (!parsed) return null;
+  const { track, index, bytes, description, rotation } = parsed;
 
   const config = {
     codec: track.codec,
@@ -163,37 +211,36 @@ export async function openSharedSource(url, { maxBytes = 1_500_000_000 } = {}) {
   };
   try {
     const sup = await VideoDecoder.isConfigSupported(config);
-    if (!sup || !sup.supported) { memRelease(bufId); return null; }
-  } catch { memRelease(bufId); return null; }
+    if (!sup || !sup.supported) return null;
+  } catch { return null; }
 
-  // ⚠️ ONE SAMPLE TABLE FOR EVERY READER OVER THIS FILE. This is the 702MB.
-  let sampleBytes = 0;
-  for (const smp of samples) sampleBytes += (smp.data && smp.data.byteLength) || 0;
-  const samplesId = memHold('sample-table', sampleBytes);
-  buf = null;                 // B728 — nothing reads it after `demux()`
-  memRelease(bufId);          // B730 — and the ledger must agree with that
+  // ⚠️ THE INDEX IS THE ONLY THING THE HEAP KEEPS. ~64 bytes a sample: a 3,178-frame clip costs
+  // ~0.2MB where its sample table cost 702MB. The BYTES live in a Blob, which the browser backs on
+  // disk and which is deliberately NOT counted here — the ledger measures the heap, and counting a
+  // disk-backed blob in it would put the old number back under a new name.
+  const indexId = memHold('sample-index', index.length * 64);
 
   // Sync points as (decode-order index, presentation time), sorted by TIME. Built ONCE per source:
   // a backward jump is a binary search rather than a scan, and it cannot be fooled by an
   // IPBB-reordered table the way the old decode-order walk could.
   const syncPoints = [];
-  for (let k = 0; k < samples.length; k++) {
-    if (samples[k].is_sync) syncPoints.push({ j: k, us: usOf(samples[k]) });
+  for (let k = 0; k < index.length; k++) {
+    if (index[k].is_sync) syncPoints.push({ j: k, us: usOf(index[k]) });
   }
   syncPoints.sort((a, b) => a.us - b.us);
 
   const durSec = track.duration && track.timescale ? track.duration / track.timescale : 0;
-  const nSamples = track.nb_samples || samples.length;
+  const nSamples = track.nb_samples || index.length;
 
   let readers = 0, ownerOpen = true, released = false;
   function maybeRelease() {
     if (released || ownerOpen || readers > 0) return;
     released = true;
-    memRelease(samplesId);
+    memRelease(indexId);
   }
 
   const source = {
-    config, samples, syncPoints, rotation, fileBytes,
+    config, index, bytes, syncPoints, rotation, fileBytes,
     codec: config.codec,
     fps: durSec > 0 && nSamples > 1 ? nSamples / durSec : 0,
     mbps: durSec > 0 ? +((fileBytes * 8) / durSec / 1e6).toFixed(1) : 0,
@@ -228,12 +275,12 @@ export async function createSequentialFrameReader(url, opts = {}) {
 }
 
 function makeReader(source, onClosed) {
-  const { config, samples, syncPoints, rotation, fileBytes } = source;
-  const chunkOf = (s) => new EncodedVideoChunk({
+  const { config, index, bytes, syncPoints, rotation, fileBytes } = source;
+  const chunkOf = (s, data) => new EncodedVideoChunk({
     type: s.is_sync ? 'key' : 'delta',
     timestamp: usOf(s),
     duration: Math.max(1, Math.round((s.duration * 1e6) / s.timescale)),
-    data: s.data,
+    data,
   });
 
   let outQ = [];          // decoded frames, presentation order
@@ -296,8 +343,8 @@ function makeReader(source, onClosed) {
         if (f.timestamp > targetUs) { covered = true; break; }
       }
       if (covered) break;
-      if (flushDone && i >= samples.length) break;   // end of stream
-      feed();
+      if (flushDone && i >= index.length) break;   // end of stream
+      await feed();
       await new Promise((r) => setTimeout(r));
     }
   }
@@ -336,14 +383,54 @@ function makeReader(source, onClosed) {
   }
   dec = makeDecoder();
 
-  function feed() {
-    while (i < samples.length && dec.decodeQueueSize < 24 && outQ.length < 12) {
-      dec.decode(chunkOf(samples[i++])); gopWalk++;
+  // ⚠️ B735 — FEEDING IS ASYNC NOW, AND THE TWO GUARDS BELOW ARE NOT OPTIONAL.
+  //
+  // Sample bytes live in a disk-backed Blob, so getting them is a promise. Two hazards follow, and
+  // both produce silent corruption rather than an error:
+  //
+  //   1. RE-ENTRY. The wait loop calls this every iteration. Without `feeding`, a second call would
+  //      start while the first is awaiting its read and both would advance `i`, feeding samples out
+  //      of order into a decoder that cannot tell.
+  //   2. A RESET DURING THE AWAIT. `resetTo` moves `i` back to a keyframe. If that lands mid-read,
+  //      the in-flight batch would be decoded on top of the new position. `gen` makes the stale
+  //      batch discard itself.
+  //
+  // The batch is ONE contiguous `Blob.slice`: samples are laid down in decode order, so a run of
+  // them is a single range. One read per feed instead of one per sample.
+  let feeding = false, gen = 0;
+  async function feed() {
+    if (feeding || closed) return;
+    if (!(i < index.length && dec.decodeQueueSize < 24 && outQ.length < 12)) {
+      if (i >= index.length && !flushing) {
+        flushing = true;
+        dec.flush().then(() => { flushDone = true; }, () => { /* reset() aborts a flush */ });
+      }
+      return;
     }
-    if (i >= samples.length && !flushing) {
-      flushing = true;
-      dec.flush().then(() => { flushDone = true; }, () => { /* reset() aborts a flush */ });
-    }
+    feeding = true;
+    const myGen = gen;
+    try {
+      const start = i;
+      let end = i, want = 0;
+      while (end < index.length && (end - start) < 24 && want < BYTES_FLUSH) { want += index[end].size; end++; }
+      const from = index[start].off;
+      const to = index[end - 1].off + index[end - 1].size;
+      const buf = new Uint8Array(await bytes.slice(from, to).arrayBuffer());
+      if (closed || gen !== myGen) return;       // reset landed mid-read: this batch is stale
+      for (let k = start; k < end; k++) {
+        const smp = index[k];
+        const at = smp.off - from;
+        dec.decode(chunkOf(smp, buf.subarray(at, at + smp.size)));
+        gopWalk++;
+      }
+      i = end;
+      if (i >= index.length && !flushing) {
+        flushing = true;
+        dec.flush().then(() => { flushDone = true; }, () => { /* reset() aborts a flush */ });
+      }
+    } catch (e) {
+      if (!closed && gen === myGen) decErr = e;   // a failed read must surface, not stall the loop
+    } finally { feeding = false; }
   }
 
   // Decoded 4K frames are ~12.4MB each and we hold up to twelve per reader plus the reverse window,
@@ -430,7 +517,7 @@ function makeReader(source, onClosed) {
       outQ: outQ.length,
       queue,
       fed: i,
-      of: samples.length,
+      of: index.length,
       flushDone,
       sinceOutputMs: lastOutputAt ? Math.round(performance.now() - lastOutputAt) : -1,
       headEndUs: head ? (head.timestamp + (head.duration || 33_333)) - target : null,
@@ -440,6 +527,8 @@ function makeReader(source, onClosed) {
 
   function resetTo(targetUs) {
     resetsForTarget++;
+    gen++;                     // B735 — discard any feed batch still awaiting its read
+
     drainQ();
     try { dec.reset(); } catch { /* already closed */ }
     try { dec.configure(config); } catch { dec = makeDecoder(); }
@@ -595,11 +684,11 @@ function makeReader(source, onClosed) {
             noteTarget(sec, performance.now() - t0, false, 'hole', { holeUs: outQ[1].timestamp - end });
             return f;
           }
-          if (flushDone && outQ.length === 1 && i >= samples.length) { noteTarget(sec, performance.now() - t0, false, 'eos'); return f; }   // last frame of the stream
-        } else if (flushDone && i >= samples.length) {
+          if (flushDone && outQ.length === 1 && i >= index.length) { noteTarget(sec, performance.now() - t0, false, 'eos'); return f; }   // last frame of the stream
+        } else if (flushDone && i >= index.length) {
           throw new Error('decoder produced no frame for ' + sec.toFixed(3) + 's');
         }
-        feed();
+        await feed();
         noteFrames();
         await new Promise((r) => setTimeout(r));   // let decoder outputs land
       }

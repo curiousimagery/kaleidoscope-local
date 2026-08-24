@@ -6,6 +6,101 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.26.75 · Build 735 — THE SOURCE STOPS BEING PROPORTIONAL TO THE CLIP
+
+**Shipped:**
+- **`demuxStreaming(blob)`** — the file is fed to mp4box in 16MB slices, sample bytes are copied into a disk-backed Blob, and every heap reference to them is dropped (mp4box's included).
+- **What survives the parse is the INDEX**: `{ cts, duration, timescale, is_sync, size, off }` per sample, ~64 bytes each. **A 3,178-frame clip costs ~0.2MB where its sample table cost 702MB.**
+- **Feeding is async**, reading one contiguous `Blob.slice` per batch, with re-entry and reset-mid-read guards.
+
+### ⭐⭐⭐ THIS IS THE ORDER CHANGE. EVERYTHING BEFORE IT CHANGED THE CONSTANT.
+
+B732 took source memory from 4× the file to 2×. **Still proportional to the clip.** The measured
+budget on an M1 iPad is around 850MB, and at Daniel's stated typical length of 2-6 minutes a 4K
+source is **~750MB at 25 Mbps and ~1.67GB at 55.7 Mbps 10-bit**. The source term alone exceeds the
+budget. **No further constant-factor work reaches it.**
+
+**Source memory is now O(1) in clip length.** The transient is one 16MB parse slice.
+
+Expected peak for the 741MB reference bake: **canvas 32 + frames 24 + index ~0.4 + parse window ~24 ≈
+80MB**, against 2143MB at B731 and 1441MB at B732.
+
+### ⚠️ NULLING `smp.data` IS LOAD-BEARING
+
+`smp` is mp4box's own sample object, so dropping the reference in `onSamples` drops the library's copy
+too. **Without it the parse is incremental and the memory is not** — which would look like the change
+working right up until the peak, and would have been read as "the ceiling is elsewhere".
+
+`releaseUsedSamples` is called when the build has it, but **it is best-effort and not the mechanism**;
+it was absent from this bundle's exports when checked.
+
+### ⚠️ TWO ASYNC HAZARDS, BOTH SILENT, BOTH HARNESSED
+
+Sample bytes now arrive by promise. The failure mode of getting this wrong is a decoder fed out of
+order, which produces **wrong pixels, not an error**.
+
+1. **Re-entry** — the wait loop calls `feed()` every iteration. Without the `feeding` guard a second
+   call starts while the first awaits its read and both advance the cursor.
+2. **A reset during the await** — `resetTo` moves the cursor back to a keyframe. A batch in flight
+   would be decoded on top of the new position. A generation counter makes the stale batch discard
+   itself.
+
+`scratchpad/streamfeed-check.mjs`, 9/9, including reset-mid-read and close-mid-read.
+
+### 📐 ONE READ PER FEED, NOT ONE PER SAMPLE
+
+Samples are laid down in decode order, so a batch of them is one contiguous range and one
+`Blob.slice()`. At 24 samples a batch that is 6,400 reads saved on a 3,178-frame slice bake, which
+matters because a disk-backed read is not free.
+
+### 📊 `parse-window` REPLACES `source-buffer` AND `sample-index` REPLACES `sample-table`
+
+Deliberately renamed rather than dropped. **A term that disappears reads as an instrument change; a
+term that drops from 707MB to 24MB reads as the fix.**
+
+---
+
+## v0.26.74 · Build 734 — THE OUTPUT GOES TO DISK, AND FAST START SURVIVES
+
+**Shipped:**
+- **`StreamTarget` + `fastStart: { expectedVideoChunks }`** replaces `ArrayBufferTarget` + `fastStart: 'in-memory'`. Encoded output lands in disk-backed Blob parts; the heap holds at most 8MB of it at a time.
+- **The file layout is unchanged.** moov still at the front, still an ordinary progressive MP4.
+- **The assembly refuses rather than guesses** if the muxer writes past the end while finalising.
+
+### ⭐ THE FORMAT QUESTION HAD A THIRD ANSWER AND I MISSED IT
+
+I offered Daniel two options, **both of which traded file compatibility for memory**: moov at the end
+(`fastStart: false`) or fragmented MP4. He ruled both out on product grounds — *"the bake output
+should be durable and optimized for export to other applications"* — and he was right to.
+
+**`fastStart: { expectedVideoChunks }` reserves space for the metadata up front**, so the moov still
+lands at the front and nothing has to be buffered to compute it. We know the frame count exactly.
+**There was no tradeoff to make.**
+
+### 🧮 WHAT IT REMOVES
+
+`ArrayBufferTarget` held the entire encoded result and **reallocated and copied as it grew**, so its
+real transient was roughly double what the ledger counted.
+
+- **Desktop: this was the entire ceiling.** A 47:45 FHD bake died with `Array buffer allocation failed` on a 64GB M1 Max.
+- **iPad: this is the term that grows through the encode**, which is where the bake now fails — frame 2116 of 3178, with ~967MB attributed, **below the 1441MB peak the same run had already survived.**
+
+`encoder-output` in the ledger is now a THROUGHPUT figure capped at the flush size, not a resident
+one. **A drop in that term between B732 and B734 reports is the change working, not a regression.**
+
+### ⚠️ THE COPY IN `onData` IS LOAD-BEARING
+
+`data` is a view onto the muxer's own scratch buffer. Handing it to a Blob without copying reads as
+corruption **later, in the finished file**, with nothing pointing back at the line that caused it.
+
+### ⚠️ AND THE ASSEMBLY REFUSES RATHER THAN GUESSES
+
+A backfill past the end of the assembled blob means our model of the muxer's write pattern is wrong.
+**The failure mode of guessing there is a corrupt export that looks fine until Daniel opens it in
+Arena**, so it throws `mux-assembly` instead.
+
+---
+
 ## v0.26.73 · Build 733 — A RESTORED CONTEXT IS NOT A RESTORED SCREEN
 
 **Shipped:**

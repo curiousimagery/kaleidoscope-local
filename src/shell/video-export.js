@@ -15,7 +15,7 @@
 // caller gets an error tagged `code === 'unsupported'`. A MediaRecorder fallback
 // is a tracked follow-up.
 
-import { Muxer, ArrayBufferTarget } from 'mp4-muxer';
+import { Muxer, StreamTarget } from 'mp4-muxer';
 import { memHold, memGrow, memRelease } from './mem-ledger.js';
 import { pickVideoCodec } from 'conduit/encode';
 
@@ -77,26 +77,63 @@ export async function exportVideo({ frameAt, onBegin, onEnd, width, height, fps,
   }
   const { codec, muxerCodec, bitrate } = picked;
 
+  // ⚠️ B734 — THE OUTPUT NO LONGER ACCUMULATES IN THE HEAP, AND FAST START IS PRESERVED.
+  //
+  // `ArrayBufferTarget` + `fastStart: 'in-memory'` held the ENTIRE encoded result in memory and
+  // reallocated and copied as it grew, so its real transient was roughly double what the ledger
+  // counted. **That is the whole desktop ceiling** — a 47:45 FHD bake died with
+  // `Array buffer allocation failed` on a 64GB M1 Max — and on the iPad it is the term that grows
+  // through the encode, which is where the bake now fails (frame 2116 of 3178, with ~967MB
+  // attributed, BELOW the 1441MB peak the same run had already survived).
+  //
+  // ⚠️ THE FORMAT DOES NOT CHANGE. Daniel, 2026-08-24: *"the bake output should be durable and
+  // optimized for export to other applications."* That rules out `fastStart: false` (moov at the
+  // end) and `'fragmented'` (fMP4), which were the two options I first offered and both of which
+  // trade file compatibility for memory. **`fastStart: { expectedVideoChunks }` is the third: it
+  // RESERVES space for the metadata up front, so the moov still lands at the front of the file and
+  // nothing has to be buffered to compute it.** We know the frame count exactly.
+  //
+  // Writes land as Blob parts, which the browser backs on disk, so the heap holds at most
+  // FLUSH_BYTES of pending output at a time regardless of how long the clip is.
+  const FLUSH_BYTES = 8 * 1024 * 1024;
+  let parts = [];          // finished Blob pieces, in file order
+  let pending = [];        // Uint8Array writes not yet flushed into a Blob
+  let pendingBytes = 0, writePos = 0;
+  const backfills = [];    // out-of-order writes — in practice only the reserved moov, at finalize
+  const flushPending = () => {
+    if (!pending.length) return;
+    parts.push(new Blob(pending));
+    pending = []; pendingBytes = 0;
+  };
   let outBytes = 0;
   const outId = memHold('encoder-output', 0);
   const muxer = new Muxer({
-    target: new ArrayBufferTarget(),
+    target: new StreamTarget({
+      onData: (data, position) => {
+        // `data` is a view onto the muxer's own scratch buffer, so it MUST be copied before it is
+        // handed to a Blob that will outlive this call. A view retained here reads as corruption
+        // later, in the finished file, with nothing pointing back at this line.
+        const copy = data.slice();
+        if (position === writePos) {
+          pending.push(copy);
+          pendingBytes += copy.byteLength;
+          writePos += copy.byteLength;
+          if (pendingBytes >= FLUSH_BYTES) flushPending();
+        } else {
+          backfills.push({ position, data: copy });
+        }
+      },
+    }),
     video: { codec: muxerCodec, width, height, frameRate: fps },
-    fastStart: 'in-memory',
+    fastStart: { expectedVideoChunks: frames },
   });
 
   let encError = null;
   const encoder = new VideoEncoder({
-    // ⚠️ B728 — THE OUTPUT IS THE ONLY TERM THAT GROWS WITHOUT BOUND.
-    //
-    // `mp4-muxer` targets an `ArrayBufferTarget`: the ENTIRE encoded result accumulates in memory
-    // before it becomes a Blob, and the target reallocates and copies as it grows, so the real peak
-    // is roughly double what this counts. **This is what killed a 47:45 FHD bake on a 64GB M1 Max**
-    // — so unlike every other term here it is not an iPad-only concern.
-    //
-    // Counting the chunks is the honest lower bound: it is exactly the encoded bytes, and it makes
-    // "how long a clip can this device bake" arithmetic instead of folklore.
-    output: (chunk, meta) => { outBytes += chunk.byteLength; memGrow(outId, outBytes); muxer.addVideoChunk(chunk, meta); },
+    // B728 — the encoded bytes, which is what makes "how long a clip can this device bake"
+    // arithmetic rather than folklore. Since B734 this is a THROUGHPUT figure rather than a resident
+    // one: the output goes to disk-backed Blob parts, so the heap holds at most FLUSH_BYTES of it.
+    output: (chunk, meta) => { outBytes += chunk.byteLength; memGrow(outId, Math.min(outBytes, FLUSH_BYTES)); muxer.addVideoChunk(chunk, meta); },
     error: (e) => { encError = e; },
   });
   // NOTE: we tried `hardwareAcceleration: 'prefer-hardware'` (Build 127) and it
@@ -212,8 +249,24 @@ export async function exportVideo({ frameAt, onBegin, onEnd, width, height, fps,
     encMs += performance.now() - tFlush;
     if (encError) throw encError;
     muxer.finalize();
+    flushPending();
+    // Splice the reserved-metadata backfill into place. `Blob.slice` does not copy, so this is
+    // cheap however long the clip is — the whole point of keeping the parts as Blobs.
+    let blob = new Blob(parts, { type: 'video/mp4' });
+    for (const { position, data } of backfills) {
+      const end = position + data.byteLength;
+      // ⚠️ REFUSE TO SHIP A FILE WE CANNOT ASSEMBLE. A backfill past the end means our model of the
+      // muxer's write pattern is wrong, and the failure mode of guessing here is a CORRUPT EXPORT
+      // that looks fine until Daniel opens it in Arena. Loud beats plausible.
+      if (end > blob.size) {
+        const e = new Error('the muxer wrote past the end of the file while finalising');
+        e.code = 'mux-assembly';
+        throw e;
+      }
+      blob = new Blob([blob.slice(0, position), data, blob.slice(end)], { type: 'video/mp4' });
+    }
     onProgress?.(1);
-    return { blob: new Blob([muxer.target.buffer], { type: 'video/mp4' }), ext: 'mp4', frames, timing: { frames, glMs, vfMs, encMs } };
+    return { blob, ext: 'mp4', frames, timing: { frames, glMs, vfMs, encMs } };
   } finally {
     onEnd?.();
     try { if (encoder.state !== 'closed') encoder.close(); } catch { /* already closed */ }

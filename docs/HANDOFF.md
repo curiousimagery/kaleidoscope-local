@@ -22,7 +22,7 @@ Archived at B658. It was marked superseded at B609 and kept for the reasoning be
 
 ## current version
 
-**v0.26.73 · B733** (2026-08-24). **B705 and B706 are device-verified** — B705's instrument found B706, and B706 held on the repro that killed B705. B703, B704 and B707 are not yet device-verified.
+**v0.26.75 · B735** (2026-08-24). **B705 and B706 are device-verified** — B705's instrument found B706, and B706 held on the repro that killed B705. B703, B704 and B707 are not yet device-verified.
 
 ---
 
@@ -64,7 +64,82 @@ Both named by Daniel at B704 **because I had left them off the plan.** Full scop
 - **The encoder's real error beats its symptom.** `VideoEncoder is not configured` describes the state we found it in, not what broke it; a synchronous throw was beating the `encError` check.
 - **The bake button no longer reads `baking…` forever while clickable.** `setClipMode`'s comment claimed it restored the label; `loopPrimary()` does. Daniel pressed the lying button, which is how the second bake happened.
 
-### ⭐⭐⭐ PICK UP HERE (B733) — THE MUXER IS THE LAST BIG TERM, AND IT IS A PRODUCT DECISION
+### ⭐⭐⭐ PICK UP HERE (B735) — A AND B ARE BOTH BUILT. VERIFY ON DESKTOP FIRST, THEN ONE iPAD RUN.
+
+**A (B734):** the muxer streams to disk-backed Blob parts. Removes the OUTPUT term. Fast Start kept.
+**B (B735):** the demux is incremental and sample bytes live in a disk-backed Blob. Removes the
+SOURCE term. **Source memory is now O(1) in clip length.**
+
+**▶ STEP 1 — DESKTOP, FREE, DO THIS FIRST.** `npm run dev` on the Mac, the 741MB original, vanilla
+slice bake. Read `bakeDecode.mem.peakBy`:
+
+| what you see | means |
+|---|---|
+| `sample-index` ~0.4MB, `parse-window` ~24MB, `encoder-output` ≤8MB, peak **~80MB** | both changes landed |
+| `sample-index` small but peak still hundreds of MB | mp4box is retaining bytes despite the null — the `releaseUsedSamples` path matters after all |
+| bake produces a broken/unplayable file | the muxer assembly — check for a `mux-assembly` throw first |
+
+**⚠️ AND PLAY THE BAKED CLIP, plus save it and open it somewhere else.** B734 changed how the file is
+written. **The format is supposed to be identical** (moov still at the front) and the assembly
+refuses rather than guesses, but *"it encoded"* is not *"it plays in Arena"*.
+
+**▶ STEP 2 — ONE iPAD RUN, only if desktop is clean.** M1 iPad Pro, same file, vanilla slice, one bake
+per launch. Then the Air.
+
+**⚠️ VERIFY THEM TOGETHER, NOT SEPARATELY. The ledger is what makes that safe** — `peakBy` names every
+term, so one report says which is still binding.
+
+**▶ C (the gate) IS NEXT and must come last.** It enforces a cost model both of these changed.
+
+### 🎯 THE FLOOR, IN DANIEL'S WORDS (2026-08-24)
+
+**"Hitting the common use case durations on M1 8GB devices is non-negotiable."** 4K at those
+durations would be *"amazing"* but is defensible to miss **if the implementation would cost
+performance or stability.**
+
+**⚠️ NOTE THE FLOOR WAS NOT SAFE EITHER BEFORE B735.** FHD at ~10 Mbps for 6 minutes is a ~450MB
+source, which at B732's 2× is a ~900MB peak against an ~850MB budget. **The non-negotiable case was
+marginal, not comfortable.** That is the strongest argument for B735 and it is not about 4K at all.
+
+**Bitrate is a LEVER, not a default** — *"halving bitrate feels like a reasonable lever we could make
+available, but not a silent default."* Filed; not built.
+
+### 🔻 SUPERSEDED (B734) — A IS BUILT. B IS NEXT. VERIFY THEM TOGETHER, NOT SEPARATELY.
+
+**A (B734): the muxer streams to disk-backed Blob parts.** Removes the OUTPUT term. Fast Start
+preserved via `fastStart: { expectedVideoChunks }`, so the baked file is unchanged as a file.
+
+**B (next): the streaming demux.** Removes the SOURCE term, which is the iPad's binding constraint.
+
+**▶ BUILD B, THEN TEST ONCE. The ledger is what makes batching safe** — `peakBy` attributes every
+term by name, so a single report says which one is still binding. Verifying them separately would
+cost a device session to learn something one report already separates.
+
+**▶ C (the gate) MUST COME LAST.** It enforces a cost model that A and B both change; built first it
+would refuse work they make possible.
+
+### 📐 BOTH CEILINGS APPLY EVERYWHERE — IT IS ONE BUDGET WITH TWO TERMS
+
+`sourceBytes + 2 × outputBytes + ~56MB ≤ budget`. **The iPad is bound by output bytes too**; we have
+simply never given it a long enough low-res clip to reach that term first. Which term dominates is an
+accident of the clip, not a property of the platform.
+
+### 🎯 THE TARGET, IN DANIEL'S WORDS (2026-08-24)
+
+**Loops are typically 2-6 minutes**, many under 2, a handful 8-12+. **10-minute 4K is the upper bound
+of normal use, not a floor.** *"If our honest hardware limit is half that, we still can offer robust
+4K support for M1 class devices, just for smaller files."*
+
+**⚠️ AND M1 + 8GB IS THE BIGGEST MARKET SHARE** (the M1 MacBook Air, which we do NOT own — the 8GB
+iPad Air is the only proxy we have). **That raises the streaming demux from optional to required**: a
+4-minute 4K source at 25 Mbps is ~750MB, and at 55.7 Mbps 10-bit it is ~1.67GB. **The source term
+alone exceeds an 8GB device's budget at the typical clip length.** A alone does not reach it.
+
+**⚠️ QUALITY BEATS REACH.** *"Our settings should bias toward higher quality with honest constraints
+instead of silently doing things like how photos dropped to 8bit without telling us."* **This retires
+the "halve the output bitrate to buy headroom" idea** unless it is an explicit, labelled choice.
+
+### 🔻 SUPERSEDED (B733) — THE MUXER IS THE LAST BIG TERM, AND IT IS A PRODUCT DECISION
 
 **B732 hit its number exactly: `peakMB` 2143.2 → 1441.1, and the iPad Pro went from frame 181 to
 frame 2116 of 3178.** Still fails, but two thirds through.
@@ -87,6 +162,32 @@ it). **It also touches the save path `video-export.js` shares with recording.**
 
 **▶ AFTER THAT, THE GATE HAS EVERYTHING IT NEEDS:** cost is arithmetic (`4×file` → now `2×file`, plus
 output), the floor is ~250MB free, and headroom is readable at bake start.
+
+### ⚠️ T10's SOURCE WAS 25.1 Mbps — AND THE RESULT SURVIVES ANYWAY
+
+`MMNT_20260721_163742806.mov`, **1,252,687,804 B · 3840×2160 · 399.1s = 25.1 Mbps.** Daniel is right
+that it is a light 4K file: the same 25.1 Mbps as the Photos copy, against **55.7 Mbps** for the
+`IMG_5132` original (which is `hvc1.2.4` — **HEVC Main10, 10-bit**; Photos transcodes HDR to 8-bit on
+export, which is most of the size difference).
+
+**But T10 was a BROADCAST test, and broadcast does not demux the file into the JS heap.** It held a
+**1.25GB** 4K source for 50 minutes with no context loss, which is direct evidence that
+playback/broadcast memory is **O(1) in file size** while the bake is O(file). **The bitrate caveat
+does not threaten T10's conclusion** — and a higher-bitrate broadcast would test decode bandwidth,
+not memory, which is a different and much cheaper question.
+
+### 📐 IS FILE SIZE THE CONSTRAINT? YES — TWO OF THEM, AND RESOLUTION IS NEARLY FREE
+
+**Resolution's direct memory cost is ~56MB at 4K** (canvas 32 + held frames 24). Noise. The dominant
+terms are **source bytes** (sample table) and **output bytes** (muxer accumulation, ×2 on realloc).
+
+**So the permutation table collapses from 3-D (resolution × duration × bitrate) to 2-D (source bytes
+× output bytes)**, and resolution and duration matter only because they produce bytes. See
+`BACKLOG.md` for the term table and the gate expression.
+
+**⚠️ The budget is NOT a per-model constant** — it is `deviceFreeMB at bake start − ~250MB`, and the
+same iPad Pro measured 1259MB and 1065MB free on two runs. **Publish a table, gate on the live
+reading.**
 
 ### ✅ B733 — THE STRIP REPAINTS AFTER A RESTORE
 

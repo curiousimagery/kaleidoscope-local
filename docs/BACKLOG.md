@@ -486,6 +486,91 @@ One report reads `pressure: { target: 15, label: "warming up" }` on a 30fps clip
 
 ## 🚧 Limits, ceilings and honest refusal
 
+### ⭐ [Daniel, 2026-08-24] OUTPUT BITRATE AS AN EXPLICIT LEVER, NEVER A SILENT DEFAULT
+
+*"Halving bitrate feels like a reasonable lever we could make available, but not a silent default."*
+
+The format control already owns fps, speed and resolution; quality is the missing axis, and it is the
+one with the most headroom per unit of visible loss. **The rule is the same one Photos broke: an
+8-bit transcode nobody asked for is the failure mode, not the saving.** Whatever it does must be
+labelled, chosen, and reported in `bakeDecode` alongside `codec` and `mbps`.
+
+### ⭐ [Daniel, 2026-08-24 — NOT PREVIOUSLY FILED] THE BAKE WIZARD SHOULD OFFER TO DOWNLOAD THE FINISHED LOOP
+
+*"The bake output should be durable and optimized for export to other applications... save the loop
+to device to quickly reload in a future session or even to use fold to prep a series of loops that
+you might perform with in Arena."*
+
+**This makes the baked file a PRODUCT, not a temporary.** It sets a hard constraint on every memory
+optimization downstream of the encoder: **a format change that plays badly with other tools is not
+worth a fractional memory saving.** Daniel's words, and it rules out moov-at-end and fragmented MP4
+as ways to stream the muxer.
+
+`host.fileSystem.save()` already exists (native share sheet on iOS, download on web) and is what the
+video export uses. The work is the wizard step and the naming, not the plumbing.
+
+### 📏 [THE REFERENCE POINT — Daniel's ask, 2026-08-24] STATE WHAT WE CAN DO TODAY, THEN MEASURE IMPROVEMENTS AGAINST IT
+
+*"It's more important to get to an honest reference point with our current capabilities... e.g. we
+might say we can handle playback and broadcast for 4k source but can only bake FHD on ipad... This
+should be a starting place that we can optimize from to say 'now with our muxer optimizations we can
+support ~23% larger 4k bakes'."*
+
+**THE TWO CEILINGS ARE DIFFERENT ON THE TWO PLATFORM CLASSES, and both are O(clip), not O(1):**
+
+| platform | binding ceiling | evidence |
+|---|---|---|
+| **iPad** | **SOURCE file size** — the whole file is demuxed and held | 741MB fails at 67%; 334MB passes |
+| **Desktop** | **OUTPUT size** — `ArrayBufferTarget` accumulates the entire encode | 47:45 FHD died on a 64GB M1 Max |
+
+**▶ THE TABLE IS 2-D, NOT 3-D, AND THAT IS THE USEFUL PART.** Resolution's DIRECT memory cost is
+tiny: the capture canvas (32MB at 4K, 8MB at FHD) plus held frames (24MB / 6MB). **~56MB at 4K, which
+is noise.** Everything that actually hurts is bytes:
+
+| term | scales with | 4K, 741MB / 1:46 example |
+|---|---|---|
+| sample table (steady) | **source bytes** | 707MB |
+| source buffer (transient, demux only) | **source bytes** | +707MB |
+| capture canvas + held frames | resolution | 56MB |
+| encoder output (grows, ×2 on realloc) | **output bytes** | up to 628MB |
+
+**So resolution and duration matter only because they produce BYTES**, and the gate is
+`sourceBytes` + `2 × projectedOutputBytes` + ~56MB against the budget. **Both byte counts are known
+before the bake starts**, and output bytes is one WE choose via the format control.
+
+**⚠️ BUT THE BUDGET IS NOT A PER-MODEL CONSTANT.** It is `deviceFreeMB at bake start − ~250MB floor`,
+and the same iPad Pro started at 1259MB free in one run and 1065MB in another. **A static table would
+be wrong on a busy device**, which is the same conclusion `HARDWARE-SUPPORT.md` reaches by a different
+route: compute it, never look it up. A published table is the right thing to SAY; the live reading is
+the right thing to GATE on.
+
+**⚠️ TRIMMING DOES NOT HELP THE iPAD CEILING.** `openSharedSource` demuxes the WHOLE file regardless
+of the trim; the trim only shortens the OUTPUT. Anyone reaching for "just trim it in" is treating the
+desktop ceiling as if it were the iPad one.
+
+**⚠️ AND THE OPTIMIZATIONS SO FAR CHANGED THE CONSTANT, NOT THE ORDER.** B732 took source memory from
+4×file to 2×file. **10-minute 4K at 55 Mbps is a 4.1GB source, so 2× is 8.2GB against an iPad budget
+near 850MB — roughly 8× over, not 20% over.** No further constant-factor work reaches it.
+
+**▶ AND IT IS NOW REQUIRED, NOT OPTIONAL (Daniel, 2026-08-24).** Loops are typically **2-6 minutes**,
+and **M1 + 8GB is the single biggest Apple-silicon market share** (the M1 MacBook Air — which we do
+not own; the 8GB iPad Air is our only proxy). A 4-minute 4K source is ~750MB at 25 Mbps and ~1.67GB
+at 55.7 Mbps 10-bit. **The source term alone exceeds an 8GB budget at the typical clip length**, so
+B734's output fix does not reach it.
+
+**✅ SHIPPED B735 — the streaming demux.** `demuxStreaming(blob)` feeds mp4box 16MB at a time, copies
+sample bytes into a disk-backed Blob and nulls every heap reference (mp4box's own included). **What
+survives is a ~64-byte-per-sample index: 0.2MB where the sample table was 702MB.** Feeding is async,
+one contiguous `Blob.slice` per batch, harnessed for re-entry and reset-mid-read
+(`streamfeed-check.mjs`, 9/9).
+
+**🔻 (superseded) THE CATEGORICAL FIX IS A STREAMING DEMUX.** The sample INDEX (offsets, sizes, cts, sync flags) is
+small; the sample BYTES are the 700MB. The source is a local blob, so `blob.slice(off, off+len)` is a
+cheap disk-backed read. **Keeping the index and fetching bytes on demand makes source memory O(1) in
+clip length** and is the only route to 10-minute 4K on an iPad. Bigger than 1-3 increments; scope it
+deliberately.
+
+
 ### 🚨🚨 [HIGH — B731] "SAME CLIP" HAS BEEN WRONG TWICE, AND IT INVALIDATES HISTORICAL iPAD RESULTS
 
 **The Photos copy of a 4K clip is `3840×2160 · 106.45s · 30fps` at 45% of the bytes** — identical
@@ -536,7 +621,12 @@ sequence, so the high-water mark is B's sample table + A's file buffer + A's sam
 1. **✅ SHIPPED B732** — `openSharedSource(url)` parses once and hands out refcounted readers; the
    slice bake takes two. **Expected 2143MB → ~1441MB.** `createSequentialFrameReader(url)` is
    unchanged for single-reader callers. Verify on the iPad Pro before the Air.
-2. **⏳ NOT BUILT, AND NOW THE LAST BIG TERM — stream the muxer output.** ⚠️ **NEEDS DANIEL'S CALL: it
+2. **✅ SHIPPED B734 — the muxer streams to disk-backed Blob parts.** `StreamTarget` +
+   `fastStart: { expectedVideoChunks }`, so **the moov still lands at the front and the file is
+   unchanged** — the two options that traded compatibility for memory (moov-at-end, fMP4) were both
+   unnecessary. Heap holds at most 8MB of output regardless of clip length.
+
+   **🔻 (superseded) NOT BUILT — stream the muxer output.** ⚠️ **NEEDS DANIEL'S CALL: it
    changes the baked FILE, not just memory.** Current config is `ArrayBufferTarget` +
    `fastStart: 'in-memory'`, which buffers everything so the moov lands at the front. Streaming means
    **moov at the end** (`fastStart: false` — valid MP4, fine for a local blob we reload immediately,
