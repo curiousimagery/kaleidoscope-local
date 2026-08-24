@@ -712,6 +712,25 @@ is the symptom.
 *release on recovery, or say we are in a bad state and offer a true reset*. A refusal to start a
 second bake without headroom is the same gate as refusing an oversized one, reading the same field.
 
+### 🚨 [HIGH — Daniel, 2026-08-24, B736 iPad] AFTER A SUCCESSFUL BAKE THE PANELS STAY BLACK UNTIL YOU SCRUB
+
+*"It closed to the loop builder but seems to have silently lost context. The source panel, output
+panel, and thumbnails (except for the very last one) are all blacked out... scrubbing the timeline
+restores visuals so we maybe just didn't run the process to update the visuals with the new baked
+clip."* **Daniel's own read is the right one.**
+
+**This is the SWAP path, not the restore path.** `applyBakedClip` replaces `env.sourceVideo` and
+re-binds the timeline but nothing repaints the panels, so they hold the dead clip's last frame until
+a scrub forces a draw. **B733 fixed the GL-restore case via `onGLRestored`; this one has no such
+trigger** because nothing was lost — the app is simply showing stale pixels.
+
+**⚠️ IT READS AS A CRASH.** A operator seeing three black panels after a four-minute bake has no way
+to tell "stale" from "broken", which is the same trust problem as the recovery question: **the app
+looks like it failed when it succeeded.**
+
+**▶ The repaint idiom already exists** (`lastThumbMode = null` + `setLoopStep`, used after a bake and
+on undo). The missing piece is calling it from the swap.
+
 ### ✅ [PARTLY FIXED B733] THE CONTEXTS RECOVERED AND THE PANELS DID NOT
 
 **`onGLRestored(fn)` in `gl-watch.js` now tells anything that painted a canvas and walked away.** The

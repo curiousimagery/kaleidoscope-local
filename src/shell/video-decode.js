@@ -84,9 +84,8 @@ async function findTopLevelBoxes(blob) {
       size = blob.size - pos;             // "to end of file"
     }
     if (size < header || pos + size > blob.size) break;
-    out[type] = { start: pos, end: pos + size };
-    if (type === 'moov') break;           // everything the decoder config needs is in here
-    pos += size;
+    out[type] = { start: pos, end: pos + size, header };
+    pos += size;                          // keep walking: on iOS the moov sits BEHIND the mdat
   }
   return out;
 }
@@ -99,9 +98,27 @@ async function demuxStreaming(blob) {
   let info = null, err = null;
   mp4.onError = (e) => { err = e || 'parse error'; };
   mp4.onReady = (i) => { info = i; };
+  // ⚠️ B737 — THE mdat HEADER IS WHAT LETS THE PARSER REACH A TRAILING moov.
+  //
+  // B736 appended `ftyp` + `moov` and nothing else, and on Daniel's clips **`onReady` never fired**
+  // — two device sessions, both silently on the slow per-frame fallback. Harnessed against a real
+  // moov-at-end file (`scratchpad/mp4box-moov-check.mjs`, built with mp4-muxer at
+  // `fastStart: false`, the layout iOS writes): moov-at-FRONT indexed 120/120 samples, moov-at-END
+  // produced nothing at all.
+  //
+  // **mp4box parses forward from byte 0.** After `ftyp` it looks at offset 28, finds no buffer, and
+  // stops — the moov sitting 700MB later is never reached. Giving it the mdat's 16-byte HEADER tells
+  // it how large that box is, so it skips the payload it does not need and lands on the moov.
+  //
+  // So: every box in full EXCEPT mdat, which contributes its header only. Both layouts now index
+  // identically, and the payload is never read into the heap.
   try {
-    for (const box of [boxes.ftyp, boxes.moov]) {
-      if (!box) continue;
+    const appends = Object.entries(boxes)
+      .map(([type, box]) => (type === 'mdat'
+        ? { start: box.start, end: Math.min(box.start + (box.header || 8) + 8, box.end) }
+        : box))
+      .sort((x, y) => x.start - y.start);
+    for (const box of appends) {
       const part = await blob.slice(box.start, box.end).arrayBuffer();
       part.fileStart = box.start;         // mp4box places sparse appends by this, not by arrival
       mp4.appendBuffer(part);
@@ -143,7 +160,8 @@ async function demuxStreaming(blob) {
     }
     rotation = rotationFromMatrix(trak && trak.tkhd && trak.tkhd.matrix);
   } catch { /* some codecs carry their config in-band */ }
-  return { track, index, bytes: blob, description, rotation };   // the bytes ARE the original file
+  const moovBytes = boxes.moov ? (boxes.moov.end - boxes.moov.start) : 0;
+  return { track, index, bytes: blob, description, rotation, moovBytes };   // the bytes ARE the original file
 }
 
 // ISO track matrix → clockwise rotation in degrees (0/90/180/270). a=m[0], b=m[1] in 16.16.
@@ -224,14 +242,12 @@ export async function openSharedSource(url, { maxBytes = 1_500_000_000 } = {}) {
   // term that disappears reads as an instrument change; a term that drops from 707MB to under 1MB
   // reads as the fix.**
   const fileBytes = blob.size;
-  const moovBytes = await (async () => {
-    try { const b = await findTopLevelBoxes(blob); return b.moov ? (b.moov.end - b.moov.start) : 0; } catch { return 0; }
-  })();
-  const parseId = memHold('parse-window', moovBytes);
   const parsed = await demuxStreaming(blob);
-  memRelease(parseId);
   if (!parsed) return null;
-  const { track, index, bytes, description, rotation } = parsed;
+  const { track, index, bytes, description, rotation, moovBytes } = parsed;
+  // The moov is the ONLY part of the file this path ever reads into the heap, and it is released as
+  // soon as the index is built. Recorded so a report can show it collapse rather than go missing.
+  memRelease(memHold('parse-window', moovBytes || 0));
 
   const config = {
     codec: track.codec,

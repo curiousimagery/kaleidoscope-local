@@ -6,6 +6,55 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.26.77 · Build 737 — THE mdat HEADER IS WHAT LETS THE PARSER REACH A TRAILING moov
+
+**Shipped:**
+- **`demuxStreaming` appends every box in full except `mdat`, which contributes its header only.** Both moov layouts now index identically.
+- **HANDOFF trimmed 809 → 256 lines**; builds 705-737 archived with a one-table summary.
+
+### 🚨 THE READER HAS NEVER ARMED ON A DEVICE. THAT WAS THE ENTIRE SLOWDOWN.
+
+| build | bake time, same 741MB clip | reader |
+|---|---|---|
+| B729 / B730 | **34.5s** | armed |
+| B735 | 345.3s (**10×**) | `bake-decode-none` |
+| B736 | 293.3s (**8.5×**) | `bake-decode-none` |
+
+**Daniel felt it before the report said it** — *"the mbp used to feel much much faster than the ipad
+pro and now it feels like its about the same speed."* It was: both were running the per-frame
+`<video>`-seek fallback, which is the path the WebCodecs reader exists to avoid.
+
+### 📐 WHY B736's FIX WAS STILL WRONG
+
+**mp4box parses forward from byte 0.** B736 appended `ftyp` + `moov` and nothing else; after `ftyp`
+the parser looks at offset 28, finds no buffer, and stops. **A moov sitting 700MB behind the mdat is
+never reached** — and iOS writes .mov files with the moov at the END.
+
+**Giving it the mdat's 16-byte HEADER tells it how large that box is**, so it skips a payload it does
+not need and lands on the moov.
+
+**Harnessed against a real moov-at-end file** (`scratchpad/mp4box-moov-check.mjs`, built with
+mp4-muxer at `fastStart: false` — the layout iOS writes):
+
+| | before B737 | after |
+|---|---|---|
+| moov at front | 120/120 samples | 120/120 |
+| **moov at end** | **`onReady` never fired, 0 samples** | **120/120** |
+
+### ⚠️ AND THE MEMORY WORK IS STILL UNVERIFIED ON HARDWARE
+
+`peakMB: 47.6` in the B736 reports is **the fallback path's** footprint. **No run has exercised the
+O(1) design end to end.** The reduction ledger stays provisional until a report shows `sample-index`
+in `peakBy`.
+
+### 🔎 THREE LIBRARY ASSUMPTIONS, THREE BUILDS, THREE DEVICE SESSIONS
+
+B734 (mp4-muxer's write pattern), B735 (mp4box's incremental append), B736 (mp4box's moov-only
+append). **Each was answerable locally in ten minutes and each cost a device session instead.** The
+three harnesses now exist; the rule they encode is **ask the library, do not model it.**
+
+---
+
 ## v0.26.76 · Build 736 — TWO B735 BUGS, BOTH MINE, BOTH FOUND BY ASKING RATHER THAN GUESSING
 
 **Shipped:**

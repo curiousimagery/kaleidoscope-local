@@ -34,3 +34,9 @@ Forward-facing planning now lives in `../PLAN-LIVE-READINESS.md` (the sequence a
 `../BACKLOG.md` (the inventory, themed + stack-ranked) and `../HANDOFF.md` (current state, and it is
 meant to stay short). Codebase structure is `../ARCHITECTURE.md`; the long historical record is
 `ARCHIVE-reasoning.md`.
+
+## added in the B737 cleanup (2026-08-24)
+
+| doc | what it is | why it moved |
+|---|---|---|
+| `HANDOFF-builds-705-737.md` | the memory-ceiling arc, newest-first | `HANDOFF.md` had gone 809 lines with **eleven "SUPERSEDED" blocks** — the same drift Daniel called out at B704, one arc later. Now 256 lines. Its header carries a one-table summary of what the arc established, so the detail is optional reading |

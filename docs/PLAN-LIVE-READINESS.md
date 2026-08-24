@@ -24,13 +24,46 @@ So 4K at 10 minutes is **the ceiling to design toward, not the floor to require*
 
 ## Where we are
 
-**Last revised 2026-08-21 at B704.** Phase 2's pressure-testing arc ran B683-B704; the per-hypothesis record is in `BACKLOG.md`, the per-build detail in `CHANGELOG.md`.
+**Last revised 2026-08-24 at B737.**
+
+### ▶ THE ARC SINCE B704: GL LOSS CLOSED, A MEMORY CEILING OPENED AND MEASURED
+
+**Item 2's remaining piece — *provoke GL context loss deliberately* — is effectively CLOSED.** All
+five surfaces are watched with four distinguishable outcomes, loss is provokable on demand from the
+frame-cost panel, and every provoked and organic loss in the arc recovered in 29-650ms. What remains
+of it is a short test list (`VERIFY-QUEUE.md` A4/A6/A7: three surfaces never deliberately provoked).
+
+**In its place a NEW and larger item was found and measured: the bake's memory ceiling.** It is not a
+GL problem — it is jetsam, confirmed by the OS. Its shape:
+
+- **Cost is a property of the JOB; the ceiling is a property of the DEVICE.** One clip, four
+  machines, `peakMB` identical to 0.1MB; both Macs passed, both iPads failed, 8GB before 16GB.
+- **The gate is arithmetic and every term is known before the bake starts**:
+  `sourceBytes + 2 × outputBytes + ~56MB ≤ deviceFreeMB − ~250MB`.
+- **Resolution is nearly free (~56MB at 4K).** The table collapses to 2-D: source bytes × output bytes.
+- **Playback and broadcast are unaffected** — memory there is O(1) in file size (T10 held 1.25GB for
+  50 minutes). **The asymmetry IS the ladder: broadcast 4K freely, bake within a byte budget.**
+
+**Three builds address it and their verification is outstanding**: B732 (shared demux, measured 2143
+→ 1441MB), B734/B736 (streaming muxer, byte-verified against the old target), B735/B736/B737
+(streaming demux — **design is O(1) in clip length; NOT yet device-verified, the reader has not armed
+on any device run**).
+
+**⚠️ THE GATE (item C) IS THE CLOSE-OUT FOR PHASE 2 AND MUST COME LAST**, because the cost model it
+enforces is exactly what these three builds change.
+
+### ▶ The item table (revised B737)
+
+Phase 2's pressure-testing arc ran B683-B704 and the memory-ceiling arc B705-B737; the per-hypothesis
+record is in `BACKLOG.md`, the per-build detail in `CHANGELOG.md`, the narrative in
+`archive/HANDOFF-builds-705-737.md`.
 
 | # | item | status |
 |---|---|---|
 | 1 | Frame cadence / broadcast delivery | **Closed B594.** Record in `BROADCAST-DELIVERY.md` |
 | 1.5 | Input normalization across modalities | **CLOSED B657** |
-| 2 | The 4K source-attach cluster | **Largely closed B683-B704.** See below |
+| 2 | The 4K source-attach cluster | **Closed B683-B704.** GL-loss provocation closed B723-B733 |
+| 2.5 | **The bake's memory ceiling** | **MEASURED B727-B737.** Cost model proven; three reductions built, **none device-verified** |
 | 3 | NDI | Not started. One bug already diagnosed and waiting. **The governor is kept (default off) for this** |
 | 4 | iPad limits, sustained load | **CLOSED B695-B698.** T7/T8/T9/T10 all complete |
 | 5 | iPhone limits, honest labels | **Not reached, and now the largest evidence gap** → `HARDWARE-SUPPORT.md` |
@@ -57,7 +90,21 @@ So 4K at 10 minutes is **the ceiling to design toward, not the floor to require*
 | Session/permit accounting | **Shipped B681, proven conserved.** Peak GL 2-3, peak decode 8 |
 | Instrumentation | **All five GL surfaces now report (B695).** Four of five were console-only before |
 
-### ⚠️ The two things phase 2 has NOT done, both named by Daniel at B704
+### ⚠️ WHAT CLOSES PHASE 2, revised B737
+
+**Item 2 of the B704 pair is done** (provoke GL loss + cycle diagnostics — see the arc summary above).
+**Two things remain, and they are the same shape:**
+
+1. **The BAKE gate.** Refuse or warn using the measured cost model, reading `deviceFreeMB` live.
+   **Blocked only on device-verifying B732/B734/B737** — the model is proven, the reductions are not.
+2. **The RECORD gate** (the original item 1 below). Same mechanism, different subsystem.
+
+**Both must be COMPUTED, never a device table** (`HARDWARE-SUPPORT.md`), and both need one honest
+refusal path rather than two. **A published capability table is the right thing to SAY; the live
+reading is the right thing to GATE on** — the same iPad Pro measured 1259MB and 1065MB free on two
+runs.
+
+### ▶ (superseded B737) The two things phase 2 has NOT done, both named by Daniel at B704
 
 1. **Gate recording on detected capability.** Scoped in BACKLOG, not built. Refuse 4K takes (13.5fps against a declared 30, two devices, two builds); warn on record-while-broadcast and on thermal `serious`. **Must be COMPUTED, never a device table** — see `HARDWARE-SUPPORT.md`.
 2. **Provoke GL context loss deliberately and cycle diagnostics.** **The largest remaining piece of the item.** The listening side only became ready at B695/B699/B703; before that a provoked loss was mostly unobservable. B703 may already have fixed the most common consequence, so losses that heal cleanly are a PASS.

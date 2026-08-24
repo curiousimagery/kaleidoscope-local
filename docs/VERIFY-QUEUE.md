@@ -8,20 +8,45 @@ Confirmed results are DELETED from here and recorded in CHANGELOG. Closed sessio
 
 ---
 
-# ▶ OPEN SESSION (B723) — WHERE DOES IT BREAK, AND DOES IT HEAL?
+# ▶ OPEN SESSION (B737) — DOES THE O(1) BAKE ACTUALLY ARM?
 
-**The question:** *which surfaces survive a context loss, which organic actions still crash us, and
-does every platform render and bake on the path it should be on?*
+**The question:** *has the streaming reader ever run on a device, and does the memory model hold?*
 
-**Grading, once for the whole session.** A provoked loss is a **PASS** when the trail shows
-`gl-context-restored` for that surface and the picture returns with no operator action.
-`gl-restore-failed` / `-incomplete` / `-timeout` are FAILs. **A loss with none of the four means the
-app died inside the window**, which is the worst result and the most useful one.
+**⚠️ EVERY DEVICE RUN SINCE B735 HAS SILENTLY USED THE SLOW FALLBACK.** `bake-decode-none`, no
+WebCodecs reader, per-frame `<video>` seeking. **34.5s → 345s → 293s on the same clip.** Nothing about
+the O(1) design has been exercised yet.
 
-**Before reading any report from this session, check for `gl-loss-provoked`.** Provoked and organic
-losses are otherwise indistinguishable, and mixing them poisons the evidence.
+## ⭐ R0 — DESKTOP, FREE, BEFORE ANY DEVICE TIME
+
+`npm run dev`, the **741,685,378-byte original** (not the Photos copy), vanilla slice, one bake.
+
+| check | pass |
+|---|---|
+| **speed** | **~35s.** Minutes = still on the fallback |
+| `bakeDecode` present | **`bake-decode-none` = STOP, send the report** |
+| `peakBy` | `sample-index` ~0.2MB · `parse-window` = moov size · peak **well under 100MB** |
+| the file | **play it, save it, open it in another app** |
+
+**This exact check has caught the same class of failure twice. Do not skip it.**
+
+## R1 — then ONE iPad Pro run, one bake per launch. Then the Air.
+
+Same file, vanilla slice. `peakMB` should match the desktop's to a decimal. **Check `srcBytes` reads
+741,685,378 first** — Photos hands out a 334MB re-encode and AirDrop is not enough, the file must
+arrive via Files.
+
+## R2 — the reference point, once R1 passes
+
+Three bakes on the iPad Pro to bracket what we can honestly claim: **FHD vanilla**, **the 334MB 4K
+copy**, and **the 741MB 4K original**. That produces the published table.
+
+## D5 — the residue question, no build needed
+
+**Three identical bakes in ONE launch**, fresh Loop Builder each time. `peakMB` must be constant; the
+measurement is whether `bakeMem.device.freeBeforeMB` returns to baseline before each one.
 
 ---
+
 
 ## Part A — provoked losses (frame-cost panel → `lose context`). Mostly DESKTOP.
 
