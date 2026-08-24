@@ -6,6 +6,75 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.26.70 · Build 730 — THE LEDGER'S BIGGEST TERM WAS A BUFFER WE HAD ALREADY FREED
+
+**Shipped:**
+- **`source-buffer` is held across the demux and released with it.** B728 freed `buf` and kept counting it, so the largest term in the first cross-device reading was a phantom.
+- **The device-wide reading is stamped BEFORE and AFTER every bake**, not only on a context loss. A bake that succeeded reported nothing about the processes we are blind to.
+
+### ⭐⭐ THE FIRST CROSS-DEVICE READING, AND IT WORKED
+
+**One clip, vanilla slice, one bake per launch. `mode slice · inT 0 · outT 1 · slicePoint 0.3333 ·
+crossfadeMs 500 · 3178 frames · 3840×2160 · 30fps` on all three.**
+
+| machine | `peakMB` | outcome |
+|---|---|---|
+| M1 Max MBP | **3188.5** | pass |
+| M5 Max MBP | **3188.6** | pass |
+| M1 iPad Pro | **1627.3** | pass |
+
+**The two Macs agree to 0.1MB on an identical job.** That is the conserved quantity behaving exactly
+as a conserved quantity should, and it is what makes "measure the cost once, read the limit per
+device" possible.
+
+### ⚠️ AND THE iPAD WAS NOT RUNNING THE SAME EXPERIMENT
+
+**`IMG_5132.mov` is 334,468,478 bytes on the iPad and `IMG_5132.MOV` is 741,685,378 bytes on the
+Macs.** Same name, same 106.45s duration, same 3840×2160 — **different file.** iCloud delivered a
+lighter copy to the iPad.
+
+The ledger caught it because the arithmetic is exact: `source-buffer` is 637.9MB on the iPad
+(2 × 318.99MB) and 1414.7MB on the Macs (2 × 707.32MB), matching each file's byte count to two
+decimal places.
+
+**This is the fourth uncontrolled A/B this arc, and the first one an instrument caught rather than
+Daniel.** It also has a nasty shape for the ladder: **the weaker device is being handed the easier
+file**, which flatters it and hides the ceiling.
+
+### 🧮 THE COST MODEL, AND IT IS ARITHMETIC
+
+```
+slice bake peak ≈ 4 × fileBytes + encodedOutputBytes + ~55MB
+```
+
+Checked both ways: iPad `4 × 318.99 + 298.8 + 55 = 1630` against a measured **1627.3**. Macs
+`4 × 707.32 + 314.3 + 55 = 3198` against a measured **3188.5**.
+
+**Four times the file** because slice opens two readers over the same URL and each one holds the file
+plus a sample table of the same size. Bounce and forward are 2×. **Every term is known before the
+bake starts**, which is what a computed gate needs.
+
+### ✅ OUR ACCOUNTING BALANCES — THE RESIDUE IS NOT A RETAINED REFERENCE
+
+**`heldMB: 0` and `openHandles: 0` after teardown on all three machines**, and still zero in `memNow`
+minutes later. So the D2-versus-D3 residue is **not** a bug of the form "we forgot to release
+something". It is GC latency or engine-side, which needs a different fix, and knowing which was the
+whole point of measuring before modelling.
+
+### ⚠️ WHAT THIS DOES NOT SHOW: WHETHER mp4box COPIES
+
+`sample-table` ≈ `source-buffer` in every run, and **that is equally consistent with copies and with
+views sharing `buf`'s memory** — the samples cover the mdat either way. B728's changelog read it as
+settled; it is not. **The distinguishing evidence is device-wide**, which is why B730 stamps it
+around the bake. Until then `sample-table` is an UPPER bound and the model above may be 4× or 3×.
+
+### 📉 THE TWO REDUCTIONS ARE NOW QUANTIFIED
+
+- **Share one fetch and one demux across slice's two readers: removes half the buffer cost.** 1.4GB on the Macs, 640MB on the iPad.
+- **Stream the muxer output: removes ~300MB and its realloc doubling, and removes the duration ceiling entirely** (this is what killed the 47:45 FHD bake on 64GB).
+
+---
+
 ## v0.26.68-69 · Builds 728-729 — TWO INSTRUMENTS WHOSE DIFFERENCE MEASURES THE BLIND SPOT
 
 **Shipped (B728, JS):**

@@ -22,7 +22,7 @@ Archived at B658. It was marked superseded at B609 and kept for the reasoning be
 
 ## current version
 
-**v0.26.69 · B729** (2026-08-24). **B705 and B706 are device-verified** — B705's instrument found B706, and B706 held on the repro that killed B705. B703, B704 and B707 are not yet device-verified.
+**v0.26.70 · B730** (2026-08-24). **B705 and B706 are device-verified** — B705's instrument found B706, and B706 held on the repro that killed B705. B703, B704 and B707 are not yet device-verified.
 
 ---
 
@@ -64,7 +64,50 @@ Both named by Daniel at B704 **because I had left them off the plan.** Full scop
 - **The encoder's real error beats its symptom.** `VideoEncoder is not configured` describes the state we found it in, not what broke it; a synchronous throw was beating the `encError` check.
 - **The bake button no longer reads `baking…` forever while clickable.** `setClipMode`'s comment claimed it restored the label; `loopPrimary()` does. Daniel pressed the lying button, which is how the second bake happened.
 
-### ⭐⭐ PICK UP HERE (B729) — MEASURE FIRST. TWO INSTRUMENTS ARE IN; NOTHING GATES YET.
+### ⭐⭐ PICK UP HERE (B730) — THE COST MODEL IS MEASURED. IT IS ARITHMETIC.
+
+```
+slice bake peak ≈ 4 × fileBytes + encodedOutputBytes + ~55MB      (bounce/forward: 2 × fileBytes)
+```
+
+**Measured 2026-08-24, one clip, vanilla slice, one bake per launch, all three passed:**
+
+| machine | `peakMB` | file |
+|---|---|---|
+| M1 Max MBP | **3188.5** | 741,685,378 B |
+| M5 Max MBP | **3188.6** | 741,685,378 B |
+| M1 iPad Pro | **1627.3** | **334,468,478 B** |
+
+**The two Macs agree to 0.1MB on an identical job.** The conserved quantity works.
+
+**⚠️ THE iPAD IS RUNNING A DIFFERENT FILE.** Same name, same duration, same resolution, **half the
+bytes** — iCloud handed it a lighter copy. **The weaker device is getting the easier file, which
+flatters it and hides the ceiling.** Any cross-device comparison must check `sourceSwap[].size`
+first. This is the fourth uncontrolled A/B this arc and the first an instrument caught.
+
+**▶ NEXT: the iPad AIR run, on B730.** It is the one expected to fail, and `peakMB` plus the new
+device-wide delta will say at what number. **Check its file size before comparing anything.**
+
+**▶ THE TWO REDUCTIONS ARE QUANTIFIED AND NOT BUILT:** one shared fetch + demux across slice's two
+readers removes **half** the buffer cost (1.4GB on the Macs); streaming the muxer output removes
+~300MB, its realloc doubling, and the duration ceiling that killed the 47:45 FHD bake on 64GB.
+
+### ✅ THE RESIDUE IS NOT A RETAINED REFERENCE
+
+**`heldMB: 0`, `openHandles: 0`** after teardown on all three, and still zero minutes later. D2 vs D3
+is **not** "we forgot to release something". It is GC latency or engine-side, which needs a different
+fix. **This is what measuring before modelling bought.**
+
+### ⚠️ TWO THINGS THE READING DOES NOT SHOW
+
+1. **Whether mp4box COPIES the sample bytes.** `sample-table` ≈ `source-buffer` is equally consistent
+   with copies and with views sharing `buf`. B728's changelog called it settled; **it is not.** The
+   model may be 4× or 3×. B730's device-wide delta is what distinguishes them.
+2. **B729's `source-buffer` was a PHANTOM** — B728 freed `buf` after the demux and kept counting it
+   for the reader's life. **The peaks above are real; their composition was not.** Fixed in B730, so
+   B729 numbers and B730 numbers are not directly comparable.
+
+### 🔻 SUPERSEDED (B729) — MEASURE FIRST. TWO INSTRUMENTS ARE IN; NOTHING GATES YET.
 
 **▶ THE RUN: one vanilla bake per machine, same clip, same settings, ONE BAKE PER LAUNCH.**
 iPad Pro, iPad Air, M1 Max, M5 Max. Then read three fields:

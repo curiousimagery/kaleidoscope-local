@@ -116,8 +116,20 @@ export async function createSequentialFrameReader(url, { maxBytes = 1_500_000_00
   } catch { return null; }
   if (!buf.byteLength || buf.byteLength > maxBytes) return null;
 
+  // ⚠️ B730 — HOLD IT ACROSS THE DEMUX, THEN LET IT GO. B728 COUNTED A BUFFER IT HAD ALREADY FREED.
+  //
+  // B728 nulled `buf` after `demux()` (a real saving) and ALSO held a `source-buffer` handle for the
+  // reader's whole life. **So the largest single term in the first cross-device reading was a
+  // phantom** — 637.9MB on the iPad and 1414.7MB on the Macs, counted as resident after the
+  // reference had been dropped. The peaks were real; their composition was not.
+  //
+  // Held from before the demux to just after it, which is the interval when it genuinely IS
+  // resident — and that interval is a true spike, because mp4box is building the sample table from
+  // it at the same moment. `peakMB` still captures it; nothing after it does.
+  const bufBytes = buf.byteLength;
+  const bufId = memHold('source-buffer', bufBytes);
   const parsed = demux(buf);
-  if (!parsed) return null;
+  if (!parsed) { memRelease(bufId); return null; }
   const { track, samples, description, rotation } = parsed;
 
   // ⚠️ B728 — THE TWO BIGGEST ALLOCATIONS THIS READER MAKES, AND THE SECOND ONE SETTLES AN OPEN QUESTION.
@@ -132,12 +144,16 @@ export async function createSequentialFrameReader(url, { maxBytes = 1_500_000_00
   // ⚠️ AND SLICE MODE OPENS TWO READERS OVER THE SAME URL, so both of these are paid TWICE for one
   // bake. That is the most obviously removable term in the whole model, and the ledger is what will
   // say whether removing it is worth the change.
-  const bufBytes = buf.byteLength;
-  buf = null;   // B728 — nothing reads it after `demux()`; holding the local kept the whole file alive
-  const bufId = memHold('source-buffer', bufBytes);
   let sampleBytes = 0;
   for (const smp of samples) sampleBytes += (smp.data && smp.data.byteLength) || 0;
   const samplesId = memHold('sample-table', sampleBytes);
+  buf = null;                 // B728 — nothing reads it after `demux()`
+  memRelease(bufId);          // B730 — and the ledger must agree with that
+  // ⚠️ `sample-table` ≈ `source-buffer` DOES NOT PROVE mp4box COPIES. The samples cover the mdat, so
+  // the two sums are near-equal whether the sample data are independent copies or views sharing
+  // `buf`'s memory. **The distinguishing evidence is device-wide**: if they are views, freeing `buf`
+  // changes nothing and `sample-table` is not a second allocation. B730 stamps the device reading
+  // around the bake so the next run can tell. Until then this term is an UPPER bound.
 
   const config = {
     codec: track.codec,

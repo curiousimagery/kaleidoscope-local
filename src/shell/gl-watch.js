@@ -100,6 +100,13 @@ const MEM_SCOPE = 'footprintMB + availableMB are the NATIVE HOST process only, N
   + 'content process where the JS heap, demuxed buffers and encoder output live, nor the WebKit GPU '
   + 'process that holds GL contexts and VideoFrames. deviceFreeMB / deviceReclaimableMB (B729) and '
   + 'thermal ARE device-wide and do see those processes — read them as a DELTA, never an absolute.';
+// B730 — the same cached reading, for callers that are not a context loss. A SUCCESSFUL bake
+// produced no device-wide number at all, because the only place it was stamped was the loss handler.
+export function readHostVitals() {
+  if (!lastHostVitals) return null;
+  return { ...lastHostVitals, ageMs: Date.now() - lastHostVitals.at, scope: MEM_SCOPE };
+}
+
 function memAtLoss() {
   if (!lastHostVitals) return { mem: null, memWhy: 'host vitals never reported (web/Electron, or the plugin is absent)' };
   return { mem: { ...lastHostVitals, ageMs: Date.now() - lastHostVitals.at, scope: MEM_SCOPE } };

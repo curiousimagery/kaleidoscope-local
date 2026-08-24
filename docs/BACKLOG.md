@@ -500,8 +500,24 @@ GPU processes.
 **▶ NEXT: one vanilla bake per machine, ONE PER LAUNCH**, then compare `peakMB`/`peakBy` (should be
 identical for an identical job) against outcome (should differ per device). See `VERIFY-QUEUE.md`.
 
-**▶ Still to decide once measured:** whether to share one fetch + one demux across slice's two
-readers, and whether to stream the muxer output instead of accumulating it.
+**✅ MEASURED 2026-08-24. THE MODEL IS ARITHMETIC:**
+
+```
+slice bake peak ≈ 4 × fileBytes + encodedOutputBytes + ~55MB      (bounce/forward: 2 × fileBytes)
+```
+
+M1 Max **3188.5MB**, M5 Max **3188.6MB**, M1 iPad Pro **1627.3MB** — all three passed, and the two
+Macs agree to 0.1MB on an identical job. **Every term is known before the bake starts.**
+
+**▶ THE TWO REDUCTIONS ARE NOW QUANTIFIED AND ARE THE NEXT BUILD DECISION:**
+1. **One shared fetch + demux across slice's two readers — removes HALF the buffer cost** (1.4GB on
+   the Macs, 640MB on the iPad). Slice opens two readers over the SAME URL today.
+2. **Stream the muxer output instead of accumulating it** — removes ~300MB, its realloc doubling, and
+   **the duration ceiling that killed a 47:45 FHD bake on a 64GB M1 Max.**
+
+**⚠️ Whether `sample-table` is a real second allocation is still UNRESOLVED** (copies vs views into
+`buf`), so the model may be 4× or 3×. B730's device-wide delta distinguishes them. **Do not gate on
+the constant until that lands.**
 
 ### 🔻 [SUPERSEDED BY THE ABOVE] A BAKE ALLOCATION LEDGER, BECAUSE NOTHING ELSE CAN SEE THE PROCESS THAT DIES
 
@@ -539,6 +555,11 @@ back. It does not mean the session returned to its prior state, and an operator 
 heal has no way to know the app is now closer to a ceiling than it was. **Daniel's question is the
 right one: after a recovery, can the session still be trusted?** Today the honest answer is that we
 do not know, and nothing measures it.
+
+**✅ ANSWERED B730: IT IS NOT A RETAINED REFERENCE.** `heldMB: 0`, `openHandles: 0` after teardown on
+all three machines, and still zero minutes later. **Our code releases everything it takes**, so the
+residue is GC latency or engine-side — a different fix, and one that cannot be made by auditing our
+release paths.
 
 **▶ B728 MAKES THIS DECIDABLE.** `bakeMem.heldMB` after teardown non-zero means we are holding
 references, which is ours to fix; zero while the next bake still dies early means GC latency or

@@ -17,6 +17,7 @@
 
 import { exportVideo } from './video-export.js';
 import { memBegin, memHold, memRelease, memReport } from './mem-ledger.js';
+import { readHostVitals } from './gl-watch.js';
 import { seekVideoTo } from './video-source.js';
 import { createSequentialFrameReader, probeVideoInfo } from './video-decode.js';
 import { acquireSession, releaseSession } from 'conduit/sessions';
@@ -904,6 +905,12 @@ export function createClipEditor(env) {
     // B728 — everything the bake allocates from here is attributed to this operation, and the
     // high-water mark resets so a second bake in one session is measured on its own terms.
     memBegin('bake');
+    // ⚠️ B730 — THE DEVICE-WIDE BASELINE. Without a BEFORE there is no delta, and the absolute is
+    // meaningless: iOS keeps memory productively occupied, so "free" is small and noisy at rest.
+    // This is the only reading that can see the WKWebView content and GPU processes, and until now
+    // it was stamped ONLY on a context loss — so a bake that SUCCEEDED reported nothing about the
+    // processes we are blind to, which is exactly the run we most wanted it from.
+    const devBefore = (() => { try { return readHostVitals(); } catch { return null; } })();
     const cap = document.createElement('canvas'); cap.width = w; cap.height = h;
     const capId = memHold('capture-canvas', w * h * 4);
     const cctx = cap.getContext('2d');
@@ -1170,8 +1177,18 @@ export function createClipEditor(env) {
       // dies early means the residue is GC latency or engine-side, which is a different fix.
       try {
         const after = memReport();
-        env.bakeMem = { ...after, at: new Date().toISOString() };
-        env.vitals?.mark('bake-mem', after);
+        const devAfter = (() => { try { return readHostVitals(); } catch { return null; } })();
+        // The delta is the measurement. `attributedMB` is what our ledger claims; the difference
+        // between that and the device-wide movement is the blind spot — decoder surface pools, GL
+        // textures, the encoder's own buffers — measured rather than assumed.
+        const dev = (devBefore && devAfter) ? {
+          freeBeforeMB: devBefore.deviceFreeMB, freeAfterMB: devAfter.deviceFreeMB,
+          reclaimBeforeMB: devBefore.deviceReclaimableMB, reclaimAfterMB: devAfter.deviceReclaimableMB,
+          footprintBeforeMB: devBefore.footprintMB, footprintAfterMB: devAfter.footprintMB,
+          thermalBefore: devBefore.thermal, thermalAfter: devAfter.thermal,
+        } : { why: devBefore || devAfter ? 'only one end of the delta was available' : 'host vitals never reported (web/Electron)' };
+        env.bakeMem = { ...after, device: dev, at: new Date().toISOString() };
+        env.vitals?.mark('bake-mem', { ...after, device: dev });
       } catch { /* noop */ }
       // ⚠️ B711 — GIVE THE PREVIEWS BACK BEFORE ANYTHING ELSE IN THE TEARDOWN.
       //
