@@ -6,6 +6,26 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.26.59 · Build 719 — THE READING NOW SAYS WHAT IT MEASURED
+
+**Shipped:**
+- `bakeDecode` and `bake-decode-worst` carry the **trim range, mode, frame count, duration, fps and output size** alongside the measurement.
+
+### ⚠️ A correction: I withdrew the conserved-quantity claim too fast
+
+B718 read `decoded 91` (M5 Max) against `decoded 62` (M1 Max), concluded that `framesDecoded` varies with decoder pipelining, and therefore that it is **not** a conserved quantity.
+
+**Daniel then supplied the missing variable:** *"i've been dragging the trim points on the clip in a bit each time to reflect more of a real world use case... this means that each test isn't processing the exact number of frames each time."*
+
+**The two runs were not the same experiment.** Different trim means different targets requested, which means a different worst target — no pipelining explanation required. **So `decoded` may well still be conserved, and B718's conclusion is withdrawn as unproven rather than confirmed.** I read a difference between two uncontrolled runs as a property of the instrument.
+
+**This is the arc's own documented failure mode, from `PLAN-LIVE-READINESS.md`:** *"Cold start, fixed slice, A/B/A. Two false results in this arc came from uncontrolled A/Bs, and both were caught by Daniel rather than by the instruments."* **That is now three, and all three were caught by Daniel.**
+
+### The fix is that the report describes its own conditions
+
+A reading that cannot say what it measured cannot be compared to another one, and nobody should have to remember where a handle was dragged three days ago. **The trim now travels with the number**, so any two `bake-decode-worst` entries can be checked for comparability before being compared.
+
+
 ## v0.26.58 · Build 718 — THE BLANK SOURCE PANEL: A CANVAS THAT WAS NEVER PAINTED AT MOUNT
 
 **Shipped:**

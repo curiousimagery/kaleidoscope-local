@@ -1082,8 +1082,29 @@ export function createClipEditor(env) {
           .filter(Boolean)
           .sort((x, y) => y.decoded - x.decoded)[0] || null;
         if (worst) {
-          env.bakeDecode = { ...worst, at: new Date().toISOString() };
-          env.vitals?.mark('bake-decode-worst', worst);
+          // ⚠️ B719 — CARRY THE TRIM, OR THE READING IS NOT COMPARABLE TO THE NEXT ONE.
+          //
+          // Daniel, 2026-08-24: *"i've been dragging the trim points in a bit each time to reflect
+          // more of a real world use case... this means that each test isn't processing the exact
+          // number of frames each time."* That is exactly right, and it is very likely the reason
+          // the M5 Max and M1 Max runs disagreed (`decoded 91` vs `62`) — **I attributed that to
+          // decoder pipelining and concluded `decoded` was not a conserved quantity. That
+          // conclusion was premature: the two runs were not the same experiment.**
+          //
+          // A report that cannot say what it measured cannot be compared to another one, and
+          // nobody should have to remember where they dragged a handle three days ago. The trim
+          // travels with the number now.
+          const shape = {
+            inT: +(trim.inT ?? 0).toFixed(4),
+            outT: +(trim.outT ?? 1).toFixed(4),
+            mode: trim.mode,
+            frames: (durationMs && fps) ? Math.max(2, Math.round((durationMs / 1000) * fps)) : undefined,
+            durationMs: durationMs ? Math.round(durationMs) : undefined,
+            fps: fps || undefined,
+            srcW: w, srcH: h,
+          };
+          env.bakeDecode = { ...worst, ...shape, at: new Date().toISOString() };
+          env.vitals?.mark('bake-decode-worst', { ...worst, ...shape });
         }
       } catch { /* never let an instrument break a teardown */ }
       if (sliceReaderA) { try { sliceReaderA.close(); } catch { /* already closed */ } sliceReaderA = null; }
