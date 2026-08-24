@@ -6,6 +6,61 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.26.61 · Build 721 — A HOLE IN THE PRESENTATION TIMELINE WAS A STATE THE WAIT LOOP COULD NOT LEAVE
+
+**Shipped:**
+- **`frameAt` serves the last frame at or before the target when nothing covers it.** The forward wait loop could enter a state it could never leave, and spin to the budget on a perfectly decodable file.
+- **`revFill` stops as soon as it has decoded past the target.** Same hole on the backward path, where it burned the full 9s deadline before `revLookup` gave the right answer anyway.
+- **The timeout now reports the state it gave up in** — frames held, decode-queue depth, ms since the last decoder output, samples fed. That is the reading that separates our bug from a wedged decoder.
+- **The error message no longer looks like an elapsed time.** *"decode timed out at 30.982s"* is the TARGET timestamp; it now reads *"stalled waiting for the frame at 30.982s (gave up after 30.0s ...)"*.
+- **`bakeDecode` carries `via` and `holes`** — which branch answered the worst target, and how many holes were bridged across all three readers.
+
+### ⭐ THE BUG: NEITHER TEST CAN FIRE, AND NEITHER CAN EVER BECOME TRUE
+
+The loop returns `outQ[0]` when it COVERS the target (`ts + duration > target`) and drops it when a
+later frame SUPERSEDES it (`outQ[1].ts <= target`). **When the target lands between one frame's end
+and the next frame's start, neither is true** — and every frame the decoder can still produce sorts
+after `outQ[1]`, so nothing can ever land in the hole. The loop feeds until `outQ` hits its 12-frame
+cap, the decoder goes idle, and it spins to the budget and throws.
+
+**Two ordinary things open such a hole:** a sample whose container duration is 0 (`chunkOf` clamps it
+to 1µs, so the frame claims to last a microsecond) and a jump in presentation time from VFR, a
+dropped slot or an edit list. **And the bake asks for continuous targets** — `t = p * outDur` in
+`clip-editor.js` is never snapped to the source frame grid, so landing inside a hole is not exotic.
+
+**The correct rule was already in this file, twelve lines up.** `revLookup`: *"last frame at/before
+the target covers it."* Only the backward path had it.
+
+### 🔬 WHAT THIS DOES AND DOES NOT CLAIM
+
+**Established (harness `waitloop-check.mjs`, 11/11, transcribed from B720's loop with a mock decoder
+that outputs on demand — so any spin it shows is ours, not starvation):**
+
+- Well-formed CFR tables at four timescales resolve every one of 4,000 targets. **The loop is not
+  broken in general.**
+- A single zero-duration sample, and a 66ms presentation jump, both SPIN until the cap.
+- The fix returns the byte-identical frame on 16,000 well-formed targets. **It is reachable only
+  from the terminal state above, so it cannot change an answer the loop already produced.**
+
+**NOT established: that this is what happened to Daniel's clip.** Three things point that way — 9
+frames decoded with `resets: 0` is exactly what a full `outQ` and an idle decoder look like, the
+error repeated identically twice (a hole at a fixed target is deterministic; resource exhaustion is
+not), and the corroborating rule was already in the file. **That is a strong circumstantial case and
+not a measurement.** The live alternative is a genuinely wedged platform decoder.
+
+**The next run decides it, and it is a desktop run.** `outQ` full with an idle decode queue means our
+logic; `outQ` near empty with the queue pinned at 24 means the decoder. Either way the number is now
+in the error text and in `bakeDecode`.
+
+### ⚠️ THE WORDING BUG IS THE ONE TO REMEMBER
+
+*"decode timed out at 30.982s"* against a 30s budget reads as an elapsed time. It is the target
+timestamp. **A whole build's reasoning was aimed at throughput because of it**, and the misreading is
+sitting in a B716 code comment. **An instrument that reports the right number with the wrong noun is
+not a working instrument** — third instance this arc.
+
+---
+
 ## v0.26.60 · Build 720 — THE INSTRUMENT PREFERRED A HEALTHY NUMBER OVER THE FAILING ONE
 
 **Shipped:**

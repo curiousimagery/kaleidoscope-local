@@ -190,7 +190,11 @@ export async function createSequentialFrameReader(url, { maxBytes = 1_500_000_00
         const f = outQ.shift();
         revCache.push(f);
         while (revCache.length > REV_CACHE_MAX) revCache.shift().close();
+        // B721 — the second test is the same hole as the forward loop's. `revLookup` already
+        // returns the last frame at/before the target, so once we have decoded PAST the target
+        // the window holds the answer; without this, a hole burned the full 9s deadline first.
         if (f.timestamp + (f.duration || 33_333) > targetUs) { covered = true; break; }
+        if (f.timestamp > targetUs) { covered = true; break; }
       }
       if (covered) break;
       if (flushDone && i >= samples.length) break;   // end of stream
@@ -220,7 +224,12 @@ export async function createSequentialFrameReader(url, { maxBytes = 1_500_000_00
 
   function makeDecoder() {
     const d = new VideoDecoder({
-      output: (f) => { if (closed) f.close(); else { framesDecoded++; outQ.push(f); } },
+      output: (f) => {
+        if (closed) { f.close(); return; }
+        framesDecoded++;
+        lastOutputAt = performance.now();   // B721 — "is the decoder still alive" needs a clock, not a count
+        outQ.push(f);
+      },
       error: (e) => { decErr = e; },
     });
     d.configure(config);
@@ -261,6 +270,12 @@ export async function createSequentialFrameReader(url, { maxBytes = 1_500_000_00
   // search below can't be fooled by reordering and costs O(log n).)
   // ⚠️ B716 — THE CONSERVED QUANTITY IS FRAMES DECODED PER TARGET, NOT MILLISECONDS.
   //
+  // ⛔ B721: THE TWO-OUTCOME TABLE BELOW IS SUPERSEDED. It was written believing the failure was
+  // slowness, because the error text's leading number reads as an elapsed time and is actually the
+  // TARGET time. Nine frames in thirty seconds is a stall, not slowness. Counting frames per target
+  // is still right; *"the flat budget is simply too tight for 4K on one media engine"* is not, and
+  // must not be carried forward. See `stallState` for what actually distinguishes the causes.
+  //
   // The bake fails on iPad with `decode timed out at 81.470s` and succeeds on desktop with the same
   // file and the same code. Timing that failure in ms answers "which machine is faster", which we
   // already know. **What we cannot currently tell is whether the two platforms are doing the same
@@ -278,8 +293,10 @@ export async function createSequentialFrameReader(url, { maxBytes = 1_500_000_00
   let resetsForTarget = 0;   // decoder reconfigures for the CURRENT target
   let gopWalk = 0;           // samples fed since the sync point this target reset to
   let worst = null;          // the most expensive target so far, whatever the outcome
+  let lastOutputAt = 0;      // performance.now() of the most recent decoder output
+  let holesBridged = 0;      // B721 — targets served by the last-frame-before rule below
 
-  function noteTarget(sec, ms, timedOut) {
+  function noteTarget(sec, ms, timedOut, via, extra) {
     if (worst && worst.decoded >= framesDecoded && !timedOut) return;
     worst = {
       sec: +sec.toFixed(3),
@@ -287,7 +304,39 @@ export async function createSequentialFrameReader(url, { maxBytes = 1_500_000_00
       decoded: framesDecoded,      // ← the conserved quantity
       resets: resetsForTarget,
       gopWalk,
+      via,                         // which branch resolved it, or 'timeout'
       timedOut: !!timedOut,
+      ...(extra || {}),
+    };
+  }
+
+  // ⚠️ B721 — THE ONE READING THAT SEPARATES OUR BUG FROM THE PLATFORM'S.
+  //
+  // A timeout says a target went unserved; it does not say who stopped. Two very different
+  // things produce the identical message, and they need opposite fixes:
+  //
+  //   outQ FULL (≈12) + decode queue near empty + no output for seconds
+  //       → the decoder is idle because WE stopped asking. Our wait loop is stuck.
+  //   outQ near EMPTY + decode queue pinned at 24 + no output for seconds
+  //       → we are asking and the platform is not answering. A wedged/starved decoder.
+  //
+  // `headEndUs` / `nextStartUs` are the microseconds from the target to the end of the frame
+  // we are holding and to the start of the next one. **Both positive means the target fell in
+  // a HOLE in the presentation timeline** — the state the forward loop could not leave before
+  // this build. Keep them: if the hole rule below ever mis-fires, this is what shows it.
+  function stallState(target) {
+    const head = outQ[0], next = outQ[1];
+    let queue = -1;
+    try { queue = dec.decodeQueueSize; } catch { /* closed */ }
+    return {
+      outQ: outQ.length,
+      queue,
+      fed: i,
+      of: samples.length,
+      flushDone,
+      sinceOutputMs: lastOutputAt ? Math.round(performance.now() - lastOutputAt) : -1,
+      headEndUs: head ? (head.timestamp + (head.duration || 33_333)) - target : null,
+      nextStartUs: next ? next.timestamp - target : null,
     };
   }
 
@@ -312,7 +361,7 @@ export async function createSequentialFrameReader(url, { maxBytes = 1_500_000_00
     height: config.codedHeight,
     // B716 — the most expensive single target this reader served, success or timeout. Read it
     // after a bake (or after a failure) and compare `decoded` across platforms before `ms`.
-    worstTarget: () => (worst ? { ...worst } : null),
+    worstTarget: () => (worst ? { ...worst, holes: holesBridged } : null),
     rotation,   // clockwise degrees the consumer must apply when drawing decoded frames
     // measured source frame rate (0 = unknown) — nb_samples over the track's duration
     fps: (() => {
@@ -381,12 +430,17 @@ export async function createSequentialFrameReader(url, { maxBytes = 1_500_000_00
       const deadline = t0 + budgetMs;   // a wedged decoder must not hang the render
       for (;;) {
         if (performance.now() > deadline) {
-          noteTarget(sec, performance.now() - t0, true);
-          throw new Error(`decode timed out at ${sec.toFixed(3)}s `
-            + `(${Math.round(budgetMs / 1000)}s budget for one frame; decoded ${framesDecoded} frames, `
+          const st = stallState(target);
+          noteTarget(sec, performance.now() - t0, true, 'timeout', st);
+          // ⚠️ THE LEADING NUMBER IS THE TARGET TIME, NOT THE ELAPSED TIME. The old wording
+          // ("timed out at 30.982s") read as a duration, and a whole build's reasoning was aimed at
+          // throughput because of it — with a 30s budget the two numbers even look alike.
+          throw new Error(`decode stalled waiting for the frame at ${sec.toFixed(3)}s `
+            + `(gave up after ${(budgetMs / 1000).toFixed(1)}s; decoded ${framesDecoded} frames, `
             + `${resetsForTarget} decoder reset${resetsForTarget === 1 ? '' : 's'}, `
-            + `${gopWalk} samples since the keyframe) — usually a very long keyframe interval, `
-            + `or a backward seek re-decoding too much`);
+            + `${gopWalk} samples fed for this target; held ${st.outQ} frames, `
+            + `decode queue ${st.queue}, ${st.sinceOutputMs}ms since the last output, `
+            + `fed ${st.fed}/${st.of}${st.flushDone ? ', flushed' : ''})`);
         }
         if (decErr) throw decErr;
         // drop frames that a LATER queued frame supersedes for this target
@@ -394,9 +448,35 @@ export async function createSequentialFrameReader(url, { maxBytes = 1_500_000_00
         if (outQ.length) {
           const f = outQ[0];
           const end = f.timestamp + (f.duration || 33_333);
-          if (f.timestamp >= target) { noteTarget(sec, performance.now() - t0, false); return f; }                    // stream starts after target
-          if (end > target) { noteTarget(sec, performance.now() - t0, false); return f; }                             // target inside this frame
-          if (flushDone && outQ.length === 1 && i >= samples.length) { noteTarget(sec, performance.now() - t0, false); return f; }   // last frame of the stream
+          if (f.timestamp >= target) { noteTarget(sec, performance.now() - t0, false, 'ahead'); return f; }   // stream starts after target
+          if (end > target) { noteTarget(sec, performance.now() - t0, false, 'cover'); return f; }            // target inside this frame
+          // ⚠️ B721 — A HOLE IN THE PRESENTATION TIMELINE WAS AN UNESCAPABLE STATE.
+          //
+          // The two tests above ask "does a frame COVER the target". The drop above asks "does a
+          // LATER frame supersede it". When the target falls between this frame's end and the next
+          // frame's start, **neither is true and neither can become true** — every frame the decoder
+          // can still produce sorts after `outQ[1]`, so nothing can ever land in the hole. The loop
+          // then spins to the budget and throws on a file that is perfectly decodable.
+          //
+          // Two ordinary things open such a hole: a sample whose container duration is 0 (chunkOf
+          // clamps it to 1µs, so the frame claims to last a microsecond) and a jump in presentation
+          // time from VFR, a dropped slot or an edit list. And the bake asks for CONTINUOUS targets
+          // (`t = p * outDur` in clip-editor) — they are never snapped to the source frame grid, so
+          // landing inside a hole is not exotic.
+          //
+          // The rule is the one `revLookup` has always used twelve lines up: **the last frame at or
+          // before the target covers it.** Only the backward path had it.
+          //
+          // This branch is reachable ONLY from the terminal state described above, so it cannot
+          // change any answer the loop already produced — verified over 16,000 targets on four
+          // well-formed CFR tables (scratchpad `waitloop-check.mjs`, and `holes` in the report is
+          // how we find out whether it ever fires in the field).
+          if (outQ.length >= 2 && outQ[1].timestamp > target) {
+            holesBridged++;
+            noteTarget(sec, performance.now() - t0, false, 'hole', { holeUs: outQ[1].timestamp - end });
+            return f;
+          }
+          if (flushDone && outQ.length === 1 && i >= samples.length) { noteTarget(sec, performance.now() - t0, false, 'eos'); return f; }   // last frame of the stream
         } else if (flushDone && i >= samples.length) {
           throw new Error('decoder produced no frame for ' + sec.toFixed(3) + 's');
         }

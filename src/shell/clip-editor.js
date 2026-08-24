@@ -1086,10 +1086,16 @@ export function createClipEditor(env) {
         // and the finding survived only because the error text reached Daniel's screen.
         //
         // Rank by failure first, cost second. A reading that timed out is the reading.
-        const worst = [sliceReaderA, sliceReaderB, bounceReader]
+        const all = [sliceReaderA, sliceReaderB, bounceReader]
           .map((r) => { try { return r?.worstTarget?.() || null; } catch { return null; } })
-          .filter(Boolean)
+          .filter(Boolean);
+        const worst = all
+          .slice()
           .sort((x, y) => (Number(y.timedOut) - Number(x.timedOut)) || (y.decoded - x.decoded))[0] || null;
+        // B721 — `holes` across ALL readers, not just the one that won the sort. The sort answers
+        // "what was the worst target"; this answers "did the timeline-hole rule fire at all", and
+        // the reader that bridged a hole is usually not the reader that struggled.
+        const holes = all.reduce((n, r) => n + (r.holes || 0), 0);
         if (worst) {
           // ⚠️ B719 — CARRY THE TRIM, OR THE READING IS NOT COMPARABLE TO THE NEXT ONE.
           //
@@ -1112,8 +1118,8 @@ export function createClipEditor(env) {
             fps: fps || undefined,
             srcW: w, srcH: h,
           };
-          env.bakeDecode = { ...worst, ...shape, at: new Date().toISOString() };
-          env.vitals?.mark('bake-decode-worst', { ...worst, ...shape });
+          env.bakeDecode = { ...worst, ...shape, holes, at: new Date().toISOString() };
+          env.vitals?.mark('bake-decode-worst', { ...worst, ...shape, holes });
         }
       } catch { /* never let an instrument break a teardown */ }
       if (sliceReaderA) { try { sliceReaderA.close(); } catch { /* already closed */ } sliceReaderA = null; }

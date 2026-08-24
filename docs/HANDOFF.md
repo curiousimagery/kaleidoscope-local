@@ -22,7 +22,7 @@ Archived at B658. It was marked superseded at B609 and kept for the reasoning be
 
 ## current version
 
-**v0.26.60 · B720** (2026-08-24). **B705 and B706 are device-verified** — B705's instrument found B706, and B706 held on the repro that killed B705. B703, B704 and B707 are not yet device-verified.
+**v0.26.61 · B721** (2026-08-24). **B705 and B706 are device-verified** — B705's instrument found B706, and B706 held on the repro that killed B705. B703, B704 and B707 are not yet device-verified.
 
 ---
 
@@ -64,15 +64,38 @@ Both named by Daniel at B704 **because I had left them off the plan.** Full scop
 - **The encoder's real error beats its symptom.** `VideoEncoder is not configured` describes the state we found it in, not what broke it; a synchronous throw was beating the `encError` check.
 - **The bake button no longer reads `baking…` forever while clickable.** `setClipMode`'s comment claimed it restored the label; `loopPrimary()` does. Daniel pressed the lying button, which is how the second bake happened.
 
-### ⭐⭐ PICK UP HERE (B720) — THE BAKE FAILURE REPRODUCES ON DESKTOP. IT IS NOT AN iPAD BUG.
+### ⭐⭐ PICK UP HERE (B721) — ONE DESKTOP BAKE DECIDES BETWEEN TWO CAUSES. NO DEVICE.
 
-**`decode timed out at 30.982s (30s budget for one frame; decoded 9 frames, 0 decoder resets)` — on the M1 Max**, twice, second attempt stalling at ~95% first. Report: `docs/temp/8-24-contextLoss-clipBake-03.json`.
+**The test:** `npm run dev` on the Mac, the same 4K clip, **trim untouched** (`inT 0, outT 1` —
+3178 frames, 105.9s, 3840×2160). Bake. Then read `bakeDecode` in the exported report.
 
-**Why every earlier desktop run passed:** Daniel had been dragging the trim in each time. With the trim left alone (`inT 0, outT 1`, **3178 frames, 105.9s, 3840×2160**) it fails on desktop too. **The whole investigation comes off the device — `npm run dev`, same clip, full trim, debugger attached.**
+| what you see | what it means | where it goes next |
+|---|---|---|
+| **the bake passes, `holes` > 0** | the B721 timeline-hole stall was real and is fixed | close it; the capability ladder loses a false data point |
+| **the bake passes, `holes` = 0** | it passed for another reason. **Do not call this closed** | re-run; if it stays green, suspect the run, not the fix |
+| **fails, `outQ` ≈ 12 + `queue` low + `sinceOutputMs` seconds** | still our logic. A second stuck state we have not found | back into `frameAt` with the new snapshot |
+| **fails, `outQ` 0-1 + `queue` 24 + `sinceOutputMs` seconds** | **the platform decoder is wedged.** Our loop is asking and getting nothing | now it is a decode-session / hardware question, and the iPad matters again |
 
-**⚠️ THE HYPOTHESIS HAS CHANGED. Nine frames in thirty seconds is a STALL, not slowness.** Hardware 4K decode does hundreds of frames a second. `resets: 0` rules out a reconfigure. **The question is why `VideoDecoder` stops producing output near the end of a long 4K stream**, in `shell/video-decode.js`'s `frameAt` wait loop. The old framing — "the flat budget is too tight for 4K on one media engine" — came from comparing an iPad failure against desktop successes that were **not the same experiment**, and should not be carried forward.
+**⚠️ THE OLD FRAMING IS DEAD AND MUST NOT BE CARRIED FORWARD.** *"The flat budget is too tight for 4K
+on one media engine"* came from comparing an iPad failure against desktop successes that were **not
+the same experiment** (Daniel was trimming the clip in). **Nine frames in thirty seconds is a stall,
+not slowness** — hardware 4K decode does hundreds of frames a second, and `resets: 0` rules out a
+reconfigure. A B716 comment in `video-decode.js` still states the old framing; it is marked.
 
-**▶ FIRST MOVES, all local:** watch `decodeQueueSize`, `outQ.length`, `i` vs `samples.length` and `flushDone` while it stalls. The wait loop has three return conditions and an `else if (flushDone && i >= samples.length)` throw — **a target past the last frame's end with `flushDone` false is a candidate for an unbounded wait.**
+### ✅ B721 — THE FORWARD WAIT LOOP HAD A STATE IT COULD NOT LEAVE
+
+`frameAt` returns `outQ[0]` when it COVERS the target and drops it when a later frame SUPERSEDES it.
+**A target landing between one frame's end and the next frame's start satisfies neither, and no frame
+the decoder can still produce sorts into that hole.** Terminal state; spins to the budget; throws on
+a decodable file. A zero-duration sample or a VFR/edit-list jump opens the hole, and the bake asks
+for **continuous** targets (`t = p * outDur`), never snapped to the frame grid.
+
+**`revLookup` twelve lines up already had the right rule.** Only the backward path used it.
+
+**Reachability is PROVEN (scratchpad `waitloop-check.mjs`, 11/11); that it caused Daniel's failure is
+NOT.** Circumstantial: `decoded 9` with `resets: 0` is what a full `outQ` and an idle decoder look
+like, and the identical error twice is what a fixed-target hole predicts. **Read the table above
+before treating it as settled.**
 
 ### ⚠️ TWO INSTRUMENT BUGS FIXED IN B720 — READ BEFORE TRUSTING OLDER `bakeDecode` ENTRIES
 
@@ -80,6 +103,11 @@ Both named by Daniel at B704 **because I had left them off the plan.** Full scop
 2. **`gopWalk` reset only on `resetTo`**, so *"953 samples since the keyframe"* was actually samples since the last reconfigure. Now per-target.
 
 **The lesson: a timeout is not a large cost, it is a different kind of event, and must be ranked first.**
+
+**⚠️ AND B721 FOUND A THIRD: the message's leading number is the TARGET time, not the elapsed time.**
+*"decode timed out at 30.982s"* against a 30s budget reads as a duration, and a build's reasoning was
+aimed at throughput because of it. **Three of this arc's instruments reported a real number under the
+wrong noun.** Reworded to *"stalled waiting for the frame at 30.982s (gave up after 30.0s ...)"*.
 
 ### 📏 PROCESS — device sessions cost ~9 minutes each (`DEVICE-TESTING.md`)
 

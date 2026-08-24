@@ -495,7 +495,26 @@ One report reads `pressure: { target: 15, label: "warming up" }` on a 30fps clip
 
 **▶ AND IT SHOULD REPRODUCE ON DESKTOP, WHICH IS THE WHOLE POINT.** The bake's decode path is pure WebCodecs JS over demuxed samples — **no native plugin, no frame socket, no engine texture.** `clip-editor.js` is shared. So `npm run dev` on the Mac with the same file should hit the same 81.470s, in seconds per attempt, with a debugger attached. **Confirm that before any further device time.**
 
-**If it does NOT reproduce on desktop, that is itself a strong finding** — it would mean the failure is iPad-specific and would justify a device session properly.
+**✅ IT REPRODUCES ON DESKTOP (B720).** M1 Max, twice, `decoded 9 frames, 0 decoder resets`. Every
+earlier desktop run passed only because the trim had been dragged in. **This is not an iPad bug and
+the investigation is off the device.**
+
+**✅ AND A CAUSE IS NOW PROVEN REACHABLE (B721): a hole in the presentation timeline was a state the
+forward wait loop could not leave.** `frameAt` returns a frame when it COVERS the target and drops it
+when a later frame SUPERSEDES it; a target between one frame's end and the next frame's start is
+neither, and no frame the decoder can still produce sorts into the gap. Fixed with the rule
+`revLookup` already used on the backward path. Harness `waitloop-check.mjs`, 11/11.
+
+**⚠️ REACHABLE IS NOT DEMONSTRATED. THIS ITEM STAYS OPEN UNTIL ONE BAKE SAYS SO.** Circumstantial
+support is strong (`decoded 9` with `resets: 0` is a full queue and an idle decoder; the identical
+error twice is what a fixed-target hole predicts) but no run has yet shown a hole being bridged.
+**The deciding reading is in `bakeDecode`:** `holes > 0` on a passing bake closes it; a failure with
+`outQ` near empty and `queue` at 24 means the platform decoder is wedged and this was incidental.
+`HANDOFF.md`'s pick-up block has the four-outcome table.
+
+**⛔ Retired: *"the flat budget is too tight for 4K on one media engine"*.** Nine frames in thirty
+seconds is a stall, not slowness, and that framing came from comparing an iPad failure against
+desktop successes that were not the same experiment.
 
 ### 🚨🚨 [HIGH — Daniel, 2026-08-23 — DATA LOSS, MITIGATED B710, CAUSE STILL OPEN] A BAKE CAN SILENTLY REPLACE THE CLIP WITH GREY
 
