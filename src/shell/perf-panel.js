@@ -441,6 +441,10 @@ export function mountPerfPanel(env, { container = null, onClose = null } = {}) {
       // the half-failure that made the B609 freeze take four builds: the recovery reported success,
       // the picture never came back, and the reason went only to a console nobody attaches to.
       reinitWhy: env.engine?.lastReinitWhy || undefined,
+      // B716 — the most expensive single frame the last bake's reader had to serve.
+      // **Compare `decoded` across platforms before `ms`**: `decoded` is the clip's own GOP work
+      // and must be the same everywhere; `ms` is only how fast this machine did it.
+      bakeDecode: env.bakeDecode || undefined,
       // B706 — a deferred element re-upload. `reinitWhy` says what failed; these say whether it
       // has since healed. Pending with a rising try count is the forever-black case.
       reuploadPending: env.engine?.reuploadPending || undefined,

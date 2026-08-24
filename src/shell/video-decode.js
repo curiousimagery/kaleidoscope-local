@@ -220,7 +220,7 @@ export async function createSequentialFrameReader(url, { maxBytes = 1_500_000_00
 
   function makeDecoder() {
     const d = new VideoDecoder({
-      output: (f) => { if (closed) f.close(); else outQ.push(f); },
+      output: (f) => { if (closed) f.close(); else { framesDecoded++; outQ.push(f); } },
       error: (e) => { decErr = e; },
     });
     d.configure(config);
@@ -230,7 +230,7 @@ export async function createSequentialFrameReader(url, { maxBytes = 1_500_000_00
 
   function feed() {
     while (i < samples.length && dec.decodeQueueSize < 24 && outQ.length < 12) {
-      dec.decode(chunkOf(samples[i++]));
+      dec.decode(chunkOf(samples[i++])); gopWalk++;
     }
     if (i >= samples.length && !flushing) {
       flushing = true;
@@ -259,7 +259,40 @@ export async function createSequentialFrameReader(url, { maxBytes = 1_500_000_00
   // answer on well-formed input, so it was NOT the bounce stall — but its early break is
   // a real hazard on unusual tables and it was O(n) per reset. The time-sorted binary
   // search below can't be fooled by reordering and costs O(log n).)
+  // ⚠️ B716 — THE CONSERVED QUANTITY IS FRAMES DECODED PER TARGET, NOT MILLISECONDS.
+  //
+  // The bake fails on iPad with `decode timed out at 81.470s` and succeeds on desktop with the same
+  // file and the same code. Timing that failure in ms answers "which machine is faster", which we
+  // already know. **What we cannot currently tell is whether the two platforms are doing the same
+  // WORK** — i.e. whether the reader walks the same number of frames to satisfy the frame at
+  // 81.470s. That number is a property of the CLIP's GOP structure and must survive the boundary
+  // between the two platforms; ms does not.
+  //
+  //   same count, different ms  → the clip is the constant, throughput is the variable, and the
+  //                               flat budget is simply too tight for 4K on one media engine.
+  //   different count           → the READER behaves differently per platform (sync-point search,
+  //                               reset semantics, open-GOP handling) and the budget is a red herring.
+  //
+  // Those need opposite fixes, which is exactly why counting the right noun matters here.
+  let framesDecoded = 0;     // decoder outputs consumed for the CURRENT target
+  let resetsForTarget = 0;   // decoder reconfigures for the CURRENT target
+  let gopWalk = 0;           // samples fed since the sync point this target reset to
+  let worst = null;          // the most expensive target so far, whatever the outcome
+
+  function noteTarget(sec, ms, timedOut) {
+    if (worst && worst.decoded >= framesDecoded && !timedOut) return;
+    worst = {
+      sec: +sec.toFixed(3),
+      ms: Math.round(ms),
+      decoded: framesDecoded,      // ← the conserved quantity
+      resets: resetsForTarget,
+      gopWalk,
+      timedOut: !!timedOut,
+    };
+  }
+
   function resetTo(targetUs) {
+    resetsForTarget++;
     drainQ();
     try { dec.reset(); } catch { /* already closed */ }
     try { dec.configure(config); } catch { dec = makeDecoder(); }
@@ -271,11 +304,15 @@ export async function createSequentialFrameReader(url, { maxBytes = 1_500_000_00
       else hi = mid - 1;
     }
     i = k;
+    gopWalk = 0;   // samples fed from here to the target IS the re-decode this reset costs
   }
 
   return {
     width: config.codedWidth,
     height: config.codedHeight,
+    // B716 — the most expensive single target this reader served, success or timeout. Read it
+    // after a bake (or after a failure) and compare `decoded` across platforms before `ms`.
+    worstTarget: () => (worst ? { ...worst } : null),
     rotation,   // clockwise degrees the consumer must apply when drawing decoded frames
     // measured source frame rate (0 = unknown) — nb_samples over the track's duration
     fps: (() => {
@@ -320,11 +357,31 @@ export async function createSequentialFrameReader(url, { maxBytes = 1_500_000_00
         if (nextKey) resetTo(target);
       }
       lastTargetUs = target;
-      const deadline = performance.now() + 10_000;   // a wedged decoder must not hang the render
+      framesDecoded = 0; resetsForTarget = 0;   // B716 — per-TARGET, so `worst` names one frame's cost
+      // ⚠️ B716 — THE BUDGET SCALES WITH THE FRAME, BECAUSE 10s WAS A FLAT NUMBER MEETING VARIABLE WORK.
+      //
+      // Same shape as B700's first-frame deadline: a flat 8s that a 193MB clip missed by five
+      // milliseconds. A 4K frame is ~4x the pixels of FHD and the GOP walk behind it costs
+      // proportionally more, so one constant cannot serve both — and it is a very good match for
+      // Daniel's own history (*"ipad historically has been reliable with FHD clips but has
+      // struggled with baking higher res"*). FHD keeps exactly the 10s it has always had.
+      //
+      // ⚠️ RAISING IT IS NOT THE FIX AND MUST NOT BE MISTAKEN FOR ONE. It buys headroom so the
+      // NEXT run reports a real number instead of stopping at the ceiling. If the bake now
+      // succeeds, `worst.ms` is the measurement that says what the budget should actually be; if
+      // it still fails, `worst.decoded` says whether the work itself is the problem.
+      const mp = ((config.codedWidth || 1920) * (config.codedHeight || 1080)) / 1e6;
+      const budgetMs = Math.min(30_000, Math.max(10_000, Math.round(mp * 4_000)));
+      const t0 = performance.now();
+      const deadline = t0 + budgetMs;   // a wedged decoder must not hang the render
       for (;;) {
         if (performance.now() > deadline) {
-          throw new Error(`decode timed out at ${sec.toFixed(3)}s (10s budget for one frame — `
-            + `usually a very long keyframe interval, or a backward seek re-decoding too much)`);
+          noteTarget(sec, performance.now() - t0, true);
+          throw new Error(`decode timed out at ${sec.toFixed(3)}s `
+            + `(${Math.round(budgetMs / 1000)}s budget for one frame; decoded ${framesDecoded} frames, `
+            + `${resetsForTarget} decoder reset${resetsForTarget === 1 ? '' : 's'}, `
+            + `${gopWalk} samples since the keyframe) — usually a very long keyframe interval, `
+            + `or a backward seek re-decoding too much`);
         }
         if (decErr) throw decErr;
         // drop frames that a LATER queued frame supersedes for this target
@@ -332,9 +389,9 @@ export async function createSequentialFrameReader(url, { maxBytes = 1_500_000_00
         if (outQ.length) {
           const f = outQ[0];
           const end = f.timestamp + (f.duration || 33_333);
-          if (f.timestamp >= target) return f;                    // stream starts after target
-          if (end > target) return f;                             // target inside this frame
-          if (flushDone && outQ.length === 1 && i >= samples.length) return f;   // last frame of the stream
+          if (f.timestamp >= target) { noteTarget(sec, performance.now() - t0, false); return f; }                    // stream starts after target
+          if (end > target) { noteTarget(sec, performance.now() - t0, false); return f; }                             // target inside this frame
+          if (flushDone && outQ.length === 1 && i >= samples.length) { noteTarget(sec, performance.now() - t0, false); return f; }   // last frame of the stream
         } else if (flushDone && i >= samples.length) {
           throw new Error('decoder produced no frame for ' + sec.toFixed(3) + 's');
         }

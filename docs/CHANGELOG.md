@@ -6,6 +6,36 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.26.56 · Build 716 — COUNT THE WORK, NOT THE MILLISECONDS
+
+**Shipped:**
+- **`worstTarget()` on the sequential frame reader** — the most expensive single target it served: **frames decoded**, decoder resets, samples walked since the keyframe, ms, and whether it timed out.
+- Published as `bakeDecode` in the frame-cost export and marked as `bake-decode-worst`. Harvested **before** the readers are closed, on every exit path.
+- **The per-frame budget scales with frame size**: FHD keeps its 10s, 4K gets 30s.
+- The timeout message now carries the counts instead of only a guess.
+
+### The wrong-noun test, applied before building it
+
+*"This counts frames decoded per target, which equals the work the clip demands only if the reader walks the same path on both platforms."* That is precisely the thing in question, which is why the count is worth having: **ms answers "which machine is faster", which we already know.**
+
+| reading | conclusion |
+|---|---|
+| **same `decoded`, different `ms`** | the clip is the constant and throughput is the variable — the flat budget was simply too tight for 4K on one media engine |
+| **different `decoded`** | the READER behaves differently per platform (sync-point search, reset semantics, open-GOP handling) and the budget is a red herring |
+
+**Those need opposite fixes.** `decoded` is a property of the file's GOP structure and must survive the boundary between WebKit and Blink; `ms` cannot.
+
+### ⚠️ Raising the budget is NOT the fix
+
+Same shape as B700's first-frame deadline — a flat 8s that a 193MB clip missed by five milliseconds. **The raise buys headroom so the next run reports a real number instead of stopping at the ceiling.** If the bake now succeeds, `worst.ms` is the measurement that says what the budget should be. If it still fails, `worst.decoded` says whether the work itself is the problem.
+
+### ⚠️ A correction to B715: I overstated the death of decoder pressure
+
+B715 read `sessions.peak.decode: 7` on desktop and concluded that seven concurrent decoders is fine, therefore decoder pressure is not the cause. **The desktop result rules out "seven decoders is inherently too many." It does not rule out "seven decoders is too many for ONE media engine."**
+
+**Decode engines vary within the M1 family in a way GPU cores do not track:** base M1 (the iPad) has **one**; M1 Max has **two**. So the two machines were not running the same experiment, and B715's phrasing implied they were. **The hypothesis is weakened, not dead** — `worst.resets` and `worst.decoded` are what will separate contention from clip structure.
+
+
 ## v0.26.55 · Build 715 — THE FIRST SOURCE FRAME, AND WHAT THE DESKTOP BAKE PROVED
 
 **Shipped:**

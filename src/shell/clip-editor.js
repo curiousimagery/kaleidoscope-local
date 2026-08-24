@@ -1060,6 +1060,22 @@ export function createClipEditor(env) {
       // EVERY reader this bake opened, on EVERY exit path. bounceReader was missing here,
       // so a failed bounce bake left a VideoDecoder holding the hardware and the immediate
       // retry died at ~0s until the app was restarted (Daniel, B495).
+      // ⚠️ B716 — HARVEST THE MEASUREMENT BEFORE CLOSING THE READERS THAT HOLD IT.
+      //
+      // `worstTarget()` lives on the reader, so closing first would throw the number away on
+      // exactly the runs that matter. Published to `env.bakeDecode` so the frame-cost export can
+      // carry it — Daniel does not run Web Inspector, and an uncollectable diagnostic is no
+      // diagnostic (`DEVICE-TESTING.md`).
+      try {
+        const worst = [sliceReaderA, sliceReaderB, bounceReader]
+          .map((r) => { try { return r?.worstTarget?.() || null; } catch { return null; } })
+          .filter(Boolean)
+          .sort((x, y) => y.decoded - x.decoded)[0] || null;
+        if (worst) {
+          env.bakeDecode = { ...worst, at: new Date().toISOString() };
+          env.vitals?.mark('bake-decode-worst', worst);
+        }
+      } catch { /* never let an instrument break a teardown */ }
       if (sliceReaderA) { try { sliceReaderA.close(); } catch { /* already closed */ } sliceReaderA = null; }
       if (sliceReaderB) { try { sliceReaderB.close(); } catch { /* already closed */ } sliceReaderB = null; }
       if (bounceReader) { try { bounceReader.close(); } catch { /* already closed */ } bounceReader = null; }
