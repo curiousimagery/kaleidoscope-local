@@ -6,6 +6,33 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.26.60 · Build 720 — THE INSTRUMENT PREFERRED A HEALTHY NUMBER OVER THE FAILING ONE
+
+**Shipped:**
+- **A timed-out reading now outranks every other.** The harvest sorted by `decoded` and took the largest, so a bake that failed with `decoded: 9` reported `decoded: 113, timedOut: false` from the *other* reader.
+- **`gopWalk` resets per target.** It reset only inside `resetTo`, so with `resets: 0` it accumulated since the last reconfigure — the message's *"953 samples since the keyframe"* was not that.
+
+### ⭐⭐ THE HEADLINE: IT REPRODUCES ON DESKTOP
+
+**`decode timed out at 30.982s (30s budget for one frame; decoded 9 frames, 0 decoder resets)` — on the M1 Max**, twice, and the second attempt stalled at ~95% before throwing the same error.
+
+**This is no longer an iPad problem.** Both earlier desktop runs succeeded because Daniel was trimming the clip in; with the trim left alone (`inT 0, outT 1`, **3178 frames**, 105.9s, 3840×2160) it fails on desktop too. **The whole investigation comes off the device.**
+
+### And the shape of the failure changes the hypothesis
+
+**Nine frames decoded in thirty seconds is not slowness. It is a stall.** Hardware 4K decode does hundreds of frames a second; a decoder that accepts input and returns nine outputs in half a minute is wedged, not throttled. **`resets: 0` says no reconfigure was involved.**
+
+**So the leading hypothesis is no longer "the budget is too tight for 4K on one media engine."** That framing came from comparing an iPad failure against desktop successes that were not the same experiment. **The question now is why the decoder stops producing output near the end of a long 4K stream** — and it is answerable locally, in a debugger, with no build cycle.
+
+### ⚠️ The instrument bug is the more instructive half
+
+B716's harvest ranked readers by `decoded` and took the largest. The bake failed with `decoded: 9`; the *other* reader had a healthy worst of `decoded: 113`. **113 > 9, so the instrument built to explain the failure reported the healthy reading instead — twice.** The finding survived only because the error text reached Daniel's screen.
+
+**Ranking by cost when the question is about failure is the same class of error this arc keeps producing:** counting something adjacent to the phenomenon. A timeout is not a large cost, it is a **different kind of event**, and it has to be ranked first.
+
+**Both entries were otherwise well-controlled and identical across the two attempts** (`sec 35.482`, `decoded 113/112`, same trim, same frame count) — **so the trim discipline worked, and B718's withdrawal of the conserved-quantity claim now looks right for the wrong reason: the numbers ARE stable when the experiment is controlled.**
+
+
 ## v0.26.59 · Build 719 — THE READING NOW SAYS WHAT IT MEASURED
 
 **Shipped:**

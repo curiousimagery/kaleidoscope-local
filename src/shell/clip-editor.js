@@ -1077,10 +1077,19 @@ export function createClipEditor(env) {
       // carry it — Daniel does not run Web Inspector, and an uncollectable diagnostic is no
       // diagnostic (`DEVICE-TESTING.md`).
       try {
+        // ⚠️ B720 — A TIMEOUT OUTRANKS EVERYTHING. THIS SORT DISCARDED THE ONLY READING THAT MATTERED.
+        //
+        // B716 ranked the readers by `decoded` and took the largest. In `8-24-contextLoss-clipBake-03.json`
+        // the bake FAILED at 30.982s having decoded **9** frames — and the report recorded
+        // `decoded: 113, timedOut: false` from the OTHER reader, because 113 > 9. **The instrument
+        // built to explain the failure preferred a healthy number over the failing one**, twice,
+        // and the finding survived only because the error text reached Daniel's screen.
+        //
+        // Rank by failure first, cost second. A reading that timed out is the reading.
         const worst = [sliceReaderA, sliceReaderB, bounceReader]
           .map((r) => { try { return r?.worstTarget?.() || null; } catch { return null; } })
           .filter(Boolean)
-          .sort((x, y) => y.decoded - x.decoded)[0] || null;
+          .sort((x, y) => (Number(y.timedOut) - Number(x.timedOut)) || (y.decoded - x.decoded))[0] || null;
         if (worst) {
           // ⚠️ B719 — CARRY THE TRIM, OR THE READING IS NOT COMPARABLE TO THE NEXT ONE.
           //

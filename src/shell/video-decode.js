@@ -357,7 +357,12 @@ export async function createSequentialFrameReader(url, { maxBytes = 1_500_000_00
         if (nextKey) resetTo(target);
       }
       lastTargetUs = target;
-      framesDecoded = 0; resetsForTarget = 0;   // B716 — per-TARGET, so `worst` names one frame's cost
+      framesDecoded = 0; resetsForTarget = 0; gopWalk = 0;
+      // ⚠️ B720 — `gopWalk` RESETS PER TARGET NOW. B716 reset it only inside `resetTo`, so with
+      // `resets: 0` it accumulated across every target since the last reconfigure and the failure
+      // message's *"953 samples since the keyframe"* was not that at all — it was samples since
+      // the last decoder reset, which may be the start of the file. **A label that names the wrong
+      // span is worse than no label**, because it aims the next reader at GOP structure.
       // ⚠️ B716 — THE BUDGET SCALES WITH THE FRAME, BECAUSE 10s WAS A FLAT NUMBER MEETING VARIABLE WORK.
       //
       // Same shape as B700's first-frame deadline: a flat 8s that a 193MB clip missed by five

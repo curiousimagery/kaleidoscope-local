@@ -22,7 +22,7 @@ Archived at B658. It was marked superseded at B609 and kept for the reasoning be
 
 ## current version
 
-**v0.26.54 · B714** (2026-08-23). **B705 and B706 are device-verified** — B705's instrument found B706, and B706 held on the repro that killed B705. B703, B704 and B707 are not yet device-verified.
+**v0.26.60 · B720** (2026-08-24). **B705 and B706 are device-verified** — B705's instrument found B706, and B706 held on the repro that killed B705. B703, B704 and B707 are not yet device-verified.
 
 ---
 
@@ -63,6 +63,29 @@ Both named by Daniel at B704 **because I had left them off the plan.** Full scop
 - **Refuses to start on a lost context** (`bake-refused`). B705's guard correctly reported `frame 1 of 2635`, and **frame 1 means it should never have begun.**
 - **The encoder's real error beats its symptom.** `VideoEncoder is not configured` describes the state we found it in, not what broke it; a synchronous throw was beating the `encError` check.
 - **The bake button no longer reads `baking…` forever while clickable.** `setClipMode`'s comment claimed it restored the label; `loopPrimary()` does. Daniel pressed the lying button, which is how the second bake happened.
+
+### ⭐⭐ PICK UP HERE (B720) — THE BAKE FAILURE REPRODUCES ON DESKTOP. IT IS NOT AN iPAD BUG.
+
+**`decode timed out at 30.982s (30s budget for one frame; decoded 9 frames, 0 decoder resets)` — on the M1 Max**, twice, second attempt stalling at ~95% first. Report: `docs/temp/8-24-contextLoss-clipBake-03.json`.
+
+**Why every earlier desktop run passed:** Daniel had been dragging the trim in each time. With the trim left alone (`inT 0, outT 1`, **3178 frames, 105.9s, 3840×2160**) it fails on desktop too. **The whole investigation comes off the device — `npm run dev`, same clip, full trim, debugger attached.**
+
+**⚠️ THE HYPOTHESIS HAS CHANGED. Nine frames in thirty seconds is a STALL, not slowness.** Hardware 4K decode does hundreds of frames a second. `resets: 0` rules out a reconfigure. **The question is why `VideoDecoder` stops producing output near the end of a long 4K stream**, in `shell/video-decode.js`'s `frameAt` wait loop. The old framing — "the flat budget is too tight for 4K on one media engine" — came from comparing an iPad failure against desktop successes that were **not the same experiment**, and should not be carried forward.
+
+**▶ FIRST MOVES, all local:** watch `decodeQueueSize`, `outQ.length`, `i` vs `samples.length` and `flushDone` while it stalls. The wait loop has three return conditions and an `else if (flushDone && i >= samples.length)` throw — **a target past the last frame's end with `flushDone` false is a candidate for an unbounded wait.**
+
+### ⚠️ TWO INSTRUMENT BUGS FIXED IN B720 — READ BEFORE TRUSTING OLDER `bakeDecode` ENTRIES
+
+1. **The harvest ranked readers by `decoded` and took the largest**, so a bake that failed with `decoded: 9` reported `decoded: 113, timedOut: false` from the other reader. **Twice.** Every `bake-decode-worst` before B720 may be the healthy reader, not the failing one.
+2. **`gopWalk` reset only on `resetTo`**, so *"953 samples since the keyframe"* was actually samples since the last reconfigure. Now per-target.
+
+**The lesson: a timeout is not a large cost, it is a different kind of event, and must be ranked first.**
+
+### 📏 PROCESS — device sessions cost ~9 minutes each (`DEVICE-TESTING.md`)
+
+**Of the builds since B703, the large majority were diagnosed by reading or on desktop.** Daniel's two desktop sessions found more real bugs than the four iPad sessions before them. **Desktop first; the iPad owns only native decode, HDMI, the frame socket and thermal.**
+
+**⚠️ AND CONTROL THE EXPERIMENT.** Three false results this arc came from uncontrolled A/Bs and **all three were caught by Daniel, not by the instruments.** `bakeDecode` now carries its own trim, mode, frame count, duration, fps and size so comparability can be checked rather than remembered.
 
 ### ⚠️ B713+B714 — I SHIPPED THREE THINGS THAT MADE IT WORSE. READ THIS BEFORE TOUCHING THE BAKE.
 
