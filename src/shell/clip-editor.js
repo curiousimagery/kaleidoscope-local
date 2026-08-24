@@ -823,6 +823,68 @@ export function createClipEditor(env) {
     env.clip.cancelBake = false;   // armed by the cancel button; checked per encoded frame
     stopClipPreview();
     const dur = decodeV.duration || src.duration || 1;
+    // ⚠️ B712 — THESE RUN BEFORE ANY DECODER IS OPENED. THEY DID NOT, AND THAT WAS MY BUG.
+    //
+    // B707, B710 and B711 all put their guards beside the `baking…` cover — which reads like the
+    // start of the bake and is not. **The three WebCodecs readers are created ~140 lines EARLIER**
+    // (`bounceReader`, `sliceReaderA/B`), so every one of those guards ran after the thing it was
+    // meant to gate. `docs/temp/8-23-contextLoss-clipBake-02.json` shows it plainly:
+    // **`sessions.peak.decode: 7`, unchanged by B711's shed.** The previews were still held when
+    // the bake's own decoders were allocated, so the shed freed nothing that mattered.
+    //
+    // A pre-flight that runs after take-off is not a pre-flight. Everything that must happen before
+    // the bake acquires hardware now lives here, above `bakeDims()`.
+    // ⚠️ B707 — CHECK THE CONTEXT BEFORE STARTING, NOT ONLY PER FRAME.
+    //
+    // B705's per-frame guard worked exactly as designed and reported `graphics context lost at
+    // frame 1 of 2635` (`docs/temp/8-21-26-contextLoss-05.json`). **Frame 1 means the context was
+    // already dead when the bake began** — so the honest fix is upstream: a bake that cannot
+    // possibly succeed should not open seven decoders, configure an encoder and put a modal on
+    // screen before finding out. Refuse by name and let the operator retry once it recovers.
+    if (env.engine?.glContext?.isContextLost()) {
+      env.vitals?.mark('bake-refused', { why: 'gl-lost' });
+      alert('Cannot bake right now: the graphics context is recovering. Try again in a moment.');
+      env.clip.baking = false;
+      return;
+    }
+    // ⚠️ B710 — REFUSE TO BAKE FROM A DEGRADED SOURCE, BECAUSE A BAKE IS DESTRUCTIVE.
+    //
+    // `applyBakedClip` REPLACES the working source with the bake's output. So a bake that reads
+    // garbage does not merely fail — **it destroys the clip the operator was working on**, and it
+    // does it while reporting success.
+    //
+    // Daniel, 2026-08-23: after a failed bake, *"if i press the bake action button again it
+    // completes quickly and lands me with neutral gray source that adjusts in brightness as i
+    // scrub across — like i was zoomed all the way into a single pixel."* That is exactly what
+    // baking the degraded path looks like. `docs/temp/8-23-contextLoss-clipBake.json` names the
+    // state in its own words:
+    //
+    //   1280×720 · from canvas · native decode · 0.0 in/s
+    //   ⚠ SOURCE STALLED 388.3s — socket open, offered 3, took 3, skipped 0
+    //   ⚠ NOT ON THE PLANAR PATH — sampling the preview canvas
+    //
+    // The engine had fallen off the planar path onto the receiver's 1280 preview canvas (the B580
+    // signature), and that canvas was stalled. **The app already knew** — `main.js` prints this
+    // very warning from `env.nativeVideo && !engine.planarActive`. Nothing consulted it before
+    // spending four minutes overwriting a 4K clip with grey.
+    //
+    // ⚠️ THE TEST IS `planarActive`, NOT THE STALL NOTE. B702's lesson: `msSinceFrame` cannot tell
+    // a PAUSED clip from a wedged one, and a paused clip is a perfectly legal thing to bake.
+    // "Which path is the engine sampling" has no such ambiguity.
+    if (env.nativeVideo && !env.engine?.planarActive) {
+      env.vitals?.mark('bake-refused', { why: 'degraded-source' });
+      alert('Cannot bake right now: the source is not on the native decode path, so the bake would '
+          + 'capture a low-resolution preview instead of your clip. Reload the clip and try again.');
+      env.clip.baking = false;
+      return;
+    }
+    if (cover) cover.hidden = false;                 // hide the seeking/decoding flicker behind a "baking…" cover
+    if (apply) { apply.disabled = true; apply.textContent = 'baking…'; }
+    // ⚠️ B711 — SHED THE THREE PREVIEW DECODERS FOR THE DURATION. See `mountClipPreviews`.
+    // The cover above is what makes this free: nothing is visible behind it, so there is nothing
+    // to trade off. Restored in the `finally`, on EVERY exit path — success, failure and cancel.
+    const shed = shedClipPreviews();
+
     const { w, h } = bakeDims();                     // output resolution (source, or downscaled per the format control)
     const cap = document.createElement('canvas'); cap.width = w; cap.height = h;
     const cctx = cap.getContext('2d');
@@ -936,56 +998,6 @@ export function createClipEditor(env) {
     const prog = document.getElementById('clipProgress'), fill = document.getElementById('clipBarFill');
     const apply = document.getElementById('clipApply'), cover = document.getElementById('clipBaking');
     if (prog) prog.hidden = false;
-    // ⚠️ B707 — CHECK THE CONTEXT BEFORE STARTING, NOT ONLY PER FRAME.
-    //
-    // B705's per-frame guard worked exactly as designed and reported `graphics context lost at
-    // frame 1 of 2635` (`docs/temp/8-21-26-contextLoss-05.json`). **Frame 1 means the context was
-    // already dead when the bake began** — so the honest fix is upstream: a bake that cannot
-    // possibly succeed should not open seven decoders, configure an encoder and put a modal on
-    // screen before finding out. Refuse by name and let the operator retry once it recovers.
-    if (env.engine?.glContext?.isContextLost()) {
-      env.vitals?.mark('bake-refused', { why: 'gl-lost' });
-      alert('Cannot bake right now: the graphics context is recovering. Try again in a moment.');
-      env.clip.baking = false;
-      return;
-    }
-    // ⚠️ B710 — REFUSE TO BAKE FROM A DEGRADED SOURCE, BECAUSE A BAKE IS DESTRUCTIVE.
-    //
-    // `applyBakedClip` REPLACES the working source with the bake's output. So a bake that reads
-    // garbage does not merely fail — **it destroys the clip the operator was working on**, and it
-    // does it while reporting success.
-    //
-    // Daniel, 2026-08-23: after a failed bake, *"if i press the bake action button again it
-    // completes quickly and lands me with neutral gray source that adjusts in brightness as i
-    // scrub across — like i was zoomed all the way into a single pixel."* That is exactly what
-    // baking the degraded path looks like. `docs/temp/8-23-contextLoss-clipBake.json` names the
-    // state in its own words:
-    //
-    //   1280×720 · from canvas · native decode · 0.0 in/s
-    //   ⚠ SOURCE STALLED 388.3s — socket open, offered 3, took 3, skipped 0
-    //   ⚠ NOT ON THE PLANAR PATH — sampling the preview canvas
-    //
-    // The engine had fallen off the planar path onto the receiver's 1280 preview canvas (the B580
-    // signature), and that canvas was stalled. **The app already knew** — `main.js` prints this
-    // very warning from `env.nativeVideo && !engine.planarActive`. Nothing consulted it before
-    // spending four minutes overwriting a 4K clip with grey.
-    //
-    // ⚠️ THE TEST IS `planarActive`, NOT THE STALL NOTE. B702's lesson: `msSinceFrame` cannot tell
-    // a PAUSED clip from a wedged one, and a paused clip is a perfectly legal thing to bake.
-    // "Which path is the engine sampling" has no such ambiguity.
-    if (env.nativeVideo && !env.engine?.planarActive) {
-      env.vitals?.mark('bake-refused', { why: 'degraded-source' });
-      alert('Cannot bake right now: the source is not on the native decode path, so the bake would '
-          + 'capture a low-resolution preview instead of your clip. Reload the clip and try again.');
-      env.clip.baking = false;
-      return;
-    }
-    if (cover) cover.hidden = false;                 // hide the seeking/decoding flicker behind a "baking…" cover
-    if (apply) { apply.disabled = true; apply.textContent = 'baking…'; }
-    // ⚠️ B711 — SHED THE THREE PREVIEW DECODERS FOR THE DURATION. See `mountClipPreviews`.
-    // The cover above is what makes this free: nothing is visible behind it, so there is nothing
-    // to trade off. Restored in the `finally`, on EVERY exit path — success, failure and cancel.
-    const shed = shedClipPreviews();
     try {
       const { blob } = await exportVideo({
         frameAt, width: w, height: h, fps, durationMs, captureMode: '2d',

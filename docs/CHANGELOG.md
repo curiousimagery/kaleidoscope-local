@@ -6,6 +6,42 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.26.52 · Build 712 — MY PRE-FLIGHT RAN AFTER TAKE-OFF
+
+**Shipped:**
+- **The bake's guards and the preview shed now run BEFORE any decoder is opened.** B707, B710 and B711 all placed theirs ~140 lines too late, after the three WebCodecs readers were already allocated.
+
+### The report caught my own bug
+
+`docs/temp/8-23-contextLoss-clipBake-02.json`: **`sessions.peak.decode: 7`, unchanged by B711.** The shed was supposed to take that to ~4.
+
+**All three guards were anchored to the `baking…` cover**, which reads like the start of the bake and is not. `bounceReader` and `sliceReaderA/B` are created ~140 lines earlier. **So the shed freed the previews only after the bake's own decoders had already been allocated — the exact moment it existed to relieve — and B707's context check and B710's degraded-source check both ran after the hardware was taken.** A pre-flight that runs after take-off is not a pre-flight.
+
+**Worth noting how it was caught: by a counter disagreeing with a claim.** B711 asserted 7 → ~4; the next report said 7. **That is the value of stating a hypothesis numerically** — a vaguer claim ("sheds decoders") would have read as confirmed.
+
+### ⚠️ AND B711's HYPOTHESIS IS THEREFORE STILL UNTESTED
+
+Not falsified — **never actually run.** The bake has not yet executed with fewer concurrent decoders.
+
+### 🔬 The failure is DETERMINISTIC, and that reframes it
+
+Daniel, 2026-08-23: *"decode timed out at 81.470s (10s budget for one frame)"*, and **the second attempt produced the same error at the exact same point.**
+
+**A deterministic failure at a fixed timestamp is not resource exhaustion.** Pressure failures move around; this one does not. It points at the clip's own structure at t≈81.47s of a ~90s file — which is what the error message already guesses: *a very long keyframe interval, or a backward seek re-decoding too much*. `video-decode.js`'s 10-second per-frame budget is being exceeded by one specific frame.
+
+**So decoder pressure is probably NOT the cause of this failure**, and B712 is worth shipping mainly because the guards were broken, not because the shed will fix the bake.
+
+### ▶ AND IT SHOULD REPRODUCE ON DESKTOP, WHICH CHANGES THE COST OF FIXING IT
+
+**The bake's decode path is pure WebCodecs JS** — `createSequentialFrameReader` over demuxed samples. **It has nothing to do with the iPad's native decode plugin.** `clip-editor.js` is shared, so `npm run dev` on the Mac, load the same clip, open the Loop Builder, bake. **Same code, same file, same 81.470s.**
+
+That turns a 6-12 minute build-install-load-bake-report cycle into a ~30 second one, with a debugger attached.
+
+### ✅ B711's restore IS confirmed
+
+Daniel: *"after the failure the timeline and output preview seemed to recover allowing me to re-attempt baking again."* Twice. The `finally` restore works.
+
+
 ## v0.26.51 · Build 711 — THE BAKE GIVES BACK ITS DECODERS, AND STOPS BEFORE IT DESTROYS ANYTHING
 
 **Shipped:**
