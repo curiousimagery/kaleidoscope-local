@@ -34,6 +34,7 @@
 // (`lastReinitWhy`) was already gone, and console output does not reach Daniel at all.
 
 const RESTORE_TIMEOUT_MS = 3000;   // generous: the longest observed restore was live-pip at 982ms
+const RESTORE_SIM_MS = 250;        // B724 — stands in for the browser's own turnaround on a provoked loss
 
 // ⚠️ B723 — THE PROVOCATION REGISTRY. WHY IT LIVES HERE AND NOT ON `env`.
 //
@@ -92,7 +93,30 @@ export function provokeGLLoss(surface, { delayMs = 0 } = {}) {
     try { e.mark?.('gl-loss-provoked', { surface, delayMs }); } catch { /* an instrument must never throw */ }
     try { e.ext.loseContext(); } catch (err) {
       try { e.mark?.('gl-provoke-failed', { surface, why: String(err?.message || err) }); } catch { /* noop */ }
+      return;
     }
+    // ⚠️ B724 — `loseContext()` IS ONLY HALF A LOSS, AND WITHOUT THIS THE HARNESS REPORTS A FALSE FAIL.
+    //
+    // An extension-induced loss NEVER heals on its own: per the WEBGL_lose_context spec the context
+    // stays lost until `restoreContext()` is called. Only DRIVER/OS-initiated losses are re-offered
+    // by the browser. So B723's provocation simulated the loss and not the recovery, and Daniel's
+    // very first run (A1, `docs/temp/8-24-A1-01.json`) read `gl-restore-timeout` and then silence —
+    // which looks exactly like a broken recovery path and was not one.
+    //
+    // **His own data is the control, and it is why this is a fact rather than a spec quote:** the
+    // SAME build restored `preview` in 550ms and `yuv-source` in 29ms after ORGANIC losses on the
+    // iPad the same evening (`8-24-contextLoss-clipBake-07-iPad.json`). The app recovers. The
+    // instrument did not ask it to.
+    //
+    // The delay stands in for the browser's own turnaround, and is well inside RESTORE_TIMEOUT_MS so
+    // a healthy surface never trips the timeout. **A test that wants the UNRECOVERABLE case wants a
+    // loss with no restore at all — that is a different test, and it should be built as one rather
+    // than arrived at by accident.**
+    setTimeout(() => {
+      try { e.ext.restoreContext(); } catch (err) {
+        try { e.mark?.('gl-provoke-restore-failed', { surface, why: String(err?.message || err) }); } catch { /* noop */ }
+      }
+    }, RESTORE_SIM_MS);
   };
   if (delayMs > 0) { e.armed = setTimeout(fire, delayMs); return { ok: true, armed: true }; }
   fire();
@@ -143,6 +167,16 @@ export function watchGLContext({ canvas, surface, mark, rebuild, glOf, onLost, o
       timer = null;
       say('gl-restore-timeout', { ms: RESTORE_TIMEOUT_MS });
       console.warn(`[fold] WebGL context NOT restored within ${RESTORE_TIMEOUT_MS}ms (${surface})`);
+      // ⚠️ B724 — TELL THE UI. MARKING IT WAS NEVER ENOUGH.
+      //
+      // The timeout published to the trail and to nothing else, so the status text kept saying
+      // *"graphics context lost — recovering…"* indefinitely while the app had already concluded
+      // nothing was coming. Daniel, on A1: *"after a few minutes nothing happened. it would have
+      // been faster to refresh the browser and re-load the clip completely."* **He was right, and
+      // the app knew three seconds in.** `onFailed` already renders honest, error-classed text in
+      // both chromes; the timeout simply never called it. If a restore does arrive later,
+      // `onContextRestored` clears the text.
+      try { onFailed?.(`no restore offered within ${RESTORE_TIMEOUT_MS}ms`); } catch { /* noop */ }
     }, RESTORE_TIMEOUT_MS);
     try { onLost?.(); } catch (e) { console.warn(`[fold] onLost failed (${surface})`, e); }
   };

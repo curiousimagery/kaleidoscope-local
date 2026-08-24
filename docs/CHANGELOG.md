@@ -6,6 +6,52 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.26.64 · Build 724 — THE HARNESS SIMULATED THE LOSS AND NOT THE RECOVERY
+
+**Shipped:**
+- **A provoked loss now calls `restoreContext()`.** An extension-induced loss never heals on its own, so B723's first test was a guaranteed false FAIL.
+- **`gl-restore-timeout` tells the UI.** It published to the trail and nothing else, so the status text said *"recovering…"* forever while the app had already concluded otherwise three seconds in.
+- **A bake with no WebCodecs reader publishes `bake-decode-none`.** Without it the previous bake's reading stayed in the report and described a different clip.
+
+### ⭐ A1 WAS MY BUG, AND DANIEL'S OWN DATA IS THE PROOF
+
+`docs/temp/8-24-A1-01.json`: `gl-loss-provoked` → `gl-context-lost` → `gl-restore-timeout` → silence.
+Read as "the preview cannot recover".
+
+**It is not.** Per the WEBGL_lose_context spec, a context lost via `loseContext()` stays lost until
+`restoreContext()` is called; only DRIVER or OS-initiated losses are re-offered by the browser. B723
+fired the first half and waited for a second half that was never coming.
+
+**The control is in his other reports from the same evening, on the same build.** Organic losses on
+the iPad restored `preview` in **550ms** and `yuv-source` in **29ms**
+(`8-24-contextLoss-clipBake-07-iPad.json`). **The app recovers. The instrument never asked it to.**
+
+**A test that wants the UNRECOVERABLE case is a legitimate test and should be built as one**, rather
+than arrived at by accident because the harness was incomplete.
+
+### ⚠️ THE APP KNEW THREE SECONDS IN AND SAID NOTHING FOR MINUTES
+
+Daniel: *"the output darked out and over the source panel i see 'graphics context lost —
+recovering…' but after a few minutes nothing happened. it would have been faster to refresh the
+browser and re-load the clip completely."*
+
+**`gl-restore-timeout` fired at 3,000ms.** `onFailed` already renders honest, error-classed text in
+both chromes. The timeout simply never called it. **An instrument that publishes only to the trail
+leaves the operator staring at a lie.**
+
+### ⚠️ `bakeDecode` DESCRIBED A CLIP THE BAKE NEVER TOUCHED
+
+The 47:45 FHD bake died with `Array buffer allocation failed` and shipped a `bakeDecode` reading
+`srcW 3840, srcH 2160, frames 3178` — the 4K clip from an hour earlier, on a **1920-wide** source.
+`env.bakeDecode` is one slot, nothing wrote it, and the previous value stood in.
+
+**Readers fail to arm for reasons that are the whole story:** over `maxBytes` (1.5GB) — **that file
+was 4.94GB** — an unsupported codec, or a demux with no samples. All three mean the bake silently
+took the per-frame element-seek fallback. **An absence is not evidence, and this was worse than
+absent: it was someone else's evidence.**
+
+---
+
 ## v0.26.63 · Build 723 — A CONTEXT LOSS YOU CAN AIM
 
 **Shipped:**

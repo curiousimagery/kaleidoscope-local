@@ -30,7 +30,7 @@ iPad.** Copy a report after each.
 
 | # | surface | state when it fires | what it is really asking |
 |---|---|---|---|
-| A1 | `preview` | idle, clip loaded | the baseline. If this fails nothing below is interpretable |
+| A1 | `preview` | idle, clip loaded | the baseline. If this fails nothing below is interpretable. **RUN 2026-08-24: false FAIL, harness bug, fixed B724. Re-run** |
 | A2 | `preview` | **mid-bake** | B705's guard aborts by name; does the bake fail HONESTLY and leave a usable app |
 | A3 | `preview` | mid-broadcast | does the wall keep its picture while the operator's screen recovers |
 | A4 | `yuv` | scrubbing the timeline | **B709's surface, never once exercised deliberately.** It had no handler at all until B709 |
@@ -65,6 +65,19 @@ attempting deliberately now that the listening side is complete.
 
 **B10 is a reading, not a crash test.** It is the cheapest confirmation of the limits finding and it
 needs no instrumentation.
+
+---
+
+## Part D — the two single-variable iPad tests (do these FIRST, they are cheapest)
+
+**The 4K slice bake dies at frame 4 on the iPad, deterministically.** One run each, no build needed:
+
+| # | change ONE thing | survives → |
+|---|---|---|
+| D1 | bake the same 4K clip at **1080p output** (format control) | the ceiling is OUTPUT resolution |
+| D2 | bake the same 4K clip in **bounce** mode (one reader, not slice's two) | the ceiling is concurrent 4K decoders |
+
+**Change nothing else.** Same clip, same trim, defaults everywhere else.
 
 ---
 

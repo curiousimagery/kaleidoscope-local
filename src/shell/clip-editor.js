@@ -1124,6 +1124,24 @@ export function createClipEditor(env) {
         // "what was the worst target"; this answers "did the timeline-hole rule fire at all", and
         // the reader that bridged a hole is usually not the reader that struggled.
         const holes = all.reduce((n, r) => n + (r.holes || 0), 0);
+        // ⚠️ B724 — A BAKE WITH NO READER MUST STILL PUBLISH, OR THE LAST ONE'S NUMBER STANDS IN FOR IT.
+        //
+        // `env.bakeDecode` is a single slot. When no WebCodecs reader arms, nothing was written and
+        // **the previous bake's reading stayed in the report**, timestamped and plausible. Daniel's
+        // 47:45 FHD bake (`8-24-arrayBufferError-longFHDclip.json`) failed with an allocation error
+        // and shipped a `bakeDecode` describing the 4K clip he had baked an hour earlier — right
+        // down to `srcW 3840`, on a 1920-wide source. Only the `at` timestamp gave it away.
+        //
+        // Readers fail to arm for reasons that matter: **over `maxBytes` (1.5GB), and that file was
+        // 4.94GB**, an unsupported codec, or a demux that found no samples. Every one of those means
+        // the bake silently took the per-frame element-seek fallback, which is exactly the thing the
+        // next reader most needs to know. An absence is not evidence, and here it was worse than
+        // absent — it was someone else's evidence.
+        if (!all.length) {
+          const why = env.media?.sourceVideoUrl ? 'no WebCodecs reader armed (over size cap, codec, or demux)' : 'no source url';
+          env.bakeDecode = { ...bakeShape, reader: 'element-seek fallback', why, at: new Date().toISOString() };
+          env.vitals?.mark('bake-decode-none', { ...bakeShape, why });
+        }
         if (worst) {
           // B719's reasoning still stands and is why `bakeShape` exists; it is now captured before
           // the bake rather than recomputed here. See its comment for why the late read was wrong.

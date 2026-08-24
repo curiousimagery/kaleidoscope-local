@@ -486,6 +486,47 @@ One report reads `pressure: { target: 15, label: "warming up" }` on a 30fps clip
 
 ## 🚧 Limits, ceilings and honest refusal
 
+### 🚨🚨 [HIGH — Daniel, 2026-08-24, REPRODUCED ON A 64GB M1 MAX] THE BAKE HOLDS ITS ENTIRE OUTPUT IN RAM
+
+**`Array buffer allocation failed`, about a quarter through a 47:45 FHD bake.** `video-export.js`
+muxes to **`ArrayBufferTarget`**: the whole encoded result accumulates in memory before it becomes a
+Blob, and the target reallocates and copies as it grows, so peak is roughly double the output size.
+
+**This is a SECOND ceiling, independent of the input one below, and at the opposite end of the pipe.**
+The same bake was already on the slow element-seek path because the 4.94GB source is over the 1.5GB
+input cap. **Two limits, both silent, one run.**
+
+**▶ The fix direction is streaming rather than a larger buffer** — mp4-muxer supports a streaming
+target, and the bake already writes to a Blob at the end. Needs scoping; it touches the save path
+that `video-export.js` shares with recording, so it is not a drive-by.
+
+**▶ Until then the app should state the ceiling.** Output duration x resolution x bitrate is known
+before the bake starts.
+
+### 🚨 [HIGH — Daniel, 2026-08-24, DETERMINISTIC x3] THE iPAD BAKE DIES AT FRAME 4 ON A 4K SLICE
+
+**Both GL surfaces lost within 2ms, then `export-aborted · gl-lost · frame 4`. Three times**, across
+two builds and two trims, including a fresh app start. Decode was healthy every time.
+
+**Both surfaces together = the GPU PROCESS died**, which is iOS purging rather than a renderer bug.
+**The app recovered every time** (550ms / 29ms), so this is a capability ceiling and not a broken
+recovery path. Frame 4 is where the encoder has just configured for 4K output while two 4K WebCodecs
+readers and the preview engine's 4K textures are resident (`sessions.peak.decode: 7`).
+
+**▶ TWO SINGLE-VARIABLE TESTS, ONE iPAD RUN EACH, NO BUILD NEEDED:** bake at **1080p output**
+(ceiling is output resolution?) and bake in **bounce mode**, one reader instead of two (ceiling is
+concurrent 4K decoders?).
+
+**⚠️ The 08:46 success on the same clip is NOT a usable control** — it is pre-B722, so its `mode`,
+`inT` and `outT` are the post-bake reset rather than what it baked.
+
+### 🚨 [HIGH — Daniel, 2026-08-24] A BAKE FAILURE FREEZES THE APP FOR AS LONG AS THE MODAL IS UP
+
+**`dialog-blocked · ms: 1827033` — thirty and a half minutes** behind one `alert()`, plus 52.6s, 8.1s
+and 3.9s on three more the same evening. `alert()` pauses the event loop, so every timestamp after it
+is delivery time, not event time. **Already known since B707; the 30-minute reading is what makes it
+urgent.** Replace the bake's modals with in-panel status.
+
 ### 🚨 [HIGH — found by reading, B723] THE APP HAS ONE INGEST LIMIT, IT IS SILENT, AND IT SITS BELOW THE PLAN'S OWN GOAL
 
 **`maxBytes = 1_500_000_000` in `video-decode.js` is the only hard limit anywhere on the ingest/bake

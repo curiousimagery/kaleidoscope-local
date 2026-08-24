@@ -22,7 +22,7 @@ Archived at B658. It was marked superseded at B609 and kept for the reasoning be
 
 ## current version
 
-**v0.26.63 · B723** (2026-08-24). **B705 and B706 are device-verified** — B705's instrument found B706, and B706 held on the repro that killed B705. B703, B704 and B707 are not yet device-verified.
+**v0.26.64 · B724** (2026-08-24). **B705 and B706 are device-verified** — B705's instrument found B706, and B706 held on the repro that killed B705. B703, B704 and B707 are not yet device-verified.
 
 ---
 
@@ -63,6 +63,45 @@ Both named by Daniel at B704 **because I had left them off the plan.** Full scop
 - **Refuses to start on a lost context** (`bake-refused`). B705's guard correctly reported `frame 1 of 2635`, and **frame 1 means it should never have begun.**
 - **The encoder's real error beats its symptom.** `VideoEncoder is not configured` describes the state we found it in, not what broke it; a synchronous throw was beating the `encError` check.
 - **The bake button no longer reads `baking…` forever while clickable.** `setClipMode`'s comment claimed it restored the label; `loopPrimary()` does. Daniel pressed the lying button, which is how the second bake happened.
+
+### ⭐⭐ PICK UP HERE (B724) — THE iPAD BAKE DIES AT FRAME 4. DETERMINISTIC, THREE TIMES.
+
+**`8-24-contextLoss-clipBake-06-iPad.json` and `-07-iPad.json`.** Both GL surfaces lost within 2ms of
+each other, then `export-aborted · gl-lost · frame 4`. **Three times: two builds (B721, B723), two
+different trims, and a fresh app start.** Decode was healthy every time (`via: cover`, 54-86ms).
+
+**Both surfaces dying together means the GPU PROCESS died, not one canvas.** That is iOS purging,
+not a bug in one renderer. **And the app recovered every time** (550ms / 29ms), so this is a
+capability ceiling, not a broken recovery path.
+
+**Frame 4 is where the encoder has just configured for 4K output** while two 4K WebCodecs decoders
+and the preview engine's 4K textures are already resident. `sessions.peak.decode: 7`.
+
+**▶ TWO SINGLE-VARIABLE TESTS, ONE iPAD RUN EACH, NO BUILD NEEDED:**
+1. **Bake the same clip at 1080p output** (format control). Survives → the ceiling is OUTPUT resolution.
+2. **Bake in bounce mode** (ONE reader instead of slice's two). Survives → the ceiling is concurrent 4K decoders.
+
+**⚠️ DO NOT COMPARE AGAINST THE 08:46 SUCCESS.** That report is pre-B722, so its `mode`, `inT` and
+`outT` are the post-bake reset, not what it baked. **We cannot say what geometry succeeded that
+morning.** The `sec: 0.044` worst target hints at slice (reader A's first call at `inA`), which if
+true means the mode is NOT the variable — but that is an inference from one field, not a reading.
+
+### ⚠️ THE OUTPUT IS HELD IN RAM. THAT IS A SECOND, INDEPENDENT CEILING.
+
+`video-export.js` muxes to **`ArrayBufferTarget`** — the entire encoded result accumulates in memory
+before it becomes a Blob, and the target reallocates and copies as it grows, so peak is roughly
+double. Daniel's 47:45 FHD bake died with `Array buffer allocation failed` about a quarter through,
+**on a 64GB M1 Max**.
+
+**So there are TWO limits, at opposite ends:** the 1.5GB INPUT cap in `video-decode.js` (silent, and
+that file was 4.94GB so the bake was on the slow element-seek path from the start), and this
+unbounded OUTPUT accumulation. **Neither is stated anywhere the operator can see.**
+
+### ⚠️ AND THE MODALS FROZE THE APP FOR 30 MINUTES
+
+`dialog-blocked · ms: 1827033` in `8-24-arrayBufferError-longFHDclip.json`. **Thirty and a half
+minutes** behind one `alert()`. The iPad session shows 52.6s, 8.1s and 3.9s on three more.
+**Replacing the bake's modals is no longer a nicety.**
 
 ### 🧪 B723 — GL LOSS IS NOW PROVOKABLE ON DEMAND. THE MATRIX IS DANIEL'S TO RUN.
 
