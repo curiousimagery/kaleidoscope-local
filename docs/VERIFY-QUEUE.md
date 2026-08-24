@@ -76,7 +76,8 @@ needs no instrumentation.
 |---|---|---|
 | D1 | bake the same 4K clip at **1080p output** (format control) | ❌ **FAILED 2026-08-24.** Output resolution is NOT the lever |
 | D2 | bake the same 4K clip in **bounce** mode (one reader, not slice's two) | ❌ **FAILED at frame 1 — but CONTAMINATED**, it ran straight after D1 in the same session |
-| **D3** | **re-run D2 from a FRESH LAUNCH** | tells us both whether one reader helps AND whether a failed bake returns its memory |
+| **D3** | **re-run D2 from a FRESH LAUNCH** | ✅ **RUN 2026-08-24.** Encoded all 6,387 frames where the contaminated D2 died at frame 1. **A failed bake does not release its memory.** Failed at the HANDOFF instead: `bake-rejected · the baked clip failed to load` |
+| **D5** | **three bakes in ONE launch**, fresh Loop Builder each time | does the failure point walk earlier each time? Cheapest test of the residue question, no build needed |
 | **D4** | **a vanilla bake, no edits, on B726+** | ⭐ **the highest-value single run.** B726 makes `footprintMB` arrive during a bake for the first time |
 
 **Change nothing else.** Same clip, same trim, defaults everywhere else. **One bake per app launch**

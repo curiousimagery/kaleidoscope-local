@@ -22,7 +22,7 @@ Archived at B658. It was marked superseded at B609 and kept for the reasoning be
 
 ## current version
 
-**v0.26.66 · B726** (2026-08-24). **B705 and B706 are device-verified** — B705's instrument found B706, and B706 held on the repro that killed B705. B703, B704 and B707 are not yet device-verified.
+**v0.26.67 · B727** (2026-08-24). **B705 and B706 are device-verified** — B705's instrument found B706, and B706 held on the repro that killed B705. B703, B704 and B707 are not yet device-verified.
 
 ---
 
@@ -64,7 +64,45 @@ Both named by Daniel at B704 **because I had left them off the plan.** Full scop
 - **The encoder's real error beats its symptom.** `VideoEncoder is not configured` describes the state we found it in, not what broke it; a synchronous throw was beating the `encError` check.
 - **The bake button no longer reads `baking…` forever while clickable.** `setClipMode`'s comment claimed it restored the label; `loopPrimary()` does. Daniel pressed the lying button, which is how the second bake happened.
 
-### ⭐⭐ PICK UP HERE (B726) — THE iPAD BAKE IS A JETSAM KILL. CONFIRMED BY THE OS.
+### ⭐⭐ PICK UP HERE (B727) — THE CEILING IS A PER-PROCESS CAP, AND WE CANNOT READ IT
+
+**D3's first bake-time memory reading: `footprintMB: 39, availableMB: 5080, thermal: nominal`**, at
+the instant both GL surfaces died. **The native plugin measures the HOST process. The bake's memory
+is in the WKWebView CONTENT process**, which has its own footprint limit and is what gets killed.
+
+**This reframes the ladder.** The ceiling is not device RAM: a 16GB iPad died with 5GB free. **The
+8GB Air vs 16GB Pro comparison probably matters much less than expected.** And it is the same
+mistake that retired the memory hypothesis earlier in this arc — `footprintMB 38`, a true number
+from a broadcast, describing a process that does not allocate.
+
+**▶ WebKit exposes no per-process web memory API, so the next instrument is OUR OWN ALLOCATION
+LEDGER** — we know every large allocation the bake makes. **Proposed, not built.** See BACKLOG.
+
+**▶ AND MEASURE COST BEFORE MODELLING IT.** The ledger's first job is to say which term dominates:
+the per-reader file buffer, the demuxed sample table, held `VideoFrame`s, or the accumulating output.
+
+### ⭐ A FAILED BAKE DOES NOT GIVE ITS MEMORY BACK — NOW EVIDENCE, NOT A CAVEAT
+
+**D2** (second bake in one session) died at **frame 1 of 3540**. **D3** (same clip, same mode, FRESH
+LAUNCH) **encoded all 6,387 frames** and only failed at the handoff. **`recovered` currently means
+the contexts came back, not that the session returned to its prior state.**
+
+### ⚠️ D3's FAILURE IS THE HANDOFF, NOT THE ENCODE — AND THE GUARD WORKED
+
+`bake-rejected · "the baked clip failed to load" · w: 0, h: 0`. The encode completed; the output blob
+(212.9s of 4K) would not load. **B711's output validation kept the working source.** That is the
+guard doing exactly its job.
+
+**⚠️ BUT THE PANELS STAYED BLANK.** Both contexts restored in ~650ms and neither the preview nor the
+timeline repainted. **The contexts recovered and the UI did not.** Concrete repro for the *"panels
+that know they are stale"* item. Plus `dialog-blocked · ms: 105316`.
+
+### ✅ B726 WORKED — THE CHANNEL IS LIVE DURING A BAKE NOW
+
+D3: `loaded: true, pushes: 258` on a bake-only session. D1 on the previous build: `loaded: false,
+pushes: 0`.
+
+### 🔻 SUPERSEDED (B726) — THE iPAD BAKE IS A JETSAM KILL. CONFIRMED BY THE OS.
 
 **Xcode, 2026-08-24:** *"The process has been terminated by the operating system because it is using
 too much memory. Terminated due to memory issue."* Device `iPad13,8` (M1 iPad Pro 12.9"), iPadOS 26.6.

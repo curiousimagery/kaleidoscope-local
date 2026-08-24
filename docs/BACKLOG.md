@@ -486,6 +486,62 @@ One report reads `pressure: { target: 15, label: "warming up" }` on a 30fps clip
 
 ## 🚧 Limits, ceilings and honest refusal
 
+### ⭐ [THE NEXT INSTRUMENT — proposed B727, not built] A BAKE ALLOCATION LEDGER, BECAUSE NOTHING ELSE CAN SEE THE PROCESS THAT DIES
+
+**The bake's memory lives in the WKWebView content process. Nothing we can call reports it.** The
+native plugin measures the host process (`footprintMB: 39` while the bake died), and WebKit exposes
+no per-process web memory API — `performance.memory` is Chromium-only, and
+`measureUserAgentSpecificMemory()` needs cross-origin isolation and is not in Safari.
+
+**But we know every large allocation the bake makes**, so the ledger is arithmetic, not a probe:
+
+| term | where | known when |
+|---|---|---|
+| file `ArrayBuffer` **per reader** (slice fetches the same URL twice) | `video-decode.js` | at reader open |
+| the demuxed sample table | `demux()` | after parse |
+| held `VideoFrame`s, up to 12/reader + the reverse cache | `frameAt` | continuously |
+| the 4K capture canvas | `clip-editor.js` | at bake open |
+| **the accumulating output** in `ArrayBufferTarget` | `video-export.js` | grows per frame |
+
+**▶ ITS FIRST JOB IS TO SAY WHICH TERM DOMINATES, NOT TO GATE.** Publish peak estimated bytes into
+`bakeDecode` alongside success or failure. **Once a handful of runs pair an estimate with an outcome,
+the gate is a comparison** — and it is computed per job, never a device table.
+
+**▶ AND IT ANSWERS THE CROSS-DEVICE QUESTION PROPERLY (Daniel, 2026-08-24).** For an identical job
+the estimate should be identical on every device; what differs is the ceiling. That separation is
+what makes "measure the cost once, read the limit per device" possible. **Comparing raw success or
+failure across devices cannot do it, because the job is not held constant by anything today.**
+
+### 🚨 [HIGH — Daniel, 2026-08-24, D2 vs D3] A FAILED BAKE DOES NOT GIVE ITS MEMORY BACK
+
+**D2**, a second bake in one session, died at **frame 1 of 3540**. **D3**, the same clip and mode from
+a **fresh launch**, encoded all **6,387** frames. Same build, same file, same settings.
+
+**This has a design consequence beyond the bake.** *"Recovered"* currently means the GL contexts came
+back. It does not mean the session returned to its prior state, and an operator who sees a failure
+heal has no way to know the app is now closer to a ceiling than it was. **Daniel's question is the
+right one: after a recovery, can the session still be trusted?** Today the honest answer is that we
+do not know, and nothing measures it.
+
+**▶ Suspects, none confirmed:** the readers' file buffers and sample tables surviving `close()`, the
+`ArrayBufferTarget` from the abandoned encode, held `VideoFrame`s on the error path, or simply that
+WebKit has not collected yet. **The ledger above would distinguish them; guessing would not.**
+
+**▶ A cheap partial test with no build: three bakes in one launch**, each from a fresh Loop Builder
+open, and see whether the failure point walks earlier each time.
+
+### 🚨 [HIGH — Daniel, 2026-08-24, D3] THE CONTEXTS RECOVERED AND THE PANELS DID NOT
+
+Both surfaces restored in ~650ms, then `bake-rejected`, then a 105-second modal. **Neither the
+preview nor the timeline repainted.** Daniel: *"the bake dialog did not visibly recover context on
+the preview or timeline."*
+
+**This is the *"panels that know they are stale and can ask to repair"* item with a concrete repro at
+last.** The restore fired while the bake was still unwinding, so `onRestored`'s `scheduleRender()`
+ran against a half-torn-down state and nothing re-ran afterwards. **The `finally` restores previews;
+it does not repaint.**
+
+
 ### 🚨 [HIGH — found by reading, B726] NATIVE THERMAL + MEMORY ONLY ARRIVED WHILE BROADCASTING. FIXED, BUT THE EVIDENCE IT INVALIDATES IS NOT.
 
 **`onEvent` called `refresh()`, which B679 turned into a no-op**, and `load()` is what registers the

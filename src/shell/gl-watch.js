@@ -75,9 +75,29 @@ export function noteHostVitals(r) {
 }
 // **The AGE is not decoration.** A reading from 40 seconds ago says nothing about a purge, and a
 // reader who cannot tell a fresh sample from a stale one will treat both as evidence.
+// ⚠️ B727 — SAY WHOSE MEMORY THIS IS. IT IS NOT THE MEMORY THAT DIES.
+//
+// The first reading this instrument ever produced during a bake (`8-24-D3-01-ipadFailure.json`)
+// was **`footprintMB: 39, availableMB: 5080, thermal: nominal`** — taken at the instant BOTH GL
+// surfaces went down, at the end of a 6,387-frame 4K bake. Thirty-nine megabytes and five gigabytes
+// free is not a device under memory pressure.
+//
+// **The plugin is native Swift and measures the NATIVE HOST PROCESS.** The JS heap, the demuxed
+// ArrayBuffers, the held `VideoFrame`s and the accumulating encoder output all live in the WKWebView
+// CONTENT PROCESS, which is a different process with its own footprint limit. So this number is
+// true, it is just not about the thing that gets killed — and 39MB reads as "memory is fine" to
+// anyone who does not know which process it describes. **That is precisely the mistake that retired
+// the memory hypothesis earlier in this arc.**
+//
+// It stays, because it is the only native reading we have and `thermal` + `availableMB` are
+// genuinely device-wide. But it carries its scope now, so no future reader can take it for the
+// wrong quantity. **The number that would settle the bake ceiling has to come from OUR OWN
+// allocation ledger** — WebKit exposes no per-process web memory API.
+const MEM_SCOPE = 'native host process — NOT the WKWebView content process, where the JS heap, '
+  + 'demuxed buffers, VideoFrames and encoder output live. Device-wide: thermal, availableMB.';
 function memAtLoss() {
   if (!lastHostVitals) return { mem: null, memWhy: 'host vitals never reported (web/Electron, or the plugin is absent)' };
-  return { mem: { ...lastHostVitals, ageMs: Date.now() - lastHostVitals.at } };
+  return { mem: { ...lastHostVitals, ageMs: Date.now() - lastHostVitals.at, scope: MEM_SCOPE } };
 }
 
 // The extension MUST be cached while the context is ALIVE. On a lost context `getExtension` returns

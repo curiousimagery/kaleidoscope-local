@@ -6,6 +6,60 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.26.67 · Build 727 — THE MEMORY READING IS TRUE AND IT IS ABOUT THE WRONG PROCESS
+
+**Shipped:**
+- **`mem.scope` names whose memory it is.** The native plugin measures the host process; the bake's memory lives in the WKWebView content process.
+
+### ⭐⭐ D3 PRODUCED THE FIRST BAKE-TIME MEMORY READING, AND IT SAYS `39MB`
+
+`8-24-D3-01-ipadFailure.json`, at the instant both GL surfaces went down at the end of a 6,387-frame
+4K bounce bake: **`footprintMB: 39, availableMB: 5080, thermal: nominal`.**
+
+**Thirty-nine megabytes with five gigabytes free is not a device under memory pressure.** The plugin
+is native Swift and measures the NATIVE HOST process. The JS heap, the demuxed ArrayBuffers, the held
+`VideoFrame`s and the accumulating encoder output are all in the **WKWebView content process** — a
+different process, with its own footprint limit.
+
+**So the ceiling is a PER-PROCESS cap, not device RAM**, which reframes the whole ladder:
+- it explains a 16GB iPad failing while 5GB sits free
+- it means **the 8GB Air vs 16GB Pro comparison may matter far less than expected**, since the cap is set per-device but is nowhere near total RAM
+- and it explains the M1 Max sailing through: a desktop renderer process has a vastly higher ceiling
+
+**⚠️ AND IT IS THE MISTAKE THAT RETIRED THE MEMORY HYPOTHESIS EARLIER IN THIS ARC.** `footprintMB 38`
+was read as *"memory is not the constraint"* — a true number, taken during a BROADCAST (the only time
+the channel was live, per B726), describing a process that does not do the allocating.
+
+**WebKit exposes no per-process web memory API**, so the number that settles this has to come from
+**our own allocation ledger**. Proposed, not built.
+
+### ⭐ FRESH LAUNCH RAN THE WHOLE BAKE. THE CONTAMINATION WAS REAL.
+
+- **D2**, second bake in one session: died at **frame 1 of 3540**.
+- **D3**, same clip, same mode, FRESH LAUNCH: **encoded all 6,387 frames**, roughly seven minutes,
+  and only failed at the handoff.
+
+**A failed bake does not give its memory back.** That is now evidence rather than a caveat, and it
+has a design consequence: *"recovered"* currently means the contexts came back, not that the session
+returned to its prior state.
+
+### ✅ AND B711's OUTPUT GUARD DID ITS JOB
+
+`bake-rejected · "the baked clip failed to load" · w: 0, h: 0`. The encode finished, the blob would
+not load, and **the working source was kept.** The failure Daniel saw is the guard refusing a bad
+swap, which is exactly the shape it was built for at B711: it validates the RESULT and can only
+reject a bad bake, never block a good one.
+
+### ⚠️ TWO NEW OPEN ITEMS FROM D3
+
+1. **The panels stayed blank after the contexts came back.** Both restored in ~650ms, then
+   `bake-rejected`, then a 105-second modal. **The contexts recovered and the preview and timeline
+   did not repaint.** This is the *"panels that know they are stale and can ask to repair"* item,
+   now with a concrete repro.
+2. **`dialog-blocked · ms: 105316`** — another 105 seconds frozen behind `alert()`.
+
+---
+
 ## v0.26.66 · Build 726 — THERMAL AND MEMORY ONLY ARRIVED WHILE BROADCASTING, AND NOBODY KNEW
 
 **Shipped:**
