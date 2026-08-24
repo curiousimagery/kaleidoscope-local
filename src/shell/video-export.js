@@ -93,18 +93,34 @@ export async function exportVideo({ frameAt, onBegin, onEnd, width, height, fps,
   // RESERVES space for the metadata up front, so the moov still lands at the front of the file and
   // nothing has to be buffered to compute it.** We know the frame count exactly.
   //
-  // Writes land as Blob parts, which the browser backs on disk, so the heap holds at most
-  // FLUSH_BYTES of pending output at a time regardless of how long the clip is.
-  const FLUSH_BYTES = 8 * 1024 * 1024;
-  let parts = [];          // finished Blob pieces, in file order
-  let pending = [];        // Uint8Array writes not yet flushed into a Blob
-  let pendingBytes = 0, writePos = 0;
-  const backfills = [];    // out-of-order writes — in practice only the reserved moov, at finalize
-  const flushPending = () => {
-    if (!pending.length) return;
-    parts.push(new Blob(pending));
-    pending = []; pendingBytes = 0;
-  };
+  // Writes land as Blob parts, which the browser backs on disk, so the heap never holds more than
+  // one write (measured largest: 16KB) regardless of how long the clip is.
+  // ⚠️ B736 — ASSEMBLE BY POSITION, NOT BY ARRIVAL. B735 ASSUMED APPEND-ONLY AND WAS WRONG.
+  //
+  // Daniel's B735 bake threw `the muxer wrote past the end of the file while finalising`. The guard
+  // was right to fire; the model behind it was not. Asked directly what it writes
+  // (`scratchpad/muxwrite-check.mjs`), mp4-muxer with reserved Fast Start produces:
+  //
+  //     0+28        ftyp
+  //     4424+16     mdat header — a JUMP, leaving the reserved moov space unwritten
+  //     4440+10000  sample data
+  //     28+649      the real moov, backfilled at finalize, followed by a `free` box
+  //     4424+8      the mdat size, patched ON TOP of the header written earlier
+  //
+  // So there are three behaviours to reproduce, and B735 handled none of them: a GAP that is filled
+  // later, an OVERWRITE of bytes already written, and writes that arrive out of order.
+  //
+  // **An `ArrayBufferTarget` is an allocated, zero-initialised buffer written into out of order**,
+  // so reproducing it exactly is the whole specification. `scratchpad/muxassemble-check.mjs` builds
+  // the same file both ways and compares every byte — 9 cases, byte-identical, `ftyp moov free mdat`.
+  // **That is the invariant that matters: not "the assembly looks reasonable" but "the file is the
+  // one we have been shipping".** Daniel's requirement is that a bake open in other tools.
+  //
+  // ⚠️ AND THE STREAMING IS REAL, which is the thing B734 actually depends on. Measured: reserved
+  // Fast Start emits **23 writes, largest 16KB** for 300 chunks; `'in-memory'` emits **one write of
+  // the entire file**. `Blob.slice` does not copy, so the splice below stays cheap however long the
+  // clip is, and the heap never holds more than one write.
+  const writes = [];       // { position, blob, len } in ARRIVAL order — later writes overwrite earlier
   let outBytes = 0;
   const outId = memHold('encoder-output', 0);
   const muxer = new Muxer({
@@ -113,15 +129,7 @@ export async function exportVideo({ frameAt, onBegin, onEnd, width, height, fps,
         // `data` is a view onto the muxer's own scratch buffer, so it MUST be copied before it is
         // handed to a Blob that will outlive this call. A view retained here reads as corruption
         // later, in the finished file, with nothing pointing back at this line.
-        const copy = data.slice();
-        if (position === writePos) {
-          pending.push(copy);
-          pendingBytes += copy.byteLength;
-          writePos += copy.byteLength;
-          if (pendingBytes >= FLUSH_BYTES) flushPending();
-        } else {
-          backfills.push({ position, data: copy });
-        }
+        writes.push({ position, blob: new Blob([data.slice()]), len: data.byteLength });
       },
     }),
     video: { codec: muxerCodec, width, height, frameRate: fps },
@@ -132,8 +140,8 @@ export async function exportVideo({ frameAt, onBegin, onEnd, width, height, fps,
   const encoder = new VideoEncoder({
     // B728 — the encoded bytes, which is what makes "how long a clip can this device bake"
     // arithmetic rather than folklore. Since B734 this is a THROUGHPUT figure rather than a resident
-    // one: the output goes to disk-backed Blob parts, so the heap holds at most FLUSH_BYTES of it.
-    output: (chunk, meta) => { outBytes += chunk.byteLength; memGrow(outId, Math.min(outBytes, FLUSH_BYTES)); muxer.addVideoChunk(chunk, meta); },
+    // one: the output goes to disk-backed Blob parts, so the heap holds one write at a time.
+    output: (chunk, meta) => { outBytes += chunk.byteLength; memGrow(outId, 16 * 1024 * 1024); muxer.addVideoChunk(chunk, meta); },
     error: (e) => { encError = e; },
   });
   // NOTE: we tried `hardwareAcceleration: 'prefer-hardware'` (Build 127) and it
@@ -249,22 +257,14 @@ export async function exportVideo({ frameAt, onBegin, onEnd, width, height, fps,
     encMs += performance.now() - tFlush;
     if (encError) throw encError;
     muxer.finalize();
-    flushPending();
-    // Splice the reserved-metadata backfill into place. `Blob.slice` does not copy, so this is
-    // cheap however long the clip is — the whole point of keeping the parts as Blobs.
-    let blob = new Blob(parts, { type: 'video/mp4' });
-    for (const { position, data } of backfills) {
-      const end = position + data.byteLength;
-      // ⚠️ REFUSE TO SHIP A FILE WE CANNOT ASSEMBLE. A backfill past the end means our model of the
-      // muxer's write pattern is wrong, and the failure mode of guessing here is a CORRUPT EXPORT
-      // that looks fine until Daniel opens it in Arena. Loud beats plausible.
-      if (end > blob.size) {
-        const e = new Error('the muxer wrote past the end of the file while finalising');
-        e.code = 'mux-assembly';
-        throw e;
-      }
-      blob = new Blob([blob.slice(0, position), data, blob.slice(end)], { type: 'video/mp4' });
+    let blob = new Blob([]);
+    for (const w of writes) {
+      // a write past the end EXTENDS with zeros — the reserved moov gap, which the muxer then fills
+      if (w.position > blob.size) blob = new Blob([blob, new Uint8Array(w.position - blob.size)]);
+      const end = w.position + w.len;
+      blob = new Blob([blob.slice(0, w.position), w.blob, blob.slice(Math.min(end, blob.size))]);
     }
+    blob = new Blob([blob], { type: 'video/mp4' });
     onProgress?.(1);
     return { blob, ext: 'mp4', frames, timing: { frames, glMs, vfMs, encMs } };
   } finally {

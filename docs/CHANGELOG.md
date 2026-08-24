@@ -6,6 +6,77 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.26.76 · Build 736 — TWO B735 BUGS, BOTH MINE, BOTH FOUND BY ASKING RATHER THAN GUESSING
+
+**Shipped:**
+- **The demux parses the MOOV ONLY** and indexes into the original Blob. Zero copies, no second Blob.
+- **The muxer output is assembled BY POSITION**, reproducing `ArrayBufferTarget` byte-for-byte.
+
+### ⭐⭐ THE SLOWDOWN WAS NOT THE STREAMING DEMUX. IT WAS THE ABSENCE OF ONE.
+
+Daniel: *"the bake operation is running much much more slowly now... the mbp used to feel much much
+faster than the ipad pro and now it feels like its about the same speed."*
+
+**The report said why in one field: `bake-decode-none`.** No WebCodecs reader armed, so the bake fell
+back to seeking a `<video>` per frame — the path that re-decodes from the previous keyframe on every
+step, which is exactly "as slow as the iPad". `peakBy` was `{ capture-canvas: 31.6, parse-window: 24 }`
+with **no `sample-index` at all**.
+
+**B724 added that field precisely because a silent fallback had once been read as something else.**
+It turned a performance mystery into a one-line diagnosis.
+
+### 📐 WHY B735's PARSE RETURNED NOTHING: THE MOOV IS AT THE END
+
+**iOS writes .mov files with mdat first and moov last.** B735 fed mp4box 16MB slices, so `onReady`
+did not fire until the final slice — by which point mp4box had moved past the sample data in the
+slices it had already consumed. Appending the whole file at once hid this, because everything was
+present by the time the moov parsed.
+
+**B736 finds the moov itself** by walking top-level box headers (a handful of 16-byte reads), hands
+mp4box only `ftyp` + `moov`, and takes the sample table it builds from that. **mp4box populates
+`trak.samples` with `offset`, `size`, `cts`, `duration`, `timescale` and `is_sync` from the moov
+alone — the whole index, and not one sample byte.**
+
+**Sample bytes are then read from the original Blob at their file offsets.** No copies, no second
+Blob, nothing to release. **Strictly better than B735**, which copied every byte into a Blob it then
+had to hold. `parse-window` is now the moov's size — a few hundred KB — instead of 24MB.
+
+### 📐 WHY THE MUXER THREW: A RESERVED GAP AND AN OVERWRITE
+
+`the muxer wrote past the end of the file while finalising`. **The guard was right; the model behind
+it was wrong.** Asked directly what it writes (`scratchpad/muxwrite-check.mjs`):
+
+```
+0+28        ftyp
+4424+16     mdat header — a JUMP, leaving the reserved moov space unwritten
+4440+10000  sample data
+28+649      the real moov, backfilled at finalize, then a `free` box
+4424+8      the mdat size, patched ON TOP of bytes already written
+```
+
+Three behaviours, and B735 handled none: **a gap filled later, an overwrite of written bytes, and
+out-of-order arrival.** An `ArrayBufferTarget` is an allocated, zero-initialised buffer written into
+out of order — **so reproducing it exactly is the entire specification.**
+
+`scratchpad/muxassemble-check.mjs` builds the same file both ways and compares every byte: **9 cases,
+byte-identical, box order `ftyp moov free mdat`.** That is the invariant that matters — not "the
+assembly looks reasonable" but "the file is the one we have been shipping", which is Daniel's stated
+requirement for a bake that opens in other tools.
+
+### ✅ AND THE STREAMING IS REAL, WHICH IS WHAT B734 DEPENDS ON
+
+Measured: reserved Fast Start emits **23 writes, largest 16KB** for 300 chunks. `'in-memory'` emits
+**one write containing the entire file.** The heap never holds more than one write.
+
+### 🔎 THE PATTERN IN BOTH BUGS
+
+Each was an assumption about a library's behaviour that took ten minutes to ASK and was wrong.
+**`muxwrite-check.mjs` and `muxassemble-check.mjs` cost less than the device session that found the
+failure**, and the demux bug would have been caught the same way by any harness that ran a real
+moov-at-end file.
+
+---
+
 ## v0.26.75 · Build 735 — THE SOURCE STOPS BEING PROPORTIONAL TO THE CLIP
 
 **Shipped:**

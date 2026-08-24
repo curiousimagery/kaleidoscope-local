@@ -22,7 +22,7 @@ Archived at B658. It was marked superseded at B609 and kept for the reasoning be
 
 ## current version
 
-**v0.26.75 · B735** (2026-08-24). **B705 and B706 are device-verified** — B705's instrument found B706, and B706 held on the repro that killed B705. B703, B704 and B707 are not yet device-verified.
+**v0.26.76 · B736** (2026-08-24). **B705 and B706 are device-verified** — B705's instrument found B706, and B706 held on the repro that killed B705. B703, B704 and B707 are not yet device-verified.
 
 ---
 
@@ -64,7 +64,39 @@ Both named by Daniel at B704 **because I had left them off the plan.** Full scop
 - **The encoder's real error beats its symptom.** `VideoEncoder is not configured` describes the state we found it in, not what broke it; a synchronous throw was beating the `encError` check.
 - **The bake button no longer reads `baking…` forever while clickable.** `setClipMode`'s comment claimed it restored the label; `loopPrimary()` does. Daniel pressed the lying button, which is how the second bake happened.
 
-### ⭐⭐⭐ PICK UP HERE (B735) — A AND B ARE BOTH BUILT. VERIFY ON DESKTOP FIRST, THEN ONE iPAD RUN.
+### ⭐⭐⭐ PICK UP HERE (B736) — B735 SHIPPED TWO BUGS. BOTH FIXED. DESKTOP FIRST, AGAIN.
+
+**B735's bake on the M1 Max was slow AND failed. Both were mine, and neither was the design.**
+
+1. **`bake-decode-none` — no reader armed.** The bake fell back to per-frame `<video>` seeking, which
+   is why the desktop felt as slow as the iPad. **The streaming demux was absent, not slow.**
+   Cause: **iOS writes .mov with the moov at the END**, so mp4box's `onReady` did not fire until the
+   last 16MB slice, past the sample data it had already consumed.
+2. **`mux-assembly` throw.** The muxer leaves a reserved GAP, backfills it, and OVERWRITES bytes it
+   already wrote. B735 assumed append-only.
+
+**B736 fixes both, and the demux fix is better than the original design:** parse `ftyp` + `moov`
+only, take mp4box's `trak.samples` index (offsets and sizes, no bytes), and read sample bytes
+straight from the original Blob. **Zero copies, no second Blob.** `parse-window` is now the moov's
+size, a few hundred KB.
+
+**▶ STEP 1 — DESKTOP, FREE, DO THIS FIRST.** `npm run dev`, the 741MB original, vanilla slice.
+
+| check | expected |
+|---|---|
+| speed | **back to fast.** Slower than B731 means the fallback is still being taken |
+| `bakeDecode.mem.peakBy` | `sample-index` ~0.2MB, `parse-window` sub-MB, `capture-canvas` 31.6, peak **under ~100MB** |
+| `bakeDecode` present at all | **if you see `bake-decode-none` again, stop** — the reader still is not arming |
+| the baked clip | **play it, save it, open it in another app.** Byte-identity is harnessed, not observed |
+
+**▶ STEP 2 — ONE iPAD RUN, only if desktop is clean.** M1 iPad Pro, same file, one bake per launch.
+Then the Air.
+
+**⚠️ AND THE LESSON, since it cost a device session:** both bugs were assumptions about a library
+that took ten minutes to ASK. `scratchpad/muxwrite-check.mjs` and `muxassemble-check.mjs` cost less
+than the run that found the failure.
+
+### 🔻 SUPERSEDED (B735) — A AND B ARE BOTH BUILT. VERIFY ON DESKTOP FIRST, THEN ONE iPAD RUN.
 
 **A (B734):** the muxer streams to disk-backed Blob parts. Removes the OUTPUT term. Fast Start kept.
 **B (B735):** the demux is incremental and sample bytes live in a disk-backed Blob. Removes the

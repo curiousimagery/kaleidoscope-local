@@ -46,63 +46,84 @@ const MP4Box = (MP4BoxModule.default && MP4BoxModule.default.createFile) ? MP4Bo
 // ⚠️ SAMPLE BYTES ARE READ BACK IN CONTIGUOUS RUNS, NOT ONE AT A TIME. Samples are laid down in
 // decode order, so a feed batch is one `Blob.slice()`. One read per feed rather than 24 matters
 // because a disk-backed read is not free.
-const PARSE_CHUNK = 16 * 1024 * 1024;
-const BYTES_FLUSH = 8 * 1024 * 1024;
+// ⚠️ B736 — PARSE THE MOOV ONLY. B735 STREAMED THE WHOLE FILE THROUGH mp4box AND GOT NOTHING BACK.
+//
+// B735 appended the file to mp4box in 16MB slices. On Daniel's M1 Max that produced
+// `bake-decode-none` — **no reader armed at all** — and the bake silently fell back to seeking a
+// `<video>` per frame, which is why it felt *"much much more slowly"* and why the desktop was
+// suddenly no faster than the iPad. **The slowdown was never the streaming demux; it was the absence
+// of one.** B724's `bake-decode-none` is what turned that from a performance mystery into a fact.
+//
+// The cause is where the moov sits. **iOS writes .mov files with mdat FIRST and moov at the END**,
+// so `onReady` does not fire until the last slice, by which point mp4box has moved past the sample
+// data in the slices it already consumed. Appending the whole file at once hid this, because
+// everything was present by the time the moov finally parsed.
+//
+// So: find the moov ourselves by walking the top-level box headers (a handful of 16-byte reads),
+// hand mp4box ONLY `ftyp` + `moov`, and take the sample table it builds from that. **mp4box populates
+// `trak.samples` with `offset`, `size`, `cts`, `duration`, `timescale` and `is_sync` when it parses
+// the moov — the full index, and no sample bytes at all.**
+//
+// **The bytes are then read straight out of the original Blob at their file offsets: zero copies, no
+// second Blob, nothing to release.** Strictly better than B735, which copied every byte into a Blob
+// it then had to hold.
+
+// Walk top-level boxes and return their file ranges. Small reads only.
+async function findTopLevelBoxes(blob) {
+  const out = {};
+  let pos = 0;
+  for (let guard = 0; guard < 4096 && pos + 8 <= blob.size; guard++) {
+    const dv = new DataView(await blob.slice(pos, Math.min(blob.size, pos + 16)).arrayBuffer());
+    if (dv.byteLength < 8) break;
+    let size = dv.getUint32(0), header = 8;
+    const type = String.fromCharCode(dv.getUint8(4), dv.getUint8(5), dv.getUint8(6), dv.getUint8(7));
+    if (size === 1) {
+      if (dv.byteLength < 16) break;
+      size = Number(dv.getBigUint64(8)); header = 16;
+    } else if (size === 0) {
+      size = blob.size - pos;             // "to end of file"
+    }
+    if (size < header || pos + size > blob.size) break;
+    out[type] = { start: pos, end: pos + size };
+    if (type === 'moov') break;           // everything the decoder config needs is in here
+    pos += size;
+  }
+  return out;
+}
 
 async function demuxStreaming(blob) {
+  const boxes = await findTopLevelBoxes(blob);
+  if (!boxes.moov) return null;
+
   const mp4 = MP4Box.createFile();
   let info = null, err = null;
-  const index = [];
-  let parts = [], pending = [], pendingBytes = 0, off = 0;
-  const flushBytes = () => {
-    if (!pending.length) return;
-    parts.push(new Blob(pending));
-    pending = []; pendingBytes = 0;
-  };
   mp4.onError = (e) => { err = e || 'parse error'; };
-  mp4.onSamples = (id, user, list) => {
-    for (const smp of list) {
-      const d = smp.data;
-      const size = d ? d.byteLength : 0;
-      index.push({ cts: smp.cts, duration: smp.duration, timescale: smp.timescale,
-                   is_sync: !!smp.is_sync, size, off });
-      if (d) { pending.push(d); off += size; pendingBytes += size; }
-      // ⚠️ NULLING THIS IS THE WHOLE POINT. `smp` is mp4box's own sample object, so dropping the
-      // reference here drops the library's copy too. Without it the parse is incremental and the
-      // MEMORY is not, which would look like the change working right up until the peak.
-      smp.data = null;
-    }
-    if (pendingBytes >= BYTES_FLUSH) flushBytes();
-    // Best effort: tells mp4box it may forget everything up to here. Absent in some builds, which
-    // is survivable — nulling `data` above is what actually frees the bytes.
-    try { mp4.releaseUsedSamples?.(id, index.length); } catch { /* not in this build */ }
-  };
-  // extraction must be armed INSIDE onReady — arming it after appendBuffer has
-  // already processed the mdat yields zero samples (verified against 2.4.1)
-  mp4.onReady = (i) => {
-    info = i;
-    const t = i.videoTracks && i.videoTracks[0];
-    if (t) {
-      // Smaller batches than the old 1000: each batch is held in the heap until the next flush, so
-      // the batch size IS a memory term now rather than just a callback cadence.
-      mp4.setExtractionOptions(t.id, null, { nbSamples: 200 });
-      mp4.start();
-    }
-  };
+  mp4.onReady = (i) => { info = i; };
   try {
-    for (let pos = 0; pos < blob.size; pos += PARSE_CHUNK) {
-      const part = await blob.slice(pos, Math.min(blob.size, pos + PARSE_CHUNK)).arrayBuffer();
-      part.fileStart = pos;
+    for (const box of [boxes.ftyp, boxes.moov]) {
+      if (!box) continue;
+      const part = await blob.slice(box.start, box.end).arrayBuffer();
+      part.fileStart = box.start;         // mp4box places sparse appends by this, not by arrival
       mp4.appendBuffer(part);
-      if (err) return null;
     }
     mp4.flush();
   } catch { return null; }
-  flushBytes();
   if (err || !info) return null;
   const track = info.videoTracks && info.videoTracks[0];
-  if (!track || !index.length) return null;
-  const bytes = new Blob(parts);
+  if (!track) return null;
+
+  // The index mp4box builds from the moov: offsets and sizes into the ORIGINAL file, and no bytes.
+  let raw = null;
+  try { raw = mp4.getTrackById(track.id)?.samples || null; } catch { raw = null; }
+  if (!raw || !raw.length) return null;
+  const index = new Array(raw.length);
+  for (let k = 0; k < raw.length; k++) {
+    const smp = raw[k];
+    index[k] = {
+      cts: smp.cts, duration: smp.duration, timescale: smp.timescale,
+      is_sync: !!smp.is_sync, size: smp.size, off: smp.offset,
+    };
+  }
 
   // decoder config description (avcC/hvcC/…): serialize the sample-entry box,
   // minus its own 8-byte box header — the shape VideoDecoder wants.
@@ -122,11 +143,14 @@ async function demuxStreaming(blob) {
     }
     rotation = rotationFromMatrix(trak && trak.tkhd && trak.tkhd.matrix);
   } catch { /* some codecs carry their config in-band */ }
-  return { track, index, bytes, description, rotation };
+  return { track, index, bytes: blob, description, rotation };   // the bytes ARE the original file
 }
 
 // ISO track matrix → clockwise rotation in degrees (0/90/180/270). a=m[0], b=m[1] in 16.16.
 const usOf = (s) => Math.round((s.cts * 1e6) / s.timescale);
+
+// B736 — the most sample bytes one feed batch will read from the file in a single slice.
+const FEED_BYTES = 8 * 1024 * 1024;
 
 function rotationFromMatrix(m) {
   if (!m || m.length < 2) return 0;
@@ -189,15 +213,21 @@ export async function openSharedSource(url, { maxBytes = 1_500_000_000 } = {}) {
   } catch { return null; }
   if (!blob.size || blob.size > maxBytes) return null;
 
-  // ⚠️ B735 — THE TRANSIENT IS ONE PARSE SLICE NOW, NOT THE WHOLE FILE.
+  // ⚠️ B736 — THE TRANSIENT IS THE MOOV, NOT THE FILE.
   //
   // B730 held a `source-buffer` term across the demux because the whole file genuinely was resident
-  // for that interval. With an incremental parse it never is: the peak contribution is one
-  // PARSE_CHUNK plus one un-flushed sample batch. The term stays in the ledger under its own name so
-  // a report can show it collapse rather than simply go missing — **a term that disappears reads as
-  // an instrument change; a term that drops to 16MB reads as the fix.**
+  // for that interval. Since B736 only `ftyp` + `moov` are ever read into the heap — typically a few
+  // hundred KB on a long clip, since the moov is an index — and the sample bytes are read from the
+  // original Blob on demand and never accumulate anywhere.
+  //
+  // The term keeps its own name so a report can show it COLLAPSE rather than simply go missing: **a
+  // term that disappears reads as an instrument change; a term that drops from 707MB to under 1MB
+  // reads as the fix.**
   const fileBytes = blob.size;
-  const parseId = memHold('parse-window', PARSE_CHUNK + BYTES_FLUSH);
+  const moovBytes = await (async () => {
+    try { const b = await findTopLevelBoxes(blob); return b.moov ? (b.moov.end - b.moov.start) : 0; } catch { return 0; }
+  })();
+  const parseId = memHold('parse-window', moovBytes);
   const parsed = await demuxStreaming(blob);
   memRelease(parseId);
   if (!parsed) return null;
@@ -412,7 +442,7 @@ function makeReader(source, onClosed) {
     try {
       const start = i;
       let end = i, want = 0;
-      while (end < index.length && (end - start) < 24 && want < BYTES_FLUSH) { want += index[end].size; end++; }
+      while (end < index.length && (end - start) < 24 && want < FEED_BYTES) { want += index[end].size; end++; }
       const from = index[start].off;
       const to = index[end - 1].off + index[end - 1].size;
       const buf = new Uint8Array(await bytes.slice(from, to).arrayBuffer());
