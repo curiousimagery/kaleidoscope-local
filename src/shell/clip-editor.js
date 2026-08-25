@@ -1283,6 +1283,10 @@ export function createClipEditor(env) {
   // degraded source) and this guards the output; either alone leaves a hole, because the source can
   // degrade *during* a four-minute bake as easily as before one.
   async function applyBakedClip(blob, expect = null) {
+    // ⚠️ B740 — READ THE MODE BEFORE THE RESET BELOW, the same late-read trap B722 fixed. Line
+    // `env.clip.trim.mode = 'forward'` further down means anything asking afterwards gets 'forward'
+    // for every bake, which is exactly the shape of the bug that made B719's check invert.
+    const bakedMode = env.clip.trim.mode;
     const url = URL.createObjectURL(blob);
     const v = document.createElement('video');
     v.muted = true; v.playsInline = true; v.loop = true; v.preload = 'auto';
@@ -1335,6 +1339,18 @@ export function createClipEditor(env) {
     if (meta) meta.children[0].textContent = `${v.videoWidth} × ${v.videoHeight}`;
     env.arrangeSlots();
     rebindClipToTimeline();
+    // ⚠️ B740 — ASSERT LOOP-NESS FOR THE TWO MODES THAT GUARANTEE IT, AND ONLY THOSE.
+    //
+    // Daniel, 2026-08-24: *"coming back from the loop builder and opening in motion, it wasn't able
+    // to autodetect that my source loops now."* `applyBakedClip` swaps `env.sourceVideo` directly
+    // and never runs `source-host.js`'s post-load sequence, so `detectLoopFromFrames` →
+    // `setLoopClip` never fired and motion kept the old clip's answer.
+    //
+    // A `slice` or `bounce` bake is seamless BY CONSTRUCTION — a bounce ends where it starts, and a
+    // slice is the whole point of the operation — so this ASSERTS rather than re-running a frame
+    // comparison that could only agree with us. **`forward` is a trim, not a loop** (its button even
+    // reads *"apply trim"*), and asserting there would be a new bug replacing an old one.
+    if (bakedMode === 'slice' || bakedMode === 'bounce') env.setLoopClip?.(true);
   }
 
   // dismiss the post-bake nudge and close the mode (the nudge actions call this

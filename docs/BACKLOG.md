@@ -486,6 +486,38 @@ One report reads `pressure: { target: 15, label: "warming up" }` on a 30fps clip
 
 ## 🚧 Limits, ceilings and honest refusal
 
+### 🟠 [PARTLY FIXED B740 — REFUSAL SHIPPED, ZIP64 AND FIVE FALLBACKS STILL OPEN] `zipStore` AND THE 4GB WALL
+
+**Daniel's 8K render output is 6.25GB.** `zip.js` writes STORE format with 32-bit size fields and no
+ZIP64 — its own comment says so — and **`DataView.setUint32` wraps modulo 2^32 without throwing.**
+A 6,250,000,000-byte entry is written as ~1.96GB. **No error, no warning, a zip that opens and is
+wrong.**
+
+Three fields overflow, not one: each entry's compressed and uncompressed size, **the local-header
+offset of every entry after the first** (so a small `motion.json` following a 6.25GB video becomes
+unreachable), and `cdStart` in the EOCD.
+
+**The path is live today.** A motion render routes through `zipStore` whenever *"source preview"* or
+*"motion JSON"* is ticked ([motion-runtime.js](../src/shell/motion-runtime.js)) — the bake never
+zips, which is why fifteen builds of bake work never touched it.
+
+**✅ SHIPPED B740:** `zipStore` refuses with `err.code === 'too-large'`, checking the RUNNING TOTAL
+(which covers all three overflowing fields where per-entry checks would not), and the render
+degrades to separate saves rather than losing the work. Proven both ways in
+`scratchpad/zip64-check.mjs`, 6/6.
+
+**⚠️ STILL OPEN, AND THE SECOND HALF IS THE BIGGER ONE.**
+
+1. **ZIP64** — the correct fix, ~40 lines, read by every modern unzip. Until it lands, packages
+   above 4GB simply cannot be made.
+2. **Five of the six callers have no fallback and now fail loudly where they used to corrupt.**
+   `main.js` (clip artifact) and `source-host.js` (export package) both bundle the **ORIGINAL
+   source**, and Daniel has sources over 4GB — so this is a visible new failure standing in for an
+   invisible old one. Each needs either the render's split-save treatment or ZIP64.
+
+Note also that `crc32OfBlob` streams the whole file through JS at 8MB a slice — **one full extra
+read pass over 6.25GB**. Correct on memory, expensive in time, and untested on a fanless device.
+
 ### 🐞🐞 [Daniel, 2026-08-24 — DIAGNOSED, NOT FIXED] `applyBakedClip` IS A PARTIAL REIMPLEMENTATION OF THE LOAD PATH
 
 *"Coming back from the loop builder and opening in motion, it wasn't able to autodetect that my
@@ -501,11 +533,13 @@ through `source-host.js`'s `loadVideo`, so **everything `loadVideo` does after t
 **These are the same bug wearing two faces**, which is why fixing the GL-restore path at B733 did not
 fix either one.
 
-**⭐ THE LOOP CASE DOES NOT NEED DETECTION AT ALL.** A slice or bounce bake produces a seamless loop
-**by construction** — that is the entire purpose of the operation. So the fix is to ASSERT
-`setLoopClip(true)` after a successful loop bake, not to re-run a frame comparison that can only
-agree with us. Detection is the right answer for a file we did not make; it is the wrong answer for
-one we just built to spec.
+**⭐ THE LOOP CASE DOES NOT NEED DETECTION — BUT ONLY FOR TWO OF THE THREE MODES (Daniel's catch).**
+`env.clip.trim.mode` is `slice`, `bounce` or `forward`. **`slice` and `bounce` are seamless by
+construction** (a bounce ends where it starts), so assert `setLoopClip(true)` there. **`forward` is
+a trim, not a loop** — the UI even labels its button *"apply trim"* rather than *"bake"* — and
+asserting a loop on it would be a new bug replacing an old one. On `forward`, run detection or
+preserve the flag the source already carried. Detection is the right answer for a file we did not
+make; assertion is right only where we built the seam ourselves.
 
 **The shape of the real fix** is to give `applyBakedClip` the same post-swap sequence `loadVideo`
 runs, rather than to bolt on the two missing calls — otherwise the third omission arrives later.
@@ -575,7 +609,18 @@ table, so it degrades and scales on its own. Do not show a figure before ~5% or 
 noise; smooth over a trailing window; and it belongs in both the bake sheet and the motion render
 sheet, which are separate UI.
 
-### 🚩 [FOUND BY READING B738 — UNTESTED, ARITHMETIC IS NOT AMBIGUOUS] THE iPAD CAN BE HANDED A 16K STILL EXPORT
+### 🚩🚩 [B738 BY READING; B740 CONFIRMED THE CEILING FROM DANIEL'S OWN TOOLTIP] THE iPAD CAN BE HANDED AN 8K+ STILL EXPORT
+
+**⭐ NO LONGER A GUESS.** Daniel reports 6K and 8K disabled in the iPad Pro's RENDER sheet reading
+*"this browser can't encode …"*. In `gateResolutions` that exact string is the **`!overFBO`** branch,
+so `maxFBOSize` on that device is **≥ 7680** — measured indirectly, no device session spent.
+
+Two consequences, and they point opposite ways:
+
+- ✅ **The render's encode gate is honest and already correct on iPad.** WebKit's
+  `isConfigSupported` refused 6K/8K HEVC and the UI explained it in the operator's language.
+- 🚨 **Still export gates on `maxFBOSize` ALONE and never consults `pickVideoCodec`**, so the still
+  ladder offers 8K and `max` on an 8GB iPad with no clamp at all.
 
 `exportAt` ([engine/index.js](../src/engine/index.js)) holds **three full-resolution RGBA copies at
 once** — the `readPixels` buffer, the `ImageData`, and the 2D canvas backing store — plus the GPU
@@ -586,6 +631,10 @@ gap is that **the iPad runs desktop chrome**, `main.js` has no export clamp of i
 probe validates a size by round-tripping ONE pixel — so it cannot see a three-buffer peak. The phone
 chrome already hardcodes 6144 for exactly this, after a field jetsam
 ([mobile/chrome.js](../src/mobile/chrome.js)).
+
+**The cheap honest fix is the render's own pattern**: still export has no `pickVideoCodec` to ask,
+but it can ask the SAME question the render does — can this device actually complete the operation —
+by gating on measured headroom rather than on a one-pixel probe.
 
 **Two fixes, and they are not the same fix.** The clamp is the gate's job (see the capability ladder
 cluster). The tiled readback is the real repair, and it must be decided together with the colour

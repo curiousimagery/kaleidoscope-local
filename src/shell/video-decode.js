@@ -268,7 +268,7 @@ export function sourceBudget() {
     return {
       capBytes: Math.max(CAP_NEVER_BELOW, Math.round(dm * 0.5 * 1e9)),
       headroomMB: null,
-      basis: `navigator.deviceMemory (${dm}GB, Chromium; caps at 8)`,
+      basis: `navigator.deviceMemory (${dm}GB reported)`,
       vitalsAgeMs: null,
     };
   }

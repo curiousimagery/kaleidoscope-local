@@ -2353,6 +2353,7 @@ function setupVideoExport() {
     // TWO surfaces, not one — it resizes the GL canvas to w×h AND allocates a 2D canvas at w×h —
     // which is why this hold is doubled where the bake's is not. At 8K that is 2 × 132MB.
     memBegin('render');
+    let packagedSeparately = null;
     const capId = memHold('capture-canvas', w * h * 4 * 2);
     const devBefore = (() => { try { return readHostVitals(); } catch { return null; } })();
     const renderShape = {
@@ -2403,8 +2404,21 @@ function setupVideoExport() {
         extras.push({ name: base + '-motion.json', blob: motionJSONBlob() });
       }
       if (extras.length) {
-        const zipBlob = await zipStore([{ name: base + '.mp4', blob }, ...extras]);
-        env.downloadBlob(zipBlob, base + '-package.zip');
+        // ⚠️ B740 — NEVER LOSE A FINISHED RENDER TO A PACKAGING FAILURE. The zip writer refuses at
+        // 4GB (it has no ZIP64), and an 8K render is 6.25GB. The frames are already encoded by the
+        // time we get here, so a refusal must degrade to separate saves and SAY SO, not throw the
+        // work away. `packagedSeparately` reaches the exported report, because a save that silently
+        // produced three files instead of one is exactly the kind of surprise a report should carry.
+        try {
+          const zipBlob = await zipStore([{ name: base + '.mp4', blob }, ...extras]);
+          env.downloadBlob(zipBlob, base + '-package.zip');
+        } catch (zerr) {
+          if (zerr?.code !== 'too-large') throw zerr;
+          env.vitals?.mark('package-split', { why: zerr.message, files: zerr.files, projected: zerr.projected });
+          packagedSeparately = zerr.message;
+          await env.downloadBlob(blob, base + '.mp4');
+          for (const x of extras) await env.downloadBlob(x.blob, x.name);
+        }
       } else {
         env.downloadBlob(blob, base + '.mp4');
       }
@@ -2422,7 +2436,12 @@ function setupVideoExport() {
         diag = ` · /frame: gl ${gl.toFixed(0)} · vframe ${vf.toFixed(0)} · encode ${enc.toFixed(0)} ms`;
         console.log('[video-export] per-frame ms:', { mode: selCap, gl: +gl.toFixed(1), vframe: +vf.toFixed(1), encode: +enc.toFixed(1), frames: f, totalSecs: +secs.toFixed(1) });
       }
-      status.textContent = `saved ✓ · rendered in ${secs.toFixed(1)}s${rate}${diag}`; status.className = 'status success';
+      if (packagedSeparately) {
+        status.textContent = `saved as separate files ✓ · ${packagedSeparately} · rendered in ${secs.toFixed(1)}s${rate}`;
+        status.className = 'status';
+      } else {
+        status.textContent = `saved ✓ · rendered in ${secs.toFixed(1)}s${rate}${diag}`; status.className = 'status success';
+      }
     } catch (e) {
       if (e.code === 'cancelled') { status.textContent = 'cancelled'; status.className = 'status'; }
       else {
@@ -2441,13 +2460,13 @@ function setupVideoExport() {
         const at = new Date().toISOString();
         const secs = (performance.now() - renderStart) / 1000;
         if (worst) {
-          env.renderDecode = { ...worst, ...renderShape, srcGate: gate, wallSec: +secs.toFixed(1), at };
+          env.renderDecode = { ...worst, ...renderShape, srcGate: gate, wallSec: +secs.toFixed(1), packagedSeparately, at };
           env.vitals?.mark('render-decode-worst', { ...worst, ...renderShape, wallSec: +secs.toFixed(1) });
         } else {
           const why = !env.sourceVideo ? 'no video source (keyframe-only render)'
             : lastReaderWhy || 'no reader armed, and nothing published a reason';
           env.renderDecode = { ...renderShape, reader: 'element-seek fallback', why, srcGate: gate,
-                               wallSec: +secs.toFixed(1), at };
+                               wallSec: +secs.toFixed(1), packagedSeparately, at };
           env.vitals?.mark('render-decode-none', { ...renderShape, why, wallSec: +secs.toFixed(1) });
         }
       } catch { /* never let an instrument break a teardown */ }

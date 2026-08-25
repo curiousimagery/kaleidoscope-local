@@ -32,13 +32,46 @@ async function crc32OfBlob(blob) {
   return (~crc) >>> 0;
 }
 
+// ⚠️ B740 — ABOVE 4GB THIS WRITER CORRUPTED SILENTLY. IT NOW REFUSES INSTEAD.
+//
+// Every size and offset below is a `setUint32`, and **`DataView.setUint32` wraps modulo 2^32
+// without throwing.** Daniel's 8K render is 6.25GB; written here it declared 1,955,032,704 bytes —
+// **31.3% of the file, in a zip that opens.** A 4GB+1 entry declares ONE byte. Proven in a harness
+// against this exact function (`scratchpad/zip64-check.mjs`), no device time.
+//
+// THREE fields overflow, not one: each entry's size, **the local-header offset of every entry after
+// the first** (so a small `motion.json` behind a 6.25GB video becomes unreachable), and `cdStart`.
+// Checking the RUNNING TOTAL covers all three at once, which per-entry checks would not: two 3GB
+// files each fit a uint32 and still push the second entry's offset past the wrap.
+//
+// The right answer is ZIP64 (~40 lines, and every modern unzip reads it). Until then this REFUSES,
+// with a tagged error so the caller can save the files separately rather than lose them — the
+// render has already completed by the time we get here, and destroying a finished 14-minute job to
+// avoid a corrupt zip would be trading one bad outcome for another.
+export const ZIP_MAX_TOTAL = 0xFFFFFFFF;   // uint32 ceiling; cdStart must land below it
+
 // files: [{ name: string, blob: Blob }]  →  Promise<Blob> (application/zip)
 // The output Blob COMPOSES the input Blobs lazily (headers are small typed
 // arrays; the file bytes stay browser-managed Blob references), so zipping two
 // video takes costs one streamed CRC pass, not their combined size in memory.
-// STORE format, 32-bit sizes — fine below 4GB per file (no ZIP64).
+// STORE format, 32-bit sizes — throws `err.code === 'too-large'` at or above 4GB total.
 export async function zipStore(files) {
   const enc = new TextEncoder();
+
+  // Refuse BEFORE the CRC pass — that pass reads every byte of every file, and spending it on a
+  // package we are going to reject would add minutes to a failure.
+  let projected = 0;
+  for (const f of files) projected += 30 + enc.encode(f.name).length + f.blob.size;
+  if (projected > ZIP_MAX_TOTAL) {
+    const biggest = files.reduce((a, b) => (b.blob.size > a.blob.size ? b : a), files[0]);
+    const e = new Error(
+      `this package would be ${(projected / 1e9).toFixed(2)}GB, past the 4GB limit of the zip format we write`
+      + ` (largest file: ${biggest?.name} at ${(biggest?.blob.size / 1e9).toFixed(2)}GB)`);
+    e.code = 'too-large';
+    e.projected = projected;
+    e.files = files.map((f) => ({ name: f.name, size: f.blob.size }));
+    throw e;
+  }
   const entries = [];
   for (const f of files) {
     entries.push({ name: enc.encode(f.name), blob: f.blob, size: f.blob.size, crc: await crc32OfBlob(f.blob) });

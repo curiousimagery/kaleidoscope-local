@@ -6,6 +6,70 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.27.2 · Build 740 — THE ZIP WRITER CORRUPTED EVERY PACKAGE OVER 4GB. PROVEN LOCALLY, FIXED, RE-PROVEN.
+
+**Shipped:**
+- **`zipStore` refuses at 4GB instead of corrupting**, with `err.code === 'too-large'` naming the
+  offending file. The check runs BEFORE the CRC pass, which reads every byte of every file.
+- **A render that overflows saves its files separately rather than losing the work**, marks
+  `package-split` in the trail, and says so in the status line and in `renderDecode`.
+- **`applyBakedClip` asserts loop-ness for `slice` and `bounce`, and only those** (Daniel's catch:
+  `forward` is a trim, not a loop).
+- **`srcGate.basis` no longer claims `navigator.deviceMemory` caps at 8** — Brave reported a true 32.
+
+### 🚨 THE BUG, MEASURED (`scratchpad/zip64-check.mjs`, no device time)
+
+Every size and offset in `zip.js` is a `setUint32`, and **`DataView.setUint32` wraps modulo 2^32
+without throwing.** Run against the real function:
+
+| entry | real bytes | what the zip declared |
+|---|---|---|
+| Daniel's 8K render | 6,250,000,000 | **1,955,032,704 — 31.3%** |
+| 4GB + 1 | 4,294,967,297 | **1** |
+| second entry's offset behind it | 6,250,000,066 | 1,955,032,740 |
+
+**Three fields overflow, not one**, so a small `motion.json` behind a 6.25GB video also becomes
+unreachable. **Checking the running TOTAL covers all three**; per-entry checks would pass a 3GB +
+2GB pair and still wrap the second offset. Harness: **6/6 after the fix, byte-exact below 4GB.**
+
+**The path was live only on the render.** `motion-runtime` zips whenever *source preview* or *motion
+JSON* is ticked; the bake never zips, which is why fifteen builds of bake work never touched it.
+
+⚠️ **The other five `zipStore` callers now FAIL LOUDLY where they previously corrupted** — the clip
+artifact and export package both bundle the ORIGINAL source, and Daniel has sources over 4GB. That
+is a visible new failure standing in for an invisible old one. **Only the render has a fallback so
+far**; the rest need the same treatment or ZIP64 (~40 lines, read by every modern unzip).
+
+### ✅ THE B737 DEMUX, RUN AGAINST THE REAL BENCHMARK FILE (`scratchpad/realfile-demux-check.mjs`)
+
+`IMG_5132.MOV`, 741,685,378 bytes, via `fs.openAsBlob` (disk-backed, the same shape WebKit hands us).
+**11/11.** Previously verified only on-device and against synthetic bytes.
+
+```
+ftyp  start            0  size           20
+wide  start           20  size            8
+mdat  start           28  size    741588077
+moov  start    741588105  size        97273     ← 99.99% into the file
+```
+
+**The moov sits BEHIND the mdat** — the iOS layout that broke B735 — and the B737 append reads
+**97,317 bytes, 0.013% of the file**, to produce a complete 3,192-sample index. Box walk 0.8ms,
+parse 10ms, and a mid-file 242KB sample slice returned in 1.04ms. `sample-index` measured
+**0.19MB**, matching the 0.2MB the devices reported.
+
+### 🔍 THE iPAD's FBO CEILING, DERIVED FROM DANIEL'S TOOLTIP (Class 1, no device time)
+
+He reports 6K and 8K disabled on the M1 iPad Pro reading *"this browser can't encode …"*. In
+`gateResolutions` that string is the **`!overFBO`** branch, so:
+
+1. ✅ **The render's encode gate is working honestly on iPad.** WebKit's `isConfigSupported` refused
+   6K/8K HEVC and the UI said so in the operator's language. Unprompted, already correct.
+2. 🚨 **`maxFBOSize` on that iPad is therefore ≥ 7680.** **Still export gates on `maxFBOSize` ALONE**
+   — it never consults `pickVideoCodec` — so the still ladder offers 8K and `max` on an 8GB iPad
+   with no clamp, against a triple-buffer transient of ~805MB at 8192. See BACKLOG.
+
+---
+
 ## v0.27.1 · Build 739 — THE RENDER GETS THE BAKE'S INSTRUMENT, AND B738 IS PROVEN ON A 2.63GB SOURCE
 
 **Shipped:**
