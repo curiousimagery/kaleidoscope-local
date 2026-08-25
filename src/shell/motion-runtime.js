@@ -398,12 +398,22 @@ async function advanceSourceToP(p) {
     engine.updateSourceFrame();
     return;
   }
-  if (env.nativeVideo) {
-    await clock.seekSettled(sec);
-    env.nativeVideo.refreshFrame();   // the settled frame still has to reach the canvas
-    engine.updateSourceFrame();
-    return;
-  }
+  // ⚠️ B745 — THE READER WINS DURING A RENDER, AND THE REASON IS NOT SPEED.
+  //
+  // `exportReader` is non-null ONLY between `setupExportReader` and `teardownExportReader`, so this
+  // reorder touches renders and nothing else — scrubbing, playback and perform keep the native path.
+  //
+  // The native seek is ALREADY frame-exact: the Swift asks AVPlayer for
+  // `toleranceBefore: .zero, toleranceAfter: .zero`. What is not exact is the ACCEPTANCE test on
+  // this side — `seekSettled` resolves as soon as a painted frame lands within **0.12s of the
+  // target, which is ±3.6 frames at 30fps**, and resolves anyway after 2s. So the seek goes to the
+  // right place and we photograph whatever has arrived over the socket by then. Tightening the
+  // window trades wrong frames for 2-second stalls; it does not remove the trade.
+  //
+  // **The reader has no seek to accept.** It decodes in order and the frame we want is the next one,
+  // so frame-exactness is structural rather than a tolerance we tuned. A render is the one operation
+  // where that difference is the whole product. Bake has used this path on iOS since B737 and comes
+  // out correct, which is the evidence that it works on WebKit.
   if (exportReader) {
     try {
       const frame = await exportReader.frameAt(sec);
@@ -414,6 +424,14 @@ async function advanceSourceToP(p) {
       console.warn('[fold] fast decode failed mid-render — falling back to element seeks:', e);
       teardownExportReader();   // re-points the engine at the video element
     }
+  }
+  // FALLBACK. Native where it exists (above the iOS file wall this is the ONLY path that can read
+  // the clip at all), else the <video> element. Both accept a frame within `seekSettled`'s window.
+  if (env.nativeVideo) {
+    await clock.seekSettled(sec);
+    env.nativeVideo.refreshFrame();   // the settled frame still has to reach the canvas
+    engine.updateSourceFrame();
+    return;
   }
   await clock.seekSettled(sec);
   engine.updateSourceFrame();
@@ -2361,6 +2379,7 @@ function setupVideoExport() {
     memBegin('render');
     let packagedSeparately = null;
     let renderTiming = null, renderOutBytes = null;   // B744 — published, not consoled
+    let srcMs = 0;                                   // B745 — source-advance only, inside frameAt
     const capId = memHold('capture-canvas', w * h * 4 * 2);
     const devBefore = (() => { try { return readHostVitals(); } catch { return null; } })();
     const renderShape = {
@@ -2378,8 +2397,14 @@ function setupVideoExport() {
         onBegin: () => engine.beginCapture(w, h),
         // a video source seeks the footage to p BEFORE capturing, so the clip
         // actually advances frame-by-frame in the render (frame-accurate export).
+        // ⚠️ B745 — `glMs` CONFLATES TWO DIFFERENT COSTS AND THE SPLIT IS THE WHOLE QUESTION.
+        // Daniel's Safari render spent **648.3s of 724.7s inside `frameAt` (43.12ms/frame, 89.5%)**
+        // while `vframe` was 3.78ms and `enc` rounded to zero — so it is neither the encoder nor
+        // VideoFrame construction. But `frameAt` is source-advance PLUS engine render, and nothing
+        // could tell them apart. `srcMs` is the source; the remainder is ours.
         frameAt: env.sourceVideo
-          ? async (p) => { await advanceSourceToP(p); const s2 = sampleAt(p, { bake: true }); return captureMode() === 'gl' ? engine.captureFrameGL(s2) : engine.captureFrame(s2); }
+          ? async (p) => { const t0 = performance.now(); await advanceSourceToP(p); srcMs += performance.now() - t0;
+                           const s2 = sampleAt(p, { bake: true }); return captureMode() === 'gl' ? engine.captureFrameGL(s2) : engine.captureFrame(s2); }
           : (p) => { const s2 = sampleAt(p, { bake: true }); return captureMode() === 'gl' ? engine.captureFrameGL(s2) : engine.captureFrame(s2); },
         onEnd: () => engine.endCapture(),
         onProgress: (p) => { bar.style.width = Math.round(p * (wantSource ? 50 : 100)) + '%'; },
@@ -2444,6 +2469,14 @@ function setupVideoExport() {
         console.log('[video-export] per-frame ms:', { mode: selCap, gl: +gl.toFixed(1), vframe: +vf.toFixed(1), encode: +enc.toFixed(1), frames: f, totalSecs: +secs.toFixed(1) });
       }
       renderTiming = timing || null;
+      if (renderTiming && renderTiming.frames) {
+        // The two halves of `glMs`, named. `sourcePath` says WHICH provider produced them.
+        renderTiming.srcMs = Math.round(srcMs);
+        renderTiming.engineMs = Math.max(0, Math.round(renderTiming.glMs - srcMs));
+        renderTiming.msPerFrame.src = +(srcMs / renderTiming.frames).toFixed(2);
+        renderTiming.msPerFrame.engine = +((renderTiming.glMs - srcMs) / renderTiming.frames).toFixed(2);
+        renderTiming.sourcePath = exportReader ? 'webcodecs-reader' : (env.nativeVideo ? 'native-avplayer' : 'element-seek');
+      }
       renderOutBytes = blob?.size ?? null;
       if (packagedSeparately) {
         status.textContent = `saved as separate files ✓ · ${packagedSeparately} · rendered in ${secs.toFixed(1)}s${rate}`;

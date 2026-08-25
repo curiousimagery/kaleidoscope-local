@@ -6,6 +6,67 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.27.7 · Build 745 — RENDER PREFERS WEBCODECS; THE iOS WALL IS iOS, NOT WEBKIT
+
+**Shipped:**
+- **`advanceSourceToP` tries the WebCodecs reader BEFORE native AVPlayer.** Scoped to renders by
+  construction — `exportReader` is non-null only between setup and teardown, so scrubbing, playback
+  and perform are untouched. Native remains the fallback, which is correct above the iOS file wall
+  where it is the only path that can read the clip.
+- **`timing.srcMs` / `engineMs` / `sourcePath`** — `glMs` split into source-advance versus engine
+  render, and a label saying which provider served the frames.
+
+### ⭐⭐ THE 2 GiB HYPOTHESIS IS REFUTED FOR WEBKIT. THE WALL IS iOS.
+
+`B744-m5max-2_63GBrenderTest.json`, **desktop Safari 26.5**, the same 2,629,310,897-byte file that
+fails on the iPad:
+
+```
+readable: true · probeMs: 1 · armed: true · frames: 15027 · moovBytes: 211106
+```
+
+| file | Chromium | **WebKit desktop** | WebKit iOS |
+|---|---|---|---|
+| 741,685,378 | ✅ | — | ✅ |
+| 2,026,632,435 | — | ✅ | — |
+| **2,629,310,897** | ✅ | **✅** | **❌ NotFoundError** |
+
+**Same engine, same file, opposite outcomes** — so it is not a WebKit blob limit and the 2³¹
+coincidence was exactly that. **It is an iOS platform limit** (sandbox or file-mapping policy), which
+also means it can move with an iOS version and cannot be tabulated. **The 16-byte probe is the only
+honest answer**, and where it runs is now the open design question, not what it reports.
+
+### 🔬 THE RENDER BOTTLENECK IS NOT THE CODEC PIPELINE
+
+First run with B744's stage split, and it is decisive:
+
+| stage | total | per frame | share |
+|---|---|---|---|
+| **`glMs`** (frameAt) | **648,309ms** | **43.12ms** | **89.5%** |
+| `vfMs` (VideoFrame) | 56,867ms | 3.78ms | 7.8% |
+| `encMs` (encode) | **21ms** | **0.00ms** | **~0%** |
+
+**The encoder is free and VideoFrame construction is cheap.** Nine tenths of a 12-minute render is
+inside `frameAt`. Decode is not the constraint either — `frames-held: 106.8MB` (~8.6 queued frames,
+the deepest yet) says the reader was ahead of the consumer for the entire run.
+
+**But `frameAt` is source-advance PLUS engine render, and B744 could not separate them.** B745 does.
+Until that reading exists, "Safari is 6× slower than Chromium" has no located cause and no fix worth
+proposing.
+
+`outBytes: 1,483,280,409` against a 24.88 Mbps × 501s prediction of ~1.56GB — **bitrate is being
+honoured**, which retires the "it looks throttled" worry on desktop.
+
+### 📌 WHAT WE WERE MISSING ABOUT THE NATIVE PATH: NOTHING IN THE SEEK
+
+The Swift already asks for frame-exact seeks (`toleranceBefore: .zero, toleranceAfter: .zero`). The
+±0.12s is **our acceptance test in `seekSettled`**, not AVPlayer's aim: the seek lands correctly and
+we photograph whatever has arrived over the frame socket within the window. Tightening it trades
+wrong frames for 2-second stalls rather than removing the trade. **The reader wins because it has no
+seek to accept**, not because it seeks better.
+
+---
+
 ## v0.27.6 · Build 744 — THE STAGE SPLIT REACHES THE REPORT, BECAUSE "WHY IS SAFARI SLOW" HAS NO OTHER ANSWER
 
 **Shipped:**
