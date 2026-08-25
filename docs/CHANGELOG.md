@@ -6,6 +6,59 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.27.6 · Build 744 — THE STAGE SPLIT REACHES THE REPORT, BECAUSE "WHY IS SAFARI SLOW" HAS NO OTHER ANSWER
+
+**Shipped:**
+- **`timing` in `renderDecode` AND `bakeDecode`** — `glMs`, `vfMs`, `encMs`, plus a per-frame split,
+  `codec`, `bitrate` and `outBytes`. It existed since Build 130 and only ever went to a console.
+- **`outBytes` on both**, because *"the bitrate looked throttled"* has come up twice with no way to check.
+
+### 📉 DESKTOP SAFARI IS ~6× SLOWER THAN CHROMIUM ON FASTER SILICON
+
+| | engine | device | frames | wall | rate |
+|---|---|---|---|---|---|
+| B740 render | Chromium (Brave) | **M1 Max** | 15,027 | 156.9s | **95.8 fps · 0.31× realtime** |
+| B743 render | **WebKit (Safari 26.5)** | **M5 Max** | 11,447 | 723.9s | **15.8 fps · 1.90× realtime** |
+
+**Six times slower on the faster machine**, and it matters far beyond Safari-on-the-web: **the
+Capacitor builds are WebKit.** The iPad's 28fps is not obviously a mobile limitation — it may be the
+same engine gap.
+
+**Decode is NOT the bottleneck.** `via: cover`, `decoded: 7`, `holes: 0`, and `frames-held: 94.9MB`
+(the deepest queue yet measured, ~7.6 frames) — **the reader was ahead of the consumer the whole
+run.** The cost is downstream, in VideoFrame construction or encode, and until this build nothing in
+the report could tell those apart. It can now.
+
+### ⚠️ THE 2 GiB LINE IS A HYPOTHESIS, NOT A FINDING — SAID PLAINLY BECAUSE IT IS BEING BUILT ON
+
+**It is not documented anywhere and it has not been verified.** It is pattern-matching on two data
+points: 2 GiB is 2³¹, the most common place software breaks, and it happens to sit between our
+working and failing files. That is a reason to TEST it, never a reason to believe it.
+
+State of the bracket after `B743-m5max-webkitRenderTest.json`:
+
+| file | Chromium desktop | **WebKit desktop** | WebKit iOS |
+|---|---|---|---|
+| 741,685,378 | ✅ | — | ✅ |
+| **2,026,632,435** | — | ✅ **`readable: true`, `probeMs: 2`, armed** | — |
+| 2,629,310,897 | ✅ | **❓ NOT YET RUN — the decisive test** | ❌ `NotFoundError` |
+
+**The 2.027GB file is UNDER 2 GiB, so it could not have tested the boundary.** The bracket is now
+(2.027GB, 2.63GB], which contains 2 GiB and much else. **The one run that splits "WebKit limit" from
+"iOS limit" is the 2.63GB file in desktop Safari**, and it costs no device time.
+
+### ⭐ AND WE DO NOT NEED THE ANSWER TO SHIP CORRECT BEHAVIOUR
+
+Daniel's question — *"how can we reliably know what the limits are?"* across engines, OS versions and
+chips — has the same answer as the memory ceiling did: **stop tabulating, measure.** B743's 16-byte
+probe already reports whether THIS file, on THIS device, in THIS browser, at THIS OS version, can be
+read. It is per-file, exact, costs 16 bytes, and needs no knowledge of why the limit exists.
+
+**The probe covers the ACCESS axis only.** Throughput is a separate axis and needs its own measure —
+which is what `timing` is for.
+
+---
+
 ## v0.27.5 · Build 743 — THE FILE REPORTS ITS SIZE AND WILL NOT GIVE UP A SINGLE BYTE
 
 **Shipped:**

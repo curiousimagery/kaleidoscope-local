@@ -2360,6 +2360,7 @@ function setupVideoExport() {
     // which is why this hold is doubled where the bake's is not. At 8K that is 2 × 132MB.
     memBegin('render');
     let packagedSeparately = null;
+    let renderTiming = null, renderOutBytes = null;   // B744 — published, not consoled
     const capId = memHold('capture-canvas', w * h * 4 * 2);
     const devBefore = (() => { try { return readHostVitals(); } catch { return null; } })();
     const renderShape = {
@@ -2442,6 +2443,8 @@ function setupVideoExport() {
         diag = ` · /frame: gl ${gl.toFixed(0)} · vframe ${vf.toFixed(0)} · encode ${enc.toFixed(0)} ms`;
         console.log('[video-export] per-frame ms:', { mode: selCap, gl: +gl.toFixed(1), vframe: +vf.toFixed(1), encode: +enc.toFixed(1), frames: f, totalSecs: +secs.toFixed(1) });
       }
+      renderTiming = timing || null;
+      renderOutBytes = blob?.size ?? null;
       if (packagedSeparately) {
         status.textContent = `saved as separate files ✓ · ${packagedSeparately} · rendered in ${secs.toFixed(1)}s${rate}`;
         status.className = 'status';
@@ -2466,13 +2469,15 @@ function setupVideoExport() {
         const at = new Date().toISOString();
         const secs = (performance.now() - renderStart) / 1000;
         if (worst) {
-          env.renderDecode = { ...worst, ...renderShape, srcGate: gate, wallSec: +secs.toFixed(1), packagedSeparately, at };
+          env.renderDecode = { ...worst, ...renderShape, srcGate: gate, wallSec: +secs.toFixed(1),
+                               timing: renderTiming, outBytes: renderOutBytes, packagedSeparately, at };
           env.vitals?.mark('render-decode-worst', { ...worst, ...renderShape, wallSec: +secs.toFixed(1) });
         } else {
           const why = !env.sourceVideo ? 'no video source (keyframe-only render)'
             : lastReaderWhy || 'no reader armed, and nothing published a reason';
           env.renderDecode = { ...renderShape, reader: 'element-seek fallback', why, srcGate: gate,
-                               wallSec: +secs.toFixed(1), packagedSeparately, at };
+                               wallSec: +secs.toFixed(1), timing: renderTiming, outBytes: renderOutBytes,
+                               packagedSeparately, at };
           env.vitals?.mark('render-decode-none', { ...renderShape, why, wallSec: +secs.toFixed(1) });
         }
       } catch { /* never let an instrument break a teardown */ }

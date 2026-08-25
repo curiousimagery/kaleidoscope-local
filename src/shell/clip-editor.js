@@ -922,6 +922,7 @@ export function createClipEditor(env) {
     // B728 — everything the bake allocates from here is attributed to this operation, and the
     // high-water mark resets so a second bake in one session is measured on its own terms.
     memBegin('bake');
+    let bakeTiming = null, bakeOutBytes = null;
     // ⚠️ B730 — THE DEVICE-WIDE BASELINE. Without a BEFORE there is no delta, and the absolute is
     // meaningless: iOS keeps memory productively occupied, so "free" is small and noisy at rest.
     // This is the only reading that can see the WKWebView content and GPU processes, and until now
@@ -1099,7 +1100,7 @@ export function createClipEditor(env) {
     if (apply) { apply.disabled = true; apply.textContent = 'baking…'; }
     if (prog) prog.hidden = false;
     try {
-      const { blob } = await exportVideo({
+      const { blob, timing } = await exportVideo({
         frameAt, width: w, height: h, fps, durationMs, captureMode: '2d',
         onProgress: (x) => { if (fill) fill.style.width = Math.round(x * 100) + '%'; },
         // A BAKE MUST BE ABANDONABLE. It used to run to completion no matter what: the
@@ -1114,6 +1115,8 @@ export function createClipEditor(env) {
         // failed" and a number that says how far it got.
         glLost: () => !!env.engine?.glContext?.isContextLost(),
       });
+      bakeTiming = timing || null;                 // B744 — the stage split, published not consoled
+      bakeOutBytes = blob?.size ?? null;
       await applyBakedClip(blob, { w, h });         // swaps the source + re-binds the timeline
       disposeClipPreview();
       env.clip.backup = null;
@@ -1196,7 +1199,8 @@ export function createClipEditor(env) {
           const gate = (() => { try { return sourceGateReport(); } catch { return null; } })();
           const why = !env.media?.sourceVideoUrl ? 'no source url'
             : gate?.why || 'no WebCodecs reader armed, and the gate published no reason';
-          env.bakeDecode = { ...bakeShape, reader: 'element-seek fallback', why, srcGate: gate, at: new Date().toISOString() };
+          env.bakeDecode = { ...bakeShape, reader: 'element-seek fallback', why, srcGate: gate,
+                             timing: bakeTiming, outBytes: bakeOutBytes, at: new Date().toISOString() };
           env.vitals?.mark('bake-decode-none', { ...bakeShape, why, srcGate: gate });
         }
         if (worst) {
@@ -1207,7 +1211,8 @@ export function createClipEditor(env) {
           // is as much a part of the reading as the cap that stopped one, and it carries the
           // `fileBytes` the ledger's `peakMB` has to be compared against.
           const gate = (() => { try { return sourceGateReport(); } catch { return null; } })();
-          env.bakeDecode = { ...worst, ...shape, holes, mem: memBefore, srcGate: gate, at: new Date().toISOString() };
+          env.bakeDecode = { ...worst, ...shape, holes, mem: memBefore, srcGate: gate,
+                             timing: bakeTiming, outBytes: bakeOutBytes, at: new Date().toISOString() };
           env.vitals?.mark('bake-decode-worst', { ...worst, ...shape, holes, mem: memBefore, srcGate: gate });
         }
       } catch { /* never let an instrument break a teardown */ }

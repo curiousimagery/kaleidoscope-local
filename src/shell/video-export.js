@@ -266,7 +266,14 @@ export async function exportVideo({ frameAt, onBegin, onEnd, width, height, fps,
     }
     blob = new Blob([blob], { type: 'video/mp4' });
     onProgress?.(1);
-    return { blob, ext: 'mp4', frames, timing: { frames, glMs, vfMs, encMs } };
+    // ⚠️ B744 — THE PER-STAGE SPLIT IS THE ONLY THING THAT CAN ANSWER "WHY IS THIS SLOW", AND IT HAS
+    // ONLY EVER GONE TO A CONSOLE. Daniel's Safari render took **723.9s for 381.8s of output (1.90×
+    // realtime) on an M5 Max**, where Brave on an M1 Max did 0.31× — six times slower on faster
+    // silicon — and the report carried no term that could localise it. `bitrate` and `outBytes` ride
+    // along because "the bitrate looked throttled" has now come up twice with no way to check.
+    return { blob, ext: 'mp4', frames,
+             timing: { frames, glMs, vfMs, encMs, codec, bitrate, outBytes,
+                       msPerFrame: { gl: +(glMs / frames).toFixed(2), vframe: +(vfMs / frames).toFixed(2), enc: +(encMs / frames).toFixed(2) } } };
   } finally {
     onEnd?.();
     try { if (encoder.state !== 'closed') encoder.close(); } catch { /* already closed */ }
