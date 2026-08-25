@@ -333,7 +333,18 @@ export async function openSharedSource(url, opts = {}) {
   // term that disappears reads as an instrument change; a term that drops from 707MB to under 1MB
   // reads as the fix.**
   const fileBytes = blob.size;
-  const parsed = await demuxStreaming(blob);
+  // ⚠️ B741 — A THROW HERE USED TO ESCAPE WITHOUT PUBLISHING, WHICH IS THE ONE THING THIS GATE EXISTS
+  // TO PREVENT. `findTopLevelBoxes` runs OUTSIDE `demuxStreaming`'s try, so an I/O failure on the
+  // Blob propagated past `settle()` entirely and `srcGate` stayed **null** while the render fell to
+  // the element-seek path. Daniel's iPad Pro: `why: "reader setup threw: The I/O read operation
+  // failed."` with `srcGate: null` beside it — the gate declined and said nothing, which is worse
+  // than not having it. An absence is not evidence.
+  let parsed;
+  try {
+    parsed = await demuxStreaming(blob);
+  } catch (e) {
+    return settle(`demux threw reading the source: ${e?.message || e}`);
+  }
   if (!parsed) return settle('demux found no moov, no video track, or no samples');
   const { track, index, bytes, description, rotation, moovBytes } = parsed;
   gate.moovBytes = moovBytes || 0;
@@ -620,7 +631,19 @@ function makeReader(source, onClosed) {
   let gopWalk = 0;           // samples fed since the sync point this target reset to
   let worst = null;          // the most expensive target so far, whatever the outcome
   let lastOutputAt = 0;      // performance.now() of the most recent decoder output
+  // ⚠️ B741 — `holes` COUNTED FRAME-BOUNDARY ROUNDING AND READ AS ALARM. Daniel's M1 Max render
+  // reported **2503 holes over 15,019 frames with `holeUs: 1`** — a ONE-MICROSECOND gap, which is
+  // integer rounding of a 33,333.33µs frame in the sample table, not a missing frame. That render
+  // was clean and looked good. **A counter that fires 2,503 times on a healthy run cannot be used
+  // to judge an unhealthy one**, so `holes` now counts only gaps big enough to mean a lost frame,
+  // and the rounding cases are tallied separately rather than thrown away.
+  //
+  // The BEHAVIOUR is unchanged — returning the last frame before the target is right either way.
+  // Only the reading changes. (Wrong-noun test: this counts timeline gaps, which equals "a frame is
+  // missing" only if the gap exceeds the rounding error, so the threshold IS the noun.)
+  const HOLE_MIN_US = 2000;   // ~6% of a 30fps frame; rounding is ≤2µs, a dropped frame is ≥33,000µs
   let holesBridged = 0;      // B721 — targets served by the last-frame-before rule below
+  let holesRounding = 0;     // sub-threshold, kept so "we saw none" stays distinguishable from "we did not look"
 
   function noteTarget(sec, ms, timedOut, via, extra) {
     if (worst && worst.decoded >= framesDecoded && !timedOut) return;
@@ -703,7 +726,7 @@ function makeReader(source, onClosed) {
     mbps: source.mbps,
     // B716 — the most expensive single target this reader served, success or timeout. Read it
     // after a bake (or after a failure) and compare `decoded` across platforms before `ms`.
-    worstTarget: () => (worst ? { ...worst, holes: holesBridged } : null),
+    worstTarget: () => (worst ? { ...worst, holes: holesBridged, holesRounding } : null),
     rotation,   // clockwise degrees the consumer must apply when drawing decoded frames
     fps: source.fps,   // measured source frame rate (0 = unknown) — nb_samples over the duration
 
@@ -821,8 +844,9 @@ function makeReader(source, onClosed) {
           // well-formed CFR tables (scratchpad `waitloop-check.mjs`, and `holes` in the report is
           // how we find out whether it ever fires in the field).
           if (outQ.length >= 2 && outQ[1].timestamp > target) {
-            holesBridged++;
-            noteTarget(sec, performance.now() - t0, false, 'hole', { holeUs: outQ[1].timestamp - end });
+            const holeUs = outQ[1].timestamp - end;
+            if (holeUs >= HOLE_MIN_US) holesBridged++; else holesRounding++;
+            noteTarget(sec, performance.now() - t0, false, 'hole', { holeUs });
             return f;
           }
           if (flushDone && outQ.length === 1 && i >= index.length) { noteTarget(sec, performance.now() - t0, false, 'eos'); return f; }   // last frame of the stream

@@ -6,6 +6,83 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.27.3 · Build 741 — THE iPAD RENDER LOOKED BAD BECAUSE IT NEVER DECODED. THE GATE KNEW AND SAID NOTHING.
+
+**Shipped:**
+- **`openSharedSource` settles the gate on a THROW**, not only on a clean refusal. `findTopLevelBoxes`
+  runs outside `demuxStreaming`'s try, so an I/O failure escaped past `settle()` and `srcGate` came
+  back **null** while the render silently fell to the element-seek path.
+- **The box walk names the byte offset it died at**, which is the whole diagnosis on an iOS I/O error.
+- **`holes` counts only gaps ≥2000µs**; sub-threshold rounding is tallied as `holesRounding`.
+
+### 🎯 DANIEL'S QUALITY COMPLAINT IS FULLY EXPLAINED, AND IT IS NOT AN ENCODER PROBLEM
+
+*"The render itself from the iPad is not good. It looks low quality, the motion is jerky, frames
+flash, motion feels stuttery... night and day compared to the desktop renders."*
+
+`B470-ipadprorender.json`:
+
+```
+reader: "element-seek fallback"
+why:    "reader setup threw: The I/O read operation failed."
+srcGate: null
+```
+
+**The iPad rendered 15,019 frames by seeking a `<video>` element once per frame.** On iOS a seek
+lands approximately, so frames repeat, skip and arrive out of order — **which is precisely "jerky,
+frames flash, stuttery".** The desktop render of the same clip armed the reader (`armed: true`) and
+looked right. `renderMem.peakBy` corroborates it from the other side: the iPad run has **no
+`frames-held` and no `sample-index` term at all**, because no decoder ever ran.
+
+**Resolution, bitrate and codec were never the problem.** The fix is to make the reader arm.
+
+### ⚠️ THE GATE FAILED THE ONE RULE IT WAS BUILT FOR
+
+B738 added *"anything that can decline to act must publish why"* and then declined without publishing,
+because the throw path was not wired. **`srcGate: null` beside a named reader failure is the exact
+shape of the bug it was meant to prevent.** Now settled, and `findTopLevelBoxes` reports the offset:
+failing at byte 0 means the file was never readable (an un-materialised iCloud placeholder, a stale
+security-scoped handle); failing deep in the walk means it **stopped** being readable.
+
+### 📉 `holes` WAS MEASURING ROUNDING, NOT LOSS
+
+The M1 Max render reported **2503 holes over 15,019 frames with `holeUs: 1`** — one microsecond, the
+integer rounding of a 33,333.33µs frame — on a render that was clean and looked good. **A counter
+that fires 2,503 times on a healthy run cannot judge an unhealthy one.** Threshold is 2000µs;
+rounding is ≤2µs and a dropped frame is ≥33,000µs, so nothing sits near the boundary. Behaviour
+unchanged; only the reading.
+
+### ✅ FIRST LONG FANLESS THERMAL READING — AND IT IS GOOD NEWS
+
+iPad Pro, **530 seconds (8.8 minutes) of continuous 4K render**: `thermal nominal → nominal`,
+`availableMB 5081 → 4990`, `footprint 38 → 129`. **Thermal is not our constraint at nine minutes**,
+which retires one of the open unknowns from the phase-2 plan.
+
+`deviceFreeMB` embarrasses itself again: **61MB before, 472MB after** a render that succeeded.
+
+### 📊 RENDER MEMORY, MEASURED ON BOTH
+
+| | M1 Max (2d capture) | M1 iPad Pro (gl capture) |
+|---|---|---|
+| `peakMB` | **103.9** | **79.3** |
+| `capture-canvas` | 63.3 | 63.3 |
+| `frames-held` | 23.7 | **absent — no reader** |
+| `sample-index` | 0.9 | **absent — no reader** |
+| wall | 156.9s (96 fps) | 530.4s (28 fps) |
+
+`capture-canvas` at 63.3MB confirms the doubled hold: 2 × 3840×2160×4 is 63.3 MiB exactly.
+
+### 🚨 THE iPAD AIR CRASH LEFT NO EVIDENCE, AND THAT IS ITSELF THE FINDING
+
+`B740-ipadAircontextLoss.json` was taken after a full app restart: **empty `trail`, no `bakeDecode`,
+no `bakeMem`, no `srcGate`**, `priorTrail` holding a single `mode` mark from six minutes before the
+crash, and `scenarioObserved: "idle-still"` with `source: "no source"`. **Two crashes, zero
+diagnostic bytes.** A process kill takes the trail with it, and `priorTrail` is not capturing near
+enough to the event to stand in. Treat the Air crash as UNDIAGNOSED — no theory in this changelog is
+worth the space until an instrument survives it.
+
+---
+
 ## v0.27.2 · Build 740 — THE ZIP WRITER CORRUPTED EVERY PACKAGE OVER 4GB. PROVEN LOCALLY, FIXED, RE-PROVEN.
 
 **Shipped:**
