@@ -44,10 +44,13 @@ GL problem — it is jetsam, confirmed by the OS. Its shape:
 - **Playback and broadcast are unaffected** — memory there is O(1) in file size (T10 held 1.25GB for
   50 minutes). **The asymmetry IS the ladder: broadcast 4K freely, bake within a byte budget.**
 
-**Three builds address it and their verification is outstanding**: B732 (shared demux, measured 2143
-→ 1441MB), B734/B736 (streaming muxer, byte-verified against the old target), B735/B736/B737
-(streaming demux — **design is O(1) in clip length; NOT yet device-verified, the reader has not armed
-on any device run**).
+**Three builds address it, and B737 confirmed the result on desktop: `peakMB` 3188 → 2143 → 1441 →
+**130.9**, at the same 33.8s bake time and with identical decode work.** B732 (shared demux),
+B734/B736 (streaming muxer, byte-verified against the old target), B735/B736/B737 (streaming demux).
+
+**⭐ The shape changed, not just the number.** Every remaining term is resolution-driven or constant,
+so **nothing scales with clip length** — which is what makes a duration-based ladder unnecessary and
+a byte-based gate sufficient. **Not yet device-verified.**
 
 **⚠️ THE GATE (item C) IS THE CLOSE-OUT FOR PHASE 2 AND MUST COME LAST**, because the cost model it
 enforces is exactly what these three builds change.
@@ -63,7 +66,7 @@ record is in `BACKLOG.md`, the per-build detail in `CHANGELOG.md`, the narrative
 | 1 | Frame cadence / broadcast delivery | **Closed B594.** Record in `BROADCAST-DELIVERY.md` |
 | 1.5 | Input normalization across modalities | **CLOSED B657** |
 | 2 | The 4K source-attach cluster | **Closed B683-B704.** GL-loss provocation closed B723-B733 |
-| 2.5 | **The bake's memory ceiling** | **MEASURED B727-B737.** Cost model proven; three reductions built, **none device-verified** |
+| 2.5 | **The bake's memory ceiling** | **MEASURED B727-B737, and SOLVED on desktop B737** (2143 → 131MB, O(1) in clip length). **Not device-verified** |
 | 3 | NDI | Not started. One bug already diagnosed and waiting. **The governor is kept (default off) for this** |
 | 4 | iPad limits, sustained load | **CLOSED B695-B698.** T7/T8/T9/T10 all complete |
 | 5 | iPhone limits, honest labels | **Not reached, and now the largest evidence gap** → `HARDWARE-SUPPORT.md` |

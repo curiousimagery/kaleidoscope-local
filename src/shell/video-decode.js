@@ -23,6 +23,7 @@
 
 import { acquireSession, releaseSession } from 'conduit/sessions';
 import { memHold, memGrow, memRelease } from './mem-ledger.js';
+import { readHostVitals } from './gl-watch.js';
 import * as MP4BoxModule from 'mp4box';
 
 // mp4box ships UMD-flavored; take named exports wherever the bundler put them
@@ -218,18 +219,108 @@ export async function probeVideoInfo(url) {
 // `createSequentialFrameReader(url)` is unchanged for every single-reader caller (bounce, forward,
 // the export fallback). It opens a source, takes one reader, and closes the source with it.
 
+// ⚠️ B738 — THE SOURCE CAP IS COMPUTED, NOT A CONSTANT, AND NOT A DEVICE TABLE.
+//
+// `maxBytes = 1_500_000_000` was written when the whole file was resident through the demux. Since
+// B737 **the design is O(1) in file size**: the only heap terms that grow with the source are the
+// sample index (64 bytes per frame — 3.5MB for thirty minutes at 30fps) and the moov, which is
+// released before a frame is decoded. The constant survived its own reason and became the thing
+// that silently routed every source over ~4 minutes of 4K onto the ten-times-slower element-seek
+// fallback. That is the B735 symptom arriving from a different direction.
+//
+// **WHAT THE CAP IS ACTUALLY FOR NOW.** One risk remains and it is not modelled, it is unmeasured:
+// a browser that materialises a multi-GB Blob into the heap instead of keeping it disk-backed.
+// Nothing we hold guards against that, so the cap stays — but it is derived from the one number
+// that would decide survival if it happened.
+//
+// **THE ATTESTATION.** `os_proc_available_memory()` — surfaced as `availableMB` — is iOS telling us
+// directly how many bytes THIS process may still allocate before jetsam. Not a model name, not a
+// RAM total, not the volatile device-wide free (which read **101MB** on the iPad Air moments before
+// a bake that passed cleanly). It read 5014MB on the Air and 5093MB on the Pro: stable, comparable,
+// and it would scale on its own to hardware that does not exist yet. **That is the ladder rung, and
+// it requires no table to maintain.**
+//
+// The fallbacks degrade honestly rather than guessing: Chromium's `navigator.deviceMemory` where
+// present, and otherwise a desktop default — desktop browsers page to swap, so an over-large source
+// costs time rather than a kill, and refusing it would be the more expensive mistake.
+//
+// Everything here publishes WHY, because a reader that declines to arm sends the bake down the slow
+// path in silence and the next reader most needs to know which of six reasons it was.
+const CAP_NEVER_BELOW = 1_500_000_000;      // never worse than the B737 behaviour this replaces
+const HEADROOM_FLOOR_MB = 400;              // leave the OS its room before we spend any of it
+const HEADROOM_SAFETY = 0.6;                // the cap is insurance against a case we have not seen
+const DESKTOP_CAP = 16_000_000_000;         // swap exists; the failure mode is slow, not fatal
+
+export function sourceBudget() {
+  let v = null;
+  try { v = readHostVitals(); } catch { v = null; }
+  if (v && typeof v.availableMB === 'number' && v.availableMB > 0) {
+    const usable = Math.max(0, v.availableMB - HEADROOM_FLOOR_MB) * HEADROOM_SAFETY;
+    return {
+      capBytes: Math.max(CAP_NEVER_BELOW, Math.round(usable * 1048576)),
+      headroomMB: v.availableMB,
+      basis: 'os_proc_available_memory (iOS jetsam headroom)',
+      vitalsAgeMs: v.ageMs ?? null,
+    };
+  }
+  const dm = typeof navigator !== 'undefined' ? navigator.deviceMemory : null;
+  if (typeof dm === 'number' && dm > 0) {
+    return {
+      capBytes: Math.max(CAP_NEVER_BELOW, Math.round(dm * 0.5 * 1e9)),
+      headroomMB: null,
+      basis: `navigator.deviceMemory (${dm}GB, Chromium; caps at 8)`,
+      vitalsAgeMs: null,
+    };
+  }
+  return {
+    capBytes: DESKTOP_CAP,
+    headroomMB: null,
+    basis: 'desktop default (no attestation; this platform swaps rather than kills)',
+    vitalsAgeMs: null,
+  };
+}
+
+// The last open attempt, whatever happened to it. Module-global on purpose: three env-shaped objects
+// exist in this app and a fact about the one shared decode path belongs to none of them.
+let lastSourceGate = null;
+export function sourceGateReport() { return lastSourceGate ? { ...lastSourceGate } : null; }
+
 // openSharedSource(url) → source | null. Parse ONCE; take as many readers as you need.
 // The source is refcounted: it releases its sample table when the last reader closes AND the caller
 // has closed it, whichever comes last.
-export async function openSharedSource(url, { maxBytes = 1_500_000_000 } = {}) {
-  if (typeof VideoDecoder === 'undefined' || !MP4Box.createFile) return null;
+export async function openSharedSource(url, opts = {}) {
+  const budget = sourceBudget();
+  const maxBytes = typeof opts.maxBytes === 'number' ? opts.maxBytes : budget.capBytes;
+  const gate = { ...budget, capBytes: maxBytes, fileBytes: null, fetchMs: null,
+                 moovBytes: null, indexBytes: null, frames: null, armed: false, why: null,
+                 at: new Date().toISOString() };
+  const settle = (why) => { gate.why = why; gate.armed = !why; lastSourceGate = gate; return null; };
+
+  if (typeof VideoDecoder === 'undefined' || !MP4Box.createFile) {
+    return settle('no WebCodecs VideoDecoder or no MP4Box in this browser');
+  }
 
   let blob;
+  // ⚠️ `fetchMs` IS A ONE-DIRECTIONAL INSTRUMENT AND MUST BE READ AS ONE. Resolving a File-backed
+  // object URL is a registry lookup, so a FAST resolve proves nothing was copied — an allocate-plus-
+  // copy of several GB cannot finish in tens of milliseconds at any memory bandwidth. A SLOW resolve
+  // is suspicious but not conclusive (disk contention reads the same). The strong instrument is the
+  // ledger: compare `peakMB` against `srcBytes` in the same report. If a 4GB source still peaks near
+  // 131MB, the Blob is disk-backed and the O(1) design holds end to end.
+  const tFetch = performance.now();
   try {
     const res = await fetch(url);
     blob = await res.blob();
-  } catch { return null; }
-  if (!blob.size || blob.size > maxBytes) return null;
+  } catch (e) {
+    gate.fetchMs = Math.round(performance.now() - tFetch);
+    return settle(`fetch failed: ${e?.message || e}`);
+  }
+  gate.fetchMs = Math.round(performance.now() - tFetch);
+  gate.fileBytes = blob.size;
+  if (!blob.size) return settle('source resolved to an empty blob');
+  if (blob.size > maxBytes) {
+    return settle(`source is ${(blob.size / 1e9).toFixed(2)}GB, over the ${(maxBytes / 1e9).toFixed(2)}GB cap from ${budget.basis}`);
+  }
 
   // ⚠️ B736 — THE TRANSIENT IS THE MOOV, NOT THE FILE.
   //
@@ -243,8 +334,11 @@ export async function openSharedSource(url, { maxBytes = 1_500_000_000 } = {}) {
   // reads as the fix.**
   const fileBytes = blob.size;
   const parsed = await demuxStreaming(blob);
-  if (!parsed) return null;
+  if (!parsed) return settle('demux found no moov, no video track, or no samples');
   const { track, index, bytes, description, rotation, moovBytes } = parsed;
+  gate.moovBytes = moovBytes || 0;
+  gate.frames = index.length;
+  gate.indexBytes = index.length * 64;
   // The moov is the ONLY part of the file this path ever reads into the heap, and it is released as
   // soon as the index is built. Recorded so a report can show it collapse rather than go missing.
   memRelease(memHold('parse-window', moovBytes || 0));
@@ -257,8 +351,8 @@ export async function openSharedSource(url, { maxBytes = 1_500_000_000 } = {}) {
   };
   try {
     const sup = await VideoDecoder.isConfigSupported(config);
-    if (!sup || !sup.supported) return null;
-  } catch { return null; }
+    if (!sup || !sup.supported) return settle(`this device cannot decode ${config.codec} at ${config.codedWidth}×${config.codedHeight}`);
+  } catch (e) { return settle(`decoder support check threw: ${e?.message || e}`); }
 
   // ⚠️ THE INDEX IS THE ONLY THING THE HEAP KEEPS. ~64 bytes a sample: a 3,178-frame clip costs
   // ~0.2MB where its sample table cost 702MB. The BYTES live in a Blob, which the browser backs on
@@ -306,6 +400,7 @@ export async function openSharedSource(url, { maxBytes = 1_500_000_000 } = {}) {
     },
     close() { ownerOpen = false; maybeRelease(); },
   };
+  gate.armed = true; gate.why = null; lastSourceGate = gate;
   return source;
 }
 

@@ -19,7 +19,7 @@ import { exportVideo } from './video-export.js';
 import { memBegin, memHold, memRelease, memReport } from './mem-ledger.js';
 import { readHostVitals, onGLRestored } from './gl-watch.js';
 import { seekVideoTo } from './video-source.js';
-import { createSequentialFrameReader, probeVideoInfo, openSharedSource } from './video-decode.js';
+import { createSequentialFrameReader, probeVideoInfo, openSharedSource, sourceGateReport } from './video-decode.js';
 import { acquireSession, releaseSession } from 'conduit/sessions';
 
 // The Loop Builder holds THREE decoders of the same clip while it is open (visible preview,
@@ -1190,16 +1190,23 @@ export function createClipEditor(env) {
         // next reader most needs to know. An absence is not evidence, and here it was worse than
         // absent — it was someone else's evidence.
         if (!all.length) {
-          const why = env.media?.sourceVideoUrl ? 'no WebCodecs reader armed (over size cap, codec, or demux)' : 'no source url';
-          env.bakeDecode = { ...bakeShape, reader: 'element-seek fallback', why, at: new Date().toISOString() };
-          env.vitals?.mark('bake-decode-none', { ...bakeShape, why });
+          // B738 — the gate now names the exact refusal instead of listing what it might have been.
+          const gate = (() => { try { return sourceGateReport(); } catch { return null; } })();
+          const why = !env.media?.sourceVideoUrl ? 'no source url'
+            : gate?.why || 'no WebCodecs reader armed, and the gate published no reason';
+          env.bakeDecode = { ...bakeShape, reader: 'element-seek fallback', why, srcGate: gate, at: new Date().toISOString() };
+          env.vitals?.mark('bake-decode-none', { ...bakeShape, why, srcGate: gate });
         }
         if (worst) {
           // B719's reasoning still stands and is why `bakeShape` exists; it is now captured before
           // the bake rather than recomputed here. See its comment for why the late read was wrong.
           const shape = bakeShape;
-          env.bakeDecode = { ...worst, ...shape, holes, mem: memBefore, at: new Date().toISOString() };
-          env.vitals?.mark('bake-decode-worst', { ...worst, ...shape, holes, mem: memBefore });
+          // B738 — `srcGate` rides along on the SUCCESS path too. The cap that let a source through
+          // is as much a part of the reading as the cap that stopped one, and it carries the
+          // `fileBytes` the ledger's `peakMB` has to be compared against.
+          const gate = (() => { try { return sourceGateReport(); } catch { return null; } })();
+          env.bakeDecode = { ...worst, ...shape, holes, mem: memBefore, srcGate: gate, at: new Date().toISOString() };
+          env.vitals?.mark('bake-decode-worst', { ...worst, ...shape, holes, mem: memBefore, srcGate: gate });
         }
       } catch { /* never let an instrument break a teardown */ }
       if (sliceReaderA) { try { sliceReaderA.close(); } catch { /* already closed */ } sliceReaderA = null; }
@@ -1221,6 +1228,10 @@ export function createClipEditor(env) {
           reclaimBeforeMB: devBefore.deviceReclaimableMB, reclaimAfterMB: devAfter.deviceReclaimableMB,
           footprintBeforeMB: devBefore.footprintMB, footprintAfterMB: devAfter.footprintMB,
           thermalBefore: devBefore.thermal, thermalAfter: devAfter.thermal,
+          // B738 — `os_proc_available_memory`, the per-process jetsam headroom. It is the ONE
+          // reading the capability ladder is derived from, and until now it was cached and never
+          // published beside the bake it governed.
+          availableBeforeMB: devBefore.availableMB, availableAfterMB: devAfter.availableMB,
         } : { why: devBefore || devAfter ? 'only one end of the delta was available' : 'host vitals never reported (web/Electron)' };
         env.bakeMem = { ...after, device: dev, at: new Date().toISOString() };
         env.vitals?.mark('bake-mem', { ...after, device: dev });

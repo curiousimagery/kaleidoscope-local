@@ -22,7 +22,8 @@ Archived at B658. It was marked superseded at B609 and kept for the reasoning be
 
 ## current version
 
-**v0.26.77 · B737** (2026-08-24). **B705 and B706 are device-verified** — B705's instrument found B706, and B706 held on the repro that killed B705. B703, B704 and B707 are not yet device-verified.
+**v0.27.0 · B738** (2026-08-24). Minor bumped at Daniel's call for the O(1) bake landing on
+hardware. **Patch-per-build resumes from here.** **B705 and B706 are device-verified** — B705's instrument found B706, and B706 held on the repro that killed B705. B703, B704 and B707 are not yet device-verified.
 
 ---
 
@@ -70,45 +71,98 @@ two runs. **Publish a table; gate on the live reading.**
 | release `buf` after demux | B728 | — | — |
 | one fetch + one sample table for slice | B732 | half the source term | 2143 → 1441MB |
 | muxer streams to disk-backed Blob parts | B734, fixed B736 | **output** | heap holds one write (≤16KB) |
-| demux parses the moov only, indexes the original Blob | B735, fixed B736/B737 | **source** | **UNVERIFIED — see below** |
+| demux parses the moov only, indexes the original Blob | B735, fixed B736/B737 | **source** | **1404MB → 0.2MB (desktop + both iPads)** |
 
 **Source memory is now O(1) in clip length by design.** That is the order change; everything before
 it changed the constant.
 
-### 🚨 PICK UP HERE (B737) — THE READER HAS NOT ARMED ON ANY DEVICE RUN YET
+### ✅✅ B737 CONFIRMED ON DESKTOP — THE O(1) BAKE WORKS. 16× LESS MEMORY, SAME SPEED.
 
-**B735 and B736 both shipped with `bake-decode-none`: no WebCodecs reader, so the bake silently ran
-the per-frame `<video>`-seek fallback.** That is the whole reported slowdown.
+**`B737-M1maxMBP-baketest.json`, M1 Max, the 741,685,378-byte original, vanilla slice:**
 
-| build | bake time, same 741MB clip | reader |
-|---|---|---|
-| B729 / B730 | **34.5s** | armed |
-| B735 | 345.3s (**10×**) | none |
-| B736 | 293.3s (**8.5×**) | none |
+| | B729 | B731 | B732 | **B737** |
+|---|---|---|---|---|
+| `peakMB` | 3188.5 | 2143.2 | 1441.1 | **130.9** |
+| bake time | 34.5s | — | — | **33.8s** |
 
-**B737 has the fix, and it is harnessed rather than reasoned:** mp4box parses forward from byte 0, so
-`ftyp` + `moov` alone stalls at the mdat gap and a trailing moov is never reached. **iOS writes .mov
-with the moov at the END.** Appending the mdat's 16-byte HEADER lets the parser skip the payload and
-land on the moov. `scratchpad/mp4box-moov-check.mjs`: moov-at-front indexed 120/120 before the fix,
-moov-at-end indexed 0/120; both index 120/120 after.
+`peakBy: { frames-held 83.1, capture-canvas 31.6, encoder-output 16, sample-index 0.2 }`.
+**`sample-index` at 0.2MB is where a 1404MB sample table used to be.** `heldMB: 0` after teardown.
+`decoded 113 · via cover · holes 1` — **identical work to B730/B731**, so nothing was traded for the
+saving.
 
-**▶ VERIFY ON DESKTOP FIRST — it is free and it has caught this twice.** `npm run dev`, the 741MB
-original, vanilla slice:
+**⭐ THE SHAPE HAS CHANGED, NOT JUST THE NUMBER.** Every remaining term is driven by RESOLUTION or is
+a constant:
 
-| check | expected |
-|---|---|
-| **speed** | **back to ~35s.** Minutes means the fallback is still being taken |
-| `bakeDecode` present | **if `bake-decode-none` appears again, stop and send the report** |
-| `peakBy` | `sample-index` ~0.2MB, `parse-window` = the moov's size, peak **well under 100MB** |
-| the baked clip | **play it, save it, open it in another app** |
+```
+peak ≈ frames-held + capture-canvas + encoder-output + index   ≈ 131MB at 4K, any clip length
+```
 
-**Only then one iPad Pro run, one bake per launch, then the Air.**
+**Nothing left scales with the clip.** Against a measured iPad budget near 850MB that should pass at
+any duration, which is the categorical result the arc was after. **Worst case is bounded too**: the
+frame queues cap at 12 per reader, so `frames-held` cannot exceed ~300MB at 4K.
 
-### ⚠️ NOTHING ABOUT THE MEMORY FIX IS DEVICE-VERIFIED
+### ✅✅✅ B737 DEVICE-VERIFIED — BOTH 8GB iPads PASSED THE JOB THAT KILLED THEM AT B730
 
-`peakMB` 47.6 in the B736 reports is **the fallback path's** footprint, not the streaming reader's.
-**No run has yet exercised the O(1) design end to end.** Do not treat the ledger table above as
-confirmed until a report shows `sample-index` in `peakBy`.
+`B737-ipadPro.json` / `B737-ipadAir.json`, same 741,685,378-byte original, vanilla slice, run in
+parallel. **Both `srcBytes` read 741685378 — the right file.**
+
+| | M1 iPad Air 8GB | M1 iPad Pro 8GB | M1 Max MBP |
+|---|---|---|---|
+| B730 (same clip) | **FAIL, GL lost frame 88/3178** | **FAIL, GL lost frame 181/3178** | pass |
+| B737 `peakMB` | **71.6** | **114.9** | 130.9 |
+| B737 bake time | **155.9s** | **157.3s** | 33.8s |
+| holes / timedOut | 0 / false | 0 / false | 1 / false |
+| `heldMB` after | 0 | 0 | 0 |
+| thermal | nominal → nominal | nominal → nominal | — |
+
+**Three findings that change what we build next:**
+
+1. **⭐ `deviceFreeMB` IS NOT A VALID GATE INPUT.** The Air began its bake with **`freeBeforeMB: 101`**
+   and passed cleanly. Free was 896 on the Pro and 101 on the Air for the same job on the same OS.
+   **The gate must read `free + reclaimable`** (2939 on the Air, 3666 on the Pro — those are
+   comparable), or it will refuse jobs that work. This corrects the gate expression in
+   `PLAN-LIVE-READINESS.md`.
+2. **The two iPads are the SAME SPEED** (155.9s vs 157.3s, 0.9% apart). The Pro's extra GPU cores
+   and bandwidth bought nothing, so **the bake is media-engine bound, not GPU bound.** The M1 Max's
+   4.6× is its second encode engine plus memory bandwidth. **Practical read: the bake ladder is a
+   CHIP-CLASS ladder, not a model ladder** — every M1/M2/M3 base chip will behave like these two.
+3. **`peakBy` composition is device-dependent within the bound.** `frames-held` was 83.1MB on the Pro
+   (≈7 queued 4K NV12 frames) and 23.7MB on the Air (≈2). The queue depth is a scheduling outcome,
+   not a constant — which is why the CAP (12/reader) is the number to gate on, not the observed peak.
+
+**⚠️ AND WHAT THE DEVICE NUMBERS DO NOT SAY.** On the Pro, device-wide `free + reclaimable` went
+3666 → 2076 across the bake — **~1.6GB moved while our ledger peaked at 115MB.** Most is file cache
+(reclaimable, healthy) and GPU-process VideoFrames (a process we cannot read), but **we have not
+attributed it and must not claim we measure everything.** The categorical result still stands,
+because the term we removed was the one that scaled with clip LENGTH and this one does not.
+
+### 🚩 THREE CEILINGS THE B737 WORK DID NOT TOUCH (found by reading, 2026-08-24)
+
+1. **✅ FIXED B738 — the 1.5GB source cap is now `sourceBudget()`**, computed from
+   `os_proc_available_memory()` on iOS (5014MB on the Air, 5093MB on the Pro — stable, and it
+   scales to hardware that does not exist yet), `navigator.deviceMemory` on Chromium, a generous
+   default on desktop. **UNVERIFIED: nobody has yet opened a source larger than 741MB on this path.**
+   The instrument is in the report — compare `srcGate.fileBytes` against `memNow.peakMB`. A 4GB
+   source that still peaks near 131MB proves the Blob is disk-backed and the O(1) design holds.
+2. **Still export is the one remaining single-shot spike, and it is unledgered.** `exportAt`
+   ([engine/index.js:444](../src/engine/index.js#L444)) holds THREE full-res RGBA copies at once —
+   `pixels` from readPixels, `imgData.data`, and the canvas backing store — plus the GPU FBO.
+   At 8192 that is 268MB × 3 ≈ **805MB transient**; at 16384, **3.2GB**. The phone chrome already
+   hardcodes 6144 because of a field jetsam ([mobile/chrome.js:2790](../src/mobile/chrome.js#L2790)).
+   **Desktop chrome still offers 8K and `max`, and the iPad runs desktop chrome.** The FBO probe
+   round-trips ONE pixel, so it cannot see the three-buffer peak. Flagged, not fixed.
+3. **The output Blob is a STORAGE ceiling now, not a memory one, and is untested.** 4K30 bakes at
+   `w×h×fps×0.1` = 24.9 Mbps → 1.87GB for 10 minutes. Nothing measures whether the share sheet,
+   the Files write, or the reload survives that.
+
+**▶ NEXT: the reference-point runs** (`VERIFY-QUEUE.md` R2) and **the gate**, which is what closes
+phase 2.
+
+### 📌 SMALL KNOWN GAP, NOT WORTH A BUILD ON ITS OWN
+
+`parse-window` never appears in `peakBy` — the moov is read and released before the peak, so the term
+is invisible rather than small. **The moov's size is therefore unreported.** Fold `moovBytes` into
+`bakeShape` next time that file is open.
 
 ### 🐞 OPEN, WITH CONCRETE REPROS
 

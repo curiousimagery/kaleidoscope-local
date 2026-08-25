@@ -6,6 +6,66 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.27.0 · Build 738 — THE SOURCE CAP IS COMPUTED FROM THE DEVICE'S OWN ATTESTATION
+
+**Minor bump at Daniel's call**, for the O(1) bake landing on hardware: **both 8GB M1 iPads baked
+the 741MB 4K clip that killed them at B730.** Air `peakMB` **71.6**, Pro **114.9**, against 3188.5
+at B729. `holes: 0`, `heldMB: 0`, thermal nominal on both.
+
+**Shipped:**
+- **`sourceBudget()` replaces `maxBytes = 1_500_000_000`.** The cap is derived at call time from
+  `os_proc_available_memory()` on iOS, `navigator.deviceMemory` on Chromium, and a generous desktop
+  default elsewhere. **No device table, no SKU map.**
+- **Every one of the six refusal paths in `openSharedSource` now publishes a specific reason.** It
+  returned a bare `null` for all of them.
+- **`srcGate` in the exported report** — top-level (last open attempt, whoever made it) and on
+  `bakeDecode` (both the armed and the refused path). Carries `fileBytes`, `fetchMs`, `moovBytes`,
+  `indexBytes`, `frames`, `capBytes`, `basis`, `headroomMB`.
+- **`availableBeforeMB` / `availableAfterMB` in the bake's device block.** The number the whole
+  ladder rests on was cached and never published beside the bake it governs.
+
+### ⭐ WHY THE CONSTANT HAD TO GO
+
+`1_500_000_000` was written when the whole file was resident through the demux. **Since B737 the
+design is O(1) in file size**: the only heap terms that grow with the source are the sample index
+(64 bytes per frame — **3.5MB for thirty minutes at 30fps**) and the moov, released before a frame
+decodes. The constant outlived its reason and became the thing that silently routed **every 4K
+source over about four minutes** onto the ten-times-slower element-seek fallback. Typical loops are
+2-6 minutes, so it was biting the common case.
+
+### ⭐⭐ `availableMB` IS THE LADDER RUNG, AND IT NEEDS NO MAINTENANCE
+
+`os_proc_available_memory()` is iOS stating directly how many bytes THIS process may still allocate
+before jetsam. Measured **5014MB on the M1 iPad Air and 5093MB on the M1 iPad Pro** — stable and
+comparable, where device-wide `deviceFreeMB` read **101MB on the Air moments before a bake that
+passed cleanly**. It is not a model name and not a RAM total, so **it scales on its own to hardware
+that does not exist yet and degrades on its own to hardware weaker than an M1.** Daniel's ask,
+answered by a reading rather than by a table.
+
+### ⚠️ WHAT THE CAP IS FOR NOW, AND WHAT IT IS NOT
+
+The remaining risk is not modelled, it is unmeasured: **a browser that materialises a multi-GB Blob
+into the heap** instead of keeping it disk-backed. The cap is insurance against that one case, which
+is why it scales with headroom even though file size costs almost no heap.
+
+**`fetchMs` is a ONE-DIRECTIONAL instrument.** A fast resolve proves nothing was copied (an
+allocate-plus-copy of several GB cannot finish in tens of ms at any bandwidth). A slow resolve is
+suspicious but not conclusive — disk contention reads the same. **The strong instrument is the
+ledger: compare `peakMB` against `srcGate.fileBytes` in one report.** A 4GB source that still peaks
+near 131MB proves the Blob is disk-backed and the O(1) design holds end to end.
+
+### 🚩 FOUND BY READING, NOT SHIPPED
+
+- **Motion render already inherited the streaming muxer.** It calls the same `exportVideo`, and its
+  capture is a GPU blit (`drawImage`), not a readback. Structurally sound, never verified.
+- **Still export is the last single-shot spike.** `exportAt` holds three full-res RGBA copies at once
+  — ~805MB at 8192, **3.2GB at 16384** — and is unledgered. The phone chrome hardcodes 6144 after a
+  field jetsam; **the iPad runs desktop chrome and has no such clamp.**
+- **The pipeline is 8-bit sRGB end to end and tags nothing.** Sources are `hvc1.2.4` (Main10), so
+  **10-bit is already being truncated silently.** See BACKLOG "colour and export fidelity".
+
+---
+
 ## v0.26.77 · Build 737 — THE mdat HEADER IS WHAT LETS THE PARSER REACH A TRAILING moov
 
 **Shipped:**
@@ -41,11 +101,25 @@ mp4-muxer at `fastStart: false` — the layout iOS writes):
 | moov at front | 120/120 samples | 120/120 |
 | **moov at end** | **`onReady` never fired, 0 samples** | **120/120** |
 
-### ⚠️ AND THE MEMORY WORK IS STILL UNVERIFIED ON HARDWARE
+### ✅✅ CONFIRMED THE SAME DAY, ON DESKTOP: 3188 → 131MB AT THE SAME SPEED
 
-`peakMB: 47.6` in the B736 reports is **the fallback path's** footprint. **No run has exercised the
-O(1) design end to end.** The reduction ledger stays provisional until a report shows `sample-index`
-in `peakBy`.
+`B737-M1maxMBP-baketest.json`, M1 Max, the 741MB original, vanilla slice:
+
+| | B729 | B731 | B732 | **B737** |
+|---|---|---|---|---|
+| `peakMB` | 3188.5 | 2143.2 | 1441.1 | **130.9** |
+| bake time | 34.5s | — | — | **33.8s** |
+
+`peakBy: { frames-held 83.1, capture-canvas 31.6, encoder-output 16, sample-index 0.2 }` — **0.2MB
+where a 1404MB sample table used to be.** `heldMB: 0` after teardown, and `decoded 113 · via cover ·
+holes 1` is **identical work to B730/B731**, so nothing was traded for the saving.
+
+**⭐ THE SHAPE CHANGED, NOT JUST THE NUMBER.** Every remaining term is resolution-driven or constant:
+`peak ≈ frames-held + capture-canvas + encoder-output + index ≈ 131MB at 4K, any clip length`.
+**Nothing scales with the clip any more**, which is the categorical result this arc was after —
+and it is bounded above too, since the frame queues cap at 12 per reader.
+
+**Still desktop-only. The iPad is where the ceiling lives.**
 
 ### 🔎 THREE LIBRARY ASSUMPTIONS, THREE BUILDS, THREE DEVICE SESSIONS
 

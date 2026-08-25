@@ -35,6 +35,7 @@ import { panProbe } from '../kit/pan.js';
 import { externalGuardState } from './external-display.js';
 import { listGLSurfaces, provokeGLLoss, disarmGLLoss } from './gl-watch.js';
 import { memReport } from './mem-ledger.js';
+import { sourceGateReport } from './video-decode.js';
 
 const BASELINE_KEY = 'foldPerfBaseline';
 
@@ -530,6 +531,11 @@ export function mountPerfPanel(env, { container = null, onClose = null } = {}) {
       // teardown; `memNow` is live, so a report taken minutes later still says whether the session
       // is carrying residue.
       bakeMem: (env.bakeMem ? { ...env.bakeMem } : undefined),
+      // B738 — the LAST source-open attempt, whoever made it. `bakeDecode.srcGate` covers the bake;
+      // a motion render arms the same reader and publishes nothing of its own, so a refusal there
+      // would otherwise be invisible. Reads `armed: false` with a reason, or `armed: true` with the
+      // `fileBytes` that `memNow.peakMB` has to be judged against.
+      srcGate: (() => { try { return sourceGateReport() || undefined; } catch { return undefined; } })(),
       memNow: (() => { try { return memReport(); } catch { return undefined; } })(),
       // B706 — a deferred element re-upload. `reinitWhy` says what failed; these say whether it
       // has since healed. Pending with a rising try count is the forever-black case.

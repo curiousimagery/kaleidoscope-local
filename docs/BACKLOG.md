@@ -486,6 +486,81 @@ One report reads `pressure: { target: 15, label: "warming up" }` on a 30fps clip
 
 ## 🚧 Limits, ceilings and honest refusal
 
+### 🎨🎨 [Daniel, 2026-08-24 — DECIDE BEFORE TOUCHING `exportAt`, NOT AFTER] COLOUR AND EXPORT FIDELITY
+
+*"If somebody builds a clip in Fold and adds it to DaVinci and now they have compression and banding
+and inconsistent color after a round trip, it will hold them back... if a photographer is editing in
+DxO PhotoLab or Lightroom and selects 'open in Fold', we should be able to receive and return a
+.tiff with matching bit depth and color profiles."*
+
+**WHERE WE ARE, STATED PLAINLY.** Every texture and every readback in the engine is
+`gl.RGBA / UNSIGNED_BYTE`. Sources are `hvc1.2.4` — HEVC **Main10** — so **we already truncate 10-bit
+to 8-bit and tone-map nothing.** Output carries no `colr` atom, so Resolume and QuickTime guess
+BT.709, which is roughly right for 8-bit SDR. **It works today by accident, not by design.**
+
+**Fold is MORE exposed to this than a typical app, not less**: a kaleidoscope generates large smooth
+gradients and repeated soft blends, which is the exact worst case for 8-bit banding, and every
+crossfade compounds the quantisation.
+
+**FOUR TIERS, IN COST ORDER.** They are not a sequence to march through; the point is that **only
+one of them is a rewrite, and it collides with a fix we already want.**
+
+| tier | what | cost | does NOT fix |
+|---|---|---|---|
+| A · tag what we already make | `colr` atom on video output | small, additive | banding, gamut |
+| B · wide-gamut 8-bit | canvas `colorSpace: 'display-p3'`, tag P3 | moderate, mostly auditing | banding |
+| C · high-bit-depth pipeline | `RGBA16F` intermediates, float readback, 10-bit encode | **GPU memory doubles**; every form's GLSL needs a 0-1 clamp review; H.264 has no 10-bit, HEVC Main10 does | stills |
+| D · stills off canvas | 16-bit TIFF written directly (~150 lines, no library) + tiled readback | a new encoder module | video |
+
+**⚠️ THE TWO ORDERING FACTS THAT MATTER.**
+
+1. **Tier D and the tiled-still-export fix are the same lines of code.** Canvas `toBlob` has no
+   16-bit and no TIFF — that is structural, not a parameter. **So if we band the still readback
+   through a 2D canvas we are building more of the thing Tier D has to gut.** Decide D's shape
+   whenever `exportAt` is opened, even if the first ship is still 8-bit.
+2. **Tier C moves the ceiling we just spent fifteen builds lowering.** `RGBA16F` roughly halves the
+   8K/16K headroom the capability gate will be built on. **So C lands AFTER the gate, and the gate
+   should take a bit-depth multiplier as an input while that multiplier is still 1.**
+
+Tier A is nearly free and removes a guess; worth doing on its own whenever video output is next open.
+
+### ⭐ [Daniel, 2026-08-24] BAKE AND RENDER TIME REMAINING — WE ALREADY HAVE EVERY TERM
+
+*"Is there any reason we couldn't run a counter of bake time elapsed and estimated time remaining?"*
+
+**No reason at all.** `exportVideo` already calls `onProgress(p)` once per frame and both consumers
+already draw a bar from it. Elapsed over `p` gives a per-frame rate, and the estimate is
+`elapsed × (1 - p) / p`. Measured throughput this session: **1.48× realtime on an M1 iPad, 0.32× on
+an M1 Max**, and the two iPads landed 0.9% apart — so the rate is stable enough within a run for the
+estimate to settle after a few seconds rather than jitter.
+
+**It is self-calibrating, which is the point**: it measures THIS device on THIS job and needs no
+table, so it degrades and scales on its own. Do not show a figure before ~5% or it will read as
+noise; smooth over a trailing window; and it belongs in both the bake sheet and the motion render
+sheet, which are separate UI.
+
+### 🚩 [FOUND BY READING B738 — UNTESTED, ARITHMETIC IS NOT AMBIGUOUS] THE iPAD CAN BE HANDED A 16K STILL EXPORT
+
+`exportAt` ([engine/index.js](../src/engine/index.js)) holds **three full-resolution RGBA copies at
+once** — the `readPixels` buffer, the `ImageData`, and the 2D canvas backing store — plus the GPU
+FBO. At 8192 that is 268MB × 3 ≈ **805MB transient**; at 16384, **3.2GB**.
+
+**8K render and 16K stills are intended on desktop and work there** (Firefox gates them itself). The
+gap is that **the iPad runs desktop chrome**, `main.js` has no export clamp of its own, and the FBO
+probe validates a size by round-tripping ONE pixel — so it cannot see a three-buffer peak. The phone
+chrome already hardcodes 6144 for exactly this, after a field jetsam
+([mobile/chrome.js](../src/mobile/chrome.js)).
+
+**Two fixes, and they are not the same fix.** The clamp is the gate's job (see the capability ladder
+cluster). The tiled readback is the real repair, and it must be decided together with the colour
+tiers above.
+
+### ✅ [SHIPPED B738] THE 1.5GB SOURCE CAP → `sourceBudget()`
+
+Was silently routing every 4K source over ~4 minutes onto the 10× element-seek fallback. Replaced by
+a cap computed from `os_proc_available_memory()` on iOS, `navigator.deviceMemory` on Chromium, and a
+generous desktop default. See CHANGELOG v0.27.0.
+
 ### ⭐ [Daniel, 2026-08-24] OUTPUT BITRATE AS AN EXPLICIT LEVER, NEVER A SILENT DEFAULT
 
 *"Halving bitrate feels like a reasonable lever we could make available, but not a silent default."*
