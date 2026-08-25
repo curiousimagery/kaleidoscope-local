@@ -248,7 +248,12 @@ export async function probeVideoInfo(url) {
 // path in silence and the next reader most needs to know which of six reasons it was.
 const CAP_NEVER_BELOW = 1_500_000_000;      // never worse than the B737 behaviour this replaces
 const HEADROOM_FLOOR_MB = 400;              // leave the OS its room before we spend any of it
-const HEADROOM_SAFETY = 0.6;                // the cap is insurance against a case we have not seen
+// ⚠️ B742 — LOOSENED FROM 0.6. On Daniel's iPad Pro this produced `capBytes` **2.93GB** against a
+// **2.63GB** file: an 11% margin on a job we have now MEASURED at 131.6MB of heap, where a 3.5×
+// larger source cost 0.7MB more. The cap was insurance against a Blob materialising in the heap,
+// and the ledger has since disproven that on 741MB and 2.63GB sources across four machines. Keeping
+// it at a severity that can refuse a proven-safe job is the more expensive error.
+const HEADROOM_SAFETY = 2.0;
 const DESKTOP_CAP = 16_000_000_000;         // swap exists; the failure mode is slow, not fatal
 
 export function sourceBudget() {
@@ -288,6 +293,21 @@ export function sourceGateReport() { return lastSourceGate ? { ...lastSourceGate
 // openSharedSource(url) → source | null. Parse ONCE; take as many readers as you need.
 // The source is refcounted: it releases its sample table when the last reader closes AND the caller
 // has closed it, whichever comes last.
+// ⚠️ B742 — `fetch()` ON A BLOB URL IS A WEBKIT SIZE CLIFF. TAKE THE FILE, DO NOT ASK FOR IT BACK.
+//
+// Daniel's iPad Pro, same file that bakes on desktop: **`fetch failed: Load failed` after 20ms** —
+// an immediate rejection, not a timeout and not a partial read — while the `<video>` element played
+// the very same blob URL without complaint. At B737 the same device fetched a 741MB blob fine. The
+// only variable that moved is size: **2.63GB.**
+//
+// We were asking the platform to hand back an object we already hold. `source-host.js` keeps the
+// original `File` in `env.media.sourceVideoBlob`, and a `File` IS a `Blob` — disk-backed, sliceable,
+// and never routed through the network stack. Passing it in skips the cliff entirely.
+//
+// The URL guard matters: `sourceVideoBlob` describes `sourceVideoUrl` and nothing else. Callers
+// resolve their URL from a `<video>` element that may point somewhere else (a staged copy, the
+// Electron transcode path, which sets the blob to null precisely because it is NOT backed by that
+// File). When they disagree, fetch — being slow is recoverable, decoding the wrong file is not.
 export async function openSharedSource(url, opts = {}) {
   const budget = sourceBudget();
   const maxBytes = typeof opts.maxBytes === 'number' ? opts.maxBytes : budget.capBytes;
@@ -301,6 +321,12 @@ export async function openSharedSource(url, opts = {}) {
   }
 
   let blob;
+  if (opts.blob && opts.blob.size > 0) {
+    gate.via = 'blob-passthrough';
+    blob = opts.blob;
+    gate.fetchMs = 0;
+  } else {
+  gate.via = 'fetch';
   // ⚠️ `fetchMs` IS A ONE-DIRECTIONAL INSTRUMENT AND MUST BE READ AS ONE. Resolving a File-backed
   // object URL is a registry lookup, so a FAST resolve proves nothing was copied — an allocate-plus-
   // copy of several GB cannot finish in tens of milliseconds at any memory bandwidth. A SLOW resolve
@@ -316,6 +342,7 @@ export async function openSharedSource(url, opts = {}) {
     return settle(`fetch failed: ${e?.message || e}`);
   }
   gate.fetchMs = Math.round(performance.now() - tFetch);
+  }
   gate.fileBytes = blob.size;
   if (!blob.size) return settle('source resolved to an empty blob');
   if (blob.size > maxBytes) {

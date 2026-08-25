@@ -30,6 +30,7 @@ import { exportVideo, videoExportSupported, pickVideoCodec } from './video-expor
 import { createSequentialFrameReader, sourceGateReport } from './video-decode.js';
 import { memBegin, memHold, memRelease, memReport } from './mem-ledger.js';
 import { readHostVitals } from './gl-watch.js';
+import { perfFlags } from './perf-flags.js';
 import { drawSourceOverlay } from './overlay.js';
 import { makeScrubField } from './controls.js';
 import { zipStore } from './zip.js';
@@ -349,7 +350,10 @@ async function setupExportReader() {
   if (!v || exportReader) { lastReaderWhy = v ? null : 'no source video element'; return; }
   let reader = null;
   try {
-    reader = await createSequentialFrameReader(v.currentSrc || v.src);
+    // B742 — hand over the File rather than fetching the blob URL back (the WebKit size cliff).
+    const rUrl = v.currentSrc || v.src;
+    const rBlob = (rUrl && rUrl === env.media?.sourceVideoUrl) ? env.media.sourceVideoBlob : null;
+    reader = await createSequentialFrameReader(rUrl, { blob: rBlob });
     if (!reader) {
       const g = (() => { try { return sourceGateReport(); } catch { return null; } })();
       lastReaderWhy = g?.why || 'reader did not arm, and the source gate published no reason';
@@ -2241,6 +2245,8 @@ function setupVideoExport() {
   const sheet = byId('vidSheet');
   if (!sheet) return;
   let selLong = 2560, selFps = 30, selCap = env.capabilities.capturePath, cancelRender = false, rendering = false;
+  // B742 — the perf-flag lever, read at sheet-open so a toggle takes effect without a reload.
+  const captureMode = () => (perfFlags.captureForce2d ? '2d' : selCap);
 
   // raw output dimensions for a given LONG side + current aspect (even, unclamped).
   const rawDims = (long) => {
@@ -2357,7 +2363,7 @@ function setupVideoExport() {
     const capId = memHold('capture-canvas', w * h * 4 * 2);
     const devBefore = (() => { try { return readHostVitals(); } catch { return null; } })();
     const renderShape = {
-      w, h, fps: selFps, durationMs: motion.durationMs, captureMode: selCap,
+      w, h, fps: selFps, durationMs: motion.durationMs, captureMode: captureMode(),
       wantSource: !!wantSource, keyframes: kfList().length,
       srcW: env.sourceVideo?.videoWidth || 0, srcH: env.sourceVideo?.videoHeight || 0,
     };
@@ -2367,13 +2373,13 @@ function setupVideoExport() {
       if (env.sourceVideo) { status.textContent = 'preparing footage…'; await setupExportReader(); status.textContent = 'rendering…'; }
       // main kaleidoscope video (GL capture path)
       const { blob, frames, timing } = await exportVideo({
-        width: w, height: h, fps: selFps, durationMs: motion.durationMs, captureMode: selCap,
+        width: w, height: h, fps: selFps, durationMs: motion.durationMs, captureMode: captureMode(),
         onBegin: () => engine.beginCapture(w, h),
         // a video source seeks the footage to p BEFORE capturing, so the clip
         // actually advances frame-by-frame in the render (frame-accurate export).
         frameAt: env.sourceVideo
-          ? async (p) => { await advanceSourceToP(p); const s2 = sampleAt(p, { bake: true }); return selCap === 'gl' ? engine.captureFrameGL(s2) : engine.captureFrame(s2); }
-          : (p) => { const s2 = sampleAt(p, { bake: true }); return selCap === 'gl' ? engine.captureFrameGL(s2) : engine.captureFrame(s2); },
+          ? async (p) => { await advanceSourceToP(p); const s2 = sampleAt(p, { bake: true }); return captureMode() === 'gl' ? engine.captureFrameGL(s2) : engine.captureFrame(s2); }
+          : (p) => { const s2 = sampleAt(p, { bake: true }); return captureMode() === 'gl' ? engine.captureFrameGL(s2) : engine.captureFrame(s2); },
         onEnd: () => engine.endCapture(),
         onProgress: (p) => { bar.style.width = Math.round(p * (wantSource ? 50 : 100)) + '%'; },
         shouldCancel: () => cancelRender,

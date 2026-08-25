@@ -6,6 +6,70 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.27.4 · Build 742 — WE WERE ASKING WEBKIT TO HAND BACK A FILE WE ALREADY HELD
+
+**Shipped:**
+- **`openSharedSource` takes the `File` directly** (`{ blob }`), guarded so it is only used when it
+  describes the url the caller resolved. `fetch` is now the fallback, not the path.
+- **`HEADROOM_SAFETY` 0.6 → 2.0.** The old value produced a 2.93GB cap against a 2.63GB file.
+- **`captureForce2d` perf flag** — the `?capture=2d` A/B, reachable from a Capacitor build.
+
+### 🎯 THE iPAD FAILURE, NAMED — AND B741's INSTRUMENT IS WHAT NAMED IT
+
+`B741ipadpro-bakefailure.json`, iPad Pro, Capacitor, the file sitting locally in Files and playing
+back fine:
+
+```
+srcGate.why:     "fetch failed: Load failed"
+srcGate.fetchMs: 20
+```
+
+**Twenty milliseconds.** Not a timeout, not a partial read — an immediate rejection, on a blob URL the
+`<video>` element was playing without complaint. **At B737 this same device fetched a 741MB blob and
+armed the reader.** The only variable that moved is size: **2.63GB.**
+
+So the bake fell to element-seek, and so did the render before it — which is the whole of Daniel's
+*"jerky, frames flash, stuttery"*. **One cause, both symptoms, two builds apart.**
+
+**The fix is to stop asking.** `source-host.js` already keeps the original `File` in
+`env.media.sourceVideoBlob`, and a `File` **is** a `Blob` — disk-backed, sliceable, never routed
+through the network stack. We were round-tripping an object we held. The URL guard is load-bearing:
+`sourceVideoBlob` describes `sourceVideoUrl` and nothing else, and the Electron transcode path sets
+it to null precisely because the played file is not that `File`. When they disagree we fetch —
+**being slow is recoverable; decoding the wrong file is not.**
+
+### 📉 THE CAP WAS ABOUT TO REFUSE A JOB WE HAVE PROVEN SAFE
+
+First run of the iOS branch of `sourceBudget()`, and it works — `basis:
+"os_proc_available_memory (iOS jetsam headroom)"`, `headroomMB: 5055`. But it yielded
+**`capBytes` 2,928,672,768 against a 2,629,310,897-byte file: an 11% margin.**
+
+That cap is insurance against a Blob materialising in the heap, and **the ledger has since disproven
+that**: 741MB → `peakMB` 130.9, 2.63GB → 131.6, across four machines. Holding insurance at a
+severity that can refuse a measured-safe job is the more expensive error. `HEADROOM_SAFETY` 0.6 → 2.0
+(≈9.1GB on this device); the `CAP_NEVER_BELOW` floor and the materialisation instrument both stay.
+
+### 🎛 THE A/B DANIEL COULD NOT REACH
+
+*"iPad is a capacitor build without a URL bar so I can't paste in a link parameter."*
+
+`capturePath` is `gl` on all WebKit and `2d` elsewhere, and `?capture=2d` was the only lever. His
+iPad render was **both `gl`-captured AND on the element-seek fallback**, so two variables moved and
+only one is explained. `captureForce2d` isolates the other without a query string, read at capture
+time so a toggle applies without a reload.
+
+### 📊 ALSO IN THAT REPORT
+
+- **thermal `nominal → nominal`**, `availableMB 5055 → 5056` across a 72s attempt. Vitals seam
+  healthy (`pushes: 60`, `loaded: true`) — B726 still holding.
+- **`deviceFreeMB` 857 → 2661.** Third report running; it has never once been usable.
+- **"No progress bar for a minute" was real and honest.** 15,019 frames on the element-seek path
+  moves the bar ~0.007% per frame. It was not stuck, it was truthfully reporting ~1%. **A bar that
+  cannot show sub-1% progress is indistinguishable from a hung app** — filed, but the real fix is the
+  reader arming.
+
+---
+
 ## v0.27.3 · Build 741 — THE iPAD RENDER LOOKED BAD BECAUSE IT NEVER DECODED. THE GATE KNEW AND SAID NOTHING.
 
 **Shipped:**

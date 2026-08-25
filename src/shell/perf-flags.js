@@ -149,6 +149,18 @@ export const perfFlags = {
   // the decode starts, not per frame.
   loopBySeek: false,
 
+  // Force the 2D-canvas capture path for renders/bakes on WebKit (B742). `capabilities.capturePath`
+  // is `gl` on all WebKit and `2d` elsewhere, and `?capture=2d` was the only way to A/B it — which
+  // **a Capacitor build has no way to reach**, since it has no URL bar. Daniel's iPad render was
+  // both `gl`-captured AND on the element-seek fallback, so two variables moved at once; this
+  // isolates the capture path without needing a query string.
+  //
+  // `gl` wraps the live WebGL canvas straight into a VideoFrame; `2d` blits through a 2D canvas
+  // first. The GL path is much faster on WebKit and is the reason it is the default there, but it
+  // is also the Build-112 path that hung iPadOS in Build 115, and a frame captured from a surface
+  // that keeps being drawn is a plausible source of the "frames flash" Daniel reported.
+  captureForce2d: false,
+
   // Force takes through MediaRecorder instead of WebCodecs (B537). ON = the pre-B365 recorder,
   // which muxes natively and demonstrably produces sound — the package's RAW take has had audio
   // this whole time and it is the only thing on that path.
@@ -219,4 +231,5 @@ export const PERF_FLAG_SPECS = [
   ['recordStreamToDisk', 'record: stream to disk', 'off = assemble the take in memory (the pre-B553 path; peak RAM a multiple of the file)'],
   ['recordForceFlush', 'record: force sync rasterize', 'Blink-only by default; ON here if a WebKit take shows a stale frame'],
   ['loopBySeek', 'video: loop by seeking, not by item swap', 'RELOAD THE CLIP to apply. on = one AVPlayerItem, rewound at the end (B601 A/B against the 150ms swap)'],
+  ['captureForce2d', 'render: 2D capture instead of GL', 'REOPEN THE RENDER SHEET to apply. on = the desktop capture path — the A/B for flashing/jerky frames on iPad'],
 ];

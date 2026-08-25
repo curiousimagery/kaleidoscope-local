@@ -1023,7 +1023,7 @@ const LINK_PARAMS = [
     ['?buscapture=videoframe', 'force the output bus\'s GPU→CPU readback mode',
       'Accepts `getimagedata`, `readpixels` or `videoframe`. The bus normally PROBES all three at startup and keeps the fastest, because the winner is per-device rather than per-browser (see the browser-engine notes in BACKLOG). Force one when you want to measure a specific path or when the probe picks badly. See conduit/capture.js.'],
     ['?capture=gl', 'force the video-export frame source',
-      'Accepts `2d`, `bitmap` or `gl`. Defaults to `gl` on WebKit (far faster wrapping the WebGL canvas straight into a VideoFrame) and `2d` on Firefox/Chromium. A safety hatch if an older iOS device hangs on the WebGL-direct path. See kit/capabilities.js.'],
+      'Accepts `2d`, `bitmap` or `gl`. Defaults to `gl` on WebKit (far faster wrapping the WebGL canvas straight into a VideoFrame) and `2d` on Firefox/Chromium. A safety hatch if an older iOS device hangs on the WebGL-direct path. See kit/capabilities.js. **A Capacitor build has no URL bar**, so the same A/B is also a perf-panel toggle there: `render: 2D capture instead of GL` (B742).'],
     ['?ndiwire=rgba', 'force the old full-RGBA NDI wire',
       'NDI now sends UYVY (half the bytes). This forces the previous full-RGBA wire for A/B. The blue cast that once kept UYVY opt-in was a readback channel-order bug (iPad readPixels returns B,G,R,A), fixed at the capture layer. The active wire logs itself when the sender starts. See shell/capacitor-host.js.'],
     ['?ndifps=15', 'tune the NDI publish-rate target (1-120, default 30)',

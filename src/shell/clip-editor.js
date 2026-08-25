@@ -943,6 +943,8 @@ export function createClipEditor(env) {
     };
     const range = trim.outT - trim.inT, trimmedSec = range * dur;
     const url = decodeV.currentSrc || decodeV.src || env.media.sourceVideoUrl;
+    // B742 — the File we already hold, but ONLY if it is the file this url names. See openSharedSource.
+    const srcBlob = (url && url === env.media.sourceVideoUrl) ? env.media.sourceVideoBlob : null;
     let durationMs, frameAt;
     // WebCodecs readers over the same file (below); declared here so the finally can close them.
     let sliceReaderA = null, sliceReaderB = null, bounceReader = null, sliceSource = null;
@@ -951,7 +953,7 @@ export function createClipEditor(env) {
       // Fast decode: a monotonic reader serves the forward half at speed; the reverse half
       // still pays a keyframe re-decode per frame (GOP-reverse buffering is the deeper win,
       // filed), but through WebCodecs rather than <video> seeks. Falls back to element seeks.
-      try { bounceReader = await createSequentialFrameReader(url); } catch { bounceReader = null; }
+      try { bounceReader = await createSequentialFrameReader(url, { blob: srcBlob }); } catch { bounceReader = null; }
       if (bounceReader && bounceReader.fps) fps = bounceReader.fps;
       if (bounceReader) bakeRot = bounceReader.rotation || 0;
       if (bounceReader) {
@@ -999,7 +1001,7 @@ export function createClipEditor(env) {
       // The source is closed in the `finally` alongside the readers; it is refcounted, so the sample
       // table survives until the last reader lets go however the bake exits.
       try {
-        sliceSource = await openSharedSource(url);
+        sliceSource = await openSharedSource(url, { blob: srcBlob });
         sliceReaderB = sliceSource ? sliceSource.createReader() : null;
         sliceReaderA = sliceReaderB ? sliceSource.createReader() : null;
       } catch { sliceReaderA = sliceReaderB = null; }
