@@ -22,8 +22,12 @@ Archived at B658. It was marked superseded at B609 and kept for the reasoning be
 
 ## current version
 
-**v0.27.0 · B738** (2026-08-24). Minor bumped at Daniel's call for the O(1) bake landing on
-hardware. **Patch-per-build resumes from here.** **B705 and B706 are device-verified** — B705's instrument found B706, and B706 held on the repro that killed B705. B703, B704 and B707 are not yet device-verified.
+**v0.27.1 · B739** (2026-08-24). Minor bumped at B738 for the O(1) bake landing on hardware.
+
+**⭐⭐ THE O(1) BAKE IS NOW MEASURED, NOT MODELLED.** A 2.63GB / 8:21 4K source peaked at **131.6MB**
+against **130.9MB** for a 741MB source. **3.5× the file, 0.7MB more memory.** Both 8GB M1 iPads also
+passed the job that killed them at B730 (Air 71.6MB, Pro 114.9MB). The Blob is disk-backed and file
+size is no longer a memory axis. **B705 and B706 are device-verified** — B705's instrument found B706, and B706 held on the repro that killed B705. B703, B704 and B707 are not yet device-verified.
 
 ---
 
@@ -138,12 +142,11 @@ because the term we removed was the one that scaled with clip LENGTH and this on
 
 ### 🚩 THREE CEILINGS THE B737 WORK DID NOT TOUCH (found by reading, 2026-08-24)
 
-1. **✅ FIXED B738 — the 1.5GB source cap is now `sourceBudget()`**, computed from
-   `os_proc_available_memory()` on iOS (5014MB on the Air, 5093MB on the Pro — stable, and it
-   scales to hardware that does not exist yet), `navigator.deviceMemory` on Chromium, a generous
-   default on desktop. **UNVERIFIED: nobody has yet opened a source larger than 741MB on this path.**
-   The instrument is in the report — compare `srcGate.fileBytes` against `memNow.peakMB`. A 4GB
-   source that still peaks near 131MB proves the Blob is disk-backed and the O(1) design holds.
+1. **✅ FIXED B738, VERIFIED SAME DAY — the 1.5GB source cap is now `sourceBudget()`**, computed from
+   `os_proc_available_memory()` on iOS (5014MB on the Air, 5093MB on the Pro — stable, and it scales
+   to hardware that does not exist yet), `navigator.deviceMemory` on Chromium, a generous default on
+   desktop. **A 2.63GB source peaked at 131.6MB.** Still unverified: anything past 2.63GB, and the
+   iOS branch of `sourceBudget()` has never run (both desktop reports took the Chromium branch).
 2. **Still export is the one remaining single-shot spike, and it is unledgered.** `exportAt`
    ([engine/index.js:444](../src/engine/index.js#L444)) holds THREE full-res RGBA copies at once —
    `pixels` from readPixels, `imgData.data`, and the canvas backing store — plus the GPU FBO.

@@ -531,6 +531,10 @@ export function mountPerfPanel(env, { container = null, onClose = null } = {}) {
       // teardown; `memNow` is live, so a report taken minutes later still says whether the session
       // is carrying residue.
       bakeMem: (env.bakeMem ? { ...env.bakeMem } : undefined),
+      // B739 — the render's twin of the two above. It arms the same reader, the same muxer and the
+      // same encoder as the bake, and until B739 it published none of them.
+      renderDecode: (env.renderDecode ? { ...env.renderDecode } : undefined),
+      renderMem: (env.renderMem ? { ...env.renderMem } : undefined),
       // B738 — the LAST source-open attempt, whoever made it. `bakeDecode.srcGate` covers the bake;
       // a motion render arms the same reader and publishes nothing of its own, so a refusal there
       // would otherwise be invisible. Reads `armed: false` with a reason, or `armed: true` with the

@@ -486,6 +486,31 @@ One report reads `pressure: { target: 15, label: "warming up" }` on a 30fps clip
 
 ## 🚧 Limits, ceilings and honest refusal
 
+### 🐞🐞 [Daniel, 2026-08-24 — DIAGNOSED, NOT FIXED] `applyBakedClip` IS A PARTIAL REIMPLEMENTATION OF THE LOAD PATH
+
+*"Coming back from the loop builder and opening in motion, it wasn't able to autodetect that my
+source loops now... I had to manually toggle loop mode on in motion mode."*
+
+**Root cause, found by reading, no device time.** `applyBakedClip` ([clip-editor.js](../src/shell/clip-editor.js))
+swaps `env.sourceVideo` directly — `engine.setSource(v)`, assign, revoke the old URL. It never goes
+through `source-host.js`'s `loadVideo`, so **everything `loadVideo` does after the swap is skipped**:
+
+- `detectLoopFromFrames` → `env.setLoopClip(isLoop)` — **Daniel's bug.**
+- the panel and thumbnail repaint — **the already-filed "panels stay black until you scrub" bug.**
+
+**These are the same bug wearing two faces**, which is why fixing the GL-restore path at B733 did not
+fix either one.
+
+**⭐ THE LOOP CASE DOES NOT NEED DETECTION AT ALL.** A slice or bounce bake produces a seamless loop
+**by construction** — that is the entire purpose of the operation. So the fix is to ASSERT
+`setLoopClip(true)` after a successful loop bake, not to re-run a frame comparison that can only
+agree with us. Detection is the right answer for a file we did not make; it is the wrong answer for
+one we just built to spec.
+
+**The shape of the real fix** is to give `applyBakedClip` the same post-swap sequence `loadVideo`
+runs, rather than to bolt on the two missing calls — otherwise the third omission arrives later.
+Worth deciding which, since it is the difference between two lines and a small refactor.
+
 ### 🎨🎨 [Daniel, 2026-08-24 — DECIDE BEFORE TOUCHING `exportAt`, NOT AFTER] COLOUR AND EXPORT FIDELITY
 
 *"If somebody builds a clip in Fold and adds it to DaVinci and now they have compression and banding
@@ -523,6 +548,17 @@ one of them is a rewrite, and it collides with a fix we already want.**
    should take a bit-depth multiplier as an input while that multiplier is still 1.**
 
 Tier A is nearly free and removes a guess; worth doing on its own whenever video output is next open.
+
+**⭐ BIT DEPTH IS A GLOBAL POLICY, NOT A PER-EXPORT NUMBER (Daniel, 2026-08-24).** Express it as
+`match source` (default) / `force 8-bit` (buys capability ceiling, the thing we do silently today) /
+`force max`, so it reads identically in the still and video workflows. **Never default to writing
+more bits than the source carries** — with one real exception that is specific to Fold: *we are not
+a pass-through, we are a generator.* A crossfade, a soft mirror seam and a gradient overlay all
+produce tonal values that exist nowhere in the source, so a 10-bit output from an 8-bit source
+preserves precision our own maths created rather than inventing detail. That makes `force max`
+legitimate for a grading hand-off, and still the wrong default. **Daniel's library is mixed**:
+`hvc1.2.4` (Main10) and `hvc1.1.6` (Main, 8-bit) both appear in this arc's test clips, so
+`match source` has to actually read the source rather than assume.
 
 ### ⭐ [Daniel, 2026-08-24] BAKE AND RENDER TIME REMAINING — WE ALREADY HAVE EVERY TERM
 

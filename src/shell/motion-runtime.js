@@ -27,7 +27,9 @@ import { ICONS } from '../mobile/icons.js';
 import { pToMediaSec, seekVideoTo } from './video-source.js';
 import { createVideoStageSource } from './stage-source.js';
 import { exportVideo, videoExportSupported, pickVideoCodec } from './video-export.js';
-import { createSequentialFrameReader } from './video-decode.js';
+import { createSequentialFrameReader, sourceGateReport } from './video-decode.js';
+import { memBegin, memHold, memRelease, memReport } from './mem-ledger.js';
+import { readHostVitals } from './gl-watch.js';
 import { drawSourceOverlay } from './overlay.js';
 import { makeScrubField } from './controls.js';
 import { zipStore } from './zip.js';
@@ -332,13 +334,27 @@ function loadPlayheadIntoState() {
 // on the seek path — the fast path can only ever cost nothing.
 let exportReader = null, exportReaderCtx = null;
 
+// ⚠️ B739 — THE RENDER DECLINED TO ARM IN SILENCE, TO A CONSOLE DANIEL CANNOT READ.
+//
+// The bake has published its reader's fate since B724; the render, which arms the SAME reader over
+// the SAME file, published `console.info` and `console.warn` and nothing else. Daniel does not run
+// Safari Web Inspector, so on a device this path had no observable state at all: a render that fell
+// to the ten-times-slower element-seek fallback and one that used the fast path produced identical
+// reports. An absence is not evidence.
+let lastReaderWhy = null;
+
 async function setupExportReader() {
   const v = env.sourceVideo;
-  if (!v || exportReader) return;
+  lastReaderWhy = null;
+  if (!v || exportReader) { lastReaderWhy = v ? null : 'no source video element'; return; }
   let reader = null;
   try {
     reader = await createSequentialFrameReader(v.currentSrc || v.src);
-    if (!reader) return;
+    if (!reader) {
+      const g = (() => { try { return sourceGateReport(); } catch { return null; } })();
+      lastReaderWhy = g?.why || 'reader did not arm, and the source gate published no reason';
+      return;
+    }
     const cv = document.createElement('canvas');
     cv.width = v.videoWidth || reader.width;
     cv.height = v.videoHeight || reader.height;
@@ -350,6 +366,7 @@ async function setupExportReader() {
     console.info('[fold] render uses the fast decode path (sequential VideoDecoder)');
   } catch (e) {
     try { reader?.close(); } catch { /* never opened */ }
+    lastReaderWhy = `reader setup threw: ${e?.message || e}`;
     console.warn('[fold] fast decode unavailable — rendering via element seeks:', e);
   }
 }
@@ -2331,6 +2348,18 @@ function setupVideoExport() {
     const renderStart = performance.now();
     const wantSource = byId('vidSourcePreview')?.checked;
     const base = env.media.sourceFilename || 'animation';
+    // ⚠️ B739 — THE RENDER GETS THE BAKE'S INSTRUMENT. Same reader, same muxer, same encoder, and
+    // until now the only one of the two that could be measured was the bake. `beginCapture` costs
+    // TWO surfaces, not one — it resizes the GL canvas to w×h AND allocates a 2D canvas at w×h —
+    // which is why this hold is doubled where the bake's is not. At 8K that is 2 × 132MB.
+    memBegin('render');
+    const capId = memHold('capture-canvas', w * h * 4 * 2);
+    const devBefore = (() => { try { return readHostVitals(); } catch { return null; } })();
+    const renderShape = {
+      w, h, fps: selFps, durationMs: motion.durationMs, captureMode: selCap,
+      wantSource: !!wantSource, keyframes: kfList().length,
+      srcW: env.sourceVideo?.videoWidth || 0, srcH: env.sourceVideo?.videoHeight || 0,
+    };
     try {
       // arm the fast decode path (falls back silently; the source-preview pass
       // restarts at p=0, which the reader handles as a keyframe reset)
@@ -2404,11 +2433,42 @@ function setupVideoExport() {
         status.textContent = e.message || 'render failed'; status.className = 'status error'; console.error(e);
       }
     } finally {
+      // ⚠️ HARVEST BEFORE TEARDOWN. `worstTarget()` lives on the reader, and `teardownExportReader`
+      // closes it. The bake learned this at B722; the ordering is the whole reading.
+      try {
+        const worst = exportReader?.worstTarget?.() || null;
+        const gate = (() => { try { return sourceGateReport(); } catch { return null; } })();
+        const at = new Date().toISOString();
+        const secs = (performance.now() - renderStart) / 1000;
+        if (worst) {
+          env.renderDecode = { ...worst, ...renderShape, srcGate: gate, wallSec: +secs.toFixed(1), at };
+          env.vitals?.mark('render-decode-worst', { ...worst, ...renderShape, wallSec: +secs.toFixed(1) });
+        } else {
+          const why = !env.sourceVideo ? 'no video source (keyframe-only render)'
+            : lastReaderWhy || 'no reader armed, and nothing published a reason';
+          env.renderDecode = { ...renderShape, reader: 'element-seek fallback', why, srcGate: gate,
+                               wallSec: +secs.toFixed(1), at };
+          env.vitals?.mark('render-decode-none', { ...renderShape, why, wallSec: +secs.toFixed(1) });
+        }
+      } catch { /* never let an instrument break a teardown */ }
       teardownExportReader();      // re-points the engine at the video element (no-op on the seek path)
       rendering = false; btn.disabled = false; prog.hidden = true;
       if (cancelRender) sheet.hidden = true;
       env.resizePreviewCanvas();   // the capture session resized the GL canvas — restore + repaint the preview
       if (env.sourceVideo) scrubVideo(motion.playhead);   // restore the footage to the playhead (export left it at the last frame)
+      try { memRelease(capId); } catch { /* never let an instrument break a teardown */ }
+      try {
+        const devAfter = (() => { try { return readHostVitals(); } catch { return null; } })();
+        const dev = (devBefore && devAfter) ? {
+          freeBeforeMB: devBefore.deviceFreeMB, freeAfterMB: devAfter.deviceFreeMB,
+          reclaimBeforeMB: devBefore.deviceReclaimableMB, reclaimAfterMB: devAfter.deviceReclaimableMB,
+          footprintBeforeMB: devBefore.footprintMB, footprintAfterMB: devAfter.footprintMB,
+          thermalBefore: devBefore.thermal, thermalAfter: devAfter.thermal,
+          availableBeforeMB: devBefore.availableMB, availableAfterMB: devAfter.availableMB,
+        } : { why: devBefore || devAfter ? 'only one end of the delta was available' : 'host vitals never reported (web/Electron)' };
+        // Non-zero `heldMB` here means we are still holding references, which is a bug we can fix.
+        env.renderMem = { ...memReport(), device: dev, at: new Date().toISOString() };
+      } catch { /* never let an instrument break a teardown */ }
     }
   });
 }

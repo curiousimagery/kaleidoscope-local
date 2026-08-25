@@ -6,6 +6,46 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.27.1 · Build 739 — THE RENDER GETS THE BAKE'S INSTRUMENT, AND B738 IS PROVEN ON A 2.63GB SOURCE
+
+**Shipped:**
+- **`env.renderDecode` / `env.renderMem`**, exported in the report. Mirrors `bakeDecode` / `bakeMem`:
+  worst-target reading, `srcGate`, allocation ledger, device vitals before/after, wall time.
+- **The render's reader now publishes WHY it declined.** It had `console.info` and `console.warn`,
+  which Daniel cannot read on a device — so a render on the fast path and one on the ten-times-slower
+  element-seek fallback produced **identical reports.**
+- **`memBegin('render')` + a doubled `capture-canvas` hold.** `beginCapture` costs TWO surfaces (it
+  resizes the GL canvas to w×h AND allocates a 2D canvas at w×h), where the bake allocates one.
+
+### ⭐⭐ B738 CONFIRMED: `peakMB` DOES NOT TRACK FILE SIZE
+
+`B738-massiveBakeM4Max.json`, Brave on the M5 Max, `RAKBE6010.MOV`, 8:21 of 4K:
+
+| | 741 MB source (B737) | **2.63 GB source (B738)** |
+|---|---|---|
+| `srcGate.fileBytes` | 741,685,378 | **2,629,310,897** |
+| **`peakMB`** | **130.9** | **131.6** |
+| `sample-index` | 0.2 MB (3,178 frames) | **0.9 MB (15,027 frames)** |
+| `moovBytes` | — | 211,106 (206 KB) |
+| `frames-held` / `capture-canvas` | 83.1 / 31.6 | 83.1 / 31.6 |
+| `heldMB` after teardown | 0 | **0** |
+
+**A 3.5× larger source cost 0.7MB more.** `sample-index` landed on 15,027 × 64 = 961,728 bytes to the
+byte. The Blob is disk-backed and the O(1) design holds end to end — **this is the measurement, not
+the model.** `fetchMs: 926` on 2.63GB is 2.8GB/s, which the ledger rules out as a heap copy.
+
+Bake time **114.8s for 500.6s of source = 0.23× realtime** on the M5 Max, against 0.32× on the M1 Max
+and 1.48× on both M1 iPads. **8:21 of 4K is already above Daniel's typical 2-6 minute range**, so the
+10-minute 4K target is demonstrated on desktop.
+
+### 📌 ONE LABEL IS WRONG, NOT WORTH ITS OWN BUILD
+
+`srcGate.basis` read `navigator.deviceMemory (32GB, Chromium; caps at 8)`. Brave reported the true
+32GB, so **the "caps at 8" in that string is inaccurate** on this browser. The cap it produced
+(16GB) was correct and the source was admitted. Fix the wording next time `video-decode.js` opens.
+
+---
+
 ## v0.27.0 · Build 738 — THE SOURCE CAP IS COMPUTED FROM THE DEVICE'S OWN ATTESTATION
 
 **Minor bump at Daniel's call**, for the O(1) bake landing on hardware: **both 8GB M1 iPads baked
