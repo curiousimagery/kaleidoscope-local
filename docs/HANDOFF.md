@@ -22,12 +22,68 @@ Archived at B658. It was marked superseded at B609 and kept for the reasoning be
 
 ## current version
 
-**v0.27.2 · B740** (2026-08-24). Minor bumped at B738 for the O(1) bake landing on hardware.
+**v0.27.5 · B743** (2026-08-25). Minor bumped at B738 for the O(1) bake landing on hardware.
 
 **⭐⭐ THE O(1) BAKE IS NOW MEASURED, NOT MODELLED.** A 2.63GB / 8:21 4K source peaked at **131.6MB**
 against **130.9MB** for a 741MB source. **3.5× the file, 0.7MB more memory.** Both 8GB M1 iPads also
 passed the job that killed them at B730 (Air 71.6MB, Pro 114.9MB). The Blob is disk-backed and file
 size is no longer a memory axis. **B705 and B706 are device-verified** — B705's instrument found B706, and B706 held on the repro that killed B705. B703, B704 and B707 are not yet device-verified.
+
+---
+
+## ▶▶▶ STATE AT B743 — TWO AXES, NOT ONE
+
+**The O(1) memory work is VALIDATED and it revealed a SECOND constraint we did not know existed.**
+
+| clip | M5 Max | M1 Max | iPad Pro | iPad Air |
+|---|---|---|---|---|
+| **741MB · 1:46 · 4K** bake | ✅ 131MB | ✅ 131MB | ✅ **103MB** (B742) | ✅ 72MB (B737) |
+| **741MB** render | — | — | ❌ never tried | — |
+| **2.63GB · 8:21 · 4K** bake | ✅ 132MB | ❌ never tried | 🚫 **file unreadable** | — |
+| **2.63GB** render 4K | ✅ | ✅ 104MB (B740) | 🚫 **file unreadable** | — |
+| **2.63GB** render 8K | ✅ 35fps, 6.25GB out | — | — | — |
+
+**AXIS 1 — MEMORY. Solved and proven.** `peakMB` is 72-132 everywhere, for every clip length, and a
+3.5× larger source costs 0.7MB more. Nothing here scales with duration.
+
+**AXIS 2 — FILE ACCESS ON iOS. New, and it is where we now fail.** The 2.63GB File reports
+`size: 2,629,310,897` and throws `NotFoundError` on `slice(0,16).arrayBuffer()`. **By both routes** —
+`fetch` (which took 7.5s and then died) and the B742 `File` passthrough. The `<video>` element plays
+it happily, so this is random-access-from-JS being refused, not a broken file.
+
+**The 741MB control on the SAME build and device reads fine** (`via: blob-passthrough`, `armed: true`,
+`moovBytes: 97273`), which makes SIZE the strong hypothesis and staleness unlikely. **The wall is
+unbracketed: somewhere between 741MB and 2.63GB, and nobody has looked.**
+
+### ⚠️ WE HAVE NEVER SEEN A GOOD iPAD RENDER
+
+Both iPad renders ran on the element-seek fallback because the reader never armed. **Every quality
+complaint Daniel has made about iPad renders describes the fallback, not the render.** The 741MB clip
+now arms on iPad — **rendering it is the cheapest unrun test we have** and the only way to learn
+whether iPad render quality is actually a problem.
+
+### 📋 SHIPPED BUT NEVER EXERCISED
+
+- the zip refusal's **split-save fallback** (the refusal itself is harness-proven, 6/6)
+- the **loop assertion** on slice/bounce (B740)
+- **`captureForce2d`** (B742) — the capture-path A/B
+- **`holes` thresholding** — ships as `holes: 0, holesRounding: 0`, has not yet distinguished anything
+
+### 🚫 STILL ZERO EVIDENCE
+
+- **The iPad Air crash.** Two crashes, empty trail both times. A process kill takes the trail with it.
+- **8K render memory anywhere** — the one 8K run predates B739's instrument.
+
+### ⚖️ PROCESS — THE HARNESS IS A VALID DEVICE PROXY, SO INSTRUMENT BUGS MUST NEVER REACH A DEVICE
+
+`docs/temp/gate-preflight.mjs` imports the REAL `video-decode.js` and asserts every field the report
+promises, including the two that B741 claimed and silently did not ship. **25/25.** Its numbers match
+the device to the byte — `moovBytes 97273`, `frames 3192`, identical in the harness and in
+`B742-ipadprobake.json`. **There was never a reason to learn instrument correctness on hardware.**
+
+**Standing rule: run `gate-preflight.mjs` and `realfile-demux-check.mjs` before any device session
+that will read a source.** Promoting them into `tools/` alongside `check-dupe-keys.mjs` is a decision
+for Daniel — they need a real file on disk, so they cannot join `npm run check` unchanged.
 
 ---
 
