@@ -6,6 +6,59 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.27.5 · Build 743 — THE FILE REPORTS ITS SIZE AND WILL NOT GIVE UP A SINGLE BYTE
+
+**Shipped:**
+- **A 16-byte readability probe** before the demux, recording `readable`, `probeMs` and `errName`.
+- **The box walk names its offset AND the error type** — B741 claimed this and silently shipped
+  neither (the edit's pattern missed the function; nothing asserted, so a no-op looked like success).
+
+### 🎯 B742 WORKED, AND IT PROVED THE FAULT IS NOT OURS
+
+`B742-bakeattemptipad.json`, iPad Pro, cancelled after 7 minutes:
+
+```
+via:       "blob-passthrough"      ← the fetch is gone
+fetchMs:   0                       ← was 20ms (rejected) / 7497ms (succeeded, then died)
+capBytes:  9,816,768,512           ← the loosened cap, no longer binding
+fileBytes: 2,629,310,897           ← we hold the File and can read its SIZE
+why:       "demux threw reading the source: The object can not be found here."
+```
+
+**Every layer we control now behaves.** The cap admits the file, the fetch is bypassed, the File is
+in hand — and `blob.slice(0, 16).arrayBuffer()` throws. **The metadata is available and the bytes
+are not**, by BOTH routes: `fetch` produced a blob (in 7.5s) that failed identically. There is no
+third route, so a fallback cannot help; the wall is the file itself.
+
+**This is a genuine platform capability limit, not a bug in our path** — and it is exactly the kind
+of rung the phase-2 ladder exists to describe. The `<video>` element plays the same file happily,
+because media loading takes a handle the media pipeline holds; random access from JS is a separate
+grant and this file is not getting one.
+
+### ⚠️ `fileBytes` HAS BEEN SAYING "WE HAVE THE FILE" AND MEANING "WE HAVE ITS SIZE"
+
+The two came apart on the exact run that mattered. The probe closes that: one 16-byte read, cost
+identical whether it passes or fails, and `readable` in the report now means what a reader would
+assume `fileBytes` meant.
+
+### 🔍 THE OPEN QUESTION IS SIZE VERSUS STALENESS, AND ONE CONTROL SETTLES IT
+
+The 741MB clip bakes on both iPads (B737, `srcBytes 741685378`). The 2.63GB clip has **never**
+succeeded on an iPad — its only pass is the M5 Max. **Re-baking the 741MB clip on this build is the
+control**: if it reads, the limit is SIZE; if it now fails too, the limit is the File handle going
+STALE and size was a coincidence. `errName` separates them further — `NotFoundError` points at an
+expired iOS security-scoped handle, `NotReadableError` at permission or I/O, and **neither is a size
+limit**, which would be a third answer again.
+
+### 📌 PROCESS — A SILENT NO-OP EDIT COST A DEVICE SESSION
+
+B741's changelog states the box walk reports its offset. It does not; the replacement pattern did
+not match and nothing asserted, so Daniel ran a device session whose error message was the generic
+platform string. **Every scripted edit from here asserts its pattern matched before writing.** The
+rule earned twice today: a `node --check` catches a broken edit and says nothing about a missing one.
+
+---
+
 ## v0.27.4 · Build 742 — WE WERE ASKING WEBKIT TO HAND BACK A FILE WE ALREADY HELD
 
 **Shipped:**

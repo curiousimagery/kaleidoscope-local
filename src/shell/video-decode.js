@@ -74,7 +74,23 @@ async function findTopLevelBoxes(blob) {
   const out = {};
   let pos = 0;
   for (let guard = 0; guard < 4096 && pos + 8 <= blob.size; guard++) {
-    const dv = new DataView(await blob.slice(pos, Math.min(blob.size, pos + 16)).arrayBuffer());
+    let dv;
+    try {
+      dv = new DataView(await blob.slice(pos, Math.min(blob.size, pos + 16)).arrayBuffer());
+    } catch (e) {
+      // ⚠️ B743 — WHERE IT FAILED AND WHAT KIND OF FAILURE IT WAS. Both are the diagnosis, and
+      // B741 shipped neither because the edit silently missed this function.
+      //
+      // `blob.size` reads 2,629,310,897 while `blob.slice(0,16).arrayBuffer()` throws — the File's
+      // METADATA is available and its BYTES are not, which is a very specific claim. Offset 0
+      // separates "never readable" from "stopped being readable mid-walk", and the error NAME
+      // separates the causes that matter: `NotFoundError` means the backing file is gone from under
+      // us (an expired iOS security-scoped handle is the leading suspect), `NotReadableError` means
+      // permission or I/O, and neither is a size limit.
+      const err = new Error(`read failed at byte ${pos} of ${blob.size} [${e?.name || 'unknown'}]: ${e?.message || e}`);
+      err.code = 'io'; err.at = pos; err.size = blob.size; err.errName = e?.name || null;
+      throw err;
+    }
     if (dv.byteLength < 8) break;
     let size = dv.getUint32(0), header = 8;
     const type = String.fromCharCode(dv.getUint8(4), dv.getUint8(5), dv.getUint8(6), dv.getUint8(7));
@@ -345,6 +361,26 @@ export async function openSharedSource(url, opts = {}) {
   }
   gate.fileBytes = blob.size;
   if (!blob.size) return settle('source resolved to an empty blob');
+
+  // ⚠️ B743 — ONE 16-BYTE READ, BEFORE ANYTHING ELSE, BECAUSE METADATA IS NOT ACCESS.
+  //
+  // On Daniel's iPad both routes to this file — `fetch` and the B742 `File` passthrough — reported
+  // its size correctly and then failed on the FIRST slice. So `fileBytes` in a report has been
+  // saying "we have the file" when what it meant was "we have its size", and the two came apart on
+  // exactly the run that mattered. This records the smallest possible read that proves otherwise,
+  // and its cost is 16 bytes whether it passes or fails.
+  const tProbe = performance.now();
+  try {
+    const head = await blob.slice(0, 16).arrayBuffer();
+    gate.probeMs = Math.round(performance.now() - tProbe);
+    gate.readable = head.byteLength >= 8;
+    if (!gate.readable) return settle(`the source returned only ${head.byteLength} bytes for its first 16 — the file is not readable`);
+  } catch (e) {
+    gate.probeMs = Math.round(performance.now() - tProbe);
+    gate.readable = false;
+    gate.errName = e?.name || null;
+    return settle(`the source reports ${blob.size} bytes but its first 16 could not be read [${e?.name || 'unknown'}]: ${e?.message || e}`);
+  }
   if (blob.size > maxBytes) {
     return settle(`source is ${(blob.size / 1e9).toFixed(2)}GB, over the ${(maxBytes / 1e9).toFixed(2)}GB cap from ${budget.basis}`);
   }
