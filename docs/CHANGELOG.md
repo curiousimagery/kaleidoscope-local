@@ -6,6 +6,55 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.27.8 · Build 746 — IT IS NOT THE CODEC, NOT THE ENCODER, AND NOT THE ENGINE. IT IS TWO 4K COPIES.
+
+**Shipped:** `timing.srcSplit` — `readerWaitMs` / `blitMs` / `uploadMs`, splitting the one term that
+turned out to hold nine tenths of a render.
+
+### 🔬 THE MEASUREMENT CHAIN, THREE BUILDS DEEP
+
+`B475renderReport.json` (**a 66-second render — the short clip was entirely sufficient**):
+
+| build | question | answer |
+|---|---|---|
+| B744 | encoder or pipeline? | **encode 0.00ms/frame**, vframe 3.85ms, **`frameAt` 43.69ms = 89.5%** |
+| B745 | source or engine? | **`src` 40.43ms vs `engine` 3.25ms** — our WebGL render is 7% of it |
+| B746 | which part of source? | *awaiting a run* — `readerWait` / `blit` / `upload` |
+
+**Our renderer is fast.** 3.25ms/frame at 4K. Every earlier theory — Safari's encoder, VideoFrame
+construction, decode throughput — is now refuted by measurement rather than argued about.
+
+### ⭐ THE INFERENCE B746 EXISTS TO CONFIRM
+
+`frames-held: 130.5MB` is **~10.5 decoded frames queued ahead of the consumer**. A reader ten frames
+ahead cannot be what a caller waits 40ms for, so `readerWait` should come back near zero and the cost
+should sit in the two copies underneath:
+
+```
+VideoFrame(4K) → drawImage → 2D canvas(4K) → updateSourceFrame → GL texture
+```
+
+**~33MB of pixel traffic, twice, per frame.** `yuv-renderer.js` already records the precedent: the
+engine was moved OFF a cross-context readback because it cost *"~20ms/megapixel on WebKit"*, and 4K
+is 8.3 megapixels. **If that is what this is, the fix is to upload the VideoFrame to the texture
+directly** — WebGL2 accepts a `VideoFrame` as a TexImageSource — deleting the 2D canvas hop entirely.
+That is a proposal, not a build; the split has to come back first.
+
+### ✅ THE iOS WALL DOES NOT NEED BIG FILES ANY MORE, AND NEITHER DOES ANYTHING ELSE
+
+A 768MB source and a 66s render produced every number above. **Large-file testing is now needed only
+to bracket the iOS wall**, and the 16-byte probe (`probeMs: 1`) makes even that optional for
+correctness — it reports per file, per device, per OS version, at no cost.
+
+### 📌 SCOPE OF B745, STATED PRECISELY BECAUSE IT IS EASY TO MISREAD
+
+`advanceSourceToP` prefers the reader **only when `exportReader` is non-null**, which is only between
+`setupExportReader` and `teardownExportReader`. **Native decode is unchanged for playback, broadcast,
+scrubbing, perform and looping** — it is still what carries healthy broadcast fps, and it remains the
+render fallback above the iOS file wall where nothing else can read the clip.
+
+---
+
 ## v0.27.7 · Build 745 — RENDER PREFERS WEBCODECS; THE iOS WALL IS iOS, NOT WEBKIT
 
 **Shipped:**

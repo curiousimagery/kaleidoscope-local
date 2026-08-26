@@ -334,6 +334,11 @@ function loadPlayheadIntoState() {
 // mid-render failure tears the reader down and the rest of the render continues
 // on the seek path — the fast path can only ever cost nothing.
 let exportReader = null, exportReaderCtx = null;
+// B746 — module-level because `advanceSourceToP` is module-scope and the render handler is not.
+// Reset at render start; read at harvest.
+let readerWaitMs = 0, blitMs = 0, uploadMs = 0;
+function resetSourceStageTiming() { readerWaitMs = 0; blitMs = 0; uploadMs = 0; }
+function sourceStageTiming() { return { readerWaitMs, blitMs, uploadMs }; }
 
 // ⚠️ B739 — THE RENDER DECLINED TO ARM IN SILENCE, TO A CONSOLE DANIEL CANNOT READ.
 //
@@ -416,9 +421,20 @@ async function advanceSourceToP(p) {
   // out correct, which is the evidence that it works on WebKit.
   if (exportReader) {
     try {
+      // ⚠️ B746 — THREE COSTS WERE WEARING ONE NAME. `srcMs` came back at **40.43ms of a 43.69ms
+      // frame** while the reader sat **10.5 frames AHEAD** of us (`frames-held: 130.5MB`), so the
+      // decode cannot be what we are waiting on. That leaves the two copies underneath: a 4K
+      // VideoFrame drawn into a 2D canvas, and that canvas uploaded to a GL texture — ~33MB of pixel
+      // traffic, twice, per frame. Splitting them is the difference between knowing and suspecting.
+      const tW = performance.now();
       const frame = await exportReader.frameAt(sec);
+      readerWaitMs += performance.now() - tW;
+      const tD = performance.now();
       exportReaderCtx.drawImage(frame, 0, 0, exportReaderCtx.canvas.width, exportReaderCtx.canvas.height);
+      blitMs += performance.now() - tD;
+      const tU = performance.now();
       engine.updateSourceFrame();
+      uploadMs += performance.now() - tU;
       return;
     } catch (e) {
       console.warn('[fold] fast decode failed mid-render — falling back to element seeks:', e);
@@ -2380,6 +2396,7 @@ function setupVideoExport() {
     let packagedSeparately = null;
     let renderTiming = null, renderOutBytes = null;   // B744 — published, not consoled
     let srcMs = 0;                                   // B745 — source-advance only, inside frameAt
+    resetSourceStageTiming();                        // B746 — split srcMs into its three parts
     const capId = memHold('capture-canvas', w * h * 4 * 2);
     const devBefore = (() => { try { return readHostVitals(); } catch { return null; } })();
     const renderShape = {
@@ -2476,6 +2493,11 @@ function setupVideoExport() {
         renderTiming.msPerFrame.src = +(srcMs / renderTiming.frames).toFixed(2);
         renderTiming.msPerFrame.engine = +((renderTiming.glMs - srcMs) / renderTiming.frames).toFixed(2);
         renderTiming.sourcePath = exportReader ? 'webcodecs-reader' : (env.nativeVideo ? 'native-avplayer' : 'element-seek');
+        const st = sourceStageTiming();
+        renderTiming.srcSplit = st;
+        renderTiming.msPerFrame.readerWait = +(st.readerWaitMs / renderTiming.frames).toFixed(2);
+        renderTiming.msPerFrame.blit = +(st.blitMs / renderTiming.frames).toFixed(2);
+        renderTiming.msPerFrame.upload = +(st.uploadMs / renderTiming.frames).toFixed(2);
       }
       renderOutBytes = blob?.size ?? null;
       if (packagedSeparately) {
