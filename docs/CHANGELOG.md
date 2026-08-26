@@ -6,6 +6,67 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.27.9 · Build 747 — THE 2D CANVAS WAS 89% OF THE RENDER. IT IS GONE, WITH A WAY BACK.
+
+**Shipped:**
+- **`engine.updateSourceFromFrame(frame)`** — `texImage2D` straight from the decoded `VideoFrame`,
+  reusing the existing texture. Returns **false** rather than failing silently if the browser will
+  not take a `VideoFrame` as a texture source.
+- **The render tries direct, falls back to the canvas**, latching after one refusal so a browser that
+  cannot do it pays the probe once, not per frame.
+- **`renderUploadViaCanvas` perf flag** — restores the pre-B747 path without a build.
+- **`timing.srcSplit.uploadPath`** — `videoframe-direct` / `canvas (fallback)` / `canvas (forced)`.
+
+### 🔬 WHERE THE RENDER ACTUALLY WENT (`B746-renderdiagnosticreport.json`, Safari, M5 Max, 4K)
+
+| stage | ms/frame | share |
+|---|---|---|
+| readerWait | 0.28 | 0.7% |
+| blit (drawImage) | 1.06 | 2.7% |
+| **upload (`texImage2D` of the canvas)** | **35.16** | **89%** |
+| engine render | 2.96 | 7.5% |
+| VideoFrame | 3.53 | — |
+| encode | 0.01 | ~0% |
+
+**4.2ms per megapixel** — the same GPU→CPU→GPU round trip `gl.js` already records at ~20ms/megapixel
+for the native path, which is why `createPlanarUploader` exists. **The canvas was a staging surface
+for a frame the GPU already had.**
+
+### ⚠️ CHROMIUM MUST NOT PAY FOR A WEBKIT FIX (Daniel's flag, and it is the right one)
+
+The canvas path is what Electron and Brave have always run and what **every Chromium number in this
+arc was measured on** — B740's 95.8 fps included. Direct upload is not obviously faster there and
+could plausibly be slower. So it ships **reversible**: `renderUploadViaCanvas` restores the old path
+from the perf panel, and `uploadPath` in the report says which one produced any given number.
+
+**Verify before trusting it:** one 4K render in Brave with the flag OFF, one with it ON, and compare
+`timing.msPerFrame.upload`. If Chromium regresses, the flag becomes its default rather than the fix
+being reverted.
+
+### ✅ THE FILE-WALL BLAST RADIUS, INVENTORIED FROM THE CODE — SMALLER THAN CLAIMED
+
+Grepped rather than remembered, and **two earlier claims were wrong.**
+
+**Blocked (these read raw bytes via `blob.slice`):**
+- **bake** — WebCodecs, no alternative path
+- **render's fast path** — falls back to native/element, degraded rather than dead
+- **`probeVideoInfo`** — the loop builder's metadata read
+- **the native decode upload** (`native-video.js`) — so the clip drops to `<video>`, losing the
+  path that carries healthy broadcast fps
+- **external-display staging** (`external-display.js`) — HDMI/AirPlay video, which already has its
+  own size ceiling and already refuses in the operator's language
+
+**NOT blocked (these use the URL on a `<video>` element):**
+- playback and scrubbing
+- **loop detection** — `detectLoopFromFrames` sets `dv.src` on a hidden video
+- **thumbnails** — the loop builder's preview/A-head/thumb decoders are all elements
+
+**So "it can't render thumbnails and we won't know if it is a loop" was wrong.** Both survive. The
+real cost is bake outright, plus a quality/performance downgrade on render, native decode and
+external display.
+
+---
+
 ## v0.27.8 · Build 746 — IT IS NOT THE CODEC, NOT THE ENCODER, AND NOT THE ENGINE. IT IS TWO 4K COPIES.
 
 **Shipped:** `timing.srcSplit` — `readerWaitMs` / `blitMs` / `uploadMs`, splitting the one term that

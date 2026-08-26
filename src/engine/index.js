@@ -261,6 +261,28 @@ export function createEngine({ canvas, maxProbeSize, perf = null, label = 'engin
     // Returns TRUE when new pixels actually reached the texture. Callers use it to skip a render
     // that would be identical to the last one — a 60Hz loop over a 30fps camera otherwise draws
     // every frame twice (B542). `false` means "the texture still holds what it held".
+    // ⚠️ B747 — UPLOAD A DECODED FRAME STRAIGHT TO THE TEXTURE, SKIPPING THE 2D CANVAS.
+    //
+    // Measured on desktop Safari, M5 Max, a 4K render (`B746-renderdiagnosticreport.json`):
+    // `readerWait 0.28ms · blit 1.06ms · **upload 35.16ms** · engine 2.96ms · encode 0.01ms`.
+    // **Eighty-nine per cent of the frame was `texImage2D` of a 2D canvas** — 4.2ms per megapixel,
+    // the same GPU→CPU→GPU round trip `createPlanarUploader` was written to escape (`gl.js` records
+    // it at ~20ms/megapixel on device). The canvas was never needed; it was a staging surface for a
+    // frame the GPU already had.
+    //
+    // Returns TRUE if the frame went up, FALSE if this browser would not take a `VideoFrame` as a
+    // texture source — **the caller must keep the canvas path for that case**, which is also the
+    // path every non-WebKit engine has been happy on. Failing silently here would trade a slow
+    // render for a black one.
+    updateSourceFromFrame(frame) {
+      if (!frame || !sourceTexture) return false;
+      try {
+        updateTexture(glCtx.gl, frame, sourceTexture);
+        return glCtx.gl.getError() === glCtx.gl.NO_ERROR;
+      } catch {
+        return false;   // not a valid TexImageSource here; caller falls back
+      }
+    },
     updateSourceFrame() {
       // ⚠️ B703 — THE PLANAR PATH MUST NOT BE GATED ON ELEMENT-PATH STATE. THIS WAS A DEADLOCK.
       //

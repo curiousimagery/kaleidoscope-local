@@ -337,8 +337,9 @@ let exportReader = null, exportReaderCtx = null;
 // B746 — module-level because `advanceSourceToP` is module-scope and the render handler is not.
 // Reset at render start; read at harvest.
 let readerWaitMs = 0, blitMs = 0, uploadMs = 0;
-function resetSourceStageTiming() { readerWaitMs = 0; blitMs = 0; uploadMs = 0; }
-function sourceStageTiming() { return { readerWaitMs, blitMs, uploadMs }; }
+let uploadDirect = true, uploadPath = null;
+function resetSourceStageTiming() { readerWaitMs = 0; blitMs = 0; uploadMs = 0; uploadDirect = true; uploadPath = null; }
+function sourceStageTiming() { return { readerWaitMs, blitMs, uploadMs, uploadPath }; }
 
 // ⚠️ B739 — THE RENDER DECLINED TO ARM IN SILENCE, TO A CONSOLE DANIEL CANNOT READ.
 //
@@ -429,12 +430,23 @@ async function advanceSourceToP(p) {
       const tW = performance.now();
       const frame = await exportReader.frameAt(sec);
       readerWaitMs += performance.now() - tW;
+      // B747 — straight to the texture where the browser allows it. `uploadDirect` latches FALSE
+      // the first time the engine declines, so a browser that cannot take a VideoFrame pays the
+      // probe once rather than every frame.
+      if (uploadDirect && !perfFlags.renderUploadViaCanvas) {
+        const tU0 = performance.now();
+        const went = engine.updateSourceFromFrame(frame);
+        uploadMs += performance.now() - tU0;
+        if (went) { uploadPath = 'videoframe-direct'; return; }
+        uploadDirect = false;   // this engine will not take a VideoFrame — stop asking
+      }
       const tD = performance.now();
       exportReaderCtx.drawImage(frame, 0, 0, exportReaderCtx.canvas.width, exportReaderCtx.canvas.height);
       blitMs += performance.now() - tD;
       const tU = performance.now();
       engine.updateSourceFrame();
       uploadMs += performance.now() - tU;
+      uploadPath = perfFlags.renderUploadViaCanvas ? 'canvas (forced)' : 'canvas (fallback)';
       return;
     } catch (e) {
       console.warn('[fold] fast decode failed mid-render — falling back to element seeks:', e);

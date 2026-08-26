@@ -161,6 +161,13 @@ export const perfFlags = {
   // that keeps being drawn is a plausible source of the "frames flash" Daniel reported.
   captureForce2d: false,
 
+  // Force the render's decoded frames through the 2D canvas instead of straight to the texture
+  // (B747). OFF = the direct `VideoFrame → texImage2D` path. **This flag is the A/B that protects
+  // Chromium**: the canvas path is what Electron and Brave have always used and what their numbers
+  // were measured on, so if the direct upload ever regresses there, this restores the old behaviour
+  // without a build. Compare `timing.msPerFrame.upload` between the two.
+  renderUploadViaCanvas: false,
+
   // Force takes through MediaRecorder instead of WebCodecs (B537). ON = the pre-B365 recorder,
   // which muxes natively and demonstrably produces sound — the package's RAW take has had audio
   // this whole time and it is the only thing on that path.
@@ -232,4 +239,5 @@ export const PERF_FLAG_SPECS = [
   ['recordForceFlush', 'record: force sync rasterize', 'Blink-only by default; ON here if a WebKit take shows a stale frame'],
   ['loopBySeek', 'video: loop by seeking, not by item swap', 'RELOAD THE CLIP to apply. on = one AVPlayerItem, rewound at the end (B601 A/B against the 150ms swap)'],
   ['captureForce2d', 'render: 2D capture instead of GL', 'REOPEN THE RENDER SHEET to apply. on = the desktop capture path — the A/B for flashing/jerky frames on iPad'],
+  ['renderUploadViaCanvas', 'render: upload frames via 2D canvas', 'on = the pre-B747 path (35ms/frame on WebKit at 4K). The A/B if the direct texture upload regresses on Chromium'],
 ];
