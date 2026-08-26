@@ -1619,6 +1619,56 @@ export function createClipEditor(env) {
   env.clipSeekTo = clipSeekTo;
   env.startClipPreview = startClipPreview;
   env.stopClipPreview = stopClipPreview;
+  // ⚠️ B752 — THE SCRIPTED-RUN SEAM FOR BAKE. Same rule as `env.outputActions` and
+  // `env.renderActions`: wrap the real function, never re-implement it.
+  //
+  // ⚠️ IT DOES NOT SET THE MODE, AND THAT IS DELIBERATE. Choosing a behaviour goes through
+  // `chooseBehavior`, which drives loop-builder rail UI that may not be mounted when a script runs.
+  // Driving UI that might not exist is the re-implementation defect this seam exists to avoid, so
+  // the verb bakes with whatever mode is set and REPORTS it instead. Set the mode by hand first.
+  //
+  // ⚠️⚠️ AND THE ONE THING THAT WILL STALL AN UNATTENDED RUN: a failed bake raises `alert()`
+  // (lines 876 and 1161), which blocks JavaScript until a human dismisses it. Measured
+  // `dialog-blocked` of 243s, 289s and once 1827s. **A scripted bake that fails does not report a
+  // failure, it stops the device at a modal until the operator returns.** Filed since B707 as the
+  // worst operator-facing defect in the arc; named here because the runner's whole premise is
+  // walking away.
+  env.bakeActions = {
+    available: () => !!env.sourceVideo,
+    isBaking: () => !!env.clip.baking,
+    mode: () => env.clip.trim?.mode || null,
+
+    async run() {
+      if (env.clip.baking) return { ok: false, why: 'a bake is already running' };
+      if (!env.sourceVideo) return { ok: false, why: 'no source video loaded' };
+      const mode = env.clip.trim?.mode || null;
+      if (!mode) return { ok: false, why: 'the clip has no trim mode set' };
+
+      // ⚠️ THE CONSERVED QUANTITY, not an activity counter. `bakeAndApply` has early `return`
+      // paths ABOVE its own try/finally (the unknown-mode branch at ~1058), so "it returned" does
+      // not mean "it baked". `env.bakeDecode.at` is stamped in the teardown that only a bake which
+      // actually ran reaches, so a CHANGED timestamp is the thing that survives the boundary.
+      const before = env.bakeDecode?.at || null;
+      const t0 = performance.now();
+      try { await bakeAndApply(); }
+      catch (e) { return { ok: false, why: `the bake threw: ${e?.message || e}` }; }
+
+      const d = env.bakeDecode || null;
+      if (!d || d.at === before) {
+        return { ok: false, why: `the bake returned without reaching its teardown — it declined in "${mode}" mode and published no reason` };
+      }
+      return {
+        ok: true,
+        mode,
+        wallSec: +((performance.now() - t0) / 1000).toFixed(1),
+        bakedPx: d.w ? `${d.w}x${d.h}` : null,
+        reader: d.reader || 'webcodecs',
+        holes: d.holes ?? null,
+        why: d.why || null,
+      };
+    },
+  };
+
   // stepped Loop Builder flow
   env.loopPrimaryAction = loopPrimaryAction;
   env.loopBack = goBack;

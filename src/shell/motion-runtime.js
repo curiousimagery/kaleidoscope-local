@@ -2397,6 +2397,93 @@ function setupVideoExport() {
 
   byId('mfRender')?.addEventListener('click', open);
   byId('vidClose')?.addEventListener('click', close);
+
+  // ⚠️ B752 — THE SCRIPTED-RUN SEAM FOR RENDER. Same shape and same rule as `env.outputActions`
+  // (output-panel.js): the runner drives the REAL controls rather than re-implementing them, so a
+  // scripted render exercises the path a person would take instead of testing itself. Everything
+  // here is a thin wrapper over `open()` and the render button's own handler.
+  //
+  // WHY A POLL AND NOT A PROMISE. The handler is an async listener, so `btn.click()` dispatches it
+  // and returns immediately — there is no promise to await. `rendering` flips true synchronously
+  // before the handler's first await, which is what makes "did it actually start" checkable.
+  env.renderActions = {
+    available: () => !!byId('vidRenderBtn') && videoExportSupported(),
+    isRendering: () => rendering,
+    tier: () => selLong,
+    keyframes: () => kfList().length,
+    keyframesNeeded: () => (env.sourceVideo ? 1 : 2),
+
+    // Clicks the real resolution button so the group's active state matches, rather than assigning
+    // `selLong` behind the UI's back and leaving the sheet showing a different number than it renders.
+    // Opens the sheet itself so a script can set the tier as its FIRST step. A script that only
+    // discovered "this device cannot encode 4K" after a three-minute broadcast would have spent the
+    // run to learn something knowable at second zero.
+    setTier(px) {
+      // ⚠️ RESTORE THE SHEET'S PRIOR STATE. As a script's FIRST step this would otherwise leave the
+      // export sheet sitting over the app for the whole run — five minutes of A2's broadcast would
+      // be measured with a modal on screen, which is not the state we mean to measure.
+      const wasOpen = !sheet.hidden;
+      open();
+      if (sheet.hidden) return { ok: false, why: 'the render sheet will not open — not enough keyframes' };
+      const restore = (res) => {
+        if (!wasOpen && !rendering) sheet.hidden = true;
+        return res;
+      };
+      const grp = byId('vidRes');
+      if (!grp) return restore({ ok: false, why: 'no resolution group in the render sheet' });
+      const b = [...grp.querySelectorAll('button')].find((x) => parseInt(x.dataset.long, 10) === px);
+      if (!b) return restore({ ok: false, why: `this build offers no ${px}px render tier` });
+      if (b.disabled) return restore({ ok: false, why: `${px}px is disabled here: ${b.title || 'this browser cannot encode it'}` });
+      b.click();
+      return restore(selLong === px ? { ok: true, tierPx: selLong }
+                                    : { ok: false, why: `asked for ${px}px and the sheet settled on ${selLong}` });
+    },
+
+    async run(step = {}) {
+      if (rendering) return { ok: false, why: 'a render is already in progress' };
+      if (!videoExportSupported()) return { ok: false, why: 'video export needs WebCodecs (Chrome, or Safari 16+ / iPadOS 16+)' };
+      open();
+      if (sheet.hidden) {
+        const n = kfList().length, need = env.sourceVideo ? 1 : 2;
+        return { ok: false, why: `the render sheet will not open with ${n} keyframe${n === 1 ? '' : 's'} (needs ${need})` };
+      }
+      if (step.px) { const r = env.renderActions.setTier(step.px); if (!r.ok) return r; }
+      const btn = byId('vidRenderBtn');
+      if (!btn) return { ok: false, why: 'no render button' };
+      if (btn.disabled) return { ok: false, why: `render is disabled: ${byId('vidStatus')?.textContent || 'no reason published'}` };
+
+      cancelRender = false;
+      const t0 = performance.now();
+      btn.click();
+      // The flag is set before the handler's first await, so this is a real check that the click
+      // took, not an assumption. An absence is not evidence (DEBUGGING-PROTOCOL).
+      if (!rendering) return { ok: false, why: 'the render button was clicked and no render started' };
+
+      const capMs = step.timeoutMs || 3_600_000;   // an 8K iPad render is legitimately very long
+      while (rendering) {
+        if (performance.now() - t0 > capMs) {
+          cancelRender = true;
+          return { ok: false, why: `the render passed ${Math.round(capMs / 60000)} minutes and was cancelled by the script` };
+        }
+        await new Promise((r) => setTimeout(r, 500));
+      }
+
+      // The status element is what a person would read, so it is what the report carries.
+      const st = byId('vidStatus');
+      const failed = st?.className.includes('error');
+      const d = env.renderDecode || null;
+      return {
+        ok: !failed,
+        why: failed ? (st?.textContent || 'the render failed and published no reason') : null,
+        wallSec: d?.wallSec ?? +((performance.now() - t0) / 1000).toFixed(1),
+        renderPx: selLong,
+        frames: d?.timing?.frames ?? null,
+        sourcePath: d?.sourcePath || d?.timing?.sourcePath || null,
+        outBytes: d?.outBytes ?? null,
+        packagedSeparately: d?.packagedSeparately || undefined,
+      };
+    },
+  };
   sheet.addEventListener('click', (e) => { if (e.target === sheet) close(); });
   byId('vidRenderBtn')?.addEventListener('click', async () => {
     const btn = byId('vidRenderBtn');

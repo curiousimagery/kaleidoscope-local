@@ -428,6 +428,37 @@ Measured on the M1 iPad Pro across two B669 runs: broadcast **+25.9ms/frame**, t
 
 **Still needed before the "warn" rules are honest:** FHD-while-broadcasting has never been measured on a COOL device. Every run of that combination was at `serious`. The refuse rule for 4K needs nothing further.
 
+### 🚩 [B752 — FOUND BY `scenario-preflight.mjs`, FLAGGED NOT FIXED] `t7-warm-long-run` LEAVES THE BROADCAST ON
+
+The script turns broadcast on at step 2 and never turns it off (B665 era). **Deliberately not
+changed**: for a 50-minute warm run it is plausibly intentional, since a script should not tear down
+a live show out from under an operator. **Nothing is currently corrupted** — every other script opens
+with `broadcast off`, and the new A1 control does too as belt-and-braces.
+
+**Daniel's call:** leave it (and keep the documented exemption in the harness), or add a
+`{ do: 'broadcast', arg: 'off' }` and let the operator restart it. **Do not "fix" it silently** — the
+harness exemption is what makes the exception visible, and removing the exemption without deciding
+would just re-hide it.
+
+---
+
+### ⭐ [B752 — SHIPPED, NEVER EXERCISED] THE SCENARIO RUNNER'S RENDER AND BAKE VERBS
+
+`env.renderActions` (motion-runtime.js) and `env.bakeActions` (clip-editor.js) are new seams in the
+`env.outputActions` shape, and the A1/A2/A2b/A3 scripts are built on them. **Harness-proven at
+272/272 and never run on a device.** Two things to watch on the first run:
+
+1. **A failed bake raises `alert()` and stops an unattended run dead** until someone dismisses it
+   (measured `dialog-blocked` of 243s, 289s and once 1827s; filed since B707). A3's failure mode is a
+   device at a modal, not a report. **This is now a second reason to fix that defect.**
+2. **`renderActions.run()` polls `rendering` rather than awaiting a promise**, because the render is
+   an async click listener with nothing to await. The flag is set before the handler's first await,
+   so "did the click take" is checked rather than assumed — but the completion signal is the status
+   element's class, which is a UI read. **If the render path ever stops setting `status.className`,
+   this reports success for a failure.**
+
+---
+
 ### 🎬 [QUEUED 2026-08-21, Daniel's ask] RE-VERIFY RECORDING ON THE CURRENT BUILD — THE OLD EVIDENCE IS STALE
 
 **Why this is queued rather than gated:** every record-while-broadcasting failure on record is **B661, B663, B666, B668**. The session registry and the orphaned-decoder release landed at **B681**. The audit that prompted that fix found the source `<video>` was orphaned on *every* swap, peaking at five or six live decoders of one clip, counted by nothing.
@@ -573,6 +604,52 @@ make; assertion is right only where we built the seam ourselves.
 **The shape of the real fix** is to give `applyBakedClip` the same post-swap sequence `loadVideo`
 runs, rather than to bolt on the two missing calls — otherwise the third omission arrives later.
 Worth deciding which, since it is the difference between two lines and a small refactor.
+
+### 🎨🎨🎨 [B752 — FOUND BY READING, NOT DEVICE-CONFIRMED] THE NATIVE DECODE PATH HARDCODES BT.601
+
+**`src/engine/yuv.js` converts YUV to RGB with fixed BT.601 full-range coefficients** and no transfer
+function or primaries handling at all:
+
+```
+frag = vec4(y + 1.402*c.g, y - 0.344136*c.r - 0.714136*c.g, y + 1.772*c.r, 1.);
+```
+
+Those are the BT.601 (JPEG/JFIF) coefficients. **BT.709 wants `1.5748 / -0.1873 / -0.4681 / 1.8556`,
+and nearly all HD and 4K video is BT.709.** This is the path the iPad uses for in-app playback and
+for broadcast, so it is not a render-only concern.
+
+**What is NOT wrong, checked before claiming it:** the full-range assumption is correct. Both native
+plugins request `kCVPixelFormatType_420YpCbCr8BiPlanarFullRange`
+(`FoldNativeVideoPlugin.swift:282`, `FoldNativeCameraPlugin.swift:648`), which matches the shader's
+un-expanded `y`. **The matrix is the bug, not the range.** And neither plugin reads or forwards
+`kCVImageBufferYCbCrMatrixKey`, so nothing ever told the shader what the source was.
+
+**Severity, ordered honestly:** a 601-vs-709 matrix mismatch is a subtle hue shift, worst in saturated
+reds and greens. **The absent transfer function and primaries are the dramatic half** — an HLG
+BT.2020 source gets its encoded values treated as display-ready sRGB, which is exactly the washed-out
+desaturated look Daniel reported after B747.
+
+**⭐ SO THERE ARE THREE DISAGREEING COLOUR PATHS**, and that is the likely explanation for Daniel's
+observation that *"the thumbnails in perform mode seem to look better than the rest of the app"*:
+
+| path | what it does about colour | used by |
+|---|---|---|
+| 2D canvas intermediate | browser-managed, implicitly correct | pre-B747 renders; `renderUploadViaCanvas` |
+| direct `VideoFrame` upload | **nothing** — raw values as sRGB | renders since B747 |
+| `yuv.js` planar blit | **BT.601, no transfer, no primaries** | native decode: in-app + broadcast |
+
+**▶ THE DECISION (Daniel, 2026-08-26): no throwaway fix. Build the INPUT TRANSFORM** — one conversion
+seam in the shader, uniforms for a 3x3 gamut matrix plus a transfer-function selector, driven by
+parsed source metadata (`VideoFrame.colorSpace`, already recorded at B748; the `colr`/nclx box, which
+`docs/temp/colr-check.mjs` already reads), **defaulting to BT.709 when unknown.** Route all three
+paths through it. That fixes the B747 regression, fixes this, and is the first stage of real colour
+management rather than work that gets deleted.
+
+**⚠️ HONEST LIMIT, state it before building:** in an 8-bit working space this corrects hue and
+saturation but will still BAND on HDR sources. **A float working space is the next stage**, and it is
+what the photography and round-trip audiences (Lightroom, Capture One, PhotoLab) actually need.
+
+---
 
 ### 🎨🎨 [Daniel, 2026-08-24 — DECIDE BEFORE TOUCHING `exportAt`, NOT AFTER] COLOUR AND EXPORT FIDELITY
 

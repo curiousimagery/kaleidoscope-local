@@ -150,7 +150,44 @@ The engine is already video-capable (the live camera uses `setSource(<video>)`).
 ## video export + the clip bake
 
 - `shell/video-export.js`: `exportVideo({ frameAt, ... })` renders frame-by-frame through WebCodecs `VideoEncoder` → mp4-muxer. `pickVideoCodec` gates resolution per codec (H.264 ≤4K, HEVC >4K where the device can encode) so the UI only offers what works. For a video source, `frameAt` is async and `await`s `advanceSourceToP` per output frame (frame-accurate). Companion "how it was made" source-preview video + motion-JSON bundle into a `.zip` (`shell/zip.js`).
-- **Loop Builder** (the former "clip editor," now a full editing MODE — `shell/clip-editor.js`, surface `#clipSheet` sitting below the app bar): a stepped wizard (Trim → Behavior → [Slice point → Crossfade] → Preview & bake) that turns raw footage into a seamless loop and drops into motion mode on bake. Behaviors: trim-only (non-destructive), bounce, and slice (cut + crossfade). Bounce/slice **bake** a processed clip and swap it in as the source. **The bake now runs on WebCodecs** (`shell/video-decode.js` `createSequentialFrameReader`, mp4box demux → `VideoDecoder`): slice uses TWO monotonic readers (one per segment) so the crossfade never re-decodes/pops; bounce uses one (forward-fast; reverse still re-decodes per keyframe — GOP-reverse buffering is the filed deeper win); both fall back to `<video>` seeks if the reader can't arm. The reader exposes measured **fps** (bake matches source rate, clamped 12–60) and **rotation** (applied when drawing decoded frames — the portrait-bake fix). The **Preview & bake** step carries the output-format controls (resolution downscale · fps · playback-speed/slomo, applied at bake); frame interpolation (backlogged) is what will make sub-source-fps slomo smooth. In-editor previews are live (scrubber that blends across the crossfade zone; a two-video crossfade on `#clipBlend`; a split-stage seam-match shown while dragging a clip endpoint). Bake/render still share the in-memory muxer → OPFS streaming is the deferred fix for 10-min/4K.
+- **Loop Builder** (the former "clip editor," now a full editing MODE — `shell/clip-editor.js`, surface `#clipSheet` sitting below the app bar): a stepped wizard (Trim → Behavior → [Slice point → Crossfade] → Preview & bake) that turns raw footage into a seamless loop and drops into motion mode on bake. Behaviors: trim-only (non-destructive), bounce, and slice (cut + crossfade). Bounce/slice **bake** a processed clip and swap it in as the source. **The bake now runs on WebCodecs** (`shell/video-decode.js` `createSequentialFrameReader`, mp4box demux → `VideoDecoder`): slice uses TWO monotonic readers (one per segment) so the crossfade never re-decodes/pops; bounce uses one (forward-fast; reverse still re-decodes per keyframe — GOP-reverse buffering is the filed deeper win); both fall back to `<video>` seeks if the reader can't arm. The reader exposes measured **fps** (bake matches source rate, clamped 12–60) and **rotation** (applied when drawing decoded frames — the portrait-bake fix). The **Preview & bake** step carries the output-format controls (resolution downscale · fps · playback-speed/slomo, applied at bake); frame interpolation (backlogged) is what will make sub-source-fps slomo smooth. In-editor previews are live (scrubber that blends across the crossfade zone; a two-video crossfade on `#clipBlend`; a split-stage seam-match shown while dragging a clip endpoint).
+
+### ⭐ THE BAKE AND RENDER ARE NOW O(1) IN CLIP LENGTH (B732-B737, device-verified)
+
+**The old line here said "bake/render still share the in-memory muxer → OPFS streaming is the deferred fix for 10-min/4K." That is obsolete.** Both ends were made streaming and the memory curve went away:
+
+- **`demuxStreaming(blob)`** (`shell/video-decode.js`, B735/B736/B737) feeds mp4box 16MB at a time, copies sample bytes into a **disk-backed Blob**, and nulls every heap reference including mp4box's own. What survives is a **~64-byte-per-sample index**: 0.2MB where a 702MB sample table used to be. The moov is parsed and released before the peak, and iOS puts the moov BEHIND the mdat, so the box walk keeps stepping rather than stopping at the first non-moov box.
+- **The muxer streams to disk-backed Blob parts** (B734, fixed B736), so the heap holds one write (≤16KB) instead of the whole encode. **Fast Start is preserved and byte-verified** against the target we have always shipped — the output is a PRODUCT that has to open cleanly in Arena, which rules out moov-at-end and fragmented MP4 as memory tactics.
+
+**Measured shape:** `peak ≈ frames-held + capture-canvas + encoder-output + sample-index`, ≈131MB at 4K **at any clip length**. `peakMB` is 72-132MB on every device tested, and a 3.5× larger source (2.63GB vs 741MB) cost **0.7MB more**. Worst case is bounded too: the frame queues cap at 12 per reader, so `frames-held` cannot exceed ~300MB at 4K.
+
+**What this retired:** the whole memory-based capability gate. There is no curve left to gate on. See `PLAN-LIVE-READINESS.md` for what replaced it.
+
+### THE RENDER'S SOURCE UPLOAD HAS THREE PATHS, AND THEY DISAGREE ABOUT COLOUR
+
+`advanceSourceToP` (`shell/motion-runtime.js`) picks, in order: the **WebCodecs export reader** (B745, preferred for renders because it is the only path that does not seek per frame), then **native AVPlayer**, then **element seeks**. Since B747 the reader's `VideoFrame` uploads **straight into the engine texture** via `engine.updateSourceFromFrame`, skipping a 2D canvas — worth 89% of a render (iPad 28 → 55.6 fps, Safari 22 → 131 fps), because `texImage2D` of a 2D canvas is a GPU→CPU→GPU round trip on WebKit.
+
+**⚠️ That 2D canvas was silently colour-managing, and removing it exposed that we never owned a colour pipeline:**
+
+| path | what it does about colour | used by |
+|---|---|---|
+| 2D canvas intermediate | browser-managed, implicitly correct | pre-B747 renders; the `renderUploadViaCanvas` fallback |
+| direct `VideoFrame` upload | **nothing** — raw values treated as sRGB | renders since B747 |
+| `engine/yuv.js` planar blit | **hardcoded BT.601, no transfer function, no primaries** | native decode: in-app playback + broadcast |
+
+**Do not add a fourth. The fix is one conversion seam in the shader** driven by real source metadata (`VideoFrame.colorSpace`, the `colr`/nclx box), defaulting to BT.709. See BACKLOG *"THE NATIVE DECODE PATH HARDCODES BT.601"*.
+
+## the scenario runner: the app runs the device test, not the operator
+
+**`shell/scenario-runner.js`** (B665, extended B752). Daniel is the only person who can run a device session, which makes him the chokepoint on every hardware question. A scenario is **declarative data** — a list of steps — and the runner drives them while the operator walks away. Surfaced as **`run scenario`** in the frame-cost panel; results land in `copy report` under `scenarioRun`.
+
+**Three rules it exists to enforce, all of them earned:**
+
+- **Actions go through the same functions the buttons do.** `env.outputActions` (output-panel.js), `env.renderActions` (motion-runtime.js), `env.bakeActions` (clip-editor.js). Never a DOM click-through, never a re-implementation — a script that diverged from the real path would be testing itself.
+- **Every step publishes why it declined**, and a missing capability **aborts by name** rather than skipping silently. The operator is not watching.
+- **Pre-flight everything knowable before the run starts** (B666: a run that completed all sixteen steps and produced an invalid test, because the preconditions were never checked).
+
+**`docs/temp/scenario-preflight.mjs` asserts every script is runnable** — every verb implemented, every driven subsystem declared in `needs`, every session stopped, nothing left switched on for the next run. **Run it before shipping a script.** An instrument bug must never cost a device session (B741).
 
 ## adding a new form
 

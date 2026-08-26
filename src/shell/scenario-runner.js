@@ -197,6 +197,109 @@ export const SCRIPTS = [
       { do: 'session', arg: 'stop' },
     ],
   },
+  // ══ THE CONCURRENCY MATRIX (B752) ══════════════════════════════════════════════════════════
+  //
+  // ⚠️ THESE ARE NOT A SEQUENCE. A1-A3 are the RENDER half; T11 and T3r are the RECORD half, and
+  // neither half waits on the other. Run whichever you have the rig for.
+  //
+  // ⚠️ WHY THEY EXIST. The source-size hypothesis is dead: the same 2,629,310,897-byte file on the
+  // same M1 iPad Pro failed three times (B741/B742/B743) and succeeded twice (B750 probe, B751 a
+  // clean 55.6fps render). What differs between the two runs that left breadcrumbs is not the file:
+  //
+  //   B750, CRASHED 1/3 in : scenarioObserved external-broadcast, sessions.peak { gl 2, decode 2 }
+  //   B751, COMPLETED clean: scenarioObserved idle-still,         sessions.peak { gl 1, decode 3 }
+  //
+  // n=1 each, so it names an AXIS rather than a cause. These scripts turn that into a controlled
+  // comparison: SAME source, SAME render, vary only what preceded it.
+  //
+  // ⚠️ LOAD THE SAME SOURCE FOR ALL THREE, and run each from a FORCE-QUIT relaunch. A
+  // `location.reload()` does not clear the process residue these are looking for.
+  {
+    id: 'a1-render-fresh',
+    label: 'A1 · render from a fresh launch (control)',
+    needs: ['vitals', 'outputActions', 'renderActions'],
+    blurb: 'CONTROL — nothing precedes the render. Run this FIRST, from a force-quit relaunch',
+    // No `play` step, deliberately: a render drives the source itself through `advanceSourceToP`,
+    // and a clip left playing would fight it. The take scripts need `play`; this does not.
+    steps: [
+      // Belt and braces on the CONTROL. The comment says force-quit first, and this makes the
+      // control true even if someone does not — a contaminated control is worse than no control,
+      // because every other cell is measured against it.
+      { do: 'broadcast', arg: 'off' },
+      { do: 'renderTier', px: 3840 },
+      { do: 'session', arg: 'start', label: 'a1-render-fresh' },
+      { do: 'render' },
+      { do: 'session', arg: 'stop' },
+    ],
+  },
+  {
+    id: 'a2-broadcast-then-render',
+    label: 'A2 · broadcast, tear it down, then render (~8 min + render)',
+    needs: ['vitals', 'outputActions', 'renderActions'],
+    blurb: 'RESIDUE — does a finished broadcast leave something behind that breaks a later render?',
+    // ⚠️ THE BROADCAST IS OFF BEFORE THE RENDER, ON PURPOSE. This asks whether the residue of a
+    // finished broadcast is the problem. A2b asks the other question — whether CONCURRENT
+    // broadcast is — and the two must not be conflated, because they have different fixes: this
+    // one is a release bug, that one is a capability gate.
+    steps: [
+      { do: 'renderTier', px: 3840 },
+      { do: 'broadcast', arg: 'off' },
+      { do: 'play' },
+      { do: 'session', arg: 'start', label: 'a2-broadcast-then-render' },
+      { do: 'broadcast', arg: 'on' },
+      { do: 'wait', ms: 300_000, note: 'broadcasting 5 min — THIS is the precedent being tested' },
+      { do: 'broadcast', arg: 'off' },
+      { do: 'play', arg: 'pause' },
+      { do: 'wait', ms: 20_000, note: 'broadcast torn down, settling' },
+      { do: 'render' },
+      { do: 'session', arg: 'stop' },
+    ],
+  },
+  {
+    id: 'a2b-render-while-broadcasting',
+    label: 'A2b · render WHILE broadcasting',
+    needs: ['vitals', 'outputActions', 'renderActions'],
+    blurb: 'CONCURRENCY — the broadcast stays up through the whole render. Expect this one to be worst',
+    // ⚠️ THE MOST LIKELY TO KILL THE PROCESS, and that is fine — B751's breadcrumbs mean a kill now
+    // leaves evidence. `render:begin`, three `render:progress` quarters and `render:encoded` all
+    // land in `priorTrail`, which survives the kill. **A crash here is a RESULT, not a wasted run.**
+    steps: [
+      { do: 'renderTier', px: 3840 },
+      { do: 'broadcast', arg: 'off' },
+      { do: 'play' },
+      { do: 'session', arg: 'start', label: 'a2b-render-while-broadcasting' },
+      { do: 'broadcast', arg: 'on' },
+      { do: 'wait', ms: 30_000, note: 'let the broadcast settle' },
+      { do: 'render' },
+      { do: 'broadcast', arg: 'off' },
+      { do: 'session', arg: 'stop' },
+    ],
+  },
+  {
+    id: 'a3-bake-then-render',
+    label: 'A3 · bake, then render',
+    needs: ['vitals', 'bakeActions', 'renderActions'],
+    blurb: 'RESIDUE — settles the long-open D5 question: does a completed bake give its memory back?',
+    // ⚠️ THREE THINGS TO KNOW BEFORE RUNNING THIS ONE.
+    //
+    // 1. **A FAILED BAKE RAISES `alert()` AND STOPS THE RUN DEAD** until a human dismisses it
+    //    (clip-editor.js 876 and 1161; measured `dialog-blocked` of 243s, 289s and once 1827s).
+    //    So A3's failure mode is a device sitting at a modal, not a report. Filed since B707.
+    // 2. **The bake SWAPS the source**, so the render that follows renders the BAKED clip, not the
+    //    original. That is correct for the residue question and wrong for any comparison of render
+    //    time against A1. Read the wall clock here as "did it finish", not "how fast".
+    // 3. **Set the loop mode by hand first.** The verb bakes with whatever mode is set and reports
+    //    it; it deliberately does not drive the loop-builder rail. Use the SHORT source here —
+    //    a bake plus a render of the 8-minute clip is a very long unattended run.
+    steps: [
+      { do: 'renderTier', px: 3840 },
+      { do: 'session', arg: 'start', label: 'a3-bake-then-render' },
+      { do: 'bake' },
+      { do: 'wait', ms: 20_000, note: 'bake applied and swapped, settling' },
+      { do: 'render' },
+      { do: 'session', arg: 'stop' },
+    ],
+  },
   {
     id: 't7-warm-long-run',
     label: 'T7 · warm long run (10 min warm + 40 min hands-off)',
@@ -229,7 +332,8 @@ export function createScenarioRunner(env) {
   // panel, so `outputActions` is genuinely absent there — and a run that quietly skipped its takes
   // would report a recording test in which nothing was recorded.
   function missing(sc) {
-    const have = { vitals: !!env.vitals, outputActions: !!env.outputActions };
+    const have = { vitals: !!env.vitals, outputActions: !!env.outputActions,
+                   renderActions: !!env.renderActions, bakeActions: !!env.bakeActions };
     return (sc.needs || []).filter((n) => !have[n]);
   }
 
@@ -246,6 +350,20 @@ export function createScenarioRunner(env) {
       else if (!c.ready) bad.push('the source is not ready to play yet');
       else if (!(c.duration > 0)) bad.push('the source has no duration');
     }
+    // A render needs keyframes and a bake needs a source. Both are knowable NOW, and a run that
+    // discovered either at step four has already cost the operator the walk away (B666's lesson).
+    const needsRender = (sc.steps || []).some((st) => st.do === 'render' || st.do === 'renderTier');
+    if (needsRender) {
+      const r = env.renderActions;
+      if (!r) bad.push('no render sheet on this chrome');
+      else if (!r.available()) bad.push('video export is unavailable here (needs WebCodecs)');
+      else if (r.keyframes() < r.keyframesNeeded()) {
+        bad.push(`the render needs ${r.keyframesNeeded()} keyframe(s) and there are ${r.keyframes()}`);
+      }
+    }
+    const needsBake = (sc.steps || []).some((st) => st.do === 'bake');
+    if (needsBake && !env.bakeActions?.available()) bad.push('no source video loaded to bake');
+
     const needsDest = (sc.steps || []).some((st) => st.do === 'broadcast' && st.arg === 'on');
     if (needsDest && env.outputActions && !env.externalDisplay?.active && !env.outputActions.isBroadcasting()) {
       // Not fatal — a non-display destination is legitimate — so this is a WARNING carried into
@@ -358,6 +476,27 @@ export function createScenarioRunner(env) {
       await new Promise((r) => setTimeout(r, 400));
       if (c.paused) return { ok: false, why: 'the clip did not start playing' };
       return { ok: true };
+    },
+
+    // ⚠️ B752 — RENDER AND BAKE. Both wrap the real entry points (`env.renderActions`,
+    // `env.bakeActions`), which in turn wrap the render button's own handler and `bakeAndApply`.
+    // Neither re-implements the job; see the seam comments in motion-runtime.js / clip-editor.js.
+    async renderTier(step) {
+      const a = env.renderActions;
+      if (!a) return { ok: false, why: 'no render sheet on this chrome' };
+      return a.setTier(step.px);
+    },
+
+    async render(step) {
+      const a = env.renderActions;
+      if (!a) return { ok: false, why: 'no render sheet on this chrome' };
+      return a.run(step);
+    },
+
+    async bake(step) {
+      const a = env.bakeActions;
+      if (!a) return { ok: false, why: 'no clip editor on this chrome' };
+      return a.run(step);
     },
 
     async wait(step) {

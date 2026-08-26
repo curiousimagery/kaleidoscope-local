@@ -17,8 +17,8 @@
 // when there's a meaningful change in surface area or behavior. don't reset
 // BUILD when bumping VERSION.
 
-export const VERSION = 'v0.27.13';
-export const BUILD = 751;
+export const VERSION = 'v0.27.14';
+export const BUILD = 752;
 
 export function formatVersion() {
   return `${VERSION} · Build ${BUILD}`;

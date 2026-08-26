@@ -24,7 +24,88 @@ So 4K at 10 minutes is **the ceiling to design toward, not the floor to require*
 
 ## Where we are
 
-**Last revised 2026-08-24 at B737.**
+**Last revised 2026-08-26 at B752.** The B752 block below is authoritative; everything after it in
+this section is the record of how the arc got here.
+
+### ▶▶▶▶ STATE AT B752 — THE LADDER MOSTLY DISSOLVED, AND WHAT REPLACED IT
+
+**Revised 2026-08-26 with Daniel, after B738-B751 and a full re-read. This block is authoritative
+over everything below it in this section.** The rest of "Where we are" is kept as the record of how
+the arc got here, not as a description of what is left.
+
+**The arc was designed around a capability ladder: measure each device's limits, build a cost model,
+gate combinations against it. Measurement retired most of the rungs by FIXING them.** That is a
+legitimate result, and it is why this plan needed rewriting rather than continuing.
+
+| rung the plan intended to gate on | what measurement did to it |
+|---|---|
+| **Bake memory** | **Dissolved.** 3188MB to 131MB (B732/B734/B735/B736/B737). `peakMB` is 72-132 on every device at every clip length, and a 3.5x larger source cost 0.7MB more. **The gate expression this plan was built on has no varying term left.** |
+| **Clip duration** | **Not a limit. A FORECAST.** ~1.48x realtime on an M1 iPad pre-B747, far better since. A number to TELL someone, not a reason to refuse them. |
+| **Render speed** | **Was OURS, and is fixed.** One `texImage2D` of a 2D canvas was 89% of a render (B746/B747). iPad 28 to 55.6 fps; Safari 22 to 131 fps. |
+| **Thermal** | **Not a limit yet.** `nominal` across 530s and 270s fanless, twice. Still the largest single effect ever measured (40.0 to 19.8 fps at `serious`), but nothing has REACHED `serious` in this arc. |
+| **Source file size** | **HYPOTHESIS DEAD.** See below. |
+| **Record capability** | **UNTOUCHED SINCE B704**, and its evidence predates the B681 decoder fix. |
+
+#### 🚫 THE SIZE HYPOTHESIS IS DEAD, AND THE REPLACEMENT AXIS IS CONCURRENCY
+
+The same 2,629,310,897-byte file on the same M1 iPad Pro **failed three times** (B741 fetch, B742
+blob passthrough, B743 render) and **succeeded twice** (B750 probe at 4ms, B751 a full 4K render at
+55.6 fps in 270.2s, clean). **No size table can encode that**, and a table keyed on chip plus memory
+would have said "2.63GB on M1 iPad: no" and been wrong on the day it shipped.
+
+**What DOES differ between the two runs we have breadcrumbs for:**
+
+| | `B750-ipadBeforeRender.json` (crashed 1/3 in) | `B751-ipadRenderReport.json` (completed) |
+|---|---|---|
+| `scenarioObserved` | `external-broadcast` | `idle-still` |
+| `sessions.peak` | **gl: 2**, decode: 2 | **gl: 1**, decode: 3 |
+| preceded by | a broadcast session | nothing, fresh launch |
+
+**This is n=1 each, so it is a hypothesis and not a finding.** But it names an axis, and that axis
+already has two entries in BACKLOG: *"record + broadcast on iPad loses the source and then the take"*
+(B571) and *"arming a take while broadcasting loses the GL context"* (B667/B668). **Same family,
+different pair of operations.** Daniel's own note on the successful run is the same observation from
+the other side: *"I didn't spend time broadcasting or setting keyframes, which gives it a more simple
+job."*
+
+**⚠️ DO NOT BUILD THE OPFS SOURCE COPY UNTIL THE MATRIX RUNS.** If the failure is a revoked iOS
+security-scoped handle, owning the bytes fixes it. If it is memory pressure at read time, it does
+not. That is one device session's worth of difference against a week's worth of build.
+
+#### THE THREE GATES — established B749, still the right frame
+
+| gate | asks | shape | status at B752 |
+|---|---|---|---|
+| **1. FILE ACCESS** | can we read these bytes at all? | **binary**, 16 bytes, at load | mechanism shipped B743, moved to load B750. **It never learns a ceiling. Do not ask it to.** |
+| **2. BAKE / RENDER** | will this job finish acceptably? | **not binary** — time, thermal, output storage | **became a FORECAST.** Needs SAYING, not gating. Output storage is the one unmeasured term |
+| **3. RECORD** | can this device sustain the declared fps? | **not binary** — achieved vs declared, concurrency, thermal | **the real remaining work** |
+
+#### 🎨 COLOUR IS A SHIPPED DEFECT NOW, NOT A FUTURE FEATURE
+
+B747 removed a 2D-canvas intermediate from the render path for a 73x upload win. **That canvas was
+silently doing HLG-to-SDR tone mapping and BT.2020-to-sRGB gamut conversion**, so removing it exposed
+that we never owned a colour pipeline at all. `renderUploadViaCanvas` is the flagged workaround and
+it costs the whole perf win.
+
+**Reading the code at B752 found the bigger half (verify before acting, this has not been device
+confirmed):** `src/engine/yuv.js` converts YUV to RGB with **hardcoded BT.601 coefficients**
+(`1.402 / -0.344136 / -0.714136 / 1.772`), no transfer function, no primaries. That is the **native
+decode path** — in-app playback and broadcast on iPad. Nearly all HD and 4K video is BT.709, and
+neither native plugin reads `kCVImageBufferYCbCrMatrixKey`, so nothing ever told the shader what the
+source was. The full-range assumption is correct (both plugins request
+`kCVPixelFormatType_420YpCbCr8BiPlanarFullRange`).
+
+**So there are three disagreeing colour paths**, which is the likely explanation for Daniel's
+observation that perform-mode thumbnails looked better than the rest of the app.
+
+**▶ THE DECISION, Daniel 2026-08-26:** do not ship a throwaway fix. Build the **input transform**
+stage of real colour management — one conversion seam in the shader, driven by parsed source metadata
+(`VideoFrame.colorSpace`, already recorded at B748, plus the `colr`/nclx box), defaulting to BT.709
+when unknown — and route all three paths through it. **That fixes the regression, fixes the standing
+BT.601 bug, and is not thrown away.** Honest limit: in an 8-bit working space it corrects hue and
+saturation but will still band on HDR sources. **A float working space is the NEXT stage, not this
+one**, and is what the photography and round-trip audiences actually need.
+
 
 ### ▶ THE ARC SINCE B704: GL LOSS CLOSED, A MEMORY CEILING OPENED AND MEASURED
 
@@ -157,6 +238,94 @@ runs.
 ## The sequence
 
 Ordered by dependency, not tractability. **The documented failure mode of this arc is a well-defined next step out-competing an important one** (`DEBUGGING-PROTOCOL.md`, state D). If you are working on something not on this list, that is the drift.
+
+### ▶▶ THE REVISED SEQUENCE TO CLOSE PHASE 2 (agreed with Daniel, 2026-08-26)
+
+**This supersedes items 1-5 below as the ORDER OF WORK.** Those items are kept because they hold the
+reasoning and the done-conditions; this table holds what to do next and why in that order.
+
+**The honest definition of close, and it is narrower than the original plan:** *we can state what we
+support, the statement is true, and the app prevents or warns the cases where it isn't.* It does NOT
+require iPhone measurement, NDI, or the notification-bar build. Those are real, and they are not
+close-out.
+
+| # | what | depends on | why here |
+|---|---|---|---|
+| **0** | **Revise this plan. Update `ARCHITECTURE.md` and `CAPABILITIES.md` for the SETTLED things** (streaming demux, streaming muxer, O(1) bake memory, the render upload path) | — | Daniel: *"I don't trust that I have the full scope in my own memory right now."* Writing it down at the END is too late for both parties. **Hold the GATING sections until after 2** — the model is about to change |
+| **1** | **⚠️ MOSTLY ALREADY BUILT — see below. Add a `render` and a `bake` verb to `shell/scenario-runner.js`** | — | The velocity fix, and it is 90% done. **And it is the prerequisite for enlisting alpha testers** on hardware we do not own, which is the only route to the M2-M5 middle of the range |
+| **2** | **ONE batched device session: the concurrency matrix + the record control conditions.** ⚠️ **Its record half, A4-A6, needs NO BUILD and can run on B751 today** | 1 for A1-A3 only | Replaces "verify the probe across four devices", whose premise died with the size hypothesis. **Settles the new ceiling axis AND gate 3 AND whether OPFS is the right fix, in one session** |
+| **3** | **Colour: build the input transform** (not a throwaway fix) | — | A shipped regression plus a standing BT.601 bug. Independent of 1-2, so it can run in parallel or slip |
+| **4** | **Concurrency gates for record**, if 2 says there is something to gate | 2 | **Real possibility the refuse rule shrinks to a warning.** The 13.4fps figure is pre-B681 and is the ONLY justification for a take-tier cap |
+| **5** | **Spot-check pass, learn only, commit to changing nothing**: iPhone record, Capacitor NDI, **battery under sustained idle** | 1 | Rides the runner. Bounded by the no-changes commitment, which is what stops it becoming another arc |
+| **6** | **Spec archaeology, then cruft cleanup. Notification bar PUNTED** | 2, 4 | Archaeology decays and the UI does not, so it goes first. **Cleanup must come after the measurement work because the flags being deleted ARE the instruments** |
+| **7** | **Close the plan out, pause, go to feature work** | all | The clean exit |
+
+**Why this is a clean exit at 7 and not before:** the plan doc is current, the instruments are either
+kept deliberately or removed deliberately, and the one shipped regression is fixed. Not because
+everything is answered. **What stays open is named and measured, which is the difference between a
+pause and a drift.**
+
+#### The A1-A6 matrix that step 2 runs
+
+**Same file throughout. Fresh launch per run. Vary only what PRECEDES the operation.**
+
+| run | preceded by | answers |
+|---|---|---|
+| **A1** | nothing | the control |
+| **A2** | a broadcast session | the B750/B751 hypothesis |
+| **A3** | a bake, then teardown | the long-open D5 residue question |
+| **A4** | nothing — **FHD take** | **the record gate's control condition, which has NEVER been run.** Every FHD number we own came from a run with a broadcast live |
+| **A5** | nothing — **4K take** | whether the 13.4fps refuse rule survives B681 |
+| **A6** | **take while broadcasting** | closes gate 3 |
+
+**What cannot be automated, and must stay manual:** the force-quit and relaunch (Capacitor has no
+reliable programmatic process restart, and `location.reload()` does not clear the residue we are
+hunting), the HDMI attach, and the Files picker (needs a user gesture). **Everything after "go" can
+be.**
+
+**The second design, free once the first exists:** run all six back to back in ONE launch. That is a
+different experiment — does residue accumulate monotonically — and it is cheaper. Build the runner to
+do both.
+
+**B751's breadcrumbs are what make this affordable**: a process kill now leaves evidence, so a crash
+is a RESULT rather than a wasted session.
+
+#### ⭐⭐ THE RUNNER ALREADY EXISTS, AND HALF THE MATRIX IS ALREADY SCRIPTED (found by reading, B752)
+
+**`src/shell/scenario-runner.js` has been in the codebase since B665** and is hardened by B666 and
+B667 (the still-frame bug, the wrong denominator, the lost session block). It is wired into
+`main.js:524`, surfaced as **`run scenario`** in the frame-cost panel, reachable on iPad through the
+desktop diagnostics section, documented in the UI Lab, and it already exports under `scenarioRun` in
+`copy report`. **Scripts are declarative data; every step publishes why it declined; a pre-flight
+refuses by name rather than skipping silently.**
+
+**⭐ SO A4, A5 AND A6 NEED NO BUILD AT ALL. They are already written and have never been run:**
+
+| matrix cell | existing script | what its own comments say it is for |
+|---|---|---|
+| **A4 + A5** | `t11-take-baseline` | FHD take alone, then 4K take alone. *"the 13.4fps figure, re-measured"*. **The control condition the record gate has been blocked on since B704** |
+| **A6** | `t3-rerun-post-b681` | take while broadcasting, re-run against the decoder fix |
+| A2 (partly) | `t3b-take-first`, `t2-hands-off` | broadcast-first orderings |
+
+**The reason they were never run is not that they were hard. The arc went to bake and render at B705
+and never came back.** Running `t11-take-baseline` on the current build is the single cheapest
+unblocked action available, and it does not wait on step 1.
+
+**▶ WHAT STEP 1 ACTUALLY IS, then — small and scoped:**
+
+1. **A `render` verb and a `bake` verb.** Neither is reachable from the runner today: `env.outputActions`
+   is the only action seam that exists (`output-panel.js:1078`). This needs an `env.renderActions` /
+   `env.bakeActions` in the same shape, exposed by `motion-runtime.js` and `clip-editor.js`.
+   **⚠️ THREE FILES, AND TWO OF THEM ARE THE RENDER AND BAKE ENTRY POINTS. Wants a yes before
+   building** — it is precedented but not trivial, and those are the two hottest paths in the app.
+2. **Scripts A1, A2, A3** once the verbs exist.
+3. **Cross-relaunch accumulation is OPTIONAL, not required.** Each matrix cell is self-contained
+   within one launch (A2 is *broadcast on, wait, broadcast off, render* in a single script), so the
+   fresh-launch control is satisfied by force-quitting between runs. That yields six reports rather
+   than one. Merging them is a convenience; **do not let it block the session.**
+
+---
+
 
 ### 1. Close out B609 verification ✅ COMPLETE
 
@@ -376,11 +545,101 @@ Everything else can be bundled or reordered. **These four cannot.**
 
 ---
 
+---
+
+## The stage manager, as specified (Daniel, 2026-08-26)
+
+**Recorded here rather than in BACKLOG because it is a DESIGN INPUT to the gating work, not just the
+next feature.** It changes what a gate is a property of, so building gates without it means building
+them twice. Still in design phase; these are the requirements as they stand.
+
+**Shape:**
+
+- **Up to nine sources on the stage**, including the live and the staged source.
+- **Live video sources are a stage type**, not just files: webcam, Continuity Camera iPhone, tethered
+  mirrorless. **They do not all play back live.** A queued camera shows a thumbnail with a ~3-5s clip
+  of its last active moment on hover or tap; **only one camera is activated, as it is staged and
+  readied to go live.**
+- **Stills and video loops can be sent to the stage from the motion editor with keyframes applied.**
+- **Bake gains save-direct-to-disk**, so a baked loop outlives the session.
+- **Crossfade between live and staged only.** A DJ mixing deck, not Resolume Arena's compositor.
+
+**⭐ THE CONSEQUENCE THAT MATTERS FOR GATING: only two sources are in working memory at a time.** The
+other seven are references. Killing the source and/or staged panels during a transition is on the
+table as a way to free resources. **So the capability gate stays a property of the ACTIVE PAIR, not
+of the queue of nine.** That is a large simplification over what the queue length first suggested.
+
+**⚠️ AND THE ONE EXPOSURE IT CREATES, which points at the same matrix.** Nine held `File` references
+is the handle-revocation exposure multiplied by nine and stretched over time. If the transient
+`NotFoundError` is iOS revoking a security-scoped handle some interval after the pick, then **a clip
+sitting on deck for forty minutes before promotion is the worst case for it.** The stage manager
+makes gate 1 more load-bearing, not less. The mitigating half: clips sent to the stage from the motion
+editor are files WE wrote, so their bytes are ours and they are immune.
+
+**Persistence across sessions is not in the initial build, but must be designed for now.** Daniel:
+real users will demand it. The intended shape: **the stage holds motion JSON, actionable metadata and
+attributes (is it a loop, and so on) and stage layout; the media itself is referenced on disk, not
+held.** This is the same requirement that makes bake-to-disk necessary rather than nice.
+
+---
+
+## Two things this plan must carry that are NOT written down anywhere yet
+
+### 🔍 THE GATING AND COMMUNICATION SPEC IS REAL, DETAILED, AND FRAGMENTED ACROSS COMPACTIONS
+
+**Daniel, 2026-08-26:** we have accumulated a lot of specific design detail about **how** limits get
+communicated, and it is scattered across dozens of compaction summaries rather than captured in any
+doc. It is not lost, but **recovering it requires deliberate sleuthing through session history, and
+it decays with every further compaction.**
+
+Examples of the shape, to calibrate the search:
+
+- disabling the record button outright during an iPad broadcast, versus warning about poor fps and
+  **suggesting a lower broadcast resolution as the fallback lever**
+- estimating render and bake times, and **showing the estimate alongside time elapsed**
+- the persistent communication space under the app bar as the home for toast-like notifications,
+  which is eventually meant to absorb **well over a hundred** existing toasts and inline notices
+
+**The nearest thing to a spec that IS written down** is BACKLOG *"THE CAPABILITY LADDER: WHAT GETS
+GATED, WARNED, OR FLAGGED"* (Daniel's four-row consequence rubric) plus `CAPABILITIES.md` §5. Treat
+those as the skeleton and the archaeology as the flesh.
+
+**▶ THIS IS TIME-SENSITIVE IN A WAY THE UI BUILD IS NOT.** The notification bar can wait; the
+recovery of what it is supposed to say cannot. **Do the archaeology before the build, and do it
+early.**
+
+### 🔋 SUSTAINED THERMAL HAS A SECOND FACE: BATTERY
+
+**Daniel, 2026-08-26.** The arc has investigated thermal only as a performance throttle. **The other
+half is power draw, and it is a product question, not a perf one:**
+
+- if someone leaves the app open and unattended for thirty minutes, does it drain their battery?
+- can an iPhone customer use this out and about and have a delightful experience, **without becoming
+  uncomfortable about opening it at all?**
+
+**Not to solve now.** Recorded so it is in scope when item 5's measurement pass happens, and so that
+guardrails like auto-idle after inactivity get placed against evidence rather than intuition. It maps
+directly onto exit criterion #5 (*"a phone app that gets hot and eats the battery in ten minutes is
+not shippable"*), which named this and was then never measured.
+
 ## The pause point
 
-**After item 3.** Cleanup is where docs and code get consolidated, so it is the only seam where stopping does not leave half-derived context for the next arc to re-inherit.
+**⚠️ REVISED B752. It is now after step 6 of the revised sequence, not "after item 3".**
 
-**Stage manager** (load and queue several clips, crossfade between them) is the pressing feature work and slots here. Items 4 and 5 are measurement and labeling work that does not rot while paused.
+Cleanup is still the seam, for the same reason: it is where docs and code get consolidated, so
+stopping there does not leave half-derived context for the next arc to re-inherit. **What changed is
+what has to happen BEFORE it** — the concurrency matrix, because without it we would pause having
+invalidated our ceiling model and built nothing to replace it.
+
+**The feature work that follows the pause, in Daniel's priority order (2026-08-26):** stage manager
+and proper colour management first, both named most impactful; then tileable still output, vector
+overlays, and round-trip processing with image-editing DAMs (Lightroom, Capture One, PhotoLab).
+**Colour management is a showstopper for commercial viability with photographers and designers**, and
+it is what unlocks the tile maker and lossless still round-trips.
+
+**Steps 5 and 6 are measurement, archaeology and labeling. They do not rot while paused** — with the
+one exception named above: the fragmented gating spec decays with every compaction, so its recovery
+belongs BEFORE the pause even though its UI does not.
 
 **Do not pause before item 2.** Shipping feature work without ever having confirmed the core promise leaves that promise unverified indefinitely, and every open risk in this arc is one that only appears over time.
 
@@ -390,7 +649,11 @@ Everything else can be bundled or reordered. **These four cannot.**
 
 Named so they stop competing for attention, not to dismiss them.
 
-- **Color management.** A real product gap for the photography and round-trip audiences, raised by Daniel as more important than its perf angle. **New-feature-shaped, not hardening-shaped**, so it belongs in the same conversation as stage manager.
+- **Colour management — ⚠️ SPLIT AT B752, half of it is now IN this arc.** The *output* half (a float
+  working space, display transforms, ICC handling) is still feature-shaped and belongs with stage
+  manager. **The INPUT transform is not** — B747 turned it into a shipped regression, and reading the
+  code found a standing BT.601 hardcode underneath it. See step 3 of the revised sequence and the
+  colour block in "Where we are".
 - **Mobile web and Android.** No Android device has ever been in the loop. One measurement session, then a decision, and not before.
 - **New forms, motion editor work, tiling density.** Off-arc.
 - **Test infrastructure.** A deliberate standalone decision, never a feature-commit rider.

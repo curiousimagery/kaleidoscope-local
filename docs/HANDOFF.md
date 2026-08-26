@@ -22,12 +22,102 @@ Archived at B658. It was marked superseded at B609 and kept for the reasoning be
 
 ## current version
 
-**v0.27.5 · B743** (2026-08-25). Minor bumped at B738 for the O(1) bake landing on hardware.
+**v0.27.13 · B751** (2026-08-26). Minor bumped at B738 for the O(1) bake landing on hardware.
 
 **⭐⭐ THE O(1) BAKE IS NOW MEASURED, NOT MODELLED.** A 2.63GB / 8:21 4K source peaked at **131.6MB**
 against **130.9MB** for a 741MB source. **3.5× the file, 0.7MB more memory.** Both 8GB M1 iPads also
 passed the job that killed them at B730 (Air 71.6MB, Pro 114.9MB). The Blob is disk-backed and file
 size is no longer a memory axis. **B705 and B706 are device-verified** — B705's instrument found B706, and B706 held on the repro that killed B705. B703, B704 and B707 are not yet device-verified.
+
+---
+
+## ▶▶▶▶▶ READ THIS FIRST — B752 (2026-08-26)
+
+**SHIPPED: the scenario runner can now drive a render and a bake**, so the concurrency matrix runs
+itself. Four new scripts (A1, A2, A2b, A3) plus `docs/temp/scenario-preflight.mjs` at 272/272.
+
+**▶ THE NEXT ACTION, AND IT NEEDS NO BUILD:** run **`t11-take-baseline`** from the frame-cost panel.
+It is the record gate's control condition, written at B665, never run. Load the **741MB / 1:46 4K**
+clip (not the 2.63GB one — that conflates record capability with the file question), no HDMI needed.
+Then **A1**, from a force-quit relaunch, with whichever source you want held constant across A1/A2/A2b.
+
+**`PLAN-LIVE-READINESS.md` was rewritten with Daniel and is now the authoritative scope.** It carries
+the revised close-out sequence, the stage-manager spec, and two things that were only in session
+history: the fragmented gating/communication spec, and battery as the second face of thermal.
+
+**Three findings from reading, none device-confirmed, all in the plan:**
+
+1. **⭐⭐ `shell/scenario-runner.js` HAD EXISTED SINCE B665, and `t11-take-baseline` is the record
+   gate's control condition, already written and never run.** FHD take alone, then 4K take alone,
+   its own comment reading *"the 13.4fps figure, re-measured"*. It runs on B751 as shipped, from
+   `run scenario` in the frame-cost panel. **This is the cheapest unblocked action in the project**
+   and it needs no build.
+2. **🎨 `engine/yuv.js` hardcodes BT.601 YUV-to-RGB coefficients** (`1.402 / -0.344136 / -0.714136 /
+   1.772`), with no transfer function and no primaries. That is the NATIVE DECODE path — in-app
+   playback and broadcast on iPad — and nearly all HD/4K video is BT.709. Neither native plugin
+   reads `kCVImageBufferYCbCrMatrixKey`. The full-range assumption IS correct (both plugins request
+   `420YpCbCr8BiPlanarFullRange`). **So the app has three disagreeing colour paths**, which likely
+   explains Daniel's *"thumbnails in perform mode seem to look better than the rest of the app"*.
+3. **The B747 render path did NOT touch broadcast.** Verified: `updateSourceFromFrame` has exactly
+   one caller, guarded by `exportReader`, which is non-null only inside a render.
+
+**⚠️ The size hypothesis is dead and the replacement axis is CONCURRENCY.** B750 crashed with
+`gl: 2` after a broadcast; B751 completed with `gl: 1` from a fresh launch, same file, same device.
+n=1 each. **Do not build the OPFS source copy until the matrix runs.**
+
+---
+
+## ▶▶▶▶ STATE AT B751 — 4K END-TO-END WORKS ON AN 8GB iPAD
+
+**`B751-ipadRenderReport.json`** — the 2.63GB / 8:21 4K clip, M1 iPad Pro, rendered **clean**:
+
+| | before B747 | **B751** |
+|---|---|---|
+| rate | 28 fps | **55.6 fps** (270.2s for 15,019 frames) |
+| `upload` | 35.16 ms/frame | **0.48 ms** |
+| `peakMB` | — | **92.1** |
+| thermal | — | nominal → nominal |
+| `availableMB` | — | 5074 → 5073 |
+
+Remaining cost is `vframe` 9.64ms and `enc` 4.98ms — both platform, neither ours. **Breadcrumbs
+fired as designed**: `render:begin · progress ×3 · encoded · render-decode-worst`.
+
+### ⭐ THE ARC'S QUESTION, ANSWERED — AND THE ANSWER IS "MOSTLY NOT WHERE WE THOUGHT"
+
+The goal was to find our limits and build a ladder. What the measurements produced instead:
+
+- **Memory: dissolved.** 72-132MB on every device at every clip length. There is no curve to gate on.
+- **Thermal: not a limit yet.** `nominal` across 530s and 270s fanless, twice.
+- **Duration: not a limit, a forecast.** ~1.48× realtime on an M1 iPad before B747; far better now.
+- **Render speed: was ours, and is fixed.** One `texImage2D` of a 2D canvas was 89% of a render.
+- **File access on iOS: real, and NOT gateable by size.** See below.
+
+**Most of the ladder we set out to build turned out not to be needed.** That is a legitimate result.
+
+### 🚫 THE FILE-ACCESS FAILURE IS TRANSIENT, SO A DEVICE TABLE CANNOT ENCODE IT
+
+The same 2,629,310,897-byte file on the same iPad Pro: **failed three times** (B741 fetch, B742
+blob-passthrough, B743 render) and **succeeded twice** (B750 probe at 4ms, B751 full render). A table
+keyed on chip + memory + platform would have said *"2.63GB on M1 iPad: no"* and been **wrong today**.
+
+**Leading hypothesis: an iOS security-scoped file handle being revoked** some time after the pick.
+It fits everything — works at load, works for broadcast (native decode copies the bytes at attach),
+fails at bake and render which re-read the original `File` minutes later.
+
+**⭐ THE FIX IS NOT A GATE, IT IS OWNING THE BYTES.** Copy the source into storage we control at load
+and read from there, so the sandbox handle stops mattering. **Precedent exists in this repo**:
+`conduit/recorder.js` already streams takes to OPFS, feature-detected, Safari 17+ / iOS 17+. On iOS
+we ALSO already copy the whole file to the native plugin for decode, so part of that cost is paid.
+**Unmeasured: what a multi-GB OPFS copy costs in time and disk.** Decide before building.
+
+### 🚩 REPRODUCIBLE, UNEXPLAINED
+
+**The source/output panels show the image UPSIDE DOWN** — twice now, on the iPad, at load, before any
+render. Every `UNPACK_FLIP_Y_WEBGL` in the codebase is set to `false` consistently
+(`gl.js` ×2, `yuv.js`), so a leaked pixelStorei is **not** it. B747's direct upload only runs inside
+a render, so that does not fit either. **No instrument fired. Do not guess again** — the cheap
+localiser is whether scrubbing corrects it (which would make it the same family as the
+black-panels-after-bake bug: a bad first paint, not a bad pipeline).
 
 ---
 

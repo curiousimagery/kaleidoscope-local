@@ -21,6 +21,34 @@
 >
 > Where this file disagrees with a later CHANGELOG entry, the CHANGELOG wins.
 
+> ---
+>
+> **▶▶ REVISION B752 (2026-08-26) — WHAT THE MEASUREMENTS DID TO §5's GATING MODEL.**
+>
+> **§0's five exit criteria are unchanged and still the definition of done.** What changed is which
+> quantities a gate can be built from, and the answer is: fewer than this file assumes.
+>
+> - **The MEMORY gate is retired.** §5 and the BACKLOG cost model both assumed
+>   `sourceBytes + 2 × outputBytes + ~56MB ≤ free`. B732-B737 made bake and render **O(1) in clip
+>   length** — `peakMB` is 72-132MB on every device at every duration, and a 3.5x larger source cost
+>   0.7MB more. **There is no memory curve left to gate on.**
+> - **The DURATION gate became a forecast.** A number to tell someone, not a refusal.
+> - **The FILE-SIZE gate is dead.** The same 2.63GB file on the same iPad failed three times and
+>   succeeded twice. **A device table keyed on chip and memory would have been wrong on the day it
+>   shipped**, which is §1's "probe, never classify" arriving by a second route.
+> - **What replaced them: CONCURRENCY.** B750 crashed with `sessions.peak { gl 2 }` after a
+>   broadcast; B751 completed with `{ gl 1 }` from a fresh launch, same file, same device. n=1 each,
+>   so it names an axis rather than a cause — `shell/scenario-runner.js`'s A1-A3 scripts exist to
+>   turn it into a controlled comparison.
+> - **§5 survives INTACT for record**, which is the one gate whose original question is untouched:
+>   achieved-versus-declared fps, record-while-broadcast concurrency, and thermal `serious`. **Its
+>   evidence predates B681** and `t11-take-baseline` is the control condition that refreshes it.
+>
+> **And a defect this file's §2.5 should carry**: the app has **three disagreeing colour paths**, one
+> of which (`engine/yuv.js`, the native decode path behind in-app playback and broadcast) hardcodes
+> BT.601 with no transfer function or primaries. **"Every label is honest" is exit criterion #2, and
+> a colour pipeline that silently mis-converts is the same class of dishonesty as a mislabeled tier.**
+
 
 > **CORRECTION B557:** the "encoder flush is ~97% of finalize" line from B555 attributed the wait to the VIDEO encoder. It is the **audio** flush — 32.7s of a 33.1s finish on a 3:28 4K take. Video is drained by design (`publish` drops frames above a queue of 4); audio has no such valve. The 30-second-cliff finding is unaffected.
 

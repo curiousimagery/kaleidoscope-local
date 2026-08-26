@@ -6,6 +6,62 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.27.14 · Build 752 — THE RUNNER CAN DRIVE A RENDER AND A BAKE, SO THE MATRIX CAN RUN ITSELF
+
+**Shipped:**
+- `run scenario` gains four new scripts: **A1** (render from a fresh launch, the control), **A2**
+  (broadcast, tear it down, then render), **A2b** (render *while* broadcasting), **A3** (bake, then
+  render). Pick them from the frame-cost panel the same way as the existing ones.
+- Two new things a script can do: **render** and **bake**. Both drive the real buttons.
+- A script can set the **render resolution as its first step**, so "this device cannot encode 4K"
+  surfaces at second zero instead of after a five-minute broadcast.
+- `docs/temp/scenario-preflight.mjs` — checks every script is actually runnable before it ever
+  reaches a device. **272/272.**
+- Docs: `PLAN-LIVE-READINESS.md` rewritten; `ARCHITECTURE.md` and `CAPABILITIES.md` corrected.
+
+### ⭐⭐ THE RUNNER ALREADY EXISTED, AND HALF THE MATRIX WAS ALREADY WRITTEN
+
+`shell/scenario-runner.js` has been in the codebase since **B665** and hardened through B666/B667.
+**`t11-take-baseline` is the record gate's control condition** — FHD take alone, then 4K take alone,
+its own comment reading *"the 13.4fps figure, re-measured"* — and it has never been run. Neither has
+`t3-rerun-post-b681`. **The arc went to bake and render at B705 and never came back.**
+
+So this build is much smaller than "build a test runner". It is two verbs and four scripts.
+
+### ⚠️ A1-A3 ARE NOT A SEQUENCE, AND THE PLAN SAID OTHERWISE
+
+A1-A3 are the RENDER half and T11/T3r are the RECORD half. **Neither waits on the other.** The
+earlier numbering implied an order that does not exist; corrected in the plan and in the Lab.
+
+### 🚩 FOUND BY THE NEW HARNESS, NOT FIXED — `t7-warm-long-run` LEAVES THE BROADCAST ON
+
+It turns broadcast on and never off (B665 era). **Flagged rather than changed**, because for a
+50-minute warm run it is plausibly deliberate — a script should not tear down a live show. Every
+script that follows it opens with `broadcast off`, so nothing is currently corrupted. Filed.
+
+### 🎨 THE COLOUR DECISION, AND WHAT LOOKING FOR IT FOUND
+
+Daniel asked whether there is a fix for the B747 washed-out regression that is not thrown away when
+real colour management lands. **There is, and looking for it found a bigger bug:** `engine/yuv.js`
+converts YUV to RGB with **hardcoded BT.601 coefficients**, no transfer function and no primaries.
+That is the **native decode path** — in-app playback and broadcast on iPad — and nearly all HD and
+4K video is BT.709. Neither native plugin reads `kCVImageBufferYCbCrMatrixKey`.
+
+**The full-range assumption is correct** (both plugins request `420YpCbCr8BiPlanarFullRange`), so the
+matrix is the bug and the range is not. **Three disagreeing colour paths now**, which likely explains
+Daniel's *"the thumbnails in perform mode seem to look better than the rest of the app."*
+
+**Not fixed here.** The agreed shape is one conversion seam in the shader driven by real source
+metadata, defaulting to BT.709 — the input-transform stage of real colour management rather than a
+throwaway. **Honest limit: 8-bit corrects hue and saturation and will still band on HDR.**
+
+### ✅ VERIFIED, NOT ASSUMED — B747 DID NOT TOUCH BROADCAST
+
+`updateSourceFromFrame` has exactly one caller, guarded by `exportReader`, which is non-null only
+inside a render. Broadcast still takes `updateSourceFrame` and native decode.
+
+---
+
 ## v0.27.13 · Build 751 — A PROCESS KILL RUNS NO JAVASCRIPT, SO THE CRUMBS MUST BE WRITTEN FIRST
 
 **Shipped:** `render:begin` / `render:progress` / `render:encoded` and the bake's twins, each carrying
