@@ -2426,6 +2426,27 @@ function setupVideoExport() {
       wantSource: !!wantSource, keyframes: kfList().length,
       srcW: env.sourceVideo?.videoWidth || 0, srcH: env.sourceVideo?.videoHeight || 0,
     };
+    // ⚠️ B751 — BREADCRUMBS, BECAUSE A PROCESS KILL RUNS NO JAVASCRIPT.
+    //
+    // Three crashes in this arc have produced ZERO diagnostic bytes: two iPad Air bakes and Daniel's
+    // B750 render, which died a third of the way in and came back with an empty trail, no
+    // `renderDecode` and no `renderMem`. **Every instrument we own writes at the END of the job**, so
+    // a job that never ends writes nothing — and `export-aborted` cannot help, since a kill executes
+    // no catch block.
+    //
+    // `priorTrail` survives the kill and holds twelve entries. Filling a few of them WHILE the work
+    // runs is the only channel a dead process can leave behind. Cadence is coarse on purpose: start,
+    // quarters, end — six marks, so the crumb that matters is not flushed by its own chatter.
+    const crumb = (kind, extra) => {
+      try {
+        const v = readHostVitals();
+        env.vitals?.mark(kind, { ...renderShape, ...(extra || {}),
+          availableMB: v?.availableMB ?? null, thermal: v?.thermal ?? null,
+          heapMB: (() => { try { return memReport().heldMB; } catch { return null; } })() });
+      } catch { /* an instrument must never break the work */ }
+    };
+    crumb('render:begin');
+    let lastQuarter = 0;
     try {
       // arm the fast decode path (falls back silently; the source-preview pass
       // restarts at p=0, which the reader handles as a keyframe reset)
@@ -2446,7 +2467,11 @@ function setupVideoExport() {
                            const s2 = sampleAt(p, { bake: true }); return captureMode() === 'gl' ? engine.captureFrameGL(s2) : engine.captureFrame(s2); }
           : (p) => { const s2 = sampleAt(p, { bake: true }); return captureMode() === 'gl' ? engine.captureFrameGL(s2) : engine.captureFrame(s2); },
         onEnd: () => engine.endCapture(),
-        onProgress: (p) => { bar.style.width = Math.round(p * (wantSource ? 50 : 100)) + '%'; },
+        onProgress: (p) => {
+          bar.style.width = Math.round(p * (wantSource ? 50 : 100)) + '%';
+          const q = Math.floor(p * 4);
+          if (q > lastQuarter && q < 4) { lastQuarter = q; crumb('render:progress', { pct: q * 25 }); }
+        },
         shouldCancel: () => cancelRender,
         // B705 — abort at a NAMED frame if the context dies mid-render. Daniel lost a
         // 3193-frame job at B704 and the export produced no diagnostic of its own.
@@ -2507,6 +2532,7 @@ function setupVideoExport() {
         diag = ` · /frame: gl ${gl.toFixed(0)} · vframe ${vf.toFixed(0)} · encode ${enc.toFixed(0)} ms`;
         console.log('[video-export] per-frame ms:', { mode: selCap, gl: +gl.toFixed(1), vframe: +vf.toFixed(1), encode: +enc.toFixed(1), frames: f, totalSecs: +secs.toFixed(1) });
       }
+      crumb('render:encoded', { frames });
       renderTiming = timing || null;
       if (renderTiming && renderTiming.frames) {
         // The two halves of `glMs`, named. `sourcePath` says WHICH provider produced them.

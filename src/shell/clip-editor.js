@@ -923,6 +923,15 @@ export function createClipEditor(env) {
     // high-water mark resets so a second bake in one session is measured on its own terms.
     memBegin('bake');
     let bakeTiming = null, bakeOutBytes = null;
+    let lastQuarter = 0;
+    const crumb = (kind, extra) => {
+      try {
+        const v = readHostVitals();
+        env.vitals?.mark(kind, { ...bakeShape, ...(extra || {}),
+          availableMB: v?.availableMB ?? null, thermal: v?.thermal ?? null,
+          heapMB: (() => { try { return memReport().heldMB; } catch { return null; } })() });
+      } catch { /* an instrument must never break the work */ }
+    };
     // ⚠️ B730 — THE DEVICE-WIDE BASELINE. Without a BEFORE there is no delta, and the absolute is
     // meaningless: iOS keeps memory productively occupied, so "free" is small and noisy at rest.
     // This is the only reading that can see the WKWebView content and GPU processes, and until now
@@ -1100,9 +1109,16 @@ export function createClipEditor(env) {
     if (apply) { apply.disabled = true; apply.textContent = 'baking…'; }
     if (prog) prog.hidden = false;
     try {
+      crumb('bake:begin');
       const { blob, timing } = await exportVideo({
         frameAt, width: w, height: h, fps, durationMs, captureMode: '2d',
-        onProgress: (x) => { if (fill) fill.style.width = Math.round(x * 100) + '%'; },
+        onProgress: (x) => {
+          if (fill) fill.style.width = Math.round(x * 100) + '%';
+          // B751 — see motion-runtime: a jetsam runs no JS, so the only forensics are the crumbs
+          // written WHILE the bake runs. Two iPad Air bakes died leaving an empty trail.
+          const q = Math.floor(x * 4);
+          if (q > lastQuarter && q < 4) { lastQuarter = q; crumb('bake:progress', { pct: q * 25 }); }
+        },
         // A BAKE MUST BE ABANDONABLE. It used to run to completion no matter what: the
         // cancel button routed to exitLoopBuilder, which refuses while `baking` is set, so
         // it silently did nothing — and a 6:39 crossfaded clip projects to ~25 minutes
@@ -1115,6 +1131,7 @@ export function createClipEditor(env) {
         // failed" and a number that says how far it got.
         glLost: () => !!env.engine?.glContext?.isContextLost(),
       });
+      crumb('bake:encoded');
       bakeTiming = timing || null;                 // B744 — the stage split, published not consoled
       bakeOutBytes = blob?.size ?? null;
       await applyBakedClip(blob, { w, h });         // swaps the source + re-binds the timeline

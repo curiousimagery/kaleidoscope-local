@@ -6,6 +6,56 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.27.13 · Build 751 — A PROCESS KILL RUNS NO JAVASCRIPT, SO THE CRUMBS MUST BE WRITTEN FIRST
+
+**Shipped:** `render:begin` / `render:progress` / `render:encoded` and the bake's twins, each carrying
+the job shape plus `availableMB`, `thermal` and `heapMB`, at start / 25% / 50% / 75% / end.
+
+### 🚨 THREE CRASHES, ZERO DIAGNOSTIC BYTES
+
+Two iPad Air bakes and now Daniel's B750 render — died a third of the way in, came back with an
+**empty `trail`, no `renderDecode`, no `renderMem`**, and a `priorTrail` holding five mode marks and
+nothing about the render at all.
+
+**Every instrument we own writes at the END of a job**, so a job that never ends writes nothing.
+`export-aborted` cannot help either: a kill executes no catch block. `priorTrail` survives the kill
+and holds twelve entries — **filling a few of them WHILE the work runs is the only channel a dead
+process can leave behind.** The cadence is coarse on purpose, six marks, so the crumb that matters
+is not flushed by its own chatter.
+
+**Daniel has now spent three device sessions producing nothing.** This should have been built after
+the first.
+
+### ⭐⭐ THE SIZE HYPOTHESIS IS DEAD. THE FAILURE IS TRANSIENT.
+
+`B750-ipadBeforeRender.json`, iPad Pro, the same 2,629,310,897-byte file that threw `NotFoundError`
+yesterday:
+
+```
+sourceProbe: { readable: true, ms: 4, bytes: 2629310897 }
+```
+
+**It read fine.** The clip loaded, and Daniel then ran an uneventful broadcast session with it. Same
+file, same device, same size — **so the wall is not a size limit**, and B750's refusal correctly did
+not fire.
+
+That also means **the probe is testing at the moment access is MOST likely to work** — four
+milliseconds after the file is picked. Every failure so far happened minutes later, at bake or render
+time. **An admission test that runs at admission cannot catch a handle that goes stale afterwards**,
+which is now the leading hypothesis (an iOS security-scoped file handle being revoked). The probe is
+still correct and still cheap; it is just no longer the whole answer, and the gate design has to
+account for that.
+
+### 🚩 FLAGGED, NOT DIAGNOSED
+
+- **The source canvas flipped upside down mid-broadcast.** Y-orientation, so `UNPACK_FLIP_Y_WEBGL` or
+  the planar path is where to look — but B747's direct upload only runs inside a render, and this was
+  a broadcast, so **the obvious suspect does not fit.** No instrument fired. Not guessing further.
+- **The render crash itself.** With B751 the next one leaves crumbs; until then there is nothing to
+  reason from and nothing worth writing here.
+
+---
+
 ## v0.27.12 · Build 750 — A CLIP THIS DEVICE CANNOT READ IS REFUSED AT THE DOOR
 
 **Shipped:**
