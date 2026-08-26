@@ -93,7 +93,38 @@ record is in `BACKLOG.md`, the per-build detail in `CHANGELOG.md`, the narrative
 | Session/permit accounting | **Shipped B681, proven conserved.** Peak GL 2-3, peak decode 8 |
 | Instrumentation | **All five GL surfaces now report (B695).** Four of five were console-only before |
 
-### ⚠️ WHAT CLOSES PHASE 2, revised B737
+### ⚠️⚠️ WHAT CLOSES PHASE 2 — REVISED AGAIN B749, BECAUSE THE MEASUREMENTS RETIRED HALF OF IT
+
+**The B737 revision below is now partly obsolete. It said the bake gate was "blocked only on
+device-verifying B732/B734/B737". Those are verified, and what they proved was that the thing the
+gate was designed to compute no longer varies.**
+
+**THERE ARE THREE GATES, THEY MEASURE DIFFERENT QUANTITIES, AND ONLY ONE IS BINARY.**
+
+| gate | asks | shape | status |
+|---|---|---|---|
+| **1. FILE ACCESS** | can we read these bytes at all? | **binary, per file, 16 bytes at load** | mechanism built (B743); needs to move to load + refuse |
+| **2. BAKE / RENDER** | will this job finish acceptably? | **not binary** — time, thermal, output storage | **rationale changed, see below** |
+| **3. RECORD** | can this device sustain the declared fps? | **not binary** — achieved vs declared, concurrency, thermal | **unbuilt, and its evidence is stale** |
+
+**⭐ GATE 2 LOST ITS ORIGINAL REASON.** It was specified as a memory cost model
+(`sourceBytes + 2 × outputBytes + ~56MB ≤ free`). **Measurement retired that**: `peakMB` is 72-132MB
+on every device for every clip length, and a 3.5× larger source cost 0.7MB more. There is no memory
+curve left to gate on. What survives is **not a refusal but a forecast**: ~1.48× realtime on an M1
+iPad and ~0.23-0.31× on a Mac means a 30-minute 4K bake is ~44 minutes on an iPad — a number to TELL
+someone, not a reason to stop them. Thermal held `nominal` across 530s fanless, so it is not a gate
+yet either. **Output storage is the one unmeasured term** (a 10-minute 4K bake is 1.87GB).
+
+**⭐ GATE 3 IS THE REAL REMAINING WORK, AND IT IS NOT ABOUT FILE SIZE.** A perfectly readable FHD
+file can still fail a 4K take on an iPhone. Its quantity is achieved-versus-declared fps (**13.5fps
+against a declared 30**, two devices, two builds), plus record-while-broadcast concurrency, plus
+thermal `serious`. **None of that evidence has been re-measured in this arc** — see BACKLOG
+*"RE-VERIFY RECORDING ON THE CURRENT BUILD"*. Everything since B704 has been bake and render.
+
+**So the honest state of phase 2:** the bake side collapsed into something simple and mostly needs
+SAYING rather than gating; the record side still holds the original question with stale evidence.
+
+### ⚠️ WHAT CLOSES PHASE 2, revised B737 (partly superseded above)
 
 **Item 2 of the B704 pair is done** (provoke GL loss + cycle diagnostics — see the arc summary above).
 **Two things remain, and they are the same shape:**

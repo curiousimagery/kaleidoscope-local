@@ -486,6 +486,35 @@ One report reads `pressure: { target: 15, label: "warming up" }` on a 30fps clip
 
 ## 🚧 Limits, ceilings and honest refusal
 
+### 🦊 [B749 — MEASURED, DELIBERATELY NOT FIXED] FIREFOX RENDER HAS OBVIOUS LOW-HANGING FRUIT
+
+Daniel's call: Firefox desktop is our lowest-priority platform and it **functions** at 19fps, so this
+is filed rather than built. Recording it because the measurement exists and would otherwise be lost.
+
+`B749-firefoxRender.json`, Firefox 153, M5 Max, 4K, an **SDR BT.709** source:
+
+| stage | ms/frame | vs Safari |
+|---|---|---|
+| `readerWait` | **19.22** | 0.31 |
+| `vframe` (VideoFrame construction) | **19.58** | 3.85 |
+| `upload` | 9.17 | 0.57 |
+| engine render | 0.41 | 0.04 |
+| encode | 0.02 | 0.53 |
+
+**Two independent costs, and only one is ours.**
+
+1. **`readerWait` 19.22ms** — Firefox's `VideoDecoder` cannot keep ahead of the consumer, where every
+   other engine runs 8-10 frames ahead. **Platform decode throughput; nothing in our code to fix.**
+2. **`vframe` 19.58ms — THIS is the low-hanging fruit.** Firefox takes `capturePath: '2d'`
+   (`isWebKit ? 'gl' : '2d'` in `kit/capabilities.js`), so every frame is blitted to a 2D canvas and
+   then wrapped in a `VideoFrame`. **`?capture=gl` tests whether the direct path is faster there in
+   one render**, and if it is, the engine check in `capabilities.js` is a one-line change. The `2d`
+   default for Gecko dates from Build 130 and has never been re-measured.
+
+`uploadPath: videoframe-direct` — Firefox DOES accept a VideoFrame as a texture source, at 9.17ms
+against Safari's 0.57ms. Slower, but taken.
+
+
 ### 🟠 [PARTLY FIXED B740 — REFUSAL SHIPPED, ZIP64 AND FIVE FALLBACKS STILL OPEN] `zipStore` AND THE 4GB WALL
 
 **Daniel's 8K render output is 6.25GB.** `zip.js` writes STORE format with 32-bit size fields and no

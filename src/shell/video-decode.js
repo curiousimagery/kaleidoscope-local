@@ -301,6 +301,35 @@ export function sourceBudget() {
   };
 }
 
+// ⚠️ B750 — THE ADMISSION TEST, AND WHAT IT DOES AND DOES NOT CLAIM.
+//
+// It reads SIXTEEN BYTES at offset 0 and reports whether that worked. That is all. **It does not
+// know any device's ceiling and never learns one** — which is exactly why it can be trusted across
+// hardware nobody has tested. It never predicts; it asks the platform in front of it, about the
+// file in front of it, at the moment of asking. An M7 iPad on a future iOS answers for itself.
+//
+// **What it CANNOT catch, stated plainly:** a file that reads at offset 0 and fails deep. Daniel's
+// 2.63GB clip failed at byte 0, so this catches that one — but a hypothetical wall that only bites
+// past some offset would sail through. The box walk's per-offset error (B743) is the backstop for
+// that case, and it fires later, during the work rather than before it.
+//
+// Cost measured on device: **probeMs 1-2**. There is no version of this worth caching.
+export async function probeSourceReadable(blob) {
+  const t0 = performance.now();
+  if (!blob || !blob.size) return { readable: false, ms: 0, bytes: blob?.size || 0, errName: null,
+                                    why: 'the source has no bytes' };
+  try {
+    const head = await blob.slice(0, 16).arrayBuffer();
+    const ms = Math.round(performance.now() - t0);
+    if (head.byteLength >= 8) return { readable: true, ms, bytes: blob.size, errName: null, why: null };
+    return { readable: false, ms, bytes: blob.size, errName: null,
+             why: `only ${head.byteLength} of the first 16 bytes could be read` };
+  } catch (e) {
+    return { readable: false, ms: Math.round(performance.now() - t0), bytes: blob.size,
+             errName: e?.name || null, why: `${e?.name || 'read error'}: ${e?.message || e}` };
+  }
+}
+
 // The last open attempt, whatever happened to it. Module-global on purpose: three env-shaped objects
 // exist in this app and a fact about the one shared decode path belongs to none of them.
 let lastSourceGate = null;

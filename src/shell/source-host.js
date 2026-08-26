@@ -21,6 +21,7 @@ import { createCameraSettings } from './camera-settings.js';
 import { createCameraTouchControls } from './camera-touch.js';
 import { ICONS } from '../mobile/icons.js';   // shared glyph set (camera flip)
 import { seekVideoTo, createVideoElementClock } from './video-source.js';
+import { probeSourceReadable } from './video-decode.js';
 import { zipStore } from './zip.js';
 import { createSaveFlow } from './save-flow.js';
 import { getActiveForm } from '../engine/index.js';
@@ -218,6 +219,38 @@ export function createSourceHost(env) {
     // uploading a new clip while in Loop Builder resets the process — warn on unsaved
     // first (exitLoopBuilder); if the user backs out, abort the load
     if (env.loopIsActive?.() && !opts.srcUrl && !env.exitLoopBuilder?.()) return;
+
+    // ⚠️ B750 — ADMIT OR REFUSE BEFORE ANYTHING IS TORN DOWN.
+    //
+    // Daniel's call, 2026-08-26: a clip the platform will not let us read raw is not worth admitting
+    // in a degraded state. It loses bake outright, drops render to approximate seeks, drops NATIVE
+    // DECODE (the path that carries broadcast fps), and drops external-display staging — *"we create
+    // more frustration than the value allows"*. **So this refuses, states the limit, and suggests a
+    // way forward.**
+    //
+    // **Everything destructive is below this line** — `releaseSourceVideo`, `detachNativeVideo`,
+    // `haltPlayback`, the URL revoke. A refusal must leave the operator with the clip they had, the
+    // same principle `applyBakedClip` follows on a rejected bake. That is why this re-enters rather
+    // than continuing: `loadVideo` is synchronous and the probe is not.
+    //
+    // Skipped for `opts.srcUrl` (the Electron transcode hands back a path, not this File).
+    if (file && !opts.srcUrl && !opts.probed) {
+      probeSourceReadable(file).then((r) => {
+        env.sourceProbe = { ...r, name: file.name || null, at: new Date().toISOString() };
+        swapTrace('probe', { readable: r.readable, ms: r.ms, bytes: r.bytes, errName: r.errName });
+        if (r.readable) { loadVideo(file, { ...opts, probed: true }); return; }
+        const gb = (r.bytes / 1e9).toFixed(2);
+        swapFailed(
+          `this device cannot read “${file.name || 'that clip'}” (${gb}GB) — the operating system `
+          + 'refused access to its data, which stops baking, rendering and broadcasting it',
+          `Files of this size read fine on desktop but not on this device. A shorter clip, or the `
+          + `same footage re-exported at a lower bitrate or resolution, will load.`);
+      }).catch(() => {
+        // A probe that itself fails must not block a load that might have worked.
+        loadVideo(file, { ...opts, probed: true });
+      });
+      return;
+    }
     // ⚠️ B646 — THE VIDEO PATH HAD NO TRACE AND NO WATCHDOG. B630 built both and wired them to
     // `loadImage` only, so the claim that the swap trace covered "picker → guard → decode" was true
     // for stills and false for clips. Daniel's dead end — *"switching from live camera back to a

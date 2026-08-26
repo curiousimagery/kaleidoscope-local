@@ -540,6 +540,9 @@ export function mountPerfPanel(env, { container = null, onClose = null } = {}) {
       // would otherwise be invisible. Reads `armed: false` with a reason, or `armed: true` with the
       // `fileBytes` that `memNow.peakMB` has to be judged against.
       srcGate: (() => { try { return sourceGateReport() || undefined; } catch { return undefined; } })(),
+      // B750 — the ADMISSION test, distinct from srcGate (which describes a reader that tried to arm).
+      // Present on every load attempt, admitted or refused.
+      sourceProbe: (env.sourceProbe ? { ...env.sourceProbe } : undefined),
       memNow: (() => { try { return memReport(); } catch { return undefined; } })(),
       // B706 — a deferred element re-upload. `reinitWhy` says what failed; these say whether it
       // has since healed. Pending with a rising try count is the forever-black case.

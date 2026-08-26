@@ -6,6 +6,55 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.27.12 · Build 750 — A CLIP THIS DEVICE CANNOT READ IS REFUSED AT THE DOOR
+
+**Shipped:**
+- **`probeSourceReadable(blob)`** — 16 bytes at offset 0, reporting `readable` / `ms` / `bytes` /
+  `errName`. Harnessed 8 ways (`docs/temp/gate-preflight.mjs`, now **33/33**).
+- **`loadVideo` admits or refuses BEFORE anything is torn down**, and says why in the operator's
+  language with a route forward.
+- **`sourceProbe` in the exported report** on every load attempt, admitted or refused.
+
+### 🚪 DANIEL'S PRODUCT CALL, AND THE INVENTORY THAT DROVE IT
+
+*"Without a clean render path or a clean HDMI/broadcast path both these are crippled to the point
+that it's better to restrict outright... we create more frustration than the value allows."*
+
+A clip we cannot read raw loses **bake** outright, drops **render** to approximate seeks, drops
+**native decode** (the path carrying broadcast fps), and drops **external-display staging**. It keeps
+playback, scrubbing, thumbnails and loop detection — **not enough to perform or prepare with**, which
+are the two things the app is for.
+
+The refusal names the file and its size, says the operating system refused access to its data, and
+points at the fix: a shorter clip, or the same footage re-exported at lower bitrate or resolution.
+
+**Everything destructive sits below the check** — `releaseSourceVideo`, `detachNativeVideo`,
+`haltPlayback`, the URL revoke. **A refusal leaves the operator with the clip they had**, the same
+principle `applyBakedClip` follows on a rejected bake. `loadVideo` is synchronous and the probe is
+not, so it re-enters with `probed: true` rather than continuing.
+
+### ⭐ WHAT THE PROBE CLAIMS, AND WHAT IT DOES NOT
+
+**It does not know any device's ceiling and never learns one.** It reads sixteen bytes and reports
+whether that worked. **It never predicts — it asks the platform in front of it, about the file in
+front of it, at the moment of asking**, which is exactly why it holds on hardware and OS versions
+nobody has tested. An M7 iPad on a future iOS answers for itself.
+
+**What it cannot catch:** a file that reads at offset 0 and fails deep. The 2.63GB clip failed at
+byte 0, so this catches that one; a wall that only bit past some offset would sail through. B743's
+per-offset box-walk error is the backstop, and it fires during the work rather than before it.
+
+Measured cost on device: **1-2ms**. Nothing here is worth caching, and caching would be wrong anyway
+— the limit is iOS-version-dependent.
+
+### 📌 SCOPE — ONE CHROME, CHECKED RATHER THAN ASSUMED
+
+`src/mobile/chrome.js` has **no video load path at all** (stills only), so `source-host.js` is the
+whole surface. Verified by grep, not by memory, because this is the file where that assumption has
+cost seven bugs.
+
+---
+
 ## v0.27.11 · Build 749 — FIREFOX WAS RENDERING BEHIND A FENCE I PUT THERE
 
 **Shipped:** the `VideoFrame`-as-texture check runs **once per GL context** instead of once per frame.
