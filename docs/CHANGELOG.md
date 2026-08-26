@@ -6,6 +6,71 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.27.11 · Build 749 — FIREFOX WAS RENDERING BEHIND A FENCE I PUT THERE
+
+**Shipped:** the `VideoFrame`-as-texture check runs **once per GL context** instead of once per frame.
+
+### 🐛 THE FIREFOX REGRESSION IS MINE, FROM B747
+
+B747's `updateSourceFromFrame` ended with `return gl.getError() === gl.NO_ERROR`. **`getError` forces
+the driver to synchronise** — it cannot answer until outstanding work is finished — so calling it
+every frame serialises the GPU with the CPU. That is the textbook way to make a fast path slow, and
+it is why the same clip that Brave and Safari now render at 130fps looked like *"an hour+"* in
+Firefox. **Not a failed upload: a working upload behind a fence.**
+
+Either a context takes a `VideoFrame` as a texture source or it does not, and the answer cannot
+change mid-render. So it is asked once and latched — and re-asked after a context loss, because a
+rebuilt context is a different context.
+
+---
+
+## v0.27.10 · Build 748 — RECORD WHAT COLOUR THE FRAME CLAIMS TO BE
+
+**Shipped:** `timing.srcSplit.frameColorSpace` — the decoded frame's `primaries` / `transfer` /
+`matrix` / `fullRange`, captured once per render.
+
+### 🎨 B747 MADE THE RENDER 62× FASTER AND WASHED THE PICTURE OUT
+
+**Both halves have the same cause, and my B747 note stated it backwards.** I called the 2D canvas
+*"a pointless middleman — a staging surface for a frame the GPU already had"*. **It was not staging.
+It was doing colour management**, and deleting it deleted that.
+
+Daniel's `IMG_4822.MOV`, read from the container (`scratchpad/colr-check.mjs`):
+
+```
+primaries  9  (BT.2020)
+transfer  18  (HLG — HDR)
+matrix     9  (BT.2020 non-constant)
+range         limited (16-235)
+```
+
+An iPhone HLG capture. `drawImage` into a 2D canvas makes the browser tone-map HLG→SDR and convert
+BT.2020→sRGB, silently and for free. Uploaded straight to a texture, the same numbers are read as
+sRGB/BT.709: **the HLG curve lifts the midtones (flat, low contrast) and the wide gamut is read in a
+narrow space (desaturated)** — exactly what Daniel described, and why perform-mode thumbnails still
+look right (they go through `drawImage`).
+
+### ⚠️ THE REAL FINDING IS OLDER THAN THIS BUILD
+
+**We have never owned our colour pipeline.** We never chose a tone map, never tagged output, never
+specified anything — the browser was quietly deciding, and it looked right by accident. B747 did not
+create a colour bug; it removed the accident. This is the BACKLOG "colour and export fidelity" item
+arriving early and now blocking work.
+
+**`renderUploadViaCanvas` in the perf panel restores correct colour today**, at the old speed.
+
+### 📊 THE SPEED RESULT, UNAFFECTED BY ANY OF THAT
+
+| | upload before | upload after |
+|---|---|---|
+| Safari (M5 Max) | 35.16 ms/frame | **0.57 ms** |
+| Brave (M5 Max) | — | **1.02 ms** |
+
+**62× on the upload and no Chromium regression** — Brave's bottleneck moved to encode (4.97ms/frame).
+Daniel's guard against a Chromium regression turned out not to be needed, which is the good outcome.
+
+---
+
 ## v0.27.9 · Build 747 — THE 2D CANVAS WAS 89% OF THE RENDER. IT IS GONE, WITH A WAY BACK.
 
 **Shipped:**

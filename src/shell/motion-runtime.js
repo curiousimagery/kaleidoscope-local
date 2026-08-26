@@ -337,9 +337,9 @@ let exportReader = null, exportReaderCtx = null;
 // B746 — module-level because `advanceSourceToP` is module-scope and the render handler is not.
 // Reset at render start; read at harvest.
 let readerWaitMs = 0, blitMs = 0, uploadMs = 0;
-let uploadDirect = true, uploadPath = null;
-function resetSourceStageTiming() { readerWaitMs = 0; blitMs = 0; uploadMs = 0; uploadDirect = true; uploadPath = null; }
-function sourceStageTiming() { return { readerWaitMs, blitMs, uploadMs, uploadPath }; }
+let uploadDirect = true, uploadPath = null, frameColorSpace = null;
+function resetSourceStageTiming() { readerWaitMs = 0; blitMs = 0; uploadMs = 0; uploadDirect = true; uploadPath = null; frameColorSpace = null; }
+function sourceStageTiming() { return { readerWaitMs, blitMs, uploadMs, uploadPath, frameColorSpace }; }
 
 // ⚠️ B739 — THE RENDER DECLINED TO ARM IN SILENCE, TO A CONSOLE DANIEL CANNOT READ.
 //
@@ -433,6 +433,16 @@ async function advanceSourceToP(p) {
       // B747 — straight to the texture where the browser allows it. `uploadDirect` latches FALSE
       // the first time the engine declines, so a browser that cannot take a VideoFrame pays the
       // probe once rather than every frame.
+      // ⚠️ B748 — RECORD WHAT COLOUR THE FRAME CLAIMS TO BE. B747 made the render 62× faster and
+      // washed the picture out, because `drawImage` into a 2D canvas was never just staging: it was
+      // TONE-MAPPING. Daniel's `IMG_4822.MOV` reads `primaries 9 (BT.2020) · transfer 18 (HLG) ·
+      // matrix 9 · limited range` — an HDR capture. Uploaded straight to a texture those numbers are
+      // interpreted as sRGB/BT.709, which lifts the midtones (flat, low contrast) and reads the wide
+      // gamut in a narrow space (desaturated). **Exactly what he described.**
+      if (!frameColorSpace && frame.colorSpace) {
+        const c = frame.colorSpace;
+        frameColorSpace = { primaries: c.primaries, transfer: c.transfer, matrix: c.matrix, fullRange: c.fullRange };
+      }
       if (uploadDirect && !perfFlags.renderUploadViaCanvas) {
         const tU0 = performance.now();
         const went = engine.updateSourceFromFrame(frame);

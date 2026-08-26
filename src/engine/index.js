@@ -70,6 +70,9 @@ export function createEngine({ canvas, maxProbeSize, perf = null, label = 'engin
   let planarFrame = null;        // provider: () => wire frame | null, installed by the shell
   let planarCap = 0;             // source-detail cap (long edge) for the planar texture
   let lastReinitWhy = '';        // B703 — why the last context restore's element re-upload failed, if it did
+  // B749 — null = not yet asked, true/false = this context's answer. Re-asked after a context loss
+  // because a rebuilt context is a different context and may answer differently.
+  let frameUploadOk = null;
   // HOW MANY TIMES THIS CONTEXT HAS DIED AND COME BACK (B580). A context loss is invisible from
   // the report — it heals, the app keeps rendering, and the only trace was a `console.warn` on a
   // device where we cannot read the console. It is also the trigger for the planar-drop bug above,
@@ -155,6 +158,7 @@ export function createEngine({ canvas, maxProbeSize, perf = null, label = 'engin
       // the recovery caused the damage.** Reopening the source healed it because the attach path
       // re-installs the provider.
       const keepPlanar = planarFrame, keepCap = planarCap;
+      frameUploadOk = null;          // B749 — a rebuilt context re-answers the VideoFrame question
       glGeneration++;
       // ⚠️ B703 — `finally`, BECAUSE THE RE-UPLOAD IS THE PART THAT CAN FAIL. `setSource` throws on
       // a zero-size element (a preview canvas mid mode switch) and on a source past the fresh
@@ -276,11 +280,32 @@ export function createEngine({ canvas, maxProbeSize, perf = null, label = 'engin
     // render for a black one.
     updateSourceFromFrame(frame) {
       if (!frame || !sourceTexture) return false;
+      // ⚠️ B749 — `gl.getError()` IS A PIPELINE STALL AND B747 CALLED IT ON EVERY FRAME.
+      //
+      // `getError` forces the driver to synchronise: it must finish outstanding work before it can
+      // answer. Calling it once per frame in a render loop serialises the GPU with the CPU, which is
+      // the textbook way to make a fast path slow. Daniel's Firefox render went from ~1 minute to
+      // *"an hour+"* on the same clip that Brave and Safari now do at 130fps — **that is not a
+      // failed upload, that is a working upload behind a fence.**
+      //
+      // So the check runs ONCE. Either this context takes a `VideoFrame` as a texture source or it
+      // does not; the answer cannot change mid-render, and a per-frame re-ask bought nothing.
+      if (frameUploadOk === false) return false;
+      if (frameUploadOk === null) {
+        try {
+          updateTexture(glCtx.gl, frame, sourceTexture);
+          frameUploadOk = glCtx.gl.getError() === glCtx.gl.NO_ERROR;
+        } catch {
+          frameUploadOk = false;   // not a valid TexImageSource here; caller falls back for good
+        }
+        return frameUploadOk;
+      }
       try {
         updateTexture(glCtx.gl, frame, sourceTexture);
-        return glCtx.gl.getError() === glCtx.gl.NO_ERROR;
+        return true;
       } catch {
-        return false;   // not a valid TexImageSource here; caller falls back
+        frameUploadOk = false;
+        return false;
       }
     },
     updateSourceFrame() {
