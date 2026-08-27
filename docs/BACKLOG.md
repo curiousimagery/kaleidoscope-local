@@ -135,6 +135,62 @@ Preview restored in 982ms, external in 1.26s, live-pip in 2.3s. `reinitWhy: null
 
 **⚠️ WE COULD NOT TELL THE CANDIDATE CAUSES APART — uncertainty state B, so the move was an instrument, not a fix.** Either preview's `webglcontextrestored` **never fires**, or it **fires and `reinitGL()` throws**. The handler (`main.js:362`) catches, writes to `console` and `statusEl`, and **marks nothing** — so the outcome dies with the app. The `reinitWhy` field (B703) cannot help either: it lives on the engine, and the report is read after a reload. **Fix the instrument first: mark `gl-restore-failed` with the reason, so it lands in `priorTrail` and survives the kill.** Standing rule, violated here: *anything that can decline to act must publish why.*
 
+### 🚨🚨 [OPEN — B760, `R2-take4.json`, AND IT IS THE LARGEST BUG IN PHASE 2] ARMING A TAKE LOSES THREE GL CONTEXTS, AND THE TAKE THEN PRODUCES NOTHING WHILE REPORTING SUCCESS
+
+**Two failures, and the second is worse than the first.**
+
+**One: arming a take loses the GL context, with NO broadcast running.** From `R2-take4.json`, a clean
+`t11-take-baseline` on B760:
+
+```
+t=10  take:arm          w:1920 h:1080  broadcasting:FALSE  srcW:3840 srcH:2160
+t=11  gl-context-lost   surface: output
+t=11  gl-context-restored output
+t=11  gl-context-lost   surface: yuv-source
+t=11  gl-context-lost   surface: preview
+t=11  gl-context-restored yuv-source
+t=12  gl-context-restored preview
+t=12  take:started      w:1920 h:1080
+```
+
+**This is BACKLOG's existing B667/B668 item WITHOUT the broadcast.** That item is titled *"arming a
+take while broadcasting loses the GL context"* and is filed as intermittent. Nothing was broadcasting
+here, `wallW/wallH` are null so no external display was attached, and it has now happened on **three
+of the four most recent runs** (`R2-take2` ×1, `R2-take3`'s crashed session, `R2-take4` ×1). **Merge
+the two items: the broadcast is not the trigger.**
+
+**Two: the take then produced ZERO frames and the app said it worked.** Same report, `scenarioRun.takes`:
+
+```json
+{ "tag": "FHD · alone", "videoFrames": 0, "videoSpanSec": 0, "wallSec": 0.5,
+  "tierPx": 1920, "why": "no video span — the take stamped no timestamps" }
+{ "tag": "4K · alone",  "videoFrames": 1046, "videoSpanSec": 60, "wallSec": 60.5,
+  "tierPx": 3840, "takeFps": 17.4 }
+```
+
+**The FHD take ran for 60 seconds of wall clock and the recorder's own accounting says it died at
+0.5s** — at the context loss. No file was written. `scenarioRun.outcome` is `complete`, 18/18 steps,
+because `setRecord(off)` succeeded. Daniel: *"the runner completed but only output a 4K take, it
+didn't even attempt to save the FHD."*
+
+**⚠️ THIS IS THE EXIT CRITERION IN ONE REPORT.** A common action, on a supported tier, with no
+concurrency, produced nothing and announced nothing. Under the rewritten criterion (*"users can't
+access common failure states, and degraded states warn appropriately"*) this outranks any remaining
+capability measurement.
+
+**▶ WHAT THE FIX HAS TO COVER, in order:**
+
+1. **A take that stamps no timestamps must FAIL LOUDLY**, not finish quietly. The per-take record
+   already computes `why: "no video span"` — it just never reaches the operator. This half is cheap,
+   is Class 1, and should not wait on the cause.
+2. **Then the context loss itself.** Class 2, and it may not be fixable from our side (shared WebKit
+   GPU process). If it is not, the deliverable becomes surviving it: the take should re-arm or refuse,
+   not silently continue against a dead surface.
+
+**▶ AND NOTE THE THIRD NUMBER.** The 4K take that DID complete ran at **17.4 fps against a declared
+30** — and `take:arm` for it records `srcW: 1280, srcH: 720`, so it was upscaling a 720p source. **Do
+not calibrate any record gate against that figure.** See the planar item below.
+
 ### 🚨 [OPEN — B760, STATE B: KNOW WHAT, NOT WHY] A TAKE'S SOURCE DROPS TO THE 1280 PREVIEW CANVAS WITH NOTHING TO BLAME
 
 **The state:** `1280×720 · from canvas · native decode · ⚠ NOT ON THE PLANAR PATH`, on a session with
@@ -153,9 +209,30 @@ frame, and 16,821 arrived. **The enumeration is exhausted and it does not explai
 and B760 shipped it: `planarTrail` names the caller that retired the provider, and `planarHeals`
 counts the reconciler catching it. **The next device report that reaches this state attributes it.**
 
-**▶ NEXT: no new device session needed.** Read `planarTrail` on the next report of any kind. If
-`planarHeals.count > 0` with an empty trail, something outside these five call sites is doing it and
-the trail needs to move lower.
+**▶ ANSWERED ON THE FIRST REPORT (`R2-take4.json`, B760). The trail did its job:**
+
+```json
+{ "what": "install", "why": "native decode attach",                       "w": 1280, "h": 720,  "gen": 0 }
+{ "what": "retire",  "why": "setSource · reinitGL re-upload (restored below)", "w": 3840, "h": 2160, "gen": 1 }
+{ "what": "install", "why": "reinitGL restore (generation 1)",            "w": 1280, "h": 720,  "gen": 1 }
+```
+
+**It is NOT a stray `setSource`.** It is `reinitGL`, at the take-arm context loss above — and the
+provider IS reinstalled, exactly as B580 intended. `planarHeals` is absent (zero), correctly, because
+`hasPlanarProvider` is true so the reconciler had nothing to heal.
+
+**So the question narrowed and changed shape.** It is no longer *who retired it* but **why the planar
+uploader never rebuilds after `reinitGL` reinstalls the provider** — which is B708's question, on a
+build that already has B708's `resync()` fix. `planarActive` requires `planar && planar.width > 0`;
+`reinitGL` sets `planar = null`; `updateSourceFrame` rebuilds it inside `if (frame)`. The socket
+delivered 7,208 frames afterwards, so either the preview engine's `updateSourceFrame` is not reaching
+the planar branch, or `planarFrame()` returns null despite `resync()`.
+
+**▶ NEXT, and it is one free counter, not a device session.** The receiver already tracks `taken`
+(plane reads) and `painted` (preview blits) and publishes neither. Publish the pair. **`taken` rising
+with `planarActive` false means the uploader is being fed and failing to build (a GL-side fault);
+`taken` flat with `painted` rising means nothing is calling `planarFrame()` at all.** Those need
+opposite fixes and the pair reads the same either way.
 
 ### 🎬 [2026-08-21 — CLASS 1, FOUND BY READING, NO DEVICE TIME] THE VIDEO EXPORT HAS NO CONTEXT-LOST GUARD
 

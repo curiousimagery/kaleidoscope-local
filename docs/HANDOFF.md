@@ -10,7 +10,17 @@ Daniel Nelson is building a browser-based kaleidoscope tool for high-resolution 
 
 He prefers **no em dashes** in any prose Claude generates for him.
 
-## ▶▶ THE PLAN NOW LIVES IN `PLAN-LIVE-READINESS.md` (written B609, Daniel's ask)
+## ▶▶ THE PLAN NOW LIVES IN `PLAN-LIVE-READINESS.md` — ⚠️ RESTRUCTURED B760, READ IT FRESH
+
+**It was rewritten end to end at B760** (Daniel: *"increasingly fragmented across various states, and
+updates have been inserted surgically without addressing document-wide inconsistencies"*). It is now a
+**phase map** — 2 (4K end to end), 2.5 (colour, urgent, may pre-empt 2), 3 (iPhone honest labels +
+battery), 4 (NDI), 5 (cleanup, split so its docs half runs early and its code half last) — with one
+work list per phase and a single dependency table. **The old numbered items 1 through 7, the item 1.5
+detail, and the three superseded close-out blocks are archived at
+`archive/PLAN-items-b609-b752.md`.** Nothing was deleted.
+
+## ▶▶ (superseded framing, kept for the B609 pointer)
 
 **Read that file first.** It owns the goal, the sequence, the real dependencies between items, and the stopping rule for each one. It also records the pause point for the stage-manager arc and what is explicitly out of scope.
 
@@ -28,6 +38,29 @@ Archived at B658. It was marked superseded at B609 and kept for the reasoning be
 against **130.9MB** for a 741MB source. **3.5× the file, 0.7MB more memory.** Both 8GB M1 iPads also
 passed the job that killed them at B730 (Air 71.6MB, Pro 114.9MB). The Blob is disk-backed and file
 size is no longer a memory axis. **B705 and B706 are device-verified** — B705's instrument found B706, and B706 held on the repro that killed B705. B703, B704 and B707 are not yet device-verified.
+
+---
+
+## ▶▶▶▶▶▶▶▶▶▶▶ B760 ADDENDUM — WHAT `R2-take4.json` RETURNED, AND IT MOVED THE TARGET
+
+**The trail worked on its first report, and it pointed somewhere better than expected.** The planar
+drop is **not** a stray `setSource` — it is `reinitGL`, at a GL context loss that happens **when a
+take is armed**, and the provider IS reinstalled afterwards. So B760's reconciler correctly did
+nothing (`hasPlanarProvider` was true) and the open question narrowed to *why the uploader never
+rebuilds*, which is B708's question on a build that has B708's fix. **Next step is one free counter,
+not a device session** — see BACKLOG.
+
+**And the report contained a bigger finding than the one it was run for.** Arming an FHD take, with
+**no broadcast** and no external display, lost the GL context on **three** surfaces (output,
+yuv-source, preview) inside one second. The take then ran 60 seconds of wall clock, recorded
+`videoFrames: 0` / `wallSec: 0.5`, wrote no file, **and the app reported success.** The 4K take that
+followed managed 17.4 fps against a declared 30, on a source that was 720p at the time.
+
+**That is the exit criterion failing in a single report**, and it now leads phase 2 as item 2A. The
+loud-failure half is Class 1 and should not wait on the cause: the per-take record already computes
+`why: "no video span"` and simply never reaches the operator.
+
+**⚠️ Do not calibrate any record gate against 17.4 fps.** It was measured off the planar path.
 
 ---
 
