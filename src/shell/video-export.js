@@ -58,7 +58,7 @@ export { pickVideoCodec };
 // Resuming a killed render is deliberately NOT attempted here — that needs the muxer, the encoder
 // and the source clock to agree on a restart point, and belongs with the stage-manager teardown
 // work rather than riding along in an instrumentation build.
-export async function exportVideo({ frameAt, onBegin, onEnd, width, height, fps, durationMs, onProgress, shouldCancel, glLost, captureMode = '2d' }) {
+export async function exportVideo({ frameAt, onBegin, onEnd, width, height, fps, durationMs, onProgress, shouldCancel, glLost, captureMode = '2d', bpp }) {
   if (!videoExportSupported()) {
     const e = new Error('Video export needs a browser with WebCodecs (Chrome, or Safari 16+ / iPadOS 16+).');
     e.code = 'unsupported';
@@ -69,7 +69,7 @@ export async function exportVideo({ frameAt, onBegin, onEnd, width, height, fps,
 
   // Pick the best-supported codec for this size (H.264 <=4K, HEVC above), and
   // confirm the device can encode it before committing.
-  const picked = await pickVideoCodec(width, height, fps);
+  const picked = await pickVideoCodec(width, height, fps, bpp);
   if (!picked) {
     const e = new Error(`This browser can't encode video at ${width}×${height}. Try a smaller resolution.`);
     e.code = 'unsupported';

@@ -31,6 +31,71 @@ size is no longer a memory axis. **B705 and B706 are device-verified** — B705'
 
 ---
 
+## ▶▶▶▶▶▶▶ B754 (2026-08-27) — RECORD PACING. THE ENCODER WAS LIED TO ABOUT ITS FRAME RATE.
+
+**Takes now hold their declared 30fps.** The encoder was configured `framerate: 30` while the
+rAF-driven output bus handed it **46.6**, so every frame got ~64% of its budgeted bits.
+
+```
+FHD  12.4 Mbps / 46.6 fps = 0.129 bits/px    (starved — what Daniel saw)
+4K   40.0 Mbps / 17.1 fps = 0.282 bits/px    (2.2x better, which is why 4K LOOKED better)
+```
+
+**FHD effective quality 0.129 → 0.200 bits/px, no bitrate change, no file-size change, and ~35% less
+encoder work.** Harness `record-pacing-check.mjs` 20/20.
+
+**⚠️ NEEDS A DEVICE RE-MEASURE:** re-run `t11-take-baseline` and compare against
+`01-t11report.json`. Watch the new `pacedOut` vs `droppedToBackpressure` — **they must never be
+added together.** A large `pacedOut` with zero drops is healthy.
+
+**⚠️ 4K record's 17.1 fps is UNTOUCHED.** That is throughput, not bitrate. Pacing buys it headroom
+and does not fix it.
+
+**No record quality selector yet, by agreement** — its tiers must be picked against post-fix numbers.
+
+---
+
+## ▶▶▶▶▶▶ B753 (2026-08-27) — RENDER QUALITY WAS THE PROBLEM ALL ALONG
+
+**Daniel compared a render against a live broadcast at 100% and found heavy macroblocking.** Cause:
+`videoBitrateFor` was a hardcoded **0.1 bits/px/frame = 24.9 Mbps at 4K30**, from a **55.8 Mbps
+source**. The broadcast looked better because **it has no encoder in the path at all.**
+
+**Shipped:** a `draft/good/high/max` quality picker (0.10/0.20/0.30/0.45 bpp), **default now
+`high`**, with live bitrate + estimated file size, unreachable tiers disabled by name, and the 4GB
+zip extras gated up front. Harness `bitrate-tiers-check.mjs` 26/26.
+
+**⚠️ THE A/B HAS NOT BEEN RUN.** `draft` vs `high`, same clip, on the Mac. **The diagnosis is well
+evidenced and the fix is not yet verified.** Do this before trusting the new default.
+
+**⚠️ RECORD IS UNTOUCHED ON PURPOSE.** Separate formula (`min(40 Mbps, w × h × 6)`, no fps term), and
+its codec probe is pinned at 0.1 so nothing moved. FHD takes at 12.4 Mbps are the obvious next win.
+
+### 📊 THE B752 MATRIX SO FAR (M1 iPad Pro, IMG_5132 741,685,378 bytes)
+
+| run | result |
+|---|---|
+| **T11 record baseline** | **FHD alone 46.6 fps** (healthy, never measured before) · **4K alone 17.1 fps** (was 13.4 pre-B681) |
+| **A1 render control** | 3193 frames, 57.8s, **55.2 fps**, `gl 1` — matches B751's 55.6 |
+| **A2b render while broadcasting** | **completed**, 102.4s = **31.2 fps** (−43%), `gl 1`, no crash |
+| **A2 broadcast then render** | completed, 20.3 Mbps out |
+| **T3r take while broadcasting** | ⭐ **BOTH COMPLETED, NO GL LOSS.** A (broadcasting) **23.6 fps** · B (alone) **46.4 fps** — a 49% cost, and B replicates T11's 46.6 exactly |
+
+**HDMI 4K re-learned at `delivered 30 / source 30`** over 1.47M samples, up from T10's 22/30.
+
+**⭐⭐ GATE 3 IS ANSWERED: RECORD-WHILE-BROADCASTING NO LONGER FAILS.** The B571/B667 cluster
+(*"arming a take while broadcasting loses the GL context"*) **did not reproduce**. `sessions.peak`
+`{gl 2, decode 3, encode 1}`, conserved, HDMI held 30/30 throughout. **B681 fixed it.** So the
+"refuse" rule has no evidence behind it any more — the honest response is a WARNING carrying the
+measured cost (~49% of take fps), which is Daniel's stated product direction anyway.
+
+**⚠️ A HYPOTHESIS I HAD TO CORRECT: HDMI broadcast does NOT create a second GL context** (the
+external view renders in its own process). **A take does** — `output/bus engine`, and
+`output-engine.js` has no `.release()` at all. So B750's `gl: 2` came from a bus-side consumer, not
+from HDMI, and **A2b was not the cell that reproduces it.**
+
+---
+
 ## ▶▶▶▶▶ READ THIS FIRST — B752 (2026-08-26)
 
 **SHIPPED: the scenario runner can now drive a render and a bake**, so the concurrency matrix runs

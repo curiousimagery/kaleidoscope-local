@@ -1495,6 +1495,9 @@ body.loop-active #outputToolbar { display: none; }
 .clip-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
 .vid-opt { display: flex; align-items: center; gap: 8px; font-size: var(--text-md); color: var(--text-secondary); margin: 4px 0 2px; cursor: pointer; }
 .vid-opt input { accent-color: var(--fill-bright); }
+/* B753 — an extra that would push the .zip past its 4GB format limit. Same token as
+   `button:disabled` so a disabled checkbox and a disabled tier read as one language. */
+.vid-opt.is-disabled { opacity: var(--disabled-opacity); cursor: not-allowed; }
 .vid-progress { height: 6px; background: var(--surface-hover); border-radius: var(--radius-sm); overflow: hidden; }
 .vid-progress[hidden] { display: none; }
 .vid-bar { height: 100%; width: 0; background: var(--fill-bright); transition: width 0.12s; }

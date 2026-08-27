@@ -546,6 +546,104 @@ is filed rather than built. Recording it because the measurement exists and woul
 against Safari's 0.57ms. Slower, but taken.
 
 
+### 📦📦 [Daniel, 2026-08-27 — NEW] A BETTER WAY TO DELIVER THE SUPPORTING FILES, AND THE iOS SAVE UX
+
+**B753 disabled the `.zip` extras when the package would pass 4GB**, which is honest but is a
+refusal, not a solution. Raising the default bitrate moved that wall from ~21 minutes of 4K to ~7,
+so it is now reachable in ordinary use rather than at the extreme.
+
+**What is needed:** a way to get the source-preview video and the motion JSON alongside a large
+render without the zip. Candidates, none costed yet:
+
+- **ZIP64.** The code comment in `zip.js` puts it at *"~40 lines, and every modern unzip reads it"*.
+  Removes the wall entirely and is the smallest change. **Probably the right answer**; it was
+  deferred at B740 because the refusal was the urgent half.
+- **Sequential saves** with a clear "3 files" affordance. The `packagedSeparately` fallback already
+  exists in the render path and **has never once run**.
+- **A folder pick** (`showDirectoryPicker`) on platforms that have it. Not iOS.
+
+**⚠️ AND DANIEL FLAGGED THE SURROUNDING UX WHILE WE ARE IN HERE (2026-08-27):** *"the save UX is
+already a bit weird on iOS."* Worth treating as one piece of work rather than two, because the
+answer to "how do we hand over three files" and "why is saving one file strange" is likely the same
+surface. Not yet diagnosed — **start by watching a save on the device**, since nothing about it is
+currently instrumented and every claim here would otherwise be a guess.
+
+---
+
+### 🎚 [B754 — THE PACING SHIPPED; THE SELECTOR IS DELIBERATELY NOT BUILT] A RECORD QUALITY SELECTOR
+
+**Deferred on purpose (Daniel + agreed 2026-08-27):** the tiers must be chosen against **post-pacing**
+measurements. Building it against the pre-fix numbers would calibrate it to a bug.
+
+**⚠️ RECORD'S TRADE-OFF IS NOT RENDER'S, SO THE CONTROL MUST NOT LOOK THE SAME.**
+
+| | what a wrong choice costs | how bad |
+|---|---|---|
+| **render** | disk space. Encode is 3ms of a 16ms frame, so time barely moves | recoverable |
+| **record** | **dropped frames — the take is ruined and you find out afterwards** | not recoverable |
+
+**And the levers are not equivalent, which is the thing to get right in the UI:**
+
+- **Resolution dominates fps** (pixels/second is what a hardware encoder is bound by). 4K vs FHD was
+  17.1 vs 46.6 fps — that is the choice that risks the take.
+- **Bitrate dominates file size** and costs comparatively little fps. That is the choice that risks
+  the disk.
+
+Presenting them as one undifferentiated "quality" slider would hide exactly the distinction that
+matters. **Resolution should warn/gate; bitrate should inform.**
+
+**Design directions to weigh (Daniel raised decision fatigue explicitly):**
+
+1. **⭐ Make the default the best tier this device SUSTAINS**, from measurement rather than a
+   constant. `t11-take-baseline` already produces exactly that number. This is "probe, never
+   classify" applied to a default instead of a gate, and it is the single biggest reduction in how
+   much the user has to decide.
+2. **Label with consequences, not settings** — "≈180 MB/min · held 46 fps here last time" beats
+   "0.3 bits/px".
+3. **Grey out what this device cannot sustain**, the same pattern B753 shipped for the 8K encoder
+   ceiling.
+4. **Two presets plus a reveal**, not a grid, once measurement says what the tiers should be.
+
+**▶ BLOCKED ON:** re-running `t11-take-baseline` post-B754 on the iPad Pro and Air.
+
+---
+
+### 🐌 [OPEN — B754 did NOT fix this] THE 4K TAKE RUNS AT 17.1 fps AND THAT IS THROUGHPUT, NOT BITRATE
+
+Measured on B752's `t11-take-baseline`: **4K take alone, nothing else running, 17.1 fps against a
+declared 30** (`wallVsSpan` 0.3, so it ran slow throughout rather than stalling — structural). Better
+than the pre-B681 figure of 13.4, still a 43% shortfall.
+
+**Pacing (B754) gives it ~35% more headroom by encoding fewer frames, but does not address the
+cause.** Nothing has yet localised where a 4K take's frame time goes; the render's per-stage split
+(`gl / vframe / enc`) has no equivalent on the record path. **That instrument is the next step, not a
+fix** — the record path has never had one.
+
+---
+
+### ⭐⭐ [B753 — SHIPPED, NEEDS A DESKTOP A/B] THE RENDER BITRATE WAS 0.1 bpp AND IT WAS VISIBLY TOO LOW
+
+Daniel compared a render against a live broadcast side by side at 100% and found **macroblocking
+"like saving a JPG at 10% quality"**. The cause was `videoBitrateFor`, a hardcoded **0.1 bits per
+pixel per frame = 24.9 Mbps at 4K30**, against a **55.8 Mbps source**. Below YouTube's *recommended
+upload* rate, for content (mirrored, rotating, high-frequency) that is far harder to encode than
+ordinary footage.
+
+**The broadcast looked better because it has no encoder in the path at all** — it is the GL surface
+over HDMI. That comparison is what isolated the encode, and it is why this survived unnoticed.
+
+**Shipped:** a four-tier quality picker, default moved to 0.30 bpp. **Still open:**
+
+1. **The A/B has not been run.** Same clip at `draft` vs `high` on the Mac. **Do this before
+   trusting the default** — the diagnosis is well-evidenced but the fix is not yet verified.
+2. **Whether 120 Mbps is the right ceiling.** It is far below what H.264 High 5.1 permits, so it
+   looks conservative rather than required. While it stands, **8K30 is capped at 0.12 bpp** and only
+   `draft` is reachable there. **A decision, not a constant to nudge.**
+3. **Output storage is now the binding constraint**, which is the one term gate 2 never measured. A
+   10-minute 4K bake goes 1.87GB → ~5.6GB.
+
+---
+
 ### 🟠 [PARTLY FIXED B740 — REFUSAL SHIPPED, ZIP64 AND FIVE FALLBACKS STILL OPEN] `zipStore` AND THE 4GB WALL
 
 **Daniel's 8K render output is 6.25GB.** `zip.js` writes STORE format with 32-bit size fields and no

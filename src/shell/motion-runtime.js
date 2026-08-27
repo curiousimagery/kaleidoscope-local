@@ -27,6 +27,8 @@ import { ICONS } from '../mobile/icons.js';
 import { pToMediaSec, seekVideoTo } from './video-source.js';
 import { createVideoStageSource } from './stage-source.js';
 import { exportVideo, videoExportSupported, pickVideoCodec } from './video-export.js';
+import { videoBitrateFor, maxBppFor, DEFAULT_BPP, MAX_VIDEO_BITRATE } from 'conduit/encode';
+import { ZIP_MAX_TOTAL } from './zip.js';
 import { createSequentialFrameReader, sourceGateReport } from './video-decode.js';
 import { memBegin, memHold, memRelease, memReport } from './mem-ledger.js';
 import { readHostVitals } from './gl-watch.js';
@@ -2301,6 +2303,13 @@ function setupVideoExport() {
   const sheet = byId('vidSheet');
   if (!sheet) return;
   let selLong = 2560, selFps = 30, selCap = env.capabilities.capturePath, cancelRender = false, rendering = false;
+  // ⚠️ B753 — TWO VARIABLES, NOT ONE, AND THE SECOND IS THE WHOLE POINT.
+  // `selBpp` is what will actually be encoded; `preferBpp` is what the OPERATOR last chose. They
+  // diverge when the 120 Mbps ceiling forces a drop (8K30 tops out at 0.12 bpp). Keeping the
+  // preference means that moving 8K → 4K RESTORES the tier they picked, instead of silently
+  // stranding them on `draft` because they once looked at 8K. Daniel's ask, and it is the
+  // difference between a gate that explains itself and one that just takes things away.
+  let selBpp = DEFAULT_BPP, preferBpp = DEFAULT_BPP;
   // B742 — the perf-flag lever, read at sheet-open so a toggle takes effect without a reload.
   const captureMode = () => (perfFlags.captureForce2d ? '2d' : selCap);
 
@@ -2328,11 +2337,80 @@ function setupVideoExport() {
     const c = byId('vidRes')?.querySelector('button.active')?.dataset.codec;
     return c === 'hevc' ? ' · HEVC' : c === 'avc' ? ' · H.264' : '';
   };
+  const outSecs = () => motion.durationMs / 1000;
+  // Every term is known before the render starts, which is what makes this honest rather than a
+  // guess. Measured against four real renders it is an UPPER bound: the encoder undershoots its
+  // target on hard frames (an iPad A1 run asked 24.9 Mbps and delivered 20.3), so `≈` is the right
+  // symbol and rounding up is the right direction for someone deciding if a file will fit.
+  const estBytesFor = (w, h, fps, bpp) => Math.round(videoBitrateFor(w, h, fps, bpp) * outSecs() / 8);
+  const estMainBytes = () => { const { w, h } = dims(); return estBytesFor(w, h, selFps, selBpp); };
+  const SP = 1920;   // the source-preview pass is a 1920 square; keep in step with the render below
+  const estPreviewBytes = () => estBytesFor(SP, SP, selFps, selBpp);
+  const fmtSize = (b) => (b >= 1e9 ? `${(b / 1e9).toFixed(2)} GB` : `${Math.round(b / 1e6)} MB`);
+
   const refreshMeta = () => {
     const { w, h } = dims();
     const meta = byId('vidMeta');
-    if (meta) meta.textContent = `${w}×${h} · ${frameCount()} frames · ${(motion.durationMs / 1000).toFixed(1)}s @ ${selFps}fps${codecLabel()}`;
+    if (!meta) return;
+    const mbps = (videoBitrateFor(w, h, selFps, selBpp) / 1e6).toFixed(1);
+    meta.textContent = `${w}×${h} · ${frameCount()} frames · ${outSecs().toFixed(1)}s @ ${selFps}fps${codecLabel()}`
+      + ` · ${mbps} Mbps · ≈${fmtSize(estMainBytes())}`;
   };
+
+  // ⚠️ B753 — THE QUALITY TIERS THIS RESOLUTION AND FRAME RATE CAN ACTUALLY REACH.
+  //
+  // `videoBitrateFor` clamps at 120 Mbps, so at 8K30 everything above 0.12 bpp encodes IDENTICALLY
+  // to `draft`. Offering four buttons that produce one file is the silent-downgrade behaviour we are
+  // trying to remove, so the unreachable ones are disabled and say why. Dropping the resolution back
+  // to 4K re-enables them and restores `preferBpp`.
+  function gateQuality() {
+    const grp = byId('vidQuality');
+    if (!grp) return;
+    const { w, h } = dims();
+    const maxBpp = maxBppFor(w, h, selFps);
+    const btns = [...grp.querySelectorAll('button')];
+    let best = null;
+    for (const btn of btns) {
+      const bpp = parseFloat(btn.dataset.bpp);
+      const ok = bpp <= maxBpp + 1e-9;
+      btn.disabled = !ok;
+      btn.title = ok
+        ? `≈${(videoBitrateFor(w, h, selFps, bpp) / 1e6).toFixed(1)} Mbps · ≈${fmtSize(estBytesFor(w, h, selFps, bpp))}`
+        : `${w}×${h} at ${selFps}fps caps at ${maxBpp.toFixed(2)} bits/px (the ${Math.round(MAX_VIDEO_BITRATE / 1e6)} Mbps encoder ceiling).`
+          + ' Lower the resolution or frame rate to use this.';
+      if (ok) best = bpp;
+    }
+    // Prefer what the operator chose; fall back to the best still reachable.
+    const floorBpp = best ?? (parseFloat(btns[0]?.dataset.bpp) || DEFAULT_BPP);
+    selBpp = preferBpp <= maxBpp + 1e-9 ? preferBpp : floorBpp;
+    btns.forEach((x) => x.classList.toggle('active', Math.abs(parseFloat(x.dataset.bpp) - selBpp) < 1e-9));
+    gatePackaging();
+    refreshMeta();
+  }
+
+  // ⚠️ B753 — THE 4GB ZIP WALL, SURFACED AT THE CHOICE INSTEAD OF AT THE END OF A LONG RENDER.
+  //
+  // The wall is the ZIP FORMAT, not the platform and not storage: every size and offset in
+  // `zip.js` is a `setUint32`. It only applies when an extra is ticked — a bare .mp4 has no limit
+  // at any size. B740 shipped the refusal, but it fires AFTER the frames are encoded, which is the
+  // worst possible moment to learn it. Raising the default bitrate moves this from ~21 minutes of
+  // 4K to ~7, so it stops being theoretical.
+  function gatePackaging() {
+    const main = estMainBytes();
+    const prev = byId('vidSourcePreview');
+    const json = byId('vidMotionJSON');
+    const overAlone = main >= ZIP_MAX_TOTAL;
+    const overWithPreview = main + estPreviewBytes() > ZIP_MAX_TOTAL;
+    const why = (extra) => `this render is ≈${fmtSize(main)}${extra}, past the 4GB limit of the .zip format.`
+      + ' Render without the extras (a plain .mp4 has no size limit), or lower the quality or resolution.';
+    for (const [el, over, extra] of [[prev, overAlone || overWithPreview, ` plus a ≈${fmtSize(estPreviewBytes())} preview`], [json, overAlone, '']]) {
+      if (!el) continue;
+      el.disabled = over;
+      if (over) el.checked = false;
+      const label = el.closest('label');
+      if (label) { label.title = over ? why(extra) : ''; label.classList.toggle('is-disabled', over); }
+    }
+  }
 
   // Enable only the resolution tiers this device can actually render AND encode.
   // Render limit = the probed FBO ceiling; encode limit = pickVideoCodec (H.264
@@ -2346,7 +2424,7 @@ function setupVideoExport() {
     await Promise.all(btns.map(async (b) => {
       const { w, h } = rawDims(parseInt(b.dataset.long, 10));
       const overFBO = Math.max(w, h) > cap;
-      const codec = overFBO ? null : await pickVideoCodec(w, h, selFps);
+      const codec = overFBO ? null : await pickVideoCodec(w, h, selFps, selBpp);
       const ok = !overFBO && !!codec;
       b.disabled = !ok;
       b.dataset.codec = ok ? codec.muxerCodec : '';
@@ -2362,7 +2440,7 @@ function setupVideoExport() {
       btns.forEach((x) => x.classList.toggle('active', x === pick));
       selLong = parseInt(pick.dataset.long, 10);
     }
-    refreshMeta();
+    gateQuality();   // the tier may have moved, which moves the reachable quality ceiling
   }
 
   const wireGroup = (groupId, attr, set) => {
@@ -2375,8 +2453,10 @@ function setupVideoExport() {
       });
     });
   };
-  wireGroup('vidRes', 'long', (v) => { selLong = parseInt(v, 10); });
+  // Resolution and frame rate both move the 120 Mbps ceiling, so both must re-gate quality.
+  wireGroup('vidRes', 'long', (v) => { selLong = parseInt(v, 10); gateQuality(); });
   wireGroup('vidFps', 'fps', (v) => { selFps = parseInt(v, 10); gateResolutions(); });
+  wireGroup('vidQuality', 'bpp', (v) => { preferBpp = parseFloat(v); gateQuality(); });
 
   function open() {
     if (kfList().length < (env.sourceVideo ? 1 : 2)) return;
@@ -2477,6 +2557,8 @@ function setupVideoExport() {
         why: failed ? (st?.textContent || 'the render failed and published no reason') : null,
         wallSec: d?.wallSec ?? +((performance.now() - t0) / 1000).toFixed(1),
         renderPx: selLong,
+        bpp: selBpp,
+        askedMbps: (() => { const { w, h } = dims(); return +(videoBitrateFor(w, h, selFps, selBpp) / 1e6).toFixed(1); })(),
         frames: d?.timing?.frames ?? null,
         sourcePath: d?.sourcePath || d?.timing?.sourcePath || null,
         outBytes: d?.outBytes ?? null,
@@ -2541,6 +2623,7 @@ function setupVideoExport() {
       // main kaleidoscope video (GL capture path)
       const { blob, frames, timing } = await exportVideo({
         width: w, height: h, fps: selFps, durationMs: motion.durationMs, captureMode: captureMode(),
+        bpp: selBpp,
         onBegin: () => engine.beginCapture(w, h),
         // a video source seeks the footage to p BEFORE capturing, so the clip
         // actually advances frame-by-frame in the render (frame-accurate export).
@@ -2571,9 +2654,8 @@ function setupVideoExport() {
         // B643 — start the pass with no fold on record, or a fold left over from live playback
         // would make the opening frames crossfade out of nothing.
         lastFoldP = null; prevSampleMirror = null; prevSampleP = null;
-        const SP = 1920;   // square, capped
         const { blob: sblob } = await exportVideo({
-          width: SP, height: SP, fps: selFps, durationMs: motion.durationMs,
+          width: SP, height: SP, fps: selFps, durationMs: motion.durationMs, bpp: selBpp,
           frameAt: env.sourceVideo
             ? async (p) => { await advanceSourceToP(p); const s2 = sampleAt(p, { bake: true }); return renderSourcePreviewFrame(s2, SP, bakeFoldFade(p)); }
             : (p) => { const s2 = sampleAt(p, { bake: true }); return renderSourcePreviewFrame(s2, SP, bakeFoldFade(p)); },

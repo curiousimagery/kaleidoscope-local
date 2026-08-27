@@ -288,14 +288,21 @@ export const SCRIPTS = [
     // 2. **The bake SWAPS the source**, so the render that follows renders the BAKED clip, not the
     //    original. That is correct for the residue question and wrong for any comparison of render
     //    time against A1. Read the wall clock here as "did it finish", not "how fast".
-    // 3. **Set the loop mode by hand first.** The verb bakes with whatever mode is set and reports
-    //    it; it deliberately does not drive the loop-builder rail. Use the SHORT source here —
-    //    a bake plus a render of the 8-minute clip is a very long unattended run.
+    // 3. **SETUP, and B755 made this precise because the first attempt failed on it.** Open the
+    //    **Loop Builder**, choose **slice** (or bounce) at the Behavior step, and advance to the
+    //    bake step. `forward` is a TRIM, not a bake, and will now refuse BY NAME at pre-flight
+    //    rather than aborting mid-run. This is NOT the loop toggle in motion mode's overflow —
+    //    different control entirely. Use the SHORT source: a bake plus a render of the 8-minute
+    //    clip is a very long unattended run.
     steps: [
-      { do: 'renderTier', px: 3840 },
+      // ⚠️ B755 — BAKE FIRST, THEN SET THE TIER. The original order front-loaded `renderTier`, which
+      // opens the render sheet and therefore needs MOTION mode — but this script starts in the Loop
+      // Builder, where that sheet cannot open. A bake lands you in motion mode, so the tier can only
+      // be set after it. The usual front-load-the-cheap-failure rule loses to a hard ordering here.
       { do: 'session', arg: 'start', label: 'a3-bake-then-render' },
       { do: 'bake' },
       { do: 'wait', ms: 20_000, note: 'bake applied and swapped, settling' },
+      { do: 'renderTier', px: 3840 },
       { do: 'render' },
       { do: 'session', arg: 'stop' },
     ],
@@ -362,7 +369,11 @@ export function createScenarioRunner(env) {
       }
     }
     const needsBake = (sc.steps || []).some((st) => st.do === 'bake');
-    if (needsBake && !env.bakeActions?.available()) bad.push('no source video loaded to bake');
+    if (needsBake && !env.bakeActions?.available()) {
+      // B755 — say WHICH precondition, not just that one failed. `forward` mode is the common one
+      // and it cost Daniel a run before this existed.
+      bad.push(env.bakeActions?.why() || 'no clip editor on this chrome');
+    }
 
     const needsDest = (sc.steps || []).some((st) => st.do === 'broadcast' && st.arg === 'on');
     if (needsDest && env.outputActions && !env.externalDisplay?.active && !env.outputActions.isBroadcasting()) {

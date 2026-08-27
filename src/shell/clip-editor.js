@@ -1633,8 +1633,21 @@ export function createClipEditor(env) {
   // failure, it stops the device at a modal until the operator returns.** Filed since B707 as the
   // worst operator-facing defect in the arc; named here because the runner's whole premise is
   // walking away.
+  // ⚠️ B755 — `forward` IS NOT A BAKE, AND THE FIRST SCRIPTED RUN FOUND THAT THE HARD WAY.
+  // Daniel's A3 aborted at step 3 with *"it declined in forward mode and published no reason"*.
+  // The message was right and the REFUSAL WAS TOO LATE: forward is trim-only, `bakeAndApply` handles
+  // only `slice` and `bounce`, and this file already says so at the B719 note further down. A
+  // precondition knowable at step zero must be checked at step zero (B666's rule).
+  const BAKEABLE_MODES = ['slice', 'bounce'];
   env.bakeActions = {
-    available: () => !!env.sourceVideo,
+    bakeableModes: BAKEABLE_MODES.slice(),
+    available: () => !!env.sourceVideo && BAKEABLE_MODES.includes(env.clip.trim?.mode),
+    // Why it is not available, in the operator's words rather than a boolean.
+    why: () => (!env.sourceVideo ? 'no source video loaded'
+      : !BAKEABLE_MODES.includes(env.clip.trim?.mode)
+        ? `the Loop Builder is in "${env.clip.trim?.mode || 'no'}" mode, which is a trim and not a bake`
+          + ` — choose slice or bounce in the Loop Builder first`
+        : null),
     isBaking: () => !!env.clip.baking,
     mode: () => env.clip.trim?.mode || null,
 
@@ -1642,7 +1655,7 @@ export function createClipEditor(env) {
       if (env.clip.baking) return { ok: false, why: 'a bake is already running' };
       if (!env.sourceVideo) return { ok: false, why: 'no source video loaded' };
       const mode = env.clip.trim?.mode || null;
-      if (!mode) return { ok: false, why: 'the clip has no trim mode set' };
+      if (!BAKEABLE_MODES.includes(mode)) return { ok: false, why: env.bakeActions.why() };
 
       // ⚠️ THE CONSERVED QUANTITY, not an activity counter. `bakeAndApply` has early `return`
       // paths ABOVE its own try/finally (the unknown-mode branch at ~1058), so "it returned" does

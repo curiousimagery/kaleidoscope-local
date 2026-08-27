@@ -6,6 +6,157 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.27.17 · Build 755 — A3 REFUSES `forward` MODE UP FRONT INSTEAD OF FAILING MID-RUN
+
+**Shipped:** picking the A3 scenario while the Loop Builder is in trim-only mode now refuses before
+the run starts and says exactly what to change, instead of aborting three steps in.
+
+### 🐞 WHAT DANIEL HIT, AND WHY THE MESSAGE WAS RIGHT BUT TOO LATE
+
+*"A3 · step 3/6 · ⚠️ the bake returned without reaching its teardown — it declined in `forward` mode
+and published no reason."*
+
+**`forward` is a trim, not a bake.** `bakeAndApply` handles `slice` and `bounce`; everything else
+falls to an early return. This file already knew — the B719 note says *"`mode: 'forward'` never bakes
+at all"* — but B752's `bakeActions.available()` only checked for a source video, so the refusal
+landed at step 3 rather than at pre-flight. **A precondition knowable at step zero must be checked at
+step zero.** Now it is, by name.
+
+**The detection worked exactly as designed.** The conserved-quantity check (did `env.bakeDecode.at`
+change) correctly caught a bake that never ran, rather than reporting a success. The bug was the
+timing of the refusal, not the refusal.
+
+### 🔀 AND A3'S STEP ORDER WAS WRONG
+
+`renderTier` ran first, which opens the render sheet — but that needs **motion** mode, and this
+script starts in the **Loop Builder**. A bake is what lands you in motion mode, so the tier can only
+be set afterwards. Reordered. The usual "front-load the cheap failure" rule loses to a hard
+ordering here.
+
+### 📋 A3 SETUP, NOW STATED PRECISELY
+
+Open the **Loop Builder**, choose **slice** (or bounce) at the Behavior step, advance to the bake
+step, then run A3. **This is not the loop toggle in motion mode's overflow** — a different control
+that was easy to confuse, and the docs did not distinguish them.
+
+---
+
+## v0.27.16 · Build 754 — THE RECORDER WAS BEING LIED TO ABOUT ITS OWN FRAME RATE
+
+**Shipped:** takes now hold the 30fps they declare. Same file size, visibly better picture, and the
+encoder does about a third less work.
+
+### ⭐⭐ WHY FHD LOOKED WORSE THAN 4K, WHICH MADE NO SENSE UNTIL YOU DIVIDED
+
+Daniel: *"the FHD recording looks terrible even at a tiny size... 4k at 100% actually looks better
+than FHD at 100%, which is curious."* It is, because FHD had the HIGHER bitrate per pixel on paper.
+
+The encoder is configured `framerate: 30`, so its rate controller budgets bits for thirty frames a
+second. **The output bus is rAF-driven with no limiter** — its own comment says *"the loop naturally
+paces to render-rate"* — so an FHD take on the iPad handed it **46.6**. Divide by the real rate:
+
+```
+FHD   12.4 Mbps / 46.6 fps  =  0.129 bits/px     <- starved
+4K    40.0 Mbps / 17.1 fps  =  0.282 bits/px     <- 2.2x better
+```
+
+**4K got more than twice the bits per pixel.** Exactly what Daniel saw, and the opposite of what the
+configured bitrates suggest.
+
+### ✅ THE FIX GIVES BACK QUALITY AND PERFORMANCE AT THE SAME TIME
+
+Each frame is binned into the 30fps slot it belongs to and one frame per slot is kept.
+
+- **FHD effective quality: 0.129 → 0.200 bits/px, a 55% lift, with NO bitrate change.**
+- **File size does not move at all** — bitrate is bits per *second*, so frame count never affected it.
+- **The encoder does ~35% less work**, which is headroom the 4K take needs at 17.1 fps.
+
+**Slots rather than a minimum gap, deliberately.** "Drop anything closer than 33ms" leaves a
+21/43/21ms stutter on a 46.6fps source. Slots give even spacing, and **a source slower than 30fps
+passes through completely untouched** — verified at 17.1fps in and 17.1fps out.
+
+**The timestamp is not snapped to the slot grid.** It stays true wall-clock-minus-latency, because
+that is a deliberate A/V sync contract. Pacing chooses *which* frame to keep, never restates *when*.
+
+### 📊 TWO COUNTERS, AND THEY MUST NEVER BE ADDED TOGETHER
+
+`pacedOut` is the limiter working; `droppedToBackpressure` is the encoder losing. **A take with a
+large `pacedOut` and zero drops is healthy.** Pacing also now runs BEFORE the backpressure check, so
+`dropped` counts only frames the encoder genuinely could not take — it is the number any future
+record gate would be built on, and it was over-reporting.
+
+`docs/temp/record-pacing-check.mjs` — **20/20**, and it asserts the real source still contains the
+algorithm it models.
+
+### 🚧 STILL OPEN
+
+- **The 4K take's 17.1 fps is untouched.** That is a throughput problem, not a bitrate one. Pacing
+  gives it headroom but does not fix it.
+- **No record quality selector yet**, by agreement — its tiers should be chosen against post-fix
+  measurements, not pre-fix ones. Re-measure FHD and 4K takes first.
+
+---
+
+## v0.27.15 · Build 753 — RENDER QUALITY IS A CHOICE NOW, AND THE OLD DEFAULT WAS TOO LOW
+
+**Shipped:**
+- **A quality picker in the render sheet** — `draft · good · high · max`. **The default is now
+  `high`, which is 3× the bitrate every previous render used.**
+- **Live bitrate and estimated file size** in the sheet, updating with resolution, frame rate and
+  quality. Every term is known before you press render, so nothing has to be probed.
+- **Tiers this device cannot reach are disabled and say why**, instead of quietly producing an
+  identical file. At 8K30 that is everything above `draft`.
+- **The picker remembers what you chose.** Drop to 8K and it falls back; go back to 4K and your tier
+  returns.
+- **A `.zip` extra that would push the package past 4GB is disabled up front**, with the reason on
+  hover, rather than failing after the frames are already encoded.
+- `docs/temp/bitrate-tiers-check.mjs` — **26/26**.
+
+### ⭐⭐ WHY: WE WERE ENCODING A 55.8 Mbps SOURCE DOWN TO 24.9 Mbps
+
+Daniel put a render beside a live broadcast at 100% and found macroblocking *"like saving a JPG for
+the web at like 10% quality."*
+
+`videoBitrateFor` was a hardcoded **0.1 bits per pixel per frame**. At 4K30 that is **24.9 Mbps**,
+against a **55.8 Mbps source** — 45% of the input, and **below YouTube's recommended UPLOAD rate**
+for footage that has already been through a camera encoder. All four of the session's renders asked
+for exactly `24883200`.
+
+**Kaleidoscope output is close to the worst case for an encoder**: high-frequency detail across the
+whole frame, mirrored and rotating, so inter-frame prediction barely helps and nearly every frame is
+a new frame. Natural footage survives 24.9 Mbps. This does not.
+
+**And it is nearly free to fix.** Measured `msPerFrame` on the iPad: `enc 3.27` against `vframe
+11.45`. The encode is the *smallest* stage; the render is not encode-bound. Memory does not move
+either, because the muxer already streams to disk-backed parts.
+
+### 🔍 THE BROADCAST LOOKED BETTER BECAUSE IT HAS NO ENCODER IN IT
+
+Not a render bug. The broadcast is the GL surface going to HDMI, uncompressed. Putting the two side
+by side is what isolated the encode, which is why this survived unnoticed for so long.
+
+### ⚠️ WHAT THIS COSTS, STATED PLAINLY
+
+| | before | at `high` |
+|---|---|---|
+| a 1:46 4K clip | 331 MB | **993 MB** |
+| a 10-min 4K bake | 1.87 GB | **~5.6 GB** |
+
+**The 4GB zip wall moves from ~21 minutes of 4K to ~7**, which is why the packaging gate shipped in
+the same build. **A bare .mp4 has no size limit** — the wall is the zip format, not the platform.
+
+### 🚧 NOT DONE, AND NAMED SO IT IS NOT ASSUMED
+
+- **The A/B has not been run.** `draft` vs `high` on the same clip, on the Mac. The diagnosis is well
+  evidenced; **the fix is not yet verified.**
+- **Record is deliberately untouched.** Its formula is separate (`min(40 Mbps, w × h × 6)`, with **no
+  fps term at all**), and its probe is pinned at 0.1 so this build changes nothing there. FHD takes
+  are 12.4 Mbps and that is the obvious next win, but it is a realtime path and the 4K take is
+  already missing its rate at 17.1 fps — so raising it needs its own evidence.
+- **Whether 120 Mbps is the right ceiling** is now a decision rather than a constant.
+
+---
+
 ## v0.27.14 · Build 752 — THE RUNNER CAN DRIVE A RENDER AND A BAKE, SO THE MATRIX CAN RUN ITSELF
 
 **Shipped:**

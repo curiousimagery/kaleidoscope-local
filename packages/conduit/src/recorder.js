@@ -591,7 +591,13 @@ async function encoderYieldsConfig(cfg) {
 async function startWebCodecsSession({ w, h, audioTrack, onDone, onError, onProgress = null, streamToDisk = true, filenamePrefix = 'fold-take' }) {
   if (!webCodecsRecordingSupported()) return null;
 
-  const vcfg = await pickVideoCodec(w, h, 30);
+  // ⚠️ B753 — PROBED AT 0.1 bpp ON PURPOSE, TO KEEP THIS PATH BYTE-IDENTICAL. The render/bake
+  // default moved to 0.30, but the TAKE sets its own bitrate on the next line and discards
+  // `vcfg.bitrate` entirely — so the only thing the default would change here is which codec
+  // `isConfigSupported` blesses. Record's bitrate policy is a SEPARATE decision (its formula has no
+  // fps term at all, and FHD takes are 12.4 Mbps); pinning the probe keeps that decision unmade
+  // rather than making it by accident.
+  const vcfg = await pickVideoCodec(w, h, 30, 0.1);
   if (!vcfg) return null;
   const bitrate = Math.min(40_000_000, Math.round(w * h * 6));
   const baseCfg = { codec: vcfg.codec, width: w, height: h, bitrate, framerate: 30 };
@@ -716,6 +722,10 @@ async function startWebCodecsSession({ w, h, audioTrack, onDone, onError, onProg
   const t0 = performance.now();
   let audioClockUs = null;   // sample-accurate once anchored to the session clock
   let lastVideoTsUs = 0, latMinMs = Infinity, latMaxMs = 0;   // A/V drift instrument — see publish()
+  // The declared rate, in one place. `venc.configure({ framerate: 30 })`, the pacing slots and the
+  // nominal per-chunk duration must all agree, or the encoder is budgeting for one rate while the
+  // timeline describes another — which is exactly the bug B754 fixed.
+  const FRAME_SLOT_US = Math.round(1_000_000 / 30);
   if (acfg) {
     aencToken = acquireSession('encode', 'take audio');
     aenc = new AudioEncoder({
@@ -801,6 +811,11 @@ async function startWebCodecsSession({ w, h, audioTrack, onDone, onError, onProg
   let lastKeyUs = -Infinity;
   let flipBuf = null;
   let dropped = 0;
+  // ⚠️ B754 — PACING COUNTERS. `dropped` and `pacedOut` must never be added together: one is the
+  // encoder failing to keep up (a problem) and the other is us deliberately holding the declared
+  // rate (healthy). Reporting one number would make a working take look like a failing one.
+  let pacedOut = 0;
+  let lastSlot = -1;
   let videoFramesEncoded = 0;
   // publish what the session was CONFIGURED with straight away — Daniel captured a report
   // mid-take and got `audio: null`, because the only report was written at finish (B533)
@@ -922,6 +937,7 @@ async function startWebCodecsSession({ w, h, audioTrack, onDone, onError, onProg
     try { aenc?.close(); } catch { /* closed */ }
     releaseSession(vencToken); releaseSession(aencToken);
     if (dropped) console.info(`[conduit] recorder dropped ${dropped} frames to encoder backpressure`);
+    if (pacedOut) console.info(`[conduit] recorder paced out ${pacedOut} frames to hold 30fps (healthy)`);
     const verdict = !acfg ? 'NO AUDIO TRACK on this take — the sink was handed no mic track at all'
       : !audioBatches ? 'NO MIC DATA — the worklet never delivered (context suspended or tap dead)'
         : !audioChunks ? 'MIC DATA BUT NO ENCODED CHUNKS — the audio encoder produced nothing'
@@ -1007,6 +1023,10 @@ async function startWebCodecsSession({ w, h, audioTrack, onDone, onError, onProg
       descLooksLikeEsds: audioDescLooksLikeEsds,
       ascBytes: audioAsc ? audioAsc.length : null,   // the unwrapped config actually muxed
       videoFrames: videoFramesEncoded,
+      // B754 — kept apart on purpose. `pacedOut` is the rate limiter working; `droppedToBackpressure`
+      // is the encoder losing. A take with a big `pacedOut` and zero drops is HEALTHY.
+      pacedOut,
+      droppedToBackpressure: dropped,
       engine: 'webcodecs',
     });
     const line = `[conduit] audio: ${audioBatches} batches (${audioSilentBatches} silent) → ${audioChunks} chunks, peak ${audioPeak.toFixed(5)}, desc ${audioDescBytes ?? 'none'}B — ${verdict}`
@@ -1025,15 +1045,48 @@ async function startWebCodecsSession({ w, h, audioTrack, onDone, onError, onProg
     publish(frame) {
       if (sessionError || venc.state !== 'configured') return;
       if (frame.w !== w || frame.h !== h) return;          // bus resized mid-take: skip
-      if (venc.encodeQueueSize > 4) { dropped++; return; } // freshness over completeness, live
+      // ⚠️⚠️ B754 — PACE TO THE DECLARED RATE. THE ENCODER WAS BEING LIED TO.
+      //
+      // `venc` is configured `framerate: 30`, so its rate controller budgets bits for THIRTY frames
+      // a second. The output bus is rAF-driven with no limiter ("the loop naturally paces to
+      // render-rate"), so an FHD take on an M1 iPad handed it **46.6**. Every frame therefore got
+      // ~64% of the bits it was budgeted, and Daniel's FHD take came back visibly macroblocked:
+      //
+      //     FHD  12.4 Mbps / 46.6 fps  =  0.129 bits/px      <- starved
+      //     4K   40.0 Mbps / 17.1 fps  =  0.282 bits/px      <- 2.2x better
+      //
+      // which is why 4K looked BETTER than FHD at 100%, a result that makes no sense until you
+      // divide by the real frame rate.
+      //
+      // ⚠️ SLOTS, NOT A MINIMUM GAP. The obvious "drop anything closer than 33ms" leaves irregular
+      // spacing (a 46.6fps source yields a 21ms/43ms/21ms stutter pattern). Binning each frame into
+      // the 30fps slot it belongs to and keeping ONE per slot gives even motion, and a source that
+      // is SLOWER than the target passes through untouched because its frames land in distinct
+      // slots on their own.
+      //
+      // ⚠️ THE TIMESTAMP IS NOT SNAPPED TO THE GRID. `ts` stays true wall-clock-minus-latency,
+      // because that is a deliberate A/V contract (see below) and audio advances on sample count.
+      // Pacing chooses WHICH frame to keep; it must not restate WHEN it happened.
+      //
+      // Costs nothing and gives back two things at once: each surviving frame gets its full bit
+      // budget, and the encoder does ~35% less work — which is headroom the 4K take needs badly at
+      // 17.1 fps against a declared 30.
+      // ⚠️ ORDER MATTERS HERE. Pacing runs BEFORE the backpressure check so that `dropped` counts
+      // only frames the encoder genuinely could not take. Charging a frame we were going to discard
+      // anyway to backpressure would make a healthy take read as a struggling one — and `dropped`
+      // is the number that would drive any future record gate.
+      const lat = frame.latencySec > 0 ? frame.latencySec * 1000 : 0;
+      const ts = Math.max(0, Math.round((performance.now() - lat - t0) * 1000));
+      const slot = Math.round(ts / FRAME_SLOT_US);
+      if (slot === lastSlot) { pacedOut++; return; }
+      if (venc.encodeQueueSize > 4) { dropped++; return; }  // freshness over completeness, live
+      lastSlot = slot;
       // `latencySec` (optional) is how long ago the source actually SAW this frame. Cinematic
       // video stabilization buffers frames for lookahead, so at `cinematicExtended` a frame can
       // reach us ~a second after the lens saw it — and stamping arrival puts recorded video that
       // far behind recorded audio, which is what broke lip sync. Subtracting it places the frame
       // on the timeline at capture time, which is what AVFoundation does natively and is why it
       // never has this problem. Mode-independent: nothing to calibrate, nothing to re-tune.
-      const lat = frame.latencySec > 0 ? frame.latencySec * 1000 : 0;
-      const ts = Math.max(0, Math.round((performance.now() - lat - t0) * 1000));
       // A/V DRIFT INSTRUMENT (B557). Audio advances by exact SAMPLE COUNT while video is stamped
       // on the WALL CLOCK minus capture latency — two different clocks that agree only if no
       // audio is lost and `lat` is stable. Daniel's 6-minute take drifted audibly by the end and
@@ -1046,7 +1099,7 @@ async function startWebCodecsSession({ w, h, audioTrack, onDone, onError, onProg
       // duration per chunk (WebKit passes a missing VideoFrame duration through
       // as null → "addVideoChunkRaw's fourth argument…", Daniel's iPad take),
       // while actual timing comes from timestamp deltas (timescaleUnitsToNextSample)
-      const dur = 33_333;
+      const dur = FRAME_SLOT_US;
       let vf;
       const useCanvas = frame.canvas && vfMode !== 'pixels';
       if (useCanvas && !(vfMode === null && frame.pixels)) {

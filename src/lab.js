@@ -741,9 +741,24 @@ function compositesSection() {
   ]);
   // modals — desktop renders the FULL treatment (backdrop dim + blur + centered card)
   // over faux content; mobile differs (centered panel, grip, radius 16, lighter backdrop).
+  // B753 — the quality picker, shown in its REAL state matrix. `max` is disabled here because at
+  // 8K30 the 120 Mbps encoder ceiling makes every tier above `draft` encode identically; rather
+  // than offer four buttons that produce one file, the unreachable ones disable and say why. The
+  // package checkbox disables on the same principle when the .zip would pass its 4GB format limit.
   const vidCard = el('div', { class: 'vid-card' }, [
     el('div', { class: 'vid-head' }, ['render video', el('button', { class: 'vid-x', text: '✕' })]),
-    el('div', { class: 'vid-meta', text: '1920×1080 · mp4 · h.264' }),
+    el('label', { class: 'setting-label', text: 'quality' }),
+    el('div', { class: 'row-buttons' }, [
+      el('button', { class: 'toggle', text: 'draft' }),
+      el('button', { class: 'toggle', text: 'good' }),
+      el('button', { class: 'toggle active', text: 'high' }),
+      el('button', { class: 'toggle', text: 'max', disabled: 'disabled',
+                     title: '7680×4320 at 30fps caps at 0.12 bits/px (the 120 Mbps encoder ceiling). Lower the resolution or frame rate to use this.' }),
+    ]),
+    el('label', { class: 'vid-opt' }, [el('input', { type: 'checkbox' }), ' source preview video (.zip)']),
+    el('label', { class: 'vid-opt is-disabled', title: 'this render is ≈4.12 GB, past the 4GB limit of the .zip format.' },
+      [el('input', { type: 'checkbox', disabled: 'disabled' }), ' motion data .json (.zip)']),
+    el('div', { class: 'vid-meta', text: '3840×2160 · 3193 frames · 106.4s @ 30fps · H.264 · 74.6 Mbps · ≈993 MB' }),
     el('button', { class: 'primary', style: 'margin-top:8px', text: 'render' }),
   ]);
   const desktopModal = el('div', { class: 'lab-modal-demo' }, [
@@ -831,7 +846,7 @@ function compositesSection() {
         el('div', { class: 'row-buttons' }, [el('button', { class: 'toggle active', text: 'off' }), el('button', { class: 'toggle', text: 'on' })])]),
     ]),
   ]);
-  return section('composites', 'Composites', 'Higher-order assemblies. Keyframe markers shown across their states (auto/hollow-pin · anchored/filled-pin · selected/amber · ghost), the clip-editor range (amber trim region + handles + the blue slice-point + white playhead), and the modals. The desktop modal is shown with its FULL treatment — the .vid-sheet backdrop (dim rgba(10,10,10,0.6) + blur(3px)) over faux content, the centered .vid-card (radius 10, border, no drop-shadow — it relies on the backdrop for separation). Mobile differs: a bottom-ish centered .m-sheet-panel (radius 16, grip handle, lighter dim .5). This desktop↔mobile modal divergence (corner radius, backdrop, shadow approach) is a consolidation candidate. The Loop Builder interstitial (D2) is a THIRD modal treatment — a fullscreen surface (app bar hidden) with its own header/close/step-rail chrome that shares none of the .vid-card or .m-sheet vocabulary; its .loop-close X and .loop-step numbered rail are net-new here, and the three-way modal divergence is itself a flag.', [
+  return section('composites', 'Composites', 'Higher-order assemblies. Keyframe markers shown across their states (auto/hollow-pin · anchored/filled-pin · selected/amber · ghost), the clip-editor range (amber trim region + handles + the blue slice-point + white playhead), and the modals. The desktop modal is shown with its FULL treatment — the .vid-sheet backdrop (dim rgba(10,10,10,0.6) + blur(3px)) over faux content, the centered .vid-card (radius 10, border, no drop-shadow — it relies on the backdrop for separation). Mobile differs: a bottom-ish centered .m-sheet-panel (radius 16, grip handle, lighter dim .5). This desktop↔mobile modal divergence (corner radius, backdrop, shadow approach) is a consolidation candidate. The render sheet carries the B753 QUALITY picker (draft/good/high/max = 0.10/0.20/0.30/0.45 bits per pixel per frame, default high) with a live bitrate and estimated file size in .vid-meta — every term is known before the render, so the estimate needs no probe. Tiers that the 120 Mbps encoder ceiling makes unreachable are DISABLED with the reason in their title rather than silently collapsing to the same file (at 8K30 everything above draft encodes identically); the picker remembers the preferred tier and restores it when the resolution drops back. .vid-opt.is-disabled is the same treatment for a .zip extra that would push the package past the 4GB limit of the zip format — a bare .mp4 has no such limit. The Loop Builder interstitial (D2) is a THIRD modal treatment — a fullscreen surface (app bar hidden) with its own header/close/step-rail chrome that shares none of the .vid-card or .m-sheet vocabulary; its .loop-close X and .loop-step numbered rail are net-new here, and the three-way modal divergence is itself a flag.', [
     el('h3', { class: 'lab-h3', text: 'Timeline · .mf-track + keyframe marker states + .mf-playhead' }),
     el('div', { class: 'lab-bar-wrap' }, [timeline]),
     el('h3', { class: 'lab-h3', text: 'Clip-editor range · .clip-bar (region / handles / blue cut / playhead)' }),
