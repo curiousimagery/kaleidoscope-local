@@ -115,6 +115,22 @@ export function createVitals({ pressure = null, ledger = null, native = null, ou
   const crashed = recoverLastSession();   // captured before anything can overwrite it
   // the previous run's breadcrumbs, whether or not it had a session. Read once, same reason.
   const priorTrail = (() => { try { return JSON.parse(localStorage.getItem(TRAIL_KEY) || 'null'); } catch { return null; } })();
+
+  // B757 — see `backgrounded` on the public surface for why this cannot live in the sampler.
+  let bgCount = 0, bgTotalMs = 0, bgLastMs = 0, bgHiddenAt = 0, bgReturnedAt = 0;
+  if (typeof document !== 'undefined' && document.addEventListener) {
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) { bgHiddenAt = nowMs(); return; }
+      if (!bgHiddenAt) return;
+      bgLastMs = nowMs() - bgHiddenAt;
+      bgTotalMs += bgLastMs;
+      bgCount += 1;
+      bgReturnedAt = nowMs();
+      bgHiddenAt = 0;
+      // Marked as well as counted: the count says IF, the mark says WHEN relative to the work.
+      event('backgrounded', { forSec: Math.round(bgLastMs / 1000), count: bgCount });
+    });
+  }
   const trail = [];
 
   // `native()` is the host seam — the iOS plugin's thermal + memory reading when one exists, null
@@ -295,6 +311,23 @@ export function createVitals({ pressure = null, ledger = null, native = null, ou
     // ⚠️ THE PREVIOUS RUN, IF IT DIED. Null when the last session stopped cleanly or there was
     // none. This is the crash report: aggregates, every event, the last five minutes of samples,
     // and `lastBreadcrumb` — the operation in flight when the process went away.
+    // ⚠️⚠️ B757 — BACKGROUNDING, TRACKED FROM LOAD RATHER THAN ONLY DURING A SESSION.
+    //
+    // The `suspended` event above fires from the session sampler's timer drift, so it can only see a
+    // suspension **while a session is recording**. Daniel's R1 backgrounded the app BEFORE starting
+    // the scenario, so nothing could have detected it — and the report therefore could neither
+    // confirm nor deny the very thing the test existed to check. **An instrument that is absent when
+    // the question is asked is not an instrument.**
+    //
+    // This one listens from construction and survives ring-buffer eviction, so any report can say
+    // whether this process has been backgrounded, how many times, and for how long. That is what
+    // makes the file-handle hypothesis testable: `NotFoundError` with `backgrounded.count > 0` is a
+    // very different reading from the same error with `count: 0`.
+    get backgrounded() {
+      return { count: bgCount, totalSec: Math.round(bgTotalMs / 1000),
+               lastSec: bgLastMs ? Math.round(bgLastMs / 1000) : null,
+               sinceReturnSec: bgReturnedAt ? Math.round((nowMs() - bgReturnedAt) / 1000) : null };
+    },
     get crashed() { return crashed; },
     // What the app was DOING last time, session or not. Present even when the previous run ended
     // cleanly — a clean exit after a wedged UI still leaves the useful trail.

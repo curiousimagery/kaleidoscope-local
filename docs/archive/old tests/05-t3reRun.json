@@ -1,0 +1,1824 @@
+{
+  "build": "v0.27.14 · Build 752",
+  "scenario": "idle-still",
+  "device": "MacIntel|1024x1366@2",
+  "scenarioObserved": "video-playback",
+  "scenarioMismatch": "tagged \"idle-still\" while the app observed \"video-playback\" — treat any baseline diff across this as void",
+  "ua": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko)",
+  "report": {
+    "fps": 59.9,
+    "frameMs": {
+      "p50": 17,
+      "p95": 17
+    },
+    "accountedMs": 0,
+    "unaccountedMs": 17,
+    "surfaces": [
+      {
+        "id": "bus",
+        "label": "record / broadcast bus",
+        "serves": "program",
+        "priority": 90,
+        "note": "capture: async",
+        "w": 1920,
+        "h": 1080,
+        "mp": 2.07,
+        "remote": false,
+        "enabled": true,
+        "scale": 1,
+        "scaleLadder": [
+          1
+        ],
+        "rate": 1,
+        "msPerFrame": 0,
+        "gpuMsPerFrame": 0,
+        "passes": [
+          {
+            "id": "readback",
+            "msPerFrame": 0,
+            "gpuMsPerFrame": 0,
+            "calls": 0,
+            "maxMs": 0
+          },
+          {
+            "id": "render",
+            "msPerFrame": 0,
+            "gpuMsPerFrame": 0,
+            "calls": 0,
+            "maxMs": 0
+          },
+          {
+            "id": "publish",
+            "msPerFrame": 0,
+            "gpuMsPerFrame": 0,
+            "calls": 0,
+            "maxMs": 0
+          }
+        ]
+      },
+      {
+        "id": "preview",
+        "label": "output",
+        "serves": "editor",
+        "priority": 30,
+        "note": "",
+        "w": 1716,
+        "h": 965,
+        "mp": 1.66,
+        "remote": false,
+        "enabled": true,
+        "scale": 1,
+        "scaleLadder": [
+          1,
+          0.75,
+          0.5,
+          0.35,
+          0.25
+        ],
+        "rate": 1,
+        "msPerFrame": 0,
+        "gpuMsPerFrame": 0,
+        "passes": [
+          {
+            "id": "render",
+            "msPerFrame": 0,
+            "gpuMsPerFrame": 0,
+            "calls": 0,
+            "maxMs": 0
+          }
+        ]
+      },
+      {
+        "id": "source",
+        "label": "source · decode → texture",
+        "serves": "program",
+        "priority": 90,
+        "note": "from canvas · native decode · 30.0 in/s · ⚠ NOT ON THE PLANAR PATH — sampling the preview canvas",
+        "w": 1280,
+        "h": 720,
+        "mp": 0.92,
+        "remote": false,
+        "enabled": true,
+        "scale": 1,
+        "scaleLadder": [
+          1
+        ],
+        "rate": 1,
+        "msPerFrame": 0,
+        "gpuMsPerFrame": 0,
+        "passes": [
+          {
+            "id": "refresh",
+            "msPerFrame": 0,
+            "gpuMsPerFrame": 0,
+            "calls": 0,
+            "maxMs": 0
+          },
+          {
+            "id": "upload",
+            "msPerFrame": 0,
+            "gpuMsPerFrame": 0,
+            "calls": 0,
+            "maxMs": 0
+          }
+        ]
+      },
+      {
+        "id": "overlay",
+        "label": "slice overlay",
+        "serves": "editor",
+        "priority": 10,
+        "note": "",
+        "w": 824,
+        "h": 462,
+        "mp": 0.38,
+        "remote": false,
+        "enabled": true,
+        "scale": 1,
+        "scaleLadder": [
+          1
+        ],
+        "rate": 1,
+        "msPerFrame": 0,
+        "gpuMsPerFrame": 0,
+        "passes": [
+          {
+            "id": "draw",
+            "msPerFrame": 0,
+            "gpuMsPerFrame": 0,
+            "calls": 0,
+            "maxMs": 0
+          }
+        ]
+      },
+      {
+        "id": "external",
+        "label": "external display · other process",
+        "serves": "program",
+        "priority": 70,
+        "note": "",
+        "w": 0,
+        "h": 0,
+        "mp": 0,
+        "remote": true,
+        "enabled": true,
+        "scale": 1,
+        "scaleLadder": [
+          1
+        ],
+        "rate": 1,
+        "msPerFrame": 0,
+        "gpuMsPerFrame": 0,
+        "passes": []
+      }
+    ],
+    "oneShots": [],
+    "mpPerFrame": 0,
+    "windowMs": 1001,
+    "pressure": {
+      "value": 0,
+      "source": "native+inferred",
+      "label": "nominal",
+      "target": 30,
+      "shortfall": 0
+    }
+  },
+  "baseline": {
+    "fps": 19.9,
+    "frameMs": {
+      "p50": 50,
+      "p95": 56
+    },
+    "accountedMs": 31.55,
+    "unaccountedMs": 18.45,
+    "surfaces": [
+      {
+        "id": "preview",
+        "label": "staged",
+        "serves": "editor",
+        "priority": 30,
+        "note": "",
+        "w": 1672,
+        "h": 940,
+        "mp": 1.57,
+        "remote": false,
+        "enabled": true,
+        "scale": 1,
+        "scaleLadder": [
+          1,
+          0.75,
+          0.5,
+          0.35,
+          0.25
+        ],
+        "rate": 1,
+        "msPerFrame": 15,
+        "gpuMsPerFrame": 0,
+        "passes": [
+          {
+            "id": "render",
+            "msPerFrame": 15,
+            "gpuMsPerFrame": 0,
+            "calls": 20,
+            "maxMs": 25
+          }
+        ]
+      },
+      {
+        "id": "pip",
+        "label": "live",
+        "serves": "editor",
+        "priority": 30,
+        "note": "",
+        "w": 402,
+        "h": 226,
+        "mp": 0.09,
+        "remote": false,
+        "enabled": true,
+        "scale": 1,
+        "scaleLadder": [
+          1,
+          0.75,
+          0.5,
+          0.35,
+          0.25
+        ],
+        "rate": 1,
+        "msPerFrame": 13.3,
+        "gpuMsPerFrame": 0,
+        "passes": [
+          {
+            "id": "render",
+            "msPerFrame": 13.3,
+            "gpuMsPerFrame": 0,
+            "calls": 20,
+            "maxMs": 16
+          }
+        ]
+      },
+      {
+        "id": "source",
+        "label": "source · decode → texture",
+        "serves": "program",
+        "priority": 90,
+        "note": "from canvas · planar · native decode · 29.7 in/s",
+        "w": 3840,
+        "h": 2160,
+        "mp": 8.29,
+        "remote": false,
+        "enabled": true,
+        "scale": 1,
+        "scaleLadder": [
+          1
+        ],
+        "rate": 1,
+        "msPerFrame": 3.25,
+        "gpuMsPerFrame": 0,
+        "passes": [
+          {
+            "id": "refresh",
+            "msPerFrame": 1.45,
+            "gpuMsPerFrame": 0,
+            "calls": 20,
+            "maxMs": 2
+          },
+          {
+            "id": "upload",
+            "msPerFrame": 1.8,
+            "gpuMsPerFrame": 0,
+            "calls": 20,
+            "maxMs": 4
+          }
+        ]
+      },
+      {
+        "id": "external",
+        "label": "external display · other process",
+        "serves": "program",
+        "priority": 70,
+        "note": "29 NEW PICTURES/s ON THE DISPLAY · 30 arriving/s · 34 drawn/s · steady (new picture 35/44ms)",
+        "w": 3840,
+        "h": 2160,
+        "mp": 8.29,
+        "remote": true,
+        "enabled": true,
+        "scale": 1,
+        "scaleLadder": [
+          1
+        ],
+        "rate": 1,
+        "msPerFrame": 0,
+        "gpuMsPerFrame": 0,
+        "passes": []
+      },
+      {
+        "id": "overlay",
+        "label": "slice overlay",
+        "serves": "editor",
+        "priority": 10,
+        "note": "",
+        "w": 824,
+        "h": 462,
+        "mp": 0.38,
+        "remote": false,
+        "enabled": true,
+        "scale": 1,
+        "scaleLadder": [
+          1
+        ],
+        "rate": 1,
+        "msPerFrame": 0,
+        "gpuMsPerFrame": 0,
+        "passes": [
+          {
+            "id": "draw",
+            "msPerFrame": 0,
+            "gpuMsPerFrame": 0,
+            "calls": 0,
+            "maxMs": 0
+          }
+        ]
+      }
+    ],
+    "oneShots": [],
+    "mpPerFrame": 18.25,
+    "windowMs": 1007,
+    "pressure": {
+      "value": 0.16,
+      "source": "inferred",
+      "label": "fair",
+      "target": 30,
+      "shortfall": 0.56
+    },
+    "savedAt": "2026-08-13T22:16:56.668Z",
+    "scenario": "idle-still"
+  },
+  "audio": {
+    "live": false,
+    "verdict": "NO AUDIO TRACK on this take — the sink was handed no mic track at all",
+    "engine": "webcodecs",
+    "codec": null,
+    "muxerCodec": null,
+    "sampleRate": null,
+    "channels": null,
+    "trackSupplied": false,
+    "trackState": null,
+    "at": "2026-08-27T18:34:38.721Z",
+    "container": {
+      "traks": 1,
+      "handlers": [
+        "vide"
+      ],
+      "tracks": [
+        {
+          "handler": "vide",
+          "format": "avc1",
+          "samples": 2783,
+          "seconds": 60.03
+        }
+      ],
+      "hasAudioTrack": false,
+      "audioPlayable": false,
+      "hasVideoTrack": true,
+      "bytes": 88749186
+    },
+    "finalizeMs": 46,
+    "finalizeMarks": "flushing audio@0ms · encoding remaining frames@0ms · writing the file@5ms",
+    "wallSec": 60.1,
+    "videoSpanSec": 60,
+    "audioSpanSec": null,
+    "captureLatencyMs": null,
+    "diskStreamed": true,
+    "batches": 0,
+    "rejected": 0,
+    "chunks": 0,
+    "withConfig": 0,
+    "secondsIn": null,
+    "secondsOut": null,
+    "peak": 0,
+    "micGain": null,
+    "micRawPeak": null,
+    "silentBatches": 0,
+    "descBytes": null,
+    "descHex": null,
+    "descLooksLikeEsds": false,
+    "ascBytes": null,
+    "videoFrames": 2783
+  },
+  "scenarioRun": {
+    "script": "t3-rerun-post-b681",
+    "label": "T3r · record while broadcasting, RE-RUN (~4 min)",
+    "startedAt": "2026-08-27T18:31:46.663Z",
+    "finishedAt": "2026-08-27T18:34:48.645Z",
+    "durationSec": 182,
+    "outcome": "complete",
+    "stepsRun": 19,
+    "stepsTotal": 19,
+    "abortedAtStep": null,
+    "abortWhy": null,
+    "session": {
+      "label": "t3-rerun-post-b681",
+      "startedAt": "2026-08-27T18:31:47.069Z",
+      "durationSec": 182,
+      "samples": 20,
+      "sampleEverySec": 10,
+      "ringCoversSec": 200,
+      "nativeReadings": true,
+      "agg": {
+        "fps": {
+          "first": 56.9,
+          "min": 22.7,
+          "max": 60,
+          "last": 59.9
+        },
+        "frameP50": {
+          "first": 17,
+          "min": 17,
+          "max": 45,
+          "last": 17
+        },
+        "availMB": {
+          "first": 5070,
+          "min": 4968,
+          "max": 5070,
+          "last": 4979
+        },
+        "footprintMB": {
+          "first": 49,
+          "min": 49,
+          "max": 151,
+          "last": 140
+        },
+        "batteryPct": {
+          "first": 100,
+          "min": 100,
+          "max": 100,
+          "last": 100
+        },
+        "pressure": {
+          "first": 0,
+          "min": 0,
+          "max": 0.125,
+          "last": 0
+        },
+        "wallFps": {
+          "first": 30.3,
+          "min": 28.6,
+          "max": 33.3,
+          "last": 30.3
+        }
+      },
+      "thermalMs": {
+        "nominal": 200000
+      },
+      "events": [
+        {
+          "t": 0,
+          "kind": "scenario:step",
+          "script": "t3-rerun-post-b681",
+          "i": 4,
+          "do": "broadcast",
+          "arg": "on"
+        },
+        {
+          "t": 0,
+          "kind": "scenario:step",
+          "script": "t3-rerun-post-b681",
+          "i": 5,
+          "do": "wait",
+          "arg": null
+        },
+        {
+          "t": 20,
+          "kind": "scenario:step",
+          "script": "t3-rerun-post-b681",
+          "i": 6,
+          "do": "record",
+          "arg": "on"
+        },
+        {
+          "t": 20,
+          "kind": "take:arm",
+          "w": 1920,
+          "h": 1080,
+          "broadcasting": true,
+          "dest": "hdmi",
+          "mic": false,
+          "wallW": 1920,
+          "wallH": 1080,
+          "srcW": 1280,
+          "srcH": 720,
+          "clipSec": 106
+        },
+        {
+          "t": 20,
+          "kind": "bus:start",
+          "w": 1920,
+          "h": 1080
+        },
+        {
+          "t": 21,
+          "kind": "take:started",
+          "w": 1920,
+          "h": 1080
+        },
+        {
+          "t": 21,
+          "kind": "scenario:step",
+          "script": "t3-rerun-post-b681",
+          "i": 7,
+          "do": "wait",
+          "arg": null
+        },
+        {
+          "t": 82,
+          "kind": "scenario:step",
+          "script": "t3-rerun-post-b681",
+          "i": 8,
+          "do": "record",
+          "arg": "off"
+        },
+        {
+          "t": 82,
+          "kind": "scenario:step",
+          "script": "t3-rerun-post-b681",
+          "i": 9,
+          "do": "wait",
+          "arg": null
+        },
+        {
+          "t": 92,
+          "kind": "scenario:step",
+          "script": "t3-rerun-post-b681",
+          "i": 10,
+          "do": "capture",
+          "arg": null
+        },
+        {
+          "t": 92,
+          "kind": "scenario:step",
+          "script": "t3-rerun-post-b681",
+          "i": 11,
+          "do": "broadcast",
+          "arg": "off"
+        },
+        {
+          "t": 92,
+          "kind": "scenario:step",
+          "script": "t3-rerun-post-b681",
+          "i": 12,
+          "do": "wait",
+          "arg": null
+        },
+        {
+          "t": 112,
+          "kind": "scenario:step",
+          "script": "t3-rerun-post-b681",
+          "i": 13,
+          "do": "record",
+          "arg": "on"
+        },
+        {
+          "t": 112,
+          "kind": "take:arm",
+          "w": 1920,
+          "h": 1080,
+          "broadcasting": false,
+          "dest": "hdmi",
+          "mic": false,
+          "wallW": 3840,
+          "wallH": 2160,
+          "srcW": 1280,
+          "srcH": 720,
+          "clipSec": 106
+        },
+        {
+          "t": 112,
+          "kind": "bus:start",
+          "w": 1920,
+          "h": 1080
+        },
+        {
+          "t": 112,
+          "kind": "take:started",
+          "w": 1920,
+          "h": 1080
+        },
+        {
+          "t": 112,
+          "kind": "scenario:step",
+          "script": "t3-rerun-post-b681",
+          "i": 14,
+          "do": "wait",
+          "arg": null
+        },
+        {
+          "t": 172,
+          "kind": "scenario:step",
+          "script": "t3-rerun-post-b681",
+          "i": 15,
+          "do": "record",
+          "arg": "off"
+        },
+        {
+          "t": 172,
+          "kind": "scenario:step",
+          "script": "t3-rerun-post-b681",
+          "i": 16,
+          "do": "wait",
+          "arg": null
+        },
+        {
+          "t": 182,
+          "kind": "scenario:step",
+          "script": "t3-rerun-post-b681",
+          "i": 17,
+          "do": "capture",
+          "arg": null
+        },
+        {
+          "t": 182,
+          "kind": "scenario:step",
+          "script": "t3-rerun-post-b681",
+          "i": 18,
+          "do": "session",
+          "arg": "stop"
+        }
+      ],
+      "series": [
+        {
+          "t": 0,
+          "fps": 56.9,
+          "frameP50": 17,
+          "frameP95": 20,
+          "unaccountedMs": 17,
+          "pressure": {
+            "level": 0,
+            "label": "nominal",
+            "source": "native+inferred"
+          },
+          "thermal": "nominal",
+          "batteryPct": 100,
+          "power": "full",
+          "wallFps": null,
+          "broadcasting": false,
+          "recording": false,
+          "wallW": 3840,
+          "wallH": 2160,
+          "availMB": 5070,
+          "footprintMB": 49,
+          "web": null,
+          "reason": "start"
+        },
+        {
+          "t": 10,
+          "fps": 59.9,
+          "frameP50": 17,
+          "frameP95": 17,
+          "unaccountedMs": 17,
+          "pressure": {
+            "level": 0,
+            "label": "nominal",
+            "source": "native+inferred"
+          },
+          "thermal": "nominal",
+          "batteryPct": 100,
+          "power": "full",
+          "wallFps": 30.3,
+          "broadcasting": true,
+          "recording": false,
+          "wallW": 1920,
+          "wallH": 1080,
+          "availMB": 4984,
+          "footprintMB": 135,
+          "web": null
+        },
+        {
+          "t": 20,
+          "fps": 59.9,
+          "frameP50": 17,
+          "frameP95": 17,
+          "unaccountedMs": 17,
+          "pressure": {
+            "level": 0,
+            "label": "nominal",
+            "source": "native+inferred"
+          },
+          "thermal": "nominal",
+          "batteryPct": 100,
+          "power": "full",
+          "wallFps": 30.3,
+          "broadcasting": true,
+          "recording": false,
+          "wallW": 1920,
+          "wallH": 1080,
+          "availMB": 4984,
+          "footprintMB": 135,
+          "web": null
+        },
+        {
+          "t": 30,
+          "fps": 23.2,
+          "frameP50": 42,
+          "frameP95": 57,
+          "unaccountedMs": 6.29,
+          "pressure": {
+            "level": 0,
+            "label": "nominal",
+            "source": "native+inferred"
+          },
+          "thermal": "nominal",
+          "batteryPct": 100,
+          "power": "full",
+          "wallFps": 29.4,
+          "broadcasting": true,
+          "recording": true,
+          "wallW": 1920,
+          "wallH": 1080,
+          "availMB": 4968,
+          "footprintMB": 151,
+          "web": null
+        },
+        {
+          "t": 40,
+          "fps": 22.7,
+          "frameP50": 45,
+          "frameP95": 55,
+          "unaccountedMs": 8.74,
+          "pressure": {
+            "level": 0.125,
+            "label": "nominal",
+            "source": "native+inferred"
+          },
+          "thermal": "nominal",
+          "batteryPct": 100,
+          "power": "full",
+          "wallFps": 32.3,
+          "broadcasting": true,
+          "recording": true,
+          "wallW": 1920,
+          "wallH": 1080,
+          "availMB": 4972,
+          "footprintMB": 147,
+          "web": null
+        },
+        {
+          "t": 50,
+          "fps": 23.3,
+          "frameP50": 43,
+          "frameP95": 51,
+          "unaccountedMs": 7.46,
+          "pressure": {
+            "level": 0.07499999999999996,
+            "label": "nominal",
+            "source": "native+inferred"
+          },
+          "thermal": "nominal",
+          "batteryPct": 100,
+          "power": "full",
+          "wallFps": 28.6,
+          "broadcasting": true,
+          "recording": true,
+          "wallW": 1920,
+          "wallH": 1080,
+          "availMB": 4984,
+          "footprintMB": 135,
+          "web": null
+        },
+        {
+          "t": 60,
+          "fps": 24.6,
+          "frameP50": 39,
+          "frameP95": 48,
+          "unaccountedMs": 5.12,
+          "pressure": {
+            "level": 0,
+            "label": "nominal",
+            "source": "native+inferred"
+          },
+          "thermal": "nominal",
+          "batteryPct": 100,
+          "power": "full",
+          "wallFps": 31.3,
+          "broadcasting": true,
+          "recording": true,
+          "wallW": 1920,
+          "wallH": 1080,
+          "availMB": 4984,
+          "footprintMB": 135,
+          "web": null
+        },
+        {
+          "t": 70,
+          "fps": 23.6,
+          "frameP50": 42,
+          "frameP95": 51,
+          "unaccountedMs": 6.67,
+          "pressure": {
+            "level": 0.07692307692307687,
+            "label": "nominal",
+            "source": "native+inferred"
+          },
+          "thermal": "nominal",
+          "batteryPct": 100,
+          "power": "full",
+          "wallFps": 33.3,
+          "broadcasting": true,
+          "recording": true,
+          "wallW": 1920,
+          "wallH": 1080,
+          "availMB": 4984,
+          "footprintMB": 135,
+          "web": null
+        },
+        {
+          "t": 80,
+          "fps": 23.1,
+          "frameP50": 42,
+          "frameP95": 52,
+          "unaccountedMs": 6.83,
+          "pressure": {
+            "level": 0.07692307692307687,
+            "label": "nominal",
+            "source": "native+inferred"
+          },
+          "thermal": "nominal",
+          "batteryPct": 100,
+          "power": "full",
+          "wallFps": 32.3,
+          "broadcasting": true,
+          "recording": true,
+          "wallW": 1920,
+          "wallH": 1080,
+          "availMB": 4984,
+          "footprintMB": 135,
+          "web": null
+        },
+        {
+          "t": 90,
+          "fps": 60,
+          "frameP50": 17,
+          "frameP95": 18,
+          "unaccountedMs": 17,
+          "pressure": {
+            "level": 0,
+            "label": "nominal",
+            "source": "native+inferred"
+          },
+          "thermal": "nominal",
+          "batteryPct": 100,
+          "power": "full",
+          "wallFps": 30.3,
+          "broadcasting": true,
+          "recording": false,
+          "wallW": 1920,
+          "wallH": 1080,
+          "availMB": 4979,
+          "footprintMB": 140,
+          "web": null
+        },
+        {
+          "t": 100,
+          "fps": 59.9,
+          "frameP50": 17,
+          "frameP95": 17,
+          "unaccountedMs": 17,
+          "pressure": {
+            "level": 0,
+            "label": "nominal",
+            "source": "native+inferred"
+          },
+          "thermal": "nominal",
+          "batteryPct": 100,
+          "power": "full",
+          "wallFps": null,
+          "broadcasting": false,
+          "recording": false,
+          "wallW": 3840,
+          "wallH": 2160,
+          "availMB": 4993,
+          "footprintMB": 126,
+          "web": null
+        },
+        {
+          "t": 110,
+          "fps": 59.9,
+          "frameP50": 17,
+          "frameP95": 17,
+          "unaccountedMs": 17,
+          "pressure": {
+            "level": 0,
+            "label": "nominal",
+            "source": "native+inferred"
+          },
+          "thermal": "nominal",
+          "batteryPct": 100,
+          "power": "full",
+          "wallFps": null,
+          "broadcasting": false,
+          "recording": false,
+          "wallW": 3840,
+          "wallH": 2160,
+          "availMB": 4991,
+          "footprintMB": 128,
+          "web": null
+        },
+        {
+          "t": 120,
+          "fps": 46,
+          "frameP50": 23,
+          "frameP95": 26,
+          "unaccountedMs": 4.67,
+          "pressure": {
+            "level": 0,
+            "label": "nominal",
+            "source": "native+inferred"
+          },
+          "thermal": "nominal",
+          "batteryPct": 100,
+          "power": "full",
+          "wallFps": null,
+          "broadcasting": false,
+          "recording": true,
+          "wallW": 3840,
+          "wallH": 2160,
+          "availMB": 4991,
+          "footprintMB": 128,
+          "web": null
+        },
+        {
+          "t": 130,
+          "fps": 46.6,
+          "frameP50": 22,
+          "frameP95": 29,
+          "unaccountedMs": 4,
+          "pressure": {
+            "level": 0,
+            "label": "nominal",
+            "source": "native+inferred"
+          },
+          "thermal": "nominal",
+          "batteryPct": 100,
+          "power": "full",
+          "wallFps": null,
+          "broadcasting": false,
+          "recording": true,
+          "wallW": 3840,
+          "wallH": 2160,
+          "availMB": 4991,
+          "footprintMB": 128,
+          "web": null
+        },
+        {
+          "t": 140,
+          "fps": 46.8,
+          "frameP50": 23,
+          "frameP95": 28,
+          "unaccountedMs": 5.06,
+          "pressure": {
+            "level": 0,
+            "label": "nominal",
+            "source": "native+inferred"
+          },
+          "thermal": "nominal",
+          "batteryPct": 100,
+          "power": "full",
+          "wallFps": null,
+          "broadcasting": false,
+          "recording": true,
+          "wallW": 3840,
+          "wallH": 2160,
+          "availMB": 4995,
+          "footprintMB": 124,
+          "web": null
+        },
+        {
+          "t": 150,
+          "fps": 46.2,
+          "frameP50": 23,
+          "frameP95": 29,
+          "unaccountedMs": 4.81,
+          "pressure": {
+            "level": 0,
+            "label": "nominal",
+            "source": "native+inferred"
+          },
+          "thermal": "nominal",
+          "batteryPct": 100,
+          "power": "full",
+          "wallFps": null,
+          "broadcasting": false,
+          "recording": true,
+          "wallW": 3840,
+          "wallH": 2160,
+          "availMB": 4991,
+          "footprintMB": 128,
+          "web": null
+        },
+        {
+          "t": 160,
+          "fps": 46.5,
+          "frameP50": 23,
+          "frameP95": 28,
+          "unaccountedMs": 5.06,
+          "pressure": {
+            "level": 0,
+            "label": "nominal",
+            "source": "native+inferred"
+          },
+          "thermal": "nominal",
+          "batteryPct": 100,
+          "power": "full",
+          "wallFps": null,
+          "broadcasting": false,
+          "recording": true,
+          "wallW": 3840,
+          "wallH": 2160,
+          "availMB": 4995,
+          "footprintMB": 124,
+          "web": null
+        },
+        {
+          "t": 170,
+          "fps": 46.8,
+          "frameP50": 23,
+          "frameP95": 29,
+          "unaccountedMs": 5.09,
+          "pressure": {
+            "level": 0,
+            "label": "nominal",
+            "source": "native+inferred"
+          },
+          "thermal": "nominal",
+          "batteryPct": 100,
+          "power": "charging",
+          "wallFps": null,
+          "broadcasting": false,
+          "recording": true,
+          "wallW": 3840,
+          "wallH": 2160,
+          "availMB": 4987,
+          "footprintMB": 132,
+          "web": null
+        },
+        {
+          "t": 180,
+          "fps": 60,
+          "frameP50": 17,
+          "frameP95": 17,
+          "unaccountedMs": 17,
+          "pressure": {
+            "level": 0,
+            "label": "nominal",
+            "source": "native+inferred"
+          },
+          "thermal": "nominal",
+          "batteryPct": 100,
+          "power": "charging",
+          "wallFps": null,
+          "broadcasting": false,
+          "recording": false,
+          "wallW": 3840,
+          "wallH": 2160,
+          "availMB": 4979,
+          "footprintMB": 140,
+          "web": null
+        },
+        {
+          "t": 182,
+          "fps": 59.9,
+          "frameP50": 17,
+          "frameP95": 17,
+          "unaccountedMs": 17,
+          "pressure": {
+            "level": 0,
+            "label": "nominal",
+            "source": "native+inferred"
+          },
+          "thermal": "nominal",
+          "batteryPct": 100,
+          "power": "charging",
+          "wallFps": null,
+          "broadcasting": false,
+          "recording": false,
+          "wallW": 3840,
+          "wallH": 2160,
+          "availMB": 4979,
+          "footprintMB": 140,
+          "web": null,
+          "reason": "stop"
+        }
+      ]
+    },
+    "takes": [
+      {
+        "tag": "A · while broadcasting",
+        "videoFrames": 1418,
+        "videoSpanSec": 60,
+        "wallSec": 60.2,
+        "tierPx": 1920,
+        "engine": "webcodecs",
+        "takeFps": 23.6,
+        "wallVsSpan": 0.2,
+        "why": null
+      },
+      {
+        "tag": "B · no broadcast",
+        "videoFrames": 2783,
+        "videoSpanSec": 60,
+        "wallSec": 60.1,
+        "tierPx": 1920,
+        "engine": "webcodecs",
+        "takeFps": 46.4,
+        "wallVsSpan": 0.1,
+        "why": null
+      }
+    ],
+    "log": [
+      {
+        "i": 0,
+        "do": "broadcast",
+        "arg": "off",
+        "atSec": 0,
+        "ok": true,
+        "why": "already off"
+      },
+      {
+        "i": 1,
+        "do": "resolution",
+        "arg": null,
+        "atSec": 0,
+        "ok": true
+      },
+      {
+        "i": 2,
+        "do": "play",
+        "arg": null,
+        "atSec": 0,
+        "ok": true
+      },
+      {
+        "i": 3,
+        "do": "session",
+        "arg": "start",
+        "atSec": 0,
+        "ok": true
+      },
+      {
+        "i": 4,
+        "do": "broadcast",
+        "arg": "on",
+        "atSec": 0,
+        "ok": true
+      },
+      {
+        "i": 5,
+        "do": "wait",
+        "arg": null,
+        "atSec": 20,
+        "ok": true
+      },
+      {
+        "i": 6,
+        "do": "record",
+        "arg": "on",
+        "atSec": 22,
+        "ok": true
+      },
+      {
+        "i": 7,
+        "do": "wait",
+        "arg": null,
+        "atSec": 82,
+        "ok": true
+      },
+      {
+        "i": 8,
+        "do": "record",
+        "arg": "off",
+        "atSec": 82,
+        "ok": true
+      },
+      {
+        "i": 9,
+        "do": "wait",
+        "arg": null,
+        "atSec": 92,
+        "ok": true
+      },
+      {
+        "i": 10,
+        "do": "capture",
+        "arg": null,
+        "atSec": 92,
+        "ok": true
+      },
+      {
+        "i": 11,
+        "do": "broadcast",
+        "arg": "off",
+        "atSec": 92,
+        "ok": true
+      },
+      {
+        "i": 12,
+        "do": "wait",
+        "arg": null,
+        "atSec": 112,
+        "ok": true
+      },
+      {
+        "i": 13,
+        "do": "record",
+        "arg": "on",
+        "atSec": 112,
+        "ok": true
+      },
+      {
+        "i": 14,
+        "do": "wait",
+        "arg": null,
+        "atSec": 172,
+        "ok": true
+      },
+      {
+        "i": 15,
+        "do": "record",
+        "arg": "off",
+        "atSec": 172,
+        "ok": true
+      },
+      {
+        "i": 16,
+        "do": "wait",
+        "arg": null,
+        "atSec": 182,
+        "ok": true
+      },
+      {
+        "i": 17,
+        "do": "capture",
+        "arg": null,
+        "atSec": 182,
+        "ok": true
+      },
+      {
+        "i": 18,
+        "do": "session",
+        "arg": "stop",
+        "atSec": 182,
+        "ok": true
+      }
+    ]
+  },
+  "wakeLock": {
+    "native": "native call never settled — is the Swift half built? (JS can ship without it)",
+    "osIdleTimerDisabled": false,
+    "agrees": true,
+    "supported": true,
+    "wanted": false,
+    "held": false,
+    "heldForSec": 0,
+    "osReleases": 0,
+    "why": "not requested"
+  },
+  "vitalsSeam": {
+    "attempts": 0,
+    "resolved": 0,
+    "empty": 0,
+    "errors": 0,
+    "timeouts": 0,
+    "pushes": 132,
+    "pingOk": true,
+    "swiftBuild": 677,
+    "probe": "retired at B679 — the pull is never called",
+    "lastError": null,
+    "lastOkAt": null,
+    "lastPushAt": 1787855744127,
+    "loaded": true,
+    "ageMs": 1712.35693359375,
+    "pullRetired": true,
+    "why": null
+  },
+  "priorTrail": [
+    {
+      "at": "2026-08-27T00:47:14.663Z",
+      "kind": "scenario:step",
+      "script": "a2-broadcast-then-render",
+      "i": 5,
+      "do": "wait",
+      "arg": null
+    },
+    {
+      "at": "2026-08-27T00:52:14.664Z",
+      "kind": "scenario:step",
+      "script": "a2-broadcast-then-render",
+      "i": 6,
+      "do": "broadcast",
+      "arg": "off"
+    },
+    {
+      "at": "2026-08-27T00:52:14.664Z",
+      "kind": "scenario:step",
+      "script": "a2-broadcast-then-render",
+      "i": 7,
+      "do": "play",
+      "arg": "pause"
+    },
+    {
+      "at": "2026-08-27T00:52:14.665Z",
+      "kind": "scenario:step",
+      "script": "a2-broadcast-then-render",
+      "i": 8,
+      "do": "wait",
+      "arg": null
+    },
+    {
+      "at": "2026-08-27T00:52:34.667Z",
+      "kind": "scenario:step",
+      "script": "a2-broadcast-then-render",
+      "i": 9,
+      "do": "render",
+      "arg": null
+    },
+    {
+      "at": "2026-08-27T00:52:34.674Z",
+      "kind": "render:begin",
+      "w": 3840,
+      "h": 2160,
+      "fps": 30,
+      "durationMs": 106447,
+      "captureMode": "gl",
+      "wantSource": false,
+      "keyframes": 1,
+      "srcW": 3840,
+      "srcH": 2160,
+      "availableMB": 5025,
+      "thermal": "nominal",
+      "heapMB": 63.3
+    },
+    {
+      "at": "2026-08-27T00:52:49.263Z",
+      "kind": "render:progress",
+      "w": 3840,
+      "h": 2160,
+      "fps": 30,
+      "durationMs": 106447,
+      "captureMode": "gl",
+      "wantSource": false,
+      "keyframes": 1,
+      "srcW": 3840,
+      "srcH": 2160,
+      "pct": 25,
+      "availableMB": 5024,
+      "thermal": "nominal",
+      "heapMB": 91.3
+    },
+    {
+      "at": "2026-08-27T00:53:03.635Z",
+      "kind": "render:progress",
+      "w": 3840,
+      "h": 2160,
+      "fps": 30,
+      "durationMs": 106447,
+      "captureMode": "gl",
+      "wantSource": false,
+      "keyframes": 1,
+      "srcW": 3840,
+      "srcH": 2160,
+      "pct": 50,
+      "availableMB": 5024,
+      "thermal": "nominal",
+      "heapMB": 91.3
+    },
+    {
+      "at": "2026-08-27T00:53:17.932Z",
+      "kind": "render:progress",
+      "w": 3840,
+      "h": 2160,
+      "fps": 30,
+      "durationMs": 106447,
+      "captureMode": "gl",
+      "wantSource": false,
+      "keyframes": 1,
+      "srcW": 3840,
+      "srcH": 2160,
+      "pct": 75,
+      "availableMB": 5024,
+      "thermal": "nominal",
+      "heapMB": 91.3
+    },
+    {
+      "at": "2026-08-27T00:53:32.447Z",
+      "kind": "render:encoded",
+      "w": 3840,
+      "h": 2160,
+      "fps": 30,
+      "durationMs": 106447,
+      "captureMode": "gl",
+      "wantSource": false,
+      "keyframes": 1,
+      "srcW": 3840,
+      "srcH": 2160,
+      "frames": 3193,
+      "availableMB": 5024,
+      "thermal": "nominal",
+      "heapMB": 75.3
+    },
+    {
+      "at": "2026-08-27T00:53:32.449Z",
+      "kind": "render-decode-worst",
+      "sec": 64.075,
+      "ms": 13,
+      "decoded": 5,
+      "resets": 0,
+      "gopWalk": 0,
+      "via": "cover",
+      "timedOut": false,
+      "holes": 0,
+      "holesRounding": 0,
+      "w": 3840,
+      "h": 2160,
+      "fps": 30,
+      "durationMs": 106447,
+      "captureMode": "gl",
+      "wantSource": false,
+      "keyframes": 1,
+      "srcW": 3840,
+      "srcH": 2160,
+      "wallSec": 57.8
+    },
+    {
+      "at": "2026-08-27T00:53:32.568Z",
+      "kind": "scenario:step",
+      "script": "a2-broadcast-then-render",
+      "i": 10,
+      "do": "session",
+      "arg": "stop"
+    }
+  ],
+  "trail": [
+    {
+      "at": "2026-08-27T18:33:18.577Z",
+      "kind": "scenario:step",
+      "script": "t3-rerun-post-b681",
+      "i": 10,
+      "do": "capture",
+      "arg": null
+    },
+    {
+      "at": "2026-08-27T18:33:18.578Z",
+      "kind": "scenario:step",
+      "script": "t3-rerun-post-b681",
+      "i": 11,
+      "do": "broadcast",
+      "arg": "off"
+    },
+    {
+      "at": "2026-08-27T18:33:18.579Z",
+      "kind": "scenario:step",
+      "script": "t3-rerun-post-b681",
+      "i": 12,
+      "do": "wait",
+      "arg": null
+    },
+    {
+      "at": "2026-08-27T18:33:38.580Z",
+      "kind": "scenario:step",
+      "script": "t3-rerun-post-b681",
+      "i": 13,
+      "do": "record",
+      "arg": "on"
+    },
+    {
+      "at": "2026-08-27T18:33:38.582Z",
+      "kind": "take:arm",
+      "w": 1920,
+      "h": 1080,
+      "broadcasting": false,
+      "dest": "hdmi",
+      "mic": false,
+      "wallW": 3840,
+      "wallH": 2160,
+      "srcW": 1280,
+      "srcH": 720,
+      "clipSec": 106
+    },
+    {
+      "at": "2026-08-27T18:33:38.582Z",
+      "kind": "bus:start",
+      "w": 1920,
+      "h": 1080
+    },
+    {
+      "at": "2026-08-27T18:33:38.633Z",
+      "kind": "take:started",
+      "w": 1920,
+      "h": 1080
+    },
+    {
+      "at": "2026-08-27T18:33:38.634Z",
+      "kind": "scenario:step",
+      "script": "t3-rerun-post-b681",
+      "i": 14,
+      "do": "wait",
+      "arg": null
+    },
+    {
+      "at": "2026-08-27T18:34:38.644Z",
+      "kind": "scenario:step",
+      "script": "t3-rerun-post-b681",
+      "i": 15,
+      "do": "record",
+      "arg": "off"
+    },
+    {
+      "at": "2026-08-27T18:34:38.644Z",
+      "kind": "scenario:step",
+      "script": "t3-rerun-post-b681",
+      "i": 16,
+      "do": "wait",
+      "arg": null
+    },
+    {
+      "at": "2026-08-27T18:34:48.645Z",
+      "kind": "scenario:step",
+      "script": "t3-rerun-post-b681",
+      "i": 17,
+      "do": "capture",
+      "arg": null
+    },
+    {
+      "at": "2026-08-27T18:34:48.645Z",
+      "kind": "scenario:step",
+      "script": "t3-rerun-post-b681",
+      "i": 18,
+      "do": "session",
+      "arg": "stop"
+    }
+  ],
+  "sessions": {
+    "now": {
+      "total": 4,
+      "gl": 2,
+      "decode": 2
+    },
+    "peak": {
+      "total": 5,
+      "gl": 2,
+      "decode": 3,
+      "encode": 1
+    },
+    "acquired": 7,
+    "released": 3,
+    "live": [
+      {
+        "kind": "gl",
+        "label": "preview engine",
+        "ageSec": 331
+      },
+      {
+        "kind": "decode",
+        "label": "source clip: IMG_5132.MOV",
+        "ageSec": 274
+      },
+      {
+        "kind": "decode",
+        "label": "native decode: IMG_5132.MOV",
+        "ageSec": 271
+      },
+      {
+        "kind": "gl",
+        "label": "output/bus engine",
+        "ageSec": 218
+      }
+    ],
+    "covers": [
+      "source-host: the loaded source <video>",
+      "source-host: the loop-detect probe",
+      "source-host: the native decode (iOS AVPlayer)",
+      "stage-source: the staging seek decoder",
+      "clip-editor: preview / A-head / thumbnail decoders",
+      "engines: every WebGL2 context (preview, bus, PiP)",
+      "recorder: the video + audio encoders"
+    ]
+  },
+  "sourceProbe": {
+    "readable": true,
+    "ms": 3,
+    "bytes": 741685378,
+    "errName": null,
+    "why": null,
+    "name": "IMG_5132.MOV",
+    "at": "2026-08-27T18:31:11.497Z"
+  },
+  "memNow": {
+    "tag": null,
+    "sinceMs": null,
+    "peakMB": 0,
+    "heldMB": 0,
+    "peakBy": {},
+    "openHandles": 0
+  },
+  "sourceSwap": [
+    {
+      "t": "18:31:11.493",
+      "phase": "picker:change",
+      "picked": true,
+      "name": "IMG_5132.MOV",
+      "type": "video/quicktime"
+    },
+    {
+      "t": "18:31:11.493",
+      "phase": "guard:clear"
+    },
+    {
+      "t": "18:31:11.497",
+      "phase": "probe",
+      "readable": true,
+      "ms": 3,
+      "bytes": 741685378,
+      "errName": null
+    },
+    {
+      "t": "18:31:11.497",
+      "phase": "loadVideo:start",
+      "name": "IMG_5132.MOV",
+      "type": "video/quicktime",
+      "size": 741685378,
+      "wasLive": false
+    },
+    {
+      "t": "18:31:12.020",
+      "phase": "loadVideo:loadeddata",
+      "w": 3840,
+      "h": 2160,
+      "dur": 106.45
+    },
+    {
+      "t": "18:31:12.038",
+      "phase": "loadVideo:source-set",
+      "w": 3840,
+      "h": 2160
+    }
+  ],
+  "slice": {
+    "form": "radial",
+    "sourceAspect": 1.7778,
+    "frameAspect": 1.7778,
+    "sliceRotation": 0,
+    "sliceScale": 1,
+    "origin": [
+      0.1836,
+      0.5
+    ],
+    "mirror": [
+      1,
+      1
+    ],
+    "sampleC": [
+      0.5,
+      0.5
+    ],
+    "sampleHalf": [
+      0.3164,
+      0.2912
+    ],
+    "boxC": [
+      0.5,
+      0.5
+    ],
+    "boxHalf": [
+      0.3164,
+      0.2912
+    ],
+    "boxVsSource": 0.633
+  },
+  "srcArrive": {
+    "p50": 33,
+    "p95": 37,
+    "max": 38,
+    "n": 300
+  },
+  "loopStall": {
+    "wraps": 1,
+    "maxGapMs": 1,
+    "last": {
+      "gapMs": 1,
+      "takeGapMs": 30053,
+      "fromPts": 81.403,
+      "toPts": 4.735,
+      "at": 204308
+    },
+    "after1s": 30,
+    "maxTakeGapMs": 30053,
+    "taken1s": 31,
+    "recentTakeGaps": [
+      30053
+    ],
+    "rewinds": 0,
+    "suppressed": 0,
+    "why": "no loop boundary reached yet"
+  },
+  "extGuard": {
+    "applies": false,
+    "cappedTo": null,
+    "why": "moot: the single native decode means the external view runs no decoder of its own",
+    "uncapToggle": true,
+    "singleDecode": true
+  },
+  "srcSocket": {
+    "readyState": 1,
+    "open": true,
+    "state": "open",
+    "msSinceFrame": 2,
+    "msSinceClose": -1,
+    "closes": 0,
+    "reconnects": 0,
+    "arrived": 7141
+  },
+  "srcFanOut": {
+    "swapGapMs": 308,
+    "clients": [
+      {
+        "taken": 7119,
+        "ready": true,
+        "sending": false,
+        "offered": 7119,
+        "ageMs": 270621,
+        "skipped": 0,
+        "msSinceTaken": 23,
+        "id": 1
+      }
+    ],
+    "msSinceReap": -1,
+    "port": 8900,
+    "loopCache": {
+      "lastPts": 0.133,
+      "headTargetMs": 600,
+      "lapsCovered": 2,
+      "lastReplayFrames": 5,
+      "coveredMs": 167,
+      "firstPts": 0,
+      "budgetMB": 64,
+      "frames": 5,
+      "why": "partial fill — 167ms of a 308ms lap; raise the budget",
+      "headTargetFrom": "measured lap 441ms x1.5",
+      "frameIntervalMs": 33,
+      "heldMB": 59
+    },
+    "ticksNoTaker": 1998,
+    "offered": 7119,
+    "itemSwaps": 3,
+    "swapToPts": 0.1,
+    "swapFromPts": 106.415,
+    "ticksNoBuffer": 25226,
+    "reaped": 0,
+    "maxSwapGapMs": 441
+  },
+  "broadcastCeiling": {
+    "hdmi:3840": {
+      "delivered": 30,
+      "source": 30,
+      "samples": 1469065,
+      "at": 1787791935061
+    },
+    "hdmi:2560": {
+      "delivered": 26,
+      "source": 30,
+      "samples": 301,
+      "at": 1786652935434
+    },
+    "hdmi:1920": {
+      "delivered": 30,
+      "source": 30,
+      "samples": 6781,
+      "at": 1787105542727
+    }
+  },
+  "governor": {
+    "enabled": false,
+    "active": false,
+    "level": 0,
+    "rates": {
+      "primary": 1,
+      "secondary": 1
+    },
+    "rung": "full rate",
+    "surfaces": [
+      "preview (output):1.66MP@1"
+    ],
+    "governing": [],
+    "reason": "disabled",
+    "futile": false,
+    "futileNote": "",
+    "signal": "app",
+    "starved": [],
+    "broadcasting": false,
+    "target": 0,
+    "shortfall": 0,
+    "appShortfall": 0,
+    "shedAbove": 0.25,
+    "ticking": true
+  }
+}

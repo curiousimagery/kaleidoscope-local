@@ -6,6 +6,51 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.27.19 · Build 757 — FHD TAKES GET 50% MORE BITRATE, AND BACKGROUNDING IS NOW VISIBLE
+
+**Shipped:**
+- **FHD takes go from 12.4 to 18.7 Mbps.** 4K takes are byte-identical.
+- The record formula finally has a **frame-rate term** — a 60fps take was silently getting half the
+  bits per frame of a 30fps one.
+- `copy report` now carries **`backgrounded`**: how many times this process went to the background,
+  for how long, and how long ago it came back.
+- Per-take `pacedOut` / `droppedToBackpressure` in the scenario log.
+
+### ⭐ WE NOW HAVE A MEASURED QUALITY THRESHOLD, AND DANIEL'S EYE IS THE INSTRUMENT
+
+Four readings across two independent code paths:
+
+| path | bits/px | verdict |
+|---|---|---|
+| render, old | **0.100** | *"like saving a JPG for the web at like 10% quality"* |
+| **FHD take, after pacing** | **0.200** | *"genuinely TERRIBLE, massive boxy pixelation"* |
+| 4K take | 0.274 | *"about the same as before"* — acceptable |
+| render, new | **0.300** | *"dramatically improved"* |
+
+**The threshold for kaleidoscope output is ~0.27-0.30 bits per pixel per frame.** Below it the
+picture falls apart, and this content is unusually hard to encode (mirrored, rotating, high-frequency
+detail everywhere), so general video guidance does not apply.
+
+**B754's pacing was necessary but not sufficient.** It lifted FHD from 0.129 to 0.200 by making the
+declared frame rate true; 0.200 is still under the line. This build is the other half.
+
+**⚠️ The 40 Mbps cap on 4K takes is deliberately KEPT.** At 0.3 bpp a 4K take would ask 74.6 Mbps,
+and that path is already missing its declared rate at 17.6 fps — adding encoder work there is the
+wrong lever, and its effective 0.274 is already acceptable. **FHD gains 50%, 4K does not move.**
+
+### 🔍 R1 COULD NOT ANSWER ITS OWN QUESTION, AND THAT IS AN INSTRUMENT BUG
+
+The background test came back clean — probe read in 2ms, the reader armed, 53.4 fps. But **the
+suspend detector only runs inside a recording session**, and the app was backgrounded *before* the
+scenario started. **Nothing could have detected it.** The report could neither confirm nor deny the
+one thing the test existed to check.
+
+`backgrounded` now listens from construction, so any report can say whether this process was ever
+backgrounded. `NotFoundError` with `backgrounded.count > 0` is a completely different reading from
+the same error with `count: 0`, and until now no report could tell them apart.
+
+---
+
 ## v0.27.18 · Build 756 — A FAILED BAKE NO LONGER REPORTS SUCCESS
 
 **Shipped:** the scripted bake verb now distinguishes three outcomes instead of two, so a bake that

@@ -30,7 +30,7 @@
 // ArrayBufferTarget remains the fallback and is still what the offline exporter uses.
 
 import { Muxer, ArrayBufferTarget, StreamTarget } from 'mp4-muxer';
-import { pickVideoCodec, pickAudioCodec } from './encode.js';
+import { pickVideoCodec, pickAudioCodec, videoBitrateFor } from './encode.js';
 import { acquireSession, releaseSession } from './sessions.js';
 
 export function webCodecsRecordingSupported() {
@@ -599,7 +599,29 @@ async function startWebCodecsSession({ w, h, audioTrack, onDone, onError, onProg
   // rather than making it by accident.
   const vcfg = await pickVideoCodec(w, h, 30, 0.1);
   if (!vcfg) return null;
-  const bitrate = Math.min(40_000_000, Math.round(w * h * 6));
+  // ⚠️⚠️ B757 — THE OLD FORMULA HAD NO fps TERM AND SAT BELOW THE QUALITY THRESHOLD.
+  //
+  // It was `min(40 Mbps, w * h * 6)`. Two faults. **It never mentioned frame rate**, so a 60fps take
+  // got the same bits as a 30fps one — half the bits per frame, silently. And in bits-per-pixel
+  // terms it put FHD at **0.20**, which four measurements now place squarely in the bad zone:
+  //
+  //     render 0.100  "like saving a JPG at 10% quality"        <- Daniel
+  //     FHD    0.200  "genuinely TERRIBLE, massive boxy pixelation"
+  //     4K     0.274  "about the same as before"                 <- acceptable
+  //     render 0.300  "dramatically improved"                    <- good
+  //
+  // **The threshold for this content is ~0.27-0.30 bits/px**, measured with his eye across two code
+  // paths. B754's pacing was necessary (it lifted FHD from 0.129 to 0.200 by making the declared
+  // rate true) but not sufficient. This is the other half.
+  //
+  // ⚠️ THE 40 Mbps CAP IS DELIBERATELY KEPT, so 4K record is BYTE-IDENTICAL to before. At 0.3bpp a
+  // 4K take would ask 74.6 Mbps, and that path is already missing its declared rate at 17.6fps —
+  // adding encoder work to it is the wrong lever, and its effective 0.274 is already acceptable.
+  // **FHD gains 50% (12.4 -> 18.7 Mbps) and 4K does not move.** Revisit the cap only after the 4K
+  // take's throughput problem is instrumented.
+  const RECORD_BPP = 0.30;
+  const RECORD_MAX_BITRATE = 40_000_000;
+  const bitrate = Math.min(RECORD_MAX_BITRATE, videoBitrateFor(w, h, 30, RECORD_BPP));
   const baseCfg = { codec: vcfg.codec, width: w, height: h, bitrate, framerate: 30 };
 
   // realtime latency mode paces the encoder for a live feed — used only where

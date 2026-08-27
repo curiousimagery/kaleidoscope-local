@@ -490,6 +490,9 @@ export function mountPerfPanel(env, { container = null, onClose = null } = {}) {
       // B662 — the previous run's breadcrumbs even if it had no session running. A crash does not
       // wait for the recorder to be armed.
       priorTrail: env.vitals?.priorTrail || undefined,
+      // B757 — did this process ever go to the background, and for how long? The file-handle
+      // hypothesis is unreadable without it (see vitals.js `backgrounded`).
+      backgrounded: env.vitals?.backgrounded || undefined,
       // THIS run's breadcrumbs. Without it the report copied immediately after a failure was the
       // one report that could not describe the failure (2026-08-19).
       trail: env.vitals?.trail || undefined,

@@ -450,6 +450,11 @@ export function createScenarioRunner(env) {
         // could have told them apart.
         tierPx: env.outputActions?.tier?.() ?? null,
         engine: r.engine || null,
+        // B757 — the pacing counters, per take. R2 could not show whether FHD was paced because the
+        // report's `audio` block only ever holds the LAST take. ⚠️ Never add these together: one is
+        // the limiter working, the other is the encoder losing.
+        pacedOut: r.pacedOut ?? null,
+        droppedToBackpressure: r.droppedToBackpressure ?? null,
         // A MediaRecorder fallback take has no frame count. That must read as "not measurable
         // here", never as a zero frame rate — a fallback rescue must not look like a failure.
         takeFps: frames != null && span > 0 ? +(frames / span).toFixed(1) : null,

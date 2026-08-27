@@ -30,29 +30,32 @@ reproduce. What remains is a measured cost to WARN about, not a reason to refuse
 
 ---
 
-## 🔴 R1 — THE BACKGROUND TEST. Cheapest, most decisive, and it makes the OPFS decision.
+## 🔴 R1b — THE BACKGROUND TEST, RE-RUN. **The first attempt could not answer.**
 
-**The question:** *does the iOS file handle survive app suspension?*
+**⚠️ R1 (2026-08-27) came back CLEAN and is INCONCLUSIVE, not a refutation.** Probe read in 2ms, the
+reader armed, 53.4 fps. But the `suspended` detector only fires inside a recording session, and the
+app was backgrounded *before* the scenario started — **nothing could have detected it.** B757 adds an
+always-on `backgrounded` block to the report so this is answerable.
 
-`06-a3bakeRender-bakeFailure.json` has **`suspended` in the trail** immediately before a render that
-threw `NotFoundError` on the **741MB** file — the one that has passed every probe all arc. Not size.
-A lifecycle event.
+**⚠️ AND R1 CHANGED THREE THINGS AT ONCE** versus the A3 failure: no 9-minute bake first, a much
+shorter session, and an unknown suspend duration. A clean result there does not isolate anything.
 
-**Steps.** No long bake needed; that was incidental.
+**R1b — vary ONE thing. Fresh launch each time, IMG_5132, same render:**
 
-1. Force quit, reopen. Load **IMG_5132** from On My iPad.
-2. Confirm it loaded (the source panel paints).
-3. **Background the app — home screen or lock — for ~30 seconds.**
-4. Return, and run **`a1-render-fresh`**.
-5. `copy report` either way.
+| # | do this | reads |
+|---|---|---|
+| **b1** | background **~2 minutes**, return, render | `backgrounded.count` ≥ 1, and does the reader arm? |
+| **b2** | background **~10 minutes**, return, render | duration dependence |
+| **b3** | run a **bake first** (slice), then render — no backgrounding at all | isolates the bake from the suspend |
+
+**⚠️ CHECK `backgrounded.count` IN EVERY REPORT.** If it reads 0, the app never actually went to the
+background and the run says nothing.
 
 | outcome | reading |
 |---|---|
-| render reports `NotFoundError` / `element-seek fallback` | ⭐ **SETTLED.** The handle dies on suspend. **Build the OPFS copy.** |
-| render arms `webcodecs-reader` and runs ~55 fps | suspension is NOT the trigger; the A3 failure had another cause and this needs re-opening |
-
-**▶ This subsumes the old B6** (*"background the app mid-bake"*), which was filed as a GPU question
-and is really a file-handle one.
+| b1/b2 throw `NotFoundError` with `count ≥ 1` | ⭐ handle dies on suspend, duration-dependent. **Build OPFS** |
+| b3 throws and b1/b2 do not | **it is the BAKE, not the suspend.** Look at `openHandles: 4` and `heldMB 55.6` |
+| all three clean | the A3 failure needs a different explanation — re-open with the full A3 sequence |
 
 ---
 
