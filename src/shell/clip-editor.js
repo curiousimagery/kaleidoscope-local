@@ -958,6 +958,96 @@ export function createClipEditor(env) {
     let durationMs, frameAt;
     // WebCodecs readers over the same file (below); declared here so the finally can close them.
     let sliceReaderA = null, sliceReaderB = null, bounceReader = null, sliceSource = null;
+
+    // ⚠️⚠️ B758 — HARVEST AND RELEASE MUST HAPPEN BEFORE THE SWAP, NOT AFTER IT.
+    //
+    // This used to live only in the `finally`, which runs AFTER `applyBakedClip`. So the swap — the
+    // single largest GPU allocation in the whole operation, installing a freshly baked clip and
+    // re-uploading its textures — ran while **every VideoDecoder this bake opened was still holding
+    // its surface pool**. On a 4K bake that is the moment the device runs out of room:
+    //
+    //     4K bake, FAILED  : deviceFreeMB 153 -> 127 at the loss, then 4x gl-context-lost
+    //     FHD bake, PASSED : deviceFreeMB 934 -> 177, no loss at all
+    //     our own footprint: 39-48MB in BOTH. This was never our process being too big.
+    //
+    // Both bakes encoded every frame (`bake:encoded` fired in the failing one too). **The bake was
+    // never broken; the swap after it was**, and it was starved of GPU memory by resources this
+    // function was going to release two lines later.
+    //
+    // Idempotent on purpose: the success path calls it before the swap, and the `finally` calls it
+    // again on every path so an error still releases everything exactly once.
+    let bakeReleased = false;
+    const harvestAndRelease = () => {
+      if (bakeReleased) return;
+      bakeReleased = true;
+    try {
+      // ⚠️ B720 — A TIMEOUT OUTRANKS EVERYTHING. THIS SORT DISCARDED THE ONLY READING THAT MATTERED.
+      //
+      // B716 ranked the readers by `decoded` and took the largest. In `8-24-contextLoss-clipBake-03.json`
+      // the bake FAILED at 30.982s having decoded **9** frames — and the report recorded
+      // `decoded: 113, timedOut: false` from the OTHER reader, because 113 > 9. **The instrument
+      // built to explain the failure preferred a healthy number over the failing one**, twice,
+      // and the finding survived only because the error text reached Daniel's screen.
+      //
+      // Rank by failure first, cost second. A reading that timed out is the reading.
+      const all = [sliceReaderA, sliceReaderB, bounceReader]
+        .map((r) => { try { return r?.worstTarget?.() || null; } catch { return null; } })
+        .filter(Boolean);
+      const worst = all
+        .slice()
+        .sort((x, y) => (Number(y.timedOut) - Number(x.timedOut)) || (y.decoded - x.decoded))[0] || null;
+      // B721 — `holes` across ALL readers, not just the one that won the sort. The sort answers
+      // "what was the worst target"; this answers "did the timeline-hole rule fire at all", and
+      // the reader that bridged a hole is usually not the reader that struggled.
+      const holes = all.reduce((n, r) => n + (r.holes || 0), 0);
+      // ⚠️ B728 — READ THE LEDGER BEFORE THE READERS CLOSE, for the same reason `worstTarget` is
+      // read here: closing first throws the number away on exactly the runs that matter. `heldMB`
+      // is deliberately captured BOTH now and after the closes below, because the difference
+      // between them is the whole residue question (D2 died at frame 1 where D3, from a fresh
+      // launch, encoded all 6,387 frames).
+      const memBefore = memReport();
+      // ⚠️ B724 — A BAKE WITH NO READER MUST STILL PUBLISH, OR THE LAST ONE'S NUMBER STANDS IN FOR IT.
+      //
+      // `env.bakeDecode` is a single slot. When no WebCodecs reader arms, nothing was written and
+      // **the previous bake's reading stayed in the report**, timestamped and plausible. Daniel's
+      // 47:45 FHD bake (`8-24-arrayBufferError-longFHDclip.json`) failed with an allocation error
+      // and shipped a `bakeDecode` describing the 4K clip he had baked an hour earlier — right
+      // down to `srcW 3840`, on a 1920-wide source. Only the `at` timestamp gave it away.
+      //
+      // Readers fail to arm for reasons that matter: **over `maxBytes` (1.5GB), and that file was
+      // 4.94GB**, an unsupported codec, or a demux that found no samples. Every one of those means
+      // the bake silently took the per-frame element-seek fallback, which is exactly the thing the
+      // next reader most needs to know. An absence is not evidence, and here it was worse than
+      // absent — it was someone else's evidence.
+      if (!all.length) {
+        // B738 — the gate now names the exact refusal instead of listing what it might have been.
+        const gate = (() => { try { return sourceGateReport(); } catch { return null; } })();
+        const why = !env.media?.sourceVideoUrl ? 'no source url'
+          : gate?.why || 'no WebCodecs reader armed, and the gate published no reason';
+        env.bakeDecode = { ...bakeShape, reader: 'element-seek fallback', why, srcGate: gate,
+                           timing: bakeTiming, outBytes: bakeOutBytes, at: new Date().toISOString() };
+        env.vitals?.mark('bake-decode-none', { ...bakeShape, why, srcGate: gate });
+      }
+      if (worst) {
+        // B719's reasoning still stands and is why `bakeShape` exists; it is now captured before
+        // the bake rather than recomputed here. See its comment for why the late read was wrong.
+        const shape = bakeShape;
+        // B738 — `srcGate` rides along on the SUCCESS path too. The cap that let a source through
+        // is as much a part of the reading as the cap that stopped one, and it carries the
+        // `fileBytes` the ledger's `peakMB` has to be compared against.
+        const gate = (() => { try { return sourceGateReport(); } catch { return null; } })();
+        env.bakeDecode = { ...worst, ...shape, holes, mem: memBefore, srcGate: gate,
+                           timing: bakeTiming, outBytes: bakeOutBytes, at: new Date().toISOString() };
+        env.vitals?.mark('bake-decode-worst', { ...worst, ...shape, holes, mem: memBefore, srcGate: gate });
+      }
+    } catch { /* never let an instrument break a teardown */ }
+    if (sliceReaderA) { try { sliceReaderA.close(); } catch { /* already closed */ } sliceReaderA = null; }
+    if (sliceReaderB) { try { sliceReaderB.close(); } catch { /* already closed */ } sliceReaderB = null; }
+    if (bounceReader) { try { bounceReader.close(); } catch { /* already closed */ } bounceReader = null; }
+    if (sliceSource) { try { sliceSource.close(); } catch { /* already closed */ } sliceSource = null; }
+    try { memRelease(capId); } catch { /* never let an instrument break a teardown */ }
+    };
+
     if (trim.mode === 'bounce') {
       durationMs = Math.max(200, trimmedSec * 2 * 1000);   // forward + reverse
       // Fast decode: a monotonic reader serves the forward half at speed; the reverse half
@@ -1134,6 +1224,9 @@ export function createClipEditor(env) {
       crumb('bake:encoded');
       bakeTiming = timing || null;                 // B744 — the stage split, published not consoled
       bakeOutBytes = blob?.size ?? null;
+      // ⭐ B758 — RELEASE BEFORE THE SWAP. See `harvestAndRelease` above: holding the decoders across
+      // `applyBakedClip` is what killed the GL contexts on every 4K bake.
+      harvestAndRelease();
       await applyBakedClip(blob, { w, h });         // swaps the source + re-binds the timeline
       disposeClipPreview();
       env.clip.backup = null;
@@ -1172,72 +1265,7 @@ export function createClipEditor(env) {
       // exactly the runs that matter. Published to `env.bakeDecode` so the frame-cost export can
       // carry it — Daniel does not run Web Inspector, and an uncollectable diagnostic is no
       // diagnostic (`DEVICE-TESTING.md`).
-      try {
-        // ⚠️ B720 — A TIMEOUT OUTRANKS EVERYTHING. THIS SORT DISCARDED THE ONLY READING THAT MATTERED.
-        //
-        // B716 ranked the readers by `decoded` and took the largest. In `8-24-contextLoss-clipBake-03.json`
-        // the bake FAILED at 30.982s having decoded **9** frames — and the report recorded
-        // `decoded: 113, timedOut: false` from the OTHER reader, because 113 > 9. **The instrument
-        // built to explain the failure preferred a healthy number over the failing one**, twice,
-        // and the finding survived only because the error text reached Daniel's screen.
-        //
-        // Rank by failure first, cost second. A reading that timed out is the reading.
-        const all = [sliceReaderA, sliceReaderB, bounceReader]
-          .map((r) => { try { return r?.worstTarget?.() || null; } catch { return null; } })
-          .filter(Boolean);
-        const worst = all
-          .slice()
-          .sort((x, y) => (Number(y.timedOut) - Number(x.timedOut)) || (y.decoded - x.decoded))[0] || null;
-        // B721 — `holes` across ALL readers, not just the one that won the sort. The sort answers
-        // "what was the worst target"; this answers "did the timeline-hole rule fire at all", and
-        // the reader that bridged a hole is usually not the reader that struggled.
-        const holes = all.reduce((n, r) => n + (r.holes || 0), 0);
-        // ⚠️ B728 — READ THE LEDGER BEFORE THE READERS CLOSE, for the same reason `worstTarget` is
-        // read here: closing first throws the number away on exactly the runs that matter. `heldMB`
-        // is deliberately captured BOTH now and after the closes below, because the difference
-        // between them is the whole residue question (D2 died at frame 1 where D3, from a fresh
-        // launch, encoded all 6,387 frames).
-        const memBefore = memReport();
-        // ⚠️ B724 — A BAKE WITH NO READER MUST STILL PUBLISH, OR THE LAST ONE'S NUMBER STANDS IN FOR IT.
-        //
-        // `env.bakeDecode` is a single slot. When no WebCodecs reader arms, nothing was written and
-        // **the previous bake's reading stayed in the report**, timestamped and plausible. Daniel's
-        // 47:45 FHD bake (`8-24-arrayBufferError-longFHDclip.json`) failed with an allocation error
-        // and shipped a `bakeDecode` describing the 4K clip he had baked an hour earlier — right
-        // down to `srcW 3840`, on a 1920-wide source. Only the `at` timestamp gave it away.
-        //
-        // Readers fail to arm for reasons that matter: **over `maxBytes` (1.5GB), and that file was
-        // 4.94GB**, an unsupported codec, or a demux that found no samples. Every one of those means
-        // the bake silently took the per-frame element-seek fallback, which is exactly the thing the
-        // next reader most needs to know. An absence is not evidence, and here it was worse than
-        // absent — it was someone else's evidence.
-        if (!all.length) {
-          // B738 — the gate now names the exact refusal instead of listing what it might have been.
-          const gate = (() => { try { return sourceGateReport(); } catch { return null; } })();
-          const why = !env.media?.sourceVideoUrl ? 'no source url'
-            : gate?.why || 'no WebCodecs reader armed, and the gate published no reason';
-          env.bakeDecode = { ...bakeShape, reader: 'element-seek fallback', why, srcGate: gate,
-                             timing: bakeTiming, outBytes: bakeOutBytes, at: new Date().toISOString() };
-          env.vitals?.mark('bake-decode-none', { ...bakeShape, why, srcGate: gate });
-        }
-        if (worst) {
-          // B719's reasoning still stands and is why `bakeShape` exists; it is now captured before
-          // the bake rather than recomputed here. See its comment for why the late read was wrong.
-          const shape = bakeShape;
-          // B738 — `srcGate` rides along on the SUCCESS path too. The cap that let a source through
-          // is as much a part of the reading as the cap that stopped one, and it carries the
-          // `fileBytes` the ledger's `peakMB` has to be compared against.
-          const gate = (() => { try { return sourceGateReport(); } catch { return null; } })();
-          env.bakeDecode = { ...worst, ...shape, holes, mem: memBefore, srcGate: gate,
-                             timing: bakeTiming, outBytes: bakeOutBytes, at: new Date().toISOString() };
-          env.vitals?.mark('bake-decode-worst', { ...worst, ...shape, holes, mem: memBefore, srcGate: gate });
-        }
-      } catch { /* never let an instrument break a teardown */ }
-      if (sliceReaderA) { try { sliceReaderA.close(); } catch { /* already closed */ } sliceReaderA = null; }
-      if (sliceReaderB) { try { sliceReaderB.close(); } catch { /* already closed */ } sliceReaderB = null; }
-      if (bounceReader) { try { bounceReader.close(); } catch { /* already closed */ } bounceReader = null; }
-      if (sliceSource) { try { sliceSource.close(); } catch { /* already closed */ } sliceSource = null; }
-      try { memRelease(capId); } catch { /* never let an instrument break a teardown */ }
+      harvestAndRelease();
       // The balance sheet AFTER every release this bake knows how to perform. **Non-zero here means
       // we are still holding references** — a bug we can fix. Zero here while the next bake still
       // dies early means the residue is GC latency or engine-side, which is a different fix.

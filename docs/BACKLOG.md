@@ -570,6 +570,66 @@ currently instrumented and every claim here would otherwise be a guess.
 
 ---
 
+### 🎯🎯🎯 [B757, R1b-b3 — THE BAKE IS NOT BROKEN. THE SWAP AFTER IT IS.] AND IT IS NOT A MEMORY KILL
+
+**`R1b-b3-catastrophicContextLoss.json` is the cleanest crash evidence this project has produced**,
+and `priorTrail` caught the whole thing because B751 put the breadcrumbs in.
+
+```
+19:54:47  bake:progress 25%
+19:55:26  bake:progress 50%
+19:56:05  bake:progress 75%
+19:56:43  bake:encoded            <-- ⭐ ALL 3178 FRAMES ENCODED. THE BAKE SUCCEEDED.
+19:56:45  gl-context-lost   preview      (+1.45s)
+19:56:45  gl-context-lost   yuv-source
+19:56:45  gl-context-restored preview    (474ms)
+19:56:45  gl-context-restored yuv-source
+19:56:49  gl-context-lost   yuv-source   (+3.4s — a SECOND round)
+19:56:49  gl-context-lost   preview
+19:56:49  gl-context-restored yuv-source
+19:56:49  gl-context-restored preview
+```
+
+**⭐ FOUR THINGS THIS SETTLES:**
+
+1. **The bake encodes fine.** `bake:encoded` fired with the full frame count. Every failure is in the
+   ~1.5 seconds AFTER it — which is `applyBakedClip`, the swap. **"Bake is broken" is wrong; "the
+   post-bake swap is broken" is right**, and that is a far smaller and already-diagnosed problem
+   (see *"applyBakedClip IS A PARTIAL REIMPLEMENTATION OF THE LOAD PATH"*).
+2. **⛔ IT IS NOT A SUSPEND.** `backgrounded: { count: 0 }` — the new B757 instrument, and the app
+   never went to the background. **The B756 file-handle-dies-on-suspend hypothesis is eliminated for
+   this failure.**
+3. **⛔ IT IS NOT A JETSAM KILL OF OUR PROCESS.** `footprintMB: 39` and `availableMB: 5080`. We were
+   using 39MB with 5GB of headroom. **Nothing about this is our process being too big.**
+4. **The GL recovery machinery WORKED — 4 losses, 4 restores, 474ms.** What did not come back is the
+   **app session**: Daniel lost the source, the panels and the diagnostics dialog. **This is the
+   B733-era finding again** (*"the contexts recovered and the panels did not"*), now with a clean
+   repro.
+
+**▶ THE ONE SUSPICIOUS NUMBER:** `deviceFreeMB` reads **153 then 127**, with `deviceReclaimableMB`
+1927 → 2134. Device-wide free memory is very low while OUR footprint is trivial. That is the
+condition in which iOS purges the GPU process's resources — and a WebGL context loss is exactly what
+that looks like from inside. **Not proven, and it is the next thing to check**, but it is consistent
+with both rounds of loss landing during the swap's re-upload.
+
+**▶ WHY THE SWAP IS THE SUSPECT AND NOT THE ENCODE:** the swap installs a freshly baked multi-hundred-MB
+clip as the source and re-uploads textures, which is the largest single GPU allocation in the whole
+operation — arriving at the exact moment device-free memory is at its lowest.
+
+**▶ NEXT, AND IT IS CHEAP:**
+
+- **Daniel's manual bake control** (running 2026-08-27) — does it reproduce without the scenario
+  runner? If yes, the runner is exonerated and this is purely `applyBakedClip`.
+- **A bake with a SMALLER output** (FHD tier in the Loop Builder's format controls). If the swap is a
+  GPU allocation problem, a smaller baked clip should survive it.
+- **Read `deviceFreeMB` at the START of a bake** and see whether a run that begins with more free
+  memory survives the swap.
+
+**⚠️ THIS BLOCKS A3 AND R5**, and Daniel is right that it blocks the rest of the bake-adjacent queue.
+**It does not block R1b-b1/b2** (the background tests), which are render-only and independent.
+
+---
+
 ### 🔓🔓🔓 [B756 — THE BEST LEAD THIS ARC HAS HAD] `suspended` IS IN THE TRAIL, AND THE FILE HANDLE DIES WITH IT
 
 **`06-a3bakeRender-bakeFailure.json` may have solved the transient file-access mystery.** The trail,

@@ -6,6 +6,57 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.27.20 · Build 758 — THE 4K BAKE FIX: RELEASE THE DECODERS BEFORE THE SWAP, NOT AFTER
+
+**Shipped:** a bake now closes its decoders and publishes its measurements **before** installing the
+finished clip, instead of two lines later.
+
+### ⭐⭐ THE BAKE WAS NEVER BROKEN. THE SWAP AFTER IT WAS.
+
+Two bakes on the same device, same source, same day:
+
+| | 4K — **failed** | FHD — **passed** |
+|---|---|---|
+| `bake:encoded` | ✅ all 3178 frames | ✅ all 3178 frames |
+| `deviceFreeMB` | **153 → 127** at the loss | **934 → 177** |
+| our `footprintMB` | **39** | **48** |
+| `availableMB` (jetsam headroom) | 5080 | 5071 |
+| outcome | **4× `gl-context-lost`**, session gone | clean |
+
+**Both encoded every frame.** The 4K failure begins **1.45 seconds after `bake:encoded`** — which is
+`applyBakedClip`, the swap.
+
+**And it is not a memory kill of our process.** 39MB footprint against 5GB of jetsam headroom. What
+runs out is **device-wide** free memory, at which point iOS purges the GPU process and our WebGL
+contexts die with it.
+
+### 🔧 THE CAUSE, AND IT IS AN ORDERING BUG
+
+`applyBakedClip` ran at line 1137. The `finally` that closes every reader ran at 1165. **So the swap —
+the largest GPU allocation in the operation, installing a multi-hundred-MB clip and re-uploading its
+textures — happened while every VideoDecoder the bake opened was still holding its surface pool.**
+
+The teardown was always going to release them. It just did it two lines too late.
+
+`harvestAndRelease()` is now idempotent and called on the success path **before** the swap, and again
+from the `finally` so every error path still releases exactly once. The instrumentation harvest moves
+with it, because `worstTarget()` lives on the readers and closing first would throw the reading away
+on exactly the runs that matter (the B716 rule).
+
+### 🧭 WHAT THIS ALSO RULES OUT
+
+- **Not the scenario runner.** Daniel's manual bake failed identically.
+- **Not suspension.** `backgrounded: { count: 0 }` — the B757 instrument, earning its keep on the
+  first run that used it. The B756 file-handle hypothesis is eliminated for this failure.
+- **Not our memory ceiling.** See the footprint numbers above.
+
+### ⚠️ UNVERIFIED
+
+**This has not been run on a device.** The reasoning is well evidenced by the 4K/FHD pair, but the
+fix itself is a hypothesis until a 4K bake completes. **That is the next test, ahead of the R queue.**
+
+---
+
 ## v0.27.19 · Build 757 — FHD TAKES GET 50% MORE BITRATE, AND BACKGROUNDING IS NOW VISIBLE
 
 **Shipped:**
