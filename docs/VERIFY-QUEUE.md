@@ -8,147 +8,128 @@ Confirmed results are DELETED from here and recorded in CHANGELOG. Closed sessio
 
 ---
 
-# ▶▶ OPEN SESSION (B752) — IS THE CEILING A PROPERTY OF THE FILE, OR OF THE SESSION?
+# ▶▶ OPEN SESSION (B756) — WHAT THE B752 MATRIX ANSWERED, AND WHAT IS LEFT
 
-**The question:** *the source-size hypothesis is dead. Does what PRECEDED an operation predict whether
-it survives?* And, riding along because it is the same rig: *are the record limits still where the
-pre-B681 evidence says they are?*
+**The B752 matrix is COMPLETE. Six cells, five clean passes, one failure that turned out to be the
+most useful run of the arc.** Results are recorded in `CHANGELOG.md` and `HANDOFF.md`; this section
+now owns only what is still OPEN.
 
-**Why now:** the same 2,629,310,897-byte file on the same M1 iPad Pro **failed three times**
-(B741/B742/B743) and **succeeded twice** (B750, and B751's clean 55.6fps render). The only thing that
-differs between the two runs that left breadcrumbs is not the file:
+## ✅ CLOSED BY THE MATRIX — do not re-run these to "confirm"
 
-```
-B750, CRASHED 1/3 in : scenarioObserved external-broadcast · sessions.peak { gl 2, decode 2 }
-B751, COMPLETED clean: scenarioObserved idle-still         · sessions.peak { gl 1, decode 3 }
-```
-
----
-
-## 🛑 FOUR OPERATING RULES. GET THESE WRONG AND THE SESSION PRODUCES NOTHING.
-
-### 1. ⚠️⚠️ COPY THE REPORT AFTER **EVERY** RUN. IT DOES NOT SURVIVE A FORCE-QUIT.
-
-**Verified by reading, B752.** The runner's record is a module-closure variable
-(`shell/scenario-runner.js`), so a force-quit takes it with it. **Only `priorTrail` (12 entries) and
-the vitals crash store are in `localStorage` and survive.** There is no accumulate-across-relaunch
-report — that was scoped as optional and is not built.
-
-**So: run → wait for `✅ complete — copy report` → tap `copy report` → paste to a file → THEN force
-quit.** A run whose report was not copied did not happen.
-
-Suggested naming so a later session can cross-reference: **`docs/temp/B752-<device>-<script>.json`**,
-e.g. `B752-ipadPro-a1.json`.
-
-### 2. The button is `copy report` in the **frame-cost panel** — the same one as always.
-
-On iPad it is reachable only through the desktop diagnostics section ("frame cost panel"); a URL
-param cannot reach a Capacitor build. `run scenario` is in that same panel.
-
-### 3. Per-run setup, in order:
-
-1. **Force quit**, reopen.
-2. **Load the source** (see the file table below).
-3. **Enter motion mode.** This auto-seeds keyframe 0 (`ensureSeededSelection`), which is what the
-   render scripts need — **the render sheet will not open with zero keyframes.** No manual keyframing.
-4. Frame-cost panel → pick the script → **`run scenario`** → walk away.
-5. `copy report` → paste → force quit.
-
-### 4. ⚠️ A RENDER'S LENGTH IS THE **CLIP's** LENGTH, not a fixed job.
-
-`lockVideoDuration` sets `motion.durationMs` from the source's native duration, so the render cost
-scales directly with the clip you load. **This is how to budget the session:**
-
-| clip | frames at 30fps | iPad render, at B751's measured 55.6 fps |
-|---|---|---|
-| 20.4s 4K | ~612 | **~11 s** |
-| **IMG_5132, 1:46** | ~3,180 | **~57 s** |
-| 6:39 4K | ~11,970 | ~3.6 min |
-| **RAKBE6010, 8:21** | 15,019 | **270 s** — this is exactly what B751 measured |
-
----
-
-## 📁 THE FILES, BY HOW YOU ACTUALLY IDENTIFY THEM
-
-**⚠️ THE PHOTOS COPY IS NOT THE SAME FILE.** Photos hands out a lower-bitrate re-encode: same
-3840x2160, same duration, **45% of the bytes**, 8-bit where the original is HEVC Main10. This has
-invalidated results twice (BACKLOG: *"SAME CLIP HAS BEEN WRONG TWICE"*). **Check `srcBytes` in the
-report before comparing any two runs.**
-
-| use it for | where | name | duration |
-|---|---|---|---|
-| **the matrix constant** | **On My iPad** | **IMG_5132** (741.7MB) | 1:46 |
-| the escalation, only if the matrix shows nothing | On My iPad | RAKBE6010 (2.63GB) | 8:21 |
-| ⛔ **do not use for comparisons** | Photos | the 1:46 4K | 1:46 — this is the IMG_5132 **re-encode** |
-
-**Everything in this session runs on IMG_5132 from On My iPad.** One source, held constant, is the
-whole design. **No need to move any other file to local storage for this session.**
-
----
-
-## ▶ THE ORDER. START ON THE MAC, NOT THE iPAD.
-
-### 🆓 STEP 0 — **A1 on the desktop, in a browser. Free, ~10 seconds, before any device time.**
-
-You asked for a first run that confirms the instrumentation and the report format before spending
-device time. **This is it, and it costs nothing** — it is the same R0 discipline that caught two
-failures in the B737 session.
-
-`npm run dev`, load any clip, enter motion mode, frame-cost panel → **A1** → run.
-
-| check the report for | pass |
+| cell | result |
 |---|---|
-| `scenarioRun.outcome` | `"complete"` |
-| `scenarioRun.stepsRun` / `stepsTotal` | equal |
-| `scenarioRun.log[]` | one entry per step, each with `ok: true` |
-| the `render` log entry | carries **`wallSec`, `renderPx`, `frames`, `sourcePath`, `outBytes`** |
-| `scenarioRun.session` | **present, not undefined** — this is the B667 defect, watch for it |
-| a file downloaded | the render actually saved |
+| `t11-take-baseline` | FHD alone **46.6 fps** · 4K alone **17.1 fps** (was 13.4 pre-B681) |
+| `a1-render-fresh` | 3193 frames, 57.8s, **55.2 fps**, `gl 1` — replicates B751's 55.6 |
+| `a2b-render-while-broadcasting` | **completed**, 31.2 fps (−43%), no crash |
+| `a2-broadcast-then-render` | **completed** |
+| `t3-rerun-post-b681` | **both takes completed, no GL loss.** 23.6 broadcasting vs 46.4 alone |
+| `a3-bake-then-render` | bake FAILED after 558s → `suspended` → `NotFoundError` on the 741MB file |
 
-**If any of those are missing, STOP and send me that one report.** That is exactly the B741 failure
-mode — an instrument that silently did not ship — and it must not cost an iPad session.
-
-### Then the iPad Pro, in this order
-
-| # | script | source | rig | ~time | what it answers |
-|---|---|---|---|---|---|
-| 1 | **`t11-take-baseline`** | IMG_5132 | **no HDMI** | ~4 min | ⭐ **The record gate's control condition, written B665, never run.** FHD take alone, then 4K take alone. **The 13.4fps figure re-measured post-B681** |
-| 2 | **`a1-render-fresh`** | IMG_5132 | none | ~2 min | the render CONTROL. Everything else is measured against it |
-| 3 | **`a2b-render-while-broadcasting`** | IMG_5132 | **HDMI** | ~3 min | **concurrency.** Most likely to kill the process — and that is fine, B751's breadcrumbs make a kill a RESULT |
-| 4 | **`a2-broadcast-then-render`** | IMG_5132 | **HDMI** | ~8 min | **residue.** Different fix from #3: a release bug, not a capability gate |
-| 5 | **`t3-rerun-post-b681`** | IMG_5132 | **HDMI** | ~4 min | take while broadcasting, refreshed |
-| 6 | **`a3-bake-then-render`** | IMG_5132, **set the loop mode by hand first** | none | long | the D5 residue question. ⚠️ **A failed bake raises `alert()` and stops the run dead** until you dismiss it |
-
-**Why T11 is first even though it is not "A1":** A1-A3 are the RENDER half and T11/T3r are the RECORD
-half. **They are two independent questions, not one sequence.** T11 needs no HDMI, is the cheapest,
-and unblocks the gate that phase 2 has been stuck on since B704.
-
-### Which devices?
-
-**Everything above on the M1 iPad Pro.** That is where every failure in this arc happened, and
-running four devices before we know the axis exists multiplies cost without adding signal.
-
-**One exception worth the extra run: `t11-take-baseline` on the 8GB iPad Air**, after the Pro number
-exists. Record is the memory- and thermal-sensitive path, and the Air is the only controlled A/B we
-own (same silicon, half the memory). **Not simultaneously — get the Pro number first.**
-
-**Not the Macs**, beyond step 0. They swap rather than jetsam-kill, so a desktop pass says nothing
-about the iPad's failure mode.
+**⭐ Gate 3's refuse rule has no evidence behind it any more.** The B571/B667 cluster did not
+reproduce. What remains is a measured cost to WARN about, not a reason to refuse.
 
 ---
 
-## What each result would mean
+## 🔴 R1 — THE BACKGROUND TEST. Cheapest, most decisive, and it makes the OPFS decision.
+
+**The question:** *does the iOS file handle survive app suspension?*
+
+`06-a3bakeRender-bakeFailure.json` has **`suspended` in the trail** immediately before a render that
+threw `NotFoundError` on the **741MB** file — the one that has passed every probe all arc. Not size.
+A lifecycle event.
+
+**Steps.** No long bake needed; that was incidental.
+
+1. Force quit, reopen. Load **IMG_5132** from On My iPad.
+2. Confirm it loaded (the source panel paints).
+3. **Background the app — home screen or lock — for ~30 seconds.**
+4. Return, and run **`a1-render-fresh`**.
+5. `copy report` either way.
 
 | outcome | reading |
 |---|---|
-| A1 passes, A2b crashes | **concurrency is the axis.** Gate 2 becomes a concurrency gate, and OPFS is NOT the fix |
-| A1 passes, A2 crashes, A2b passes | **residue is the axis.** A release bug, and it is the same family as B571/B667 |
-| all of A1/A2/A2b pass | the axis is neither, and the 2.63GB escalation is next |
-| T11 4K take ≈ 13.4 fps | the refuse rule stands; build the take-tier cap |
-| T11 4K take is healthy | **B681 fixed it and there is no cap to build.** The gate shrinks to a warning |
+| render reports `NotFoundError` / `element-seek fallback` | ⭐ **SETTLED.** The handle dies on suspend. **Build the OPFS copy.** |
+| render arms `webcodecs-reader` and runs ~55 fps | suspension is NOT the trigger; the A3 failure had another cause and this needs re-opening |
+
+**▶ This subsumes the old B6** (*"background the app mid-bake"*), which was filed as a GPU question
+and is really a file-handle one.
 
 ---
 
+## 🟠 R2 — RE-RUN `t11-take-baseline` ON B754+, BECAUSE THE PACING CHANGED WHAT IT MEASURES
+
+**The question:** *did pacing fix the FHD picture, and what did it cost?*
+
+The FHD take was handing a 30fps-configured encoder **46.6 fps**, so every frame got ~64% of its
+budgeted bits (0.129 bits/px, against 4K's 0.282 — which is why 4K looked BETTER). B754 paces to 30.
+
+**Same script, same source, fresh launch. Then LOOK AT THE FILES, because this is an eye test, not
+only a number test.**
+
+| read | expect |
+|---|---|
+| `takes[].takeFps` FHD | **~30**, not 46.6 |
+| `pacedOut` | **large** — that is the limiter working |
+| `droppedToBackpressure` | **0**. ⚠️ **Never add these two together** |
+| the FHD file at 100% | **the macroblocking should be visibly reduced.** Compare against the take from `01-t11report.json` |
+| `takes[].takeFps` 4K | unchanged near 17.1 (pacing does not fix throughput) |
+
+---
+
+## 🟢 R3 — THE RENDER BITRATE A/B. **Desktop. Free. No device time.**
+
+**The question:** *does 0.30 bpp actually fix the macroblocking Daniel photographed?*
+
+**Already partly answered on device by accident:** A3's render at B755 asked **74.6 Mbps** and wrote
+**948 MB** where B752's asked 24.9 and wrote 270. **The lever works.** What is unverified is whether
+the picture is now acceptable.
+
+1. `npm run dev`, load any 4K clip, motion mode.
+2. Render sheet → **`draft`** → render.
+3. Render sheet → **`high`** → render.
+4. Compare at 100%, ideally beside a live broadcast (which has no encoder in the path at all).
+
+**Also check while there:** at 8K the quality tiers above `draft` should be **disabled with a
+tooltip**, and re-selecting 4K should **restore** the tier you had. That is the B753 preference
+memory, harness-proven at 26/26 but never seen by a human.
+
+---
+
+## 🟡 R4 — A3 AGAIN, ON B756, WITH THE SETUP RIGHT
+
+**Two things were wrong the first time and both are fixed:**
+
+- `forward` mode now refuses at **pre-flight** by name rather than aborting at step 3.
+- **The bake verb no longer reports `ok: true` for a failed bake** (B752 tested "did the teardown
+  run", and the teardown runs on every exit path — the wrong noun).
+
+**Setup:** Loop Builder → **slice** at the Behavior step → advance to the bake step → run A3.
+**Not** the loop toggle in motion mode's overflow.
+
+**⚠️ Expect the bake to be slow and possibly to fail again**: the first attempt took **558s** for a
+1:46 clip and left `heldMB 55.6`. **If it fails you will be behind a modal** — that defect is filed
+and unfixed. **Run R1 first**; if the handle dies on suspend, A3's failure may simply be R1 again.
+
+---
+
+## 🟡 R5 — B8, PROMOTED AT B752 AND NOW STRONGLY SUPPORTED
+
+**Load 3+ 4K clips in sequence without leaving the app**, reading `sessions.peak`. No build needed.
+
+**B756 raised its priority again**: that run peaked at **`decode 7`** with **three Loop Builder
+decoders still live 940 seconds later** and `acquired 9 / released 3`. **This is the stage manager's
+core question** — nine on deck against a Loop Builder that retains three decoders per visit.
+
+---
+
+## 📋 PRESSURE-TEST SCENARIOS — Daniel's ask, 2026-08-27
+
+**Everything above is a single action on a short clip.** `HANDOFF.md` carries the list of real-world
+scenarios that are now believed to work, with the reason and the remaining limit for each. **Use it
+as the script for a strained-conditions pass**, and treat any failure there as more informative than
+another clean single-action run.
+
+---
 # 🅿️ CARRIED FORWARD — still open, reprioritised at B752
 
 **What changed underneath these lists:** the source-size cliff was removed at B738 and the size

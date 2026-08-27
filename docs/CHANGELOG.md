@@ -6,6 +6,45 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.27.18 · Build 756 — A FAILED BAKE NO LONGER REPORTS SUCCESS
+
+**Shipped:** the scripted bake verb now distinguishes three outcomes instead of two, so a bake that
+raised an error dialog is reported as a failure rather than a tidy success.
+
+### ⚠️ I PICKED THE WRONG NOUN AT B752, AND DANIEL'S FIRST A3 RUN PROVED IT
+
+B752 tested success by asking whether `env.bakeDecode.at` had changed, reasoning that only a real
+bake reaches the teardown that stamps it. **The teardown runs on EVERY exit path** — the file says so
+itself: *"every exit from a bake runs it — completed, thrown, context loss."* So a bake that failed
+and raised `alert('Could not bake the clip')` logged **`ok: true, mode: slice, holes: 0`.**
+
+That is the wrong-noun test failing exactly as `DEBUGGING-PROTOCOL.md` describes it.
+
+**The right conserved quantity is the SOURCE SWAP** — a successful bake ends in `applyBakedClip`,
+which installs the new clip; a failed one never gets there. Both checks are kept because together
+they separate *declined before starting* / *ran and FAILED* / *ran and succeeded*. The failure case
+also now says that a modal is blocking the rest of the run.
+
+Also fixed: `bakedPx` read `d.w`/`d.h`, which `bakeDecode` has never had (it carries `srcW`/`srcH`),
+so it was always `null`.
+
+### 🔓 AND THE FAILING RUN PRODUCED THE BEST LEAD OF THE ARC
+
+Its trail reads `bake-mem · scenario:step · **suspended** · … · render:begin`, and the render then
+threw `NotFoundError` on the **741MB** file — the one that has passed every probe all arc.
+
+**The iOS file handle appears not to survive app suspension.** Not size, not staleness, not duration.
+It fits everything: the long unattended runs failed, the short attended ones passed, and broadcast
+never fails because native decode copies the bytes at attach. **One 2-minute test settles it**
+(VERIFY-QUEUE R1) and it makes the OPFS decision.
+
+### ✅ B753's BITRATE CHANGE IS CONFIRMED ON DEVICE
+
+The same run rendered at **74.6 Mbps for 948 MB**, where B752 rendered the same clip at 24.9 Mbps for
+270 MB. The lever works; whether the picture is now acceptable is still an eye test (R3).
+
+---
+
 ## v0.27.17 · Build 755 — A3 REFUSES `forward` MODE UP FRONT INSTEAD OF FAILING MID-RUN
 
 **Shipped:** picking the A3 scenario while the Loop Builder is in trim-only mode now refuses before

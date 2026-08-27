@@ -570,6 +570,88 @@ currently instrumented and every claim here would otherwise be a guess.
 
 ---
 
+### 🔓🔓🔓 [B756 — THE BEST LEAD THIS ARC HAS HAD] `suspended` IS IN THE TRAIL, AND THE FILE HANDLE DIES WITH IT
+
+**`06-a3bakeRender-bakeFailure.json` may have solved the transient file-access mystery.** The trail,
+in order:
+
+```
+bake-mem · scenario:step · suspended · scenario:step · scenario:step · render:begin · …
+```
+
+and the render that followed reported:
+
+```
+"the source reports 741685378 bytes but its first 16 could not be read
+ [NotFoundError]: The object can not be found here."
+```
+
+**⭐ THIS IS THE 741MB FILE, NOT THE 2.63GB ONE.** The same file that has passed every probe all arc,
+that `sourceProbe` read in 16ms at load, became unreadable **after the app was suspended**. That
+kills the size hypothesis a second time and for a different reason.
+
+**THE HYPOTHESIS, and it fits everything we have:** the iOS security-scoped file handle does not
+survive app suspension. Not size, not staleness, not a duration — **a lifecycle event.**
+
+**Why it fits the whole arc:**
+
+- **B741 / B742 / B743 all failed** after long multi-minute operations, exactly when an unattended
+  device suspends.
+- **B750 / B751 both succeeded** in short attended sessions with no suspend.
+- **Broadcast never fails**, because native decode COPIES the bytes to the plugin at attach and never
+  re-reads the original `File`.
+- **Bake and render fail**, because they re-read the original `File` minutes after the pick.
+
+**▶ HOW TO TEST IT, and it is cheap and deterministic (no long bake needed):** load a clip, confirm
+the probe reads, **background the app for ~30s, return, and render.** If it throws `NotFoundError`,
+this is settled. This subsumes the old B6 (*"background the app mid-bake"*), which was filed as a GPU
+question and is really a file-handle one.
+
+**▶ AND IT MAKES THE OPFS DECISION.** The B751 note said *"do not build the OPFS source copy until
+the matrix runs"* because the failure might have been memory pressure at read time, which owning the
+bytes would not fix. **A revoked handle IS fixed by owning the bytes.** Confirm with the background
+test first, then build it — and note the stage manager makes this worse, because nine clips on deck
+means nine handles aging across every suspend.
+
+---
+
+### 🐌🐌 [B756 — MEASURED, NOT DIAGNOSED] THE LOOP BUILDER LEAKS THREE DECODERS AND A BAKE KEEPS 55MB
+
+From the same report, at the end of the run:
+
+```
+sessions.peak  { total 8, gl 1, decode 7 }      acquired 9, released 3
+sessions.live  preview engine (986s) · source clip (955s) · native decode (947s)
+               · loop builder: preview (940s)
+               · loop builder: A-head crossfade (940s)
+               · loop builder: thumbnail strip (940s)
+```
+
+**Three Loop Builder decoders still live 940 seconds later**, and `bakeDecode.mem.heldMB` is **55.6**
+with `openHandles: 4`. **Seven concurrent decode sessions is the highest this project has recorded.**
+
+This is the substrate the concurrency hypothesis has been circling: A1 ran at `decode 3` and rendered
+at 55.2 fps; this run reached `decode 7`. It is also the same shape as the pre-B681 audit (source
+`<video>` orphaned on every swap), which B681 fixed for *swaps* but evidently not for the Loop
+Builder's own decoders.
+
+**⚠️ AND IT BEARS DIRECTLY ON THE STAGE MANAGER.** Nine clips on deck with a Loop Builder that
+retains three decoders per visit is not a design that survives a set.
+
+---
+
+### 🚨🚨 [B756 — NOW BLOCKING SCRIPTED RUNS, NOT JUST ANNOYING] THE BAKE `alert()` STOPS AN UNATTENDED RUN DEAD
+
+Filed since B707 as the worst operator-facing defect in the arc. **B756 gives it a second cost:** a
+scripted A3 run sat behind the modal with the render sheet stacked on top of it, and Daniel had to
+find and dismiss it before the run could continue. **The runner's entire premise is walking away.**
+
+`clip-editor.js` lines ~876 and ~1161. Measured `dialog-blocked` of 243s, 289s and once 1827s.
+**Replace with the non-blocking `shell/interrupt.js` surface that already replaced `window.confirm`
+for exactly this reason.**
+
+---
+
 ### 🎚 [B754 — THE PACING SHIPPED; THE SELECTOR IS DELIBERATELY NOT BUILT] A RECORD QUALITY SELECTOR
 
 **Deferred on purpose (Daniel + agreed 2026-08-27):** the tiers must be chosen against **post-pacing**

@@ -1657,28 +1657,53 @@ export function createClipEditor(env) {
       const mode = env.clip.trim?.mode || null;
       if (!BAKEABLE_MODES.includes(mode)) return { ok: false, why: env.bakeActions.why() };
 
-      // ⚠️ THE CONSERVED QUANTITY, not an activity counter. `bakeAndApply` has early `return`
-      // paths ABOVE its own try/finally (the unknown-mode branch at ~1058), so "it returned" does
-      // not mean "it baked". `env.bakeDecode.at` is stamped in the teardown that only a bake which
-      // actually ran reaches, so a CHANGED timestamp is the thing that survives the boundary.
+      // ⚠️⚠️ B756 — I PICKED THE WRONG NOUN AT B752, AND DANIEL'S FIRST A3 RUN PROVED IT.
+      //
+      // B752 used "did `env.bakeDecode.at` change" as the success test, reasoning that only a bake
+      // which actually ran reaches the teardown that stamps it. **The teardown runs on EVERY exit
+      // path** — its own comment three hundred lines down says so explicitly: *"every exit from a
+      // bake runs it — completed, thrown, context loss"*. So a bake that raised `alert('Could not
+      // bake the clip')` reported `ok: true` with a tidy `mode: slice, holes: 0`.
+      //
+      // That is the wrong-noun test failing exactly as DEBUGGING-PROTOCOL describes: the quantity
+      // counted ("the teardown ran") equals the thing cared about ("the bake produced a clip") only
+      // if the teardown is success-only, and it never was.
+      //
+      // **The right conserved quantity is the SOURCE SWAP.** A successful bake ends in
+      // `applyBakedClip`, which installs the new clip as the source; a failed one never gets there.
+      // Both checks are kept, because they distinguish three outcomes rather than two:
+      //   teardown never ran        -> declined before starting
+      //   teardown ran, no swap     -> the bake FAILED (and has raised a modal)
+      //   teardown ran, source swap -> success
       const before = env.bakeDecode?.at || null;
+      const srcBefore = env.sourceVideo?.currentSrc || env.sourceVideo?.src || null;
       const t0 = performance.now();
       try { await bakeAndApply(); }
       catch (e) { return { ok: false, why: `the bake threw: ${e?.message || e}` }; }
 
       const d = env.bakeDecode || null;
-      if (!d || d.at === before) {
-        return { ok: false, why: `the bake returned without reaching its teardown — it declined in "${mode}" mode and published no reason` };
-      }
-      return {
-        ok: true,
-        mode,
-        wallSec: +((performance.now() - t0) / 1000).toFixed(1),
-        bakedPx: d.w ? `${d.w}x${d.h}` : null,
-        reader: d.reader || 'webcodecs',
-        holes: d.holes ?? null,
-        why: d.why || null,
+      const wallSec = +((performance.now() - t0) / 1000).toFixed(1);
+      const srcAfter = env.sourceVideo?.currentSrc || env.sourceVideo?.src || null;
+      const detail = {
+        mode, wallSec,
+        srcPx: d?.srcW ? `${d.srcW}x${d.srcH}` : null,   // B756 — bakeDecode has srcW/srcH, never w/h
+        reader: d?.reader || (d ? 'webcodecs' : null),
+        holes: d?.holes ?? null,
+        peakMB: d?.mem?.peakMB ?? null,
+        heldMB: d?.mem?.heldMB ?? null,
       };
+      if (!d || d.at === before) {
+        return { ...detail, ok: false, why: `the bake returned without reaching its teardown — it declined in "${mode}" mode and published no reason` };
+      }
+      if (srcAfter && srcAfter === srcBefore) {
+        // ⚠️ The operator is looking at `alert('Could not bake the clip: …')` RIGHT NOW, and the
+        // script is blocked behind it. Say that, because the run's own log is the only place this
+        // will be legible afterwards.
+        return { ...detail, ok: false,
+                 why: 'the bake ran to its teardown but never swapped the source in — it FAILED,'
+                    + ' and has raised a modal that blocks the rest of the run until it is dismissed' };
+      }
+      return { ...detail, ok: true, why: d.why || null };
     },
   };
 

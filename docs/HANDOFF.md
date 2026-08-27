@@ -31,6 +31,83 @@ size is no longer a memory axis. **B705 and B706 are device-verified** — B705'
 
 ---
 
+## ▶▶▶▶▶▶▶▶ WHAT WE BELIEVE WORKS NOW, AND WHY (B756, Daniel's ask)
+
+**Read this before designing any gate.** The arc set out to build a capability ladder and
+**measurement retired most of its rungs by fixing them.** What follows is what is believed to work,
+the evidence, and the limit that actually remains. **Everything here was measured with ONE action on
+a SHORT clip** — the pressure test is what turns "works" into "holds".
+
+### 🚫 THE GATES WE THOUGHT WE NEEDED AND DO NOT
+
+| gate we planned | why it is gone |
+|---|---|
+| **A memory / cost gate on bake** | `peakMB` is **72-132MB on every device at every clip length**; a 3.5x larger source cost 0.7MB more. The expression `sourceBytes + 2×outputBytes + 56MB ≤ free` has no varying term left |
+| **A max-file-size gate** | The same 2.63GB file failed 3x and passed 2x on one device; the **741MB** file then failed too, after a suspend. **Size never predicted anything** |
+| **A duration gate** | Nothing scales with clip length. It became a forecast — a number to say, not a refusal |
+| **A "refuse 4K takes" rule** | 13.4 → **17.1 fps** post-B681, and it never crashed |
+| **A "refuse record while broadcasting" rule** | **Both takes completed with no GL loss** (T3r). The B571/B667 cluster did not reproduce |
+| **A device/SKU table** | Would have said *"2.63GB on M1 iPad: no"* and been wrong the same day |
+
+**What replaced them is smaller and mostly honest LABELLING**: a forecast of time, a warning with a
+measured cost, and one real binary (can we read these bytes).
+
+### ✅ SCENARIOS BELIEVED TO WORK, WITH THE REASON AND THE REMAINING LIMIT
+
+| # | scenario | evidence | limit that remains |
+|---|---|---|---|
+| 1 | **Broadcast a 4K clip to a 4K display, long-form** | T10: 6:39 clip, **50 min**, no context loss, 6ms worst wrap. **HDMI 4K re-learned at `delivered 30 / source 30`** over 1.47M samples (was 22/30) | none known. **This is the strongest thing we do** |
+| 2 | **Render a 4K clip on an 8GB iPad** | A1: 3193 frames in **57.8s (55.2 fps)**, `peakMB` ~92, thermal nominal | needs the WebCodecs reader to arm — see limit A |
+| 3 | **Render while broadcasting 4K** | A2b: **completed**, 31.2 fps | **costs 43% of render speed.** A forecast, not a refusal |
+| 4 | **Record an FHD take** | T11: **46.6 fps**, paced to 30 at B754 | B754's picture fix is **unverified by eye** (R2) |
+| 5 | **Record FHD while broadcasting 4K** | T3r: **23.6 fps, no GL loss, HDMI held 30/30** | **~49% of take fps.** Below 30 → warn. This is the WARNING case, not a refusal |
+| 6 | **Bake a 4K seamless loop on an 8GB iPad** | B737: both iPads passed the job that killed them at B730. 741MB, `peakMB` 71.6-114.9 | **slow and fragile — see limit C.** The weakest link now |
+| 7 | **Bake / render a 2.63GB, 8:21 4K source** | B751: **clean, 55.6 fps, 270s**, `peakMB` 92 | works when the handle is alive — limit A |
+| 8 | **Render at 8K on desktop** | completed at 35 fps, 6.25GB out | **quality tiers above `draft` are inoperative at 8K** (120 Mbps ceiling), and now say so |
+
+### 🚧 THE LIMITS THAT ACTUALLY REMAIN — four, and only one is a hard stop
+
+**A. THE FILE HANDLE DIES, PROBABLY ON SUSPEND. ⭐ The only true blocker.**
+`suspended` in the trail, then `NotFoundError` on the **741MB** file. Not size, not duration — a
+lifecycle event. Everything that re-reads the original `File` minutes later (bake, render, the
+WebCodecs reader) is exposed; broadcast is not, because native decode copies the bytes at attach.
+**VERIFY-QUEUE R1 settles it in one 2-minute test, and it makes the OPFS decision.**
+
+**B. SESSIONS ARE NOT RELEASED, AND IT ACCUMULATES.**
+Peak **`decode 7`**, `acquired 9 / released 3`, with **three Loop Builder decoders alive 940s later**.
+A take also creates a second GL context (`output/bus engine`) that `output-engine.js` never releases.
+**Not yet shown to CAUSE a failure** — every cell that reached `decode 7` still completed — but it is
+the leading explanation for B750's crash and it is what makes long sessions differ from short ones.
+
+**C. THE BAKE IS SLOW, FAILS SOMETIMES, AND FAILS BADLY.**
+**558s for a 1:46 clip.** On failure it raises `alert()`, which blocks everything (measured 243s,
+289s, once **1827s**) — and now blocks scripted runs too. It also leaves `heldMB 55.6`. **Of the
+eight scenarios above, this is the one to pressure-test hardest.**
+
+**D. 4K TAKES RUN AT 17.1 fps.**
+Structural, not a stall (`wallVsSpan` 0.3). Pacing bought ~35% headroom but did not fix it. The
+record path has **no per-stage timing split** like the render's `gl / vframe / enc`, so nothing can
+say where the time goes. **Instrument before optimising.**
+
+### 🎯 HOW TO PRESSURE-TEST THIS (Daniel, 2026-08-27)
+
+Everything above came from **single actions on a short clip from a fresh launch**. The interesting
+failures will not. **Bias toward long, mixed, unattended sessions:**
+
+- **Let the device suspend mid-session** — that is limit A, and it is the highest-value thing to
+  provoke deliberately.
+- **Chain operations without relaunching**: load → broadcast → bake → load another → render. That is
+  limit B, and `sessions.peak` is the readout.
+- **Use a long clip** (6:39 or the 8:21) rather than the 1:46, so slow paths have room to diverge.
+- **Watch the output FILES, not only the reports.** The bitrate defect was invisible in every report
+  and obvious at 100% zoom.
+
+**Anything that fails here is worth more than another clean single-action run.** Copy the report at
+the moment of failure — and if the app dies, `priorTrail` survives the kill and is the whole point of
+B751's breadcrumbs.
+
+---
+
 ## ▶▶▶▶▶▶▶ B754 (2026-08-27) — RECORD PACING. THE ENCODER WAS LIED TO ABOUT ITS FRAME RATE.
 
 **Takes now hold their declared 30fps.** The encoder was configured `framerate: 30` while the
