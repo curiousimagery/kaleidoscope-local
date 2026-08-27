@@ -136,7 +136,37 @@ a byte-based gate sufficient. **Not yet device-verified.**
 **⚠️ THE GATE (item C) IS THE CLOSE-OUT FOR PHASE 2 AND MUST COME LAST**, because the cost model it
 enforces is exactly what these three builds change.
 
-### ▶ The item table (revised B737)
+### ⚠️⚠️⚠️ THE EXIT CRITERION, REWRITTEN BY DANIEL 2026-08-27 — AND IT IS NOT WHAT WE HAD
+
+**The old framing was "find the capability ceiling". We exceeded it, and that turned out to be the
+wrong target.** Daniel, in his own words:
+
+> *"What I keep pushing toward is that we need to PREVENT USERS FROM RUNNING INTO FAILURE STATES.
+> Specifically: **we can document the upper limits of our end-to-end 4K workflows on an M1 8GB iPad,
+> and users can't access common failure states, and degraded states warn appropriately.**"*
+>
+> *"'One tiny thing left' is wrong, because in our testing common actions still regularly result in
+> failures. That doesn't meet a definition of done for basic quality even if we technically sometimes
+> can achieve really impressive 4K feats.* **We're bound by the lower limits of reliability, not the
+> upper limits of ad hoc success.**"
+
+**▶ READ THAT LAST SENTENCE BEFORE CLAIMING ANYTHING IS CLOSED.** Every "it worked" in this arc is an
+upper-limit result from a fresh launch. The exit criterion is about the floor.
+
+**Three things this reframing immediately reclassifies as IN scope, not done:**
+
+| | why it is in scope under the new criterion |
+|---|---|
+| **Degraded states that do not announce themselves** | **B760 is the clearest case:** a GL restore drops the live source to a **1280×720 preview canvas**, every take and broadcast silently becomes a sixth of the resolution, and nothing tells the operator. A performer cannot see it mid-set |
+| **A bake failure raising a blocking `alert()`** | Filed since B707, measured up to **1827s**. A common action with a catastrophic, unrecoverable-looking outcome |
+| **A GL loss costing the whole app session** | Contexts recover in ~474ms; source, panels and dialogs do not come back |
+
+**And the big lift that is NOT done and was being under-counted: ON-DEVICE STORAGE ALLOCATION.**
+Output storage is the one term gate 2 never measured, and B753 tripled output sizes (a 10-minute 4K
+bake is now ~5.6GB). Nothing measures whether the share sheet, the Files write, or a reload survives
+that, and the stage manager multiplies it by a queue. **Treat this as an item, not a footnote.**
+
+### ▶ The item table (revised B737 — ⚠️ STALE, see the two corrections below)
 
 Phase 2's pressure-testing arc ran B683-B704 and the memory-ceiling arc B705-B737; the per-hypothesis
 record is in `BACKLOG.md`, the per-build detail in `CHANGELOG.md`, the narrative in
@@ -151,7 +181,8 @@ record is in `BACKLOG.md`, the per-build detail in `CHANGELOG.md`, the narrative
 | 3 | NDI | Not started. One bug already diagnosed and waiting. **The governor is kept (default off) for this** |
 | 4 | iPad limits, sustained load | **CLOSED B695-B698.** T7/T8/T9/T10 all complete |
 | 5 | iPhone limits, honest labels | **Not reached, and now the largest evidence gap** → `HARDWARE-SUPPORT.md` |
-| 6 | Thermal | **Signal exists and is measured; NOTHING GATES ON IT.** The single biggest effect found this arc |
+| 6 | Thermal **AND BATTERY** | **Signal exists and is measured; NOTHING GATES ON IT.** The single biggest effect found this arc. **⚠️ REVISED 2026-08-27: thermal is only half of it.** The other half is **energy** — if the app is left open and unattended for thirty minutes, does it drain the battery? Can an iPhone customer use this out and about without becoming uncomfortable about opening it at all? That maps onto exit criterion #5 (*"a phone app that gets hot and eats the battery in ten minutes is not shippable"*), which named it and never measured it. **Guardrails like auto-idle after inactivity belong here and need evidence, not intuition** |
+| **7** | **⭐ SUMMARISE THE KNOWN KNOWNS AND UNKNOWNS, THEN SHELVE** | **NEW, Daniel 2026-08-27, and it is what lets the arc pause honestly.** One document per open thread — **NDI, iPhone limits, thermal + battery** — stating what is measured, what is assumed, and what a future session would need to measure. **Not investigation; capture.** This is the seam at which the arc hands over to feature work (colour management, stage manager, tileable output, vector overlays) **without losing the state that took forty builds to build up.** Items 3, 4 and 5 below feed it rather than being completed |
 
 ### ✅ The exit criterion is met
 

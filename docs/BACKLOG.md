@@ -570,6 +570,88 @@ currently instrumented and every claim here would otherwise be a guess.
 
 ---
 
+### 🚨🚨🚨 [B760 — THE REAL CAUSE OF "TAKES LOOK ABYSMAL", AND IT IS NOT BITRATE] THE LIVE SOURCE FALLS BACK TO A 1280×720 PREVIEW CANVAS AND SAYS NOTHING
+
+**`R2-take3.json`, the surfaces block:**
+
+```
+source   1280x720   "from canvas · native decode · 30.0 in/s · ⚠ NOT ON THE PLANAR PATH"
+bus      3840x2160
+```
+
+**The source texture feeding the kaleidoscope was 720p.** Everything downstream — the live output,
+the broadcast, every take — was built from it and upscaled. **No bitrate can recover detail that was
+never sampled**, which is why a 129MB FHD take at 18.7 Mbps still looked, in Daniel's words,
+*"abysmal"*. **My bitrate hypothesis was wrong for record and he was right to push back.**
+
+**THIS IS ALREADY DOCUMENTED AS A DEGRADED STATE.** `main.js:207`:
+
+> *"A NATIVE DECODE WITHOUT `planar` IS A DEGRADED STATE, AND IT USED TO SAY SO ONLY BY OMISSION
+> (B580). That combination means the engine is sampling the 1280 RGB preview canvas through a
+> cross-context readback instead of the decode's planes — **a sixth of the resolution at several
+> times the cost**... `glGeneration` rides alongside **because a context restore is what causes
+> it**."*
+
+`PREVIEW_CAP = 1280` in `native-video.js` is that canvas.
+
+**⭐ SO THE CAUSAL CHAIN IS:** GL context loss → the planar path does not restart itself → the engine
+silently samples the 720p preview canvas → every take and every broadcast from that moment is a sixth
+of the resolution → **and nothing tells the operator.** Daniel hit a context loss in that very
+session and the panels went grey.
+
+**⚠️ TWO DIFFERENT DEGRADED SUB-STATES, AND THEY ARE NOT EQUALLY BAD. The next session must not
+conflate them:**
+
+| report note | what it means | severity |
+|---|---|---|
+| `from <video> · native decode · ⚠ NOT ON THE PLANAR PATH` | sampling the `<video>` element. **Full resolution**, but paying a cross-context readback | slow, not ugly |
+| `from canvas · native decode · ⚠ NOT ON THE PLANAR PATH` | sampling the **1280×720 RGB preview canvas** | **a sixth of the resolution** |
+
+`05-t3reRun.json` shows the first. `R2`, `R2-take2` and `R2-take3` all show the second.
+
+**⚠️ AND THE CAUSE MAY NOT BE A GL LOSS AT ALL.** `R2` (B756) completed 18/18 with no loss reported
+and was ALREADY on the canvas path. **The B580 and B703 comments in `engine/index.js` describe this
+exact failure and both claim to have fixed it** (`reinitGL` keeps `planarFrame`/`planarCap` in a
+`finally`; the guard was moved below the planar block). So either a third path retires the provider,
+or `planarFrame()` is returning null indefinitely and the fall-through lands on the element.
+
+**▶ ANSWERED BY SWEEPING `docs/temp/*.json` — THERE ARE THREE STATES, AND THE SPLIT IS THE LEAD:**
+
+| report | source surface | state |
+|---|---|---|
+| `R1-FHDbakesuccess` | 1920×1080 | ✅ **planar** — so the path DOES arm |
+| `R1`, `A3-take2` | **3840×2160** | degraded, **full resolution** (`from <video>`) |
+| **`R2`, `R2-take2`, `R2-take3`** | **1280×720** | degraded **and** downsampled (`from canvas`) |
+
+**⭐ EVERY RENDER TEST LANDED FULL-RES. ALL THREE RECORD TESTS LANDED ON THE 720p CANVAS.** That is
+not a coincidence and it is the thread to pull.
+
+**What `t11-take-baseline` does that the render scripts do not:** it calls **`play`** (starts
+playback through `env.sourceClock`) and **`resolution`** (`outputActions.setTier`). The render
+scripts call neither. **Start by reading those two paths for anything that retires the planar
+provider or re-points the engine at the preview canvas** — `setSource` is the known offender (B580),
+and it is called from more places than `reinitGL`.
+
+**Class 1. No device time. Read `env.sourceClock.play`, `outputActions.setTier` and every
+`setSource` call site.**
+
+**▶ THREE PIECES OF WORK, AND THE FIRST IS THE PRODUCT BUG:**
+
+1. **🚨 IT MUST ANNOUNCE ITSELF.** This is the clearest possible instance of Daniel's revised exit
+   criterion — *"degraded states warn appropriately"*. A performer whose broadcast quietly drops to
+   720p mid-set has no way to know. The diagnostics string says it; **the app does not.** This is
+   what the notification bar under the app bar exists for.
+2. **The planar path must recover from a GL restore.** This is the *"recovery path that cannot start
+   itself"* family (B703, B706, B708, B709) — four instances already found and fixed in this arc, and
+   this is a fifth. **Class 1: readable, no device time.**
+3. **⚠️ IT INVALIDATES MEASUREMENTS, INCLUDING MINE.** `PLAN-LIVE-READINESS.md` already carries the
+   standing rule: *"check the `source` row says `planar · native decode` before trusting any
+   measurement."* **I read `sessions`, `takes` and fps out of these reports all session and never
+   checked that row.** Every take number in the B752 matrix needs re-reading against it before it is
+   quoted again.
+
+---
+
 ### 🎯🎯🎯 [B757, R1b-b3 — THE BAKE IS NOT BROKEN. THE SWAP AFTER IT IS.] AND IT IS NOT A MEMORY KILL
 
 **`R1b-b3-catastrophicContextLoss.json` is the cleanest crash evidence this project has produced**,

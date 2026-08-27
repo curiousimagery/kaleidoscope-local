@@ -13,13 +13,19 @@ Confirmed results are DELETED from here and recorded in CHANGELOG. Closed sessio
 **This doc is Daniel's.** It should be readable without opening `HANDOFF.md`. If you need a fact to
 run a test, it belongs here.
 
-## The arc in one paragraph
+## The arc in one paragraph — ⚠️ REWRITTEN 2026-08-27, THE OLD VERSION WAS TOO OPTIMISTIC
 
 Phase 2 set out to find the app's limits and build a capability ladder. **Measurement retired most of
-the ladder by fixing the limits instead.** Memory, file size, clip duration, the 4K-take refusal, the
-record-while-broadcast refusal and the device table are all gone as gates. What is left is far
-smaller: **one real binary** (can we read these bytes), **one forecast** (how long a job will take),
-and **one warning with a number** (what a concurrent operation costs you).
+the ladder by fixing the limits** — memory, file size, clip duration and two refusal rules are gone as
+gates. **But that was the wrong target.** Daniel: *"we're bound by the lower limits of reliability,
+not the upper limits of ad hoc success."*
+
+**The exit criterion is now:** *we can document the upper limits of our end-to-end 4K workflows on an
+M1 8GB iPad, **and users can't access common failure states, and degraded states warn
+appropriately**.* Every "it worked" below is an upper-limit result from a fresh launch. **The floor is
+what is unfinished**, and today it includes a bake failure that raises a blocking modal, a GL loss
+that costs the whole session, a live source that silently drops to 720p, and **on-device storage
+allocation, which is a real lift and has never been measured.**
 
 ## ⚠️ AND THE THING NOT TO LOSE SIGHT OF
 
