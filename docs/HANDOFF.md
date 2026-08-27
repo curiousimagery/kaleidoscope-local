@@ -31,6 +31,43 @@ size is no longer a memory axis. **B705 and B706 are device-verified** — B705'
 
 ---
 
+## ▶▶▶▶▶▶▶▶▶ B759 (2026-08-27) — THE BAKE ARC IS CLOSED. NEXT IS COLOUR.
+
+**⚠️ `VERIFY-QUEUE.md` IS DANIEL'S DOC AND IS NOW SELF-CONTAINED.** It carries the arc summary, the
+open tests (V1-V4) and the pressure-test scenarios. Do not make him bounce between files: **a fact he
+needs to run a test belongs there, not here.** This file is the Claude-facing record.
+
+### ✅ CLOSED THIS SESSION
+
+- **The 4K bake failure — root-caused and fixed (B758).** `applyBakedClip` ran while every
+  VideoDecoder still held its GPU surface pool, so the swap arrived with `deviceFreeMB` at ~127 and
+  iOS purged the GPU process. Releasing first: **no context loss, 127 → 921MB free, 3.6× faster.**
+  **Our footprint was 39MB against 5GB of headroom in both cases — never our memory ceiling.**
+- **The `NotFoundError` / file-handle mystery — CLOSED.** `A3-take2.json` runs the identical
+  bake→render sequence clean on `webcodecs-reader`. **It was collateral from the broken swap.**
+  The suspend hypothesis is dead (`backgrounded: {count: 0}` throughout). R1b-b1/b2 dropped.
+- **The B752 concurrency matrix — all six cells ran, nothing crashed from concurrency.**
+- **Render bitrate — device-confirmed.** 74.6 Mbps / 782MB, Daniel: *"dramatically improved"*.
+
+### 🐞 A REGRESSION I SHIPPED AND FIXED IN THE SAME SESSION (B757 → B759)
+
+B753 pinned the record codec probe at 0.1 bpp "to keep the path byte-identical". **B757 then raised
+the take to 0.30 and left the probe at 0.10**, so `isConfigSupported` validated 12.4 Mbps while
+`configure` got 18.7 — WebKit throws on that, and the take silently drops to MediaRecorder (a 7KB
+black file). **The lesson is in the comment: a justification stops being true the moment the thing it
+justified changes.** Probe and configure now derive from one expression.
+
+**And the reason was console-only**, so the report said `engine: "mediarecorder"` with no explanation.
+`fallbackWhy` now rides the report.
+
+### ▶ WHAT IS ACTUALLY NEXT, AND IT IS NOT MORE HARDENING
+
+**Colour management's input transform.** Daniel: *"without this the app isn't super usable for real
+output."* Three disagreeing colour paths, one of which hardcodes BT.601 on the native decode path.
+Scoped and agreed — see BACKLOG. **Do not let the verify queue out-compete it.**
+
+---
+
 ## ▶▶▶▶▶▶▶▶ WHAT WE BELIEVE WORKS NOW, AND WHY (B756, Daniel's ask)
 
 **Read this before designing any gate.** The arc set out to build a capability ladder and

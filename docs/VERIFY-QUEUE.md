@@ -8,131 +8,163 @@ Confirmed results are DELETED from here and recorded in CHANGELOG. Closed sessio
 
 ---
 
-# ▶▶ OPEN SESSION (B756) — WHAT THE B752 MATRIX ANSWERED, AND WHAT IS LEFT
+# ▶▶▶ WHERE THE ARC IS — read this before picking a test (B759, 2026-08-27)
 
-**The B752 matrix is COMPLETE. Six cells, five clean passes, one failure that turned out to be the
-most useful run of the arc.** Results are recorded in `CHANGELOG.md` and `HANDOFF.md`; this section
-now owns only what is still OPEN.
+**This doc is Daniel's.** It should be readable without opening `HANDOFF.md`. If you need a fact to
+run a test, it belongs here.
 
-## ✅ CLOSED BY THE MATRIX — do not re-run these to "confirm"
+## The arc in one paragraph
 
-| cell | result |
+Phase 2 set out to find the app's limits and build a capability ladder. **Measurement retired most of
+the ladder by fixing the limits instead.** Memory, file size, clip duration, the 4K-take refusal, the
+record-while-broadcast refusal and the device table are all gone as gates. What is left is far
+smaller: **one real binary** (can we read these bytes), **one forecast** (how long a job will take),
+and **one warning with a number** (what a concurrent operation costs you).
+
+## ⚠️ AND THE THING NOT TO LOSE SIGHT OF
+
+**The last ~10 builds went deep into bitrate, pacing and the bake handoff.** That work was necessary —
+every render and every take the app produced was visibly broken — but it is **hardening, not the
+arc's goal.** The high-priority feature work waiting behind it, in Daniel's order:
+
+1. **⭐ COLOUR MANAGEMENT — the input transform.** *"Without this the app isn't super usable for real
+   output."* We currently have **three disagreeing colour paths**, one of which (`engine/yuv.js`,
+   the native decode path behind in-app playback and broadcast) **hardcodes BT.601 with no transfer
+   function and no primaries**. B747 turned this from a latent bug into a visible regression.
+   **Scoped and agreed: one conversion seam in the shader, driven by real source metadata, defaulting
+   to BT.709.** Not a throwaway — it is stage one of real colour management.
+2. **Stage manager** — spec captured in `PLAN-LIVE-READINESS.md`.
+3. Tileable still output, vector overlays, DAM round-trips (Lightroom / Capture One / PhotoLab).
+
+**Do not let the verification queue below out-compete item 1.** It is the documented failure mode of
+this arc: a well-defined next step out-competing an important one.
+
+---
+
+# ✅ CLOSED — do not re-run these
+
+| what | outcome |
 |---|---|
+| **The B752 concurrency matrix** (6 cells) | **All six ran.** Nothing crashed from concurrency |
 | `t11-take-baseline` | FHD alone **46.6 fps** · 4K alone **17.1 fps** (was 13.4 pre-B681) |
-| `a1-render-fresh` | 3193 frames, 57.8s, **55.2 fps**, `gl 1` — replicates B751's 55.6 |
-| `a2b-render-while-broadcasting` | **completed**, 31.2 fps (−43%), no crash |
-| `a2-broadcast-then-render` | **completed** |
-| `t3-rerun-post-b681` | **both takes completed, no GL loss.** 23.6 broadcasting vs 46.4 alone |
-| `a3-bake-then-render` | bake FAILED after 558s → `suspended` → `NotFoundError` on the 741MB file |
+| `a1-render-fresh` | **55.2 fps**, `gl 1` |
+| `a2b-render-while-broadcasting` | completed, 31.2 fps (**−43%**) |
+| `t3-rerun-post-b681` | **both takes completed, NO GL loss.** 23.6 broadcasting vs 46.4 alone |
+| **The 4K bake failure** | **ROOT-CAUSED + FIXED B758.** An ordering bug, not a capability limit |
+| **The `NotFoundError` / file-handle mystery** | **CLOSED by A3-take2** — see below |
+| **The suspend hypothesis** | **DEAD.** `backgrounded: {count: 0}` on every failure that mattered |
+| R3 (render bitrate) | **Confirmed on device.** 74.6 Mbps / 782MB, *"dramatically improved"* |
 
-**⭐ Gate 3's refuse rule has no evidence behind it any more.** The B571/B667 cluster did not
-reproduce. What remains is a measured cost to WARN about, not a reason to refuse.
+### ⭐ WHY THE FILE-HANDLE QUESTION IS CLOSED
 
----
+The `NotFoundError` on the 741MB file appeared once, at B755, in a run whose bake had **failed**.
+`A3-take2.json` runs the **identical sequence** — bake then render — on B758 and comes back
+`sourcePath: webcodecs-reader`, no error, 3178 frames in 59.6s. **The error was collateral from the
+broken swap, not a handle lifetime problem.** R1b-b1 and R1b-b2 (the background tests) are therefore
+**dropped**; `backgrounded` stays in the report as a cheap watch.
 
-## 🔴 R1b — THE BACKGROUND TEST, RE-RUN. **The first attempt could not answer.**
+### ⭐ AND WHAT B758 ACTUALLY FIXED
 
-**⚠️ R1 (2026-08-27) came back CLEAN and is INCONCLUSIVE, not a refutation.** Probe read in 2ms, the
-reader armed, 53.4 fps. But the `suspended` detector only fires inside a recording session, and the
-app was backgrounded *before* the scenario started — **nothing could have detected it.** B757 adds an
-always-on `backgrounded` block to the report so this is answerable.
+`applyBakedClip` ran while every VideoDecoder the bake opened was still holding its GPU surface pool.
+The swap is the largest GPU allocation in the operation, so it arrived with device-free at ~127MB and
+iOS purged the GPU process, killing the WebGL contexts.
 
-**⚠️ AND R1 CHANGED THREE THINGS AT ONCE** versus the A3 failure: no 9-minute bake first, a much
-shorter session, and an unknown suspend duration. A clean result there does not isolate anything.
-
-**R1b — vary ONE thing. Fresh launch each time, IMG_5132, same render:**
-
-| # | do this | reads |
+| | before B758 | after |
 |---|---|---|
-| **b1** | background **~2 minutes**, return, render | `backgrounded.count` ≥ 1, and does the reader arm? |
-| **b2** | background **~10 minutes**, return, render | duration dependence |
-| **b3** | run a **bake first** (slice), then render — no backgrounding at all | isolates the bake from the suspend |
+| `gl-context-lost` after a 4K bake | **4×** | **none** |
+| `deviceFreeMB` after | 127 | **921** |
+| bake wall time | 558s | **156s** |
 
-**⚠️ CHECK `backgrounded.count` IN EVERY REPORT.** If it reads 0, the app never actually went to the
-background and the run says nothing.
+**Our own process footprint was 39MB with 5GB of jetsam headroom in both.** This was never our
+memory ceiling.
 
-| outcome | reading |
+---
+
+# 🔬 OPEN — in order
+
+## 🔴 V1 — RE-RUN `t11-take-baseline` ON **B759**. Two fixes are untested.
+
+**⚠️ You must be on B759.** B758 has a regression that makes this test fail.
+
+**What went wrong on B758 (my bug, fixed):** B757 raised the take to 0.30 bpp but left the codec probe
+at 0.10, so `isConfigSupported` validated 12.4 Mbps while `configure` got 18.7. WebKit throws on that
+mismatch and the take **silently drops to MediaRecorder** — which is the 7KB black one-second file.
+
+**Two things this run is the first to test:**
+
+| | reads |
 |---|---|
-| b1/b2 throw `NotFoundError` with `count ≥ 1` | ⭐ handle dies on suspend, duration-dependent. **Build OPFS** |
-| b3 throws and b1/b2 do not | **it is the BAKE, not the suspend.** Look at `openHandles: 4` and `heldMB 55.6` |
-| all three clean | the A3 failure needs a different explanation — re-open with the full A3 sequence |
+| FHD take **stays on WebCodecs** | `takes[0].engine` must be **`webcodecs`**, not `mediarecorder`. If it falls back, **`fallbackWhy` now says why** (new in B759) |
+| FHD at **18.7 Mbps / 0.30 bpp** | **look at the file at 100%.** This is the first FHD take at the bitrate that made the render *"dramatically improved"* |
+
+Also read: `takes[].pacedOut` should be **large** and `droppedToBackpressure` **0**. Never add them.
+
+## 🟠 V2 — THE GL CONTEXT LOSS AT TAKE START (new, 2026-08-27, no report yet)
+
+**Daniel, on B758:** *"almost immediately hit a gl context loss where all panels went gray, throwing
+an error accurately reporting that take did not start."*
+
+**Unexplained, and possibly a symptom of V1's bug** — a WebCodecs session that throws at configure may
+be leaving the bus in a bad state. **Run V1 first**; if it recurs on B759, this is real and separate.
+
+**If it recurs: `copy report` immediately.** The trail is a 12-entry ring and scenario steps evict
+early entries, so a report taken later loses the loss. `priorTrail` survives a full kill.
+
+## 🟡 V3 — B8: THREE OR MORE 4K CLIPS IN SEQUENCE, NO RELAUNCH
+
+No build needed. Read `sessions.peak` and `sessions.live`.
+
+**Why it matters more than it used to:** the A3 runs peaked at **`decode 7`** with **three Loop
+Builder decoders still live 940 seconds later** (`acquired 9 / released 3`). Nothing has yet shown
+this CAUSING a failure — every run that reached `decode 7` still completed — but **it is the stage
+manager's core question**: nine clips on deck against a Loop Builder that retains three decoders per
+visit.
+
+## 🟢 V4 — THE 8K QUALITY TIERS (desktop, free, 2 minutes)
+
+Never seen by a human, only harness-proven. In the render sheet: at **8K**, every quality tier above
+`draft` should be **disabled with a tooltip** naming the 120 Mbps ceiling. Switch back to **4K** and
+the tier you had should **come back**. Also confirm the estimated file size tracks resolution, fps and
+quality.
 
 ---
 
-## 🟠 R2 — RE-RUN `t11-take-baseline` ON B754+, BECAUSE THE PACING CHANGED WHAT IT MEASURES
+# 🧪 PRESSURE TEST — what to do once V1 passes
 
-**The question:** *did pacing fix the FHD picture, and what did it cost?*
+**Every number this arc produced came from a single action, on a short clip, from a fresh launch.**
+That is the condition least likely to expose what is left. **Bias toward long, mixed, unattended
+sessions**, and treat any failure there as worth more than another clean single-action run.
 
-The FHD take was handing a 30fps-configured encoder **46.6 fps**, so every frame got ~64% of its
-budgeted bits (0.129 bits/px, against 4K's 0.282 — which is why 4K looked BETTER). B754 paces to 30.
+| # | scenario | believed to work because | limit that remains |
+|---|---|---|---|
+| 1 | **Broadcast 4K to a 4K display for an hour** | T10: 50 min, no loss, 6ms worst wrap. HDMI re-learned at **30/30 delivered** | none known. **Strongest thing we do** |
+| 2 | **Render 4K on an 8GB iPad** | 55.2 fps, `peakMB` ~92, thermal nominal | needs the WebCodecs reader to arm |
+| 3 | **Render while broadcasting** | completed, 31.2 fps | **costs 43%** — forecast, not refusal |
+| 4 | **Bake a 4K seamless loop** | B758: clean, 156s, `deviceFreeMB` 921 after | on failure it still raises a **blocking `alert()`** |
+| 5 | **Bake then render, unattended** | A3-take2: clean end to end | — |
+| 6 | **Record FHD** | 46.6 fps → paced to 30 | **V1 is the open question** |
+| 7 | **Record FHD while broadcasting** | 23.6 fps, no GL loss, HDMI held 30/30 | **~49% of take fps.** Warn, do not refuse |
+| 8 | **A 2.63GB / 8:21 4K source end to end** | B751: 55.6 fps, 270s, clean | — |
 
-**Same script, same source, fresh launch. Then LOOK AT THE FILES, because this is an eye test, not
-only a number test.**
-
-| read | expect |
-|---|---|
-| `takes[].takeFps` FHD | **~30**, not 46.6 |
-| `pacedOut` | **large** — that is the limiter working |
-| `droppedToBackpressure` | **0**. ⚠️ **Never add these two together** |
-| the FHD file at 100% | **the macroblocking should be visibly reduced.** Compare against the take from `01-t11report.json` |
-| `takes[].takeFps` 4K | unchanged near 17.1 (pacing does not fix throughput) |
-
----
-
-## 🟢 R3 — THE RENDER BITRATE A/B. **Desktop. Free. No device time.**
-
-**The question:** *does 0.30 bpp actually fix the macroblocking Daniel photographed?*
-
-**Already partly answered on device by accident:** A3's render at B755 asked **74.6 Mbps** and wrote
-**948 MB** where B752's asked 24.9 and wrote 270. **The lever works.** What is unverified is whether
-the picture is now acceptable.
-
-1. `npm run dev`, load any 4K clip, motion mode.
-2. Render sheet → **`draft`** → render.
-3. Render sheet → **`high`** → render.
-4. Compare at 100%, ideally beside a live broadcast (which has no encoder in the path at all).
-
-**Also check while there:** at 8K the quality tiers above `draft` should be **disabled with a
-tooltip**, and re-selecting 4K should **restore** the tier you had. That is the B753 preference
-memory, harness-proven at 26/26 but never seen by a human.
+**Chain them.** Load → broadcast → bake → load another → render, without relaunching. That is the one
+condition nothing has tested, and `sessions.peak` is the readout.
 
 ---
 
-## 🟡 R4 — A3 AGAIN, ON B756, WITH THE SETUP RIGHT
+# 🚧 KNOWN, OPEN, NOT BLOCKING A TEST
 
-**Two things were wrong the first time and both are fixed:**
-
-- `forward` mode now refuses at **pre-flight** by name rather than aborting at step 3.
-- **The bake verb no longer reports `ok: true` for a failed bake** (B752 tested "did the teardown
-  run", and the teardown runs on every exit path — the wrong noun).
-
-**Setup:** Loop Builder → **slice** at the Behavior step → advance to the bake step → run A3.
-**Not** the loop toggle in motion mode's overflow.
-
-**⚠️ Expect the bake to be slow and possibly to fail again**: the first attempt took **558s** for a
-1:46 clip and left `heldMB 55.6`. **If it fails you will be behind a modal** — that defect is filed
-and unfixed. **Run R1 first**; if the handle dies on suspend, A3's failure may simply be R1 again.
+- **A bake failure raises `alert()`**, blocking everything including scripted runs. Measured 243s,
+  289s, once **1827s**. Filed since B707. `shell/interrupt.js` already exists as the non-blocking
+  replacement. **The worst operator-facing defect in the arc.**
+- **A GL loss costs the whole app SESSION** even though the contexts themselves recover in ~474ms.
+  Source, panels and dialogs do not come back.
+- **4K takes run at 17.6 fps.** Throughput, not bitrate. **The record path has no per-stage timing
+  split** like the render's `gl / vframe / enc` — instrument before optimising.
+- **Three disagreeing colour paths** — see the top of this file. This is feature work, not a test.
+- **`t7-warm-long-run` leaves the broadcast on** (B665 era). Daniel's call whether to change it.
 
 ---
 
-## 🟡 R5 — B8, PROMOTED AT B752 AND NOW STRONGLY SUPPORTED
-
-**Load 3+ 4K clips in sequence without leaving the app**, reading `sessions.peak`. No build needed.
-
-**B756 raised its priority again**: that run peaked at **`decode 7`** with **three Loop Builder
-decoders still live 940 seconds later** and `acquired 9 / released 3`. **This is the stage manager's
-core question** — nine on deck against a Loop Builder that retains three decoders per visit.
-
----
-
-## 📋 PRESSURE-TEST SCENARIOS — Daniel's ask, 2026-08-27
-
-**Everything above is a single action on a short clip.** `HANDOFF.md` carries the list of real-world
-scenarios that are now believed to work, with the reason and the remaining limit for each. **Use it
-as the script for a strained-conditions pass**, and treat any failure there as more informative than
-another clean single-action run.
-
----
 # 🅿️ CARRIED FORWARD — still open, reprioritised at B752
 
 **What changed underneath these lists:** the source-size cliff was removed at B738 and the size
