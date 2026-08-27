@@ -453,6 +453,8 @@ export function createScenarioRunner(env) {
         // B757 — the pacing counters, per take. R2 could not show whether FHD was paced because the
         // report's `audio` block only ever holds the LAST take. ⚠️ Never add these together: one is
         // the limiter working, the other is the encoder losing.
+        // B759 — if this take is not on WebCodecs, the log must say WHY.
+        fallbackWhy: r.fallbackWhy || undefined,
         pacedOut: r.pacedOut ?? null,
         droppedToBackpressure: r.droppedToBackpressure ?? null,
         // A MediaRecorder fallback take has no frame count. That must read as "not measurable

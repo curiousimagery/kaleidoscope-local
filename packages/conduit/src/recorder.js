@@ -591,13 +591,20 @@ async function encoderYieldsConfig(cfg) {
 async function startWebCodecsSession({ w, h, audioTrack, onDone, onError, onProgress = null, streamToDisk = true, filenamePrefix = 'fold-take' }) {
   if (!webCodecsRecordingSupported()) return null;
 
-  // ⚠️ B753 — PROBED AT 0.1 bpp ON PURPOSE, TO KEEP THIS PATH BYTE-IDENTICAL. The render/bake
-  // default moved to 0.30, but the TAKE sets its own bitrate on the next line and discards
-  // `vcfg.bitrate` entirely — so the only thing the default would change here is which codec
-  // `isConfigSupported` blesses. Record's bitrate policy is a SEPARATE decision (its formula has no
-  // fps term at all, and FHD takes are 12.4 Mbps); pinning the probe keeps that decision unmade
-  // rather than making it by accident.
-  const vcfg = await pickVideoCodec(w, h, 30, 0.1);
+  // ⚠️⚠️ B759 — PROBE WITH THE BITRATE WE ACTUALLY CONFIGURE. THIS WAS MY BUG.
+  //
+  // B753 pinned this probe at 0.1 bpp "to keep the path byte-identical", which was sound while the
+  // take's bitrate was unchanged. **B757 then raised the take to 0.30 bpp and left the probe at
+  // 0.10**, so `isConfigSupported` blessed 12.4 Mbps while `venc.configure` was handed 18.7. A
+  // validated config and an applied config that differ is exactly the shape that makes WebKit throw
+  // at configure time — and a throw here silently drops the whole take to MediaRecorder, which is
+  // what Daniel's R2 re-run produced: `engine: "mediarecorder"` and a 7KB black one-second file.
+  //
+  // Probe and configure now derive from ONE expression. If the bitrate moves again, both move.
+  const RECORD_BPP = 0.30;
+  const RECORD_MAX_BITRATE = 40_000_000;
+  const bitrate = Math.min(RECORD_MAX_BITRATE, videoBitrateFor(w, h, 30, RECORD_BPP));
+  const vcfg = await pickVideoCodec(w, h, 30, RECORD_BPP);
   if (!vcfg) return null;
   // ⚠️⚠️ B757 — THE OLD FORMULA HAD NO fps TERM AND SAT BELOW THE QUALITY THRESHOLD.
   //
@@ -619,9 +626,6 @@ async function startWebCodecsSession({ w, h, audioTrack, onDone, onError, onProg
   // adding encoder work to it is the wrong lever, and its effective 0.274 is already acceptable.
   // **FHD gains 50% (12.4 -> 18.7 Mbps) and 4K does not move.** Revisit the cap only after the 4K
   // take's throughput problem is instrumented.
-  const RECORD_BPP = 0.30;
-  const RECORD_MAX_BITRATE = 40_000_000;
-  const bitrate = Math.min(RECORD_MAX_BITRATE, videoBitrateFor(w, h, 30, RECORD_BPP));
   const baseCfg = { codec: vcfg.codec, width: w, height: h, bitrate, framerate: 30 };
 
   // realtime latency mode paces the encoder for a live feed — used only where
@@ -1182,6 +1186,7 @@ function startMediaRecorderSession({ w, h, audioTrack, onDone, onError }) {
     trackSupplied: !!audioTrack,
     trackState: audioTrack ? { enabled: audioTrack.enabled, muted: audioTrack.muted, readyState: audioTrack.readyState, label: audioTrack.label } : null,
     engine: 'mediarecorder',
+    fallbackWhy,   // B759 — the reason this is not a WebCodecs take
   });
   // Quality: MediaRecorder's default bitrate for a canvas stream is low → heavily
   // compressed footage. Target ~0.2 bits/pixel/frame at 30fps (≈ w·h·6), capped so
@@ -1253,6 +1258,7 @@ export function createRecorderSink({ filenamePrefix = 'fold-live', save = null, 
   let finishing = null;    // the session while its finalize is in flight — see stop()
   let recording = false;
   let lastResult = null;
+  let fallbackWhy = null;   // B759 — why this take is not on WebCodecs. Published, not consoled.
 
   // Live finalize progress, polled by the chrome. `null` when no finalize is in flight.
   const progressOf = () => { const s = finishing || session; return s && 'progress' in s ? s.progress : null; };
@@ -1310,12 +1316,21 @@ export function createRecorderSink({ filenamePrefix = 'fold-live', save = null, 
       if (recording) return;
       lastResult = null;
       let s = null;
+      // ⚠️ B759 — AN ABSENCE IS NOT EVIDENCE, AND THIS ONE WENT ONLY TO THE CONSOLE.
+      // A take that silently dropped to MediaRecorder reported `engine: "mediarecorder"` with no
+      // reason anywhere a device operator could read it. Daniel does not run Web Inspector, so the
+      // one fact needed to diagnose the drop was the one fact the report could not carry.
+      fallbackWhy = null;
       if (engine !== 'mediarecorder') {
         try {
           s = await startWebCodecsSession({ w, h, audioTrack, onDone: saveTake, onError: failTake, streamToDisk, filenamePrefix });
-        } catch (e) {
-          console.warn('[conduit] WebCodecs recorder failed to start, falling back to MediaRecorder:', e);
+          if (!s) fallbackWhy = 'startWebCodecsSession returned null — no codec this device can encode at this size';
+        } catch (err) {
+          fallbackWhy = `WebCodecs session threw at start [${err?.name || 'unknown'}]: ${err?.message || err}`;
+          console.warn('[conduit] WebCodecs recorder failed to start, falling back to MediaRecorder:', err);
         }
+      } else {
+        fallbackWhy = 'engine forced to mediarecorder by the caller';
       }
       if (!s && engine === 'webcodecs') {
         // webcodecs-or-nothing mode: the caller has its own (better-integrated)

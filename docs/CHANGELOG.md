@@ -6,6 +6,40 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.27.21 · Build 759 — A REGRESSION I INTRODUCED AT B757, AND THE SILENCE THAT HID IT
+
+**Shipped:** takes stay on WebCodecs again, and a take that falls back to MediaRecorder now says why
+in the report instead of only in a console nobody reads.
+
+### 🐞 THE BUG WAS MINE, AND THE REASONING THAT CAUSED IT WAS WRITTEN DOWN IN THE COMMENT
+
+B753 pinned the record codec probe at 0.1 bits/px *"to keep this path byte-identical"*. That was sound
+**while the take's bitrate was unchanged**. B757 then raised the take to 0.30 bpp **and left the probe
+at 0.10** — so `isConfigSupported` was blessing 12.4 Mbps while `venc.configure` got handed 18.7.
+
+A validated config and an applied config that differ is exactly the shape that makes WebKit throw at
+configure time, and a throw there **silently drops the entire take to MediaRecorder**. Daniel's R2
+re-run: `engine: "mediarecorder"`, and a **7KB black one-second file**.
+
+Probe and configure now derive from one expression, so a future bitrate change moves both.
+
+### 🔇 AND THE REASON WAS UNREADABLE, WHICH IS THE WORSE HALF
+
+The fallback's only explanation went to `console.warn`. **Daniel does not run Web Inspector** — that
+is the standing rule in `DEVICE-TESTING.md` — so the report said `engine: "mediarecorder"` with no
+reason attached, and the single fact needed to diagnose it was the one fact the export could not
+carry. **`fallbackWhy` now rides `reportAudio` and the scenario log.**
+
+This is the *"anything that can decline to act must publish why"* rule, broken in the one path where
+declining costs the operator a whole take.
+
+### 📋 NOT A BUG: the 60-second take length
+
+The 4K take "cutting off at one minute" is the script doing what it says — `t11-take-baseline` runs
+two 60-second takes by design, so the FHD number is captured before a 4K take can lose the context.
+
+---
+
 ## v0.27.20 · Build 758 — THE 4K BAKE FIX: RELEASE THE DECODERS BEFORE THE SWAP, NOT AFTER
 
 **Shipped:** a bake now closes its decoders and publishes its measurements **before** installing the
@@ -50,10 +84,24 @@ on exactly the runs that matter (the B716 rule).
   first run that used it. The B756 file-handle hypothesis is eliminated for this failure.
 - **Not our memory ceiling.** See the footprint numbers above.
 
-### ⚠️ UNVERIFIED
+### ✅✅ DEVICE-VERIFIED SAME DAY — `R1-bakeHandoffFixReport.json`
 
-**This has not been run on a device.** The reasoning is well evidenced by the 4K/FHD pair, but the
-fix itself is a hypothesis until a 4K bake completes. **That is the next test, ahead of the R queue.**
+**A 4K slice bake on the M1 iPad Pro completed cleanly on the first attempt.**
+
+| | B755 4K (failed) | **B758 4K (passed)** |
+|---|---|---|
+| `bake:encoded` | ✅ | ✅ |
+| `gl-context-lost` | **4×** | **none** |
+| trail after encode | 4 losses, 4 restores | `bake-decode-worst · bake-mem` |
+| `deviceFreeMB` after | **127** | **921** |
+| bake wall time | 558s | **156s** |
+| `footprintMB` | 39 | 39 |
+
+**794MB more device-free memory after the bake, from releasing the decoders two lines earlier.**
+
+**And it is 3.6× faster.** Not a goal of the change and worth stating as an observation rather than a
+claim: the failing runs were operating with device-free in the low hundreds of MB, where the system
+thrashes. Cause not established.
 
 ---
 

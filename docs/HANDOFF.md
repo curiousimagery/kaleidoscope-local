@@ -79,7 +79,12 @@ A take also creates a second GL context (`output/bus engine`) that `output-engin
 **Not yet shown to CAUSE a failure** — every cell that reached `decode 7` still completed — but it is
 the leading explanation for B750's crash and it is what makes long sessions differ from short ones.
 
-**C. THE BAKE IS SLOW, FAILS SOMETIMES, AND FAILS BADLY.**
+**C. ✅ MOSTLY FIXED B758 — THE BAKE'S FAILURE WAS THE HANDOFF, NOT THE BAKE.**
+`applyBakedClip` ran while every VideoDecoder was still held, so the swap — the largest GPU
+allocation in the operation — arrived with device-free at ~127MB and iOS purged the GPU process.
+Releasing before the swap: **4K bake clean, `deviceFreeMB` 127 → 921, and 3.6× faster.**
+**What remains:** on failure it still raises `alert()` (blocking, measured up to 1827s), and a GL
+loss still costs the whole app SESSION even though the contexts themselves recover in ~474ms.
 **558s for a 1:46 clip.** On failure it raises `alert()`, which blocks everything (measured 243s,
 289s, once **1827s**) — and now blocks scripted runs too. It also leaves `heldMB 55.6`. **Of the
 eight scenarios above, this is the one to pressure-test hardest.**
