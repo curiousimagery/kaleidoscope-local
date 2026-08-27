@@ -551,6 +551,12 @@ export function mountPerfPanel(env, { container = null, onClose = null } = {}) {
       // has since healed. Pending with a rising try count is the forever-black case.
       reuploadPending: env.engine?.reuploadPending || undefined,
       reuploadTries: env.engine?.reuploadTries || undefined,
+      // ⚠️ B760 — WHO RETIRED THE PLANAR PROVIDER, in order, with the caller named. `NOT ON THE
+      // PLANAR PATH` in the source note says the engine LEFT the fast path; this says how it left,
+      // which is the half four builds of site-by-site fixes never had. `planarHeals` counts the
+      // reconciler firing — a heal is evidence the state was reached, not proof it is now fine.
+      planarTrail: env.engine?.planarTrail?.length ? env.engine.planarTrail : undefined,
+      planarHeals: env.planarHeals?.count ? env.planarHeals : undefined,
       sliceError: env.lastSliceError || undefined,
       // B630 — the last few SOURCE-SWAP attempts, each phase with a reason on every exit. Built for
       // Daniel's mid-show dead end (live camera ~10min, picked a file, nothing happened, app restart

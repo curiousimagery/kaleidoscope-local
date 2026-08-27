@@ -103,6 +103,7 @@ export function createSourceHost(env) {
       settled = true; clearTimeout(watchdog);
       swapTrace('loadImage:decoded', { w: img.naturalWidth, h: img.naturalHeight });
       try {
+        // planar-handback-ok — a still image. There is no decode and no planes.
         engine.setSource(img);
         env.centerSliceInSource?.();      // B615: new source → centre the form's box, orient to its long edge
       } catch (e) {
@@ -301,6 +302,9 @@ export function createSourceHost(env) {
       clearTimeout(decodeWatchdog);
       swapTrace('loadVideo:loadeddata', { w: v.videoWidth, h: v.videoHeight, dur: +(v.duration || 0).toFixed(2) });
       try {
+        // planar-handback-ok — the <video> is the source at this instant; `attachNativeVideo`
+        // below installs the planes if this platform has a native decode, and is the only thing
+        // that knows whether it does.
         engine.setSource(v);            // videoWidth is known now (a frame is decoded)
         env.centerSliceInSource?.();    // B615: new source → centre the form's box, orient to its long edge
       } catch (e) {
@@ -592,8 +596,8 @@ export function createSourceHost(env) {
       ? formBoxCenter(getActiveForm(env.state), env.state, engine.getSourceAspect?.() || 1)
       : null;
     engine.setSource(camera.frameSource());
-    if (cameraIsNative && camera.planeReader) engine.setPlanarSource(camera.planeReader(), 0);
-    else engine.setPlanarSource(null);
+    if (cameraIsNative && camera.planeReader) engine.setPlanarSource(camera.planeReader(), 0, 'native camera attach');
+    else engine.setPlanarSource(null, 0, 'camera attach: not a native camera');
     const after = engine.getSourceAspect?.() || 1;
     const form = getActiveForm(env.state);
     if (before) {
@@ -882,7 +886,7 @@ export function createSourceHost(env) {
     // source change means the new source never reaches the texture and the panel shows the last
     // camera frame forever. That is the B541 dark-source bug, and `keepSource:true` (the upload
     // path) would walk straight into it, so this runs before the early return, not after.
-    try { engine.setPlanarSource(null); } catch { /* engine may be mid-reinit */ }
+    try { engine.setPlanarSource(null, 0, 'camera mode stopped'); } catch { /* engine may be mid-reinit */ }
     env.live.isLive = false;
     env.live.frozen = false;
     env.liveVideo = null;
@@ -992,7 +996,7 @@ export function createSourceHost(env) {
     camera.stop();
     // same release as stopCameraMode — the frozen still below is a plain element, and a live
     // plane reader would out-rank it and keep the panel showing the feed's last frame
-    try { engine.setPlanarSource(null); } catch { /* engine may be mid-reinit */ }
+    try { engine.setPlanarSource(null, 0, 'camera frame captured'); } catch { /* engine may be mid-reinit */ }
     env.live.isLive = false;
     env.live.frozen = true;
     env.liveVideo = null;
@@ -1009,6 +1013,8 @@ export function createSourceHost(env) {
       env.media.captureObjectURL = URL.createObjectURL(blob);
       const img = new Image();
       img.onload = () => {
+        // planar-handback-ok — a frozen camera still. The planes were released deliberately by
+        // the setPlanarSource(null) above; re-installing them would out-rank this still.
         engine.setSource(img);                            // frozen still source
         document.getElementById('sourceMeta').children[0].textContent = `${img.naturalWidth} × ${img.naturalHeight}`;
         document.getElementById('sourceMeta').children[1].textContent = `${env.media.sourceFilename}.png`;
@@ -1497,8 +1503,8 @@ export function createSourceHost(env) {
     // planes, which is what removes the cross-context readback (B504). Order matters:
     // setSource retires any planar provider, so it has to come first.
     try {
-      engine.setSource(src.frameSource());
-      engine.setPlanarSource(src.planeProvider, src.cap);
+      engine.setSource(src.frameSource(), 'native decode attach');
+      engine.setPlanarSource(src.planeProvider, src.cap, 'native decode attach');
       engine.updateSourceFrame();
     } catch { /* not ready */ }
     env.nativeStageSource = () => mod.createNativeStageSource(env);
@@ -1545,8 +1551,8 @@ export function createSourceHost(env) {
     // dead canvas and the panel went black with no error anywhere. That is Daniel's B596
     // "the staged panel goes dark". `stgStopVideo` has always done exactly this restore.
     try {
-      if (env.sourceVideo) { engine.setSource(env.sourceVideo); engine.updateSourceFrame(); }
-      else engine.setPlanarSource(null);
+      if (env.sourceVideo) { engine.setSource(env.sourceVideo, 'native decode detach'); engine.updateSourceFrame(); }
+      else engine.setPlanarSource(null, 0, 'native decode detach, no <video> to fall back to');
     } catch { /* engine may be mid-reinit */ }
     try { pendingTeardown = src.stop() || Promise.resolve(); } catch { pendingTeardown = Promise.resolve(); }
     return pendingTeardown;
@@ -1559,6 +1565,49 @@ export function createSourceHost(env) {
   // the planar provider on its way through — so the source panel went dark, the clock
   // reported the old clip's duration, and the broadcast kept showing the old footage.
   env.attachNativeVideo = attachNativeVideo;
+
+  // ⚠️ B760 — THE FIFTH INSTANCE OF "A RECOVERY PATH THAT CANNOT START ITSELF", and the first one
+  // given an owner rather than another patch at the site that happened to break it.
+  //
+  // B580 (context restore), B703 (planar gated on element state), B706 (a failed re-upload never
+  // retried), B708 (the uploader never rebuilt without a new frame) each fixed one route to the
+  // same destination: `native decode` with no `planar`, sampling the decode's 1280 RGB preview
+  // canvas through a cross-context readback — a sixth of the resolution at several times the cost.
+  // `R2-take3.json` reached it on a session with NO context loss, NO render and NO source swap,
+  // and reading every one of the five sites that can retire a provider did not attribute it. That
+  // is the point at which patching sites stops being the right move.
+  //
+  // ⚖️ WHY THIS IS AN INVARIANT AND NOT A GUESS. It heals exactly one state: the engine's source
+  // element IS the decode's preview canvas AND no provider is installed. That pairing is never
+  // correct — the canvas exists only to carry dimensions while the planes carry pixels — so
+  // restoring it needs no theory about who broke it. The identity check is also what makes it
+  // safe: every DELIBERATE borrow swaps a different element in (staging → the stage canvas,
+  // filmstrip → a still, the render → its own full-res canvas, camera → the camera element), so
+  // this cannot fire underneath one of them and undo it.
+  //
+  // `hasPlanarProvider` rather than `planarActive`, because the latter is also false in the
+  // legitimate window between an install and its first frame — healing that would re-install on
+  // every tick. Counted and published: a heal that fires is evidence about the bug, not a cure
+  // for it, and the trail names the caller that retired the provider in the first place.
+  env.planarHeals = { count: 0, lastAt: null };
+  function reconcileNativePlanar() {
+    const nv = env.nativeVideo;
+    if (!nv || engine.hasPlanarProvider) return;
+    let el = null;
+    try { el = nv.frameSource(); } catch { return; }
+    if (!el || engine.getSourceImage?.() !== el) return;   // something else legitimately owns the source
+    try {
+      engine.setPlanarSource(nv.planeProvider, nv.cap, 'reconciler: the source was the decode preview canvas with no provider');
+      engine.updateSourceFrame();
+      env.planarHeals.count++;
+      env.planarHeals.lastAt = new Date().toISOString();
+      env.vitals?.mark?.('planar:healed', { w: nv.width || null, h: nv.height || null });
+      env.scheduleRender?.();
+    } catch { /* engine may be mid-reinit — the next tick tries again */ }
+  }
+  // Half a second is below the threshold at which a performer would read it as a glitch, and the
+  // check is two property reads when there is nothing to do.
+  setInterval(reconcileNativePlanar, 500);
 
   env.loadVideo = loadVideo;
   // THE source clock (S3-A stage 2): the one handle motion + perform ask for time

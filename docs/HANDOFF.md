@@ -22,12 +22,70 @@ Archived at B658. It was marked superseded at B609 and kept for the reasoning be
 
 ## current version
 
-**v0.27.13 · B751** (2026-08-26). Minor bumped at B738 for the O(1) bake landing on hardware.
+**v0.27.22 · B760** (2026-08-27). Minor bumped at B738 for the O(1) bake landing on hardware.
 
 **⭐⭐ THE O(1) BAKE IS NOW MEASURED, NOT MODELLED.** A 2.63GB / 8:21 4K source peaked at **131.6MB**
 against **130.9MB** for a 741MB source. **3.5× the file, 0.7MB more memory.** Both 8GB M1 iPads also
 passed the job that killed them at B730 (Air 71.6MB, Pro 114.9MB). The Blob is disk-backed and file
 size is no longer a memory axis. **B705 and B706 are device-verified** — B705's instrument found B706, and B706 held on the repro that killed B705. B703, B704 and B707 are not yet device-verified.
+
+---
+
+## ▶▶▶▶▶▶▶▶▶▶ B760 (2026-08-27) — THE PLANAR PATH GETS AN OWNER. HALF THE BUG IS FIXED, HALF IS INSTRUMENTED.
+
+**Read this before touching anything that calls `engine.setSource`.**
+
+**What was wrong.** Daniel's FHD takes looked, in his words, like "a half loaded website in 1993" — at
+129MB, which disproves any bitrate theory outright. The source row said `1280×720 · from canvas ·
+native decode · ⚠ NOT ON THE PLANAR PATH`. The engine was sampling the decode's 1280 RGB **preview
+canvas** instead of its planes, and the fold then magnifies a ~320px wedge to fill 1920.
+
+**⚠️ AND I READ THAT ROW WRONG ALL SESSION.** I quoted fps, session counts and take numbers out of
+these reports for a whole arc without once checking the `source` row, which the project's own standing
+rule says to check first. **Every measurement in the B752–B759 matrix needs re-reading against it
+before it is quoted again.**
+
+**Sorting `docs/temp/*.json` by that row split the reports in two, which is what said this was more
+than one bug:**
+
+| reports | source row | cause |
+|---|---|---|
+| `R1`, `A3-take2` | `3840×2160 · from <video>` | the render teardown — **FIXED B760** |
+| `R2`, `R2-take2`, `R2-take3` | `1280×720 · from canvas` | **still unattributed, instrumented B760** |
+| `R1-FHDbakesuccess` | `1920×1080 · planar` | healthy |
+
+**FIXED: the render half.** `teardownExportReader` restored the `<video>` and stopped there. On iOS
+that element is PARKED (`source-host` pauses it the moment the native decode attaches), so after any
+render the preview sat on a frozen element and every later take sampled it. Hence
+`SOURCE STALLED 226.7s` in `R1.json` with no context loss to blame.
+
+**NOT FIXED: the record half, and that is deliberate.** Uncertainty state **B** — know what, not why.
+All five places that can retire a provider were read, and none explains a session with no context
+loss, no render and no source swap. `sourceW === 1280` proves a `setSource` on the preview canvas
+completed, and all three sites that do that install the provider on the very next line with no `await`
+between. The protocol's only legal move in state B is instrumentation, so:
+
+- **`planarTrail`** (engine, 12 entries, rides the exported report) names the caller that retired the
+  provider and when. **The next report of any kind attributes this.**
+- **The reconciler** in `source-host.js` heals the one pairing that is never correct — the engine's
+  source IS the decode's preview canvas and no provider is installed — within 500ms. It is an
+  invariant, not a guess, and the source-identity check is what makes it safe: every deliberate borrow
+  swaps a DIFFERENT element in, so it cannot fire underneath one. `planarHeals` counts it.
+- **`tools/check-planar-handback.mjs`**, now in `npm run check`. Every `setSource` must either hand
+  planes back within six lines or carry a `planar-handback-ok` comment WITH the reason. Fifteen sites
+  now state their intent.
+
+**⚠️ The checker's first draft did not catch the bug it was written for** — it matched
+`setSource(x.frameSource())` and the defect was `setSource(v)` on a `<video>`. The rule that works is
+weaker and broader: **declare, don't pair.** Verified against the pre-fix file, where it flags line 393.
+
+**Found and NOT fixed, filed in BACKLOG:** the external view's native-camera path still samples the
+receiver's RGB canvas rather than its planes. Uncapped receiver, so it costs frame rate rather than
+resolution.
+
+**▶ NEXT:** the degraded state still only announces itself in the frame-cost panel. A performer whose
+broadcast silently drops to 720p mid-set has no way to know, which is exactly the case Daniel's
+rewritten exit criterion names. That is the first piece of visible work, and it is separate from this.
 
 ---
 

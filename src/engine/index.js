@@ -70,6 +70,18 @@ export function createEngine({ canvas, maxProbeSize, perf = null, label = 'engin
   let planarFrame = null;        // provider: () => wire frame | null, installed by the shell
   let planarCap = 0;             // source-detail cap (long edge) for the planar texture
   let lastReinitWhy = '';        // B703 — why the last context restore's element re-upload failed, if it did
+  // ⚠️ B760 — WHO RETIRED THE PLANAR PROVIDER, AND WHEN. Four builds (B580, B703, B706, B708) have
+  // now fixed a different way of arriving at `native decode` without `planar`, and a fifth device
+  // report (`R2-take3.json`) reached it on a session with no context loss, no render and no source
+  // swap — a state that reading the code could not attribute, because every install and every
+  // retirement was silent. There are only five places that can retire it and they are all here, so
+  // the answer costs a string. It rides the exported report; console is not a channel that reaches
+  // the device (DEVICE-TESTING.md).
+  const planarTrail = [];
+  function notePlanar(what, why) {
+    planarTrail.push({ at: Date.now(), what, why: why || 'no reason given', w: sourceW, h: sourceH, gen: glGeneration });
+    if (planarTrail.length > 12) planarTrail.shift();
+  }
   // B749 — null = not yet asked, true/false = this context's answer. Re-asked after a context loss
   // because a rebuilt context is a different context and may answer differently.
   let frameUploadOk = null;
@@ -167,7 +179,10 @@ export function createEngine({ canvas, maxProbeSize, perf = null, label = 'engin
       // `updateSourceFrame`, is what lets the picture come back on its own.
       let reinitWhy = '';
       try {
-        if (sourceImage) this.setSource(sourceImage);  // re-upload; aspect re-derives
+        // planar-handback-ok — `keepPlanar` is captured above and re-installed in the `finally`
+        // below, deliberately outside this try so a failed element re-upload cannot take the
+        // planar path down with it (B703). The hand-back is real, just further than a few lines.
+        if (sourceImage) this.setSource(sourceImage, 'reinitGL re-upload (restored below)');  // re-upload; aspect re-derives
         pendingReupload = null; reuploadTries = 0;
       } catch (e) {
         // NOT rethrown when planes can still carry the picture: on the native path the element is
@@ -205,6 +220,7 @@ export function createEngine({ canvas, maxProbeSize, perf = null, label = 'engin
         // the uploader itself is gone with the context and is recreated lazily on the next frame
         if (keepPlanar) {
           planarFrame = keepPlanar; planarCap = keepCap;
+          notePlanar('install', `reinitGL restore (generation ${glGeneration})`);
           // ⚠️ B708 — AND "LAZILY ON THE NEXT FRAME" WAS THE BUG, BECAUSE THERE MAY NOT BE A NEXT
           // FRAME. The reader returns null while nothing NEW has arrived, which the engine reads as
           // "hold the last frame" — but the line above this one destroyed the uploader and its
@@ -240,7 +256,11 @@ export function createEngine({ canvas, maxProbeSize, perf = null, label = 'engin
     // throw at texImage2D — instead they get silently truncated by the GPU
     // and the kaleidoscope renders solid black. detected during build 2 with
     // 18K × 18K images that loaded as <img> but failed to render.)
-    setSource(source) {
+    // `why` is a short tag naming the CALLER, recorded on the planar trail when this retires a
+    // provider (B760). Optional so every existing call site keeps working; supply it on any path
+    // that hands the engine a native decode's preview canvas, because those are the ones whose
+    // absence of a matching `setPlanarSource` is a bug rather than a source change.
+    setSource(source, why = '') {
       const maxTex = glCtx.diagnostics.maxTextureSize;
       const { w, h } = sourceDims(source);
       if (!w || !h) throw new Error('source has no dimensions yet');
@@ -249,6 +269,7 @@ export function createEngine({ canvas, maxProbeSize, perf = null, label = 'engin
       }
       // a new source retires any planar provider — the shell re-installs it right
       // after when the new source is itself a native decode (source-host attach)
+      if (planarFrame) notePlanar('retire', `setSource · ${why || 'caller not stated'}`);
       planarFrame = null;
       if (planar) { planar.dispose(); planar = null; }
       sourceTexture = uploadTexture(glCtx.gl, source, sourceTexture);
@@ -360,6 +381,9 @@ export function createEngine({ canvas, maxProbeSize, perf = null, label = 'engin
         const { w, h } = sourceDims(pendingReupload);
         if (w && h) {
           try {
+            // planar-handback-ok — the guard three lines up already refuses to run while a planar
+            // path is carrying the picture, so this only ever re-uploads an element that is the
+            // sole source. Retiring a provider here is impossible.
             this.setSource(pendingReupload);
             pendingReupload = null; reuploadTries = 0; lastReinitWhy = '';
           } catch (e) {
@@ -421,13 +445,22 @@ export function createEngine({ canvas, maxProbeSize, perf = null, label = 'engin
     // The element texture stays allocated alongside the planar one: it is what renders
     // until the first frame lands, and what the engine falls back to the moment the
     // provider is removed (source swap, detach, context loss).
-    setPlanarSource(provider, cap = 0) {
+    setPlanarSource(provider, cap = 0, why = '') {
+      if (provider) notePlanar('install', why || 'caller not stated');
+      else if (planarFrame) notePlanar('retire', `setPlanarSource(null) · ${why || 'caller not stated'}`);
       planarFrame = provider || null;
       planarCap = cap || 0;
       if (!provider && planar) { planar.dispose(); planar = null; }
     },
     setPlanarCap(cap) { planarCap = cap || 0; },
     get planarActive() { return !!(planarFrame && planar && planar.width > 0); },
+    // ⚠️ B760 — `planarActive` CONFLATES TWO STATES AND THE RECONCILER NEEDS THEM APART. It is
+    // false both when the provider is genuinely gone (a bug, and the thing to heal) and in the
+    // legitimate window between installing one and its first frame landing (not a bug, and healing
+    // it would re-install on every tick). This one answers only "is a provider installed".
+    get hasPlanarProvider() { return !!planarFrame; },
+    // The install/retire history, newest last. See `notePlanar`.
+    get planarTrail() { return planarTrail.slice(); },
     // B703 — an element re-upload that failed during a context restore. Empty when the last
     // restore was clean. Rides the exported report because a half-failed recovery is invisible
     // otherwise, and console is not a channel that reaches the device (see DEVICE-TESTING.md).
@@ -450,6 +483,7 @@ export function createEngine({ canvas, maxProbeSize, perf = null, label = 'engin
     // still guards on sourceTexture, but the shell guards on getSourceImage()
     // and won't call render once this is null.
     clearSource() {
+      if (planarFrame) notePlanar('retire', 'clearSource');
       sourceImage = null; sourceW = 0; sourceH = 0;
       planarFrame = null;
       if (planar) { planar.dispose(); planar = null; }

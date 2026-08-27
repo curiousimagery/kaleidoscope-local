@@ -6,6 +6,73 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.27.22 · Build 760 — THE FIFTH ROUTE TO ONE STATE, AND THE FIRST TIME IT HAS AN OWNER
+
+**Shipped:**
+- A render no longer strands the source off the planar path. `teardownExportReader` restored the
+  `<video>` and stopped there; on iOS that element is PARKED, so every take after a render sampled a
+  frozen frame instead of the decode's planes.
+- The engine now records WHO retired the planar provider, and why, on a 12-entry trail that rides the
+  exported report (`planarTrail`).
+- A reconciler in `source-host.js` heals the one state that is never correct — the engine's source IS
+  the decode's preview canvas and no provider is installed — within 500ms, and counts itself
+  (`planarHeals`).
+- `npm run check` gained `tools/check-planar-handback.mjs`: every `setSource` on an engine that can
+  be handed native-decode planes must either hand them back within six lines or carry a
+  `planar-handback-ok` comment WITH the reason. Fifteen existing sites now state their intent.
+
+**The state, and why five builds have not closed it.** `native decode` with no `planar` means the
+engine is sampling the decode's 1280 RGB preview canvas through a cross-context readback: a sixth of
+the resolution at several times the cost, with the picture still moving and every counter still
+healthy. B580 fixed the context-restore route. B703 fixed the planar path gating on element state.
+B706 fixed a failed re-upload never retrying. B708 fixed the uploader never rebuilding without a new
+frame. Each fix was correct and each was a patch at the site that happened to break that week.
+
+**What the device reports actually said, once the source row was read.** Daniel's FHD takes looked,
+in his words, like "a half loaded website in 1993" at 129MB — a file size that disproves starvation
+outright. The source row said `1280x720 · from canvas · native decode · ⚠ NOT ON THE PLANAR PATH`.
+The kaleidoscope then magnifies the deficit: the fold samples a sub-region, so a wedge that is ~960px
+wide at 4K is ~320px at 720p and gets blown up to fill 1920. The encoder was not starved; it was
+spending every bit on upscale artifacts because there was no detail left in the input.
+
+Sorting every report in `docs/temp` by that row split them cleanly in two, which is what said this
+was more than one bug:
+
+| reports | source row | cause |
+|---|---|---|
+| `R1`, `A3-take2` | `3840×2160 · from <video>` | the render teardown, fixed here |
+| `R2`, `R2-take2`, `R2-take3` | `1280×720 · from canvas` | **still unattributed** |
+| `R1-FHDbakesuccess` | `1920×1080 · planar` | healthy |
+
+**The render half was found by reading. The record half was not, and that is the finding.** All five
+places that can retire a provider were read; none of them explains a session with no context loss, no
+render and no source swap. `sourceW === 1280` proves a `setSource` on the preview canvas completed,
+and all three sites that do that install the provider on the very next line. So the honest state is B
+(know what, not why), where the only legal move is instrumentation — hence the trail, which answers it
+from the next device report onward at the cost of a string.
+
+**The reconciler is an invariant, not a guess.** It heals exactly one pairing, and that pairing is
+never correct: the preview canvas exists only to carry dimensions while the planes carry pixels.
+Restoring it needs no theory about who broke it. The identity check is what makes it safe — every
+deliberate borrow swaps a DIFFERENT element in (staging → the stage canvas, filmstrip → a still, the
+render → its own full-res canvas, camera → the camera element), so it cannot fire underneath one and
+undo it. It gates on `hasPlanarProvider` rather than `planarActive` because the latter is also false
+in the legitimate window between an install and its first frame.
+
+**The checker's first draft did not catch the bug it was written for**, which is worth recording. It
+matched `setSource(x.frameSource())`, and B760's actual defect was `setSource(v)` on a `<video>` — the
+same wrong-noun trap the debugging protocol names. The rule that works is weaker and broader: every
+`setSource` must DECLARE, either by handing planes back or by saying it has none. Verified against the
+pre-fix file, where it flags line 393.
+
+**One thing found and deliberately not fixed:** the external view's native-camera path
+(`output-view.js`) still samples the receiver's RGB canvas rather than its planes, so it pays the
+GPU→CPU→GPU readback B504 removed from the video path. Its receiver is uncapped, so it costs frame
+rate rather than resolution — which is why it has gone unnoticed. Marked and filed rather than folded
+into an unrelated change.
+
+---
+
 ## v0.27.21 · Build 759 — A REGRESSION I INTRODUCED AT B757, AND THE SILENCE THAT HID IT
 
 **Shipped:** takes stay on WebCodecs again, and a take that falls back to MediaRecorder now says why

@@ -1067,6 +1067,7 @@ function loadImage(file, sourceType = 'file') {
   originalSource = { blob: file, name: file.name || 'original.png' };
   const img = new Image();
   img.onload = () => {
+    // planar-handback-ok — a still image on the phone chrome. No decode, no planes.
     engine.setSource(img);
     centredForAspect = engine.getSourceAspect() || 1;
     resetSlice();                              // B619 — an explicitly opened file is a new composition, so it resets unconditionally (matches source-host.js on desktop)
@@ -2094,6 +2095,7 @@ function freezeFromPreview() {
     originalSource = { blob, name: `${sourceFilename}-original.jpg` };
     const img = new Image();
     img.onload = () => {
+      // planar-handback-ok — a still image on the phone chrome. No decode, no planes.
       engine.setSource(img);
       setContext(false);
       sourceOverlay.mount(sourceEl);
@@ -2131,6 +2133,7 @@ async function freezeFromUrl(url) {
         cx.drawImage(img, ox, oy, cw, ch, 0, 0, cw, ch);       // center-crop to the stabilized FOV
         src = c;
       }
+      // planar-handback-ok — a still image on the phone chrome. No decode, no planes.
       engine.setSource(src);
       setContext(false);
       sourceOverlay.mount(sourceEl);

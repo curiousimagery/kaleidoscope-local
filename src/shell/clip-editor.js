@@ -1366,6 +1366,9 @@ export function createClipEditor(env) {
     }
     env.stopSourceVideoPlayback();
     const old = env.sourceVideo;
+    // planar-handback-ok — the baked clip's OWN decode is attached ~15 lines below (see the
+    // comment there); the old decode is still running the clip we just replaced, so re-installing
+    // its planes here is precisely the hybrid B595 removed.
     engine.setSource(v);
     env.sourceVideo = v;
     env.tagSourceVideo?.(v, 'baked clip');   // the bake mints its own element; keep it counted

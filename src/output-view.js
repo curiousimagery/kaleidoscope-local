@@ -96,6 +96,7 @@ async function setupSource(payload) {
       if (!src.naturalWidth) return;
     }
     if (token !== sourceToken) return;
+    // planar-handback-ok — a still pushed to the external view. No decode, no planes.
     engine.setSource(src);
     liveSource = false; haveSource = true;
     return;
@@ -117,6 +118,10 @@ async function setupSource(payload) {
     }
     if (token !== sourceToken) { recv.stop(); return; }
     receiver = recv;
+    // planar-handback-ok — KNOWN GAP, NOT AN OVERSIGHT (B760, filed in BACKLOG). The video path
+    // 30 lines below takes planes; this camera path still samples the receiver's RGB canvas, so it
+    // pays the GPU->CPU->GPU readback B504 removed from video. The camera receiver is uncapped, so
+    // it costs frame rate rather than resolution — which is why it has survived unnoticed.
     engine.setSource(receiver.frameSource());
     liveSource = true; haveSource = true;
     return;
@@ -150,8 +155,8 @@ async function setupSource(payload) {
     // engine's context is a GPU→CPU→GPU round trip on WebKit — ~20ms per megapixel, so
     // 4K over HDMI could never exceed ~6fps no matter how fast the frames arrived. The
     // planes are already in CPU memory; upload them here and convert in one blit.
-    engine.setSource(receiver.frameSource());
-    engine.setPlanarSource(receiver.planeReader(), payload.cap || 0);
+    engine.setSource(receiver.frameSource(), 'external view: native decode join');
+    engine.setPlanarSource(receiver.planeReader(), payload.cap || 0, 'external view: native decode join');
     planarSource = true;
     liveSource = true; haveSource = true;
     return;
@@ -204,6 +209,8 @@ async function setupSource(payload) {
       }
     }
     if (token !== sourceToken) { try { camera.stop(); } catch {} camera = null; return; }
+    // planar-handback-ok — the web (getUserMedia) camera has no planes at all; frameSource() is the
+    // capture element itself, so there is nothing to hand back.
     engine.setSource(camera.frameSource());
     liveSource = true; haveSource = true;
     return;
@@ -216,6 +223,8 @@ async function setupSource(payload) {
     v.src = payload.url;
     await new Promise((res) => v.addEventListener('loadeddata', res, { once: true }));
     if (token !== sourceToken) return;
+    // planar-handback-ok — the web popup's own <video> over a blob URL. This path exists only
+    // where there is no native decode to take planes from.
     videoEl = v;
     engine.setSource(v);
     v.play().catch(() => {});

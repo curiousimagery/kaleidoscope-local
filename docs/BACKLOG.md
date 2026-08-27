@@ -62,17 +62,25 @@ Living list of **incomplete / pending work**, grouped by **surface / family**. *
 
 **✅ FIXED B708:** `read.resync()` drops the reader's history so the next call re-delivers the held frame; `reinitGL` calls it when restoring the provider; `native-video.js`'s wrapper forwards it; `native-camera.js` gets the same treatment so the two readers cannot diverge. `scratchpad/planar-resync-check.mjs` 8/8.
 
-### 📐 [STANDING RULE EARNED B708 — THREE INSTANCES IN SIX BUILDS] A RECOVERY PATH THAT CANNOT START ITSELF
+### 📐 [STANDING RULE EARNED B708, GIVEN AN OWNER B760 — FIVE INSTANCES] A RECOVERY PATH THAT CANNOT START ITSELF
 
 | build | cache the restore discarded | what should have re-filled it | why it did not |
 |---|---|---|---|
 | **B703** | the planar uploader | `updateSourceFrame` | gated on ELEMENT-path state |
 | **B706** | the element texture | `reinitGL`'s re-upload | threw on a 0×0 element, nothing retried |
 | **B708** | the planar uploader **and its texture** | the next frame off the socket | a paused clip has no next frame |
+| **B760** | the planar **provider**, after a render | `teardownExportReader` | it restored the `<video>` and stopped there |
 
 **The question to ask on every restore path: what re-fills this, and is that thing GUARANTEED to happen?** All three answered "an event that usually arrives," and each failed exactly where it did not.
 
 **⚠️ And `offered === taken` held through all three.** Equal counts are not health; they are the absence of one specific fault. **B584's rule needs its precondition stated every time it is used** — *equal counts WITH A FROZEN PICTURE, confirmed from the screen* — which is what B702 got wrong and what made this one findable.
+
+**▶ B760 STOPPED PATCHING SITES AND GAVE IT AN OWNER.** Four builds of site-by-site fixes did not
+close this, so B760 added the two things a site fix cannot provide: a **trail** naming who retired the
+provider (rides the exported report as `planarTrail`) and a **reconciler** that heals the one pairing
+that is never correct — the engine's source IS the decode's preview canvas and no provider is
+installed. Plus `tools/check-planar-handback.mjs` in `npm run check`, so a new `setSource` has to
+declare its intent at review time rather than at a device session.
 
 **▶ WORTH AN AUDIT, NOT YET DONE:** every other cache `reinitGL` discards. `sourceTexture`, `planar`, `gpuTimer` are the three it nulls; the first two now have starters. **`gpuTimer` has not been checked.**
 
@@ -127,6 +135,28 @@ Preview restored in 982ms, external in 1.26s, live-pip in 2.3s. `reinitWhy: null
 
 **⚠️ WE COULD NOT TELL THE CANDIDATE CAUSES APART — uncertainty state B, so the move was an instrument, not a fix.** Either preview's `webglcontextrestored` **never fires**, or it **fires and `reinitGL()` throws**. The handler (`main.js:362`) catches, writes to `console` and `statusEl`, and **marks nothing** — so the outcome dies with the app. The `reinitWhy` field (B703) cannot help either: it lives on the engine, and the report is read after a reload. **Fix the instrument first: mark `gl-restore-failed` with the reason, so it lands in `priorTrail` and survives the kill.** Standing rule, violated here: *anything that can decline to act must publish why.*
 
+### 🚨 [OPEN — B760, STATE B: KNOW WHAT, NOT WHY] A TAKE'S SOURCE DROPS TO THE 1280 PREVIEW CANVAS WITH NOTHING TO BLAME
+
+**The state:** `1280×720 · from canvas · native decode · ⚠ NOT ON THE PLANAR PATH`, on a session with
+**no context loss, no render, and no source swap** (`R2-take3.json`, and the same in `R2.json` and
+`R1-bakeHandoffFixReport.json`). This is what makes Daniel's FHD takes look like "a half loaded
+website in 1993" at 129MB — the encoder is not starved, there is simply no detail in the input, and
+the fold then magnifies a ~320px wedge to fill 1920.
+
+**What reading settled, and what it did not.** `sourceW === 1280` proves a `setSource` on the decode's
+preview canvas ran to completion — the value is written on the last line of `setSource`. All three
+sites that hand over that canvas install the provider on the very next line, with no `await` between
+them. `planar.upload` sets `tw/th` on its first call, so `planarActive` would be true after any single
+frame, and 16,821 arrived. **The enumeration is exhausted and it does not explain the observation.**
+
+**Why no fix was attempted.** Uncertainty state B. The protocol's only legal move is instrumentation,
+and B760 shipped it: `planarTrail` names the caller that retired the provider, and `planarHeals`
+counts the reconciler catching it. **The next device report that reaches this state attributes it.**
+
+**▶ NEXT: no new device session needed.** Read `planarTrail` on the next report of any kind. If
+`planarHeals.count > 0` with an empty trail, something outside these five call sites is doing it and
+the trail needs to move lower.
+
 ### 🎬 [2026-08-21 — CLASS 1, FOUND BY READING, NO DEVICE TIME] THE VIDEO EXPORT HAS NO CONTEXT-LOST GUARD
 
 `shell/video-export.js` checks exactly one abort condition, `shouldCancel()` (line 97). **There is no `isContextLost()` check anywhere in the export loop** — the codebase has only two, in `main.js:727` and `mobile/chrome.js:2967`, both in the reset path.
@@ -134,6 +164,20 @@ Preview restored in 982ms, external in 1.26s, live-pip in 2.3s. `reinitWhy: null
 So when run 2's context died at frame ~N of 3193, **the export kept calling `frameAt` into a dead context for every remaining frame.** That is a plausible contributor to the app's death rather than merely a casualty of it, and it is certainly why the render produced no usable diagnostic of its own.
 
 **✅ FIXED B705.** The loop checks `glLost()` **before** calling `frameAt`, and throws `code: 'gl-lost'` carrying the frame index — `graphics context lost at frame 1847 of 3193`. Passed at all three call sites (motion render, source-preview render, **loop-builder bake**), and both catch sites mark `export-aborted` so it survives the kill. **Detection and graceful abort, NOT prevention** — nothing in JS stops the GPU process dying. **Whether the export should then RESUME is a separate and larger question** — see the stage-manager teardown item.
+
+### 🟠 [FOUND B760 BY THE NEW CHECKER, NOT FIXED — FLAGGED, NOT FOLDED IN] THE EXTERNAL VIEW'S CAMERA PATH STILL PAYS THE READBACK
+
+`output-view.js`'s `native-camera` branch does `engine.setSource(receiver.frameSource())` and stops —
+it samples the receiver's RGB canvas rather than taking its planes, which is exactly the GPU→CPU→GPU
+round trip B504 removed from the **video** branch thirty lines below it. On WebKit that is ~20ms per
+megapixel.
+
+**Why it has gone unnoticed:** that receiver is created with no `cap`, so its canvas is full-res. The
+cost is frame rate, not resolution — so it degrades in the way this project is worst at seeing, rather
+than the visible way the video path did.
+
+**▶ NEXT:** hand it `receiver.planeReader()` the way the video branch does. Small and mechanical, but
+it is a broadcast-path change and belongs in its own increment with a look at the external view.
 
 ### 🔨 [HIGH — Daniel, 2026-08-21] GLASS-BREAK RESET DOES NOT REACH THE BROADCAST
 

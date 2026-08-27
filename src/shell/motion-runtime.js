@@ -372,7 +372,9 @@ async function setupExportReader() {
     cv.height = v.videoHeight || reader.height;
     const ctx = cv.getContext('2d');
     try { ctx.drawImage(v, 0, 0, cv.width, cv.height); } catch { /* seed only */ }
-    engine.setSource(cv);                          // render loop is paused during a render session
+    // planar-handback-ok — a render session samples its own full-res canvas on purpose; the
+    // planes come back in teardownExportReader.
+    engine.setSource(cv, 'render: export reader armed');   // render loop is paused during a render session
     exportReader = reader;
     exportReaderCtx = ctx;
     console.info('[fold] render uses the fast decode path (sequential VideoDecoder)');
@@ -389,9 +391,22 @@ function teardownExportReader() {
   exportReader = null;
   exportReaderCtx = null;
   const v = env.sourceVideo;
-  if (v) {
-    try { engine.setSource(v); engine.updateSourceFrame(); } catch { /* not ready */ }
-  }
+  if (!v) return;
+  // ⚠️ B760 — HAND BACK THE PLANES, NOT JUST THE ELEMENT. `setupExportReader` gives the engine its
+  // own full-res canvas for the duration of a render, which retires the planar provider; this
+  // restored the `<video>` and stopped there. On iOS the `<video>` is PARKED (source-host pauses it
+  // the moment the native decode attaches), so after any render the preview sat on a frozen element
+  // and every later take sampled it instead of the decode's planes. That is the signature in
+  // `R1.json` and `A3-take2.json`: `3840×2160 · from <video> · native decode · ⚠ NOT ON THE PLANAR
+  // PATH · SOURCE STALLED 226.7s`, on sessions with no context loss to blame.
+  //
+  // Same restore the filmstrip's `finally` and `stgStopVideo` already do — see them for the shape.
+  try {
+    const nv = env.nativeVideo;
+    engine.setSource(nv ? nv.frameSource() : v, 'render: export reader torn down');
+    if (nv) engine.setPlanarSource(nv.planeProvider, nv.cap, 'render: export reader torn down');
+    engine.updateSourceFrame();
+  } catch { /* not ready */ }
 }
 
 async function advanceSourceToP(p) {
@@ -861,7 +876,9 @@ function stgStartVideo() {
   // ONE setSource for the whole session: the stage always samples this canvas, whether
   // it is holding a parked still or a copy of the live frame. Swapping the engine's
   // source per park/unpark would re-init the texture on every transport change.
-  try { engine.setSource(stgSrc.frameSource()); engine.updateSourceFrame(); } catch { /* not ready */ }
+  // planar-handback-ok — staging samples the stage canvas by design (it holds parked stills the
+  // planes cannot produce). stgStopVideo hands the planes back.
+  try { engine.setSource(stgSrc.frameSource(), 'loop builder: staging begins'); engine.updateSourceFrame(); } catch { /* not ready */ }
   // the audience's loop must be rolling before we park the editor on a still
   env.sourceClock?.setRate(motion.videoSpeed || 1);
   env.sourceClock?.play();
@@ -876,8 +893,8 @@ function stgStopVideo() {
   // native path hands back a source that is parked and never advances.)
   try {
     const nv = env.nativeVideo;
-    engine.setSource(nv ? nv.frameSource() : env.sourceVideo);
-    if (nv) engine.setPlanarSource(nv.planeProvider, nv.cap);
+    engine.setSource(nv ? nv.frameSource() : env.sourceVideo, 'loop builder: staging ends');
+    if (nv) engine.setPlanarSource(nv.planeProvider, nv.cap, 'loop builder: staging ends');
     engine.updateSourceFrame();
   } catch { /* source may be gone */ }
 }
@@ -1335,7 +1352,8 @@ async function buildFilmstripVideo(strip, sig, geom) {
         const still = await env.stillAt(sec, fs, 0.5);   // filmstrip cell: loose tolerance, see stillAt
         if (!still) return;                         // generator refused (clip torn down mid-build)
         if (gen !== env.filmstrip.gen) return;
-        engine.setSource(still);                    // retires the planar provider; restored below
+        // planar-handback-ok — one thumbnail per cell; the finally below restores the planes.
+        engine.setSource(still, 'filmstrip cell');   // retires the planar provider; restored below
       } else {
         await seekVideoTo(v, sec);
         if (gen !== env.filmstrip.gen) return;
@@ -1354,8 +1372,8 @@ async function buildFilmstripVideo(strip, sig, geom) {
     // too, or the preview keeps rendering the last thumbnail.
     if (nv) {
       try {
-        engine.setSource(nv.frameSource());
-        engine.setPlanarSource(nv.planeProvider, nv.cap);
+        engine.setSource(nv.frameSource(), 'filmstrip build finished');
+        engine.setPlanarSource(nv.planeProvider, nv.cap, 'filmstrip build finished');
         engine.updateSourceFrame();
       } catch { /* source torn down mid-build */ }
     } else if (gen === env.filmstrip.gen) {
