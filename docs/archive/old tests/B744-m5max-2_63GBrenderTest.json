@@ -1,0 +1,524 @@
+{
+  "build": "v0.27.6 · Build 744",
+  "scenario": "video-playback",
+  "device": "MacIntel|1728x1117@2",
+  "scenarioObserved": "idle-still",
+  "scenarioMismatch": "tagged \"video-playback\" while the app observed \"idle-still\" — treat any baseline diff across this as void",
+  "ua": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.5.2 Safari/605.1.15",
+  "report": {
+    "fps": 60,
+    "frameMs": {
+      "p50": 17,
+      "p95": 17
+    },
+    "accountedMs": 0,
+    "unaccountedMs": 17,
+    "surfaces": [
+      {
+        "id": "source",
+        "label": "source · decode → texture",
+        "serves": "program",
+        "priority": 90,
+        "note": "from <video> · ⚠ NO NATIVE DECODE: native video decode is iOS-only",
+        "w": 3840,
+        "h": 2160,
+        "mp": 8.29,
+        "remote": false,
+        "enabled": true,
+        "scale": 1,
+        "scaleLadder": [
+          1
+        ],
+        "rate": 1,
+        "msPerFrame": 0,
+        "gpuMsPerFrame": 0,
+        "passes": [
+          {
+            "id": "refresh",
+            "msPerFrame": 0,
+            "gpuMsPerFrame": 0,
+            "calls": 0,
+            "maxMs": 0
+          },
+          {
+            "id": "upload",
+            "msPerFrame": 0,
+            "gpuMsPerFrame": 0,
+            "calls": 0,
+            "maxMs": 0
+          }
+        ]
+      },
+      {
+        "id": "preview",
+        "label": "output",
+        "serves": "editor",
+        "priority": 30,
+        "note": "",
+        "w": 2042,
+        "h": 1148,
+        "mp": 2.34,
+        "remote": false,
+        "enabled": true,
+        "scale": 1,
+        "scaleLadder": [
+          1,
+          0.75,
+          0.5,
+          0.35,
+          0.25
+        ],
+        "rate": 1,
+        "msPerFrame": 0,
+        "gpuMsPerFrame": 0,
+        "passes": [
+          {
+            "id": "render",
+            "msPerFrame": 0,
+            "gpuMsPerFrame": 0,
+            "calls": 0,
+            "maxMs": 0
+          }
+        ]
+      },
+      {
+        "id": "overlay",
+        "label": "slice overlay",
+        "serves": "editor",
+        "priority": 10,
+        "note": "",
+        "w": 976,
+        "h": 548,
+        "mp": 0.53,
+        "remote": false,
+        "enabled": true,
+        "scale": 1,
+        "scaleLadder": [
+          1
+        ],
+        "rate": 1,
+        "msPerFrame": 0,
+        "gpuMsPerFrame": 0,
+        "passes": [
+          {
+            "id": "draw",
+            "msPerFrame": 0,
+            "gpuMsPerFrame": 0,
+            "calls": 0,
+            "maxMs": 0
+          }
+        ]
+      },
+      {
+        "id": "external",
+        "label": "external display · other process",
+        "serves": "program",
+        "priority": 70,
+        "note": "",
+        "w": 0,
+        "h": 0,
+        "mp": 0,
+        "remote": true,
+        "enabled": true,
+        "scale": 1,
+        "scaleLadder": [
+          1
+        ],
+        "rate": 1,
+        "msPerFrame": 0,
+        "gpuMsPerFrame": 0,
+        "passes": []
+      }
+    ],
+    "oneShots": [],
+    "mpPerFrame": 0,
+    "windowMs": 1000,
+    "pressure": {
+      "value": 0,
+      "source": "inferred",
+      "label": "nominal",
+      "target": 0,
+      "shortfall": 0
+    }
+  },
+  "baseline": null,
+  "audio": null,
+  "wakeLock": {
+    "native": "not requested yet",
+    "osIdleTimerDisabled": null,
+    "agrees": null,
+    "supported": true,
+    "wanted": false,
+    "held": false,
+    "heldForSec": 0,
+    "osReleases": 0,
+    "why": "not requested"
+  },
+  "priorTrail": [
+    {
+      "at": "2026-08-25T22:03:35.475Z",
+      "kind": "mode",
+      "motion": true
+    },
+    {
+      "at": "2026-08-25T22:16:58.038Z",
+      "kind": "render-decode-worst",
+      "sec": 179.297,
+      "ms": 26,
+      "decoded": 7,
+      "resets": 0,
+      "gopWalk": 48,
+      "via": "cover",
+      "timedOut": false,
+      "holes": 0,
+      "holesRounding": 1,
+      "w": 3840,
+      "h": 2160,
+      "fps": 30,
+      "durationMs": 381793,
+      "captureMode": "gl",
+      "wantSource": false,
+      "keyframes": 1,
+      "srcW": 3840,
+      "srcH": 2160,
+      "wallSec": 723.9
+    },
+    {
+      "at": "2026-08-25T22:25:52.562Z",
+      "kind": "bake-decode-worst",
+      "sec": 160.638,
+      "ms": 141,
+      "decoded": 59,
+      "resets": 1,
+      "gopWalk": 96,
+      "via": "cover",
+      "timedOut": false,
+      "holes": 0,
+      "holesRounding": 0,
+      "inT": 0.3669,
+      "outT": 1,
+      "mode": "slice",
+      "slicePoint": 0.0851,
+      "crossfadeMs": 2009.0108103719322,
+      "frames": 7191,
+      "durationMs": 239710,
+      "fps": 30,
+      "srcW": 3840,
+      "srcH": 2160,
+      "codec": "hvc1.2.4.H156.b0",
+      "srcBytes": 2026632435,
+      "mbps": 42.5,
+      "mem": {
+        "tag": "bake",
+        "sinceMs": 142686,
+        "peakMB": 95.8,
+        "heldMB": 56.1,
+        "peakBy": {
+          "capture-canvas": 31.6,
+          "sample-index": 0.7,
+          "frames-held": 47.5,
+          "encoder-output": 16
+        },
+        "openHandles": 4
+      },
+      "srcGate": {
+        "capBytes": 16000000000,
+        "headroomMB": null,
+        "basis": "desktop default (no attestation; this platform swaps rather than kills)",
+        "vitalsAgeMs": null,
+        "fileBytes": 2026632435,
+        "fetchMs": 0,
+        "moovBytes": 324083,
+        "indexBytes": 732608,
+        "frames": 11447,
+        "armed": true,
+        "why": null,
+        "at": "2026-08-25T22:23:29.876Z",
+        "via": "blob-passthrough",
+        "probeMs": 2,
+        "readable": true
+      }
+    },
+    {
+      "at": "2026-08-25T22:25:52.562Z",
+      "kind": "bake-mem",
+      "tag": "bake",
+      "sinceMs": 142686,
+      "peakMB": 95.8,
+      "heldMB": 0,
+      "peakBy": {
+        "capture-canvas": 31.6,
+        "sample-index": 0.7,
+        "frames-held": 47.5,
+        "encoder-output": 16
+      },
+      "openHandles": 0,
+      "device": {
+        "why": "host vitals never reported (web/Electron)"
+      }
+    }
+  ],
+  "trail": [
+    {
+      "at": "2026-08-25T22:30:19.539Z",
+      "kind": "mode",
+      "motion": true
+    },
+    {
+      "at": "2026-08-25T22:42:34.034Z",
+      "kind": "render-decode-worst",
+      "sec": 137.667,
+      "ms": 32,
+      "decoded": 9,
+      "resets": 0,
+      "gopWalk": 48,
+      "via": "ahead",
+      "timedOut": false,
+      "holes": 0,
+      "holesRounding": 0,
+      "w": 3840,
+      "h": 2160,
+      "fps": 30,
+      "durationMs": 501133,
+      "captureMode": "gl",
+      "wantSource": false,
+      "keyframes": 1,
+      "srcW": 3840,
+      "srcH": 2160,
+      "wallSec": 724.7
+    }
+  ],
+  "sessions": {
+    "now": {
+      "total": 2,
+      "gl": 1,
+      "decode": 1
+    },
+    "peak": {
+      "total": 3,
+      "gl": 1,
+      "decode": 2
+    },
+    "acquired": 4,
+    "released": 2,
+    "live": [
+      {
+        "kind": "gl",
+        "label": "preview engine",
+        "ageSec": 789
+      },
+      {
+        "kind": "decode",
+        "label": "source clip: RAKBE6010.MOV",
+        "ageSec": 767
+      }
+    ],
+    "covers": [
+      "source-host: the loaded source <video>",
+      "source-host: the loop-detect probe",
+      "source-host: the native decode (iOS AVPlayer)",
+      "stage-source: the staging seek decoder",
+      "clip-editor: preview / A-head / thumbnail decoders",
+      "engines: every WebGL2 context (preview, bus, PiP)",
+      "recorder: the video + audio encoders"
+    ]
+  },
+  "renderDecode": {
+    "sec": 137.667,
+    "ms": 32,
+    "decoded": 9,
+    "resets": 0,
+    "gopWalk": 48,
+    "via": "ahead",
+    "timedOut": false,
+    "holes": 0,
+    "holesRounding": 0,
+    "w": 3840,
+    "h": 2160,
+    "fps": 30,
+    "durationMs": 501133,
+    "captureMode": "gl",
+    "wantSource": false,
+    "keyframes": 1,
+    "srcW": 3840,
+    "srcH": 2160,
+    "srcGate": {
+      "capBytes": 16000000000,
+      "headroomMB": null,
+      "basis": "desktop default (no attestation; this platform swaps rather than kills)",
+      "vitalsAgeMs": null,
+      "fileBytes": 2629310897,
+      "fetchMs": 0,
+      "moovBytes": 211106,
+      "indexBytes": 961728,
+      "frames": 15027,
+      "armed": true,
+      "why": null,
+      "at": "2026-08-25T22:30:29.320Z",
+      "via": "blob-passthrough",
+      "probeMs": 1,
+      "readable": true
+    },
+    "wallSec": 724.7,
+    "timing": {
+      "frames": 15034,
+      "glMs": 648309.0000000037,
+      "vfMs": 56866.99999999605,
+      "encMs": 20.999999999970896,
+      "codec": "avc1.640033",
+      "bitrate": 24883200,
+      "outBytes": 1482835265,
+      "msPerFrame": {
+        "gl": 43.12,
+        "vframe": 3.78,
+        "enc": 0
+      }
+    },
+    "outBytes": 1483280409,
+    "packagedSeparately": null,
+    "at": "2026-08-25T22:42:34.034Z"
+  },
+  "renderMem": {
+    "tag": "render",
+    "sinceMs": 724744,
+    "peakMB": 187,
+    "heldMB": 0,
+    "peakBy": {
+      "capture-canvas": 63.3,
+      "sample-index": 0.9,
+      "frames-held": 106.8,
+      "encoder-output": 16
+    },
+    "openHandles": 0,
+    "device": {
+      "why": "host vitals never reported (web/Electron)"
+    },
+    "at": "2026-08-25T22:42:34.064Z"
+  },
+  "srcGate": {
+    "capBytes": 16000000000,
+    "headroomMB": null,
+    "basis": "desktop default (no attestation; this platform swaps rather than kills)",
+    "vitalsAgeMs": null,
+    "fileBytes": 2629310897,
+    "fetchMs": 0,
+    "moovBytes": 211106,
+    "indexBytes": 961728,
+    "frames": 15027,
+    "armed": true,
+    "why": null,
+    "at": "2026-08-25T22:30:29.320Z",
+    "via": "blob-passthrough",
+    "probeMs": 1,
+    "readable": true
+  },
+  "memNow": {
+    "tag": "render",
+    "sinceMs": 755990,
+    "peakMB": 187,
+    "heldMB": 0,
+    "peakBy": {
+      "capture-canvas": 63.3,
+      "sample-index": 0.9,
+      "frames-held": 106.8,
+      "encoder-output": 16
+    },
+    "openHandles": 0
+  },
+  "sourceSwap": [
+    {
+      "t": "22:30:17.653",
+      "phase": "picker:change",
+      "picked": true,
+      "name": "RAKBE6010.MOV",
+      "type": "video/quicktime"
+    },
+    {
+      "t": "22:30:17.653",
+      "phase": "guard:clear"
+    },
+    {
+      "t": "22:30:17.653",
+      "phase": "loadVideo:start",
+      "name": "RAKBE6010.MOV",
+      "type": "video/quicktime",
+      "size": 2629310897,
+      "wasLive": false
+    },
+    {
+      "t": "22:30:17.751",
+      "phase": "loadVideo:loadeddata",
+      "w": 3840,
+      "h": 2160,
+      "dur": 501.13
+    },
+    {
+      "t": "22:30:18.782",
+      "phase": "loadVideo:source-set",
+      "w": 3840,
+      "h": 2160
+    }
+  ],
+  "slice": {
+    "form": "radial",
+    "sourceAspect": 1.7778,
+    "frameAspect": 1.7778,
+    "sliceRotation": 0,
+    "sliceScale": 1,
+    "origin": [
+      0.1836,
+      0.5
+    ],
+    "mirror": [
+      1,
+      1
+    ],
+    "sampleC": [
+      0.5,
+      0.5
+    ],
+    "sampleHalf": [
+      0.3164,
+      0.2912
+    ],
+    "boxC": [
+      0.5,
+      0.5
+    ],
+    "boxHalf": [
+      0.3164,
+      0.2912
+    ],
+    "boxVsSource": 0.633
+  },
+  "nativeAttach": {
+    "why": "native video decode is iOS-only",
+    "at": "2026-08-25T22:30:18.788Z"
+  },
+  "broadcastCeiling": {},
+  "governor": {
+    "enabled": false,
+    "active": false,
+    "level": 0,
+    "rates": {
+      "primary": 1,
+      "secondary": 1
+    },
+    "rung": "full rate",
+    "surfaces": [
+      "preview (output):2.34MP@1"
+    ],
+    "governing": [],
+    "reason": "disabled",
+    "futile": false,
+    "futileNote": "",
+    "signal": "app",
+    "starved": [],
+    "broadcasting": false,
+    "target": 0,
+    "shortfall": 0,
+    "appShortfall": 0,
+    "shedAbove": 0.25,
+    "ticking": true
+  }
+}

@@ -1,0 +1,654 @@
+{
+  "build": "v0.26.26 · Build 686",
+  "scenario": "recording",
+  "device": "MacIntel|1024x1366@2",
+  "scenarioObserved": "camera-live",
+  "scenarioMismatch": "tagged \"recording\" while the app observed \"camera-live\" — treat any baseline diff across this as void",
+  "ua": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko)",
+  "report": {
+    "fps": 60,
+    "frameMs": {
+      "p50": 17,
+      "p95": 17
+    },
+    "accountedMs": 2,
+    "unaccountedMs": 15,
+    "surfaces": [
+      {
+        "id": "preview",
+        "label": "output",
+        "serves": "editor",
+        "priority": 30,
+        "note": "",
+        "w": 1716,
+        "h": 965,
+        "mp": 1.66,
+        "remote": false,
+        "enabled": true,
+        "scale": 1,
+        "scaleLadder": [
+          1,
+          0.75,
+          0.5,
+          0.35,
+          0.25
+        ],
+        "rate": 1,
+        "msPerFrame": 1.57,
+        "gpuMsPerFrame": 0,
+        "passes": [
+          {
+            "id": "render",
+            "msPerFrame": 1.57,
+            "gpuMsPerFrame": 0,
+            "calls": 60,
+            "maxMs": 5
+          }
+        ]
+      },
+      {
+        "id": "source",
+        "label": "source · decode → texture",
+        "serves": "program",
+        "priority": 90,
+        "note": "from canvas · planar · camera",
+        "w": 1024,
+        "h": 768,
+        "mp": 0.79,
+        "remote": false,
+        "enabled": true,
+        "scale": 1,
+        "scaleLadder": [
+          1
+        ],
+        "rate": 1,
+        "msPerFrame": 0.43,
+        "gpuMsPerFrame": 0,
+        "passes": [
+          {
+            "id": "refresh",
+            "msPerFrame": 0.38,
+            "gpuMsPerFrame": 0,
+            "calls": 60,
+            "maxMs": 1
+          },
+          {
+            "id": "upload",
+            "msPerFrame": 0.05,
+            "gpuMsPerFrame": 0,
+            "calls": 60,
+            "maxMs": 1
+          }
+        ]
+      },
+      {
+        "id": "bus",
+        "label": "record / broadcast bus",
+        "serves": "program",
+        "priority": 90,
+        "note": "capture: async",
+        "w": 1920,
+        "h": 1080,
+        "mp": 2.07,
+        "remote": false,
+        "enabled": true,
+        "scale": 1,
+        "scaleLadder": [
+          1
+        ],
+        "rate": 1,
+        "msPerFrame": 0,
+        "gpuMsPerFrame": 0,
+        "passes": [
+          {
+            "id": "readback",
+            "msPerFrame": 0,
+            "gpuMsPerFrame": 0,
+            "calls": 0,
+            "maxMs": 0
+          },
+          {
+            "id": "render",
+            "msPerFrame": 0,
+            "gpuMsPerFrame": 0,
+            "calls": 0,
+            "maxMs": 0
+          },
+          {
+            "id": "publish",
+            "msPerFrame": 0,
+            "gpuMsPerFrame": 0,
+            "calls": 0,
+            "maxMs": 0
+          }
+        ]
+      },
+      {
+        "id": "overlay",
+        "label": "slice overlay",
+        "serves": "editor",
+        "priority": 10,
+        "note": "",
+        "w": 824,
+        "h": 618,
+        "mp": 0.51,
+        "remote": false,
+        "enabled": true,
+        "scale": 1,
+        "scaleLadder": [
+          1
+        ],
+        "rate": 1,
+        "msPerFrame": 0,
+        "gpuMsPerFrame": 0,
+        "passes": [
+          {
+            "id": "draw",
+            "msPerFrame": 0,
+            "gpuMsPerFrame": 0,
+            "calls": 0,
+            "maxMs": 0
+          }
+        ]
+      },
+      {
+        "id": "external",
+        "label": "external display · other process",
+        "serves": "program",
+        "priority": 70,
+        "note": "",
+        "w": 0,
+        "h": 0,
+        "mp": 0,
+        "remote": true,
+        "enabled": true,
+        "scale": 1,
+        "scaleLadder": [
+          1
+        ],
+        "rate": 1,
+        "msPerFrame": 0,
+        "gpuMsPerFrame": 0,
+        "passes": []
+      }
+    ],
+    "oneShots": [],
+    "mpPerFrame": 2.44,
+    "windowMs": 1000,
+    "pressure": {
+      "value": 0,
+      "source": "native+inferred",
+      "label": "nominal",
+      "target": 30,
+      "shortfall": 0
+    }
+  },
+  "baseline": {
+    "fps": 38.9,
+    "frameMs": {
+      "p50": 29,
+      "p95": 31
+    },
+    "accountedMs": 19.13,
+    "unaccountedMs": 9.87,
+    "surfaces": [
+      {
+        "id": "preview",
+        "label": "staged",
+        "serves": "editor",
+        "priority": 30,
+        "note": "",
+        "w": 1672,
+        "h": 940,
+        "mp": 1.57,
+        "remote": false,
+        "enabled": true,
+        "scale": 1,
+        "scaleLadder": [
+          1,
+          0.75,
+          0.5,
+          0.35,
+          0.25
+        ],
+        "rate": 1,
+        "msPerFrame": 11.67,
+        "gpuMsPerFrame": 0,
+        "passes": [
+          {
+            "id": "render",
+            "msPerFrame": 11.67,
+            "gpuMsPerFrame": 0,
+            "calls": 40,
+            "maxMs": 14
+          }
+        ]
+      },
+      {
+        "id": "pip",
+        "label": "live",
+        "serves": "editor",
+        "priority": 30,
+        "note": "",
+        "w": 402,
+        "h": 226,
+        "mp": 0.09,
+        "remote": false,
+        "enabled": true,
+        "scale": 1,
+        "scaleLadder": [
+          1,
+          0.75,
+          0.5,
+          0.35,
+          0.25
+        ],
+        "rate": 1,
+        "msPerFrame": 5.43,
+        "gpuMsPerFrame": 0,
+        "passes": [
+          {
+            "id": "render",
+            "msPerFrame": 5.43,
+            "gpuMsPerFrame": 0,
+            "calls": 40,
+            "maxMs": 8
+          }
+        ]
+      },
+      {
+        "id": "source",
+        "label": "source · decode → texture",
+        "serves": "program",
+        "priority": 90,
+        "note": "from canvas · planar · native decode · 30.2 in/s",
+        "w": 3840,
+        "h": 2160,
+        "mp": 8.29,
+        "remote": false,
+        "enabled": true,
+        "scale": 1,
+        "scaleLadder": [
+          1
+        ],
+        "rate": 1,
+        "msPerFrame": 2.03,
+        "gpuMsPerFrame": 0,
+        "passes": [
+          {
+            "id": "refresh",
+            "msPerFrame": 1.2,
+            "gpuMsPerFrame": 0,
+            "calls": 40,
+            "maxMs": 2
+          },
+          {
+            "id": "upload",
+            "msPerFrame": 0.83,
+            "gpuMsPerFrame": 0,
+            "calls": 40,
+            "maxMs": 2
+          }
+        ]
+      },
+      {
+        "id": "overlay",
+        "label": "slice overlay",
+        "serves": "editor",
+        "priority": 10,
+        "note": "",
+        "w": 824,
+        "h": 462,
+        "mp": 0.38,
+        "remote": false,
+        "enabled": true,
+        "scale": 1,
+        "scaleLadder": [
+          1
+        ],
+        "rate": 1,
+        "msPerFrame": 0,
+        "gpuMsPerFrame": 0,
+        "passes": [
+          {
+            "id": "draw",
+            "msPerFrame": 0,
+            "gpuMsPerFrame": 0,
+            "calls": 0,
+            "maxMs": 0
+          }
+        ]
+      },
+      {
+        "id": "external",
+        "label": "external display · other process",
+        "serves": "program",
+        "priority": 70,
+        "note": "",
+        "w": 0,
+        "h": 0,
+        "mp": 0,
+        "remote": true,
+        "enabled": true,
+        "scale": 1,
+        "scaleLadder": [
+          1
+        ],
+        "rate": 1,
+        "msPerFrame": 0,
+        "gpuMsPerFrame": 0,
+        "passes": []
+      }
+    ],
+    "oneShots": [],
+    "mpPerFrame": 9.96,
+    "windowMs": 1027,
+    "pressure": {
+      "value": 0,
+      "source": "inferred",
+      "label": "nominal",
+      "target": 30,
+      "shortfall": 0
+    },
+    "savedAt": "2026-08-18T22:51:46.409Z",
+    "scenario": "recording"
+  },
+  "audio": {
+    "live": false,
+    "verdict": "ok",
+    "engine": "webcodecs",
+    "codec": "mp4a.40.2",
+    "muxerCodec": "aac",
+    "sampleRate": 48000,
+    "channels": 1,
+    "trackSupplied": true,
+    "trackState": {
+      "enabled": true,
+      "muted": false,
+      "readyState": "ended",
+      "label": "iPad Microphone",
+      "applied": {
+        "echoCancellation": false,
+        "sampleRate": 48000
+      }
+    },
+    "at": "2026-08-19T22:59:05.132Z",
+    "container": {
+      "traks": 2,
+      "handlers": [
+        "vide",
+        "soun"
+      ],
+      "tracks": [
+        {
+          "handler": "vide",
+          "format": "avc1",
+          "samples": 1176,
+          "seconds": 36.53
+        },
+        {
+          "handler": "soun",
+          "format": "mp4a",
+          "samples": 1722,
+          "seconds": 36.75
+        }
+      ],
+      "hasAudioTrack": true,
+      "audioPlayable": true,
+      "hasVideoTrack": true,
+      "bytes": 54452242
+    },
+    "finalizeMs": 152,
+    "finalizeMarks": "flushing audio@0ms · encoding remaining frames@81ms · writing the file@81ms",
+    "wallSec": 36.7,
+    "videoSpanSec": 36.5,
+    "audioSpanSec": 36.7,
+    "captureLatencyMs": null,
+    "diskStreamed": true,
+    "batches": 1376,
+    "rejected": 0,
+    "chunks": 1722,
+    "withConfig": 1,
+    "secondsIn": 36.7,
+    "secondsOut": 36.7,
+    "peak": 0.36331,
+    "micGain": 32,
+    "micRawPeak": 0.00475,
+    "silentBatches": 1,
+    "descBytes": 39,
+    "descHex": "03 80 80 80 22 00 00 00",
+    "descLooksLikeEsds": true,
+    "ascBytes": 2,
+    "videoFrames": 1176
+  },
+  "wakeLock": {
+    "native": "native call never settled — is the Swift half built? (JS can ship without it)",
+    "osIdleTimerDisabled": false,
+    "agrees": true,
+    "supported": true,
+    "wanted": false,
+    "held": false,
+    "heldForSec": 0,
+    "osReleases": 1,
+    "why": "not requested"
+  },
+  "vitalsSeam": {
+    "attempts": 0,
+    "resolved": 0,
+    "empty": 0,
+    "errors": 0,
+    "timeouts": 0,
+    "pushes": 24,
+    "pingOk": true,
+    "swiftBuild": 677,
+    "probe": "retired at B679 — the pull is never called",
+    "lastError": null,
+    "lastOkAt": null,
+    "lastPushAt": 1787180423796,
+    "loaded": true,
+    "ageMs": 1779.881103515625,
+    "pullRetired": true,
+    "why": "refresh never attempted"
+  },
+  "priorTrail": [
+    {
+      "at": "2026-08-19T20:35:21.666Z",
+      "kind": "scenario:start",
+      "script": "t7-warm-long-run"
+    },
+    {
+      "at": "2026-08-19T20:35:21.666Z",
+      "kind": "scenario:step",
+      "script": "t7-warm-long-run",
+      "i": 0,
+      "do": "play",
+      "arg": null
+    },
+    {
+      "at": "2026-08-19T20:35:22.067Z",
+      "kind": "scenario:step",
+      "script": "t7-warm-long-run",
+      "i": 1,
+      "do": "broadcast",
+      "arg": "on"
+    },
+    {
+      "at": "2026-08-19T20:35:22.072Z",
+      "kind": "scenario:step",
+      "script": "t7-warm-long-run",
+      "i": 2,
+      "do": "wait",
+      "arg": null
+    },
+    {
+      "at": "2026-08-19T20:40:38.948Z",
+      "kind": "thermal",
+      "thermal": "serious",
+      "availableMB": 4981,
+      "footprintMB": 138
+    },
+    {
+      "at": "2026-08-19T20:45:22.160Z",
+      "kind": "scenario:step",
+      "script": "t7-warm-long-run",
+      "i": 3,
+      "do": "session",
+      "arg": "start"
+    },
+    {
+      "at": "2026-08-19T20:45:22.162Z",
+      "kind": "scenario:step",
+      "script": "t7-warm-long-run",
+      "i": 4,
+      "do": "wait",
+      "arg": null
+    },
+    {
+      "at": "2026-08-19T21:25:22.280Z",
+      "kind": "scenario:step",
+      "script": "t7-warm-long-run",
+      "i": 5,
+      "do": "session",
+      "arg": "stop"
+    }
+  ],
+  "trail": [
+    {
+      "at": "2026-08-19T22:58:27.483Z",
+      "kind": "take:arm",
+      "w": 1920,
+      "h": 1080,
+      "broadcasting": false,
+      "dest": "hdmi",
+      "mic": true,
+      "wallW": null,
+      "wallH": null,
+      "srcW": 1024,
+      "srcH": 768,
+      "clipSec": null
+    },
+    {
+      "at": "2026-08-19T22:58:27.483Z",
+      "kind": "bus:start",
+      "w": 1920,
+      "h": 1080
+    },
+    {
+      "at": "2026-08-19T22:58:28.445Z",
+      "kind": "take:started",
+      "w": 1920,
+      "h": 1080
+    }
+  ],
+  "sessions": {
+    "now": {
+      "total": 2,
+      "gl": 2
+    },
+    "peak": {
+      "total": 4,
+      "gl": 2,
+      "encode": 2
+    },
+    "acquired": 4,
+    "released": 2,
+    "live": [
+      {
+        "kind": "gl",
+        "label": "preview engine",
+        "ageSec": 556
+      },
+      {
+        "kind": "gl",
+        "label": "output/bus engine",
+        "ageSec": 118
+      }
+    ],
+    "covers": [
+      "source-host: the loaded source <video>",
+      "source-host: the loop-detect probe",
+      "source-host: the native decode (iOS AVPlayer)",
+      "stage-source: the staging seek decoder",
+      "clip-editor: preview / A-head / thumbnail decoders",
+      "engines: every WebGL2 context (preview, bus, PiP)",
+      "recorder: the video + audio encoders"
+    ]
+  },
+  "slice": {
+    "form": "radial",
+    "sourceAspect": 1.3333,
+    "frameAspect": 1.7778,
+    "sliceRotation": 90.99759666419772,
+    "sliceScale": 1.4779107207614792,
+    "origin": [
+      0.6816,
+      1.2056
+    ],
+    "mirror": [
+      1,
+      1
+    ],
+    "sampleC": [
+      0.6503,
+      -0.0354
+    ],
+    "sampleHalf": [
+      0.4818,
+      1.241
+    ],
+    "boxC": [
+      0.6503,
+      -0.0354
+    ],
+    "boxHalf": [
+      0.4818,
+      1.241
+    ],
+    "boxVsSource": 2.482
+  },
+  "broadcastCeiling": {
+    "hdmi:3840": {
+      "delivered": 31,
+      "source": 30,
+      "samples": 1269074,
+      "at": 1787176476216
+    },
+    "hdmi:2560": {
+      "delivered": 26,
+      "source": 30,
+      "samples": 301,
+      "at": 1786652935434
+    },
+    "hdmi:1920": {
+      "delivered": 30,
+      "source": 30,
+      "samples": 6781,
+      "at": 1787105542727
+    }
+  },
+  "governor": {
+    "enabled": true,
+    "active": false,
+    "level": 0,
+    "rates": {
+      "primary": 1,
+      "secondary": 1
+    },
+    "rung": "full rate",
+    "surfaces": [
+      "preview (output):1.66MP@1"
+    ],
+    "governing": [],
+    "reason": "no live output — nothing to protect",
+    "futile": false,
+    "futileNote": "",
+    "signal": "app",
+    "starved": [],
+    "broadcasting": false,
+    "target": 30,
+    "shortfall": 0,
+    "appShortfall": 0,
+    "shedAbove": 0.25,
+    "ticking": true
+  }
+}

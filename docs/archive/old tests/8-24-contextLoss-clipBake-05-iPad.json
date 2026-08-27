@@ -1,0 +1,480 @@
+{
+  "build": "v0.26.61 · Build 721",
+  "scenario": "video-playback",
+  "device": "MacIntel|1024x1366@2",
+  "scenarioObserved": "idle-still",
+  "scenarioMismatch": "tagged \"video-playback\" while the app observed \"idle-still\" — treat any baseline diff across this as void",
+  "ua": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko)",
+  "report": {
+    "fps": 57.9,
+    "frameMs": {
+      "p50": 17,
+      "p95": 22
+    },
+    "accountedMs": 0,
+    "unaccountedMs": 17,
+    "surfaces": [
+      {
+        "id": "source",
+        "label": "source · decode → texture",
+        "serves": "program",
+        "priority": 90,
+        "note": "from canvas · planar · native decode · 0.0 in/s · ⚠ SOURCE STALLED 16.8s — socket open, offered 379, took 379, skipped 0 · ⚠ GL CONTEXT RESTORED ×1",
+        "w": 3840,
+        "h": 2160,
+        "mp": 8.29,
+        "remote": false,
+        "enabled": true,
+        "scale": 1,
+        "scaleLadder": [
+          1
+        ],
+        "rate": 1,
+        "msPerFrame": 0,
+        "gpuMsPerFrame": 0,
+        "passes": [
+          {
+            "id": "refresh",
+            "msPerFrame": 0,
+            "gpuMsPerFrame": 0,
+            "calls": 0,
+            "maxMs": 0
+          },
+          {
+            "id": "upload",
+            "msPerFrame": 0,
+            "gpuMsPerFrame": 0,
+            "calls": 0,
+            "maxMs": 0
+          }
+        ]
+      },
+      {
+        "id": "preview",
+        "label": "output",
+        "serves": "editor",
+        "priority": 30,
+        "note": "",
+        "w": 1716,
+        "h": 965,
+        "mp": 1.66,
+        "remote": false,
+        "enabled": true,
+        "scale": 1,
+        "scaleLadder": [
+          1,
+          0.75,
+          0.5,
+          0.35,
+          0.25
+        ],
+        "rate": 1,
+        "msPerFrame": 0,
+        "gpuMsPerFrame": 0,
+        "passes": [
+          {
+            "id": "render",
+            "msPerFrame": 0,
+            "gpuMsPerFrame": 0,
+            "calls": 0,
+            "maxMs": 0
+          }
+        ]
+      },
+      {
+        "id": "overlay",
+        "label": "slice overlay",
+        "serves": "editor",
+        "priority": 10,
+        "note": "",
+        "w": 824,
+        "h": 462,
+        "mp": 0.38,
+        "remote": false,
+        "enabled": true,
+        "scale": 1,
+        "scaleLadder": [
+          1
+        ],
+        "rate": 1,
+        "msPerFrame": 0,
+        "gpuMsPerFrame": 0,
+        "passes": [
+          {
+            "id": "draw",
+            "msPerFrame": 0,
+            "gpuMsPerFrame": 0,
+            "calls": 0,
+            "maxMs": 0
+          }
+        ]
+      },
+      {
+        "id": "external",
+        "label": "external display · other process",
+        "serves": "program",
+        "priority": 70,
+        "note": "",
+        "w": 0,
+        "h": 0,
+        "mp": 0,
+        "remote": true,
+        "enabled": true,
+        "scale": 1,
+        "scaleLadder": [
+          1
+        ],
+        "rate": 1,
+        "msPerFrame": 0,
+        "gpuMsPerFrame": 0,
+        "passes": []
+      }
+    ],
+    "oneShots": [],
+    "mpPerFrame": 0,
+    "windowMs": 1001,
+    "pressure": {
+      "value": 0,
+      "source": "inferred",
+      "label": "nominal",
+      "target": 0,
+      "shortfall": 0
+    }
+  },
+  "baseline": null,
+  "audio": null,
+  "wakeLock": {
+    "native": "not requested yet",
+    "osIdleTimerDisabled": null,
+    "agrees": null,
+    "supported": true,
+    "wanted": false,
+    "held": false,
+    "heldForSec": 0,
+    "osReleases": 0,
+    "why": "not requested"
+  },
+  "vitalsSeam": {
+    "attempts": 0,
+    "resolved": 0,
+    "empty": 0,
+    "errors": 0,
+    "timeouts": 0,
+    "pushes": 0,
+    "probe": "retired at B679 — the pull is never called",
+    "lastError": null,
+    "lastOkAt": null,
+    "lastPushAt": null,
+    "loaded": false,
+    "ageMs": null,
+    "pullRetired": true,
+    "why": "refresh never attempted"
+  },
+  "priorTrail": [
+    {
+      "at": "2026-08-24T01:09:56.993Z",
+      "kind": "mode",
+      "motion": true
+    },
+    {
+      "at": "2026-08-24T01:11:17.705Z",
+      "kind": "bake-refused",
+      "why": "degraded-source"
+    },
+    {
+      "at": "2026-08-24T01:12:23.246Z",
+      "kind": "bake-refused",
+      "why": "degraded-source"
+    }
+  ],
+  "trail": [
+    {
+      "at": "2026-08-24T08:43:08.136Z",
+      "kind": "mode",
+      "motion": true
+    },
+    {
+      "at": "2026-08-24T08:46:05.789Z",
+      "kind": "gl-context-lost",
+      "surface": "yuv-source"
+    },
+    {
+      "at": "2026-08-24T08:46:05.790Z",
+      "kind": "gl-context-lost",
+      "surface": "preview"
+    },
+    {
+      "at": "2026-08-24T08:46:05.879Z",
+      "kind": "gl-context-restored",
+      "surface": "yuv-source"
+    },
+    {
+      "at": "2026-08-24T08:46:06.782Z",
+      "kind": "gl-context-restored",
+      "surface": "preview"
+    },
+    {
+      "at": "2026-08-24T08:46:12.243Z",
+      "kind": "bake-decode-worst",
+      "sec": 0.044,
+      "ms": 4,
+      "decoded": 4,
+      "resets": 0,
+      "gopWalk": 2,
+      "via": "cover",
+      "timedOut": false,
+      "holes": 1,
+      "inT": 0,
+      "outT": 1,
+      "mode": "forward",
+      "frames": 3178,
+      "durationMs": 105947,
+      "fps": 30,
+      "srcW": 3840,
+      "srcH": 2160
+    }
+  ],
+  "sessions": {
+    "now": {
+      "total": 3,
+      "gl": 1,
+      "decode": 2
+    },
+    "peak": {
+      "total": 8,
+      "gl": 1,
+      "decode": 7
+    },
+    "acquired": 10,
+    "released": 7,
+    "live": [
+      {
+        "kind": "gl",
+        "label": "preview engine",
+        "ageSec": 370
+      },
+      {
+        "kind": "decode",
+        "label": "baked clip",
+        "ageSec": 55
+      },
+      {
+        "kind": "decode",
+        "label": "native decode: loop.mp4",
+        "ageSec": 52
+      }
+    ],
+    "covers": [
+      "source-host: the loaded source <video>",
+      "source-host: the loop-detect probe",
+      "source-host: the native decode (iOS AVPlayer)",
+      "stage-source: the staging seek decoder",
+      "clip-editor: preview / A-head / thumbnail decoders",
+      "engines: every WebGL2 context (preview, bus, PiP)",
+      "recorder: the video + audio encoders"
+    ]
+  },
+  "reinitWhy": "source has no dimensions yet",
+  "bakeDecode": {
+    "sec": 0.044,
+    "ms": 4,
+    "decoded": 4,
+    "resets": 0,
+    "gopWalk": 2,
+    "via": "cover",
+    "timedOut": false,
+    "holes": 1,
+    "inT": 0,
+    "outT": 1,
+    "mode": "forward",
+    "frames": 3178,
+    "durationMs": 105947,
+    "fps": 30,
+    "srcW": 3840,
+    "srcH": 2160,
+    "at": "2026-08-24T08:46:12.243Z"
+  },
+  "reuploadPending": true,
+  "reuploadTries": 1,
+  "sourceSwap": [
+    {
+      "t": "08:43:05.857",
+      "phase": "picker:change",
+      "picked": true,
+      "name": "IMG_5132.mov",
+      "type": "video/quicktime"
+    },
+    {
+      "t": "08:43:05.857",
+      "phase": "guard:clear"
+    },
+    {
+      "t": "08:43:05.857",
+      "phase": "loadVideo:start",
+      "name": "IMG_5132.mov",
+      "type": "video/quicktime",
+      "size": 334468478,
+      "wasLive": false
+    },
+    {
+      "t": "08:43:06.235",
+      "phase": "loadVideo:loadeddata",
+      "w": 3840,
+      "h": 2160,
+      "dur": 106.45
+    },
+    {
+      "t": "08:43:06.248",
+      "phase": "loadVideo:source-set",
+      "w": 3840,
+      "h": 2160
+    }
+  ],
+  "slice": {
+    "form": "radial",
+    "sourceAspect": 1.7778,
+    "frameAspect": 1.7778,
+    "sliceRotation": 0,
+    "sliceScale": 1,
+    "origin": [
+      0.1836,
+      0.5
+    ],
+    "mirror": [
+      1,
+      1
+    ],
+    "sampleC": [
+      0.5,
+      0.5
+    ],
+    "sampleHalf": [
+      0.3164,
+      0.2912
+    ],
+    "boxC": [
+      0.5,
+      0.5
+    ],
+    "boxHalf": [
+      0.3164,
+      0.2912
+    ],
+    "boxVsSource": 0.633
+  },
+  "loopStall": {
+    "wraps": 2,
+    "maxGapMs": 1,
+    "last": {
+      "gapMs": 1,
+      "takeGapMs": 50,
+      "fromPts": 105.9,
+      "toPts": 0,
+      "at": 349311.00000000006
+    },
+    "after1s": 28,
+    "maxTakeGapMs": 50,
+    "taken1s": 58,
+    "recentTakeGaps": [
+      34,
+      50
+    ],
+    "rewinds": 0,
+    "suppressed": 0,
+    "why": "no loop boundary reached yet"
+  },
+  "srcSocket": {
+    "readyState": 1,
+    "open": true,
+    "state": "open",
+    "msSinceFrame": 17643,
+    "msSinceClose": -1,
+    "closes": 0,
+    "reconnects": 0,
+    "arrived": 379
+  },
+  "srcFanOut": {
+    "itemSwaps": 3,
+    "clients": [
+      {
+        "id": 2,
+        "ageMs": 50972,
+        "msSinceTaken": 16819,
+        "taken": 379,
+        "offered": 379,
+        "sending": false,
+        "skipped": 0,
+        "ready": true
+      }
+    ],
+    "loopCache": {
+      "heldMB": 59,
+      "lastPts": 0.2,
+      "firstPts": 0,
+      "frameIntervalMs": 33,
+      "lapsCovered": 2,
+      "lastReplayFrames": 4,
+      "coveredMs": 233,
+      "why": "covering the lap",
+      "headTargetFrom": "measured lap 150ms x1.5",
+      "budgetMB": 64,
+      "frames": 5,
+      "headTargetMs": 225
+    },
+    "msSinceReap": -1,
+    "ticksNoBuffer": 5542,
+    "maxSwapGapMs": 150,
+    "swapGapMs": 150,
+    "ticksNoTaker": 49,
+    "swapToPts": 0.106456541,
+    "offered": 379,
+    "swapFromPts": 105.9,
+    "port": 8900,
+    "reaped": 0
+  },
+  "broadcastCeiling": {
+    "hdmi:3840": {
+      "delivered": 26,
+      "source": 30,
+      "samples": 1466557,
+      "at": 1787379321499
+    },
+    "hdmi:2560": {
+      "delivered": 26,
+      "source": 30,
+      "samples": 301,
+      "at": 1786652935434
+    },
+    "hdmi:1920": {
+      "delivered": 30,
+      "source": 30,
+      "samples": 6781,
+      "at": 1787105542727
+    }
+  },
+  "governor": {
+    "enabled": false,
+    "active": false,
+    "level": 0,
+    "rates": {
+      "primary": 1,
+      "secondary": 1
+    },
+    "rung": "full rate",
+    "surfaces": [
+      "preview (output):1.66MP@1"
+    ],
+    "governing": [],
+    "reason": "disabled",
+    "futile": false,
+    "futileNote": "",
+    "signal": "app",
+    "starved": [],
+    "broadcasting": false,
+    "target": 0,
+    "shortfall": 0,
+    "appShortfall": 0,
+    "shedAbove": 0.25,
+    "ticking": true
+  }
+}

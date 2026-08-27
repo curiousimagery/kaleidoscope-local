@@ -1,0 +1,465 @@
+{
+  "build": "v0.26.20 · Build 680",
+  "scenario": "idle-still",
+  "device": "MacIntel|1024x1366@2",
+  "ua": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko)",
+  "report": {
+    "fps": 60,
+    "frameMs": {
+      "p50": 17,
+      "p95": 17
+    },
+    "accountedMs": 0,
+    "unaccountedMs": 17,
+    "surfaces": [
+      {
+        "id": "preview",
+        "label": "output",
+        "serves": "editor",
+        "priority": 30,
+        "note": "",
+        "w": 300,
+        "h": 150,
+        "mp": 0.05,
+        "remote": false,
+        "enabled": true,
+        "scale": 1,
+        "scaleLadder": [
+          1,
+          0.75,
+          0.5,
+          0.35,
+          0.25
+        ],
+        "rate": 1,
+        "msPerFrame": 0,
+        "gpuMsPerFrame": 0,
+        "passes": [
+          {
+            "id": "render",
+            "msPerFrame": 0,
+            "gpuMsPerFrame": 0,
+            "calls": 0,
+            "maxMs": 0
+          }
+        ]
+      },
+      {
+        "id": "source",
+        "label": "source · decode → texture",
+        "serves": "program",
+        "priority": 90,
+        "note": "no source",
+        "w": 0,
+        "h": 0,
+        "mp": 0,
+        "remote": false,
+        "enabled": true,
+        "scale": 1,
+        "scaleLadder": [
+          1
+        ],
+        "rate": 1,
+        "msPerFrame": 0,
+        "gpuMsPerFrame": 0,
+        "passes": [
+          {
+            "id": "refresh",
+            "msPerFrame": 0,
+            "gpuMsPerFrame": 0,
+            "calls": 0,
+            "maxMs": 0
+          },
+          {
+            "id": "upload",
+            "msPerFrame": 0,
+            "gpuMsPerFrame": 0,
+            "calls": 0,
+            "maxMs": 0
+          }
+        ]
+      },
+      {
+        "id": "overlay",
+        "label": "slice overlay",
+        "serves": "editor",
+        "priority": 10,
+        "note": "",
+        "w": 0,
+        "h": 0,
+        "mp": 0,
+        "remote": false,
+        "enabled": true,
+        "scale": 1,
+        "scaleLadder": [
+          1
+        ],
+        "rate": 1,
+        "msPerFrame": 0,
+        "gpuMsPerFrame": 0,
+        "passes": [
+          {
+            "id": "draw",
+            "msPerFrame": 0,
+            "gpuMsPerFrame": 0,
+            "calls": 0,
+            "maxMs": 0
+          }
+        ]
+      },
+      {
+        "id": "external",
+        "label": "external display · other process",
+        "serves": "program",
+        "priority": 70,
+        "note": "",
+        "w": 0,
+        "h": 0,
+        "mp": 0,
+        "remote": true,
+        "enabled": true,
+        "scale": 1,
+        "scaleLadder": [
+          1
+        ],
+        "rate": 1,
+        "msPerFrame": 0,
+        "gpuMsPerFrame": 0,
+        "passes": []
+      }
+    ],
+    "oneShots": [],
+    "mpPerFrame": 0,
+    "windowMs": 1000,
+    "pressure": {
+      "value": 0,
+      "source": "inferred",
+      "label": "nominal",
+      "target": 0,
+      "shortfall": 0
+    }
+  },
+  "baseline": {
+    "fps": 19.9,
+    "frameMs": {
+      "p50": 50,
+      "p95": 56
+    },
+    "accountedMs": 31.55,
+    "unaccountedMs": 18.45,
+    "surfaces": [
+      {
+        "id": "preview",
+        "label": "staged",
+        "serves": "editor",
+        "priority": 30,
+        "note": "",
+        "w": 1672,
+        "h": 940,
+        "mp": 1.57,
+        "remote": false,
+        "enabled": true,
+        "scale": 1,
+        "scaleLadder": [
+          1,
+          0.75,
+          0.5,
+          0.35,
+          0.25
+        ],
+        "rate": 1,
+        "msPerFrame": 15,
+        "gpuMsPerFrame": 0,
+        "passes": [
+          {
+            "id": "render",
+            "msPerFrame": 15,
+            "gpuMsPerFrame": 0,
+            "calls": 20,
+            "maxMs": 25
+          }
+        ]
+      },
+      {
+        "id": "pip",
+        "label": "live",
+        "serves": "editor",
+        "priority": 30,
+        "note": "",
+        "w": 402,
+        "h": 226,
+        "mp": 0.09,
+        "remote": false,
+        "enabled": true,
+        "scale": 1,
+        "scaleLadder": [
+          1,
+          0.75,
+          0.5,
+          0.35,
+          0.25
+        ],
+        "rate": 1,
+        "msPerFrame": 13.3,
+        "gpuMsPerFrame": 0,
+        "passes": [
+          {
+            "id": "render",
+            "msPerFrame": 13.3,
+            "gpuMsPerFrame": 0,
+            "calls": 20,
+            "maxMs": 16
+          }
+        ]
+      },
+      {
+        "id": "source",
+        "label": "source · decode → texture",
+        "serves": "program",
+        "priority": 90,
+        "note": "from canvas · planar · native decode · 29.7 in/s",
+        "w": 3840,
+        "h": 2160,
+        "mp": 8.29,
+        "remote": false,
+        "enabled": true,
+        "scale": 1,
+        "scaleLadder": [
+          1
+        ],
+        "rate": 1,
+        "msPerFrame": 3.25,
+        "gpuMsPerFrame": 0,
+        "passes": [
+          {
+            "id": "refresh",
+            "msPerFrame": 1.45,
+            "gpuMsPerFrame": 0,
+            "calls": 20,
+            "maxMs": 2
+          },
+          {
+            "id": "upload",
+            "msPerFrame": 1.8,
+            "gpuMsPerFrame": 0,
+            "calls": 20,
+            "maxMs": 4
+          }
+        ]
+      },
+      {
+        "id": "external",
+        "label": "external display · other process",
+        "serves": "program",
+        "priority": 70,
+        "note": "29 NEW PICTURES/s ON THE DISPLAY · 30 arriving/s · 34 drawn/s · steady (new picture 35/44ms)",
+        "w": 3840,
+        "h": 2160,
+        "mp": 8.29,
+        "remote": true,
+        "enabled": true,
+        "scale": 1,
+        "scaleLadder": [
+          1
+        ],
+        "rate": 1,
+        "msPerFrame": 0,
+        "gpuMsPerFrame": 0,
+        "passes": []
+      },
+      {
+        "id": "overlay",
+        "label": "slice overlay",
+        "serves": "editor",
+        "priority": 10,
+        "note": "",
+        "w": 824,
+        "h": 462,
+        "mp": 0.38,
+        "remote": false,
+        "enabled": true,
+        "scale": 1,
+        "scaleLadder": [
+          1
+        ],
+        "rate": 1,
+        "msPerFrame": 0,
+        "gpuMsPerFrame": 0,
+        "passes": [
+          {
+            "id": "draw",
+            "msPerFrame": 0,
+            "gpuMsPerFrame": 0,
+            "calls": 0,
+            "maxMs": 0
+          }
+        ]
+      }
+    ],
+    "oneShots": [],
+    "mpPerFrame": 18.25,
+    "windowMs": 1007,
+    "pressure": {
+      "value": 0.16,
+      "source": "inferred",
+      "label": "fair",
+      "target": 30,
+      "shortfall": 0.56
+    },
+    "savedAt": "2026-08-13T22:16:56.668Z",
+    "scenario": "idle-still"
+  },
+  "audio": null,
+  "wakeLock": {
+    "native": "not requested yet",
+    "osIdleTimerDisabled": null,
+    "agrees": null,
+    "supported": true,
+    "wanted": false,
+    "held": false,
+    "heldForSec": 0,
+    "osReleases": 0,
+    "why": "not requested"
+  },
+  "vitalsSeam": {
+    "attempts": 0,
+    "resolved": 0,
+    "empty": 0,
+    "errors": 0,
+    "timeouts": 0,
+    "pushes": 0,
+    "probe": "retired at B679 — the pull is never called",
+    "lastError": null,
+    "lastOkAt": null,
+    "lastPushAt": null,
+    "loaded": false,
+    "ageMs": null,
+    "pullRetired": true,
+    "why": "refresh never attempted"
+  },
+  "priorTrail": [
+    {
+      "at": "2026-08-19T20:17:23.856Z",
+      "kind": "scenario:start",
+      "script": "t7-warm-long-run"
+    },
+    {
+      "at": "2026-08-19T20:17:23.856Z",
+      "kind": "scenario:step",
+      "script": "t7-warm-long-run",
+      "i": 0,
+      "do": "play",
+      "arg": null
+    },
+    {
+      "at": "2026-08-19T20:17:24.263Z",
+      "kind": "scenario:step",
+      "script": "t7-warm-long-run",
+      "i": 1,
+      "do": "broadcast",
+      "arg": "on"
+    },
+    {
+      "at": "2026-08-19T20:17:24.268Z",
+      "kind": "scenario:step",
+      "script": "t7-warm-long-run",
+      "i": 2,
+      "do": "wait",
+      "arg": null
+    },
+    {
+      "at": "2026-08-19T20:20:09.675Z",
+      "kind": "gl-context-lost",
+      "surface": "preview"
+    },
+    {
+      "at": "2026-08-19T20:20:10.753Z",
+      "kind": "memory-warning",
+      "thermal": "nominal",
+      "availableMB": 5094,
+      "footprintMB": 25
+    },
+    {
+      "at": "2026-08-19T20:20:20.722Z",
+      "kind": "gl-context-lost",
+      "surface": "preview"
+    }
+  ],
+  "slice": {
+    "form": "radial",
+    "sourceAspect": 1,
+    "frameAspect": 1,
+    "sliceRotation": 0,
+    "sliceScale": 1,
+    "origin": [
+      0.5,
+      0.5
+    ],
+    "mirror": [
+      1,
+      1
+    ],
+    "sampleC": [
+      1.0625,
+      0.5
+    ],
+    "sampleHalf": [
+      0.5625,
+      0.2912
+    ],
+    "boxC": [
+      1.0625,
+      0.5
+    ],
+    "boxHalf": [
+      0.5625,
+      0.2912
+    ],
+    "boxVsSource": 1.125
+  },
+  "broadcastCeiling": {
+    "hdmi:3840": {
+      "delivered": 22,
+      "source": 30,
+      "samples": 911035,
+      "at": 1787125798082
+    },
+    "hdmi:2560": {
+      "delivered": 26,
+      "source": 30,
+      "samples": 301,
+      "at": 1786652935434
+    },
+    "hdmi:1920": {
+      "delivered": 30,
+      "source": 30,
+      "samples": 6781,
+      "at": 1787105542727
+    }
+  },
+  "governor": {
+    "enabled": true,
+    "active": false,
+    "level": 0,
+    "rates": {
+      "primary": 1,
+      "secondary": 1
+    },
+    "rung": "full rate",
+    "surfaces": [
+      "preview (output):0.05MP@1"
+    ],
+    "governing": [],
+    "reason": "no live output — nothing to protect",
+    "futile": false,
+    "futileNote": "",
+    "signal": "app",
+    "starved": [],
+    "broadcasting": false,
+    "target": 0,
+    "shortfall": 0,
+    "appShortfall": 0,
+    "shedAbove": 0.25,
+    "ticking": true
+  }
+}

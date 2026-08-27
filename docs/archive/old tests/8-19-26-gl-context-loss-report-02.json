@@ -1,0 +1,373 @@
+{
+  "build": "v0.26.20 · Build 680",
+  "scenario": "hdmi-broadcast",
+  "device": "MacIntel|1024x1366@2",
+  "ua": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko)",
+  "report": {
+    "fps": 28.6,
+    "frameMs": {
+      "p50": 31,
+      "p95": 71
+    },
+    "accountedMs": 0,
+    "unaccountedMs": 31,
+    "surfaces": [
+      {
+        "id": "source",
+        "label": "source · decode → texture",
+        "serves": "program",
+        "priority": 90,
+        "note": "from <video> · ⚠ GL CONTEXT RESTORED ×2 · ⚠ NO NATIVE DECODE: the decode did not start — failed at \"frame socket\": no native frames on port 8900 (nothing streaming)",
+        "w": 3840,
+        "h": 2160,
+        "mp": 8.29,
+        "remote": false,
+        "enabled": true,
+        "scale": 1,
+        "scaleLadder": [
+          1
+        ],
+        "rate": 1,
+        "msPerFrame": 0,
+        "gpuMsPerFrame": 0,
+        "passes": [
+          {
+            "id": "refresh",
+            "msPerFrame": 0,
+            "gpuMsPerFrame": 0,
+            "calls": 29,
+            "maxMs": 0
+          },
+          {
+            "id": "upload",
+            "msPerFrame": 0,
+            "gpuMsPerFrame": 0,
+            "calls": 29,
+            "maxMs": 0
+          }
+        ]
+      },
+      {
+        "id": "external",
+        "label": "external display · other process",
+        "serves": "program",
+        "priority": 70,
+        "note": "31 drawn/s · new-picture rate not yet measured",
+        "w": 3840,
+        "h": 2160,
+        "mp": 8.29,
+        "remote": true,
+        "enabled": true,
+        "scale": 1,
+        "scaleLadder": [
+          1
+        ],
+        "rate": 1,
+        "msPerFrame": 0,
+        "gpuMsPerFrame": 0,
+        "passes": []
+      },
+      {
+        "id": "preview",
+        "label": "staged",
+        "serves": "editor",
+        "priority": 30,
+        "note": "",
+        "w": 1672,
+        "h": 940,
+        "mp": 1.57,
+        "remote": false,
+        "enabled": true,
+        "scale": 1,
+        "scaleLadder": [
+          1,
+          0.75,
+          0.5,
+          0.35,
+          0.25
+        ],
+        "rate": 1,
+        "msPerFrame": 0,
+        "gpuMsPerFrame": 0,
+        "passes": [
+          {
+            "id": "render",
+            "msPerFrame": 0,
+            "gpuMsPerFrame": 0,
+            "calls": 0,
+            "maxMs": 0
+          }
+        ]
+      },
+      {
+        "id": "overlay",
+        "label": "slice overlay",
+        "serves": "editor",
+        "priority": 10,
+        "note": "",
+        "w": 824,
+        "h": 462,
+        "mp": 0.38,
+        "remote": false,
+        "enabled": true,
+        "scale": 1,
+        "scaleLadder": [
+          1
+        ],
+        "rate": 1,
+        "msPerFrame": 0,
+        "gpuMsPerFrame": 0,
+        "passes": [
+          {
+            "id": "draw",
+            "msPerFrame": 0,
+            "gpuMsPerFrame": 0,
+            "calls": 0,
+            "maxMs": 0
+          }
+        ]
+      },
+      {
+        "id": "pip",
+        "label": "live",
+        "serves": "editor",
+        "priority": 30,
+        "note": "",
+        "w": 402,
+        "h": 226,
+        "mp": 0.09,
+        "remote": false,
+        "enabled": true,
+        "scale": 1,
+        "scaleLadder": [
+          1,
+          0.75,
+          0.5,
+          0.35,
+          0.25
+        ],
+        "rate": 1,
+        "msPerFrame": 0,
+        "gpuMsPerFrame": 0,
+        "passes": [
+          {
+            "id": "render",
+            "msPerFrame": 0,
+            "gpuMsPerFrame": 0,
+            "calls": 0,
+            "maxMs": 0
+          }
+        ]
+      }
+    ],
+    "oneShots": [],
+    "mpPerFrame": 8.29,
+    "windowMs": 1013,
+    "pressure": {
+      "value": 0.03,
+      "source": "native+inferred",
+      "label": "nominal",
+      "target": 0,
+      "shortfall": 0
+    }
+  },
+  "baseline": null,
+  "audio": null,
+  "scenarioRun": {
+    "script": "t7-warm-long-run",
+    "label": "T7 · warm long run (10 min warm + 40 min hands-off)",
+    "startedAt": "2026-08-19T20:17:23.856Z",
+    "finishedAt": null,
+    "durationSec": 235,
+    "outcome": "running",
+    "stepsRun": 2,
+    "stepsTotal": 6,
+    "abortedAtStep": null,
+    "abortWhy": null,
+    "log": [
+      {
+        "i": 0,
+        "do": "play",
+        "arg": null,
+        "atSec": 0,
+        "ok": true
+      },
+      {
+        "i": 1,
+        "do": "broadcast",
+        "arg": "on",
+        "atSec": 0,
+        "ok": true
+      }
+    ]
+  },
+  "wakeLock": {
+    "native": "native call never settled — is the Swift half built? (JS can ship without it)",
+    "osIdleTimerDisabled": false,
+    "agrees": false,
+    "supported": true,
+    "wanted": true,
+    "held": true,
+    "heldForSec": 234,
+    "osReleases": 0
+  },
+  "vitalsSeam": {
+    "attempts": 0,
+    "resolved": 0,
+    "empty": 0,
+    "errors": 0,
+    "timeouts": 0,
+    "pushes": 48,
+    "pingOk": true,
+    "swiftBuild": 677,
+    "probe": "retired at B679 — the pull is never called",
+    "lastError": null,
+    "lastOkAt": null,
+    "lastPushAt": 1787170875396,
+    "loaded": true,
+    "ageMs": 3219.317138671875,
+    "pullRetired": true,
+    "why": "refresh never attempted"
+  },
+  "priorTrail": [
+    {
+      "at": "2026-08-19T20:02:21.290Z",
+      "kind": "gl-context-lost",
+      "surface": "preview"
+    }
+  ],
+  "sourceSwap": [
+    {
+      "t": "20:16:12.968",
+      "phase": "picker:change",
+      "picked": true,
+      "name": "MMNT_20260721_163742806.mov",
+      "type": "video/quicktime"
+    },
+    {
+      "t": "20:16:12.968",
+      "phase": "guard:clear"
+    },
+    {
+      "t": "20:16:12.968",
+      "phase": "loadVideo:start",
+      "name": "MMNT_20260721_163742806.mov",
+      "type": "video/quicktime",
+      "size": 1252687803,
+      "wasLive": false
+    },
+    {
+      "t": "20:16:13.296",
+      "phase": "loadVideo:loadeddata",
+      "w": 3840,
+      "h": 2160,
+      "dur": 399.1
+    },
+    {
+      "t": "20:16:13.310",
+      "phase": "loadVideo:source-set",
+      "w": 3840,
+      "h": 2160
+    }
+  ],
+  "slice": {
+    "form": "radial",
+    "sourceAspect": 1.7778,
+    "frameAspect": 1.7778,
+    "sliceRotation": 0,
+    "sliceScale": 1,
+    "origin": [
+      0.1836,
+      0.5
+    ],
+    "mirror": [
+      1,
+      1
+    ],
+    "sampleC": [
+      0.5,
+      0.5
+    ],
+    "sampleHalf": [
+      0.3164,
+      0.2912
+    ],
+    "boxC": [
+      0.5,
+      0.5
+    ],
+    "boxHalf": [
+      0.3164,
+      0.2912
+    ],
+    "boxVsSource": 0.633
+  },
+  "extJitter": {
+    "loop": null,
+    "arrive": null,
+    "draw": {
+      "p50": 32,
+      "p95": 36
+    },
+    "fresh": {
+      "p95": 0,
+      "p50": 0,
+      "n": 0
+    }
+  },
+  "extPosts": {
+    "sent": 7092,
+    "elided": 0,
+    "ownClock": false
+  },
+  "nativeAttach": {
+    "why": "the decode did not start — failed at \"frame socket\": no native frames on port 8900 (nothing streaming)",
+    "at": "2026-08-19T20:16:26.016Z"
+  },
+  "broadcastCeiling": {
+    "hdmi:3840": {
+      "delivered": 22,
+      "source": 30,
+      "samples": 911035,
+      "at": 1787125798082
+    },
+    "hdmi:2560": {
+      "delivered": 26,
+      "source": 30,
+      "samples": 301,
+      "at": 1786652935434
+    },
+    "hdmi:1920": {
+      "delivered": 30,
+      "source": 30,
+      "samples": 6781,
+      "at": 1787105542727
+    }
+  },
+  "governor": {
+    "enabled": true,
+    "active": false,
+    "level": 0,
+    "rates": {
+      "primary": 1,
+      "secondary": 1
+    },
+    "rung": "full rate",
+    "surfaces": [
+      "preview (staged):1.57MP@1",
+      "pip (live):0.09MP@1"
+    ],
+    "governing": [],
+    "reason": "no declared frame rate to be short of",
+    "futile": false,
+    "futileNote": "",
+    "signal": "app",
+    "starved": [],
+    "broadcasting": true,
+    "target": 0,
+    "shortfall": 0,
+    "appShortfall": 0,
+    "shedAbove": 0.25,
+    "ticking": true
+  }
+}
