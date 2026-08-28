@@ -566,7 +566,8 @@ export function mountPerfPanel(env, { container = null, onClose = null } = {}) {
       sourceRotation: env.sourceRotation || undefined,
       // B763 — the swept tone curve, so a value Daniel likes reaches me as a number rather than a
       // description. `?tone=<shoulder>,<exposure>` reproduces it; committing it is one edit.
-      tone: env.sourceIsHDR?.() ? { ...env.sourceTone, url: `?tone=${env.sourceTone.shoulder.toFixed(0)},${env.sourceTone.exposure.toFixed(2)}` } : undefined,
+      tone: env.sourceIsHDR?.() ? { ...env.sourceTone,
+        url: `?tone=${env.sourceTone.shoulder.toFixed(3)},${env.sourceTone.exposure.toFixed(3)},${env.sourceTone.gamma.toFixed(3)}` } : undefined,
       sliceError: env.lastSliceError || undefined,
       // B630 — the last few SOURCE-SWAP attempts, each phase with a reason on every exit. Built for
       // Daniel's mid-show dead end (live camera ~10min, picked a file, nothing happened, app restart
@@ -907,7 +908,7 @@ export function mountPerfPanel(env, { container = null, onClose = null } = {}) {
       const row = document.createElement('div'); row.className = 'pf-row';
       const n = document.createElement('span');
       n.className = 'pf-name';
-      n.innerHTML = 'HDR tone <em>shoulder: bigger = softer highlights</em>';
+      n.innerHTML = 'HDR tone <em>sweep left to right: exposure, then γ, then shoulder</em>';
       row.appendChild(n);
       // Steppers rather than a text field: this is swept while looking at the picture, not typed.
       const bump = (label, get, set, mul) => {
@@ -920,15 +921,23 @@ export function mountPerfPanel(env, { container = null, onClose = null } = {}) {
       readout.className = 'pf-num';
       const show = () => {
         const cur = env.sourceTone;
-        // sqrt because the uniform is the white point SQUARED, and the readable number is the
-        // white point: "highlights clip at N times diffuse white".
-        readout.textContent = `${cur.shoulder.toFixed(0)} (white ${Math.sqrt(cur.shoulder).toFixed(1)}×) · exp ${cur.exposure.toFixed(2)}`;
+        // The shoulder uniform is the white point SQUARED; the readable number is the white point
+        // itself ("highlights reach pure white at N x diffuse white"), and 1.0 means the curve is
+        // off entirely. Saying "off" out loud matters: a control sitting at its identity looks
+        // broken otherwise.
+        const sh = cur.shoulder <= 1.001 ? 'off' : `white ${Math.sqrt(cur.shoulder).toFixed(1)}×`;
+        readout.textContent = `exp ${cur.exposure.toFixed(2)} · γ ${cur.gamma.toFixed(2)} · shoulder ${sh}`;
       };
+      // Presented in the order they are APPLIED, which is also the order to sweep them in:
+      // exposure sets the overall level, gamma places the midtones, shoulder recovers highlights.
+      // Doing it in any other order means each control undoes the last.
       row.append(
-        bump('shoulder −', () => env.sourceTone.shoulder, (v) => { env.setTone({ shoulder: v }); show(); }, 1 / 1.5),
-        bump('shoulder +', () => env.sourceTone.shoulder, (v) => { env.setTone({ shoulder: v }); show(); }, 1.5),
         bump('exp −', () => env.sourceTone.exposure, (v) => { env.setTone({ exposure: v }); show(); }, 1 / 1.1),
         bump('exp +', () => env.sourceTone.exposure, (v) => { env.setTone({ exposure: v }); show(); }, 1.1),
+        bump('γ −', () => env.sourceTone.gamma, (v) => { env.setTone({ gamma: v }); show(); }, 1 / 1.08),
+        bump('γ +', () => env.sourceTone.gamma, (v) => { env.setTone({ gamma: v }); show(); }, 1.08),
+        bump('shoulder −', () => env.sourceTone.shoulder, (v) => { env.setTone({ shoulder: Math.max(1, v) }); show(); }, 1 / 1.5),
+        bump('shoulder +', () => env.sourceTone.shoulder, (v) => { env.setTone({ shoulder: v }); show(); }, 1.5),
         readout,
       );
       const reset = document.createElement('button');

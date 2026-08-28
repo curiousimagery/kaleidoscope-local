@@ -24,7 +24,7 @@
 // implementation did (Build 500).
 
 import { COLOR_GLSL, DEFAULT_COLOR, yuvToRgbMatrix, primariesMatrix, transferMode, needsGamut,
-  XFER_HLG, HLG_WHITE_LINEAR, PQ_WHITE_LINEAR, toneFromQuery } from './color.js';
+  hdrNormFor, toneFromQuery } from './color.js';
 
 export function createYuvBlitter(gl, { flipY = false } = {}) {
   // flipY selects where image row 0 lands in the target:
@@ -71,7 +71,7 @@ export function createYuvBlitter(gl, { flipY = false } = {}) {
   uniform float uWhiteLinear; // linear value of diffuse white for the HDR modes
   uniform vec2 uRange;        // x = luma offset, y = luma scale (limited-range expansion)
   uniform int  uGamut;        // 1 = the SDR path must round-trip through linear for the primaries
-  uniform vec2 uTone;         // x = Reinhard shoulder (white squared), y = exposure
+  uniform vec3 uTone;         // x = shoulder (white squared, 1 = off), y = exposure, z = gamma
   out vec4 frag;
 ${COLOR_GLSL}
   void main(){
@@ -89,9 +89,13 @@ ${COLOR_GLSL}
     }
 
     vec3 lin = (uTransfer == 1) ? hlgToLinear(clamp(rgb, 0.0, 1.0)) : pqToLinear(rgb);
-    lin = lin / max(uWhiteLinear, 1e-6);         // put diffuse white at 1.0
-    lin = uPrimaries * lin;                       // gamut, in linear light
-    lin = toneMap(max(lin, 0.0) * uTone.y, uTone.x);   // roll off what is above white
+    lin = lin / max(uWhiteLinear, 1e-6);   // HLG: 1.0 by design. PQ: put diffuse white at 1.0.
+    lin = uPrimaries * lin;                // gamut, in linear light
+    // The three controls, in the order the panel presents them. See TONE_DEFAULTS in color.js for
+    // what each one is for and why the order matters.
+    lin = max(lin, 0.0) * uTone.y;         // 1. exposure — linear gain
+    lin = pow(lin, vec3(uTone.z));         // 2. gamma — bends midtones, fixes 0 and 1
+    lin = toneMap(lin, uTone.x);           // 3. shoulder — highlight roll-off (1.0 = off)
     frag = vec4(linearToSrgb(lin), 1.);
   }`;
   const prog = linkProgram(gl, vs, fs);
@@ -117,9 +121,10 @@ ${COLOR_GLSL}
   let tone = toneFromQuery(typeof location !== 'undefined' ? location.search : '');
   function setTone(t) {
     tone = { shoulder: t?.shoulder > 0 ? t.shoulder : tone.shoulder,
-             exposure: t?.exposure > 0 ? t.exposure : tone.exposure };
+             exposure: t?.exposure > 0 ? t.exposure : tone.exposure,
+             gamma: t?.gamma > 0 ? t.gamma : tone.gamma };
     gl.useProgram(prog);
-    gl.uniform2f(uToneLoc, tone.shoulder, tone.exposure);
+    gl.uniform3f(uToneLoc, tone.shoulder, tone.exposure, tone.gamma);
   }
   setTone(tone);
 
@@ -149,7 +154,7 @@ ${COLOR_GLSL}
     gl.uniformMatrix3fv(uYuvLoc, false, yuvToRgbMatrix(c.matrix));
     gl.uniformMatrix3fv(uPrimLoc, false, primariesMatrix(c.primaries));
     gl.uniform1i(uXferLoc, mode);
-    gl.uniform1f(uWhiteLoc, mode === XFER_HLG ? HLG_WHITE_LINEAR : PQ_WHITE_LINEAR);
+    gl.uniform1f(uWhiteLoc, hdrNormFor(mode));
     gl.uniform2f(uRangeLoc, off, scale);
     gl.uniform1i(uGamutLoc, needsGamut(c.primaries) ? 1 : 0);
   }

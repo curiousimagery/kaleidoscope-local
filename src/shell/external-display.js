@@ -383,7 +383,20 @@ export function createExternalDisplaySink(env) {
       // keys on the port (a re-acquire restarts the stream and must rebuild the receiver)
       // the cap is part of the signature so changing source detail re-posts the payload —
       // the external view runs its own engine and can't see the toggle otherwise
-      if (env.nativeVideo) return `vidnative:${env.nativeVideo.port}:${env.nativeVideo.cap}`;
+      // ⚠️ B764 — THE TONE RIDES THE SIGNATURE, for the same reason the cap does one line up.
+      // Daniel: *"the tone mapping tool can't reach broadcast even if i stop and start again."*
+      // Correct: on iPad the broadcast IS the external view, a separate webview running its own
+      // engine, and `env.setTone` walks `allEngines()` in THIS one. Re-posting the payload is the
+      // only channel there is, and changing the signature is what triggers a re-post.
+      //
+      // It costs a receiver rebuild per step, which is heavy for a sweep — but a control that
+      // cannot reach the surface being judged is not a control. Sweep on the iPad's own screen,
+      // then check the wall once.
+      if (env.nativeVideo) {
+        const t = env.sourceTone;
+        const tone = t ? `${t.shoulder.toFixed(3)}:${t.exposure.toFixed(3)}:${t.gamma.toFixed(3)}` : '-';
+        return `vidnative:${env.nativeVideo.port}:${env.nativeVideo.cap}:${tone}:${env.sourceRotation || 0}`;
+      }
       if (env.sourceVideo && env.media?.sourceVideoUrl) return 'vid:' + env.media.sourceVideoUrl;
       const src = env.engine?.getSourceImage?.();
       if (src) return 'img:' + (src.src || src.currentSrc || env.media?.sourceFilename || '1');
@@ -420,7 +433,8 @@ export function createExternalDisplaySink(env) {
       // B761 — the colour description rides the payload: the external view is a SEPARATE WEBVIEW
       // with no access to our env, and it converts the same planes, so without this the wall and
       // the operator's screen disagree on every HDR clip.
-      if (env.nativeVideo) return { kind: 'video-native', port: env.nativeVideo.port, cap: env.nativeVideo.cap, color: env.sourceColor || null, rotation: env.sourceRotation || 0 };
+      if (env.nativeVideo) return { kind: 'video-native', port: env.nativeVideo.port, cap: env.nativeVideo.cap, color: env.sourceColor || null, rotation: env.sourceRotation || 0,
+        tone: env.sourceTone || null };
       if (env.sourceVideo && env.media?.sourceVideoUrl) {
         // FALLBACK ONLY (no native decode): stage the clip to the native cache + serve it back
         // (blob URLs don't cross webviews); output-view.js loads `kind:'video'` + locks it to

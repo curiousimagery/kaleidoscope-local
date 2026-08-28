@@ -113,14 +113,31 @@ export function isHDR(color) {
   return t === TRANSFER.HLG || t === TRANSFER.PQ;
 }
 
-// ⚠️ HOW MUCH TO SCALE HDR LINEAR LIGHT BEFORE TONE MAPPING, and both numbers are references
-// rather than taste. HLG's reference white sits at 75% signal (ITU-R BT.2100 Table 5); PQ's
-// diffuse white is 203 nits of its 10,000 (ITU-R BT.2408). Dividing by those puts diffuse white at
-// 1.0 so the tone curve only has to deal with what is genuinely ABOVE white.
-// Computed, not pasted: a hand-copied constant is a number nobody can check, and the harness would
-// only be checking my typing against itself.
-export const HLG_WHITE_LINEAR = (Math.exp((0.75 - 0.55991073) / 0.17883277) + 0.28466892) / 12;
-export const PQ_WHITE_LINEAR = 0.0203;     // 203 / 10000
+// HLG's reference white sits at 75% signal (ITU-R BT.2100 Table 5). Computed, not pasted, so the
+// harness is checking the standard rather than my typing.
+export const HLG_REFERENCE_WHITE = (Math.exp((0.75 - 0.55991073) / 0.17883277) + 0.28466892) / 12;
+export const PQ_WHITE_LINEAR = 0.0203;     // 203 of 10,000 nits (ITU-R BT.2408 diffuse white)
+
+// ⚠️⚠️ B764 — HLG IS NOT NORMALISED, AND B761/B762 DIVIDING BY ITS REFERENCE WHITE WAS THE BUG
+// UNDERNEATH THE WHOLE TONE ARGUMENT.
+//
+// **HLG was designed to be backward compatible with SDR displays** (ITU-R BT.2100): feeding the
+// signal through an ordinary display path gives an acceptable picture, which is the entire reason
+// broadcasters chose it over PQ. Dividing by reference white multiplies everything by ~3.77 — so
+// B761 blew the image out and then asked a Reinhard curve to claw it back, which is why the
+// highlights were gone and the midtones were hot.
+//
+// **Daniel found this empirically before I found it in the spec.** Sweeping the knobs he landed on
+// `shoulder 1, exposure 0.29` — and `toneMap(x, 1)` is exactly the identity, while 0.29 is 1/3.44,
+// almost precisely cancelling the 3.77. **He had converged on "decode HLG and display it", which is
+// what the standard says to do.** So that is now the default, and the knobs move around it instead
+// of fighting it.
+//
+// PQ still needs its normalisation: 1.0 there means 10,000 nits and nothing sane comes of showing
+// that directly.
+export function hdrNormFor(mode) {
+  return mode === XFER_PQ ? PQ_WHITE_LINEAR : 1.0;
+}
 
 // ⚠️ B762 — THE TONE CURVE IS A LOOK, AND A LOOK IS NOT SOMETHING TO GUESS ACROSS THREE BUILDS.
 //
@@ -141,16 +158,34 @@ export const PQ_WHITE_LINEAR = 0.0203;     // 203 / 10000
 //
 // Tunable live with `?tone=shoulder,exposure` — see the UI Lab cheat sheet. Committing a value is
 // one edit here once Daniel has swept it.
-export const TONE_DEFAULTS = Object.freeze({ shoulder: 50, exposure: 1 });
+// ⚠️ THREE CONTROLS, AND THEY ARE APPLIED IN THIS ORDER. Daniel: *"is there a sequence of setting
+// one control and then the other that is the best way to match?"* There is, and it only exists
+// because the three are now roughly orthogonal — with only exposure and shoulder they were not, and
+// every adjustment to one undid the other.
+//
+//   1. exposure — a LINEAR GAIN on the whole image. Moves everything together.
+//   2. gamma    — bends the MIDTONES. Leaves 0 at 0 and 1 at 1, so it changes the middle of the
+//                 range without touching black or white. Below 1 lifts midtones, above 1 deepens.
+//   3. shoulder — HIGHLIGHT ROLL-OFF, expressed as the white point SQUARED: the input level that
+//                 maps to pure white. **shoulder = 1 is OFF** (the Reinhard curve degenerates to
+//                 the identity), and LARGER compresses more of the top end into white.
+//
+// ⚠️ AND I HAD THE SHOULDER'S DIRECTION BACKWARDS IN B762's NOTES. Larger does soften highlights,
+// but it darkens the midtones on its way there, because `x(1+x/W2)/(1+x)` pulls the WHOLE curve
+// down as W2 grows. That is why sweeping it alone never converged.
+export const TONE_DEFAULTS = Object.freeze({ shoulder: 1, exposure: 1, gamma: 1 });
+export const TONE_OFF = TONE_DEFAULTS;    // the identity: decode HLG and display it
 
 export function toneFromQuery(search) {
   try {
     const raw = new URLSearchParams(search || '').get('tone');
     if (!raw) return { ...TONE_DEFAULTS };
-    const [a, b] = raw.split(',').map((n) => parseFloat(n));
+    const [a, b, c] = raw.split(',').map((n) => parseFloat(n));
+    const pick = (v, d) => (Number.isFinite(v) && v > 0 ? v : d);
     return {
-      shoulder: Number.isFinite(a) && a > 0 ? a : TONE_DEFAULTS.shoulder,
-      exposure: Number.isFinite(b) && b > 0 ? b : TONE_DEFAULTS.exposure,
+      shoulder: pick(a, TONE_DEFAULTS.shoulder),
+      exposure: pick(b, TONE_DEFAULTS.exposure),
+      gamma: pick(c, TONE_DEFAULTS.gamma),
     };
   } catch { return { ...TONE_DEFAULTS }; }
 }

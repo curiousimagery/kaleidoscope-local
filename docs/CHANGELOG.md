@@ -6,6 +6,72 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.28.3 · Build 764 — HLG SHOULD NEVER HAVE BEEN NORMALISED, AND DANIEL FOUND THAT BY SWEEPING
+
+**Shipped:**
+- **HLG is no longer divided by its reference white.** That multiplication by ~3.77 is the reason
+  the highlights were blown and the midtones hot. PQ keeps its normalisation, which it needs.
+- **A third control, gamma**, so the three are roughly orthogonal and can be swept in an order.
+- **The tone reaches the broadcast**, via the external view's payload signature.
+- **Defaults are now the identity** (shoulder 1, exposure 1, gamma 1).
+
+### ⭐ THE EMPIRICAL RESULT ARRIVED BEFORE THE SPEC DID
+
+Daniel, sweeping: *"just through trial and error i'm getting into a close ballpark with 1 (white
+0.9x), exp 0.29."* Those two numbers are not arbitrary:
+
+- **`toneMap(x, 1) = x(1 + x)/(1 + x) = x`.** Shoulder 1 is the identity. He had turned the tone
+  curve **off**.
+- **exposure 0.29 ≈ 1/3.44**, which very nearly cancels the `1 / HLG_REFERENCE_WHITE` (~3.77) the
+  shader was applying.
+
+**So he had converged on "decode HLG and display it" — which is what ITU-R BT.2100 says to do.** HLG
+is SDR-backward-compatible by design; that compatibility is the reason broadcasters chose it over PQ.
+B761 divided by reference white, blew the picture out, and then asked a Reinhard curve to claw it
+back. Both knobs were fighting a mistake one layer below them.
+
+The harness now asserts `hdrNormFor(HLG) === 1` and `hdrNormFor(PQ) === 0.0203`, plus that
+`toneMap(x, 1) === x` across the range, so this cannot come back quietly.
+
+### ⚠️ AND I HAD THE SHOULDER'S DIRECTION BACKWARDS IN B762'S NOTES
+
+I wrote *"larger = softer highlights"*. Larger does soften highlights, but `x(1 + x/W²)/(1 + x)`
+pulls the **whole** curve down as W² grows, so it darkens the midtones on the way. That is why
+sweeping it alone never converged, and why a second control was not enough.
+
+### THREE CONTROLS, APPLIED IN A DEFINED ORDER
+
+Daniel: *"is there a sequence of setting one control and then the other that is the best way to
+match?"* There is now, and it only exists because the three are roughly orthogonal:
+
+| | what it does | what it leaves alone |
+|---|---|---|
+| **1. exposure** | linear gain on everything | relative relationships |
+| **2. gamma** | bends the midtones | black and white stay fixed |
+| **3. shoulder** | highlight roll-off; **1.0 = off** | shadows |
+
+The panel presents them left to right in that order, and the readout says *"shoulder off"* rather
+than *"1"*, because a control sitting at its identity otherwise reads as broken.
+
+### THE BROADCAST IS A DIFFERENT WEBVIEW, WHICH IS WHY THE KNOB COULD NOT REACH IT
+
+`env.setTone` walks `allEngines()` — in **this** webview. On iPad the broadcast is the external view,
+running its own engine in its own process, and the only channel to it is the payload. The mechanism
+already existed: the source-detail cap rides the payload **signature**, and a signature change
+re-posts. The tone now rides it too.
+
+**Honest cost:** a re-post rebuilds the external receiver, so every stepper click restarts the wall's
+stream. Sweep on the iPad's own screen and check the wall once at the end.
+
+### STILL OPEN
+
+- **The bake still fails on iPad and works on desktop Brave.** B763 stopped the gate report
+  attributing a previous operation; the next failure should say something true.
+- **The other colour paths are still not routed through the seam** — and the Loop Builder being one
+  of them is now useful rather than a defect, because it is the reference to match.
+
+---
+
 ## v0.28.2 · Build 763 — B762'S ROTATION FIX NEVER RAN, AND THE TONE CURVE IS NOW LIVE
 
 **Shipped:**

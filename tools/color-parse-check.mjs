@@ -14,7 +14,7 @@
 // colour build to a device before these pass would spend a session confirming arithmetic.
 
 import { yuvToRgbMatrix, primariesMatrix, transferMode, needsGamut, MATRIX, TRANSFER, PRIMARIES,
-  XFER_SDR, XFER_HLG, XFER_PQ, HLG_WHITE_LINEAR } from '../src/engine/color.js';
+  XFER_SDR, XFER_HLG, XFER_PQ, HLG_REFERENCE_WHITE, hdrNormFor, toneFromQuery, TONE_DEFAULTS } from '../src/engine/color.js';
 
 let pass = 0, fail = 0;
 const near = (a, b, eps = 5e-4) => Math.abs(a - b) <= eps;
@@ -58,7 +58,28 @@ check('PQ transfer selects PQ', transferMode(TRANSFER.PQ), XFER_PQ);
 
 // The HLG reference-white constant, recomputed from ARIB STD-B67 rather than trusted as a literal.
 const a = 0.17883277, b = 0.28466892, c = 0.55991073;
-check('HLG white = inverseOETF(0.75)', HLG_WHITE_LINEAR, (Math.exp((0.75 - c) / a) + b) / 12, 1e-5);
+check('HLG reference white = inverseOETF(0.75)', HLG_REFERENCE_WHITE, (Math.exp((0.75 - c) / a) + b) / 12, 1e-5);
+
+// ⚠️ B764 — HLG IS NOT NORMALISED. It is SDR-backward-compatible by design (BT.2100), and dividing
+// by its reference white is what blew B761/B762's highlights out. PQ still is: 1.0 there is 10,000
+// nits. These two assertions are the ones that stop that regression coming back.
+check('HLG is displayed as authored (no normalisation)', hdrNormFor(XFER_HLG), 1);
+check('PQ normalises to 203-nit diffuse white', hdrNormFor(XFER_PQ), 0.0203);
+
+// The tone curve's identity point. `toneMap(x, 1) = x(1 + x)/(1 + x) = x` exactly, so shoulder 1
+// means OFF — which is the default, and is what Daniel converged on by sweeping.
+const toneMap = (x, w2) => (x * (1 + x / w2)) / (1 + x);
+for (const x of [0.05, 0.2, 0.5, 1, 2, 3.77]) {
+  check(`shoulder 1 is the identity at x=${x}`, toneMap(x, 1), x, 1e-9);
+}
+check('shoulder 16 darkens diffuse white', toneMap(1, 16) < 1 ? 1 : 0, 1);
+check('a larger shoulder darkens more', toneMap(1, 50) < toneMap(1, 16) ? 1 : 0, 1);
+
+check('defaults are the identity', [TONE_DEFAULTS.shoulder, TONE_DEFAULTS.exposure, TONE_DEFAULTS.gamma], [1, 1, 1]);
+const t = toneFromQuery('?tone=12,0.8,1.4');
+check('?tone parses three values', [t.shoulder, t.exposure, t.gamma], [12, 0.8, 1.4]);
+const t2 = toneFromQuery('?tone=12');
+check('?tone fills missing values from the defaults', [t2.shoulder, t2.exposure, t2.gamma], [12, 1, 1]);
 
 const file = process.argv[2];
 if (file) {

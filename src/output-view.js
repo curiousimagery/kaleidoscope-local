@@ -161,6 +161,7 @@ async function setupSource(payload) {
     engine.setSourceColor?.(payload.color || null);
     engine.setSourceRotation?.(payload.rotation || 0);
     receiver.setMeta?.(payload.color || null, payload.rotation || 0);
+    if (payload.tone) { engine.setTone?.(payload.tone); receiver.setTone?.(payload.tone); }
     planarSource = true;
     liveSource = true; haveSource = true;
     return;

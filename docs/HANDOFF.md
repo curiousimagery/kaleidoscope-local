@@ -32,12 +32,34 @@ Archived at B658. It was marked superseded at B609 and kept for the reasoning be
 
 ## current version
 
-**v0.28.2 · B763** (2026-08-28). Minor bumped at B738 for the O(1) bake landing on hardware.
+**v0.28.3 · B764** (2026-08-28). Minor bumped at B738 for the O(1) bake landing on hardware.
 
 **⭐⭐ THE O(1) BAKE IS NOW MEASURED, NOT MODELLED.** A 2.63GB / 8:21 4K source peaked at **131.6MB**
 against **130.9MB** for a 741MB source. **3.5× the file, 0.7MB more memory.** Both 8GB M1 iPads also
 passed the job that killed them at B730 (Air 71.6MB, Pro 114.9MB). The Blob is disk-backed and file
 size is no longer a memory axis. **B705 and B706 are device-verified** — B705's instrument found B706, and B706 held on the repro that killed B705. B703, B704 and B707 are not yet device-verified.
+
+---
+
+## ▶▶▶▶▶▶▶▶▶▶▶▶▶▶▶ B764 (2026-08-28) — HLG WAS BEING NORMALISED AND SHOULD NOT HAVE BEEN
+
+**Orientation is verified fixed (Daniel, B763). Source and output agree.**
+
+**The tone argument had a bug under it.** B761 divided HLG by its reference white (×3.77) and then
+asked a Reinhard curve to recover. HLG is SDR-backward-compatible by design (BT.2100) — decoding and
+displaying it is the correct starting point. **Daniel found this by sweeping before I found it in the
+spec:** he landed on `shoulder 1, exposure 0.29`, and `toneMap(x,1)` is the identity while 0.29
+cancels the 3.77. Defaults are now the identity, and the harness asserts both facts.
+
+**Three controls now, in applied order: exposure → gamma → shoulder.** Sweep them in that order;
+each earlier one is what the next assumes. `shoulder = 1` means off and the readout says so.
+
+**The tone now reaches the broadcast** by riding the external view's payload signature, the same
+mechanism the source-detail cap uses. It rebuilds the receiver per step, so sweep on the iPad screen
+and check the wall once.
+
+**▶ THE REFERENCE TO MATCH IS THE LOOP BUILDER.** Its stills come from AVAssetImageGenerator, so it
+is Apple's own HDR-to-SDR rendering, sitting inside the app for free.
 
 ---
 
