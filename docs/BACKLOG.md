@@ -192,6 +192,34 @@ should say why the fast path was skipped is answering about a different operatio
 report cannot currently tell us. **Do not spend a device session on this**: the fix is to stamp the
 gate report with the operation that produced it, and then one ordinary bake answers it.
 
+### 🚨 [OPEN — Daniel, B765, NO REPORT YET] SWITCHING TO PERFORM KILLED THE APP: ALL PANELS LOST, THEN TOTAL BLACKOUT
+
+*"when i went to check and see if source, output, thumbnails all match in perform, switching modes
+then totally crashed the app. first gl context loss on all panels then full blackout with no recovery
+even of the UI."*
+
+**Worse than item 2A's take-arm loss**, which recovers in ~474ms. This one did not come back at all,
+including the UI — which is the *"a GL loss costing the whole app session"* row of phase 2's exit
+criterion, now reproduced.
+
+**▶ THE EVIDENCE EXISTS. Relaunch and `copy report`.** Every breadcrumb persists to `localStorage`
+synchronously (B661), `priorTrail` and `crashed` are captured at construction so nothing in the new
+session can overwrite them, and the mode switch is already marked (`mark('mode', { to: 'perform' })`,
+B695). Expect `mode → perform` followed by the losses in order, each with its memory snapshot.
+
+**⚠️ Do not relaunch TWICE before copying.** Dismissing the crash banner calls `clearCrashed()`,
+which is safe within a session (the values are already in memory) but destroys them for the run
+after.
+
+**▶ THE ONE HYPOTHESIS ON THE TABLE, and it is a self-suspicion.** B761-B766 replaced the planar
+blitter's `mediump` three-multiply-add shader with a `highp` one carrying `exp`/`pow` on the HDR
+path, and entering perform builds a FOURTH instance of it beside a new GL context. That is new since
+perform was last known good on this clip. **`?color=off` is the single-variable test** — it forces
+the LEGACY description, which selects the cheap SDR passthrough branch. Survives with it and dies
+without it implicates the colour work; both dying exonerates it.
+
+**Do not build anything for this before the report.** State A, and the instrument already exists.
+
 ### 🎨 [POLISH — Daniel, B765] LOADING A SOURCE IS FOUR VISIBLE PHASES WHERE IT SHOULD BE ONE PROGRESS STATE
 
 **Daniel:** *"when we load a source, it goes through several visually interruptive phases: preparing

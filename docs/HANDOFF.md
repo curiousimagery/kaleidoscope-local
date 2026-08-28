@@ -32,12 +32,28 @@ Archived at B658. It was marked superseded at B609 and kept for the reasoning be
 
 ## current version
 
-**v0.28.4 · B765** (2026-08-28). Minor bumped at B738 for the O(1) bake landing on hardware.
+**v0.28.5 · B766** (2026-08-28). Minor bumped at B738 for the O(1) bake landing on hardware.
 
 **⭐⭐ THE O(1) BAKE IS NOW MEASURED, NOT MODELLED.** A 2.63GB / 8:21 4K source peaked at **131.6MB**
 against **130.9MB** for a 741MB source. **3.5× the file, 0.7MB more memory.** Both 8GB M1 iPads also
 passed the job that killed them at B730 (Air 71.6MB, Pro 114.9MB). The Blob is disk-backed and file
 size is no longer a memory axis. **B705 and B706 are device-verified** — B705's instrument found B706, and B706 held on the repro that killed B705. B703, B704 and B707 are not yet device-verified.
+
+---
+
+## ▶▶▶▶▶▶▶▶▶▶▶▶▶▶▶▶▶ B766 (2026-08-28) — COLOUR IS CLOSED FOR MOTION. PERFORM CRASHED.
+
+**The tone defaults are committed** (`shoulder 1, exposure 1.459, gamma 1.137`), swept by Daniel
+against the Loop Builder and a MacBook Pro display. On B765 he confirmed: *"iPad source and output
+and thumbnails are matching in motion."* **Phase 2.5's planar half is done.**
+
+**⚠️ AND THE SAME SESSION DIED ENTERING PERFORM** — all GL contexts lost, then a total blackout with
+no UI recovery. Filed HIGH in BACKLOG with the collection instructions; **the breadcrumbs survive a
+kill, so relaunching and copying a report is the whole next step.** Do not build anything for it
+first: state A, and the instrument already exists.
+
+**My own hypothesis is in the backlog item** — the colour work made the planar shader `highp` with
+`pow`, and perform adds a fourth instance of it. `?color=off` is the single-variable test.
 
 ---
 

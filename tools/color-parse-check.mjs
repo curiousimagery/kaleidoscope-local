@@ -75,11 +75,15 @@ for (const x of [0.05, 0.2, 0.5, 1, 2, 3.77]) {
 check('shoulder 16 darkens diffuse white', toneMap(1, 16) < 1 ? 1 : 0, 1);
 check('a larger shoulder darkens more', toneMap(1, 50) < toneMap(1, 16) ? 1 : 0, 1);
 
-check('defaults are the identity', [TONE_DEFAULTS.shoulder, TONE_DEFAULTS.exposure, TONE_DEFAULTS.gamma], [1, 1, 1]);
+// B766 — the committed defaults are Daniel's swept values, not the identity. The shoulder staying
+// at 1 is the load-bearing half: it means the tone CURVE is off and only the linear/gamma trim is
+// applied, which is what the HLG standard implies and what the sweep independently found.
+check('the tone curve itself is off by default', TONE_DEFAULTS.shoulder, 1);
+check('the swept exposure and gamma are committed', [TONE_DEFAULTS.exposure, TONE_DEFAULTS.gamma], [1.459, 1.137]);
 const t = toneFromQuery('?tone=12,0.8,1.4');
 check('?tone parses three values', [t.shoulder, t.exposure, t.gamma], [12, 0.8, 1.4]);
 const t2 = toneFromQuery('?tone=12');
-check('?tone fills missing values from the defaults', [t2.shoulder, t2.exposure, t2.gamma], [12, 1, 1]);
+check('?tone fills missing values from the defaults', [t2.shoulder, t2.exposure, t2.gamma], [12, TONE_DEFAULTS.exposure, TONE_DEFAULTS.gamma]);
 
 // ⚠️ B765 — A PARTIAL PATCH MUST NOT DROP THE FIELDS IT DOES NOT MENTION. The panel sends one key
 // at a time, and `setTone` listing keys by name is what made B764's new `gamma` vanish on the first

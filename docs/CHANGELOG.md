@@ -6,6 +6,45 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.28.5 · Build 766 — THE TONE DEFAULTS ARE COMMITTED, FROM A SWEEP AGAINST TWO REFERENCES
+
+**Shipped:** `TONE_DEFAULTS` is now `shoulder 1, exposure 1.459, gamma 1.137`
+(`docs/temp/V0c-toneReport.json`, swept on an M1 iPad Pro on B765).
+
+**What the numbers mean, because they should not be "tidied" later:**
+
+- **shoulder 1 — the tone CURVE is off.** `toneMap(x, 1)` is the identity. HLG is
+  SDR-backward-compatible by design (BT.2100), and the sweep independently landed on exactly what the
+  standard implies: no highlight roll-off was wanted at all. **This is the second time the empirical
+  result confirmed the spec** (the first was B764's normalisation removal).
+- **exposure 1.459** — a linear lift. HLG reference white sits at 75% signal, so displaying the
+  signal as authored puts diffuse white low; this puts it back without a curve.
+- **gamma 1.137** — a slight midtone deepening on top of that lift.
+
+**They were swept against two references at once:** the Loop Builder (AVAssetImageGenerator, i.e.
+Apple's own rendering) and the same frames on a MacBook Pro display. That is the only kind of
+evidence a look can have, so the harness asserts the committed values rather than a round number.
+
+**Daniel's report on B765, for the record:** *"iPad source and output and thumbnails are matching in
+motion."* The colour thread is closed for the planar path in motion mode.
+
+### ⚠️ AND THE SAME SESSION CRASHED ON SWITCHING TO PERFORM
+
+*"first gl context loss on all panels then full blackout with no recovery even of the UI."* No report
+yet. **Not diagnosed, and deliberately not guessed at** — the breadcrumbs survive a kill (every
+`mark` writes to `localStorage` synchronously, B661) and the mode switch is already breadcrumbed
+(`mark('mode', { to: 'perform' })`, B695), so the next launch's `priorTrail` should show the
+transition and the losses in order.
+
+**One hypothesis worth stating because it is mine and it is new:** B761-B766 replaced the planar
+blitter's three-multiply-add `mediump` shader with a `highp` one carrying `exp`/`pow` on the HDR
+path, and entering perform builds a FOURTH instance of it alongside a new GL context. That is new
+since perform was last known good. **`?color=off` is the single-variable test**: it forces the
+LEGACY description, whose transfer selects the cheap SDR passthrough branch. Perform surviving with
+it and dying without it would implicate the colour work; both dying would exonerate it.
+
+---
+
 ## v0.28.4 · Build 765 — THE CONTROL VANISHED BECAUSE I ADDED A FIELD AND MISSED A WRITER. AGAIN.
 
 **Shipped:**

@@ -173,8 +173,20 @@ export function hdrNormFor(mode) {
 // ⚠️ AND I HAD THE SHOULDER'S DIRECTION BACKWARDS IN B762's NOTES. Larger does soften highlights,
 // but it darkens the midtones on its way there, because `x(1+x/W2)/(1+x)` pulls the WHOLE curve
 // down as W2 grows. That is why sweeping it alone never converged.
-export const TONE_DEFAULTS = Object.freeze({ shoulder: 1, exposure: 1, gamma: 1 });
-export const TONE_OFF = TONE_DEFAULTS;    // the identity: decode HLG and display it
+// ⚠️ B766 — THESE ARE MEASURED, NOT CHOSEN. Daniel swept them on an M1 iPad Pro against two
+// references: the Loop Builder (AVAssetImageGenerator, i.e. Apple's own HDR-to-SDR rendering) and
+// the same frames on a MacBook Pro display. `docs/temp/V0c-toneReport.json`, B765.
+//
+//   shoulder 1     — the tone curve is OFF. HLG is SDR-backward-compatible by design (BT.2100) and
+//                    the sweep confirmed the standard: no roll-off was wanted at all.
+//   exposure 1.459 — a linear lift. HLG reference white sits at 75% signal, so displaying the
+//                    signal as authored lands diffuse white low; this puts it back.
+//   gamma 1.137    — a slight midtone deepening on top of that lift.
+//
+// **Do not "tidy" these to round numbers.** They are one operator's eye against two reference
+// renderings, which is the only kind of evidence a look can have.
+export const TONE_DEFAULTS = Object.freeze({ shoulder: 1, exposure: 1.459, gamma: 1.137 });
+export const TONE_OFF = Object.freeze({ shoulder: 1, exposure: 1, gamma: 1 });   // no curve at all
 
 export function toneFromQuery(search) {
   try {
