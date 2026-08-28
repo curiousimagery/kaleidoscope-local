@@ -25,6 +25,8 @@ import { probeSourceReadable } from './video-decode.js';
 import { zipStore } from './zip.js';
 import { createSaveFlow } from './save-flow.js';
 import { getActiveForm } from '../engine/index.js';
+import { readSourceColor } from './source-color.js';
+import { DEFAULT_COLOR, LEGACY_COLOR, describeColor } from '../engine/color.js';
 import { formBoxCenter, placeFormBox, centerFormInSource } from '../engine/geometry.js';
 import { acquireSession, releaseSession } from 'conduit/sessions';
 
@@ -319,6 +321,8 @@ export function createSourceHost(env) {
       tagSourceVideo(v, `source clip: ${file?.name || 'clip'}`);
       env.sourceVideo = v;              // mountSourceView mounts this element
       env.liveVideo = null;
+      // B761 — what did this file declare its colour to be? Fire-and-forget; see the seam above.
+      env.readSourceColorFor?.(file, v);
       attachNativeVideo(v, file);       // iOS: hand PLAYBACK to the single native decode (no-op elsewhere)
       const meta = document.getElementById('sourceMeta');
       // motion data carries DURATION beside the dims (Daniel's spec); meta is the one home
@@ -887,6 +891,7 @@ export function createSourceHost(env) {
     // camera frame forever. That is the B541 dark-source bug, and `keepSource:true` (the upload
     // path) would walk straight into it, so this runs before the early return, not after.
     try { engine.setPlanarSource(null, 0, 'camera mode stopped'); } catch { /* engine may be mid-reinit */ }
+    env.applySourceColor?.(null);   // B761 — do not leak the last clip's description onto a camera
     env.live.isLive = false;
     env.live.frozen = false;
     env.liveVideo = null;
@@ -1505,6 +1510,8 @@ export function createSourceHost(env) {
     try {
       engine.setSource(src.frameSource(), 'native decode attach');
       engine.setPlanarSource(src.planeProvider, src.cap, 'native decode attach');
+      engine.setSourceColor(env.sourceColor);   // B761 — the decode may attach after the parse landed
+      src.setColor?.(env.sourceColor);
       engine.updateSourceFrame();
     } catch { /* not ready */ }
     env.nativeStageSource = () => mod.createNativeStageSource(env);
@@ -1589,6 +1596,33 @@ export function createSourceHost(env) {
   // legitimate window between an install and its first frame — healing that would re-install on
   // every tick. Counted and published: a heal that fires is evidence about the bug, not a cure
   // for it, and the trail names the caller that retired the provider in the first place.
+  // ⚠️ B761 — ONE OWNER FOR THE SOURCE'S COLOUR (plan PHASE 2.5), for the reason CLAUDE.md gives
+  // about shared behaviour: the preview engine, the bus engine, the PiP and the source panel all
+  // convert the SAME planes, so a description that reaches only some of them puts two different
+  // pictures on screen. Everything reads `env.sourceColor`; nothing else parses a file.
+  env.sourceColor = { ...DEFAULT_COLOR };
+  // `?color=off` pins the pre-B761 behaviour so the two can be compared on the same device in the
+  // same session. Read once: it is a diagnostic lever, not a setting.
+  const colorOff = (() => { try { return new URLSearchParams(location.search).get('color') === 'off'; } catch { return false; } })();
+  function applySourceColor(color) {
+    env.sourceColor = colorOff ? { ...LEGACY_COLOR } : (color || { ...DEFAULT_COLOR });
+    try { engine.setSourceColor(env.sourceColor); } catch { /* engine may be mid-reinit */ }
+    try { env.nativeVideo?.setColor?.(env.sourceColor); } catch { /* receiver may be gone */ }
+    try { env.outputEngine?.setSourceColor?.(env.sourceColor); } catch { /* no bus engine yet */ }
+    try { env.pipEngine?.setSourceColor?.(env.sourceColor); } catch { /* not in perform */ }
+    env.scheduleRender?.();
+  }
+  env.applySourceColor = applySourceColor;
+  // Async and deliberately not awaited by the load: the picture should not wait on ~64KB of box
+  // reads, and the default is correct for the overwhelming majority of files. Guarded on identity
+  // so a fast second load cannot have its colour overwritten by the first one's parse.
+  env.readSourceColorFor = async (blob, token) => {
+    const color = await readSourceColor(blob);
+    if (token && env.sourceVideo !== token) return;   // a newer source landed while we parsed
+    applySourceColor(color);
+    console.info(`[fold] source colour: ${describeColor(color)}`);
+  };
+
   env.planarHeals = { count: 0, lastAt: null };
   function reconcileNativePlanar() {
     const nv = env.nativeVideo;

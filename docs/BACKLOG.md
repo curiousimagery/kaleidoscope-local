@@ -135,6 +135,24 @@ Preview restored in 982ms, external in 1.26s, live-pip in 2.3s. `reinitWhy: null
 
 **⚠️ WE COULD NOT TELL THE CANDIDATE CAUSES APART — uncertainty state B, so the move was an instrument, not a fix.** Either preview's `webglcontextrestored` **never fires**, or it **fires and `reinitGL()` throws**. The handler (`main.js:362`) catches, writes to `console` and `statusEl`, and **marks nothing** — so the outcome dies with the app. The `reinitWhy` field (B703) cannot help either: it lives on the engine, and the report is read after a reload. **Fix the instrument first: mark `gl-restore-failed` with the reason, so it lands in `priorTrail` and survives the kill.** Standing rule, violated here: *anything that can decline to act must publish why.*
 
+### ✅ [STAGE ONE SHIPPED B761] THE INPUT TRANSFORM — AND THE ARC'S TEST CLIP WAS HDR ALL ALONG
+
+`IMG_5132.MOV` is **BT.2020 / HLG / HEVC Main 10**, decoded as BT.601 SDR by the planar path. Fixed:
+the shader now reads what the file declared. See CHANGELOG B761 for the design notes.
+
+**▶ WHAT REMAINS, and it is stages two and three rather than loose ends:**
+
+- **A half-float working space.** 8-bit corrects the colours but bands on HDR gradients. Same seam,
+  different buffer. **This is what stills at higher bit depth need**, so it is coupled to the tile
+  maker and the DAM round-trip rather than to phase 2.
+- **The output side:** display transforms and ICC handling. Feature work, with the stage manager.
+- **The tone curve is one constant** (`toneMap(..., 16.0)`) and is deliberately the simplest
+  defensible one. A filmic curve is a LOOK, and a look is an output-stage decision.
+- **The other two colour paths are not yet routed through the seam.** The 2D-canvas path is
+  browser-managed and the direct-`VideoFrame` path lets WebGL convert using the frame's own
+  colorSpace, so both are *plausibly* already better than the old planar path — but "plausibly" is
+  not measured. `colorFromVideoFrame()` exists for when it is.
+
 ### 🚨🚨 [OPEN — B760, `R2-take4.json`, AND IT IS THE LARGEST BUG IN PHASE 2] ARMING A TAKE LOSES THREE GL CONTEXTS, AND THE TAKE THEN PRODUCES NOTHING WHILE REPORTING SUCCESS
 
 **Two failures, and the second is worse than the first.**
@@ -180,9 +198,13 @@ capability measurement.
 
 **▶ WHAT THE FIX HAS TO COVER, in order:**
 
-1. **A take that stamps no timestamps must FAIL LOUDLY**, not finish quietly. The per-take record
-   already computes `why: "no video span"` — it just never reaches the operator. This half is cheap,
-   is Class 1, and should not wait on the cause.
+1. ~~**A take that stamps no timestamps must FAIL LOUDLY**~~ **DONE B761 — and the reason it had not
+   already happened is worse than the bug.** B669 built a watchdog for exactly this. It read
+   `if (n === null || n > 0) return;`, and `framesEncoded` returns `null` precisely when the recorder
+   has no session — which during a live take is not uncertainty, it is the worst case. **The one
+   instrument built to turn this absence into a signal declined hardest when the failure was total,
+   and published none of its three exit paths.** Every path now marks (`take:watchdog`), and a
+   zero-frame take reports `ok: false` instead of saving silently.
 2. **Then the context loss itself.** Class 2, and it may not be fixable from our side (shared WebKit
    GPU process). If it is not, the deliverable becomes surviving it: the take should re-arm or refuse,
    not silently continue against a dead surface.

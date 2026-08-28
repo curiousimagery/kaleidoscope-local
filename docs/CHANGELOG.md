@@ -6,6 +6,72 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.28.0 · Build 761 — THE INPUT TRANSFORM, AND THE CLIP WE MEASURED EVERYTHING ON IS HDR
+
+**Minor bumped:** the app has a colour pipeline for the first time.
+
+**Shipped:**
+- **The input transform** (plan PHASE 2.5). The planar path now converts using what the file
+  declared: matrix, range, primaries and transfer. Driven by the `colr` box, parsed in JS, with
+  BT.709 as the default when a file declares nothing.
+- **`?color=off`** pins the pre-B761 behaviour so old and new can be compared in one session on one
+  device. Registered in the UI Lab's cheat sheet.
+- **`sourceColor` in the exported report**, with a `why` saying where the belief came from.
+- **The dead-take watchdog no longer treats "I cannot tell" as "fine"**, and now marks every path.
+- **A take that encodes zero frames reports as FAILED**, rather than saving silently.
+- **`tools/color-parse-check.mjs`** in `npm run check`: 21 assertions over the derived matrices, the
+  white-point property, the transfer selection and the box parser.
+
+**⚠️ THE FINDING THAT REFRAMES THE ARC.** `IMG_5132.MOV` — the clip every scenario run in this arc
+has used — read from its own boxes:
+
+```
+primaries  9   BT.2020
+transfer   18  ARIB STD-B67 (HLG)
+matrix     9   BT.2020 non-constant
+codec          HEVC Main 10, 4:2:0, 10-bit
+```
+
+**It is HDR, and we were decoding it as BT.601 SDR.** Three compounding errors: the wrong matrix
+shifts hue and desaturates, the missing HLG transfer renders scene-referred values as if they were
+display-referred, and BT.2020 primaries went to an sRGB display untransformed. **Every quality
+judgement in the B7xx arc was made through that.**
+
+**What this stage does and does not do.** It corrects matrix, range, primaries and transfer in an
+8-bit working space, so hue and saturation become right and HDR gets a defensible SDR rendering. It
+will still BAND on HDR gradients, because 8 bits is 8 bits. A half-float working space is stage two
+and does not change this seam, only the buffer behind it; display transforms and ICC are stage three.
+
+**Design notes worth keeping:**
+
+- **The SDR path deliberately does nothing after the matrix.** A BT.709 source is already
+  display-referred and the display is sRGB, so round-tripping through linear would only add error.
+  The only change for an ordinary SDR clip is that the matrix is finally the right one — which is
+  still a visible change, because the old one was BT.601.
+- **Coefficients are DERIVED from Kr/Kb, not pasted.** The old bug was four magic numbers with no
+  name attached; the harness checks the derivation against the published BT.601/709/2020 constants.
+- **The primaries matrices are checked by a property, not a table:** each row must sum to 1, or
+  neutral greys tint. That is what catches a transposed or mistyped 3×3.
+- **`highp` is required, not preference.** `mediump` is fp16 on iOS and the PQ inverse EOTF
+  overflows it outright.
+- **The description rides the external-display payload**, because the external view is a separate
+  webview converting the same planes. Without it the wall and the operator's screen disagree.
+
+**AND THE WATCHDOG THAT WATCHED NOTHING.** B669 built a dead-take watchdog for exactly the failure
+`R2-take4.json` shows. It never fired. The guard read:
+
+```js
+if (n === null || n > 0) return;      // null means "I cannot tell"
+```
+
+`framesEncoded` returns `null` precisely when the recorder has no session, which during a live take
+is not uncertainty, it is the worst case. **The one instrument built to turn this absence into a
+signal declined hardest when the failure was total, and published none of its three exit paths.**
+Both halves are fixed: every path now marks, and a zero-frame take is reported as failed rather than
+saved.
+
+---
+
 ## v0.27.22 · Build 760 — THE FIFTH ROUTE TO ONE STATE, AND THE FIRST TIME IT HAS AN OWNER
 
 **Shipped:**

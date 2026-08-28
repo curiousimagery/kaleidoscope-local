@@ -88,7 +88,44 @@ memory ceiling.
 
 # 🔬 OPEN — in order
 
-## 🔴 V1 — RE-RUN `t11-take-baseline` ON **B759**. Two fixes are untested.
+## 🔴 V0 — **B761 COLOUR: DOES YOUR FOOTAGE FINALLY LOOK RIGHT?** (desktop first, then iPad)
+
+**⚠️ THIS IS THE ONE TO DO FIRST, AND MOST OF IT IS NOT A DEVICE TEST.** Your test clip
+`IMG_5132.MOV` is **BT.2020 / HLG / HEVC 10-bit HDR**, and until B761 we decoded it as BT.601 SDR.
+Every colour judgement you have made in this arc was made through that.
+
+**Setup:** load `IMG_5132.MOV` as usual. No HDMI, no recording, nothing else running.
+
+| # | do | what it answers |
+|---|---|---|
+| **V0a** | Load the clip on **desktop**. Look at it. | Does it look right? Expect more contrast, less washed-out highlights, and correct hue on saturated colours |
+| **V0b** | Reload with **`?color=off`**, same clip | The old look, side by side. **This is the comparison that matters** — B761 is a judgement call about how footage LOOKS, and only you can make it |
+| **V0c** | Open the frame-cost panel → `copy report`. Read `sourceColor.described` | Must say `matrix BT2020_NCL · transfer HLG · primaries BT2020 · full range · ⚠ HDR → SDR tone mapped · read from the file's nclc box`. If it says *"assuming BT.709"*, the parse failed and everything else here is void |
+| **V0d** | Load an **ordinary SDR clip** (anything not shot in HDR on an iPhone) | The SDR path must be UNCHANGED except for the matrix correction. If an SDR clip now looks worse, that is a regression and I want the report |
+| **V0e** | **iPad only:** same clip, then start an **HDMI broadcast** | The wall and the iPad screen must agree. The description rides the payload to the external view, and this is the only way to check it arrived |
+
+**▶ WHAT I NEED BACK:** your read on V0a-vs-V0b in words, plus the report from V0c. **If the tone
+mapping is too flat or too contrasty, say which** — the curve is one constant and it is tunable.
+
+## 🔴 V1 — RE-RUN `t11-take-baseline` ON **B761**. Three fixes are untested.
+
+**⚠️ Now on B761, not B759.** Two more fixes landed since this was written.
+
+**What this run is the first to test, in priority order:**
+
+| | reads |
+|---|---|
+| **The dead-take watchdog actually fires** (B761) | `take:watchdog` must appear in the trail for **every** take, healthy or not, with a `verdict`. If a take encodes nothing, `take:dead` must ALSO appear and the panel must say *"take FAILED"*. **This is the fix for the FHD take in `R2-take4` that produced nothing and said nothing** |
+| **A zero-frame take reports as failed** (B761) | If a take dies, `lastResult.ok` is false and no file is silently saved |
+| FHD take **stays on WebCodecs** | `takes[0].engine` must be **`webcodecs`**. If it falls back, `fallbackWhy` says why |
+| FHD at **18.7 Mbps / 0.30 bpp** | **look at the file at 100%.** ⚠️ And check the `source` row first: if it says `NOT ON THE PLANAR PATH`, the quality reading is void |
+
+Also read: `takes[].pacedOut` should be **large** and `droppedToBackpressure` **0**. Never add them.
+
+**⚠️ `planarTrail` IS NOW IN THE REPORT.** If the source drops off the planar path again, it names
+the caller. On `R2-take4` it named `reinitGL`. Do not skip it.
+
+
 
 **⚠️ You must be on B759.** B758 has a regression that makes this test fail.
 
@@ -105,16 +142,30 @@ mismatch and the take **silently drops to MediaRecorder** — which is the 7KB b
 
 Also read: `takes[].pacedOut` should be **large** and `droppedToBackpressure` **0**. Never add them.
 
-## 🟠 V2 — THE GL CONTEXT LOSS AT TAKE START (new, 2026-08-27, no report yet)
+## 🟠 V2 — THE GL CONTEXT LOSS AT TAKE ARM — **CONFIRMED, NOT EXPLAINED**
 
-**Daniel, on B758:** *"almost immediately hit a gl context loss where all panels went gray, throwing
-an error accurately reporting that take did not start."*
+**No longer "unexplained".** `R2-take4.json` caught it cleanly on B760, and it is now phase 2's item
+2A. Three surfaces lost inside one second of arming an FHD take, with **no broadcast** and **no
+external display**:
 
-**Unexplained, and possibly a symptom of V1's bug** — a WebCodecs session that throws at configure may
-be leaving the bus in a bad state. **Run V1 first**; if it recurs on B759, this is real and separate.
+```
+t=10  take:arm   1920x1080  broadcasting:FALSE  srcW:3840
+t=11  gl-context-lost   output → restored
+t=11  gl-context-lost   yuv-source, preview → both restored by t=12
+```
 
-**If it recurs: `copy report` immediately.** The trail is a 12-entry ring and scenario steps evict
-early entries, so a report taken later loses the loss. `priorTrail` survives a full kill.
+**Three of the four most recent runs did this**, so the existing BACKLOG item *"arming a take WHILE
+BROADCASTING loses the GL context"* is mis-titled: the broadcast is not the trigger.
+
+**What reading has narrowed (no device time spent):** `setResolution` allocates nothing, and the FHD
+take died at 1920x1080, so it is not a 4K allocation. What is left in that one second is
+**`recorder.start()` acquiring a hardware encoder session** while three GL contexts and two decoders
+are live (`sessions.peak.encode: 1`).
+
+**▶ THIS NEEDS A BUILD BEFORE IT NEEDS A SESSION.** Do not run a targeted test for it yet — I need to
+bracket `VideoEncoder.configure` with breadcrumbs first, so the report can say whether the loss lands
+before, during or after the encoder is acquired. **V1 will collect it for free in the meantime**,
+because it reproduces on most runs.
 
 ## 🟡 V3 — B8: THREE OR MORE 4K CLIPS IN SEQUENCE, NO RELAUNCH
 

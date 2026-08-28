@@ -32,12 +32,39 @@ Archived at B658. It was marked superseded at B609 and kept for the reasoning be
 
 ## current version
 
-**v0.27.22 · B760** (2026-08-27). Minor bumped at B738 for the O(1) bake landing on hardware.
+**v0.28.0 · B761** (2026-08-27). Minor bumped at B738 for the O(1) bake landing on hardware.
 
 **⭐⭐ THE O(1) BAKE IS NOW MEASURED, NOT MODELLED.** A 2.63GB / 8:21 4K source peaked at **131.6MB**
 against **130.9MB** for a 741MB source. **3.5× the file, 0.7MB more memory.** Both 8GB M1 iPads also
 passed the job that killed them at B730 (Air 71.6MB, Pro 114.9MB). The Blob is disk-backed and file
 size is no longer a memory axis. **B705 and B706 are device-verified** — B705's instrument found B706, and B706 held on the repro that killed B705. B703, B704 and B707 are not yet device-verified.
+
+---
+
+## ▶▶▶▶▶▶▶▶▶▶▶▶ B761 (2026-08-27) — THE APP HAS A COLOUR PIPELINE, AND THE TEST CLIP IS HDR
+
+**⚠️ READ THIS BEFORE QUOTING ANY QUALITY JUDGEMENT FROM THE B7xx ARC.**
+
+`IMG_5132.MOV`, the clip every scenario run in this arc has used, parsed from its own boxes:
+**BT.2020 primaries, HLG transfer, BT.2020 matrix, HEVC Main 10, 10-bit.** It is HDR. The planar path
+decoded it with hardcoded **BT.601** coefficients, no transfer function and no primaries.
+
+**Shipped: the input transform** (plan PHASE 2.5). `engine/color.js` holds the maths and the GLSL,
+`shell/source-color.js` reads the `colr` box in JS (~64KB of `Blob.slice`, no native change needed),
+and one owner in `source-host.js` fans the description to the preview engine, the bus engine, the PiP,
+the source panel and the external view's payload. `?color=off` pins the old behaviour for an A/B.
+
+**What it does NOT do:** the working space is still 8-bit, so HDR gradients will band. Stage two is a
+half-float buffer behind the same seam; stage three is the output side (display transforms, ICC).
+
+**Also shipped, and it is the phase-2 exit criterion in miniature:** B669's dead-take watchdog read
+`if (n === null || n > 0) return`, and `framesEncoded` returns null exactly when the recorder has no
+session — so **"I cannot tell" was treated as "fine"**, in the one instrument built to catch a
+totally dead take. It never fired on `R2-take4`. Every path now marks, and a zero-frame take reports
+as failed instead of saving silently.
+
+**▶ NEXT: `VERIFY-QUEUE.md` V0.** Most of it is desktop and free. The one judgement only Daniel can
+make is V0a-versus-V0b: whether the new look is right.
 
 ---
 

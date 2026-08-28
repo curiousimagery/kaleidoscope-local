@@ -1263,7 +1263,26 @@ export function createRecorderSink({ filenamePrefix = 'fold-live', save = null, 
   // Live finalize progress, polled by the chrome. `null` when no finalize is in flight.
   const progressOf = () => { const s = finishing || session; return s && 'progress' in s ? s.progress : null; };
 
+  // ⚠️ B761 — A ZERO-FRAME TAKE IS NOT A SUCCESSFUL TAKE, however cleanly its container saved.
+  //
+  // `R2-take4.json`: an FHD take lost three GL contexts a second after arming, encoded 0 frames
+  // across 60 seconds, and the app's only complaint was a `why` string buried in the scenario
+  // runner's own record. The operator's note stayed empty. Under the phase-2 exit criterion
+  // (*degraded states warn appropriately*) that is the failure, not the context loss.
+  //
+  // Read from the session rather than counted here, because the two engines count different
+  // things (WebCodecs counts encodes, MediaRecorder counts publishes) and each knows its own.
+  const framesOfTake = () => {
+    const s = finishing || session;
+    try { return s && 'framesEncoded' in s ? s.framesEncoded : null; } catch { return null; }
+  };
   const saveTake = (blob, ext) => {
+    const frames = framesOfTake();
+    if (frames === 0) {
+      lastResult = { ok: false, error: 'the take encoded 0 frames — the output context was lost', frames: 0, bytes: blob?.size ?? 0 };
+      console.warn('[conduit] take encoded ZERO frames — reporting it as failed rather than saving silently');
+      return;
+    }
     const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
     const name = `${filenamePrefix}-${stamp}.${ext}`;
     console.info(`[conduit] take finalized: ${(blob.size / 1e6).toFixed(1)} MB → ${name}`);
@@ -1278,7 +1297,7 @@ export function createRecorderSink({ filenamePrefix = 'fold-live', save = null, 
     // Space is reclaimed by the orphan sweep at the next session start, and a host that does know
     // can call `releaseTake()`.
     Promise.resolve((save || downloadBlob)(blob, name)).then(
-      () => { lastResult = { ok: true, name, bytes: blob.size }; },
+      () => { lastResult = { ok: true, name, bytes: blob.size, frames }; },
       (e) => {
         lastResult = { ok: false, error: 'save failed: ' + ((e && e.message) || e) };
         console.warn('[conduit] take save failed:', e);

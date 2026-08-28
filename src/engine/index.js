@@ -69,6 +69,10 @@ export function createEngine({ canvas, maxProbeSize, perf = null, label = 'engin
   let planar = null;             // lazily-built planar uploader (native decode → this context)
   let planarFrame = null;        // provider: () => wire frame | null, installed by the shell
   let planarCap = 0;             // source-detail cap (long edge) for the planar texture
+  // B761 — what the CURRENT source declared its colour to be. Held here rather than passed per
+  // frame because it changes once per source and never in between, and because the uploader is
+  // rebuilt lazily (context loss, source swap) and must come back with the same description.
+  let sourceColor = null;
   let lastReinitWhy = '';        // B703 — why the last context restore's element re-upload failed, if it did
   // ⚠️ B760 — WHO RETIRED THE PLANAR PROVIDER, AND WHEN. Four builds (B580, B703, B706, B708) have
   // now fixed a different way of arriving at `native decode` without `planar`, and a fifth device
@@ -360,7 +364,7 @@ export function createEngine({ canvas, maxProbeSize, perf = null, label = 'engin
       if (planarFrame) {
         const frame = planarFrame();
         if (frame) {
-          if (!planar) planar = createPlanarUploader(glCtx.gl);
+          if (!planar) { planar = createPlanarUploader(glCtx.gl); planar.setColor(sourceColor); }
           planar.upload(frame, planarCap);
           sourceAspect = frame.width / frame.height;
           sourceW = frame.width; sourceH = frame.height;
@@ -453,6 +457,14 @@ export function createEngine({ canvas, maxProbeSize, perf = null, label = 'engin
       if (!provider && planar) { planar.dispose(); planar = null; }
     },
     setPlanarCap(cap) { planarCap = cap || 0; },
+    // ⚠️ B761 — THE INPUT TRANSFORM'S ENTRY POINT (plan PHASE 2.5). `color` is the description
+    // `shell/source-color.js` read from the file, or null for the BT.709 default. Applied to the
+    // live uploader AND remembered, because `reinitGL` and every source swap rebuild it.
+    setSourceColor(color) {
+      sourceColor = color || null;
+      if (planar) planar.setColor(sourceColor);
+    },
+    get sourceColor() { return sourceColor; },
     get planarActive() { return !!(planarFrame && planar && planar.width > 0); },
     // ⚠️ B760 — `planarActive` CONFLATES TWO STATES AND THE RECONCILER NEEDS THEM APART. It is
     // false both when the provider is genuinely gone (a bug, and the thing to heal) and in the

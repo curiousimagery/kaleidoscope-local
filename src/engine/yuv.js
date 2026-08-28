@@ -23,6 +23,9 @@
 // instead reads a top-left CROP of the frame, which is what the first cap
 // implementation did (Build 500).
 
+import { COLOR_GLSL, DEFAULT_COLOR, yuvToRgbMatrix, primariesMatrix, transferMode, needsGamut,
+  XFER_HLG, HLG_WHITE_LINEAR, PQ_WHITE_LINEAR } from './color.js';
+
 export function createYuvBlitter(gl, { flipY = false } = {}) {
   // flipY selects where image row 0 lands in the target:
   //   false — a CANVAS target: row 0 at the top, matching how texImage2D(canvas)
@@ -41,16 +44,43 @@ export function createYuvBlitter(gl, { flipY = false } = {}) {
     v_uv = vec2(mix(u, 1. - u, uMirror), v);
     gl_Position = vec4(p, 0., 1.);
   }`;
+  // ⚠️ B761 — THE INPUT TRANSFORM LIVES HERE NOW. This shader used to be four hardcoded BT.601
+  // coefficients applied to every source on earth (see engine/color.js for what that cost). It is
+  // now driven by what the file declared, with BT.709 as the default when it declared nothing.
+  //
+  // `highp` is required, not preference: mediump is fp16 on iOS and the PQ inverse EOTF overflows it.
   const fs = `#version 300 es
-  precision mediump float;
+  precision highp float;
   in vec2 v_uv;
   uniform sampler2D yTex;
   uniform sampler2D cTex;
+  uniform mat3 uYuvToRgb;     // matrix coefficients, derived from Kr/Kb
+  uniform mat3 uPrimaries;    // source primaries -> sRGB, in LINEAR light (identity for BT.709)
+  uniform int  uTransfer;     // 0 = SDR passthrough, 1 = HLG, 2 = PQ
+  uniform float uWhiteLinear; // linear value of diffuse white for the HDR modes
+  uniform vec2 uRange;        // x = luma offset, y = luma scale (limited-range expansion)
+  uniform int  uGamut;        // 1 = the SDR path must round-trip through linear for the primaries
   out vec4 frag;
+${COLOR_GLSL}
   void main(){
-    float y = texture(yTex, v_uv).r;
-    vec2 c = texture(cTex, v_uv).rg - 0.5;
-    frag = vec4(y + 1.402*c.g, y - 0.344136*c.r - 0.714136*c.g, y + 1.772*c.r, 1.);
+    float y = (texture(yTex, v_uv).r - uRange.x) * uRange.y;
+    vec2 cc = (texture(cTex, v_uv).rg - 0.5) * uRange.y;
+    vec3 rgb = uYuvToRgb * vec3(y, cc.r, cc.g);
+
+    // SDR onto an sRGB display: the signal is already display-referred, so the correct transform
+    // after the matrix is NOTHING. Round-tripping through linear would only add error.
+    if (uTransfer == 0) {
+      if (uGamut == 0) { frag = vec4(clamp(rgb, 0.0, 1.0), 1.); return; }
+      // ...unless the primaries differ, and a gamut conversion is only correct in linear light.
+      frag = vec4(linearToSrgb(uPrimaries * srgbToLinear(rgb)), 1.);
+      return;
+    }
+
+    vec3 lin = (uTransfer == 1) ? hlgToLinear(clamp(rgb, 0.0, 1.0)) : pqToLinear(rgb);
+    lin = lin / max(uWhiteLinear, 1e-6);         // put diffuse white at 1.0
+    lin = uPrimaries * lin;                       // gamut, in linear light
+    lin = toneMap(max(lin, 0.0), 16.0);           // roll off what is above white (4x white squared)
+    frag = vec4(linearToSrgb(lin), 1.);
   }`;
   const prog = linkProgram(gl, vs, fs);
   gl.useProgram(prog);
@@ -59,6 +89,36 @@ export function createYuvBlitter(gl, { flipY = false } = {}) {
   gl.uniform1i(gl.getUniformLocation(prog, 'cTex'), 1);
   const uMirrorLoc = gl.getUniformLocation(prog, 'uMirror');
   const uFlipLoc = gl.getUniformLocation(prog, 'uFlipY');
+  const uYuvLoc = gl.getUniformLocation(prog, 'uYuvToRgb');
+  const uPrimLoc = gl.getUniformLocation(prog, 'uPrimaries');
+  const uXferLoc = gl.getUniformLocation(prog, 'uTransfer');
+  const uWhiteLoc = gl.getUniformLocation(prog, 'uWhiteLinear');
+  const uRangeLoc = gl.getUniformLocation(prog, 'uRange');
+  const uGamutLoc = gl.getUniformLocation(prog, 'uGamut');
+
+  // ⚠️ B761 — SET ONCE PER SOURCE, NOT PER FRAME. The description changes when a clip loads and
+  // never in between, so `draw` stays exactly as cheap as it was. Applied immediately rather than
+  // latched for the next draw, because a blitter with no colour set yet must still be usable —
+  // hence the DEFAULT_COLOR call below, which is what every existing caller gets for free.
+  let colorDesc = null;
+  function setColor(color) {
+    const c = color || DEFAULT_COLOR;
+    colorDesc = c;
+    const mode = transferMode(c.transfer);
+    // Limited range expands Y by 255/219 about 16/255; full range is the identity. Both plugins
+    // request a FULL-range pixel format, so the native paths are always the identity here — this
+    // exists for container-declared limited range on the element paths.
+    const off = c.fullRange ? 0 : 16 / 255;
+    const scale = c.fullRange ? 1 : 255 / 219;
+    gl.useProgram(prog);
+    gl.uniformMatrix3fv(uYuvLoc, false, yuvToRgbMatrix(c.matrix));
+    gl.uniformMatrix3fv(uPrimLoc, false, primariesMatrix(c.primaries));
+    gl.uniform1i(uXferLoc, mode);
+    gl.uniform1f(uWhiteLoc, mode === XFER_HLG ? HLG_WHITE_LINEAR : PQ_WHITE_LINEAR);
+    gl.uniform2f(uRangeLoc, off, scale);
+    gl.uniform1i(uGamutLoc, needsGamut(c.primaries) ? 1 : 0);
+  }
+  setColor(null);   // a blitter is never in an undefined colour state
   // an OWN vertex array so the blit can't inherit (or leak) the caller's attribute
   // state — this shader draws from gl_VertexID and binds no attributes at all
   const vao = gl.createVertexArray();
@@ -94,7 +154,7 @@ export function createYuvBlitter(gl, { flipY = false } = {}) {
     catch { /* context already gone */ }
   }
 
-  return { draw, dispose };
+  return { draw, dispose, setColor, get color() { return colorDesc; } };
 }
 
 function makeTex(gl) {

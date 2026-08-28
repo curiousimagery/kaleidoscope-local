@@ -769,10 +769,31 @@ export function createOutputPanel(env, outputBus) {
         // start is not accused, and short enough to abandon a minute rather than lose it.
         clearTimeout(deadTakeWatch);
         deadTakeWatch = setTimeout(() => {
-          if (!recorder?.recording) return;
-          const n = recorder.framesEncoded;
-          if (n === null || n > 0) return;
-          env.vitals?.mark('take:dead', { afterMs: DEAD_TAKE_MS, w: outputBus.width, h: outputBus.height });
+          // ⚠️ B761 — THIS GUARD USED TO DECLINE THREE WAYS AND PUBLISH NONE OF THEM, AND ONE OF
+          // THE THREE WAS THE FAILURE ITSELF.
+          //
+          // It read `if (n === null || n > 0) return;` — so **"I cannot tell" was treated as
+          // "fine"**. But `framesEncoded` returns null exactly when the recorder has no session
+          // object, which during a live take is not uncertainty, it is the worst case. B669 wrote
+          // this watchdog for B668's zero-frame take and `R2-take4.json` then walked straight past
+          // it: an FHD take lost three GL contexts one second in, encoded **0 frames over 60
+          // seconds**, wrote no file, and `take:dead` appears nowhere in the report.
+          //
+          // So: every path marks. An absence is not evidence (DEBUGGING-PROTOCOL), least of all
+          // inside the one instrument built to turn this absence into a signal.
+          const n = recorder?.framesEncoded;
+          const live = !!recorder?.recording;
+          const verdict = !live ? 'the take had already stopped'
+            : n === null ? 'THE RECORDER HAS NO SESSION — the take is dead'
+              : n > 0 ? null
+                : 'zero frames reached the encoder';
+          env.vitals?.mark('take:watchdog', {
+            afterMs: DEAD_TAKE_MS, recording: live, framesEncoded: n,
+            verdict: verdict || `healthy — ${n} frames encoded`,
+            w: outputBus.width, h: outputBus.height,
+          });
+          if (!verdict || !live) return;
+          env.vitals?.mark('take:dead', { afterMs: DEAD_TAKE_MS, why: verdict, w: outputBus.width, h: outputBus.height });
           takeNote = 'take FAILED: no frames are reaching the recorder — stop and try again';
           env.saveFlow?.status?.('error', 'this take is recording nothing — the output context was lost', { ttl: 8000 });
           renderStatus();

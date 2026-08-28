@@ -271,6 +271,8 @@ export function createNativeFrameReceiver({ port = 8899, mirror = false, cap = 0
     stop,
     refreshFrame: paintLatest,
     frameSource: () => canvas,
+    // B761 — the preview canvas converts with the same input transform the engine uses.
+    setColor: (c) => { try { renderer.setColor(c); paintLatest(); } catch { /* context may be lost */ } },
     // THE FAST PATH: hand the raw planes to whoever is going to render them, so the
     // pixels never make a round trip through another context's canvas. Counts as a
     // painted frame — it IS the frame that reaches the screen on this path.

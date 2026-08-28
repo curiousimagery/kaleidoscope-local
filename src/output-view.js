@@ -157,6 +157,8 @@ async function setupSource(payload) {
     // planes are already in CPU memory; upload them here and convert in one blit.
     engine.setSource(receiver.frameSource(), 'external view: native decode join');
     engine.setPlanarSource(receiver.planeReader(), payload.cap || 0, 'external view: native decode join');
+    engine.setSourceColor?.(payload.color || null);   // B761 — see the payload comment in external-display.js
+    receiver.setColor?.(payload.color || null);
     planarSource = true;
     liveSource = true; haveSource = true;
     return;

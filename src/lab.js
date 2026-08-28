@@ -1017,6 +1017,8 @@ const LINK_PARAMS = [
   { group: 'Chrome + panels  ·  the ones you reach for', items: [
     ['?chrome=mobile', 'force the MOBILE chrome on any device',
       'The one most often misremembered as "?mobile=true". Preview the phone UI on desktop without resizing the window. `?chrome=desktop` forces the other way (useful on a phone). Without it, mobile is chosen only for a genuine phone-class device: coarse pointer AND short side < 600px, so iPad stays on desktop chrome and a narrowed desktop window no longer swaps (that reload used to drop the loaded source). See boot.js.'],
+    ['?color=off', 'pin the PRE-B761 colour path (legacy BT.601, no transfer)',
+      'The A/B for the input transform (plan PHASE 2.5). B761 made the planar path read what the file declared — matrix, range, primaries, transfer — instead of applying hardcoded BT.601 to everything. This forces the old behaviour back so the two can be compared in one session on one device, which matters because the difference is a judgement call about how footage LOOKS. Most visible on HDR sources: the arc\'s own test clip is BT.2020/HLG and was being decoded as BT.601 SDR. The report\'s `sourceColor.described` says which path is live. See engine/color.js.'],
     ['?diag', 'auto-open the diagnostics panel on load',
       'Same panel as the settings gizmo, opened for you ~50ms after boot. Handy when you are chasing something that happens during startup and do not want to spend the first seconds clicking. See shell/diagnostics.js.'],
     ['?tune=forms', 'live per-form normalization tuner (bottom-right)',

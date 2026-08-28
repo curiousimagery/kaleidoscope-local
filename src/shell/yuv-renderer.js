@@ -64,5 +64,7 @@ export function createYuvRenderer(canvasEl, { surface = 'yuv', mark = null } = {
     lastDraw = [frame, vw, vh, mirror];
     blitter.draw(frame, vw, vh, mirror);
   }
-  return { draw };
+  // B761 — the input transform. The source panel is a PREVIEW of the same pixels the engine
+  // converts, so it has to use the same description or the two disagree on screen.
+  return { draw, setColor: (c) => blitter.setColor(c) };
 }

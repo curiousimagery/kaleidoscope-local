@@ -322,7 +322,9 @@ export function createPlanarUploader(gl) {
     try { gl.deleteFramebuffer(fbo); gl.deleteTexture(tex); } catch { /* context gone */ }
   }
 
-  return { upload, dispose, get texture() { return tex; }, get width() { return tw; }, get height() { return th; } };
+  // B761 — the input transform. Forwarded rather than re-implemented: the blitter owns the shader.
+  return { upload, dispose, setColor: (c) => blitter.setColor(c), get color() { return blitter.color; },
+    get texture() { return tex; }, get width() { return tw; }, get height() { return th; } };
 }
 
 // push uniforms + bind program + bind position buffer. used by both preview

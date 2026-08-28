@@ -28,6 +28,7 @@
 // NOTHING HERE CHANGES HOW THE APP BEHAVES unless you touch a switch, and nothing persists
 // except a baseline you explicitly save.
 
+import { describeColor } from '../engine/color.js';
 import { perfFlags, PERF_FLAG_SPECS, PERF_FLAG_DEFAULTS } from './perf-flags.js';
 import { wakeLockState } from '../kit/wake-lock.js';
 import { sessionReport } from 'conduit/sessions';
@@ -557,6 +558,11 @@ export function mountPerfPanel(env, { container = null, onClose = null } = {}) {
       // reconciler firing — a heal is evidence the state was reached, not proof it is now fine.
       planarTrail: env.engine?.planarTrail?.length ? env.engine.planarTrail : undefined,
       planarHeals: env.planarHeals?.count ? env.planarHeals : undefined,
+      // ⚠️ B761 — WHAT COLOUR WE THINK THE SOURCE IS, and where that belief came from. Every
+      // quality judgement in this arc was made on an HDR clip decoded as BT.601 SDR, and nothing in
+      // any report said so. `why` is the load-bearing field: "read from the file's nclc box" and
+      // "assuming BT.709" are very different confidences in the same three numbers.
+      sourceColor: env.sourceColor ? { ...env.sourceColor, described: describeColor(env.sourceColor) } : undefined,
       sliceError: env.lastSliceError || undefined,
       // B630 — the last few SOURCE-SWAP attempts, each phase with a reason on every exit. Built for
       // Daniel's mid-show dead end (live camera ~10min, picked a file, nothing happened, app restart

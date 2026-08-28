@@ -10,7 +10,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "check": "for f in src/version.js src/main.js src/shell/*.js src/engine/*.js src/engine/forms/*.js; do node --check \"$f\" || exit 1; done && node tools/check-dupe-keys.mjs && node tools/check-planar-handback.mjs && echo all checks pass",
+    "check": "for f in src/version.js src/main.js src/shell/*.js src/engine/*.js src/engine/forms/*.js; do node --check \"$f\" || exit 1; done && node tools/check-dupe-keys.mjs && node tools/check-planar-handback.mjs && node tools/color-parse-check.mjs && echo all checks pass",
     "cap:sync": "vite build && cap sync ios",
     "cap:open": "cap open ios",
     "ios": "vite build && cap sync ios && cap open ios"
