@@ -32,27 +32,84 @@ Archived at B658. It was marked superseded at B609 and kept for the reasoning be
 
 ## current version
 
-**v0.29.2 · B774** (2026-08-28).
+**v0.29.4 · B776** (2026-08-28).
 
 ---
 
-## ▶▶▶▶▶▶▶▶▶▶▶▶▶▶▶▶▶▶▶▶▶ B774 (2026-08-28) — ⚠️ READ FIRST AFTER A COMPACTION
+## ▶▶▶▶▶▶▶▶▶▶▶▶▶▶▶▶▶▶▶▶▶▶▶ B776 (2026-08-28)
 
-**THE BAKE FAILURE IS B-FRAMES.** IMG_4822 has frame reordering (`cts !== dts` on 1433 of 1911
-samples); IMG_5132 has none (0 of 3192). We fed chunks in decode order stamped with composition
-time, so on 4822 the third chunk ran 66.7ms backwards and WebKit refused the stream. B774 stamps
-chunks with decode time on a reordered stream and re-stamps frames to presentation time on output.
-**Streams with no reordering are untouched, so this cannot regress anything that works today.**
+**⭐ THE BAKE WORKS. Daniel baked IMG_4822 in Safari with no incident.** B775's leading-picture drop
+is confirmed. The three-build chase is closed.
 
-**⚠️ THREE FACTS THAT MUST SURVIVE A COMPACTION:**
+**Fixed:** the Loop Builder stage collapsing to 300x150 during a bake, taking the `baking…` cover
+with it. A B773 regression that could only appear on a bake that SUCCEEDS, which is why nobody saw
+it until now.
 
-1. **DESKTOP SAFARI IS THE iPAD's ENGINE FAMILY AND IT REPRODUCES.** 4822 fails instantly there,
-   5132 completes. **Try Safari before booking a device session** — this arc spent four builds on a
-   bug that was reproducible on the Mac and readable from the files.
-2. **BOTH DEAD HYPOTHESES STAY DEAD.** 10-bit HEVC (B772: both clips are Main 10) and decoder
-   exhaustion (B773: shed worked, `decode: 2` where it was 5, failed anyway). B773's shed keeps its
-   place because it was always free, not because it was the cause.
-3. **IMG_5132 STILL FAILS SOMETIMES AND B774 IS NOT ITS FIX.** It has no reordering. Open.
+### 🔬 TWO SAFARI SYMPTOMS MEASURED RATHER THAN GUESSED, AND BOTH CAME BACK CLEAN
+
+- **Loop detection.** IMG_4822 `dLoop 75.6`, IMG_5132 `dLoop 46.0`, threshold 28, both seeks landed.
+  **Both read correctly as NOT loops.** Ruled out: stale captures (a seek probe found `seeked`
+  already implies a rasterizable frame on WebKit, 12-40ms per seek), a stale trim (`loadVideo`
+  resets inT/outT on every load), and the fix missing desktop (one shared function).
+  **NOT ruled out: the baked clip.** A slice bake produces a seamless loop, so the badge on the
+  bake's OUTPUT is correct. **Ask which clip before treating this as a bug.**
+- **Motion scrubbing in Safari.** No attribution, and seeking is not the suspect. **Safari renders
+  every canvas black already (B775)** — treat motion symptoms there as downstream of that until the
+  black-canvas bug is fixed.
+
+### ▶ THE HIGHEST-VALUE NEXT ITEM IS THE SAFARI BLACK CANVAS
+
+B775 made desktop Safari the cheapest proxy for the iPad's engine and it immediately paid for
+itself. **A proxy we cannot see the picture on is worth much less**, and it is now also blocking
+attribution of everything else Daniel sees there. Class 1: Safari's error console will name it.
+
+---
+
+## ▶▶▶▶▶▶▶▶▶▶▶▶▶▶▶▶▶▶▶▶▶▶ B775 (2026-08-28) — ⚠️ READ FIRST AFTER A COMPACTION
+
+**THE BAKE FAILURE IS LEADING PICTURES AFTER A SEEK, AND IT IS FIXED.** IMG_4822's sync samples are
+CRA pictures followed by leading pictures that present before them; 68 of its 69 sync points have
+them and **sample 0 is the only one that does not.** Decoding from the top resolves them, seeking to
+any other sync point cannot, and WebKit fails the whole stream. IMG_5132 has 0 of 27. The slice
+bake's second reader seeks to the cut point, so it died every time.
+
+The fix is the spec's `NoRaslOutputFlag` rule using index fields we already had: after a seek, drop
+samples that present before the sync sample. No NAL parsing.
+
+### ⭐⭐ THE THING TO CHANGE ABOUT HOW WE WORK
+
+**DESKTOP SAFARI IS THE iPAD's ENGINE FAMILY AND IT REPRODUCES THESE BUGS.** Four builds and three
+device sessions went at a failure that was reproducible on the Mac in two seconds. **Try Safari
+before booking a device session.**
+
+**`docs/temp/webcodecs-probe/` is the second half of that**, and it is what actually cracked this:
+a bare `VideoDecoder`, one variable per run, results POSTed back to a file. Control failed,
+treatment passed, and the unaffected clip skipped nothing — all before the app change shipped.
+
+### ⚠️ B774 WAS WRONG AND IS REVERTED. READ THIS BEFORE RE-DERIVING IT.
+
+B774 blamed non-monotonic composition timestamps on a reordered stream. **The probe decoded
+IMG_4822 cleanly with those exact timestamps, 200 samples for 200 frames.** WebKit accepts them.
+
+**B-frames were the right discriminator and the wrong mechanism** — open GOPs only occur in streams
+that have B-frames, so a correct file-level measurement pointed at the correct file and an incorrect
+cause. It survived four builds because nothing isolated a single variable. **Three hypotheses have
+now died on this one bug: 10-bit HEVC (B772), decoder exhaustion (B773), timestamps (B775).**
+
+### ▶ WHAT NEEDS CHECKING
+
+1. **Bake IMG_4822 in Safari, then on the iPad.** Both should now complete. `bakeDecode.worstTarget`
+   carries `openGopSyncs` and `leadSkipped` — 4822 should show 68 and a small non-zero skip count,
+   5132 should show 0 and 0.
+2. **IMG_5132 still fails SOMETIMES and B775 is not its fix.** It has no open-GOP sync points. Open.
+
+### 🐞 NEW, FILED, NOT FIXED: DESKTOP SAFARI RENDERS EVERY CANVAS BLACK
+
+Daniel, B775: *"none of our canvases loaded, they blacked out without seeming to realize they were in
+a failure state."* The Loop Builder's preview and thumbnails DID load, which places it in the WebGL2
+engine, not in decode. **This is now the tax on the Safari shortcut above and worth paying** — a
+proxy device we cannot see the picture on is worth much less. Class 1; Safari's error console should
+name it. The silent part is the real defect.
 
 ### ▶ STILL OPEN AND UNATTRIBUTED, both state A
 

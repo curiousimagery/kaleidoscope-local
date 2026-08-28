@@ -6,6 +6,57 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.29.4 · Build 776 — THE BAKING COVER NO LONGER COLLAPSES, AND TWO SAFARI REPORTS MEASURED
+
+**Shipped:** the Loop Builder stage keeps its size while a bake runs.
+
+### 🐞 A B773 REGRESSION THAT COULD ONLY APPEAR ON A BAKE THAT SUCCEEDS
+
+Daniel: *"the baking canvas gets tiny in safari during the render and i'd expect it to keep the same
+size and shape as the prior preview."*
+
+`.clip-video` is `width: 100%` with no height, so its box comes from the loaded video's intrinsic
+aspect ratio. B773's shed calls `removeAttribute('src')` + `load()`, which throws that aspect away,
+and the element falls back to the default 300x150 — taking `.clip-baking` with it, since the cover is
+`position: absolute; inset: 0` on the same stage.
+
+**It surfaced the first time a bake completed with the shed on**, which is exactly B773's own
+warning about verifying the second interaction rather than the first. The stage is now pinned to the
+preview's rendered height across the shed and released when the preview comes back or the surface
+closes.
+
+### 🔬 THE LOOP FALSE POSITIVE DID NOT REPRODUCE, AND HERE ARE THE NUMBERS
+
+Measured in desktop Safari with `docs/temp/webcodecs-probe/`, running the app's exact grab, threshold
+and diff:
+
+```
+IMG_4822   dLoop 75.6   threshold 28   verdict: NOT a loop   seeks 0.03/0.03  63.67/63.68
+IMG_5132   dLoop 46.0   threshold 28   verdict: NOT a loop   seeks 0.03/0.03 106.40/106.40
+```
+
+Both source clips read correctly, and both seeks landed. **Three candidate causes are ruled out:**
+
+- **Stale captures.** A separate probe seeked five times per clip and compared the pixels sampled at
+  `seeked` against the pixels after waiting for the next presented frame. **Identical in every
+  row** — on WebKit, `seeked` already implies the correct frame is rasterizable, and seeks took
+  12-40ms. B768's stale-frame failure mode is not present here.
+- **A stale trim.** `loadVideo` resets `inT`/`outT` to 0/1 on every load, including the post-bake
+  swap, so the grabs cannot be pinched into a narrow range.
+- **The fix not reaching desktop.** It is one shared function with one call path.
+
+**What is NOT ruled out is the baked clip itself.** A slice bake produces a seamless loop, so the
+badge appearing on the bake's output is the correct answer rather than a false one. Which clip the
+badge appeared on is the open question, and it decides whether there is a bug here at all.
+
+### ⚠️ NOT ADDRESSED: MOTION SCRUBBING IN SAFARI
+
+*"scrubbing the timeline is very sluggish and it doesn't actually move over the timeline at all it
+just tweens the keyframe position on the last active frame."* No attribution. **Safari's engine is
+already known to be in a degraded state** — every canvas renders black there (filed B775) — so a
+motion-mode symptom in the same browser is more likely downstream of that than a separate bug.
+Seeking is not the suspect: it measured 12-40ms per seek.
+
 ## v0.29.3 · Build 775 — THE BAKE FAILURE IS LEADING PICTURES, PROVEN IN A PROBE BEFORE IT SHIPPED
 
 **Shipped:**

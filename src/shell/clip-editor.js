@@ -120,8 +120,31 @@ export function createClipEditor(env) {
   // only one that actually frees an element's decode pipeline. Dropping the reference does not.
   function shedClipPreviews() {
     if (!clipTokens.length) return false;      // already shed; nothing to give back later
+    // ⚠️ B776 — PIN THE STAGE BEFORE THE SHED, OR THE "baking…" COVER COLLAPSES WITH IT.
+    //
+    // `.clip-video` is `width: 100%` with NO height, so its box comes from the loaded video's
+    // intrinsic aspect ratio. The shed calls `removeAttribute('src')` + `load()`, which throws that
+    // aspect away, and the element falls back to the default 300x150 — taking `.clip-baking` down
+    // with it, because the cover is `position: absolute; inset: 0` on the same stage.
+    //
+    // **B773 regression, and it could only appear on a bake that SUCCEEDS**, which is why it
+    // surfaced the first time Daniel got one: *"the baking canvas gets tiny in safari during the
+    // render and i'd expect it to keep the same size and shape as the prior preview."*
+    const stage = document.querySelector('.clip-stage');
+    const pv = env.clip.prevVideo;
+    if (stage && pv) {
+      const h = Math.round(pv.getBoundingClientRect().height);
+      if (h > 0) stage.style.minHeight = h + 'px';
+    }
     releaseClipPreviewElements();
     return true;
+  }
+
+  // B776 — release the pin above. Called where the stage gets its own size back: after a restored
+  // preview reports its dimensions, and whenever the surface closes.
+  function unpinClipStage() {
+    const stage = document.querySelector('.clip-stage');
+    if (stage) stage.style.minHeight = '';
   }
 
   // Give them back, and make the panels that depend on them rebuild. `lastThumbMode = null` is what
@@ -133,7 +156,7 @@ export function createClipEditor(env) {
     mountClipPreviews();
     lastThumbMode = null;
     const pv = env.clip.prevVideo;
-    const after = () => { try { buildLoopThumbs(); renderClipTrim(); } catch { /* the sheet may be closing */ } };
+    const after = () => { unpinClipStage(); try { buildLoopThumbs(); renderClipTrim(); } catch { /* the sheet may be closing */ } };
     if (pv && pv.readyState >= 1) after();
     else pv?.addEventListener('loadedmetadata', after, { once: true });
   }
@@ -184,6 +207,7 @@ export function createClipEditor(env) {
     requestAnimationFrame(() => { env.arrangeSlots?.(); env.resizePreviewCanvas?.(); });
   }
   function hideLoopSurface() {
+    unpinClipStage();          // B776 — the success path never restores, so the pin is cleared here
     document.body.classList.remove('loop-active');
     const sheet = document.getElementById('clipSheet');
     if (sheet) { sheet.hidden = true; sheet.style.top = ''; }
