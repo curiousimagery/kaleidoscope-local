@@ -236,18 +236,27 @@ reference for tuning `?tone=`, and it is the strongest calibration signal this a
 then decide whether the other two paths need routing through the seam. `colorFromVideoFrame()` exists
 for when they do.
 
-### ✅ [ROOT-CAUSED AND FIXED B774 — IT IS B-FRAMES] THE BAKE FAILS ON iPAD
+### ✅ [ROOT-CAUSED AND FIXED B775 — LEADING PICTURES AFTER A SEEK] THE BAKE FAILS ON iPAD
 
-**⭐ THE ANSWER, and it is a property of the FILE, not of the device or the session.** IMG_4822 has
-B-frames (`cts !== dts` on 1433 of 1911 samples, 955 backward steps, the first at sample index 2);
-IMG_5132 has none (0 of 3192). We fed chunks in decode order stamped with composition time, so on
-4822 the third chunk ran backwards and WebKit refused the stream. **Confirmed in desktop Safari**,
-which is the same engine family as the iPad and needs no device.
+**⭐ THE ANSWER, and it is a property of the FILE plus the ACT OF SEEKING.** IMG_4822's sync samples
+are CRA pictures with leading pictures after them: 68 of its 69 sync samples have them, and
+**sample 0 is the only one that does not.** Decoding from the top resolves them; seeking to any
+other sync point cannot, and WebKit fails the whole stream. IMG_5132 has 0 of 27. The slice bake's
+second reader seeks to the cut point, so it died every time.
 
-**Fixed B774:** chunks carry decode time on a reordered stream, frames are re-stamped to
-presentation time on output, and streams with no reordering are byte-identical to before.
+**Fixed B775:** after a seek, drop samples that present before the sync sample we landed on
+(`NoRaslOutputFlag`, expressed with the index fields we already have). **Proven in
+`docs/temp/webcodecs-probe/` in desktop Safari before shipping**: control fails, treatment passes,
+IMG_5132 skips nothing.
 
-**⚠️ STILL OPEN: why IMG_5132 fails SOMETIMES.** It has no reordering, so B774 is not its fix. One
+**⚠️ B774'S DIAGNOSIS WAS WRONG AND IS REVERTED.** It blamed non-monotonic composition timestamps;
+the probe decoded IMG_4822 cleanly with those exact timestamps. B-frames are the right
+discriminator between the two clips and were the wrong mechanism, because open GOPs only occur in
+streams that have B-frames. **The correlation survived four builds because nothing ever isolated a
+single variable.**
+
+**⚠️ STILL OPEN: why IMG_5132 fails SOMETIMES.** It has no open-GOP sync points, so B775 is not its
+fix either. One
 clean instance with a report is what that needs.
 
 **⚠️ AND THE DECODER-EXHAUSTION THEORY BELOW IS DEAD.** B773's instrument killed it on the first
@@ -343,6 +352,22 @@ should say why the fast path was skipped is answering about a different operatio
 10-bit**. Whether WebKit's `VideoDecoder` genuinely refuses it at 4K is not established, because the
 report cannot currently tell us. **Do not spend a device session on this**: the fix is to stamp the
 gate report with the operation that produced it, and then one ordinary bake answers it.
+
+### 🟠 [OPEN — Daniel, B775] DESKTOP SAFARI: EVERY CANVAS RENDERS BLACK, AND NOTHING REPORTS A FAILURE
+
+*"none of our canvases loaded, they blacked out without seeming to realize they were in a failure
+state"* — Safari 26.5.2 on macOS, `npm run dev`. The Loop Builder's preview and thumbnails DID load,
+which places it in the WebGL2 engine rather than in decode or in the source pipeline.
+
+**This now matters more than it looks.** B775 established desktop Safari as the cheapest proxy for
+the iPad's engine, and it just root-caused a bug that cost four builds. **A dev target we cannot see
+the picture on is worth much less**, so this is the tax on that shortcut and it should be paid.
+
+**▶ Class 1 and free:** a WebGL2 shader that compiles in Blink and not in WebKit is the first
+suspect, and Safari's own error console will name it. Second suspect is a context-creation option we
+pass that WebKit refuses. **The silent part is the real defect either way** — the engine has
+`gl-watch` and a whole reporting channel, and a total render failure reached the operator as a black
+rectangle.
 
 ### 🚨 [OPEN — Daniel, B765, NO REPORT YET] SWITCHING TO PERFORM KILLED THE APP: ALL PANELS LOST, THEN TOTAL BLACKOUT
 

@@ -154,9 +154,7 @@ async function demuxStreaming(blob) {
   for (let k = 0; k < raw.length; k++) {
     const smp = raw[k];
     index[k] = {
-      // ⚠️ B774 — `dts` IS NOT REDUNDANT WITH `cts`, AND THE DIFFERENCE IS A DECODER FAILURE.
-      // They are equal only in a stream with no frame reordering. See `reorder` below.
-      cts: smp.cts, dts: smp.dts, duration: smp.duration, timescale: smp.timescale,
+      cts: smp.cts, duration: smp.duration, timescale: smp.timescale,
       is_sync: !!smp.is_sync, size: smp.size, off: smp.offset,
     };
   }
@@ -185,8 +183,6 @@ async function demuxStreaming(blob) {
 
 // ISO track matrix → clockwise rotation in degrees (0/90/180/270). a=m[0], b=m[1] in 16.16.
 const usOf = (s) => Math.round((s.cts * 1e6) / s.timescale);
-// B774 — decode timestamp, in the same units. Equal to `usOf` unless the stream reorders frames.
-const dtsOf = (s) => Math.round((s.dts * 1e6) / s.timescale);
 
 // B736 — the most sample bytes one feed batch will read from the file in a single slice.
 const FEED_BYTES = 8 * 1024 * 1024;
@@ -515,24 +511,33 @@ export async function openSharedSource(url, opts = {}) {
   }
   syncPoints.sort((a, b) => a.us - b.us);
 
-  // ⚠️⚠️ B774 — DOES THIS STREAM REORDER FRAMES? This one boolean is the whole IMG_4822 bug.
+  // ⚠️⚠️ B775 — LEADING PICTURES, AND THIS IS THE WHOLE IMG_4822 BUG.
   //
-  // Measured on Daniel's two test clips, from the files themselves rather than from a device:
+  // A sync sample is not always a clean random-access point. HEVC open GOPs start at a CRA picture
+  // that is followed IN DECODE ORDER by "leading" pictures which precede it IN OUTPUT ORDER and
+  // reference frames from before it. Decode from the file's start and they resolve. **Seek to that
+  // CRA and they cannot**, and WebKit fails the whole stream with `EncodingError: Decoder failure`
+  // rather than dropping them.
   //
-  //     IMG_5132.MOV  cts !== dts on     0 of 3192 samples,   0 backward steps  — bakes fine
-  //     IMG_4822.MOV  cts !== dts on  1433 of 1911 samples, 955 backward steps  — NEVER bakes
+  // Measured on Daniel's two clips, from the files themselves:
   //
-  // 4822 has B-frames, so decode order is not presentation order. We feed chunks in DECODE order
-  // and stamped them with COMPOSITION time, so the third chunk we hand the decoder claims to be
-  // 66.7ms EARLIER than the second. WebKit refuses that with `EncodingError: Decoder failure` a few
-  // chunks in — 49-83ms after the gate armed, in three separate device reports — while Chromium
-  // tolerates it, which is exactly why the same bake worked in Brave and never on iPad.
-  // **Confirmed in desktop Safari on B773: 4822 fails instantly, 5132 completes.**
+  //     IMG_5132.MOV   27 sync samples,  0 with leading pictures  — every seek works
+  //     IMG_4822.MOV   69 sync samples, 68 with leading pictures  — every seek but sample 0 fails
   //
-  // ⚠️ THE GATE IS THE POINT, not just the fix. A stream with no reordering takes the identical
-  // path it took before this build — same timestamps, same chunks, no re-stamping — so this cannot
-  // regress a file that works today. It can only reach files that are currently 100% broken.
-  const reorder = index.some((s) => s.cts !== s.dts);
+  // **Sample 0 is the one sync point in 4822 with no leading pictures**, which is exactly why
+  // decoding from the top always worked and every bake died: the slice bake's second reader seeks
+  // to the cut point, and the bounce bake seeks on every backward jump.
+  //
+  // Identified WITHOUT NAL parsing: a leading picture is precisely a sample decoded after the sync
+  // sample whose PRESENTATION time precedes it. The index already has that. See `leadFloorUs`.
+  const openGopSyncs = (() => {
+    let n = 0;
+    for (let k = 0; k < index.length; k++) {
+      if (!index[k].is_sync) continue;
+      if (k + 1 < index.length && index[k + 1].cts < index[k].cts) n++;
+    }
+    return n;
+  })();
 
   const durSec = track.duration && track.timescale ? track.duration / track.timescale : 0;
   const nSamples = track.nb_samples || index.length;
@@ -545,7 +550,7 @@ export async function openSharedSource(url, opts = {}) {
   }
 
   const source = {
-    config, index, bytes, syncPoints, rotation, fileBytes, reorder,
+    config, index, bytes, syncPoints, rotation, fileBytes, openGopSyncs,
     codec: config.codec,
     fps: durSec > 0 && nSamples > 1 ? nSamples / durSec : 0,
     mbps: durSec > 0 ? +((fileBytes * 8) / durSec / 1e6).toFixed(1) : 0,
@@ -581,34 +586,27 @@ export async function createSequentialFrameReader(url, opts = {}) {
 }
 
 function makeReader(source, onClosed) {
-  const { config, index, bytes, syncPoints, rotation, fileBytes, reorder } = source;
-  // ⚠️⚠️ B774 — ON A REORDERED STREAM THE CHUNK CARRIES DECODE TIME, NOT COMPOSITION TIME.
-  //
-  // Chunks are fed in decode order. Stamping them with composition time makes the sequence run
-  // BACKWARDS wherever there are B-frames, and WebKit rejects that outright (see `reorder` in
-  // openSharedSource for the measurement and the two clips it came from). Decode time is
-  // monotonic by construction, which is the property the decoder actually needs from this field.
-  //
-  // Everything downstream — `frameAt`, the reverse cache, the hole rule, `syncPoints` — reasons in
-  // PRESENTATION time, so the frames are re-stamped back on the way out. `ptsOfDts` is that map.
-  // On a non-reordering stream the two are equal and none of this engages.
-  const ptsOfDts = reorder ? new Map() : null;
-  const chunkOf = (s, data) => {
-    const durUs = Math.max(1, Math.round((s.duration * 1e6) / s.timescale));
-    if (reorder) ptsOfDts.set(dtsOf(s), { pts: usOf(s), dur: durUs });
-    return new EncodedVideoChunk({
-      type: s.is_sync ? 'key' : 'delta',
-      timestamp: reorder ? dtsOf(s) : usOf(s),
-      duration: durUs,
-      data,
-    });
-  };
+  const { config, index, bytes, syncPoints, rotation, fileBytes, openGopSyncs } = source;
+  // ⚠️ B774 TRIED DECODE-TIME STAMPS HERE AND IT WAS NOT THE BUG. A standalone WebCodecs probe in
+  // desktop Safari decoded IMG_4822 cleanly with these composition-time stamps, 200 samples for 200
+  // frames. WebKit accepts non-monotonic presentation timestamps in decode order. Reverted; the
+  // real cause is `leadFloorUs` below.
+  const chunkOf = (s, data) => new EncodedVideoChunk({
+    type: s.is_sync ? 'key' : 'delta',
+    timestamp: usOf(s),
+    duration: Math.max(1, Math.round((s.duration * 1e6) / s.timescale)),
+    data,
+  });
 
   let outQ = [];          // decoded frames, presentation order
   let decErr = null;
   let dec = null;
   let i = 0;              // next sample (decode order) to feed
   let flushing = false, flushDone = false;
+  // ⚠️ B775 — the leading-picture floor. Non-null only between a seek and the first sample that
+  // presents AFTER the sync point we landed on. See `openGopSyncs` in openSharedSource.
+  let leadFloorUs = null;
+  let leadSkipped = 0;
   let lastTargetUs = -Infinity;
   // how far ahead a target has to be before we SEEK to it rather than decode our way there.
   // 2s is comfortably longer than any sane GOP, so the ordinary forward march never trips it.
@@ -689,33 +687,13 @@ function makeReader(source, onClosed) {
   // for fixing it — and it is the standing rule (an uncollectable diagnostic is no diagnostic).
   const readerToken = acquireSession('decode', 'bake: frame reader');
 
-  // ⚠️ B774 — PUT PRESENTATION TIME BACK ON THE FRAME. The decoder hands back the timestamp we
-  // gave its chunk, so on a reordered stream every output would otherwise carry DECODE time and
-  // every comparison in `frameAt` would be against the wrong clock — a wrong-noun bug that would
-  // look like frames arriving in the wrong order rather than like a timestamp mistake.
-  //
-  // `new VideoFrame(frame, …)` wraps rather than copies, and the original is closed immediately so
-  // the frame count the ledger sees is unchanged. If the wrap ever fails we keep the raw frame
-  // rather than dropping it: a frame on the wrong clock is recoverable, a missing frame is not.
-  function restamp(f) {
-    if (!reorder) return f;
-    const m = ptsOfDts.get(f.timestamp);
-    if (!m) return f;                      // unknown chunk (post-reset drain) — leave it alone
-    ptsOfDts.delete(f.timestamp);
-    try {
-      const w = new VideoFrame(f, { timestamp: m.pts, duration: m.dur });
-      f.close();
-      return w;
-    } catch { return f; }
-  }
-
   function makeDecoder() {
     const d = new VideoDecoder({
       output: (f) => {
         if (closed) { f.close(); return; }
         framesDecoded++;
         lastOutputAt = performance.now();   // B721 — "is the decoder still alive" needs a clock, not a count
-        outQ.push(restamp(f));
+        outQ.push(f);
       },
       error: (e) => { decErr = e; noteDecodeError(e, 'VideoDecoder.error'); },
     });
@@ -760,6 +738,23 @@ function makeReader(source, onClosed) {
       if (closed || gen !== myGen) return;       // reset landed mid-read: this batch is stale
       for (let k = start; k < end; k++) {
         const smp = index[k];
+        // ⚠️⚠️ B775 — DROP THE LEADING PICTURES AFTER A SEEK. THIS IS THE BAKE FIX.
+        //
+        // After random access at a CRA, the samples that follow it in decode order but present
+        // BEFORE it reference frames that were never decoded. The spec's answer is to discard them
+        // (NoRaslOutputFlag); WebKit's answer to being fed them is to fail the whole stream. So the
+        // rule is exactly the spec's, expressed in the two fields the index already carries.
+        //
+        // The floor is the sync sample's own presentation time, so the sync sample itself is fed
+        // (equal, not less) and the floor clears on the first sample that presents after it — which
+        // is where the leading run always ends. **The target can never be one of these**: `resetTo`
+        // picks the greatest sync point at or before the target, so every dropped sample presents
+        // strictly before a frame we are already committed to passing.
+        if (leadFloorUs !== null) {
+          const us = usOf(smp);
+          if (us < leadFloorUs) { leadSkipped++; gopWalk++; continue; }
+          if (us > leadFloorUs) leadFloorUs = null;
+        }
         const at = smp.off - from;
         dec.decode(chunkOf(smp, buf.subarray(at, at + smp.size)));
         gopWalk++;
@@ -883,10 +878,6 @@ function makeReader(source, onClosed) {
     gen++;                     // B735 — discard any feed batch still awaiting its read
 
     drainQ();
-    // B774 — the map holds one small entry per chunk IN FLIGHT, and a reset abandons every chunk
-    // that has not come back out. Without this it is a slow leak on exactly the path that runs most
-    // (the bounce bake resets per backward jump), and stale entries could re-stamp a later frame.
-    ptsOfDts?.clear();
     try { dec.reset(); } catch { /* already closed */ }
     try { dec.configure(config); } catch { dec = makeDecoder(); }
     flushing = false; flushDone = false;
@@ -897,6 +888,9 @@ function makeReader(source, onClosed) {
       else hi = mid - 1;
     }
     i = k;
+    // B775 — arm the leading-picture drop for the GOP we just landed in. Harmless on a closed GOP:
+    // nothing presents before the sync sample, so the floor clears on the very next sample.
+    leadFloorUs = usOf(index[k]);
     gopWalk = 0;   // samples fed from here to the target IS the re-decode this reset costs
   }
 
@@ -919,7 +913,7 @@ function makeReader(source, onClosed) {
     mbps: source.mbps,
     // B716 — the most expensive single target this reader served, success or timeout. Read it
     // after a bake (or after a failure) and compare `decoded` across platforms before `ms`.
-    worstTarget: () => (worst ? { ...worst, holes: holesBridged, holesRounding } : null),
+    worstTarget: () => (worst ? { ...worst, holes: holesBridged, holesRounding, openGopSyncs, leadSkipped } : null),
     rotation,   // clockwise degrees the consumer must apply when drawing decoded frames
     fps: source.fps,   // measured source frame rate (0 = unknown) — nb_samples over the duration
 

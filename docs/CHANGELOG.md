@@ -6,6 +6,68 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.29.3 · Build 775 — THE BAKE FAILURE IS LEADING PICTURES, PROVEN IN A PROBE BEFORE IT SHIPPED
+
+**Shipped:**
+- After a seek, the reader drops the leading pictures that follow the sync sample in decode order but present before it. That is the bake fix.
+- `docs/temp/webcodecs-probe/` — a standalone WebCodecs probe that takes the app out of the picture.
+- **B774 is reverted.** Its diagnosis was wrong and its machinery is gone.
+
+### ⭐⭐ IT WAS NEVER THE B-FRAMES. IT WAS SEEKING.
+
+A sync sample is not always a clean random-access point. HEVC open GOPs begin at a CRA picture
+followed IN DECODE ORDER by leading pictures that present BEFORE it and reference frames from before
+it. Decode from the file's start and they resolve. **Seek to that CRA and they cannot**, and WebKit
+fails the entire stream with `EncodingError: Decoder failure` instead of dropping them.
+
+| | IMG_5132 | **IMG_4822** |
+|---|---|---|
+| sync samples | 27 | 69 |
+| **with leading pictures** | **0** | **68** |
+| longest leading run | 0 | 3 |
+
+**Sample 0 is the one sync point in 4822 with no leading pictures.** That is the whole pattern:
+decoding from the top always worked, and every bake died, because the slice bake's second reader
+seeks to the cut point and the bounce bake seeks on every backward jump.
+
+The fix is the spec's own rule (`NoRaslOutputFlag`) expressed in two fields the index already
+carries: **a leading picture is a sample decoded after the sync sample that presents before it.** No
+NAL parsing. The floor clears on the first sample presenting after the sync point, and the target
+can never be dropped because `resetTo` lands on the greatest sync point at or before it.
+
+### 🧪 PROVEN IN A PROBE, NOT ON A DEVICE, AND NOT AFTER SHIPPING
+
+`docs/temp/webcodecs-probe/` serves both clips to a page that drives a bare `VideoDecoder` and posts
+its results back. Desktop Safari, one variable per run:
+
+```
+IMG_4822  mid-file seek, NO drop     fed 240, out   0, EncodingError: Decoder failure
+IMG_4822  mid-file seek, DROP        fed 237, out  99, skipped 3, no error
+IMG_5132  mid-file seek, DROP        fed 240, out  91, skipped 0, no error
+```
+
+**Control fails, treatment passes, and the unaffected file skips nothing.** Written before the app
+change and re-run after it.
+
+### 🔁 B774 IS REVERTED, AND THE REASON IS WORTH MORE THAN THE CODE
+
+B774 claimed the cause was non-monotonic composition timestamps on a reordered stream and shipped
+decode-time stamping with an output re-stamp. **The probe decoded IMG_4822 cleanly with the ORIGINAL
+composition-time stamps — 200 samples, 200 frames.** WebKit accepts them. The theory was wrong and
+the machinery is gone from the decode path.
+
+**What made it wrong was a correlation that survived because it was never tested directly.** B-frames
+really are the discriminator between the two clips, and open GOPs only occur in streams that have
+them, so the file-level measurement pointed at the right file and the wrong mechanism. **The
+difference between B774 and B775 is not more evidence, it is a probe that could isolate ONE
+variable** — and it took about the same time as writing B774's fix did.
+
+### 📌 THE STANDING CHANGE THIS SHOULD MAKE
+
+**Desktop Safari is the iPad's engine family, and it reproduced this exactly.** Four builds and three
+device sessions went at a bug that was reproducible on the Mac. `DEVICE-TESTING.md` now has a rule
+ahead of every other channel: **try Safari before booking a device session.**
+
 ## v0.29.2 · Build 774 — THE BAKE FAILURE IS B-FRAMES, AND IT WAS READABLE FROM THE FILES ALL ALONG
 
 **Shipped:** on a stream whose decode order differs from its presentation order, `EncodedVideoChunk`
