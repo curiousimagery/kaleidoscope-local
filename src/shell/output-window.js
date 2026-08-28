@@ -32,6 +32,7 @@
 //   - live camera  → the deviceId (the popup opens its OWN capture of that device)
 
 import { createSurfacePoster } from 'conduit/external-surface';
+import { perfFlags } from './perf-flags.js';
 
 const CHANNEL = 'fold-output';
 
@@ -43,7 +44,14 @@ function sourceSignature(env) {
   // instead of the program, and releases its own decoder (see buildSourcePayload)
   if (env.loopIsActive?.()) return 'loop:' + (env.clip?.baking ? 'bake' : 'edit');
   if (env.live?.isLive) return 'cam:' + (env.liveCameraInfo?.()?.deviceId || '');
-  if (env.sourceVideo && env.media?.sourceVideoUrl) return 'vid:' + env.media.sourceVideoUrl;
+  // ⚠️ B773 — THE HDR FLAG RIDES THE SIGNATURE, the same mechanism the iPad's tone uses (B764).
+  // The popup runs its OWN engine in its OWN document, so `allEngines()` in this document does not
+  // reach it and `env.reapplyEngineMeta()` cannot either. Re-posting the payload is the only
+  // channel there is, and changing the signature is what triggers a re-post — without this, the
+  // toggle would only take effect on the next source load.
+  if (env.sourceVideo && env.media?.sourceVideoUrl) {
+    return 'vid:' + env.media.sourceVideoUrl + (perfFlags.hdrViaCanvas ? ':hdrcanvas' : '');
+  }
   const src = env.engine?.getSourceImage?.();
   if (src) return 'img:' + (src.src || src.currentSrc || env.media?.sourceFilename || '1');
   return 'none';
@@ -73,7 +81,17 @@ async function buildSourcePayload(env) {
     };
   }
   if (env.sourceVideo && env.media?.sourceVideoUrl) {
-    return { kind: 'video', url: env.media.sourceVideoUrl };
+    // ⚠️ B773 — COLOUR HAS TO TRAVEL WITH THE URL. Daniel, B772: *"it works great for motion and
+    // perform modes in app but doesn't seem to be reaching the broadcast output."* Correct, and
+    // the reason is structural: this payload named a file and nothing else, so the popup's engine
+    // fell back to `DEFAULT_COLOR` (BT.709 SDR) for an HDR clip and never heard about the flag.
+    //
+    // ⚠️ `color` is here to let the popup's `isHDR()` gate answer, NOT to run a transform — this
+    // path has no planar blitter, so the 2D-canvas detour is the only correction available. That
+    // is why `tone` is deliberately absent: it lives in the blitter and would do nothing here.
+    // The external-display sibling carries tone because its payload IS the planar path.
+    return { kind: 'video', url: env.media.sourceVideoUrl,
+             color: env.sourceColor || null, hdrViaCanvas: !!perfFlags.hdrViaCanvas };
   }
   const src = env.engine?.getSourceImage?.();
   if (src) {

@@ -32,7 +32,64 @@ Archived at B658. It was marked superseded at B609 and kept for the reasoning be
 
 ## current version
 
-**v0.29.0 · B772** (2026-08-28). Minor bumped at B738 for the O(1) bake landing on hardware.
+**v0.29.1 · B773** (2026-08-28). Minor bumped at B738 for the O(1) bake landing on hardware.
+
+---
+
+## ▶▶▶▶▶▶▶▶▶▶▶▶▶▶▶▶▶▶▶▶ B773 (2026-08-28) — ⚠️ READ FIRST AFTER A COMPACTION
+
+**Two fixes, both of which had already been half-built and switched off.**
+
+### 1. The bake sheds the Loop Builder's decoders again
+
+`shedClipPreviews` has existed since B711 and was reverted at B714 to `const shed = false;`. It is
+back on, and the thing that makes it safe is new: **the element-seek fallback now mounts its own
+hidden `<video>`** instead of borrowing the stage preview. B714's regression was that shedding
+killed the element the fallback reads from.
+
+**⚠️ AND `v0-BakeFailure.json` DID NOT RUN ON THAT FALLBACK, despite saying so.** `worstTarget()`
+returns null when no target completes, so an armed-then-dead reader landed in the same branch as a
+never-armed one, and that branch hardcoded `reader: 'element-seek fallback'`. The same report
+carries `codec` / `srcBytes` / `mbps`, which only exist when a reader was alive to be asked. **Both
+readers armed and the decoder died 49ms later.** Fixed: the branch now counts readers and publishes
+`readersOpened`. **Do not quote a `reader` field from any pre-B773 report.**
+
+**⚠️ B772'S COUNT CLAIM WAS OVERSTATED AND IS CORRECTED IN THE BACKLOG.** `sessions.peak.decode`
+reads **7 in the successful report too**, the two `now` snapshots come from different points in the
+lifecycle, and the two reports are different clips. **Uncertainty state C.** The shed ships anyway
+because it never depended on the diagnosis: nothing looks at those three elements while the stage
+sits behind the `baking…` cover.
+
+**⚠️ B712 MEASURED THE WRONG NOUN, AND THAT IS THE DURABLE LESSON.** It reverted B711 on the grounds
+that `sessions.peak.decode` did not move — **and peak is a monotonic high-water for the whole app
+session, so it could not have.** `bakeDecode.sessions` now samples `sessions.now` on the line before
+the first `new VideoDecoder`.
+
+**A dormant bug was found and fixed on the way:** the success path closes the Loop Builder, and the
+`finally` then restored three decoders into a shut surface with nothing left to release them. Gated
+on the sheet now.
+
+### 2. The desktop HDR toggle reaches the broadcast
+
+Daniel: *"it works great for motion and perform modes in app but doesn't seem to be reaching the
+broadcast output."* **The output window is a separate DOCUMENT with its own engine**, so
+`allEngines()` never reached it, and its payload was `{ kind: 'video', url }` — no colour at all. It
+now carries `color` + `hdrViaCanvas`, with the flag on the payload SIGNATURE so a toggle re-posts.
+
+**⚠️ THERE ARE FOUR env-SHAPED SURFACES, NOT THREE.** `output-window.js` and `external-display.js`
+each own a private `sourceSignature` + `buildSourcePayload`, and B764 taught only one of them about
+colour. Anything new describing the PICTURE goes in both.
+
+### ▶ WHAT NEEDS A DEVICE
+
+1. **Bake a 4K clip from the Loop Builder on iPad.** Copy the report and read
+   `bakeDecode.sessions`: `now.decode` should be 2 where it was 5, with `shedFreed: true`. A failure
+   at a LOW count means the lever is not decoder concurrency.
+2. **Cancel a bake, step back to the crossfade.** All three previews must be alive and the thumbnail
+   strip rebuilt.
+3. **Desktop: turn on `hdrViaCanvas` with an HDR clip and open the output window.** Colour should
+   now match the app, and the toggle should take effect live. Report whether ~35ms/frame at 4K is
+   tolerable.
 
 **⭐⭐ THE O(1) BAKE IS NOW MEASURED, NOT MODELLED.** A 2.63GB / 8:21 4K source peaked at **131.6MB**
 against **130.9MB** for a 741MB source. **3.5× the file, 0.7MB more memory.** Both 8GB M1 iPads also

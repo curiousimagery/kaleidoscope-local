@@ -201,8 +201,22 @@ objection is correct and is the reason to do it properly rather than sooner:** *
 architecturally elegant to render differently in different places."*
 
 **▶ WHAT IS TRUE IN THE MEANTIME, stated plainly so nobody rediscovers it:** HDR sources are correct
-on iPad and uncorrected on desktop. SDR sources are unaffected everywhere. The Loop Builder and the
-thumbnails are correct on both, and they are the reference.
+on iPad and uncorrected on desktop UNLESS `hdrViaCanvas` is on. SDR sources are unaffected
+everywhere. The Loop Builder and the thumbnails are correct on both, and they are the reference.
+
+**`hdrViaCanvas` (B772, off by default) is the interim switch**, and B773 closed its broadcast gap.
+It covers preview, motion, perform, record and the desktop output window. **It does NOT cover
+render** — render's fast path is `renderUploadViaCanvas`'s trade, above, and that stays as it is.
+
+**⚠️ THE GAP B773 CLOSED IS WORTH REMEMBERING BECAUSE IT WILL RECUR.** Daniel: *"it works great for
+motion and perform modes in app but doesn't seem to be reaching the broadcast output."* The desktop
+output window is a **separate document running its own engine**, so `allEngines()` and
+`env.reapplyEngineMeta()` cannot reach it — its entire source payload was `{ kind: 'video', url }`.
+**`output-window.js` and `external-display.js` each own a private `sourceSignature` +
+`buildSourcePayload` pair, and B764 taught only one of them about colour.** That is the two-chromes
+rule from CLAUDE.md one layer further out: a fourth env-shaped surface. **Anything new that describes
+the PICTURE has to be added to both payloads and to both signatures** — the signature is what makes
+a live toggle re-post instead of waiting for the next source load.
 
 ### 🗂 [SUPERSEDED BY THE ABOVE — kept for the polarity note] THE COLOUR SURFACES STILL DISAGREE, AND THE THUMBNAILS ARE THE REFERENCE
 
@@ -222,7 +236,7 @@ reference for tuning `?tone=`, and it is the strongest calibration signal this a
 then decide whether the other two paths need routing through the seam. `colorFromVideoFrame()` exists
 for when they do.
 
-### ✅ [ROOT-CAUSED B772 — IT IS DECODER EXHAUSTION, NOT THE CLIP] THE BAKE FAILS ON iPAD
+### ✅ [FIX SHIPPED B773, AWAITING A DEVICE BAKE] THE BAKE FAILS ON iPAD
 
 **Two reports, same session, same build, and they settle it.** Daniel: *"the first attempt was
 successful, so then i went back to the clip that failed and it failed again, which made me think
@@ -231,9 +245,16 @@ well."*
 
 **It is not the clip. It is how many decoders are already open.**
 
+**⚠️ B773 CORRECTION, READ THIS BEFORE QUOTING THE TABLE.** The `now` snapshots below were taken at
+DIFFERENT points in the lifecycle — the success one after the Loop Builder had already closed — and
+**`sessions.peak.decode` reads 7 in BOTH.** The two reports are also different clips (741MB / 3178
+frames / 55.7 Mbps versus 231MB / 1897 frames / 29 Mbps); Daniel's account of re-failing the
+successful clip is consistent with them and is captured in neither. **Uncertainty state C: the
+mechanism is named, the lever is not proven.**
+
 | | ✅ `v0-BakeSuccessful.json` | ❌ `v0-BakeFailure.json` |
 |---|---|---|
-| `sessions.now.decode` | **2** | **5** |
+| `sessions.now.decode` (⚠️ see above) | **2** | **5** |
 | live | preview engine, baked clip, native decode | source `<video>`, native decode, **loop builder: preview**, **loop builder: A-head crossfade**, **loop builder: thumbnail strip** |
 | `deviceFreeMB` before | 460 | 283 |
 | codec | `hvc1.2.4.H156.b0` | `hvc1.2.4.L150.b0` |
@@ -254,9 +275,31 @@ it runs** — it reads the source directly. `clip-editor.js` already has the pat
 `harvestAndRelease`, which releases the bake's readers before the source swap for the same class of
 reason.
 
-**▶ NOT ATTEMPTED IN B772, deliberately.** It is clip-editor surgery on the hottest path in the app,
-and the context left in that session was the exact condition under which three field-dropping bugs
-were shipped this week. **The diagnosis is the durable part; the fix is one focused session.**
+**▶ SHIPPED B773.** The shed already existed (B711) and was switched off by `const shed = false;`
+(B714). What B773 added is what makes it safe: the element-seek fallback now mounts its OWN hidden
+`<video>` instead of borrowing the stage preview, so shedding no longer removes the element the
+fallback reads from.
+
+**⚠️ AND THE FAILING BAKE WAS NOT ON THAT FALLBACK, though the report says it was.** `worstTarget()`
+returns null when no target completes, so an armed-then-dead reader landed in the same branch as a
+never-armed one, and that branch hardcoded the fallback's name. `codec` / `srcBytes` / `mbps` in the
+same report prove readers were alive. **Both armed, the decoder died 49ms later.** B773 publishes
+`readersOpened` alongside. **Do not quote a `reader` field from any pre-B773 report.**
+
+**Two things came out of the fix that outlive it:**
+
+- **B712 measured the wrong noun, and that is why B711 got reverted.** It read
+  `sessions.peak.decode` before and after, and **peak is a monotonic high-water for the whole app
+  session** — it could not have moved. `bakeDecode.sessions` now samples `sessions.now` plus the
+  live list on the line before the first `new VideoDecoder`.
+- **A dormant orphan-decoder bug.** The success path closes the Loop Builder and the `finally` then
+  called `restoreClipPreviews()` unconditionally, re-mounting three decoders against a shut surface.
+  Very plausibly the *"three Loop Builder decoders alive 940s later"* in the session audit. Now
+  gated on the sheet still being open.
+
+**▶ WHAT IS STILL NEEDED: ONE DEVICE BAKE.** Enter the Loop Builder on a 4K clip, bake, and copy the
+report. Read `bakeDecode.sessions` — `now.decode` should be 2 where it was 5, and `shedFreed: true`.
+If it fails anyway with a low count, the lever is not decoder concurrency and the count says so.
 
 **▶ AND IT SUBSUMES THE OLD V3 ITEM** (*"three or more 4K clips in sequence"* / *"decode 7 with three
 Loop Builder decoders alive"*). That was the same observation without a failure attached to it.

@@ -231,6 +231,10 @@ async function setupSource(payload) {
     // planar-handback-ok — the web popup's own <video> over a blob URL. This path exists only
     // where there is no native decode to take planes from.
     videoEl = v;
+    // B773 — set BEFORE `setSource`, so the very first upload already takes the detour rather than
+    // pushing one uncorrected frame to the audience and fixing it on the next one.
+    engine.setSourceColor?.(payload.color || null);
+    engine.setHDRViaCanvas?.(!!payload.hdrViaCanvas);
     engine.setSource(v);
     v.play().catch(() => {});
     liveSource = true; haveSource = true;

@@ -6,6 +6,105 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.29.1 · Build 773 — THE LOOP BUILDER GIVES ITS DECODERS BACK FOR A BAKE, AND THE POPUP LEARNS ABOUT HDR
+
+**Shipped:**
+- The bake now sheds the Loop Builder's three decoders before it opens any of its own, and gives them back on every exit path that still has a surface to give them back to.
+- The element-seek fallback mounts its OWN hidden `<video>` instead of borrowing the stage preview's, which is what makes the shed safe.
+- `bakeDecode.sessions` — the decode-session count sampled at the instant the readers are opened.
+- The desktop output window now receives the source's colour description and the `hdrViaCanvas` flag, so the interim HDR correction reaches the broadcast.
+
+### ⭐ THE SHED WAS ALREADY WRITTEN, AND SWITCHED OFF BY ONE LINE
+
+`mountClipPreviews` / `shedClipPreviews` / `restoreClipPreviews` have existed since B711. B714
+reverted the shed to `const shed = false;` for two reasons. One expired, one did not.
+
+**Expired:** B714 argued the failure was deterministic at a fixed timestamp, so decoder pressure was
+not the story. `v0-BakeFailure.json` is better evidence than that was — five decode sessions live,
+three of them the Loop Builder's, and `VideoDecoder.error` 49ms after a gate that armed cleanly.
+
+**Not expired, and it is why this is not a one-line change:** `decodeV` is the stage preview element,
+and the bake's element-seek fallback seeks it per frame. Shedding kills the element the fallback
+reads from — Daniel's B714 report, *"bake loop on desktop isn't showing the progress bar at all,
+cancel button now says cancelling but can't"*.
+
+The fallback now mounts its own element, lazily, so the common path never pays for it and the
+fallback path is one decoder where three were just released.
+
+### 🐞 AND THE REPORT THAT SENT ME THERE WAS MISLABELLED, WHICH I ONLY CAUGHT WHILE FIXING IT
+
+`v0-BakeFailure.json` says `reader: "element-seek fallback"`, and **the bake never touched that
+path.** `worstTarget()` returns null when a reader completed no target, so a reader that ARMED and
+then had its decoder die landed in the same branch as one that never armed — and that branch
+hardcoded the fallback's name.
+
+The same report proves it: `codec: hvc1.2.4.L150.b0`, `srcBytes` and `mbps` are all present, and
+those fields only exist in `bakeShape` when a reader object was alive to be asked. **Both readers
+armed, the decoder failed 49ms later, and no target completed.** The bake died on the WebCodecs
+path.
+
+That branch now counts the readers and publishes `readersOpened`, so "no reading" and "no reader"
+stop being the same sentence. **An instrument that names a specific path when it means "I have no
+reading" is worse than one that admits the absence**, because the name is actionable and wrong: it
+is what made me describe the fallback as the live failure path in this very entry's first draft.
+
+### ⚠️ THE CLAIM B772 OVERSTATED, CORRECTED HERE
+
+B772 framed the comparison as 2 decoders versus 5. **`sessions.peak.decode` reads 7 in the
+SUCCESSFUL report too**, and the two `now` snapshots were taken at different points in the
+lifecycle — the success one after the Loop Builder had already closed. The two reports are also
+different clips (741MB / 3178 frames versus 231MB / 1897 frames). Daniel's account of re-failing the
+successful clip is consistent with them but is not captured in either.
+
+**Uncertainty state C: the mechanism is named, the lever is not proven.** The shed ships anyway
+because it never needed the diagnosis — nothing looks at those three elements while the stage sits
+behind the full-screen `baking…` cover. B711's original argument stands: a tradeoff you can decline
+entirely is not one.
+
+### ⚠️ B712 MEASURED THE WRONG NOUN, AND THAT IS WHY B711 GOT REVERTED
+
+B712 concluded B711's shed "changed nothing" by reading `sessions.peak.decode: 7` before and after.
+**That number could not have moved.** `peak` is a monotonic high-water for the whole app session, so
+it reports the worst moment of some earlier operation regardless of what the shed did.
+
+`bakeDecode.sessions` is the right noun: `sessions.now` plus the live list, sampled on the line
+before the first `new VideoDecoder`, which is the instant the bake competes for hardware. It counts
+sessions our ledger holds, which equals live hardware decoders only if every token corresponds to
+one — our bookkeeping, not the OS's. Evidence, not proof, and it says so.
+
+### 🐞 A DORMANT BUG THE SHED WOULD HAVE WOKEN UP
+
+On the success path the bake runs `disposeClipPreview()`, `hideLoopSurface()` and
+`returnFromLoopBuilder()` — and then the `finally` called `restoreClipPreviews()` unconditionally.
+That re-mounts **three decoders against a closed Loop Builder**, with no UI reading them and nothing
+left to release them. Very plausibly the *"three Loop Builder decoders alive 940s later"* in the
+session audit, from when B711 had the shed on. The restore is now gated on the sheet still being
+open, which is the cancel and failure case — where stepping back to the crossfade finds all three
+alive, because `restoreClipPreviews` forces `buildLoopThumbs()` + `renderClipTrim()`.
+
+### 🎨 THE INTERIM HDR FIX COULD NOT REACH THE BROADCAST, AND THE REASON IS STRUCTURAL
+
+Daniel, B772: *"it works great for motion and perform modes in app but doesn't seem to be reaching
+the broadcast output."* Correct.
+
+**The desktop output window is a SEPARATE DOCUMENT running its own engine.** `allEngines()` and
+`env.reapplyEngineMeta()` both live in the main document and cannot reach across it. Its whole
+source payload was `{ kind: 'video', url }` — a filename and nothing else — so the popup's engine
+defaulted to `DEFAULT_COLOR` (BT.709 SDR) for an HDR clip and never heard about the flag.
+
+It now carries `color` and `hdrViaCanvas`, and the flag rides the payload SIGNATURE the same way the
+iPad's tone does (B764), so a toggle re-posts instead of waiting for the next source load.
+
+**`tone` is deliberately absent.** It lives in the planar blitter, and this path has no blitter — the
+2D-canvas detour is the only correction available here. The external-display sibling carries tone
+because its payload IS the planar path.
+
+**⚠️ A FOURTH env-SHAPED SURFACE.** `output-window.js` and `external-display.js` each own a private
+`sourceSignature` + `buildSourcePayload` pair, and B764 taught only one of them about colour. Same
+shape as the two-chromes rule in CLAUDE.md, one layer further out.
+
+---
+
 ## v0.29.0 · Build 772 — THE BAKE FAILURE IS DECODER EXHAUSTION, AND DESKTOP HDR GETS A SWITCH
 
 **Minor bumped:** the bake failure that has been open since B707 is root-caused.

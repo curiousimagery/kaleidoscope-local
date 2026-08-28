@@ -20,7 +20,7 @@ import { memBegin, memHold, memRelease, memReport } from './mem-ledger.js';
 import { readHostVitals, onGLRestored } from './gl-watch.js';
 import { seekVideoTo } from './video-source.js';
 import { createSequentialFrameReader, probeVideoInfo, openSharedSource, sourceGateReport, sourceGateFor, decodeErrorReport } from './video-decode.js';
-import { acquireSession, releaseSession } from 'conduit/sessions';
+import { acquireSession, releaseSession, sessionReport } from 'conduit/sessions';
 
 // The Loop Builder holds THREE decoders of the same clip while it is open (visible preview,
 // hidden A-head for the seam crossfade, hidden thumbnail strip). All three are justified and none
@@ -853,6 +853,11 @@ export function createClipEditor(env) {
     env.clip.cancelBake = false;   // armed by the cancel button; checked per encoded frame
     stopClipPreview();
     const dur = decodeV.duration || src.duration || 1;
+    // ⚠️ B773 — READ THE URL BEFORE THE SHED, because the shed empties the element it came from.
+    // This used to be read ~100 lines below as `decodeV.currentSrc`, which is correct only while
+    // the stage preview still has a src. `shedClipPreviews` calls `removeAttribute('src')`, so
+    // after it runs that expression yields '' and the bake loses the file it was going to read.
+    const bakeUrl = decodeV.currentSrc || decodeV.src || env.media.sourceVideoUrl;
     // ⚠️ B712 — THESE RUN BEFORE ANY DECODER IS OPENED. THEY DID NOT, AND THAT WAS MY BUG.
     //
     // B707, B710 and B711 all put their guards beside the `baking…` cover — which reads like the
@@ -916,7 +921,34 @@ export function createClipEditor(env) {
     // since weakened.** Reverted rather than tuned. `mountClipPreviews` / `shedClipPreviews` /
     // `restoreClipPreviews` stay — the extraction itself is sound and `disposeClipPreview` now
     // shares one release idiom — but nothing calls the shed during a bake.
-    const shed = false;
+    //
+    // ⭐⭐ B773 — THE SHED IS BACK ON, AND B714'S TWO REASONS ARE ANSWERED SEPARATELY.
+    //
+    // What restored the premise: `v0-BakeFailure.json` caught the failing bake with **five decode
+    // sessions live, three of them this Loop Builder's**, and `VideoDecoder.error` firing 49ms
+    // after a gate that armed cleanly (`armed: true, why: null`). That is `configure` or the first
+    // decode being refused hardware, not a config rejection — the SECOND time `isConfigSupported`
+    // has proved necessary-and-not-sufficient on WebKit (the encoder was B757/B759).
+    //
+    // ⚠️ AND THE COUNT IS SOFTER THAN IT LOOKS, so this is not shipped as a proven lever.
+    // `sessions.peak.decode` reads **7 in the SUCCESSFUL report too**, and both `now` snapshots
+    // were taken at different points in the lifecycle (the success one after the Loop Builder had
+    // already closed). Uncertainty state C: the mechanism is named, the lever is not proven.
+    // **The shed does not need it to be.** Nothing looks at these three during a bake — the stage
+    // is behind the full-screen `baking…` cover the whole time — so this is a resource we hold for
+    // no reader. A tradeoff you can decline entirely is not one (B711's original argument, intact).
+    //
+    // B714's regression is answered by `fallbackVideo()` below rather than by not shedding: the
+    // element-seek path now mounts its OWN element instead of borrowing the stage preview's. That
+    // borrow was always an accident of convenience — the bake needs *a* loaded `<video>` over the
+    // right file, and `env.clip.prevVideo` merely happened to be one.
+    //
+    // B712's ordering finding is answered by WHERE this sits: above `bakeDims()` and ~140 lines
+    // above the readers. ⚠️ B712 also concluded the shed changed nothing by reading
+    // `sessions.peak.decode`, and **that number could not have moved** — peak is a monotonic
+    // high-water for the whole app session, so it reports an earlier operation's worst moment
+    // regardless of what the shed did. The wrong noun. `bakeSessions` below is the right one.
+    const shed = shedClipPreviews();
 
     const { w, h } = bakeDims();                     // output resolution (source, or downscaled per the format control)
     // B728 — everything the bake allocates from here is attributed to this operation, and the
@@ -952,12 +984,44 @@ export function createClipEditor(env) {
       cctx.drawImage(frame, -fw / 2, -fh / 2, fw, fh); cctx.restore();
     };
     const range = trim.outT - trim.inT, trimmedSec = range * dur;
-    const url = decodeV.currentSrc || decodeV.src || env.media.sourceVideoUrl;
+    const url = bakeUrl;                             // B773 — captured above, before the shed
     // B742 — the File we already hold, but ONLY if it is the file this url names. See openSharedSource.
     const srcBlob = (url && url === env.media.sourceVideoUrl) ? env.media.sourceVideoBlob : null;
     let durationMs, frameAt;
     // WebCodecs readers over the same file (below); declared here so the finally can close them.
     let sliceReaderA = null, sliceReaderB = null, bounceReader = null, sliceSource = null;
+
+    // ⚠️ B773 — THE ELEMENT-SEEK FALLBACK GETS ITS OWN DECODER, AND IT IS NOT A PREVIEW.
+    //
+    // This element is never displayed and has nothing to do with the stage preview, the crossfade
+    // A-head or the thumbnail strip. It is the bake's own frame source for the path that seeks a
+    // `<video>` per frame instead of pulling WebCodecs samples — the path taken when no reader can
+    // arm (no WebCodecs, over the byte cap, an unsupported codec, or a demux that found no
+    // samples). **`v0-BakeFailure.json` was on exactly this path** (`reader: "element-seek
+    // fallback"`), which is why shedding without this would have turned an 8-second error into a
+    // hang whose cancel button cannot land — B714's regression, on the very clip we are fixing.
+    //
+    // Mounted LAZILY, so the readers-armed path (the common one) never pays for it. On the
+    // fallback path it is one decoder where the shed just released three, so it is never additive.
+    let fbVideo = null, fbToken = 0;
+    const fallbackVideo = async () => {
+      if (fbVideo) return fbVideo;
+      const v = document.createElement('video');
+      v.muted = true; v.playsInline = true; v.loop = false; v.preload = 'auto';
+      v.setAttribute('playsinline', ''); v.setAttribute('muted', '');
+      v.style.cssText = 'position:absolute;left:0;top:0;width:1px;height:1px;opacity:0;pointer-events:none';
+      v.src = bakeUrl;
+      document.body.appendChild(v);
+      fbToken = acquireSession('decode', 'bake: element-seek fallback');
+      // `seekVideoTo` needs metadata to have landed, and the shed means we can no longer assume
+      // some other element already waited for it.
+      if (v.readyState < 1) await new Promise((res) => {
+        v.addEventListener('loadedmetadata', res, { once: true });
+        v.addEventListener('error', res, { once: true });
+      });
+      fbVideo = v;
+      return v;
+    };
 
     // ⚠️⚠️ B758 — HARVEST AND RELEASE MUST HAPPEN BEFORE THE SWAP, NOT AFTER IT.
     //
@@ -1019,23 +1083,41 @@ export function createClipEditor(env) {
       // the bake silently took the per-frame element-seek fallback, which is exactly the thing the
       // next reader most needs to know. An absence is not evidence, and here it was worse than
       // absent — it was someone else's evidence.
+      // ⚠️⚠️ B773 — "NO MEASUREMENT" AND "NO READER" ARE DIFFERENT FACTS, AND THIS CONFLATED THEM.
+      //
+      // `worstTarget()` returns null when the reader completed no target, so a reader that ARMED and
+      // then had its decoder die lands in this branch too — and it was hardcoded to report
+      // `reader: 'element-seek fallback'`, which says the bake ran on a path it never touched.
+      //
+      // **`v0-BakeFailure.json` is exactly that case and I misread it.** It reports the fallback,
+      // and it also reports `codec: hvc1.2.4.L150.b0`, `srcBytes` and `mbps` — fields that only
+      // exist in `bakeShape` when a reader object was alive to be asked. Both readers armed, the
+      // decoder failed 49ms later, and no target ever completed. The bake died on the WebCodecs
+      // path; the fallback never ran.
+      //
+      // An instrument that names a specific path when it means "I have no reading" is worse than
+      // one that admits the absence, because the name is actionable and wrong. Count the readers.
       if (!all.length) {
+        const opened = [sliceReaderA, sliceReaderB, bounceReader].filter(Boolean).length;
         // B738 — the gate now names the exact refusal instead of listing what it might have been.
         // B763 — the gate FOR THIS SOURCE, not whichever attempt wrote the slot last.
         const gate = (() => {
           try { return sourceGateFor(env.media?.sourceVideoUrl); } catch { return null; }
         })();
         const why = !env.media?.sourceVideoUrl ? 'no source url'
+          : opened ? `${opened} WebCodecs reader(s) armed and none completed a target — the bake did NOT take the fallback`
           : gate?.why
             || (gate?.stale ? `no WebCodecs reader armed, and ${gate.why || 'the gate is about another source'}`
               : 'no WebCodecs reader armed, and the gate armed cleanly — the failure is downstream of it');
         // B768 — the decoder's own words, when it had any. The gate proving the config was
         // accepted is what makes this the interesting field rather than a redundant one.
         const decodeError = (() => { try { return decodeErrorReport(); } catch { return null; } })();
-        env.bakeDecode = { ...bakeShape, reader: 'element-seek fallback', why, srcGate: gate,
-                           decodeError,
+        env.bakeDecode = { ...bakeShape,
+                           reader: opened ? `${opened} WebCodecs reader(s), no target completed` : 'element-seek fallback',
+                           readersOpened: opened, why, srcGate: gate,
+                           decodeError, sessions: bakeSessions,
                            timing: bakeTiming, outBytes: bakeOutBytes, at: new Date().toISOString() };
-        env.vitals?.mark('bake-decode-none', { ...bakeShape, why, srcGate: gate });
+        env.vitals?.mark('bake-decode-none', { ...bakeShape, why, readersOpened: opened, srcGate: gate });
       }
       if (worst) {
         // B719's reasoning still stands and is why `bakeShape` exists; it is now captured before
@@ -1046,6 +1128,7 @@ export function createClipEditor(env) {
         // `fileBytes` the ledger's `peakMB` has to be compared against.
         const gate = (() => { try { return sourceGateReport(); } catch { return null; } })();
         env.bakeDecode = { ...worst, ...shape, holes, mem: memBefore, srcGate: gate,
+                           sessions: bakeSessions,
                            timing: bakeTiming, outBytes: bakeOutBytes, at: new Date().toISOString() };
         env.vitals?.mark('bake-decode-worst', { ...worst, ...shape, holes, mem: memBefore, srcGate: gate });
       }
@@ -1054,8 +1137,33 @@ export function createClipEditor(env) {
     if (sliceReaderB) { try { sliceReaderB.close(); } catch { /* already closed */ } sliceReaderB = null; }
     if (bounceReader) { try { bounceReader.close(); } catch { /* already closed */ } bounceReader = null; }
     if (sliceSource) { try { sliceSource.close(); } catch { /* already closed */ } sliceSource = null; }
+    // B773 — the fallback element, released by the same idiom as the previews (pause +
+    // removeAttribute + load is the only one that actually frees an element's decode pipeline;
+    // dropping the reference does not — see `archive/SESSION-AUDIT.md`).
+    if (fbVideo) {
+      try { fbVideo.pause(); } catch { /* ignore */ }
+      fbVideo.removeAttribute('src'); try { fbVideo.load(); } catch { /* ignore */ }
+      fbVideo.remove(); fbVideo = null;
+    }
+    if (fbToken) { releaseSession(fbToken); fbToken = 0; }
     try { memRelease(capId); } catch { /* never let an instrument break a teardown */ }
     };
+
+    // ⚠️⚠️ B773 — THE READING B712 NEEDED AND COULD NOT HAVE GOTTEN FROM `peak`.
+    //
+    // Sampled HERE, on the line before the first `new VideoDecoder`, because that is the instant
+    // the bake competes for hardware. `sessions.peak` cannot answer this: it is a monotonic
+    // high-water over the whole app session, so it reports the worst moment of some earlier
+    // operation no matter what the shed did — which is exactly how B712 concluded B711's shed
+    // "changed nothing" and reverted it. This counts sessions held at acquisition time, which
+    // equals what I care about only if every held token corresponds to a live hardware decoder;
+    // that is OUR bookkeeping, not the OS's, so it is evidence and not proof.
+    //
+    // `shedFreed` is the conserved half: three in, and the same three back on every exit path.
+    const bakeSessions = (() => {
+      try { const r = sessionReport(); return { at: 'readers-open', shedFreed: shed, now: r.now, live: r.live }; }
+      catch { return null; }
+    })();
 
     if (trim.mode === 'bounce') {
       durationMs = Math.max(200, trimmedSec * 2 * 1000);   // forward + reverse
@@ -1074,8 +1182,9 @@ export function createClipEditor(env) {
       } else {
         frameAt = async (p) => {
           const q = 1 - Math.abs(1 - 2 * p);
-          await seekVideoTo(decodeV, (trim.inT + q * range) * dur);
-          cctx.drawImage(decodeV, 0, 0, w, h);
+          const fv = await fallbackVideo();            // B773 — the bake's own element, not the preview's
+          await seekVideoTo(fv, (trim.inT + q * range) * dur);
+          cctx.drawImage(fv, 0, 0, w, h);
           return cap;
         };
       }
@@ -1138,18 +1247,19 @@ export function createClipEditor(env) {
         // frame, correct but slower and prone to the stale-frame pop above)
         frameAt = async (p) => {
           const t = p * outDur;
+          const fv = await fallbackVideo();           // B773 — the bake's own element, not the preview's
           if (t < bEnd) {                            // pure B
-            await seekVideoTo(decodeV, cut + t);
-            cctx.globalAlpha = 1; cctx.drawImage(decodeV, 0, 0, w, h);
+            await seekVideoTo(fv, cut + t);
+            cctx.globalAlpha = 1; cctx.drawImage(fv, 0, 0, w, h);
           } else if (t < Bdur) {                     // crossfade: B tail dissolves into A head
             const alpha = cfSec > 0 ? (t - bEnd) / cfSec : 1;
-            await seekVideoTo(decodeV, cut + t);       // B tail (outA-cfSec → outA)
-            cctx.globalAlpha = 1; cctx.drawImage(decodeV, 0, 0, w, h);
-            await seekVideoTo(decodeV, inA + (t - bEnd));   // A head (inA → inA+cfSec)
-            cctx.globalAlpha = alpha; cctx.drawImage(decodeV, 0, 0, w, h); cctx.globalAlpha = 1;
+            await seekVideoTo(fv, cut + t);       // B tail (outA-cfSec → outA)
+            cctx.globalAlpha = 1; cctx.drawImage(fv, 0, 0, w, h);
+            await seekVideoTo(fv, inA + (t - bEnd));   // A head (inA → inA+cfSec)
+            cctx.globalAlpha = alpha; cctx.drawImage(fv, 0, 0, w, h); cctx.globalAlpha = 1;
           } else {                                   // pure A
-            await seekVideoTo(decodeV, inA + (t - bEnd));
-            cctx.globalAlpha = 1; cctx.drawImage(decodeV, 0, 0, w, h);
+            await seekVideoTo(fv, inA + (t - bEnd));
+            cctx.globalAlpha = 1; cctx.drawImage(fv, 0, 0, w, h);
           }
           return cap;
         };
@@ -1310,7 +1420,18 @@ export function createClipEditor(env) {
       //
       // On the SUCCESS path `applyBakedClip` has already swapped the source, so re-mounting points
       // the previews at the NEW clip, which is what the operator should see next.
-      if (shed) restoreClipPreviews();
+      // ⚠️ B773 — AND ONLY IF THE SURFACE IS STILL OPEN. On the SUCCESS path above, the bake has
+      // already run `disposeClipPreview()`, `hideLoopSurface()` and `returnFromLoopBuilder()` — so
+      // an unconditional restore here re-mounts THREE decoders against a Loop Builder that is shut,
+      // with no UI reading them and nothing left to release them. That is very plausibly the
+      // *"three Loop Builder decoders alive 940s later"* in the session audit, from when B711 had
+      // the shed switched on. Dormant since B714 only because `shed` was hardcoded false.
+      //
+      // The cancel and failure paths leave the sheet open, which is where the restore belongs:
+      // `restoreClipPreviews` re-mounts all three and forces `buildLoopThumbs()` + `renderClipTrim()`,
+      // so stepping back to the crossfade after a failed bake finds it fully alive.
+      const sheetOpen = !document.getElementById('clipSheet')?.hidden;
+      if (shed && sheetOpen) restoreClipPreviews();
       if (prog) prog.hidden = true;
       if (fill) fill.style.width = '0%';
       if (cover) cover.hidden = true;
