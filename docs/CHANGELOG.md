@@ -6,6 +6,78 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.28.6 · Build 767 — THE LOOP DETECTOR WAS MEASURING THE WRONG THING, AND THE CRASH LEFT A TRACE
+
+**Shipped:**
+- **The loop detector gained a CONTROL frame.** It was measuring scene similarity, not loop closure.
+- **`gl-restore-incomplete` now carries `why`** — the one event describing a half-failed recovery
+  shipped with nothing but a surface name.
+- **The perform filmstrip stops stretching**: `object-fit: cover` so a size mismatch crops, plus a
+  `ResizeObserver` on the track so the rebuild happens at the real width instead of a guessed one.
+
+### ⭐ THE LOOP FALSE POSITIVE — A WRONG-NOUN BUG, EXACTLY AS DANIEL DESCRIBED IT
+
+*"loading a very clearly non-looped source we detect a false positive. there are some similarities
+between first and last frame but i'd be shocked if more than a few exact pixel values matched in the
+same location."*
+
+He is right about the pixels and right about the cause. The test downsampled both frames to **32x32**
+and took a mean absolute difference. At that size a locked-off shot looks the same at second 1 and
+second 60 whatever happens in between — **so the number measured SCENE SIMILARITY and was read as
+loop closure.** That is the wrong-noun test failing: *this counts X, which equals what I care about
+only if the scene changes.*
+
+**A tighter threshold cannot fix it**, because the two cases genuinely produce the same number. What
+distinguishes a loop is comparative: the last frame resembles the FIRST much more than it resembles
+the MIDDLE. A static shot resembles both equally. One extra grab turns an absolute measurement into a
+comparative one, which is the only form that can tell them apart:
+
+```
+dLoop = diff(first, last)     // does the end meet the beginning?
+dCtl  = diff(mid,   last)     // ...more than it meets the middle?
+loop  = dLoop < THRESHOLD && dLoop < dCtl * 0.5
+```
+
+**And it now ABSTAINS rather than guesses** when `dCtl` is itself below the threshold: a static clip
+gives the control no discriminating power, so both answers would be unfounded. Same reasoning as the
+existing black-frame abstention. All three numbers and the verdict ride the source-swap trail, so a
+future false positive arrives with its working shown.
+
+### THE CRASH DID LEAVE A TRACE, AND IT IS A STORM
+
+`v0-crashreport.json`, twelve crumbs across 4.7 seconds:
+
+```
+02:50:52.348  lost      yuv-source
+02:50:52.387  lost      external
+02:50:52.901  restored  live-pip
+02:50:52.906  restored  external
+02:50:53.180  restore-incomplete  preview     <--
+02:50:53.958  restored  yuv-source
+02:50:54.197  lost      preview
+02:50:54.817  restored  preview
+02:50:54.867  lost      external
+02:50:54.884  lost      live-pip
+02:50:54.902  restored  external
+02:50:55.032  restore-incomplete  live-pip    <-- last crumb before death
+```
+
+**This is not one loss. It is five surfaces losing and restoring repeatedly until the app dies.** The
+trail is a 12-entry ring and the `mode → perform` mark has already evicted, which means the collapse
+produced MORE than twelve events — itself a reading.
+
+**And the two most informative entries carry nothing.** `gl-restore-incomplete` means *the rebuild
+returned and the context is still lost*, and it shipped with only a surface name — while
+`lastReinitWhy` sat populated on the engine right beside it. Fixed: `watchGLContext` takes a `whyOf`
+accessor and every engine-backed caller supplies it.
+
+**Deliberately NOT fixed yet: the storm itself.** Staggering the restores is the obvious candidate —
+rebuilding five 4K-capable contexts inside one frame is a memory spike that can plausibly cause the
+next loss — but that is a hypothesis about a mechanism, and the next report will say whether the
+rebuilds are failing for a reason we can read. **State B; instrument first.**
+
+---
+
 ## v0.28.5 · Build 766 — THE TONE DEFAULTS ARE COMMITTED, FROM A SWEEP AGAINST TWO REFERENCES
 
 **Shipped:** `TONE_DEFAULTS` is now `shoulder 1, exposure 1.459, gamma 1.137`

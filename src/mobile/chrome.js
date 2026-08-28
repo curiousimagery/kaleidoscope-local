@@ -2961,6 +2961,7 @@ watchGLContext({
   mark: (kind, detail) => vitals.mark(kind, detail),
   rebuild: () => engine.reinitGL(),
   glOf: () => engine.glContext,
+  whyOf: () => engine?.lastReinitWhy || null,   // B767 — the rebuild's own account, into the trail
   onRestored: () => {
     if (cameraMode === 'live') { stopLiveLoop(); startLiveLoop(); }
     else if (engine.getSourceImage()) scheduleRender();

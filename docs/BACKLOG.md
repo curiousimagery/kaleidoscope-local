@@ -202,7 +202,28 @@ even of the UI."*
 including the UI — which is the *"a GL loss costing the whole app session"* row of phase 2's exit
 criterion, now reproduced.
 
-**▶ THE EVIDENCE EXISTS. Relaunch and `copy report`.** Every breadcrumb persists to `localStorage`
+**▶ THE REPORT ARRIVED (`v0-crashreport.json`) AND IT IS A STORM, NOT A LOSS.** Twelve crumbs over
+4.7 seconds: five surfaces (`preview`, `live-pip`, `external`, `yuv-source`, and by inference the
+bus) losing and restoring repeatedly, ending on `gl-restore-incomplete · live-pip`. **The
+`mode → perform` mark had already evicted from the 12-entry ring**, which means more than twelve
+events fired — itself a reading. `crashed` is null because no vitals session was running; the
+always-on trail is what carried it, exactly as designed.
+
+**Two `gl-restore-incomplete` events, both carrying nothing.** Fixed B767 (`whyOf`), so the next one
+names what the rebuild failed at.
+
+**▶ THE LEADING HYPOTHESIS, and it is a mechanism rather than a cause:** rebuilding five 4K-capable
+GL contexts inside one frame is a memory spike large enough to provoke the next loss, which provokes
+the next rebuild. **Staggering the restores is the obvious mitigation and it is NOT built**, because
+"restore storm" describes the shape and not the trigger — the next report with reasons attached is
+what separates them.
+
+**▶ AND THE SELF-SUSPICION IS STILL LIVE.** `?color=off` remains the single-variable test for whether
+B761-B766's `highp` blitter contributed. Daniel's *"a couple light attempts"* did not reproduce, so
+this is intermittent, which also means a targeted session is a poor bet against simply having the
+instrument ready.
+
+**▶ COLLECTION (unchanged): relaunch and `copy report`.** Every breadcrumb persists to `localStorage`
 synchronously (B661), `priorTrail` and `crashed` are captured at construction so nothing in the new
 session can overwrite them, and the mode switch is already marked (`mark('mode', { to: 'perform' })`,
 B695). Expect `mode → perform` followed by the losses in order, each with its memory snapshot.
@@ -247,11 +268,20 @@ broken one. Fixing the narration is the same work as making a failed load legibl
 than preceding it — it is one more surface that spec has to cover, and building it twice would be
 the waste. **Do not fix the phases individually.**
 
-### 🟡 [OPEN — Daniel, B762, not investigated] THE PERFORM-MODE FILMSTRIP STRETCHES HORIZONTALLY
+### ✅ [FIXED B767] THE PERFORM-MODE FILMSTRIP STRETCHES HORIZONTALLY
 
 *"the thumbnail filmstrip in perform mode is getting stretched horizontally (but motion seems ok)."*
-Motion and perform build the strip from the same source, so the difference is in perform's layout or
-its cell sizing rather than in the thumbnails.
+
+**Cause:** each `.ss-cell` canvas has its BACKING STORE sized for the track width at build time and
+its CSS width set as a PERCENTAGE, so any later width change scales the canvas horizontally. Perform
+re-parents the timeline into a different-width container and asks for a rebuild on the next animation
+frame — a guess about when layout has settled, and when the guess is early the strip is built against
+the old width. Motion never changes width after its build, which is why only perform showed it.
+
+**Fix:** `object-fit: cover` so a mismatch crops rather than stretches (honest in the interim), plus
+a debounced `ResizeObserver` on the track so the rebuild fires on the actual resize rather than on a
+guessed frame. **The rAF call in `perform-runtime` is left in place** — it is harmless and it makes
+the common case immediate.
 
 ### 🚨🚨 [OPEN — B760, `R2-take4.json`, AND IT IS THE LARGEST BUG IN PHASE 2] ARMING A TAKE LOSES THREE GL CONTEXTS, AND THE TAKE THEN PRODUCES NOTHING WHILE REPORTING SUCCESS
 

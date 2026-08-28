@@ -87,6 +87,7 @@ export function createPerformRuntime(env) {
         mark: (kind, detail) => env.vitals?.mark(kind, detail),
         rebuild: () => pipEngine.reinitGL(),
         glOf: () => pipEngine.glContext,
+        whyOf: () => pipEngine?.lastReinitWhy || null,   // B767 — the rebuild's own account, into the trail
         onRestored: () => { pipLastSource = null; pipLastW = 0; pipLastH = 0; },   // resync the source next tick
       });
     } catch (e) {

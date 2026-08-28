@@ -32,12 +32,28 @@ Archived at B658. It was marked superseded at B609 and kept for the reasoning be
 
 ## current version
 
-**v0.28.5 · B766** (2026-08-28). Minor bumped at B738 for the O(1) bake landing on hardware.
+**v0.28.6 · B767** (2026-08-28). Minor bumped at B738 for the O(1) bake landing on hardware.
 
 **⭐⭐ THE O(1) BAKE IS NOW MEASURED, NOT MODELLED.** A 2.63GB / 8:21 4K source peaked at **131.6MB**
 against **130.9MB** for a 741MB source. **3.5× the file, 0.7MB more memory.** Both 8GB M1 iPads also
 passed the job that killed them at B730 (Air 71.6MB, Pro 114.9MB). The Blob is disk-backed and file
 size is no longer a memory axis. **B705 and B706 are device-verified** — B705's instrument found B706, and B706 held on the repro that killed B705. B703, B704 and B707 are not yet device-verified.
+
+---
+
+## ▶▶▶▶▶▶▶▶▶▶▶▶▶▶▶▶▶▶ B767 (2026-08-28) — CLOSING THE 2.5 TAIL
+
+**Three of Daniel's four tail items are addressed. The fourth needs a device report.**
+
+| item | state |
+|---|---|
+| Loop false positive | **FIXED.** It measured scene similarity, not loop closure — a 32x32 blur makes a locked-off shot look identical at any two times. Now compares against a MID-CLIP CONTROL, and abstains on a static shot rather than guessing |
+| Perform filmstrip stretched | **FIXED.** Canvas backing store sized at build time vs a percentage CSS width; perform re-parents and the rAF rebuild guessed at layout timing. `object-fit: cover` + a `ResizeObserver` |
+| Perform-mode crash | **INSTRUMENTED, not fixed.** The trace is a RESTORE STORM: five surfaces losing and restoring for 4.7s. `gl-restore-incomplete` now carries `why`, which it never did |
+| Bake fails on iPad | **NEEDS ONE REPORT on B763+.** The gate no longer answers about a previous operation, so a fresh failure should finally say something true |
+
+**▶ THE ONE THING STILL NEEDED FROM A DEVICE: attempt a bake on iPad and copy the report.** Nothing
+else in the 2.5 tail is blocked.
 
 ---
 

@@ -115,6 +115,7 @@ export function createOutputEngine(env) {
       mark: (kind, detail) => env.vitals?.mark(kind, detail),
       rebuild: () => hidden.reinitGL(),   // rebuild the GPU resources, not just the source
       glOf: () => hidden.glContext,
+      whyOf: () => hidden?.lastReinitWhy || null,   // B767 — the rebuild's own account, into the trail
       onRestored: () => { lastSource = null; lastW = 0; lastH = 0; },   // force a re-upload
     });
   }

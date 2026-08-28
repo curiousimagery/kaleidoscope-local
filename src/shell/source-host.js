@@ -170,6 +170,10 @@ export function createSourceHost(env) {
   // and wait for each seeked frame to actually PRESENT (requestVideoFrameCallback). Returns
   // true/false, or null if the capture looked unreliable (caller keeps the current default).
   const LOOP_MATCH_THRESHOLD = 28;   // calibrated on real clips: loops read ~2, non-loops ~80 (2026-07-21)
+  // B767 — how much better the loop closure must be than the mid-clip control before we believe it.
+  // 0.5 = "at least twice as close", which is a low bar for a real loop (they read ~2 against a
+  // control in the tens) and an impossible one for a static shot.
+  const LOOP_CONTROL_RATIO = 0.5;
   async function detectLoopFromFrames(srcUrl, inT, outT) {
     const dv = document.createElement('video');
     dv.muted = true; dv.playsInline = true; dv.preload = 'auto';
@@ -201,15 +205,50 @@ export function createSourceHost(env) {
         ctx.drawImage(dv, 0, 0, 32, 32);
         return ctx.getImageData(0, 0, 32, 32).data;
       };
+      // ⚠️⚠️ B767 — A CONTROL FRAME, BECAUSE THE OLD TEST MEASURED THE WRONG THING.
+      //
+      // Daniel: *"loading a very clearly non-looped source we detect a false positive. there are
+      // some similarities between first and last frame but i'd be shocked if more than a few exact
+      // pixel values matched in the same location."* He is right, and the reason is that a 32x32
+      // mean-absolute-difference does not measure loop closure — **it measures SCENE SIMILARITY.**
+      // Two frames of the same locked-off shot a minute apart are nearly identical once blurred to
+      // 32x32, whatever happens in between. That is the wrong-noun trap the debugging protocol
+      // names: this counts X, which equals what I care about only if the scene changes.
+      //
+      // The fix is a CONTROL, not a tighter threshold. A real loop closes: the last frame resembles
+      // the FIRST much more than it resembles the MIDDLE. A static shot resembles both equally. One
+      // extra grab turns an absolute measurement into a comparative one, which is the only form
+      // that can tell those apart.
       const first = await grab(inT * dur + 0.03);
       const last = await grab(outT * dur - 0.05);
+      const mid = await grab((inT + (outT - inT) * 0.5) * dur);
       const lum = (d) => { let s = 0; for (let i = 0; i < d.length; i += 4) s += d[i] + d[i + 1] + d[i + 2]; return s / (d.length / 4 * 3); };
-      let sum = 0;
-      for (let i = 0; i < first.length; i += 4) {
-        sum += Math.abs(first[i] - last[i]) + Math.abs(first[i + 1] - last[i + 1]) + Math.abs(first[i + 2] - last[i + 2]);
-      }
+      const diff = (a, b) => {
+        let sum = 0;
+        for (let i = 0; i < a.length; i += 4) {
+          sum += Math.abs(a[i] - b[i]) + Math.abs(a[i + 1] - b[i + 1]) + Math.abs(a[i + 2] - b[i + 2]);
+        }
+        return sum / (a.length / 4 * 3);
+      };
       if (lum(first) < 2 && lum(last) < 2) return null;   // both frames black → capture unreliable, abstain
-      return (sum / (first.length / 4 * 3)) < LOOP_MATCH_THRESHOLD;
+      const dLoop = diff(first, last);      // does the end meet the beginning?
+      const dCtl = diff(mid, last);         // ...more than the end meets the middle?
+      // PUBLISHED, because a false positive is otherwise a verdict with no working. This rides the
+      // source-swap trail, which is in the exported report.
+      const verdict = dCtl < LOOP_MATCH_THRESHOLD ? null
+        : (dLoop < LOOP_MATCH_THRESHOLD && dLoop < dCtl * LOOP_CONTROL_RATIO);
+      swapTrace('loopDetect', {
+        dLoop: +dLoop.toFixed(1), dControl: +dCtl.toFixed(1),
+        threshold: LOOP_MATCH_THRESHOLD, ratio: LOOP_CONTROL_RATIO, verdict,
+        why: verdict === null
+          ? 'the middle frame matches the end too — a static or near-static shot, where this test cannot discriminate'
+          : verdict ? 'the end meets the beginning far more closely than it meets the middle'
+            : 'the end does not close on the beginning',
+      });
+      // ABSTAIN on a static scene rather than guess. If the middle already matches the end, the
+      // control has no discriminating power and BOTH answers would be unfounded — which is the same
+      // reasoning as the black-frame abstention above.
+      return verdict;
     } catch { return null; }
     finally {
       try { dv.pause(); } catch { /* ignore */ }
@@ -1352,6 +1391,29 @@ export function createSourceHost(env) {
   }
 
   env.buildSrcStrip = buildSrcStrip;   // perform re-parents the timeline → rebuild thumbs at the new width
+
+  // ⚠️ B767 — OBSERVE THE TRACK RATHER THAN GUESSING WHEN LAYOUT SETTLED. `perform-runtime` asks for
+  // a rebuild on the next animation frame after it re-parents the timeline, which is a guess about
+  // when the new width is readable — and when the guess is early, `buildSrcStrip` measures the OLD
+  // width, sizes every cell's backing store for it, and the canvases then stretch to fill the real
+  // one. A ResizeObserver removes the timing question entirely: the strip rebuilds when the track
+  // actually changes size, however many frames that takes.
+  //
+  // Debounced, because a re-parent produces a burst of resizes and each rebuild seeks the decoder.
+  (() => {
+    const track = document.getElementById('srcScrub');
+    if (!track || typeof ResizeObserver === 'undefined') return;
+    let lastW = 0, lastH = 0, timer = 0;
+    const ro = new ResizeObserver(() => {
+      const w = track.clientWidth, h = track.clientHeight;
+      if (w < 8 || h < 8) return;
+      if (w === lastW && h === lastH) return;      // scroll and opacity changes are not resizes
+      lastW = w; lastH = h;
+      clearTimeout(timer);
+      timer = setTimeout(() => { srcStrip.dirty = true; buildSrcStrip(); }, 120);
+    });
+    try { ro.observe(track); } catch { /* an unobservable element simply keeps the rAF path */ }
+  })();
 
   let srcSeekBusy = false, srcSeekNext = null;
   async function scrubStillFrame(p) {

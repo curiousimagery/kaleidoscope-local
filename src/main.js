@@ -368,6 +368,7 @@ if (engine) {
     mark: (kind, detail) => vitals.mark(kind, detail),
     rebuild: () => engine.reinitGL(),
     glOf: () => engine.glContext,
+    whyOf: () => engine?.lastReinitWhy || null,   // B767 — the rebuild's own account, into the trail
     onLost: () => {
       if (statusEl) { statusEl.textContent = 'graphics context lost — recovering…'; statusEl.classList.add('error'); }
     },

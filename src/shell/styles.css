@@ -357,6 +357,14 @@ body { display: flex; flex-direction: column; height: 100vh; height: 100dvh; ove
   top: 0;
   height: 100%;
   pointer-events: none;
+  /* ⚠️ B767 — CROP, DO NOT STRETCH. Each cell's backing store is sized for the track width at BUILD
+     time, while its CSS width is a percentage that follows the track. Re-parenting the timeline into
+     perform's layout changes that width, so the canvas was being scaled horizontally to fit — which
+     is Daniel's *"the thumbnail filmstrip in perform mode is getting stretched horizontally"*.
+     `object-fit: cover` makes a width change crop instead, so the picture stays honest for the
+     moments before the rebuild lands. The ResizeObserver in source-host.js is the root fix; this is
+     what makes the interim frame not lie. */
+  object-fit: cover;
   opacity: 0.7;
 }
 .src-scrub .ss-playhead {

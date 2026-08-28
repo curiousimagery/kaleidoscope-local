@@ -230,7 +230,10 @@ export function disarmGLLoss(surface) {
 //   onFailed  optional, (why) → void. Runs on `failed` or `incomplete`, for honest status text
 //
 // Returns a `stop()` that removes the listeners and cancels any pending timeout.
-export function watchGLContext({ canvas, surface, mark, rebuild, glOf, onLost, onRestored, onFailed }) {
+// `whyOf` (B767) — an optional accessor for the rebuilder's own account of a partial failure. The
+// engines already keep one (`lastReinitWhy`, B703); without this it never reached the trail, so the
+// event that exists to describe a half-failed recovery described nothing.
+export function watchGLContext({ canvas, surface, mark, rebuild, glOf, whyOf, onLost, onRestored, onFailed }) {
   if (!canvas || !surface) return () => {};
 
   let timer = null;
@@ -283,7 +286,15 @@ export function watchGLContext({ canvas, surface, mark, rebuild, glOf, onLost, o
     let lost = false;
     try { lost = !!glOf?.()?.isContextLost(); } catch { /* treat an unreadable context as usable */ }
     if (lost) {
-      say('gl-restore-incomplete');
+      // ⚠️ B767 — CARRY THE REASON. This is the event that names a HALF-FAILED recovery, and it
+      // shipped with nothing but a surface name. `v0-crashreport.json` is twelve crumbs of five
+      // surfaces losing and restoring in a storm, with two `gl-restore-incomplete` among them and
+      // no way to tell what the rebuild actually failed at. `lastReinitWhy` is right there on the
+      // engine and was already populated (B703). An absence is not evidence — least of all in the
+      // one event whose entire job is to describe a failure.
+      let why = null;
+      try { why = whyOf?.() || null; } catch { /* the engine may be unreachable mid-collapse */ }
+      say('gl-restore-incomplete', why ? { why } : undefined);
       console.warn(`[fold] GL restored but context still lost (${surface})`);
       try { onFailed?.('context still lost after rebuild'); } catch { /* noop */ }
       return;
