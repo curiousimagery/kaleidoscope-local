@@ -32,7 +32,47 @@ Archived at B658. It was marked superseded at B609 and kept for the reasoning be
 
 ## current version
 
-**v0.29.1 · B773** (2026-08-28). Minor bumped at B738 for the O(1) bake landing on hardware.
+**v0.29.2 · B774** (2026-08-28).
+
+---
+
+## ▶▶▶▶▶▶▶▶▶▶▶▶▶▶▶▶▶▶▶▶▶ B774 (2026-08-28) — ⚠️ READ FIRST AFTER A COMPACTION
+
+**THE BAKE FAILURE IS B-FRAMES.** IMG_4822 has frame reordering (`cts !== dts` on 1433 of 1911
+samples); IMG_5132 has none (0 of 3192). We fed chunks in decode order stamped with composition
+time, so on 4822 the third chunk ran 66.7ms backwards and WebKit refused the stream. B774 stamps
+chunks with decode time on a reordered stream and re-stamps frames to presentation time on output.
+**Streams with no reordering are untouched, so this cannot regress anything that works today.**
+
+**⚠️ THREE FACTS THAT MUST SURVIVE A COMPACTION:**
+
+1. **DESKTOP SAFARI IS THE iPAD's ENGINE FAMILY AND IT REPRODUCES.** 4822 fails instantly there,
+   5132 completes. **Try Safari before booking a device session** — this arc spent four builds on a
+   bug that was reproducible on the Mac and readable from the files.
+2. **BOTH DEAD HYPOTHESES STAY DEAD.** 10-bit HEVC (B772: both clips are Main 10) and decoder
+   exhaustion (B773: shed worked, `decode: 2` where it was 5, failed anyway). B773's shed keeps its
+   place because it was always free, not because it was the cause.
+3. **IMG_5132 STILL FAILS SOMETIMES AND B774 IS NOT ITS FIX.** It has no reordering. Open.
+
+### ▶ STILL OPEN AND UNATTRIBUTED, both state A
+
+- **Motion → perform loses the full-res source** (Daniel, B773), taking colour and rotation with it
+  because both live in the planar blitter — one symptom, not three. Keyframes dropping is separate.
+  **`planarTrail` is a 12-entry ring flooded by filmstrip churn**, so it held ~2 minutes and every
+  mode-switch event had aged out before the report. Fix the ring before chasing the bug.
+- **The Loop Builder opening with no context** after several source round trips. The report was
+  copied after the sheet closed, so it says nothing either way.
+
+### 🎨 COLOUR COVERAGE AS OF B773
+
+Everything that samples the engine's source texture is correct: preview, motion, perform, staged,
+PiP, HDMI, output window, NDI/Syphon, and record. **Correct on iPad natively; on desktop only with
+`hdrViaCanvas` on.** **RENDER IS THE ONE EXCEPTION** and is uncorrected on both.
+
+**⚠️ `hdrViaCanvas` LOOKS DIFFERENT IN EVERY BROWSER, BY CONSTRUCTION.** It delegates the HDR-to-SDR
+transform to the browser's own 2D canvas, so Safari and Chromium disagree and always will. **Do not
+tune it per engine** — that is a browser table, it drifts with every browser release, and owning the
+transform is precisely what colour stage two is for. Minor bumped at B738 for the O(1) bake landing on hardware.
 
 ---
 

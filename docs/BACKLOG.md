@@ -236,7 +236,26 @@ reference for tuning `?tone=`, and it is the strongest calibration signal this a
 then decide whether the other two paths need routing through the seam. `colorFromVideoFrame()` exists
 for when they do.
 
-### ✅ [FIX SHIPPED B773, AWAITING A DEVICE BAKE] THE BAKE FAILS ON iPAD
+### ✅ [ROOT-CAUSED AND FIXED B774 — IT IS B-FRAMES] THE BAKE FAILS ON iPAD
+
+**⭐ THE ANSWER, and it is a property of the FILE, not of the device or the session.** IMG_4822 has
+B-frames (`cts !== dts` on 1433 of 1911 samples, 955 backward steps, the first at sample index 2);
+IMG_5132 has none (0 of 3192). We fed chunks in decode order stamped with composition time, so on
+4822 the third chunk ran backwards and WebKit refused the stream. **Confirmed in desktop Safari**,
+which is the same engine family as the iPad and needs no device.
+
+**Fixed B774:** chunks carry decode time on a reordered stream, frames are re-stamped to
+presentation time on output, and streams with no reordering are byte-identical to before.
+
+**⚠️ STILL OPEN: why IMG_5132 fails SOMETIMES.** It has no reordering, so B774 is not its fix. One
+clean instance with a report is what that needs.
+
+**⚠️ AND THE DECODER-EXHAUSTION THEORY BELOW IS DEAD.** B773's instrument killed it on the first
+report: `shedFreed: true`, `decode: 2` where it had been 5, and the bake failed anyway. The shed
+stays because it was always free, not because it was the cause. **Everything below this line is the
+history of a wrong hypothesis; read it for the method, not the conclusion.**
+
+### 🗂 [SUPERSEDED BY B774 — kept for the method] THE DECODER-EXHAUSTION HYPOTHESIS
 
 **Two reports, same session, same build, and they settle it.** Daniel: *"the first attempt was
 successful, so then i went back to the clip that failed and it failed again, which made me think

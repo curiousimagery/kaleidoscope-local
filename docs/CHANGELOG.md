@@ -6,6 +6,66 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.29.2 · Build 774 — THE BAKE FAILURE IS B-FRAMES, AND IT WAS READABLE FROM THE FILES ALL ALONG
+
+**Shipped:** on a stream whose decode order differs from its presentation order, `EncodedVideoChunk`
+now carries decode time and each decoded frame is re-stamped back to presentation time on the way
+out. Streams with no reordering are untouched.
+
+### ⭐⭐ IMG_4822 NEVER WORKED BECAUSE IT HAS B-FRAMES. IMG_5132 DOES NOT.
+
+Daniel: *"call me superstitious but of the two clips i've been testing IMG_5132.mov works sometimes
+and IMG_4822.mov hasn't ever worked."* Not superstition. Both files were in his Downloads folder and
+the difference is in the sample table:
+
+| | IMG_5132 (bakes) | **IMG_4822 (never bakes)** |
+|---|---|---|
+| samples where `cts !== dts` | **0 of 3192** | **1433 of 1911** |
+| backward timestamp steps in decode order | **0** | **955** |
+| first backward step | none | **sample index 2** |
+
+We feed chunks in DECODE order and stamped them with COMPOSITION time. On 4822 the third chunk we
+hand the decoder claims to be **66.7ms earlier than the second**, and WebKit rejects the stream a few
+chunks in. That is the 49-83ms gap between a clean gate and `EncodingError: Decoder failure` in three
+separate device reports, and it is why the same bake ran fine in Brave: Chromium tolerates
+non-monotonic presentation timestamps in decode order and WebKit does not.
+
+**Confirmed in desktop Safari on B773** — 4822 fails instantly, 5132 completes. Same engine family
+as the iPad, on a machine with a debugger, which is where this should have been settled from the
+start.
+
+**This also fixes RENDER on such clips**, not only bake — `createSequentialFrameReader` is the
+motion export reader too, and a render of 4822 was silently dropping to per-frame element seeks.
+
+### ⚠️ THE GATE IS THE POINT, NOT JUST THE FIX
+
+`reorder` is computed once per source. A stream with `cts === dts` everywhere takes the identical
+path it took before this build: same timestamps, same chunks, no re-stamping, no map. **The change
+cannot regress a file that works today; it can only reach files that are currently 100% broken.**
+
+Frames are re-stamped with `new VideoFrame(f, { timestamp })`, which wraps rather than copies. Every
+consumer downstream — `frameAt`, the reverse cache, the hole rule, `syncPoints` — keeps reasoning in
+presentation time and none of them changed. If the wrap ever throws we keep the raw frame: a frame
+on the wrong clock is recoverable, a missing frame is not.
+
+### 🧭 WHAT THIS RETIRES, AND WHAT IT DOES NOT
+
+**Retires:** the four-build 10-bit HEVC theory (dead at B772, both clips are Main 10), and the
+decoder-exhaustion theory (dead at B773 — the shed worked, `decode: 2` where it was 5, and the bake
+failed anyway). **B773's shed still stands on its own merit**: nothing looks at those three elements
+during a bake. It was just never the cause.
+
+**Does not retire:** why IMG_5132 fails *sometimes*. It has no reordering, so this is not its
+problem. That is still open and still unexplained.
+
+### 📌 THE PROCESS NOTE WORTH KEEPING
+
+Three device sessions and four builds went at this. **The discriminating evidence was two files on
+the local disk the whole time**, readable with the demuxer already in the repo, and Daniel's
+offhand pattern-match is what pointed at it. `DEBUGGING-PROTOCOL.md` already says never spend a
+device session on a Class 1 question. **"Is this clip different from that clip" is a Class 1
+question** and it did not look like one, because the symptom appeared only on hardware.
+
 ## v0.29.1 · Build 773 — THE LOOP BUILDER GIVES ITS DECODERS BACK FOR A BAKE, AND THE POPUP LEARNS ABOUT HDR
 
 **Shipped:**

@@ -154,7 +154,9 @@ async function demuxStreaming(blob) {
   for (let k = 0; k < raw.length; k++) {
     const smp = raw[k];
     index[k] = {
-      cts: smp.cts, duration: smp.duration, timescale: smp.timescale,
+      // ⚠️ B774 — `dts` IS NOT REDUNDANT WITH `cts`, AND THE DIFFERENCE IS A DECODER FAILURE.
+      // They are equal only in a stream with no frame reordering. See `reorder` below.
+      cts: smp.cts, dts: smp.dts, duration: smp.duration, timescale: smp.timescale,
       is_sync: !!smp.is_sync, size: smp.size, off: smp.offset,
     };
   }
@@ -183,6 +185,8 @@ async function demuxStreaming(blob) {
 
 // ISO track matrix → clockwise rotation in degrees (0/90/180/270). a=m[0], b=m[1] in 16.16.
 const usOf = (s) => Math.round((s.cts * 1e6) / s.timescale);
+// B774 — decode timestamp, in the same units. Equal to `usOf` unless the stream reorders frames.
+const dtsOf = (s) => Math.round((s.dts * 1e6) / s.timescale);
 
 // B736 — the most sample bytes one feed batch will read from the file in a single slice.
 const FEED_BYTES = 8 * 1024 * 1024;
@@ -511,6 +515,25 @@ export async function openSharedSource(url, opts = {}) {
   }
   syncPoints.sort((a, b) => a.us - b.us);
 
+  // ⚠️⚠️ B774 — DOES THIS STREAM REORDER FRAMES? This one boolean is the whole IMG_4822 bug.
+  //
+  // Measured on Daniel's two test clips, from the files themselves rather than from a device:
+  //
+  //     IMG_5132.MOV  cts !== dts on     0 of 3192 samples,   0 backward steps  — bakes fine
+  //     IMG_4822.MOV  cts !== dts on  1433 of 1911 samples, 955 backward steps  — NEVER bakes
+  //
+  // 4822 has B-frames, so decode order is not presentation order. We feed chunks in DECODE order
+  // and stamped them with COMPOSITION time, so the third chunk we hand the decoder claims to be
+  // 66.7ms EARLIER than the second. WebKit refuses that with `EncodingError: Decoder failure` a few
+  // chunks in — 49-83ms after the gate armed, in three separate device reports — while Chromium
+  // tolerates it, which is exactly why the same bake worked in Brave and never on iPad.
+  // **Confirmed in desktop Safari on B773: 4822 fails instantly, 5132 completes.**
+  //
+  // ⚠️ THE GATE IS THE POINT, not just the fix. A stream with no reordering takes the identical
+  // path it took before this build — same timestamps, same chunks, no re-stamping — so this cannot
+  // regress a file that works today. It can only reach files that are currently 100% broken.
+  const reorder = index.some((s) => s.cts !== s.dts);
+
   const durSec = track.duration && track.timescale ? track.duration / track.timescale : 0;
   const nSamples = track.nb_samples || index.length;
 
@@ -522,7 +545,7 @@ export async function openSharedSource(url, opts = {}) {
   }
 
   const source = {
-    config, index, bytes, syncPoints, rotation, fileBytes,
+    config, index, bytes, syncPoints, rotation, fileBytes, reorder,
     codec: config.codec,
     fps: durSec > 0 && nSamples > 1 ? nSamples / durSec : 0,
     mbps: durSec > 0 ? +((fileBytes * 8) / durSec / 1e6).toFixed(1) : 0,
@@ -558,13 +581,28 @@ export async function createSequentialFrameReader(url, opts = {}) {
 }
 
 function makeReader(source, onClosed) {
-  const { config, index, bytes, syncPoints, rotation, fileBytes } = source;
-  const chunkOf = (s, data) => new EncodedVideoChunk({
-    type: s.is_sync ? 'key' : 'delta',
-    timestamp: usOf(s),
-    duration: Math.max(1, Math.round((s.duration * 1e6) / s.timescale)),
-    data,
-  });
+  const { config, index, bytes, syncPoints, rotation, fileBytes, reorder } = source;
+  // ⚠️⚠️ B774 — ON A REORDERED STREAM THE CHUNK CARRIES DECODE TIME, NOT COMPOSITION TIME.
+  //
+  // Chunks are fed in decode order. Stamping them with composition time makes the sequence run
+  // BACKWARDS wherever there are B-frames, and WebKit rejects that outright (see `reorder` in
+  // openSharedSource for the measurement and the two clips it came from). Decode time is
+  // monotonic by construction, which is the property the decoder actually needs from this field.
+  //
+  // Everything downstream — `frameAt`, the reverse cache, the hole rule, `syncPoints` — reasons in
+  // PRESENTATION time, so the frames are re-stamped back on the way out. `ptsOfDts` is that map.
+  // On a non-reordering stream the two are equal and none of this engages.
+  const ptsOfDts = reorder ? new Map() : null;
+  const chunkOf = (s, data) => {
+    const durUs = Math.max(1, Math.round((s.duration * 1e6) / s.timescale));
+    if (reorder) ptsOfDts.set(dtsOf(s), { pts: usOf(s), dur: durUs });
+    return new EncodedVideoChunk({
+      type: s.is_sync ? 'key' : 'delta',
+      timestamp: reorder ? dtsOf(s) : usOf(s),
+      duration: durUs,
+      data,
+    });
+  };
 
   let outQ = [];          // decoded frames, presentation order
   let decErr = null;
@@ -651,13 +689,33 @@ function makeReader(source, onClosed) {
   // for fixing it — and it is the standing rule (an uncollectable diagnostic is no diagnostic).
   const readerToken = acquireSession('decode', 'bake: frame reader');
 
+  // ⚠️ B774 — PUT PRESENTATION TIME BACK ON THE FRAME. The decoder hands back the timestamp we
+  // gave its chunk, so on a reordered stream every output would otherwise carry DECODE time and
+  // every comparison in `frameAt` would be against the wrong clock — a wrong-noun bug that would
+  // look like frames arriving in the wrong order rather than like a timestamp mistake.
+  //
+  // `new VideoFrame(frame, …)` wraps rather than copies, and the original is closed immediately so
+  // the frame count the ledger sees is unchanged. If the wrap ever fails we keep the raw frame
+  // rather than dropping it: a frame on the wrong clock is recoverable, a missing frame is not.
+  function restamp(f) {
+    if (!reorder) return f;
+    const m = ptsOfDts.get(f.timestamp);
+    if (!m) return f;                      // unknown chunk (post-reset drain) — leave it alone
+    ptsOfDts.delete(f.timestamp);
+    try {
+      const w = new VideoFrame(f, { timestamp: m.pts, duration: m.dur });
+      f.close();
+      return w;
+    } catch { return f; }
+  }
+
   function makeDecoder() {
     const d = new VideoDecoder({
       output: (f) => {
         if (closed) { f.close(); return; }
         framesDecoded++;
         lastOutputAt = performance.now();   // B721 — "is the decoder still alive" needs a clock, not a count
-        outQ.push(f);
+        outQ.push(restamp(f));
       },
       error: (e) => { decErr = e; noteDecodeError(e, 'VideoDecoder.error'); },
     });
@@ -825,6 +883,10 @@ function makeReader(source, onClosed) {
     gen++;                     // B735 — discard any feed batch still awaiting its read
 
     drainQ();
+    // B774 — the map holds one small entry per chunk IN FLIGHT, and a reset abandons every chunk
+    // that has not come back out. Without this it is a slow leak on exactly the path that runs most
+    // (the bounce bake resets per backward jump), and stale entries could re-stamp a later frame.
+    ptsOfDts?.clear();
     try { dec.reset(); } catch { /* already closed */ }
     try { dec.configure(config); } catch { dec = makeDecoder(); }
     flushing = false; flushDone = false;
