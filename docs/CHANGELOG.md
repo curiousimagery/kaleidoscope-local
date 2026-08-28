@@ -6,6 +6,55 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.29.5 · Build 777 — TWO INSTRUMENTS THAT COULD NOT ANSWER THE QUESTION THEY EXIST FOR
+
+**Shipped:**
+- The report carries the perf flags the operator changed. No report has ever carried them.
+- The source colour row distinguishes the planar shader from the canvas detour instead of calling both of them "not converted".
+
+### ⚠️ THE HDR TOGGLE REPORT COULD NOT BE READ, AND THAT IS THE BUG THIS BUILD FIXES
+
+Daniel: *"i attempted to turn the desktop HDR conversion tool from the frame cost dialog on again.
+it'd worked previously in safari, but now it doesn't seem to be doing anything."*
+
+`v0-bakesessionreport.json` cannot answer it. **`hdrViaCanvas` does not appear anywhere in the
+export**, so a session with the flag on is indistinguishable from a default one. Two instrument
+defects, both of which had to be fixed before the report is worth reading again:
+
+**1. No report has ever carried the perf flags.** Every one of them changes what a surface draws or
+how it uploads. A report from a session with a flag flipped was unattributable, and nothing said so.
+Now `flags` carries the DIFFERENCES from the defaults, so the common case stays one short line and a
+non-default session is impossible to miss.
+
+**2. `describeColor` treated a three-way fact as a boolean.** B771 wired it to
+`engine.planarActive`, which was right when the planar shader was the only converter. **B772 added a
+second one** and never told this function. So on desktop the row read `🚨 HDR, AND NOT CONVERTED`
+**whether the detour was running or not** — the one instrument built to answer "is this picture
+corrected" could only ever say no.
+
+It now reports `planar` / `canvas` / `none` through one shared `colorPathOf(engine)`, so the perf
+panel and the source row cannot disagree. A boolean was the wrong shape the moment there were two
+converters, and it would have been wrong again at colour stage two.
+
+**This is the fourth instance this arc of adding a capability and missing a writer**, and the second
+where the missed writer was an instrument rather than a state field.
+
+### 🚫 WHAT THIS BUILD DELIBERATELY DOES NOT DO
+
+Three of Daniel's four Safari symptoms — the perform filmstrip blank over the first 45s, motion
+loading blank until a mode round trip, and the scrub warm-up — are **not addressed and not
+attributed.** Reasons, stated rather than implied:
+
+- **Safari's renderer is already known-broken for us** (every canvas black, filed B775). Chasing
+  render symptoms in a browser whose renderer is failing is how a session gets spent on the wrong
+  noun.
+- **The perf panel is BLIND in Safari.** This session's report reads `fps 60`, `frameMs p50 17`, and
+  **every surface at 0ms with 17ms unaccounted** — there is no GPU timer extension there, so the one
+  instrument that would localise "sluggish" has nothing to say.
+
+**So the Safari black canvas is the gating item**, not one of the four. It is Class 1 and Safari's
+own error console should name it.
+
 ## v0.29.4 · Build 776 — THE BAKING COVER NO LONGER COLLAPSES, AND TWO SAFARI REPORTS MEASURED
 
 **Shipped:** the Loop Builder stage keeps its size while a bake runs.

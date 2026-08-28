@@ -32,7 +32,42 @@ Archived at B658. It was marked superseded at B609 and kept for the reasoning be
 
 ## current version
 
-**v0.29.4 · B776** (2026-08-28).
+**v0.29.5 · B777** (2026-08-28).
+
+---
+
+## ▶▶▶▶▶▶▶▶▶▶▶▶▶▶▶▶▶▶▶▶▶▶▶▶ B777 (2026-08-28)
+
+**Two instruments fixed, and both were blocking attribution rather than merely incomplete.**
+
+1. **The report now carries the perf flags** the operator changed (differences from defaults only).
+   No report had ever carried them, so any session with a flag flipped was unattributable.
+2. **`describeColor` now reports `planar` / `canvas` / `none`** via one shared `colorPathOf(engine)`.
+   It was a boolean wired to `planarActive`, so on desktop it said `🚨 NOT CONVERTED` **whether
+   `hdrViaCanvas` was running or not.** Fourth instance this arc of adding a capability and missing
+   a writer.
+
+### ⚠️⚠️ THE STANDING RULE THIS SHOULD REINFORCE
+
+**Before trusting any colour or perf reading, check `flags` and `sourceColor.colorPath`.** A report
+without them — anything before B777 — cannot distinguish a default session from a tuned one.
+
+### ▶▶ THE GATING ITEM IS THE SAFARI BLACK CANVAS. IT IS NOT ONE OF DANIEL'S FOUR SYMPTOMS.
+
+Daniel is now working in Safari (B775 made it the iPad proxy) and reports four things there: perform
+filmstrip blank over the first 45s of a 1:04 clip, motion loading blank until a mode round trip, a
+long scrub "warm-up" that degrades again once keyframes exist, and the HDR toggle appearing inert.
+
+**None are attributed, deliberately**, for two reasons that should survive a compaction:
+
+- **Safari's renderer is already known-broken for us** (every canvas black, B775). Chasing render
+  symptoms in a browser whose renderer is failing is a wrong-noun trap.
+- **The perf panel is BLIND in Safari.** `v0-bakesessionreport.json`: `fps 60`, `frameMs p50 17`, and
+  **every surface 0ms with 17ms unaccounted.** No GPU timer extension, so the instrument that would
+  localise "sluggish" has nothing to say. **Do not quote per-surface ms from a Safari report.**
+
+**Fix the black canvas first.** Class 1; Safari's error console should name the shader or context
+option outright.
 
 ---
 

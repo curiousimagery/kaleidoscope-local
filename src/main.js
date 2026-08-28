@@ -12,7 +12,7 @@
 // keeping these in one object lets the modules collaborate without reaching
 // into each other for globals.
 
-import { describeColor } from './engine/color.js';
+import { describeColor, colorPathOf } from './engine/color.js';
 import { state, session, motion } from './shell/state.js';
 import { watchGLContext, noteHostVitals } from './shell/gl-watch.js';
 import { lockState, setLock, makeLockToggle } from './shell/locks.js';
@@ -221,7 +221,7 @@ const sourceSurface = perf.surface({
       // B771 — say whether the transform RAN, not just what the file declared. `planarActive` is the
       // only path that applies it; everything else is the browser's conversion (or lack of one).
       env.sourceColor && env.sourceColor.why?.startsWith('read from')
-        && describeColor(env.sourceColor, !!engine?.planarActive),
+        && describeColor(env.sourceColor, colorPathOf(engine)),
       // WHY WE ARE ON <video> (B597). "no native decode" was previously readable only as the
       // ABSENCE of the words above, which is exactly the failure this project keeps hitting.
       !env.nativeVideo && env.nativeAttach && `⚠ NO NATIVE DECODE: ${env.nativeAttach.why}`,

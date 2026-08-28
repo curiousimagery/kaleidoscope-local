@@ -353,6 +353,22 @@ should say why the fast path was skipped is answering about a different operatio
 report cannot currently tell us. **Do not spend a device session on this**: the fix is to stamp the
 gate report with the operation that produced it, and then one ordinary bake answers it.
 
+### 🟠 [OPEN — Daniel, B776] SAFARI: FILMSTRIP, BLANK MOTION, AND A SCRUB "WARM-UP"
+
+Three symptoms, all Safari, all unattributed and **deliberately not chased** — see the black-canvas
+item directly below, which gates them:
+
+- **Perform filmstrip blank over the first 45s of a 1:04 clip**, thumbnails only to the right.
+- **Motion loads blank**, shows the source only after a mode round trip.
+- **Scrubbing has a long warm-up**: very sluggish, then snappy, then slow again once keyframes exist.
+
+**⚠️ THE PERF PANEL CANNOT HELP HERE AND WILL MISLEAD.** `v0-bakesessionreport.json` reads `fps 60`,
+`frameMs p50 17`, **every surface 0ms, 17ms unaccounted** — no GPU timer extension in Safari. **Do
+not quote per-surface ms from a Safari report.**
+
+**▶ First question, and it is free:** does any of this happen in Brave? If not, they belong to the
+black-canvas item and are one bug, not three.
+
 ### 🟠 [OPEN — Daniel, B775] DESKTOP SAFARI: EVERY CANVAS RENDERS BLACK, AND NOTHING REPORTS A FAILURE
 
 *"none of our canvases loaded, they blacked out without seeming to realize they were in a failure

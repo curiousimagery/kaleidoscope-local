@@ -214,19 +214,44 @@ export function toneFromQuery(search) {
 // Daniel had to discover the desktop gap by looking at the picture. **A diagnostic that describes
 // what the code INTENDS rather than what it DID is worse than no diagnostic**, which is this
 // project's oldest standing rule.
-export function describeColor(color, applied = true) {
+// ⚠️⚠️ B777 — `applied` IS A THREE-WAY FACT AND IT WAS BEING REPORTED AS A BOOLEAN.
+//
+// B771 wired this to `engine.planarActive`, which was true when the planar shader was the only
+// converter we had. B772 added a SECOND one — the `hdrViaCanvas` 2D-canvas detour, which is the
+// only correction available on desktop — and this function never learned about it. So on desktop
+// the row read `🚨 HDR, AND NOT CONVERTED` **whether the detour was running or not**, and the one
+// instrument built to answer "is this picture corrected" could only ever say no.
+//
+// That cost a turn: Daniel reported *"i attempted to turn the desktop HDR conversion tool on again,
+// it'd worked previously in safari, but now it doesn't seem to be doing anything"*, and the report
+// could not distinguish a flag that was off from a flag that was on and working.
+//
+// `via` is 'planar' | 'canvas' | null. A boolean was the wrong shape the moment there were two
+// converters, and it will be the wrong shape again at colour stage two — hence a name, not a flag.
+export function describeColor(color, via = 'planar') {
   if (!color) return 'no colour info';
   const name = (map, v) => Object.keys(map).find((k) => map[k] === v) || `#${v}`;
+  const mode = via === true ? 'planar' : via === false ? null : via;
   return [
     `matrix ${name(MATRIX, color.matrix)}`,
     `transfer ${name(TRANSFER, color.transfer)}`,
     `primaries ${name(PRIMARIES, color.primaries)}`,
     color.fullRange ? 'full range' : 'limited range',
-    isHDR(color) && (applied
-      ? '⚠ HDR → SDR tone mapped'
-      : '🚨 HDR, AND NOT CONVERTED — this surface uploads the element and the browser hands back the encoded values, so it renders too bright. Correct on the native-decode path only'),
+    isHDR(color) && (
+      mode === 'planar' ? '⚠ HDR → SDR tone mapped (planar shader)'
+        : mode === 'canvas' ? '⚠ HDR → SDR via the browser canvas detour (hdrViaCanvas ON — the browser owns this curve, so it differs per engine)'
+          : '🚨 HDR, AND NOT CONVERTED — this surface uploads the element and the browser hands back the encoded values, so it renders too bright. Turn on hdrViaCanvas (desktop) or use the native-decode path'),
     color.why,
   ].filter(Boolean).join(' · ');
+}
+
+// The converter actually in force for an engine, in the shape describeColor wants. One place, so
+// the perf panel, the source row and any future consumer cannot disagree about it.
+export function colorPathOf(engine) {
+  if (!engine) return null;
+  if (engine.planarActive) return 'planar';
+  if (engine.hdrViaCanvas) return 'canvas';
+  return null;
 }
 
 // ─── the GLSL ──────────────────────────────────────────────────────────────────────────────────

@@ -28,7 +28,7 @@
 // NOTHING HERE CHANGES HOW THE APP BEHAVES unless you touch a switch, and nothing persists
 // except a baseline you explicitly save.
 
-import { describeColor } from '../engine/color.js';
+import { describeColor, colorPathOf } from '../engine/color.js';
 import { perfFlags, PERF_FLAG_SPECS, PERF_FLAG_DEFAULTS } from './perf-flags.js';
 import { wakeLockState } from '../kit/wake-lock.js';
 import { sessionReport } from 'conduit/sessions';
@@ -567,8 +567,22 @@ export function mountPerfPanel(env, { container = null, onClose = null } = {}) {
       // quality judgement in this arc was made on an HDR clip decoded as BT.601 SDR, and nothing in
       // any report said so. `why` is the load-bearing field: "read from the file's nclc box" and
       // "assuming BT.709" are very different confidences in the same three numbers.
-      sourceColor: env.sourceColor ? { ...env.sourceColor, described: describeColor(env.sourceColor, !!env.engine?.planarActive),
-        applied: !!env.engine?.planarActive } : undefined,
+      sourceColor: env.sourceColor ? { ...env.sourceColor, described: describeColor(env.sourceColor, colorPathOf(env.engine)),
+        colorPath: colorPathOf(env.engine) || 'none' } : undefined,
+      // ⚠️⚠️ B777 — THE FLAGS THE OPERATOR CHANGED, WHICH NO REPORT HAS EVER CARRIED.
+      //
+      // Every perf flag alters what a surface draws or how it uploads, and none of them appeared in
+      // the export. So a report from a session with a flag flipped is indistinguishable from a
+      // default one, and every measurement in it is unattributable. **That blocked an entire turn**:
+      // Daniel reported `hdrViaCanvas` doing nothing and the report could not say whether it was on.
+      //
+      // Only the DIFFERENCES from the defaults, so the common case stays one short line and a
+      // non-default session is impossible to miss.
+      flags: (() => {
+        const changed = {};
+        for (const k of Object.keys(perfFlags)) if (perfFlags[k] !== PERF_FLAG_DEFAULTS[k]) changed[k] = perfFlags[k];
+        return Object.keys(changed).length ? changed : undefined;
+      })(),
       sourceRotation: env.sourceRotation || undefined,
       // B763 — the swept tone curve, so a value Daniel likes reaches me as a number rather than a
       // description. `?tone=<shoulder>,<exposure>` reproduces it; committing it is one edit.
