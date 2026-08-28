@@ -6,6 +6,60 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.28.8 · Build 769 — DESKTOP HDR IS UNCORRECTED, AND THE SURFACE LIST SORTS BY UPLOAD PATH
+
+**Shipped:** the tone control now says when it cannot reach the picture, instead of silently doing
+nothing. Everything else this build is documentation, deliberately.
+
+### ⭐ DANIEL'S SURFACE LIST IS THE DIAGNOSIS
+
+On desktop: *"source panel and perform thumbnail filmstrip look comparatively ok but motion timeline,
+motion output, perform staged panel, and perform live pip are all way too bright."*
+
+**That list sorts perfectly by UPLOAD PATH**, which is what proves it is one cause and not four bugs:
+
+| path | HDR result | who |
+|---|---|---|
+| **planar** (`yuv.js` blitter) | **correct** — the only place the B761 transform exists | iPad native decode only |
+| **element** (`texImage2D` of a `<video>`) | **too bright** | all of desktop; every engine-rendered surface |
+| **2D canvas / pre-converted stills** | correct | source panel, strip thumbnails, Loop Builder |
+
+**So the answer to *"re-tune or not applied?"* is: NOT APPLIED, AT ALL.** No `?tone=` value can help
+desktop, because the sliders drive a uniform in a shader that never runs there. WebGL hands back the
+encoded values on a texture upload; there is no display transform. The 2D-canvas path gets one from
+the browser, which is why the Loop Builder is the surface that looks right.
+
+### AND IT REACHES RECORD AND RENDER — DANIEL ASKED, AND THE ANSWER IS NOT REASSURING
+
+- **RECORD follows the preview.** The bus engine takes the same element upload, so it is consistent
+  with what you see and wrong in the same way on desktop.
+- **RENDER DOES NOT.** `motion-runtime.js:463` chooses between `updateSourceFromFrame` (a `VideoFrame`
+  straight to a texture — B747's 73x win) and a `drawImage` into a 2D canvas. **The fast path is
+  uncorrected, and the correct path is precisely the one B747 deleted for costing 89% of a frame.**
+  `renderUploadViaCanvas` swaps them and costs the entire win. **That trade has been sitting in the
+  code since B747 and was undocumented until now.**
+
+### THE SCOPE DECISION, AND IT IS DANIEL'S
+
+The element path hands us RGB already through the matrix but not through transfer, gamut or tone —
+three stages that already exist in `COLOR_GLSL`. A **pre-pass** (blit the element texture through
+them into an intermediate the kaleidoscope samples, structurally identical to `createPlanarUploader`)
+would fix desktop preview, motion, perform and record in one place.
+
+**It waits for stage two anyway.** The right version is a half-float working space with ONE conversion
+point, after which nothing downstream needs to know about transfer functions. Building the 8-bit
+pre-pass now means building it twice, and his objection is the reason to do it properly rather than
+sooner: *"it doesn't feel architecturally elegant to render differently in different places."*
+
+### A CONTROL THAT DOES NOTHING IS THE SAME FAILURE WEARING A DIFFERENT FACE
+
+The tone sliders appear on desktop (the `colr` box parses fine there) and move a uniform nothing
+reads. **Third instance this week of a control that cannot reach the thing it names** — one vanished
+mid-adjustment, one could not reach the broadcast, this one cannot reach any desktop surface. The row
+now carries a warning naming the reason, which is what phase 2's exit criterion asks for.
+
+---
+
 ## v0.28.7 · Build 768 — A PERFECT SCORE MEANT A FAILED MEASUREMENT
 
 **Shipped:**

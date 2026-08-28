@@ -246,8 +246,32 @@ BT.601 bug, and is not thrown away.**
 sources. **A float working space is the NEXT stage, not this one**, and is what the photography and
 round-trip audiences actually need. That half belongs with feature work.
 
-**Closes when:** the three paths agree, a BT.709 source renders as BT.709, and `renderUploadViaCanvas`
-can be retired.
+### ▶ WHAT STAGE ONE ACTUALLY CLOSED, AND WHAT IT DID NOT (revised B769, with device evidence)
+
+**CLOSED:** the planar path — iPad native decode, which is preview, bus, PiP, external view and the
+source panel. Daniel, B765: *"iPad source and output and thumbnails are matching in motion."* Defaults
+committed at `shoulder 1, exposure 1.459, gamma 1.137`, swept against Apple's own rendering.
+
+**NOT CLOSED, and now measured rather than suspected:** the two upload paths we do not own.
+
+| path | HDR result | who |
+|---|---|---|
+| element (`texImage2D` of a `<video>`) | **uncorrected — too bright** | all of desktop; and RECORD, which samples the same engine |
+| `VideoFrame` → texture | **uncorrected** | RENDER's fast path (B747). The correct alternative is the 2D canvas that B747 removed for costing 89% of a frame |
+| 2D canvas / pre-converted stills | correct | source panel, thumbnails, Loop Builder |
+
+**⚠️ So HDR is correct on iPad and uncorrected on desktop, and the render's fast path is uncorrected
+everywhere.** SDR is unaffected throughout. Full reasoning and the proposed pre-pass are in BACKLOG.
+
+**▶ THE DECISION (Daniel, B769): document it and carry it to stage two rather than build an 8-bit
+pre-pass now.** Stage two is a half-float working space with ONE conversion point, after which
+nothing downstream needs to know about transfer functions — building the 8-bit version first means
+building it twice. His objection stands and is the reason to do it properly: *"it doesn't feel
+architecturally elegant to render differently in different places."*
+
+**Closes when:** stage one's planar half is verified on device (**done B765**) and the remaining gap
+is documented rather than silently carried (**done B769**). `renderUploadViaCanvas` and the element
+pre-pass belong to **stage two**, not here.
 
 ---
 

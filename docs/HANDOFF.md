@@ -32,7 +32,7 @@ Archived at B658. It was marked superseded at B609 and kept for the reasoning be
 
 ## current version
 
-**v0.28.7 · B768** (2026-08-28). Minor bumped at B738 for the O(1) bake landing on hardware.
+**v0.28.8 · B769** (2026-08-28). Minor bumped at B738 for the O(1) bake landing on hardware.
 
 **⭐⭐ THE O(1) BAKE IS NOW MEASURED, NOT MODELLED.** A 2.63GB / 8:21 4K source peaked at **131.6MB**
 against **130.9MB** for a 741MB source. **3.5× the file, 0.7MB more memory.** Both 8GB M1 iPads also
@@ -50,11 +50,11 @@ motion, rotation fixed, live tuning in the panel.
 
 | item | state |
 |---|---|
-| Colour input transform | **DONE.** `shoulder 1, exposure 1.459, gamma 1.137`, swept against Apple's rendering |
+| Colour input transform | **DONE for the PLANAR path (iPad native decode).** `shoulder 1, exposure 1.459, gamma 1.137`. **⚠️ DESKTOP HDR IS UNCORRECTED and so is RENDER's fast path** — measured B769, documented in BACKLOG, deferred to stage two by Daniel's decision |
 | Rotation (upside-down clip) | **DONE + verified by Daniel** |
-| Loop false positive | **FIXED B768.** The cause was a stale frame (`dLoop: 0`), not the threshold. **NOT yet verified on device** |
+| Loop false positive | **FIXED B768 + verified by Daniel.** The cause was a stale frame (`dLoop: 0`), not the threshold |
 | Perform filmstrip stretched | **FIXED B767 + verified by Daniel** |
-| Perform-mode crash | **INSTRUMENTED, not fixed.** A restore storm. See BACKLOG; no fix shipped on purpose |
+| Perform-mode crash | **CLOSED AS NOT-CHASED (Daniel, B769):** *"lets not chase it, we have lots of crashes and playing with settings in the frame cost diagnostics could have also been a factor that doesn't apply to ongoing user activity."* The instrument stays; the hypothesis is unshipped |
 | Bake fails on iPad | **NARROWED to the decoder.** `isConfigSupported` accepts 10-bit HEVC 4K and the decode then fails. B768 publishes the decoder's error; **needs one more bake attempt to read it** |
 
 ### ⚠️ THE THREE FACTS MOST LIKELY TO BE LOST IN A COMPACTION
@@ -66,6 +66,10 @@ motion, rotation fixed, live tuning in the panel.
    REFERENCE rather than a defect. It is what the tone defaults were matched against.
 3. **`isConfigSupported` lies on WebKit.** Twice now: the encoder (B757/B759) and now the decoder
    (B768). Treat it as necessary and not sufficient anywhere it appears.
+4. **THERE ARE THREE UPLOAD PATHS AND WE ONLY OWN ONE.** planar (ours, correct), element `texImage2D`
+   (browser gives raw — **uncorrected HDR**), 2D canvas (browser tone-maps — correct). Every colour
+   surprise this arc sorts by that table. **`VideoFrame`-direct behaves like the element path**, which
+   is why render's fast path is uncorrected while its slow fallback is right.
 
 ### ▶ WHAT NEEDS A DEVICE, and it is two things in one session
 

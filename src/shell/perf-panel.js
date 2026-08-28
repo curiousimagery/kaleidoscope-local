@@ -919,6 +919,19 @@ export function mountPerfPanel(env, { container = null, onClose = null } = {}) {
       if (!toneRow) toneRow = buildToneRow(env);
       toneRow.sync();
       rows.appendChild(toneRow.el);
+      // ⚠️ B769 — SAY WHEN THE CONTROL CANNOT REACH THE PICTURE. The input transform lives in the
+      // PLANAR blitter, and desktop has no planar path at all — the engine samples the `<video>`
+      // element and the browser converts. So on desktop these sliders move a uniform nothing reads.
+      // Daniel found the same class twice this week (a control that vanished, a knob that could not
+      // reach the broadcast); a control that silently does nothing is the same failure wearing a
+      // different face, and phase 2's exit criterion is about exactly this.
+      if (!env.engine?.planarActive) {
+        const warn = document.createElement('div');
+        warn.className = 'pf-why warn';
+        warn.textContent = 'these do nothing here — the tone transform is on the native-decode path, '
+          + 'and this source is being converted by the browser instead (see BACKLOG: the three colour paths)';
+        rows.appendChild(warn);
+      }
     }
 
     if (env.governor) {

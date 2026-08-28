@@ -153,7 +153,58 @@ the shader now reads what the file declared. See CHANGELOG B761 for the design n
   colorSpace, so both are *plausibly* already better than the old planar path — but "plausibly" is
   not measured. `colorFromVideoFrame()` exists for when it is.
 
-### 🟠 [OPEN — B762, DIAGNOSED NOT FIXED] THE COLOUR SURFACES STILL DISAGREE, AND THE THUMBNAILS ARE THE REFERENCE
+### 🟠🟠 [OPEN — RE-DIAGNOSED B769 WITH DESKTOP EVIDENCE] HDR ON DESKTOP IS UNCORRECTED, AND IT IS THREE UPLOAD PATHS NOT THREE BUGS
+
+**Daniel, B768 on desktop:** *"source panel and perform thumbnail filmstrip look comparatively ok but
+motion timeline, motion output, perform staged panel, and perform live pip are all way too bright. as
+expected loop builder on desktop looks great."*
+
+**That list is not arbitrary — it sorts perfectly by UPLOAD PATH**, which is what says this is one
+cause and not four bugs:
+
+| path | code | who uses it | HDR result |
+|---|---|---|---|
+| **planar** | `engine/yuv.js` blitter, via `createPlanarUploader` | iPad native decode ONLY: preview, bus, PiP, external view, source panel | **correct — this is the only place the B761 transform exists** |
+| **element** | `engine.setSource(el)` → `uploadTexture` (`texImage2D` of a `<video>`) | **all of desktop**; every engine-rendered surface | **too bright.** WebGL hands back the encoded values; there is no display transform on a texture upload |
+| **2D canvas** | `drawImage` into a canvas, or an already-converted still | source panel, `buildSrcStrip` thumbnails, Loop Builder stills | **correct — the browser tone-maps for a 2D draw** |
+
+**⚠️ SO THE ANSWER TO "RE-TUNE OR NOT APPLIED?" IS: NOT APPLIED, AT ALL.** No `?tone=` value can fix
+desktop, because the sliders drive a uniform in a shader that never runs there. B769 makes the panel
+say so instead of silently doing nothing.
+
+**⚠️ AND IT REACHES RECORD AND RENDER (Daniel's question, and the answer is not reassuring):**
+
+- **RECORD follows the preview**, because the bus engine takes the same element upload
+  (`output-engine.js` → `hidden.setSource(src)`). Consistent with what you see, and wrong in the same
+  way on desktop.
+- **RENDER DOES NOT.** `motion-runtime.js:463` picks between `updateSourceFromFrame` (a `VideoFrame`
+  straight to a texture — B747's 73x win) and a `drawImage` into a 2D canvas. **The fast path is
+  uncorrected and the correct path is the one B747 removed for being slow.** `renderUploadViaCanvas`
+  is the flag that swaps them, and it costs the entire performance win. That is the trade sitting in
+  the code today, undocumented until now.
+
+**▶ THE FIX, AND WHY IT IS NOT THIS ARC (Daniel: *"so long as it's clearly documented"*).**
+
+The element path hands us RGB that is already through the matrix but NOT through the transfer, gamut
+or tone stages. Those three stages already exist in `COLOR_GLSL`. So the shape is a **pre-pass**: blit
+the element texture through a small shader that applies them into an intermediate texture the
+kaleidoscope samples — structurally identical to `createPlanarUploader`, which already owns an FBO and
+a blit for exactly this reason.
+
+**That would fix desktop preview, motion, perform, AND record in one place**, because they all sample
+the engine's source texture. Render needs the same treatment on its own path.
+
+**Why it waits:** it is a new engine stage, and the RIGHT version of it is stage two — a half-float
+working space with ONE conversion point, after which nothing downstream needs to know about transfer
+functions at all. Building the 8-bit pre-pass now means building it twice. **Daniel's architectural
+objection is correct and is the reason to do it properly rather than sooner:** *"it doesn't feel
+architecturally elegant to render differently in different places."*
+
+**▶ WHAT IS TRUE IN THE MEANTIME, stated plainly so nobody rediscovers it:** HDR sources are correct
+on iPad and uncorrected on desktop. SDR sources are unaffected everywhere. The Loop Builder and the
+thumbnails are correct on both, and they are the reference.
+
+### 🗂 [SUPERSEDED BY THE ABOVE — kept for the polarity note] THE COLOUR SURFACES STILL DISAGREE, AND THE THUMBNAILS ARE THE REFERENCE
 
 B761's input transform lives in the **planar** path only. Three surfaces do not use it:
 
