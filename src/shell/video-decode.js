@@ -335,6 +335,20 @@ export async function probeSourceReadable(blob) {
 let lastSourceGate = null;
 export function sourceGateReport() { return lastSourceGate ? { ...lastSourceGate } : null; }
 
+// ⚠️ B768 — WHAT THE DECODER ITSELF SAID. The gate now proves the CONFIG was accepted
+// (`isConfigSupported` → true, stamped for the right source), so a bake that still falls back has
+// failed DOWNSTREAM of it — and the only account of that failure was an `alert('Decoder failure')`
+// on a device with no console. This is the same shape as B757/B759 on the encoder: WebKit's
+// `isConfigSupported` said yes and `configure` threw. Module-global for the B638 reason.
+let lastDecodeError = null;
+export function decodeErrorReport() { return lastDecodeError; }
+function noteDecodeError(e, where) {
+  lastDecodeError = {
+    where, name: e?.name || null, message: e?.message || String(e || 'no message'),
+    at: new Date().toISOString(),
+  };
+}
+
 /**
  * B763 — the gate, but only if it is about `url`. Returns null with a reason otherwise, so a caller
  * reports "no gate ran for this attempt" instead of quoting a stranger's success.
@@ -645,7 +659,7 @@ function makeReader(source, onClosed) {
         lastOutputAt = performance.now();   // B721 — "is the decoder still alive" needs a clock, not a count
         outQ.push(f);
       },
-      error: (e) => { decErr = e; },
+      error: (e) => { decErr = e; noteDecodeError(e, 'VideoDecoder.error'); },
     });
     d.configure(config);
     return d;
@@ -698,7 +712,7 @@ function makeReader(source, onClosed) {
         dec.flush().then(() => { flushDone = true; }, () => { /* reset() aborts a flush */ });
       }
     } catch (e) {
-      if (!closed && gen === myGen) decErr = e;   // a failed read must surface, not stall the loop
+      if (!closed && gen === myGen) { decErr = e; noteDecodeError(e, 'reader read'); }   // a failed read must surface, not stall the loop
     } finally { feeding = false; }
   }
 

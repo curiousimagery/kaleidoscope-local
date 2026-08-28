@@ -32,12 +32,46 @@ Archived at B658. It was marked superseded at B609 and kept for the reasoning be
 
 ## current version
 
-**v0.28.6 · B767** (2026-08-28). Minor bumped at B738 for the O(1) bake landing on hardware.
+**v0.28.7 · B768** (2026-08-28). Minor bumped at B738 for the O(1) bake landing on hardware.
 
 **⭐⭐ THE O(1) BAKE IS NOW MEASURED, NOT MODELLED.** A 2.63GB / 8:21 4K source peaked at **131.6MB**
 against **130.9MB** for a 741MB source. **3.5× the file, 0.7MB more memory.** Both 8GB M1 iPads also
 passed the job that killed them at B730 (Air 71.6MB, Pro 114.9MB). The Blob is disk-backed and file
 size is no longer a memory axis. **B705 and B706 are device-verified** — B705's instrument found B706, and B706 held on the repro that killed B705. B703, B704 and B707 are not yet device-verified.
+
+---
+
+## ▶▶▶▶▶▶▶▶▶▶▶▶▶▶▶▶▶▶▶ B768 (2026-08-28) — ⚠️ READ FIRST AFTER A COMPACTION
+
+**PHASE 2.5 (colour) IS DONE except for one device check.** Committed defaults, all surfaces agree in
+motion, rotation fixed, live tuning in the panel.
+
+### The 2.5 tail, current
+
+| item | state |
+|---|---|
+| Colour input transform | **DONE.** `shoulder 1, exposure 1.459, gamma 1.137`, swept against Apple's rendering |
+| Rotation (upside-down clip) | **DONE + verified by Daniel** |
+| Loop false positive | **FIXED B768.** The cause was a stale frame (`dLoop: 0`), not the threshold. **NOT yet verified on device** |
+| Perform filmstrip stretched | **FIXED B767 + verified by Daniel** |
+| Perform-mode crash | **INSTRUMENTED, not fixed.** A restore storm. See BACKLOG; no fix shipped on purpose |
+| Bake fails on iPad | **NARROWED to the decoder.** `isConfigSupported` accepts 10-bit HEVC 4K and the decode then fails. B768 publishes the decoder's error; **needs one more bake attempt to read it** |
+
+### ⚠️ THE THREE FACTS MOST LIKELY TO BE LOST IN A COMPACTION
+
+1. **The arc's test clips are HDR AND ROTATED.** `IMG_5132.MOV` and `IMG_4822.MOV` are BT.2020/HLG,
+   HEVC **Main 10**, and 5132 carries a 180° `tkhd` rotation. Every colour and orientation finding
+   traces to those two facts.
+2. **The Loop Builder is Apple's own HDR-to-SDR rendering** (AVAssetImageGenerator), which makes it a
+   REFERENCE rather than a defect. It is what the tone defaults were matched against.
+3. **`isConfigSupported` lies on WebKit.** Twice now: the encoder (B757/B759) and now the decoder
+   (B768). Treat it as necessary and not sufficient anywhere it appears.
+
+### ▶ WHAT NEEDS A DEVICE, and it is two things in one session
+
+1. **Load the non-looping clip** and check the loop badge. Then `copy report` and read
+   `sourceSwap[].loopDetect` — `seeks` now shows landed-vs-wanted per grab.
+2. **Attempt a bake** and copy the report. Read `bakeDecode.decodeError`.
 
 ---
 

@@ -347,6 +347,29 @@ instruments.** The cache budget knob, `loopBySeek`, the surface toggles, the gov
 before the measurement work and A/B capability is gone mid-investigation. The consolidation item filed
 HIGH at B591 lists five disproven levers still carrying live code.
 
+### ▶ THE DELETION LIST (kept current — add to it as levers are added)
+
+Everything here is a DIAGNOSTIC that earned its place and should not outlive the question it answers.
+Listed at the moment of creation rather than rediscovered later, which is the only way this stays
+honest.
+
+| lever | added | delete when |
+|---|---|---|
+| `?color=off` (legacy BT.601 path) | B761 | the input transform is settled and nobody is A/B-ing it. **Carries `LEGACY_COLOR` with it** |
+| `?tone=` + the frame-cost panel's tone sliders | B762-B765 | the committed defaults survive a full colour review. **Keep the sliders if stage two (float working space) is near** |
+| `planarTrail` (engine) | B760 | the planar path has been quiet for an arc. Cheap enough to keep; it is 12 entries |
+| `planarHeals` + the source-host reconciler | B760 | never — the reconciler is an invariant, not an instrument. **Its COUNTER can go** |
+| `tools/check-planar-handback.mjs` | B760 | never; it is a review rule, not a measurement |
+| `tools/color-parse-check.mjs` | B761 | never |
+| Five disproven perf levers (cache budget knob, `loopBySeek`, surface toggles) | pre-B591 | filed HIGH at B591, still live |
+| The governor | B581 | **decided by phase 4, not here.** Scope it to bus destinations or delete it |
+| `foldHdmiVideoUncap` | — | confirmed no-op. Delete or make it work |
+| `gpuMsPerFrame` in the panel | — | always 0 on WebKit. Either label it or drop it |
+
+**⚠️ AND THE DOCS HALF HAS ITS OWN LIST:** the warnings/notification spec (above), a `docs/archive/`
+sweep, and **the four-phase load sequence is explicitly NOT in this arc** (Daniel, B768) — it is
+filed, and it is feature-shaped work for whenever the notification bar is built.
+
 **Closes when:** disproven levers are gone from the code and the panel, the governor has a decided
 scope rather than a default, the docs hold only living material, and the warnings spec exists as a
 document.

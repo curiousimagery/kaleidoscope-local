@@ -6,6 +6,66 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.28.7 · Build 768 — A PERFECT SCORE MEANT A FAILED MEASUREMENT
+
+**Shipped:**
+- **The loop false positive is actually fixed.** B767's control frame was correct and irrelevant.
+- **The bake report carries the decoder's own error**, now that the gate has proved the config was
+  accepted.
+
+### ⭐ `dLoop: 0` — AND ZERO WAS THE BUG, NOT THE ANSWER
+
+B767 added a control frame and Daniel reported the same false positive. The trace it added says why
+in one line:
+
+```
+dLoop: 0 · dControl: 68.5 · verdict: true
+```
+
+**Zero. Not small — bit-identical.** Two frames 63 seconds apart in a moving clip cannot be identical,
+so the second grab never happened. `nextFrame()` waited **150ms** and then gave up; a 4K HEVC seek to
+the far end of a minute-long clip takes far longer. The wait expired, `drawImage` captured the frame
+still on screen, and **the test compared the first frame against itself and scored it a perfect
+match.**
+
+**So the control was right and could not help**: `dLoop = 0` passes any threshold and any ratio. The
+missing check was never about similarity at all — it was whether the frames came from where they were
+asked for.
+
+Three changes, and only the first is the fix:
+
+1. **`grab` returns the position it actually captured**, and the caller verifies each seek landed
+   within 0.25s of its target. **That is the conserved quantity this test never had.**
+2. **`dLoop === 0` abstains.** Real loops read ~2 on this scale; an exact zero across a moving clip
+   means the capture repeated.
+3. **The frame budget goes 150ms → 1200ms.** On its own this would only have made the bug rarer,
+   which is why it is listed last: with the landing check, a slow seek costs load time and never
+   correctness.
+
+**The lesson is one this arc keeps paying for: a suspiciously good number is a measurement to
+distrust, not a result to accept.** B767 improved the comparison when the input was already garbage.
+
+### THE BAKE NOW POINTS DOWNSTREAM, WHICH IS PROGRESS
+
+`V0-bakeCrash.json` on B767:
+
+```
+why:     "no WebCodecs reader armed, and the gate armed cleanly — the failure is downstream of it"
+srcGate: { armed: true, why: null, forUrl: "blob:capacitor://…", at: 03:35:31 }
+codec:   hvc1.2.4.L150.b0        (HEVC Main 10)
+```
+
+**B763's stamping worked.** The gate is for the right source, at the right time, and it armed — so
+`VideoDecoder.isConfigSupported` accepted 10-bit HEVC at 4K, and the failure is in the decode itself.
+**That is the same shape as B757/B759 on the encoder**, where WebKit's `isConfigSupported` said yes
+and `configure` threw.
+
+The decoder's `error` callback and the reader's own catch now record what they saw, and it rides
+`bakeDecode.decodeError`. The bake's `alert('Decoder failure')` was the only account of it, on a
+device with no console.
+
+---
+
 ## v0.28.6 · Build 767 — THE LOOP DETECTOR WAS MEASURING THE WRONG THING, AND THE CRASH LEFT A TRACE
 
 **Shipped:**

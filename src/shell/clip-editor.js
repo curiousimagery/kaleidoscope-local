@@ -19,7 +19,7 @@ import { exportVideo } from './video-export.js';
 import { memBegin, memHold, memRelease, memReport } from './mem-ledger.js';
 import { readHostVitals, onGLRestored } from './gl-watch.js';
 import { seekVideoTo } from './video-source.js';
-import { createSequentialFrameReader, probeVideoInfo, openSharedSource, sourceGateReport, sourceGateFor } from './video-decode.js';
+import { createSequentialFrameReader, probeVideoInfo, openSharedSource, sourceGateReport, sourceGateFor, decodeErrorReport } from './video-decode.js';
 import { acquireSession, releaseSession } from 'conduit/sessions';
 
 // The Loop Builder holds THREE decoders of the same clip while it is open (visible preview,
@@ -1029,7 +1029,11 @@ export function createClipEditor(env) {
           : gate?.why
             || (gate?.stale ? `no WebCodecs reader armed, and ${gate.why || 'the gate is about another source'}`
               : 'no WebCodecs reader armed, and the gate armed cleanly — the failure is downstream of it');
+        // B768 — the decoder's own words, when it had any. The gate proving the config was
+        // accepted is what makes this the interesting field rather than a redundant one.
+        const decodeError = (() => { try { return decodeErrorReport(); } catch { return null; } })();
         env.bakeDecode = { ...bakeShape, reader: 'element-seek fallback', why, srcGate: gate,
+                           decodeError,
                            timing: bakeTiming, outBytes: bakeOutBytes, at: new Date().toISOString() };
         env.vitals?.mark('bake-decode-none', { ...bakeShape, why, srcGate: gate });
       }

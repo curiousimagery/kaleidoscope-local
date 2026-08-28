@@ -186,7 +186,11 @@ export function createSourceHost(env) {
     const nextFrame = () => new Promise((res) => {
       let done = false;
       if (dv.requestVideoFrameCallback) dv.requestVideoFrameCallback(() => { done = true; res(); });
-      setTimeout(() => { if (!done) res(); }, dv.requestVideoFrameCallback ? 150 : 90);
+      // B768 — 150ms was the whole bug's enabler. A 4K HEVC seek to the far end of a minute-long
+      // clip routinely takes longer, and the timeout then presented a STALE frame as a result. The
+      // budget is now generous; the landing check above is what makes a slow seek honest rather
+      // than merely tolerated, so a longer wait costs load time and never correctness.
+      setTimeout(() => { if (!done) res(); }, dv.requestVideoFrameCallback ? 1200 : 600);
     });
     try {
       await new Promise((res, rej) => {
@@ -199,11 +203,27 @@ export function createSourceHost(env) {
       try { await dv.play(); await nextFrame(); dv.pause(); } catch { /* muted autoplay is usually allowed */ }
       const cvs = document.createElement('canvas'); cvs.width = 32; cvs.height = 32;
       const ctx = cvs.getContext('2d', { willReadFrequently: true });
+      // ⚠️⚠️ B768 — RETURN WHERE THE FRAME ACTUALLY CAME FROM, NOT JUST ITS PIXELS.
+      //
+      // B767 gave this test a control frame and it was still a false positive, because the control
+      // was never the problem. The trail from the failing run says so outright:
+      //
+      //     dLoop: 0 · dControl: 68.5 · verdict: true
+      //
+      // **Zero. Not small — bit-identical.** Two frames 63 seconds apart in a moving clip cannot be
+      // identical, so the second grab never happened: `nextFrame()` waits 150ms and then gives up,
+      // and a 4K HEVC seek to the far end of a minute-long clip takes far longer than that. The
+      // wait expired, `drawImage` captured the frame still on screen, and the test compared the
+      // first frame against itself. **A perfect score meant a failed measurement.**
+      //
+      // So the grab now reports the position it actually captured, and the caller checks that the
+      // two came from different places before believing anything about their similarity.
       const grab = async (sec) => {
-        await seekVideoTo(dv, Math.max(0, Math.min(dur - 0.01, sec)));
-        await nextFrame();                     // wait for the seeked frame to actually present
+        const target = Math.max(0, Math.min(dur - 0.01, sec));
+        await seekVideoTo(dv, target);
+        await nextFrame();
         ctx.drawImage(dv, 0, 0, 32, 32);
-        return ctx.getImageData(0, 0, 32, 32).data;
+        return { px: ctx.getImageData(0, 0, 32, 32).data, at: dv.currentTime, want: target };
       };
       // ⚠️⚠️ B767 — A CONTROL FRAME, BECAUSE THE OLD TEST MEASURED THE WRONG THING.
       //
@@ -219,9 +239,15 @@ export function createSourceHost(env) {
       // the FIRST much more than it resembles the MIDDLE. A static shot resembles both equally. One
       // extra grab turns an absolute measurement into a comparative one, which is the only form
       // that can tell those apart.
-      const first = await grab(inT * dur + 0.03);
-      const last = await grab(outT * dur - 0.05);
-      const mid = await grab((inT + (outT - inT) * 0.5) * dur);
+      const firstG = await grab(inT * dur + 0.03);
+      const lastG = await grab(outT * dur - 0.05);
+      const midG = await grab((inT + (outT - inT) * 0.5) * dur);
+      const first = firstG.px, last = lastG.px, mid = midG.px;
+      // Did the seeks LAND? A quarter second is loose enough for a keyframe-snapped seek and tight
+      // enough to catch a grab that never moved. This is the conserved quantity the old test had no
+      // way to check: where the picture came from, not what it looked like.
+      const landed = (g) => Math.abs(g.at - g.want) < 0.25;
+      const seeksOk = landed(firstG) && landed(lastG) && landed(midG);
       const lum = (d) => { let s = 0; for (let i = 0; i < d.length; i += 4) s += d[i] + d[i + 1] + d[i + 2]; return s / (d.length / 4 * 3); };
       const diff = (a, b) => {
         let sum = 0;
@@ -235,15 +261,22 @@ export function createSourceHost(env) {
       const dCtl = diff(mid, last);         // ...more than the end meets the middle?
       // PUBLISHED, because a false positive is otherwise a verdict with no working. This rides the
       // source-swap trail, which is in the exported report.
-      const verdict = dCtl < LOOP_MATCH_THRESHOLD ? null
-        : (dLoop < LOOP_MATCH_THRESHOLD && dLoop < dCtl * LOOP_CONTROL_RATIO);
+      // ⚠️ AND ZERO IS A FAILURE CODE, NOT A PERFECT SCORE. Real loops read ~2 on this scale; an
+      // exact 0 across a moving clip means the same frame was captured twice.
+      const verdict = !seeksOk ? null
+        : dLoop === 0 ? null
+          : dCtl < LOOP_MATCH_THRESHOLD ? null
+            : (dLoop < LOOP_MATCH_THRESHOLD && dLoop < dCtl * LOOP_CONTROL_RATIO);
       swapTrace('loopDetect', {
         dLoop: +dLoop.toFixed(1), dControl: +dCtl.toFixed(1),
         threshold: LOOP_MATCH_THRESHOLD, ratio: LOOP_CONTROL_RATIO, verdict,
-        why: verdict === null
-          ? 'the middle frame matches the end too — a static or near-static shot, where this test cannot discriminate'
-          : verdict ? 'the end meets the beginning far more closely than it meets the middle'
-            : 'the end does not close on the beginning',
+        seeks: [firstG, lastG, midG].map((g) => `${g.at.toFixed(2)}/${g.want.toFixed(2)}`).join(' '),
+        why: !seeksOk ? 'a seek did not land — the frames compared are not the frames asked for, so no verdict'
+          : dLoop === 0 ? 'the two frames are bit-identical, which means the capture repeated rather than the clip looping'
+            : dCtl < LOOP_MATCH_THRESHOLD
+              ? 'the middle frame matches the end too — a static or near-static shot, where this test cannot discriminate'
+              : verdict ? 'the end meets the beginning far more closely than it meets the middle'
+                : 'the end does not close on the beginning',
       });
       // ABSTAIN on a static scene rather than guess. If the middle already matches the end, the
       // control has no discriminating power and BOTH answers would be unfounded — which is the same
