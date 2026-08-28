@@ -20,6 +20,7 @@ import { createGLContext, uploadTexture, updateTexture, createPlanarUploader, re
 import { acquireSession } from 'conduit/sessions';
 import { FORMS, FORMS_BY_ID, getActiveForm, getActiveFormIndex } from './forms/index.js';
 import { sliceVecToSourceUV } from './geometry.js';
+import { isHDR } from './color.js';
 import { createGpuTimer } from 'conduit/gpu-timer';
 
 // B706 — which upload failures are worth retrying. A zero-size element is a timing accident that a
@@ -75,6 +76,8 @@ export function createEngine({ canvas, maxProbeSize, perf = null, label = 'engin
   let sourceColor = null;
   let sourceRotation = 0;        // B762 — container rotation the native path must apply itself
   let sourceTone = null;         // B763 — HDR tone curve, live-tunable from the diagnostics panel
+  let hdrViaCanvas = false;      // B772 — opt-in: convert HDR on the element path via a 2D canvas
+  let hdrCanvas = null, hdrCtx = null;
   let lastReinitWhy = '';        // B703 — why the last context restore's element re-upload failed, if it did
   // ⚠️ B760 — WHO RETIRED THE PLANAR PROVIDER, AND WHEN. Four builds (B580, B703, B706, B708) have
   // now fixed a different way of arriving at `native decode` without `planar`, and a fifth device
@@ -435,6 +438,28 @@ export function createEngine({ canvas, maxProbeSize, perf = null, label = 'engin
         if (t === lastElementTime && lastElementTime !== -1) return false;
         lastElementTime = t;
       }
+      // ⚠️ B772 — THE ONE PLACE THE ELEMENT BECOMES A TEXTURE, so it is the one place the HDR
+      // detour belongs. `texImage2D` of a `<video>` hands back the ENCODED values; a 2D `drawImage`
+      // gets the browser's display transform. That asymmetry is the whole desktop HDR bug, and it
+      // is why the source panel and the Loop Builder look right while every engine surface does not.
+      //
+      // Gated three ways so nothing else pays for it: the flag is off by default, the source has to
+      // be HDR, and a live planar path already does this correctly in the shader.
+      if (hdrViaCanvas && sourceColor && isHDR(sourceColor) && !(planar && planar.width > 0)) {
+        const { w, h } = sourceDims(sourceImage);
+        if (w && h) {
+          if (!hdrCanvas || hdrCanvas.width !== w || hdrCanvas.height !== h) {
+            hdrCanvas = document.createElement('canvas');
+            hdrCanvas.width = w; hdrCanvas.height = h;
+            hdrCtx = hdrCanvas.getContext('2d');
+          }
+          try {
+            hdrCtx.drawImage(sourceImage, 0, 0, w, h);
+            updateTexture(glCtx.gl, hdrCanvas, sourceTexture);
+            return true;
+          } catch { /* a not-ready element falls through to the direct upload below */ }
+        }
+      }
       updateTexture(glCtx.gl, sourceImage, sourceTexture);
       return true;
     },
@@ -503,6 +528,18 @@ export function createEngine({ canvas, maxProbeSize, perf = null, label = 'engin
     // ⚠️ B762 — THE CONTAINER ROTATION, WHICH ONLY THE PLANAR PATH NEEDS. `<video>` and `drawImage`
     // apply it for us; AVFoundation's raw buffer does not, which is why one clip was upside down on
     // iPad and right way up everywhere else. See shell/source-color.js for how it is read.
+    // ⚠️ B772 — THE HDR ELEMENT PATH, opt-in. See perf-flags.js `hdrViaCanvas` for the trade.
+    // The engine holds the FLAG rather than reading it, because engine/ knows nothing about the
+    // shell — the shell pushes it, the same way it pushes the colour description.
+    setHDRViaCanvas(on) {
+      const next = !!on;
+      if (next === hdrViaCanvas) return;
+      hdrViaCanvas = next;
+      lastElementTime = -1;      // the next upload must actually run, not be elided as unchanged
+      if (!next) { hdrCanvas = null; hdrCtx = null; }
+    },
+    get hdrViaCanvas() { return hdrViaCanvas; },
+
     setSourceRotation(deg) {
       sourceRotation = deg || 0;
       if (planar) planar.setRotation(sourceRotation);

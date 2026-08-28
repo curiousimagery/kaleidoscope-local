@@ -222,6 +222,45 @@ reference for tuning `?tone=`, and it is the strongest calibration signal this a
 then decide whether the other two paths need routing through the seam. `colorFromVideoFrame()` exists
 for when they do.
 
+### ✅ [ROOT-CAUSED B772 — IT IS DECODER EXHAUSTION, NOT THE CLIP] THE BAKE FAILS ON iPAD
+
+**Two reports, same session, same build, and they settle it.** Daniel: *"the first attempt was
+successful, so then i went back to the clip that failed and it failed again, which made me think
+maybe it was something about the clip? but then i went back to the successful one and it failed as
+well."*
+
+**It is not the clip. It is how many decoders are already open.**
+
+| | ✅ `v0-BakeSuccessful.json` | ❌ `v0-BakeFailure.json` |
+|---|---|---|
+| `sessions.now.decode` | **2** | **5** |
+| live | preview engine, baked clip, native decode | source `<video>`, native decode, **loop builder: preview**, **loop builder: A-head crossfade**, **loop builder: thumbnail strip** |
+| `deviceFreeMB` before | 460 | 283 |
+| codec | `hvc1.2.4.H156.b0` | `hvc1.2.4.L150.b0` |
+| outcome | 3,178 frames, 940MB, 160s | `EncodingError: Decoder failure`, 7.8s |
+
+**⚠️ AND THE 10-BIT HYPOTHESIS IS DEAD.** Both codecs are HEVC **Main 10** (profile 2). Same profile,
+same device, opposite outcomes. What differed was three extra decoders.
+
+**The mechanism:** iOS caps concurrent hardware decode sessions. Entering the Loop Builder opens
+**three** (preview, A-head crossfade, thumbnail strip) on top of the source element and the native
+decode; the bake then asks for a sixth and `VideoDecoder` fails immediately. `isConfigSupported`
+armed cleanly **49ms before the error** — the same "necessary, not sufficient" trap as B757/B759 on
+the encoder.
+
+**▶ THE FIX, and it is scoped:** release the Loop Builder's own three decoders before the bake starts
+and re-acquire after. **The bake does not need the preview, the A-head or the thumbnail strip while
+it runs** — it reads the source directly. `clip-editor.js` already has the pattern in B758's
+`harvestAndRelease`, which releases the bake's readers before the source swap for the same class of
+reason.
+
+**▶ NOT ATTEMPTED IN B772, deliberately.** It is clip-editor surgery on the hottest path in the app,
+and the context left in that session was the exact condition under which three field-dropping bugs
+were shipped this week. **The diagnosis is the durable part; the fix is one focused session.**
+
+**▶ AND IT SUBSUMES THE OLD V3 ITEM** (*"three or more 4K clips in sequence"* / *"decode 7 with three
+Loop Builder decoders alive"*). That was the same observation without a failure attached to it.
+
 ### 🟠 [OPEN — B762] THE BAKE'S SOURCE GATE IS READ STALE, SO A FAILED BAKE BLAMES A PREVIOUS OPERATION
 
 `V0-colorTroubleshooting.json`, a bake that failed with *"Could not bake the clip: Decoder failure"*:

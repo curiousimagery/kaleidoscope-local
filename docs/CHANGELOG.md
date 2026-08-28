@@ -6,6 +6,58 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.29.0 · Build 772 — THE BAKE FAILURE IS DECODER EXHAUSTION, AND DESKTOP HDR GETS A SWITCH
+
+**Minor bumped:** the bake failure that has been open since B707 is root-caused.
+
+**Shipped:** `hdrViaCanvas`, an opt-in perf flag that makes HDR correct on desktop.
+
+### ⭐⭐ TWO BAKES SETTLED IT, AND IT WAS NEVER THE CLIP
+
+Daniel ran the same clips in both directions and got both answers, which is what killed the clip
+theory. The reports say why:
+
+| | ✅ success | ❌ failure |
+|---|---|---|
+| `sessions.now.decode` | **2** | **5** |
+| live | preview, baked clip, native decode | source `<video>`, native decode, **loop builder ×3** |
+| codec | `hvc1.2.4.H156.b0` | `hvc1.2.4.L150.b0` |
+
+**Both codecs are HEVC Main 10.** Same profile, same device, opposite outcomes — **the 10-bit
+hypothesis I carried for four builds is dead.** What differed was three extra decoders: entering the
+Loop Builder opens a preview, an A-head crossfade and a thumbnail strip, and the bake then asks for a
+sixth. `VideoDecoder` fails with `EncodingError: Decoder failure` **49ms after `isConfigSupported`
+armed cleanly** — the same "necessary, not sufficient" trap as B757/B759 on the encoder.
+
+**This is what B768's `decodeError` was added for, and it worked on the first pair of reports.**
+
+**The fix is scoped and NOT shipped here:** release the Loop Builder's three decoders before a bake
+and re-acquire after — it needs none of them while it runs, and B758's `harvestAndRelease` is the
+existing pattern. Left for a focused session rather than attempted on the last of a context window,
+which is the condition that produced three field-dropping bugs this week.
+
+### `hdrViaCanvas` — DANIEL'S TRADE, MADE SWITCHABLE
+
+*"is that something we could build as a toggle in the interim... and if the perf hit is terrible we
+can turn it off or prioritize the full color management."*
+
+ON routes the element upload through a 2D canvas, where the browser applies the display transform we
+cannot get from `texImage2D`. That is exactly what the source panel, the strip thumbnails and the
+Loop Builder already do, and precisely why those three look right while every engine surface does not.
+
+**Gated three ways so nothing else pays:** the flag is off by default, the source must be HDR, and a
+live planar path already does it correctly in the shader. So SDR sources and iPad are untouched.
+
+**Cost:** ~4.2ms/megapixel, so roughly 35ms/frame at 4K — the B747 win, given back on those surfaces
+only. Render and record keep the fast path, per Daniel's *"let's not tear out the existing perf win."*
+
+**And it reaches the broadcast**, which is the point: the flag is folded into `applyEngineMeta`, so
+the bus and PiP engines get it too. They never see `perfFlags` — only the two chromes' render loops
+do — so a toggle now calls `reapplyEngineMeta` rather than waiting for the next source load. **The
+B763 merge-don't-enumerate lesson, applied to the fan-out instead of to a single object.**
+
+---
+
 ## v0.28.10 · Build 771 — THE PANEL WAS CLAIMING A TRANSFORM THAT NEVER RAN
 
 **Shipped:** the source note and the report now say whether the colour transform was APPLIED, not

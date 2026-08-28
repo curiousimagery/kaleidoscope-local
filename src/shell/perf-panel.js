@@ -883,6 +883,7 @@ export function mountPerfPanel(env, { container = null, onClose = null } = {}) {
         b.classList.toggle('off', !perfFlags[key]);
         b.addEventListener('click', () => {
           perfFlags[key] = !perfFlags[key];
+          env.reapplyEngineMeta?.();   // B772 — a flag the bus/PiP engines only learn on a source change
           // several of these change what a surface DRAWS, and the change-gate would otherwise
           // hold the old pixels until something else moved — so force everything to repaint
           env.scheduleOverlayDraw?.();
@@ -1052,6 +1053,7 @@ export function mountPerfPanel(env, { container = null, onClose = null } = {}) {
         if (s.scale !== 1) ledger.setSurfaceScale(s.id, 1);
       }
       for (const [key] of PERF_FLAG_SPECS) perfFlags[key] = PERF_FLAG_DEFAULTS[key];
+      env.reapplyEngineMeta?.();
       ledger.enabled = false;
       env.scheduleOverlayDraw?.();
       env.scheduleRender?.();

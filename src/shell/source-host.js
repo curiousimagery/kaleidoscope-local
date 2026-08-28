@@ -26,6 +26,7 @@ import { zipStore } from './zip.js';
 import { createSaveFlow } from './save-flow.js';
 import { getActiveForm, allEngines } from '../engine/index.js';
 import { readSourceMeta } from './source-color.js';
+import { perfFlags } from './perf-flags.js';
 import { DEFAULT_COLOR, LEGACY_COLOR, describeColor, TONE_DEFAULTS, toneFromQuery, isHDR } from '../engine/color.js';
 import { formBoxCenter, placeFormBox, centerFormInSource } from '../engine/geometry.js';
 import { acquireSession, releaseSession } from 'conduit/sessions';
@@ -1716,9 +1717,18 @@ export function createSourceHost(env) {
       eng?.setSourceColor?.(env.sourceColor);
       eng?.setSourceRotation?.(env.sourceRotation);
       eng?.setTone?.(env.sourceTone);
+      // B772 — the bus and PiP engines never see `perfFlags` (only the two chromes' render loops
+      // do), and the broadcast is exactly where correct colour matters most. Folded in here so one
+      // owner sets everything about how a source is converted — the B763 merge-don't-enumerate
+      // lesson applied to the FAN-OUT rather than to a single object.
+      eng?.setHDRViaCanvas?.(perfFlags.hdrViaCanvas);
     } catch { /* an engine may be mid-reinit */ }
   };
   env.applyEngineMeta = applyEngineMeta;
+  // B772 — the bus and PiP engines learn about a flag change only when the SOURCE changes, which
+  // would leave the broadcast on the old path until the next clip load. The perf switchboard calls
+  // this so a toggle reaches every engine immediately, which is the whole point of a live A/B.
+  env.reapplyEngineMeta = () => { for (const eng of allEngines()) applyEngineMeta(eng); };
 
   // B763 — the HDR tone curve. Seeded from `?tone=`, then live from the frame-cost panel. Same
   // fan-out as the colour, for the same reason: the preview, the bus, the PiP and the source panel

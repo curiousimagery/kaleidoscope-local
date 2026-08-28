@@ -168,6 +168,24 @@ export const perfFlags = {
   // without a build. Compare `timing.msPerFrame.upload` between the two.
   renderUploadViaCanvas: false,
 
+  // ⚠️ B772 — DESKTOP HDR, AND IT IS A DELIBERATE TRADE RATHER THAN A FIX (Daniel's ask).
+  //
+  // The B761 input transform lives in the PLANAR blitter, which exists only where there is a native
+  // decode — i.e. iOS. On desktop every engine-rendered surface uploads the `<video>` element
+  // straight to a texture, and WebGL hands back the ENCODED values with no display transform, so an
+  // HLG source renders far too bright. The surfaces that look right (source panel, strip thumbnails,
+  // Loop Builder) all go through a 2D `drawImage`, where the browser converts for us.
+  //
+  // ON = do the same thing on the element path: draw into a scratch 2D canvas first, upload that.
+  // **Correct colour on every canvas, at the cost B747 removed** (~4.2ms/megapixel, so ~35ms/frame
+  // at 4K). Only ever engages for an HDR source with no planar path, so SDR and iPad pay nothing.
+  //
+  // Daniel: *"if the perf hit is terrible we can turn it off or prioritize the full color
+  // management."* **Stage two deletes this** — converting from raw values in our own shader makes
+  // the 2D canvas unnecessary rather than optional. Until then this is how desktop previews and
+  // broadcasts HDR honestly.
+  hdrViaCanvas: false,
+
   // Force takes through MediaRecorder instead of WebCodecs (B537). ON = the pre-B365 recorder,
   // which muxes natively and demonstrably produces sound — the package's RAW take has had audio
   // this whole time and it is the only thing on that path.
@@ -240,4 +258,5 @@ export const PERF_FLAG_SPECS = [
   ['loopBySeek', 'video: loop by seeking, not by item swap', 'RELOAD THE CLIP to apply. on = one AVPlayerItem, rewound at the end (B601 A/B against the 150ms swap)'],
   ['captureForce2d', 'render: 2D capture instead of GL', 'REOPEN THE RENDER SHEET to apply. on = the desktop capture path — the A/B for flashing/jerky frames on iPad'],
   ['renderUploadViaCanvas', 'render: upload frames via 2D canvas', 'on = the pre-B747 path (35ms/frame on WebKit at 4K). The A/B if the direct texture upload regresses on Chromium'],
+  ['hdrViaCanvas', 'source: correct HDR on the element path', 'DESKTOP HDR ONLY. on = route the <video> upload through a 2D canvas so the browser tone-maps it — correct colour on every canvas, at ~35ms/frame at 4K. No effect on SDR sources or where a native decode is active'],
 ];

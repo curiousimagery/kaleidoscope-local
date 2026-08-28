@@ -674,6 +674,7 @@ function scheduleRender() {
       // the switchboard mutates perfFlags in place, so the engine is told each render rather
       // than at construction (the setter is idempotent — see engine/index.js)
       engine.setElementUploadElision?.(perfFlags.elideElementUploads);
+      engine.setHDRViaCanvas?.(perfFlags.hdrViaCanvas);   // B772 — desktop HDR, opt-in (see perf-flags.js)
       engine.render(state);
       // DEFERRED, NOT DROPPED (B575). The engine honours the ledger's rate gate inside render(),
       // and this loop is render-ON-DEMAND — so a governed frame that simply returned would strand
