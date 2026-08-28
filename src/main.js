@@ -218,7 +218,10 @@ const sourceSurface = perf.surface({
       degraded && '⚠ NOT ON THE PLANAR PATH — sampling the preview canvas',
       // B761 — say it only when it is NOT the assumed default, so the note stays short on the
       // common case and shouts on the one that has been silently wrong all arc.
-      env.sourceColor && env.sourceColor.why?.startsWith('read from') && describeColor(env.sourceColor),
+      // B771 — say whether the transform RAN, not just what the file declared. `planarActive` is the
+      // only path that applies it; everything else is the browser's conversion (or lack of one).
+      env.sourceColor && env.sourceColor.why?.startsWith('read from')
+        && describeColor(env.sourceColor, !!engine?.planarActive),
       // WHY WE ARE ON <video> (B597). "no native decode" was previously readable only as the
       // ABSENCE of the words above, which is exactly the failure this project keeps hitting.
       !env.nativeVideo && env.nativeAttach && `⚠ NO NATIVE DECODE: ${env.nativeAttach.why}`,

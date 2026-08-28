@@ -204,7 +204,17 @@ export function toneFromQuery(search) {
 
 // Human-readable, for the report and the source note. This is the half that makes a wrong
 // assumption findable on a device, so it names the source of every field.
-export function describeColor(color) {
+// ⚠️ `applied` IS NOT OPTIONAL DECORATION (B771). This note used to print "⚠ HDR → SDR tone mapped"
+// whenever the FILE was HDR, regardless of whether the transform actually ran — and it only runs on
+// the planar path. On desktop there is no planar path at all, so the panel was reading:
+//
+//     from <video> · … · ⚠ HDR → SDR tone mapped · ⚠ NO NATIVE DECODE
+//
+// Both halves true, the conjunction a lie, and the lie is in the direction that hides the defect.
+// Daniel had to discover the desktop gap by looking at the picture. **A diagnostic that describes
+// what the code INTENDS rather than what it DID is worse than no diagnostic**, which is this
+// project's oldest standing rule.
+export function describeColor(color, applied = true) {
   if (!color) return 'no colour info';
   const name = (map, v) => Object.keys(map).find((k) => map[k] === v) || `#${v}`;
   return [
@@ -212,7 +222,9 @@ export function describeColor(color) {
     `transfer ${name(TRANSFER, color.transfer)}`,
     `primaries ${name(PRIMARIES, color.primaries)}`,
     color.fullRange ? 'full range' : 'limited range',
-    isHDR(color) && '⚠ HDR → SDR tone mapped',
+    isHDR(color) && (applied
+      ? '⚠ HDR → SDR tone mapped'
+      : '🚨 HDR, AND NOT CONVERTED — this surface uploads the element and the browser hands back the encoded values, so it renders too bright. Correct on the native-decode path only'),
     color.why,
   ].filter(Boolean).join(' · ');
 }

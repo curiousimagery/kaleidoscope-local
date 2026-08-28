@@ -32,7 +32,7 @@ Archived at B658. It was marked superseded at B609 and kept for the reasoning be
 
 ## current version
 
-**v0.28.9 · B770** (2026-08-28). Minor bumped at B738 for the O(1) bake landing on hardware.
+**v0.28.10 · B771** (2026-08-28). Minor bumped at B738 for the O(1) bake landing on hardware.
 
 **⭐⭐ THE O(1) BAKE IS NOW MEASURED, NOT MODELLED.** A 2.63GB / 8:21 4K source peaked at **131.6MB**
 against **130.9MB** for a 741MB source. **3.5× the file, 0.7MB more memory.** Both 8GB M1 iPads also
@@ -80,7 +80,10 @@ before keeping both.**
    REFERENCE rather than a defect. It is what the tone defaults were matched against.
 3. **`isConfigSupported` lies on WebKit.** Twice now: the encoder (B757/B759) and now the decoder
    (B768). Treat it as necessary and not sufficient anywhere it appears.
-4. **THERE ARE THREE UPLOAD PATHS AND WE ONLY OWN ONE.** planar (ours, correct), element `texImage2D`
+4. **DESKTOP HAS NO NATIVE DECODE, BY DESIGN.** `NO NATIVE DECODE: native video decode is iOS-only`
+   is not a failure. **I misread it as one at B770** — check the reason string before treating that
+   warning as a regression.
+5. **THERE ARE THREE UPLOAD PATHS AND WE ONLY OWN ONE.** planar (ours, correct), element `texImage2D`
    (browser gives raw — **uncorrected HDR**), 2D canvas (browser tone-maps — correct). Every colour
    surprise this arc sorts by that table. **`VideoFrame`-direct behaves like the element path**, which
    is why render's fast path is uncorrected while its slow fallback is right.

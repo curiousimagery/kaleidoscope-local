@@ -6,6 +6,59 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.28.10 · Build 771 — THE PANEL WAS CLAIMING A TRANSFORM THAT NEVER RAN
+
+**Shipped:** the source note and the report now say whether the colour transform was APPLIED, not
+just what the file declared.
+
+### ⚠️ AND MY B770 HYPOTHESIS WAS WRONG — CORRECTING IT HERE RATHER THAN LEAVING IT
+
+B770 guessed that "even and terrible everywhere" meant the native decode had failed to attach,
+because a loop probe was racing it. **Daniel's panel says otherwise:**
+
+```
+from <video> · matrix BT2020_NCL · transfer HLG · primaries BT2020 · full range
+· ⚠ HDR → SDR tone mapped · read from the file's nclc box
+· ⚠ NO NATIVE DECODE: native video decode is iOS-only
+```
+
+**"iOS-only" — he is on DESKTOP.** There is no native decode to lose. Nothing regressed; the colour
+was uncorrected there the whole time, exactly as B769 documented, and I read a known state as a new
+symptom. The B770 reverts were still correct on their own evidence (load time, scrub, filmstrip) and
+Daniel confirmed all three fixed.
+
+### THE NOTE ITSELF WAS THE PROBLEM
+
+Read that line again: **`⚠ HDR → SDR tone mapped` sits next to `NO NATIVE DECODE`.** Both halves are
+true and the conjunction is a lie — the transform only exists on the planar path, so on desktop it
+announced a conversion that never happened.
+
+`describeColor` was printing the tone-map warning whenever the FILE was HDR, with no idea whether the
+shader had run. It now takes an `applied` flag from `engine.planarActive` and says the opposite thing
+when false:
+
+> 🚨 HDR, AND NOT CONVERTED — this surface uploads the element and the browser hands back the encoded
+> values, so it renders too bright. Correct on the native-decode path only
+
+**A diagnostic that describes what the code INTENDS rather than what it DID is worse than no
+diagnostic.** Daniel had to find the desktop gap by looking at the picture, while the panel sat there
+claiming the opposite. `sourceColor.applied` rides the report for the same reason.
+
+### THE DESKTOP HDR TRADE, STATED SO IT CAN BE DECIDED RATHER THAN REDISCOVERED
+
+Daniel: *"let's not tear out the existing perf win... as a short term workaround i can pre-flatten HDR
+in another tool before loading here and only render SDR files. i can still perform with HDR source in
+the meantime."*
+
+**Agreed, and the render fast path stays.** For the record, the one lever that would make desktop HDR
+correct today is routing the ELEMENT upload through a 2D canvas (which is what the source panel,
+thumbnails and Loop Builder already do, and why those three look right). It is ~15 lines, gated to
+HDR-without-planar, and **it costs the B747 upload win on those surfaces** — roughly 4.2ms per
+megapixel, so ~35ms/frame at 4K. **Not shipped, not even behind a flag**, because Daniel's workaround
+costs nothing and stage two deletes the trade entirely rather than managing it.
+
+---
+
 ## v0.28.9 · Build 770 — REVERTING TWO OF MY OWN "FIXES" THAT COST MORE THAN THEY BOUGHT
 
 **Daniel on B769:** *"this last build introduced some major regressions."* He is right on every count,

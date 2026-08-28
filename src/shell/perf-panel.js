@@ -567,7 +567,8 @@ export function mountPerfPanel(env, { container = null, onClose = null } = {}) {
       // quality judgement in this arc was made on an HDR clip decoded as BT.601 SDR, and nothing in
       // any report said so. `why` is the load-bearing field: "read from the file's nclc box" and
       // "assuming BT.709" are very different confidences in the same three numbers.
-      sourceColor: env.sourceColor ? { ...env.sourceColor, described: describeColor(env.sourceColor) } : undefined,
+      sourceColor: env.sourceColor ? { ...env.sourceColor, described: describeColor(env.sourceColor, !!env.engine?.planarActive),
+        applied: !!env.engine?.planarActive } : undefined,
       sourceRotation: env.sourceRotation || undefined,
       // B763 — the swept tone curve, so a value Daniel likes reaches me as a number rather than a
       // description. `?tone=<shoulder>,<exposure>` reproduces it; committing it is one edit.
