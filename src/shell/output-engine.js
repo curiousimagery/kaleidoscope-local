@@ -146,7 +146,7 @@ export function createOutputEngine(env) {
         // recording / Syphon / NDI, so give it the full-res planes instead
         if (env.nativeVideo && src === env.nativeVideo.frameSource()) {
           hidden.setPlanarSource(env.nativeVideo.planeReader(), env.nativeVideo.cap);
-          hidden.setSourceColor?.(env.sourceColor);   // B761 — the bus IS the broadcast; it must agree with the preview
+          env.applyEngineMeta?.(hidden);   // B762 — colour AND rotation; the bus IS the broadcast
         }
         lastSource = src; lastW = w; lastH = h;
       } catch {

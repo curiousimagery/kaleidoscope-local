@@ -335,6 +335,20 @@ export async function probeSourceReadable(blob) {
 let lastSourceGate = null;
 export function sourceGateReport() { return lastSourceGate ? { ...lastSourceGate } : null; }
 
+/**
+ * B763 — the gate, but only if it is about `url`. Returns null with a reason otherwise, so a caller
+ * reports "no gate ran for this attempt" instead of quoting a stranger's success.
+ */
+export function sourceGateFor(url) {
+  const g = sourceGateReport();
+  if (!g) return { stale: true, why: 'no source gate has ever run in this session' };
+  const want = typeof url === 'string' ? url.slice(0, 120) : null;
+  if (want && g.forUrl && g.forUrl !== want) {
+    return { stale: true, why: `the last source gate was for a different source (${g.forLabel || 'unlabelled'}, ${g.at})` };
+  }
+  return g;
+}
+
 // openSharedSource(url) → source | null. Parse ONCE; take as many readers as you need.
 // The source is refcounted: it releases its sample table when the last reader closes AND the caller
 // has closed it, whichever comes last.
@@ -356,10 +370,21 @@ export function sourceGateReport() { return lastSourceGate ? { ...lastSourceGate
 export async function openSharedSource(url, opts = {}) {
   const budget = sourceBudget();
   const maxBytes = typeof opts.maxBytes === 'number' ? opts.maxBytes : budget.capBytes;
+  // ⚠️ B763 — STAMP WHO THIS GATE IS ABOUT. It is ONE slot shared by every caller, and a reader
+  // that cannot tell whose attempt it is describing will confidently attribute someone else's.
+  //
+  // `V0-colorTroubleshooting.json`: a bake failed with *"Decoder failure"* and published
+  // `why: "no WebCodecs reader armed, and the gate published no reason"` beside a gate reading
+  // `armed: true, why: null` — timestamped **42 seconds before the bake**. It was a previous
+  // operation's success. **This is exactly the defect B724 fixed for `bakeDecode`, in the same
+  // function, for the same reason**, and it landed again because the fix was applied to the field
+  // rather than to the pattern.
   const gate = { ...budget, capBytes: maxBytes, fileBytes: null, fetchMs: null,
                  moovBytes: null, indexBytes: null, frames: null, armed: false, why: null,
+                 forUrl: typeof url === 'string' ? url.slice(0, 120) : null,
+                 forLabel: opts.label || null,
                  at: new Date().toISOString() };
-  const settle = (why) => { gate.why = why; gate.armed = !why; lastSourceGate = gate; return null; };
+  const settle = (why) => { gate.why = why; gate.armed = !why; gate.at = new Date().toISOString(); lastSourceGate = gate; return null; };
 
   if (typeof VideoDecoder === 'undefined' || !MP4Box.createFile) {
     return settle('no WebCodecs VideoDecoder or no MP4Box in this browser');
@@ -503,7 +528,7 @@ export async function openSharedSource(url, opts = {}) {
     },
     close() { ownerOpen = false; maybeRelease(); },
   };
-  gate.armed = true; gate.why = null; lastSourceGate = gate;
+  gate.armed = true; gate.why = null; gate.at = new Date().toISOString(); lastSourceGate = gate;
   return source;
 }
 

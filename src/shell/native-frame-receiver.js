@@ -159,7 +159,12 @@ export function createNativeFrameReceiver({ port = 8899, mirror = false, cap = 0
     // a capped canvas is a downscale. (Allocating the plane textures at the CAPPED size
     // instead reads a top-left crop of the frame — what Build 500's cap actually did.)
     const scale = cap > 0 ? Math.min(1, cap / Math.max(frame.width, frame.height)) : 1;
-    const cw = Math.max(2, Math.round(frame.width * scale)), ch = Math.max(2, Math.round(frame.height * scale));
+    // B762 — a 90/270 container rotation swaps the picture's axes, and the SOURCE PANEL is what the
+    // slice overlay is drawn over, so it has to be sized for the rotated result or the box the
+    // operator drags stops matching the region the output samples.
+    const swap = renderer.swapsAxes?.() || false;
+    const fw = swap ? frame.height : frame.width, fh = swap ? frame.width : frame.height;
+    const cw = Math.max(2, Math.round(fw * scale)), ch = Math.max(2, Math.round(fh * scale));
     if (canvas.width !== cw || canvas.height !== ch) { canvas.width = cw; canvas.height = ch; }
     const t0 = performance.now();
     renderer.draw(frame, cw, ch, mirror);
@@ -272,7 +277,14 @@ export function createNativeFrameReceiver({ port = 8899, mirror = false, cap = 0
     refreshFrame: paintLatest,
     frameSource: () => canvas,
     // B761 — the preview canvas converts with the same input transform the engine uses.
-    setColor: (c) => { try { renderer.setColor(c); paintLatest(); } catch { /* context may be lost */ } },
+    // B762 — the preview canvas converts AND ORIENTS with the same description the engine uses.
+    // One call for both, because B762's first cut wired the colour everywhere and the rotation to
+    // one consumer, and the source panel then disagreed with the output about which way is up.
+    setMeta: (color, rotation) => {
+      try { renderer.setColor(color); renderer.setRotation(rotation); paintLatest(); }
+      catch { /* context may be lost */ }
+    },
+    setTone: (t) => { try { renderer.setTone(t); paintLatest(); } catch { /* context may be lost */ } },
     // THE FAST PATH: hand the raw planes to whoever is going to render them, so the
     // pixels never make a round trip through another context's canvas. Counts as a
     // painted frame — it IS the frame that reaches the screen on this path.

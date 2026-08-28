@@ -66,5 +66,11 @@ export function createYuvRenderer(canvasEl, { surface = 'yuv', mark = null } = {
   }
   // B761 — the input transform. The source panel is a PREVIEW of the same pixels the engine
   // converts, so it has to use the same description or the two disagree on screen.
-  return { draw, setColor: (c) => blitter.setColor(c) };
+  return {
+    draw,
+    setColor: (c) => blitter.setColor(c),
+    setRotation: (d) => blitter.setRotation(d),
+    setTone: (t) => blitter.setTone(t),
+    swapsAxes: () => blitter.swapsAxes(),
+  };
 }

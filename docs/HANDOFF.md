@@ -32,12 +32,35 @@ Archived at B658. It was marked superseded at B609 and kept for the reasoning be
 
 ## current version
 
-**v0.28.1 · B762** (2026-08-28). Minor bumped at B738 for the O(1) bake landing on hardware.
+**v0.28.2 · B763** (2026-08-28). Minor bumped at B738 for the O(1) bake landing on hardware.
 
 **⭐⭐ THE O(1) BAKE IS NOW MEASURED, NOT MODELLED.** A 2.63GB / 8:21 4K source peaked at **131.6MB**
 against **130.9MB** for a 741MB source. **3.5× the file, 0.7MB more memory.** Both 8GB M1 iPads also
 passed the job that killed them at B730 (Air 71.6MB, Pro 114.9MB). The Blob is disk-backed and file
 size is no longer a memory axis. **B705 and B706 are device-verified** — B705's instrument found B706, and B706 held on the repro that killed B705. B703, B704 and B707 are not yet device-verified.
+
+---
+
+## ▶▶▶▶▶▶▶▶▶▶▶▶▶▶ B763 (2026-08-28) — ⚠️ B762'S ROTATION FIX NEVER RAN. RE-TEST FROM SCRATCH.
+
+**Do not trust any B762 observation about rotation.** `applySourceColor(color)` referenced a
+`rotation` that was not a parameter: a ReferenceError on every clip load, in a caller with no catch.
+The fix was in the changelog and not in the running app.
+
+**Also fixed, and it is the more instructive half:** colour reached five consumers and rotation
+reached one, so the engine would have turned the picture upright while the SOURCE PANEL did not —
+and the slice overlay is drawn over that panel. Both now go through `allEngines()` plus two
+explicitly-named consumers outside it (the decode's preview canvas, the external view's payload).
+
+**The tone curve is now live in the frame-cost panel** (steppers, HDR sources only) and the swept
+value rides `copy report` as a paste-ready `?tone=`. **Tune it against the Loop Builder**, which is
+Apple's own HDR-to-SDR rendering and the target Daniel named.
+
+**▶ WHAT TO CHECK ON B763, in order:** the clip is right way up on iPad; the source panel and the
+output agree about what the slice box selects; the broadcast agrees with both; then sweep the tone.
+
+**Bake still fails on iPad and works on desktop Brave.** Not fixed — but the gate report is no longer
+answering about a different operation, so the next failure will say something true about itself.
 
 ---
 

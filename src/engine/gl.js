@@ -328,7 +328,7 @@ export function createPlanarUploader(gl) {
   }
 
   // B761 — the input transform. Forwarded rather than re-implemented: the blitter owns the shader.
-  return { upload, dispose, setColor: (c) => blitter.setColor(c), setRotation: (d) => blitter.setRotation(d),
+  return { upload, dispose, setColor: (c) => blitter.setColor(c), setRotation: (d) => blitter.setRotation(d), setTone: (t) => blitter.setTone(t),
     swapsAxes: () => blitter.swapsAxes(), get color() { return blitter.color; },
     get texture() { return tex; }, get width() { return tw; }, get height() { return th; } };
 }

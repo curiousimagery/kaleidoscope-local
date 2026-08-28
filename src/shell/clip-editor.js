@@ -19,7 +19,7 @@ import { exportVideo } from './video-export.js';
 import { memBegin, memHold, memRelease, memReport } from './mem-ledger.js';
 import { readHostVitals, onGLRestored } from './gl-watch.js';
 import { seekVideoTo } from './video-source.js';
-import { createSequentialFrameReader, probeVideoInfo, openSharedSource, sourceGateReport } from './video-decode.js';
+import { createSequentialFrameReader, probeVideoInfo, openSharedSource, sourceGateReport, sourceGateFor } from './video-decode.js';
 import { acquireSession, releaseSession } from 'conduit/sessions';
 
 // The Loop Builder holds THREE decoders of the same clip while it is open (visible preview,
@@ -1021,9 +1021,14 @@ export function createClipEditor(env) {
       // absent — it was someone else's evidence.
       if (!all.length) {
         // B738 — the gate now names the exact refusal instead of listing what it might have been.
-        const gate = (() => { try { return sourceGateReport(); } catch { return null; } })();
+        // B763 — the gate FOR THIS SOURCE, not whichever attempt wrote the slot last.
+        const gate = (() => {
+          try { return sourceGateFor(env.media?.sourceVideoUrl); } catch { return null; }
+        })();
         const why = !env.media?.sourceVideoUrl ? 'no source url'
-          : gate?.why || 'no WebCodecs reader armed, and the gate published no reason';
+          : gate?.why
+            || (gate?.stale ? `no WebCodecs reader armed, and ${gate.why || 'the gate is about another source'}`
+              : 'no WebCodecs reader armed, and the gate armed cleanly — the failure is downstream of it');
         env.bakeDecode = { ...bakeShape, reader: 'element-seek fallback', why, srcGate: gate,
                            timing: bakeTiming, outBytes: bakeOutBytes, at: new Date().toISOString() };
         env.vitals?.mark('bake-decode-none', { ...bakeShape, why, srcGate: gate });

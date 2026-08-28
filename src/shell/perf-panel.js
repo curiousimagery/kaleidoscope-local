@@ -563,6 +563,10 @@ export function mountPerfPanel(env, { container = null, onClose = null } = {}) {
       // any report said so. `why` is the load-bearing field: "read from the file's nclc box" and
       // "assuming BT.709" are very different confidences in the same three numbers.
       sourceColor: env.sourceColor ? { ...env.sourceColor, described: describeColor(env.sourceColor) } : undefined,
+      sourceRotation: env.sourceRotation || undefined,
+      // B763 — the swept tone curve, so a value Daniel likes reaches me as a number rather than a
+      // description. `?tone=<shoulder>,<exposure>` reproduces it; committing it is one edit.
+      tone: env.sourceIsHDR?.() ? { ...env.sourceTone, url: `?tone=${env.sourceTone.shoulder.toFixed(0)},${env.sourceTone.exposure.toFixed(2)}` } : undefined,
       sliceError: env.lastSliceError || undefined,
       // B630 — the last few SOURCE-SWAP attempts, each phase with a reason on every exit. Built for
       // Daniel's mid-show dead end (live camera ~10min, picked a file, nothing happened, app restart
@@ -891,6 +895,56 @@ export function mountPerfPanel(env, { container = null, onClose = null } = {}) {
     // rebuild. It belongs here rather than in PERF_FLAG_SPECS because it reads live state off
     // `env.governor` rather than the flags object, and switching it off must RELEASE what it is
     // holding rather than merely stop stepping (the setter already does).
+    // ⚠️ B763 — THE HDR TONE SWEEP, LIVE. Daniel: *"is it possible to make the tone control editable
+    // from our diagnostics panel? i have to reload the source each time to compare in the current
+    // build which makes diffs hard to compare and takes a long time."* A look you cannot A/B in
+    // seconds gets tuned by guessing, which is the thing the knob existed to prevent.
+    //
+    // Only shown when an HDR source is loaded, because on SDR the curve is not in the path at all
+    // and a control that does nothing is worse than an absent one.
+    if (env.setTone && env.sourceIsHDR?.()) {
+      const t = env.sourceTone || env.toneDefaults;
+      const row = document.createElement('div'); row.className = 'pf-row';
+      const n = document.createElement('span');
+      n.className = 'pf-name';
+      n.innerHTML = 'HDR tone <em>shoulder: bigger = softer highlights</em>';
+      row.appendChild(n);
+      // Steppers rather than a text field: this is swept while looking at the picture, not typed.
+      const bump = (label, get, set, mul) => {
+        const b = document.createElement('button');
+        b.textContent = label;
+        b.addEventListener('click', () => { set(get() * mul); paint(ledger.report); });
+        return b;
+      };
+      const readout = document.createElement('span');
+      readout.className = 'pf-num';
+      const show = () => {
+        const cur = env.sourceTone;
+        // sqrt because the uniform is the white point SQUARED, and the readable number is the
+        // white point: "highlights clip at N times diffuse white".
+        readout.textContent = `${cur.shoulder.toFixed(0)} (white ${Math.sqrt(cur.shoulder).toFixed(1)}×) · exp ${cur.exposure.toFixed(2)}`;
+      };
+      row.append(
+        bump('shoulder −', () => env.sourceTone.shoulder, (v) => { env.setTone({ shoulder: v }); show(); }, 1 / 1.5),
+        bump('shoulder +', () => env.sourceTone.shoulder, (v) => { env.setTone({ shoulder: v }); show(); }, 1.5),
+        bump('exp −', () => env.sourceTone.exposure, (v) => { env.setTone({ exposure: v }); show(); }, 1 / 1.1),
+        bump('exp +', () => env.sourceTone.exposure, (v) => { env.setTone({ exposure: v }); show(); }, 1.1),
+        readout,
+      );
+      const reset = document.createElement('button');
+      reset.textContent = 'reset';
+      reset.addEventListener('click', () => {
+        env.sourceTone = { ...env.toneDefaults };
+        env.setTone(env.sourceTone); show(); paint(ledger.report);
+      });
+      row.appendChild(reset);
+      show();
+      rows.appendChild(row);
+      // The value has to be COPYABLE or the sweep does not survive the session — Daniel reads the
+      // device through `copy report`, and a number he has to transcribe off a screen is a number
+      // that arrives wrong. It rides the export as `tone` below.
+    }
+
     if (env.governor) {
       const row = document.createElement('div'); row.className = 'pf-row';
       const b = document.createElement('button');

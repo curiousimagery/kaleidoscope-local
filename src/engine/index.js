@@ -74,6 +74,7 @@ export function createEngine({ canvas, maxProbeSize, perf = null, label = 'engin
   // rebuilt lazily (context loss, source swap) and must come back with the same description.
   let sourceColor = null;
   let sourceRotation = 0;        // B762 — container rotation the native path must apply itself
+  let sourceTone = null;         // B763 — HDR tone curve, live-tunable from the diagnostics panel
   let lastReinitWhy = '';        // B703 — why the last context restore's element re-upload failed, if it did
   // ⚠️ B760 — WHO RETIRED THE PLANAR PROVIDER, AND WHEN. Four builds (B580, B703, B706, B708) have
   // now fixed a different way of arriving at `native decode` without `planar`, and a fifth device
@@ -368,6 +369,7 @@ export function createEngine({ canvas, maxProbeSize, perf = null, label = 'engin
           if (!planar) {
             planar = createPlanarUploader(glCtx.gl);
             planar.setColor(sourceColor); planar.setRotation(sourceRotation);
+            if (sourceTone) planar.setTone(sourceTone);
           }
           planar.upload(frame, planarCap);
           // B762 — a quarter turn swaps what the SOURCE measures, and the slice geometry reads
@@ -506,6 +508,13 @@ export function createEngine({ canvas, maxProbeSize, perf = null, label = 'engin
       if (planar) planar.setRotation(sourceRotation);
     },
     get sourceRotation() { return sourceRotation; },
+    // ⚠️ B763 — the HDR tone curve, live. Remembered like the colour, because the uploader is
+    // rebuilt on every context loss and source swap and must come back with the same look.
+    setTone(tone) {
+      sourceTone = tone || null;
+      if (planar && sourceTone) planar.setTone(sourceTone);
+    },
+    get sourceTone() { return sourceTone; },
     get planarActive() { return !!(planarFrame && planar && planar.width > 0); },
     // ⚠️ B760 — `planarActive` CONFLATES TWO STATES AND THE RECONCILER NEEDS THEM APART. It is
     // false both when the provider is genuinely gone (a bug, and the thing to heal) and in the

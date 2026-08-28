@@ -204,7 +204,7 @@ export function createPerformRuntime(env) {
         pipEngine.setSource(src);
         if (env.nativeVideo && src === env.nativeVideo.frameSource()) {
           pipEngine.setPlanarSource(env.nativeVideo.planeReader(), env.nativeVideo.cap);
-          pipEngine.setSourceColor?.(env.sourceColor);   // B761 — same planes, same transform
+          env.applyEngineMeta?.(pipEngine);   // B762 — same planes, same transform, same orientation
         }
         pipLastSource = src; pipLastW = w; pipLastH = h;
       } catch { /* not ready this frame — retry next tick */ }

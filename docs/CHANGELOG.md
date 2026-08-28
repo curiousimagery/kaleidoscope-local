@@ -6,6 +6,81 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.28.2 · Build 763 — B762'S ROTATION FIX NEVER RAN, AND THE TONE CURVE IS NOW LIVE
+
+**Shipped:**
+- **Fixed a ReferenceError that made B762's rotation fix a no-op on device.**
+- **Colour and rotation now reach EVERY engine** through `allEngines()`, plus the decode's preview
+  canvas — which is the surface the slice overlay is drawn over.
+- **The HDR tone curve is live in the frame-cost panel**: shoulder and exposure steppers, shown only
+  when an HDR source is loaded, with the swept value riding `copy report` as a paste-ready `?tone=`.
+- **The source gate is stamped with the source it is about**, and `sourceGateFor(url)` refuses to
+  answer about a different one.
+
+### ⚠️ THE ROTATION FIX NEVER RAN. THIS IS THE HONEST HEADLINE.
+
+B762 shipped:
+
+```js
+function applySourceColor(color) {          // <- one parameter
+  env.sourceColor = …;
+  if (rotation !== undefined) …             // <- ReferenceError, every clip load
+```
+
+`rotation` was not a parameter, not a local, and not a module binding. It threw on every load inside
+a caller with no catch. **So the rotation fix that build's changelog describes was never exercised on
+a device, and whatever Daniel observed in B762 was something else.**
+
+**How it got in, which is the part worth keeping:** the edit was applied as a blind string
+replacement against a fragment, the surrounding lines had shifted, the signature change silently did
+not match, and the body change did. `node --check` parses it happily. **A diff hunk looks correct.
+Only reading the whole function shows it.** I tried to write a checker for this class and abandoned
+it: catching it needs real scope analysis, and the regex version produced dozens of false positives
+across `src/shell` — a net people learn to ignore is worse than no net. **The discipline fix is to
+read the whole function after editing it, not to build a parser.**
+
+### AND THE SECOND HALF: THE VALUE REACHED FIVE CONSUMERS AND THE ROTATION REACHED ONE
+
+Daniel, on B762: *"you introduced an inconsistency with the slice overlay so now the sampled source
+isn't what's shown on the output... just on iPad, desktop still seems to be accurate."*
+
+The engine would have turned the picture upright while the **source panel** — the receiver's own
+preview canvas, painted by a second blitter — did not. The slice box the operator drags is drawn over
+that panel, so it would stop matching the region the output samples.
+
+**This is the CLAUDE.md two-chromes rule in its general form, and I walked into it one build after
+quoting it.** The fix routes both values through `allEngines()`, which exists for exactly this reason
+and already carried the comment explaining why: *"a recovery that rebuilds one of three contexts is
+indistinguishable from a recovery that does nothing, from the seat."* The two consumers outside that
+list are handled explicitly and named in the code: the preview canvas, and the external view's payload.
+
+### THE TONE CURVE IS LIVE
+
+Daniel: *"is it possible to make the tone control editable from our diagnostics panel? i have to
+reload the source each time to compare in the current build which makes diffs hard to compare and
+takes a long time."* Correct, and B762's read-once-at-construction was the wrong call: **a look you
+cannot A/B in seconds gets tuned by guessing, which is what the knob existed to prevent.**
+
+Steppers multiply rather than add (×1.5 for shoulder, ×1.1 for exposure), because the useful range
+spans an order of magnitude. The readout shows the white point rather than its square, since
+"highlights clip at N× diffuse white" is the readable form. Hidden entirely on SDR sources, where the
+curve is not in the path — a control that does nothing is worse than an absent one.
+
+### THE BAKE'S GATE WAS ANSWERING ABOUT A DIFFERENT OPERATION
+
+`sourceGateReport()` is one slot shared by every caller. The failed iPad bake published *"the gate
+published no reason"* beside a gate reading `armed: true` from 42 seconds earlier — a previous
+operation's success. **Exactly the defect B724 fixed for `bakeDecode`, in the same function, and it
+landed again because that fix was applied to the field rather than to the pattern.** The gate now
+carries `forUrl`/`forLabel`, and `sourceGateFor(url)` returns `{ stale: true, why }` rather than
+someone else's answer.
+
+**Bake status: still fails on iPad, still works on desktop Brave** (Daniel, confirmed on B762). The
+next failure will say something true about itself, which is the point of this change rather than a
+fix for it.
+
+---
+
 ## v0.28.1 · Build 762 — THE B760 MYSTERY IS SOLVED, AND THE UPSIDE-DOWN CLIP IS NOT AN HDR BUG
 
 **Shipped:**

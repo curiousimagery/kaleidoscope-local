@@ -109,9 +109,19 @@ ${COLOR_GLSL}
   const uGamutLoc = gl.getUniformLocation(prog, 'uGamut');
   const uRotLoc = gl.getUniformLocation(prog, 'uRot');
   const uToneLoc = gl.getUniformLocation(prog, 'uTone');
-  // Read once at construction: a tone sweep is a diagnostic session, not a live control.
-  const tone = toneFromQuery(typeof location !== 'undefined' ? location.search : '');
-  gl.uniform2f(uToneLoc, tone.shoulder, tone.exposure);
+  // ⚠️ B763 — LIVE, NOT READ-ONCE. B762 read `?tone=` at construction, which meant every comparison
+  // cost a reload AND a re-load of the clip. Daniel: *"i have to reload the source each time to
+  // compare... which makes diffs hard to compare and takes a long time."* A curve you cannot A/B
+  // quickly is a curve that gets tuned by guessing, which is what the knob existed to avoid.
+  // The URL still seeds it, so a value can be pinned for a scripted run.
+  let tone = toneFromQuery(typeof location !== 'undefined' ? location.search : '');
+  function setTone(t) {
+    tone = { shoulder: t?.shoulder > 0 ? t.shoulder : tone.shoulder,
+             exposure: t?.exposure > 0 ? t.exposure : tone.exposure };
+    gl.useProgram(prog);
+    gl.uniform2f(uToneLoc, tone.shoulder, tone.exposure);
+  }
+  setTone(tone);
 
   // B762 — the container rotation, in quarter turns. Set per source alongside the colour.
   let quarterTurns = 0;
@@ -180,7 +190,8 @@ ${COLOR_GLSL}
     catch { /* context already gone */ }
   }
 
-  return { draw, dispose, setColor, setRotation, swapsAxes, get color() { return colorDesc; } };
+  return { draw, dispose, setColor, setRotation, setTone, swapsAxes,
+    get color() { return colorDesc; }, get tone() { return tone; } };
 }
 
 function makeTex(gl) {

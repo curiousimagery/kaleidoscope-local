@@ -564,7 +564,8 @@ export async function createNativeVideoSource(env, blob, { name, loop = true, on
         .finally(() => { fanOutBusy = false; });
     },
     refreshFrame: () => { receiver.refreshFrame(); report(); },
-    setColor: (c) => receiver.setColor?.(c),
+    setMeta: (color, rotation) => receiver.setMeta?.(color, rotation),
+    setTone: (t) => receiver.setTone?.(t),
     noteUpload: (ms) => { upMs += ms; ups++; },
     notePreview: (ms) => { pvMs += ms; pvs++; },
     get width() { return lastDims.w || receiver.frameSource().width; },

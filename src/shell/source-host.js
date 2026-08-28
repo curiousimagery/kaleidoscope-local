@@ -24,9 +24,9 @@ import { seekVideoTo, createVideoElementClock } from './video-source.js';
 import { probeSourceReadable } from './video-decode.js';
 import { zipStore } from './zip.js';
 import { createSaveFlow } from './save-flow.js';
-import { getActiveForm } from '../engine/index.js';
+import { getActiveForm, allEngines } from '../engine/index.js';
 import { readSourceMeta } from './source-color.js';
-import { DEFAULT_COLOR, LEGACY_COLOR, describeColor } from '../engine/color.js';
+import { DEFAULT_COLOR, LEGACY_COLOR, describeColor, TONE_DEFAULTS, toneFromQuery, isHDR } from '../engine/color.js';
 import { formBoxCenter, placeFormBox, centerFormInSource } from '../engine/geometry.js';
 import { acquireSession, releaseSession } from 'conduit/sessions';
 
@@ -891,7 +891,7 @@ export function createSourceHost(env) {
     // camera frame forever. That is the B541 dark-source bug, and `keepSource:true` (the upload
     // path) would walk straight into it, so this runs before the early return, not after.
     try { engine.setPlanarSource(null, 0, 'camera mode stopped'); } catch { /* engine may be mid-reinit */ }
-    env.applySourceColor?.(null, 0);   // B761 — do not leak the last clip's description onto a camera
+    env.applySourceMeta?.(null, 0);   // B761 — do not leak the last clip's description onto a camera
     env.live.isLive = false;
     env.live.frozen = false;
     env.liveVideo = null;
@@ -1510,9 +1510,8 @@ export function createSourceHost(env) {
     try {
       engine.setSource(src.frameSource(), 'native decode attach');
       engine.setPlanarSource(src.planeProvider, src.cap, 'native decode attach');
-      engine.setSourceColor(env.sourceColor);   // B761 — the decode may attach after the parse landed
-      engine.setSourceRotation(env.sourceRotation);
-      src.setColor?.(env.sourceColor);
+      applyEngineMeta(engine);          // B761 — the decode may attach after the parse landed
+      src.setMeta?.(env.sourceColor, env.sourceRotation);
       engine.updateSourceFrame();
     } catch { /* not ready */ }
     env.nativeStageSource = () => mod.createNativeStageSource(env);
@@ -1602,26 +1601,71 @@ export function createSourceHost(env) {
   // convert the SAME planes, so a description that reaches only some of them puts two different
   // pictures on screen. Everything reads `env.sourceColor`; nothing else parses a file.
   env.sourceColor = { ...DEFAULT_COLOR };
+  env.sourceRotation = 0;
   // `?color=off` pins the pre-B761 behaviour so the two can be compared on the same device in the
   // same session. Read once: it is a diagnostic lever, not a setting.
   const colorOff = (() => { try { return new URLSearchParams(location.search).get('color') === 'off'; } catch { return false; } })();
-  function applySourceColor(color) {
+
+  // ⚠️⚠️ B763 — ONE CALL SETS BOTH, AND IT REACHES **EVERY** ENGINE.
+  //
+  // Two bugs in one function taught this, both in B762 and both mine:
+  //
+  // 1. **`applySourceColor(color)` read a `rotation` that was not a parameter.** A ReferenceError,
+  //    thrown on every clip load, inside a caller with no catch — so the rotation fix B762's
+  //    changelog describes **never actually ran on a device**. `node --check` cannot see this and
+  //    neither can reading a diff hunk; only the whole function shows it.
+  // 2. **The colour reached five consumers and the rotation reached one.** The engine would have
+  //    turned the picture upright while the SOURCE PANEL did not, so the slice box the operator
+  //    drags would stop matching the region the output samples.
+  //
+  // `allEngines()` exists for exactly this (see its comment in engine/index.js: *"a recovery that
+  // rebuilds one of three contexts is indistinguishable from a recovery that does nothing, from the
+  // seat"*). Preview, bus and PiP are all in it, so a fact about the PICTURE goes through here and
+  // cannot reach only some of them.
+  //
+  // The two consumers NOT in that list, both by construction: the decode's own preview canvas (a
+  // receiver, not an engine — and it is what the overlay is drawn over, so it matters most) and the
+  // external view (a different webview; it gets both values in its payload).
+  const applyEngineMeta = (eng) => {
+    try {
+      eng?.setSourceColor?.(env.sourceColor);
+      eng?.setSourceRotation?.(env.sourceRotation);
+      eng?.setTone?.(env.sourceTone);
+    } catch { /* an engine may be mid-reinit */ }
+  };
+  env.applyEngineMeta = applyEngineMeta;
+
+  // B763 — the HDR tone curve. Seeded from `?tone=`, then live from the frame-cost panel. Same
+  // fan-out as the colour, for the same reason: the preview, the bus, the PiP and the source panel
+  // all have to agree or a sweep is comparing two surfaces instead of two curves.
+  env.sourceTone = toneFromQuery(typeof location !== 'undefined' ? location.search : '');
+  env.toneDefaults = { ...TONE_DEFAULTS };
+  env.sourceIsHDR = () => { try { return isHDR(env.sourceColor); } catch { return false; } };
+  env.setTone = (tone) => {
+    env.sourceTone = { shoulder: tone?.shoulder > 0 ? tone.shoulder : env.sourceTone.shoulder,
+                       exposure: tone?.exposure > 0 ? tone.exposure : env.sourceTone.exposure };
+    for (const eng of allEngines()) { try { eng.setTone?.(env.sourceTone); } catch { /* mid-reinit */ } }
+    try { env.nativeVideo?.setTone?.(env.sourceTone); } catch { /* receiver may be gone */ }
+    env.scheduleRender?.();
+    return env.sourceTone;
+  };
+
+  function applySourceMeta(color, rotation) {
     env.sourceColor = colorOff ? { ...LEGACY_COLOR } : (color || { ...DEFAULT_COLOR });
     if (rotation !== undefined) env.sourceRotation = rotation || 0;
-    try { engine.setSourceColor(env.sourceColor); engine.setSourceRotation(env.sourceRotation); } catch { /* engine may be mid-reinit */ }
-    try { env.nativeVideo?.setColor?.(env.sourceColor); } catch { /* receiver may be gone */ }
-    try { env.outputEngine?.setSourceColor?.(env.sourceColor); } catch { /* no bus engine yet */ }
-    try { env.pipEngine?.setSourceColor?.(env.sourceColor); } catch { /* not in perform */ }
+    for (const eng of allEngines()) applyEngineMeta(eng);
+    try { env.nativeVideo?.setMeta?.(env.sourceColor, env.sourceRotation); } catch { /* receiver may be gone */ }
     env.scheduleRender?.();
+    env.sourceOverlay?.scheduleDraw?.();   // the overlay measures the source; it just changed shape
   }
-  env.applySourceColor = applySourceColor;
+  env.applySourceMeta = applySourceMeta;
   // Async and deliberately not awaited by the load: the picture should not wait on ~64KB of box
   // reads, and the default is correct for the overwhelming majority of files. Guarded on identity
   // so a fast second load cannot have its colour overwritten by the first one's parse.
   env.readSourceColorFor = async (blob, token) => {
     const { color, rotation } = await readSourceMeta(blob);
     if (token && env.sourceVideo !== token) return;   // a newer source landed while we parsed
-    applySourceColor(color, rotation);
+    applySourceMeta(color, rotation);
     console.info(`[fold] source colour: ${describeColor(color)} · rotation ${rotation}deg`);
   };
 
