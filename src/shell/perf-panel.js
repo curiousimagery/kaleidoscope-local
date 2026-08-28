@@ -123,6 +123,11 @@ const CSS = `
 /* B660 — the session button reads as ARMED while recording, because the one failure mode of an
    explicit session is forgetting it is running (or forgetting it is not). */
 #perfPanel .pf-rec { color: var(--danger, #e2685a); border-color: var(--danger, #e2685a); }
+#perfPanel .pf-tone { display: grid; grid-template-columns: auto 1fr auto; gap: 4px 8px; align-items: center; padding: 6px 0; }
+#perfPanel .pf-tone label { color: var(--text-faint, #777); }
+#perfPanel .pf-tone input[type=range] { width: 100%; accent-color: var(--accent, #7aa2f7); height: 14px; }
+#perfPanel .pf-tone .pf-val { font-variant-numeric: tabular-nums; color: var(--text, #eee); min-width: 52px; text-align: right; }
+#perfPanel .pf-tone .pf-tone-head { grid-column: 1 / -1; display: flex; gap: 6px; align-items: baseline; }
 #perfPanel .pf-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 4px 0; border-bottom: 1px solid rgba(255,255,255,.05); }
 #perfPanel .pf-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #perfPanel .pf-name em { font-style: normal; color: var(--text-faint, #666); }
@@ -676,6 +681,10 @@ export function mountPerfPanel(env, { container = null, onClose = null } = {}) {
     return el;
   }
 
+  // The tone row, built once. See the call site for why it is not rebuilt per paint. Declared
+  // ABOVE paint() so there is no temporal-dead-zone window if a report lands early.
+  let toneRow = null;
+
   function paint(r) {
     paintSession();   // B660 — the elapsed clock and the warning line refresh with everything else
     paintRun();       // B665 — and the scripted run's step + countdown with them
@@ -896,62 +905,20 @@ export function mountPerfPanel(env, { container = null, onClose = null } = {}) {
     // rebuild. It belongs here rather than in PERF_FLAG_SPECS because it reads live state off
     // `env.governor` rather than the flags object, and switching it off must RELEASE what it is
     // holding rather than merely stop stepping (the setter already does).
-    // ⚠️ B763 — THE HDR TONE SWEEP, LIVE. Daniel: *"is it possible to make the tone control editable
-    // from our diagnostics panel? i have to reload the source each time to compare in the current
-    // build which makes diffs hard to compare and takes a long time."* A look you cannot A/B in
-    // seconds gets tuned by guessing, which is the thing the knob existed to prevent.
+    // ⚠️ B765 — SLIDERS, AND BUILT ONCE RATHER THAN PER PAINT.
     //
-    // Only shown when an HDR source is loaded, because on SDR the curve is not in the path at all
-    // and a control that does nothing is worse than an absent one.
+    // Two requirements that a stepper could not meet. Daniel: *"would it be possible to make the
+    // controls as actual sliders with realtime visual feedback"* — a look is judged by dragging,
+    // not by counting clicks. And the panel repaints on every ledger report (~1Hz), so a row
+    // REBUILT each paint would tear the slider out from under a drag. So the node is created once,
+    // cached, and merely re-appended; only its values are refreshed.
+    //
+    // Log scales, because every one of these spans an order of magnitude and a linear slider would
+    // put the entire useful range in the first few pixels.
     if (env.setTone && env.sourceIsHDR?.()) {
-      const t = env.sourceTone || env.toneDefaults;
-      const row = document.createElement('div'); row.className = 'pf-row';
-      const n = document.createElement('span');
-      n.className = 'pf-name';
-      n.innerHTML = 'HDR tone <em>sweep left to right: exposure, then γ, then shoulder</em>';
-      row.appendChild(n);
-      // Steppers rather than a text field: this is swept while looking at the picture, not typed.
-      const bump = (label, get, set, mul) => {
-        const b = document.createElement('button');
-        b.textContent = label;
-        b.addEventListener('click', () => { set(get() * mul); paint(ledger.report); });
-        return b;
-      };
-      const readout = document.createElement('span');
-      readout.className = 'pf-num';
-      const show = () => {
-        const cur = env.sourceTone;
-        // The shoulder uniform is the white point SQUARED; the readable number is the white point
-        // itself ("highlights reach pure white at N x diffuse white"), and 1.0 means the curve is
-        // off entirely. Saying "off" out loud matters: a control sitting at its identity looks
-        // broken otherwise.
-        const sh = cur.shoulder <= 1.001 ? 'off' : `white ${Math.sqrt(cur.shoulder).toFixed(1)}×`;
-        readout.textContent = `exp ${cur.exposure.toFixed(2)} · γ ${cur.gamma.toFixed(2)} · shoulder ${sh}`;
-      };
-      // Presented in the order they are APPLIED, which is also the order to sweep them in:
-      // exposure sets the overall level, gamma places the midtones, shoulder recovers highlights.
-      // Doing it in any other order means each control undoes the last.
-      row.append(
-        bump('exp −', () => env.sourceTone.exposure, (v) => { env.setTone({ exposure: v }); show(); }, 1 / 1.1),
-        bump('exp +', () => env.sourceTone.exposure, (v) => { env.setTone({ exposure: v }); show(); }, 1.1),
-        bump('γ −', () => env.sourceTone.gamma, (v) => { env.setTone({ gamma: v }); show(); }, 1 / 1.08),
-        bump('γ +', () => env.sourceTone.gamma, (v) => { env.setTone({ gamma: v }); show(); }, 1.08),
-        bump('shoulder −', () => env.sourceTone.shoulder, (v) => { env.setTone({ shoulder: Math.max(1, v) }); show(); }, 1 / 1.5),
-        bump('shoulder +', () => env.sourceTone.shoulder, (v) => { env.setTone({ shoulder: v }); show(); }, 1.5),
-        readout,
-      );
-      const reset = document.createElement('button');
-      reset.textContent = 'reset';
-      reset.addEventListener('click', () => {
-        env.sourceTone = { ...env.toneDefaults };
-        env.setTone(env.sourceTone); show(); paint(ledger.report);
-      });
-      row.appendChild(reset);
-      show();
-      rows.appendChild(row);
-      // The value has to be COPYABLE or the sweep does not survive the session — Daniel reads the
-      // device through `copy report`, and a number he has to transcribe off a screen is a number
-      // that arrives wrong. It rides the export as `tone` below.
+      if (!toneRow) toneRow = buildToneRow(env);
+      toneRow.sync();
+      rows.appendChild(toneRow.el);
     }
 
     if (env.governor) {
@@ -977,6 +944,71 @@ export function mountPerfPanel(env, { container = null, onClose = null } = {}) {
       rows.appendChild(row);
     }
     if (!out.hidden) out.value = JSON.stringify(ledger.report, null, 2);
+  }
+
+  function buildToneRow(env) {
+    const el = document.createElement('div');
+    el.className = 'pf-tone';
+    const head = document.createElement('div');
+    head.className = 'pf-tone-head';
+    const title = document.createElement('span');
+    title.className = 'pf-title';
+    title.textContent = 'HDR tone';
+    const hint = document.createElement('em');
+    hint.style.color = 'var(--text-faint, #666)';
+    // The ORDER is the instruction, and it is the whole reason the three are separable.
+    hint.textContent = 'sweep top to bottom · match the Loop Builder';
+    const reset = document.createElement('button');
+    reset.textContent = 'reset';
+    head.append(title, hint, reset);
+    el.appendChild(head);
+
+    // [key, label, min, max] — log-mapped. Shoulder starts at 1 because 1 IS off.
+    const AXES = [
+      ['exposure', 'exposure', 0.1, 10],
+      ['gamma', 'gamma', 0.4, 2.5],
+      ['shoulder', 'shoulder', 1, 200],
+    ];
+    const controls = [];
+    for (const [key, label, min, max] of AXES) {
+      const lab = document.createElement('label');
+      lab.textContent = label;
+      const range = document.createElement('input');
+      range.type = 'range'; range.min = '0'; range.max = '1000'; range.step = '1';
+      const val = document.createElement('span');
+      val.className = 'pf-val';
+      const toSlider = (v) => Math.round(1000 * (Math.log(v / min) / Math.log(max / min)));
+      const fromSlider = (p) => min * Math.exp((p / 1000) * Math.log(max / min));
+      const show = (v) => {
+        val.textContent = key === 'shoulder' && v <= 1.001 ? 'off'
+          : key === 'shoulder' ? `${Math.sqrt(v).toFixed(1)}×`
+            : v.toFixed(2);
+      };
+      // `input`, not `change`: the picture has to move while the finger is down or this is a
+      // stepper with extra steps.
+      range.addEventListener('input', () => {
+        const v = fromSlider(+range.value);
+        show(v);
+        env.setTone({ [key]: v });
+      });
+      el.append(lab, range, val);
+      controls.push({ key, range, toSlider, show });
+    }
+    reset.addEventListener('click', () => { env.setTone({ ...env.toneDefaults }); sync(); });
+
+    // Pull the live values back into the widgets — but never while a drag is in flight, or the
+    // 1Hz repaint fights the finger.
+    function sync() {
+      const t = env.sourceTone || env.toneDefaults;
+      for (const c of controls) {
+        const v = t[c.key];
+        if (!(v > 0)) continue;
+        if (document.activeElement !== c.range) c.range.value = String(c.toSlider(v));
+        c.show(v);
+      }
+    }
+    sync();
+    return { el, sync };
   }
 
   ledger.onReport(paint);

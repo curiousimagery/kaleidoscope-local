@@ -120,11 +120,9 @@ ${COLOR_GLSL}
   // The URL still seeds it, so a value can be pinned for a scripted run.
   let tone = toneFromQuery(typeof location !== 'undefined' ? location.search : '');
   function setTone(t) {
-    tone = { shoulder: t?.shoulder > 0 ? t.shoulder : tone.shoulder,
-             exposure: t?.exposure > 0 ? t.exposure : tone.exposure,
-             gamma: t?.gamma > 0 ? t.gamma : tone.gamma };
+    tone = { ...tone, ...(t || {}) };          // B765 — merge; see the note in source-host.js
     gl.useProgram(prog);
-    gl.uniform3f(uToneLoc, tone.shoulder, tone.exposure, tone.gamma);
+    gl.uniform3f(uToneLoc, tone.shoulder || 1, tone.exposure || 1, tone.gamma || 1);
   }
   setTone(tone);
 

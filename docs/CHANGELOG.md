@@ -6,6 +6,74 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.28.4 · Build 765 — THE CONTROL VANISHED BECAUSE I ADDED A FIELD AND MISSED A WRITER. AGAIN.
+
+**Shipped:**
+- **Fixed the tone control disappearing** on the first adjustment.
+- **Fixed the picture not updating** without nudging the scrubber.
+- **Sliders instead of steppers**, live on `input`, built once so the panel's 1Hz repaint cannot
+  tear them out from under a drag.
+- Filed the load-sequence UX wart.
+
+### ⚠️ THE DISAPPEARING CONTROL, AND THE PATTERN UNDERNEATH IT
+
+`env.setTone` listed its fields by name:
+
+```js
+env.sourceTone = { shoulder: …, exposure: … };     // B763. B764 added `gamma`.
+```
+
+B764 added `gamma` and updated the shader, the query parser, the defaults and the panel — **and not
+this.** So the first adjustment dropped `gamma` to undefined, the readout threw on
+`gamma.toFixed(2)`, and `paint()` died partway through, taking the control off the panel. It worked
+on load and vanished the moment it was touched, which is exactly what Daniel reported.
+
+**THIS IS THE THIRD TIME IN THIS ARC that a field was added to a shape and one writer was missed**
+(B761's colour reaching five consumers and rotation one; B762's `applySourceColor` signature; this).
+CLAUDE.md's rule about shared behaviour covers the two-chrome case; **this is the same failure inside
+a single object.**
+
+**The fix is structural, not a third patch: merge, do not enumerate.**
+
+```js
+const next = { ...env.sourceTone, ...(patch || {}) };
+```
+
+A field nobody mentions is a field nobody can drop. Both `setTone` implementations now spread, and
+the harness asserts the property directly — that a one-key patch preserves every other field, and
+that an invalid value falls back to the default rather than to `undefined`.
+
+### THE PICTURE DID NOT UPDATE BECAUSE THE TONE LIVES IN THE BLITTER
+
+Daniel: *"i'm tapping some changes and still having to nudge the scrubber to get the image to
+update."* Exactly right, and the scrubber is the clue: **the tone is applied inside
+`planar.upload()`, which only runs when a frame arrives.** On a paused clip nothing arrives, so the
+uniform changed and the texture did not. Scrubbing produced a frame; that is why it worked.
+
+`setTone` now resyncs the plane provider — the same B708/B762 mechanism — and the shell pumps
+`updateSourceFrame()` behind it, so a paused clip repaints without touching the transport.
+
+### SLIDERS, AND WHY THEY ARE BUILT ONCE
+
+Log-mapped, because all three axes span an order of magnitude and a linear slider would put the
+useful range in the first few pixels. They fire on `input` rather than `change`, or it is a stepper
+with extra steps.
+
+**The non-obvious part: the panel repaints on every ledger report (~1Hz), and a row rebuilt each
+paint would tear the slider out from under a finger mid-drag.** So the row is created once, cached,
+and only re-appended; `sync()` refreshes values but skips whichever control currently has focus.
+
+### FILED, NOT FIXED
+
+**The load sequence is four visible phases** — native-playback overlay, a square in still mode, the
+tone curve landing, then a switch to motion in landscape. Daniel wants one narrating loading state.
+Filed as polish, but noted as **not merely cosmetic**: phase 2's exit criterion is *degraded states
+warn appropriately*, and a load that visibly thrashes is what a real failure will look like too, so
+the operator cannot tell a slow load from a broken one. Sequenced AFTER the warnings spec rather than
+before it, so it does not get built twice.
+
+---
+
 ## v0.28.3 · Build 764 — HLG SHOULD NEVER HAVE BEEN NORMALISED, AND DANIEL FOUND THAT BY SWEEPING
 
 **Shipped:**

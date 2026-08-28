@@ -1641,12 +1641,26 @@ export function createSourceHost(env) {
   env.sourceTone = toneFromQuery(typeof location !== 'undefined' ? location.search : '');
   env.toneDefaults = { ...TONE_DEFAULTS };
   env.sourceIsHDR = () => { try { return isHDR(env.sourceColor); } catch { return false; } };
-  env.setTone = (tone) => {
-    env.sourceTone = { shoulder: tone?.shoulder > 0 ? tone.shoulder : env.sourceTone.shoulder,
-                       exposure: tone?.exposure > 0 ? tone.exposure : env.sourceTone.exposure };
-    for (const eng of allEngines()) { try { eng.setTone?.(env.sourceTone); } catch { /* mid-reinit */ } }
+  // ⚠️ B765 — MERGE, DO NOT ENUMERATE. This listed `shoulder` and `exposure` by name; B764 added
+  // `gamma` and updated the shader, the query parser and the panel, but not this. So the FIRST
+  // adjustment silently dropped gamma to undefined, the panel's readout threw on
+  // `gamma.toFixed(2)`, and `paint()` died partway — taking the control off the panel entirely.
+  // Daniel: *"the control disappears from the frame cost dialog on a known hdr source."*
+  //
+  // **Third time this arc that a field was added to a shape and one writer was missed.** A spread
+  // cannot have that bug: a field nobody mentions is a field nobody can drop.
+  env.setTone = (patch) => {
+    const next = { ...env.sourceTone, ...(patch || {}) };
+    for (const k of Object.keys(next)) if (!(next[k] > 0)) next[k] = env.toneDefaults[k] ?? 1;
+    env.sourceTone = next;
+    for (const eng of allEngines()) {
+      // setTone resyncs the provider; updateSourceFrame is what actually re-uploads through the
+      // blitter, so a PAUSED clip repaints without touching the transport.
+      try { eng.setTone?.(env.sourceTone); eng.updateSourceFrame?.(); } catch { /* mid-reinit */ }
+    }
     try { env.nativeVideo?.setTone?.(env.sourceTone); } catch { /* receiver may be gone */ }
     env.scheduleRender?.();
+    env.sourceOverlay?.paintSourceVideo?.();
     return env.sourceTone;
   };
 

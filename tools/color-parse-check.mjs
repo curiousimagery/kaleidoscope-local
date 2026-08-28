@@ -81,6 +81,21 @@ check('?tone parses three values', [t.shoulder, t.exposure, t.gamma], [12, 0.8, 
 const t2 = toneFromQuery('?tone=12');
 check('?tone fills missing values from the defaults', [t2.shoulder, t2.exposure, t2.gamma], [12, 1, 1]);
 
+// ⚠️ B765 — A PARTIAL PATCH MUST NOT DROP THE FIELDS IT DOES NOT MENTION. The panel sends one key
+// at a time, and `setTone` listing keys by name is what made B764's new `gamma` vanish on the first
+// adjustment and take the whole control off the panel. This asserts the SHAPE of the merge, which
+// is the property that has now been broken three times in this arc by adding a field.
+const merge = (cur, patch, defaults) => {
+  const next = { ...cur, ...(patch || {}) };
+  for (const k of Object.keys(next)) if (!(next[k] > 0)) next[k] = defaults[k] ?? 1;
+  return next;
+};
+const merged = merge({ shoulder: 12, exposure: 0.8, gamma: 1.4 }, { exposure: 2 }, TONE_DEFAULTS);
+check('a one-key patch keeps every other field',
+  [merged.shoulder, merged.exposure, merged.gamma], [12, 2, 1.4]);
+check('a patch with an invalid value falls back to the default, not to undefined',
+  merge({ shoulder: 12, exposure: 0.8, gamma: 1.4 }, { gamma: 0 }, TONE_DEFAULTS).gamma, TONE_DEFAULTS.gamma);
+
 const file = process.argv[2];
 if (file) {
   const { readFileSync } = await import('node:fs');

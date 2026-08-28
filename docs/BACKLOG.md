@@ -192,6 +192,33 @@ should say why the fast path was skipped is answering about a different operatio
 report cannot currently tell us. **Do not spend a device session on this**: the fix is to stamp the
 gate report with the operation that produced it, and then one ordinary bake answers it.
 
+### 🎨 [POLISH — Daniel, B765] LOADING A SOURCE IS FOUR VISIBLE PHASES WHERE IT SHOULD BE ONE PROGRESS STATE
+
+**Daniel:** *"when we load a source, it goes through several visually interruptive phases: preparing
+for native playback overlay, coming in as a square in still mode, applying the tone curve, switching
+to motion in landscape aspect, etc."*
+
+Every one of those is a real step doing real work, and each was added on its own. Together they read
+as the app repeatedly changing its mind in front of the operator — and it got MORE visible as the
+steps got faster and more numerous, not less.
+
+**The ask: one loading state that narrates.** Rough shape from his message:
+
+```
+detecting clip properties…
+preparing for native playback…
+loading in motion editor…
+```
+
+**▶ NOT JUST COSMETIC, and this is why it belongs on the list rather than in a nice-to-have pile.**
+Phase 2's exit criterion is *degraded states warn appropriately*. A load that visibly thrashes is
+what a genuine failure will look like too, so the operator has no way to tell a slow load from a
+broken one. Fixing the narration is the same work as making a failed load legible.
+
+**▶ Sequencing:** this wants the warnings/notification spec (phase 5's documentation half) rather
+than preceding it — it is one more surface that spec has to cover, and building it twice would be
+the waste. **Do not fix the phases individually.**
+
 ### 🟡 [OPEN — Daniel, B762, not investigated] THE PERFORM-MODE FILMSTRIP STRETCHES HORIZONTALLY
 
 *"the thumbnail filmstrip in perform mode is getting stretched horizontally (but motion seems ok)."*

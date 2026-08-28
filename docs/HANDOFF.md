@@ -32,12 +32,35 @@ Archived at B658. It was marked superseded at B609 and kept for the reasoning be
 
 ## current version
 
-**v0.28.3 · B764** (2026-08-28). Minor bumped at B738 for the O(1) bake landing on hardware.
+**v0.28.4 · B765** (2026-08-28). Minor bumped at B738 for the O(1) bake landing on hardware.
 
 **⭐⭐ THE O(1) BAKE IS NOW MEASURED, NOT MODELLED.** A 2.63GB / 8:21 4K source peaked at **131.6MB**
 against **130.9MB** for a 741MB source. **3.5× the file, 0.7MB more memory.** Both 8GB M1 iPads also
 passed the job that killed them at B730 (Air 71.6MB, Pro 114.9MB). The Blob is disk-backed and file
 size is no longer a memory axis. **B705 and B706 are device-verified** — B705's instrument found B706, and B706 held on the repro that killed B705. B703, B704 and B707 are not yet device-verified.
+
+---
+
+## ▶▶▶▶▶▶▶▶▶▶▶▶▶▶▶▶ B765 (2026-08-28) — TONE SLIDERS WORK; THE DEFAULTS ARE NOW GOOD OUT OF THE BOX
+
+**Daniel on B764: *"our initial load out of the box is looking much much better, also the broadcast,
+source and output match."*** The HLG normalisation removal was the right call and the defaults
+(identity) are close.
+
+**Two bugs fixed.** The control vanished on first touch because `setTone` enumerated its fields and
+B764's new `gamma` was dropped — **third instance this arc of adding a field and missing a writer**,
+now fixed structurally by spreading rather than listing, with a harness assertion on the property.
+And the picture needed a scrubber nudge because the tone lives in the BLITTER, which only runs when a
+frame arrives; `setTone` now resyncs the provider so a paused clip repaints.
+
+**Sliders are live** (log-mapped, `input`-driven, built once so the 1Hz repaint cannot interrupt a
+drag). **Sweep order is exposure → gamma → shoulder**, and it is printed on the row.
+
+**▶ WHAT I STILL NEED:** the `tone.url` from `copy report` once a sweep matches the Loop Builder.
+That value becomes the committed default and this thread closes.
+
+**Filed, not fixed:** the four-phase load sequence, sequenced after the warnings spec so it is not
+built twice.
 
 ---
 

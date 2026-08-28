@@ -513,6 +513,12 @@ export function createEngine({ canvas, maxProbeSize, perf = null, label = 'engin
     setTone(tone) {
       sourceTone = tone || null;
       if (planar && sourceTone) planar.setTone(sourceTone);
+      // ⚠️ B765 — ASK FOR THE FRAME BACK. The tone lives in the BLITTER, which only runs inside
+      // `planar.upload()`. On a paused clip no new frame arrives, so the uploader never re-runs and
+      // the change never reaches the texture — Daniel: *"i'm tapping some changes and still having
+      // to nudge the scrubber to get the image to update."* The scrubber worked because it produced
+      // a frame. `resync()` produces one without moving the playhead.
+      if (planarFrame) { try { planarFrame.resync?.(); } catch { /* no history to forget */ } }
     },
     get sourceTone() { return sourceTone; },
     get planarActive() { return !!(planarFrame && planar && planar.width > 0); },
