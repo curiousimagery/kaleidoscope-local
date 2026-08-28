@@ -6,6 +6,60 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.28.9 · Build 770 — REVERTING TWO OF MY OWN "FIXES" THAT COST MORE THAN THEY BOUGHT
+
+**Daniel on B769:** *"this last build introduced some major regressions."* He is right on every count,
+and both causes are speculative hardening I added on top of fixes that were already working.
+
+**Reverted:**
+- **The loop probe's 1200ms frame budget → 300ms**, and **three grabs back to two**.
+- **The `ResizeObserver` on the source strip** (B767) is gone entirely.
+
+### ⚠️ THE LOOP PROBE WAS COSTING 4-6 SECONDS OF LOAD
+
+B768 raised `nextFrame`'s timeout from 150ms to 1200ms so a slow 4K seek could present. True, and it
+made loading a one-minute 4K clip take **4-6 seconds** to reach motion mode: three grabs, each able to
+wait out the full budget, on a probe that runs *while the native decode is trying to attach*.
+
+**The wait was never the fix.** A stale capture is caught by the identity check (`dLoop === 0`), which
+is free. Waiting longer only makes staleness rarer — **which is the worst kind of fix, because it
+turns a visible bug into an intermittent one.** Correctness now rests entirely on detecting the stale
+frame rather than on outrunning it.
+
+**And the false positive came back for a reason I should have seen:** B768's landing check reads
+`dv.currentTime`, which updates when the SEEK completes, while `drawImage` paints the last PRESENTED
+frame. The two are not the same event, so the check could pass on a stale capture. **That is the
+wrong-noun test failing inside the fix for a wrong-noun bug.** The pixel-identity check is the one
+that actually holds, and it needed no extra time at all.
+
+B767's mid-clip control is also gone: with the identity check in place it earns nothing (a landed
+pair reads ~68 on a non-loop, ~2 on a loop) and cost a third of the delay.
+
+### ⚠️ AND THE RESIZEOBSERVER SEEKS THE DECODER
+
+B767 added one so the strip rebuilt at the real width rather than a guessed frame. Right about the
+timing, wrong about the cost: **every observation calls `buildSrcStrip`, which seeks the decoder up
+to sixteen times.** On a 4K source that competes with playback, with scrubbing, and with the native
+attach — which is Daniel's *"scrubbing the timeline is very sluggish... play works in motion but after
+a long pause... perform only renders a filmstrip for the first ~45 seconds."*
+
+**`object-fit: cover`, the other half of B767, is what actually fixed the stretch**, and he confirmed
+the strip looks right. The observer was speculative hardening on a solved problem.
+
+### ▶ THE COLOUR REPORT IS THE ONE THING THIS BUILD DOES NOT EXPLAIN
+
+*"the color is even everywhere but it is terrible everywhere. totally washed out and flat and too
+light."* **Even** is the significant word: on iPad the planar surfaces were correct and the thumbnails
+darker, so evenness means everything is now on ONE path — and the only path that is even and
+uncorrected is the element upload, i.e. **the native decode did not attach.**
+
+That fits the same cause: a probe holding a second 4K HEVC decoder for four times as long, racing the
+attach. **It is a hypothesis, and the report already answers it** — the source row prints
+`⚠ NO NATIVE DECODE: <reason>` when this happens, and `nativeAttach` carries the reason. Check that
+row before anything else on B770.
+
+---
+
 ## v0.28.8 · Build 769 — DESKTOP HDR IS UNCORRECTED, AND THE SURFACE LIST SORTS BY UPLOAD PATH
 
 **Shipped:** the tone control now says when it cannot reach the picture, instead of silently doing

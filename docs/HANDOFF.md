@@ -32,7 +32,7 @@ Archived at B658. It was marked superseded at B609 and kept for the reasoning be
 
 ## current version
 
-**v0.28.8 · B769** (2026-08-28). Minor bumped at B738 for the O(1) bake landing on hardware.
+**v0.28.9 · B770** (2026-08-28). Minor bumped at B738 for the O(1) bake landing on hardware.
 
 **⭐⭐ THE O(1) BAKE IS NOW MEASURED, NOT MODELLED.** A 2.63GB / 8:21 4K source peaked at **131.6MB**
 against **130.9MB** for a 741MB source. **3.5× the file, 0.7MB more memory.** Both 8GB M1 iPads also
@@ -56,6 +56,20 @@ motion, rotation fixed, live tuning in the panel.
 | Perform filmstrip stretched | **FIXED B767 + verified by Daniel** |
 | Perform-mode crash | **CLOSED AS NOT-CHASED (Daniel, B769):** *"lets not chase it, we have lots of crashes and playing with settings in the frame cost diagnostics could have also been a factor that doesn't apply to ongoing user activity."* The instrument stays; the hypothesis is unshipped |
 | Bake fails on iPad | **NARROWED to the decoder.** `isConfigSupported` accepts 10-bit HEVC 4K and the decode then fails. B768 publishes the decoder's error; **needs one more bake attempt to read it** |
+
+### ⚠️ B770 REVERTED TWO OF MY OWN B767/B768 ADDITIONS — READ THIS BEFORE RE-ADDING THEM
+
+Both were speculative hardening on top of fixes that already worked, and both cost real user-visible
+performance:
+
+- **The loop probe's 1200ms frame budget and its third grab.** Cost 4-6s of load. The pixel-identity
+  check (`dLoop === 0`) is what makes the test correct, and it is free. **Do not raise the timeout
+  again** — a longer wait makes a stale capture rarer, not impossible, which is worse.
+- **The `ResizeObserver` on the source strip.** Every observation seeks the decoder up to 16 times.
+  `object-fit: cover` was the whole fix.
+
+**The standing lesson: when a cheap fix and an expensive one ship together, verify which one worked
+before keeping both.**
 
 ### ⚠️ THE THREE FACTS MOST LIKELY TO BE LOST IN A COMPACTION
 

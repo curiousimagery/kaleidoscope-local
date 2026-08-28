@@ -186,11 +186,18 @@ export function createSourceHost(env) {
     const nextFrame = () => new Promise((res) => {
       let done = false;
       if (dv.requestVideoFrameCallback) dv.requestVideoFrameCallback(() => { done = true; res(); });
-      // B768 — 150ms was the whole bug's enabler. A 4K HEVC seek to the far end of a minute-long
-      // clip routinely takes longer, and the timeout then presented a STALE frame as a result. The
-      // budget is now generous; the landing check above is what makes a slow seek honest rather
-      // than merely tolerated, so a longer wait costs load time and never correctness.
-      setTimeout(() => { if (!done) res(); }, dv.requestVideoFrameCallback ? 1200 : 600);
+      // ⚠️ B770 — 1200ms WAS A REGRESSION AND I SHIPPED IT. B768 raised this from 150ms so a slow 4K
+      // seek could present, which is true and cost 4-6 SECONDS of load: three grabs, each waiting
+      // out the budget, on a probe that runs while the native decode is trying to attach. Daniel:
+      // *"it took 4-6 seconds after loading a ~1min 4k HDR source for the app to detect it was a
+      // motion source."*
+      //
+      // **The wait was never the fix.** A stale frame is caught by the identity check below, which
+      // is free; waiting longer only makes staleness rarer, which is the worst kind of fix — it
+      // turns a visible bug into an intermittent one. So the budget goes back to something a load
+      // can afford, and correctness rests entirely on detecting the stale frame rather than on
+      // outrunning it.
+      setTimeout(() => { if (!done) res(); }, dv.requestVideoFrameCallback ? 300 : 200);
     });
     try {
       await new Promise((res, rej) => {
@@ -239,15 +246,23 @@ export function createSourceHost(env) {
       // the FIRST much more than it resembles the MIDDLE. A static shot resembles both equally. One
       // extra grab turns an absolute measurement into a comparative one, which is the only form
       // that can tell those apart.
+      // ⚠️ B770 — TWO GRABS, NOT THREE. B767 added a mid-clip control to separate a real loop from a
+      // static scene, and B768 then found the actual bug was a stale capture. With the identity
+      // check below, the control earns nothing: a landed pair already reads ~68 on a non-loop and
+      // ~2 on a loop. It cost a third seek on every load, which is a third of the delay.
       const firstG = await grab(inT * dur + 0.03);
       const lastG = await grab(outT * dur - 0.05);
-      const midG = await grab((inT + (outT - inT) * 0.5) * dur);
-      const first = firstG.px, last = lastG.px, mid = midG.px;
+      const first = firstG.px, last = lastG.px;
       // Did the seeks LAND? A quarter second is loose enough for a keyframe-snapped seek and tight
       // enough to catch a grab that never moved. This is the conserved quantity the old test had no
       // way to check: where the picture came from, not what it looked like.
+      // ⚠️ B770 — AND `currentTime` IS NOT PROOF THE PIXELS MOVED. It updates when the SEEK
+      // completes; `drawImage` paints the last PRESENTED frame, which can still lag. So B768's
+      // landing check could pass on a stale capture — which is why the false positive came back.
+      // The only honest evidence that a grab happened is that the pixels DIFFER from the previous
+      // one, and identical pixels across a 60-second span are a failed measurement, not a loop.
       const landed = (g) => Math.abs(g.at - g.want) < 0.25;
-      const seeksOk = landed(firstG) && landed(lastG) && landed(midG);
+      const seeksOk = landed(firstG) && landed(lastG);
       const lum = (d) => { let s = 0; for (let i = 0; i < d.length; i += 4) s += d[i] + d[i + 1] + d[i + 2]; return s / (d.length / 4 * 3); };
       const diff = (a, b) => {
         let sum = 0;
@@ -258,29 +273,15 @@ export function createSourceHost(env) {
       };
       if (lum(first) < 2 && lum(last) < 2) return null;   // both frames black → capture unreliable, abstain
       const dLoop = diff(first, last);      // does the end meet the beginning?
-      const dCtl = diff(mid, last);         // ...more than the end meets the middle?
-      // PUBLISHED, because a false positive is otherwise a verdict with no working. This rides the
-      // source-swap trail, which is in the exported report.
-      // ⚠️ AND ZERO IS A FAILURE CODE, NOT A PERFECT SCORE. Real loops read ~2 on this scale; an
-      // exact 0 across a moving clip means the same frame was captured twice.
-      const verdict = !seeksOk ? null
-        : dLoop === 0 ? null
-          : dCtl < LOOP_MATCH_THRESHOLD ? null
-            : (dLoop < LOOP_MATCH_THRESHOLD && dLoop < dCtl * LOOP_CONTROL_RATIO);
+      const verdict = !seeksOk || dLoop === 0 ? null : dLoop < LOOP_MATCH_THRESHOLD;
       swapTrace('loopDetect', {
-        dLoop: +dLoop.toFixed(1), dControl: +dCtl.toFixed(1),
-        threshold: LOOP_MATCH_THRESHOLD, ratio: LOOP_CONTROL_RATIO, verdict,
-        seeks: [firstG, lastG, midG].map((g) => `${g.at.toFixed(2)}/${g.want.toFixed(2)}`).join(' '),
+        dLoop: +dLoop.toFixed(1), threshold: LOOP_MATCH_THRESHOLD, verdict,
+        seeks: [firstG, lastG].map((g) => `${g.at.toFixed(2)}/${g.want.toFixed(2)}`).join(' '),
         why: !seeksOk ? 'a seek did not land — the frames compared are not the frames asked for, so no verdict'
           : dLoop === 0 ? 'the two frames are bit-identical, which means the capture repeated rather than the clip looping'
-            : dCtl < LOOP_MATCH_THRESHOLD
-              ? 'the middle frame matches the end too — a static or near-static shot, where this test cannot discriminate'
-              : verdict ? 'the end meets the beginning far more closely than it meets the middle'
-                : 'the end does not close on the beginning',
+            : verdict ? 'the end meets the beginning' : 'the end does not close on the beginning',
       });
-      // ABSTAIN on a static scene rather than guess. If the middle already matches the end, the
-      // control has no discriminating power and BOTH answers would be unfounded — which is the same
-      // reasoning as the black-frame abstention above.
+      // ABSTAIN rather than guess: a failed capture and a genuine loop must not share an answer.
       return verdict;
     } catch { return null; }
     finally {
@@ -1425,28 +1426,17 @@ export function createSourceHost(env) {
 
   env.buildSrcStrip = buildSrcStrip;   // perform re-parents the timeline → rebuild thumbs at the new width
 
-  // ⚠️ B767 — OBSERVE THE TRACK RATHER THAN GUESSING WHEN LAYOUT SETTLED. `perform-runtime` asks for
-  // a rebuild on the next animation frame after it re-parents the timeline, which is a guess about
-  // when the new width is readable — and when the guess is early, `buildSrcStrip` measures the OLD
-  // width, sizes every cell's backing store for it, and the canvases then stretch to fill the real
-  // one. A ResizeObserver removes the timing question entirely: the strip rebuilds when the track
-  // actually changes size, however many frames that takes.
+  // ⚠️ B770 — THE RESIZEOBSERVER IS REVERTED. B767 added one so the strip rebuilt at the real width
+  // instead of a guessed frame. It was right about the timing and wrong about the cost: every
+  // observation calls `buildSrcStrip`, which SEEKS THE DECODER up to sixteen times, and on a 4K
+  // source that competes with playback and with the native attach. Daniel, B769: *"scrubbing the
+  // timeline is very sluggish... play works in motion but after a long pause... perform only renders
+  // a filmstrip for the first ~45 seconds."*
   //
-  // Debounced, because a re-parent produces a burst of resizes and each rebuild seeks the decoder.
-  (() => {
-    const track = document.getElementById('srcScrub');
-    if (!track || typeof ResizeObserver === 'undefined') return;
-    let lastW = 0, lastH = 0, timer = 0;
-    const ro = new ResizeObserver(() => {
-      const w = track.clientWidth, h = track.clientHeight;
-      if (w < 8 || h < 8) return;
-      if (w === lastW && h === lastH) return;      // scroll and opacity changes are not resizes
-      lastW = w; lastH = h;
-      clearTimeout(timer);
-      timer = setTimeout(() => { srcStrip.dirty = true; buildSrcStrip(); }, 120);
-    });
-    try { ro.observe(track); } catch { /* an unobservable element simply keeps the rAF path */ }
-  })();
+  // `object-fit: cover` (also B767) is what actually fixed the stretch he reported, and Daniel
+  // confirmed the strip looks right — so the cheap half of that build was the whole fix and this was
+  // speculative hardening on top of it. The rAF call in `perform-runtime` stays.
+
 
   let srcSeekBusy = false, srcSeekNext = null;
   async function scrubStillFrame(p) {
