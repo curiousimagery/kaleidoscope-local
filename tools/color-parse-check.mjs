@@ -66,12 +66,16 @@ if (file) {
   const bytes = readFileSync(file);
   // Blob.slice over a Buffer gives the parser exactly the interface it sees in the browser.
   const blob = new Blob([bytes]);
-  const { readSourceColor } = await import('../src/shell/source-color.js');
+  const { readSourceMeta } = await import('../src/shell/source-color.js');
   const { describeColor } = await import('../src/engine/color.js');
-  const color = await readSourceColor(blob);
-  console.log(`\n${file}\n  ${describeColor(color)}`);
+  const { color, rotation, trackW, trackH } = await readSourceMeta(blob);
+  console.log(`\n${file}\n  ${describeColor(color)}\n  rotation ${rotation}deg · track ${trackW}x${trackH}`);
   check('a real file parses to something other than the default reason',
     color.why.startsWith('read from') ? 1 : 0, 1);
+  // The rotation must be one of the four legal quarter turns, and the track must have a size —
+  // a metadata track (0x0, identity matrix) being picked up as the picture is the failure mode.
+  check('rotation is a quarter turn', [0, 90, 180, 270].includes(rotation) ? 1 : 0, 1);
+  check('the picture track has dimensions', trackW > 0 && trackH > 0 ? 1 : 0, 1);
 }
 
 console.log(`\ncolour parse check: ${pass} passed, ${fail} failed`);

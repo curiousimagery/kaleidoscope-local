@@ -25,7 +25,7 @@ import { probeSourceReadable } from './video-decode.js';
 import { zipStore } from './zip.js';
 import { createSaveFlow } from './save-flow.js';
 import { getActiveForm } from '../engine/index.js';
-import { readSourceColor } from './source-color.js';
+import { readSourceMeta } from './source-color.js';
 import { DEFAULT_COLOR, LEGACY_COLOR, describeColor } from '../engine/color.js';
 import { formBoxCenter, placeFormBox, centerFormInSource } from '../engine/geometry.js';
 import { acquireSession, releaseSession } from 'conduit/sessions';
@@ -891,7 +891,7 @@ export function createSourceHost(env) {
     // camera frame forever. That is the B541 dark-source bug, and `keepSource:true` (the upload
     // path) would walk straight into it, so this runs before the early return, not after.
     try { engine.setPlanarSource(null, 0, 'camera mode stopped'); } catch { /* engine may be mid-reinit */ }
-    env.applySourceColor?.(null);   // B761 — do not leak the last clip's description onto a camera
+    env.applySourceColor?.(null, 0);   // B761 — do not leak the last clip's description onto a camera
     env.live.isLive = false;
     env.live.frozen = false;
     env.liveVideo = null;
@@ -1511,6 +1511,7 @@ export function createSourceHost(env) {
       engine.setSource(src.frameSource(), 'native decode attach');
       engine.setPlanarSource(src.planeProvider, src.cap, 'native decode attach');
       engine.setSourceColor(env.sourceColor);   // B761 — the decode may attach after the parse landed
+      engine.setSourceRotation(env.sourceRotation);
       src.setColor?.(env.sourceColor);
       engine.updateSourceFrame();
     } catch { /* not ready */ }
@@ -1606,7 +1607,8 @@ export function createSourceHost(env) {
   const colorOff = (() => { try { return new URLSearchParams(location.search).get('color') === 'off'; } catch { return false; } })();
   function applySourceColor(color) {
     env.sourceColor = colorOff ? { ...LEGACY_COLOR } : (color || { ...DEFAULT_COLOR });
-    try { engine.setSourceColor(env.sourceColor); } catch { /* engine may be mid-reinit */ }
+    if (rotation !== undefined) env.sourceRotation = rotation || 0;
+    try { engine.setSourceColor(env.sourceColor); engine.setSourceRotation(env.sourceRotation); } catch { /* engine may be mid-reinit */ }
     try { env.nativeVideo?.setColor?.(env.sourceColor); } catch { /* receiver may be gone */ }
     try { env.outputEngine?.setSourceColor?.(env.sourceColor); } catch { /* no bus engine yet */ }
     try { env.pipEngine?.setSourceColor?.(env.sourceColor); } catch { /* not in perform */ }
@@ -1617,10 +1619,10 @@ export function createSourceHost(env) {
   // reads, and the default is correct for the overwhelming majority of files. Guarded on identity
   // so a fast second load cannot have its colour overwritten by the first one's parse.
   env.readSourceColorFor = async (blob, token) => {
-    const color = await readSourceColor(blob);
+    const { color, rotation } = await readSourceMeta(blob);
     if (token && env.sourceVideo !== token) return;   // a newer source landed while we parsed
-    applySourceColor(color);
-    console.info(`[fold] source colour: ${describeColor(color)}`);
+    applySourceColor(color, rotation);
+    console.info(`[fold] source colour: ${describeColor(color)} · rotation ${rotation}deg`);
   };
 
   env.planarHeals = { count: 0, lastAt: null };

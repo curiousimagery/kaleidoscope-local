@@ -32,12 +32,37 @@ Archived at B658. It was marked superseded at B609 and kept for the reasoning be
 
 ## current version
 
-**v0.28.0 · B761** (2026-08-27). Minor bumped at B738 for the O(1) bake landing on hardware.
+**v0.28.1 · B762** (2026-08-28). Minor bumped at B738 for the O(1) bake landing on hardware.
 
 **⭐⭐ THE O(1) BAKE IS NOW MEASURED, NOT MODELLED.** A 2.63GB / 8:21 4K source peaked at **131.6MB**
 against **130.9MB** for a 741MB source. **3.5× the file, 0.7MB more memory.** Both 8GB M1 iPads also
 passed the job that killed them at B730 (Air 71.6MB, Pro 114.9MB). The Blob is disk-backed and file
 size is no longer a memory axis. **B705 and B706 are device-verified** — B705's instrument found B706, and B706 held on the repro that killed B705. B703, B704 and B707 are not yet device-verified.
+
+---
+
+## ▶▶▶▶▶▶▶▶▶▶▶▶▶ B762 (2026-08-28) — THE B760 MYSTERY IS CLOSED, AND ONE "HDR BUG" WAS NOT ONE
+
+**Two root causes, both found by reading B761's own instruments rather than by a device session.**
+
+**1. The planar drop.** `setSource` disposes the uploader; the provider then says "hold the last
+frame" about a frame that no longer exists. Every restore site had this. Fixed once, inside
+`setPlanarSource`. **Fifth instance of "a recovery path that cannot start itself."**
+
+**2. The upside-down source is a ROTATION bug, not an HDR bug.** `IMG_5132.MOV`'s `tkhd` matrix is
+`a=-1, d=-1`: a 180 degree rotation. `<video>` applies it, AVFoundation's raw buffer does not. The
+HDR correlation was a coincidence of Daniel's sample. Now applied in the blitter.
+
+**3. The tone curve is a knob, not a guess.** `?tone=shoulder,exposure`, default softened 16 → 50.
+**Tune it against the Loop Builder**, whose stills are Apple's own HDR-to-SDR conversion — Daniel
+named that rendering as the target, so the reference is free.
+
+**⚠️ AND THE POLARITY TO REMEMBER:** the thumbnails being *darker* does not mean they are wrong. They
+are Apple's rendering and **we are too bright against them.**
+
+**Still open, all filed:** the surfaces still disagree (B761 fixed the planar path only), the bake's
+source gate is read stale so a failed bake blames a previous operation, and the perform filmstrip
+stretches.
 
 ---
 

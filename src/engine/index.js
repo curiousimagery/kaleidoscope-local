@@ -73,6 +73,7 @@ export function createEngine({ canvas, maxProbeSize, perf = null, label = 'engin
   // frame because it changes once per source and never in between, and because the uploader is
   // rebuilt lazily (context loss, source swap) and must come back with the same description.
   let sourceColor = null;
+  let sourceRotation = 0;        // B762 — container rotation the native path must apply itself
   let lastReinitWhy = '';        // B703 — why the last context restore's element re-upload failed, if it did
   // ⚠️ B760 — WHO RETIRED THE PLANAR PROVIDER, AND WHEN. Four builds (B580, B703, B706, B708) have
   // now fixed a different way of arriving at `native decode` without `planar`, and a fifth device
@@ -364,10 +365,17 @@ export function createEngine({ canvas, maxProbeSize, perf = null, label = 'engin
       if (planarFrame) {
         const frame = planarFrame();
         if (frame) {
-          if (!planar) { planar = createPlanarUploader(glCtx.gl); planar.setColor(sourceColor); }
+          if (!planar) {
+            planar = createPlanarUploader(glCtx.gl);
+            planar.setColor(sourceColor); planar.setRotation(sourceRotation);
+          }
           planar.upload(frame, planarCap);
-          sourceAspect = frame.width / frame.height;
-          sourceW = frame.width; sourceH = frame.height;
+          // B762 — a quarter turn swaps what the SOURCE measures, and the slice geometry reads
+          // these, so they have to describe the rotated picture rather than the wire frame.
+          const swap = planar.swapsAxes();
+          const fw = swap ? frame.height : frame.width, fh = swap ? frame.width : frame.height;
+          sourceAspect = fw / fh;
+          sourceW = fw; sourceH = fh;
           return true;
         }
         // nothing new off the wire: the frame already in the planar texture stands.
@@ -450,6 +458,31 @@ export function createEngine({ canvas, maxProbeSize, perf = null, label = 'engin
     // until the first frame lands, and what the engine falls back to the moment the
     // provider is removed (source swap, detach, context loss).
     setPlanarSource(provider, cap = 0, why = '') {
+      // ⚠️⚠️ B762 — RESYNC ON INSTALL, AND THIS IS THE ROOT CAUSE B760 COULD NOT FIND.
+      //
+      // `R2-take3.json` reached `native decode` with no `planar` on a session with no context loss,
+      // no render and no source swap, and reading all five retirement sites did not explain it.
+      // B761's trail did, on its first report (`V0-colorTroubleshooting.json`):
+      //
+      //   retire  setSource · filmstrip cell        3840x2160
+      //   install filmstrip build finished          1280x720     <- and it never came back
+      //
+      // Every restore site does `setSource(previewCanvas)` then `setPlanarSource(provider)` then
+      // `updateSourceFrame()`. **`setSource` DISPOSES the uploader**, and the provider returns null
+      // while nothing NEW has arrived — which is the correct contract ("hold the last frame") and
+      // the wrong one here, because the frame it is telling us to hold was just deleted. On a
+      // PAUSED clip, or simply when the render loop already consumed the current frame, the
+      // uploader is never rebuilt and the engine falls onto the 1280 preview canvas permanently.
+      //
+      // B708 found this exact shape after a context restore and fixed it there, in `reinitGL`. It
+      // is not a property of context loss: it is a property of INSTALLING A PROVIDER WITH NO
+      // UPLOADER BEHIND IT, which every restore site does. So the resync belongs here, once, rather
+      // than at each of the five callers that would each have to remember.
+      //
+      // ⚠️ THIS IS THE SAME SHAPE FOR THE FIFTH TIME — a recovery path that cannot start itself
+      // (B703, B706, B708, B760, this). The standing question stays: what re-fills the cache a
+      // restore discards, and is that thing GUARANTEED to happen?
+      if (provider) { try { provider.resync?.(); } catch { /* a provider without one has no history */ } }
       if (provider) notePlanar('install', why || 'caller not stated');
       else if (planarFrame) notePlanar('retire', `setPlanarSource(null) · ${why || 'caller not stated'}`);
       planarFrame = provider || null;
@@ -465,6 +498,14 @@ export function createEngine({ canvas, maxProbeSize, perf = null, label = 'engin
       if (planar) planar.setColor(sourceColor);
     },
     get sourceColor() { return sourceColor; },
+    // ⚠️ B762 — THE CONTAINER ROTATION, WHICH ONLY THE PLANAR PATH NEEDS. `<video>` and `drawImage`
+    // apply it for us; AVFoundation's raw buffer does not, which is why one clip was upside down on
+    // iPad and right way up everywhere else. See shell/source-color.js for how it is read.
+    setSourceRotation(deg) {
+      sourceRotation = deg || 0;
+      if (planar) planar.setRotation(sourceRotation);
+    },
+    get sourceRotation() { return sourceRotation; },
     get planarActive() { return !!(planarFrame && planar && planar.width > 0); },
     // ⚠️ B760 — `planarActive` CONFLATES TWO STATES AND THE RECONCILER NEEDS THEM APART. It is
     // false both when the provider is genuinely gone (a bug, and the thing to heal) and in the

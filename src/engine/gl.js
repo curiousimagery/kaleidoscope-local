@@ -302,8 +302,13 @@ export function createPlanarUploader(gl) {
 
   function upload(frame, cap = 0) {
     const scale = cap > 0 ? Math.min(1, cap / Math.max(frame.width, frame.height)) : 1;
-    const w = Math.max(2, Math.round(frame.width * scale));
-    const h = Math.max(2, Math.round(frame.height * scale));
+    // B762 — a 90/270 container rotation swaps the picture's axes, so the TEXTURE has to be sized
+    // for the rotated result or the blit reads outside it. 0/180 are unaffected.
+    const flip = blitter.swapsAxes();
+    const fw = flip ? frame.height : frame.width;
+    const fh = flip ? frame.width : frame.height;
+    const w = Math.max(2, Math.round(fw * scale));
+    const h = Math.max(2, Math.round(fh * scale));
     if (w !== tw || h !== th) {
       gl.bindTexture(gl.TEXTURE_2D, tex);
       gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
@@ -323,7 +328,8 @@ export function createPlanarUploader(gl) {
   }
 
   // B761 — the input transform. Forwarded rather than re-implemented: the blitter owns the shader.
-  return { upload, dispose, setColor: (c) => blitter.setColor(c), get color() { return blitter.color; },
+  return { upload, dispose, setColor: (c) => blitter.setColor(c), setRotation: (d) => blitter.setRotation(d),
+    swapsAxes: () => blitter.swapsAxes(), get color() { return blitter.color; },
     get texture() { return tex; }, get width() { return tw; }, get height() { return th; } };
 }
 

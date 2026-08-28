@@ -6,6 +6,91 @@ Newest first. Format: `version (Build N) — date — summary`. Each version sec
 
 ---
 
+## v0.28.1 · Build 762 — THE B760 MYSTERY IS SOLVED, AND THE UPSIDE-DOWN CLIP IS NOT AN HDR BUG
+
+**Shipped:**
+- **`setPlanarSource` resyncs the provider on install.** This is the root cause B760 instrumented and
+  could not find.
+- **The container rotation is applied on the planar path.** One clip was upside down on iPad only.
+- **The HDR tone curve is tunable** with `?tone=shoulder,exposure`, and its default is softer
+  (shoulder 16 → 50). Registered in the Lab.
+- **`readSourceMeta`** replaces `readSourceColor` as the entry point, so colour and rotation are read
+  in one pass and a caller cannot apply one and forget the other.
+
+### ⭐ THE PLANAR DROP — FOUND BY THE TRAIL, ON ITS SECOND REPORT
+
+B761's trail printed this in `V0-colorTroubleshooting.json`:
+
+```
+retire   setSource · filmstrip cell        3840x2160
+install  filmstrip build finished          1280x720      <- and it never came back
+```
+
+**Every restore site does the same three calls**, and they are individually correct:
+
+```js
+engine.setSource(nv.frameSource(), '…');                 // DISPOSES the uploader
+engine.setPlanarSource(nv.planeProvider, nv.cap, '…');   // reinstalls the provider
+engine.updateSourceFrame();                              // returns null if nothing NEW arrived
+```
+
+The provider's contract is *"null means hold the last frame"*, which is right everywhere except
+here: **the frame it is telling us to hold was deleted two lines earlier.** On a paused clip, or
+simply when the render loop already consumed the current frame, the uploader is never rebuilt and the
+engine falls onto the 1280 preview canvas for the rest of the session.
+
+**B708 found this exact shape after a context restore and fixed it in `reinitGL`.** It is not a
+property of context loss — it is a property of installing a provider with no uploader behind it,
+which every restore site does. So the resync moved into `setPlanarSource`, once, rather than into
+five callers that each have to remember.
+
+**⚠️ FIFTH INSTANCE of "a recovery path that cannot start itself"** (B703, B706, B708, B760, this).
+
+### ⭐ THE UPSIDE-DOWN SOURCE IS A ROTATION BUG, NOT AN HDR BUG
+
+Daniel: *"this seems to only happen with HDR footage."* The correlation is a coincidence of the
+sample. `IMG_5132.MOV`'s `tkhd` matrix is `a=-1, d=-1` — **a 180 degree rotation**, because the phone
+was held the other way up. The clips that looked fine were simply not rotated.
+
+`<video>` and `drawImage` apply the container transform, which is why desktop is right. AVFoundation's
+video output hands back the raw buffer, so the native path does not — the same fact `video-decode.js`
+documents for WebCodecs. **And it is why the Loop Builder is right way up:** its stills come from
+AVAssetImageGenerator, which applies it.
+
+Applied in the blitter's VERTEX shader (four vertices, not four million fragments), with the target
+dimensions swapped for a quarter turn so the slice geometry measures the rotated picture.
+
+**⚠️ The harness caught my own bug here**, which is the argument for having written it: the first
+tkhd parse had a four-byte field offset error and reported *"rotation 270deg, track 16384x3840"* on a
+file the reference parse read as 180 degrees and 3840x2160.
+
+### THE TONE CURVE IS A LOOK, SO IT IS A KNOB
+
+Daniel: *"bright areas are too bright and we're crushing our highlights"*, and decisively: *"the way
+the clip renders in the Loop Builder is excellent... that tone mapping is very close to exactly where
+we should target."* **The Loop Builder draws Apple's own HDR-to-SDR conversion**, so the target has a
+reference implementation to tune against rather than a taste argument.
+
+Larger shoulder is softer: 16 (B761's default) maps HLG peak to 0.98 and is nearly linear at the top;
+50 maps it to 0.85; 120 approaches pure Reinhard's 0.79. Default moved to 50 and the sweep is one
+reload, not one build.
+
+### WHAT IS DIAGNOSED BUT NOT FIXED
+
+- **The surfaces still disagree, and B761 only fixed one of them.** The input transform lives in the
+  PLANAR path. Thumbnails and Loop Builder stills are element uploads of images Apple already
+  converted; on desktop there is no planar path at all, which is why `?color=off` did not change the
+  source-versus-output delta Daniel saw there. **The remaining divergence is the two non-planar paths,
+  and the thumbnails are the REFERENCE we are too bright against, not the ones that are wrong.**
+- **The bake's "Decoder failure" is narrowed, not solved.** `bakeDecode` reads
+  `reader: "element-seek fallback"` with `why: "no WebCodecs reader armed, and the gate published no
+  reason"` — but `srcGate` says `armed: true, why: null`, timestamped **42 seconds before the bake**.
+  So the gate report is a single slot being read stale, which is precisely the defect B724 fixed for
+  `bakeDecode` itself. **The instrument is answering about a previous operation.** Filed.
+- **The perform-mode filmstrip stretches horizontally.** Reported, not investigated.
+
+---
+
 ## v0.28.0 · Build 761 — THE INPUT TRANSFORM, AND THE CLIP WE MEASURED EVERYTHING ON IS HDR
 
 **Minor bumped:** the app has a colour pipeline for the first time.

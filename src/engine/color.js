@@ -122,6 +122,39 @@ export function isHDR(color) {
 export const HLG_WHITE_LINEAR = (Math.exp((0.75 - 0.55991073) / 0.17883277) + 0.28466892) / 12;
 export const PQ_WHITE_LINEAR = 0.0203;     // 203 / 10000
 
+// ⚠️ B762 — THE TONE CURVE IS A LOOK, AND A LOOK IS NOT SOMETHING TO GUESS ACROSS THREE BUILDS.
+//
+// Daniel on B761: *"overall tone curve is better and has much more contrast, bright areas are too
+// bright and we're crushing our highlights."* And, decisively: *"the way the clip renders in the
+// Loop Builder is excellent... that tone mapping is very close to exactly where we should target."*
+// The Loop Builder draws AVAssetImageGenerator stills, so **the target he named is Apple's own
+// HDR-to-SDR rendering**, which is the best possible reference to tune against.
+//
+// `shoulder` is the Reinhard white point SQUARED. The curve maps x -> x(1 + x/shoulder)/(1 + x),
+// which reaches 1.0 at x = sqrt(shoulder). HLG peak lands at 1/HLG_WHITE ~= 3.77 after
+// normalisation, so:
+//   shoulder 16  (white 4.0)  -> peak 0.98: almost linear at the top. B761's default, too hot.
+//   shoulder 50  (white 7.1)  -> peak 0.85
+//   shoulder 120 (white 11)   -> peak 0.81, close to pure Reinhard's 0.79
+// LARGER is softer. `exposure` scales before the curve, for when the whole image is off rather
+// than just its highlights.
+//
+// Tunable live with `?tone=shoulder,exposure` — see the UI Lab cheat sheet. Committing a value is
+// one edit here once Daniel has swept it.
+export const TONE_DEFAULTS = Object.freeze({ shoulder: 50, exposure: 1 });
+
+export function toneFromQuery(search) {
+  try {
+    const raw = new URLSearchParams(search || '').get('tone');
+    if (!raw) return { ...TONE_DEFAULTS };
+    const [a, b] = raw.split(',').map((n) => parseFloat(n));
+    return {
+      shoulder: Number.isFinite(a) && a > 0 ? a : TONE_DEFAULTS.shoulder,
+      exposure: Number.isFinite(b) && b > 0 ? b : TONE_DEFAULTS.exposure,
+    };
+  } catch { return { ...TONE_DEFAULTS }; }
+}
+
 // Human-readable, for the report and the source note. This is the half that makes a wrong
 // assumption findable on a device, so it names the source of every field.
 export function describeColor(color) {

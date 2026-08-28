@@ -153,6 +153,51 @@ the shader now reads what the file declared. See CHANGELOG B761 for the design n
   colorSpace, so both are *plausibly* already better than the old planar path — but "plausibly" is
   not measured. `colorFromVideoFrame()` exists for when it is.
 
+### 🟠 [OPEN — B762, DIAGNOSED NOT FIXED] THE COLOUR SURFACES STILL DISAGREE, AND THE THUMBNAILS ARE THE REFERENCE
+
+B761's input transform lives in the **planar** path only. Three surfaces do not use it:
+
+| surface | how it converts | consequence |
+|---|---|---|
+| Loop Builder stills / keyframe thumbnails | AVAssetImageGenerator → data URL → element upload | **Apple already converted these correctly.** Daniel: *"the way the clip renders in the Loop Builder is excellent"* |
+| the render path's export reader | `VideoFrame` → texture, WebGL converts using the frame's own colorSpace | plausibly already better than the old planar path, **never measured** |
+| desktop, everywhere | `<video>` element upload, browser-managed | why `?color=off` did not change the source-versus-output delta Daniel saw on desktop |
+
+**⚠️ READ THE POLARITY RIGHT.** Daniel: *"thumbnails are darker than both."* The thumbnails are not
+wrong — **they are Apple's rendering, and ours is too bright against it.** That makes them a free
+reference for tuning `?tone=`, and it is the strongest calibration signal this arc has produced.
+
+**▶ NEXT:** sweep `?tone=` against the Loop Builder until they match, commit the constant, and only
+then decide whether the other two paths need routing through the seam. `colorFromVideoFrame()` exists
+for when they do.
+
+### 🟠 [OPEN — B762] THE BAKE'S SOURCE GATE IS READ STALE, SO A FAILED BAKE BLAMES A PREVIOUS OPERATION
+
+`V0-colorTroubleshooting.json`, a bake that failed with *"Could not bake the clip: Decoder failure"*:
+
+```
+bakeDecode.reader  "element-seek fallback"
+bakeDecode.why     "no WebCodecs reader armed, and the gate published no reason"
+bakeDecode.srcGate { armed: true, why: null, at: "00:56:50" }
+bakeDecode.at                                  "00:57:32"
+```
+
+**The gate says it armed, 42 seconds before the bake ran.** `sourceGateReport()` is a single slot and
+`clip-editor` is reading whatever the last caller left in it — **which is exactly the defect B724
+fixed for `bakeDecode` itself**, in the same function, for the same reason. So the one field that
+should say why the fast path was skipped is answering about a different operation.
+
+**Also unknown and worth capturing while fixing:** the clip is `hvc1.2.4.L150.b0` — **HEVC Main 10,
+10-bit**. Whether WebKit's `VideoDecoder` genuinely refuses it at 4K is not established, because the
+report cannot currently tell us. **Do not spend a device session on this**: the fix is to stamp the
+gate report with the operation that produced it, and then one ordinary bake answers it.
+
+### 🟡 [OPEN — Daniel, B762, not investigated] THE PERFORM-MODE FILMSTRIP STRETCHES HORIZONTALLY
+
+*"the thumbnail filmstrip in perform mode is getting stretched horizontally (but motion seems ok)."*
+Motion and perform build the strip from the same source, so the difference is in perform's layout or
+its cell sizing rather than in the thumbnails.
+
 ### 🚨🚨 [OPEN — B760, `R2-take4.json`, AND IT IS THE LARGEST BUG IN PHASE 2] ARMING A TAKE LOSES THREE GL CONTEXTS, AND THE TAKE THEN PRODUCES NOTHING WHILE REPORTING SUCCESS
 
 **Two failures, and the second is worse than the first.**
@@ -213,7 +258,18 @@ capability measurement.
 30** — and `take:arm` for it records `srcW: 1280, srcH: 720`, so it was upscaling a 720p source. **Do
 not calibrate any record gate against that figure.** See the planar item below.
 
-### 🚨 [OPEN — B760, STATE B: KNOW WHAT, NOT WHY] A TAKE'S SOURCE DROPS TO THE 1280 PREVIEW CANVAS WITH NOTHING TO BLAME
+### ✅ [ROOT-CAUSED + FIXED B762 — THE TRAIL FOUND IT ON ITS SECOND REPORT] A TAKE'S SOURCE DROPS TO THE 1280 PREVIEW CANVAS
+
+**The cause:** every planar restore site does `setSource(previewCanvas)` → `setPlanarSource(provider)`
+→ `updateSourceFrame()`. **`setSource` disposes the uploader**, and the provider correctly returns
+null while nothing NEW has arrived — so on a paused clip, or when the render loop already consumed
+the current frame, the uploader is never rebuilt. Fixed by resyncing the provider inside
+`setPlanarSource`, once, rather than at five call sites. **Fifth instance of the standing shape.**
+
+**Kept below for the reasoning, and because the narrowing is a good record of the protocol working:
+state B, instrument rather than guess, and the instrument answered.**
+
+### 🗂 [SUPERSEDED BY THE FIX ABOVE — kept for the reasoning] THE STATE-B NARROWING THAT LED TO IT
 
 **The state:** `1280×720 · from canvas · native decode · ⚠ NOT ON THE PLANAR PATH`, on a session with
 **no context loss, no render, and no source swap** (`R2-take3.json`, and the same in `R2.json` and

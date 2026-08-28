@@ -24,7 +24,7 @@
 // implementation did (Build 500).
 
 import { COLOR_GLSL, DEFAULT_COLOR, yuvToRgbMatrix, primariesMatrix, transferMode, needsGamut,
-  XFER_HLG, HLG_WHITE_LINEAR, PQ_WHITE_LINEAR } from './color.js';
+  XFER_HLG, HLG_WHITE_LINEAR, PQ_WHITE_LINEAR, toneFromQuery } from './color.js';
 
 export function createYuvBlitter(gl, { flipY = false } = {}) {
   // flipY selects where image row 0 lands in the target:
@@ -36,12 +36,23 @@ export function createYuvBlitter(gl, { flipY = false } = {}) {
   const vec2 pos[4] = vec2[4](vec2(-1.,-1.),vec2(1.,-1.),vec2(-1.,1.),vec2(1.,1.));
   uniform float uMirror;   // 1.0 = flip horizontally (front/selfie camera)
   uniform float uFlipY;    // 1.0 = texture target (row 0 at the bottom of NDC)
+  uniform float uRot;      // container rotation, in quarter turns clockwise (0..3)
   out vec2 v_uv;
   void main(){
     vec2 p = pos[gl_VertexID];
     float u = (p.x + 1.) * 0.5;
     float v = mix((1. - p.y) * 0.5, (p.y + 1.) * 0.5, uFlipY);
-    v_uv = vec2(mix(u, 1. - u, uMirror), v);
+    vec2 uv = vec2(u, v);
+    // ⚠️ B762 — APPLY THE CONTAINER ROTATION. Four vertices, not four million fragments, so this
+    // is free. The rotation is about the centre and the caller has already swapped the TARGET
+    // dimensions for a quarter turn, so the sample stays inside 0..1 either way.
+    float q = mod(uRot, 4.0);
+    vec2 c = uv - 0.5;
+    if (q >= 3.0)      c = vec2(-c.y,  c.x);
+    else if (q >= 2.0) c = vec2(-c.x, -c.y);
+    else if (q >= 1.0) c = vec2( c.y, -c.x);
+    uv = c + 0.5;
+    v_uv = vec2(mix(uv.x, 1. - uv.x, uMirror), uv.y);
     gl_Position = vec4(p, 0., 1.);
   }`;
   // ⚠️ B761 — THE INPUT TRANSFORM LIVES HERE NOW. This shader used to be four hardcoded BT.601
@@ -60,6 +71,7 @@ export function createYuvBlitter(gl, { flipY = false } = {}) {
   uniform float uWhiteLinear; // linear value of diffuse white for the HDR modes
   uniform vec2 uRange;        // x = luma offset, y = luma scale (limited-range expansion)
   uniform int  uGamut;        // 1 = the SDR path must round-trip through linear for the primaries
+  uniform vec2 uTone;         // x = Reinhard shoulder (white squared), y = exposure
   out vec4 frag;
 ${COLOR_GLSL}
   void main(){
@@ -79,7 +91,7 @@ ${COLOR_GLSL}
     vec3 lin = (uTransfer == 1) ? hlgToLinear(clamp(rgb, 0.0, 1.0)) : pqToLinear(rgb);
     lin = lin / max(uWhiteLinear, 1e-6);         // put diffuse white at 1.0
     lin = uPrimaries * lin;                       // gamut, in linear light
-    lin = toneMap(max(lin, 0.0), 16.0);           // roll off what is above white (4x white squared)
+    lin = toneMap(max(lin, 0.0) * uTone.y, uTone.x);   // roll off what is above white
     frag = vec4(linearToSrgb(lin), 1.);
   }`;
   const prog = linkProgram(gl, vs, fs);
@@ -95,6 +107,19 @@ ${COLOR_GLSL}
   const uWhiteLoc = gl.getUniformLocation(prog, 'uWhiteLinear');
   const uRangeLoc = gl.getUniformLocation(prog, 'uRange');
   const uGamutLoc = gl.getUniformLocation(prog, 'uGamut');
+  const uRotLoc = gl.getUniformLocation(prog, 'uRot');
+  const uToneLoc = gl.getUniformLocation(prog, 'uTone');
+  // Read once at construction: a tone sweep is a diagnostic session, not a live control.
+  const tone = toneFromQuery(typeof location !== 'undefined' ? location.search : '');
+  gl.uniform2f(uToneLoc, tone.shoulder, tone.exposure);
+
+  // B762 — the container rotation, in quarter turns. Set per source alongside the colour.
+  let quarterTurns = 0;
+  function setRotation(deg) {
+    quarterTurns = ((Math.round((deg || 0) / 90) % 4) + 4) % 4;
+  }
+  // Does this rotation swap width and height? The caller sizes the target, so it has to ask.
+  function swapsAxes() { return quarterTurns === 1 || quarterTurns === 3; }
 
   // ⚠️ B761 — SET ONCE PER SOURCE, NOT PER FRAME. The description changes when a clip loads and
   // never in between, so `draw` stays exactly as cheap as it was. Applied immediately rather than
@@ -133,6 +158,7 @@ ${COLOR_GLSL}
     gl.viewport(0, 0, vw, vh);
     gl.uniform1f(uMirrorLoc, mirror ? 1 : 0);
     gl.uniform1f(uFlipLoc, flipY ? 1 : 0);
+    gl.uniform1f(uRotLoc, quarterTurns);
     gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
     gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
     gl.activeTexture(gl.TEXTURE0);
@@ -154,7 +180,7 @@ ${COLOR_GLSL}
     catch { /* context already gone */ }
   }
 
-  return { draw, dispose, setColor, get color() { return colorDesc; } };
+  return { draw, dispose, setColor, setRotation, swapsAxes, get color() { return colorDesc; } };
 }
 
 function makeTex(gl) {
